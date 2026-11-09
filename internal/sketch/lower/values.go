@@ -24,7 +24,7 @@ import (
 //     place rooted at a `let mut` or a borrow, and the element of an
 //     in-place Append is copied unless it is fresh: a literal of fresh
 //     parts, a call whose result is fresh (a function each of whose
-//     results is fresh, the prelude's Append and Delete on values that
+//     results is fresh, the prelude's Append, Delete and Put on values that
 //     hold no Map or slice, slices.WithCapacity), or a local that is dead
 //     after the bind and was never shared (move on last use);
 //   - escaping (V2): a read of a `let mut` root (a path x, x.f, x[i],
@@ -37,11 +37,14 @@ import (
 //     result is basic) and the return of the root from its own frame are
 //     never copied. A read through a borrow is always copied when kept: its
 //     caller writes after the call;
-//   - in place (V3): Append and Delete write their source only for
-//     `p = p.Append(x)` and `p = p.Delete(k)` on one place p rooted at a
-//     `let mut` or a borrow, or on a local that is dead after the call and
-//     was never shared; elsewhere Append appends to a clipped slice (a new
-//     array when it grows) and Delete deletes from a copy of the Map;
+//   - in place (V3): Append, Delete and Put write their source only for
+//     `p = p.Append(x)`, `p = p.Delete(k)` and `p = p.Put(k, v)` on one
+//     place p rooted at a `let mut` or a borrow, or on a local that is
+//     dead after the call and was never shared; elsewhere Append appends
+//     to a clipped slice (a new array when it grows), and Delete and Put
+//     write a copy of the Map. Put's value is not owned as Append's
+//     element is: a Map's value has no write path (a Map read is Get),
+//     so a value Put stores is never written through the Map;
 //   - captures (V4): a function literal or block that may outlive its call
 //     (an escaping frame, types.md Function values 2) takes a copy of each
 //     captured `let mut` whose value holds a Map or slice, when it does not
@@ -86,7 +89,7 @@ var valueLowering string
 // of TestValueRuleMutants only: "never-copy", "shallow", "elide-live" (a
 // live local moves), "elide-escape" (a kept read of a root written later
 // shares), "elide-closure" (an escaping frame shares its captures) and
-// "in-place" (Append and Delete always write their source), and for owned
+// "in-place" (Append, Delete and Put always write their source), and for owned
 // parameters (V5) "consume-live" (an argument that stays live is passed
 // uncopied), "consume-captured" (a rebinding hands over a binding another
 // frame reads) and "own-live" (a parameter read after its bind is owned).
@@ -99,7 +102,7 @@ func valueRule() bool { return valueLowering != "alias" }
 // valueFacts are the decisions of the analysis, keyed by syntax node.
 type valueFacts struct {
 	clone    map[syntax.Expr]bool         // values copied where they are lowered
-	inPlace  map[*syntax.CallExpr]bool    // Append and Delete calls that write their source
+	inPlace  map[*syntax.CallExpr]bool    // Append, Delete and Put calls that write their source
 	snap     map[syntax.Node][]*check.Var // escaping frames and the captures they copy
 	roots    map[syntax.Node]*valueWalk   // analyzed bodies
 	fresh    map[*check.Func]int8         // 1 deciding, 2 fresh, 3 not fresh
@@ -205,7 +208,7 @@ const (
 	occEscape                // kept elsewhere
 	occReturn                // returned from its own frame
 	occWrite                 // the root of a write
-	occPart                  // the source of an in-place Append or Delete
+	occPart                  // the source of an in-place Append, Delete or Put
 )
 
 // vocc is one use of a variable: its identifier, the largest path it
@@ -241,7 +244,7 @@ type valueWalk struct {
 	frameOf map[syntax.Node]*vframe
 	frames  []*vframe
 	owns    []owning
-	calls   []*syntax.CallExpr // prelude Append and Delete calls
+	calls   []*syntax.CallExpr // prelude Append, Delete and Put calls
 	ergo    []*syntax.CallExpr // calls of functions with an Ergo body (V5)
 	args    []syntax.Expr      // arguments of owned parameters (V5)
 }
@@ -317,7 +320,7 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 			}
 		}
 	case *syntax.CallExpr:
-		if c := w.info.Calls[n]; c != nil && c.Kind == check.CallFunc && (preludeAppend(c.Func) || preludeDelete(c.Func)) {
+		if c := w.info.Calls[n]; c != nil && c.Kind == check.CallFunc && (preludeAppend(c.Func) || preludeMapWrite(c.Func)) {
 			w.calls = append(w.calls, n)
 		} else if c != nil && c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil {
 			w.ergo = append(w.ergo, n)
@@ -510,8 +513,10 @@ func preludeAppend(f *check.Func) bool {
 	return f != nil && f.Pkg != nil && f.Pkg.Path == "prelude" && f.Decl != nil && f.Decl.Extern != nil && f.Name == "Append"
 }
 
-func preludeDelete(f *check.Func) bool {
-	return f != nil && f.Pkg != nil && f.Pkg.Path == "prelude" && f.Decl != nil && f.Decl.Extern != nil && f.Name == "Delete"
+// preludeMapWrite reports the prelude's Delete or Put: a call that writes
+// its Map source when it may (V3), and writes a copy of it otherwise.
+func preludeMapWrite(f *check.Func) bool {
+	return f != nil && f.Pkg != nil && f.Pkg.Path == "prelude" && f.Decl != nil && f.Decl.Extern != nil && (f.Name == "Delete" || f.Name == "Put")
 }
 
 func (w *valueWalk) typeOf(x syntax.Expr) check.Type {
@@ -566,7 +571,7 @@ func elemOf(t check.Type) check.Type {
 	return nil
 }
 
-// recvOf is the source operand of a call of Append or Delete.
+// recvOf is the source operand of a call of Append, Delete or Put.
 func (w *valueWalk) recvOf(call *syntax.CallExpr) syntax.Expr {
 	c := w.info.Calls[call]
 	if c.Recv != nil {
@@ -582,7 +587,7 @@ func (w *valueWalk) recvOf(call *syntax.CallExpr) syntax.Expr {
 // and the snapshots.
 func (w *valueWalk) decide() {
 	vf := w.vf
-	// In-place pattern: p = p.Append(x) or p = p.Delete(k), one place
+	// In-place pattern: p = p.Append(x), p = p.Delete(k) or p = p.Put(k, v), one place
 	// rooted at a let mut or a borrow.
 	for _, call := range w.calls {
 		parent, child := w.unparenParent(call)
@@ -1117,7 +1122,7 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 			if w.recvOf(p) == child && !w.l.holdsValue(elemOf(t)) {
 				o.kind = occRead
 			}
-		case c.Kind == check.CallFunc && (preludeAppend(c.Func) || preludeDelete(c.Func)):
+		case c.Kind == check.CallFunc && (preludeAppend(c.Func) || preludeMapWrite(c.Func)):
 			if w.recvOf(p) == child && !w.l.holdsValue(elemOf(t)) {
 				o.kind = occRead
 			}
@@ -1395,7 +1400,7 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 			return len(x.Args) == 1 && w.fresh(x.Args[0])
 		case check.CallFunc:
 			switch {
-			case preludeAppend(c.Func) || preludeDelete(c.Func):
+			case preludeAppend(c.Func) || preludeMapWrite(c.Func):
 				if w.vf.inPlace[x] {
 					return w.fresh(w.recvOf(x))
 				}
@@ -1531,10 +1536,10 @@ func (w *valueWalk) resultsFresh() bool {
 	return ok
 }
 
-// valueSource lowers the source operand of a call of the prelude's Append
-// or Delete that must not write it (V3): Append takes the source clipped
-// to its length, so Go's append makes a new array, and Delete takes a copy
-// of the Map. vals are the call's lowered operands, the source first.
+// valueSource lowers the source operand of a call of the prelude's Append,
+// Delete or Put that must not write it (V3): Append takes the source
+// clipped to its length, so Go's append makes a new array, and Delete and
+// Put take a copy of the Map. vals are the call's lowered operands, the source first.
 func (fc *funcCtx) valueSource(x *syntax.CallExpr, c *check.Call, vals []string) []string {
 	if !valueRule() || len(vals) == 0 || fc.l.valueFacts().inPlace[x] || valueMutant == "in-place" {
 		return vals
@@ -1542,7 +1547,7 @@ func (fc *funcCtx) valueSource(x *syntax.CallExpr, c *check.Call, vals []string)
 	switch {
 	case preludeAppend(c.Func):
 		vals[0] = fc.l.goPkg("slices") + ".Clip(" + vals[0] + ")"
-	case preludeDelete(c.Func):
+	case preludeMapWrite(c.Func):
 		vals[0] = fc.l.goPkg("maps") + ".Clone(" + vals[0] + ")"
 	}
 	return vals

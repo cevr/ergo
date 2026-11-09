@@ -66,6 +66,14 @@ func drop(n int) Map[int, int] {
 	m
 }
 
+func puts(n int) Map[int, int] {
+	let mut m = Map[int, int]{}
+	for i in 0..n {
+		m = m.Put(i, i)
+	}
+	m
+}
+
 func boxed(n int) Box {
 	let mut b = Box{M: build(n), S: collect(n)}
 	b.S[0] = 7
@@ -93,14 +101,15 @@ func kept(xs []int) int {
 func main() needs Console {
 	let mut m = build(3)
 	m[9] = 9
-	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9)))")
+	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4)))")
 }
 `
 
 // TestValueRuleElides: a fresh value enters a root with no copy (a
 // literal, a call whose result is fresh, a local dead after the bind) and
-// writes in place (m[k] = v, out = out.Append(x), m = m.Delete(k), a
-// field's Append); a read kept while the root is written later is copied.
+// writes in place (m[k] = v, out = out.Append(x), m = m.Delete(k),
+// m = m.Put(k, v), a field's Append); a read kept while the root is
+// written later is copied.
 // An owned parameter (V5) copies nothing on a rebinding: m =
 // maps.Update(m, k, f) in a loop and b.M = put(b.M, n) call the owned
 // bodies with no copy, as hand Go writes m[k] = f(m[k]) (integration r1
@@ -116,7 +125,7 @@ func main() needs Console {
 func TestValueRuleElides(t *testing.T) {
 	p := lowerValueMode(t, "velide", valueElideSource, true)
 	code := p.mainGo()
-	for _, fn := range []string{"build", "collect", "drop", "boxed", "moved", "count", "putOwned"} {
+	for _, fn := range []string{"build", "collect", "drop", "puts", "boxed", "moved", "count", "putOwned"} {
 		if body := goFunc(t, code, fn); strings.Contains(body, "Clone") || strings.Contains(body, "Clip(") {
 			t.Errorf("%s copies a fresh value:\n%s", fn, body)
 		}
@@ -251,7 +260,8 @@ func TestValueRuleMutants(t *testing.T) {
 }
 
 // BenchmarkValueRule measures the value rule against hand Go: a loop that
-// builds a Map (the copy is elided, so no allocation beyond Go's), a loop
+// builds a Map (the copy is elided, so no allocation beyond Go's), the same
+// loop with m = m.Put(i, i) (PutsErgo, in place: against BuildGo), a loop
 // that appends (in place), and a real shared write, a parameter written
 // through a let mut copy (one maps.Clone, as hand Go writes it), and
 // m = maps.Update(m, k, f) over 1e5 new keys (Upsert, f sees None) and
@@ -295,6 +305,14 @@ func Build(n int) int {
 	len(m)
 }
 
+func Puts(n int) int {
+	let mut m = Map[int, int]{}
+	for i in 0..n {
+		m = m.Put(i, i)
+	}
+	len(m)
+}
+
 func Collect(n int) int {
 	let mut out = []int{}
 	for i in 0..n {
@@ -310,7 +328,7 @@ func Bump(m Map[int, int], k int) int {
 }
 
 func main() needs Console {
-	Console.Println("\(Build(3)) \(Collect(3)) \(Bump(Map[int, int]{}, 1)) \(Upsert(3)) \(Again(3))")
+	Console.Println("\(Build(3)) \(Puts(3)) \(Collect(3)) \(Bump(Map[int, int]{}, 1)) \(Upsert(3)) \(Again(3))")
 }
 `
 	emittedBench(b, "valuebench", src, func(mainGo string) string {
@@ -343,6 +361,12 @@ func BenchmarkBuildGo(b *testing.B) {
 			m[i] = i
 		}
 		sink = len(m)
+	}
+}
+
+func BenchmarkPutsErgo(b *testing.B) {
+	for range b.N {
+		sink = ` + emittedCall(mainGo, "Puts", "64") + `
 	}
 }
 

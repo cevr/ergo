@@ -6,12 +6,12 @@ package v1
 // and a Map a Go map, but Ergo's slices and Maps are values (owner q26,
 // 2026-11-08; types.md, Bindings): the lowering hands these bodies a
 // source they may write, the place of `p = p.Append(x)` or
-// `p = p.Delete(k)` or a dead local, and otherwise a clipped slice or a
+// `p = p.Delete(k)`, `p = p.Put(k, v)` or a dead local, and otherwise a clipped slice or a
 // copy of the Map (lower, values.go rule V3). The prelude's Get returns Option[V], a type the
 // lowering emits in each program, so the lowering writes its body in the
 // program, with the read this file's Get is.
 //
-// Append, Get and Delete are marked //ergo:pure (docs/spec/stdlib.md, Pure
+// Append, Get, Delete and Put are marked //ergo:pure (docs/spec/stdlib.md, Pure
 // bodies 5; lw-pure-prelude): each computes on its arguments with a Go
 // built-in alone, so a call of one is transparent in a footprint, and a
 // function that only loops, does arithmetic and calls them takes no
@@ -51,6 +51,16 @@ func Get[K comparable, V any](m map[K]V, k K) (V, bool) {
 //ergo:pure
 func Delete[K comparable, V any](m map[K]V, k K) map[K]V {
 	delete(m, k)
+	return m
+}
+
+// Put is the prelude's m.Put(k, v): m with k set to v. It changes m
+// itself, as Go's index write does, and returns it; the lowering passes a
+// copy of m where m is still seen elsewhere.
+//
+//ergo:pure
+func Put[K comparable, V any](m map[K]V, k K, v V) map[K]V {
+	m[k] = v
 	return m
 }
 

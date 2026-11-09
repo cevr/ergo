@@ -68,11 +68,12 @@ func userTrim(s string) string { hostTrim(s) }
 		"loops":    "pure",
 		"makes":    "opaque",
 		"userTrim": "opaque",
-		// lw-pure-prelude: the prelude's Append, Get and Delete are marked
-		// pure in runtime/v1 (data.go).
+		// lw-pure-prelude: the prelude's Append, Get, Delete and Put are
+		// marked pure in runtime/v1 (data.go).
 		"appends": "pure",
 		"gets":    "pure",
 		"deletes": "pure",
+		"puts":    "pure",
 	}
 	for name, w := range want {
 		if got := show(fps[name]); got != w {
@@ -87,15 +88,15 @@ func userTrim(s string) string { hostTrim(s) }
 	if fps["loops"].EntryPoll {
 		t.Error("loops polls at entry; pure recursion never polls")
 	}
-	for _, name := range []string{"appends", "gets", "deletes"} {
+	for _, name := range []string{"appends", "gets", "deletes", "puts"} {
 		if fps[name].EntryPoll {
 			t.Errorf("%s polls at entry; a pure call adds no interruption point", name)
 		}
 	}
 }
 
-// preludeCollectionFuncs call only the prelude's Append, Get and Delete,
-// with loops and arithmetic (lw-pure-prelude).
+// preludeCollectionFuncs call only the prelude's Append, Get, Delete and
+// Put, with loops and arithmetic (lw-pure-prelude).
 const preludeCollectionFuncs = `func appends(n int) []int {
 	let mut out = []int{}
 	for i in 0..n {
@@ -114,6 +115,7 @@ func gets(m Map[string, int], k string) int {
 	}
 }
 func deletes(m Map[string, int], k string) Map[string, int] { m.Delete(k) }
+func puts(m Map[string, int], k string) Map[string, int] { m.Put(k, 1) }
 `
 
 // TestFootprintsPurePreludeOff: with the reference switch off

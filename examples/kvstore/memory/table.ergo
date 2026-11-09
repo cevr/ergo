@@ -29,11 +29,7 @@ func Get(t Table, key string) string fails kv.Missing | kv.Broken {
 
 // Put makes key hold value.
 func Put(t Table, key string, value string) fails kv.Broken {
-	t.entries.Update(func(entries Map[string, string]) Map[string, string] {
-		let mut next = entries
-		next[key] = value
-		next
-	})
+	t.entries.Update(func(entries Map[string, string]) Map[string, string] { entries.Put(key, value) })
 }
 
 // Delete removes key.
