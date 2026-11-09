@@ -1,7 +1,5 @@
-// The text form's tests: examples, and the laws restated as property
-// tests (the compiler checks laws and does not run them yet, #162).
+// The text form's tests: examples. The laws run under ergo test.
 
-import slices
 import stackvm/vm
 
 // Countdown prints 3, 2, 1.
@@ -9,13 +7,13 @@ let Countdown = "        push 3   ; the counter\nloop:   dup\n        print\n   
 
 test AssemblesLabels {
 	let p = try Assemble(Countdown)
-	assert Same(p, []vm.Instr{vm.Push{N: 3}, vm.Dup, vm.Print, vm.Push{N: 1}, vm.Sub, vm.Dup, vm.JumpIf{To: 1}, vm.Pop})
-	assert slices.Equal((try vm.Run(p, 100)).Printed, []int{3, 2, 1})
+	assert p == []vm.Instr{vm.Push{N: 3}, vm.Dup, vm.Print, vm.Push{N: 1}, vm.Sub, vm.Dup, vm.JumpIf{To: 1}, vm.Pop}
+	assert (try vm.Run(p, 100)).Printed == []int{3, 2, 1}
 }
 
 test LabelMayStandAlone {
 	let p = try Assemble("start:\n  push 1\n  jmp end\n  push 2\nend:\n")
-	assert Same(p, []vm.Instr{vm.Push{N: 1}, vm.Jump{To: 3}, vm.Push{N: 2}})
+	assert p == []vm.Instr{vm.Push{N: 1}, vm.Jump{To: 3}, vm.Push{N: 2}}
 }
 
 test DisassembleNamesTargets {
@@ -42,14 +40,4 @@ test BadLinesAreExplained {
 	assert problem("a:\na: halt") == "line 2: label a is already on line 1"
 	assert problem("1a: halt") == "line 1: \"1a\" is not a label"
 	assert problem("; only a comment\n\n") == ""
-}
-
-test AssembleInvertsDisassembleHolds(seed int, size int) {
-	let p = vm.Program(seed, size%40)
-	assert Same(try Assemble(Disassemble(p)), p)
-}
-
-test LayoutIsIgnoredHolds(seed int, size int, note string) {
-	let p = vm.Program(seed, size%40)
-	assert Same(try Assemble(Spread(Disassemble(p), note)), p)
 }

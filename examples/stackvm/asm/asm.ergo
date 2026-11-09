@@ -149,17 +149,17 @@ func Assemble(text string) []vm.Instr fails Bad {
 		if len(fields) == 0 {
 			continue
 		}
-		let p = try parse(fields, n+1, raw)
-		lines = lines.Append(line{at: n + 1, text: raw, instr: p.instr, target: p.target})
+		let parsed = try parse(fields, n+1, raw)
+		lines = lines.Append(line{at: n + 1, text: raw, instr: parsed.instr, target: parsed.target})
 	}
 	let mut program = []vm.Instr{}
-	for l in lines {
-		if l.target == "" {
-			program = program.Append(l.instr)
+	for line in lines {
+		if line.target == "" {
+			program = program.Append(line.instr)
 			continue
 		}
-		let to = try resolve(labels, l)
-		program = program.Append(vm.Retarget(l.instr, to))
+		let to = try resolve(labels, line)
+		program = program.Append(vm.Retarget(line.instr, to))
 	}
 	program
 }
@@ -167,8 +167,8 @@ func Assemble(text string) []vm.Instr fails Bad {
 // parsed is an instruction and its target text.
 type parsed { instr vm.Instr, target string }
 
-// parse is the instruction of the fields of line n, raw. A union is not an
-// error type (G-ex-d-2), so it fails Bad, the record, and takes the line.
+// parse is the instruction of the fields of line n, raw. It fails Bad,
+// which carries the line and its text beside the Problem.
 func parse(fields []string, n int, raw string) parsed fails Bad {
 	let op = fields[0]
 	match plain(op) {
@@ -179,7 +179,7 @@ func parse(fields []string, n int, raw string) parsed fails Bad {
 		return parsed{instr: i.Value, target: ""}
 	case None:
 	}
-	let jump Option[vm.Instr] = match op {
+	let jump = match op {
 	case "jmp":
 		Some[vm.Instr]{vm.Jump{To: 0}}
 	case "jif":

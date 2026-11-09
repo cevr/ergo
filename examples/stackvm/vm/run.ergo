@@ -1,9 +1,8 @@
 // The dispatch loop.
 
 // Trap is a run that stopped at the instruction PC for the reason Why.
-// One failure type with a union inside keeps every signature's row one
-// name long (a row cannot be named, G-ex-c-14), and a match on Why is
-// still exhaustive.
+// One failure type with a union inside carries the PC once, and a match
+// on Why is exhaustive.
 type Trap { PC int, Why Cause }
 
 // Cause is why a run trapped.

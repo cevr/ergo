@@ -10,7 +10,6 @@
 
 import io
 import os
-import slices
 import stackvm/asm
 import stackvm/vm
 import strconv
@@ -106,24 +105,19 @@ func BenchProgram(rounds int) []vm.Instr {
 	program
 }
 
-// run does what the arguments ask. It is apart from main because a
-// return cannot leave main's with block (G-ex-d-10).
-func run() fails os.Exit needs Console | os.Process | io.Stdin {
-	match try Parse(os.Process.Args()) {
-	case Exec:
-		try Execute(try Assembled(), Fuel)
-	case Dis:
-		Console.Println(strings.TrimSuffix(asm.Disassemble(try Assembled()), "\n"))
-	case Code:
-		Console.Println(strings.Join(Texts(vm.Encode(try Assembled())), " "))
-	case Bench as b:
-		try Execute(BenchProgram(b.Rounds), Unlimited)
-	}
-}
-
+// main does what the arguments ask, on the host's arguments and input.
 func main() fails os.Exit needs Console | Ambient {
 	with context { os.Process: os.NewHost(), io.Stdin: io.NewHost() } {
-		try run()
+		match try Parse(os.Process.Args()) {
+		case Exec:
+			try Execute(try Assembled(), Fuel)
+		case Dis:
+			Console.Println(strings.TrimSuffix(asm.Disassemble(try Assembled()), "\n"))
+		case Code:
+			Console.Println(strings.Join(Texts(vm.Encode(try Assembled())), " "))
+		case Bench as b:
+			try Execute(BenchProgram(b.Rounds), Unlimited)
+		}
 	}
 }
 
@@ -145,7 +139,7 @@ test ParseReadsEachCommand {
 test BenchProgramSums {
 	let r = try vm.Run(BenchProgram(10), 1000)
 	// 1 4 2 2 4 1 0 1 4 2 for i = 1..10
-	assert slices.Equal(r.Printed, []int{21})
+	assert r.Printed == []int{21}
 }
 
 test ExecutePrintsTheRun {

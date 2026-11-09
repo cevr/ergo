@@ -1,8 +1,5 @@
-// The tree walk and the compiler: examples, and the law restated as a
-// property test (the compiler checks laws and does not run them yet,
-// #162).
+// The tree walk and the compiler: examples. The law runs under ergo test.
 
-import slices
 import stackvm/vm
 
 test EvalWalksTheTree {
@@ -13,7 +10,7 @@ test EvalWalksTheTree {
 test CompiledRunsOnTheVM {
 	let e = Bin{Op: Times, L: Square{X: Lit{N: 4}}, R: Bin{Op: Below, L: Lit{N: 1}, R: Lit{N: 2}}}
 	let r = try vm.Run(Compile(e), 1000)
-	assert slices.Equal(r.Stack, []int{16})
+	assert r.Stack == []int{16}
 }
 
 test DivisionByZeroFailsBoth {
@@ -24,10 +21,6 @@ test DivisionByZeroFailsBoth {
 		-1
 	}
 	assert v == -1
-}
-
-test CompiledAgreesHolds(seed int) {
-	assert Agrees(Of(seed))
 }
 
 // The generator reaches every kind of expression and both outcomes, so
