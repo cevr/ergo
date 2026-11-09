@@ -191,7 +191,7 @@ func originOf(obj types.Object) types.Object {
 // none is a user-visible blocking binding.
 func TestRuntime199BlockingOwner(t *testing.T) {
 	helpers := map[string]bool{
-		"Append": true, "Delete": true, "NewScope": true, "Site": true,
+		"Append": true, "Delete": true, "Put": true, "NewScope": true, "Site": true,
 		"RegisterCalls": true, "TextBool": true, "TextDuration": true,
 		"TextInt": true, "TextUint": true, "TextFloat": true, "TextList": true,
 		"Main": true, "Println": true, "End": true,
