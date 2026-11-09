@@ -384,7 +384,7 @@ func restarted(signals []int, n int) bool needs Scheduler {
 func recoveredRun(signals []int, n int) bool needs Scheduler {
 	let limit = ((n % 3) + 3) % 3
 	let cell = sync.NewRef[Option[int]](None)
-	let a = actor.SuperviseDurable(crashy(), 1, func(o int) {}, tasks.Restart{Limit: limit}, func() Option[int] { cell.Get() }, func(prev int, next int, sig int) {
+	let a = actor.SuperviseDurable(Machine[int, int, int]{Initial: 0, Step: crashStep, After: untimed, Work: unworked}, 1, func(o int) {}, tasks.Restart{Limit: limit}, func() Option[int] { cell.Get() }, func(prev int, next int, sig int) {
 		cell.Set(Some[int]{Value: next})
 	})
 	supervised(a, signals, limit, true)
