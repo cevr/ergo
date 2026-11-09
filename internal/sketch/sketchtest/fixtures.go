@@ -30,6 +30,7 @@ var GrammarFixtures = []GrammarFixture{
 	{"SliceType", "func f(xs [][]byte) []string {\n\t[]string{}\n}\n"},
 	{"ArrayType", "type Grid { cells [81]int }\n\nfunc f(xs [2][3]byte) [2]string {\n\tlet a [4]int = [4]int{}\n\t[2]string{\"a\", \"b\"}\n}\n"},
 	{"PointerType", "func bump(p *Counter) {\n\tp.N += 1\n}\n"},
+	{"CapName", "func f() needs Store[Job] | Log {\n\twith context { Store[Job], Tally[Job]: b } {\n\t\tStore[Job].Put(j)\n\t}\n}\n"},
 	{"FuncType", "func apply(f func(int64) int64 fails E needs Clock | Console, g escaping func()) {}\n"},
 	{"FuncDecl", "func Fee(o Order, rate int64) int64 {\n\to.Total * rate / 100\n}\n"},
 	{"ExternDecl", "extern go example.com/json.Valid func Valid(b []byte) bool\n\nextern go net/http.Get func Fetch(url string) Response fails go.Error\n"},
