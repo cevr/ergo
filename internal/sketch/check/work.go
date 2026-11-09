@@ -359,7 +359,7 @@ func (c *checker) checkMachineWork(tn *TypeName, x syntax.Expr, state, signal Ty
 	}
 	r := c.machineWorkRow(f.Sig, state, signal)
 	if r == nil {
-		c.errorf(id, CodeType, "the work %s of machine %s must have the type %s, with no error or capability row of its own: R is the work's capability row, which the machine needs (runtime.md, Machines and actors 12)", id.Name, tn.Name, want)
+		c.errorf(id, CodeType, "the work %s of machine %s must have the type %s, with no error or capability row of its own: R is the work's capability row, charged to the machine (runtime.md, Machines and actors 12)", id.Name, tn.Name, want)
 		return nil
 	}
 	// Its own rows: the value must be assignable to the same function type

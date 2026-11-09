@@ -97,6 +97,8 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 		// actor.StartMachine's runner task and an entry's timer child (MU3).
 		"MachineStart -> Go":       "guarded",
 		"Actor[S, E, D].arm -> Go": "guarded",
+		// An entry's work child (MU4).
+		"Actor[S, E, D].startWork -> Go": "guarded",
 	}
 	isRT := func(f *types.Func) bool {
 		return f.Pkg() != nil && strings.HasSuffix(f.Pkg().Path(), "/runtime/rt")

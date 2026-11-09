@@ -30,7 +30,7 @@ var implementedFamilies = []string{
 	"TypeSwitchStmt", "SwitchStmt", "CaseClause", "TypeGuard", "InterpolatedString", "RangeStmt", "ContextLit",
 	"call:Func", "call:Op", "call:ProviderOp", "call:FuncValue", "call:Conversion", "call:Len", "call:With",
 	"pattern:Wildcard", "pattern:TypeTest", "pattern:Const", "pattern:As", "pattern:Bind", "pattern:Record", "pattern:Tuple", "TupleExpr",
-	"conv:Variant", "conv:Operations", "conv:Row",
+	"conv:Variant", "conv:Operations", "conv:Row", "conv:Machine",
 	"basic:bool", "basic:string", "basic:int", "basic:int8", "basic:int16", "basic:int32", "basic:int64",
 	"basic:uint", "basic:uint8", "basic:uint16", "basic:uint32", "basic:uint64", "basic:float32", "basic:float64", "basic:duration",
 	// A test and its asserts lower in the test build (LowerTests, swept by
@@ -145,7 +145,7 @@ func families(file *syntax.File, info *check.Info) map[string]bool {
 		}
 		return true
 	})
-	convKinds := map[check.ConversionKind]string{check.ConvVariant: "Variant", check.ConvOperations: "Operations", check.ConvRow: "Row"}
+	convKinds := map[check.ConversionKind]string{check.ConvVariant: "Variant", check.ConvOperations: "Operations", check.ConvRow: "Row", check.ConvMachine: "Machine"}
 	for _, c := range info.Implicit {
 		out["conv:"+convKinds[c.Kind]] = true
 	}

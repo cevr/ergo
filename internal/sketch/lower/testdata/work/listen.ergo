@@ -1,0 +1,75 @@
+import actor
+import machines
+import time
+
+type Phase = Searching{Query string} | Listening{N int} | Over{Note string}
+type Signal = Found{N int} | Unavailable{} | Tick{N int}
+
+type Catalog { Count(query string) int fails Unavailable }
+
+type Fixed {}
+
+func Count(f Fixed, query string) int fails Unavailable {
+	if query == "none" {
+		return Unavailable
+	}
+	len(query)
+}
+
+func work(s Phase) Option[machines.Work[Signal, Catalog]] {
+	match s {
+	case Searching as q:
+		Some{machines.Work{Run: func() Signal fails Unavailable needs Catalog { Found{N: try Catalog.Count(q.Query)} }}}
+	case Listening:
+		Some{machines.Work{Listen: func(send func(e Signal)) {
+			for i in 1..4 {
+				send(Tick{N: i})
+			}
+		}}}
+	case Over:
+		None
+	}
+}
+
+func step(s Phase, e Signal) Decision[Phase, string] {
+	match (s, e) {
+	case (Searching, Found as f):
+		Enter[Phase]{Next: Listening{N: f.N}}
+	case (Searching, Unavailable):
+		Enter[Phase]{Next: Over{Note: "unavailable"}}
+	case (Listening as l, Tick as t):
+		if t.N == 3 {
+			Enter[Phase]{Next: Over{Note: "ticks \(l.N + t.N)"}}
+		} else {
+			Stay[Phase]{Next: Listening{N: l.N + t.N}}
+		}
+	case (_, _):
+		Ignore
+	}
+}
+
+type Finder machine[Phase, Signal] { initial: start, step: step, work: work }
+
+func start(q string) Phase { Searching{Query: q} }
+
+func run(q string) string needs Scheduler | Catalog {
+	let a = actor.StartMachine(machines.Start(Finder{}, q), 1, func(o string) {})
+	let mut last = ""
+	for st in a.Changes() {
+		match st {
+		case Over as o:
+			last = o.Note
+			break
+		case _:
+		}
+	}
+	a.Stop()
+	last
+}
+
+func main() needs Console {
+	with context { Scheduler: time.NewManual(0), Catalog: Fixed } {
+		Console.Println(run("abc"))
+		Console.Println(run("none"))
+	}
+}
