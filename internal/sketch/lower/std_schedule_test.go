@@ -187,8 +187,9 @@ func genSched(r *rand.Rand, depth int, reach map[string]bool) *schedModel {
 // ERGO_SCHEDULE_SEED replays another seed. Generation goes on until each
 // case of the model is reached.
 //
-// It builds and runs one program because Decide is an Ergo body, which
-// runs only lowered: the repository has no reference interpreter of Ergo.
+// It builds Go because Decide is an Ergo body, which runs only lowered:
+// the repository has no reference interpreter of Ergo. It builds one
+// program for every case.
 // The schedule laws state bounds (a cap, a limit, a jitter range, And and
 // Or as max and min); this property pins each value, so it alone catches
 // an exponent off by one, Recurs counting one run more, UpTo stopping at
