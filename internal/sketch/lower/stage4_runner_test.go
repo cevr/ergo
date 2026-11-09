@@ -307,13 +307,15 @@ func TestArgumentTextRoundTrips(t *testing.T) {
 	if exes == nil {
 		return
 	}
-	line := regexp.MustCompile(`(?m)^FAIL K(\w+) \(case 1 of 100, seed (\d+), size 0: v = (.*)\): assert failed at main\.ergo:\d+:\d+: false$`)
+	// A kind that can be listed (bool) runs every value (mu6c): its case
+	// has no seed, and is the same under every seed.
+	line := regexp.MustCompile(`(?m)^FAIL K(\w+) \((?:case 1 of 100, seed (\d+), size 0|case 1 of \d+, every value): v = (.*)\): assert failed at main\.ergo:\d+:\d+: false$`)
 	texts := make([]map[string]string, seeds+1)
 	for s := 1; s <= seeds; s++ {
 		stdout, stderr, code := runExeArgs(t, exes["first"], "--seed", strconv.Itoa(s))
 		texts[s] = map[string]string{}
 		for _, m := range line.FindAllStringSubmatch(stdout, -1) {
-			if m[2] == strconv.Itoa(s) {
+			if m[2] == strconv.Itoa(s) || m[2] == "" {
 				texts[s][m[1]] = m[3]
 			}
 		}
@@ -352,7 +354,9 @@ func TestArgumentTextRoundTrips(t *testing.T) {
 	for s := 1; s <= seeds; s++ {
 		stdout, _, _ := runExeArgs(t, exes["second"+strconv.Itoa(s)], "--seed", strconv.Itoa(s))
 		for _, k := range literalKinds {
-			if !strings.Contains(stdout, "FAIL K"+k.name+" (case 1 of 100, seed "+strconv.Itoa(s)+", size 0: ") {
+			sampled := "FAIL K" + k.name + " (case 1 of 100, seed " + strconv.Itoa(s) + ", size 0: "
+			listed := regexp.MustCompile(`(?m)^FAIL K` + k.name + ` \(case 1 of \d+, every value: `)
+			if !strings.Contains(stdout, sampled) && !listed.MatchString(stdout) {
 				t.Errorf("seed %d: %s: the literal %s did not give the value it was printed from", s, k.name, texts[s][k.name])
 			}
 		}

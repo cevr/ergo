@@ -14,7 +14,7 @@ test DoubleOfTwo {
 }
 ```
 
-A test with parameters is a property. The runner draws 100 cases from a seed, and the test must hold for each:
+A test with parameters is a property. It runs by the same rule as a law ([Laws](#laws)): when every parameter's type can be listed (a `bool`, records and unions of such, a type defined over one, tuples; at most 256 values a type and 4096 cases), the runner takes every value once and reports the property proved; otherwise it draws 100 cases from a seed, and the test must hold for each:
 
 ```go
 test DoubleIsEven(n int) {
@@ -46,7 +46,7 @@ ok DeclineIsHandled
 PASS (2 tests)
 ```
 
-A property prints its case count, `ok DoubleIsEven (100 cases)`. A failed assert prints its position and its text, and a failed comparison also prints its two operands as Ergo literals (`left`, `right`; a line diff for two multi-line strings). A refuted property also prints the case number, the seed, the size (the case number over four, which bounds generated collections and strings; [runtime](spec/runtime.md#tests), Tests 6) and each argument as an Ergo literal of its type, so the case can be pasted into a test:
+A property prints its case count, `ok DoubleIsEven (100 cases)`, or `ok FlipTwice (proved: all 2 cases)` for `test FlipTwice(b bool)`; a listed case that fails prints `FAIL FlipTwice (case 2 of 2, every value: b = true): …`. A failed assert prints its position and its text, and a failed comparison also prints its two operands as Ergo literals (`left`, `right`; a line diff for two multi-line strings). A refuted property also prints the case number, the seed, the size (the case number over four, which bounds generated collections and strings; [runtime](spec/runtime.md#tests), Tests 6) and each argument as an Ergo literal of its type, so the case can be pasted into a test:
 
 ```text
 FAIL DoubleIsSmall (case 3 of 100, seed 1, size 0: n = -6039945012424161084): assert failed at tests.ergo:12:2: double(n) < 10: left 6366854048861229448, right 10

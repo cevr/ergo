@@ -197,7 +197,7 @@ const refCap, refCases = 256, 4096
 // machines (MU6b): its declarations and its report lines in source order.
 type listedLaws struct {
 	src            strings.Builder
-	want           []string
+	tests, want    []string // the property tests' lines, then the laws'
 	failed, total  int
 	proved, tested int
 }
@@ -348,6 +348,36 @@ func genListedLaws(r *rand.Rand) *listedLaws {
 		g.src.WriteString(law(name, ts, withX, body) + "\n\n")
 		report("law "+name, refProduct(withBool(ts, withX)), falsify)
 	}
+	// A property test over the same runs follows the same rule (mu6c);
+	// its body asserts !x when falsified. The tests report before the
+	// laws, so their lines go first. A test always has a parameter: one
+	// with none is an example.
+	laws := g.want
+	g.want = nil
+	for k, ts := range runs {
+		name := fmt.Sprintf("PT%d", k)
+		n := refProduct(ts)
+		falsify := n >= 0 && n*2 <= refCases && r.Intn(2) == 0
+		withX := falsify || len(ts) == 0 || (k >= edges && r.Intn(2) == 0)
+		var ps []string
+		for j, t := range ts {
+			ps = append(ps, fmt.Sprintf("p%d %s", j, t.name))
+		}
+		if withX {
+			ps = append(ps, "x bool")
+		}
+		body := "true"
+		if falsify {
+			body = "!x" // false first in case 2, x = true: a run must go past case 1
+		}
+		fmt.Fprintf(&g.src, "test %s(%s) {\n\tassert %s\n}\n\n", name, strings.Join(ps, ", "), body)
+		report(name, refProduct(withBool(ts, withX)), falsify)
+		if falsify {
+			g.want[len(g.want)-1] = strings.Replace(g.want[len(g.want)-1], "(case 1 of", "(case 2 of", 1)
+		}
+	}
+	g.tests = g.want
+	g.want = laws
 	// LOne has one value, LTwo two, LWide cannot be listed; LGet is true
 	// but for LTwo{b: false}.
 	var members []string
@@ -387,7 +417,8 @@ func genListedLaws(r *rand.Rand) *listedLaws {
 // type with providers, one rule holds (types.md, Laws 10): a run is
 // proved over all its cases exactly when the reference lists every value
 // of it within the caps, it fails at its first listed case when its body
-// is false there, and any other run is 100 generated cases.
+// is false there, and any other run is 100 generated cases. A property
+// test over the same values follows the same rule (mu6c).
 // ERGO_MACHINELAW_SEED replays another seed; a failure prints the source.
 func TestMachineLawTables(t *testing.T) {
 	seed := int64(57)
@@ -437,11 +468,16 @@ func TestMachineLawTables(t *testing.T) {
 	}
 	g := genListedLaws(r)
 	src.WriteString(g.src.String())
-	want = append(want, g.want...)
+	want = append(append(g.tests, want...), g.want...)
 	failed += g.failed
 	total += g.total
 	if g.proved == 0 || g.tested == 0 || g.failed == 0 {
 		t.Fatalf("seed %d: the generated laws are %d proved, %d tested and %d refuted runs; want each", seed, g.proved, g.tested, g.failed)
+	}
+	for _, kind := range []string{"(proved: all ", "(100 cases)", "FAIL "} {
+		if !strings.Contains(strings.Join(g.tests, "\n"), kind) {
+			t.Fatalf("seed %d: no generated property test reports %q", seed, kind)
+		}
 	}
 	src.WriteString("func main() {}\n")
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "machinelaw_tables", src.String())}, true)

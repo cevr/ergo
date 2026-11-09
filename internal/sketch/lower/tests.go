@@ -24,9 +24,11 @@ import (
 //     and replaces the entry: Go's main reads --seed N (1 by default) and
 //     runs every test in source order inside the program's root task
 //     (v1.Main), after the package initializer.
-//  3. An example test runs once; a property runs 100 cases, each with
-//     arguments a generator derived from its parameter types draws
-//     (testGen). A case fails when an assert in it fails, wherever the
+//  3. An example test runs once. A property whose parameters can all be
+//     listed runs once for each combination of values and is reported
+//     proved, by the rule of laws (listedTest, lawcases.go); any other
+//     property runs 100 cases, each with arguments a generator derived
+//     from its parameter types draws (testGen). A case fails when an assert in it fails, wherever the
 //     assert is (a with body, a function literal, a task it starts), or
 //     when a typed failure escapes the body. A failure prints
 //     `FAIL Name (case K of 100, seed S: x = …): …` and the run goes on; a
@@ -547,6 +549,12 @@ func (l *lowerer) testRunner() string {
 			b.WriteString("\tif " + run + "(" + taskOf(env) + ", " + name + ", nil, func() error { return " + l.testFunc(t) + "(" + env + ") }) {\n")
 			b.WriteString("\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+t.Name) + ")\n")
 			b.WriteString("\t} else {\n\t\t" + failed + "++\n\t}\n")
+			continue
+		}
+		// A property follows the rule of laws (Listed laws): when its
+		// parameters can all be listed, it takes each value once and is
+		// proved; else it draws testCases generated cases.
+		if l.listedTest(&b, t, scope, env, failed) {
 			continue
 		}
 		inner := newNamer(scope)

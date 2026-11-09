@@ -41,7 +41,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.envClosure":    "a task callback's Env copy",
 			"lowerer.testRunner":    "a test case's task, which the case's Capture classifies its unwinding against (E3a M3)",
 			"lowerer.lawRuns":       "a law case's task, which the case's Capture classifies its unwinding against (#162)",
-			"lowerer.listedRuns":    "a listed law case's task, which the case's Capture classifies its unwinding against (MU6b)",
+			"lowerer.listedRun":     "a listed law or property case's task, which the case's Capture classifies its unwinding against (MU6b, mu6c)",
 			"lowerer.reachRuns":     "a reachability law's task, which its case's Capture classifies its unwinding against (MU6)",
 		}},
 		{"memberName", map[string]string{

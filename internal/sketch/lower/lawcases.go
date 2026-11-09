@@ -19,6 +19,9 @@ import (
 // that cannot be listed takes 100 generated cases and is reported tested,
 // never proved (NORTH_STAR pillar 4). A law with no parameters, at top
 // level or in a machine, has one case, so it is proved by its one run.
+// A property test (a test with parameters) follows the same rule over its
+// parameters (listedTest; mu6c, owner q39); a test with no parameters is
+// an example and runs once.
 //
 // Prior art: SmallCheck and Lean's `decide` check a proposition over
 // every value of a small finite type; QuickCheck and Hypothesis generate
@@ -131,32 +134,77 @@ func provedText(cases int) string {
 	return "proved: all " + strconv.Itoa(cases) + " cases"
 }
 
+// listedValue is one value of a listed run: its name in the report and
+// its type.
+type listedValue struct {
+	name string
+	t    check.Type
+}
+
 // listedRuns writes the run of a law over every value (Listed laws), for
 // the provider p of a member law or for nil, and reports whether it did:
 // false when a value of the run cannot be listed, and the law's run takes
 // generated cases (lawRuns).
 func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, p *check.LawProvider, scope *namer, env, failed string) bool {
-	type value struct {
-		name string
-		t    check.Type
-	}
-	var vals []value
+	var vals []listedValue
 	if p != nil {
-		vals = append(vals, value{"provider", p.Type})
+		vals = append(vals, listedValue{"provider", p.Type})
 	}
 	for _, v := range law.Params {
-		vals = append(vals, value{v.Name, v.Type})
+		vals = append(vals, listedValue{v.Name, v.Type})
 	}
+	at := strconv.Quote(l.siteText(law.Decl))
+	return l.listedRun(b, label, law.Decl, vals, scope, env, failed, func(inner *namer, bound []string) string {
+		e, held, err := inner.alloc("e"), inner.alloc("held"), inner.alloc("err")
+		args := []string{"&" + e}
+		bind := ""
+		if p != nil {
+			fc := newFuncCtx(l, inner, false)
+			fc.site = law.Decl
+			own := law.Owner.Type.(*check.Named)
+			bind = e + "." + l.envField(own.Obj) + " = " + fc.convert(p.Conv, bound[0], law.Decl) + "; "
+			bound = bound[1:]
+		}
+		args = append(args, bound...)
+		return e + " := *" + env + "; " + bind + held + ", " + err + " := " + l.lawFunc(law) + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
+	})
+}
+
+// listedTest writes the run of a property test over every value of its
+// parameters, by the rule of laws (Listed laws; runtime.md, Tests 3), and
+// reports whether it did: false for an example test, which has no
+// parameters and runs once, and when a parameter cannot be listed, and
+// the property takes generated cases (testRunner).
+func (l *lowerer) listedTest(b *strings.Builder, t *check.Test, scope *namer, env, failed string) bool {
+	if len(t.Params) == 0 {
+		return false
+	}
+	vals := make([]listedValue, len(t.Params))
+	for i, v := range t.Params {
+		vals[i] = listedValue{v.Name, v.Type}
+	}
+	return l.listedRun(b, t.Name, t.Decl, vals, scope, env, failed, func(_ *namer, bound []string) string {
+		return "return " + l.testFunc(t) + "(" + strings.Join(append([]string{env}, bound...), ", ") + ")"
+	})
+}
+
+// listedRun writes a run over every combination of the values vals, in
+// order, the last one fastest, when each can be listed and the cases
+// number at most enumCases, and reports whether it did. call is the body
+// of a case's function, given the case's namer and the bound values. The
+// run prints `ok label (proved: …)` when every case holds, and stops at
+// its first case that fails.
+func (l *lowerer) listedRun(b *strings.Builder, label string, site syntax.Node, vals []listedValue, scope *namer, env, failed string, call func(inner *namer, bound []string) string) bool {
 	types := make([]check.Type, len(vals))
 	for i, v := range vals {
 		types[i] = v.t
 	}
-	lists, cases, ok := l.enumRun(types, law.Decl)
+	lists, cases, ok := l.enumRun(types, site)
 	if !ok {
 		return false
 	}
 	fmtPkg, run, conv := l.helper("fmt"), l.helper("Case"), l.helper("strconv")
-	at := strconv.Quote(l.siteText(law.Decl))
+	at := strconv.Quote(l.siteText(site))
 	inner := newNamer(scope)
 	// k counts the cases, for the report of a refuted one; a run with no
 	// values has one case and no count.
@@ -175,7 +223,7 @@ func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, p
 			base = "arg"
 		}
 		list, a := inner.alloc(base+"s"), inner.alloc(base)
-		b.WriteString(ind + list + " := []" + (&typeCtx{l: l, site: law.Decl}).goType(v.t) + "{" + strings.Join(lists[i], ", ") + "}\n")
+		b.WriteString(ind + list + " := []" + (&typeCtx{l: l, site: site}).goType(v.t) + "{" + strings.Join(lists[i], ", ") + "}\n")
 		b.WriteString(ind + "for _, " + a + " := range " + list + " {\n")
 		ind += "\t"
 		bound = append(bound, a)
@@ -183,20 +231,9 @@ func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, p
 		if i == 0 {
 			sep = ": "
 		}
-		shown = append(shown, strconv.Quote(sep+v.name+" = "), l.litExpr(v.t, a, law.Decl))
+		shown = append(shown, strconv.Quote(sep+v.name+" = "), l.litExpr(v.t, a, site))
 	}
-	e, held, err := inner.alloc("e"), inner.alloc("held"), inner.alloc("err")
-	args := []string{"&" + e}
-	bind := ""
-	if p != nil {
-		fc := newFuncCtx(l, inner, false)
-		fc.site = law.Decl
-		own := law.Owner.Type.(*check.Named)
-		bind = e + "." + l.envField(own.Obj) + " = " + fc.convert(p.Conv, bound[0], law.Decl) + "; "
-		bound = bound[1:]
-	}
-	args = append(args, bound...)
-	body := e + " := *" + env + "; " + bind + held + ", " + err + " := " + l.lawFunc(law) + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
+	body := call(inner, bound)
 	// The first refuted case ends the run; the cases after it are skipped.
 	b.WriteString(ind + "if " + ok1 + " {\n")
 	describe := "nil"
