@@ -1,0 +1,18 @@
+# the registry drops a check: the supervisor restarts the router from
+# its journal, and the check runs again
+route 1 logs disk
+drop
+route 2 metrics socket
+send logs one
+# a courier crashes: its dispatcher restarts and takes the table again
+send metrics crash
+send metrics two
+route 3 logs stdout
+drop
+yes
+send logs three
+# a new process opens the router from the journal
+restart
+remove 4 metrics
+route 1 traces disk
+send logs four

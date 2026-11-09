@@ -3,13 +3,14 @@
 // script's first line may name the methods on: `methods phone card`.
 //
 // Commands: phone, type DIGITS, erase, submit, scan CARD, wait (30 s pass
-// on the screen's clock), cancel. The card reader is the script itself:
-// a `scan` line is a scan, sent to the actor like a touch (M49, an
-// actor-lifetime source, is not built).
+// on the screen's clock), cancel. A `scan` line puts a card on the card
+// reader, a source the actor owns (actor.Feed): the screen does not send
+// it.
 
 import actor
 import io
 import machines
+import queue
 import strconv
 import strings
 import time
@@ -17,7 +18,31 @@ import signin/pad
 import signin/signin
 
 // Command is a line of the script.
-type Command = Send{Signals []signin.Signal} | Wait{} | Unknown{Line string}
+type Command = Send{Signals []signin.Signal} | Scan{Card string} | Wait{} | Unknown{Line string}
+
+// Reader is the card reader: Cards are the cards put on it, in order, and
+// Beeps gets one beep for each card once its scan is in the flow's inbox.
+type Reader {
+	Cards queue.Queue[string],
+	Beeps queue.Queue[bool],
+}
+
+// Scans is the reader as a source of the flow: each card a Scanned
+// signal, a beep after each one is queued. It ends when Cards closes or
+// the flow ends.
+func Scans(r Reader) Seq[signin.Signal] {
+	Seq[signin.Signal](func(yield func(e signin.Signal) bool) {
+		for card in r.Cards.Values() {
+			if !yield(signin.Scanned{Card: card}) {
+				return
+			}
+			r.Beeps.Push(true) catch {
+			case queue.Closed:
+				return
+			}
+		}
+	})
+}
 
 // Parse reads a line.
 func Parse(line string) Command {
@@ -46,7 +71,7 @@ func Parse(line string) Command {
 	case "submit":
 		Send{Signals: []signin.Signal{signin.Submit}}
 	case "scan":
-		Send{Signals: []signin.Signal{signin.Scanned{Card: arg}}}
+		Scan{Card: arg}
 	case "cancel":
 		Send{Signals: []signin.Signal{signin.Cancel}}
 	case "wait":
@@ -153,6 +178,10 @@ func Run(clock time.Manual) needs Console | io.Stdin | Scheduler | signin.Codes 
 		from = 1
 	}
 	let a = actor.StartMachine(machines.Start(signin.SignIn{}, on), 8, func(r signin.Result) {})
+	let reader = Reader{Cards: queue.New[string](1), Beeps: queue.New[bool](1)}
+	actor.Feed(a, Scans(reader)) catch {
+	case actor.Stopped:
+	}
 	Console.Println("screen: \(Show(a.State()))")
 	let mut ended = false
 	for i in from..len(lines) {
@@ -169,6 +198,30 @@ func Run(clock time.Manual) needs Console | io.Stdin | Scheduler | signin.Codes 
 			// The error screen's timer sleeps from its commit on, so the
 			// clock moves it at once.
 			clock.Advance(30s)
+		case Scan as sc:
+			// The reader sends the scan, not the screen. After its beep the
+			// scan is queued, so State waits until the flow has stepped it.
+			// A scan that the flow refuses (the card is off) changes
+			// nothing, so Latest is still its answer; one that it takes
+			// starts a check, whose own signal may be the latest by then,
+			// and WaitFor below shows where the check ended. A waiting
+			// state never ignores a scan.
+			reader.Cards.Push(sc.Card) catch {
+			case queue.Closed:
+			}
+			reader.Beeps.Pop() catch {
+			case queue.Closed:
+			}
+			a.State()
+			match actor.Latest(a) {
+			case Some[Decision[signin.Flow, signin.Result]] as d:
+				match d.Value {
+				case Reject:
+					Console.Println("(refused)")
+				case _:
+				}
+			case None:
+			}
 		case Send as cmd:
 			for e in cmd.Signals {
 				let d = a.Ask(e) catch {
@@ -211,6 +264,7 @@ func Run(clock time.Manual) needs Console | io.Stdin | Scheduler | signin.Codes 
 		}
 		Console.Println("screen: \(Show(s))")
 	}
+	reader.Cards.Close()
 	a.Stop()
 	if !ended {
 		Console.Println(Ending(actor.ExitOf(a)))

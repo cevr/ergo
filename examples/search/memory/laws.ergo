@@ -1,29 +1,84 @@
-// The search machine's laws over the memory providers. The rules are
-// functions of package search (see search/laws.ergo); a law needs no
-// service, so each binds Shelf and Basket in a with.
+// The search's rules over the live actor: each law plays a script of keys
+// against the search on a fresh manual clock, with Shelf as the catalogue.
+// The runner's own rules (one work at a time, no result of an ended entry
+// stepped) are std actor's, held by its model and property (MU4); no edit
+// of this program can break them.
 
+import machines
+import strings
+import time
+import search/script
 import search/search
 
+// word is the text the laws type, one letter per key.
+let word = "apricot"
+
+// typed is a script that types the first letters of word, one per gap
+// (at most len(word)), each 0 to 499 ms after the one before, and ends a
+// second after the last key.
+func typed(gaps []int) script.Script {
+	let mut trace = []machines.Timed[search.Signal]{}
+	let mut at = 0
+	for i, g in gaps {
+		if i == len(word) {
+			break
+		}
+		if i > 0 {
+			at = at + gap(g)
+		}
+		trace = trace.Append(machines.Timed[search.Signal]{At: millis(at), Signal: search.Key{Text: strings.Slice(word, i, i+1)}})
+	}
+	script.Script{Trace: trace, End: millis(at + 1000)}
+}
+
+func gap(g int) int { ((g % 500) + 500) % 500 }
+
+func millis(n int) duration { duration(int64(n) * 1000000) }
+
+func play(s script.Script) []string {
+	let clock = time.NewManual(0)
+	with context { search.Catalog: Shelf, Scheduler: clock } {
+		script.Play(s, clock)
+	}
+}
+
+// HitsForLatestQuery: once the keys stop, the screen shows the hits of
+// the whole text typed.
 law HitsForLatestQuery(gaps []int) {
-	with context { search.Catalog: Shelf, search.Cart: Basket } {
-		search.HitsForLatestQuery(gaps)
+	let s = typed(gaps)
+	if len(s.Trace) == 0 {
+		return true
 	}
+	let text = strings.Slice(word, 0, len(s.Trace))
+	let hits = Find(Shelf, text) catch {
+	case search.IndexDown:
+		return false
+	}
+	let mut last = ""
+	for l in play(s) {
+		if !strings.Contains(l, " ! ") {
+			last = l
+		}
+	}
+	strings.HasSuffix(last, search.Name(search.Showing{Query: text, Hits: hits, Cart: []search.Item{}}))
 }
 
-law AtMostOneSearch(gaps []int) {
-	with context { search.Catalog: Shelf, search.Cart: Basket } {
-		search.AtMostOneSearch(gaps)
-	}
-}
-
-law NoStaleHits(gaps []int) {
-	with context { search.Catalog: Shelf, search.Cart: Basket } {
-		search.NoStaleHits(gaps)
-	}
-}
-
+// DebounceCoalesces: a key restarts the pause, so the search runs once
+// after the last key and once in each gap of a pause or more (at the
+// instant the pause ends, the timer goes first).
 law DebounceCoalesces(gaps []int) {
-	with context { search.Catalog: Shelf, search.Cart: Basket } {
-		search.DebounceCoalesces(gaps)
+	let s = typed(gaps)
+	let mut want = if len(s.Trace) > 0 { 1 } else { 0 }
+	for i, g in gaps {
+		if i > 0 && i < len(word) && gap(g) >= 250 {
+			want = want + 1
+		}
 	}
+	let mut searches = 0
+	for l in play(s) {
+		if strings.Contains(l, " searching ") {
+			searches = searches + 1
+		}
+	}
+	searches == want
 }

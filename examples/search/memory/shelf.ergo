@@ -35,15 +35,3 @@ func Find(s Shelf, query string) []search.Item fails search.IndexDown {
 	}
 	hits
 }
-
-// Basket is a search.Cart with room for three items.
-type Basket {}
-
-func Room(_ Basket) int { 3 }
-
-func Add(b Basket, have []search.Item, item search.Item) []search.Item fails search.CartFull {
-	if len(have) >= Room(b) {
-		return search.CartFull{Room: Room(b)}
-	}
-	have.Append(item)
-}

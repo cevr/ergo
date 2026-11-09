@@ -1,11 +1,15 @@
-// Package script runs the search over a script of timed lines on a
-// virtual clock, and shows what it does, millisecond by millisecond.
+// Package script plays a script of timed lines against the search, run
+// as an actor on a manual clock, and shows what it does, millisecond by
+// millisecond.
 
+import actor
 import io
 import machines
+import queue
 import search/search
 import strconv
 import strings
+import time
 
 // BadLine is a line the script cannot read.
 type BadLine { Line int, Why string }
@@ -84,10 +88,10 @@ func signalOf(n int, words []string) search.Signal fails BadLine {
 	}
 }
 
-// Run reads the script from io.Stdin, runs the search with an empty cart
-// (the machine's input) and the Typical costs, and shows its timeline.
-// It returns the exit status: 0, or 1 when the script is refused.
-func Run() int needs Console | io.Stdin | search.Catalog | search.Cart {
+// Run reads the script from io.Stdin, plays it against the search with an
+// empty cart (the machine's input) on clock, and shows its timeline. It
+// returns the exit status: 0, or 1 when the script is refused.
+func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler | search.Catalog {
 	let mut lines = []string{}
 	for line in io.Stdin.Lines() {
 		lines = lines.Append(line)
@@ -97,11 +101,134 @@ func Run() int needs Console | io.Stdin | search.Catalog | search.Cart {
 		Console.Println("? line \(b.Line): \(b.Why)")
 		return 1
 	}
-	let m = machines.Start(search.Finder{}, []search.Item{})
-	Console.Println("@0 \(search.Name(m.Initial))")
-	let r = search.Drive(m, s.Trace, s.End, search.Typical)
-	for l in r.Lines {
+	for l in Play(s, clock) {
 		Console.Println(l)
 	}
 	0
 }
+
+// Play runs the search as an actor on clock, which only Play moves, and
+// is its timeline: each state the actor commits and then each output it
+// tells, at the millisecond of the clock. At one instant the timer that is
+// due goes first, then the script's signal. The search's work answers at
+// the instant it starts: the memory catalogue does not wait.
+func Play(s Script, clock time.Manual) []string needs Scheduler | search.Catalog {
+	let said = queue.New[search.Output](4)
+	let a = actor.StartMachine(machines.Start(search.Finder{}, []search.Item{}), 8, func(o search.Output) {
+		said.Push(o) catch {
+		case queue.Closed:
+		}
+	})
+	let mut lines = []string{"@0 \(search.Name(a.State()))"}
+	let mut now = 0s
+	let mut entered = 0s
+	let mut over = false
+	// stayed is whether the step of the last Ask was a Stay: its state is
+	// no new entry, so its timer runs on from the entry before.
+	let mut stayed = false
+	// follow runs act, which says whether a state commits, and shows each
+	// state the actor commits after it until one that runs no work, then
+	// the outputs. Changes begins before act, so no state is missed.
+	let follow = func(act func() bool) {
+		let mut first = true
+		for st in a.Changes() {
+			if first {
+				first = false
+				if !act() {
+					break
+				}
+				continue
+			}
+			lines = lines.Append("\(ms(now)) \(search.Name(st))")
+			if !stayed {
+				entered = now
+			}
+			stayed = false
+			if !search.Busy(st) {
+				break
+			}
+		}
+		// State waits until the step that told the outputs has ended.
+		a.State()
+		let mut more = true
+		for more {
+			match said.Poll() {
+			case Some[search.Output] as o:
+				lines = lines.Append("\(ms(now)) ! \(search.Said(o.Value))")
+			case None:
+				more = false
+			}
+		}
+	}
+	// upto moves the clock to until, firing each timer due by then at its
+	// own instant.
+	let upto = func(until duration) {
+		let mut more = true
+		for more {
+			match search.Timer(a.State()) {
+			case Some[Timeout[search.Signal]] as tm:
+				let due = entered + tm.Value.In
+				if due <= until {
+					follow(func() bool {
+						clock.Advance(due - now)
+						now = due
+						true
+					})
+				} else {
+					more = false
+				}
+			case None:
+				more = false
+			}
+		}
+		if until > now {
+			clock.Advance(until - now)
+			now = until
+		}
+	}
+	for t in s.Trace {
+		if over {
+			break
+		}
+		upto(t.At)
+		follow(func() bool {
+			let d = a.Ask(t.Signal) catch {
+			case search.NoSuchHit as h:
+				lines = lines.Append("\(ms(now)) ? no hit \(h.Hit): \(h.Count) shown")
+				return false
+			case actor.Stopped:
+				over = true
+				return false
+			}
+			match d {
+			case Enter[search.Search]:
+				true
+			case Stay[search.Search]:
+				stayed = true
+				true
+			case Emit[search.Search, search.Output]:
+				true
+			case Ignore:
+				false
+			case Reject:
+				false
+			case Done[search.Output]:
+				over = true
+				false
+			}
+		})
+	}
+	if !over {
+		upto(s.End)
+	}
+	// Only an Ask meets NoSuchHit, and the asker gets it: no failure ends
+	// the search.
+	a.Stop() catch {
+	case search.NoSuchHit:
+	}
+	said.Close()
+	lines
+}
+
+// ms is the word of a time on the clock: @ and its milliseconds.
+func ms(d duration) string { "@\(int64(d) / 1000000)" }

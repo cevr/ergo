@@ -1,0 +1,246 @@
+// The router's rules, as laws over Step (machine laws are top-level laws:
+// MU6 is not on this base). Each law folds a generated run of clients,
+// the operator and the registry's results through the pure step; a result
+// the runner would not send (a check's answer in a state with no check)
+// is in the run too, and the step must ignore it. The live laws, over the
+// actor, its supervisor and its journal, are in memory, where the registry
+// is.
+
+// Run is what a fold saw: the last state; the ids of the Submits the router
+// took and the Aborts it took, in order; the id of each request when it
+// became the current one; and whether a replacing change was checked with no
+// yes for it; and whether an abort of an open request was rejected.
+type Run {
+	Final   Router,
+	Taken   []int,
+	Aborted []int,
+	Served  []int,
+	Unasked bool,
+	Missed  bool,
+}
+
+// move is the signal of a generated number m in s: a submit (a line or
+// a mode) or an abort of one of four ids, a reply, or a check's result
+// (the check's table when s checks, else Sample).
+func move(s Router, m int) Signal {
+	let id = pick(m/6, 4) + 1
+	match pick(m, 6) {
+	case 0:
+		Submit{Request: Request{ID: id, Change: Add{Topic: Topics[pick(m/24, len(Topics))], Dest: Dests[pick(m/96, len(Dests))]}}}
+	case 1:
+		Submit{Request: Request{ID: id, Change: Remove{Topic: Topics[pick(m/24, len(Topics))]}}}
+	case 2:
+		Abort{ID: id}
+	case 3:
+		Reply{Yes: pick(m/6, 2) == 0}
+	case 4:
+		match s {
+		case Applying as c:
+			Checked{Table: applied(c.Board.Table, c.Current.Change)}
+		case _:
+			Checked{Table: Sample}
+		}
+	case _:
+		let out Signal = Unknown{Why: "out"}
+		out
+	}
+}
+
+// applied is t after change, as a registry that knows every destination
+// gives it.
+func applied(t Table, change Change) Table {
+	match change {
+	case Add as a:
+		Routed(t, a.Topic, a.Dest)
+	case Remove as r:
+		Unrouted(t, r.Topic)
+	}
+}
+
+// current is the request s serves, if any.
+func current(s Router) Option[Request] {
+	match s {
+	case Confirming as a:
+		Some[Request]{Value: a.Current}
+	case Applying as c:
+		Some[Request]{Value: c.Current}
+	case Idle:
+		None
+	}
+}
+
+// Fold steps the router from Initial over the moves and is what it saw.
+func Fold(moves []int) Run {
+	let mut s Router = Initial
+	let mut run = Run{Final: Initial, Taken: []int{}, Aborted: []int{}, Served: []int{}, Unasked: false, Missed: false}
+	for m in moves {
+		let sig = move(s, m)
+		let d = Step(s, sig)
+		let next = match d {
+		case Enter[Router] as e:
+			e.Next
+		case Stay[Router] as st:
+			st.Next
+		case Emit[Router, Output] as em:
+			em.Next
+		case _:
+			s
+		}
+		let took = match d {
+		case Reject:
+			false
+		case Ignore:
+			false
+		case _:
+			true
+		}
+		match sig {
+		case Abort as a:
+			if !took && Known(s, a.ID) && AnswerOf(s, a.ID) == None {
+				run = Run{..run, Missed: true}
+			}
+		case _:
+		}
+		if took {
+			match sig {
+			case Submit as r:
+				run = Run{..run, Taken: run.Taken.Append(r.Request.ID)}
+			case Abort as a:
+				run = Run{..run, Aborted: run.Aborted.Append(a.ID)}
+			case _:
+			}
+		}
+		match (current(s), current(next)) {
+		case (Some[Request] as was, Some[Request] as now):
+			if was.Value.ID != now.Value.ID {
+				run = Run{..run, Served: run.Served.Append(now.Value.ID)}
+			}
+		case (None, Some[Request] as now):
+			run = Run{..run, Served: run.Served.Append(now.Value.ID)}
+		case (_, _):
+		}
+		match next {
+		case Applying as c:
+			if Replaces(c.Board.Table, c.Current) && !Busy(s) {
+				let yes = match (s, sig) {
+				case (Confirming as a, Reply as y):
+					y.Yes && a.Current.ID == c.Current.ID
+				case (_, _):
+					false
+				}
+				if !yes {
+					run = Run{..run, Unasked: true}
+				}
+			}
+		case _:
+		}
+		s = next
+	}
+	Run{..run, Final: s}
+}
+
+func has(ids []int, id int) bool {
+	for x in ids {
+		if x == id {
+			return true
+		}
+	}
+	false
+}
+
+func index(ids []int, id int) int {
+	for i, x in ids {
+		if x == id {
+			return i
+		}
+	}
+	-1
+}
+
+// AnsweredOnce: each request the router took is in one place, once: it
+// has an answer, or it is served, or it waits; no id has two answers.
+law AnsweredOnce(moves []int) {
+	let run = Fold(moves)
+	let b = BoardOf(run.Final)
+	for id in run.Taken {
+		let mut answers = 0
+		for a in b.Answers {
+			if a.ID == id {
+				answers = answers + 1
+			}
+		}
+		let served = match current(run.Final) {
+		case Some[Request] as r:
+			if r.Value.ID == id { 1 } else { 0 }
+		case None:
+			0
+		}
+		let mut waits = 0
+		for r in b.Queue {
+			if r.ID == id {
+				waits = waits + 1
+			}
+		}
+		if answers+served+waits != 1 {
+			return false
+		}
+	}
+	len(b.Answers) <= len(run.Taken)
+}
+
+// FifoCommit: requests are served in the order the router took them.
+law FifoCommit(moves []int) {
+	let run = Fold(moves)
+	let mut last = -1
+	for id in run.Served {
+		let at = index(run.Taken, id)
+		if at <= last {
+			return false
+		}
+		last = at
+	}
+	true
+}
+
+// AbortNeverCommits: a request the router took an abort of is answered
+// Cancelled, never Applied.
+law AbortNeverCommits(moves []int) {
+	let run = Fold(moves)
+	for id in run.Aborted {
+		match AnswerOf(run.Final, id) {
+		case Some[Answer] as a:
+			match a.Value {
+			case Cancelled:
+			case Applied:
+				return false
+			case Refused:
+				return false
+			}
+		case None:
+			return false
+		}
+	}
+	true
+}
+
+// AbortIsTaken: an abort of a request that waits or is served is taken.
+law AbortIsTaken(moves []int) { !Fold(moves).Missed }
+
+// ReplaceIsConfirmed: a change that replaces a route is checked only after
+// the operator said yes to its question.
+law ReplaceIsConfirmed(moves []int) { !Fold(moves).Unasked }
+
+// AppliedIsTheTable: the router's table is the table of its last Applied
+// answer, and a router with no Applied answer has the initial table.
+law AppliedIsTheTable(moves []int) {
+	let run = Fold(moves)
+	let mut want = BoardOf(Initial).Table
+	for a in BoardOf(run.Final).Answers {
+		match a.Answer {
+		case Applied as m:
+			want = m.Table
+		case _:
+		}
+	}
+	SameTable(BoardOf(run.Final).Table, want)
+}

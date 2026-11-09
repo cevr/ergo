@@ -1,0 +1,48 @@
+// Package memory holds the in-memory registry of destinations.
+
+import router/route
+import sync
+
+// Directory is a route.Registry of fixed destinations: an Add to a
+// destination it does not know, a Remove of a topic with no route, and a
+// table of more than Room routes are Unknown. It can be armed to drop its
+// next check (a defect), so a script shows the router restart. Its field
+// is unexported: NewDirectory makes one, and every copy is the same
+// directory.
+type Directory { armed sync.Ref[bool] }
+
+// Room is how many routes a table holds.
+let Room = 4
+
+// NewDirectory is a directory that is not armed.
+func NewDirectory() Directory { Directory{armed: sync.NewRef[bool](false)} }
+
+// Arm makes the next Check of d a defect: the registry drops the call.
+func Arm(d Directory) { d.armed.Update(func(b bool) bool { true }) }
+
+// Known is whether the directory knows dest.
+func Known(dest string) bool { dest == "disk" || dest == "socket" || dest == "stdout" }
+
+// Check is the table after change, or why the registry refuses it.
+func Check(d Directory, t route.Table, change route.Change) route.Table fails route.Unknown {
+	let crash = sync.Modify(d.armed, func(b bool) (bool, bool) { (b, false) })
+	if crash {
+		Unreachable("the registry dropped the call")
+	}
+	match change {
+	case route.Add as a:
+		if !Known(a.Dest) {
+			return route.Unknown{Why: "no destination \(a.Dest)"}
+		}
+		let after = route.Routed(t, a.Topic, a.Dest)
+		if len(after.Routes) > Room {
+			return route.Unknown{Why: "the table holds \(Room) routes"}
+		}
+		after
+	case route.Remove as r:
+		if route.DestOf(t, r.Topic) == None {
+			return route.Unknown{Why: "no route for \(r.Topic)"}
+		}
+		route.Unrouted(t, r.Topic)
+	}
+}

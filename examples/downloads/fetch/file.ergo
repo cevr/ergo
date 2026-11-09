@@ -1,0 +1,257 @@
+// Package fetch is a download manager's file: one file fetched chunk by
+// chunk from a Source, with a retry after a timeout that waits longer
+// each time, and an end that is one value: saved, failed or cancelled.
+// The machine is pure; its timer (the wait before a retry) and its work
+// (the fetch of the next chunk) are members, and the actor runner runs
+// them.
+
+import machines
+
+// Chunk is a part of a file: its size in bytes, and whether it is the
+// last one.
+type Chunk { Bytes int, Last bool }
+
+// NotFound is a file the source does not have. It is final.
+type NotFound { Url string }
+
+// TimedOut is a chunk the source did not give in time. A retry may get it.
+type TimedOut { Url string }
+
+// Source is where files come from. Chunk is the chunk of url that starts
+// at byte from.
+type Source {
+	Chunk(url string, from int) Chunk fails NotFound | TimedOut,
+
+	// ChunksJoin: the chunks of a file, fetched from byte 0 on, each from
+	// where the one before ended, end with a last chunk (when no timeout
+	// comes between), and each has bytes.
+	law ChunksJoin(file int) { ChunksJoin(file) },
+
+	// NotFoundIsFinal: a file that is not found at byte 0 is not found at
+	// any byte.
+	law NotFoundIsFinal(file int, from int) { NotFoundIsFinal(file, from) },
+}
+
+// Files is the names the laws draw from.
+let Files = []string{"a.txt", "b.img", "slow.iso", "gone.zip", "late.bin"}
+
+func pick(n int, count int) int { ((n % count) + count) % count }
+
+// ChunksJoin is the law ChunksJoin of the Source in the context, as a
+// function: at most 64 chunks are read.
+func ChunksJoin(file int) bool needs Source {
+	let url = Files[pick(file, len(Files))]
+	let mut at = 0
+	for _ in 0..64 {
+		let c = Source.Chunk(url, at) catch {
+		case NotFound:
+			return at == 0
+		case TimedOut:
+			return true
+		}
+		if c.Bytes < 1 {
+			return false
+		}
+		at = at + c.Bytes
+		if c.Last {
+			return true
+		}
+	}
+	false
+}
+
+// NotFoundIsFinal is the law NotFoundIsFinal as a function.
+func NotFoundIsFinal(file int, from int) bool needs Source {
+	let url = Files[pick(file, len(Files))]
+	let _ = Source.Chunk(url, 0) catch {
+	case NotFound:
+		let _ = Source.Chunk(url, pick(from, 100000)) catch {
+		case NotFound:
+			return true
+		case TimedOut:
+			return false
+		}
+		return false
+	case TimedOut:
+		return true
+	}
+	true
+}
+
+// File is the file's state:
+//
+//	Queued    not started
+//	Fetching  the chunk from Got runs (its work); Try timeouts so far
+//	Waiting   a timeout came; the retry waits (its timer)
+type File = Queued{Url string} | Fetching{Url string, Got int, Try int} | Waiting{Url string, Got int, Try int}
+
+// Signal is what a file reads: Begin and Cancel from the manager; Got,
+// NotFound and TimedOut from Fetching's work; Retry from Waiting's timer.
+type Signal = Begin{} | Cancel{} | Got{Chunk Chunk} | NotFound | TimedOut | Retry{}
+
+// End is how a file ends: the Done of its step, its exit value.
+type End = Saved{Url string, Bytes int} | Failed{Url string, Why string} | Cancelled{Url string, Got int}
+
+// Budget is how many timeouts a file takes; the next one fails it.
+let Budget = 3
+
+// Backoff is the wait before the retry after n timeouts: 100ms, then
+// twice the wait before, each time.
+func Backoff(n int) duration {
+	let mut d = 100ms
+	for _ in 1..n {
+		d = d + d
+	}
+	d
+}
+
+// UrlOf is the url of s.
+func UrlOf(s File) string {
+	match s {
+	case Queued as q:
+		q.Url
+	case Fetching as f:
+		f.Url
+	case Waiting as w:
+		w.Url
+	}
+}
+
+// GotOf is the bytes of s so far.
+func GotOf(s File) int {
+	match s {
+	case Queued:
+		0
+	case Fetching as f:
+		f.Got
+	case Waiting as w:
+		w.Got
+	}
+}
+
+// fetching is the work of each state: Fetching fetches its next chunk.
+// NotFound and TimedOut are failures of Source and signals, so the work
+// needs no failure map. The runner interrupts it when the entry ends, so
+// a cancel stops it and its chunk never reaches a later entry.
+func fetching(s File) Option[machines.Work[Signal, Source]] {
+	match s {
+	case Fetching as f:
+		Some{machines.Work{Run: func() Chunk fails NotFound | TimedOut needs Source { try Source.Chunk(f.Url, f.Got) }, OnSuccess: func(c Chunk) Signal { Got{Chunk: c} }}}
+	case Queued:
+		None
+	case Waiting:
+		None
+	}
+}
+
+// Timer is the timer of each state: Waiting waits Backoff(Try), then
+// retries. The wait grows with the state's Try (a dynamic after).
+func Timer(s File) Option[Timeout[Signal]] {
+	match s {
+	case Waiting as w:
+		Some[Timeout[Signal]]{Value: Timeout[Signal]{In: Backoff(w.Try), Signal: Retry}}
+	case Queued:
+		None
+	case Fetching:
+		None
+	}
+}
+
+// Step is the file's transition. A chunk enters Fetching again from the
+// next byte (a new entry, so a new work), or ends Saved after the last
+// one; a timeout waits and retries, Budget times; NotFound ends it.
+// Cancel ends it from every state. A signal a state never gets (a chunk
+// in Waiting) is Ignore.
+func Step(s File, sig Signal) Decision[File, End] {
+	match sig {
+	case Cancel:
+		Done[End]{Output: Cancelled{Url: UrlOf(s), Got: GotOf(s)}}
+	case Begin:
+		match s {
+		case Queued as q:
+			Enter[File]{Next: Fetching{Url: q.Url, Got: 0, Try: 0}}
+		case Fetching:
+			Ignore
+		case Waiting:
+			Ignore
+		}
+	case Got as g:
+		match s {
+		case Fetching as f:
+			if g.Chunk.Last {
+				Done[End]{Output: Saved{Url: f.Url, Bytes: f.Got + g.Chunk.Bytes}}
+			} else {
+				Enter[File]{Next: Fetching{Url: f.Url, Got: f.Got + g.Chunk.Bytes, Try: f.Try}}
+			}
+		case Queued:
+			Ignore
+		case Waiting:
+			Ignore
+		}
+	case NotFound as n:
+		match s {
+		case Fetching:
+			Done[End]{Output: Failed{Url: n.Url, Why: "not found"}}
+		case Queued:
+			Ignore
+		case Waiting:
+			Ignore
+		}
+	case TimedOut:
+		match s {
+		case Fetching as f:
+			if f.Try >= Budget {
+				Done[End]{Output: Failed{Url: f.Url, Why: "\(Budget + 1) timeouts"}}
+			} else {
+				Enter[File]{Next: Waiting{Url: f.Url, Got: f.Got, Try: f.Try + 1}}
+			}
+		case Queued:
+			Ignore
+		case Waiting:
+			Ignore
+		}
+	case Retry:
+		match s {
+		case Waiting as w:
+			Enter[File]{Next: Fetching{Url: w.Url, Got: w.Got, Try: w.Try}}
+		case Queued:
+			Ignore
+		case Fetching:
+			Ignore
+		}
+	}
+}
+
+func queued(url string) File { Queued{Url: url} }
+
+// Download is the file as a machine: its input is its url.
+type Download machine[File, Signal] {
+	initial: queued,
+	step:    Step,
+	after:   Timer,
+	work:    fetching,
+}
+
+// Name is the line of a state.
+func Name(s File) string {
+	match s {
+	case Queued:
+		"queued"
+	case Fetching as f:
+		if f.Try == 0 { "fetching from \(f.Got)" } else { "fetching from \(f.Got), try \(f.Try + 1)" }
+	case Waiting as w:
+		"waiting \(int64(Backoff(w.Try)) / 1000000)ms after timeout \(w.Try)"
+	}
+}
+
+// EndText is the line of an end.
+func EndText(e End) string {
+	match e {
+	case Saved as s:
+		"saved \(s.Bytes) bytes"
+	case Failed as f:
+		"failed: \(f.Why)"
+	case Cancelled as c:
+		"cancelled at \(c.Got) bytes"
+	}
+}

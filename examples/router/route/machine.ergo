@@ -1,0 +1,326 @@
+import machines
+import strings
+
+// Board is what every state of the router holds: the table, the requests
+// that wait, in the order they came, and the answers given so far.
+type Board { Table Table, Queue []Request, Answers []Answered }
+
+// Router is the router's state. It serves one request at a time,
+// Current:
+//
+//	Idle        no request is served; the queue is empty
+//	Confirming  the operator is asked about Current (it replaces a route)
+//	Applying    the registry checks Current (its work)
+type Router = Idle{Board Board} | Confirming{Board Board, Current Request} | Applying{Board Board, Current Request}
+
+// Signal is what the router reads. Submit and Abort come from clients,
+// Reply from the operator; Checked and Unknown are the results of
+// Applying's work, which the runner sends only to the entry that started
+// it.
+type Signal = Submit{Request Request} | Reply{Yes bool} | Abort{ID int} | Checked{Table Table} | Unknown
+
+// Output is what the router tells the operator: a question about a
+// request. Answers are not outputs: they are in the state, where a
+// client waits for its own (actor.WaitFor).
+type Output { ID int, Text string }
+
+// Initial is the router with no routes.
+let Initial = Idle{Board: Board{Table: Table{Routes: []Route{}}, Queue: []Request{}, Answers: []Answered{}}}
+
+// check is the work of each state: Applying checks its request with the
+// registry. The runner interrupts it when the entry ends, so an abort
+// during the check drops its result. Unknown is a failure of Registry
+// and a signal, so the work needs no failure map.
+func check(s Router) Option[machines.Work[Signal, Registry]] {
+	match s {
+	case Applying as c:
+		Some{machines.Work{Run: func() Table fails Unknown needs Registry { try Registry.Check(c.Board.Table, c.Current.Change) }, OnSuccess: func(o Table) Signal { Checked{Table: o} }}}
+	case Idle:
+		None
+	case Confirming:
+		None
+	}
+}
+
+// BoardOf is the book of s.
+func BoardOf(s Router) Board {
+	match s {
+	case Idle as i:
+		i.Board
+	case Confirming as a:
+		a.Board
+	case Applying as c:
+		c.Board
+	}
+}
+
+// Busy reports whether s runs work: a reader that waits for a state that
+// is not busy sees the work's answer.
+func Busy(s Router) bool {
+	match s {
+	case Applying:
+		true
+	case Idle:
+		false
+	case Confirming:
+		false
+	}
+}
+
+// AnswerOf is the answer of the request id in s, if it has one.
+func AnswerOf(s Router, id int) Option[Answer] {
+	for a in BoardOf(s).Answers {
+		if a.ID == id {
+			return Some[Answer]{Value: a.Answer}
+		}
+	}
+	None
+}
+
+// Known is whether id names a request of s: answered, served or waiting.
+func Known(s Router, id int) bool {
+	if AnswerOf(s, id) != None || waiting(BoardOf(s), id) {
+		return true
+	}
+	match s {
+	case Confirming as a:
+		a.Current.ID == id
+	case Applying as c:
+		c.Current.ID == id
+	case Idle:
+		false
+	}
+}
+
+func waiting(b Board, id int) bool {
+	for r in b.Queue {
+		if r.ID == id {
+			return true
+		}
+	}
+	false
+}
+
+// Replaces is whether r would send a routed topic of t elsewhere.
+func Replaces(t Table, r Request) bool {
+	match r.Change {
+	case Add as a:
+		match DestOf(t, a.Topic) {
+		case Some[string] as d:
+			d.Value != a.Dest
+		case None:
+			false
+		}
+	case Remove:
+		false
+	}
+}
+
+// question is the question the router asks the operator about r first,
+// in the table t: one for a change that replaces a route, none for the
+// rest.
+func question(t Table, r Request) Option[Output] {
+	match r.Change {
+	case Add as a:
+		match DestOf(t, a.Topic) {
+		case Some[string] as d:
+			if d.Value != a.Dest {
+				Some[Output]{Value: Output{ID: r.ID, Text: "\(a.Topic) goes to \(d.Value): send it to \(a.Dest)?"}}
+			} else {
+				None
+			}
+		case None:
+			None
+		}
+	case Remove:
+		None
+	}
+}
+
+// answered is b with the answer of id added.
+func answered(b Board, id int, a Answer) Board {
+	Board{..b, Answers: b.Answers.Append(Answered{ID: id, Answer: a})}
+}
+
+// Settle is the router's eventless step (M48's pattern): the state after b's
+// current request is served. It takes the first waiting request, asks
+// about it or checks it; with none it is Idle. No signal is needed for
+// it, so every arm that ends a request ends in Settle.
+func Settle(b Board) Decision[Router, Output] {
+	if len(b.Queue) == 0 {
+		return Enter[Router]{Next: Idle{Board: b}}
+	}
+	let next = b.Queue[0]
+	let rest = Board{..b, Queue: b.Queue[1:]}
+	match question(b.Table, next) {
+	case Some[Output] as q:
+		Emit[Router, Output]{Next: Confirming{Board: rest, Current: next}, Output: q.Value}
+	case None:
+		Enter[Router]{Next: Applying{Board: rest, Current: next}}
+	}
+}
+
+// kept is s holding the book b, in the same entry: a Stay.
+func kept(s Router, b Board) Decision[Router, Output] {
+	match s {
+	case Idle:
+		Stay[Router]{Next: Idle{Board: b}}
+	case Confirming as a:
+		Stay[Router]{Next: Confirming{Board: b, Current: a.Current}}
+	case Applying as c:
+		Stay[Router]{Next: Applying{Board: b, Current: c.Current}}
+	}
+}
+
+// without is the queue q with the request id taken out.
+func without(q []Request, id int) []Request {
+	let mut rest = []Request{}
+	for r in q {
+		if r.ID != id {
+			rest = rest.Append(r)
+		}
+	}
+	rest
+}
+
+// submitted is the decision of a new request r in s: it joins the queue,
+// and an Idle router serves it at once. An id the router knows is Reject:
+// each request is answered once.
+func submitted(s Router, r Request) Decision[Router, Output] {
+	if Known(s, r.ID) {
+		return Reject
+	}
+	let b = BoardOf(s)
+	let more = Board{..b, Queue: b.Queue.Append(r)}
+	match s {
+	case Idle:
+		Settle(more)
+	case Confirming:
+		kept(s, more)
+	case Applying:
+		kept(s, more)
+	}
+}
+
+// aborted is the decision of Abort a in s: a waiting request leaves the
+// queue, the current one ends (its check is interrupted); each is
+// answered Cancelled. An id that is answered or unknown is Reject.
+func aborted(s Router, a Abort) Decision[Router, Output] {
+	let b = BoardOf(s)
+	if waiting(b, a.ID) {
+		return kept(s, answered(Board{..b, Queue: without(b.Queue, a.ID)}, a.ID, Cancelled))
+	}
+	match s {
+	case Confirming as k:
+		if k.Current.ID == a.ID { Settle(answered(b, a.ID, Cancelled)) } else { Reject }
+	case Applying as c:
+		if c.Current.ID == a.ID { Settle(answered(b, a.ID, Cancelled)) } else { Reject }
+	case Idle:
+		Reject
+	}
+}
+
+// Step is the router's transition. It is pure: the journal replays it.
+func Step(s Router, sig Signal) Decision[Router, Output] {
+	match sig {
+	case Submit as r:
+		submitted(s, r.Request)
+	case Abort as a:
+		aborted(s, a)
+	case Reply as y:
+		match s {
+		case Confirming as k:
+			if y.Yes {
+				Enter[Router]{Next: Applying{Board: k.Board, Current: k.Current}}
+			} else {
+				Settle(answered(k.Board, k.Current.ID, Cancelled))
+			}
+		case Idle:
+			Reject
+		case Applying:
+			Reject
+		}
+	case Checked as ok:
+		match s {
+		case Applying as c:
+			Settle(answered(Board{..c.Board, Table: ok.Table}, c.Current.ID, Applied{Table: ok.Table}))
+		case Idle:
+			Ignore
+		case Confirming:
+			Ignore
+		}
+	case Unknown as u:
+		match s {
+		case Applying as c:
+			Settle(answered(c.Board, c.Current.ID, Refused{Why: u.Why}))
+		case Idle:
+			Ignore
+		case Confirming:
+			Ignore
+		}
+	}
+}
+
+// Routing is the router as a machine: no timer, and its work is the
+// registry's check.
+type Routing machine[Router, Signal] {
+	initial: Initial,
+	step:    Step,
+	work:    check,
+}
+
+// Name is the line of a state.
+func Name(s Router) string {
+	let b = BoardOf(s)
+	let wait = if len(b.Queue) == 0 { "" } else { " (waiting: \(ids(b.Queue)))" }
+	match s {
+	case Idle:
+		"idle: \(TableText(b.Table))"
+	case Confirming as a:
+		"confirming #\(a.Current.ID)\(wait)"
+	case Applying as c:
+		"checking #\(c.Current.ID) \(ChangeText(c.Current.Change))\(wait)"
+	}
+}
+
+func ids(q []Request) string {
+	let mut words = []string{}
+	for r in q {
+		words = words.Append("#\(r.ID)")
+	}
+	strings.Join(words, " ")
+}
+
+// TableText is the words of a table: its routes, in order.
+func TableText(t Table) string {
+	if len(t.Routes) == 0 {
+		return "no routes"
+	}
+	let mut words = []string{}
+	for r in t.Routes {
+		words = words.Append("\(r.Topic) -> \(r.Dest)")
+	}
+	strings.Join(words, ", ")
+}
+
+// ChangeText is the words of a change.
+func ChangeText(c Change) string {
+	match c {
+	case Add as a:
+		"route \(a.Topic) to \(a.Dest)"
+	case Remove as r:
+		"remove \(r.Topic)"
+	}
+}
+
+// AnswerText is the words of an answer.
+func AnswerText(a Answer) string {
+	match a {
+	case Applied as m:
+		"applied: \(TableText(m.Table))"
+	case Cancelled:
+		"cancelled"
+	case Refused as r:
+		"refused: \(r.Why)"
+	}
+}

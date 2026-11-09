@@ -1,7 +1,7 @@
 // Package search is search as you type over a catalogue, with a pause
 // before each search, last-query-wins, and adding a hit to a cart. The
-// machine is pure; its timer and its work (a search, an add) are run by
-// Drive, a runner written by hand until Ergo has state-owned work (M45).
+// machine is pure; its timer and its work (the search) are members, and
+// the actor runner runs them (MU4).
 
 import strings
 
@@ -10,9 +10,6 @@ type Item { Name string, Price int }
 
 // IndexDown is a search the catalogue cannot answer.
 type IndexDown { Query string }
-
-// CartFull is an add to a cart that has no room.
-type CartFull { Room int }
 
 // Catalog is the contract of the catalogue the search reads.
 type Catalog {
@@ -86,27 +83,6 @@ func FindIsStable(n int, k int) bool needs Catalog {
 	true
 }
 
-// Cart is the contract of the cart the search adds to. A cart is a value
-// that the machine holds; the contract decides what an add does.
-type Cart {
-	Room() int,
-	Add(have []Item, item Item) []Item fails CartFull,
-
-	// An add puts the item at the end, or is CartFull exactly when the cart
-	// holds Room items or more.
-	law AddAddsOne(have []Item, item Item) { AddAddsOne(have, item) },
-}
-
-// AddAddsOne is the law AddAddsOne of the Cart in the context, as a
-// function.
-func AddAddsOne(have []Item, item Item) bool needs Cart {
-	let after = Cart.Add(have, item) catch {
-	case CartFull:
-		return len(have) >= Cart.Room()
-	}
-	len(have) < Cart.Room() && len(after) == len(have)+1 && after[len(have)].Name == item.Name && Names(have) == Names(without(after, len(have)))
-}
-
 // Matches reports whether the name of it holds the query, in any case.
 func Matches(it Item, query string) bool {
 	strings.Contains(strings.ToLower(it.Name), strings.ToLower(query))
@@ -129,15 +105,4 @@ func Names(items []Item) string {
 		out = out.Append(it.Name)
 	}
 	strings.Join(out, ", ")
-}
-
-// without is xs without the element at i, in a new slice.
-func without[T](xs []T, i int) []T {
-	let mut out = []T{}
-	for j, x in xs {
-		if j != i {
-			out = out.Append(x)
-		}
-	}
-	out
 }

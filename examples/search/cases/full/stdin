@@ -1,5 +1,5 @@
-# the basket holds three items: the fourth add fails, and back shows the
-# hits again
+# the cart holds three items (search.Room): the fourth add fails, and
+# back shows the hits again
 @0 key ea
 @1000 choose 1
 @1200 choose 2

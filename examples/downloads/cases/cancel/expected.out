@@ -1,0 +1,12 @@
+> get slow.iso cancel
+  @0 0 bytes
+  @0 1000 bytes
+  @0 1000 bytes, waiting 100ms
+  @0 cancelled at 1000 bytes
+> get slow.iso
+  @0 0 bytes
+  @0 1000 bytes
+  @0 1000 bytes, waiting 100ms
+  @100 1000 bytes
+  @100 2000 bytes
+  @100 saved 2500 bytes

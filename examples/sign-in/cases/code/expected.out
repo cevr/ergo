@@ -17,6 +17,9 @@ screen: code for 5551234565: ____ (wrong so far: 1)
 > phone
 (ignored)
 screen: code for 5551234565: ____ (wrong so far: 1)
+> scan C-100
+(refused)
+screen: code for 5551234565: ____ (wrong so far: 1)
 > type 5654
 screen: code for 5551234565: 5654 (wrong so far: 1)
 > submit

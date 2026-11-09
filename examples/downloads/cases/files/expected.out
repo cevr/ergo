@@ -1,0 +1,30 @@
+> get a.txt
+  @0 0 bytes
+  @0 saved 1000 bytes
+> get b.img
+  @0 0 bytes
+  @0 1000 bytes
+  @0 2000 bytes
+  @0 3000 bytes
+  @0 saved 3500 bytes
+> get slow.iso
+  @0 0 bytes
+  @0 1000 bytes
+  @0 1000 bytes, waiting 100ms
+  @100 1000 bytes
+  @100 1000 bytes, waiting 200ms
+  @300 1000 bytes
+  @300 2000 bytes
+  @300 saved 2500 bytes
+> get late.bin
+  @300 0 bytes
+  @300 0 bytes, waiting 100ms
+  @400 0 bytes
+  @400 0 bytes, waiting 200ms
+  @600 0 bytes
+  @600 0 bytes, waiting 400ms
+  @1000 0 bytes
+  @1000 failed: 4 timeouts
+> get gone.zip
+  @1000 0 bytes
+  @1000 failed: not found

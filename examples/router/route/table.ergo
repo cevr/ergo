@@ -1,0 +1,136 @@
+// Package route is a message router's route table and the machine that
+// changes it. Clients submit changes (add a route, remove one); the
+// router takes one change at a time, asks the operator before a change
+// replaces a route, checks each change against the registry of
+// destinations (Registry, its work), and answers each change once:
+// Applied, Cancelled or Refused. Changes that wait are a queue in the
+// router's state (no postpone). The step is pure, so a journal of its
+// signals replays it.
+
+// Route sends the messages of Topic to the destination Dest.
+type Route { Topic string, Dest string }
+
+// Table is the router's routes, in the order they were added; a topic
+// has one route at most.
+type Table { Routes []Route }
+
+// Change is what a client asks: route Topic to Dest (a new route, or one
+// that replaces the topic's route), or remove the route of Topic.
+type Change = Add{Topic string, Dest string} | Remove{Topic string}
+
+// Request is a change a client asks for, named by ID.
+type Request { ID int, Change Change }
+
+// Answer is what a request gets, once: the table after it, Cancelled
+// (the operator said no, or the client aborted), or Refused with the
+// registry's reason.
+type Answer = Applied{Table Table} | Cancelled{} | Refused{Why string}
+
+// Answered is the answer of the request ID.
+type Answered { ID int, Answer Answer }
+
+// Unknown is a change the registry refuses: Why says why.
+type Unknown { Why string }
+
+// Registry is the registry of destinations the router checks each change
+// with. Check is the table after the change, or Unknown. It writes
+// nothing: the router keeps the table, and its journal keeps the router.
+type Registry {
+	Check(table Table, change Change) Table fails Unknown,
+
+	// CheckRoutesOne: an Add the registry takes routes its topic to its
+	// destination, in the topic's place or as a new last route; every
+	// other route stays.
+	law CheckRoutesOne(topic int, dest int) { CheckRoutesOne(topic, dest) },
+
+	// CheckRemovesOne: a Remove the registry takes drops its topic's
+	// route only.
+	law CheckRemovesOne(topic int) { CheckRemovesOne(topic) },
+}
+
+// Topics is the topics the laws and the scripts draw from.
+let Topics = []string{"logs", "metrics", "alerts", "traces"}
+
+// Dests is the destinations the laws draw from: a registry may refuse
+// one.
+let Dests = []string{"disk", "socket", "nowhere"}
+
+// Sample is the table the laws start from.
+let Sample = Table{Routes: []Route{Route{Topic: "logs", Dest: "disk"}}}
+
+func pick(n int, count int) int { ((n % count) + count) % count }
+
+// Routed is t with topic routed to dest: in the topic's place, or as a
+// new last route.
+func Routed(t Table, topic string, dest string) Table {
+	let mut routes = []Route{}
+	let mut found = false
+	for r in t.Routes {
+		if r.Topic == topic {
+			found = true
+			routes = routes.Append(Route{Topic: topic, Dest: dest})
+		} else {
+			routes = routes.Append(r)
+		}
+	}
+	if !found {
+		routes = routes.Append(Route{Topic: topic, Dest: dest})
+	}
+	Table{Routes: routes}
+}
+
+// Unrouted is t with the route of topic removed.
+func Unrouted(t Table, topic string) Table {
+	let mut routes = []Route{}
+	for r in t.Routes {
+		if r.Topic != topic {
+			routes = routes.Append(r)
+		}
+	}
+	Table{Routes: routes}
+}
+
+// DestOf is the destination of topic in t, if it has a route.
+func DestOf(t Table, topic string) Option[string] {
+	for r in t.Routes {
+		if r.Topic == topic {
+			return Some[string]{Value: r.Dest}
+		}
+	}
+	None
+}
+
+// CheckRoutesOne is the law CheckRoutesOne of the Registry in the
+// context, as a function, which the providers' tests also call.
+func CheckRoutesOne(topic int, dest int) bool needs Registry {
+	let t = Topics[pick(topic, len(Topics))]
+	let d = Dests[pick(dest, len(Dests))]
+	let after = Registry.Check(Sample, Add{Topic: t, Dest: d}) catch {
+	case Unknown:
+		return true
+	}
+	SameTable(after, Routed(Sample, t, d))
+}
+
+// CheckRemovesOne is the law CheckRemovesOne as a function.
+func CheckRemovesOne(topic int) bool needs Registry {
+	let t = Topics[pick(topic, len(Topics))]
+	let after = Registry.Check(Sample, Remove{Topic: t}) catch {
+	case Unknown:
+		return true
+	}
+	SameTable(after, Unrouted(Sample, t))
+}
+
+// SameTable is whether a and b have the same routes, in order.
+func SameTable(a Table, b Table) bool {
+	if len(a.Routes) != len(b.Routes) {
+		return false
+	}
+	for i, r in a.Routes {
+		if r != b.Routes[i] {
+			return false
+		}
+	}
+	true
+}

@@ -1,3 +1,5 @@
+import machines
+
 // Search is the machine's state. Every state holds the cart, the items
 // added so far.
 //
@@ -5,15 +7,14 @@
 //	Typing     a query typed; the search waits for a pause (Pause)
 //	Searching  the search of Query runs (its work)
 //	Showing    the hits of Query
-//	Adding     the add of Item to the cart runs (its work)
 //	Problem    a search or an add failed; Message says why
-type Search = Idle{Cart []Item} | Typing{Query string, Cart []Item} | Searching{Query string, Cart []Item} | Showing{Query string, Hits []Item, Cart []Item} | Adding{Query string, Hits []Item, Item Item, Cart []Item} | Problem{Query string, Hits []Item, Cart []Item, Message string}
+type Search = Idle{Cart []Item} | Typing{Query string, Cart []Item} | Searching{Query string, Cart []Item} | Showing{Query string, Hits []Item, Cart []Item} | Problem{Query string, Hits []Item, Cart []Item, Message string}
 
 // Signal is what the machine reads. Key, Clear, Choose, Back and Checkout
-// come from the user; Paused from the state's timer; Found, IndexFailed,
-// Added and Full are the results of the states' work, which the runner
-// sends only to the entry that started it.
-type Signal = Key{Text string} | Clear{} | Choose{Hit int} | Back{} | Checkout{} | Paused{} | Found{Hits []Item} | IndexFailed{} | Added{Cart []Item} | Full{}
+// come from the user; Paused from the state's timer; Found and IndexDown
+// are the results of Searching's work, which the runner sends only to the
+// entry that started it.
+type Signal = Key{Text string} | Clear{} | Choose{Hit int} | Back{} | Checkout{} | Paused{} | Found{Hits []Item} | IndexDown
 
 // Output is what the machine tells: the hits of a query, an item put in
 // the cart, and the order at Checkout.
@@ -25,24 +26,24 @@ type NoSuchHit { Hit int, Count int }
 // Pause is how long Typing waits with no key before it searches.
 let Pause = 250ms
 
-// Job is a state's work, which the runner starts when the state's entry
-// opens and stops when it ends. Ergo has no state-owned work yet (M45):
-// Work names it as after names a timer, and Drive runs it.
-type Job = FindJob{Query string} | AddJob{Cart []Item, Item Item}
+// Room is how many items the cart holds.
+let Room = 3
 
-// Work is the job of each state.
-func Work(s Search) Option[Job] {
+// find is the work of each state: Searching searches its query in the
+// Catalog. The runner starts it when the entry opens and interrupts it
+// when the entry ends, so a key during a search stops it and its result
+// never reaches a later entry. IndexDown is a failure of the Catalog and
+// also a signal, so the work needs no failure map.
+func find(s Search) Option[machines.Work[Signal, Catalog]] {
 	match s {
+	case Searching as q:
+		Some{machines.Work{Run: func() []Item fails IndexDown needs Catalog { try Catalog.Find(q.Query) }, OnSuccess: func(hits []Item) Signal { Found{Hits: hits} }}}
 	case Idle:
 		None
 	case Typing:
 		None
-	case Searching as q:
-		Some[Job]{Value: FindJob{Query: q.Query}}
 	case Showing:
 		None
-	case Adding as a:
-		Some[Job]{Value: AddJob{Cart: a.Cart, Item: a.Item}}
 	case Problem:
 		None
 	}
@@ -51,18 +52,33 @@ func Work(s Search) Option[Job] {
 // Timer is the timer of each state: Typing waits Pause, then searches.
 func Timer(s Search) Option[Timeout[Signal]] {
 	match s {
-	case Idle:
-		None
 	case Typing:
 		Some[Timeout[Signal]]{Value: Timeout[Signal]{In: Pause, Signal: Paused}}
+	case Idle:
+		None
 	case Searching:
 		None
 	case Showing:
 		None
-	case Adding:
-		None
 	case Problem:
 		None
+	}
+}
+
+// Busy reports whether s runs work: a reader that waits for a state that
+// is not busy sees the work's answer.
+func Busy(s Search) bool {
+	match s {
+	case Searching:
+		true
+	case Idle:
+		false
+	case Typing:
+		false
+	case Showing:
+		false
+	case Problem:
+		false
 	}
 }
 
@@ -77,29 +93,8 @@ func CartOf(s Search) []Item {
 		q.Cart
 	case Showing as w:
 		w.Cart
-	case Adding as a:
-		a.Cart
 	case Problem as p:
 		p.Cart
-	}
-}
-
-// HitsOf is the hits s shows or keeps, none in Idle, Typing and
-// Searching.
-func HitsOf(s Search) []Item {
-	match s {
-	case Idle:
-		[]Item{}
-	case Typing:
-		[]Item{}
-	case Searching:
-		[]Item{}
-	case Showing as w:
-		w.Hits
-	case Adding as a:
-		a.Hits
-	case Problem as p:
-		p.Hits
 	}
 }
 
@@ -114,8 +109,6 @@ func QueryOf(s Search) string {
 		q.Query
 	case Showing as w:
 		w.Query
-	case Adding as a:
-		a.Query
 	case Problem as p:
 		p.Query
 	}
@@ -125,9 +118,22 @@ func enter(s Search) Decision[Search, Output] { Enter[Search]{Next: s} }
 
 // typed is the decision of the key k in s: a key always enters Typing
 // with the longer query, so it restarts the pause and stops any running
-// work: the last query wins.
+// search: the last query wins.
 func typed(s Search, k Key) Decision[Search, Output] {
 	enter(Typing{Query: QueryOf(s) + k.Text, Cart: CartOf(s)})
+}
+
+// chosen is the decision of Choose c in Showing w: the hit goes into the
+// cart, or the cart is full.
+func chosen(w Showing, c Choose) Decision[Search, Output] fails NoSuchHit {
+	if c.Hit < 1 || c.Hit > len(w.Hits) {
+		return NoSuchHit{Hit: c.Hit, Count: len(w.Hits)}
+	}
+	if len(w.Cart) >= Room {
+		return enter(Problem{Query: w.Query, Hits: w.Hits, Cart: w.Cart, Message: "the cart is full"})
+	}
+	let item = w.Hits[c.Hit-1]
+	Emit[Search, Output]{Next: Showing{..w, Cart: w.Cart.Append(item)}, Output: Put{Name: item.Name}}
 }
 
 // Start is the machine's start function: the cart it begins with is its
@@ -135,10 +141,10 @@ func typed(s Search, k Key) Decision[Search, Output] {
 func Start(cart []Item) Search { Idle{Cart: cart} }
 
 // Step is the search's transition. A key types; Clear goes back to Idle;
-// a pause searches; the search's result shows; Choose adds a hit; the
-// add's result shows the hits again; Checkout is Done with the order. A
-// result in a state that has no work is Ignore: the runner never sends
-// one (rule 6), and the step does not trust that.
+// a pause searches; the search's result shows; Choose adds a hit;
+// Checkout is Done with the order. A result in a state that has no work
+// is Ignore: the runner never sends one (rule 6), and the step does not
+// trust that.
 func Step(s Search, sig Signal) Decision[Search, Output] fails NoSuchHit {
 	let cart = CartOf(s)
 	match sig {
@@ -153,8 +159,6 @@ func Step(s Search, sig Signal) Decision[Search, Output] fails NoSuchHit {
 		case Searching:
 			enter(Idle{Cart: cart})
 		case Showing:
-			enter(Idle{Cart: cart})
-		case Adding:
 			enter(Idle{Cart: cart})
 		case Problem:
 			enter(Idle{Cart: cart})
@@ -171,8 +175,6 @@ func Step(s Search, sig Signal) Decision[Search, Output] fails NoSuchHit {
 			Ignore
 		case Showing:
 			Ignore
-		case Adding:
-			Ignore
 		case Problem:
 			Ignore
 		}
@@ -186,12 +188,10 @@ func Step(s Search, sig Signal) Decision[Search, Output] fails NoSuchHit {
 			Ignore
 		case Showing:
 			Ignore
-		case Adding:
-			Ignore
 		case Problem:
 			Ignore
 		}
-	case IndexFailed:
+	case IndexDown:
 		match s {
 		case Searching as q:
 			enter(Problem{Query: q.Query, Hits: []Item{}, Cart: cart, Message: "the index is down"})
@@ -201,58 +201,21 @@ func Step(s Search, sig Signal) Decision[Search, Output] fails NoSuchHit {
 			Ignore
 		case Showing:
 			Ignore
-		case Adding:
-			Ignore
 		case Problem:
 			Ignore
 		}
 	case Choose as c:
 		match s {
 		case Showing as w:
-			if c.Hit < 1 || c.Hit > len(w.Hits) {
-				return NoSuchHit{Hit: c.Hit, Count: len(w.Hits)}
-			}
-			enter(Adding{Query: w.Query, Hits: w.Hits, Item: w.Hits[c.Hit-1], Cart: cart})
+			try chosen(w, c)
 		case Idle:
 			NoSuchHit{Hit: c.Hit, Count: 0}
 		case Typing:
 			NoSuchHit{Hit: c.Hit, Count: 0}
 		case Searching:
 			NoSuchHit{Hit: c.Hit, Count: 0}
-		case Adding:
-			Ignore
 		case Problem:
 			NoSuchHit{Hit: c.Hit, Count: 0}
-		}
-	case Added as a:
-		match s {
-		case Adding as ad:
-			Emit[Search, Output]{Next: Showing{Query: ad.Query, Hits: ad.Hits, Cart: a.Cart}, Output: Put{Name: ad.Item.Name}}
-		case Idle:
-			Ignore
-		case Typing:
-			Ignore
-		case Searching:
-			Ignore
-		case Showing:
-			Ignore
-		case Problem:
-			Ignore
-		}
-	case Full:
-		match s {
-		case Adding as ad:
-			enter(Problem{Query: ad.Query, Hits: ad.Hits, Cart: cart, Message: "the cart is full"})
-		case Idle:
-			Ignore
-		case Typing:
-			Ignore
-		case Searching:
-			Ignore
-		case Showing:
-			Ignore
-		case Problem:
-			Ignore
 		}
 	case Back:
 		match s {
@@ -266,19 +229,17 @@ func Step(s Search, sig Signal) Decision[Search, Output] fails NoSuchHit {
 			Ignore
 		case Showing:
 			Ignore
-		case Adding:
-			Ignore
 		}
 	}
 }
 
 // Finder is the search as a machine: its input is the cart it begins
-// with, its timer is the pause after a key, and its work, which Drive
-// runs, is Work.
+// with, its timer is the pause after a key, and its work is the search.
 type Finder machine[Search, Signal] {
 	initial: Start,
 	step:    Step,
 	after:   Timer,
+	work:    find,
 }
 
 // Name is the word of a state.
@@ -292,9 +253,24 @@ func Name(s Search) string {
 		"searching \"\(q.Query)\""
 	case Showing as w:
 		if len(w.Hits) == 0 { "showing \"\(w.Query)\": no hits" } else { "showing \"\(w.Query)\": \(Names(w.Hits))" }
-	case Adding as a:
-		"adding \(a.Item.Name)"
 	case Problem as p:
 		"problem: \(p.Message)"
 	}
+}
+
+// Said is the line for an output.
+func Said(o Output) string {
+	match o {
+	case Shown as s:
+		"shown \"\(s.Query)\": \(Hits(s.Count))"
+	case Put as p:
+		"put \(p.Name) in the cart"
+	case Order as r:
+		"order: \(Names(r.Items))"
+	}
+}
+
+// Hits is the words for n hits.
+func Hits(n int) string {
+	if n == 1 { "1 hit" } else { "\(n) hits" }
 }

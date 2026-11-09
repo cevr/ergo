@@ -1,0 +1,42 @@
+// router is a message router. Its route table changes one request at a
+// time, under a supervisor, over a journal; a dispatcher carries messages
+// by the table, with a courier child per route. It reads a script of
+// clients, the operator's answers, messages and faults from stdin and
+// shows what the router does. Package route is the machines and the
+// registry contract; package memory holds the registry; package script
+// reads the script and plays it. This binary is the only place that
+// chooses them: it binds route.Registry to a memory directory, the
+// journal to std's memory journal, and the clock to a manual one that no
+// one moves (nothing here waits on time).
+
+import io
+import journal
+import jmemory journal/memory
+import os
+import time
+import router/memory
+import router/route
+import router/script
+
+func main() fails os.Exit needs Console | Ambient {
+	let mut lines = []string{}
+	with context { io.Stdin: io.NewHost() } {
+		for line in io.Stdin.Lines() {
+			lines = lines.Append(line)
+		}
+	}
+	let cmds = script.Read(lines) catch {
+	case script.BadLine as b:
+		return os.Exit{Code: 1, Message: "router: line \(b.Line): \(b.Why)"}
+	}
+	let directory = memory.NewDirectory()
+	let shown = with context { route.Registry: directory, Scheduler: time.NewManual(0) } {
+		script.Play(cmds, jmemory.New[route.Router, route.Signal](), func() { memory.Arm(directory) })
+	} catch {
+	case journal.Failed as f:
+		return os.Exit{Code: 1, Message: "router: the journal failed: \(f.Reason)"}
+	}
+	for l in shown {
+		Console.Println(l)
+	}
+}
