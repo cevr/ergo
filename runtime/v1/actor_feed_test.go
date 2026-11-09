@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
 )
 
@@ -88,14 +89,11 @@ func genFeedCase(r *rand.Rand) fcase {
 	return c
 }
 
-// testDeadline fires shortly before t's deadline, never when t has none: a
-// wait that would hang fails there, by an assertion.
+// testDeadline fires at testwait's end of t, never when t has none: a
+// wait that would hang fails there, by an assertion (MU10's own 9/10 of
+// the deadline, moved to testwait at the batch-13 integration).
 func testDeadline(t *testing.T) <-chan time.Time {
-	d, ok := t.Deadline()
-	if !ok {
-		return nil
-	}
-	return time.After(time.Until(d) * 9 / 10)
+	return testwait.After(t)
 }
 
 // fstate is one running source's record.
