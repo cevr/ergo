@@ -1,11 +1,11 @@
 // Screen is the screen a session shows. Home has its own, shorter wait.
 type Screen = Home{} | Menu{} | Form{}
 
-// Session is what a user does on the kiosk: the screen, and whether the
+// Session is what a user does on the display: the screen, and whether the
 // assist mode (larger text, slower pace) is on.
 type Session { Screen Screen, Assist bool }
 
-// Kiosk is the machine's state. Each state but Suspended has a timer
+// Display is the machine's state. Each state but Suspended has a timer
 // (Timer):
 //
 //	Suspended  the attract screen; no session
@@ -15,21 +15,21 @@ type Session { Screen Screen, Assist bool }
 //	Tapping    Taps quick corner taps so far; the window closes after
 //	           TapWindow
 //	Admin      the admin screen; it closes after AdminFor unused
-type Kiosk = Suspended{P Policy} | Waiting{P Policy, S Session} | Prompt{P Policy, S Session, Left int} | Tapping{P Policy, S Session, Taps int} | Admin{P Policy}
+type Display = Suspended{P Policy} | Waiting{P Policy, S Session} | Prompt{P Policy, S Session, Left int} | Tapping{P Policy, S Session, Taps int} | Admin{P Policy}
 
-// Signal is what the kiosk reads. The first seven come from outside: a
+// Signal is what the display reads. The first seven come from outside: a
 // touch, a screen opened, the assist switch, a tap in the hidden corner,
 // the one-second tick of the screen's clock, the user's own finish, and
 // leaving the admin screen. The last four are the states' timers; the
 // runner sends them, and drops one whose entry has ended.
 type Signal = Touch{} | Open{Screen Screen} | Assist{On bool} | CornerTap{} | Tick{} | Finish{} | Leave{} | Idle{} | Expired{} | WindowClosed{} | AdminIdle{}
 
-// Event is what the kiosk tells, each with the Emit of a step.
+// Event is what the display tells, each with the Emit of a step.
 type Event = Began{} | Abandoned{} | Ended{} | AdminOpened{} | AdminClosed{}
 
-// Begin is the first state of a kiosk with the policy p: the machine's
+// Begin is the first state of a display with the policy p: the machine's
 // start function, so the policy is its input (V4).
-func Begin(p Policy) Kiosk { Suspended{P: p} }
+func Begin(p Policy) Display { Suspended{P: p} }
 
 // WaitFor is how long a session waits idle before the prompt: the wait of
 // its screen, times the assist factor when assist is on.
@@ -56,7 +56,7 @@ func Seconds(d duration) int { int((int64(d) + 999999999) / 1000000000) }
 // entry opens and drops when the entry ends. Its wait is computed from
 // the state: a session on the home screen waits less than one on another
 // screen, and the assist mode waits longer.
-func Timer(k Kiosk) Option[Timeout[Signal]] {
+func Timer(k Display) Option[Timeout[Signal]] {
 	match k {
 	case Suspended:
 		None
@@ -71,11 +71,11 @@ func Timer(k Kiosk) Option[Timeout[Signal]] {
 	}
 }
 
-// Step is the kiosk's transition. Activity re-enters Waiting, which
+// Step is the display's transition. Activity re-enters Waiting, which
 // restarts its timer; a Tick in Prompt only stays, so it never moves the
 // prompt's deadline; the end of a session Emits its event and moves to
 // Suspended. A signal that means nothing in a state is Ignore.
-func Step(k Kiosk, s Signal) Decision[Kiosk, Event] {
+func Step(k Display, s Signal) Decision[Display, Event] {
 	match k {
 	case Suspended as z:
 		suspended(z, s)
@@ -90,11 +90,11 @@ func Step(k Kiosk, s Signal) Decision[Kiosk, Event] {
 	}
 }
 
-func enter(k Kiosk) Decision[Kiosk, Event] { Enter[Kiosk]{Next: k} }
+func enter(k Display) Decision[Display, Event] { Enter[Display]{Next: k} }
 
-func emit(k Kiosk, e Event) Decision[Kiosk, Event] { Emit[Kiosk, Event]{Next: k, Output: e} }
+func emit(k Display, e Event) Decision[Display, Event] { Emit[Display, Event]{Next: k, Output: e} }
 
-func suspended(z Suspended, s Signal) Decision[Kiosk, Event] {
+func suspended(z Suspended, s Signal) Decision[Display, Event] {
 	let home = Session{Screen: Home, Assist: false}
 	match s {
 	case Touch:
@@ -122,7 +122,7 @@ func suspended(z Suspended, s Signal) Decision[Kiosk, Event] {
 	}
 }
 
-func waiting(w Waiting, s Signal) Decision[Kiosk, Event] {
+func waiting(w Waiting, s Signal) Decision[Display, Event] {
 	match s {
 	case Touch:
 		enter(w)
@@ -151,7 +151,7 @@ func waiting(w Waiting, s Signal) Decision[Kiosk, Event] {
 
 // prompting: any activity continues the session, and only the prompt's
 // own timer abandons it.
-func prompting(p Prompt, s Signal) Decision[Kiosk, Event] {
+func prompting(p Prompt, s Signal) Decision[Display, Event] {
 	match s {
 	case Touch:
 		enter(Waiting{P: p.P, S: p.S})
@@ -162,7 +162,7 @@ func prompting(p Prompt, s Signal) Decision[Kiosk, Event] {
 	case CornerTap:
 		enter(Waiting{P: p.P, S: p.S})
 	case Tick:
-		Stay[Kiosk]{Next: Prompt{..p, Left: if p.Left > 0 { p.Left - 1 } else { 0 }}}
+		Stay[Display]{Next: Prompt{..p, Left: if p.Left > 0 { p.Left - 1 } else { 0 }}}
 	case Finish:
 		emit(Suspended{P: p.P}, Ended)
 	case Leave:
@@ -181,7 +181,7 @@ func prompting(p Prompt, s Signal) Decision[Kiosk, Event] {
 // tapping: each corner tap within the window re-enters Tapping, which
 // restarts the window; the fifth opens the admin screen. Any other
 // activity, or the window closing, goes back to the session.
-func tapping(t Tapping, s Signal) Decision[Kiosk, Event] {
+func tapping(t Tapping, s Signal) Decision[Display, Event] {
 	match s {
 	case Touch:
 		enter(Waiting{P: t.P, S: t.S})
@@ -214,7 +214,7 @@ func tapping(t Tapping, s Signal) Decision[Kiosk, Event] {
 
 // admin: a touch keeps the admin screen open; leaving it, or leaving it
 // unused, closes it and ends the session.
-func admin(a Admin, s Signal) Decision[Kiosk, Event] {
+func admin(a Admin, s Signal) Decision[Display, Event] {
 	match s {
 	case Touch:
 		enter(a)
@@ -242,7 +242,7 @@ func admin(a Admin, s Signal) Decision[Kiosk, Event] {
 }
 
 // Name is the word of a state, for the screen and the laws.
-func Name(k Kiosk) string {
+func Name(k Display) string {
 	match k {
 	case Suspended:
 		"suspended"

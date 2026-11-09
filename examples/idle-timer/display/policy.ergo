@@ -1,9 +1,9 @@
-// Package kiosk is a shared screen that ends a session nobody uses any
+// Package display is a shared screen that ends a session nobody uses any
 // more, as a machine whose timers the runner owns: a wait that depends on
 // the state, a prompt with its own deadline, and a window for a hidden
 // admin gesture. It is pure: no function needs a capability.
 
-// Policy is how long a kiosk waits: the input of its machine.
+// Policy is how long a display waits: the input of its machine.
 type Policy {
 	// StartWait is the wait on the home screen, ScreenWait on any other.
 	StartWait  duration,
@@ -22,12 +22,12 @@ type Policy {
 // AdminTaps is how many quick corner taps open the admin screen.
 let AdminTaps = 5
 
-// Standard is the policy of the machine in the laws and the sample kiosk.
+// Standard is the policy of the machine in the laws and the sample display.
 func Standard() Policy {
 	Policy{StartWait: 30s, ScreenWait: 60s, AssistFactor: 2, PromptFor: 10s, TapWindow: 600ms, AdminFor: 120s}
 }
 
-// BadPolicy is a policy a kiosk cannot run: every wait is positive, since
+// BadPolicy is a policy a display cannot run: every wait is positive, since
 // a timer that is not positive fires at once, and a state whose timer
 // re-enters it at once never lets time pass (runtime.md, Machines 9.1);
 // the factor is at least 1 and the prompt shows at least one second.

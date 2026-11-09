@@ -1,4 +1,4 @@
-// The kiosk's one test is a timed run of the machine; ergo test runs the
+// The display's one test is a timed run of the machine; ergo test runs the
 // laws of laws.ergo itself (#162).
 
 import machines
@@ -23,7 +23,7 @@ func told(es []Event) string {
 	strings.Join(out, ", ")
 }
 
-test KioskRun {
+test DisplayRun {
 	// A session on the menu ends with Finish; a second one opens the admin
 	// screen with five quick taps, which closes when it is left unused for
 	// 120s; a third begins and is abandoned after the home wait and the

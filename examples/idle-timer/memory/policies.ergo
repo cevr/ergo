@@ -1,20 +1,20 @@
-// Package memory holds the in-memory providers of the kiosk contracts.
+// Package memory holds the in-memory providers of the display contracts.
 
-import idletimer/kiosk
+import idletimer/display
 
-// Fixed is a kiosk.Policies of two fixed kiosks: the lobby, with the
+// Fixed is a display.Policies of two fixed displays: the lobby, with the
 // standard waits, and the library, which waits longer.
 type Fixed {}
 
 func Names(_ Fixed) []string { []string{"lobby", "library"} }
 
-func Policy(_ Fixed, name string) kiosk.Policy fails kiosk.NoSuchKiosk {
+func Policy(_ Fixed, name string) display.Policy fails display.NoSuchDisplay {
 	match name {
 	case "lobby":
-		kiosk.Standard()
+		display.Standard()
 	case "library":
-		kiosk.Policy{StartWait: 45s, ScreenWait: 90s, AssistFactor: 3, PromptFor: 15s, TapWindow: 600ms, AdminFor: 60s}
+		display.Policy{StartWait: 45s, ScreenWait: 90s, AssistFactor: 3, PromptFor: 15s, TapWindow: 600ms, AdminFor: 60s}
 	case _:
-		kiosk.NoSuchKiosk{Name: name}
+		display.NoSuchDisplay{Name: name}
 	}
 }

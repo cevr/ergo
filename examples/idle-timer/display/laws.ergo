@@ -1,4 +1,4 @@
-// The rules of the kiosk as laws of its machine, Idler (MU6). Three laws
+// The rules of the display as laws of its machine, Idler (MU6). Three laws
 // read one step over every session and signal. The timed laws run by
 // machines.RunTimed on a testing.VirtualClock: the runner's timers fire at their
 // deadlines, and a timer of an ended entry is dropped. Each timed law
@@ -9,13 +9,13 @@ import strings
 import testing
 import time
 
-// Run is the kiosk with the Standard policy over trace, until end: its
+// Run is the display with the Standard policy over trace, until end: its
 // last state and what it told. Step never rejects, so the run never fails
 // Rejected; a run that did would show as Suspended with no events.
-type Run { Last Kiosk, Told []Event }
+type Run { Last Display, Told []Event }
 
-// run runs the kiosk on a fresh VirtualClock, the one clock of the run's
-// timers: the run sleeps hours of the kiosk's time in no wall time.
+// run runs the display on a fresh VirtualClock, the one clock of the run's
+// timers: the run sleeps hours of the display's time in no wall time.
 func run(trace []machines.Timed[Signal], end duration) Run {
 	let c = testing.NewVirtualClock(0)
 	with context { Scheduler: c, time.Clock: c } { timed(trace, end) }
@@ -28,9 +28,9 @@ func timed(trace []machines.Timed[Signal], end duration) Run needs time.Clock | 
 		return Run{Last: Suspended{P: Standard()}, Told: []Event{}}
 	}
 	match o {
-	case machines.Running[Kiosk, Event] as r:
+	case machines.Running[Display, Event] as r:
 		Run{Last: r.State, Told: r.Emitted}
-	case machines.Finished[Kiosk, Event] as f:
+	case machines.Finished[Display, Event] as f:
 		Run{Last: f.State, Told: f.Emitted}
 	}
 }
@@ -66,13 +66,13 @@ func Count(es []Event, word string) int {
 
 // endsTold is whether the decision d ends no session in silence: a move
 // to Suspended is an Emit, which tells its event.
-func endsTold(d Decision[Kiosk, Event]) bool {
+func endsTold(d Decision[Display, Event]) bool {
 	match d {
-	case Emit[Kiosk, Event]:
+	case Emit[Display, Event]:
 		true
-	case Enter[Kiosk] as e:
+	case Enter[Display] as e:
 		Name(e.Next) != "suspended"
-	case Stay[Kiosk] as st:
+	case Stay[Display] as st:
 		Name(st.Next) != "suspended"
 	case Ignore:
 		true
@@ -86,19 +86,19 @@ func endsTold(d Decision[Kiosk, Event]) bool {
 // sessions are the states of a session under the Standard policy, with
 // the screen and assist of s, and a tap count that is the first one or,
 // when last, the one before AdminTaps.
-func sessions(s Session, last bool) []Kiosk {
+func sessions(s Session, last bool) []Display {
 	let p = Standard()
 	let taps = if last { AdminTaps - 1 } else { 1 }
-	[]Kiosk{Waiting{P: p, S: s}, Prompt{P: p, S: s, Left: 1}, Tapping{P: p, S: s, Taps: taps}, Admin{P: p}}
+	[]Display{Waiting{P: p, S: s}, Prompt{P: p, S: s, Left: 1}, Tapping{P: p, S: s, Taps: taps}, Admin{P: p}}
 }
 
-// Idler is the kiosk as a machine: its input is a Policy; it starts
+// Idler is the display as a machine: its input is a Policy; it starts
 // Suspended, moves by Step, and its states' timers are Timer. Its laws
 // follow (MU6). The laws over a session and a signal take every value of
 // their parameters, which can be listed, so ergo test proves them; Wakes
 // starts from generated policies, and the timed laws draw their times from
 // integers, so those are sampled (types.md Laws 10).
-type Idler machine[Kiosk, Signal] {
+type Idler machine[Display, Signal] {
 	initial: Begin,
 	step:    Step,
 	after:   Timer,
@@ -109,7 +109,7 @@ type Idler machine[Kiosk, Signal] {
 	// OnlyIdlePrompts: in a session, the prompt comes only from the Idle
 	// timer, on every screen, with assist on or off.
 	law OnlyIdlePrompts(s Session, sig Signal) {
-		let w Kiosk = Waiting{P: Standard(), S: s}
+		let w Display = Waiting{P: Standard(), S: s}
 		strings.HasPrefix(Name(machines.Next(w, Step(w, sig))), "prompt") == (sig == Idle)
 	},
 
