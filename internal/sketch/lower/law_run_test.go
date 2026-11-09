@@ -559,13 +559,31 @@ func TestLawRunFindsTheBrokenProvider(t *testing.T) {
 	}
 }
 
-// lawRunFiles provides fs.Files three ways. Flaky's reads of a path
-// alternate NotFound and "x"; Shifty's alternate Denied and NotFound; so
-// neither keeps fs.Files.ReadIsRepeatable. Steady fails the empty path
-// with NotFound every time and reads "x" otherwise, so it keeps it, its
-// failures included (batch-12 M2).
+// lawRunFiles provides fs.Files four ways. Drifty's reads of a path both
+// fail NotFound, the second naming another path; Flaky's alternate
+// NotFound and "x"; Shifty's alternate Denied and NotFound; so none keeps
+// fs.Files.ReadIsRepeatable. Steady fails the empty path with NotFound
+// every time and reads "x" otherwise, so it keeps it, its failures
+// included (batch-12 M2, M2a).
 const lawRunFiles = `import fs
 import sync
+
+type Drifty { reads sync.Ref[int] }
+
+func NewDrifty() Drifty { Drifty{reads: sync.NewRef[int](0)} }
+
+func ReadFile(f Drifty, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	let n = f.reads.Get()
+	f.reads.Set(n + 1)
+	if n % 2 == 0 {
+		return fs.NotFound{Path: path}
+	}
+	fs.NotFound{Path: path + "/other"}
+}
+
+func ReadDir(f Drifty, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+func Stat(f Drifty, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
 type Flaky { reads sync.Ref[int] }
 
@@ -619,11 +637,13 @@ func main() {}
 
 // TestLawRunReadIsRepeatable: the std law fs.Files.ReadIsRepeatable
 // compares both reads' outcomes, so it refutes a provider whose reads
-// alternate a failure and a text (Flaky) or two failure kinds (Shifty),
-// and holds for a steady one. fstest.Memory and the disk keep it in
-// TestFSMemoryAgreesWithHost and TestStdHostLawsHold. Mutants it kills: a
-// first failed read that holds the law vacuously (Flaky passes), and a
-// second failure that is not compared with the first (Shifty passes). It
+// alternate a failure and a text (Flaky), two failure kinds (Shifty) or
+// one kind with other fields (Drifty), and holds for a steady one.
+// fstest.Memory and the disk keep it in TestFSMemoryAgreesWithHost and
+// TestStdHostLawsHold. Mutants it kills: a first failed read that holds
+// the law vacuously (Flaky passes), a second failure that is not compared
+// with the first (Shifty passes), and a same-kind arm that compares no
+// field (Drifty passes). It
 // builds Go because the law runner, its provider builds and its seeded
 // cases exist only in the lowered test binary, and Flaky's state is a
 // sync.Ref that only the runtime runs; no in-process interpreter runs a
@@ -636,10 +656,11 @@ func TestLawRunReadIsRepeatable(t *testing.T) {
 	stdout, stderr, code := runExeArgs(t, exes["lawrun_files"], "--seed", "7")
 	got := lines(stdout)
 	want := []string{
+		"FAIL law fs.Files.ReadIsRepeatable for Drifty (case ",
 		"FAIL law fs.Files.ReadIsRepeatable for Flaky (case ",
 		"FAIL law fs.Files.ReadIsRepeatable for Shifty (case ",
 		"ok law fs.Files.ReadIsRepeatable for Steady (",
-		"FAIL (2 of 3 tests)",
+		"FAIL (3 of 4 tests)",
 	}
 	if code != 1 || len(got) != len(want) {
 		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
