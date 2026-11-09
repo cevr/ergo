@@ -93,7 +93,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Variant** (checked): One struct type listed in a union. A variant value is assignable to every union that lists it.
 
-**Defaultable type**: A type with a valid zero value: a basic type, or a struct whose fields are all defaultable. Unions, capabilities, function types, tasks, resources and borrows are not defaultable. Outside its package, a struct with an unexported field is not defaultable either, so its only values there come from the package's exported functions (construction authority, S114).
+**Defaultable type**: A type with a valid zero value: a basic type, a slice, a Map, a record with no fields, or a tuple of these. A record with fields is not defaultable: it is built only by a literal that names every field or by a record update (owner q44, 2026-11-09; [types](docs/spec/types.md#zero-values-and-definite-initialisation) Zero values 2). Unions, capabilities, function types, tasks, resources and borrows are not defaultable.
 
 **Definite initialisation** (checked for `var x T`; the rest designed, [#197](https://github.com/cevr/ergo/issues/197)): The rule that a variable of a non-defaultable type has a value before it is used.
 
