@@ -1,0 +1,26 @@
+page 1/2: 1 burger 6.50, 2 fries 2.50, 3 meal 1.00 | basket: 0 lines, 0.00
+> search
+search "":  | basket: 0 lines, 0.00
+> type r
+search "r": 1 burger 6.50, 2 fries 2.50, 3 wrap 6.00 | basket: 0 lines, 0.00
+> open 2
+editing fries | basket: 0 lines, 0.00
+  fries x1 2.50: add, more, less or back
+> more
+editing fries | basket: 0 lines, 0.00
+  fries x2 2.50: add, more, less or back
+> add
+search "r": 1 burger 6.50, 2 fries 2.50, 3 wrap 6.00 | basket: 1 lines, 5.00
+> open 9
+(refused)
+search "r": 1 burger 6.50, 2 fries 2.50, 3 wrap 6.00 | basket: 1 lines, 5.00
+> close
+page 1/2: 1 burger 6.50, 2 fries 2.50, 3 meal 1.00 | basket: 1 lines, 5.00
+> next
+page 2/2: 1 wrap 6.00, 2 salad 3.00, 3 family 0.00 | basket: 1 lines, 5.00
+> prev
+page 1/2: 1 burger 6.50, 2 fries 2.50, 3 meal 1.00 | basket: 1 lines, 5.00
+> checkout
+order: 5.00
+  2x fries 2.50
+kitchen: ticket 16, 1 to make

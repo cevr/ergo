@@ -96,10 +96,11 @@ type releaser struct{ regs chan sleep }
 
 func (r releaser) Sleep(t *rt.Task, d time.Duration) {
 	s := sleep{d: d, release: make(chan struct{})}
+	stop := t.Done() // the sleep is registered: the runner's arm returns
 	r.regs <- s
 	select {
 	case <-s.release:
-	case <-t.Done():
+	case <-stop:
 		panic(rt.Interrupted)
 	}
 }

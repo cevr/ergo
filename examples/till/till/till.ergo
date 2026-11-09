@@ -1,0 +1,154 @@
+// Package till is a shop till: a basket, a payment of one or more
+// tenders, and a receipt screen. The till is a machine whose Paying phase
+// hosts a child, the payment runner, which hosts a child per tender: the
+// charges run at once, and their answers climb back up as signals of the
+// entry that started them.
+
+import actor
+import machines
+
+// Line is an item of the basket and its price in cents.
+type Line { Item string, Price int }
+
+// Sale is the till's state.
+type Sale =
+	| Basket{Lines []Line, Note string, Gateway Payments}
+	| Paying{Lines []Line, Tenders []Tender, Gateway Payments}
+	| Voiding{Lines []Line, Refs []Ref, Why string, Gateway Payments}
+	| Receipt{Lines []Line, Refs []Ref}
+
+// Signal is what the till takes: the person's touches, and the outputs of
+// its phases' children and work.
+type Signal =
+	| Add{Item string, Price int}
+	| Pay{Tenders []Tender}
+	| Void{}
+	| Touch{}
+	| TendersTaken{Refs []Ref}
+	| TendersDeclined{Refs []Ref, Why string}
+	| Refunded{}
+	| Idle{}
+
+// Result is how a sale ends.
+type Result = Sold{Total int, Refs []Ref} | Voided{}
+
+// ReceiptWait is how long the receipt stays with no touch.
+func ReceiptWait() duration { 60s }
+
+type Till machine[Sale, Signal] { initial: Open, step: Step, after: timer, work: work }
+
+// Open is an empty basket that pays through gateway. The gateway is a
+// value in the state, not a capability in the work's row: the row of a
+// work that starts children holds Scheduler, and a row of two
+// capabilities cannot be written as Work's type argument (finding F8).
+func Open(gateway Payments) Sale { Basket{Lines: []Line{}, Note: "", Gateway: gateway} }
+
+// Total is the price of the lines.
+func Total(lines []Line) int {
+	let mut n = 0
+	for l in lines {
+		n = n + l.Price
+	}
+	n
+}
+
+// payable reports whether the tenders pay the basket exactly, each with
+// a positive amount.
+func payable(lines []Line, tenders []Tender) bool {
+	let mut ok = len(lines) > 0 && len(tenders) > 0 && Sum(tenders) == Total(lines)
+	for t in tenders {
+		ok = ok && AmountOf(t) > 0
+	}
+	ok
+}
+
+// Step is the till's step.
+func Step(s Sale, e Signal) Decision[Sale, Result] {
+	match (s, e) {
+	case (Basket as b, Add as a):
+		if a.Price > 0 {
+			Stay[Sale]{Next: Basket{..b, Lines: b.Lines.Append(Line{Item: a.Item, Price: a.Price}), Note: ""}}
+		} else {
+			Reject
+		}
+	case (Basket as b, Pay as p):
+		if payable(b.Lines, p.Tenders) {
+			Enter[Sale]{Next: Paying{Lines: b.Lines, Tenders: p.Tenders, Gateway: b.Gateway}}
+		} else {
+			Reject
+		}
+	case (Basket, Void):
+		Done[Result]{Output: Voided}
+	case (Basket, _):
+		Ignore
+	case (Paying as p, TendersTaken as t):
+		Enter[Sale]{Next: Receipt{Lines: p.Lines, Refs: t.Refs}}
+	case (Paying as p, TendersDeclined as d):
+		if len(d.Refs) == 0 {
+			Enter[Sale]{Next: Basket{Lines: p.Lines, Note: d.Why, Gateway: p.Gateway}}
+		} else {
+			Enter[Sale]{Next: Voiding{Lines: p.Lines, Refs: d.Refs, Why: d.Why, Gateway: p.Gateway}}
+		}
+	case (Paying, Void):
+		// A payment in flight is never abandoned: a charge may be taken.
+		Reject
+	case (Paying, _):
+		Ignore
+	case (Voiding as v, Refunded):
+		Enter[Sale]{Next: Basket{Lines: v.Lines, Note: "\(v.Why); \(len(v.Refs)) refunded", Gateway: v.Gateway}}
+	case (Voiding, _):
+		Ignore
+	case (Receipt as r, Touch):
+		// A touch re-enters the receipt, so its timer starts again.
+		Enter[Sale]{Next: r}
+	case (Receipt as r, Idle):
+		Done[Result]{Output: Sold{Total: Total(r.Lines), Refs: r.Refs}}
+	case (Receipt, _):
+		Ignore
+	}
+}
+
+func timer(s Sale) Option[Timeout[Signal]] {
+	match s {
+	case Receipt:
+		Some{Timeout[Signal]{In: ReceiptWait(), Signal: Idle}}
+	case Basket:
+		None
+	case Paying:
+		None
+	case Voiding:
+		None
+	}
+}
+
+// outcome is the runner's output as a till signal.
+func outcome(o Outcome) Signal {
+	match o {
+	case AllTaken as a:
+		TendersTaken{Refs: a.Refs}
+	case SomeDeclined as d:
+		TendersDeclined{Refs: d.Refs, Why: d.Why}
+	}
+}
+
+// work: Paying hosts the payment runner as a child; Voiding refunds the
+// charges that were taken.
+func work(s Sale) Option[machines.Work[Signal, Scheduler]] {
+	match s {
+	case Paying as p:
+		Some{machines.Work{Listen: func(send func(e Signal)) needs Scheduler {
+			actor.Child(send, machines.Start(Runner{}, Plan{Tenders: p.Tenders, Gateway: p.Gateway}), 1, outcome)
+		}}}
+	case Voiding as v:
+		Some{machines.Work{Run: func() Signal {
+			for r in v.Refs {
+				v.Gateway.Refund(r)
+			}
+			Refunded
+		}}}
+	case Basket:
+		None
+	case Receipt:
+		None
+	}
+}

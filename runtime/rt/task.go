@@ -228,8 +228,13 @@ var wakers sync.Map
 // Done returns a channel that is closed when a stop is requested, for a
 // blocking wait that must also wake on a stop (I1, rule 5). Inside a masked
 // region it returns nil, so the wait is uninterruptible (I2). Call it from the
-// task's own goroutine.
+// task's own goroutine. Every wait of the runtime calls it after it has
+// registered what it waits for (a Sleep after its timer is armed), so it is
+// also the point where WhenWaiting's hook runs.
 func (t *Task) Done() <-chan struct{} {
+	if waitHooks.n.Load() != 0 {
+		t.fireWaitHook()
+	}
 	if t.regions.top != interruptible {
 		return nil
 	}
@@ -249,4 +254,38 @@ func (t *Task) Done() <-chan struct{} {
 	ch := t.stop
 	t.mu.Unlock()
 	return ch
+}
+
+// waitHooks holds the hooks of WhenWaiting, keyed by task, and how many
+// there are. A hook lives from WhenWaiting to the task's first wait, so the
+// count is almost always zero and Done pays one atomic load. The hooks are
+// outside Task so that a task keeps its allocation size class
+// (TestTraceHookKeepsTaskSize).
+var waitHooks struct {
+	n atomic.Int64
+	m sync.Map // *Task -> func()
+}
+
+// WhenWaiting runs f once, on t's goroutine, when t first reaches a wait of
+// the runtime (Done), after the wait has registered what it waits for. A
+// Sleep on a virtual clock has armed its timer by then, so a caller that
+// waits for f knows that an Advance fires the sleep. cancel removes the hook
+// if it has not run; call it when t ends. Call WhenWaiting from t's own
+// goroutine.
+func WhenWaiting(t *Task, f func()) (cancel func()) {
+	waitHooks.m.Store(t, f)
+	waitHooks.n.Add(1)
+	return func() {
+		if _, ok := waitHooks.m.LoadAndDelete(t); ok {
+			waitHooks.n.Add(-1)
+		}
+	}
+}
+
+// fireWaitHook runs and removes t's WhenWaiting hook, if t has one.
+func (t *Task) fireWaitHook() {
+	if f, ok := waitHooks.m.LoadAndDelete(t); ok {
+		waitHooks.n.Add(-1)
+		f.(func())()
+	}
 }

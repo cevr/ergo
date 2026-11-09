@@ -1,0 +1,131 @@
+// Package order is an order builder: a hub that browses a menu, searches
+// it, and opens an item editor as a child actor. A combo's editor opens a
+// nested editor of the same machine for each of its slots, so editors
+// nest as deep as the menu does, and each line is built inside its
+// parent's line.
+
+import actor
+import machines
+
+// Item is a menu item. A combo has slots, each a choice among items.
+type Item { Name string, Price int, Slots []Slot }
+
+type Slot { Name string, Choices []Item }
+
+// Line is an item as ordered: its unit price, its quantity, and the lines
+// of its slots.
+type Line { Item string, Price int, Qty int, Parts []Line }
+
+// Edit is an editor's state. Picking waits for the choice of the next
+// slot; Nested hosts the editor of that choice, whose address Sub the
+// state keeps so a screen can reach it.
+type Edit =
+	| Choosing{Item Item, Qty int, Parts []Line}
+	| Picking{Item Item, Qty int, Parts []Line}
+	| Nested{Item Item, Qty int, Parts []Line, Choice Item, Sub Option[actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]]}
+
+type EditSignal =
+	| More{}
+	| Less{}
+	| Choose{Index int}
+	| Add{}
+	| Back{}
+	| Opened{Sub actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]}
+	| PartAdded{L Line}
+	| PartBack{}
+
+// EditOut is how an editor ends: the line it built, or back with nothing.
+type EditOut = Added{L Line} | WentBack{}
+
+type Editor machine[Edit, EditSignal] { initial: editing, step: editStep, work: editWork }
+
+func editing(it Item) Edit { settle(Choosing{Item: it, Qty: 1, Parts: []Line{}}) }
+
+// settle is the eventless step: a combo with a slot left picks it first.
+func settle(e Edit) Edit {
+	match e {
+	case Choosing as c:
+		if len(c.Parts) < len(c.Item.Slots) {
+			Picking{Item: c.Item, Qty: c.Qty, Parts: c.Parts}
+		} else {
+			e
+		}
+	case Picking:
+		e
+	case Nested:
+		e
+	}
+}
+
+// LineOf is the line of an item with its parts: the unit price is the
+// item's and its parts'.
+func LineOf(it Item, qty int, parts []Line) Line {
+	let mut price = it.Price
+	for p in parts {
+		price = price + p.Price*p.Qty
+	}
+	Line{Item: it.Name, Price: price, Qty: qty, Parts: parts}
+}
+
+func editStep(s Edit, e EditSignal) Decision[Edit, EditOut] {
+	match (s, e) {
+	case (Choosing as c, More):
+		Stay[Edit]{Next: Choosing{..c, Qty: c.Qty + 1}}
+	case (Choosing as c, Less):
+		if c.Qty > 1 {
+			Stay[Edit]{Next: Choosing{..c, Qty: c.Qty - 1}}
+		} else {
+			Reject
+		}
+	case (Choosing as c, Add):
+		Done[EditOut]{Output: Added{L: LineOf(c.Item, c.Qty, c.Parts)}}
+	case (Choosing, Back):
+		Done[EditOut]{Output: WentBack}
+	case (Choosing, _):
+		Ignore
+	case (Picking as p, Choose as ch):
+		let choices = p.Item.Slots[len(p.Parts)].Choices
+		if ch.Index >= 0 && ch.Index < len(choices) {
+			Enter[Edit]{Next: Nested{Item: p.Item, Qty: p.Qty, Parts: p.Parts, Choice: choices[ch.Index], Sub: None}}
+		} else {
+			Reject
+		}
+	case (Picking, Back):
+		Done[EditOut]{Output: WentBack}
+	case (Picking, _):
+		Ignore
+	case (Nested as n, Opened as o):
+		Stay[Edit]{Next: Nested{..n, Sub: Some{o.Sub}}}
+	case (Nested as n, PartAdded as a):
+		Enter[Edit]{Next: settle(Choosing{Item: n.Item, Qty: n.Qty, Parts: n.Parts.Append(a.L)})}
+	case (Nested as n, PartBack):
+		Enter[Edit]{Next: Picking{Item: n.Item, Qty: n.Qty, Parts: n.Parts}}
+	case (Nested, _):
+		Ignore
+	}
+}
+
+// toPart is a nested editor's end as a signal of its parent editor.
+func toPart(o EditOut) EditSignal {
+	match o {
+	case Added as a:
+		PartAdded{L: a.L}
+	case WentBack:
+		PartBack
+	}
+}
+
+// editWork: Nested hosts the editor of its choice, a child of the entry,
+// and tells its own editor the child's address.
+func editWork(s Edit) Option[machines.Work[EditSignal, Scheduler]] {
+	match s {
+	case Nested as n:
+		Some{machines.Work{Listen: func(send func(e EditSignal)) needs Scheduler {
+			send(Opened{Sub: actor.Child(send, machines.Start(Editor{}, n.Choice), 4, toPart)})
+		}}}
+	case Choosing:
+		None
+	case Picking:
+		None
+	}
+}

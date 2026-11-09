@@ -1,0 +1,48 @@
+import machines
+
+// A charge (machine Charger) is one tender's authorisation: a child of the payment runner,
+// one per tender. Its work asks the gateway; its timer gives up after
+// 30 s with no answer. It ends with an Answer.
+type Charging = Authorizing{Index int, Tender Tender, Gateway Payments}
+
+type ChargeSignal = Approved{R Ref} | Refused | NoAnswer{}
+
+// Answer is a charge's end: the tender's index and how it went.
+type Answer = Taken{Index int, Tender Tender, R Ref} | Declined{Index int, Tender Tender, Why string}
+
+// ChargeWait is how long a charge waits for the gateway.
+func ChargeWait() duration { 30s }
+
+type Charger machine[Charging, ChargeSignal] { initial: authorize, step: chargeStep, after: chargeTimer, work: chargeWork }
+
+// authorize is the charge of the tender at index i.
+func authorize(at (int, Tender, Payments)) Charging {
+	let i, t, g = at
+	Authorizing{Index: i, Tender: t, Gateway: g}
+}
+
+func chargeStep(s Charging, e ChargeSignal) Decision[Charging, Answer] {
+	match (s, e) {
+	case (Authorizing as a, Approved as ok):
+		Done[Answer]{Output: Taken{Index: a.Index, Tender: a.Tender, R: ok.R}}
+	case (Authorizing as a, Refused as r):
+		Done[Answer]{Output: Declined{Index: a.Index, Tender: a.Tender, Why: r.Why}}
+	case (Authorizing as a, NoAnswer):
+		Done[Answer]{Output: Declined{Index: a.Index, Tender: a.Tender, Why: "no answer"}}
+	}
+}
+
+func chargeTimer(s Charging) Option[Timeout[ChargeSignal]] {
+	match s {
+	case Authorizing:
+		Some{Timeout[ChargeSignal]{In: ChargeWait(), Signal: NoAnswer}}
+	}
+}
+
+// chargeWork asks the gateway. Refused is a signal, so it needs no map.
+func chargeWork(s Charging) Option[machines.Work[ChargeSignal]] {
+	match s {
+	case Authorizing as a:
+		Some{machines.Work{Run: func() Ref fails Refused { try a.Gateway.Charge(a.Tender) }, OnSuccess: func(r Ref) ChargeSignal { Approved{R: r} }}}
+	}
+}

@@ -1,0 +1,25 @@
+screen: phone: __________
+> type 55512345678
+screen: phone: 5551234567
+> erase
+screen: phone: 555123456_
+> submit
+(refused)
+screen: phone: 555123456_
+> type 5
+screen: phone: 5551234565
+> submit
+screen: code for 5551234565: ____ (wrong so far: 0)
+> type 7654
+screen: code for 5551234565: 7654 (wrong so far: 0)
+> submit
+screen: code for 5551234565: ____ (wrong so far: 1)
+> phone
+(ignored)
+screen: code for 5551234565: ____ (wrong so far: 1)
+> type 5654
+screen: code for 5551234565: 5654 (wrong so far: 1)
+> submit
+welcome, member 4565 (p5551234565)
+> erase
+(the sign-in has ended)

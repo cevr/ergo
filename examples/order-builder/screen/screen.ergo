@@ -1,0 +1,317 @@
+// Package screen drives the order builder from a script of lines and
+// prints the hub's screen and the open editors, outermost first.
+//
+// Hub commands: next, prev, open N, search, type TEXT, close, checkout.
+// Editor commands go to the innermost open editor: more, less, choose N,
+// add, back. N counts from 1.
+
+import actor
+import io
+import machines
+import strconv
+import strings
+import orderbuilder/order
+
+// Command is a line of the script.
+type Command = ToHub{S order.HubSignal} | ToEditor{S order.EditSignal} | Unknown{Line string}
+
+func index(word string) Option[int] {
+	let n = strconv.Atoi(word) catch {
+	case strconv.Malformed:
+		return None
+	case strconv.OutOfRange:
+		return None
+	}
+	Some{n - 1}
+}
+
+// Parse reads a line.
+func Parse(line string) Command {
+	let words = strings.Fields(line)
+	if len(words) == 0 {
+		return Unknown{Line: line}
+	}
+	let arg = if len(words) > 1 { words[1] } else { "" }
+	match words[0] {
+	case "next":
+		ToHub{S: order.Next}
+	case "prev":
+		ToHub{S: order.Prev}
+	case "search":
+		ToHub{S: order.Search}
+	case "type":
+		ToHub{S: order.Type{Text: arg}}
+	case "close":
+		ToHub{S: order.Close}
+	case "checkout":
+		ToHub{S: order.Checkout}
+	case "open":
+		match index(arg) {
+		case Some[int] as i:
+			ToHub{S: order.Open{Index: i.Value}}
+		case None:
+			Unknown{Line: line}
+		}
+	case "choose":
+		match index(arg) {
+		case Some[int] as i:
+			ToEditor{S: order.Choose{Index: i.Value}}
+		case None:
+			Unknown{Line: line}
+		}
+	case "more":
+		ToEditor{S: order.More}
+	case "less":
+		ToEditor{S: order.Less}
+	case "add":
+		ToEditor{S: order.Add}
+	case "back":
+		ToEditor{S: order.Back}
+	case _:
+		Unknown{Line: line}
+	}
+}
+
+// Money is cents as d.cc.
+func Money(n int) string {
+	let c = n % 100
+	"\(n / 100).\(if c < 10 { "0" } else { "" })\(c)"
+}
+
+func names(items []order.Item) string {
+	let mut out = []string{}
+	for i, it in items {
+		out = out.Append("\(i + 1) \(it.Name) \(Money(it.Price))")
+	}
+	strings.Join(out, ", ")
+}
+
+func lineText(l order.Line) string {
+	let mut parts = []string{}
+	for p in l.Parts {
+		parts = parts.Append(lineText(p))
+	}
+	let inner = if len(parts) == 0 { "" } else { " [\(strings.Join(parts, ", "))]" }
+	"\(l.Qty)x \(l.Item) \(Money(l.Price))\(inner)"
+}
+
+func basket(lines []order.Line) string { "basket: \(len(lines)) lines, \(Money(order.Total(lines)))" }
+
+// HubText is the hub's screen.
+func HubText(h order.Hub) string {
+	match h {
+	case order.Shop as s:
+		match s.Screen {
+		case order.Browsing as b:
+			"page \(b.Page + 1)/\(len(s.Menu.Pages)): \(names(s.Menu.Pages[b.Page])) | \(basket(s.Basket))"
+		case order.Searching as q:
+			"search \"\(q.Query)\": \(names(order.Find(s.Menu, q.Query))) | \(basket(s.Basket))"
+		case order.Editing as e:
+			"editing \(e.Item.Name) | \(basket(s.Basket))"
+		}
+	}
+}
+
+// EditText is an editor's screen.
+func EditText(e order.Edit) string {
+	match e {
+	case order.Choosing as c:
+		"\(c.Item.Name) x\(c.Qty) \(Money(order.LineOf(c.Item, c.Qty, c.Parts).Price)): add, more, less or back"
+	case order.Picking as p:
+		let slot = p.Item.Slots[len(p.Parts)]
+		"\(p.Item.Name): choose \(slot.Name): \(names(slot.Choices))"
+	case order.Nested as n:
+		"\(n.Item.Name): \(n.Choice.Name) for \(n.Item.Slots[len(n.Parts)].Name)"
+	}
+}
+
+func hubSettled(h order.Hub) bool {
+	match order.ScreenOf(h) {
+	case order.Editing as e:
+		match e.Editor {
+		case Some:
+			true
+		case None:
+			false
+		}
+	case _:
+		true
+	}
+}
+
+func editSettled(e order.Edit) bool {
+	match e {
+	case order.Nested as n:
+		match n.Sub {
+		case Some:
+			true
+		case None:
+			false
+		}
+	case _:
+		true
+	}
+}
+
+func editing(h order.Hub) bool {
+	match order.ScreenOf(h) {
+	case order.Editing:
+		true
+	case _:
+		false
+	}
+}
+
+func nested(e order.Edit) bool {
+	match e {
+	case order.Nested:
+		true
+	case _:
+		false
+	}
+}
+
+// Run plays the script on standard input against a hub over menu.
+func Run(menu order.Menu) needs Console | io.Stdin | Scheduler | order.Kitchen {
+	let hub = actor.StartMachine(machines.Start(order.Builder{}, menu), 8, func(o order.Order) {})
+	Console.Println(HubText(hub.State()))
+	let mut ended = false
+	for line in io.Stdin.Lines() {
+		Console.Println("> \(line)")
+		if ended {
+			Console.Println("(the order has ended)")
+			continue
+		}
+		// The open editors, outermost first, each settled: its nested
+		// editor, if it has one, has started and told its address.
+		let mut chain = []actor.Actor[order.Edit, order.EditSignal, Decision[order.Edit, order.EditOut]]{}
+		let h = actor.WaitFor(hub, hubSettled) catch {
+		case actor.Stopped:
+			order.Start(menu)
+		}
+		let mut next = match order.ScreenOf(h) {
+		case order.Editing as e:
+			e.Editor
+		case _:
+			None
+		}
+		let mut going = true
+		for going {
+			match next {
+			case Some[actor.Actor[order.Edit, order.EditSignal, Decision[order.Edit, order.EditOut]]] as a:
+				chain = chain.Append(a.Value)
+				let st = actor.WaitFor(a.Value, editSettled) catch {
+				case actor.Stopped:
+					going = false
+					order.Choosing{Item: order.Item{Name: "", Price: 0, Slots: []order.Slot{}}, Qty: 1, Parts: []order.Line{}}
+				}
+				next = match st {
+				case order.Nested as n:
+					n.Sub
+				case _:
+					None
+				}
+			case None:
+				going = false
+			}
+		}
+		let mut refused = false
+		match Parse(line) {
+		case Unknown as u:
+			Console.Println("? unknown command: \(u.Line)")
+		case ToHub as c:
+			let d = hub.Ask(c.S) catch {
+			case actor.Stopped:
+				Ignore
+			}
+			match d {
+			case Done[order.Order] as o:
+				Console.Println("order: \(Money(o.Output.Total))")
+				for l in o.Output.Lines {
+					Console.Println("  \(lineText(l))")
+				}
+				let t = order.Kitchen.Send(o.Output) catch {
+				case order.Closed as shut:
+					Console.Println("kitchen: \(shut.Why)")
+					order.Ticket{Number: 0, Lines: 0}
+				}
+				if t.Number > 0 {
+					Console.Println("kitchen: ticket \(t.Number), \(t.Lines) to make")
+				}
+				ended = true
+			case Reject:
+				refused = true
+			case _:
+			}
+		case ToEditor as c:
+			if len(chain) == 0 {
+				Console.Println("(no editor is open)")
+			} else {
+				let target = chain[len(chain)-1]
+				let d = target.Ask(c.S) catch {
+				case actor.Stopped:
+					Ignore
+				}
+				match d {
+				case Done[order.EditOut]:
+					// The editor ended: wait for its parent to take its end.
+					if len(chain) == 1 {
+						actor.WaitFor(hub, func(x order.Hub) bool { !editing(x) }) catch {
+						case actor.Stopped:
+						}
+					} else {
+						actor.WaitFor(chain[len(chain)-2], func(e order.Edit) bool { !nested(e) }) catch {
+						case actor.Stopped:
+						}
+					}
+				case Reject:
+					refused = true
+				case _:
+				}
+			}
+		}
+		if refused {
+			Console.Println("(refused)")
+		}
+		if !ended {
+			view(hub)
+		}
+	}
+	hub.Stop()
+}
+
+// view prints the hub and its open editors once they are settled.
+func view(hub actor.Actor[order.Hub, order.HubSignal, Decision[order.Hub, order.Order]]) needs Console {
+	let h = actor.WaitFor(hub, hubSettled) catch {
+	case actor.Stopped:
+		return
+	}
+	Console.Println(HubText(h))
+	let mut next = match order.ScreenOf(h) {
+	case order.Editing as e:
+		e.Editor
+	case _:
+		None
+	}
+	let mut depth = 1
+	let mut going = true
+	for going {
+		match next {
+		case Some[actor.Actor[order.Edit, order.EditSignal, Decision[order.Edit, order.EditOut]]] as a:
+			let st = actor.WaitFor(a.Value, editSettled) catch {
+			case actor.Stopped:
+				return
+			}
+			Console.Println("\(strings.Repeat("  ", depth))\(EditText(st))")
+			depth = depth + 1
+			next = match st {
+			case order.Nested as n:
+				n.Sub
+			case _:
+				None
+			}
+		case None:
+			going = false
+		}
+	}
+}
