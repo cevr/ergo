@@ -96,6 +96,17 @@ import (
 //     parent's interruption (rt.GoShielded), so the runner stops them, in
 //     order; a work that started children waits for their stop before it
 //     ends, so no task ends before its children.
+//  14. Feeds (MU10): Feed admits a source as a feedStart envelope, so a
+//     Feed on an ended actor fails ActorStopped and its source never runs.
+//     The runner starts the source as a child task of its own (startFeed):
+//     it lives as long as the actor, not as its caller, and its sends are
+//     a sender's (rule 2: in the source's order, untagged, admitted as a
+//     Send is). When the actor ends, finish closes admission, so the
+//     source's next send raises rt.Interrupted and the source ends there,
+//     and then stops the source's task and waits for its end: no source
+//     runs after the actor's end, and the actor's stop interrupts a
+//     source that waits. A source that ends ends only its feed; a defect
+//     of a source ends the actor, as a work's defect does (rule 10).
 type Actor[S, E, D any] struct {
 	inbox   mailbox[envelope[S, E, D]] // in the Actor: no allocation of its own
 	task    *rt.Task
@@ -153,6 +164,13 @@ type Actor[S, E, D any] struct {
 	report   func(*rt.Task, error) bool
 	reported atomic.Bool
 
+	// feedQ holds the sources Feed admitted that the runner has not
+	// started yet, by id, guarded by feedMu (rule 14). A feedStart
+	// envelope names the one it starts.
+	feedMu  sync.Mutex
+	feedSeq uint64
+	feedQ   map[uint64]func(*rt.Task, func(E))
+
 	// The runner's own fields: only its goroutine reads or writes them.
 	cur *envelope[S, E, D] // the envelope in a step, nil between steps
 	// curEnv holds the envelope in a step, so taking one allocates
@@ -160,6 +178,7 @@ type Actor[S, E, D any] struct {
 	curEnv  envelope[S, E, D]
 	timer   *rt.Handle[struct{}]
 	working *rt.Handle[struct{}] // the entry's work, nil when it has none
+	feeds   []*feed              // the started sources that may still run (rule 14)
 	epoch   uint64
 	bound   bool // the runner's task is in owners, as nil (runner)
 }
@@ -183,6 +202,7 @@ const (
 	workSignal  // a signal a work sent, tagged with its entry's epoch
 	workDefect  // a work's or a child's defect: never dropped
 	childSignal // a child's output, tagged with its owner entry's epoch
+	feedStart   // a Feed: start the oldest source of feedQ (rule 14)
 )
 
 type envelope[S, E, D any] struct {
@@ -412,6 +432,9 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 		d, err = a.step(at, s, env.sig)
 	case workDefect:
 		return s, true, env.err
+	case feedStart:
+		a.startFeed(at, env.epoch)
+		return s, false, nil
 	default:
 		d, err = a.step(at, s, env.sig)
 	}
@@ -762,7 +785,8 @@ func (a *Actor[S, E, D]) publishLocked(s S) {
 }
 
 // release answers env as an ended actor does: an Ask with ActorStopped, a
-// State read with the last state; a Send or a timer is dropped.
+// State read with the last state and ActorStopped (State ignores it,
+// ActorLiveState returns it); a Send, a timer and a Feed are dropped.
 func (a *Actor[S, E, D]) release(env *envelope[S, E, D]) {
 	switch env.kind {
 	case askSignal:
@@ -771,8 +795,108 @@ func (a *Actor[S, E, D]) release(env *envelope[S, E, D]) {
 		a.mu.Lock()
 		s := a.state
 		a.mu.Unlock()
-		env.reply <- answer[S, D]{s: s}
+		env.reply <- answer[S, D]{s: s, err: ActorStopped{}}
 	}
+}
+
+// feed is a started source (rule 14): its task, and over once its body
+// returned with no exit to report, so the runner may forget it.
+type feed struct {
+	h    *rt.Handle[struct{}]
+	over atomic.Bool
+}
+
+// ActorFeed is std actor's feed(a, run) on the caller's task t (rule 14):
+// it admits run as a source of a, waiting for room as a Send does, and
+// returns once it is queued. The runner then starts run on a task of its
+// own, a child of the runner's, with send: send admits a signal as a Send
+// does, in run's order, and raises rt.Interrupted once a has ended, so run
+// ends there. It fails ActorStopped when a has ended or its Stop was
+// requested; run then never runs. A stop of t while it waits raises
+// rt.Interrupted.
+func ActorFeed[S, E, D any](t *rt.Task, a *Actor[S, E, D], run func(*rt.Task, func(E))) error {
+	a.feedMu.Lock()
+	a.feedSeq++
+	id := a.feedSeq
+	if a.feedQ == nil {
+		a.feedQ = map[uint64]func(*rt.Task, func(E)){}
+	}
+	a.feedQ[id] = run
+	a.feedMu.Unlock()
+	// The envelope names its source by id (in the epoch field, which a
+	// feedStart does not use), so a Feed whose Push fails takes back its
+	// own source and no other.
+	if err := a.inbox.Push(t, envelope[S, E, D]{kind: feedStart, epoch: id}); err != nil {
+		a.feedMu.Lock()
+		delete(a.feedQ, id)
+		a.feedMu.Unlock()
+		return ActorStopped{}
+	}
+	return nil
+}
+
+// startFeed starts the source the feedStart envelope names on a child task
+// of the runner's task at (rule 14). It first forgets the sources that
+// ended.
+func (a *Actor[S, E, D]) startFeed(at *rt.Task, id uint64) {
+	a.feedMu.Lock()
+	run := a.feedQ[id]
+	delete(a.feedQ, id)
+	a.feedMu.Unlock()
+	kept := a.feeds[:0]
+	for _, f := range a.feeds {
+		if !f.over.Load() {
+			kept = append(kept, f)
+		}
+	}
+	clear(a.feeds[len(kept):])
+	a.feeds = kept
+	f := &feed{}
+	holder := rt.NewScope(at)
+	f.h = rt.Go(&holder, a.span+" (feed)", func(ft *rt.Task) (struct{}, error) {
+		send := func(e E) {
+			if a.inbox.Push(ft, envelope[S, E, D]{kind: sendSignal, sig: e}) != nil {
+				// Closed: the actor ended, so the source ends here.
+				panic(rt.Interrupted)
+			}
+		}
+		_, err := guarded(ft, func(ft *rt.Task) (struct{}, error) {
+			run(ft, send)
+			return struct{}{}, nil
+		})
+		if err == nil || err == rt.Interrupted {
+			f.over.Store(true)
+			return struct{}{}, nil
+		}
+		// A defect of the source ends the actor (rule 10's rule): pushed,
+		// never dropped, or, when admission has closed, the feed's exit,
+		// which finish reads.
+		_, pushed := guarded(ft, func(ft *rt.Task) (struct{}, error) {
+			return struct{}{}, a.inbox.Push(ft, envelope[S, E, D]{kind: workDefect, err: err})
+		})
+		if pushed == nil {
+			f.over.Store(true)
+			return struct{}{}, nil
+		}
+		return struct{}{}, err
+	})
+	a.feeds = append(a.feeds, f)
+}
+
+// ActorLiveState is std actor's live(a) on the caller's task t: a State
+// read that fails ActorStopped when a has ended before it was answered
+// (std actor's Can reads it, MU10). It raises rt.Interrupted when t is
+// stopped while it waits.
+func ActorLiveState[S, E, D any](t *rt.Task, a *Actor[S, E, D]) (S, error) {
+	reply := a.takeReply()
+	if err := a.inbox.Push(t, envelope[S, E, D]{kind: stateRead, reply: reply.ch}); err != nil {
+		a.giveReply(reply)
+		var zero S
+		return zero, ActorStopped{}
+	}
+	r := a.await(t, reply.ch)
+	a.giveReply(reply)
+	return r.s, r.err
 }
 
 // finish ends the actor (rule 8) on the runner's goroutine, after the loop
@@ -795,6 +919,14 @@ func (a *Actor[S, E, D]) finish(exit error) {
 		}
 	}
 	a.timer, a.working = nil, nil
+	// The sources last (rule 14): admission is closed, so each one's next
+	// send raises; the stop interrupts one that waits.
+	for _, f := range a.feeds {
+		if err := f.h.Stop(); err != nil {
+			exit = join(exit, err)
+		}
+	}
+	a.feeds = nil
 	if a.cur != nil {
 		a.release(a.cur)
 		a.cur = nil
