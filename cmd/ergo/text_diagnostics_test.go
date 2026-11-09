@@ -18,7 +18,7 @@ func TestRunAndTestPrintFindingsAsText(t *testing.T) {
 	root := physicalTempDir(t)
 	cli := func(dir string, args ...string) (string, string, int) {
 		t.Helper()
-		stdout, stderr, code := runSmokeCLI(t, processDeadline, binary, dir, "", args...)
+		stdout, stderr, code := runSmokeCLI(t, binary, dir, "", args...)
 		return string(stdout), string(stderr), code
 	}
 	smokeWrite(t, root, "bad.ergo", "func main() needs Console {\n\tConsole.Println(nope)\n}\n\ntest T { assert true }\n")
@@ -66,7 +66,7 @@ func TestFormatFolder(t *testing.T) {
 	root := physicalTempDir(t)
 	cli := func(args ...string) (string, string, int) {
 		t.Helper()
-		stdout, stderr, code := runSmokeCLI(t, processDeadline, binary, root, "", args...)
+		stdout, stderr, code := runSmokeCLI(t, binary, root, "", args...)
 		return string(stdout), string(stderr), code
 	}
 	const messy, tidy = "func  f()  int {   1 }\n", "func f() int { 1 }\n"

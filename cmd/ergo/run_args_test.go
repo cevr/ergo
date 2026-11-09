@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // argvProgram prints each program argument on its own line, then "end".
@@ -88,7 +87,7 @@ func TestErgoRunPassesArguments(t *testing.T) {
 	command := exec.Command("go", "run", "./scripts/examples", "-root", root, "-ergo", binary, "argv")
 	command.Dir = repo
 	command.Env = append(os.Environ(), "XDG_CACHE_HOME="+xdg)
-	stdout, stderr, code := runSmokeCommand(t, 5*time.Minute, command)
+	stdout, stderr, code := runSmokeCommand(t, command)
 	if code != 0 || !strings.Contains(string(stdout), "ok argv/flags") || !strings.Contains(string(stdout), "ok argv/plain") {
 		t.Fatalf("scripts/examples argv after ergo run in its folder: exit %d\n%s\n%s", code, stdout, stderr)
 	}
