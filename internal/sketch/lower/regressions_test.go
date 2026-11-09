@@ -1,8 +1,288 @@
 package lower
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 )
+
+// TestReviewRegressions: the stage 2 round 1 review's probes, kept as
+// behaviors at the lowering boundary.
+//
+//   - B1: a *T dot call whose argument writes statements changes the
+//     receiver, not a copy (p02).
+//   - M1: a function value called from a pure function runs a with block
+//     in its body: the environment it receives is never nil (p18).
+//   - M2: a place is fixed before the value: a pointer and a slice reassigned
+//     by the value do not move the write (p03).
+//   - m1: an error type's text comes from its fields: a 196m String function
+//     on a field's type does not change it, and each kind of field has its
+//     text (p10), a generic error type's too when no field has a type
+//     parameter in its type.
+//   - m7: an entry that provides two capabilities is evaluated once: the
+//     two keys hold one value.
+func TestReviewRegressions(t *testing.T) {
+	needsBuild(t)
+	cases := []behavior{{
+		name: "ptrspill",
+		src: `type Counter { n int }
+
+func Add(c *Counter, k int) {
+	c.n = c.n + k
+}
+
+func three() int {
+	return 3
+}
+
+func main() needs Console {
+	let mut c = Counter{n: 0}
+	c.Add(three())
+	let mut cs = []Counter{Counter{n: 1}}
+	cs[0].Add(three())
+	if c.n == 3 && cs[0].n == 4 {
+		Console.Println("kept")
+	} else {
+		Console.Println("lost")
+	}
+}
+`,
+		stdout: "kept\n",
+	}, {
+		name: "nilenv",
+		src: `type Store { Get() int }
+
+type Mem { k int }
+
+func Get(m Mem) int {
+	return m.k
+}
+
+let W = context {
+	Store: Mem{k: 4},
+}
+
+func run(f func() int) int {
+	return f()
+}
+
+func main() needs Console {
+	let v = run(func() int {
+		return with W {
+			Store.Get()
+		}
+	})
+	if v == 4 {
+		Console.Println("ok")
+	}
+}
+`,
+		stdout: "ok\n",
+	}, {
+		name: "placeorder",
+		src: `type Box { v int }
+
+func main() needs Console {
+	let mut a = Box{v: 0}
+	let mut b = Box{v: 0}
+	let mut p = &a
+	let f = func() int {
+		p = &b
+		return 1
+	}
+	p.v = f()
+	if a.v == 1 && b.v == 0 {
+		Console.Println("pointer: target first")
+	}
+	let mut xs = []int{0}
+	let ys = []int{0}
+	let g = func() int {
+		xs = ys
+		return 2
+	}
+	xs[0] = g()
+	if ys[0] == 0 {
+		Console.Println("slice: target first")
+	}
+}
+`,
+		stdout: "pointer: target first\nslice: target first\n",
+	}, {
+		name: "errortext",
+		src: `type Inner { code int }
+
+func String(i Inner) string {
+	return "masked"
+}
+
+type Kind = Red | Blue
+
+type Red { n int }
+
+type Blue { m int }
+
+type Bad {
+	at Inner,
+	ok bool,
+	ratio float32,
+	wait duration,
+	tags []string,
+	kind Kind,
+	small int8,
+	big uint64,
+}
+
+func fail() fails Bad {
+	return Bad{at: Inner{code: 7}, ok: true, ratio: 0.1, wait: 1500ms, tags: []string{"a", "b"}, kind: Red{n: 1}, small: -3, big: 18446744073709551615}
+}
+
+func main() fails Bad needs Console {
+	Console.Println("start")
+	try fail()
+}
+`,
+		stdout: "start\n",
+		exit:   1,
+		stderr: []string{"error: Bad{at:{code:7} ok:true ratio:0.1 wait:1.5s tags:[a b] kind:{n:1} small:-3 big:18446744073709551615}\n"},
+	}, {
+		name: "genericerror",
+		src: `type Fault[T] { code int }
+
+func fail() fails Fault[int] {
+	return Fault[int]{code: 2}
+}
+
+func main() fails Fault[int] needs Console {
+	Console.Println("start")
+	try fail()
+}
+`,
+		stdout: "start\n",
+		exit:   1,
+		stderr: []string{"error: Fault{code:2}\n"},
+	}, {
+		// Stage 2 r2 B1: a dereferenced receiver is the pointee, with an
+		// effectful argument (q04) and a constant one (q10), and a field of a
+		// dereferenced pointer.
+		name: "derefreceiver",
+		src: `type Counter { n int }
+
+type Pair { c Counter }
+
+func Add(c *Counter, k int) { c.n = c.n + k }
+
+func three() int { return 3 }
+
+func main() needs Console {
+	let mut c = Counter{n: 0}
+	let p = &c
+	(*p).Add(three())
+	(*p).Add(3)
+	let mut pair = Pair{c: Counter{n: 1}}
+	let q = &pair
+	(*q).c.Add(three())
+	q.c.Add(1)
+	if c.n == 6 && pair.c.n == 5 {
+		Console.Println("kept")
+	} else {
+		Console.Println("lost")
+	}
+}
+`,
+		stdout: "kept\n",
+	}, {
+		// Stage 2 r2 M1: generated text functions take every local from a
+		// namer: a variant named v (q01), a type parameter named v or e, and
+		// a record named s, whose text function is texts (q09).
+		name: "textnames",
+		src: `type v { code int }
+
+type Other { n int }
+
+type U = v | Other
+
+type s { code int }
+
+type Bad { at U, list []s }
+
+type Gen[v] { code int }
+
+type Gen2[e] { code int }
+
+func fail(k int) fails Bad | Gen[int] | Gen2[int] {
+	if k == 0 {
+		return Bad{at: v{code: 7}, list: []s{s{code: 8}}}
+	}
+	if k == 1 {
+		return Gen[int]{code: 9}
+	}
+	return Gen2[int]{code: 10}
+}
+
+func main() fails Bad | Gen[int] | Gen2[int] needs Console {
+	Console.Println("start")
+	try fail(K)
+}
+`,
+		stdout: "start\n",
+		exit:   1,
+	}, {
+		name: "sharedonce",
+		// A named context is closed, so its provider cannot print; the provider
+		// holds a queue instead, a shared handle, and Store's push is visible
+		// through Reader only when both keys hold one evaluated value. (A
+		// slice is a value since value-rule: a write through a copy is never
+		// seen, so it cannot carry the state.)
+		src: `import queue
+
+type Store { Bump() }
+
+type Reader { Read() int }
+
+type Both { q queue.Queue[int] }
+
+func Bump(b Both) {
+	b.q.Push(1) catch {
+	case queue.Closed:
+	}
+}
+
+func Read(b Both) int { return b.q.Len() }
+
+let Shared = context {
+	Store, Reader: Both{q: queue.New[int](1)},
+}
+
+func main() needs Console {
+	with Shared {
+		Store.Bump()
+		if Reader.Read() == 1 {
+			Console.Println("one value")
+		} else {
+			Console.Println("two values")
+		}
+	}
+}
+`,
+		stdout: "one value\n",
+	}}
+	// textnames fails from main with each of its three error types.
+	var expanded []behavior
+	for _, c := range cases {
+		if c.name != "textnames" {
+			expanded = append(expanded, c)
+			continue
+		}
+		for k, text := range []string{"Bad{at:{code:7} list:[{code:8}]}", "Gen{code:9}", "Gen2{code:10}"} {
+			v := c
+			v.name = fmt.Sprintf("textnames%d", k)
+			v.src = strings.Replace(c.src, "fail(K)", fmt.Sprintf("fail(%d)", k), 1)
+			v.stderr = []string{"error: " + text + "\n"}
+			expanded = append(expanded, v)
+		}
+	}
+	runBehaviors(t, expanded)
+}
 
 // TestRefusalsBeforeGo: forms Go would reject or misread are refused at a
 // located construct, never passed to Go.
