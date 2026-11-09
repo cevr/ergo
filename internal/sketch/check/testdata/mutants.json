@@ -152,8 +152,7 @@
       "to": "\t\tif !(c.silent == 0) {",
       "rule": "irrefutable: irrefutable resolves the pattern of a let or a for binding against a value of type t (spec D-B5; 196v amended rule 4): a pattern that does not cover t is S103 naming one missing case, and its names still bind (D-D3's cascade rule).",
       "killers": [
-        "check:TestMatchArmsLinearPart1",
-        "check:TestMatchArmsLinearPart2"
+        "check:TestMatchArmsLinearPart5"
       ]
     },
     {
@@ -320,6 +319,72 @@
       "rule": "a catch on an expression that cannot fail is S108 (rows.md, Catch 1)",
       "killers": [
         "check:TestOneDiagnosticEach"
+      ]
+    },
+    {
+      "name": "t4-selfcall-rescan-worklist",
+      "origin": "wf10 T4 ts-growth-small (complexity mutant, self-call family)",
+      "file": "internal/sketch/check/worklist.go",
+      "from": "\t\t\tn := heap.Pop(&w.h).(*bodyNode)\n\t\t\tn.active = true",
+      "to": "\t\t\tn := heap.Pop(&w.h).(*bodyNode)\n\t\t\tw.steps += w.h.Len()\n\t\t\tn.active = true",
+      "rule": "the settling worklist visits each body and edge a bounded number of times: its steps are linear in bodies + edges (round 8 review M1)",
+      "killers": [
+        "check:TestSelfCallWorkLinearPart0"
+      ]
+    },
+    {
+      "name": "t4-match-rewalk-arms",
+      "origin": "wf10 T4 ts-growth-small (complexity mutant, match family)",
+      "file": "internal/sketch/check/total.go",
+      "from": "\t\tm.byCell[k] = cand\n\t\tif !ok {\n\t\t\treturn\n\t\t}\n\t\tfor _, i := range cand {\n\t\t\tif m.s.subsumes(q, m.rows[i]) {",
+      "to": "\t\tm.byCell[k] = cand\n\t\tif !ok {\n\t\t\treturn\n\t\t}\n\t\tm.s.charge(len(m.rows))\n\t\tfor _, i := range cand {\n\t\t\tif m.s.subsumes(q, m.rows[i]) {",
+      "rule": "a match arm's row is added against the earlier rows its first cell indexes, not every earlier arm: the proof work is linear in the arms (D16)",
+      "killers": [
+        "check:TestMatchArmsLinearPart0"
+      ]
+    },
+    {
+      "name": "t4-catch-rewalk-arms",
+      "origin": "wf10 T4 ts-growth-small (complexity mutant, catch family)",
+      "file": "internal/sketch/check/handlers.go",
+      "from": "\tid := c.types.id(it.t)\n\tc.types.charge(1)\n",
+      "to": "\tid := c.types.id(it.t)\n\tc.types.charge(1 + len(cs.mats))\n",
+      "rule": "a catch with n arms costs identity work linear in its arms (round 14 review M1)",
+      "killers": [
+        "check:TestCatchArmsWorkLinear"
+      ]
+    },
+    {
+      "name": "t4-withsite-scan-set",
+      "origin": "wf10 T4 ts-growth-small (complexity mutant, with-site family)",
+      "file": "internal/sketch/check/capset.go",
+      "from": "\twithStep(1)\n\tif n := s.extra[k]; n != nil {",
+      "to": "\twithStep(1 + s.size)\n\tif n := s.extra[k]; n != nil {",
+      "rule": "a with's membership test reads O(log n) nodes of its set, never the whole set (#229 done-when 2 and 3)",
+      "killers": [
+        "check:TestWithSiteWorkLinearPart1"
+      ]
+    },
+    {
+      "name": "t4-context-copy-per-frame",
+      "origin": "wf10 T4 ts-growth-small (complexity mutant, context budget family)",
+      "file": "internal/sketch/check/capset.go",
+      "from": "\tk, isKey := keyOf(t)\n\tif !isKey {\n\t\treturn s, true\n\t}\n",
+      "to": "\tk, isKey := keyOf(t)\n\tif !isKey {\n\t\treturn s, true\n\t}\n\tif m != nil && !m.step(s.size) {\n\t\treturn s, false\n\t}\n",
+      "rule": "a context summary's insertion copies its path, not the set: the context pass's charged work is O(log n) per capability (D16 as amended in rounds 18 and 20)",
+      "killers": [
+        "check:TestContextBudgetPart0"
+      ]
+    },
+    {
+      "name": "t4-scale-quadratic-dedup",
+      "origin": "wf10 T4 ts-growth-small (complexity mutant, scale fixture)",
+      "file": "internal/sketch/check/objects.go",
+      "from": "\ts.names[name] = o\n}",
+      "to": "\tcp := make(map[string]Object, len(s.names)+1)\n\tfor k, v := range s.names {\n\t\tcp[k] = v\n\t}\n\ts.names = cp\n\ts.names[name] = o\n}",
+      "rule": "the checker's allocation is linear in its input (TestCheckerScale; checkquad r1 and r2)",
+      "killers": [
+        "check:TestCheckerScalePart0"
       ]
     }
   ]
