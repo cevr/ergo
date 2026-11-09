@@ -47,6 +47,9 @@ import (
 
 // nameAll is the naming pass.
 func (l *lowerer) nameAll() {
+	if l.lib != "" {
+		l.nameExports()
+	}
 	l.declareNames()
 	for _, p := range l.sourcedPkgs() {
 		for _, tn := range l.canon.types(p) {
@@ -245,6 +248,14 @@ func (l *lowerer) adapterName(c check.Conversion) (key, base string, ok bool) {
 	to, ok := c.To.(*check.Named)
 	if c.Kind != check.ConvOperations || !ok {
 		return "", "", false
+	}
+	if to.Obj.Pkg.Host() {
+		// One adapter per Go interface (gointerface.go); a Go value needs
+		// none.
+		if hostSourced(c.From) {
+			return "", "", false
+		}
+		return goInterfaceKey(l, to), "goAs" + to.Obj.Name, true
 	}
 	var from string
 	if named, _, isNamed := opsSource(c.From); isNamed {

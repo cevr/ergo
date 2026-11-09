@@ -211,8 +211,12 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 		return val
 	case check.ConvOperations:
 		if n, ok := conv.To.(*check.Named); ok && n.Obj.Pkg.Host() {
-			// A Go value to a Go interface: Go's own implicit conversion.
-			return val
+			if hostSourced(conv.From) {
+				// A Go value to a Go interface: Go's own implicit conversion.
+				return val
+			}
+			// A value of the program to a Go interface: an adapter (IG11).
+			return fc.goInterface(conv, n, val, site)
 		}
 		return fc.operations(conv, val, site)
 	case check.ConvRow:

@@ -44,13 +44,16 @@ func (fc *funcCtx) goCallbacks(sig *check.Signature, args []syntax.Expr, vals []
 // slice or a Map a copy); fv's failure becomes Go's error
 // (v1.GoCallbackError: a go.Error Go's own error, so fs.SkipDir skips; any
 // other failure tunnelled).
-func (fc *funcCtx) goCallback(fv string, cb *check.Signature, fails bool, site syntax.Node) string {
+//
+// bound are arguments fv takes after the environment and before Go's: the
+// receiver of a Go interface's method (gointerface.go).
+func (fc *funcCtx) goCallback(fv string, cb *check.Signature, fails bool, site syntax.Node, bound ...string) string {
 	if len(cb.Results) > 1 {
 		ice(site, "a Go callback with more than one result")
 	}
 	return fc.envClosure(capturedEnv, "e", site, func(env string) (params []string, results, body string) {
 		ind := strings.Repeat("\t", fc.depth+1)
-		args := []string{env}
+		args := append([]string{env}, bound...)
 		for _, p := range cb.Params {
 			name := fc.scope.alloc("p")
 			params = append(params, name+" "+fc.goCallbackType(p.Type))
