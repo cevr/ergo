@@ -161,7 +161,7 @@ func (l *lowerer) reserveOk(pkgs []*check.Package) {
 }
 
 // okVariant is the Go name of g's comma-ok variant, queued for emission
-// once, or "" when g has none.
+// once (emitFuncBody with variant set), or "" when g has none.
 func (l *lowerer) okVariant(g *check.Func, gd *funcDecl) string {
 	if gd.ok != "" {
 		return gd.ok
@@ -170,64 +170,8 @@ func (l *lowerer) okVariant(g *check.Func, gd *funcDecl) string {
 		return ""
 	}
 	gd.ok = l.pkgName(okKey(g), g.Name+"Ok")
-	l.pending = append(l.pending, func() { l.emitOkVariant(gd) })
+	l.pending = append(l.pending, func() { l.emitFuncBody(gd, true) })
 	return gd.ok
-}
-
-// emitOkVariant writes the comma-ok variant of the callback fd: f's body
-// with its Option parameter replaced by a value and a flag, in the part
-// of main.go f's own body stands in.
-func (l *lowerer) emitOkVariant(fd *funcDecl) {
-	f := fd.fn
-	param := l.okShape(f)
-	site := syntax.Node(f.Decl.Name)
-	if param == nil {
-		ice(site, "the comma-ok variant of %s, which has none", f.Name)
-	}
-	b := &l.user
-	directives := l.isSourced(f.Pkg)
-	defer l.leave(l.enter(f.Decl.Name, f.Pkg))
-	if !directives {
-		b = &l.gen
-		if f.Pkg.Info != l.info {
-			saved := l.info
-			l.info = f.Pkg.Info
-			defer func() { l.info = saved }()
-		}
-	}
-	if l.bodyNeedsFrame(f.Decl.Body.List) {
-		ice(site, "the comma-ok variant of %s, whose body opens a frame scope", f.Name)
-	}
-	scope := newNamer(l.names)
-	fc := newFuncCtx(l, scope, directives)
-	fc.owner = f.Name
-	if directives {
-		l.recordDecl(fc.owner, f.Decl)
-	}
-	var parts []string
-	if !fd.pure {
-		fc.env = scope.alloc("env")
-		parts = append(parts, fc.env+" *"+l.env())
-	}
-	opt, _ := param.Type.(*check.Named)
-	if opt == nil || len(opt.TArgs) != 1 {
-		ice(site, "the Option parameter of %s has no value type", f.Name)
-	}
-	fc.okSubject = &okSubject{v: param, val: scope.alloc(param.Name), ok: scope.alloc("ok")}
-	parts = append(parts, fc.okSubject.val+" "+fc.goType(opt.TArgs[0]), fc.okSubject.ok+" bool")
-	fc.frame = newFrame(f.Sig.Results[0], false, framePolls(f.Pkg.Info, f.Decl))
-	results := fc.resultList(fc.frame.result, false)
-	directive := ""
-	if directives {
-		directive = l.directive(f.Decl)
-	}
-	fc.depth = 1
-	l.analyzeValues(f.Decl, f.Pkg.Info)
-	fc.closeBody(f, site, func() {
-		fc.entryPoll(f.Pkg.Info, f.Decl)
-		fc.body(f.Decl.Body.List)
-	})
-	b.WriteString(directive + "func " + fd.ok + "(" + strings.Join(parts, ", ") + ")" + results + " {\n" + fc.out.String() + "}\n\n")
 }
 
 // mapsUpdate reports std maps.Update.

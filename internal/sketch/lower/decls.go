@@ -840,7 +840,7 @@ func (l *lowerer) useFunc(f *check.Func, site syntax.Node) *funcDecl {
 	}
 	if fd.library && !fd.emitted {
 		fd.emitted = true
-		l.pending = append(l.pending, func() { l.emitFuncBody(fd) })
+		l.pending = append(l.pending, func() { l.emitFuncBody(fd, false) })
 	}
 	return fd
 }
@@ -851,11 +851,13 @@ func (l *lowerer) emitFunc(fd *funcDecl) {
 		return
 	}
 	fd.emitted = true
-	l.emitFuncBody(fd)
+	l.emitFuncBody(fd, false)
 }
 
-// emitFuncBody writes fd's Go declaration.
-func (l *lowerer) emitFuncBody(fd *funcDecl) {
+// emitFuncBody writes fd's Go declaration, or, when variant is set, its
+// comma-ok variant fd.ok: the same body with its Option parameter taken as
+// a value and a flag (update.go, okShape).
+func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) {
 	l.bodies++
 	f := fd.fn
 	b := &l.user
@@ -932,9 +934,12 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 	// own and keeps f's name for a wrapper that copies them (values.go, V5).
 	bodyName, wrapHead, wrapParams := fd.name, "", ""
 	var typeArgs, args []string
-	owned := fd.method == nil && fd.extern == "" && len(l.ownedParams(f)) > 0
+	owned := !variant && fd.method == nil && fd.extern == "" && len(l.ownedParams(f)) > 0
 	if owned {
 		bodyName = l.pkgName(ownedKey(f), f.Name+"Owned")
+	}
+	if variant {
+		bodyName = fd.ok
 	}
 	if fd.method != nil {
 		tps := map[*check.TypeParam]string{}
@@ -1002,6 +1007,17 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		if fd.method != nil && i == 0 {
 			continue
 		}
+		if variant {
+			// The Option parameter, which only the match reads, is the
+			// value and the flag of the caller's comma-ok read.
+			opt, _ := p.Type.(*check.Named)
+			if params[i] != l.okShape(f) || opt == nil || len(opt.TArgs) != 1 {
+				ice(site, "the comma-ok variant of %s, which has none", f.Name)
+			}
+			fc.okSubject = &okSubject{v: params[i], val: scope.alloc(params[i].Name), ok: scope.alloc("ok")}
+			parts = append(parts, fc.okSubject.val+" "+fc.goType(opt.TArgs[0]), fc.okSubject.ok+" bool")
+			continue
+		}
 		paramNames[i] = name(i)
 		parts = append(parts, paramNames[i]+" "+fc.goType(p.Type))
 		args = append(args, paramNames[i])
@@ -1059,7 +1075,9 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		fc.entryPoll(f.Pkg.Info, f.Decl)
 		fc.body(f.Decl.Body.List)
 	})
-	fd.lowered, fd.readsEnv = true, fc.env != "" && namesIdent(fc.out.String(), fc.env)
+	if !variant {
+		fd.lowered, fd.readsEnv = true, fc.env != "" && namesIdent(fc.out.String(), fc.env)
+	}
 	b.WriteString(directive + head.String() + " {\n" + fc.out.String() + "}\n\n")
 	if owned {
 		// The wrapper stands in the generated part, before the first
