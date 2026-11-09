@@ -1,30 +1,64 @@
-// The rules of the syntax as laws over Parse and Print.
+// The rules of the syntax as laws over Parse and Print. `ergo test` runs
+// them; the texts go through Scramble too, so they reach the metas.
 
 // RoundTrip: a sampled tree prints to a text that parses back to it.
 law RoundTrip(seed int) {
 	let n = Sample(seed)
-	Equal(try Parse(Print(n)), n)
+	(try Parse(Print(n))) == n
 }
 
 // ParsedIsCanonical: whatever text parses, its tree prints to a text
-// that parses back to the same tree.
-law ParsedIsCanonical(text string) {
+// that parses back to the same tree. The texts are text, its scramble,
+// and 20 printed samples with one byte cut out, which parse to many
+// shapes or fail.
+law ParsedIsCanonical(text string, seed int) {
+	if !canonical(text) || !canonical(Scramble(text)) {
+		return false
+	}
+	for k in 0..20 {
+		let src = Print(Sample(seed*20 + k))
+		if len(src) > 0 {
+			let cut = (seed + k) % len(src)
+			let at = if cut < 0 { cut + len(src) } else { cut }
+			if !canonical(src[:at] + src[at+1:]) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// canonical reports whether text fails to parse, or parses to a tree
+// that prints and parses back to itself.
+func canonical(text string) bool {
 	let n = Parse(text) catch {
 	case _:
 		return true
 	}
-	Equal(try Parse(Print(n)), n)
+	let back = Parse(Print(n)) catch {
+	case _:
+		return false
+	}
+	back == n
 }
 
 // LiteralRoundTrip: the literal of any text, metas included, prints and
 // parses back to itself.
 law LiteralRoundTrip(text string) {
-	let n = Literal(text)
-	Equal(try Parse(Print(n)), n)
+	for t in []string{text, Scramble(text)} {
+		let n = Literal(t)
+		if (try Parse(Print(n))) != n {
+			return false
+		}
+	}
+	true
 }
 
 // FailureIsInside: a failure of Parse names an offset inside the text.
-law FailureIsInside(text string) {
+law FailureIsInside(text string) { inside(text) && inside(Scramble(text)) }
+
+// inside reports whether Parse(text) succeeds or fails inside text.
+func inside(text string) bool {
 	let _ = Parse(text) catch {
 	case err:
 		let at = Offset(err)

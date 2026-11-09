@@ -10,9 +10,12 @@
 // group is not a node: (ab) is the Cat of a and b.
 
 // The failures of Parse. Each names the offset of the byte it is about.
-// SyntaxError gathers them, so one function can describe a caught row:
-// a row has no name (G-ex-c-14), but a union of its types takes it.
+// SyntaxError is their row, and one value of it can be described.
 type SyntaxError = Unclosed | Unopened | NothingToRepeat | TrailingEscape | UnclosedClass | BadRange
+
+// nested is the row of a part of the pattern: all but Unopened, which
+// only the whole pattern can find.
+type nested = Unclosed | NothingToRepeat | TrailingEscape | UnclosedClass | BadRange
 
 // Unclosed is a "(" with no ")".
 type Unclosed { At int }
@@ -39,7 +42,7 @@ type BadRange { At int, Text string }
 type parser { src string, at int }
 
 // Parse is the tree of the pattern text.
-func Parse(text string) Node fails Unclosed | Unopened | NothingToRepeat | TrailingEscape | UnclosedClass | BadRange {
+func Parse(text string) Node fails SyntaxError {
 	let mut p = parser{src: text, at: 0}
 	let n = try p.alternation()
 	if p.at < len(text) {
@@ -56,7 +59,7 @@ func more(p *parser) bool { p.at < len(p.src) }
 func peek(p *parser) byte { p.src[p.at] }
 
 // alternation reads cat { "|" cat }, left to right.
-func alternation(p *parser) Node fails Unclosed | NothingToRepeat | TrailingEscape | UnclosedClass | BadRange {
+func alternation(p *parser) Node fails nested {
 	let mut n = try p.concatenation()
 	for p.more() && p.peek() == '|' {
 		p.at += 1
@@ -68,7 +71,7 @@ func alternation(p *parser) Node fails Unclosed | NothingToRepeat | TrailingEsca
 
 // concatenation reads repeats up to a "|", a ")" or the end. None is
 // Empty, one is itself.
-func concatenation(p *parser) Node fails Unclosed | NothingToRepeat | TrailingEscape | UnclosedClass | BadRange {
+func concatenation(p *parser) Node fails nested {
 	let mut parts = []Node{}
 	for p.more() && p.peek() != '|' && p.peek() != ')' {
 		parts = parts.Append(try p.repetition())
@@ -83,7 +86,7 @@ func concatenation(p *parser) Node fails Unclosed | NothingToRepeat | TrailingEs
 }
 
 // repetition reads an atom and the "*", "+" and "?" after it.
-func repetition(p *parser) Node fails Unclosed | NothingToRepeat | TrailingEscape | UnclosedClass | BadRange {
+func repetition(p *parser) Node fails nested {
 	let mut n = try p.atom()
 	for p.more() {
 		match p.peek() {
@@ -102,7 +105,7 @@ func repetition(p *parser) Node fails Unclosed | NothingToRepeat | TrailingEscap
 }
 
 // atom reads one atom. The caller has seen a byte that is not "|" or ")".
-func atom(p *parser) Node fails Unclosed | NothingToRepeat | TrailingEscape | UnclosedClass | BadRange {
+func atom(p *parser) Node fails nested {
 	let start = p.at
 	let c = p.peek()
 	p.at += 1

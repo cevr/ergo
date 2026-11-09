@@ -42,59 +42,6 @@ func Literal(text string) Node {
 // .*n.* in the syntax.
 func Search(n Node) Node { Cat{Parts: []Node{Star{Of: Any}, n, Star{Of: Any}}} }
 
-// Equal reports whether a and b are the same tree. A Node holds slices,
-// so it has no == (G-ex-d-5).
-func Equal(a Node, b Node) bool {
-	match (a, b) {
-	case (Empty, Empty):
-		true
-	case (Lit as x, Lit as y):
-		x.C == y.C
-	case (Any, Any):
-		true
-	case (Class as x, Class as y):
-		x.Negated == y.Negated && sameSpans(x.Spans, y.Spans)
-	case (Cat as x, Cat as y):
-		sameNodes(x.Parts, y.Parts)
-	case (Alt as x, Alt as y):
-		Equal(x.Left, y.Left) && Equal(x.Right, y.Right)
-	case (Star as x, Star as y):
-		Equal(x.Of, y.Of)
-	case (Plus as x, Plus as y):
-		Equal(x.Of, y.Of)
-	case (Quest as x, Quest as y):
-		Equal(x.Of, y.Of)
-	case (_, _):
-		false
-	}
-}
-
-// sameSpans reports whether a and b hold the same spans in order.
-func sameSpans(a []Span, b []Span) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i, s in a {
-		if s != b[i] {
-			return false
-		}
-	}
-	true
-}
-
-// sameNodes reports whether a and b hold equal trees in order.
-func sameNodes(a []Node, b []Node) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i, n in a {
-		if !Equal(n, b[i]) {
-			return false
-		}
-	}
-	true
-}
-
 // Size is the number of nodes of n.
 func Size(n Node) int {
 	match n {

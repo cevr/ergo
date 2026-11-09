@@ -1,14 +1,14 @@
-// The NFA's tests: examples, the Engine laws and its own laws restated
-// as property tests (laws are checked, not run, #162). A property gets
-// 100 cases, so the seeded ones loop over 20 patterns per case.
+// The NFA's tests: examples, and the Engine laws restated as property
+// tests, since ergo test runs them only for providers in package engine
+// (G-exup-1). A property gets 100 cases, so the seeded ones loop over 20
+// patterns per case.
 
-import regex/backtrack
 import regex/engine
 import regex/syntax
 import strings
 
 // matches reports whether the NFA matches pattern, parsed, on text.
-func matches(pattern string, text string) bool fails syntax.Unclosed | syntax.Unopened | syntax.NothingToRepeat | syntax.TrailingEscape | syntax.UnclosedClass | syntax.BadRange {
+func matches(pattern string, text string) bool fails syntax.SyntaxError {
 	Compile(Engine, try syntax.Parse(pattern)).Matches(text)
 }
 
@@ -39,16 +39,6 @@ test ProgramsAreSmall {
 	assert p.Len() == 7
 }
 
-test AgreesWithBacktrackHolds(seed int) {
-	for k in 0..20 {
-		let s = seed*20 + k
-		let p = syntax.Sample(s)
-		for t in []string{syntax.SampleText(s), syntax.SampleText(s + 1), syntax.SampleText(s * 3), ""} {
-			assert Compile(Engine, p).Matches(t) == backtrack.Compile(backtrack.Engine, p).Matches(t)
-		}
-	}
-}
-
 // The samples are not vacuous: some patterns match their texts and some
 // do not, so AgreesWithBacktrack compares both answers.
 test SamplesMatchSometimes {
@@ -59,13 +49,6 @@ test SamplesMatchSometimes {
 		}
 	}
 	assert yes >= 40 && yes <= 360
-}
-
-test ProgramIsLinearHolds(seed int) {
-	for k in 0..20 {
-		let p = syntax.Sample(seed*20 + k)
-		assert Build(p).Len() <= syntax.Size(p)+1
-	}
 }
 
 test LiteralMatchesItselfHolds(text string) {

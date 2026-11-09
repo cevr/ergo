@@ -4,10 +4,16 @@ import regex/backtrack
 import regex/syntax
 
 // AgreesWithBacktrack: on every sampled pattern and text, the NFA and
-// the backtracking engine give the same answer.
+// the backtracking engine give the same answer. The texts are text, the
+// empty text, and two sampled texts, which the pattern often matches.
 law AgreesWithBacktrack(seed int, text string) {
 	let p = syntax.Sample(seed)
-	Compile(Engine, p).Matches(text) == backtrack.Compile(backtrack.Engine, p).Matches(text)
+	for t in []string{text, "", syntax.SampleText(seed), syntax.SampleText(seed + 1)} {
+		if Compile(Engine, p).Matches(t) != backtrack.Compile(backtrack.Engine, p).Matches(t) {
+			return false
+		}
+	}
+	true
 }
 
 // ProgramIsLinear: a program has at most one instruction per node of
