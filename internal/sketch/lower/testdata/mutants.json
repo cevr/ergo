@@ -661,8 +661,9 @@
       "from": "ruleParser = `the decided parser, which builds no such node`",
       "to": "ruleParser = `the decided parser, which builds no such node (196b lowers packages)`",
       "rule": "The rules that make a lowering site unreachable (unreachable, module.go).",
-      "killers": [],
-      "gap": "survived: no test kills it (runner, 2026-11-09)",
+      "killers": [
+        "lower:TestRefusalsNameOpenOwners"
+      ],
       "anchor": {
         "file": "internal/sketch/lower/module.go",
         "text": "\"; unreachable by \"+rule)",
@@ -681,8 +682,9 @@
       "from": "ruleParser = `the decided parser, which builds no such node`",
       "to": "ruleParser = `the decided parser, which builds no such node until #196 stage b`",
       "rule": "The rules that make a lowering site unreachable (unreachable, module.go).",
-      "killers": [],
-      "gap": "plan 2.3: TestRefusalsNameOpenOwners accepts the rule text; stage b may be open again (then the mutant is stale) or the test lost that check; the owner of the rule-text check decides",
+      "killers": [
+        "lower:TestRefusalsNameOpenOwners"
+      ],
       "anchor": {
         "file": "internal/sketch/lower/module.go",
         "text": "\"; unreachable by \"+rule)",
@@ -842,8 +844,9 @@
       "from": "\t\tif goBasicName(q.Type) != strings.TrimPrefix(p.args[i], \"=\") {",
       "to": "\t\tif !(goBasicName(q.Type) != strings.TrimPrefix(p.args[i], \"=\")) {",
       "rule": "meetsHostProtocol: meetsHostProtocol reports whether f lowers to a Go method whose name and Go signature, without an environment, are a host protocol's exactly (case a).",
-      "killers": [],
-      "gap": "plan 2.3: one test covers the line (TestPureMethodsMeetNoHostProtocolByAccident); no case has the same arity and a different parameter type"
+      "killers": [
+        "lower:TestProtocolParamsDecideTheMatch"
+      ]
     },
     {
       "name": "own-lower-3-negate-if-std.go:274",

@@ -113,6 +113,23 @@ func TestPureMethodsMeetNoHostProtocolByAccident(t *testing.T) {
 	}
 }
 
+// TestProtocolParamsDecideTheMatch checks in process that a method with a
+// protocol's name, its arity and its result, but another parameter type, is
+// pure and leaves the protocol's Go name (case b). It is the only cell where
+// the parameter comparison of meetsHostProtocol alone decides: Is and As
+// return bool, which Ergo spells, and take error or any, which no Ergo
+// parameter lowers to. Ledger mutant own-lower-2 (pure.go: negate the
+// parameter-type comparison) passes every other test.
+func TestProtocolParamsDecideTheMatch(t *testing.T) {
+	for _, name := range []string{"Is", "As"} {
+		src, _ := protocolProgram(name, "method", []string{"int"}, "bool")
+		got := envParams(t, mustLower(t, "proto_params_"+name, src).mainGo())
+		if env, ok := got["Rec."+name+"_"]; !ok || env {
+			t.Errorf("%s(r Rec, p0 int) bool: want the pure Go method Rec.%s_, have %v", name, name, got)
+		}
+	}
+}
+
 // protocolSignature is the Ergo parameter types and result of the subject
 // named name: for "matching", the protocol's own Go signature when every
 // type of it is an Ergo type's lowering (ok is false otherwise); for
@@ -176,6 +193,9 @@ func protocolProgram(name, kind string, params []string, result string) (string,
 		body, stdout = "r.Tag", "ab"
 		if result == "int" {
 			body, stdout = "len(r.Tag)", "2"
+		}
+		if result == "bool" {
+			body, stdout = "len(r.Tag) == 2", "true"
 		}
 	}
 	src := "type Rec { Tag string }\n\n" +
