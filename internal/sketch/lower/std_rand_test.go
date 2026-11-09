@@ -210,3 +210,160 @@ func TestStdRandLawsRun(t *testing.T) {
 		lawledger.Run(t, laws)
 	}
 }
+
+// TestRandEffectCases ports cases of Effect's Random tests
+// (packages/effect/test/Random.test.ts at the conformance pin 460272d3) to
+// std rand: each prints its output after a line "== <case id>", and each
+// is a subtest named after its case id in conformance/effect-cases.json.
+// Ergo's seeds are uint64, so each case seeds with its upstream line.
+// Where Effect checks only that two runs of one seed agree, the subtest
+// also holds the draws equal to the reference model, Go's math/rand/v2 on
+// rand.New(rand.NewPCG(seed, v1.RandSeedHi)). Effect's choice of an empty
+// collection fails; Ergo's is None and draws nothing (a difference row).
+//
+// It builds Go because it is the evidence of Effect conformance cases
+// (conformance/effect-cases.json): what the built program prints is each
+// case's outcome. Restored at the batch-13 integration: T5 cut it, which
+// left its cases with no evidence test.
+func TestRandEffectCases(t *testing.T) {
+	needsBuild(t)
+	const src = `import rand
+import slices
+
+func show(xs []int) string {
+	let mut s = ""
+	for i, x in xs {
+		if i > 0 {
+			s = s + " "
+		}
+		s = s + "\(x)"
+	}
+	s
+}
+
+func pick(xs []int) string needs Random {
+	match rand.Choice(xs) {
+	case Some[int] as v:
+		"\(v.Value)"
+	case None:
+		"none"
+	}
+}
+
+func inUnit(n int) bool needs Random {
+	let mut ok = true
+	let mut i = 0
+	for i < n {
+		let f = Random.Float64()
+		if f < 0.0 || f >= 1.0 {
+			ok = false
+		}
+		i = i + 1
+	}
+	ok
+}
+
+// bools draws Effect's nextBoolean three times: Float64() > 0.5.
+func bools() string needs Random {
+	let a = Random.Float64() > 0.5
+	let b = Random.Float64() > 0.5
+	let c = Random.Float64() > 0.5
+	"\(a) \(b) \(c)"
+}
+
+func choices() string needs Random {
+	let xs = []int{1, 2, 3, 4, 5}
+	let a = pick(xs)
+	let b = pick(xs)
+	let c = pick(xs)
+	a + " " + b + " " + c
+}
+
+func main() needs Console | Ambient {
+	// Random.test.ts:8, next - generates a number between 0 inclusive and 1 exclusive
+	Console.Println("== effect.random.next-in-unit")
+	let host = with context { Random: rand.NewHost() } { inUnit(1000) }
+	let seeded = with context { Random: rand.Seeded(8) } { inUnit(1000) }
+	Console.Println("\(host) \(seeded)")
+
+	// Random.test.ts:25, nextBoolean - is deterministic with the same seed
+	Console.Println("== effect.random.next-boolean-seed")
+	let b1 = with context { Random: rand.Seeded(25) } { bools() }
+	let b2 = with context { Random: rand.Seeded(25) } { bools() }
+	Console.Println(b1)
+	Console.Println(b2)
+
+	// Random.test.ts:175, shuffle - returns a shuffled copy of all values
+	Console.Println("== effect.random.shuffle-copy")
+	let input = []int{1, 2, 3, 4, 5}
+	let out = with context { Random: rand.Seeded(175) } { rand.Shuffle(input) }
+	Console.Println(show(input) + " | " + show(slices.Sort(out)))
+
+	// Random.test.ts:185, shuffle - is deterministic with the same seed
+	Console.Println("== effect.random.shuffle-seed")
+	let s1 = with context { Random: rand.Seeded(185) } { rand.Shuffle([]int{1, 2, 3, 4, 5}) }
+	let s2 = with context { Random: rand.Seeded(185) } { rand.Shuffle([]int{1, 2, 3, 4, 5}) }
+	Console.Println(show(s1))
+	Console.Println(show(s2))
+
+	// Random.test.ts:209, choice - fails with NoSuchElementError for an
+	// empty iterable: here None, and the stream is not drawn.
+	Console.Println("== effect.random.choice-empty")
+	let e = rand.Seeded(209)
+	let empty = with context { Random: e } { pick([]int{}) }
+	Console.Println(empty + " \(e.Uint64())")
+
+	// Random.test.ts:217, choice - is deterministic with the same seed
+	Console.Println("== effect.random.choice-seed")
+	let c1 = with context { Random: rand.Seeded(217) } { choices() }
+	let c2 = with context { Random: rand.Seeded(217) } { choices() }
+	Console.Println(c1)
+	Console.Println(c2)
+}
+`
+	ref := func(seed uint64) *rand.Rand { return rand.New(rand.NewPCG(seed, v1.RandSeedHi)) }
+	r := ref(25)
+	var drawn []string
+	for range 3 {
+		drawn = append(drawn, strconv.FormatBool(r.Float64() > 0.5))
+	}
+	booleans := strings.Join(drawn, " ") + "\n"
+	shuffled := []string{"1", "2", "3", "4", "5"}
+	ref(185).Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
+	order := strings.Join(shuffled, " ") + "\n"
+	r = ref(217)
+	drawn = drawn[:0]
+	for range 3 {
+		drawn = append(drawn, strconv.Itoa(r.IntN(5)+1))
+	}
+	picked := strings.Join(drawn, " ") + "\n"
+
+	run := mustLower(t, "randcases", src)
+	exes := buildAll(t, []*lowered{run}, true)
+	if exes == nil {
+		return
+	}
+	stdout, stderr, code := runExe(t, exes["randcases"])
+	head, sections, _ := strings.Cut(stdout, "== ")
+	if code != 0 || head != "" {
+		t.Errorf("exit %d\nstdout %q\nstderr %s", code, stdout, firstLines(stderr, 10))
+	}
+	t.Run("effect.random.next-in-unit", func(t *testing.T) {
+		effectCaseSection(t, sections, "true true\n")
+	})
+	t.Run("effect.random.next-boolean-seed", func(t *testing.T) {
+		effectCaseSection(t, sections, booleans+booleans)
+	})
+	t.Run("effect.random.shuffle-copy", func(t *testing.T) {
+		effectCaseSection(t, sections, "1 2 3 4 5 | 1 2 3 4 5\n")
+	})
+	t.Run("effect.random.shuffle-seed", func(t *testing.T) {
+		effectCaseSection(t, sections, order+order)
+	})
+	t.Run("effect.random.choice-empty", func(t *testing.T) {
+		effectCaseSection(t, sections, "none "+strconv.FormatUint(ref(209).Uint64(), 10)+"\n")
+	})
+	t.Run("effect.random.choice-seed", func(t *testing.T) {
+		effectCaseSection(t, sections, picked+picked)
+	})
+}
