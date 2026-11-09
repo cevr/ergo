@@ -9,10 +9,11 @@ import (
 	"testing"
 )
 
-// Machine laws (MU6; types.md, Laws 13). A law in a machine runs in ergo
-// test: a reachability law is decided on the machine's graph when its
-// starts and signals can be listed, and a law over listed values runs over
-// every value; either is then reported proved. Otherwise a law runs over
+// Machine laws (MU6; types.md, Laws 13) and listed laws (MU6b; Laws 10).
+// A reachability law is decided on the machine's graph when its starts and
+// signals can be listed; any law with a body, in a machine, at top level
+// or in an operation type, runs over every value when its run can be
+// listed; either is then reported proved. Otherwise a law runs over
 // generated cases and runs and is reported tested.
 //
 // These tests build and run the test binary: the explorer is the test
@@ -180,10 +181,213 @@ func (m *tableMachine) source() string {
 	return b.String()
 }
 
-// TestMachineLawTables is the property of MU6: for generated step tables,
-// a reachability law is proved exactly when a breadth-first search over
-// the table says it holds, and refuted otherwise; a law over every state
-// and signal is proved exactly when no entry of the table is Done.
+// listedType is a generated parameter type of a law: its Ergo spelling,
+// and its count of values by the reference, -1 when it cannot be listed
+// (a type with an unbounded part, or more than refCap values).
+type listedType struct {
+	name  string
+	count int
+}
+
+// The reference's bounds (types.md, Laws 10): 256 values a type, 4096
+// cases a run.
+const refCap, refCases = 256, 4096
+
+// listedLaws is the generated part of the program that holds laws outside
+// machines (MU6b): its declarations and its report lines in source order.
+type listedLaws struct {
+	src            strings.Builder
+	want           []string
+	failed, total  int
+	proved, tested int
+}
+
+// union declares a union of n values: its variants are records of k bool
+// fields, 2^k values each, a fieldless variant for k = 0; the parts are
+// the bits of n, some split in two at random, so a count is reached by
+// several shapes.
+func (g *listedLaws) union(r *rand.Rand, name string, n int) listedType {
+	var parts []int
+	for p := 1; p <= n; p <<= 1 {
+		if n&p != 0 {
+			parts = append(parts, p)
+		}
+	}
+	for k := 0; k < 3; k++ {
+		if i := r.Intn(len(parts)); parts[i] > 1 {
+			parts = append(parts, parts[i]/2)
+			parts[i] /= 2
+		}
+	}
+	var vs []string
+	for j, p := range parts {
+		var fs []string
+		for f := 0; 1<<f < p; f++ {
+			fs = append(fs, fmt.Sprintf("f%d bool", f))
+		}
+		vs = append(vs, fmt.Sprintf("%sV%d{%s}", name, j, strings.Join(fs, ", ")))
+	}
+	fmt.Fprintf(&g.src, "type %s = %s\n\n", name, strings.Join(vs, " | "))
+	c := n
+	if n > refCap {
+		c = -1
+	}
+	return listedType{name, c}
+}
+
+// withBool is ts with a last bool when x.
+func withBool(ts []listedType, x bool) []listedType {
+	if !x {
+		return ts
+	}
+	return append(ts[:len(ts):len(ts)], listedType{"bool", 2})
+}
+
+func refProduct(ts []listedType) int {
+	n := 1
+	for _, t := range ts {
+		if t.count < 0 || n*t.count > refCases {
+			return -1
+		}
+		n *= t.count
+	}
+	return n
+}
+
+// genListedLaws writes top-level laws and the member laws of an operation
+// type with three providers, over parameters drawn from listed types (the
+// caps' edges among them) and from types that cannot be listed. A law
+// that can be falsified ends in a bool parameter x and its body is x; it
+// is falsified only when its run can be listed, so a generated run never
+// meets a false case.
+func genListedLaws(r *rand.Rand) *listedLaws {
+	g := &listedLaws{}
+	pool := []listedType{{"bool", 2}, {"LFlag", 2}, {"(bool, LFlag)", 4}, {"int", -1}, {"string", -1}, {"LInf", -1}, {"LRec", -1}, {"(bool, int)", -1}}
+	g.src.WriteString("type LFlag bool\n\ntype LInf = LInfA{} | LInfB{n int}\n\ntype LRec { s string, b bool }\n\n")
+	edge := map[string]listedType{}
+	for _, n := range []int{16, 17, 241, 255, 256, 257} {
+		t := g.union(r, fmt.Sprintf("LN%d", n), n)
+		edge[t.name] = t
+		pool = append(pool, t)
+	}
+	// LR8 is a record at the type cap, LR9 one past it.
+	for _, n := range []int{8, 9} {
+		var fs []string
+		for f := 0; f < n; f++ {
+			fs = append(fs, fmt.Sprintf("f%d bool", f))
+		}
+		fmt.Fprintf(&g.src, "type LR%d { %s }\n\n", n, strings.Join(fs, ", "))
+		c := 1 << n
+		if c > refCap {
+			c = -1
+		}
+		t := listedType{fmt.Sprintf("LR%d", n), c}
+		edge[t.name] = t
+		pool = append(pool, t)
+	}
+	for j := 0; j < 6; j++ {
+		pool = append(pool, g.union(r, fmt.Sprintf("LU%d", j), 1+r.Intn(20)))
+	}
+	pick := func() []listedType {
+		ts := make([]listedType, r.Intn(4))
+		for k := range ts {
+			ts[k] = pool[r.Intn(len(pool))]
+		}
+		return ts
+	}
+	// The runs at the caps' edges, each with no x unless falsified: a type
+	// of 255, 256 and 257 values, a record of 256 and 512, and runs of
+	// 4096 cases and of 4097 = 17 × 241.
+	runs := [][]listedType{
+		{edge["LN255"]}, {edge["LN256"]}, {edge["LN257"]}, {edge["LR8"]}, {edge["LR9"]},
+		{edge["LN256"], edge["LN16"]}, {edge["LN17"], edge["LN241"]},
+	}
+	edges := len(runs)
+	for k := 0; k < 12; k++ {
+		runs = append(runs, pick())
+	}
+	// law writes a law over ts, with a last parameter x when withX.
+	law := func(name string, ts []listedType, withX bool, body string) string {
+		var ps []string
+		for k, t := range ts {
+			ps = append(ps, fmt.Sprintf("p%d %s", k, t.name))
+		}
+		if withX {
+			ps = append(ps, "x bool")
+		}
+		return fmt.Sprintf("law %s(%s) { %s }", name, strings.Join(ps, ", "), body)
+	}
+	// report is the reference's line for a run of n cases (-1: not
+	// listed), false in its first case when falsified.
+	report := func(label string, n int, falsified bool) {
+		g.total++
+		switch {
+		case n < 0:
+			g.tested++
+			g.want = append(g.want, "ok "+label+" (100 cases)")
+		case falsified:
+			g.failed++
+			g.want = append(g.want, fmt.Sprintf("FAIL %s (case 1 of %d, every value", label, n))
+		case n == 1:
+			g.proved++
+			g.want = append(g.want, "ok "+label+" (proved: 1 case)")
+		default:
+			g.proved++
+			g.want = append(g.want, fmt.Sprintf("ok %s (proved: all %d cases)", label, n))
+		}
+	}
+	for k, ts := range runs {
+		name := fmt.Sprintf("LT%d", k)
+		n := refProduct(ts)
+		falsify := n >= 0 && n*2 <= refCases && r.Intn(2) == 0
+		withX := falsify || (k >= edges && r.Intn(2) == 0)
+		body := "true"
+		if falsify {
+			body = "x"
+		}
+		g.src.WriteString(law(name, ts, withX, body) + "\n\n")
+		report("law "+name, refProduct(withBool(ts, withX)), falsify)
+	}
+	// LOne has one value, LTwo two, LWide cannot be listed; LGet is true
+	// but for LTwo{b: false}.
+	var members []string
+	type member struct {
+		ts      []listedType
+		falsify bool
+	}
+	var ms []member
+	for k := 0; k < 6; k++ {
+		ts := pick()
+		n := refProduct(ts)
+		falsify := n >= 0 && n*4 <= refCases && r.Intn(2) == 0
+		withX := falsify || r.Intn(2) == 0
+		body := "LGet() || true"
+		if falsify {
+			body = "LGet() || x"
+		}
+		members = append(members, law(fmt.Sprintf("LM%d", k), ts, withX, body))
+		ms = append(ms, member{withBool(ts, withX), falsify})
+	}
+	fmt.Fprintf(&g.src, "type LOp {\n\tLGet() bool,\n\n\t%s,\n}\n\n", strings.Join(members, ",\n\t"))
+	g.src.WriteString("type LOne {}\n\nfunc LGet(_ LOne) bool { true }\n\ntype LTwo { b bool }\n\nfunc LGet(p LTwo) bool { p.b }\n\ntype LWide { n int }\n\nfunc LGet(_ LWide) bool { true }\n\n")
+	for k, m := range ms {
+		label := fmt.Sprintf("law LOp.LM%d for ", k)
+		report(label+"LOne", refProduct(append([]listedType{{"LOne", 1}}, m.ts...)), false)
+		report(label+"LTwo", refProduct(append([]listedType{{"LTwo", 2}}, m.ts...)), m.falsify)
+		report(label+"LWide", -1, false)
+	}
+	return g
+}
+
+// TestMachineLawTables is the property of MU6 and MU6b: for generated step
+// tables, a reachability law is proved exactly when a breadth-first search
+// over the table says it holds, and refuted otherwise; a law over every
+// state and signal is proved exactly when no entry of the table is Done.
+// For generated laws outside machines, at top level and in an operation
+// type with providers, one rule holds (types.md, Laws 10): a run is
+// proved over all its cases exactly when the reference lists every value
+// of it within the caps, it fails at its first listed case when its body
+// is false there, and any other run is 100 generated cases.
 // ERGO_MACHINELAW_SEED replays another seed; a failure prints the source.
 func TestMachineLawTables(t *testing.T) {
 	seed := int64(57)
@@ -230,6 +434,14 @@ func TestMachineLawTables(t *testing.T) {
 	// holds only past the first state.
 	if self == 0 || beyond == 0 {
 		t.Fatalf("seed %d: the generated tables have %d paths through Reject and %d laws past the start", seed, self, beyond)
+	}
+	g := genListedLaws(r)
+	src.WriteString(g.src.String())
+	want = append(want, g.want...)
+	failed += g.failed
+	total += g.total
+	if g.proved == 0 || g.tested == 0 || g.failed == 0 {
+		t.Fatalf("seed %d: the generated laws are %d proved, %d tested and %d refuted runs; want each", seed, g.proved, g.tested, g.failed)
 	}
 	src.WriteString("func main() {}\n")
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "machinelaw_tables", src.String())}, true)

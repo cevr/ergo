@@ -595,8 +595,10 @@ func (l *lowerer) testRunner() string {
 }
 
 // lawRuns writes the runs of one law into the runner b (Laws): a skip line
-// when it does not run, else one run of testCases cases for a top-level
-// law, and one per provider for a member law. Each run draws from its own
+// when it does not run, a reachability run for a machine's reachability
+// law, else one run for a top-level law and one per provider for a member
+// law. A run whose values can all be listed takes every value
+// (listedRuns); another run takes testCases generated cases. Each run draws from its own
 // stream, named by the law and the provider, so adding a law or a provider
 // changes no other run's cases. A case binds the provider, converted to
 // the law's operation type, in a copy of the runner's environment, draws
@@ -631,18 +633,12 @@ func (l *lowerer) lawRuns(b *strings.Builder, law *check.Law, scope *namer, env,
 		}
 	}
 	at := strconv.Quote(l.siteText(law.Decl))
-	if law.Owner == nil && len(law.Params) == 0 {
-		// A top-level law with no parameters draws nothing: it runs once,
-		// as an example test does.
-		label := "law " + title
-		e, held, err := scope.alloc("e"), scope.alloc("held"), scope.alloc("err")
-		body := e + " := *" + env + "; " + held + ", " + err + " := " + l.lawFunc(law) + "(&" + e + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
-		b.WriteString("\tif " + run + "(" + taskOf(env) + ", " + strconv.Quote(label) + ", " + at + ", nil, func() error { " + body + " }) {\n")
-		b.WriteString("\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+label) + ")\n")
-		b.WriteString("\t} else {\n\t\t" + failed + "++\n\t}\n")
-		return
-	}
 	for _, tg := range targets {
+		// One rule for every law (Listed laws): a run whose values can
+		// all be listed takes each once and is proved; else it draws.
+		if l.listedRuns(b, law, tg.label, tg.p, scope, env, failed) {
+			continue
+		}
 		inner := newNamer(scope)
 		r, ok, i := inner.alloc("r"), inner.alloc("ok"), inner.alloc("i")
 		name := strconv.Quote(tg.label) + ", " + at

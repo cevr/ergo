@@ -5,18 +5,12 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Machine laws (MU6; types.md, Laws 13). A law in a machine type runs in
-// the test build as other laws do, with two additions:
+// Machine laws (MU6; types.md, Laws 13). A law with a body in a machine
+// type runs in the test build as every law does (Listed laws, lawcases.go),
+// with one addition:
 //
-//   - A law with parameters whose types can all be listed (enumValues: bool,
-//     records and unions of such, tuples, at most enumCap values each, and
-//     at most enumCases cases in all) runs once for every value of its
-//     parameters, and a run that holds is reported proved. A law with a
-//     parameter that cannot be listed runs over 100 generated cases, as a
-//     top-level law does, and is reported tested.
 //   - A reachability law (`reaches V`, `never reaches V`, `path [V1, …]`)
 //     explores the machine's graph: its states from the start (Initial, or
 //     the start of every input), and from each state one edge per signal.
@@ -36,161 +30,15 @@ import (
 // Prior art: effect-machine's assertPath, assertReaches and
 // assertNeverReaches test hand-picked event lists; here they are laws over
 // every run, decided on the graph when it is finite (as a model checker,
-// TLC or Quint's, decides an invariant by breadth-first search). SmallCheck
-// checks a property over every small value, as an enumerable machine law
-// is checked over every value.
+// TLC or Quint's, decides an invariant by breadth-first search).
 
-// enumCap bounds the values of one listed type, and enumCases the cases of
-// a listed law.
-const (
-	enumCap   = 256
-	enumCases = 4096
-)
-
-// enumValues is every value of t as a Go expression, when t can be listed
-// with at most enumCap values: bool, a record of such fields, a union of
-// such variants, a type defined over one, and a tuple of such.
-func (l *lowerer) enumValues(t check.Type, site syntax.Node, seen map[*check.Named]bool) ([]string, bool) {
-	tc := &typeCtx{l: l, site: site}
-	product := func(goType string, names []string, types []check.Type) ([]string, bool) {
-		out := []string{""}
-		for i, ft := range types {
-			vs, ok := l.enumValues(ft, site, seen)
-			if !ok || len(out)*len(vs) > enumCap {
-				return nil, false
-			}
-			var next []string
-			for _, prefix := range out {
-				for _, v := range vs {
-					sep := ""
-					if prefix != "" {
-						sep = ", "
-					}
-					next = append(next, prefix+sep+names[i]+": "+v)
-				}
-			}
-			out = next
-		}
-		for i := range out {
-			out[i] = goType + "{" + out[i] + "}"
-		}
-		return out, true
-	}
-	switch u := t.(type) {
-	case *check.Basic:
-		if u.Kind == check.Bool {
-			return []string{"false", "true"}, true
-		}
-	case *check.Tuple:
-		names := make([]string, len(u.Types))
-		for i := range u.Types {
-			names[i] = tupleField(i)
-		}
-		return product(tc.goType(u), names, u.Types)
-	case *check.Named:
-		if seen[u] {
-			return nil, false // a recursive type has no finite list
-		}
-		seen[u] = true
-		defer delete(seen, u)
-		switch under := u.Underlying().(type) {
-		case *check.Struct:
-			td := l.typeDecl(u.Obj, site)
-			names := make([]string, len(under.Fields))
-			types := make([]check.Type, len(under.Fields))
-			for i, f := range under.Fields {
-				names[i], types[i] = td.fieldName[f.Name], f.Type
-			}
-			return product(tc.goType(u), names, types)
-		case *check.Union:
-			var out []string
-			for _, v := range under.Variants {
-				vs, ok := l.enumValues(v, site, seen)
-				if !ok || len(out)+len(vs) > enumCap {
-					return nil, false
-				}
-				out = append(out, vs...)
-			}
-			return out, true
-		case *check.Basic:
-			vs, ok := l.enumValues(under, site, seen)
-			for i := range vs {
-				vs[i] = tc.goType(u) + "(" + vs[i] + ")"
-			}
-			return vs, ok
-		}
-	}
-	return nil, false
-}
-
-// enumParams lists every value of each parameter of law, when each can be
-// listed and their cases number at most enumCases.
-func (l *lowerer) enumParams(law *check.Law) ([][]string, int, bool) {
-	n := 1
-	var all [][]string
-	for _, v := range law.Params {
-		vs, ok := l.enumValues(v.Type, law.Decl, map[*check.Named]bool{})
-		if !ok || n*len(vs) > enumCases {
-			return nil, 0, false
-		}
-		n *= len(vs)
-		all = append(all, vs)
-	}
-	return all, n, true
-}
-
-// machineLawRuns writes the run of a machine law that runs (Machine laws)
-// and reports whether it did: a reachability law, or a law whose
-// parameters can all be listed. Another machine law runs as a top-level
-// law does (lawRuns).
+// machineLawRuns writes the run of a reachability law (Machine laws) and
+// reports whether law is one. Every other law runs by lawRuns.
 func (l *lowerer) machineLawRuns(b *strings.Builder, law *check.Law, scope *namer, env, seed, failed string) bool {
-	if law.Machine == nil || law.Unrun != "" {
+	if law.Machine == nil || law.Decl.Reach == nil {
 		return false
 	}
-	if law.Decl.Reach != nil {
-		l.reachRuns(b, law, scope, env, seed, failed)
-		return true
-	}
-	values, cases, ok := l.enumParams(law)
-	if !ok || len(law.Params) == 0 {
-		return false
-	}
-	fmtPkg, run, conv := l.helper("fmt"), l.helper("Case"), l.helper("strconv")
-	label := "law " + lawTitle(law)
-	at := strconv.Quote(l.siteText(law.Decl))
-	inner := newNamer(scope)
-	ok1, k := inner.alloc("ok"), inner.alloc("k")
-	b.WriteString("\t{\n\t\t" + ok1 + ", " + k + " := true, 0\n")
-	var args, shown []string
-	shown = []string{strconv.Quote("case "), conv + ".Itoa(" + k + ")", strconv.Quote(" of " + strconv.Itoa(cases) + ", every value")}
-	ind := "\t\t"
-	for i, v := range law.Params {
-		base := v.Name
-		if base == "_" {
-			base = "arg"
-		}
-		list, a := inner.alloc(base+"s"), inner.alloc(base)
-		b.WriteString(ind + list + " := []" + (&typeCtx{l: l, site: law.Decl}).goType(v.Type) + "{" + strings.Join(values[i], ", ") + "}\n")
-		b.WriteString(ind + "for _, " + a + " := range " + list + " {\n")
-		ind += "\t"
-		args = append(args, a)
-		sep := ", "
-		if i == 0 {
-			sep = ": "
-		}
-		shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(v.Type, a, law.Decl))
-	}
-	e, held, err := inner.alloc("e"), inner.alloc("held"), inner.alloc("err")
-	body := e + " := *" + env + "; " + held + ", " + err + " := " + l.lawFunc(law) + "(" + strings.Join(append([]string{"&" + e}, args...), ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
-	b.WriteString(ind + "if !" + ok1 + " {\n" + ind + "\tbreak\n" + ind + "}\n")
-	b.WriteString(ind + k + "++\n")
-	b.WriteString(ind + ok1 + " = " + run + "(" + taskOf(env) + ", " + strconv.Quote(label) + ", " + at + ", func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " })\n")
-	for range law.Params {
-		ind = ind[:len(ind)-1]
-		b.WriteString(ind + "}\n")
-	}
-	b.WriteString("\t\tif " + ok1 + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+label+" (proved: all "+strconv.Itoa(cases)+" cases)") + ")\n")
-	b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n\t}\n")
+	l.reachRuns(b, law, scope, env, seed, failed)
 	return true
 }
 

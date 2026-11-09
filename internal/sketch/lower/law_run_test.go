@@ -143,7 +143,8 @@ func main() {}
 }
 
 // TestLawRunNoParams: a top-level law with no parameters draws nothing and
-// runs once, as an example test does; a false one fails the run.
+// runs its one case, so a run that holds is proved (Laws 10); a false one
+// fails the run.
 func TestLawRunNoParams(t *testing.T) {
 	src := `law Holds() { 1 + 1 == 2 }
 
@@ -156,7 +157,7 @@ func main() {}
 		return
 	}
 	stdout, stderr, code := runExe(t, exes["lawrun_noparams"])
-	want := []string{"ok law Holds", "FAIL law Breaks: law refuted at main.ergo:3:1: the law is false", "FAIL (1 of 2 tests)"}
+	want := []string{"ok law Holds (proved: 1 case)", "FAIL law Breaks: law refuted at main.ergo:3:1: the law is false", "FAIL (1 of 2 tests)"}
 	if code != 1 || !slices.Equal(lines(stdout), want) {
 		t.Errorf("exit %d, stdout:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, strings.Join(want, "\n"), firstLines(stderr, 8))
 	}
