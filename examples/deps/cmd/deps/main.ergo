@@ -14,6 +14,7 @@ import deps/resolve
 import deps/semver
 import flag
 import fs
+import fstest
 import io
 import os
 import strings
@@ -148,36 +149,29 @@ func run(args []string) fails os.Exit needs io.Stdout | fs.Files {
 	}
 	let m = try file(fileOf(c))
 	with context { resolve.Index: memory.Of(m.Releases) } {
-		try report(c, m)
-	}
-}
-
-// report prints the answer to c, or ends with the failure's message. It is
-// apart from run because a return cannot leave run's with block (gap
-// G-ex-d-10).
-func report(c Cmd, m manifest.Manifest) fails os.Exit needs io.Stdout | resolve.Index {
-	let text = answer(c, m) catch {
-	case resolve.NoVersion as n:
-		return exit(noVersion(n))
-	case resolve.Circular as cy:
-		let mut parts = []string{}
-		for pin in cy.Path {
-			parts = parts.Append(pinText(pin))
+		let text = answer(c, m) catch {
+		case resolve.NoVersion as n:
+			return exit(noVersion(n))
+		case resolve.Circular as cy:
+			let mut parts = []string{}
+			for pin in cy.Path {
+				parts = parts.Append(pinText(pin))
+			}
+			return exit("circular needs: " + strings.Join(parts, " -> "))
+		case resolve.NoPlan:
+			return exit("no choice of versions keeps every want")
+		case resolve.TooHard as t:
+			return exit("gave up after \(t.Steps) choices")
+		case resolve.UnknownPackage as u:
+			return exit("no release of " + u.Name)
+		case resolve.UnknownVersion as u:
+			return exit("no release " + u.Name + " " + semver.Format(u.V))
+		case NotReached as n:
+			return exit(m.Project + " does not need " + n.Name)
 		}
-		return exit("circular needs: " + strings.Join(parts, " -> "))
-	case resolve.NoPlan:
-		return exit("no choice of versions keeps every want")
-	case resolve.TooHard as t:
-		return exit("gave up after \(t.Steps) choices")
-	case resolve.UnknownPackage as u:
-		return exit("no release of " + u.Name)
-	case resolve.UnknownVersion as u:
-		return exit("no release " + u.Name + " " + semver.Format(u.V))
-	case NotReached as n:
-		return exit(m.Project + " does not need " + n.Name)
-	}
-	if text != "" {
-		io.Stdout.Println(text)
+		if text != "" {
+			io.Stdout.Println(text)
+		}
 	}
 }
 
@@ -207,28 +201,19 @@ func main() fails os.Exit needs Ambient {
 	}
 }
 
-// The tests run run over a file system held in a Map and an io.Recorder,
-// with no host.
-
-// disk is an fs.Files of paths to texts.
-type disk { texts Map[string, string] }
-
-func ReadFile(d disk, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
-	match d.texts.Get(path) {
-	case Some[string] as t:
-		t.Value
-	case None:
-		fs.NotFound{Path: path}
-	}
-}
-
-func ReadDir(_ disk, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
-
-func Stat(_ disk, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+// The tests run run over an fstest.Memory and an io.Recorder, with no
+// host.
 
 func ran(files Map[string, string], args []string) string {
 	let out = io.NewRecorder()
-	with context { io.Stdout: out, fs.Files: disk{texts: files} } {
+	let disk = fstest.NewMemory()
+	for path, text in files {
+		disk.WriteFile(path, text) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			Unreachable("a new Memory has the folder .")
+		}
+	}
+	with context { io.Stdout: out, fs.Files: disk } {
 		run(args) catch {
 		case os.Exit as e:
 			out.Println("exit \(e.Code): \(e.Message)")

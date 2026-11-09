@@ -15,6 +15,8 @@
 
 import deps/resolve
 import deps/semver
+import machines
+import slices
 import strings
 
 // Manifest is a project's name, its own needs, and the releases it may
@@ -37,9 +39,7 @@ type Reader machine[Block, Signal] {
 	step:    Step,
 }
 
-// Start is the first block: nothing read yet. Ergo has no accessor for a
-// machine's initial value or runner yet (#57), so Read starts here and
-// calls Step itself.
+// Start is the first block: nothing read yet.
 func Start() Block {
 	Top{M: Manifest{Project: "", Root: []resolve.Requirement{}, Releases: []resolve.Release{}}}
 }
@@ -104,12 +104,12 @@ func line(b Block, l Line) Decision[Block, Manifest] fails BadLine {
 			}
 		}
 		let release = resolve.Release{Name: words[1], V: v, Needs: []resolve.Requirement{}}
-		Enter[Block]{Next: InRelease{M: Manifest{..m, Releases: appended(m.Releases, release)}}}
+		Enter[Block]{Next: InRelease{M: Manifest{..m, Releases: m.Releases.Append(release)}}}
 	case ("needs", true):
 		if len(words) < 2 {
 			return BadLine{No: l.No, Text: l.Text, Reason: "write needs NAME [CONSTRAINT]"}
 		}
-		let want = semver.ParseConstraint(strings.Join(rest(rest(words)), " ")) catch {
+		let want = semver.ParseConstraint(strings.Join(slices.Slice(words, 2, len(words)), " ")) catch {
 		case semver.BadConstraint as c:
 			return BadLine{No: l.No, Text: l.Text, Reason: c.Reason}
 		}
@@ -118,7 +118,7 @@ func line(b Block, l Line) Decision[Block, Manifest] fails BadLine {
 		case Top:
 			BadLine{No: l.No, Text: l.Text, Reason: "a needs line belongs under a project or package line"}
 		case InProject:
-			Stay[Block]{Next: InProject{M: Manifest{..m, Root: appendedNeed(m.Root, r)}}}
+			Stay[Block]{Next: InProject{M: Manifest{..m, Root: m.Root.Append(r)}}}
 		case InRelease:
 			Stay[Block]{Next: InRelease{M: withNeed(m, r)}}
 		}
@@ -139,70 +139,29 @@ func stripComment(text string) string {
 	}
 }
 
-func rest(xs []string) []string {
-	let mut out = []string{}
-	for i, x in xs {
-		if i > 0 {
-			out = out.Append(x)
-		}
-	}
-	out
-}
-
-// appended is rs and then r, in a new slice: a Block is a value, so an
-// earlier block keeps its own releases.
-func appended(rs []resolve.Release, r resolve.Release) []resolve.Release {
-	let mut out = []resolve.Release{}
-	for x in rs {
-		out = out.Append(x)
-	}
-	out.Append(r)
-}
-
-func appendedNeed(rs []resolve.Requirement, r resolve.Requirement) []resolve.Requirement {
-	let mut out = []resolve.Requirement{}
-	for x in rs {
-		out = out.Append(x)
-	}
-	out.Append(r)
-}
-
-// withNeed is m with r added to the needs of its last release.
+// withNeed is m with r added to the needs of its last release. A Manifest
+// is a value: the block before keeps its own releases.
 func withNeed(m Manifest, r resolve.Requirement) Manifest {
-	let mut rs = []resolve.Release{}
-	for i, x in m.Releases {
-		rs = rs.Append(if i == len(m.Releases)-1 { resolve.Release{..x, Needs: appendedNeed(x.Needs, r)} } else { x })
-	}
+	let mut rs = m.Releases
+	let last = rs[len(rs)-1]
+	rs[len(rs)-1] = resolve.Release{..last, Needs: last.Needs.Append(r)}
 	Manifest{..m, Releases: rs}
 }
 
 // Read runs the Reader over text, line by line, and then its end.
 func Read(text string) Manifest fails BadLine {
-	let mut b = Start()
-	let mut no = 0
+	let mut signals = []Signal{}
 	for l in strings.Lines(text) {
-		no = no + 1
-		match try Step(b, Line{No: no, Text: l}) {
-		case Enter[Block] as e:
-			b = e.Next
-		case Stay[Block] as s:
-			b = s.Next
-		case Ignore:
-		case Reject:
-		case Done[Manifest] as d:
-			return d.Output
-		}
+		signals = signals.Append(Line{No: len(signals) + 1, Text: l})
 	}
-	match try Step(b, End) {
-	case Done[Manifest] as d:
-		d.Output
-	case Enter[Block]:
-		ManifestOf(b)
-	case Stay[Block]:
-		ManifestOf(b)
-	case Ignore:
-		ManifestOf(b)
-	case Reject:
-		ManifestOf(b)
+	let o = try machines.Run(Reader{}, signals.Append(End)) catch {
+	case machines.Rejected:
+		Unreachable("Step never rejects: a bad line fails BadLine")
+	}
+	match o {
+	case machines.Finished[Block, Manifest] as f:
+		f.Output
+	case machines.Running[Block, Manifest]:
+		Unreachable("the last signal is End, and Step ends every End with Done or BadLine")
 	}
 }

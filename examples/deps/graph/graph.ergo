@@ -36,7 +36,7 @@ func Add[N ordered](g Graph[N], n N) Graph[N] {
 	if slices.Contains(g.nodes, n) {
 		return g
 	}
-	let mut edges = copied(g.edges)
+	let mut edges = g.edges
 	edges[n] = []N{}
 	Graph[N]{nodes: slices.Sort(g.nodes.Append(n)), edges: edges}
 }
@@ -48,19 +48,9 @@ func Link[N ordered](g Graph[N], from N, to N) Graph[N] {
 	if slices.Contains(out, to) {
 		return h
 	}
-	let mut edges = copied(h.edges)
+	let mut edges = h.edges
 	edges[from] = slices.Sort(out.Append(to))
 	Graph[N]{nodes: h.nodes, edges: edges}
-}
-
-// copied is a new Map with m's entries: a Map is shared by every copy of
-// a record, and a Graph is a value.
-func copied[N ordered](m Map[N, []N]) Map[N, []N] {
-	let mut out = Map[N, []N]{}
-	for k, v in m {
-		out[k] = v
-	}
-	out
 }
 
 // Nodes is every node of g, sorted.

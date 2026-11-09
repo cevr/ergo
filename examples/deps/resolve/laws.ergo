@@ -65,19 +65,12 @@ law ResolutionIsSound(entries []Entry, root []Need) {
 	let t = TableOf(entries)
 	let r = RootOf(root)
 	with context { Index: t } {
-		SoundOrFailed(t, r)
+		let p = Resolve(r) catch {
+		case _:
+			return true
+		}
+		Sound(t, r, p)
 	}
-}
-
-// SoundOrFailed reports whether the resolution of root under t is sound,
-// or fails. A with block yields its last expression and cannot return,
-// so the early returns live here.
-func SoundOrFailed(t Table, root []Requirement) bool needs Index {
-	let p = Resolve(root) catch {
-	case _:
-		return true
-	}
-	Sound(t, root, p)
 }
 
 // ResolutionIsDeterministic: the registry's order does not change the
@@ -117,27 +110,16 @@ func Outcome(root []Requirement) string needs Index {
 law NoVersionIsHonest(entries []Entry, root []Need) {
 	let t = TableOf(entries)
 	with context { Index: t } {
-		Honest(t, RootOf(root))
-	}
-}
-
-// Honest reports whether a NoVersion of the resolution of root under t
-// names a package none of whose versions keeps its wants.
-func Honest(t Table, root []Requirement) bool needs Index {
-	let _ = Resolve(root) catch {
-	case NoVersion as n:
-		let vs = t.Versions(n.Name) catch {
-		case UnknownPackage:
-			return false
-		}
-		for v in vs {
-			if keepsAll(n.Wants, v) {
+		let _ = Resolve(RootOf(root)) catch {
+		case NoVersion as n:
+			let vs = t.Versions(n.Name) catch {
+			case UnknownPackage:
 				return false
 			}
+			return slices.IndexFunc(vs, func(v semver.Version) bool { keepsAll(n.Wants, v) }) < 0
+		case _:
+			return true
 		}
-		return true
-	case _:
-		return true
+		true
 	}
-	true
 }

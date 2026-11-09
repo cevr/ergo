@@ -1,8 +1,5 @@
-// The manifest's tests: examples of each line, and the laws restated as
-// property tests (#162 runs laws; until then these do).
-
-import deps/resolve
-import strings
+// The manifest's tests: examples of each line. Its laws run under ergo
+// test.
 
 func failure(text string) string {
 	let _ = Read(text) catch {
@@ -56,15 +53,4 @@ test StepUsesEveryDecision {
 	case _:
 		assert false
 	}
-}
-
-test ReadInvertsFormatHolds(entries []resolve.Entry, root []resolve.Need) {
-	let m = Generated(entries, root)
-	assert Same(try Read(Format(m)), m)
-}
-
-test NoiseChangesNothingHolds(entries []resolve.Entry, root []resolve.Need) {
-	let text = Format(Generated(entries, root))
-	let noisy = "# deps manifest\n\n" + strings.ReplaceAll(text, "\n", "  # note\n\n")
-	assert Format(try Read(noisy)) == text
 }

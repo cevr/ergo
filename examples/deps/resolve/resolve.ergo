@@ -122,13 +122,10 @@ func note(s *search, name string, wants []Want) fails UnknownPackage needs Index
 	s.clash = Some[Clash]{Value: Clash{Name: name, Wants: wants}}
 }
 
-// pinned is pins with name at v, in a new Map: a Map is shared, and each
-// step of the search keeps its own pins.
+// pinned is pins with name at v. A Map is a value, so each step of the
+// search keeps its own pins.
 func pinned(pins Map[string, semver.Version], name string, v semver.Version) Map[string, semver.Version] {
-	let mut out = Map[string, semver.Version]{}
-	for k, x in pins {
-		out[k] = x
-	}
+	let mut out = pins
 	out[name] = v
 	out
 }
@@ -145,7 +142,7 @@ func gather(root []Requirement, pins Map[string, semver.Version]) Map[string, []
 	let mut done = []string{}
 	for len(queue) > 0 {
 		let name = queue[0]
-		queue = without(queue, 0)
+		queue = slices.Slice(queue, 1, len(queue))
 		if slices.Contains(done, name) {
 			continue
 		}
@@ -162,34 +159,7 @@ func gather(root []Requirement, pins Map[string, semver.Version]) Map[string, []
 	wants
 }
 
-func wantsOf(wants Map[string, []Want], name string) []Want {
-	match wants.Get(name) {
-	case Some[[]Want] as w:
-		copiedWants(w.Value)
-	case None:
-		[]Want{}
-	}
-}
-
-// copiedWants is a new slice of ws: Append may share the array of a slice
-// that a Map holds.
-func copiedWants(ws []Want) []Want {
-	let mut out = []Want{}
-	for w in ws {
-		out = out.Append(w)
-	}
-	out
-}
-
-func without(xs []string, i int) []string {
-	let mut out = []string{}
-	for j, x in xs {
-		if j != i {
-			out = out.Append(x)
-		}
-	}
-	out
-}
+func wantsOf(wants Map[string, []Want], name string) []Want { maps.GetOr(wants, name, []Want{}) }
 
 func keepsAll(wants []Want, v semver.Version) bool {
 	for w in wants {

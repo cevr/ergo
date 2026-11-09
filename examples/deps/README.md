@@ -27,16 +27,16 @@ The program is a module of packages (`ergo.mod`: `module deps`), in the Go layou
 | `resolve/` | The resolver and its contract. `index.ergo` (the contract `Index`, an operation type with two laws, and its failures), `resolve.ergo` (`Resolve`, its failures `NoVersion`, `NoPlan`, `TooHard`, `Circular`, and `Why`), `table.ergo` (`Table`, an in-package `Index`, and the generators the laws run over), `laws.ergo`, `tests.ergo`. Pure but for its `Index`. |
 | `manifest/` | The file format. `manifest.ergo` (`Manifest`, `BadLine`, the machine `Reader` whose state is the block being read, `Step`, `Read`), `laws.ergo` (`Format` and two laws), `tests.ergo`. Pure. |
 | `memory/` | `Registry`, the `Index` of a manifest's releases, with tests that it keeps `Index`'s laws and resolves as `resolve.Table` does. |
-| `cmd/deps/` | The binary. `main.ergo` binds the host's `os.Process`, `fs.Files` and `io.Stdout`, and a `memory.Registry` of the manifest, and is the only place that chooses them. Its tests run the commands over a file system held in a Map. |
+| `cmd/deps/` | The binary. `main.ergo` binds the host's `os.Process`, `fs.Files` and `io.Stdout`, and a `memory.Registry` of the manifest, and is the only place that chooses them. Its tests run the commands over an `fstest.Memory`. |
 
 ## What it shows
 
 - **A typed failure that carries the evidence.** `graph.Order` fails `Cycle[N]{Path}`, the path of the cycle; `resolve.Resolve` fails `NoVersion{Name, Wants}` with every want on the package and who wrote it, `Circular{Path}` with the pinned versions in the ring, `NoPlan`, `TooHard{Steps}`, `UnknownPackage` or `UnknownVersion`. `cmd/deps` catches each by name, with no `case _`, and prints it (`deps: no version of log keeps every want:` and each want with its source).
 - **A union and exhaustive `match`.** `Bound` has eight variants, and `Holds` names every one; the manifest reader matches the pair `(first word, indented)`.
-- **A machine.** `manifest.Reader` is `machine[Block, Signal]`: its state is `Top | InProject | InRelease`, a line `Enter`s a block, a needs line `Stay`s with one more need, a comment is `Ignore`d, and the end is `Done` with the manifest.
+- **A machine.** `manifest.Reader` is `machine[Block, Signal]`: its state is `Top | InProject | InRelease`, a line `Enter`s a block, a needs line `Stay`s with one more need, a comment is `Ignore`d, and the end is `Done` with the manifest. `Read` runs it with `machines.Run`.
 - **A contract in the domain, providers named after their dependency.** `resolve` declares `Index` with the laws `VersionsAreNewestFirst` and `EveryVersionHasNeeds`; `resolve.Table` and `memory.Registry` provide it; `main` chooses `memory.Registry`.
 - **A backtracking search over a pointer.** `solve` is a Go programmer's depth-first search with a step budget in a `*search`, which also records the first dead end that one package is to blame for.
-- **Laws, each killed by its own mutant.** `semver` states six (`FormatRoundTrips`, `CompareIsAntisymmetric`, `CompareIsTransitive`, `CaretKeepsTheLeadingPart`, `AndIsBoth`, `TextRoundTrips`), `graph` five (`OrderRespectsEdges`, `OrderHasEveryNodeOnce`, `OrderIsDeterministic`, `CycleIsAClosedWalk`, `PathFollowsEdges`), `resolve` three (`ResolutionIsSound`, `ResolutionIsDeterministic`, `NoVersionIsHonest`) and two on `Index`, `manifest` two (`ReadInvertsFormat`, `NoiseChangesNothing`). Each package's tests restate them as property tests, and `cmd/deps` checks that a resolved plan, pinned exactly, resolves to itself. For each law there is a mutant of the program that breaks it, and the law's own test fails on it (19 of 19).
+- **Laws, each killed by its own mutant.** `semver` states six (`FormatRoundTrips`, `CompareIsAntisymmetric`, `CompareIsTransitive`, `CaretKeepsTheLeadingPart`, `AndIsBoth`, `TextRoundTrips`), `graph` five (`OrderRespectsEdges`, `OrderHasEveryNodeOnce`, `OrderIsDeterministic`, `CycleIsAClosedWalk`, `PathFollowsEdges`), `resolve` three (`ResolutionIsSound`, `ResolutionIsDeterministic`, `NoVersionIsHonest`) and two on `Index`, `manifest` two (`ReadInvertsFormat`, `NoiseChangesNothing`). `ergo test` runs each, and `cmd/deps` checks that a resolved plan, pinned exactly, resolves to itself. For each law there is a mutant of the program that breaks it, and the law itself fails on it (18 of 18, `mutants.json` in the batch-12 ex-upgrade run dir).
 
 ## Run it
 
@@ -55,11 +55,10 @@ go run ./scripts/examples deps
 
 Each is written up with a repro in the lane's gap file (`gaps-ex-d.md`).
 
-- **G-ex-d-9** A generated slice holds at most three elements, and generated ints rarely meet, so five laws first passed with their mutant in place. The laws' generators are steered by hand (`resolve.NameOf`, `RootOf`, `graph.Crowded`, `Downhill`).
-- **G-ex-d-10** `return` cannot leave a `with` block, so `report`, `SoundOrFailed`, `Honest` and `ringOf` exist only to hold early returns.
-- **G-ex-d-11** A machine has no runner (#57): `Read` drives `Step` by hand and matches all five `Decision` variants at the end.
+- **G-ex-d-9** (still open after T4) Generated ints rarely meet, so the laws' generators are steered by hand (`resolve.NameOf`, `Few`, `RootOf`, `graph.Crowded`, `Few`, `Downhill`). Measured at batch 12 with T4's wider generators, seeds 1 to 5: with the graph steering removed, mutants g1 and g5 survive their own laws; with the names and versions not folded mod 3, r1 survives and r3 is killed by one seed of five. So the steering stays.
 - **G-ex-d-12** `needs` is a keyword, and a parameter named `needs` gets "expected a type".
 - **G-ex-d-13** A law cannot be generic, so the graph laws are stated at `int` nodes.
-- **G-ex-d-14** `Append` may share the array, so a kept slice is copied before each append (`appended`, `copiedWants`).
-- **G-ex-d-5** A `Manifest` holds slices, so it has no `==`; `manifest.Same` compares by hand.
-- Known from other lanes: an `if` over two variants takes the first's type, so `let b semver.Bound = if …` (G-ex-b-16, G-ex-c-10); a `Map` field is shared by every copy of a record, so `graph.copied` and `resolve.pinned` copy (G-ex-b-15); a required positional argument's `Get` is an `Option` (std-strengths F1).
+- **G-exup-1** (new) `ergo test` runs the laws of `resolve.Index` against `resolve.Table`, in `Index`'s own package, but not against `memory.Registry`, a provider in another package; `memory/tests.ergo` restates them.
+- Known from other lanes: a required positional argument's `Get` is an `Option` (std-strengths F1).
+
+Closed in batch 12: **G-ex-d-10** (L3: `return` leaves a `with`, so `report`, `SoundOrFailed`, `Honest` and `ringOf` are gone); **G-ex-d-11** (V2: `Read` runs `Reader{}` with `machines.Run`; its two impossible outcomes are `Unreachable`); **G-ex-d-14** and G-ex-b-15 (the value rule: `appended`, `appendedNeed`, `copiedWants` and `graph.copied` are gone, and `pinned` copies by assignment); **G-ex-d-5** (W3: `Manifest` has `==`, so `manifest.Same` is gone); G-ex-b-16 (K3: `let b = if …` needs no annotation); the property tests that restated the laws (V1 runs the laws, and the 18 mutants of `mutants.json` are now killed by the laws themselves, seeds 1 to 3); the hand `fs.Files` of `cmd/deps`'s tests (U1: `fstest.NewMemory`).
