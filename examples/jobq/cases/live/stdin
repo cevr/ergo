@@ -1,5 +1,5 @@
 backup 20
 thumbnails 10 1
 mail 5 2
-invoice 5 0 fatal
+digest 5 0 fatal
 sync 2 5
