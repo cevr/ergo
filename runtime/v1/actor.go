@@ -293,9 +293,10 @@ func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 		out, capacity, nil, nil, 0)
 }
 
-// MachineSupervise is std actor's supervise: MachineStart for an actor that
+// MachineSupervise is std actor's start: MachineStart for an actor that
 // restarts after a defect (rule 16), at most limit times, each new
-// incarnation from fresh's state; initial is the first incarnation's. A
+// incarnation from fresh's state; initial is the first incarnation's.
+// StartMachine passes limit 0, which restarts none and never calls fresh. A
 // typed failure of fresh is a defect of the incarnation (ActorFreshDefect).
 // A negative limit is a defect, as tasks.Restart's is.
 func MachineSupervise[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
@@ -306,6 +307,10 @@ func MachineSupervise[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial
 	out func(*rt.Task, D), capacity int) *Actor[S, E, D] {
 	if limit < 0 {
 		panic(fmt.Sprintf("actor.Supervise: a negative restart limit %d", limit))
+	}
+	if limit == 0 {
+		// No restart: the runner of MachineStart, which never calls fresh.
+		fresh = nil
 	}
 	return machineStart(span, t, sl, initial, step, fire, delay, workOf, hasWork, work, kind, next,
 		out, capacity, nil, fresh, limit)

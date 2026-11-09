@@ -5,6 +5,8 @@
 // Ambient, so it binds no host Scheduler; tally has no timer).
 
 import machines
+import sync
+import tasks
 import time
 
 // tallyStep reaches each Decision by the signal mod 6.
@@ -308,4 +310,106 @@ law SelectStops(xs []int) {
 // SelectByStops: SelectBy is a Seq that stops.
 law SelectByStops(xs []int) {
 	selectStops(SelectBy(source(xs), func(x int) int { x % 3 }, func(a int, b int) bool { a == b }))
+}
+
+// crashes reports whether the step of e is an injected defect: a signal
+// whose value mod 5 is 4.
+func crashes(e int) bool { ((e % 5) + 5) % 5 == 4 }
+
+// crashStep is tallyStep, with a defect for each signal crashes names.
+func crashStep(s int, e int) Decision[int, int] {
+	if crashes(e) {
+		Unreachable("an injected defect")
+	}
+	tallyStep(s, e)
+}
+
+func crashy() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: crashStep, After: untimed, Work: unworked} }
+
+// supervised asks a supervised crashy actor each signal, with a restart
+// budget of n mod 3, and compares it with the pure fold: a defect restarts
+// the actor in the state fresh gives (0, or the last saved one when kept)
+// while the budget lasts and ends it after, and Done ends it for good.
+// a.State() and Restarts(a) are the fold's, and an actor that the defect
+// ended exits Defected.
+func supervised(a Actor[int, int, Decision[int, int]], signals []int, limit int, kept bool) bool needs Scheduler {
+	let mut s = 0
+	let mut restarts = 0
+	let mut ended = false
+	let mut defected = false
+	for e in signals {
+		let _ = a.Ask(e) catch {
+		case Stopped:
+			Ignore
+		}
+		if !ended {
+			if crashes(e) {
+				if restarts < limit {
+					restarts = restarts + 1
+					if !kept {
+						s = 0
+					}
+				} else {
+					ended = true
+					defected = true
+				}
+			} else {
+				let d = tallyStep(s, e)
+				match d {
+				case Done[int]:
+					ended = true
+				case _:
+					s = machines.Next(s, d)
+				}
+			}
+		}
+	}
+	let same = a.State() == s && Restarts(a) == restarts
+	if defected {
+		match ExitOf(a) {
+		case Defected:
+			return same
+		case _:
+			return false
+		}
+	}
+	a.Stop()
+	same
+}
+
+// restarted is supervised over Supervise: each restart starts in the
+// initial state.
+func restarted(signals []int, n int) bool needs Scheduler {
+	let limit = ((n % 3) + 3) % 3
+	supervised(Supervise(crashy(), 1, func(o int) {}, tasks.Restart{Limit: limit}), signals, limit, false)
+}
+
+// recoveredRun is supervised over SuperviseDurable with a journal of one
+// cell: save keeps the committed state, recover gives it, so each restart
+// starts in the state the crash found.
+func recoveredRun(signals []int, n int) bool needs Scheduler {
+	let limit = ((n % 3) + 3) % 3
+	let cell = sync.NewRef[Option[int]](None)
+	let a = SuperviseDurable(crashy(), 1, func(o int) {}, tasks.Restart{Limit: limit}, func() Option[int] { cell.Get() }, func(prev int, next int, sig int) {
+		cell.Set(Some[int]{Value: next})
+	})
+	supervised(a, signals, limit, true)
+}
+
+// RestartIsFresh: under Supervise, a defect answers the Ask Stopped and
+// restarts the actor in its initial state, never the last one, while the
+// budget lasts; the defect after it ends the actor (Defected); Done ends
+// it for good; Restarts counts the restarts.
+law RestartIsFresh(signals []int, n int) {
+	with context { Scheduler: time.NewManual(0) } {
+		restarted(signals, n)
+	}
+}
+
+// RestartRecovers: under SuperviseDurable, each restart starts in the
+// state recover gives, the last one save kept.
+law RestartRecovers(signals []int, n int) {
+	with context { Scheduler: time.NewManual(0) } {
+		recoveredRun(signals, n)
+	}
 }

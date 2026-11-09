@@ -15,6 +15,7 @@ func durableSource(step, helpers, call string) string {
 import journal
 import journal/memory
 import machines
+import tasks
 
 type State = Idle{} | Busy{N int}
 type Signal = Go{} | Bump{}
@@ -28,7 +29,7 @@ func pick(n int) State { Busy{N: n} }
 type Counted machine[State, Signal] { initial: pick, step: step }
 
 // uses names each import, so no row reports one unused.
-func uses(_ actor.Stopped, _ machines.Rejected, _ journal.Failed) {}
+func uses(_ actor.Stopped, _ machines.Rejected, _ journal.Failed, _ tasks.Restart) {}
 ` + helpers + `
 func run() needs Console | Scheduler {
 	let j = memory.New[State, Signal]()
@@ -70,21 +71,26 @@ func TestDurableStepIsPure(t *testing.T) {
 		{name: "hooks", step: pureStep, call: "actor.StartDurable(Counter{}, 1, func(o int) {}, func() Option[State] fails journal.Failed { None }, func(p State, n State, e Signal) fails journal.Failed { try j.Append(e) })"},
 		{
 			name: "capability", step: "needs Console {\n\tConsole.Println(\"x\")\n\tIgnore\n}", call: start,
-			want: "journal.Start replays the saved signals with the machine's step, so the step must be pure: step step calls the capability operation Console.Println at 10:2",
+			want: "journal.Start replays the saved signals with the machine's step, so the step must be pure: step step calls the capability operation Console.Println at 11:2",
 		},
 		{
 			name: "helper", step: "needs Console {\n\tlog()\n\tIgnore\n}", helpers: "\nfunc log() needs Console { Console.Println(\"x\") }\n", call: start,
-			want: "step step calls log, which is not pure at 10:2",
+			want: "step step calls log, which is not pure at 11:2",
 		},
 		{
 			name: "input machine impure", step: "needs Console {\n\tConsole.Println(\"x\")\n\tIgnore\n}",
 			call: "journal.Start(machines.Start(Counted{}, 3), j, 2, 1, func(o int) {})",
-			want: "step step calls the capability operation Console.Println at 10:2",
+			want: "step step calls the capability operation Console.Println at 11:2",
 		},
 		{
 			name: "hooks impure", step: "needs Console {\n\tConsole.Println(\"x\")\n\tIgnore\n}",
 			call: "actor.StartDurable(Counter{}, 1, func(o int) {}, func() Option[State] fails journal.Failed { None }, func(p State, n State, e Signal) fails journal.Failed { try j.Append(e) })",
 			want: "actor.StartDurable replays the saved signals with the machine's step, so the step must be pure: step step calls",
+		},
+		{
+			name: "supervised impure", step: "needs Console {\n\tConsole.Println(\"x\")\n\tIgnore\n}",
+			call: "actor.SuperviseDurable(Counter{}, 1, func(o int) {}, tasks.Restart{Limit: 1}, func() Option[State] fails journal.Failed { None }, func(p State, n State, e Signal) fails journal.Failed { try j.Append(e) })",
+			want: "actor.SuperviseDurable replays the saved signals with the machine's step, so the step must be pure: step step calls",
 		},
 		{name: "literal", step: pureStep, call: "journal.Start(" + literal + ", j, 2, 1, func(o int) {})"},
 		{

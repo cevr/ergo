@@ -11,6 +11,8 @@ import (
 // on a time.Manual that no one advances: tally has no timer.
 const actorLawsProbe = `import actor
 import machines
+import sync
+import tasks
 import time
 
 func tallyStep(s int, e int) Decision[int, int] {
@@ -317,6 +319,92 @@ func CanIsTheStep(signals []int, e int) bool {
 test ActorFeedStepsInOrder(xs []int) { assert FeedStepsInOrder(xs) }
 
 test ActorCanIsTheStep(signals []int, e int) { assert CanIsTheStep(signals, e) }
+
+func crashes(e int) bool { ((e % 5) + 5) % 5 == 4 }
+
+func crashStep(s int, e int) Decision[int, int] {
+	if crashes(e) {
+		Unreachable("an injected defect")
+	}
+	tallyStep(s, e)
+}
+
+func crashy() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: crashStep, After: untimed, Work: unworked} }
+
+func supervised(a actor.Actor[int, int, Decision[int, int]], signals []int, limit int, kept bool) bool needs Scheduler {
+	let mut s = 0
+	let mut restarts = 0
+	let mut ended = false
+	let mut defected = false
+	for e in signals {
+		let _ = a.Ask(e) catch {
+		case actor.Stopped:
+			Ignore
+		}
+		if !ended {
+			if crashes(e) {
+				if restarts < limit {
+					restarts = restarts + 1
+					if !kept {
+						s = 0
+					}
+				} else {
+					ended = true
+					defected = true
+				}
+			} else {
+				let d = tallyStep(s, e)
+				match d {
+				case Done[int]:
+					ended = true
+				case _:
+					s = machines.Next(s, d)
+				}
+			}
+		}
+	}
+	let same = a.State() == s && actor.Restarts(a) == restarts
+	if defected {
+		match actor.ExitOf(a) {
+		case actor.Defected:
+			return same
+		case _:
+			return false
+		}
+	}
+	a.Stop()
+	same
+}
+
+func restarted(signals []int, n int) bool needs Scheduler {
+	let limit = ((n % 3) + 3) % 3
+	supervised(actor.Supervise(crashy(), 1, func(o int) {}, tasks.Restart{Limit: limit}), signals, limit, false)
+}
+
+func recoveredRun(signals []int, n int) bool needs Scheduler {
+	let limit = ((n % 3) + 3) % 3
+	let cell = sync.NewRef[Option[int]](None)
+	let a = actor.SuperviseDurable(crashy(), 1, func(o int) {}, tasks.Restart{Limit: limit}, func() Option[int] { cell.Get() }, func(prev int, next int, sig int) {
+		cell.Set(Some[int]{Value: next})
+	})
+	supervised(a, signals, limit, true)
+}
+
+func RestartIsFresh(signals []int, n int) bool {
+	with context { Scheduler: time.NewManual(0) } {
+		restarted(signals, n)
+	}
+}
+
+func RestartRecovers(signals []int, n int) bool {
+	with context { Scheduler: time.NewManual(0) } {
+		recoveredRun(signals, n)
+	}
+}
+
+test ActorRestartIsFresh(signals []int, n int) { assert RestartIsFresh(signals, n) }
+
+test ActorRestartRecovers(signals []int, n int) { assert RestartRecovers(signals, n) }
 `
 
 // actorLawStatements is the statement of each actor law, as the ledger
@@ -332,6 +420,8 @@ var actorLawStatements = map[string]string{
 	"actor SelectByStops":       `SelectByStops(xs []int) { selectStops(SelectBy(source(xs), func(x int) int { x % 3 }, func(a int, b int) bool { a == b })) }`,
 	"actor SelectOncePerChange": `SelectOncePerChange(xs []int) { let mut want = []int{} for x in xs { if len(want) == 0 || want[len(want)-1] != x % 3 { want = want.Append(x % 3) } } let mut got = []int{} for v in Select(Seq[int](func(yield func(v int) bool) { for x in xs { if !yield(x) { return } } }), func(x int) int { x % 3 }) { got = got.Append(v) } let mut same = len(got) == len(want) for i in 0..len(got) { same = same && got[i] == want[i] } same }`,
 	"actor RejectKeepsState":    `RejectKeepsState(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { rejectKeeps(signals, n) } }`,
+	"actor RestartIsFresh":      `RestartIsFresh(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { restarted(signals, n) } }`,
+	"actor RestartRecovers":     `RestartRecovers(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { recoveredRun(signals, n) } }`,
 	"actor SendsStepInOrder":    `SendsStepInOrder(signals []int) { with context { Scheduler: time.NewManual(0) } { inOrder(signals) } }`,
 }
 

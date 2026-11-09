@@ -31,6 +31,7 @@ var notHostExterns = map[string]string{
 	"actor.failure":         "reads the typed failure that ended the program's actor",
 	"actor.hasLatest":       "reads whether the program's actor stepped a signal",
 	"actor.latest":          "reads the last decision of the program's actor",
+	"actor.Restarts":        "reads how many times the program's supervised actor restarted",
 	"actor.feed":            "admits the program's source to the program's actor, whose runner starts it on a task of the program",
 	"actor.live":            "reads the state of the program's actor, or that it has ended",
 	"actor.NewHost":         "makes an empty host, which the program's actor's runner binds when a step of it makes the host",

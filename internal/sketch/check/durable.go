@@ -7,7 +7,8 @@ import (
 )
 
 // The durable rule (MU9, survey MQ5; runtime.md, Machines and actors 17):
-// a machine given to a durable runner, std actor.StartDurable or
+// a machine given to a durable runner, std actor.StartDurable,
+// actor.SuperviseDurable (MU7) or
 // journal.Start, has a pure step. A recovery steps the saved signals
 // again, so a step with an effect would act twice; a pure step replays to
 // the same state by construction. The checker must see which function is
@@ -22,13 +23,14 @@ import (
 // A call in std is not checked: std forwards a machine its caller gave,
 // and the caller's call is checked.
 
-// TakesDurableMachine reports a std durable runner: actor.StartDurable or
+// TakesDurableMachine reports a std durable runner: actor.StartDurable,
+// actor.SuperviseDurable or
 // journal.Start.
 func TakesDurableMachine(f *Func) bool {
 	if f == nil || f.Pkg == nil || !f.Pkg.std {
 		return false
 	}
-	return (f.Pkg.Path == childPath && f.Name == "StartDurable") || (f.Pkg.Path == "journal" && f.Name == "Start")
+	return (f.Pkg.Path == childPath && (f.Name == "StartDurable" || f.Name == "SuperviseDurable")) || (f.Pkg.Path == "journal" && f.Name == "Start")
 }
 
 // durableCall is a call of a durable runner, with the runner's name.

@@ -77,7 +77,7 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 // TestTransformModel (no call outlives the map); for TasksRace, which waits
 // through the same rt ends line, TestRaceModel (every block has ended and
 // run its exit action when Race returns).
-// MachineStart (std actor, MU3) starts the actor's task as a child of the
+// MachineSupervise (std actor, MU3, MU7) starts the actor's task as a child of the
 // caller and joins nothing: runtime/v1/actor_test.go TestActorStopCascades
 // states that a stop of the caller stops the actor, and
 // TestActorModelAgreesWithTimedFold that Stop drains it.
@@ -85,7 +85,7 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 // caller, shielded, and joins nothing: runtime/v1/actor_children_test.go
 // TestActorChildrenAgreeWithTree states that its owner entry stops it,
 // last started first, before the next entry and before the owner ends.
-var childWaitLaws = map[string]bool{"After": true, "TasksTransform": true, "TasksRace": true, "Set.Wait": true, "Set.Stop": true, "MachineStart": true, "MachineChild": true}
+var childWaitLaws = map[string]bool{"After": true, "TasksTransform": true, "TasksRace": true, "Set.Wait": true, "Set.Stop": true, "MachineSupervise": true, "MachineChild": true}
 
 // actorWaitLaws are the waiting bindings of std actor (MU3): each waits on
 // the actor's own runner (for room in its inbox, an answer, a state, a

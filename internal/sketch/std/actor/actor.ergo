@@ -12,6 +12,7 @@
 // control: a goroutine with a channel and a switch on the state.
 
 import machines
+import tasks
 
 // Stopped is the failure of Send and Ask on an actor that has ended (Done,
 // a failure after a Send or a timer, a defect, Stop) or whose Stop was
@@ -89,14 +90,16 @@ type Actor[S, E, D, F] {
 	},
 }
 
-// start is the Go body: the machine's first state and its step, the step
-// of a timer signal (fire), the delay of each state's timer (noTimer() for
-// none; one that is not positive is a defect), each state's work (workOf
-// gives it, hasWork says whether it is one, and work runs it with the
-// entry's send), the decision's kind (Enter 0, Stay 1, Emit 2, Ignore 3,
-// Reject 4, Done 5), the state after a decision, the output of a
-// decision, and the inbox's capacity.
-extern go ergo.local/prototype/runtime/v1.MachineStart func start[S, E, D, W, F, R](initial S, step func(s S, e E) D fails F needs R, fire func(at S, s S) D fails F needs R, delay func(s S) duration, workOf func(s S) W, hasWork func(w W) bool, work func(w W, send func(e E)) needs R, kind func(d D) int, next func(s S, d D) S, out func(d D) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
+// start is the Go body: the machine's first state, the state of each
+// restart (fresh; its failure is a defect of the restart) and the number
+// of restarts after a defect (limit; 0 restarts none, and fresh never
+// runs), its step, the step of a timer signal (fire), the delay of each
+// state's timer (noTimer() for none; one that is not positive is a
+// defect), each state's work (workOf gives it, hasWork says whether it is
+// one, and work runs it with the entry's send), the decision's kind
+// (Enter 0, Stay 1, Emit 2, Ignore 3, Reject 4, Done 5), the state after
+// a decision, the output of a decision, and the inbox's capacity.
+extern go ergo.local/prototype/runtime/v1.MachineSupervise func start[S, E, D, W, F, R, G](initial S, fresh func() S fails G needs R, limit int, step func(s S, e E) D fails F needs R, fire func(at S, s S) D fails F needs R, delay func(s S) duration, workOf func(s S) W, hasWork func(w W) bool, work func(w W, send func(e E)) needs R, kind func(d D) int, next func(s S, d D) S, out func(d D) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
 
 // noTimer is the delay start reads as "no timer" for a state whose After
 // is None.
@@ -115,7 +118,35 @@ extern go ergo.local/prototype/runtime/v1.ActorNoTimer func noTimer() duration
 // the actor's task; Done then ends the actor. A machine with an input
 // starts as machines.Start(m, input).
 func StartMachine[S, E, O, F, R](m Machine[S, E, O, F, R], capacity int, sink func(o O) needs R) Actor[S, E, Decision[S, O], F] needs R | Scheduler {
-	start(m.Initial, m.Step, func(at S, s S) Decision[S, O] fails F needs R {
+	let first = m.Initial
+	launch(m, capacity, sink, func() S { first }, 0)
+}
+
+// Supervise is StartMachine for an actor that restarts after a defect
+// (MU7; runtime.md, Machines and actors 18), under the policy of
+// tasks.Restart: a defect of a step, a timer, a work, a child or a source
+// ends the actor's incarnation, and while fewer than policy.Limit
+// restarts were made, a new incarnation starts in m's initial state,
+// never in the last one. The crash ends the incarnation as an end does:
+// its children, timer and work stop, the Ask in the step and every queued
+// Ask get Stopped, queued Sends are dropped; Sends and Asks after it go
+// to the new incarnation, through the same Actor. Done, Stop, Drain and a
+// typed failure that ends the actor are final: no restart follows them.
+// The defect that finds the budget spent ends the actor, and Stop raises
+// it. Restarts counts the restarts. A negative Limit is a defect.
+func Supervise[S, E, O, F, R](m Machine[S, E, O, F, R], capacity int, sink func(o O) needs R, policy tasks.Restart) Actor[S, E, Decision[S, O], F] needs R | Scheduler {
+	let first = m.Initial
+	launch(m, capacity, sink, func() S { first }, policy.Limit)
+}
+
+// Restarts is how many times a restarted after a defect (Supervise,
+// SuperviseDurable); 0 for an actor that never did.
+extern go ergo.local/prototype/runtime/v1.ActorRestarts func Restarts[S, E, D, F](a Actor[S, E, D, F]) int
+
+// launch is the body of StartMachine and Supervise: m as an actor whose
+// restarts (limit of them) start in fresh's state.
+func launch[S, E, O, F, R, G](m Machine[S, E, O, F, R], capacity int, sink func(o O) needs R, fresh func() S fails G needs R, limit int) Actor[S, E, Decision[S, O], F] needs R | Scheduler {
+	start(m.Initial, fresh, limit, m.Step, func(at S, s S) Decision[S, O] fails F needs R {
 		match m.After(at) {
 		case Some[Timeout[E]] as t:
 			try m.Step(s, t.Value.Signal)
@@ -192,14 +223,38 @@ func StartMachine[S, E, O, F, R](m Machine[S, E, O, F, R], capacity int, sink fu
 // before the step (runner rule 6), so it is never saved and never
 // replayed.
 func StartDurable[S, E, O, F, R, G](m Machine[S, E, O, F, R], capacity int, sink func(o O) needs R, recover func() Option[S] fails G needs R, save escaping func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | Scheduler {
-	let initial = match try recover() {
+	let initial = try recovered(recover, m.Initial)
+	StartMachine(durable(m, initial, save), capacity, sink)
+}
+
+// SuperviseDurable is Supervise for a durable machine (StartDurable): the
+// first incarnation starts as StartDurable starts, and each restart runs
+// recover again, so the new incarnation starts in the last state save
+// kept (or m's initial state on None), never in the crashed one's memory.
+// A failure of recover at the start fails SuperviseDurable; at a restart
+// it is a defect of the new incarnation (ActorFreshDefect), which the
+// budget counts like any other.
+func SuperviseDurable[S, E, O, F, R, G](m Machine[S, E, O, F, R], capacity int, sink func(o O) needs R, policy tasks.Restart, recover escaping func() Option[S] fails G needs R, save escaping func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | Scheduler {
+	let first = m.Initial
+	let initial = try recovered(recover, first)
+	launch(durable(m, initial, save), capacity, sink, func() S fails G needs R { try recovered(recover, first) }, policy.Limit)
+}
+
+// recovered is recover's state, or initial on None.
+func recovered[S, G, R](recover func() Option[S] fails G needs R, initial S) S fails G needs R {
+	match try recover() {
 	case Some[S] as s:
 		s.Value
 	case None:
-		m.Initial
+		initial
 	}
+}
+
+// durable is m starting in initial, with save run on each committed
+// transition (keep) before the actor commits it.
+func durable[S, E, O, F, R, G](m Machine[S, E, O, F, R], initial S, save escaping func(prev S, next S, sig E) fails G needs R) Machine[S, E, O, F, R] {
 	let step = m.Step
-	StartMachine(Machine[S, E, O, F, R]{Initial: initial, Step: func(s S, e E) Decision[S, O] fails F needs R {
+	Machine[S, E, O, F, R]{Initial: initial, Step: func(s S, e E) Decision[S, O] fails F needs R {
 		let d = try step(s, e)
 		match d {
 		case Enter[S] as en:
@@ -213,7 +268,7 @@ func StartDurable[S, E, O, F, R, G](m Machine[S, E, O, F, R], capacity int, sink
 		case Done[O]:
 		}
 		d
-	}, After: m.After, Work: m.Work}, capacity, sink)
+	}, After: m.After, Work: m.Work}
 }
 
 // keep is save(prev, next, sig), with its failure a defect

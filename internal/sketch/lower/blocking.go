@@ -297,21 +297,23 @@ var runtimeBindings = map[string]runtimeBinding{
 	"IOIsTerminal": {},
 	"IOReadAll":    {wait: callerWait},
 	"IOLines":      {wait: callerWait},
-	// std actor (MU3; runtime.md, Machines and actors 11): MachineStart
+	// std actor (MU3; runtime.md, Machines and actors 11): MachineSupervise
+	// (MachineStart with a restart budget, MU7)
 	// starts the actor's task as a child of the caller's task (a stop of
 	// the caller cascades into it) and waits for nothing but the child's
 	// start. Send, Ask, State and a Changes loop wait on the caller's task
 	// (for room, an answer or a state); Stop drains the runner
 	// uninterruptibly; Dropped reads a counter; ActorNoTimer returns a
 	// constant.
-	"MachineStart":  {wait: childWait},
-	"Actor.Send":    {wait: callerWait},
-	"Actor.Ask":     {wait: callerWait},
-	"Actor.State":   {wait: callerWait},
-	"Actor.Changes": {wait: callerWait},
-	"Actor.Stop":    {wait: drainWait},
-	"Actor.Dropped": {},
-	"ActorNoTimer":  {},
+	"MachineSupervise": {wait: childWait},
+	"ActorRestarts":    {},
+	"Actor.Send":       {wait: callerWait},
+	"Actor.Ask":        {wait: callerWait},
+	"Actor.State":      {wait: callerWait},
+	"Actor.Changes":    {wait: callerWait},
+	"Actor.Stop":       {wait: drainWait},
+	"Actor.Dropped":    {},
+	"ActorNoTimer":     {},
 	// MU12: Drain waits, as Stop does, for the runner's end, uninterruptibly;
 	// exitKind waits for it on the caller's task; the exit's and the latest
 	// decision's reads take the actor's lock only.
