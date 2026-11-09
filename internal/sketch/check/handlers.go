@@ -255,7 +255,7 @@ func (c *checker) catchValid(x *syntax.CatchExpr, hint Type, wantValue, partial 
 		}
 		saved := c.fn.scope
 		c.fn.scope = newScope(saved)
-		vars := c.declareArm(lists)
+		vars := c.declareArm(lists, row.Elems())
 		var restBind []asBinding
 		if restName != nil {
 			if b, ok := c.declareAs(restName, restType, false); ok {
