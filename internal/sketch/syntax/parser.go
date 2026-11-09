@@ -782,8 +782,10 @@ func (p *parser) parseFuncDecl(doc *CommentGroup) *FuncDecl {
 	return d
 }
 
-// parseExternDecl parses `extern go path.F func Name [TypeParams] Sig`.
-func (p *parser) parseExternDecl(doc *CommentGroup) *FuncDecl {
+// parseExternDecl parses `extern go path.F func Name [TypeParams] Sig`, and
+// the binding forms of docs/spec/interop.md: `extern go path.T type T Spec`,
+// `extern go path.C let C Type` and `extern go path.T.M func (r R) M Sig`.
+func (p *parser) parseExternDecl(doc *CommentGroup) Decl {
 	x := &ExternSpec{Extern: p.want(EXTERN)}
 	x.Go = p.want(GO)
 	if p.tok.tok != PATH {
@@ -794,7 +796,26 @@ func (p *parser) parseExternDecl(doc *CommentGroup) *FuncDecl {
 		p.errorf("an extern target is an import path, a dot and a function name, found %s", p.found())
 	}
 	p.next()
+	switch p.tok.tok {
+	case TYPE:
+		d := p.parseTypeDecl(doc)
+		d.Extern = x
+		return d
+	case LET:
+		d, ok := p.parseLetDecl(doc, false).(*VarDecl)
+		if !ok || d.Mut.IsValid() || len(d.Specs[0].Names) != 1 || d.Specs[0].Type == nil || len(d.Specs[0].Values) > 0 {
+			p.errorf("an extern let names one Go constant or variable and its type: extern go math.Pi let Pi float64")
+		}
+		d.Extern = x
+		return d
+	}
 	d := &FuncDecl{Doc: doc, Extern: x, Func: p.want(FUNC)}
+	if p.tok.tok == LPAREN {
+		d.Recv = p.parseParameters(paramPlain)
+		if path, typ, name := x.SplitMethod(); path == "" || !isIdentifier(typ) || !isIdentifier(name) || len(d.Recv.List) != 1 || len(d.Recv.List[0].Names) != 1 {
+			p.errorf("an extern method has one named receiver and the target path.Type.Method")
+		}
+	}
 	d.Name = p.parseIdent()
 	if p.tok.tok == LBRACK {
 		d.TypeParams = p.parseTypeParams()

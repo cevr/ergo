@@ -242,6 +242,13 @@ func (c *checker) collect() {
 		c.cur = fi
 		f := fi.syntax
 		for _, d := range f.Decls {
+			if syntax.IsBindingDecl(d) {
+				// A host type, const or method comes only from a binding
+				// that ergo bind go writes (docs/spec/interop.md); the
+				// checker reads bindings with #202's import checking.
+				c.errorf(d, CodeOutside, "a binding declaration (extern go with type, let or a receiver) is #202's (Go imports); ergo bind go writes it, and it is not checked yet")
+				continue
+			}
 			switch d := d.(type) {
 			case *syntax.ImportDecl:
 				if len(d.Specs) != 1 {

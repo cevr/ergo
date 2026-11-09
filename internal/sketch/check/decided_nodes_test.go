@@ -321,6 +321,12 @@ extern go example.com/door.Fail func fail() int
 func f() int { return fail() }
 func main() {}
 `, []string{"S109:2"}},
+	{"extern", "binding declarations: a host type, a method and a constant (interop.md; checked from IG2)", `
+extern go example.com/door.Door type Door { Open bool }
+extern go example.com/door.Door.Knock func (d *Door) Knock() int
+extern go example.com/door.Max let Max int
+func main() {}
+`, []string{"S109:2", "S109:3", "S109:4"}},
 	{"test", "test declaration", `
 test Adds {
 	assert 1 + 1 == 2

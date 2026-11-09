@@ -49,6 +49,7 @@ func Inspect(n Node, f func(Node) bool) {
 	case *ImportSpec:
 		walk(n.Name, n.Path)
 	case *VarDecl:
+		walk(n.Extern)
 		for _, s := range n.Specs {
 			Inspect(s, f)
 		}
@@ -57,9 +58,9 @@ func Inspect(n Node, f func(Node) bool) {
 		walk(n.Pattern, n.Type)
 		exprs(n.Values)
 	case *TypeDecl:
-		walk(n.Name, n.TypeParams, n.Spec)
+		walk(n.Extern, n.Name, n.TypeParams, n.Spec)
 	case *FuncDecl:
-		walk(n.Extern, n.Name, n.TypeParams, n.Type, n.Body)
+		walk(n.Extern, n.Recv, n.Name, n.TypeParams, n.Type, n.Body)
 	case *ExternSpec:
 		walk(n.Target)
 	case *TestDecl:
