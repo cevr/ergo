@@ -140,6 +140,11 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 	}
 	switch c.Kind {
 	case check.CallFunc:
+		if text, ok := fc.machineRun(x, c); ok {
+			// A run of a machine declaration's value: its flat run
+			// (machinerun.go), which returns what std's Run returns.
+			return text, true, true
+		}
 		fd := fc.l.useFunc(c.Func, x)
 		if userExtern(c.Func) {
 			return fc.hostCall(x, c, args), len(c.Func.Sig.Results) > 0, c.Func.Sig.Fallible

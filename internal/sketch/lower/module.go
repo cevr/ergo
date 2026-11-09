@@ -220,6 +220,9 @@ type lowerer struct {
 	// machineInits are the initial values of the package's machines, in
 	// declaration order, which initFunc runs after every let (machine.go).
 	machineInits []syntax.Expr
+	// flatRuns are the flat runs of the machines, by machine, made at
+	// their first run (machinerun.go); nil for one whose step takes none.
+	flatRuns map[*check.TypeName]*flatRun
 	// instances are the concrete instances of each generic type that the
 	// program's types name (text.go, instancesOf), computed once.
 	instances map[*check.TypeName][]check.Type

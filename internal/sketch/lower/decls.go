@@ -852,7 +852,12 @@ func (l *lowerer) emitFunc(fd *funcDecl) {
 }
 
 // emitFuncBody writes fd's Go declaration.
-func (l *lowerer) emitFuncBody(fd *funcDecl) {
+func (l *lowerer) emitFuncBody(fd *funcDecl) { l.emitBody(fd, nil) }
+
+// emitBody writes fd's Go declaration, or, with flat, the flat step of a
+// machine's flat run (machinerun.go): fd's body under flat's step name,
+// its state parameter flat and its decision returned as a value.
+func (l *lowerer) emitBody(fd *funcDecl, flat *flatRun) {
 	l.bodies++
 	f := fd.fn
 	b := &l.user
@@ -933,6 +938,13 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 	if owned {
 		bodyName = l.pkgName(ownedKey(f), f.Name+"Owned")
 	}
+	flatParam := ""
+	if flat != nil {
+		if owned || fd.method != nil || fd.extern != "" || fd.fallible || len(params) != 2 {
+			ice(site, "the flat step of %s is not a plain function of a state and a signal", f.Name)
+		}
+		bodyName = flat.stepName
+	}
 	if fd.method != nil {
 		tps := map[*check.TypeParam]string{}
 		var args []string
@@ -1000,6 +1012,12 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 			continue
 		}
 		paramNames[i] = name(i)
+		if flat != nil && i == 0 {
+			// The state arrives flat; flatEntry puts it into paramNames[0].
+			flatParam = scope.alloc("flat")
+			parts = append(parts, flatParam+" "+flat.flat)
+			continue
+		}
 		parts = append(parts, paramNames[i]+" "+fc.goType(p.Type))
 		args = append(args, paramNames[i])
 	}
@@ -1033,6 +1051,12 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 	case needsFrame && fd.fallible:
 		frameErr = scope.alloc("err")
 		results = fc.namedResults(fc.frame.result, frameErr)
+	case flat != nil:
+		if needsFrame {
+			ice(site, "the flat step of %s opens a frame scope", f.Name)
+		}
+		results = " (uint8, " + flat.flat + ", " + fc.goType(flat.out) + ")"
+		fc.frame.flat = flat
 	default:
 		results = fc.resultList(fc.frame.result, fd.fallible)
 	}
@@ -1047,6 +1071,10 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		directive = l.directive(f.Decl)
 	}
 	fc.depth = 1
+	entry := ""
+	if flat != nil {
+		entry = fc.flatEntry(flat, flatParam, paramNames[0])
+	}
 	l.analyzeValues(f.Decl, f.Pkg.Info)
 	fc.closeBody(f, site, func() {
 		if needsFrame {
@@ -1056,6 +1084,14 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		fc.entryPoll(f.Pkg.Info, f.Decl)
 		fc.body(f.Decl.Body.List)
 	})
+	if flat != nil {
+		body := fc.out.String()
+		if namesIdent(body, paramNames[0]) {
+			body = entry + body
+		}
+		b.WriteString(directive + head.String() + " {\n" + body + "}\n\n")
+		return
+	}
 	fd.lowered, fd.readsEnv = true, fc.env != "" && namesIdent(fc.out.String(), fc.env)
 	b.WriteString(directive + head.String() + " {\n" + fc.out.String() + "}\n\n")
 	if owned {

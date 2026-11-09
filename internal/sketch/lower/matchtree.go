@@ -723,13 +723,37 @@ func (e *treeEmit) node(n *mnode) {
 	case n.fail:
 		ice(e.s, "a match tree fails outside a default branch")
 	}
+	// In a machine's flat step, a type switch on the flat state switches on
+	// its tag (machinerun.go, flatTags): each case binds the variant's
+	// field.
+	var tags []int
+	flat := false
 	if n.typeSwitch {
+		labels := make([]string, len(n.cases))
+		for k, c := range n.cases {
+			labels[k] = c.label
+		}
+		tags, flat = fc.flatTags(n.operand, labels)
+	}
+	switch {
+	case flat:
+		fc.line(fc.flatSwitch())
+	case n.typeSwitch:
 		fc.line("switch " + n.bound + " := " + n.operand + ".(type) {")
-	} else {
+	default:
 		fc.line("switch " + n.operand + " {")
 	}
 	fc.enterSwitch()
 	for k, c := range n.cases {
+		if flat {
+			fc.line("case " + strconv.Itoa(tags[k]) + ":")
+			fc.depth++
+			fc.line(n.bound + " := " + fc.flatVariant(tags[k]))
+			fc.line("_ = " + n.bound)
+			e.node(c.child)
+			fc.depth--
+			continue
+		}
 		fc.line("case " + c.label + ":")
 		fc.depth++
 		if k == 0 && n.typeSwitch {
