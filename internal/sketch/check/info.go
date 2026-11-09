@@ -107,6 +107,9 @@ type Package struct {
 	// check-v1 stage E4). Only prelude and stdImporter.Import set it, before
 	// the package is checked; Std reads it.
 	std bool
+	// host is the binding a Go package is read from (gobinding.go); nil
+	// for an Ergo package.
+	host *hostPkg
 	// owners holds the owner of every node of a body the program does not
 	// own (owners.go); OwnerOf reads it.
 	owners map[syntax.Node]FactOwner
@@ -125,6 +128,10 @@ type Package struct {
 // check-v1 stage E4). A program package never has it, whatever its path,
 // so the lowering keys std's namespaces on it, not on a path string.
 func (p *Package) Std() bool { return p != nil && p.std }
+
+// Host reports whether p is a Go package read from its binding (import go;
+// docs/spec/interop.md).
+func (p *Package) Host() bool { return p != nil && p.host != nil }
 
 // Files is the package's source files in the order the checker met them.
 // A std package's files carry their embedded file name (syntax.File.Name),

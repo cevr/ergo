@@ -1126,6 +1126,14 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 	if p, ok := t.(*Pointer); ok {
 		t = p.Elem
 	}
+	handle := false
+	if e := refElem(t); e != nil {
+		// go.Ref[T] reaches T's fields and methods, as Go's *T does.
+		t, handle = e, true
+	}
+	if isHostNamed(t) {
+		return c.hostSelector(x, base, t.(*Named), handle)
+	}
 	if isInvalid(under(t)) {
 		// A refused declared type (`type MyQ queue.Queue[int]`) was
 		// reported at its declaration; its uses add nothing (D3).
@@ -1364,9 +1372,9 @@ func (c *checker) qualified(x *syntax.SelectorExpr, pn *PkgName) operand {
 	if pn.broken {
 		return bad(x)
 	}
-	o, ok := pn.Pkg.Scope.names[x.Sel.Name]
+	o, ok := pn.Pkg.member(x.Sel.Name)
 	if !ok || !isExported(x.Sel.Name) {
-		c.errorf(x.Sel, CodeUnknown, "%s.%s is not an exported declaration of package %s", pn.Name, x.Sel.Name, pn.Pkg.Path)
+		c.unknownMember(x, pn)
 		return bad(x)
 	}
 	switch o := o.(type) {

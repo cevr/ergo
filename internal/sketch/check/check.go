@@ -84,7 +84,8 @@ type checker struct {
 	caught   *caughtCall
 	pkg      *Package
 	imp      Importer
-	universe *Scope // the universe and the prelude
+	ownGo    *GoBindings // the Go packages of an importer that is no GoImporter
+	universe *Scope      // the universe and the prelude
 	files    []*fileInfo
 	diags    []Diagnostic
 	seen     map[string]bool
@@ -522,6 +523,7 @@ var universeOnce struct {
 	scope     *Scope
 	errorName *TypeName
 	goPkg     *Package
+	ref       *Named // go.Ref
 }
 
 // universe is the predeclared block: the basic types, the constraints
@@ -566,6 +568,14 @@ func universe() *Scope {
 		goErr.Type = &Named{Obj: goErr, under: &Struct{Fields: []*Field{{Name: "Text", Type: Typ[String]}}}, state: 2}
 		goPkg.Scope.insert("Foreign", foreign)
 		goPkg.Scope.insert("Error", goErr)
+		// go.Ref[T] is a Go pointer that is stored, returned or held in a
+		// collection: an opaque handle, never nil (owner q32, q38;
+		// docs/spec/interop.md). Ergo's own *T stays a borrow.
+		ref := &TypeName{Name: "Ref", Pkg: goPkg, id: newID()}
+		refT := &TypeParam{Name: "T", id: newID()}
+		ref.Type = &Named{Obj: ref, TParams: []*TypeParam{refT}, under: &Pointer{Elem: refT}, state: 2}
+		goPkg.Scope.insert("Ref", ref)
+		universeOnce.ref = ref.Type.(*Named)
 		universeOnce.goPkg = goPkg
 		s.insert("go", &PkgName{Name: "go", Pkg: goPkg, used: true})
 		universeOnce.scope = s

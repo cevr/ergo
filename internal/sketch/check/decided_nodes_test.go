@@ -52,10 +52,10 @@ import timeout
 func f() timeout.Expired { return timeout.Expired }
 func main() {}
 `, nil},
-	{"import go", "a Go import is #202's", `
+	{"import go", "a Go import reads its binding", `
 import go strings
-func main() {}
-`, []string{"S109:2"}},
+func main() { let _ = strings.ToUpper("a") }
+`, nil},
 	{"import std", "an import of a std module", `
 import task
 func main() { let t = task.Go() { 1 }; t.Stop() }
@@ -67,7 +67,7 @@ func a() { task.Go() { b() }; return Bang }
 func b() { return a() }
 func F() fails Bang { return b() }
 func main() {}
-`, []string{"S109:2"}},
+`, []string{"S104:2"}},
 	{"let", "let names a value", `
 func f() int64 {
 	let x int64 = 1
