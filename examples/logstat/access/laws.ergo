@@ -8,23 +8,35 @@ func Same(a Request, b Request) bool {
 }
 
 // FormatParses: the line Format writes of a Valid request reads back as
-// the request.
-law FormatParses(r Request) {
-	if !Valid(r) {
-		return true
+// the request, for the samples of seed (time.Time has no generator, so
+// a law cannot take a Request).
+law FormatParses(seed int) {
+	for x in Samples(seed) {
+		if !Valid(x) {
+			continue
+		}
+		let back = Parse(Format(x)) catch {
+		case Problem:
+			return false
+		}
+		if !Same(back, x) {
+			return false
+		}
 	}
-	let back = Parse(Format(r)) catch {
-	case Missing, BadNumber, BadTime, BadRequest, Trailing:
-		return false
-	}
-	Same(back, r)
+	true
 }
 
 // ColumnIsInTheLine: a line that does not parse fails at a column of
-// the line, or just after its end.
-law ColumnIsInTheLine(line string) {
-	let c = Column(line)
-	c == 0 || InLine(c, line)
+// the line, or just after its end: any line, and the line of a sample
+// of seed damaged at i, j and cut.
+law ColumnIsInTheLine(line string, seed int, i int, j int, cut int) {
+	for l in []string{line, Damaged(Samples(seed)[0], i, j, cut)} {
+		let c = Column(l)
+		if c != 0 && !InLine(c, l) {
+			return false
+		}
+	}
+	true
 }
 
 // InLine reports whether column is a column of line or the one after it.

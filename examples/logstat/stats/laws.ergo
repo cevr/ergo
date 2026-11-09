@@ -1,65 +1,86 @@
-// The rules of the arithmetic as laws.
+// The rules of the arithmetic as laws. A generated int is seldom a
+// percent and generated keys seldom repeat, so the laws make percents of
+// their ints (Percent) and repeating keys of theirs (Keys).
 
 import slices
 
 // PercentileIsASampleValue: a percentile of a sample is one of its
 // values.
 law PercentileIsASampleValue(xs []int, p int) {
-	match Percentile(slices.Ascend(xs), p) {
-	case Some as v:
-		slices.Contains(xs, v.Value)
-	case None:
-		len(xs) == 0
+	for pc in []int{p, Percent(p)} {
+		match Percentile(slices.Ascend(xs), pc) {
+		case Some as v:
+			if !slices.Contains(xs, v.Value) {
+				return false
+			}
+		case None:
+			if len(xs) != 0 {
+				return false
+			}
+		}
 	}
+	true
 }
 
 // PercentileIsMonotone: a higher percentile is never a smaller value.
 law PercentileIsMonotone(xs []int, p int, q int) {
-	if p > q {
-		return true
-	}
-	let qs = Percentiles(slices.Ascend(xs), []int{p, q})
+	let lo = Percent(p)
+	let hi = lo + natural(q)%(101-lo)
+	let qs = Percentiles(slices.Ascend(xs), []int{lo, hi})
 	len(qs) == 0 || qs[0].Value <= qs[1].Value
 }
 
 // PercentileCovers: at least p percent of the sample is at or below
 // percentile p, and percentile 100 is the largest value.
 law PercentileCovers(xs []int, p int) {
-	if p < 0 || p > 100 {
-		return true
-	}
-	match Percentile(slices.Ascend(xs), p) {
-	case Some as v:
-		let mut at = 0
-		for x in xs {
-			if x <= v.Value {
-				at += 1
+	for pc in []int{Percent(p), 100} {
+		match Percentile(slices.Ascend(xs), pc) {
+		case Some as v:
+			let mut at = 0
+			for x in xs {
+				if x <= v.Value {
+					at += 1
+				}
+			}
+			if at*100 < pc*len(xs) || (pc == 100 && slices.Max(xs) != Some{Value: v.Value}) {
+				return false
+			}
+		case None:
+			if len(xs) != 0 {
+				return false
 			}
 		}
-		at*100 >= p*len(xs) && (p < 100 || slices.Max(xs) == Some{Value: v.Value})
-	case None:
-		true
 	}
+	true
 }
 
 // RankKeepsEveryKey: ranked with no limit, the counts sum to the number
 // of keys, one count for each distinct key.
-law RankKeepsEveryKey(keys []string) {
-	let ranked = Rank(Tally(keys), -1)
-	Total(ranked) == len(keys) && len(ranked) == len(Seen(keys))
+law RankKeepsEveryKey(keys []string, ns []int) {
+	for ks in [][]string{keys, Keys(ns)} {
+		let ranked = Rank(Tally(ks), -1)
+		if Total(ranked) != len(ks) || len(ranked) != len(Seen(ks)) {
+			return false
+		}
+	}
+	true
 }
 
 // RankIsOrdered: ranked counts are most first, ties by key, and are the
 // first top of all the ranked counts.
-law RankIsOrdered(keys []string, top int) {
-	let all = Rank(Tally(keys), -1)
-	let ranked = Rank(Tally(keys), top)
-	if top >= 0 && len(ranked) > top {
-		return false
-	}
-	for i in 0..len(ranked) {
-		if ranked[i] != all[i] || (i > 0 && ByCountThenKey(ranked[i-1], ranked[i]) >= 0) {
-			return false
+law RankIsOrdered(keys []string, ns []int, top int) {
+	for ks in [][]string{keys, Keys(ns)} {
+		for t in []int{top, natural(top)%8 - 1} {
+			let all = Rank(Tally(ks), -1)
+			let ranked = Rank(Tally(ks), t)
+			if t >= 0 && len(ranked) > t {
+				return false
+			}
+			for i in 0..len(ranked) {
+				if ranked[i] != all[i] || (i > 0 && ByCountThenKey(ranked[i-1], ranked[i]) >= 0) {
+					return false
+				}
+			}
 		}
 	}
 	true
@@ -75,3 +96,16 @@ func Seen(keys []string) []string {
 	}
 	out
 }
+
+// Percent is n made a percent, 0 to 100.
+func Percent(n int) int { natural(n) % 101 }
+
+// Keys is a key from a to f for each of ns, so that keys repeat.
+func Keys(ns []int) []string {
+	let names = []string{"a", "b", "c", "d", "e", "f"}
+	slices.Transform(ns, func(n int) string { names[natural(n)%len(names)] })
+}
+
+// natural is n made not negative, -1 to 0 and the least int to the
+// greatest.
+func natural(n int) int { if n < 0 { -(n + 1) } else { n } }

@@ -1,7 +1,8 @@
-// The generators build requests and lines from Random, for the property
-// tests that restate the laws. A test binds Random to rand.Seeded(seed),
-// so a failing case replays from its seed.
+// The generators build requests and lines from Random. Samples binds
+// Random to rand.Seeded(seed), so the laws that take a seed replay from
+// it: a generated Request is seldom Valid.
 
+import rand
 import strings
 import time
 
@@ -58,3 +59,14 @@ func Damaged(r Request, i int, j int, cut int) string {
 
 // natural is n, or -(n+1) when n is negative: never negative.
 func natural(n int) int { if n < 0 { -(n + 1) } else { n } }
+
+// Samples is ten Valid requests from seed.
+func Samples(seed int) []Request {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let mut out = []Request{}
+		for _ in 0..10 {
+			out = out.Append(Gen())
+		}
+		out
+	}
+}

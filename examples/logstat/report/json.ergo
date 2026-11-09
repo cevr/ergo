@@ -1,6 +1,8 @@
 import logstat/stats
+import strconv
 import strings
 import time
+import utf8
 
 // Encode is s as one line of JSON, with the fields in a fixed order, as
 // Go's encoding/json writes a struct. Ergo has no JSON encoder (gap
@@ -50,34 +52,30 @@ func object(counts []stats.Count) string {
 	"{" + strings.Join(parts, ",") + "}"
 }
 
-let hex = "0123456789abcdef"
-
 // Quote is s as a JSON string, as Go's encoding/json writes it: a quote
 // and a backslash are escaped, the control characters are \n, \r, \t or
-// \u00XX, and <, > and & are \u003c, \u003e and \u0026, so the text is
-// safe inside HTML. Bytes from 128 are written as they are: invalid
-// UTF-8 is not replaced, as Go replaces it (no rune decoder, gap
-// G-ex-a-1).
+// \u00XX, <, > and & are \u003c, \u003e and \u0026, so the text is safe
+// inside HTML, and U+2028 and U+2029 are \u2028 and \u2029, so it is safe
+// inside JavaScript. Each byte of invalid UTF-8 is \ufffd.
 func Quote(s string) string {
 	let mut parts = []string{"\""}
-	let mut from = 0
-	for i in 0..len(s) {
-		let c = s[i]
-		let esc = escaped(c)
-		if esc != "" {
-			parts = parts.Append(strings.Slice(s, from, i))
-			parts = parts.Append(esc)
-			from = i + 1
+	let mut i = 0
+	for i < len(s) {
+		let d = utf8.DecodeRuneInString(strings.Slice(s, i, len(s)))
+		if d.Rune == 0xFFFD && d.Size == 1 {
+			parts = parts.Append("\\ufffd")
+		} else {
+			parts = parts.Append(escaped(d.Rune))
 		}
+		i += d.Size
 	}
-	parts = parts.Append(strings.Slice(s, from, len(s)))
 	parts = parts.Append("\"")
 	strings.Join(parts, "")
 }
 
-// escaped is the escape of the byte c, or "" when c stands for itself.
-func escaped(c byte) string {
-	match c {
+// escaped is the JSON text of the character r: its escape, or r.
+func escaped(r rune) string {
+	match r {
 	case '"':
 		"\\\""
 	case '\\':
@@ -88,16 +86,12 @@ func escaped(c byte) string {
 		"\\r"
 	case '\t':
 		"\\t"
-	case '<', '>', '&':
-		unicode(c)
+	case '<', '>', '&', 0x2028, 0x2029:
+		unicode(r)
 	case _:
-		if c < 32 { unicode(c) } else { "" }
+		if r < 0x20 { unicode(r) } else { utf8.RuneText(r) }
 	}
 }
 
-// unicode is c as \u00XX.
-func unicode(c byte) string {
-	let hi = int(c) / 16
-	let lo = int(c) % 16
-	"\\u00" + strings.Slice(hex, hi, hi+1) + strings.Slice(hex, lo, lo+1)
-}
+// unicode is r as \uXXXX.
+func unicode(r rune) string { "\\u" + strings.PadLeft(strconv.FormatInt(int64(r), 16), 4, '0') }
