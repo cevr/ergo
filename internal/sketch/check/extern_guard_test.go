@@ -74,6 +74,7 @@ var externPlaceRows = map[string]externPlaceRow{
 	"MachineType.Initial":      {guardValue, machineGuard("initial: @Upper,\n\tstep: step,")},
 	"MachineType.Step":         {guardValue, machineGuard("initial: Idle,\n\tstep: @Upper,")},
 	"MachineType.After":        {guardValue, machineGuard("initial: Idle,\n\tstep: step,\n\tafter: @Upper,")},
+	"MachineType.Work":         {guardValue, machineGuard("initial: Idle,\n\tstep: step,\n\twork: @Upper,")},
 	"ParenExpr.X":              {guardValue, "func main() {\n\t_ = (@Upper)\n}\n"},
 	"RangeStmt.X":              {guardValue, "func main() {\n\tfor x in @Upper { _ = x }\n}\n"},
 	"ReturnStmt.Results":       {guardValue, "func get() func(string) string { return @Upper }\n"},

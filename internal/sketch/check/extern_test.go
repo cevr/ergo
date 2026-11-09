@@ -300,6 +300,26 @@ func main() {
 	use(Mine)
 }
 `,
+	// std actor (MU3): start's extern returns the Actor.
+	"actor.Actor": `import actor
+
+type Mine {}
+
+type Bad {}
+
+func Send(_ Mine, e int) fails actor.Stopped {}
+func Ask(_ Mine, e int) int fails actor.Stopped | Bad { 0 }
+func State(_ Mine) int { 0 }
+func Stop(_ Mine) fails Bad {}
+func Dropped(_ Mine) int { 0 }
+func Changes(_ Mine) Seq[int] { func(yield func(v int) bool) {} }
+
+func use(a actor.Actor[int, int, int, Bad]) { _ = a.Dropped() }
+
+func main() {
+	use(Mine)
+}
+`,
 	// std time (S2b): NewManual's extern returns the Timeline.
 	"time.Timeline": `import time
 
