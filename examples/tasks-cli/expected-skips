@@ -1,8 +1,0 @@
-# Skip lines `ergo test` prints for this program's packages (fs4, law-xpkg).
-# file.Board holds an fs.Files and an fs.Writes; no constructor without
-# parameters of an operation type can build one. file/tests.ergo runs
-# tasks/checks.ergo on a Board over an fstest.Memory.
-skip law tasks.Board.CreateNumbersInOrder for Board: its values have no generator: fs.Files is a standard library type; a func NewBoard() Board with no rows would build one for each case
-skip law tasks.Board.CloseClosesOnlyIt for Board: its values have no generator: fs.Files is a standard library type; a func NewBoard() Board with no rows would build one for each case
-skip law tasks.Board.CloseIsOnce for Board: its values have no generator: fs.Files is a standard library type; a func NewBoard() Board with no rows would build one for each case
-skip law tasks.Board.CloseOfNoTaskIsNotFound for Board: its values have no generator: fs.Files is a standard library type; a func NewBoard() Board with no rows would build one for each case

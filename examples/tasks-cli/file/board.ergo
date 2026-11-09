@@ -11,6 +11,12 @@ type Board { path string, files fs.Files, writes fs.Writes }
 // create.
 func Open(path string, files fs.Files, writes fs.Writes) Board { Board{path: path, files: files, writes: writes} }
 
+// NewBoard is the Board in the file tasks.txt of the working directory,
+// which is always there. It is Board's constructor: ergo test builds each
+// Board a tasks.Board law runs on with it, over the case's own
+// fstest.Memory.
+func NewBoard(files fs.Files, writes fs.Writes) Board { Open("tasks.txt", files, writes) }
+
 // items is every item of the file; a file that does not exist yet has
 // none.
 func items(b Board) []tasks.Task fails tasks.Broken {

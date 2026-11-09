@@ -1,7 +1,7 @@
-// Home's tests run it over an fstest.Memory, with no host: it keeps
-// keys.Store's law, reads what the original writes, writes the key file
-// for its owner alone, and treats a file that is not an object of strings
-// as no keys.
+// Home's tests run it over an fstest.Memory, with no host: it reads what
+// the original writes, writes the key file for its owner alone, and treats
+// a file that is not an object of strings as no keys. ergo test runs
+// keys.Store's law on Home itself.
 
 import fs
 import fstest
@@ -55,14 +55,4 @@ test BadFilesAreEmpty {
 	try d.WriteFile("h/.okra/keys.json", "{\"a\":1}")
 	assert len((try home(d, "h").Load()).Entries()) == 0
 	assert len((try home(d, "none").Load()).Entries()) == 0
-}
-
-test LoadSeesSaveHolds(names []string, secrets []string) {
-	let h = home(fstest.NewMemory(), "/h")
-	let mut k = keys.Empty()
-	for i, name in names {
-		k = k.Set(name, if i < len(secrets) { secrets[i] } else { "s" })
-	}
-	let _ = try h.Save(k)
-	assert try h.Load() == k
 }

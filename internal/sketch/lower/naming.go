@@ -163,6 +163,16 @@ func (l *lowerer) nameAll() {
 					}
 				}
 			}
+			// A generator converts each value a builder builds into its
+			// operation type (builders.go).
+			seen := map[check.Type]bool{}
+			l.genRoots(func(t check.Type) {
+				l.genNamed(t, seen, func(n *check.Named) {
+					if isOps(n) {
+						convs = append(convs, l.opBuilder(n, nil).Conv)
+					}
+				})
+			})
 		}
 		for _, c := range convs {
 			key, base, ok := l.adapterName(c)

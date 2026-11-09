@@ -144,6 +144,10 @@ func Text(r Recorder) string {
 // Input is a Stdin provider for tests: each read sees all of Text.
 type Input { Text string }
 
+// NewInput is the Input whose reads see text. It is io.Stdin's builder, so
+// a generated record that holds a Stdin reads an Input (check/builders.go).
+func NewInput(text string) Input { Input{Text: text} }
+
 // ReadAll is input.Text.
 func ReadAll(input Input) string fails ReadFailed { input.Text }
 

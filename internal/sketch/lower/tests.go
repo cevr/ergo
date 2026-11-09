@@ -133,36 +133,13 @@ func (l *lowerer) nameTests() {
 		reserveLit(t)
 	}
 	for _, r := range l.runLaws() {
-		law := r.Law
-		l.lawFunc(law)
-		if !lawLowered(r) {
-			continue
-		}
-		for i, v := range law.Params {
-			if !lawSlotParam(law, i) {
-				reserveGen(v.Type)
-			}
-		}
-		for _, b := range r.Bindings {
-			if bindingUnrun(b) != "" {
-				continue
-			}
-			for _, p := range b {
-				if p.Ctor != nil {
-					for _, v := range p.Ctor.Sig.Params {
-						reserveGen(v.Type)
-					}
-				} else {
-					reserveGen(p.Type)
-				}
-			}
-		}
+		l.lawFunc(r.Law)
 	}
+	// Each base (ergoLaw, ergoGen, ergoLit) is its own, so the order of
+	// the law functions and the generators decides no name.
+	l.genRoots(reserveGen)
 	for _, t := range l.runTests() {
 		l.testFunc(t)
-		for _, v := range t.Params {
-			reserveGen(v.Type)
-		}
 		// The literal functions of the operands a failed assert shows.
 		syntax.Inspect(t.Decl, func(n syntax.Node) bool {
 			if a, ok := n.(*syntax.AssertStmt); ok {
@@ -173,6 +150,42 @@ func (l *lowerer) nameTests() {
 			}
 			return true
 		})
+	}
+}
+
+// genRoots calls f on each type the test build generates a value of: the
+// parameters of each law run that are not slots, each provider (or its
+// constructor's parameters) and each property's parameters.
+func (l *lowerer) genRoots(f func(check.Type)) {
+	for _, r := range l.runLaws() {
+		law := r.Law
+		if !lawLowered(r) {
+			continue
+		}
+		for i, v := range law.Params {
+			if !lawSlotParam(law, i) {
+				f(v.Type)
+			}
+		}
+		for _, b := range r.Bindings {
+			if bindingUnrun(b) != "" {
+				continue
+			}
+			for _, p := range b {
+				if p.Ctor != nil {
+					for _, v := range p.Ctor.Sig.Params {
+						f(v.Type)
+					}
+				} else {
+					f(p.Type)
+				}
+			}
+		}
+	}
+	for _, t := range l.runTests() {
+		for _, v := range t.Params {
+			f(v.Type)
+		}
 	}
 }
 
@@ -645,7 +658,7 @@ func (l *lowerer) testRunner() string {
 		b.WriteString("\t\tfor " + i + " := 1; " + ok + " && " + i + " <= " + strconv.Itoa(testCases) + "; " + i + "++ {\n")
 		// The case's size grows with its number (QuickCheck's sized):
 		// case i draws collections of up to i/4 elements at the top.
-		b.WriteString("\t\t\t" + r + ".size = " + i + " / 4\n")
+		b.WriteString("\t\t\t" + r + ".start(" + i + ")\n")
 		args := []string{env}
 		conv := l.helper("strconv")
 		// The case's report: its number, the seed, the size and each
@@ -754,7 +767,7 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 		b.WriteString("\t\t" + r + ".env = " + env + "\n")
 		b.WriteString("\t\t" + ok + " := true\n")
 		b.WriteString("\t\tfor " + i + " := 1; " + ok + " && " + i + " <= " + strconv.Itoa(testCases) + "; " + i + "++ {\n")
-		b.WriteString("\t\t\t" + r + ".size = " + i + " / 4\n")
+		b.WriteString("\t\t\t" + r + ".start(" + i + ")\n")
 		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(testCases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)", strconv.Quote(", size "), conv + ".Itoa(" + i + " / 4)"}
 		sep := ": "
 		var bind []string
@@ -990,11 +1003,34 @@ func $Where(args func() string) string {
 // i of 100 has size i/4, so collections grow with the run (QuickCheck's
 // sized). env is the test runner's environment, which a constructor that a
 // generator calls runs in (check/tests.go rule 3): it has no rows, so it
-// reads only the task.
+// reads only the task. world is the case's values of the builders with no
+// parameters (check/builders.go rule 4), by builder.
 type $Rand struct {
-	s    uint64
-	size int
-	env  any
+	s     uint64
+	size  int
+	env   any
+	world map[string]any
+}
+
+// start begins case i of a run: its size is i/4, and its world is empty,
+// so no case sees another's file system or output.
+func (r *$Rand) start(i int) {
+	r.size = i / 4
+	r.world = nil
+}
+
+// built is the case's one value of the builder key, which build makes on
+// the case's first use of it.
+func (r *$Rand) built(key string, build func() any) any {
+	if v, ok := r.world[key]; ok {
+		return v
+	}
+	if r.world == nil {
+		r.world = map[string]any{}
+	}
+	v := build()
+	r.world[key] = v
+	return v
 }
 
 // $NewRand is the generator of the test name under seed: each property
@@ -1226,6 +1262,15 @@ func (l *lowerer) genNamed(t check.Type, seen map[check.Type]bool, visit func(*c
 		}
 		seen[u] = true
 		visit(u)
+		if _, isOps := u.Underlying().(*check.Interface); isOps {
+			if b := l.pkg.Builder(u); b != nil {
+				_, params := b.Instance(u)
+				for _, p := range params {
+					l.genNamed(p, seen, visit)
+				}
+			}
+			return
+		}
 		if ctor := genConstructor(u); ctor != nil {
 			for _, v := range ctor.Sig.Params {
 				l.genNamed(v.Type, seen, visit)
@@ -1317,6 +1362,18 @@ func (l *lowerer) genFunc(n *check.Named, site syntax.Node) string {
 	scope := newNamer(l.names)
 	r, d := scope.alloc("r"), scope.alloc("d")
 	var body strings.Builder
+	if b := l.opBuilder(n, site); b != nil {
+		// A capability is built by its builder (builders.go), in the
+		// runner's environment unless it is a runtime/v1 body.
+		ev := ""
+		if !l.stdBuilt(b, site) {
+			ev = scope.alloc("env")
+			body.WriteString("\t" + ev + ", _ := " + r + ".env.(*" + l.env() + ")\n")
+		}
+		l.genBuilt(n, b, r, d, ev, scope, site, &body)
+		l.gen.WriteString("func " + name + "(" + r + " *" + l.helper("Rand") + ", " + d + " int) " + goType + " {\n" + body.String() + "}\n\n")
+		return name
+	}
 	if ctor := genConstructor(n); ctor != nil {
 		// Built as its package builds it: by its constructor, from
 		// generated arguments (check/tests.go rule 3). The constructor has

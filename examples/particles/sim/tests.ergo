@@ -72,16 +72,3 @@ test KeysAreRead {
 	case None:
 	}
 }
-
-// ergo test skips the law ShowCountsOne for tape and blind (a sync.Ref
-// has no generator, G-exup-4), so this test runs it, k frames shown first.
-test ShowCountsOneHolds(n int, phase string, k int) {
-	for s in []Screen{tape{frames: sync.NewRef[[]Frame]([]Frame{})}, blind{n: sync.NewRef[int](0)}} {
-		for i in 0..(if k < 0 { -(k % 5) } else { k % 5 }) {
-			s.Show(Frame{N: i, Phase: phase, G: Fresh(world.Blank())})
-		}
-		let before = s.Shown()
-		s.Show(Frame{N: n, Phase: phase, G: Fresh(world.Blank())})
-		assert s.Shown() == before+1
-	}
-}

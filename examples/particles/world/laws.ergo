@@ -10,10 +10,11 @@ func within(n int, lo int, hi int) int {
 	lo + (if m < 0 { m + span } else { m })
 }
 
-// Sample is a box from a seed and any numbers: a side of 3 to 24, up to
+// NewWorld is a box from a seed and any numbers: a side of 3 to 24, up to
 // 40 particles, a loss of 0 to 2. It never fails, because the numbers
-// are mapped into range first.
-func Sample(seed uint64, size int, n int, loss int) World {
+// are mapped into range first. It is World's constructor, so a generator
+// builds each World it draws with it (a test screen's frames hold one).
+func NewWorld(seed uint64, size int, n int, loss int) World {
 	let width = within(size, MinSide, 24)
 	let height = within(size/7, MinSide, 12)
 	let count = within(n, 0, 40)
@@ -27,7 +28,7 @@ func Sample(seed uint64, size int, n int, loss int) World {
 
 // EnergyNeverRises: a step never adds energy. Walls may take some away.
 law EnergyNeverRises(seed uint64, size int, n int, loss int) {
-	let w = Sample(seed, size, n, loss)
+	let w = NewWorld(seed, size, n, loss)
 	let next, _ = Step(w)
 	Energy(next) <= Energy(w)
 }
@@ -35,14 +36,14 @@ law EnergyNeverRises(seed uint64, size int, n int, loss int) {
 // ElasticKeepsEnergy: with no loss at the walls, a run of steps keeps the
 // energy exactly: a bounce turns a velocity and a meeting passes it on.
 law ElasticKeepsEnergy(seed uint64, size int, n int, steps int) {
-	let w = Sample(seed, size, n, 0)
+	let w = NewWorld(seed, size, n, 0)
 	let after, _ = Run(w, within(steps, 0, 50))
 	Energy(after) == Energy(w)
 }
 
 // StaysInTheBox: every particle is in a cell after every step.
 law StaysInTheBox(seed uint64, size int, n int, loss int, steps int) {
-	let mut w = Sample(seed, size, n, loss)
+	let mut w = NewWorld(seed, size, n, loss)
 	for _ in 0..within(steps, 0, 50) {
 		let next, _ = Step(w)
 		if !Inside(next) {
@@ -56,14 +57,14 @@ law StaysInTheBox(seed uint64, size int, n int, loss int, steps int) {
 // SeedReplays: one seed makes one run, step for step.
 law SeedReplays(seed uint64, size int, n int, loss int, steps int) {
 	let k = within(steps, 0, 50)
-	let a, ta = Run(Sample(seed, size, n, loss), k)
-	let b, tb = Run(Sample(seed, size, n, loss), k)
+	let a, ta = Run(NewWorld(seed, size, n, loss), k)
+	let b, tb = Run(NewWorld(seed, size, n, loss), k)
 	a == b && ta == tb
 }
 
 // StepCountsOne: a step adds one to the tick and keeps every particle.
 law StepCountsOne(seed uint64, size int, n int, loss int) {
-	let w = Sample(seed, size, n, loss)
+	let w = NewWorld(seed, size, n, loss)
 	let next, _ = Step(w)
 	next.Tick() == w.Tick()+1 && next.Count() == w.Count()
 }

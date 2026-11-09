@@ -1,36 +1,12 @@
-// Board's tests run over an fstest.Memory: the tasks.Board laws (restated:
-// ergo test skips them for this Board, which holds an fs.Files;
-// expected-skips), the file's own form, and a corrupt line.
+// Board's tests run over an fstest.Memory: the file's own form, and a
+// corrupt line. ergo test runs the tasks.Board laws on Board itself, each
+// case on a NewBoard over its own fstest.Memory.
 
 import fstest
 import taskscli/tasks
 
-// fresh is a Board in the file "tasks.txt" of disk.
-func fresh(disk fstest.Memory) Board { Open("tasks.txt", disk, disk) }
-
-test FileCreateNumbersInOrder(titles []string, p tasks.Priority) {
-	with context { tasks.Board: fresh(fstest.NewMemory()) } {
-		assert try tasks.CreateNumbersInOrderHolds(titles, p)
-	}
-}
-
-test FileCloseClosesOnlyIt(title string, others []string) {
-	with context { tasks.Board: fresh(fstest.NewMemory()) } {
-		assert try tasks.CloseClosesOnlyItHolds(title, others)
-	}
-}
-
-test FileCloseIsOnce(title string) {
-	with context { tasks.Board: fresh(fstest.NewMemory()) } {
-		assert try tasks.CloseIsOnceHolds(title)
-	}
-}
-
-test FileCloseOfNoTaskIsNotFound(n int) {
-	with context { tasks.Board: fresh(fstest.NewMemory()) } {
-		assert try tasks.CloseOfNoTaskIsNotFoundHolds(n)
-	}
-}
+// fresh is the Board in the file "tasks.txt" of disk.
+func fresh(disk fstest.Memory) Board { NewBoard(disk, disk) }
 
 test TheFileForm {
 	let disk = fstest.NewMemory()

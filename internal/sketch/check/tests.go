@@ -19,7 +19,10 @@ import (
 //     discharges is S102.
 //  3. A property's parameters are generatable: basic types, and slices,
 //     Maps, tuples, records and unions of generatable types, each named type
-//     declared outside the standard library and holding a finite value
+//     declared outside a std package (the prelude's data types, Option and
+//     Range, are the language's own and are generated as a program's are;
+//     a std package's type is built only by its constructor) and holding a
+//     finite value
 //     (ValueRanks). A named type is built as its package builds it: when
 //     its package declares its constructor (TypeName.Constructor: New<T>
 //     with no type parameters, the one result T, no error or capability row,
@@ -27,8 +30,10 @@ import (
 //     generator calls it with generated arguments, wherever T is declared
 //     (std time.Time by time.NewTime); else it builds the value field by
 //     field, which needs the authority of T's package. The rule is the one
-//     law runs build a provider by (laws.go rule 8). Anything else is S108
-//     at the parameter's type.
+//     law runs build a provider by (laws.go rule 8). A value of an
+//     operation type is built by its builder (builders.go): a record that
+//     holds an fs.Files holds an fstest.Memory, one per case. Anything else
+//     is S108 at the parameter's type.
 //  4. assert stands only in a test body or a law body (laws.go): every
 //     assert whose lexical owner, the innermost test, law, function
 //     declaration or function literal around it, is not a test or a law is
@@ -56,6 +61,10 @@ type testState struct {
 	names map[string]string
 	all   []*Test // every test declaration, a duplicate name included
 	ranks *ValueRanks
+	// sees is the set of packages the package sees (builders.go rule 2),
+	// and testPlanned marks its test builders planned.
+	sees        map[*Package]bool
+	testPlanned bool
 }
 
 // collectTest records a test declaration (rule 1). Its parameters are typed
@@ -248,11 +257,25 @@ func (c *checker) ungeneratableFrom(t Type, from *Package) string {
 				return "" // assumed while it is checked: a greatest fixpoint
 			}
 			seen[u] = true
+			if _, isOps := u.Underlying().(*Interface); isOps {
+				// A capability is built by its builder (builders.go).
+				b, s := c.builderOf(u)
+				if b == nil {
+					return s
+				}
+				_, params := b.Instance(u)
+				for _, p := range params {
+					if s := why(p); s != "" {
+						return s
+					}
+				}
+				return ""
+			}
 			if s, built := c.constructorWhy(u); built {
 				return s // built as its package builds it (rule 3)
 			}
 			if u.Obj.Pkg != nil {
-				if _, isStd := std.Package(u.Obj.Pkg.Path); isStd || u.Obj.Pkg.Path == std.PreludePath {
+				if _, isStd := std.Package(u.Obj.Pkg.Path); isStd {
 					return u.String() + " is a standard library type"
 				}
 			}
@@ -331,6 +354,7 @@ func (c *checker) constructorWhy(n *Named) (string, bool) {
 // (rule 3), once every body has converged: a constructor's rows are
 // inferred.
 func (c *checker) planConstructors() {
+	c.planTestBuilds()
 	for _, tn := range c.pkg.Types {
 		if tn.ctorState == 0 {
 			c.planConstructor(tn)
@@ -341,17 +365,23 @@ func (c *checker) planConstructors() {
 // planConstructor sets tn's constructor: the function New<T> of its
 // package whose one result is T, with no type parameters, no error or
 // capability row and parameters the package generates without reaching T.
-// An operation type and a machine have none: a law binds the one to a
-// provider, and a machine is built by its own declaration.
+// An operation type has its builders instead (builders.go), and a machine
+// none: it is built by its own declaration.
 func (c *checker) planConstructor(tn *TypeName) {
 	tn.ctorState = 1
 	defer func() { tn.ctorState = 2 }()
 	n, ok := tn.Type.(*Named)
-	if !ok || len(n.TParams) > 0 {
+	if !ok {
 		return
 	}
 	switch n.Underlying().(type) {
-	case *Interface, *MachineType:
+	case *Interface:
+		c.planBuilders(tn, n)
+		return
+	case *MachineType:
+		return
+	}
+	if len(n.TParams) > 0 {
 		return
 	}
 	for _, f := range tn.Pkg.Funcs {
