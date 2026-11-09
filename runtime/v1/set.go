@@ -100,6 +100,12 @@ var (
 	failureLog   io.Writer = os.Stderr
 )
 
+// closeGap, when a test sets it, runs in stop between closing admission
+// and stopping the members: the window where a member's defect meets a
+// closed Set that has not stopped it yet (TestSetNoRestartAfterClose).
+// Production leaves it nil; the cost is one nil check per Stop.
+var closeGap func(*Set)
+
 // TasksClosed is tasks.Closed, the failure of Go on a Set that admits no
 // more tasks.
 type TasksClosed struct{}
@@ -331,6 +337,9 @@ func (set *Set) stop() error {
 	set.closed = true
 	running := append([]*member(nil), set.members...)
 	set.mu.Unlock()
+	if closeGap != nil {
+		closeGap(set)
+	}
 	for _, m := range running {
 		m.h.Task().Interrupt()
 	}

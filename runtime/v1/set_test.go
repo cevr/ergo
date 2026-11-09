@@ -438,3 +438,69 @@ func setDefectIDs(err error) []int {
 	slices.Sort(ids)
 	return ids
 }
+
+// TestSetNoRestartAfterClose holds rule 3's "in an open Set": a member's
+// defect after Stop closed admission, before Stop stopped the member, does
+// not run the body again under Restart. The closeGap hook opens that
+// window deterministically: it makes the member's first run panic and
+// waits until the member either ended or started a second run. 64 rounds.
+func TestSetNoRestartAfterClose(t *testing.T) {
+	t.Cleanup(func() { closeGap = nil })
+	for round := range 64 {
+		root := rt.Root("gap")
+		fs := NewScope(root)
+		set := TasksNewSet(&fs, setRestart, 3)
+		var mu sync.Mutex
+		runs := 0
+		panicNow := make(chan struct{})
+		again := make(chan struct{})
+		err := TasksGo(Site("gap"), root, set, func(ct *rt.Task) error {
+			mu.Lock()
+			runs++
+			run := runs
+			mu.Unlock()
+			if run == 1 {
+				<-panicNow
+				panic("m0")
+			}
+			close(again)
+			<-ct.Done()
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("round %d: Go: %v", round, err)
+		}
+		hooked, restarted := false, false
+		closeGap = func(s *Set) {
+			hooked = true
+			close(panicNow)
+			for {
+				s.mu.Lock()
+				n := len(s.ended)
+				s.mu.Unlock()
+				if n > 0 {
+					return
+				}
+				select {
+				case <-again:
+					restarted = true
+					return
+				default:
+					runtime.Gosched()
+				}
+			}
+		}
+		stopErr := set.stop()
+		closeGap = nil
+		fs.End(nil)
+		if !hooked {
+			t.Fatalf("round %d: closeGap did not run", round)
+		}
+		if restarted || runs != 1 {
+			t.Fatalf("round %d: a defect after Stop closed the Set ran the body again (runs %d)", round, runs)
+		}
+		if ids := setDefectIDs(stopErr); !slices.Equal(ids, []int{0}) {
+			t.Fatalf("round %d: Stop gave %v, want the member's defect", round, stopErr)
+		}
+	}
+}
