@@ -5,6 +5,8 @@
 // file. Both providers keep the same laws, and the tests of each run the
 // same checks (checks.ergo) against it.
 
+import slices
+
 // Missing is a key that the store holds no value for.
 type Missing { Key string }
 
@@ -72,7 +74,7 @@ type Store {
 		}
 		let got = try Keys()
 		for k in keys {
-			if !Has(got, k) {
+			if !slices.Contains(got, k) {
 				return false
 			}
 		}
@@ -98,7 +100,7 @@ type Store {
 		}
 		try Compact()
 		let after = try Keys()
-		if !Same(before, after) {
+		if before != after {
 			return false
 		}
 		for i, k in after {
@@ -115,19 +117,6 @@ type Store {
 func Sorted(keys []string) bool {
 	for i in 1..len(keys) {
 		if keys[i-1] >= keys[i] {
-			return false
-		}
-	}
-	true
-}
-
-// Same reports whether a and b hold the same texts in order.
-func Same(a []string, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i, x in a {
-		if x != b[i] {
 			return false
 		}
 	}

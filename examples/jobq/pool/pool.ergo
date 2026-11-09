@@ -9,6 +9,7 @@
 
 import jobq/jobs
 import jobq/sched
+import machines
 import queue
 import slices
 import task
@@ -41,7 +42,7 @@ func work(w int, js queue.Queue[jobs.Job], tokens queue.Queue[token], out queue.
 		let mut now = 0s
 		for {
 			let _ = try tokens.Pop()
-			phase = jobs.Next(phase, jobs.Step(phase, jobs.Start{At: now, Takes: j.Takes}))
+			phase = machines.Next(phase, jobs.Step(phase, jobs.Start{At: now, Takes: j.Takes}))
 			Scheduler.Sleep(j.Takes)
 			now = now + j.Takes
 			let n = match phase {
@@ -59,6 +60,8 @@ func work(w int, js queue.Queue[jobs.Job], tokens queue.Queue[token], out queue.
 				let wait = jobs.Backoff(p, n)
 				Scheduler.Sleep(wait)
 				now = now + wait
+			case Emit[jobs.Phase, jobs.Outcome]:
+				Unreachable("jobs.Step never emits")
 			case Stay[jobs.Phase], Ignore, Reject:
 				try out.Push(Report{ID: j.ID, Worker: w, Out: jobs.GaveUp{N: n, At: now, Why: "the queue sent a wrong signal"}})
 				break

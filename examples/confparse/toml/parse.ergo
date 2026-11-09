@@ -40,7 +40,7 @@ func got(c *cursor) string {
 }
 
 // Parse is the document of text.
-func Parse(text string) Doc fails Unexpected | Unterminated | BadEscape | TooBig | Duplicate {
+func Parse(text string) Doc fails Problem {
 	let mut tables = []Table{}
 	let mut cur = Table{Name: "", Many: false, At: Pos{Line: 1, Column: 1}, Entries: []Entry{}}
 	for i, raw in strings.Split(text, "\n") {

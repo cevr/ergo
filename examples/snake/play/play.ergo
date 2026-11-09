@@ -4,6 +4,7 @@
 // its own beside the ticks.
 
 import io
+import machines
 import queue
 import snake/game
 import snake/screen
@@ -12,11 +13,10 @@ import task
 
 // Keys is the signals of the keys of line, in order: b begins, w a s d
 // turn up, left, down and right, p pauses or resumes, q quits. Any other
-// byte is no signal.
+// character is no signal.
 func Keys(line string) []game.Signal {
 	let mut out = []game.Signal{}
-	for i in 0..len(line) {
-		let c = line[i]
+	for c in line {
 		if c == 'b' {
 			out = out.Append(game.Begin)
 		} else if c == 'w' {
@@ -46,9 +46,9 @@ func Turned(m game.Mode, signals []game.Signal) (game.Mode, bool) needs Random {
 		match d {
 		case Done[int]:
 			return (at, true)
-		case Enter[game.Mode], Stay[game.Mode], Ignore, Reject:
+		case Enter[game.Mode], Stay[game.Mode], Emit[game.Mode, int], Ignore, Reject:
 		}
-		at = game.Next(at, d)
+		at = machines.Next(at, d)
 	}
 	(at, false)
 }
@@ -89,7 +89,8 @@ func Live(w int, h int, period duration) game.Mode needs io.Stdin | io.Stdout | 
 	let reader = task.Go() {
 		read(keys)
 	}
-	let mut at = game.Next(game.Title{Width: w, Height: h}, game.Step(game.Title{Width: w, Height: h}, game.Begin))
+	let title = machines.Initial(machines.Start(game.Snake{}, game.Board{Width: w, Height: h}))
+	let mut at = machines.Next(title, game.Step(title, game.Begin))
 	draw(at)
 	for {
 		Scheduler.Sleep(period)

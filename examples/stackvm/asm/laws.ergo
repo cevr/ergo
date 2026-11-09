@@ -11,7 +11,7 @@ law AssembleInvertsDisassemble(seed int, size int) {
 	case Bad:
 		return false
 	}
-	Same(back, p)
+	back == p
 }
 
 // LayoutIsIgnored: indentation, comments and blank lines change nothing:
@@ -23,7 +23,7 @@ law LayoutIsIgnored(seed int, size int, note string) {
 	case Bad:
 		return false
 	}
-	Same(back, p)
+	back == p
 }
 
 // Spread is text with each line indented, a comment of note after it and

@@ -1,13 +1,13 @@
-// The crossing's tests: a worked cycle, and the laws restated as
-// property tests. The compiler checks laws and does not run them yet
-// (#162); until it does, these tests run them.
+// The crossing's tests: a worked cycle. `ergo test` runs the laws.
+
+import machines
 
 // play is the colours after each cue from Start(), joined by spaces.
 func play(cues []Cue) string {
 	let mut l = Start()
 	let mut out = Colour(l)
 	for c in cues {
-		l = Next(l, Step(l, c))
+		l = machines.Next(l, Step(l, c))
 		out = out + " " + Colour(l)
 	}
 	out
@@ -18,69 +18,16 @@ test ACycle {
 }
 
 test ButtonEndsGreenAtMinGreen {
-	let mut l = Next(Start(), Step(Start(), Tick{At: 31s}))
+	let mut l = machines.Next(Start(), Step(Start(), Tick{At: 31s}))
 	assert Colour(l) == "green" && SinceOf(l) == 30s
-	l = Next(l, Step(l, Button{At: 35s}))
+	l = machines.Next(l, Step(l, Button{At: 35s}))
 	assert Deadline(l) == Some[duration]{Value: 50s}
-	l = Next(l, Step(l, Tick{At: 49s}))
+	l = machines.Next(l, Step(l, Tick{At: 49s}))
 	assert Colour(l) == "green"
-	l = Next(l, Step(l, Tick{At: 57s}))
+	l = machines.Next(l, Step(l, Tick{At: 57s}))
 	assert Colour(l) == "yellow" && SinceOf(l) == 50s
 }
 
 test FaultAndRepair {
 	assert play([]Cue{Tick{At: 30s}, Fault{At: 40s}, Tick{At: 200s}, Button{At: 201s}, Repair{At: 300s}, Tick{At: 330s}}) == "red green flashing flashing flashing red green"
-}
-
-test ColoursFollowHold(l Light, cues []Cue) {
-	let mut now = l
-	for c in cues {
-		let next = Next(now, Step(now, c))
-		assert Follows(now, next)
-		now = next
-	}
-}
-
-test PhasesDoNotDriftHolds(l Light, at duration) {
-	match Deadline(l) {
-	case Some[duration] as d:
-		let next = Next(l, Step(l, Tick{At: at}))
-		if at < d.Value {
-			assert Colour(next) == Colour(l) && SinceOf(next) == SinceOf(l)
-		} else {
-			assert SinceOf(next) == d.Value
-		}
-	case None:
-	}
-}
-
-test GreenLastsMinGreenHolds(since duration, asked bool, c Cue) {
-	let g = Green{Since: since, Asked: asked}
-	match Next(g, Step(g, c)) {
-	case Yellow as y:
-		assert y.Since >= since+MinGreen
-	case Green:
-	case Flashing:
-	case Red:
-		assert false
-	}
-}
-
-test ButtonShortensGreenHolds(since duration, at duration) {
-	let g = Green{Since: since, Asked: false}
-	assert Deadline(Next(g, Step(g, Button{At: at}))) == Some[duration]{Value: since + MinGreen}
-}
-
-test OnlyRepairEndsFlashingHolds(since duration, c Cue) {
-	let next = Next(Flashing{Since: since}, Step(Flashing{Since: since}, c))
-	match c {
-	case Repair:
-		assert Colour(next) == "red"
-	case Tick:
-		assert Colour(next) == "flashing"
-	case Button:
-		assert Colour(next) == "flashing"
-	case Fault:
-		assert Colour(next) == "flashing"
-	}
 }

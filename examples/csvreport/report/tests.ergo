@@ -1,7 +1,6 @@
-// The report's tests: examples, and the laws restated as property tests
-// (laws are checked, not run, #162).
+// The report's tests: examples. The laws run under ergo test.
 
-import csvreport/csv
+import csv
 
 let file = "Region,Product,Units,Price,Note\nnorth,tea,3,2.50,\nsouth,tea,1,2.5,\"late, paid\"\nnorth,cake,2,4,\n"
 
@@ -28,14 +27,12 @@ test TablesGroupAndTotal {
 // failure is the message of Load(text), or "ok".
 func failure(text string) string {
 	let _ = Load(text) catch {
-	case csv.BadCSV as b:
-		return "csv \(b.Line):\(b.Column)"
+	case csv.ParseError as b:
+		return "csv \(b.Line):\(b.Column) \(b.Reason)"
 	case MissingColumn as m:
 		return "missing \(m.Name)"
-	case ShortRow as s:
-		return "short \(s.Line) \(s.Have) of \(s.Want)"
 	case BadNumber as n:
-		return "bad \(n.Column) \(n.Text) at \(n.Line)"
+		return "bad \(n.Column) \(n.Text) at row \(n.Row)"
 	}
 	"ok"
 }
@@ -43,44 +40,24 @@ func failure(text string) string {
 test LoadFailures {
 	assert failure("") == "missing region"
 	assert failure("region,product,units\n") == "missing price"
-	assert failure("region,product,units,price\nn,t,1\n") == "short 2 3 of 4"
-	assert failure("region,product,units,price\nn,t,x,1\n") == "bad units x at 2"
-	assert failure("region,product,units,price\nn,t,1,1.234\n") == "bad price 1.234 at 2"
-	assert failure("region,product,units,price\nn,t,1,\"1\n") == "csv 2:0"
+	assert failure("region,product,units,price\nn,t,1\n") == "csv 2:1 wrong number of fields"
+	assert failure("region,product,units,price\nn,t,x,1\n") == "bad units x at row 2"
+	assert failure("region,product,units,price\nn,t,1,1.234\n") == "bad price 1.234 at row 2"
+	assert failure("region,product,units,price\nn,t,1,\"1\n") == "csv 2:10 extraneous or missing \" in quoted-field"
+	// A quoted field over two lines is one record: row 3 is on line 4.
+	assert failure("region,product,units,price\n\"a\nb\",t,1,1\nn,t,x,1\n") == "bad units x at row 3"
 	assert failure(file) == "ok"
+}
+
+test KeysPadByCharacters {
+	let lines = Table([]Sale{Sale{Region: "Montréal", Product: "thé", Units: 1, Cents: 100}}, ByRegion)
+	assert lines[0] == "region     sales    units       revenue"
+	assert lines[1] == "Montréal       1        1          1.00"
 }
 
 test MoneyReads {
 	assert (try ParseCents("12")) == 1200 && (try ParseCents("12.5")) == 1250 && (try ParseCents("0.07")) == 7
 	assert Money(1234) == "12.34" && Money(-5) == "-0.05" && Money(100) == "1.00"
-}
-
-test TotalIsFoldHolds(sales []Sale) {
-	let t = Total(sales)
-	let mut units = 0
-	let mut revenue = int64(0)
-	for s in sales {
-		units += s.Units
-		revenue += int64(s.Units) * s.Cents
-	}
-	assert t.Sales == len(sales) && t.Units == units && t.Revenue == revenue
-}
-
-test GroupsSumToTotalHolds(sales []Sale, byProduct bool) {
-	let groups = Group(sales, if byProduct { ByProduct } else { ByRegion })
-	let t = Total(sales)
-	let mut n = 0
-	let mut units = 0
-	let mut revenue = int64(0)
-	for i, g in groups {
-		n += g.Sales
-		units += g.Units
-		revenue += g.Revenue
-		if i > 0 {
-			assert groups[i-1].Key < g.Key
-		}
-	}
-	assert n == t.Sales && units == t.Units && revenue == t.Revenue
 }
 
 // Generated sales rarely share a region, so the groups are also checked
@@ -97,31 +74,4 @@ test GroupsMerge(units []int) {
 		revenue += g.Revenue
 	}
 	assert revenue == Total(sales).Revenue && len(groups) == (if len(units) == 0 { 0 } else if len(units) == 1 { 1 } else { 2 })
-}
-
-test FilterKeepsOnlyHolds(sales []Sale, units int) {
-	let k = AtLeast{Units: units}
-	let kept = Filter(sales, k)
-	let mut j = 0
-	for s in sales {
-		if Kept(k, s) {
-			assert j < len(kept) && kept[j] == s
-			j += 1
-		}
-	}
-	assert j == len(kept)
-}
-
-test LoadReadsRowsHolds(sales []Sale) {
-	let ps = Priced(sales)
-	let back = try Load(csv.Format(Rows(ps)))
-	assert len(back) == len(ps)
-	for i, s in ps {
-		assert back[i] == s
-	}
-}
-
-test MoneyRoundTripHolds(cents int64) {
-	let c = if cents < 0 { -(cents % 1000000000) } else { cents % 1000000000 }
-	assert try ParseCents(Money(c)) == c
 }

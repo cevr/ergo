@@ -1,20 +1,20 @@
 // The rules of the key bytes as laws over Decode and Encode.
 
-import slices
 import strings
 
 // RoundTrip: the bytes of keys decode to the keys.
 law RoundTrip(keys []Key) {
 	let sane = Sane(keys)
-	slices.Equal(Decode(Script(sane)), sane)
+	Decode(Script(sane)) == sane
 }
 
 // DecodeTakesEveryText: Decode reads any bytes, and no Char it gives is
-// empty or a control byte.
-law DecodeTakesEveryText(text string) { DecodeTakesEveryTextHolds(text) }
+// empty or a control byte. The text is also read with an arrow and a
+// control byte after it, which generated texts seldom hold.
+law DecodeTakesEveryText(text string) { takes(text) && takes(text+"\x1b[A\x05") }
 
-// DecodeTakesEveryTextHolds checks DecodeTakesEveryText.
-func DecodeTakesEveryTextHolds(text string) bool {
+// takes checks DecodeTakesEveryText for one text.
+func takes(text string) bool {
 	for k in Decode(text) {
 		match k {
 		case Char as c:

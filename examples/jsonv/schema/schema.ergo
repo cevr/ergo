@@ -13,49 +13,6 @@ type Schema = Anything{} | IsNull{} | IsBool{} | IsString{Enum []string, MinLeng
 // Prop is one named property of an object schema.
 type Prop { Name string, S Schema }
 
-// Equal reports whether a and b are the same schema. Schema holds slices,
-// so == does not compare it (gap G-ex-d-5).
-func Equal(a Schema, b Schema) bool {
-	match (a, b) {
-	case (Anything, Anything):
-		true
-	case (IsNull, IsNull):
-		true
-	case (IsBool, IsBool):
-		true
-	case (IsString as x, IsString as y):
-		x.MinLength == y.MinLength && sameNames(x.Enum, y.Enum)
-	case (IsNumber as x, IsNumber as y):
-		x.Integer == y.Integer && x.Min == y.Min && x.Max == y.Max
-	case (IsArray as x, IsArray as y):
-		x.MinItems == y.MinItems && Equal(x.Items, y.Items)
-	case (IsObject as x, IsObject as y):
-		if x.Closed != y.Closed || !sameNames(x.Required, y.Required) || len(x.Props) != len(y.Props) {
-			return false
-		}
-		for i, p in x.Props {
-			if p.Name != y.Props[i].Name || !Equal(p.S, y.Props[i].S) {
-				return false
-			}
-		}
-		true
-	case _:
-		false
-	}
-}
-
-func sameNames(a []string, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i, x in a {
-		if x != b[i] {
-			return false
-		}
-	}
-	true
-}
-
 // Infer is the narrowest schema of this language that accepts v: its
 // kind, every member of an object required and none other allowed, and
 // the items of an array joined into one schema.

@@ -33,7 +33,8 @@ test ClearsATerminal {
 	assert strings.Count(out.Text(), "\x1b[2J") == 2
 }
 
-// The law holds for a Screen in any state: k frames shown first.
+// The law holds for a Screen in any state: k frames shown first. ergo test
+// runs sim.Screen's law only for providers in package sim (G-exup-1).
 test ShowCountsOneHolds(n int, phase string, k int) {
 	let s sim.Screen = New(io.NewRecorder())
 	for i in 0..(if k < 0 { -(k % 5) } else { k % 5 }) {

@@ -28,15 +28,15 @@ The program is a module of packages (`ergo.mod`: `module confparse`), in the Go 
 
 | folder | what it holds |
 | --- | --- |
-| `toml/` | The syntax. `doc.ergo` (`Pos`, the union `Value`, `Item`, `Entry`, `Table`, `Doc`, `Lookup`, `Named`, `Kind`), `parse.ergo` (`Parse` over a `*cursor` borrow; failures `Unexpected`, `Unterminated`, `BadEscape`, `TooBig`, `Duplicate`, each with a line and column), `problem.ergo` (the union `Problem`, `PosOf`, `Describe`), `print.ergo` (`Print`, `PrintValue`, `Quote`, `Same`, `SameDoc`), `gen.ergo`, `laws.ergo`, `tests.ergo`. |
-| `config/` | The domain. `config.ergo` (`Config`, `Listen`, the union `Level`, `Upstream`), `decode.ergo` (the union `Origin` of a place in the file or a variable; `Decode` with failures `MissingKey`, `WrongType`, `OutOfRange`, `UnknownKey`, `UnknownTable`, `BadChoice`, `Clash`; the union `Found` of what a key has), `encode.ergo` (`Encode`, `Valid`), `problem.ergo` (the union `Problem`, `Where`, `Describe`, `Place`), `gen.ergo`, `laws.ergo`, `tests.ergo`. |
-| `cmd/confparse/` | The binary. `main.ergo` reads the command line as the union `Cmd` with `flag.ParseCommand`, reads the file and the variables, and binds the host's streams, files and process. Its tests run `run` over a Files provider, a Process provider with set variables and a Recorder. |
+| `toml/` | The syntax. `doc.ergo` (`Pos`, the union `Value`, `Item`, `Entry`, `Table`, `Doc`, `Lookup`, `Named`, `Kind`), `parse.ergo` (`Parse` over a `*cursor` borrow; failures `Unexpected`, `Unterminated`, `BadEscape`, `TooBig`, `Duplicate`, each with a line and column), `problem.ergo` (the union `Problem`, the named row of `Parse`, `PosOf`, `Describe`), `print.ergo` (`Print`, `PrintValue`, `Quote`, `Same`, `SameDoc`: equality wherever the parts were read), `gen.ergo`, `laws.ergo`, `tests.ergo`. |
+| `config/` | The domain. `config.ergo` (`Config`, `Listen`, the union `Level`, `Upstream`), `decode.ergo` (the union `Origin` of a place in the file or a variable; `Decode` with failures `MissingKey`, `WrongType`, `OutOfRange`, `UnknownKey`, `UnknownTable`, `BadChoice`, `Clash`; the union `Found` of what a key has), `encode.ergo` (`Encode`, `Valid`), `problem.ergo` (the union `Problem`, the named row of `Decode`, `Where`, `Describe`, `Place`), `gen.ergo`, `laws.ergo`, `tests.ergo`. |
+| `cmd/confparse/` | The binary. `main.ergo` reads the command line as the union `Cmd` with `flag.ParseCommand`, reads the file and the variables, and binds the host's streams, files and process. Its tests run `run` over an `fstest.Memory`, a Process provider with set variables and a Recorder. |
 
 ## What it shows
 
-- **Typed failures with a place, told by exhaustive matches.** `toml.Parse` fails with five records and `config.Decode` with seven, and the binary catches each row whole with `case err:`, as a value of its package's union `Problem`. `Where` gives each decode failure's `Origin`, itself a union of `InFile{At}` and `InEnv{Name}`, so a message points at a line and column or at the variable that was wrong. No `case _` anywhere over a failure.
+- **Typed failures with a place, told by exhaustive matches.** `toml.Parse` fails `toml.Problem`, a named row of five records, and `config.Decode` fails `config.Problem`, seven, and the binary catches each row whole with `case err:`, as a value of its package's union `Problem`. `Where` gives each decode failure's `Origin`, itself a union of `InFile{At}` and `InEnv{Name}`, so a message points at a line and column or at the variable that was wrong. No `case _` anywhere over a failure.
 - **Decoding into records by type.** `Decode` reads each key through `find`, whose result is the union `Found` (`FromFile`, `FromEnv`, `Absent`), so a variable wins over the file in one place, and a default is an `Option` argument, not a zero value.
-- **Laws across two packages.** `toml.PrintParses` (a printed document reads back as itself), `toml.PrintIsCanonical`, `toml.ProblemPointsIntoTheText`, `config.DecodeInvertsEncode` (encode, print, parse, decode is the identity on valid configurations), `config.EnvWins` and `config.FailuresPointIntoTheText`. Each is restated as a property test over generated documents and configurations, from `Random` bound to `rand.Seeded(seed)`. Each law has a mutant that its test kills (round-1 request).
+- **Laws across two packages.** `toml.PrintParses` (a printed document reads back as itself), `toml.PrintIsCanonical`, `toml.ProblemPointsIntoTheText`, `config.DecodeInvertsEncode` (encode, print, parse, decode is the identity on valid configurations), `config.EnvWins` and `config.FailuresPointIntoTheText`. `ergo test` runs them. A generated `Doc` or `Config` is seldom Printable or Valid, so each law also takes a `seed` and checks `toml.Sample(seed)` or `config.Sample(seed)`, which `Gen` builds from `rand.Seeded(seed)`. Mutants of the printer and the encoder are killed (`confparse-mutants.json` of the ex-upgrade unit, 2 of 2).
 - **A command line as a union.** `Cmd = Check | Get | Fmt`, built by `flag.ParseCommand`; a required argument's `None` arm fails `flag.Missing` rather than invent a value.
 - **Capabilities as values.** The variables come from `os.Process.Getenv`; the tests bind their own `Process` and `Files` providers.
 
@@ -44,7 +44,7 @@ The program is a module of packages (`ergo.mod`: `module confparse`), in the Go 
 
 ```sh
 go build -o bin/ergo ./cmd/ergo
-./bin/ergo build examples/confparse/cmd/confparse -o /tmp/confparse && /tmp/confparse -h
+./bin/ergo run examples/confparse/cmd/confparse -- -h
 ./bin/ergo test examples/confparse/config
 go run ./scripts/examples confparse
 ```
@@ -57,6 +57,7 @@ go run ./scripts/examples confparse
 
 Each gap has its repro in the run dir's `examples-wave/gaps-ex-a.md`.
 
-- **G-ex-a-15 (checker).** `return f()`, where `f` returns a failure type of the row, is S108 "cannot use MissingKey as int in return", and `let m = f(); return m` is S105, though rows.md says `return e` means the same as a tail `e`, and the tail form is accepted. `config.tableAt` builds the position, and each site writes the `MissingKey{…}` literal.
 - **G-ex-a-16 (missing language feature).** No derived decoding: each record's keys, kinds, ranges and defaults are written by hand in `Decode`, and the list of known keys for `UnknownKey` repeats them. Go decodes by struct tags and reflection; Effect by a `Schema`.
 - **Not a gap, found on the way.** A `match` or `if` whose branches are `Some[T]{…}` and `None` takes the first branch's type, so `Value` writes the type of the tuple it binds (`let found (Option[toml.Table], string) = match …`); the rule is types.md's, and the annotation is the fix it names.
+
+Closed in batch 12: G-ex-a-15 (K1: `missing(src, key)` builds the `MissingKey`, and `return missing(src, key)` checks; `tableAt` is gone), named rows for `Parse` and `Decode` (L2), `config.Same` (W3: `==`), the test `Files` provider (`fstest.Memory`), `ergo run DIR -- ARGS` (T1), and the property tests that restated the laws (V1: the laws run, with the steering moved into them). `toml.SameDoc` stays: it compares documents wherever their parts were read, which `==` (positions included) does not.

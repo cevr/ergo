@@ -64,28 +64,23 @@ func spawn(o Options) world.World fails os.Exit {
 }
 
 func main() fails os.Exit needs Console | Ambient {
-	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost() } { try run() }
-}
-
-// run is the program after main binds the host's process and standard
-// output. A return cannot leave a with block, so this is a function of its
-// own: help returns early.
-func run() fails os.Exit needs Console | Ambient | os.Process | io.Stdout {
-	let o = match try read(os.Process.Args()) {
-	case Some[Options] as s:
-		s.Value
-	case None:
-		return
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost() } {
+		let o = match try read(os.Process.Args()) {
+		case Some[Options] as s:
+			s.Value
+		case None:
+			return
+		}
+		let w = try spawn(o)
+		let screen = term.New(io.NewHost())
+		let g = if o.Live {
+			with context { Scheduler: NewLiveScheduler(), time.Clock: time.NewHost(), sim.Screen: screen } { sim.Play(w, o.Keys, o.Frames, Paced) }
+		} else {
+			let c = memory.NewClock(0)
+			with context { Scheduler: c, time.Clock: c, sim.Screen: screen } { sim.Play(w, o.Keys, o.Frames, Paced) }
+		}
+		Console.Println(Summary(screen.Shown(), w, g))
 	}
-	let w = try spawn(o)
-	let screen = term.New(io.NewHost())
-	let g = if o.Live {
-		with context { Scheduler: NewLiveScheduler(), time.Clock: time.NewHost(), sim.Screen: screen } { sim.Play(w, o.Keys, o.Frames, Paced) }
-	} else {
-		let c = memory.NewClock(0)
-		with context { Scheduler: c, time.Clock: c, sim.Screen: screen } { sim.Play(w, o.Keys, o.Frames, Paced) }
-	}
-	Console.Println(Summary(screen.Shown(), w, g))
 }
 
 // Summary is the last line: the frames shown, the steps and the energy

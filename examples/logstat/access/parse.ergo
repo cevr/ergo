@@ -30,7 +30,7 @@ let Layout = time.Custom{Text: "02/Jan/2006:15:04:05 -0700"}
 type scanner { line string, pos int }
 
 // Parse is the Request of line.
-func Parse(line string) Request fails Missing | BadNumber | BadTime | BadRequest | Trailing {
+func Parse(line string) Request fails Problem {
 	let mut sc = scanner{line: line, pos: 0}
 	let addr = try word(&sc, "the client address")
 	let _ = try word(&sc, "the identity")

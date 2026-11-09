@@ -1,7 +1,6 @@
-// The driver's tests: the script reader, a whole run worked by hand, and
-// the laws restated as property tests (#162).
+// The driver's tests: the script reader and a whole run worked by hand.
+// `ergo test` runs the laws.
 
-import vending/light
 import vending/vend
 
 // Table is a coin mechanism for the tests: a coin is worth its value in
@@ -92,24 +91,4 @@ test FaultFlashesUntilRepaired {
 	assert out[2] == "45s light: red"
 	assert out[3] == "75s light: green"
 	assert out[4] == "at 75s: vend idle, light green; in 0c = sales 0c + change 0c + refunds 0c + credit 0c"
-}
-
-test ShowReadsHolds(n int) {
-	let d = Clamp(n, 100000000)
-	assert try Duration(Show(d)) == d
-}
-
-test CatchUpLeavesNothingDueHolds(credit int, since int, upto int) {
-	let start = Clamp(since, 60000)
-	let b = Both{..Fresh([]vend.Slot{}), Vend: vend.Collecting{Slots: []vend.Slot{}, Credit: credit, Until: start + vend.Wait}, Light: light.Red{Since: start}, Now: start}
-	let end = start + Clamp(upto, 600000)
-	let after, lines = CatchUp(b, end)
-	assert Ordered(lines, end) && after.Now == end
-	match due(after, end) {
-	case NoneDue:
-	case VendDue:
-		assert false
-	case LightDue:
-		assert false
-	}
 }

@@ -7,6 +7,7 @@
 
 import flag
 import fs
+import fstest
 import io
 import os
 import ssg/files
@@ -21,8 +22,7 @@ let set = flag.Set{Name: "ssg", Usage: "", Flags: []flag.Flag{outFlag, printFlag
 
 // run is ssg on args. Every failure of the build is caught by name, with
 // no case _, and ends the program with status 1 and one line that names
-// the file and the line. Each arm spells its os.Exit: `return f()` of a
-// function that makes the failure is refused (G-ex-a-15).
+// the file and the line.
 func run(args []string) fails os.Exit needs io.Stdout | fs.Files | fs.Writes {
 	let v = flag.Parse(set, args) catch {
 	case err:
@@ -37,29 +37,29 @@ func run(args []string) fails os.Exit needs io.Stdout | fs.Files | fs.Writes {
 	}
 	let src = files.Read(root) catch {
 	case site.Unreadable as u:
-		return os.Exit{Code: 1, Message: "ssg: " + "cannot read \(u.Path): \(u.Reason)"}
+		return failed("cannot read \(u.Path): \(u.Reason)")
 	}
 	let outputs = with context { site.Source: src } { site.Build() } catch {
 	case site.Unreadable as u:
-		return os.Exit{Code: 1, Message: "ssg: " + "cannot read \(u.Path): \(u.Reason)"}
+		return failed("cannot read \(u.Path): \(u.Reason)")
 	case site.BadFrontMatter as b:
-		return os.Exit{Code: 1, Message: "ssg: " + "content/\(b.Path):\(b.Line): bad front matter: \(b.Text)"}
+		return failed("content/\(b.Path):\(b.Line): bad front matter: \(b.Text)")
 	case site.Unclosed as u:
-		return os.Exit{Code: 1, Message: "ssg: " + "templates/\(u.Template).html:\(u.Line): unclosed \(u.Tag)"}
+		return failed("templates/\(u.Template).html:\(u.Line): unclosed \(u.Tag)")
 	case site.Stray as s:
-		return os.Exit{Code: 1, Message: "ssg: " + "templates/\(s.Template).html:\(s.Line): end with no for or if"}
+		return failed("templates/\(s.Template).html:\(s.Line): end with no for or if")
 	case site.BadTag as b:
-		return os.Exit{Code: 1, Message: "ssg: " + "templates/\(b.Template).html:\(b.Line): bad tag {{ \(b.Text) }}"}
+		return failed("templates/\(b.Template).html:\(b.Line): bad tag {{ \(b.Text) }}")
 	case site.Unbound as u:
-		return os.Exit{Code: 1, Message: "ssg: " + "templates/\(u.Template).html:\(u.Line): no variable \(u.Name)"}
+		return failed("templates/\(u.Template).html:\(u.Line): no variable \(u.Name)")
 	case site.NotAList as n:
-		return os.Exit{Code: 1, Message: "ssg: " + "templates/\(n.Template).html:\(n.Line): \(n.Name) is not a list"}
+		return failed("templates/\(n.Template).html:\(n.Line): \(n.Name) is not a list")
 	case site.NotText as n:
-		return os.Exit{Code: 1, Message: "ssg: " + "templates/\(n.Template).html:\(n.Line): \(n.Name) is not text"}
+		return failed("templates/\(n.Template).html:\(n.Line): \(n.Name) is not text")
 	case site.MissingTemplate as m:
-		return os.Exit{Code: 1, Message: "ssg: " + "\(m.Template):\(m.Line): no template \(m.Name)"}
+		return failed("\(m.Template):\(m.Line): no template \(m.Name)")
 	case site.IncludeCycle as c:
-		return os.Exit{Code: 1, Message: "ssg: " + "include cycle: " + strings.Join(c.Chain, " > ")}
+		return failed("include cycle: " + strings.Join(c.Chain, " > "))
 	}
 	if printFlag.Get(v) {
 		for o in outputs {
@@ -70,7 +70,7 @@ func run(args []string) fails os.Exit needs io.Stdout | fs.Files | fs.Writes {
 	}
 	let wrote = files.Write(outFlag.Get(v), outputs) catch {
 	case files.Unwritable as u:
-		return os.Exit{Code: 1, Message: "ssg: " + "cannot write \(u.Path): \(u.Reason)"}
+		return failed("cannot write \(u.Path): \(u.Reason)")
 	}
 	for path in wrote {
 		io.Stdout.Println("wrote " + path)
@@ -78,13 +78,16 @@ func run(args []string) fails os.Exit needs io.Stdout | fs.Files | fs.Writes {
 	io.Stdout.Println("\(len(wrote)) pages")
 }
 
+// failed is the end of a failed build: status 1 and message after "ssg: ".
+func failed(message string) os.Exit { os.Exit{Code: 1, Message: "ssg: " + message} }
+
 func main() fails os.Exit needs Ambient {
 	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), io.Stdout: io.NewHost() } {
 		try run(os.Process.Args())
 	}
 }
 
-// The tests run run over a memory.Disk and an io.Recorder, with no host.
+// The tests run over an fstest.Memory and an io.Recorder, with no host.
 
 let blog = Map[string, string]{
 	"s/content/index.md":       "---\ntitle: Home\nlayout: index\n---\nWelcome.",
@@ -96,9 +99,9 @@ let blog = Map[string, string]{
 
 // ran is the output of run on args over the files, with a failure
 // printed as "exit CODE: MESSAGE", and the disk after it.
-func ran(files Map[string, string], args []string) (string, memory.Disk) {
+func ran(files Map[string, string], args []string) (string, fstest.Memory) fails fs.NotFound | fs.Denied | fs.Failed {
 	let out = io.NewRecorder()
-	let disk = memory.NewDisk(files)
+	let disk = try memory.Files(files)
 	with context { io.Stdout: out, fs.Files: disk, fs.Writes: disk } {
 		run(args) catch {
 		case os.Exit as e:
@@ -109,40 +112,37 @@ func ran(files Map[string, string], args []string) (string, memory.Disk) {
 }
 
 test PrintRendersEveryPage {
-	let text, _ = ran(blog, []string{"-print", "s"})
+	let text, _ = try ran(blog, []string{"-print", "s"})
 	assert text == "== index.html\n<title>Home</title>\n<a href=\"index.html\">Home</a>\n<a href=\"posts/hello.html\">Hello &amp; welcome</a>\n\n== posts/hello.html\n<title>Hello &amp; welcome</title>\n<h1>Hello</h1>\n<p>First post.</p>\n\n"
 }
 
 test WriteWritesUnderOut {
-	let text, disk = ran(blog, []string{"-out", "site", "s"})
+	let text, disk = try ran(blog, []string{"-out", "site", "s"})
 	assert text == "wrote site/index.html\nwrote site/posts/hello.html\n2 pages\n"
 	assert try disk.ReadFile("site/posts/hello.html") == "<title>Hello &amp; welcome</title>\n<h1>Hello</h1>\n<p>First post.</p>\n"
 }
 
 // broken is blog with the file at path holding text.
 func broken(path string, text string) Map[string, string] {
-	let mut out = Map[string, string]{}
-	for k, v in blog {
-		out[k] = v
-	}
+	let mut out = blog
 	out[path] = text
 	out
 }
 
 test FailuresNameTheFile {
-	let a, _ = ran(broken("s/templates/head.html", "<title>\n{{ for x in pages }}"), []string{"s"})
+	let a, _ = try ran(broken("s/templates/head.html", "<title>\n{{ for x in pages }}"), []string{"s"})
 	assert a == "exit 1: ssg: templates/head.html:2: unclosed for\n"
-	let b, _ = ran(broken("s/templates/head.html", "{{ include page }}"), []string{"s"})
+	let b, _ = try ran(broken("s/templates/head.html", "{{ include page }}"), []string{"s"})
 	assert b == "exit 1: ssg: include cycle: index > head > page > head\n"
-	let c, _ = ran(broken("s/content/posts/hello.md", "---\ntitle\n---\n"), []string{"s"})
+	let c, _ = try ran(broken("s/content/posts/hello.md", "---\ntitle\n---\n"), []string{"s"})
 	assert c == "exit 1: ssg: content/posts/hello.md:2: bad front matter: title\n"
-	let d, _ = ran(broken("s/content/x.md", "---\nlayout: post\n---\n"), []string{"s"})
+	let d, _ = try ran(broken("s/content/x.md", "---\nlayout: post\n---\n"), []string{"s"})
 	assert d == "exit 1: ssg: x.md:0: no template post\n"
-	let e, _ = ran(blog, []string{"nowhere"})
+	let e, _ = try ran(blog, []string{"nowhere"})
 	assert e == "exit 1: ssg: cannot read nowhere/content: no such folder\n"
 }
 
 test UsageErrorsExitTwo {
-	let text, _ = ran(blog, []string{})
+	let text, _ = try ran(blog, []string{})
 	assert strings.HasPrefix(text, "exit 2: missing required flag or argument: site\n")
 }

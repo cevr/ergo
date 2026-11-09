@@ -30,6 +30,10 @@ type NotHere { Item string }
 // NotCarried is an item you do not carry.
 type NotCarried { Item string }
 
+// Refusal names the row of a step's failures: a line that does not parse,
+// and a command the game refuses.
+type Refusal = Unknown | Missing | NoWay | NoExit | Barred | NotHere | NotCarried
+
 // New is the game at the start of w.
 func New(w world.World) Game { Game{World: w, At: w.Start, Items: w.Items, Moves: 0} }
 
@@ -60,7 +64,7 @@ type Play machine[State, Signal] {
 // since only the output changes; quit Enters Asking. Asking, yes is Done
 // with Stopped and any other line Enters Exploring again. The end of the
 // input is Done with Stopped in either state.
-func Step(s State, sig Signal) Decision[State, Ending] fails Unknown | Missing | NoWay | NoExit | Barred | NotHere | NotCarried {
+func Step(s State, sig Signal) Decision[State, Ending] fails Refusal {
 	let g = GameOf(s)
 	match (s, sig) {
 	case (_, Ended):
@@ -149,21 +153,4 @@ func ItemsAt(g Game, at string) []string {
 		}
 	}
 	out
-}
-
-// Next is the state after the decision d in s (G-ex-b-12: no prelude
-// function applies a decision).
-func Next(s State, d Decision[State, Ending]) State {
-	match d {
-	case Enter[State] as e:
-		e.Next
-	case Stay[State] as st:
-		st.Next
-	case Ignore:
-		s
-	case Reject:
-		s
-	case Done[Ending]:
-		s
-	}
 }

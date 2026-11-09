@@ -1,11 +1,11 @@
 // Run's tests drive the command line over a memory.Board, an io.Input and
-// an io.Recorder, with no host. The laws are restated (#162).
+// an io.Recorder, with no host (the laws run in laws.ergo).
 
 import io
 import os
 import strings
-import tasks/memory
-import tasks/tasks
+import taskscli/memory
+import taskscli/tasks
 
 // ran is the output of Run on args with input on standard input, over
 // board, and "exit CODE: MESSAGE" when it fails.
@@ -62,18 +62,4 @@ test CompletionScripts {
 	assert strings.HasPrefix(ran(b, "", []string{"completion", "zsh"}), "#compdef tasks-cli\n")
 	assert strings.Contains(ran(b, "", []string{"completion", "fish"}), "complete -c tasks-cli -n '__fish_seen_subcommand_from close' -l yes\n")
 	assert strings.HasPrefix(ran(b, "", []string{"completion", "tcsh"}), "exit 2: invalid value \"tcsh\" for flag -shell")
-}
-
-test CompletionsMatchTheParserHolds {
-	assert CompletionsMatchTheParserHolds()
-}
-
-test ArgsRoundTripHolds(c Cmd) {
-	let s = Sane(c)
-	assert try Parse(Args(s)) == s
-}
-
-test QuoteIsOneJSONStringHolds(s string) {
-	assert QuoteIsOneJSONStringHolds(s)
-	assert QuoteIsOneJSONStringHolds(s + "\"\\\n\t")
 }

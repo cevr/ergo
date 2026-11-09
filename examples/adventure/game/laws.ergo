@@ -1,6 +1,7 @@
 // The rules of play as laws over generated scripts.
 
 import adventure/world
+import machines
 import strings
 
 // Items is the item names a script uses: the castle's three and one it
@@ -30,15 +31,11 @@ func CommandOf(n int) Command {
 	}
 }
 
-// ScriptOf is a script of commands, one per base-17 digit of n: a
-// generated slice holds at most three elements (G-ex-d-9), and an int
-// holds fifteen digits.
-func ScriptOf(n int) []Command {
+// ScriptOf is a script of commands, one per code.
+func ScriptOf(codes []int) []Command {
 	let mut out = []Command{}
-	let mut k = if n < 0 { -(n + 1) } else { n }
-	for k > 0 {
-		out = out.Append(CommandOf(k % 17))
-		k = k / 17
+	for k in codes {
+		out = out.Append(CommandOf(k))
 	}
 	out
 }
@@ -46,18 +43,18 @@ func ScriptOf(n int) []Command {
 // Played is the state after the lines of script from the start, each line
 // that fails changing nothing, up to the end of the game.
 func Played(script []Command) State {
-	let mut s = Start()
+	let mut s = machines.Initial(Play{})
 	for c in script {
 		let d = Step(s, Said{Line: Text(c)}) catch {
-		case Unknown, Missing, NoWay, NoExit, Barred, NotHere, NotCarried:
+		case Refusal:
 			Reject
 		}
 		match d {
 		case Done[Ending]:
 			return s
-		case Enter[State], Stay[State], Ignore, Reject:
+		case Enter[State], Stay[State], Emit[State, Ending], Ignore, Reject:
 		}
-		s = Next(s, d)
+		s = machines.Next(s, d)
 	}
 	s
 }
@@ -78,8 +75,8 @@ law ParseInvertsText(n int) {
 
 // ItemsAreKept: play moves items and never makes or loses one: each of
 // the world's items is in one place, a room or carried.
-law ItemsAreKept(n int) {
-	Kept(GameOf(Played(ScriptOf(n))))
+law ItemsAreKept(codes []int) {
+	Kept(GameOf(Played(ScriptOf(codes))))
 }
 
 // Kept reports whether g has each of its world's items once, in the
@@ -99,8 +96,8 @@ func Kept(g Game) bool {
 
 // GoingBackReturns: a move that is allowed can be undone by the opposite
 // move, to the room you left, one move later.
-law GoingBackReturns(n int, way int) {
-	let g = GameOf(Played(ScriptOf(n)))
+law GoingBackReturns(codes []int, way int) {
+	let g = GameOf(Played(ScriptOf(codes)))
 	let d = world.DirOf(way)
 	let there = Moved(g, d) catch {
 	case NoExit, Barred:
@@ -115,8 +112,8 @@ law GoingBackReturns(n int, way int) {
 
 // BarredIsTheKey: a move is barred exactly when its exit has a key you do
 // not carry.
-law BarredIsTheKey(n int, way int) {
-	let g = GameOf(Played(ScriptOf(n)))
+law BarredIsTheKey(codes []int, way int) {
+	let g = GameOf(Played(ScriptOf(codes)))
 	let d = world.DirOf(way)
 	match world.ExitOf(g.World, g.At, d) {
 	case Some[world.Exit] as e:
@@ -141,17 +138,17 @@ func IsBarred(g Game, way world.Dir) bool {
 
 // EndIsStopped: the end of the input is Done with where you are and the
 // moves you made, in either state.
-law EndIsStopped(n int, asking bool) {
-	let g = GameOf(Played(ScriptOf(n)))
-	let s State = if asking { Asking{G: g} } else { Exploring{G: g} }
+law EndIsStopped(codes []int, asking bool) {
+	let g = GameOf(Played(ScriptOf(codes)))
+	let s = if asking { Asking{G: g} } else { Exploring{G: g} }
 	let d = Step(s, Ended) catch {
-	case Unknown, Missing, NoWay, NoExit, Barred, NotHere, NotCarried:
+	case Refusal:
 		return false
 	}
 	match d {
 	case Done[Ending] as done:
 		done.Output == Stopped{Moves: g.Moves, At: g.At}
-	case Enter[State], Stay[State], Ignore, Reject:
+	case Enter[State], Stay[State], Emit[State, Ending], Ignore, Reject:
 		false
 	}
 }

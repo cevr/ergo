@@ -52,7 +52,7 @@ law RemoveUndoesSet(names []string, raw string, secret string) {
 	if k.Lookup(name) != None {
 		return true
 	}
-	Same(k.Set(name, secret).Remove(name), k)
+	k.Set(name, secret).Remove(name) == k
 }
 
 // IndexNamesComeFirst: the entries are in a JavaScript object's order:

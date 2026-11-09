@@ -1,11 +1,13 @@
 // The rules of the crossing as laws over its machine.
 
+import machines
+
 // ColoursFollow: from any light, every cue leads to a colour that may
 // follow it: never green to red, never red to yellow.
 law ColoursFollow(l Light, cues []Cue) {
 	let mut now = l
 	for c in cues {
-		let next = Next(now, Step(now, c))
+		let next = machines.Next(now, Step(now, c))
 		if !Follows(now, next) {
 			return false
 		}
@@ -19,7 +21,7 @@ law ColoursFollow(l Light, cues []Cue) {
 law PhasesDoNotDrift(l Light, at duration) {
 	match Deadline(l) {
 	case Some[duration] as d:
-		let next = Next(l, Step(l, Tick{At: at}))
+		let next = machines.Next(l, Step(l, Tick{At: at}))
 		if at < d.Value {
 			return Colour(next) == Colour(l) && SinceOf(next) == SinceOf(l)
 		}
@@ -32,8 +34,8 @@ law PhasesDoNotDrift(l Light, at duration) {
 // GreenLastsMinGreen: no cue ends a green before MinGreen, except a
 // fault.
 law GreenLastsMinGreen(since duration, asked bool, c Cue) {
-	let g = Green{Since: since, Asked: asked}
-	let next = Next(g, Step(g, c))
+	let g Light = Green{Since: since, Asked: asked}
+	let next = machines.Next(g, Step(g, c))
 	match next {
 	case Yellow as y:
 		y.Since >= since+MinGreen
@@ -49,16 +51,16 @@ law GreenLastsMinGreen(since duration, asked bool, c Cue) {
 // ButtonShortensGreen: a press in green moves its end to MinGreen after
 // it began, and never later.
 law ButtonShortensGreen(since duration, at duration) {
-	let g = Green{Since: since, Asked: false}
-	let pressed = Next(g, Step(g, Button{At: at}))
+	let g Light = Green{Since: since, Asked: false}
+	let pressed = machines.Next(g, Step(g, Button{At: at}))
 	Deadline(pressed) == Some[duration]{Value: since + MinGreen}
 }
 
 // OnlyRepairEndsFlashing: a flashing light stays flashing for every cue
 // but a repair.
 law OnlyRepairEndsFlashing(since duration, c Cue) {
-	let f = Flashing{Since: since}
-	let next = Next(f, Step(f, c))
+	let f Light = Flashing{Since: since}
+	let next = machines.Next(f, Step(f, c))
 	match c {
 	case Repair:
 		Colour(next) == "red"

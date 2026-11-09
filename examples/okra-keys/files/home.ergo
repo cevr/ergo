@@ -44,19 +44,19 @@ func Load(h Home) keys.Keys fails keys.StoreFailed {
 }
 
 // Save writes k, with the directory made first, and is the path it
-// wrote. The original then makes the file 0600; std fs has no chmod
-// (G-ex-d-15), so the file has the mode WriteFile gives a new file, 0666
-// less the umask, or keeps the mode it had.
+// wrote. The file is the owner's alone (0600) from the moment it is made,
+// as the original's chmod leaves it but with no readable window, and a
+// directory Save makes is the owner's alone too (0700).
 func Save(h Home, k keys.Keys) string fails keys.StoreFailed {
 	let file = try h.path()
 	let dir = filepath.Dir(file)
-	h.writes.MkdirAll(dir) catch {
+	h.writes.MkdirAllMode(dir, fs.PrivateDir()) catch {
 	case fs.Denied:
 		return keys.StoreFailed{Message: "Cannot create \(dir): permission denied"}
 	case fs.Failed as f:
 		return keys.StoreFailed{Message: "Cannot create \(dir): \(f.Reason)"}
 	}
-	h.writes.WriteFile(file, keyfile.Encode(k)+"\n") catch {
+	h.writes.WriteFileMode(file, keyfile.Encode(k)+"\n", fs.Private()) catch {
 	case fs.NotFound:
 		return keys.StoreFailed{Message: "Cannot write \(file): no such file or directory"}
 	case fs.Denied:

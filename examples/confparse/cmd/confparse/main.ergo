@@ -11,6 +11,7 @@ import confparse/config
 import confparse/toml
 import flag
 import fs
+import fstest
 import io
 import os
 import strconv
@@ -163,29 +164,8 @@ func main() fails os.Exit needs Ambient {
 	}
 }
 
-// The tests run run over a Files provider of three files, a Process
+// The tests run run over an fstest.Memory of three files, a Process
 // provider with set variables and a Recorder, with no host.
-
-type disk {}
-
-func ReadFile(_ disk, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
-	match path {
-	case "ok.toml":
-		"name = \"edge\"\n[listen]\nport = 8080\n[[upstream]]\nname = \"a\"\naddr = \"h:1\"\nbackup = true\n"
-	case "typo.toml":
-		"name = \"edge\"\n[listen]\nprot = 8080\n"
-	case "broken.toml":
-		"name = \"edge\n"
-	case _:
-		fs.NotFound{Path: path}
-	}
-}
-
-func ReadDir(_ disk, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{} }
-
-func Stat(_ disk, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
-	fs.Info{Name: path, Size: 0, Dir: false}
-}
 
 // proc is a Process with the variables of env and no arguments.
 type proc { env Map[string, string] }
@@ -194,7 +174,11 @@ func Args(_ proc) []string { []string{} }
 
 func Getenv(p proc, key string) Option[string] { p.env.Get(key) }
 
-func ran(args []string, env Map[string, string]) string {
+func ran(args []string, env Map[string, string]) string fails fs.NotFound | fs.Denied | fs.Failed {
+	let disk = fstest.NewMemory()
+	try disk.WriteFile("ok.toml", "name = \"edge\"\n[listen]\nport = 8080\n[[upstream]]\nname = \"a\"\naddr = \"h:1\"\nbackup = true\n")
+	try disk.WriteFile("typo.toml", "name = \"edge\"\n[listen]\nprot = 8080\n")
+	try disk.WriteFile("broken.toml", "name = \"edge\n")
 	let out = io.NewRecorder()
 	with context { io.Stdout: out, fs.Files: disk, os.Process: proc{env: env} } {
 		run(args) catch {
@@ -208,25 +192,25 @@ func ran(args []string, env Map[string, string]) string {
 func none() Map[string, string] { Map[string, string]{} }
 
 test CheckPrintsTheConfiguration {
-	assert ran([]string{"check", "ok.toml"}, none()) == "edge: listen 127.0.0.1:8080, log info\nupstream a h:1 weight 1 backup\n"
-	assert ran([]string{"check", "ok.toml"}, Map[string, string]{"CONFPARSE_LISTEN_HOST": "::", "OTHER": "x"}) == "edge: listen :::8080, log info\nupstream a h:1 weight 1 backup\n"
+	assert try ran([]string{"check", "ok.toml"}, none()) == "edge: listen 127.0.0.1:8080, log info\nupstream a h:1 weight 1 backup\n"
+	assert try ran([]string{"check", "ok.toml"}, Map[string, string]{"CONFPARSE_LISTEN_HOST": "::", "OTHER": "x"}) == "edge: listen :::8080, log info\nupstream a h:1 weight 1 backup\n"
 }
 
 test CheckTellsWhereItIsWrong {
-	assert ran([]string{"check", "typo.toml"}, none()) == "exit 1: typo.toml:3:1: unknown key prot in [listen]\n"
-	assert ran([]string{"check", "broken.toml"}, none()) == "exit 1: broken.toml:1:8: the string is not closed on its line\n"
-	assert ran([]string{"check", "ok.toml"}, Map[string, string]{"CONFPARSE_LOG_LEVEL": "loud"}) == "exit 1: ok.toml: $CONFPARSE_LOG_LEVEL: level = \"loud\" is not one of debug, info, warn, error\n"
-	assert ran([]string{"check", "gone.toml"}, none()) == "exit 1: confparse: no file gone.toml\n"
+	assert try ran([]string{"check", "typo.toml"}, none()) == "exit 1: typo.toml:3:1: unknown key prot in [listen]\n"
+	assert try ran([]string{"check", "broken.toml"}, none()) == "exit 1: broken.toml:1:8: the string is not closed on its line\n"
+	assert try ran([]string{"check", "ok.toml"}, Map[string, string]{"CONFPARSE_LOG_LEVEL": "loud"}) == "exit 1: ok.toml: $CONFPARSE_LOG_LEVEL: level = \"loud\" is not one of debug, info, warn, error\n"
+	assert try ran([]string{"check", "gone.toml"}, none()) == "exit 1: confparse: no file gone.toml\n"
 }
 
 test GetPrintsOneValue {
-	assert ran([]string{"get", "ok.toml", "name"}, none()) == "\"edge\"\n"
-	assert ran([]string{"get", "ok.toml", "listen.port"}, none()) == "8080\n"
-	assert ran([]string{"get", "ok.toml", "upstream.0.backup"}, none()) == "true\n"
-	assert ran([]string{"get", "ok.toml", "upstream.1.name"}, none()) == "exit 1: confparse: ok.toml has no key upstream.1.name\n"
-	assert ran([]string{"get", "ok.toml", "upstream.name"}, none()) == "exit 1: confparse: ok.toml has no key upstream.name\n"
+	assert try ran([]string{"get", "ok.toml", "name"}, none()) == "\"edge\"\n"
+	assert try ran([]string{"get", "ok.toml", "listen.port"}, none()) == "8080\n"
+	assert try ran([]string{"get", "ok.toml", "upstream.0.backup"}, none()) == "true\n"
+	assert try ran([]string{"get", "ok.toml", "upstream.1.name"}, none()) == "exit 1: confparse: ok.toml has no key upstream.1.name\n"
+	assert try ran([]string{"get", "ok.toml", "upstream.name"}, none()) == "exit 1: confparse: ok.toml has no key upstream.name\n"
 }
 
 test FmtPrintsCanonically {
-	assert ran([]string{"fmt", "ok.toml"}, none()) == "name = \"edge\"\n\n[listen]\nport = 8080\n\n[[upstream]]\nname = \"a\"\naddr = \"h:1\"\nbackup = true\n"
+	assert try ran([]string{"fmt", "ok.toml"}, none()) == "name = \"edge\"\n\n[listen]\nport = 8080\n\n[[upstream]]\nname = \"a\"\naddr = \"h:1\"\nbackup = true\n"
 }

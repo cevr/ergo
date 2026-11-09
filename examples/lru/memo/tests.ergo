@@ -1,5 +1,4 @@
-// The Memo's tests: examples, and the laws restated as property tests
-// (the compiler checks laws and does not run them yet, #162).
+// The Memo's tests: examples (the laws run in laws.ergo).
 
 import lru/cache
 import strings
@@ -35,43 +34,6 @@ test FailureIsPassedOn {
 		-g.Key
 	}
 	assert got == -7
-}
-
-test TransparentHolds(n int, seed int) {
-	let mut m = Fresh(n)
-	for k in KeysOf(seed, 40) {
-		assert m.Get(k, Square) == Square(k)
-	}
-}
-
-test CountsAddUpHolds(n int, seed int) {
-	let mut m = Fresh(n)
-	let keys = KeysOf(seed, 40)
-	for k in keys {
-		let _ = m.Get(k, Square)
-	}
-	let c = m.CountsOf()
-	assert c.Hits+c.Misses == len(keys)
-	assert c.Size <= c.Misses && c.Size <= m.results.Capacity()
-}
-
-test RemembersAfterMissHolds(n int, seed int, k int) {
-	let mut m = Fresh(n)
-	for key in KeysOf(seed, 10) {
-		let _ = m.Get(key, Square)
-	}
-	let _ = m.Get(k, Square)
-	assert try m.Get(k, Never) == Square(k)
-}
-
-test FailureIsNotRememberedHolds(n int, k int) {
-	let mut m = Fresh(n)
-	let _ = m.Get(k, Never) catch {
-	case Gone:
-		0
-	}
-	assert m.Get(k, Square) == Square(k)
-	assert m.CountsOf().Misses == 2 && m.CountsOf().Size == 1
 }
 
 // A capacity below one is refused by the cache, through the Memo.

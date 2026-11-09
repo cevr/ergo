@@ -3,6 +3,8 @@
 // timeouts on a clock that only the signals move. It is pure; the coin
 // mechanism is a contract that a provider keeps.
 
+import slices
+
 // Counterfeit is a coin the mechanism does not take.
 type Counterfeit { Name string }
 
@@ -36,11 +38,4 @@ type Acceptor {
 
 // IsDenomination reports whether cents is the value of a coin the machine
 // takes.
-func IsDenomination(cents int) bool {
-	for d in Denominations {
-		if d == cents {
-			return true
-		}
-	}
-	false
-}
+func IsDenomination(cents int) bool { slices.Contains(Denominations, cents) }

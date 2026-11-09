@@ -111,7 +111,7 @@ type Solver {
 		case Unsolvable:
 			return false
 		}
-		Equal(a, b)
+		a == b
 	},
 
 	// SolvedIsFixed: a solved grid is its own solution.
@@ -120,7 +120,7 @@ type Solver {
 		case Unsolvable:
 			return true
 		}
-		Equal(try Solve(s), s)
+		(try Solve(s)) == s
 	},
 
 	// InconsistentIsUnsolvable: a puzzle with a digit twice in a unit has

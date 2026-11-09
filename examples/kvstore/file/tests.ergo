@@ -1,15 +1,16 @@
 // Log keeps the kv.Store laws: each test runs one of kv's checks on a new
-// Log over a memory.Disk, the same checks package memory runs on a Table.
-// The laws of laws.ergo are restated as property tests: the compiler
-// checks laws and does not run them yet (#162).
+// Log over an fstest.Memory, the same checks package memory runs on a
+// Table (Store's laws run only in kv's package, G-exup-1). The laws of
+// laws.ergo run as they are.
 
+import fstest
 import kvstore/kv
 import kvstore/memory
 import strings
 
-// fresh is a Log in the directory db of a new memory.Disk.
+// fresh is a Log in the directory db of a new fstest.Memory.
 func fresh() Log fails kv.Broken {
-	let disk = memory.NewDisk()
+	let disk = fstest.NewMemory()
 	try Open("db", disk, disk)
 }
 
@@ -49,50 +50,10 @@ test LogCompactKeepsContents(puts []string, drops []int) {
 	}
 }
 
-test RoundTripHolds(key string, value string) {
-	let set = Set{Key: key, Value: value}
-	let unset = Unset{Key: key}
-	assert try Decode(1, Encode(set)) == set
-	assert try Decode(2, Encode(unset)) == unset
-}
-
-test OneLineHolds(key string, value string) {
-	assert !hasLineFeed(Encode(Set{Key: key, Value: value}))
-}
-
-test CompactedReplaysTheSameHolds(puts []string, drops []int) {
-	let entries = try Replay(logOf(puts, drops))
-	assert sameMaps(try Replay(Compacted(entries)), entries)
-}
-
-test FailedWriteKeepsTheStoreHolds(puts []string, key string, value string) {
-	let disk = memory.NewDisk()
-	let before = with context { kv.Store: try Open("db", disk, disk) } {
-		for k in puts {
-			try kv.Store.Put(k, "v "+k)
-		}
-		try kv.Snapshot()
-	}
-	with context { kv.Store: try Open("db", disk, memory.FullOf(disk)) } {
-		let reason = failure(key, value)
-		assert reason == "db/kv.log: no space left on device"
-		assert kv.Equal(try kv.Snapshot(), before)
-	}
-}
-
-// failure is the reason Put(key, value) fails with, or "put".
-func failure(key string, value string) string needs kv.Store {
-	kv.Store.Put(key, value) catch {
-	case kv.Broken as b:
-		return b.Reason
-	}
-	"put"
-}
-
 // The log's own form: a put, an overwrite and a delete are three lines,
 // and a compaction leaves one.
 test TheLogIsOneLinePerChange {
-	let disk = memory.NewDisk()
+	let disk = fstest.NewMemory()
 	let log = try Open("db", disk, disk)
 	with context { kv.Store: log } {
 		try kv.Store.Put("name", "Ada Lovelace")
@@ -108,7 +69,7 @@ test TheLogIsOneLinePerChange {
 
 // A line that is not a record is a broken store, which names the line.
 test ACorruptLineIsBroken {
-	let disk = memory.NewDisk()
+	let disk = fstest.NewMemory()
 	try disk.MkdirAll("db")
 	try disk.WriteFile("db/kv.log", "put\t\"a\"\t\"1\"\nput \"b\" 2\n")
 	with context { kv.Store: try Open("db", disk, disk) } {
@@ -157,19 +118,33 @@ func script(steps []Step) []string fails kv.Broken needs kv.Store {
 // The two stores agree: any script of puts, deletes and compactions
 // answers the same on a Log as on a memory.Table, the model.
 test LogAgreesWithTable(steps []Step) {
-	let model = with context { kv.Store: memory.New() } { try script(steps) }
+	let model = with context { kv.Store: memory.NewTable() } { try script(steps) }
 	let got = with context { kv.Store: try fresh() } { try script(steps) }
-	assert kv.Same(got, model)
+	assert got == model
 }
 
 // A second Log over the same disk reads what the first wrote: the store
 // is the file, not the value.
 test TheLogIsTheFile {
-	let disk = memory.NewDisk()
+	let disk = fstest.NewMemory()
 	with context { kv.Store: try Open("db", disk, disk) } {
 		try kv.Store.Put("k", "v")
 	}
 	with context { kv.Store: try Open("db", disk, disk) } {
 		assert try kv.Store.Get("k") == "v"
 	}
+}
+
+// Open removes the temp files a crash inside a compaction left, and
+// nothing else.
+test OpenRemovesStaleTempFiles {
+	let disk = fstest.NewMemory()
+	try disk.MkdirAll("db")
+	try disk.WriteFile("db/kv.log", "put\t\"a\"\t\"1\"\n")
+	try disk.WriteFile("db/kv.log.tmp12345", "put\t\"a\"\t\"2\"\n")
+	try disk.WriteFile("db/notes.tmp1", "mine")
+	with context { kv.Store: try Open("db", disk, disk) } {
+		assert try kv.Store.Get("a") == "1"
+	}
+	assert try disk.ReadDir("db") == []string{"kv.log", "notes.tmp1"}
 }

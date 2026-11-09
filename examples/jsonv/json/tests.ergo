@@ -1,6 +1,6 @@
-// The codec's tests: examples, and the laws restated as property tests
-// over generated values. The compiler checks laws and does not run them
-// yet (#162); until it does, these tests run them.
+// The codec's tests: examples. The laws run under ergo test, over
+// generated values whose strings hold quotes, backslashes, control bytes
+// and invalid UTF-8.
 
 import strings
 
@@ -89,74 +89,10 @@ test DepthIsLimited {
 	assert failure("["+deep+"]") == "1:\(MaxDepth + 1): arrays and objects nest deeper than \(MaxDepth)"
 }
 
-// spice is v with the letters a, b, z, _ and - of every string and key
-// made a quote, a backslash, a control byte, DEL and a byte of invalid
-// UTF-8. The generator draws strings from a fixed alphabet with none of
-// these (gap G-ex-d-4), and they are the bytes the printer escapes.
-func spice(v Value) Value {
-	match v {
-	case Text as t:
-		Text{V: spiced(t.V)}
-	case Array as a:
-		let mut items = []Value{}
-		for item in a.Items {
-			items = items.Append(spice(item))
-		}
-		Array{Items: items}
-	case Object as o:
-		let mut members = []Member{}
-		for m in o.Members {
-			members = members.Append(Member{Key: spiced(m.Key), V: spice(m.V)})
-		}
-		Object{Members: members}
-	case _:
-		v
-	}
-}
-
-func spiced(s string) string {
-	let quoted = strings.ReplaceAll(strings.ReplaceAll(s, "a", "\""), "b", "\\")
-	strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(quoted, "z", "\u0001"), "_", "\u007f"), "-", "\xff")
-}
-
-test SpiceReachesEveryEscape {
-	assert Quoted(spiced("abz_-")) == "\"\\\"\\\\\\u0001\\u007f\ufffd\""
-}
-
-test CompactRoundTripsHolds(v Value) {
-	let w = Lawful(spice(v))
-	assert Equal(try Parse(Compact(w)), w)
-}
-
-test IndentRoundTripsHolds(v Value, tabs bool) {
-	let w = Lawful(spice(v))
-	let indent = if tabs { "\t" } else { "  " }
-	assert Equal(try Parse(Indent(w, indent)), w)
-}
-
-test IndentIsIdempotentHolds(v Value) {
-	let once = Indent(Lawful(spice(v)), "  ")
-	assert Indent(try Parse(once), "  ") == once
-}
-
-test CompactIgnoresLayoutHolds(v Value) {
-	let w = Lawful(spice(v))
-	assert Compact(try Parse(Indent(w, "  "))) == Compact(w)
-}
-
-test FailuresPointIntoTheTextHolds(text string) {
-	let _ = Parse(text) catch {
-	case err:
-		let at = Offset(err)
-		assert at >= 0 && at <= len(text)
-		return
-	}
-}
-
 // Prefixes of a valid text: every proper prefix of a compact array or
 // object fails, and never past its end.
 test PrefixesFail(v Value) {
-	let text = Compact(Array{Items: []Value{Lawful(spice(v))}})
+	let text = Compact(Array{Items: []Value{Lawful(v)}})
 	for n in 0..len(text) {
 		let prefix = strings.Slice(text, 0, n)
 		let _ = Parse(prefix) catch {
@@ -166,4 +102,10 @@ test PrefixesFail(v Value) {
 		}
 		assert false
 	}
+}
+
+// The printer escapes what jq escapes: a quote, a backslash, a control
+// byte and DEL; invalid UTF-8 prints as U+FFFD.
+test QuotedEscapes {
+	assert Quoted("\"\\\u0001\u007f\xff") == "\"\\\"\\\\\\u0001\\u007f\ufffd\""
 }

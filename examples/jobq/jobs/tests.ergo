@@ -1,5 +1,5 @@
-// The tests of retry: backoff worked by hand, a job's life, and the laws
-// restated as property tests (#162).
+// The tests of retry: backoff worked by hand and a job's life. The laws
+// run under ergo test.
 
 let Default = Policy{Attempts: 4, Base: 100ms, Max: 300ms}
 
@@ -29,61 +29,4 @@ test ScriptsAJob {
 	let j = Job{ID: 1, Name: "mail", Takes: 1s, Flaky: 1, Fatal: true}
 	assert Scripted(j, 1) == Transient{Reason: "try 1 of mail timed out"}
 	assert Scripted(j, 2) == Fatal{Reason: "mail is malformed"}
-}
-
-test IsRepeatableHolds(j Job, n int) {
-	let w Worker = Script
-	assert w.Do(j, n) == w.Do(j, n)
-}
-
-test BackoffGrowsHolds(p Policy, n int) {
-	let q = Small(p)
-	let k = if n < 0 { -(n % 20) } else { n % 20 }
-	assert Backoff(q, k+1) <= Backoff(q, k+2)
-}
-
-test BackoffIsCappedHolds(p Policy, n int) {
-	let q = Small(p)
-	let k = if n < 0 { -(n % 20) } else { n % 20 }
-	assert Backoff(q, k+1) <= q.Max
-	assert Backoff(q, 1) == (if q.Base > q.Max { q.Max } else { q.Base })
-}
-
-test RetriesEndHolds(p Policy) {
-	let q = Small(p)
-	let out, tries = Lived(q, []Result{Transient{Reason: "busy"}}, 1s)
-	match out {
-	case GaveUp:
-		assert tries == q.Attempts
-	case Succeeded:
-		assert false
-	}
-}
-
-test FatalIsFinalHolds(p Policy) {
-	let out, tries = Lived(Small(p), []Result{Fatal{Reason: "bad"}}, 1s)
-	match out {
-	case GaveUp:
-		assert tries == 1
-	case Succeeded:
-		assert false
-	}
-}
-
-test RetryWaitsItsBackoffHolds(p Policy, at int) {
-	let q = Small(p)
-	let ms = if at < 0 { -(at % 1000) } else { at % 1000 }
-	let end = duration(int64(ms) * int64(1ms))
-	match Step(Running{N: 1, Ends: end}, Finish{At: end, R: Transient{Reason: "busy"}, P: q}) {
-	case Enter[Phase] as e:
-		assert Step(e.Next, Start{At: end + Backoff(q, 1) - 1ns, Takes: 1s}) == Reject || Backoff(q, 1) == 0s
-	case Done[Outcome]:
-		assert q.Attempts == 1
-	case Stay[Phase]:
-		assert false
-	case Ignore:
-		assert false
-	case Reject:
-		assert false
-	}
 }

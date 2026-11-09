@@ -7,10 +7,18 @@ type Mode = Title{Width int, Height int} | Playing{W World} | Paused{W World} | 
 // a pause (which also resumes) or quit.
 type Signal = Begin{} | Tick{} | Turn{To Dir} | Pause{} | Quit{}
 
-// Snake is the game as a machine: it starts at the title of a 10 by 8
-// board and moves by Step until Quit is Done with the score.
+// Board is the size of a game's board, in cells.
+type Board { Width int, Height int }
+
+// Titled is the title of a game on board b.
+func Titled(b Board) Mode { Title{Width: b.Width, Height: b.Height} }
+
+// Snake is the game as a machine. Its input is the board: it starts at
+// the board's title and moves by Step until Quit is Done with the score.
+// Placing the first food draws from Random, so Begin places it, not the
+// start.
 type Snake machine[Mode, Signal] {
-	initial: Title{Width: 10, Height: 8},
+	initial: Titled,
 	step:    Step,
 }
 
@@ -46,7 +54,7 @@ func Step(m Mode, s Signal) Decision[Mode, int] needs Random {
 		if Opposite(t.To, p.W.Moved) {
 			return Reject
 		}
-		if Same(t.To, p.W.Heading) {
+		if t.To == p.W.Heading {
 			return Ignore
 		}
 		Enter[Mode]{Next: Playing{W: World{..p.W, Heading: t.To}}}
@@ -103,21 +111,5 @@ func ScoreOf(m Mode) int {
 		p.W.Score
 	case Over as o:
 		o.W.Score
-	}
-}
-
-// Next is the mode after the decision d in m.
-func Next(m Mode, d Decision[Mode, int]) Mode {
-	match d {
-	case Enter[Mode] as e:
-		e.Next
-	case Stay[Mode] as s:
-		s.Next
-	case Ignore:
-		m
-	case Reject:
-		m
-	case Done[int]:
-		m
 	}
 }

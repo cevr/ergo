@@ -1,45 +1,31 @@
-// Home's tests run it over a file system held in a Map, with no host: it
-// keeps keys.Store's law, reads what the original writes, and treats a
-// file that is not an object of strings as no keys.
+// Home's tests run it over an fstest.Memory, with no host: it keeps
+// keys.Store's law, reads what the original writes, writes the key file
+// for its owner alone, and treats a file that is not an object of strings
+// as no keys.
 
 import fs
+import fstest
 import okrakeys/keys
 
-// disk is an fs.Files and fs.Writes of paths to texts. Its Map is shared
-// by every copy, so a write is seen by the next read (G-ex-b-3).
-type disk { texts Map[string, string] }
-
-func ReadFile(d disk, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
-	match d.texts.Get(path) {
-	case Some[string] as t:
-		t.Value
-	case None:
-		fs.NotFound{Path: path}
-	}
-}
-
-func ReadDir(_ disk, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
-
-func Stat(_ disk, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
-
-func WriteFile(d disk, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {
-	if path == "/locked/.okra/keys.json" {
-		return fs.Denied{Path: path}
-	}
-	let mut texts = d.texts
-	texts[path] = text
-}
-
-func MkdirAll(_ disk, path string) fails fs.Denied | fs.Failed {}
-
-func home(d disk, dir string) Home { New(d, d, Some[string]{Value: dir}) }
+func home(d fstest.Memory, dir string) Home { New(d, d, Some[string]{Value: dir}) }
 
 test SavesWhereTheOriginalDoes {
-	let d = disk{texts: Map[string, string]{}}
+	let d = fstest.NewMemory()
 	let h = home(d, ".")
 	assert try h.Save(keys.Empty().Set("openai", "sk-1").Set("10", "n")) == ".okra/keys.json"
-	assert d.texts.Get(".okra/keys.json") == Some[string]{Value: "{\"10\":\"n\",\"openai\":\"sk-1\"}\n"}
+	assert try d.ReadFile(".okra/keys.json") == "{\"10\":\"n\",\"openai\":\"sk-1\"}\n"
 	assert try home(d, "/home/u/").Save(keys.Empty()) == "/home/u/.okra/keys.json"
+}
+
+test TheKeyFileIsTheOwners {
+	let d = fstest.NewMemory()
+	let file = try home(d, "/h").Save(keys.Empty().Set("openai", "sk-1"))
+	assert (try d.Stat(file)).Perm == fs.Perm(fs.Private())
+	assert (try d.Stat("/h/.okra")).Perm == fs.Perm(fs.PrivateDir())
+	// A file that was there with a wider mode is narrowed.
+	try d.Chmod(file, fs.Shared())
+	let _ = try home(d, "/h").Save(keys.Empty())
+	assert (try d.Stat(file)).Perm == fs.Perm(fs.Private())
 }
 
 func failure(h Home) string {
@@ -55,25 +41,28 @@ func failure(h Home) string {
 }
 
 test FailuresNameThePath {
-	let d = disk{texts: Map[string, string]{}}
+	let d = fstest.NewMemory()
 	assert failure(New(d, d, None)) == "HOME environment variable is not set"
-	assert failure(home(d, "/locked")) == "Cannot write /locked/.okra/keys.json: permission denied"
+	try d.WriteFile("/file", "not a directory")
+	assert failure(home(d, "/file")) == "Cannot create /file/.okra: not a directory"
+	try d.MkdirAll("/h/.okra/keys.json")
+	assert failure(home(d, "/h")) == "Cannot write /h/.okra/keys.json: is a directory"
 }
 
 test BadFilesAreEmpty {
-	let mut texts = Map[string, string]{}
-	texts["h/.okra/keys.json"] = "{\"a\":1}"
-	let h = home(disk{texts: texts}, "h")
-	assert len((try h.Load()).Entries()) == 0
-	assert len((try home(disk{texts: Map[string, string]{}}, "none").Load()).Entries()) == 0
+	let d = fstest.NewMemory()
+	try d.MkdirAll("h/.okra")
+	try d.WriteFile("h/.okra/keys.json", "{\"a\":1}")
+	assert len((try home(d, "h").Load()).Entries()) == 0
+	assert len((try home(d, "none").Load()).Entries()) == 0
 }
 
 test LoadSeesSaveHolds(names []string, secrets []string) {
-	let h = home(disk{texts: Map[string, string]{}}, "/h")
+	let h = home(fstest.NewMemory(), "/h")
 	let mut k = keys.Empty()
 	for i, name in names {
 		k = k.Set(name, if i < len(secrets) { secrets[i] } else { "s" })
 	}
 	let _ = try h.Save(k)
-	assert keys.Same(try h.Load(), k)
+	assert try h.Load() == k
 }

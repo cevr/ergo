@@ -1,31 +1,20 @@
 import particles/sim
+import sync
 
-// Tape is a sim.Screen that keeps every frame it is shown, in order.
-// Copies of a Tape share its frames: a Map is the only value a provider
-// can change, so the frames are a Map from their place to the frame.
-type Tape { frames Map[int, sim.Frame] }
+// Tape is a sim.Screen that keeps every frame it is shown, in order. Its
+// frames are in a sync.Ref, so every copy of a Tape is the same tape.
+type Tape { frames sync.Ref[[]sim.Frame] }
 
 // NewTape is an empty Tape.
-func NewTape() Tape { Tape{frames: Map[int, sim.Frame]{}} }
+func NewTape() Tape { Tape{frames: sync.NewRef[[]sim.Frame]([]sim.Frame{})} }
 
 // Show adds f at the end of t.
 func Show(t Tape, f sim.Frame) {
-	let mut frames = t.frames
-	frames[len(frames)] = f
+	t.frames.Update(func(fs []sim.Frame) []sim.Frame { fs.Append(f) })
 }
 
 // Shown is the number of frames t has shown.
-func Shown(t Tape) int { len(t.frames) }
+func Shown(t Tape) int { len(t.frames.Get()) }
 
 // Frames is the frames of t, in the order they were shown.
-func Frames(t Tape) []sim.Frame {
-	let mut out = []sim.Frame{}
-	for i in 0..len(t.frames) {
-		match t.frames.Get(i) {
-		case Some[sim.Frame] as f:
-			out = out.Append(f.Value)
-		case None:
-		}
-	}
-	out
-}
+func Frames(t Tape) []sim.Frame { t.frames.Get() }

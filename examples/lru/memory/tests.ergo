@@ -1,6 +1,6 @@
 // Table keeps the catalog.Catalog laws; the tests restate them over its
-// provider (the compiler checks laws and does not run them yet, #162),
-// and show what a Memo in front of it saves.
+// provider (they run only for providers in catalog, G-exup-1), and show
+// what a Memo in front of it saves.
 
 import lru/catalog
 import lru/memo
@@ -9,7 +9,7 @@ import lru/memo
 func list() Table {
 	Parse("apple 120\npear 95\n\nfig 7\n") catch {
 	case BadRow:
-		Table{prices: Map[string, int]{}, lookups: Map[string, int]{}}
+		NewTable(Map[string, int]{})
 	}
 }
 
@@ -48,7 +48,7 @@ test NotNegativeHolds(n int, text string) {
 test ParseRefusesABadRow {
 	let at = Parse("apple 120\npear ninety\n") catch {
 	case BadRow as b:
-		Table{prices: Map[string, int]{b.Line: 0}, lookups: Map[string, int]{}}
+		NewTable(Map[string, int]{b.Line: 0})
 	}
 	assert at.prices.Get("pear ninety") == Some{0}
 }

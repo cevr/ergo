@@ -20,9 +20,9 @@ The program is a module of packages (`ergo.mod`: `module calc`), in the Go layou
 
 | folder | what it holds |
 | --- | --- |
-| `ast/` | The language. `expr.ergo` (the union `Expr` of eight variants, `Op`, `Type`, precedence and names), `print.ergo` (`Print`, with the fewest parentheses), `scope.ergo` (`Scope`, a list of typed variables), `gen.ergo` (`Gen` and `GenAny`, the generators the property tests draw from), `tests.ergo`. |
-| `syntax/` | `lex.ergo` (`Token`, `Lex`, the failure `BadChar`), `parse.ergo` (precedence climbing over a `*parser` borrow; `Unexpected`, `TooBig`), `laws.ergo`, `tests.ergo`. |
-| `typing/` | `check.ergo` (`Check`; `Mismatch`, `Unbound`), `laws.ergo` (`Sound`), `tests.ergo`. |
+| `ast/` | The language. `expr.ergo` (the union `Expr` of eight variants, `Op`, `Type`, precedence and names), `print.ergo` (`Print`, with the fewest parentheses), `scope.ergo` (`Scope`, a list of typed variables), `gen.ergo` (`Gen`, `GenAny` and `Samples`, the generators the laws draw from), `tests.ergo`. |
+| `syntax/` | `lex.ergo` (`Token`, `Lex`, the failure `BadChar`), `parse.ergo` (precedence climbing over a `*parser` borrow; `Unexpected`, `TooBig`, the row `Failure`), `laws.ergo`, `tests.ergo`. |
+| `typing/` | `check.ergo` (`Check`; `Mismatch`, `Unbound`, the row `Failure`), `laws.ergo` (`Sound`), `tests.ergo`. |
 | `eval/` | `eval.ergo` (`Value`, `Eval`, `Apply`, `Run` and its `Outcome`; `DivByZero`, `Stuck`, `Unset`), `tests.ergo`. |
 | `opt/` | `fold.ergo` (the operation type `Optimizer` with two laws, its providers `Folder` and `Keep`, `Fold`), `laws.ergo`, `tests.ergo`. |
 | `repl/` | The line protocol: `Answer` (parse, check, optimize, run) and `Run`, the only function that reads and writes. |
@@ -31,9 +31,9 @@ The program is a module of packages (`ergo.mod`: `module calc`), in the Go layou
 ## What it shows
 
 - **A recursive union and exhaustive `match`.** `Expr` is eight variants, two of them binary and ternary over `Expr`. Every function over it names every variant, with no `case _` except over strings. The folder matches a tuple of an operator and two operands with literal field patterns: `case (ast.And, ast.BoolLit{V: true}, _), (ast.Or, ast.BoolLit{V: false}, _):`.
-- **An operation type with laws.** `opt.Optimizer { Optimize(e) Expr, law PreservesMeaning(e), law KeepsTheType(e) }`. The laws hold for every provider; the tests run them against `Folder` and `Keep`, each bound in a context. `main` chooses the provider from a flag: `func optimizer(fold bool) opt.Optimizer { if fold { opt.Folder } else { opt.Keep } }`, two types joined at the operation type.
-- **Laws that tie the packages together.** `typing.Sound` (a well-typed expression does not get stuck: it ends in a value of its type or in a division by zero), `syntax.RoundTrip` (the text of an expression reads back as the expression), `syntax.ColumnsIncrease`, `opt.FoldIsIdempotent` and `opt.FoldNeverGrows`. Each is restated as a property test over generated expressions: `ast.Gen` builds well-typed ones and `ast.GenAny` any shape, from `Random` bound to `rand.Seeded(seed)`, so a failing case replays from its seed. Each law has a mutant that its test kills (round-1 request).
-- **Typed failures in rows.** `Answer` fails with eight failures of four packages. `turn` catches each by name, with no `case _`, and tells it. The folder never removes a part that can fail: `0 * (1 / 0)` stays, `false && 1 / 0 == 0` folds to `false` because `&&` short-circuits in `Eval` too, and folding uses `eval.Apply`, so a folded constant is the value `Eval` gives.
+- **An operation type with laws.** `opt.Optimizer { Optimize(e) Expr, law PreservesMeaning(e, seed), law KeepsTheType(e, seed) }`. `ergo test` runs the laws against both providers, `Folder` and `Keep`. `main` chooses the provider from a flag: `func optimizer(fold bool) opt.Optimizer { if fold { opt.Folder } else { opt.Keep } }`, two types joined at the operation type.
+- **Laws that tie the packages together.** `typing.Sound` (a well-typed expression does not get stuck: it ends in a value of its type or in a division by zero), `syntax.RoundTrip` (the text of an expression reads back as the expression), `syntax.ColumnsIncrease`, `opt.FoldIsIdempotent` and `opt.FoldNeverGrows`. `ergo test` runs them. A generated `Expr` seldom has valid names or a type, so the laws over expressions also take a `seed` and check `ast.Samples(e, seed)`: `e` and ten expressions that `ast.GenAny` (any shape) and `ast.Gen` (well-typed) build from `rand.Seeded(seed)`. A mutant of each law's subject is killed by its law (`calc-mutants.json` of the ex-upgrade unit: 3 of 3, seeds 1-3).
+- **Typed failures in named rows.** `syntax.Failure = BadChar | Unexpected | TooBig` and `typing.Failure = Mismatch | Unbound` name the rows of `Parse` and `Check`; `Answer` fails `syntax.Failure | typing.Failure | eval.DivByZero`, and `turn` catches each variant by name, with no `case _`. `Eval`'s `Stuck` and `Unset` cannot follow a check that passed (law `Sound`), so `Answer` turns them into `Unreachable` defects with the reason. The folder never removes a part that can fail: `0 * (1 / 0)` stays, `false && 1 / 0 == 0` folds to `false` because `&&` short-circuits in `Eval` too, and folding uses `eval.Apply`, so a folded constant is the value `Eval` gives.
 - **A borrow for parser state.** The parser is `type parser { toks []Token, pos int }`, owned by `Parse` as a `let mut` and lent to each rule as `*parser`, as Go's hand-written parsers do.
 - **Capabilities as values.** `run` takes the host's standard input as a value of `io.Stdin` and binds it, or an `io.Input` of the `-e` text, in one context; the tests pass an `io.Input` and an `io.Recorder`.
 
@@ -41,7 +41,7 @@ The program is a module of packages (`ergo.mod`: `module calc`), in the Go layou
 
 ```sh
 go build -o bin/ergo ./cmd/ergo
-./bin/ergo build examples/calc/cmd/calc -o /tmp/calc && printf '1 + 2\n' | /tmp/calc -fold
+printf '1 + 2\n' | ./bin/ergo run examples/calc/cmd/calc -- -fold
 ./bin/ergo test examples/calc/opt
 go run ./scripts/examples calc
 ```
@@ -54,11 +54,7 @@ go run ./scripts/examples calc
 
 Each gap has its repro in the run dir's `examples-wave/gaps-ex-a.md`.
 
-- **G-ex-a-1 (missing std op).** No rune decoder: no `utf8.DecodeRuneInString` and no `for` over the runes of a string. `syntax.charAt` reads the UTF-8 continuation bytes itself to name a non-ASCII character in `BadChar`.
-- **G-ex-a-2 (missing language feature, #81).** No hexadecimal or binary integer literals: the continuation-byte test is written `src[j] >= 128 && src[j] < 192`, not `0x80` and `0xC0`.
-- **G-ex-a-3 (missing language feature).** No way to say that a failure cannot happen. After `typing.Check` passes, `eval.Eval` cannot be `Stuck` or `Unset` (law `Sound`), but its row holds them, and Ergo has no `unreachable` and no defect a program can raise. `repl.turn` tells them as "internal" failures. A typed tree that rules them out needs indexed types (GADTs).
-- **G-ex-a-4 (missing language feature).** A failure row has no name. `Answer`'s row of eight failures is spelled in full, and a function that describes any of them cannot take the row as a parameter: a union may not list records of other packages (a permanent rule, 196b Q8), so `type Problem = syntax.BadChar | …` is refused. The catch arms stand in `turn`.
-- **G-ex-a-5 (checker).** `Lookup(s, "x") == Some{Value: BoolT}` infers `Some[BoolT]` from the field and does not take the type argument from the other operand, so the comparison is S108; the test writes `Some[Type]{Value: BoolT}`. In a return position `Some{Value: x}` takes the result type.
-- **G-ex-a-6 (bad diagnostic).** An S105 in package `syntax` names the failure `main.BadChar`, not `syntax.BadChar`: a package's own types are named `main.` in its diagnostics.
-- **G-ex-a-7 (tooling).** `ergo run DIR` passes no arguments to the program (there is no `--`), so a flag cannot be tried with `ergo run`; build with `ergo build -o` and run the binary.
-- **G-ex-a-8 (tooling).** `ergo run cmd/calc` from the program's folder writes `dist/calc` there (gitignored), and then `go run ./scripts/examples` refuses the program: "unexpected dist/calc".
+- **G-ex-a-3 (narrowed).** `Unreachable` says that `Stuck` and `Unset` cannot happen after a check, as a defect at run time; a typed tree that rules them out statically needs indexed types (GADTs).
+- **G-ex-a-6 (bad diagnostic).** An S105 in package `syntax` named the failure `main.BadChar`, not `syntax.BadChar` (not rechecked here).
+
+Closed in batch 12: G-ex-a-1 (S3: `BadChar` takes its character's size from `utf8.DecodeRuneInString`, where `charAt` read continuation bytes by hand), G-ex-a-2 (L1: hex literals; the byte test is gone with it), G-ex-a-3 in part (K: `Unreachable`), G-ex-a-4 (L2: named rows `syntax.Failure`, `typing.Failure`; `Answer`'s row of eight is three), G-ex-a-5 (`Lookup(s, "x") == Some{Value: BoolT}` checks), G-ex-a-7 and G-ex-a-8 (T1: `ergo run DIR -- ARGS`, no `dist/`), and the property tests that restated the laws (V1: the laws run; their steering moved into `ast.Samples`).

@@ -46,10 +46,8 @@ func At(g Grid, i int) int { g.cells[i] }
 // With is g with cell i set to v, a digit 1 to 9 or 0 to empty it, in a
 // new grid.
 func With(g Grid, i int, v int) Grid {
-	let mut cells = []int{}
-	for k, c in g.cells {
-		cells = cells.Append(if k == i { v } else { c })
-	}
+	let mut cells = g.cells
+	cells[i] = v
 	Grid{cells: cells}
 }
 
@@ -88,17 +86,6 @@ func Filled(g Grid) int {
 		}
 	}
 	n
-}
-
-// Equal reports whether a and b hold the same cells. A Grid holds a
-// slice, so it has no == (G-ex-d-5).
-func Equal(a Grid, b Grid) bool {
-	for i, c in a.cells {
-		if c != b.cells[i] {
-			return false
-		}
-	}
-	true
 }
 
 // Line is g in 81 bytes, "." for an empty cell: the form Parse reads.

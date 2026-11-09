@@ -87,7 +87,7 @@ func RequirementOf(n Need) Requirement {
 	// need); half of the needs are carets, so that some registries fail.
 	let caret = n.Caret
 	let text = (if caret { "^" } else { "<=" }) + semver.Format(v)
-	let b semver.Bound = if caret { semver.Caret{V: v} } else { semver.AtMost{V: v} }
+	let b = if caret { semver.Caret{V: v} } else { semver.AtMost{V: v} }
 	Requirement{Name: NameOf(n.Pkg), Want: semver.Constraint{Bounds: []semver.Bound{b}, Text: text}}
 }
 

@@ -1,11 +1,31 @@
 // The rules of a Cache as laws over its operations. A top-level law is
 // not generic (G-ex-d-13), so the laws are stated at int keys and values.
+// Each law over puts runs twice: over the generated keys, and over
+// KeysOf(seed), up to 24 keys over 0 to 7, which meet again often enough
+// to overwrite, touch and evict.
+
+import slices
 
 // SizeOf is a capacity from any n: 1 to 5, so a short run of puts fills
 // and overflows the cache.
 func SizeOf(n int) int {
 	let m = if n < 0 { -(n + 1) } else { n }
 	1 + m%5
+}
+
+// KeysOf is up to 24 keys over 0 to 7, drawn from seed.
+func KeysOf(seed int) []int {
+	let mut keys = []int{}
+	for op in Ops(seed, 24) {
+		match op {
+		case PutOp as p:
+			keys = keys.Append(p.Key)
+		case GetOp as g:
+			keys = keys.Append(g.Key)
+		case RemoveOp:
+		}
+	}
+	keys
 }
 
 // Filled is a cache of capacity SizeOf(n) after a Put of each key, the
@@ -22,30 +42,38 @@ func Filled(n int, keys []int) Cache[int, int] {
 }
 
 // CapacityBound: a cache never holds more entries than its capacity.
-law CapacityBound(n int, keys []int) {
-	let c = Filled(n, keys)
-	c.Len() <= c.Capacity() && len(c.Entries()) == c.Len()
+law CapacityBound(n int, keys []int, seed int) {
+	for ks in [][]int{keys, KeysOf(seed)} {
+		let c = Filled(n, ks)
+		if c.Len() > c.Capacity() || len(c.Entries()) != c.Len() {
+			return false
+		}
+	}
+	true
 }
 
-// GetAfterPut: a Get of the key just put is its value.
-law GetAfterPut(n int, keys []int, k int, v int) {
-	let mut c = Filled(n, keys)
-	let _ = c.Put(k, v)
-	c.Get(k) == Some{v}
+// GetAfterPut: a Get of the key just put is its value. SizeOf(k) is a key
+// that KeysOf(seed) often holds, so the Put overwrites.
+law GetAfterPut(n int, keys []int, seed int, k int, v int) {
+	for ks in [][]int{keys, KeysOf(seed)} {
+		for key in []int{k, SizeOf(k)} {
+			let mut c = Filled(n, ks)
+			let _ = c.Put(key, v)
+			if c.Get(key) != (Some{v}) {
+				return false
+			}
+		}
+	}
+	true
 }
 
 // MostRecentKept: a cache keeps the most recently used entries: after a
 // Put of each key, the entries are the last distinct keys, newest first,
 // as many as fit.
-law MostRecentKept(n int, keys []int) {
-	let c = Filled(n, keys)
-	let want = Recent(keys, SizeOf(n))
-	let got = c.Entries()
-	if len(got) != len(want) {
-		return false
-	}
-	for i, e in got {
-		if e.Key != want[i] || e.Value != 2*want[i] {
+law MostRecentKept(n int, keys []int, seed int) {
+	for ks in [][]int{keys, KeysOf(seed)} {
+		let want = slices.Transform(Recent(ks, SizeOf(n)), func(k int) Entry[int, int] { Entry[int, int]{Key: k, Value: 2 * k} })
+		if Filled(n, ks).Entries() != want {
 			return false
 		}
 	}
@@ -54,17 +82,23 @@ law MostRecentKept(n int, keys []int) {
 
 // EvictsTheLeastRecent: a Put into a full cache of a new key returns the
 // entry that a Get or Put touched longest ago.
-law EvictsTheLeastRecent(n int, keys []int, k int) {
-	let mut c = Filled(n, keys)
-	let before = c.Entries()
-	let full = c.Len() == c.Capacity()
-	let fresh = c.Peek(k) == None
-	match c.Put(k, 0) {
-	case Some[Entry[int, int]] as out:
-		full && fresh && out.Value == before[len(before)-1]
-	case None:
-		!full || !fresh
+law EvictsTheLeastRecent(n int, keys []int, seed int, k int) {
+	for ks in [][]int{keys, KeysOf(seed)} {
+		let mut c = Filled(n, ks)
+		let before = c.Entries()
+		let full = c.Len() == c.Capacity()
+		let fresh = c.Peek(k) == None
+		let ok = match c.Put(k, 0) {
+		case Some[Entry[int, int]] as out:
+			full && fresh && out.Value == before[len(before)-1]
+		case None:
+			!full || !fresh
+		}
+		if !ok {
+			return false
+		}
 	}
+	true
 }
 
 // Recent is the last distinct keys of keys, newest first, at most size.

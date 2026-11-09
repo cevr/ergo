@@ -104,28 +104,22 @@ func Churn(ops int) int {
 	sum
 }
 
-// run does what the arguments ask. It is apart from main because a
-// return cannot leave main's with block (G-ex-d-10).
-func run() fails os.Exit needs Console | os.Process | io.Stdin {
-	match try Parse(os.Process.Args()) {
-	case Quote as q:
-		let table = memory.Parse(Prices) catch {
-		case memory.BadRow as b:
-			return os.Exit{Code: 1, Message: "lru: bad price row \(strconv.Quote(b.Line))"}
-		}
-		let text = io.Stdin.ReadAll() catch {
-		case io.ReadFailed as r:
-			return os.Exit{Code: 1, Message: "lru: \(r.Reason)"}
-		}
-		try QuoteAll(text, q.Capacity, table)
-	case Bench as b:
-		Console.Println("\(b.Ops) ops, sum \(Churn(b.Ops))")
-	}
-}
-
 func main() fails os.Exit needs Console | Ambient {
 	with context { os.Process: os.NewHost(), io.Stdin: io.NewHost() } {
-		try run()
+		match try Parse(os.Process.Args()) {
+		case Quote as q:
+			let table = memory.Parse(Prices) catch {
+			case memory.BadRow as b:
+				return os.Exit{Code: 1, Message: "lru: bad price row \(strconv.Quote(b.Line))"}
+			}
+			let text = io.Stdin.ReadAll() catch {
+			case io.ReadFailed as r:
+				return os.Exit{Code: 1, Message: "lru: \(r.Reason)"}
+			}
+			try QuoteAll(text, q.Capacity, table)
+		case Bench as b:
+			Console.Println("\(b.Ops) ops, sum \(Churn(b.Ops))")
+		}
 	}
 }
 

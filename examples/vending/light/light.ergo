@@ -113,22 +113,6 @@ type Crossing machine[Light, Cue] {
 	step:    Step,
 }
 
-// Next is the light after the decision d in l.
-func Next(l Light, d Decision[Light, string]) Light {
-	match d {
-	case Enter[Light] as e:
-		e.Next
-	case Stay[Light] as s:
-		s.Next
-	case Ignore:
-		l
-	case Reject:
-		l
-	case Done[string]:
-		l
-	}
-}
-
 // Follows reports whether the colour b may come right after a: the cycle
 // red, green, yellow, red, and flashing in and out of any colour, out
 // only to red.

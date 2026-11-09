@@ -1,3 +1,4 @@
+import machines
 import particles/world
 import strings
 import time
@@ -32,7 +33,8 @@ type Pace { Frame duration, Dt duration }
 // frame. It returns the game when the player quits or the frames run
 // out.
 func Play(w world.World, keys string, frames int, pace Pace) Game needs Scheduler | time.Clock | Screen {
-	let mut phase = Next(Start(), Step(Start(), Load{W: w}))
+	let game = machines.Start(Sim{}, w)
+	let mut phase = machines.Initial(game)
 	let mut owed = 0s
 	let mut last = time.Clock.Now()
 	for n in 0..frames {
@@ -42,22 +44,19 @@ func Play(w world.World, keys string, frames int, pace Pace) Game needs Schedule
 		last = now
 		match keyAt(keys, n) {
 		case Some[Input] as k:
-			let d = Step(phase, k.Value)
+			let d = game.Step(phase, k.Value)
 			match d {
 			case Done[Game] as q:
 				Screen.Show(Frame{N: n + 1, Phase: "quit", G: q.Output})
 				return q.Output
-			case Enter[Phase]:
-			case Stay[Phase]:
-			case Ignore:
-			case Reject:
+			case Enter[Phase], Stay[Phase], Emit[Phase, Game], Ignore, Reject:
 			}
-			phase = Next(phase, d)
+			phase = machines.Next(phase, d)
 		case None:
 		}
 		for owed >= pace.Dt {
 			owed = owed - pace.Dt
-			phase = Next(phase, Step(phase, Tick))
+			phase = machines.Next(phase, game.Step(phase, Tick))
 		}
 		Screen.Show(Frame{N: n + 1, Phase: Name(phase), G: GameOf(phase)})
 	}

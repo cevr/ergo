@@ -1,7 +1,7 @@
-// The game's tests: examples of each transition, and the laws restated as
-// property tests. The compiler checks laws and does not run them yet
-// (#162); until it does, these tests run them.
+// The game's tests: examples of each transition. `ergo test` runs the
+// laws.
 
+import machines
 import rand
 
 // world is a playing world of 6 by 4 cells with the body and the food.
@@ -69,8 +69,8 @@ test FillingTheBoardWins {
 
 test TwoTurnsCannotReverse {
 	with context { Random: rand.Seeded(3) } {
-		let start = Playing{W: world(row(1, []int{2, 1, 0}), Right, Point{X: 5, Y: 3})}
-		let up = Next(start, Step(start, Turn{To: Up}))
+		let start Mode = Playing{W: world(row(1, []int{2, 1, 0}), Right, Point{X: 5, Y: 3})}
+		let up = machines.Next(start, Step(start, Turn{To: Up}))
 		assert Word(Step(up, Turn{To: Left})) == "reject"
 		assert Word(Step(start, Turn{To: Left})) == "reject"
 		assert Word(Step(start, Turn{To: Right})) == "ignore"
@@ -79,68 +79,14 @@ test TwoTurnsCannotReverse {
 
 test PauseHoldsTheGame {
 	with context { Random: rand.Seeded(3) } {
-		let start = Playing{W: world(row(1, []int{2, 1, 0}), Right, Point{X: 5, Y: 3})}
-		let paused = Next(start, Step(start, Pause))
+		let start Mode = Playing{W: world(row(1, []int{2, 1, 0}), Right, Point{X: 5, Y: 3})}
+		let paused = machines.Next(start, Step(start, Pause))
 		assert Word(Step(paused, Tick)) == "ignore" && Word(Step(paused, Turn{To: Up})) == "reject"
-		assert Key(Next(paused, Step(paused, Pause))) == Key(start)
+		assert machines.Next(paused, Step(paused, Pause)) == start
 	}
 }
 
-test StaysOnTheBoardHolds(seed int) {
-	for m in Replay(seed) {
-		for p in BodyOf(m) {
-			assert p.X >= 0 && p.Y >= 0 && p.X < 5 && p.Y < 4
-		}
-	}
-}
-
-test FoodIsNeverOnTheSnakeHolds(seed int) {
-	for m in Replay(seed) {
-		match m {
-		case Playing as p:
-			assert !Holds(p.W.Body, p.W.Food)
-		case Paused as p:
-			assert !Holds(p.W.Body, p.W.Food)
-		case Title, Over:
-		}
-	}
-}
-
-test GrowsOnlyByEatingHolds(seed int) {
-	let modes = Replay(seed)
-	for i in 1..len(modes) {
-		match (modes[i-1], modes[i]) {
-		case (Playing as a, Playing as b):
-			let grew = len(b.W.Body) - len(a.W.Body)
-			assert grew == b.W.Score-a.W.Score && grew >= 0 && grew <= 1
-		case (_, _):
-		}
-	}
-}
-
-test NeverIntoTheNeckHolds(seed int) {
-	for m in Replay(seed) {
-		match m {
-		case Playing as p:
-			assert Toward(p.W.Body[0], p.W.Heading) != p.W.Body[1]
-		case Title, Paused, Over:
-		}
-	}
-}
-
-test OverIsFinalHolds(seed int, score int) {
-	let w = World{Width: 5, Height: 4, Body: []Point{Point{X: 0, Y: 0}}, Heading: Left, Moved: Left, Food: Point{X: 4, Y: 3}, Score: score}
-	let ok = with context { Random: rand.Seeded(uint64(seed)) } {
-		AnswersOnlyQuit(Over{W: w, Why: Wall}, score)
-	}
-	assert ok
-}
-
-test SeedReplaysHolds(seed int) {
-	assert Keys(Replay(seed)) == Keys(Replay(seed))
-}
-
-// The seeded games end at the wall and eat, so the laws above see a game
+// The seeded games end at the wall and eat, so the laws see a game
 // end and a snake grow. A random game seldom bites itself and never fills
 // a board of 20 cells: the examples above reach those ends.
 test ReplaysReachTheWallAndEat {

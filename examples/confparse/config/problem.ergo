@@ -1,7 +1,7 @@
 import strconv
 import strings
 
-// Problem is any failure of Decode.
+// Problem is any failure of Decode: its named row.
 type Problem = MissingKey | WrongType | OutOfRange | UnknownKey | UnknownTable | BadChoice | Clash
 
 // Where is where p comes from.

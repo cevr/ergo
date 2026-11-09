@@ -1,6 +1,6 @@
 // Registry's tests: it keeps resolve.Index's laws and resolves as Table
-// does (#162 runs member laws against every provider; until then these
-// do).
+// does. ergo test runs the member laws of an operation type only against
+// the providers of its own package (G-exup-1), so these restate them.
 
 import deps/resolve
 import deps/semver

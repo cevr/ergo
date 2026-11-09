@@ -1,7 +1,5 @@
-// The domain's tests: examples of each form and failure, a whole build
-// over a fixed Source, and the laws restated as property tests. The
-// compiler checks laws and does not run them yet (#162); until it does,
-// these tests run them.
+// The domain's tests: examples of each form and failure and a whole
+// build over a fixed Source (the laws run in laws.ergo).
 
 import slices
 import strings
@@ -180,27 +178,7 @@ test FilesKeepTheSourceLaws(path string) {
 	}
 }
 
-test EscapingIsTotalHolds(s string) {
-	let text = Spice(s)
-	assert Inert(Escape(text))
-	assert Unescape(Escape(text)) == text
-}
-
 test SpiceReachesEveryMarkupByte {
 	assert Spice("abz_-") == "<>&\"'"
 	assert !Inert("<") && !Inert("a & b") && Inert("&lt;&amp;") && Inert("")
-}
-
-test VariablesAreEscapedHolds(s string) {
-	let text = Spice(s)
-	assert Outcome("{{ v }}|{{ raw v }}", ScopeOf(text, []string{})) == Escape(text)+"|"+text
-}
-
-test RenderingIsDeterministicHolds(s string, items []string) {
-	let source = "{{ for x in xs }}[{{ x }}]{{ end }}{{ r.a }}{{ raw r }}" + Spice(s)
-	let scope = ScopeOf(Spice(s), items)
-	let first = Outcome(source, scope)
-	for _ in 0..4 {
-		assert Outcome(source, scope) == first
-	}
 }

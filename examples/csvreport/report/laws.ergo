@@ -1,13 +1,23 @@
 // The rules of the report as laws over its functions.
 
-import csvreport/csv
+import csv
+import strings
 
-// Priced is sales with every price made not negative and every region
-// and product spiced and trimmed of nothing: the sales a file can hold.
+// Priced is sales as a file can hold them: every price not negative, and
+// no CR LF in a region or product (the reader reads a CR LF as LF).
 func Priced(sales []Sale) []Sale {
 	let mut out = []Sale{}
 	for s in sales {
-		out = out.Append(Sale{..s, Region: csv.Spice(s.Region), Cents: if s.Cents < 0 { -(s.Cents % 1000000) } else { s.Cents % 1000000 }})
+		out = out.Append(Sale{Region: lf(s.Region), Product: lf(s.Product), Units: s.Units, Cents: if s.Cents < 0 { -(s.Cents % 1000000) } else { s.Cents % 1000000 }})
+	}
+	out
+}
+
+// lf is s with each CR LF turned into LF until none is left.
+func lf(s string) string {
+	let mut out = s
+	for strings.Contains(out, "\r\n") {
+		out = strings.ReplaceAll(out, "\r\n", "\n")
 	}
 	out
 }
@@ -64,16 +74,7 @@ law FilterKeepsOnly(sales []Sale, units int) {
 // LoadReadsRows: sales written as CSV load back as the same sales.
 law LoadReadsRows(sales []Sale) {
 	let ps = Priced(sales)
-	let back = try Load(csv.Format(Rows(ps)))
-	if len(back) != len(ps) {
-		return false
-	}
-	for i, s in ps {
-		if back[i] != s {
-			return false
-		}
-	}
-	true
+	try Load(csv.Format(Rows(ps))) == ps
 }
 
 // MoneyRoundTrip: an amount of cents that is not negative reads back

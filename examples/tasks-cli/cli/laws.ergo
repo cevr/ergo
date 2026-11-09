@@ -4,11 +4,22 @@ import flag
 import slices
 import strconv
 import strings
-import tasks/tasks
+import taskscli/tasks
 
 // CompletionsMatchTheParser: Specs names each command of Commands, in
 // order, with the flags its usage lists, no more and no fewer.
-law CompletionsMatchTheParser() { CompletionsMatchTheParserHolds() }
+law CompletionsMatchTheParser() {
+	if len(Specs) != len(Commands) {
+		return false
+	}
+	for i, c in Commands {
+		let s = Specs[i]
+		if s.Name != c.Name || s.Usage != c.Usage || slices.Sort(s.Flags) != FlagsOf(c.Set) {
+			return false
+		}
+	}
+	true
+}
 
 // ArgsRoundTrip: the command line Args writes parses back to the command.
 law ArgsRoundTrip(c Cmd) {
@@ -17,22 +28,10 @@ law ArgsRoundTrip(c Cmd) {
 }
 
 // QuoteIsOneJSONString: a quoted title holds no control byte and no
-// unescaped quote, so it is one JSON string on one line.
-law QuoteIsOneJSONString(s string) { QuoteIsOneJSONStringHolds(s) }
-
-// CompletionsMatchTheParserHolds checks CompletionsMatchTheParser.
-func CompletionsMatchTheParserHolds() bool {
-	if len(Specs) != len(Commands) {
-		return false
-	}
-	for i, c in Commands {
-		let s = Specs[i]
-		if s.Name != c.Name || s.Usage != c.Usage || !slices.Equal(slices.Sort(s.Flags), FlagsOf(c.Set)) {
-			return false
-		}
-	}
-	true
-}
+// unescaped quote, so it is one JSON string on one line. Each text is
+// checked as it is and with a quote, a backslash, a line feed and a tab
+// after it, so every case meets each escape.
+law QuoteIsOneJSONString(s string) { oneJSONString(Quote(s)) && oneJSONString(Quote(s+"\"\\\n\t")) }
 
 // FlagsOf is the names of the flags of set, sorted, as its usage lists
 // them: each line "  -name …".
@@ -46,9 +45,9 @@ func FlagsOf(set flag.Set) []string {
 	slices.Sort(out)
 }
 
-// QuoteIsOneJSONStringHolds checks QuoteIsOneJSONString.
-func QuoteIsOneJSONStringHolds(s string) bool {
-	let q = Quote(s)
+// oneJSONString reports whether q is one JSON string: quoted, with no
+// control byte and no unescaped quote inside.
+func oneJSONString(q string) bool {
 	if len(q) < 2 || q[0] != '"' || q[len(q)-1] != '"' {
 		return false
 	}

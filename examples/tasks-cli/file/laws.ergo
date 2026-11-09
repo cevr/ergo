@@ -1,19 +1,19 @@
 // The rules of the file's lines as laws over Encode and Decode.
 
 import strings
-import tasks/tasks
+import taskscli/tasks
 
 // RoundTrip: the line of an item decodes to the item, at the line of its
 // ID.
-law RoundTrip(t tasks.Item) {
+law RoundTrip(t tasks.Task) {
 	let item = Positive(t)
 	try Decode(Encode(item), item.ID) == item
 }
 
 // OneLine: the line of an item holds no line feed, whatever its title.
-law OneLine(t tasks.Item) { !strings.Contains(Encode(t), "\n") }
+law OneLine(t tasks.Task) { !strings.Contains(Encode(t), "\n") }
 
 // Positive is t with an ID of 1 or more, as a Board numbers them.
-func Positive(t tasks.Item) tasks.Item {
-	tasks.Item{..t, ID: 1 + (if t.ID < 0 { -(t.ID + 1) } else { t.ID })%1000000}
+func Positive(t tasks.Task) tasks.Task {
+	tasks.Task{..t, ID: 1 + (if t.ID < 0 { -(t.ID + 1) } else { t.ID })%1000000}
 }

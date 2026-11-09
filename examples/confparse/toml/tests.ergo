@@ -1,8 +1,5 @@
-// The reader's tests: each form, each failure with its position, and
-// the laws restated as property tests (#162 runs laws).
-
-import rand
-import strings
+// The reader's tests: each form and each failure with its position.
+// The laws run under ergo test.
 
 let sample = "# a service\nname = \"edge\"  # its name\ntags = ['a', \"b\\tc\", [1, -2_000], true,]\n\n[listen]\nport = 8_080\n\n[[upstream]]\naddr = 'x'\n[[upstream]]\naddr = \"y\"\r\n"
 
@@ -63,40 +60,7 @@ test FailuresNameTheirPlace {
 	assert where("[[t]]\n[[t]]\na = 1\n[[t]]\na = 1") == "ok"
 }
 
-test PrintParsesHolds(seed int) {
-	with context { Random: rand.Seeded(uint64(seed)) } {
-		let d = Gen()
-		assert Printable(d)
-		let back = try Parse(Print(d))
-		assert SameDoc(back, d)
-	}
-}
-
-test PrintIsCanonicalHolds(seed int, text string) {
-	with context { Random: rand.Seeded(uint64(seed)) } {
-		for t in []string{Print(Gen()), text, "a = " + text, "[x]\nk = [" + text + "]"} {
-			let d = Parse(t) catch {
-			case _:
-				continue
-			}
-			let once = Print(d)
-			let again = try Parse(once)
-			assert Print(again) == once
-		}
-	}
-}
-
-test ProblemPointsIntoTheTextHolds(seed int, cut int, text string) {
-	with context { Random: rand.Seeded(uint64(seed)) } {
-		let printed = Print(Gen())
-		let k = if cut < 0 { -(cut + 1) } else { cut }
-		let broken = strings.Slice(printed, 0, k%(len(printed)+1)) + text
-		for t in []string{broken, text, printed + printed} {
-			let _ = Parse(t) catch {
-			case err:
-				assert Points(err, t)
-				continue
-			}
-		}
-	}
+// The samples are Printable, so PrintParses checks the round trip on each.
+test SamplesArePrintable(seed int) {
+	assert Printable(Sample(seed))
 }

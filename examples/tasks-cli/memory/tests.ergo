@@ -1,7 +1,7 @@
 // Board keeps the tasks.Board laws: each test runs one of tasks' checks on
 // a new Board.
 
-import tasks/tasks
+import taskscli/tasks
 
 test BoardCreateNumbersInOrder(titles []string, p tasks.Priority) {
 	with context { tasks.Board: NewBoard() } {

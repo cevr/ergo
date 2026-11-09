@@ -15,12 +15,12 @@ Tag: `default`. It is an original program, not a port.
 
 ## Layout
 
-The program is a module of packages (`ergo.mod`: `module tasks`), in the Go layout:
+The program is a module of packages (`ergo.mod`: `module taskscli`; `module tasks` is S108, since a std import always names std `tasks`), in the Go layout:
 
 | folder | what it holds |
 | --- | --- |
-| `tasks/` | The domain. `task.ergo` (`Item`, the unions `Priority` and `State`, their names), `board.ergo` (`Board`, the store contract with four laws, and the failures `NotFound`, `AlreadyClosed`, `Broken`), `checks.ergo` (one function per `Board` law, which each provider's tests call), `view.ergo` (`Which`, `View`, `Before`), `laws.ergo` (the listing laws), `tests.ergo`. |
-| `memory/` | `Board`, the in-memory `tasks.Board`; `Disk`, an in-memory `fs.Files` and `fs.Writes` for the file Board's tests. |
+| `tasks/` | The domain. `task.ergo` (`Task`, the unions `Priority` and `State`, their names), `board.ergo` (`Board`, the store contract with four laws, and the failures `NotFound`, `AlreadyClosed`, `Broken`), `checks.ergo` (one function per `Board` law, which each provider's tests call), `view.ergo` (`Which`, `View`, `Before`), `laws.ergo` (the listing laws), `tests.ergo`. |
+| `memory/` | `Board`, the in-memory `tasks.Board`, its tasks in a `sync.Ref`. The file Board's tests use `fstest.Memory`. |
 | `file/` | `Board`, the `tasks.Board` in a text file: `line.ergo` (`Encode`, `Decode`, the failure `Corrupt`), `board.ergo`, `laws.ergo` (`RoundTrip`, `OneLine`), `tests.ergo`. |
 | `cli/` | The command line: `command.ergo` (`Cmd`, a union, and `Commands`, parsed by std `flag.ParseCommand`), `run.ergo` (`Run`), `render.ergo` (text and JSON), `confirm.ergo` (the `[y/N]` prompt), `completion.ergo` (bash, zsh and fish scripts), `laws.ergo`, `tests.ergo`. |
 | `cmd/tasks-cli/` | The binary: it binds the file `Board` on the host's file system and the host's streams, and is the only place that chooses them. |
@@ -34,14 +34,14 @@ The program is a module of packages (`ergo.mod`: `module tasks`), in the Go layo
 - **Completions held to the parser.** The law `CompletionsMatchTheParser` reads each command's flags back from `flag.Usage` and compares them with the completion table.
 - **A JSON writer with a law.** `QuoteIsOneJSONString`: a quoted title holds no control byte and no unescaped quote.
 
-Each law is also a property test (laws are checked, not run yet: #162), and each has a mutant that its test kills (`ex-c/tasks-cli/mutants.ts` in the run dir).
+The laws of `cli` and `file` run as they are; the `Board` laws run through `tasks/checks.ergo` in each provider's tests (G-exup-1).
 
 ## Run it
 
 ```sh
 go build -o bin/ergo ./cmd/ergo
-./bin/ergo build examples/tasks-cli/cmd/tasks-cli -o /tmp/tasks-cli
-/tmp/tasks-cli create write the spec && /tmp/tasks-cli list --json
+./bin/ergo run examples/tasks-cli/cmd/tasks-cli -- create write the spec
+./bin/ergo run examples/tasks-cli/cmd/tasks-cli -- list --json
 for p in tasks memory file cli cmd/tasks-cli; do ./bin/ergo test examples/tasks-cli/$p; done
 go run ./scripts/examples tasks-cli
 ```
@@ -54,10 +54,10 @@ go run ./scripts/examples tasks-cli
 
 Each limit is recorded with a repro in the lane's gap file (`gaps-ex-c.md`, run dir).
 
-- **G-ex-c-11: a prelude name cannot be declared.** The domain's task type cannot be `tasks.Task`, because the prelude's `Task[T, E]` holds the name in every package; it is `Item`.
+Closed in batch 12: G-ex-c-11 (the domain's type is `tasks.Task` again: a package may declare a prelude name), G-ex-c-14 (each `Build` fails `flag.Failure`, std flag's named row), G-ex-c-10 (`let state = match …` joins), G-ex-c-9 (`cli.Quote` loops over runes and writes each with `utf8.RuneText`; `pad` is `strings.PadRight`), G-ex-c-4 for the tests (`fstest.Memory`; a close rewrites a line, so the file is still written whole).
+
+- **G-exup-1: Board's laws run only for providers in `tasks`** (`skip law Board.…: no type of the package implements Board`), so `memory`'s and `file`'s tests run `tasks/checks.ergo`.
 - **G-ex-c-12: no prompt, and `io.Stdin` cannot say whether it is a terminal.** The prompt takes the first line of `io.Stdin.Lines()`, so a piped `y` answers it too.
 - **G-ex-c-13: std flag has no short names (`-j`) and no introspection.** The completion table restates each flag, held to the parser by a law.
-- **G-ex-c-14: a row cannot be named.** Each `Build` spells the seven-member row of `flag.ParseCommand`.
-- **G-ex-c-10: branches that yield two variants of one union do not join.** `Decode` writes `let state tasks.State = match …`.
-- **G-ex-c-6, G-ex-c-7, G-ex-c-9 (from kvstore and orders).** A `flag.Choice` reads a string, so each match on one needs `case _`; there is no std json, and no byte to string, so `cli.Quote` escapes byte by byte; `fs.Writes` has no append (G-ex-c-4), so each create rewrites the file.
+- **G-ex-c-6, G-ex-c-7 (from kvstore and orders).** A `flag.Choice` reads a string, so each match on one needs `case _`; there is no std json, so `cli.Quote` escapes by hand.
 - Friction, no gap: Ergo has no variadic parameters, so a test helper takes `[]string`.

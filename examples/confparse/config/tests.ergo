@@ -1,13 +1,11 @@
 // The decoder's tests: a whole configuration, the defaults, each failure
-// with its place, the variables, and the laws restated as property tests
-// (#162 runs laws).
+// with its place and the variables. The laws run under ergo test.
 
 import confparse/toml
-import rand
 
 let sample = "name = \"edge\"\n\n[listen]\nhost = \"0.0.0.0\"\nport = 8080\n\n[log]\nlevel = \"warn\"\n\n[[upstream]]\nname = \"a\"\naddr = \"10.0.0.1:9000\"\nweight = 5\n\n[[upstream]]\nname = \"b\"\naddr = \"10.0.0.2:9000\"\nbackup = true\n"
 
-func decoded(text string, env Map[string, string]) Config fails toml.Unexpected | toml.Unterminated | toml.BadEscape | toml.TooBig | toml.Duplicate | MissingKey | WrongType | OutOfRange | UnknownKey | UnknownTable | BadChoice | Clash {
+func decoded(text string, env Map[string, string]) Config fails toml.Problem | Problem {
 	Decode(try toml.Parse(text), env)
 }
 
@@ -75,42 +73,7 @@ test FailuresNameTheirPlace {
 	assert problem("name = 'x'\n[listen]\nport = 1\nname = 2", none()) == "f:4:1: unknown key name in [listen]"
 }
 
-test DecodeInvertsEncodeHolds(seed int) {
-	with context { Random: rand.Seeded(uint64(seed)) } {
-		let c = Gen()
-		assert Valid(c)
-		let back = try decoded(toml.Print(Encode(c)), none())
-		assert Same(back, c)
-	}
-}
-
-test EnvWinsHolds(seed int, port int) {
-	with context { Random: rand.Seeded(uint64(seed)) } {
-		let c = Gen()
-		let p = 1 + (if port < 0 { -(port + 1) } else { port })%65535
-		let back = try Decode(Encode(c), Map[string, string]{"CONFPARSE_LISTEN_PORT": "\(p)"})
-		assert back.Listen.Port == p
-		assert Same(back, Config{..c, Listen: Listen{..c.Listen, Port: p}})
-	}
-}
-
-// edits are lines a property test adds to a valid file to break it.
-let edits = []string{"", "port = 0", "port = 'x'", "nope = 1", "[nope]", "[[listen]]", "level = 'loud'", "[[upstream]]", "name = 'a'", "addr = 1", "weight = 0", "backup = 1", "[log]", "[listen]"}
-
-test FailuresPointIntoTheTextHolds(seed int, picks []int) {
-	let mut text = with context { Random: rand.Seeded(uint64(seed)) } {
-		toml.Print(Encode(Gen()))
-	}
-	for n in picks {
-		text = text + edits[(if n < 0 { -(n + 1) } else { n })%len(edits)] + "\n"
-	}
-	let d = toml.Parse(text) catch {
-	case _:
-		return
-	}
-	let _ = Decode(d, none()) catch {
-	case err:
-		assert PosIn(Where(err), text)
-		return
-	}
+// The samples are Valid, so the laws check the round trip on each.
+test SamplesAreValid(seed int) {
+	assert Valid(Sample(seed))
 }

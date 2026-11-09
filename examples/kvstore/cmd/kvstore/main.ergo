@@ -7,13 +7,13 @@
 // system and its standard streams.
 
 import flag
+import fstest
 import fs
 import io
 import kvstore/file
 import kvstore/kv
 import kvstore/memory
 import os
-import slices
 
 let storeFlag = flag.Choice("store", "file", []string{"file", "memory"}, "where the entries live")
 let dirFlag = flag.String("dir", "data", "the `directory` of the file store")
@@ -22,7 +22,7 @@ let commandArgs = flag.Remaining("command", "one command; none reads commands fr
 let set = flag.Set{Name: "kvstore", Usage: "", Flags: []flag.Flag{storeFlag, dirFlag}, Args: []flag.ArgSpec{commandArgs}}
 
 // Memory binds the memory store.
-let Memory = context { kv.Store: memory.New() }
+let Memory = context { kv.Store: memory.NewTable() }
 
 // run is kvstore on args, with the file system files and writes for the
 // file store. A broken store ends it with status 1.
@@ -67,10 +67,9 @@ func serve(command []string) fails os.Exit needs kv.Store | io.Stdout | io.Stdin
 	}
 }
 
-// broken ends a run on a broken store with status 1. A function whose
-// result is an error type cannot return a value of it, so broken fails
-// with the os.Exit, and a caller writes return broken(b) (gap G-ex-c-3).
-func broken(b kv.Broken) fails os.Exit { os.Exit{Code: 1, Message: "kvstore: the store is broken: " + b.Reason} }
+// broken is the end of a run on a broken store: status 1. A caller fails
+// with it: return broken(b).
+func broken(b kv.Broken) os.Exit { os.Exit{Code: 1, Message: "kvstore: the store is broken: " + b.Reason} }
 
 func main() fails os.Exit needs Ambient {
 	let host = fs.NewHost()
@@ -79,11 +78,11 @@ func main() fails os.Exit needs Ambient {
 	}
 }
 
-// The tests run run over a memory.Disk and an io.Recorder, with no host.
+// The tests run over a fstest.Memory and an io.Recorder, with no host.
 
 // ran is run on args with input as standard input, over disk, with a
 // failure printed as "exit CODE: MESSAGE".
-func ran(out io.Recorder, disk memory.Disk, input string, args []string) {
+func ran(out io.Recorder, disk fstest.Memory, input string, args []string) {
 	with context { io.Stdout: out, io.Stdin: io.Input{Text: input} } {
 		run(args, disk, disk) catch {
 		case os.Exit as e:
@@ -94,7 +93,7 @@ func ran(out io.Recorder, disk memory.Disk, input string, args []string) {
 
 test TheFileStoreKeepsItsEntries {
 	let out = io.NewRecorder()
-	let disk = memory.NewDisk()
+	let disk = fstest.NewMemory()
 	ran(out, disk, "", []string{"-dir", "db", "put", "greeting", "hello, world"})
 	ran(out, disk, "", []string{"-dir", "db", "get", "greeting"})
 	ran(out, disk, "", []string{"get", "-dir", "db", "nosuch"})
@@ -103,22 +102,22 @@ test TheFileStoreKeepsItsEntries {
 
 test TheMemoryStoreLastsOneRun {
 	let out = io.NewRecorder()
-	let disk = memory.NewDisk()
+	let disk = fstest.NewMemory()
 	ran(out, disk, "put a 1\nget a\n", []string{"-store", "memory"})
 	ran(out, disk, "get a\n", []string{"-store", "memory"})
 	assert out.Text() == "ok\n1\nmissing a\n"
-	assert slices.Equal(try disk.ReadDir("."), []string{})
+	assert try disk.ReadDir(".") == []string{}
 }
 
 test ASessionAnswersEachLine {
 	let out = io.NewRecorder()
-	ran(out, memory.NewDisk(), "put b 2\nput a 1 and more\n\nkeys\ndel b\ndel b\nfly\nget\ndump\ncompact\n", []string{"-store", "memory"})
+	ran(out, fstest.NewMemory(), "put b 2\nput a 1 and more\n\nkeys\ndel b\ndel b\nfly\nget\ndump\ncompact\n", []string{"-store", "memory"})
 	assert out.Text() == "ok\nok\na\nb\ndeleted b\nmissing b\n? unknown command fly; commands: put get del keys dump compact\n? usage: get KEY\na=\"1 and more\"\ncompacted\n"
 }
 
 test ABrokenLogEndsTheRun {
 	let out = io.NewRecorder()
-	let disk = memory.NewDisk()
+	let disk = fstest.NewMemory()
 	try disk.MkdirAll("data")
 	try disk.WriteFile("data/kv.log", "garbage\n")
 	ran(out, disk, "", []string{"keys"})
@@ -127,7 +126,7 @@ test ABrokenLogEndsTheRun {
 
 test AFullDiskEndsTheRun {
 	let out = io.NewRecorder()
-	let disk = memory.NewDisk()
+	let disk = fstest.NewMemory()
 	with context { io.Stdout: out, io.Stdin: io.Input{Text: ""} } {
 		run([]string{"put", "a", "1"}, disk, memory.FullOf(disk)) catch {
 		case os.Exit as e:
@@ -139,6 +138,6 @@ test AFullDiskEndsTheRun {
 
 test AnUnknownStoreIsAUsageError {
 	let out = io.NewRecorder()
-	ran(out, memory.NewDisk(), "", []string{"-store", "s3"})
+	ran(out, fstest.NewMemory(), "", []string{"-store", "s3"})
 	assert out.Text() == "exit 2: invalid value \"s3\" for flag -store: not one of file, memory\nusage: kvstore [-store file|memory] [-dir DIR] [COMMAND...]\n"
 }

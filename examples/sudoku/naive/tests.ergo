@@ -1,6 +1,6 @@
 // The reference solver's tests: an easy puzzle, and the Solver laws
-// restated as property tests (laws are checked, not run, #162). Hard
-// puzzles are left out: plain backtracking takes seconds on them.
+// restated as property tests (they run only for providers in board,
+// G-exup-1). Hard puzzles are left out: plain backtracking takes seconds on them.
 
 import sudoku/board
 

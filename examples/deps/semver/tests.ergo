@@ -1,5 +1,4 @@
-// Versions' and constraints' tests: examples, and the laws restated as
-// property tests (#162 runs laws; until then these do).
+// Versions' and constraints' tests: examples. The laws run under ergo test.
 
 func ver(text string) Version {
 	ParseVersion(text) catch {
@@ -43,44 +42,4 @@ test BadConstraintsNameTheirWord {
 	assert refusal(">=1.x") == ">=1.x names no version"
 	assert refusal("^1 <2 !3") == "!3 names no version"
 	assert refusal(" >=1   <2 ") == "ok"
-}
-
-test FormatRoundTripsHolds(v Version) {
-	let w = Small(v)
-	assert Compare(try ParseVersion(Format(w)), w) == 0
-}
-
-test CompareIsAntisymmetricHolds(a Version, b Version) {
-	assert Compare(Small(a), Small(b)) == -Compare(Small(b), Small(a))
-}
-
-test CompareIsTransitiveHolds(a Version, b Version, c Version) {
-	let x = Small(a)
-	let y = Small(b)
-	let z = Small(c)
-	if Compare(x, y) <= 0 && Compare(y, z) <= 0 {
-		assert Compare(x, z) <= 0
-	}
-}
-
-test CaretKeepsTheLeadingPartHolds(v Version, w Version) {
-	let x = Small(v)
-	let y = Small(w)
-	if Holds(Caret{V: x}, y) {
-		let same = if x.Major > 0 { y.Major == x.Major } else if x.Minor > 0 { y.Major == 0 && y.Minor == x.Minor } else { Compare(x, y) == 0 }
-		assert same && Compare(y, x) >= 0
-	}
-}
-
-test AndIsBothHolds(a Version, b Version, v Version) {
-	let x = Constraint{Bounds: []Bound{Caret{V: Small(a)}}, Text: "^" + Format(Small(a))}
-	let y = Constraint{Bounds: []Bound{Below{V: Small(b)}}, Text: "<" + Format(Small(b))}
-	let w = Small(v)
-	assert Satisfies(And(x, y), w) == (Satisfies(x, w) && Satisfies(y, w))
-}
-
-test TextRoundTripsHolds(a Version, b Version, v Version) {
-	let c = try ParseConstraint(">=" + Format(Small(a)) + " ~" + Format(Small(b)))
-	let again = try ParseConstraint(c.Text)
-	assert Satisfies(again, Small(v)) == Satisfies(c, Small(v))
 }

@@ -10,6 +10,7 @@
 
 import flag
 import io
+import machines
 import os
 import tui/keys
 import tui/picker
@@ -33,7 +34,7 @@ func run(args []string) fails os.Exit needs io.Stdout | io.Stdin {
 	case io.ReadFailed as f:
 		return os.Exit{Code: 1, Message: "tui: cannot read the keys: " + f.Reason}
 	}
-	let o = picker.Run(picker.Start(items), keys.Decode(text))
+	let o = picker.Run(machines.Initial(machines.Start(picker.Picker{}, items)), keys.Decode(text))
 	if framesFlag.Get(v) || io.Stdout.IsTerminal() {
 		for m in o.Frames {
 			io.Stdout.Print(screen.Frame(m))

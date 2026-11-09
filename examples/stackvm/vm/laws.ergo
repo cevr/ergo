@@ -1,8 +1,6 @@
 // The rules of the bytecode and the loop, as laws over generated
-// programs. A generated slice holds at most three elements (G-ex-d-9),
-// so a law takes a seed and builds its program with Program.
-
-import slices
+// programs. A generated []Instr seldom has its targets inside it, so a
+// law takes a seed and builds a well-formed program with Program.
 
 // Draws is a seeded stream of numbers, for generators.
 type Draws { x int }
@@ -51,7 +49,7 @@ law DecodeInvertsEncode(seed int, size int) {
 	case BadCode:
 		return false
 	}
-	slices.Equal(back, p)
+	back == p
 }
 
 // FuelBoundsSteps: fuel bounds a run exactly: a run that halts within its
@@ -77,15 +75,10 @@ func Bounded(p []Instr, f int) bool {
 	case Trap as t:
 		return t.Why == OutOfFuel && more.Steps > f
 	}
-	r.Steps <= f && SameResult(r, more)
+	r.Steps <= f && r == more
 }
 
 // Countdown is a loop of n rounds that halts after 5n+4 instructions.
 func Countdown(n int) []Instr {
 	[]Instr{Push{N: if n < 0 { -n } else { n }}, Dup, JumpIfNot{To: 6}, Push{N: 1}, Sub, Jump{To: 1}, Pop}
-}
-
-// SameResult reports whether a and b printed, left and took the same.
-func SameResult(a Result, b Result) bool {
-	slices.Equal(a.Printed, b.Printed) && slices.Equal(a.Stack, b.Stack) && a.Steps == b.Steps
 }

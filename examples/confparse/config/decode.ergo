@@ -83,16 +83,16 @@ func find(src Source, key string) Found {
 	}
 }
 
-// tableAt is where a MissingKey of src points: the table's header, or
-// the start of the file. A function that builds the MissingKey would be
-// simpler, but `return missing(src, key)` is refused (gap G-ex-a-15).
-func tableAt(src Source) toml.Pos {
-	match src.table {
+// missing is the MissingKey of key in src. It points at the table's
+// header, or at the start of the file.
+func missing(src Source, key string) MissingKey {
+	let at = match src.table {
 	case Some as t:
 		t.Value.At
 	case None:
 		start()
 	}
+	MissingKey{At: at, Table: src.name, Key: key}
 }
 
 // text is the string of key in src, or def when it is not there and def
@@ -113,7 +113,7 @@ func text(src Source, key string, def Option[string]) string fails MissingKey | 
 		case Some as d:
 			d.Value
 		case None:
-			MissingKey{At: tableAt(src), Table: src.name, Key: key}
+			missing(src, key)
 		}
 	}
 }
@@ -140,7 +140,7 @@ func whole(src Source, key string, min int, max int, def Option[int]) int fails 
 		case Some as d:
 			return d.Value
 		case None:
-			return MissingKey{At: tableAt(src), Table: src.name, Key: key}
+			return missing(src, key)
 		}
 	}
 	let (n, from) = found
@@ -223,7 +223,7 @@ func single(d toml.Doc, name string) Option[toml.Table] {
 
 // Decode is the configuration of d, with the variables of env, which
 // win over the file.
-func Decode(d toml.Doc, env Map[string, string]) Config fails MissingKey | WrongType | OutOfRange | UnknownKey | UnknownTable | BadChoice | Clash {
+func Decode(d toml.Doc, env Map[string, string]) Config fails Problem {
 	try known(d.Root, []string{"name"})
 	for t in d.Tables {
 		let header = if t.Many { "[[" + t.Name + "]]" } else { "[" + t.Name + "]" }

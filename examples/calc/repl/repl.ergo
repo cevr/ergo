@@ -14,12 +14,21 @@ import strings
 // Answer is the line for the expression src: the expression the
 // Optimizer makes of it, its value and its type. The expression is
 // checked before it is optimized, so an optimizer sees only well-typed
-// expressions, which its laws are about.
-func Answer(src string) string fails syntax.BadChar | syntax.Unexpected | syntax.TooBig | typing.Mismatch | typing.Unbound | eval.DivByZero | eval.Stuck | eval.Unset needs opt.Optimizer {
+// expressions, which its laws are about. A checked expression, optimized
+// by a provider that keeps its laws, is neither Stuck nor Unset (laws
+// typing.Sound, opt.Optimizer.KeepsTheType): those are a defect.
+func Answer(src string) string fails syntax.Failure | typing.Failure | eval.DivByZero needs opt.Optimizer {
 	let e = try syntax.Parse(src)
 	let t = try typing.Check(e)
 	let o = opt.Optimizer.Optimize(e)
-	let v = try eval.Eval(o)
+	let v = eval.Eval(o) catch {
+	case eval.DivByZero as d:
+		return d
+	case eval.Stuck as s:
+		Unreachable("a checked expression got stuck: \(s.Reason)")
+	case eval.Unset as u:
+		Unreachable("a checked expression read the unset \(u.Name)")
+	}
 	"\(ast.Print(o)) = \(eval.Show(v)) : \(ast.TypeName(t))"
 }
 
@@ -50,10 +59,7 @@ func Run() Tally needs io.Stdin | io.Stdout | io.Stderr | opt.Optimizer {
 }
 
 // turn answers src on io.Stdout, and is "" then; or it is the text of
-// the failure. Each failure is named, with no case _. A Stuck or an
-// Unset cannot follow a Check that passed (law typing.Sound), but the
-// row of Answer holds them, and the language has no way to say so
-// (gap G-ex-a-3): they are told as internal failures.
+// the failure. Each failure is named, with no case _.
 func turn(src string) string needs io.Stdout | opt.Optimizer {
 	let text = Answer(src) catch {
 	case syntax.BadChar as b:
@@ -68,10 +74,6 @@ func turn(src string) string needs io.Stdout | opt.Optimizer {
 		return "\(u.Name) is not bound"
 	case eval.DivByZero as d:
 		return "division by zero in \(d.Where)"
-	case eval.Stuck as s:
-		return "internal: stuck: \(s.Reason)"
-	case eval.Unset as u:
-		return "internal: unset \(u.Name)"
 	}
 	io.Stdout.Println(text)
 	""

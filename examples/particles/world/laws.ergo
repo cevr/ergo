@@ -58,7 +58,7 @@ law SeedReplays(seed uint64, size int, n int, loss int, steps int) {
 	let k = within(steps, 0, 50)
 	let a, ta = Run(Sample(seed, size, n, loss), k)
 	let b, tb = Run(Sample(seed, size, n, loss), k)
-	Same(a, b) && ta == tb
+	a == b && ta == tb
 }
 
 // StepCountsOne: a step adds one to the tick and keeps every particle.

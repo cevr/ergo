@@ -68,7 +68,7 @@ func cmd(line string) []string { strings.Fields(line) }
 let none = Map[string, string]{}
 
 test ASessionKeepsItsKeys {
-	let v = memory.New(keys.Empty())
+	let v = memory.NewVault(keys.Empty())
 	assert ran(v, none, "", cmd("keys list")) == "No keys stored. Add one with `okra keys set <provider> <key>`.\n"
 	assert ran(v, none, "", cmd("keys set openai sk-test-abcdefghij1234")) == "Saved \"openai\" key to .okra/keys.json\n"
 	assert ran(v, none, "  piped-1234567\n", cmd("keys set 10 --stdin")) == "Saved \"10\" key to .okra/keys.json\n"
@@ -79,7 +79,7 @@ test ASessionKeepsItsKeys {
 }
 
 test TheEnvironmentWins {
-	let v = memory.New(keys.Empty().Set("openai", "sk-stored-0000000"))
+	let v = memory.NewVault(keys.Empty().Set("openai", "sk-stored-0000000"))
 	let mut env = Map[string, string]{}
 	env["OPENAI_API_KEY"] = "sk-env-value-9999"
 	assert ran(v, env, "", cmd("keys get openai")) == "sk-en…9999 (env OPENAI_API_KEY)\n"
@@ -88,7 +88,7 @@ test TheEnvironmentWins {
 }
 
 test FailuresHaveTheirCode {
-	let v = memory.New(keys.Empty())
+	let v = memory.NewVault(keys.Empty())
 	assert ran(v, none, "", cmd("keys set p")) == "[INVALID_INPUT] No key provided. Pass it as an argument or pipe it with --stdin.\nexit 1\n"
 	assert ran(v, none, " \n", cmd("keys set p --stdin")) == "[INVALID_INPUT] Key is empty\nexit 1\n"
 	assert ran(v, none, "", cmd("keys rm p")) == "[NOT_FOUND] No stored key for \"p\".\nexit 1\n"
@@ -100,7 +100,7 @@ test FailuresHaveTheirCode {
 test SetThenGetShowsTheMask(name string, secret string) {
 	let n = "p" + strings.Join(strings.Fields(name), "")
 	let s = "k" + strings.Join(strings.Fields(secret), "") + "-0123456789"
-	let v = memory.New(keys.Empty())
+	let v = memory.NewVault(keys.Empty())
 	assert ran(v, none, "", []string{"keys", "set", n, s}) == "Saved \"\(n)\" key to .okra/keys.json\n"
 	assert ran(v, none, "", []string{"keys", "get", n}) == keys.Mask(s)+" (stored)\n"
 	assert strings.Contains("\n"+ran(v, none, "", cmd("keys list")), "\n"+n+"\n")

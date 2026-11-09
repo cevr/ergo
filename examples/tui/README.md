@@ -28,19 +28,19 @@ The program is a module of packages (`ergo.mod`: `module tui`), in the Go layout
 | folder | what it holds |
 | --- | --- |
 | `keys/` | `key.ergo`: `Key` (a union: `Up`, `Down`, `Return`, `Backspace`, `Escape`, `Interrupt`, `Char`), `Decode` of a terminal's bytes, `Encode`, `Script`, `Typed`; `laws.ergo` (`RoundTrip`, `DecodeTakesEveryText`), `tests.ergo`. |
-| `picker/` | The domain. `model.ergo`: `View`, `Mode = Browsing | Filtering`, `Choice = Picked | Cancelled`, `Step`, the machine `Picker`, `Visible`; `run.ergo`: `Run`, the runner that handles all five decisions; `laws.ergo` (five laws), `tests.ergo` (scripted sessions). |
+| `picker/` | The domain. `model.ergo`: `View`, `Mode = Browsing | Filtering`, `Choice = Picked | Cancelled`, `Step`, the machine `Picker`, `Visible`; `run.ergo`: `Run`, which keeps every mode as a frame and counts the rejected keys; `laws.ergo` (five laws), `tests.ergo` (scripted sessions). |
 | `screen/` | `frame.ergo`: `Frame`, `Header`, `Marked` (ANSI: clear, reverse video, CR LF); `laws.ergo` (`OneLineIsMarked`), `tests.ergo`. |
 | `cmd/tui/` | The binary: flags, the host's streams, and the exit codes. |
 
 ## What it shows
 
-- **A machine for the modes.** `type Picker machine[Mode, keys.Key] { initial: Start(Languages), step: Step }`. `Step` matches on `(Mode, Key)` and names every key in every mode, so a new key or mode stops the build until each pair is written. It uses all five decisions: `Stay` (the cursor or the filter moves, the mode stays), `Enter` (the mode changes), `Ignore`, `Reject` (Enter on an empty list) and `Done` (a pick or a cancel).
+- **A machine for the modes.** `type Picker machine[Mode, keys.Key] { initial: Start, step: Step }`: its input is the items, and the binary starts it with `machines.Start(picker.Picker{}, items)`. `Step` matches on `(Mode, Key)` and names every key in every mode, so a new key or mode stops the build until each pair is written. It uses five of the six decisions (it never emits): `Stay` (the cursor or the filter moves, the mode stays), `Enter` (the mode changes), `Ignore`, `Reject` (Enter on an empty list) and `Done` (a pick or a cancel).
 - **Laws of the picker.** `CursorStaysOnTheList` (after any keys), `VisibleIsTheMatches`, `TypeThenDeleteIsNoChange`, `APickIsVisible` and `InterruptCancels` (in every mode).
 - **A key decoder with laws.** `RoundTrip` (the bytes of keys decode to the keys) and `DecodeTakesEveryText` (any bytes decode, and no `Char` is a control byte).
 - **A frame law.** `OneLineIsMarked`: one line in reverse video, the item under the cursor, and one line per visible item.
 - **A scripted-input test.** The keys are bytes, so a test is a script: `ran([]string{"-frames", "a", "b"}, "j\r")` checks every byte of every frame.
 
-Each law is also a property test (laws are checked, not run yet: #162), and each has a mutant that its test kills (`ex-c/tui/mutants.ts` in the run dir).
+`ergo test` runs each law, and each has a mutant that the law kills (`tui-mutants.json` of the batch-12 ex-upgrade unit, 8 of 8, seeds 1-3; from `ex-c/tui/mutants.ts`). Generated keys seldom filter and generated filters seldom match, so the laws also run on a fixed list, on keys that narrow it, and with no filter.
 
 ## Run it
 
@@ -65,6 +65,5 @@ Each limit is recorded with a repro in the lane's gap file (`gaps-ex-c.md`, run 
 - **G-ex-c-16: a machine's state must be a union, with no context.** Each mode carries the shared `View`, and `ViewOf` reads it back.
 - **G-ex-c-17: an `os.Exit` code outside 1..125 is found only on the host.** fzf exits 130 on Ctrl-C; this program exits 1, because the checker passed 130 and the host refused it.
 - **G-ex-c-11: prelude names.** The key `Enter` cannot be declared (the prelude's `Decision` has `Enter`), so it is `Return`.
-- **G-ex-c-10: branches of two variants do not join.** The frame law writes `let placed picker.Mode = match …`.
-- **The machine has no runner** (runtime.md: no runner until #57/#101): `picker.Run` steps it and handles all five decisions.
-- Friction, no gap: `Decision[Mode, Choice]` is not `==`-comparable (its `View` holds a slice), so a test matches it; Ergo has no variadic `Append`, so a test joins key lists with a helper.
+
+Closed in batch 12: G-ex-c-10 (K3: `let placed = match …`); the machine's fixed start and hand stepping (V2 and V4: its input is the items, `machines.Start`, `machines.Next`; `picker.Run` stays because it keeps every frame); G-ex-a-1, which this program met too without citing it (S3 and L4: `keys.Decode` takes a character's size from `utf8.DecodeRuneInString`, `Typed` and `dropLast` loop over runes, where they read UTF-8 lead and continuation bytes by hand); `slices.Equal` and the test helper `join` (W3 `==` on key lists, S2 `slices.Concat`); and the property tests that restated the laws (V1: the laws run, with the tests' steering moved into them).

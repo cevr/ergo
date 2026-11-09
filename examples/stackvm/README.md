@@ -20,7 +20,7 @@ stackvm bench 3000000      # a counting loop of 39 million instructions
 
 - **Exhaustive match.** The loop matches on all 20 instructions; `Opcode`, `Mnemonic`, `Describe`, `Explain`, `Eval` and `emit` each cover their union, so a new instruction does not compile until every one of them handles it.
 - **Typed failures.** A trap is a value with a cause union, not a string or a panic; `Decode`, `Assemble` and `Eval` each fail with their own record.
-- **Laws.** `vm.DecodeInvertsEncode`; `vm.FuelBoundsSteps` (fuel bounds a run exactly, on generated programs and on a countdown loop); `asm.AssembleInvertsDisassemble` (any program, with out-of-range targets); `asm.LayoutIsIgnored` (indentation, comments and blank lines change nothing); `expr.CompiledAgrees` (a generated expression compiled and run on the vm gives the tree walk's value, or both divide by zero). Each package's `tests.ergo` restates them as property tests (#162), and `GeneratorCoversTheLanguage` shows the generator reaches every kind of expression and the failure.
+- **Laws.** `vm.DecodeInvertsEncode`; `vm.FuelBoundsSteps` (fuel bounds a run exactly, on generated programs and on a countdown loop); `asm.AssembleInvertsDisassemble` (any program, with out-of-range targets); `asm.LayoutIsIgnored` (indentation, comments and blank lines change nothing); `expr.CompiledAgrees` (a generated expression compiled and run on the vm gives the tree walk's value, or both divide by zero). `ergo test` runs them, and `GeneratorCoversTheLanguage` shows the generator reaches every kind of expression and the failure.
 
 ## Cases
 
@@ -34,8 +34,9 @@ stackvm bench 3000000      # a counting loop of 39 million instructions
 
 New gaps (`gaps-ex-f.md`):
 
-- G-ex-f-7: a local named like a type (`let parsed = parse(…)` beside `type parsed`; `for line in …` beside `type line`) is read as the type, with a message about method expressions or patterns.
 - G-ex-f-8: the match on `Instr` lowers to a Go type switch over boxed interfaces; a rough run takes 0.20 s against the hand Go loop's 0.156 s.
 - G-ex-f-9: `try` stands only at the start of an expression, so `0 - try Eval(x)` needs a `let`.
 
-Also hit: G-ex-c-2 (a parenthesized `Some{true}` in an `if` expression's header breaks the Go build; `marked` works around it), G-ex-d-2 (a union cannot be a failure, so `parse` fails the record `Bad`), G-ex-b-16 / G-ex-c-10, G-ex-d-5 (`SameResult`), G-ex-b-2, G-ex-c-11, G-ex-f-1 (the stack keeps its own `sp`), G-ex-d-10.
+Also hit before: G-ex-b-2, G-ex-f-1 (the stack keeps its own `sp`).
+
+Closed in batch 12: G-ex-f-7 (L5/L6: `let parsed = try parse(…)` and `for line in lines` beside the types `parsed` and `line`), G-ex-c-2 (`marked` is gone: `maps.GetOr(targets, n, false)` in the `if` header), G-ex-d-5 (W3: `Same`, `SameResult` and every `slices.Equal` are `==`), G-ex-d-10 (L3: `main` returns from its `with`; `run` is gone), G-ex-d-9 (T4 sizes grow; the vm laws still build programs from a seed because a generated program seldom has its targets inside it), G-ex-b-16 / G-ex-c-10 (K3: `let jump = match`), `pad` → `strings.PadRight` (U2), and the property tests that restated the laws (V1). `Trap` and `Bad` stay one record with a union inside (named rows exist now, L2): the record carries the PC or the line once.

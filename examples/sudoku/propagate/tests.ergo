@@ -1,5 +1,6 @@
-// The fast solver's tests: known hard puzzles, the Solver laws restated
-// as property tests and its own law (laws are checked, not run, #162).
+// The fast solver's tests: known hard puzzles, and the Solver laws
+// restated as property tests (they run only for providers in board,
+// G-exup-1); its own law runs in laws.ergo.
 
 import sudoku/board
 import sudoku/naive
@@ -50,11 +51,6 @@ test SolvedIsFixedHolds(seed int, n int) {
 
 test InconsistentIsUnsolvableHolds(seed int, n int) {
 	assert board.InconsistentIsUnsolvableHolds(Solver, board.Broken(seed, blanksOf(n)+1))
-}
-
-test AgreesWithNaiveHolds(seed int, n int, broken bool) {
-	let p = if broken { board.Broken(seed, blanksOf(n)+1) } else { board.Puzzle(seed, blanksOf(n)) }
-	assert board.Solvable(Solver, p) == board.Solvable(naive.Solver, p)
 }
 
 // On puzzles with few blanks the solution is the sample itself, so both

@@ -1,6 +1,8 @@
 // Package alert turns a stream of threshold checks into alerts, at most
 // Limit of them in any Window milliseconds, as a machine.
 
+import machines
+
 // Policy is how often the limiter may alert: at most Limit alerts in any
 // Window milliseconds.
 type Policy { Limit int, Window int64 }
@@ -29,80 +31,54 @@ func recent(sent []int64, now int64, window int64) []int64 {
 	out
 }
 
+// Event is what one signal did.
+type Event = Alerted{At int64, Value float64} | Resolved{At int64, Since int64} | Muted{At int64} | Nothing{}
+
 // Step is the limiter's transition. A breach while quiet alerts, by
 // entering Firing with its time added to Sent, unless Limit alerts were
 // sent in the last Window: then it stays quiet and counts one muted. A
 // breach while firing is the same incident and is ignored. A calm check
-// while firing resolves the incident; while quiet it is ignored.
-func Step(s State, sig Signal) Decision[State, int] {
+// while firing resolves the incident; while quiet it is ignored. Each
+// alert, mute and resolution is emitted.
+func Step(s State, sig Signal) Decision[State, Event] {
 	match (s, sig) {
 	case (Quiet as q, Breach as b):
 		let sent = recent(q.Sent, b.At, q.Policy.Window)
 		if len(sent) >= q.Policy.Limit {
-			Stay[State]{Next: Quiet{..q, Sent: sent, Muted: q.Muted + 1}}
+			Emit[State, Event]{Next: Quiet{..q, Sent: sent, Muted: q.Muted + 1}, Output: Muted{At: b.At}}
 		} else {
-			Enter[State]{Next: Firing{Policy: q.Policy, Since: b.At, Sent: sent.Append(b.At), Muted: q.Muted}}
+			Emit[State, Event]{Next: Firing{Policy: q.Policy, Since: b.At, Sent: sent.Append(b.At), Muted: q.Muted}, Output: Alerted{At: b.At, Value: b.Value}}
 		}
 	case (Firing, Breach):
 		Ignore
-	case (Firing as f, Calm):
-		Enter[State]{Next: Quiet{Policy: f.Policy, Sent: f.Sent, Muted: f.Muted}}
+	case (Firing as f, Calm as c):
+		Emit[State, Event]{Next: Quiet{Policy: f.Policy, Sent: f.Sent, Muted: f.Muted}, Output: Resolved{At: c.At, Since: f.Since}}
 	case (Quiet, Calm):
 		Ignore
 	}
 }
 
-// Limiter is the alert limiter as a machine.
+// Limiter is the alert limiter as a machine. Its input is the policy.
 type Limiter machine[State, Signal] {
-	initial: Initial(Policy{Limit: 2, Window: 60000}),
+	initial: Initial,
 	step:    Step,
 }
 
-// Event is what one signal did.
-type Event = Alerted{At int64, Value float64} | Resolved{At int64, Since int64} | Muted{At int64} | Nothing{}
-
-// Next is the state after d, and what happened.
-func Next(s State, sig Signal, d Decision[State, int]) (State, Event) {
-	match d {
-	case Enter[State] as e:
-		match (e.Next, sig) {
-		case (Firing as f, Breach as b):
-			(e.Next, Alerted{At: f.Since, Value: b.Value})
-		case (Quiet, Calm as c):
-			match s {
-			case Firing as f:
-				(e.Next, Resolved{At: c.At, Since: f.Since})
-			case Quiet:
-				(e.Next, Nothing)
-			}
-		case (_, _):
-			(e.Next, Nothing)
-		}
-	case Stay[State] as st:
-		match sig {
-		case Breach as b:
-			(st.Next, Muted{At: b.At})
-		case Calm:
-			(st.Next, Nothing)
-		}
-	case Ignore:
-		(s, Nothing)
-	case Reject:
-		(s, Nothing)
-	case Done[int]:
-		(s, Nothing)
-	}
-}
-
 // Drive runs the limiter with policy p over signals, and is what each
-// signal did. A machine has no runner (G-ex-d-11), so Drive is its loop.
+// signal did: its emitted event, or Nothing.
 func Drive(p Policy, signals []Signal) []Event {
-	let mut s = Initial(p)
+	let m = machines.Start(Limiter{}, p)
+	let mut s = machines.Initial(m)
 	let mut out = []Event{}
 	for sig in signals {
-		let next, e = Next(s, sig, Step(s, sig))
-		s = next
-		out = out.Append(e)
+		let d = m.Step(s, sig)
+		match d {
+		case Emit[State, Event] as e:
+			out = out.Append(e.Output)
+		case Enter[State], Stay[State], Ignore, Reject, Done[Event]:
+			out = out.Append(Nothing)
+		}
+		s = machines.Next(s, d)
 	}
 	out
 }

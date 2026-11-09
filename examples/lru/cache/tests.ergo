@@ -1,25 +1,6 @@
-// The cache's tests: examples, and the laws restated as property tests.
-// The compiler checks laws and does not run them yet (#162); until it
-// does, these tests run them. A generated slice holds at most three
-// elements (G-ex-d-9), so each law also runs over KeysOf(seed), a run of
-// up to 24 keys.
+// The cache's tests: examples (the laws run in laws.ergo and model.ergo).
 
 import slices
-
-// KeysOf is up to 24 keys over 0 to 7, drawn from seed.
-func KeysOf(seed int) []int {
-	let mut keys = []int{}
-	for op in Ops(seed, 24) {
-		match op {
-		case PutOp as p:
-			keys = keys.Append(p.Key)
-		case GetOp as g:
-			keys = keys.Append(g.Key)
-		case RemoveOp:
-		}
-	}
-	keys
-}
 
 // refused is the capacity that New(n) refuses, or -1 when it makes a cache.
 func refused(n int) int {
@@ -42,7 +23,7 @@ test EvictsInRecencyOrder {
 	assert c.Put("c", 3) == Some{Entry[string, int]{Key: "b", Value: 2}}
 	assert c.Peek("b") == None && c.Len() == 2
 	let keys = slices.Transform(c.Entries(), func(e Entry[string, int]) string { e.Key })
-	assert slices.Equal(keys, []string{"c", "a"})
+	assert keys == []string{"c", "a"}
 }
 
 test PutOverwritesWithoutEvicting {
@@ -76,63 +57,5 @@ test SortedIsKeyOrder {
 		let _ = c.Put(k, len(k))
 	}
 	let keys = slices.Transform(c.Sorted(), func(e Entry[string, int]) string { e.Key })
-	assert slices.Equal(keys, []string{"apple", "fig", "kiwi"})
-}
-
-test CapacityBoundHolds(n int, keys []int, seed int) {
-	for ks in [][]int{keys, KeysOf(seed)} {
-		let c = Filled(n, ks)
-		assert c.Len() <= c.Capacity() && len(c.Entries()) == c.Len()
-	}
-}
-
-test GetAfterPutHolds(n int, keys []int, seed int, k int, v int) {
-	// SizeOf(k) is a key that KeysOf(seed) often holds, so Put overwrites.
-	for ks in [][]int{keys, KeysOf(seed)} {
-		for key in []int{k, SizeOf(k)} {
-			let mut c = Filled(n, ks)
-			let _ = c.Put(key, v)
-			assert c.Get(key) == Some{v}
-		}
-	}
-}
-
-test MostRecentKeptHolds(n int, keys []int, seed int) {
-	for ks in [][]int{keys, KeysOf(seed)} {
-		let want = Recent(ks, SizeOf(n))
-		let entries = Filled(n, ks).Entries()
-		let got = slices.Transform(entries, func(e Entry[int, int]) int { e.Key })
-		for e in entries {
-			assert e.Value == 2*e.Key
-		}
-		assert slices.Equal(got, want)
-	}
-}
-
-test EvictsTheLeastRecentHolds(n int, keys []int, seed int, k int) {
-	for ks in [][]int{keys, KeysOf(seed)} {
-		let mut c = Filled(n, ks)
-		let before = c.Entries()
-		let full = c.Len() == c.Capacity()
-		let fresh = c.Peek(k) == None
-		match c.Put(k, 0) {
-		case Some[Entry[int, int]] as out:
-			assert full && fresh && out.Value == before[len(before)-1]
-		case None:
-			assert !full || !fresh
-		}
-	}
-}
-
-test ModelAgreesHolds(n int, seed int) {
-	let size = SizeOf(n)
-	let mut c = try New[int, int](size)
-	let mut m = Model{capacity: size, entries: []Entry[int, int]{}}
-	for op in Ops(seed, 60) {
-		let got = Apply(&c, op)
-		let next, want = m.Step(op)
-		m = next
-		assert got == want
-		assert SameEntries(c.Entries(), m.entries)
-	}
+	assert keys == []string{"apple", "fig", "kiwi"}
 }

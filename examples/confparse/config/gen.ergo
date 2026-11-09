@@ -1,5 +1,7 @@
-// Gen builds configurations from Random, for the property tests that
-// restate the laws.
+// Gen builds configurations from Random; Sample binds Random to
+// rand.Seeded(seed), so the laws that take a seed replay from it.
+
+import rand
 
 let hosts = []string{"127.0.0.1", "0.0.0.0", "::", "proxy.local", "with \"quote\"", ""}
 let ports = []int{1, 80, 443, 8080, 65535}
@@ -24,5 +26,12 @@ func Gen() Config needs Random {
 		Listen:    Listen{Host: hosts[Random.IntN(len(hosts))], Port: ports[Random.IntN(len(ports))]},
 		Log:       levels[Random.IntN(len(levels))],
 		Upstreams: ups,
+	}
+}
+
+// Sample is the Valid configuration Gen builds from seed.
+func Sample(seed int) Config {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		Gen()
 	}
 }

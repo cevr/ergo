@@ -10,11 +10,13 @@
 // (gointerop/sha256), the host's files, input and arguments.
 
 import fs
+import fstest
 import gointerop/checksum
 import gointerop/sha256
 import gointerop/stats
 import io
 import os
+import slices
 
 // Usage is the text of a usage failure.
 let Usage = "usage: gointerop sum [FILE...] | check LIST | stats"
@@ -27,12 +29,7 @@ func Parse(args []string) Command fails os.Exit {
 	if len(args) == 0 {
 		return os.Exit{Code: 2, Message: Usage}
 	}
-	let mut rest = []string{}
-	for i, a in args {
-		if i > 0 {
-			rest = rest.Append(a)
-		}
-	}
+	let rest = slices.Slice(args, 1, len(args))
 	match (args[0], len(rest)) {
 	case ("sum", _):
 		Sum{Files: rest}
@@ -123,73 +120,45 @@ func StatsOf() fails os.Exit needs Console | io.Stdin {
 	}
 }
 
-// run does what the arguments ask. It is apart from main because a
-// return cannot leave main's with block (G-ex-d-10).
-func run() fails os.Exit needs Console | os.Process | io.Stdin | fs.Files | checksum.Hasher {
-	match try Parse(os.Process.Args()) {
-	case Sum as s:
-		try SumAll(s.Files)
-	case Check as c:
-		try CheckAll(c.List)
-	case Stats:
-		try StatsOf()
-	}
-}
-
+// main does what the arguments ask, on the host's arguments, input and
+// files, hashing with gointerop/sha256.
 func main() fails os.Exit needs Console | Ambient {
 	with context { os.Process: os.NewHost(), io.Stdin: io.NewHost(), fs.Files: fs.NewHost(), checksum.Hasher: sha256.Hasher } {
-		try run()
+		match try Parse(os.Process.Args()) {
+		case Sum as s:
+			try SumAll(s.Files)
+		case Check as c:
+			try CheckAll(c.List)
+		case Stats:
+			try StatsOf()
+		}
 	}
 }
 
 test ParseReadsEachCommand {
-	assert parsed([]string{"stats"}) == "stats" && parsed([]string{"check", "l"}) == "check l"
-	assert parsed([]string{"sum", "a", "b"}) == "sum 2" && parsed([]string{"check"}) == "exit 2"
+	assert try Parse([]string{"stats"}) == Stats
+	assert try Parse([]string{"check", "l"}) == Check{List: "l"}
+	assert try Parse([]string{"sum", "a", "b"}) == Sum{Files: []string{"a", "b"}}
+	assert exitOf([]string{"check"}) == 2 && exitOf([]string{}) == 2
 }
 
-// parsed names the command of args. Command holds a slice, so it has no
-// == (G-ex-d-5).
-func parsed(args []string) string {
-	let c = Parse(args) catch {
+// exitOf is the exit code Parse(args) fails with, or 0.
+func exitOf(args []string) int {
+	Parse(args) catch {
 	case os.Exit as e:
-		return "exit \(e.Code)"
+		return e.Code
 	}
-	match c {
-	case Sum as s:
-		"sum \(len(s.Files))"
-	case Check as k:
-		"check \(k.List)"
-	case Stats:
-		"stats"
-	}
+	0
 }
 
-// disk is an in-memory fs.Files for the tests: std has none.
-type disk { texts Map[string, string] }
-
-func ReadFile(d disk, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
-	match d.texts.Get(path) {
-	case Some[string] as t:
-		t.Value
-	case None:
-		fs.NotFound{Path: path}
-	}
+// world is an in-memory disk of two files: a.txt and a list that names it
+// and a missing file.
+func world() fstest.Memory fails fs.NotFound | fs.Denied | fs.Failed {
+	let disk = fstest.NewMemory()
+	try disk.WriteFile("a.txt", "abc")
+	try disk.WriteFile("list", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad  a.txt\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  gone.txt\n")
+	disk
 }
-
-func ReadDir(d disk, path string) []string fails fs.NotFound | fs.Denied | fs.Failed {
-	fs.NotFound{Path: path}
-}
-
-func Stat(d disk, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
-	let text = try d.ReadFile(path)
-	fs.Info{Name: path, Size: len(text), Dir: false}
-}
-
-// world is two files: a.txt and a list that names it and a missing file.
-let world = disk{texts: Map[string, string]{
-	"a.txt": "abc",
-	"list":  "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad  a.txt\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  gone.txt\n",
-}}
 
 // statusOf is the exit status of CheckAll(list): 0, or its os.Exit code.
 func statusOf(list string) int needs Console | checksum.Hasher | fs.Files | io.Stdin {
@@ -201,15 +170,16 @@ func statusOf(list string) int needs Console | checksum.Hasher | fs.Files | io.S
 }
 
 // checked is what CheckAll(list) prints and its exit status.
-func checked(list string) (string, int) {
+func checked(list string) (string, int) fails fs.NotFound | fs.Denied | fs.Failed {
 	let out = io.NewRecorder()
-	with context { Console: out, fs.Files: world, io.Stdin: io.Input{Text: ""}, checksum.Hasher: sha256.Hasher } {
+	let disk = try world()
+	with context { Console: out, fs.Files: disk, io.Stdin: io.Input{Text: ""}, checksum.Hasher: sha256.Hasher } {
 		let code = statusOf(list)
 		(out.Text(), code)
 	}
 }
 
 test CheckReportsEachEntry {
-	let text, code = checked("list")
+	let text, code = try checked("list")
 	assert text == "a.txt: OK\ngone.txt: FAILED open or read\n" && code == 1
 }

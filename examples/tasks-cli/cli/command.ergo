@@ -4,7 +4,7 @@
 import flag
 import strconv
 import strings
-import tasks/tasks
+import taskscli/tasks
 
 // Shell is a shell that completions are written for.
 type Shell = Bash{} | Zsh{} | Fish{}
@@ -30,13 +30,13 @@ let Commands = []flag.Command[Cmd]{
 }
 
 // Parse reads args as a command line of tasks.
-func Parse(args []string) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+func Parse(args []string) Cmd fails flag.Failure {
 	try flag.ParseCommand("tasks-cli", "tasks keeps a list of tasks in a file", Commands, args)
 }
 
-func buildList(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+func buildList(v flag.Values) Cmd fails flag.Failure {
 	// A Choice reads a string, so each match needs a case _ (G-ex-c-6).
-	let which tasks.Which = match stateFlag.Get(v) {
+	let which = match stateFlag.Get(v) {
 	case "closed":
 		tasks.ClosedOnly
 	case "all":
@@ -47,7 +47,7 @@ func buildList(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsVal
 	List{Which: which, Min: priority(minFlag.Get(v)), JSON: jsonFlag.Get(v)}
 }
 
-func buildCreate(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+func buildCreate(v flag.Values) Cmd fails flag.Failure {
 	let title = strings.TrimSpace(strings.Join(flag.Rest(v), " "))
 	if title == "" {
 		return flag.Missing{Name: "title"}
@@ -55,7 +55,7 @@ func buildCreate(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsV
 	Create{Title: title, Priority: priority(priorityFlag.Get(v)), JSON: jsonFlag.Get(v)}
 }
 
-func buildClose(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+func buildClose(v flag.Values) Cmd fails flag.Failure {
 	let text = text(idArg, v)
 	let id = strconv.Atoi(text) catch {
 	case strconv.Malformed, strconv.OutOfRange:
@@ -64,7 +64,7 @@ func buildClose(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsVa
 	Close{ID: id, Yes: yesFlag.Get(v), JSON: jsonFlag.Get(v)}
 }
 
-func buildCompletion(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+func buildCompletion(v flag.Values) Cmd fails flag.Failure {
 	match text(shellArg, v) {
 	case "bash":
 		Completion{Shell: Bash}

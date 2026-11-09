@@ -22,21 +22,21 @@ The program is a module of packages (`ergo.mod`: `module mdhtml`), in the Go lay
 | --- | --- |
 | `html/` | The output tree. `node.ergo` (the union `Node`; `Element` has unexported fields, so only this package builds one; `El`, `ElAttrs`, `A`, the link target `Url` that only `Href` builds; `Render`, `TextOf`, `Escape`, `Unescape`), `laws.ergo` (`EscapeRoundTrip`, `EscapeHasNoMarkup`, `TextSurvivesRendering`, `HrefIsSafe`), `tests.ergo`. |
 | `markdown/` | The reader. `line.ergo` (the union `Line` and `Classify`, what one line is), `blocks.ergo` (the union `Block`, the machine `Blocks` over the union `Mode`, `Step`, `Read`), `inline.ergo` (`Inline`, the spans of a line), `render.ergo` (the operation type `Highlighter` with the law `KeepsTheText`, its providers `NoColor` and `Keywords`, `Node` and `Render`), `laws.ergo` (`EndIsDone`, `BlankSeparates`, `FenceKeepsLines`, `PlainTextStaysText`, `EscapedMarkersAreText`), `tests.ergo`. |
-| `cmd/mdhtml/` | The binary. `main.ergo` reads the flags and binds the host's streams and files and the `Highlighter` that `-highlight` chooses. Its tests run `run` over an `io.Input`, an `io.Recorder` and a Files provider of one file. |
+| `cmd/mdhtml/` | The binary. `main.ergo` reads the flags and binds the host's streams and files and the `Highlighter` that `-highlight` chooses. Its tests run `run` over an `io.Input`, an `io.Recorder` and an `fstest.Memory` of one file. |
 
 ## What it shows
 
-- **A machine for block state.** `markdown.Blocks` is `machine[Mode, Signal]`: the modes `Idle`, `InPara`, `InList` and `InCode`, the signals `Got{Raw}` and `End`. `Step` matches the signal, then the mode, then the kind of line, each exhaustively with no `case _`: adding a kind of line fails to check until every mode decides it. The decisions say what happened: `Enter` when the mode changes, `Stay` when it continues, `Ignore` for a blank line in `Idle`, `Done` with the blocks at the end.
+- **A machine for block state.** `markdown.Blocks` is `machine[Mode, Signal]`: the modes `Idle`, `InPara`, `InList` and `InCode`, the signals `Got{Raw}` and `End`. `Step` matches the signal, then the mode, then the kind of line, each exhaustively with no `case _`: adding a kind of line fails to check until every mode decides it. The decisions say what happened: `Enter` when a block opens, `Stay` when it continues, `Emit` with the blocks a line closes, `Ignore` for a blank line in `Idle`, `Done` with the open block at the end. `Read` runs the machine with `machines.Run` and joins what it emitted.
 - **Escaping decided by types.** `html.Element`'s fields are unexported, so a program can only build HTML with `El`, `ElAttrs` and `A`. `Render` escapes every `Text` and every attribute value. `ElAttrs` drops `href` and `src`, and `A` takes a `Url`, whose one field is unexported, so every link passed through `Href`'s scheme check. The law `HrefIsSafe` states it.
 - **An operation type with a law.** `markdown.Highlighter { Highlight(info, code) []html.Node, law KeepsTheText }`: whatever a highlighter marks up, the text of the code is unchanged. `Node` has the row `needs Highlighter` and no other, so `Render` uses that one capability and nothing else; `main` binds `NoColor` or `Keywords` from the flag, and the tests bind each.
-- **Laws over the reader.** `EndIsDone` (the end is `Done` with the closed blocks, in every mode), `BlankSeparates` (outside a fence, a blank line between two texts reads as the two texts read apart), `FenceKeepsLines`, `PlainTextStaysText`, `EscapedMarkersAreText`, and the `html` laws. Each is restated as a property test (#162 runs laws): the reader's tests build documents from a pool of lines of every kind, picked by generated ints. Each law has a mutant that its test kills (round-1 request).
+- **Laws over the reader.** `EndIsDone` (the end is `Done` with the closed blocks, in every mode), `BlankSeparates` (outside a fence, a blank line between two texts reads as the two texts read apart), `FenceKeepsLines`, `PlainTextStaysText`, `EscapedMarkersAreText`, and the `html` laws. `ergo test` runs each. The laws over documents build them from a pool of lines of every kind, picked by generated ints (`Doc`).
 - **Typed failures at the edge.** `source` reads the file or standard input and catches `fs.NotFound`, `fs.Denied`, `fs.Failed` and `io.ReadFailed` by name, each to an `os.Exit` with its own message.
 
 ## Run it
 
 ```sh
 go build -o bin/ergo ./cmd/ergo
-./bin/ergo build examples/mdhtml/cmd/mdhtml -o /tmp/mdhtml && printf '# Hi\n' | /tmp/mdhtml -title Hi
+printf '# Hi\n' | ./bin/ergo run examples/mdhtml/cmd/mdhtml -- -title Hi
 ./bin/ergo test examples/mdhtml/markdown
 go run ./scripts/examples mdhtml
 ```
@@ -49,7 +49,6 @@ go run ./scripts/examples mdhtml
 
 Each gap has its repro in the run dir's `examples-wave/gaps-ex-a.md`.
 
-- **G-ex-a-9 (missing language feature).** A machine's step cannot emit an output and go on: `Decision` carries an output only in `Done`, which ends the machine. A reader that closes a block in the middle of the text cannot hand it out, so every `Mode` carries `Doc []Block`, the blocks closed so far, and each step copies them. Ergo also has no runner on the surface yet (#57), so `Read` steps the machine by hand with `Next(m, Step(m, …))`.
-- **G-ex-a-10 (missing std op).** No `slices.Clone` or `slices.Concat`. A mode is a value, and `Append` may share an earlier mode's array (#222), so `plus` and `appended` copy by hand; the law `BlankSeparates` joins two slices with two loops.
-- **G-ex-a-3 again.** `Read` matches `Step(m, End)` and must handle `Enter`, `Stay`, `Ignore` and `Reject`, which `Step` never returns at the end (the law `EndIsDone`): with no way to state that they cannot happen, the arm returns `Closed(m)`.
-- **G-ex-a-7 and G-ex-a-8 again.** `ergo run` passes no arguments, so `-title` and `-highlight` were tried on a built binary.
+- **G-exup-2 (new).** `machines.Next(Idle, d)` with `d` a `Decision[Mode, []Block]` is S108 ("does not match Decision[S, O]"): inference takes `S` from the variant `Idle`, not the union `Mode` that `d` names, so `moved` writes `machines.Next[Mode, []Block](Idle, d)`.
+
+Closed in batch 12: **G-ex-a-9** (V5: a step `Emit`s the blocks it closes, so no `Mode` carries the closed blocks and no step copies them; `Read` runs the machine with `machines.Run`, V2); **G-ex-a-10** (S2 `slices.Concat`, `slices.Slice`; with the value rule, `plus`, `appended` and `continued` are gone); **G-ex-a-3** here (`Read` has no end match to fill in: its impossible outcomes are `Unreachable`, K5); **G-ex-a-7 and G-ex-a-8** (T1: `ergo run DIR -- ARGS` passes the flags); the property tests that restated the laws (V1 runs them; the steering moved into the laws, and T4's strings reach the markup characters the old tests added by hand); the hand `fs.Files` of `cmd/mdhtml`'s tests (U1 `fstest.NewMemory`).

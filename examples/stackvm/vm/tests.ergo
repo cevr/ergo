@@ -1,7 +1,4 @@
-// The vm's tests: examples, and the laws restated as property tests
-// (the compiler checks laws and does not run them yet, #162).
-
-import slices
+// The vm's tests: examples. The laws run under ergo test.
 
 // whyOf is the cause a run of program traps with, or None.
 func whyOf(program []Instr) Option[Cause] {
@@ -14,25 +11,25 @@ func whyOf(program []Instr) Option[Cause] {
 
 test ArithmeticAndPrint {
 	let r = try Run([]Instr{Push{N: 6}, Push{N: 7}, Mul, Dup, Print, Push{N: 2}, Sub}, 100)
-	assert slices.Equal(r.Printed, []int{42}) && slices.Equal(r.Stack, []int{40}) && r.Steps == 7
+	assert r.Printed == []int{42} && r.Stack == []int{40} && r.Steps == 7
 }
 
 test CountdownLoop {
 	// 3 2 1, by a loop: dup print; push 1 sub; dup jif 0
 	let p = []Instr{Push{N: 3}, Dup, Print, Push{N: 1}, Sub, Dup, JumpIf{To: 1}, Pop}
 	let r = try Run(p, 100)
-	assert slices.Equal(r.Printed, []int{3, 2, 1}) && len(r.Stack) == 0
+	assert r.Printed == []int{3, 2, 1} && len(r.Stack) == 0
 }
 
 test CallAndReturn {
 	let p = []Instr{Push{N: 5}, Call{To: 4}, Print, Halt, Dup, Mul, Ret}
 	let r = try Run(p, 100)
-	assert slices.Equal(r.Printed, []int{25}) && r.Steps == 7
+	assert r.Printed == []int{25} && r.Steps == 7
 }
 
 test HaltStopsTheLoop {
 	let r = try Run([]Instr{Push{N: 1}, Halt, Print, Print}, 100)
-	assert len(r.Printed) == 0 && slices.Equal(r.Stack, []int{1})
+	assert len(r.Printed) == 0 && r.Stack == []int{1}
 }
 
 test TrapsAreTyped {
@@ -63,24 +60,12 @@ test DecodeRefusesBadCode {
 	case BadCode as b:
 		[]Instr{Push{N: b.At}, Push{N: b.Code}}
 	}
-	assert slices.Equal(tooShort, []Instr{Push{N: 0}, Push{N: 1}})
+	assert tooShort == []Instr{Push{N: 0}, Push{N: 1}}
 	let unknown = Decode([]int{3, 99}) catch {
 	case BadCode as b:
 		[]Instr{Push{N: b.At}, Push{N: b.Code}}
 	}
-	assert slices.Equal(unknown, []Instr{Push{N: 1}, Push{N: 99}})
-}
-
-test DecodeInvertsEncodeHolds(seed int, size int) {
-	let p = Program(seed, size%40)
-	assert slices.Equal(try Decode(Encode(p)), p)
-}
-
-test FuelBoundsStepsHolds(seed int, fuel int) {
-	let f = if fuel < 0 { -(fuel + 1) % 50 } else { fuel % 50 }
-	for p in [][]Instr{Program(seed, 20), Countdown(seed % 12)} {
-		assert Bounded(p, f)
-	}
+	assert unknown == []Instr{Push{N: 1}, Push{N: 99}}
 }
 
 test CountdownHalts {

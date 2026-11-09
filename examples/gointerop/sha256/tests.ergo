@@ -1,18 +1,9 @@
-// SHA-256 against the FIPS 180-4 test vectors, and the checksum.Hasher
-// laws restated over the provider (the compiler checks laws and does not
-// run them yet, #162).
+// SHA-256 against the FIPS 180-4 test vectors and coreutils at the block
+// edges, and the checksum.Hasher laws restated over the provider (they run
+// only for providers in checksum, G-exup-1).
 
 import gointerop/checksum
 import strings
-
-// PaddingFills: the padded message is whole 64-byte blocks, holds the
-// text, the 0x80 marker and the 8-byte length, and no more than one
-// block beyond that.
-law PaddingFills(text string, n int) {
-	let t = text + strings.Repeat("a", (if n < 0 { -(n + 1) } else { n })%130)
-	let p = Padded(t)
-	len(p)%64 == 0 && len(p) >= len(t)+9 && len(p) < len(t)+9+64 && p[len(t)] == 128
-}
 
 test KnownVectors {
 	assert Sum(Hasher, "") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -28,12 +19,6 @@ test BlockEdges {
 	assert Sum(Hasher, strings.Repeat("a", 56)) == "b35439a4ac6f0948b6d6f9e3c6af0f5f590ce20f1bde7090ef7970686ec6738a"
 	assert Sum(Hasher, strings.Repeat("a", 63)) == "7d3e74a05d7db15bce4ad9ec0658ea98e3f06eeecf16b4c6fff2da457ddc2f34"
 	assert Sum(Hasher, strings.Repeat("a", 64)) == "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb"
-}
-
-test PaddingFillsHolds(text string, n int) {
-	let t = text + strings.Repeat("a", (if n < 0 { -(n + 1) } else { n })%130)
-	let p = Padded(t)
-	assert len(p)%64 == 0 && len(p) >= len(t)+9 && len(p) < len(t)+9+64 && p[len(t)] == 128
 }
 
 test DeterministicHolds(text string) {

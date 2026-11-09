@@ -1,25 +1,22 @@
-// The syntax's tests: examples, and the laws restated as property tests.
-// The compiler checks laws and does not run them yet (#162); until it
-// does, these tests run them. A property gets 100 cases, so the seeded
-// ones loop over 20 trees per case.
+// The syntax's tests: examples. `ergo test` runs the laws.
 
 test ParsesPrecedence {
 	let n = try Parse("ab|c*")
 	let want = Alt{Left: Cat{Parts: []Node{Lit{C: 'a'}, Lit{C: 'b'}}}, Right: Star{Of: Lit{C: 'c'}}}
-	assert Equal(n, want)
+	assert n == want
 }
 
 test ParsesClasses {
 	let n = try Parse("[^a-c\\]]")
-	assert Equal(n, Class{Spans: []Span{Span{Lo: 'a', Hi: 'c'}, Span{Lo: ']', Hi: ']'}}, Negated: true})
-	assert Equal(try Parse("[]"), Class{Spans: []Span{}, Negated: false})
-	assert Equal(try Parse("[a-]"), Class{Spans: []Span{Span{Lo: 'a', Hi: 'a'}, Span{Lo: '-', Hi: '-'}}, Negated: false})
+	assert n == Class{Spans: []Span{Span{Lo: 'a', Hi: 'c'}, Span{Lo: ']', Hi: ']'}}, Negated: true}
+	assert (try Parse("[]")) == Class{Spans: []Span{}, Negated: false}
+	assert (try Parse("[a-]")) == Class{Spans: []Span{Span{Lo: 'a', Hi: 'a'}, Span{Lo: '-', Hi: '-'}}, Negated: false}
 }
 
 test GroupsAreNotNodes {
-	assert Equal(try Parse("(a)"), Lit{C: 'a'})
-	assert Equal(try Parse("()"), Empty)
-	assert Equal(try Parse("(ab)c"), Cat{Parts: []Node{Cat{Parts: []Node{Lit{C: 'a'}, Lit{C: 'b'}}}, Lit{C: 'c'}}})
+	assert (try Parse("(a)")) == Lit{C: 'a'}
+	assert (try Parse("()")) == Empty
+	assert (try Parse("(ab)c")) == Cat{Parts: []Node{Cat{Parts: []Node{Lit{C: 'a'}, Lit{C: 'b'}}}, Lit{C: 'c'}}}
 }
 
 // failure is the message of Parse(text), or "ok".
@@ -57,62 +54,6 @@ test SamplesVary {
 	assert len(sizes) >= 5
 }
 
-test RoundTripHolds(seed int) {
-	for k in 0..20 {
-		let n = Sample(seed*20 + k)
-		assert Equal(try Parse(Print(n)), n)
-	}
-}
-
-// canonical reports whether text fails to parse, or parses to a tree
-// that prints and parses back to itself.
-func canonical(text string) bool {
-	let n = Parse(text) catch {
-	case _:
-		return true
-	}
-	let back = Parse(Print(n)) catch {
-	case _:
-		return false
-	}
-	Equal(back, n)
-}
-
-// The texts are the scrambled string, and 20 printed samples with one
-// byte cut out, which parse to many shapes or fail.
-test ParsedIsCanonicalHolds(text string, seed int) {
-	assert canonical(text) && canonical(Scramble(text))
-	for k in 0..20 {
-		let src = Print(Sample(seed*20 + k))
-		if len(src) > 0 {
-			let cut = (seed + k) % len(src)
-			let at = if cut < 0 { cut + len(src) } else { cut }
-			assert canonical(src[:at] + src[at+1:])
-		}
-	}
-}
-
-test LiteralRoundTripHolds(text string) {
-	for t in []string{text, Scramble(text)} {
-		let n = Literal(t)
-		assert Equal(try Parse(Print(n)), n)
-	}
-}
-
-// inside reports whether Parse(text) succeeds or fails inside text.
-func inside(text string) bool {
-	let _ = Parse(text) catch {
-	case err:
-		let at = Offset(err)
-		return 0 <= at && at < len(text)
-	}
-	true
-}
-
-test FailureIsInsideHolds(text string) {
-	assert inside(text) && inside(Scramble(text))
-}
-
 test ScrambleReachesTheMetas {
 	assert Scramble("abz AZ09_xé") == "()*|[]\\.^xé"
 }
@@ -121,6 +62,6 @@ test ScrambleReachesTheMetas {
 test EveryByteRoundTrips {
 	for i in 0..256 {
 		let n = Literal(ByteText(byte(i)))
-		assert Equal(try Parse(Print(n)), n)
+		assert (try Parse(Print(n))) == n
 	}
 }

@@ -1,6 +1,4 @@
-// The box's tests: worked steps, and the laws restated as property tests.
-// The compiler checks laws and does not run them yet (#162); until it
-// does, these tests run them.
+// The box's tests: worked steps. The laws run under ergo test.
 
 import rand
 
@@ -81,40 +79,6 @@ test SpawnRefusesBadBoxes {
 	assert refusal(5, 5, 1, -1) == "loss -1"
 	assert refusal(3, 3, 10, 0) == "10 in 9"
 	assert refusal(3, 3, 9, 0) == "made"
-}
-
-test EnergyNeverRisesHolds(seed uint64, size int, n int, loss int) {
-	let w = Sample(seed, size, n, loss)
-	let next, _ = Step(w)
-	assert Energy(next) <= Energy(w)
-}
-
-test ElasticKeepsEnergyHolds(seed uint64, size int, n int, steps int) {
-	let w = Sample(seed, size, n, 0)
-	let after, _ = Run(w, within(steps, 0, 50))
-	assert Energy(after) == Energy(w)
-}
-
-test StaysInTheBoxHolds(seed uint64, size int, n int, loss int, steps int) {
-	let mut w = Sample(seed, size, n, loss)
-	for _ in 0..within(steps, 0, 50) {
-		let next, _ = Step(w)
-		assert Inside(next)
-		w = next
-	}
-}
-
-test SeedReplaysHolds(seed uint64, size int, n int, loss int, steps int) {
-	let k = within(steps, 0, 50)
-	let a, ta = Run(Sample(seed, size, n, loss), k)
-	let b, tb = Run(Sample(seed, size, n, loss), k)
-	assert Same(a, b) && ta == tb
-}
-
-test StepCountsOneHolds(seed uint64, size int, n int, loss int) {
-	let w = Sample(seed, size, n, loss)
-	let next, _ = Step(w)
-	assert next.Tick() == w.Tick()+1 && next.Count() == w.Count()
 }
 
 // Every box Sample makes has particles to move, for most seeds: the laws

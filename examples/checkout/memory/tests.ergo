@@ -1,6 +1,6 @@
-// Gateway and Decliner keep the payments.Payments law. The compiler checks
-// laws and does not run them yet (#162); until it does, these tests run the
-// law's check against each provider.
+// Gateway and Decliner keep the payments.Payments law. ergo test skips a
+// member law for a provider in another package (G-exup-1), so these tests
+// run the law's check against each provider.
 
 import checkout/payments
 

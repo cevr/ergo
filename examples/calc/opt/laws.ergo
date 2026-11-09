@@ -1,11 +1,25 @@
-// The rules of Fold as laws. The laws that every Optimizer keeps are
-// members of the type, in fold.ergo.
+// The rules of Fold as laws, over e and the samples of seed. The laws
+// that every Optimizer keeps are members of the type, in fold.ergo.
 
 import calc/ast
 
 // FoldIsIdempotent: folding a folded expression changes nothing.
-law FoldIsIdempotent(e ast.Expr) { Fold(Fold(e)) == Fold(e) }
+law FoldIsIdempotent(e ast.Expr, seed int) {
+	for x in ast.Samples(e, seed) {
+		if Fold(Fold(x)) != Fold(x) {
+			return false
+		}
+	}
+	true
+}
 
 // FoldNeverGrows: a folded expression has at most the nodes of the
 // expression.
-law FoldNeverGrows(e ast.Expr) { ast.Size(Fold(e)) <= ast.Size(e) }
+law FoldNeverGrows(e ast.Expr, seed int) {
+	for x in ast.Samples(e, seed) {
+		if ast.Size(Fold(x)) > ast.Size(x) {
+			return false
+		}
+	}
+	true
+}

@@ -1,5 +1,5 @@
 // The reference engine's tests: examples, and the Engine laws restated
-// as property tests (laws are checked, not run, #162).
+// as property tests (ergo test runs them only in package engine, G-exup-1).
 
 import regex/engine
 import regex/syntax

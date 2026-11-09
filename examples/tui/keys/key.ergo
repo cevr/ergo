@@ -3,6 +3,7 @@
 // as a carriage return, Backspace as DEL.
 
 import strings
+import utf8
 
 // Key is one key a person pressed.
 type Key = Up{} | Down{} | Return{} | Backspace{} | Escape{} | Interrupt{} | Char{Text string}
@@ -41,29 +42,14 @@ func Decode(text string) []Key {
 		} else if c == 3 {
 			out = out.Append(Interrupt)
 		} else if c >= 32 {
-			let n = width(c)
-			let end = if i+n > len(text) { len(text) } else { i + n }
-			out = out.Append(Char{Text: strings.Slice(text, i, end)})
-			i = end
+			let n = utf8.DecodeRuneInString(strings.Slice(text, i, len(text))).Size
+			out = out.Append(Char{Text: strings.Slice(text, i, i+n)})
+			i = i + n
 			continue
 		}
 		i = i + 1
 	}
 	out
-}
-
-// width is the length of the UTF-8 sequence that starts with c.
-func width(c byte) int {
-	if c >= 240 {
-		return 4
-	}
-	if c >= 224 {
-		return 3
-	}
-	if c >= 192 {
-		return 2
-	}
-	1
 }
 
 // Encode is the bytes a terminal sends for k.
@@ -95,11 +81,11 @@ func Script(keys []Key) string {
 	out
 }
 
-// Typed is a Char for each byte of text, which must be printable ASCII.
+// Typed is a Char for each character of text.
 func Typed(text string) []Key {
 	let mut out = []Key{}
-	for i in 0..len(text) {
-		out = out.Append(Char{Text: strings.Slice(text, i, i+1)})
+	for r in text {
+		out = out.Append(Char{Text: utf8.RuneText(r)})
 	}
 	out
 }

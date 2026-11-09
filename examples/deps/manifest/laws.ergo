@@ -44,35 +44,7 @@ func Generated(entries []resolve.Entry, root []resolve.Need) Manifest {
 // ReadInvertsFormat: reading a formatted manifest gives the manifest back.
 law ReadInvertsFormat(entries []resolve.Entry, root []resolve.Need) {
 	let m = Generated(entries, root)
-	Same(try Read(Format(m)), m)
-}
-
-// Same reports whether a and b name one project and list the same needs
-// and releases, in one order. A Manifest holds slices, so it has no ==
-// (G-ex-d-5); a constraint is the same when its text is.
-func Same(a Manifest, b Manifest) bool {
-	if a.Project != b.Project || len(a.Releases) != len(b.Releases) || !sameNeeds(a.Root, b.Root) {
-		return false
-	}
-	for i, r in a.Releases {
-		let s = b.Releases[i]
-		if r.Name != s.Name || r.V != s.V || !sameNeeds(r.Needs, s.Needs) {
-			return false
-		}
-	}
-	true
-}
-
-func sameNeeds(a []resolve.Requirement, b []resolve.Requirement) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i, r in a {
-		if r.Name != b[i].Name || r.Want.Text != b[i].Want.Text {
-			return false
-		}
-	}
-	true
+	try Read(Format(m)) == m
 }
 
 // NoiseChangesNothing: blank lines, comments and trailing comments do not

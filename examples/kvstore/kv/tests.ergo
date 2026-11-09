@@ -1,8 +1,7 @@
-// The domain's tests: Parse's examples, and its laws restated as property
-// tests (the compiler checks laws and does not run them yet, #162). The
+// The domain's tests: Parse's examples (its laws run in laws.ergo). The
 // Store laws run in the tests of each provider, in memory and file.
 
-import strings
+import slices
 
 // parsed is the command of line, or the text of its failure.
 func parsed(line string) string {
@@ -55,25 +54,10 @@ test PickNamesAPutKey(keys []string, n int) {
 		assert Pick(keys, n) == "never put"
 		return
 	}
-	assert Has(keys, Pick(keys, n))
+	assert slices.Contains(keys, Pick(keys, n))
 }
 
 test SortedMeansStrictlyAscending {
 	assert Sorted([]string{}) && Sorted([]string{"a"}) && Sorted([]string{"a", "b"})
 	assert !Sorted([]string{"b", "a"}) && !Sorted([]string{"a", "a"})
-}
-
-test PutReadsTheRestHolds(key string, value string) {
-	if !isWord(key) || strings.TrimSpace(value) != value {
-		return
-	}
-	assert try Parse("put "+key+" "+value) == Put{Key: key, Value: value}
-}
-
-test KeyCommandsTakeOneWordHolds(key string) {
-	if !isWord(key) {
-		return
-	}
-	assert try Parse("get "+key) == Get{Key: key}
-	assert try Parse(" del  "+key) == Delete{Key: key}
 }

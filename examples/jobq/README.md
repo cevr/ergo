@@ -14,16 +14,15 @@ The program is a module of packages (`ergo.mod`: `module jobq`), in the Go layou
 | `limit/` | The token bucket: `Bucket`, `Full`, `Refill`, `Take`, `NextAt`, `Tokens`, on a time it is given. Pure. |
 | `sched/` | The queue on a virtual clock: `Config`, the `Event` union, `Run`, which jumps from one event to the next; `laws.ergo` (`Load`, `Shape`, `Ran`, `InFlight` and the laws), `tests.ergo`. Pure, except that each try's result comes from `jobs.Worker`. |
 | `pool/` | The queue on real tasks: a `queue.Queue` of jobs, worker tasks (`task.Go`), a pacer task that refills a queue of tokens (Go's buffered-channel limiter), and a queue of `Report`s. The same `jobs.Life` machine decides each retry. |
-| `memory/` | `Instant`, a `Scheduler` whose sleeps end at once, for the pool's tests. |
 | `cmd/jobq/` | The binary: the flags, the job reader, the timeline and report text, and the context that binds `jobs.Script` and the host's scheduler. |
 
 ## What it shows
 
 - **A machine for each job.** `type Life machine[Phase, Signal]`: `Queued{N, Ready}` and `Running{N, Ends}`, with `Start` and `Finish` signals; one `match (p, s)` that refuses a start before the backoff ends and a finish before the try ends, and decides `Done` (success, fatal, out of tries) or `Enter` (queue the next try after its backoff). The virtual queue and the real pool both run it, so they cannot disagree on a retry (`AgreesWithTheVirtualRun` checks they do not).
 - **A virtual clock that the queue owns.** `sched.Run` never sleeps: time moves to the next try to end, the next job to become ready, or the bucket's next token. A run replays exactly, so the laws compare whole timelines.
-- **Laws.** `jobs`: `IsRepeatable` (the contract), `BackoffGrows`, `BackoffIsCapped`, `RetriesEnd`, `FatalIsFinal`, `RetryWaitsItsBackoff`. `limit`: `RateHolds`, `NeverOverBurst`, `NextAtHasAToken`. `sched`: `NoJobLost`, `AtMostNInFlight`, `StartsKeepTheRate`, `RetriesWait`. Each is restated as a property test, and for each law a mutant of the program makes its test fail. The property test `LiveAgreesWithVirtual` found a real bug while the program was written: a try of 0 ms never ended, because the virtual clock looked only for events after now. `NoJobLost` now draws jobs from 0 ms.
+- **Laws.** `jobs`: `IsRepeatable` (the contract), `BackoffGrows`, `BackoffIsCapped`, `RetriesEnd`, `FatalIsFinal`, `RetryWaitsItsBackoff`. `limit`: `RateHolds`, `NeverOverBurst`, `NextAtHasAToken`. `sched`: `NoJobLost`, `AtMostNInFlight`, `StartsKeepTheRate`, `RetriesWait`. `ergo test` runs each (`IsRepeatable` against the `Script` worker). The property test `LiveAgreesWithVirtual` found a real bug while the program was written: a try of 0 ms never ended, because the virtual clock looked only for events after now. `NoJobLost` now draws jobs from 0 ms.
 - **Typed failures and exhaustive matches.** A try's `Result` is a union, and each `match` over `Result`, `Phase`, `Event` and `Outcome` names every variant. The pool's queues fail `queue.Closed`, in the rows of the functions that push and pop.
-- **Real concurrency, tested.** The pool uses `task.Go`, `queue.Queue` with backpressure and `Stop` on the pacer. Its tests bind `memory.Instant` as the `Scheduler`, so the tasks run for real and the sleeps cost nothing.
+- **Real concurrency, tested.** The pool uses `task.Go`, `queue.Queue` with backpressure and `Stop` on the pacer. Its tests bind a `testing.VirtualClock` as the `Scheduler`, so the tasks run for real and the sleeps move virtual time only.
 
 ## Run it
 
@@ -45,10 +44,12 @@ go run ./scripts/examples jobq
 
 Each gap is in the lane's gap file (`gaps-ex-b.md`) with a repro.
 
-- **G-ex-b-16** (checker): `let r = if … { Ok } else { rs[i] }` and `let mut best = None` take the type of the first variant, so the union in the other branch, or a later `Some`, is refused with "cannot use Result as Ok". Workaround: `let res Result = …`, `let mut best Option[duration] = None`.
+- **G-ex-b-16** (partly closed by K3): `let res = if … { Ok } else { rs[i] }` now joins to the union. `let mut best = None` still needs `Option[duration]`, and the checker now says so (S108 "best is typed None by its value; write let mut best Option[duration] = None").
 - **G-ex-b-17** (language; known #197): a `Task` cannot be put in a slice, so a pool of `-workers N` is `pool.crew`, a recursion of one frame per task.
 - **G-ex-b-18** (checker; soundness): found by a mutant of this program. A package `let` of a Map is global mutable state, and a function that writes it has an empty footprint, so a "pure" function gave two results for one argument. The program itself writes no package Map.
-- **G-ex-b-5** (seen again): no std clock jumps when every task sleeps, so the real pool cannot run its laws on virtual time; the laws are `sched`'s, and the pool is held to `sched` by `AgreesWithTheVirtualRun`.
-- **G-ex-b-9** (seen again): no `flag.Duration`, as there is no `time.ParseDuration`: the times are `-backoff-ms` and `-every-ms` ints.
-- **G-ex-b-1** (seen again): `duration(if … { -b } else { b })` and `int64(if …)`; a `let` first.
-- By design, and still friction: `Task[T, E]` needs an error type, and there is no empty row to write for a task that cannot fail. A worker in the pool holds its worker for its backoff (a sleep), as a simple Go pool does, where `sched` frees it; both runs agree on each outcome, not on the times. Laws are checked, not run (#162).
+- **G-ex-b-5** (closed by C1): the pool's tests and `cmd/jobq`'s now bind `testing.VirtualClock` as the `Scheduler` (the hand `memory.Instant` is gone). The laws stay `sched`'s, and the pool is held to `sched` by `AgreesWithTheVirtualRun`.
+- **G-ex-b-9** (partly closed by S4): `time.ParseDuration` now exists, but `flag` has no `Duration`, so the times stay `-backoff-ms` and `-every-ms` ints.
+- **G-ex-b-17** also meets C2: `tasks.Transform` runs work on a bounded set of tasks, but its function must give a value, and a worker gives none, so `crew` stays.
+- By design, and still friction: `Task[T, E]` needs an error type, and there is no empty row to write for a task that cannot fail. A worker in the pool holds its worker for its backoff (a sleep), as a simple Go pool does, where `sched` frees it; both runs agree on each outcome, not on the times.
+
+Closed in batch 12: **G-ex-b-1** (K2: `duration(if … { -b } else { b })` with no `let` first), the hand `Next` (V2: `machines.Next`), and the property tests that restated the laws (V1 runs the laws). The pool's and the queue's `Emit` arms are `Unreachable`: `jobs.Step` never emits.

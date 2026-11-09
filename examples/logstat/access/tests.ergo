@@ -1,8 +1,6 @@
-// The reader's tests: lines of each kind, each failure with its column,
-// and the laws restated as property tests over generated requests
-// (#162 runs laws).
+// The reader's tests: lines of each kind and each failure with its
+// column. The laws run under ergo test.
 
-import rand
 import time
 
 let sample = "203.0.113.9 - - [08/Nov/2026:10:00:00 +0200] \"GET /api/users?id=7 HTTP/1.1\" 200 512 0.123"
@@ -63,26 +61,9 @@ test Classes {
 	assert ClassName(ClassOf(999)) == "other"
 }
 
-test FormatParsesHolds(seed int) {
-	with context { Random: rand.Seeded(uint64(seed)) } {
-		for _ in 0..20 {
-			let r = Gen()
-			assert Valid(r)
-			let back = try Parse(Format(r))
-			assert Same(back, r)
-		}
+// The samples are Valid, so FormatParses checks the round trip on each.
+test SamplesAreValid(seed int) {
+	for r in Samples(seed) {
+		assert Valid(r)
 	}
-}
-
-test ColumnIsInTheLineHolds(seed int, i int, j int, cut int) {
-	with context { Random: rand.Seeded(uint64(seed)) } {
-		let line = Damaged(Gen(), i, j, cut)
-		let c = Column(line)
-		assert c == 0 || InLine(c, line)
-	}
-}
-
-test ColumnIsInTheLineOfAnyText(line string) {
-	let c = Column(line)
-	assert c == 0 || InLine(c, line)
 }

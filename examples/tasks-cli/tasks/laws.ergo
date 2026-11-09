@@ -2,22 +2,7 @@
 
 // ViewShowsWhatMatches: a listing holds each task that matches it, once,
 // and no other.
-law ViewShowsWhatMatches(tasks []Item, which Which, min Priority) { ViewShowsWhatMatchesHolds(tasks, which, min) }
-
-// ViewIsOrdered: a listing puts the more urgent task first, and the
-// earlier one first within a priority.
-law ViewIsOrdered(tasks []Item, which Which, min Priority) {
-	let shown = View(Numbered(tasks), which, min)
-	for i, t in shown {
-		if i > 0 && Before(shown[i-1], t) >= 0 {
-			return false
-		}
-	}
-	true
-}
-
-// ViewShowsWhatMatchesHolds checks ViewShowsWhatMatches.
-func ViewShowsWhatMatchesHolds(tasks []Item, which Which, min Priority) bool {
+law ViewShowsWhatMatches(tasks []Task, which Which, min Priority) {
 	let numbered = Numbered(tasks)
 	let shown = View(numbered, which, min)
 	let mut matching = 0
@@ -37,9 +22,21 @@ func ViewShowsWhatMatchesHolds(tasks []Item, which Which, min Priority) bool {
 	len(shown) == matching
 }
 
+// ViewIsOrdered: a listing puts the more urgent task first, and the
+// earlier one first within a priority.
+law ViewIsOrdered(tasks []Task, which Which, min Priority) {
+	let shown = View(Numbered(tasks), which, min)
+	for i, t in shown {
+		if i > 0 && Before(shown[i-1], t) >= 0 {
+			return false
+		}
+	}
+	true
+}
+
 // matches is the rule of a listing, written apart from Shows so the law
 // checks it: which names the states shown, and min the least priority.
-func matches(t Item, which Which, min Priority) bool {
+func matches(t Task, which Which, min Priority) bool {
 	let state = match (which, t.State) {
 	case (Every, Open), (Every, Closed), (OpenOnly, Open), (ClosedOnly, Closed):
 		true
@@ -60,10 +57,10 @@ func matches(t Item, which Which, min Priority) bool {
 
 // Numbered is tasks with the IDs 1, 2, … in order, as a Board numbers
 // them, so a generated list has distinct IDs.
-func Numbered(tasks []Item) []Item {
-	let mut out = []Item{}
+func Numbered(tasks []Task) []Task {
+	let mut out = []Task{}
 	for i, t in tasks {
-		out = out.Append(Item{..t, ID: i + 1})
+		out = out.Append(Task{..t, ID: i + 1})
 	}
 	out
 }

@@ -1,6 +1,5 @@
 // The compiler and the vm agree with the tree walk.
 
-import slices
 import stackvm/vm
 
 // Gen is an expression of at most depth levels, drawn from d. Literals
@@ -43,7 +42,7 @@ func Agrees(e Expr) bool {
 	case vm.Trap:
 		return false
 	}
-	slices.Equal(got.Stack, []int{want}) && len(got.Printed) == 0
+	got.Stack == []int{want} && len(got.Printed) == 0
 }
 
 // CompiledAgrees: a compiled expression computes what the tree walk

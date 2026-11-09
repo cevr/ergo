@@ -1,10 +1,9 @@
 // The schedule's tests: the calendar, examples of next firings and of
-// each parse failure, a run on a virtual clock, and the laws restated as
-// property tests. The compiler checks laws and does not run them yet
-// (#162); until it does, these tests run them.
+// each parse failure, and a run on a virtual clock (the laws run in
+// laws.ergo).
 
-import cron/virtual
 import strings
+import testing
 import time
 
 // at is the minute of the text "2006-01-02 15:04".
@@ -95,52 +94,6 @@ test FormatIsCanonical {
 	assert Format(try Parse("5/20 * * * *")) == "5,25,45 * * * *"
 }
 
-test NextIsAfterHolds(seed int) {
-	let e, t = Drawn(seed)
-	match Next(e, t) {
-	case Some[Instant] as n:
-		assert n.Value > t
-	case None:
-	}
-}
-
-test NextFiresHolds(seed int) {
-	let e, t = Drawn(seed)
-	match Next(e, t) {
-	case Some[Instant] as n:
-		assert Matches(e, n.Value)
-	case None:
-	}
-}
-
-test NextIsTheSmallestHolds(seed int) {
-	let e, t = Drawn(seed)
-	let found = Brute(e, t, Window)
-	match Next(e, t) {
-	case Some[Instant] as n:
-		if n.Value-t <= Window {
-			assert found == n
-		} else {
-			assert found == None
-		}
-	case None:
-		assert found == None
-	}
-}
-
-test FormatParseRoundTripHolds(seed int) {
-	let e, _ = Drawn(seed)
-	assert try Parse(Format(e)) == e
-}
-
-test CivilRoundTripHolds(n int) {
-	let t = Instant(int64(n) % 100000000)
-	let c = CivilOf(t)
-	assert InstantOf(c) == t
-	assert c.Day >= 1 && c.Day <= MonthDays(c.Year, c.Month)
-	assert CivilOf(t+1440).Weekday == (c.Weekday+1)%7
-}
-
 // The drawn expressions fire within the window most of the time, so the
 // reference checks Next on most cases, and some never fire in it.
 test DrawnExpressionsFireInTheWindow {
@@ -183,7 +136,7 @@ test ABadLineNamesItsNumber {
 test RunFiresOnTimeOnAVirtualClock {
 	let start = try at("2026-11-08 12:00")
 	let jobs = []Job{Job{Name: "a", When: try Parse("*/20 * * * *")}, Job{Name: "b", When: try Parse("30,40 12 * * *")}}
-	let clock = virtual.NewClock(int64(start) * 60)
+	let clock = testing.NewVirtualClock(int64(start) * 60)
 	let mut log = []string{}
 	with context { time.Clock: clock, Scheduler: clock } {
 		Run(jobs, start+60, func(f Firing) {

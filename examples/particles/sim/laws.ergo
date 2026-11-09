@@ -1,7 +1,9 @@
 // The rules of the game as laws over its machine and its loop.
 
+import machines
 import particles/world
 import rand
+import sync
 import time
 
 // Word names a decision.
@@ -11,6 +13,8 @@ func Word(d Decision[Phase, Game]) string {
 		"enter"
 	case Stay[Phase]:
 		"stay"
+	case Emit[Phase, Game]:
+		"emit"
 	case Ignore:
 		"ignore"
 	case Reject:
@@ -41,13 +45,7 @@ law RunningTicksStay(seed uint64, n int) {
 	match Step(Running{G: g}, Tick) {
 	case Stay[Phase] as s:
 		GameOf(s.Next).Steps == 1 && Name(s.Next) == "running"
-	case Enter[Phase]:
-		false
-	case Ignore:
-		false
-	case Reject:
-		false
-	case Done[Game]:
+	case Enter[Phase], Emit[Phase, Game], Ignore, Reject, Done[Game]:
 		false
 	}
 }
@@ -58,16 +56,10 @@ law QuitIsDone(seed uint64, n int) {
 	for p in []Phase{Running{G: g}, Paused{G: g}} {
 		match Step(p, Quit) {
 		case Done[Game] as d:
-			if !world.Same(d.Output.W, g.W) || d.Output.Steps != 1 {
+			if d.Output.W != g.W || d.Output.Steps != 1 {
 				return false
 			}
-		case Enter[Phase]:
-			return false
-		case Stay[Phase]:
-			return false
-		case Ignore:
-			return false
-		case Reject:
+		case Enter[Phase], Stay[Phase], Emit[Phase, Game], Ignore, Reject:
 			return false
 		}
 	}
@@ -78,9 +70,10 @@ law QuitIsDone(seed uint64, n int) {
 // back, unchanged.
 law PauseResumeRoundTrips(seed uint64, n int) {
 	let g = Advance(Fresh(box(seed, n)))
-	let paused = Next(Running{G: g}, Step(Running{G: g}, Pause))
-	let back = Next(paused, Step(paused, Resume))
-	Name(paused) == "paused" && Name(back) == "running" && world.Same(GameOf(back).W, g.W)
+	let running Phase = Running{G: g}
+	let paused = machines.Next(running, Step(running, Pause))
+	let back = machines.Next(paused, Step(paused, Resume))
+	Name(paused) == "paused" && Name(back) == "running" && GameOf(back).W == g.W
 }
 
 // StepsFollowTheClock: with no key, the loop steps the box once per Dt of
@@ -89,10 +82,10 @@ law PauseResumeRoundTrips(seed uint64, n int) {
 law StepsFollowTheClock(seed uint64, n int, frames int) {
 	let m = time.NewManual(0)
 	let k = if frames < 0 { -(frames % 20) } else { frames % 20 }
-	let g = with context { Scheduler: lateEvery{m: m, every: 3}, time.Clock: m, Screen: blind{n: Map[string, int]{}} } {
+	let g = with context { Scheduler: lateEvery{m: m, every: 3}, time.Clock: m, Screen: blind{n: sync.NewRef[int](0)} } {
 		Play(box(seed, n), "", k, Pace{Frame: 50ms, Dt: 20ms})
 	}
-	g.Steps == int(int64(m.Now().Sub(time.Unix(0, 0)))/int64(20ms))
+	g.Steps == time.Count(m.Now().Sub(time.Unix(0, 0)), 20ms)
 }
 
 // lateEvery is a Scheduler that sleeps on m with no wait, and a quarter
@@ -100,25 +93,14 @@ law StepsFollowTheClock(seed uint64, n int, frames int) {
 type lateEvery { m time.Manual, every int }
 
 func Sleep(l lateEvery, d duration) {
-	let n = int64(l.m.Now().Sub(time.Unix(0, 0))) / int64(d)
-	let late = if n%int64(l.every) == int64(l.every-1) { duration(int64(d) / 4) } else { 0s }
+	let n = time.Count(l.m.Now().Sub(time.Unix(0, 0)), d)
+	let late = if n%l.every == l.every-1 { time.Divide(d, 4) } else { 0s }
 	l.m.Advance(d + late)
 }
 
-// blind is a Screen that draws nothing and counts what it is shown, in a
-// Map that its copies share, so it keeps ShowCountsOne.
-type blind { n Map[string, int] }
+// blind is a Screen that draws nothing and counts what it is shown.
+type blind { n sync.Ref[int] }
 
-func Show(b blind, _ Frame) {
-	let mut n = b.n
-	n["shown"] = b.Shown() + 1
-}
+func Show(b blind, _ Frame) { b.n.Update(func(k int) int { k + 1 }) }
 
-func Shown(b blind) int {
-	match b.n.Get("shown") {
-	case Some[int] as s:
-		s.Value
-	case None:
-		0
-	}
-}
+func Shown(b blind) int { b.n.Get() }

@@ -1,10 +1,13 @@
 // The checks of Store's laws, one function per law, over the Store in the
-// caller's context. The compiler checks laws and does not run them yet
-// (#162), and a member law cannot call a function that needs its own type
-// (it needs no service; types.md, Laws 7). So each law is written twice:
-// as the law in Store, and here as a function a provider's test calls in a
-// context that binds its provider. Package memory and package file run the
-// same checks, so the two stores keep one contract.
+// caller's context. `ergo test` runs a member law only for the providers
+// in its type's own package (G-exup-1), and Store's providers are in
+// memory and file, and a member law cannot call a function that needs its
+// own type (it needs no service; types.md, Laws 7). So each law is written
+// twice: as the law in Store, and here as a function a provider's test
+// calls in a context that binds its provider. Package memory and package
+// file run the same checks, so the two stores keep one contract.
+
+import slices
 
 // GetAfterPutHolds checks the law GetAfterPut.
 func GetAfterPutHolds(key string, value string) bool fails Broken needs Store {
@@ -57,7 +60,7 @@ func KeysAreSortedAndDistinctHolds(keys []string) bool fails Broken needs Store 
 	}
 	let got = try Store.Keys()
 	for k in keys {
-		if !Has(got, k) {
+		if !slices.Contains(got, k) {
 			return false
 		}
 	}
@@ -78,7 +81,7 @@ func CompactKeepsContentsHolds(puts []string, drops []int) bool fails Broken nee
 	let before = try Snapshot()
 	try Store.Compact()
 	let after = try Snapshot()
-	Equal(before, after)
+	before == after
 }
 
 // Pick is the key of keys that the number n names, for any n, so a
@@ -90,14 +93,4 @@ func Pick(keys []string, n int) string {
 	}
 	let m = if n < 0 { -(n + 1) } else { n }
 	keys[m%len(keys)]
-}
-
-// Has reports whether keys holds key.
-func Has(keys []string, key string) bool {
-	for k in keys {
-		if k == key {
-			return true
-		}
-	}
-	false
 }

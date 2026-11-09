@@ -5,6 +5,7 @@
 // It is pure, except that coins go through the vend.Acceptor contract.
 
 import strconv
+import time
 import strings
 
 // Item is one line of a script, read: what happens, and when.
@@ -110,8 +111,8 @@ func item(n int, raw string, at duration, words []string) Item fails BadLine {
 type BadDuration { Text string }
 
 // Duration reads a whole number of ms, s, m or h, as "1500ms" or "2m".
-// The std has no time.ParseDuration yet, so the program reads its own
-// (gaps G-ex-b-9).
+// A script's time is narrower than time.ParseDuration's (no 1m30s, no
+// sign), so the program reads its own.
 func Duration(text string) duration fails BadDuration {
 	for unit in []string{"ms", "s", "m", "h"} {
 		if !strings.HasSuffix(text, unit) {
@@ -138,7 +139,7 @@ func Duration(text string) duration fails BadDuration {
 		case _:
 			1h
 		}
-		return duration(int64(n) * int64(per))
+		return time.Times(per, n)
 	}
 	BadDuration{Text: text}
 }

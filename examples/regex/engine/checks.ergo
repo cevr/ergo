@@ -1,6 +1,7 @@
 // The laws of Engine as checks over a provider value, for the providers'
-// property tests. A member law is not run (#162) and cannot be called, so
-// each check restates its law's body (G-ex-c-5).
+// property tests. ergo test runs a member law only for providers in this
+// package (G-exup-1), and it cannot be called, so each check restates
+// its law's body (G-ex-c-5).
 
 import regex/syntax
 

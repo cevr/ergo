@@ -48,7 +48,7 @@ law QuitIsDone(texts []string) {
 	let l = todo.Of(texts)
 	match Tried(Listing{L: l}, Typed{Line: "quit"}) {
 	case Done[todo.List] as d:
-		todo.Equal(d.Output, l)
+		d.Output == l
 	case Enter[Mode]:
 		false
 	case Stay[Mode]:
@@ -68,7 +68,7 @@ law EndIsDone(texts []string, title string) {
 	for m in []Mode{Listing{L: l}, Composing{L: l, Title: title, Lines: []string{}}, Confirming{L: l}} {
 		match Tried(m, Ended) {
 		case Done[todo.List] as d:
-			if !todo.Equal(d.Output, l) {
+			if d.Output != l {
 				return false
 			}
 		case Enter[Mode]:
@@ -96,7 +96,7 @@ law ClearAsksFirst(texts []string, answer string) {
 	case Yes:
 		after.Count() == 0
 	case No:
-		Prompt(asked) == "y/n> " && todo.Equal(after, l)
+		Prompt(asked) == "y/n> " && after == l
 	}
 }
 
@@ -109,5 +109,5 @@ law NoteLinesKeepTheList(texts []string, title string, line string) {
 	if strings.TrimSpace(line) == "." {
 		return ListOf(next).Count() == l.Count()+1 && Prompt(next) == "todo> "
 	}
-	Prompt(next) == "note| " && todo.Equal(ListOf(next), l)
+	Prompt(next) == "note| " && ListOf(next) == l
 }

@@ -1,35 +1,39 @@
 // The rules of JSON text as laws over Parse and Encode.
 
 import strings
+import utf8
 
 // RoundTrip: the text of a value parses back to the value. Sane makes
-// each generated Number a JSON number first.
+// each generated Number a JSON number and each text valid UTF-8 first.
 law RoundTrip(v Value) {
 	let s = Sane(v)
-	Equal(try Parse(Encode(s)), s)
+	try Parse(Encode(s)) == s
 }
 
 // WhiteSpaceIsIgnored: white space around a value and its text does not
 // change it.
 law WhiteSpaceIsIgnored(v Value) {
 	let s = Sane(v)
-	Equal(try Parse(" \n\t"+Encode(s)+"\r\n "), s)
+	try Parse(" \n\t"+Encode(s)+"\r\n ") == s
 }
 
 // EncodeIsOneLine: the text of a value holds no line feed, so a value is
 // one line of a log or a response.
 law EncodeIsOneLine(v Value) { !strings.Contains(Encode(Sane(v)), "\n") }
 
-// QuoteRoundTrip: a quoted string of valid UTF-8 parses back to itself.
+// QuoteRoundTrip: a quoted string of valid UTF-8 parses back to itself,
+// an astral character and a control character included.
 law QuoteRoundTrip(s string) {
-	if !ValidUTF8(s) {
+	if !utf8.ValidString(s) {
 		return true
 	}
-	Equal(try Parse(Quote(s)), Str{V: s})
+	try Parse(Quote(s)) == Str{V: s}
 }
 
 // Sane is v with each Number whose text is not a JSON number replaced by
-// the length of its text, so a generated Value has valid numbers.
+// the length of its text, and each string and member name made valid
+// UTF-8, so a generated Value is one that JSON text can hold: JSON text
+// is UTF-8, and Quote writes a byte that is not as U+FFFD.
 func Sane(v Value) Value {
 	match v {
 	case Number as n:
@@ -37,6 +41,8 @@ func Sane(v Value) Value {
 			return n
 		}
 		Number{Text: "\(len(n.Text))"}
+	case Str as s:
+		Str{V: valid(s.V)}
 	case Arr as a:
 		let mut items = []Value{}
 		for x in a.Items {
@@ -46,13 +52,16 @@ func Sane(v Value) Value {
 	case Obj as o:
 		let mut fields = []Field{}
 		for f in o.Fields {
-			fields = fields.Append(Field{Name: f.Name, Value: Sane(f.Value)})
+			fields = fields.Append(Field{Name: valid(f.Name), Value: Sane(f.Value)})
 		}
 		Obj{Fields: fields}
-	case Null, Bool, Str:
+	case Null, Bool:
 		v
 	}
 }
+
+// valid is s with each run of bytes that is not UTF-8 replaced by U+FFFD.
+func valid(s string) string { strings.ToValidUTF8(s, "\uFFFD") }
 
 // isNumber reports whether text is exactly one JSON number.
 func isNumber(text string) bool {
@@ -65,7 +74,3 @@ func isNumber(text string) bool {
 	}
 	end == len(text)
 }
-
-// ValidUTF8 reports whether s is valid UTF-8. Ergo's std has no utf8
-// package; a user extern binds Go's unicode/utf8, which is pure.
-extern go unicode/utf8.ValidString func ValidUTF8(s string) bool

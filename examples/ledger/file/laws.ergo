@@ -20,33 +20,11 @@ func Written(ts []ledger.Transfer) (string, ledger.Book) {
 	(text, b)
 }
 
-// Agree reports whether a and b have the same accounts, balances and
-// count of transfers.
-func Agree(a ledger.Book, b ledger.Book) bool {
-	let ids = ledger.IDs(a)
-	if len(ids) != len(ledger.IDs(b)) || ledger.Count(a) != ledger.Count(b) {
-		return false
-	}
-	for id in ids {
-		let x = ledger.Balance(a, id) catch {
-		case ledger.UnknownAccount:
-			return false
-		}
-		let y = ledger.Balance(b, id) catch {
-		case ledger.UnknownAccount:
-			return false
-		}
-		if x != y {
-			return false
-		}
-	}
-	true
-}
-
-// ReplayRebuilds: the journal of a day replays to the Book of the day.
+// ReplayRebuilds: the journal of a day replays to the Book of the day:
+// the same accounts, floors, balances, receipts and count.
 law ReplayRebuilds(ns []int) {
 	let text, b = Written(ledger.Day(ns))
-	Agree(try Replay(text), b)
+	(try Replay(text)) == b
 }
 
 // AnyWordKeeps: a key or an account of any text, tabs and line feeds

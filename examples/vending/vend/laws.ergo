@@ -1,5 +1,8 @@
 // The rules of the vending machine as laws over its machine.
 
+import machines
+import time
+
 // Books is the money of a run: what the coins brought in, what the sales
 // kept, the change given and the refunds.
 type Books { In int, Sales int, Change int, Refunds int }
@@ -30,28 +33,71 @@ func Run(s State, sigs []Signal) (State, Books) {
 	let mut books = Books{In: 0, Sales: 0, Change: 0, Refunds: 0}
 	for sig in sigs {
 		let es = Decide(now, sig) catch {
-		case NotEnough, SoldOut, NoSuchSlot, Busy, OutOfService, BadCoin:
+		case Refusal:
 			[]Event{}
 		}
 		books = Kept(books, es)
-		now = Next(now, Apply(now, AtOf(sig), es))
+		now = machines.Next(now, Apply(now, AtOf(sig), es))
 	}
 	(now, books)
 }
 
+// Generated slots and signals seldom meet (a key names no slot, a coin
+// is no denomination), so the run laws also run over Shelf with the
+// mostly valid signals Coins draws from ns.
+
+// Shelf is two slots: A1 cola at 125 with 2 left, B2 chips at 75 with
+// none left.
+func Shelf() []Slot {
+	[]Slot{Slot{Name: "A1", Item: "cola", Price: 125, Count: 2}, Slot{Name: "B2", Item: "chips", Price: 75, Count: 0}}
+}
+
+// Coins is a run of mostly valid signals over Shelf: each n picks a
+// signal, 7 seconds apart.
+func Coins(ns []int) []Signal {
+	let mut out = []Signal{}
+	for i, n in ns {
+		let at = time.Times(7s, i)
+		let k = if n < 0 { -(n % 6) } else { n % 6 }
+		out = out.Append(match k {
+		case 0:
+			Coin{At: at, Cents: 25}
+		case 1:
+			Coin{At: at, Cents: 100}
+		case 2:
+			Select{At: at, Slot: "A1"}
+		case 3:
+			Tick{At: at}
+		case 4:
+			Cancel{At: at}
+		case _:
+			Coin{At: at, Cents: 10}
+		})
+	}
+	out
+}
+
 // MoneyIsKept: every cent a coin brought in is in a sale, in change, in
 // a refund, or still in the credit. No signal makes or loses money.
-law MoneyIsKept(slots []Slot, sigs []Signal) {
+law MoneyIsKept(slots []Slot, sigs []Signal, ns []int) { kept(slots, sigs) && kept(Shelf(), Coins(ns)) }
+
+// kept checks MoneyIsKept for one run.
+func kept(slots []Slot, sigs []Signal) bool {
 	let end, b = Run(Start(slots), sigs)
 	b.In == b.Sales+b.Change+b.Refunds+CreditOf(end)
 }
 
 // ChangeIsNeverNegative: a sale never asks for more than the credit.
-law ChangeIsNeverNegative(slots []Slot, sigs []Signal) {
+law ChangeIsNeverNegative(slots []Slot, sigs []Signal, ns []int) {
+	changes(slots, sigs) && changes(Shelf(), Coins(ns))
+}
+
+// changes checks ChangeIsNeverNegative for one run.
+func changes(slots []Slot, sigs []Signal) bool {
 	let mut s = Start(slots)
 	for sig in sigs {
 		let es = Decide(s, sig) catch {
-		case NotEnough, SoldOut, NoSuchSlot, Busy, OutOfService, BadCoin:
+		case Refusal:
 			continue
 		}
 		for e in es {
@@ -60,21 +106,26 @@ law ChangeIsNeverNegative(slots []Slot, sigs []Signal) {
 				if d.Change < 0 {
 					return false
 				}
-			case Accepted:
-			case Refunded:
-			case Dropped:
-			case WentOff:
-			case CameBack:
+			case Accepted, Refunded, Dropped, WentOff, CameBack:
 			}
 		}
-		s = Next(s, Apply(s, AtOf(sig), es))
+		s = machines.Next(s, Apply(s, AtOf(sig), es))
 	}
 	true
 }
 
 // SaleTakesOne: a sale leaves one fewer in its slot, and only a slot
-// with something in it sells.
-law SaleTakesOne(slots []Slot, credit int, name string) {
+// with something in it sells. On Shelf, a key of A1 or B2 (by n) is
+// refused only for B2, which is empty, or for a credit under 125.
+law SaleTakesOne(slots []Slot, credit int, name string, n int) {
+	let shelfName = if n%2 == 0 { "A1" } else { "B2" }
+	let shelfRefused = shelfName == "B2" || credit < 125
+	sale(slots, credit, name, true) && sale(Shelf(), credit, shelfName, shelfRefused)
+}
+
+// sale checks SaleTakesOne for one key; refused is whether a Reject is
+// right.
+func sale(slots []Slot, credit int, name string, refused bool) bool {
 	let s = Collecting{Slots: slots, Credit: credit, Until: 30s}
 	match Tried(s, Select{At: 1s, Slot: name}) {
 	case Enter[State] as e:
@@ -87,13 +138,9 @@ law SaleTakesOne(slots []Slot, credit int, name string) {
 			return false
 		}
 		before.Count > 0 && after.Count == before.Count-1 && before.Price <= credit
-	case Stay[State]:
-		false
-	case Ignore:
-		false
 	case Reject:
-		true
-	case Done[[]Slot]:
+		refused
+	case Stay[State], Emit[State, []Slot], Ignore, Done[[]Slot]:
 		false
 	}
 }
@@ -101,15 +148,15 @@ law SaleTakesOne(slots []Slot, credit int, name string) {
 // TimeoutRefunds: a credit with no coin or key for Wait is refunded in
 // full and the machine is idle; a tick before then changes nothing.
 law TimeoutRefunds(slots []Slot, credit int, until duration, at duration) {
-	let s = Collecting{Slots: slots, Credit: credit, Until: until}
+	let s State = Collecting{Slots: slots, Credit: credit, Until: until}
 	let es = Decide(s, Tick{At: at}) catch {
-	case NotEnough, SoldOut, NoSuchSlot, Busy, OutOfService, BadCoin:
+	case Refusal:
 		return false
 	}
 	if at < until {
 		return len(es) == 0
 	}
-	Kept(Books{In: 0, Sales: 0, Change: 0, Refunds: 0}, es).Refunds == credit && Name(Next(s, Apply(s, at, es))) == "idle"
+	Kept(Books{In: 0, Sales: 0, Change: 0, Refunds: 0}, es).Refunds == credit && Name(machines.Next(s, Apply(s, at, es))) == "idle"
 }
 
 // OffTakesNoMoney: a machine that is off refuses every coin and key.

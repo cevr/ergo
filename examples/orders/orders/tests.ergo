@@ -1,6 +1,6 @@
-// The domain's pure tests: the rules of a draft and the lifecycle, and the
-// laws restated as property tests (#162). Place and Apply need a Book;
-// their tests are in package memory, which provides one.
+// The domain's pure tests: the rules of a draft and the lifecycle. The
+// laws run under ergo test. Place and Apply need a Book; their tests are
+// in package memory, which provides one.
 
 import slices
 
@@ -40,52 +40,5 @@ test TheLifecycleTable {
 }
 
 test EventNamesRoundTrip(e Event) {
-	match EventNamed(EventName(e)) {
-	case Some[Event] as back:
-		assert EventName(back.Value) == EventName(e)
-	case None:
-		assert false
-	}
-}
-
-test FinalTakesNoEventHolds(s Status, e Event) {
-	if Final(s) {
-		assert Step(s, e) == Reject
-	}
-}
-
-test NoWayBackHolds(s Status, e Event) {
-	match Step(s, e) {
-	case Enter[Status] as n:
-		assert Rank(n.Next) > Rank(s)
-	case Stay[Status] as n:
-		assert Rank(n.Next) == Rank(s)
-	case Ignore, Reject:
-	case Done[Status] as d:
-		assert Rank(d.Output) >= Rank(s)
-	}
-}
-
-test PayIsIdempotentHolds(s Status) {
-	let once = after(s, Pay)
-	assert Name(after(once, Pay)) == Name(once)
-}
-
-test ShippedWasPaidHolds(s Status) {
-	match Step(s, Ship) {
-	case Enter[Status]:
-		assert Name(s) == "paid"
-	case Stay[Status], Ignore, Reject, Done[Status]:
-	}
-}
-
-test TotalIsTheSumOfLinesHolds(a []Line, b []Line) {
-	let mut both = []Line{}
-	for l in a {
-		both = both.Append(l)
-	}
-	for l in b {
-		both = both.Append(l)
-	}
-	assert Total(both) == Total(a)+Total(b)
+	assert EventNamed(EventName(e)) == Some[Event]{Value: e}
 }

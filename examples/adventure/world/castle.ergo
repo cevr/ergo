@@ -1,21 +1,17 @@
+import slices
+
 // Castle is the adventure the binary plays: find the lamp, take the key
 // from the dark cellar, unlock the tower and climb to the roof.
 func Castle() World {
 	let mut exits = []Exit{}
-	for e in Both("gate", North, "hall", "", "") {
-		exits = exits.Append(e)
-	}
-	for e in Both("hall", East, "kitchen", "", "") {
-		exits = exits.Append(e)
-	}
-	for e in Both("kitchen", Down, "cellar", "lamp", "It is too dark to go down without a light.") {
-		exits = exits.Append(e)
-	}
-	for e in Both("hall", West, "tower", "key", "The tower door is locked.") {
-		exits = exits.Append(e)
-	}
-	for e in Both("tower", Up, "roof", "", "") {
-		exits = exits.Append(e)
+	for pair in [][]Exit{
+		Both("gate", North, "hall", "", ""),
+		Both("hall", East, "kitchen", "", ""),
+		Both("kitchen", Down, "cellar", "lamp", "It is too dark to go down without a light."),
+		Both("hall", West, "tower", "key", "The tower door is locked."),
+		Both("tower", Up, "roof", "", ""),
+	} {
+		exits = slices.Concat(exits, pair)
 	}
 	World{
 		Rooms: []Room{

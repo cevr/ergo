@@ -1,7 +1,5 @@
 // The reader's tests: golden documents, each rule of the machine, the
-// inline spans, the Highlighters, and the laws restated as property tests
-// (#162 runs laws). The property tests build documents from a pool of
-// lines that reach every kind of line.
+// inline spans and the Highlighters. The laws run under ergo test.
 
 import mdhtml/html
 import strings
@@ -50,97 +48,10 @@ test InlineSpans {
 	assert inline("[open") == "[open"
 }
 
-// pool is lines of every kind, for the property tests.
-let pool = []string{"", "text", "more *em* text", "# head", "### sub", "- a", "* b", "1. one", "2. two", "```", "```go", "---", "  indented", "\\*x\\*", "[l](u)"}
-
-// doc is the lines that ns pick from pool.
-func doc(ns []int) []string {
-	let mut out = []string{}
-	for n in ns {
-		let k = if n < 0 { -(n + 1) } else { n }
-		out = out.Append(pool[k%len(pool)])
-	}
-	out
-}
-
-test EndIsDoneHolds(ns []int) {
-	let m = After(doc(ns))
-	match Step(m, End) {
-	case Done[[]Block] as d:
-		assert SameBlocks(d.Output, Closed(m))
-	case Enter[Mode], Stay[Mode], Ignore, Reject:
-		assert false
-	}
-}
-
-test BlankSeparatesHolds(xs []int, ys []int) {
-	let a = doc(xs)
-	let b = doc(ys)
-	if IsCode(After(a)) {
-		return
-	}
-	let mut both = []string{}
-	for l in a {
-		both = both.Append(l)
-	}
-	both = both.Append("")
-	for l in b {
-		both = both.Append(l)
-	}
-	let mut parts = []Block{}
-	for x in Read(a) {
-		parts = parts.Append(x)
-	}
-	for x in Read(b) {
-		parts = parts.Append(x)
-	}
-	assert SameBlocks(Read(both), parts)
-}
-
-test FenceKeepsLinesHolds(ns []int, extra string) {
-	let mut lines = doc(ns)
-	lines = lines.Append(extra)
-	let mut src = []string{"```"}
-	for l in lines {
-		if strings.TrimSpace(l) == "```" {
-			return
-		}
-		src = src.Append(l)
-	}
-	src = src.Append("```")
-	assert SameBlocks(Read(src), []Block{Code{Info: "", Text: strings.Join(lines, "\n")}})
-}
-
-test PlainTextStaysTextHolds(s string) {
-	let mut kept = []string{}
-	for i in 0..len(s) {
-		if !isMarker(s[i]) {
-			kept = kept.Append(strings.Slice(s, i, i+1))
-		}
-	}
-	let t = strings.Join(kept, "")
-	let ns = Inline(t)
-	if t == "" {
-		assert len(ns) == 0
-	} else {
-		assert len(ns) == 1 && html.RenderAll(ns) == html.Escape(t)
-	}
-}
-
-test EscapedMarkersAreTextHolds(s string, ns []int) {
-	let mut src = []string{}
-	let text = s + strings.Join(doc(ns), "")
-	for i in 0..len(text) {
-		let c = strings.Slice(text, i, i+1)
-		src = src.Append(if isMarker(text[i]) { "\\" + c } else { c })
-	}
-	let out = Inline(strings.Join(src, ""))
-	assert TextOfAll(out) == text
-	assert !strings.Contains(html.RenderAll(out), "<")
-}
-
-test KeepsTheTextHolds(code string, ns []int) {
-	let text = code + strings.Join(doc(ns), " func for ")
+// The Go keywords keep the text: the law KeepsTheText meets generated
+// Keywords, whose words rarely occur in generated code.
+test GoKeywordsKeepTheText(code string, ns []int) {
+	let text = code + strings.Join(Doc(ns), " func for ")
 	for info in []string{"go", "sh", ""} {
 		assert with plain { TextOfAll(Highlighter.Highlight(info, text)) } == text
 		assert with colored { TextOfAll(Highlighter.Highlight(info, text)) } == text

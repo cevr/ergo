@@ -1,6 +1,6 @@
 // Filtering, grouping and the report's text.
 
-import cmp
+import utf8
 import slices
 import strings
 
@@ -66,7 +66,7 @@ func Group(sales []Sale, k Key) []Summary {
 	for _, t in by {
 		out = out.Append(t)
 	}
-	slices.SortFunc(out, func(a Summary, b Summary) int { cmp.Compare(a.Key, b.Key) })
+	slices.SortFunc(out, func(a Summary, b Summary) int { strings.Compare(a.Key, b.Key) })
 }
 
 // Filter is the sales that k keeps, in order.
@@ -82,10 +82,10 @@ func Table(sales []Sale, k Key) []string {
 	case ByProduct:
 		"product"
 	}
-	let mut width = len(name)
+	let mut width = utf8.RuneCount(name)
 	for g in groups {
-		if len(g.Key) > width {
-			width = len(g.Key)
+		if utf8.RuneCount(g.Key) > width {
+			width = utf8.RuneCount(g.Key)
 		}
 	}
 	let mut out = []string{line(name, "sales", "units", "revenue", width)}
@@ -97,17 +97,8 @@ func Table(sales []Sale, k Key) []string {
 }
 
 // line is one line of the table: the key padded to width, and three
-// columns right-aligned in 6, 7 and 12 bytes. Std has no fmt padding
-// (G-ex-e-11), so pad pads.
+// columns right-aligned in 6, 7 and 12 characters, as Go's
+// fmt.Sprintf("%-*s  %6s  %7s  %12s") writes it.
 func line(key string, sales string, units string, revenue string, width int) string {
-	pad(key, width, false) + "  " + pad(sales, 6, true) + "  " + pad(units, 7, true) + "  " + pad(revenue, 12, true)
-}
-
-// pad is s with spaces to n bytes, before it when right is true.
-func pad(s string, n int, right bool) string {
-	if len(s) >= n {
-		return s
-	}
-	let spaces = strings.Repeat(" ", n-len(s))
-	if right { spaces + s } else { s + spaces }
+	strings.PadRight(key, width, ' ') + "  " + strings.PadLeft(sales, 6, ' ') + "  " + strings.PadLeft(units, 7, ' ') + "  " + strings.PadLeft(revenue, 12, ' ')
 }

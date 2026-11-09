@@ -43,9 +43,9 @@ The program is a module of packages (`ergo.mod`: `module logstat`), in the Go la
 
 ## What it shows
 
-- **Precise typed failures, told by one exhaustive match.** `access.Parse` fails with five records, each with the column of the field it could not read. In the binary, `catch { case err: … }` binds the whole row, which is a value of the union `access.Problem`, so `ColumnOf` and `Describe` each name every failure once, with no `case _`. A new failure fails to check until both say what it is.
+- **Precise typed failures, told by one exhaustive match.** `access.Parse` fails `Problem`, the named row of five records, each with the column of the field it could not read. In the binary, `catch { case err: … }` binds the whole row, which is a value of the union `access.Problem`, so `ColumnOf` and `Describe` each name every failure once, with no `case _`. A new failure fails to check until both say what it is.
 - **A sorted sample as a type.** `stats.Percentiles` takes a `slices.Ascending[int]`, which only `slices.Ascend` builds, so nearest-rank indexing cannot meet an unsorted slice.
-- **Laws over the parser, the arithmetic and the encoder.** `access.FormatParses` (a Valid request's line reads back as the request), `access.ColumnIsInTheLine` (a failure points into the line, for any text), `stats.PercentileIsASampleValue`, `stats.PercentileIsMonotone`, `stats.PercentileCovers`, `stats.RankKeepsEveryKey`, `stats.RankIsOrdered`, `report.QuoteReadsBack` (checked against Go's `strconv.Unquote`), `report.QuoteIsSafe`, `report.KeyNameReadsBack` and `report.EveryRequestIsCounted`. Each is restated as a property test; the parser's are over requests from `access.Gen` and lines that `access.Damaged` breaks, from `Random` bound to `rand.Seeded(seed)`, so a failing case replays from its seed. Each law has a mutant that its test kills (round-1 request).
+- **Laws over the parser, the arithmetic and the encoder.** `access.FormatParses` (a Valid request's line reads back as the request), `access.ColumnIsInTheLine` (a failure points into the line, for any text), `stats.PercentileIsASampleValue`, `stats.PercentileIsMonotone`, `stats.PercentileCovers`, `stats.RankKeepsEveryKey`, `stats.RankIsOrdered`, `report.QuoteReadsBack` (checked against Go's `strconv.Unquote`), `report.QuoteIsSafe`, `report.KeyNameReadsBack` and `report.EveryRequestIsCounted`. `ergo test` runs them. A generated `time.Time` does not exist, so the laws over requests take a `seed` and check `access.Samples(seed)`, Valid requests that `access.Gen` builds from `rand.Seeded(seed)`, and lines that `access.Damaged` breaks; the arithmetic laws make percents and repeating keys of their generated ints (`stats.Percent`, `stats.Keys`). Mutants of the encoder and the tally are killed (`logstat-mutants.json` of the ex-upgrade unit, 3 of 3).
 - **Unions for choices.** The `-by` value becomes a `report.Key`, the output style a `report.Style`, and a status a `access.Class`; each is matched exhaustively.
 - **Capabilities as values.** A file's text is bound as `io.Stdin` (`io.Input{Text: text}`) for the one `read` function, so a file and standard input are read by the same code; the tests bind a Recorder and a Files provider.
 
@@ -53,7 +53,7 @@ The program is a module of packages (`ergo.mod`: `module logstat`), in the Go la
 
 ```sh
 go build -o bin/ergo ./cmd/ergo
-./bin/ergo build examples/logstat/cmd/logstat -o /tmp/logstat && /tmp/logstat -json < examples/logstat/cases/summary/stdin
+./bin/ergo run examples/logstat/cmd/logstat -- -json < examples/logstat/cases/summary/stdin
 ./bin/ergo test examples/logstat/access
 go run ./scripts/examples logstat
 ```
@@ -68,7 +68,8 @@ Each gap has its repro in the run dir's `examples-wave/gaps-ex-a.md`.
 
 - **G-ex-a-11 (std behaviour differs from Go).** A `time.Time` keeps no zone offset: a time parsed with `+0100` is written back with `+0000`. logstat writes every time in UTC, and the law `FormatParses` holds for UTC lines only.
 - **G-ex-a-12 (performance).** `slices.Ascending` has no length or index, and `Items` copies the sample, so `Percentiles` takes every percentile in one call to copy it once.
-- **G-ex-a-13 (missing std op).** No `m[k] += 1` and no update of a Map entry: a Map read may miss, so `Tally` writes a four-line match for each count.
-- **G-ex-a-14 (missing std op).** No JSON encoder, and `strconv.Quote` writes Go escapes (`\x01`) that JSON does not allow. `report.Encode` writes each field and `report.Quote` escapes as Go's `encoding/json` does, but cannot replace invalid UTF-8 (no rune decoder, G-ex-a-1).
-- **G-ex-a-3 again.** `-by` admits only `report.Keys`, so `report.KeyNamed` cannot be `None` there, and the binary counts by path in that arm.
+- **G-ex-a-14 (narrowed).** No JSON encoder: `report.Encode` writes each field and `report.Quote` escapes as Go's `encoding/json` does (now with \ufffd for each invalid byte and \u2028/\u2029, by `utf8.DecodeRuneInString`).
+- **G-exup-7 (missing generator).** `time.Time` has no generator, so a law cannot take a `Request` (`skip law …: time.Time is a standard library type`); `FormatParses` and `EveryRequestIsCounted` take a seed and build requests with `access.Samples`.
 - **Not a gap, found on the way.** `number` is a predeclared constraint, so a function named `number` is S108 (types.md, Generics 2); and `try` must start an expression (`1000000 * try f()` is S001), so the value is bound first.
+
+Closed in batch 12: G-ex-a-13 (`maps.GetOr`: `Tally` is one line per key), G-ex-a-1 here (S3: `Quote` decodes runes and replaces invalid UTF-8 as Go does), G-ex-a-3 here (K: `key` is `Unreachable` for a name `-by` refuses), the named row `access.Problem` (L2), hex literals (L1), `strings.PadLeft` + `strconv.FormatInt` for `\u` escapes, `fstest.Memory` for the binary's tests (the denied file became a real directory), `ergo run DIR -- ARGS` (T1), and the property tests that restated the laws (V1: the laws run, with the steering moved into them).

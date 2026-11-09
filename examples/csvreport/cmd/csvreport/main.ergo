@@ -5,12 +5,12 @@
 // memory.Shelf. This binary is the only place that chooses the providers:
 // the host's file system, arguments and standard output.
 
-import csvreport/csv
+import csv
 import csvreport/files
-import csvreport/memory
 import csvreport/report
 import flag
 import fs
+import fstest
 import io
 import os
 
@@ -43,7 +43,7 @@ func parse(args []string) Query fails flag.Help | flag.Unknown | flag.NeedsValue
 	case None:
 		""
 	}
-	let key report.Key = if region == "product" { report.ByProduct } else { report.ByRegion }
+	let key = if region == "product" { report.ByProduct } else { report.ByRegion }
 	Query{File: file, Keeps: keeps, Key: key}
 }
 
@@ -57,30 +57,22 @@ func run(args []string) fails os.Exit needs io.Stdout | fs.Files {
 		try flag.Exit(err, usage)
 		return
 	}
-	let shelf = files.Load([]string{q.File})
-	let lines = tabled(shelf, q) catch {
-	case report.Missing as m:
-		return os.Exit{Code: 1, Message: "csvreport: no file \(m.Name)"}
-	case report.Unreadable as u:
-		return os.Exit{Code: 1, Message: "csvreport: \(u.Name): \(u.Reason)"}
-	case csv.BadCSV as b:
-		return os.Exit{Code: 1, Message: "csvreport: \(q.File):\(b.Line):\(b.Column): \(b.Reason)"}
-	case report.MissingColumn as m:
-		return os.Exit{Code: 1, Message: "csvreport: \(q.File): the header has no \(m.Name) column"}
-	case report.ShortRow as s:
-		return os.Exit{Code: 1, Message: "csvreport: \(q.File):\(s.Line): \(s.Have) fields, want \(s.Want)"}
-	case report.BadNumber as n:
-		return os.Exit{Code: 1, Message: "csvreport: \(q.File):\(n.Line): \(n.Column) \(n.Text) is not a number"}
-	}
-	for l in lines {
-		io.Stdout.Println(l)
-	}
-}
-
-// tabled is the report q asks for, over the files of shelf.
-func tabled(shelf memory.Shelf, q Query) []string fails report.Missing | report.Unreadable | csv.BadCSV | report.MissingColumn | report.ShortRow | report.BadNumber {
-	with context { report.Source: shelf } {
-		try report.Report(q.File, q.Keeps, q.Key)
+	with context { report.Source: files.Load([]string{q.File}) } {
+		let lines = report.Report(q.File, q.Keeps, q.Key) catch {
+		case report.Missing as m:
+			return os.Exit{Code: 1, Message: "csvreport: no file \(m.Name)"}
+		case report.Unreadable as u:
+			return os.Exit{Code: 1, Message: "csvreport: \(u.Name): \(u.Reason)"}
+		case csv.ParseError as b:
+			return os.Exit{Code: 1, Message: "csvreport: \(q.File):\(b.Line):\(b.Column): \(b.Reason)"}
+		case report.MissingColumn as m:
+			return os.Exit{Code: 1, Message: "csvreport: \(q.File): the header has no \(m.Name) column"}
+		case report.BadNumber as n:
+			return os.Exit{Code: 1, Message: "csvreport: \(q.File): row \(n.Row): \(n.Column) \(n.Text) is not a number"}
+		}
+		for l in lines {
+			io.Stdout.Println(l)
+		}
 	}
 }
 
@@ -90,18 +82,18 @@ func main() fails os.Exit needs Ambient {
 	}
 }
 
-// The tests run run over a memory.Disk and an io.Recorder, with no host.
+// The tests run run over an fstest.Memory and an io.Recorder, with no
+// host.
 
-let disk = memory.Disk{Files: []memory.File{
-	memory.File{Path: "sales.csv", Text: "region,product,units,price\nnorth,tea,3,2.50\nsouth,tea,1,2.50\nnorth,cake,2,4.00\n"},
-	memory.File{Path: "bad.csv", Text: "region,product,units,price\nnorth,tea,three,2.50\n"},
-	memory.File{Path: "quote.csv", Text: "region,product,units,price\nnorth,te\"a,1,2\n"},
-	memory.File{Path: "short.csv", Text: "region,product,units,price\nnorth,tea\n"},
-	memory.File{Path: "cols.csv", Text: "region,item,units,price\n"},
-}}
-
-// ran is run on args, with a failure printed as "exit CODE: MESSAGE".
-func ran(args []string) string {
+// ran is run on args over the test files, with a failure printed as
+// "exit CODE: MESSAGE".
+func ran(args []string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	let disk = fstest.NewMemory()
+	try disk.WriteFile("sales.csv", "region,product,units,price\nnorth,tea,3,2.50\nsouth,tea,1,2.50\nnorth,cake,2,4.00\n")
+	try disk.WriteFile("bad.csv", "region,product,units,price\nnorth,tea,three,2.50\n")
+	try disk.WriteFile("quote.csv", "region,product,units,price\nnorth,te\"a,1,2\n")
+	try disk.WriteFile("short.csv", "region,product,units,price\nnorth,tea\n")
+	try disk.WriteFile("cols.csv", "region,item,units,price\n")
 	let out = io.NewRecorder()
 	with context { io.Stdout: out, fs.Files: disk } {
 		run(args) catch {
@@ -113,23 +105,23 @@ func ran(args []string) string {
 }
 
 test GroupsByRegion {
-	assert ran([]string{"sales.csv"}) == "region   sales    units       revenue\nnorth        2        5         15.50\nsouth        1        1          2.50\ntotal        3        6         18.00\n"
+	assert try ran([]string{"sales.csv"}) == "region   sales    units       revenue\nnorth        2        5         15.50\nsouth        1        1          2.50\ntotal        3        6         18.00\n"
 }
 
 test FiltersAndGroupsByProduct {
-	assert ran([]string{"-by", "product", "-region", "north", "-min", "3", "sales.csv"}) == "product   sales    units       revenue\ntea           1        3          7.50\ntotal         1        3          7.50\n"
+	assert try ran([]string{"-by", "product", "-region", "north", "-min", "3", "sales.csv"}) == "product   sales    units       revenue\ntea           1        3          7.50\ntotal         1        3          7.50\n"
 }
 
 test FailuresExitOne {
-	assert ran([]string{"nosuch.csv"}) == "exit 1: csvreport: no file nosuch.csv\n"
-	assert ran([]string{"bad.csv"}) == "exit 1: csvreport: bad.csv:2: units three is not a number\n"
-	assert ran([]string{"quote.csv"}) == "exit 1: csvreport: quote.csv:2:9: bare \" in a field\n"
-	assert ran([]string{"short.csv"}) == "exit 1: csvreport: short.csv:2: 2 fields, want 4\n"
-	assert ran([]string{"cols.csv"}) == "exit 1: csvreport: cols.csv: the header has no product column\n"
+	assert try ran([]string{"nosuch.csv"}) == "exit 1: csvreport: no file nosuch.csv\n"
+	assert try ran([]string{"bad.csv"}) == "exit 1: csvreport: bad.csv: row 2: units three is not a number\n"
+	assert try ran([]string{"quote.csv"}) == "exit 1: csvreport: quote.csv:2:9: bare \" in non-quoted-field\n"
+	assert try ran([]string{"short.csv"}) == "exit 1: csvreport: short.csv:2:1: wrong number of fields\n"
+	assert try ran([]string{"cols.csv"}) == "exit 1: csvreport: cols.csv: the header has no product column\n"
 }
 
 test UsageErrorsExitTwo {
-	assert ran([]string{}) == "exit 2: missing required flag or argument: file\n"+usage+"\n"
-	assert ran([]string{"-by", "colour", "sales.csv"}) == "exit 2: invalid value \"colour\" for flag -by: not one of region, product\n"+usage+"\n"
-	assert ran([]string{"-min", "many", "sales.csv"}) == "exit 2: invalid value \"many\" for flag -min: parse error\n"+usage+"\n"
+	assert try ran([]string{}) == "exit 2: missing required flag or argument: file\n"+usage+"\n"
+	assert try ran([]string{"-by", "colour", "sales.csv"}) == "exit 2: invalid value \"colour\" for flag -by: not one of region, product\n"+usage+"\n"
+	assert try ran([]string{"-min", "many", "sales.csv"}) == "exit 2: invalid value \"many\" for flag -min: parse error\n"+usage+"\n"
 }

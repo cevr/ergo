@@ -1,7 +1,5 @@
-// The Book's tests: a day worked by hand, each refusal, and the laws
-// restated as property tests (#162).
-
-import slices
+// The Book's tests: a day worked by hand and each refusal (the laws run
+// in laws.ergo).
 
 // refusal is the name of the failure of t in b, or "posted".
 func refusal(b Book, t Transfer) string {
@@ -27,7 +25,7 @@ test ADayWorkedByHand {
 	assert try Balance(b, "carol") == 500
 	assert try Balance(b, World) == -300
 	assert Count(b) == 3 && Total(b) == 0
-	assert slices.Equal(IDs(b), []string{"world", "alice", "bob", "carol"})
+	assert IDs(b) == []string{"world", "alice", "bob", "carol"}
 }
 
 test RefusalsSayWhy {
@@ -51,45 +49,4 @@ test OpenRefuses {
 		return
 	}
 	assert false
-}
-
-test BalancesHold(ns []int) {
-	assert Total(Posted(Bank(), Day(ns))) == 0
-}
-
-test ApplyIsIdempotentHolds(ns []int, m int) {
-	let b = Posted(Bank(), Day(ns))
-	let t = Day([]int{m})[0]
-	let once, first = Apply(b, t) catch {
-	case KeyReused, BadAmount, SameAccount, UnknownAccount, InsufficientFunds:
-		return
-	}
-	let twice, again = try Apply(once, t)
-	assert again == first && Count(twice) == Count(once)
-	let was = try Balance(once, t.From)
-	assert try Balance(twice, t.From) == was
-}
-
-test FloorsHoldHolds(ns []int) {
-	let b = Posted(Bank(), Day(ns))
-	for id in IDs(b) {
-		let low = try floor(b, id)
-		assert try Balance(b, id) >= low
-	}
-}
-
-test ApplyLeavesItsArgumentHolds(ns []int, m int) {
-	let b = Posted(Bank(), Day(ns))
-	let t = Day([]int{m})[0]
-	let before = Count(b)
-	let from = Balance(b, t.From) catch {
-	case UnknownAccount:
-		return
-	}
-	let _, _ = Apply(b, t) catch {
-	case KeyReused, BadAmount, SameAccount, UnknownAccount, InsufficientFunds:
-		return
-	}
-	assert Count(b) == before
-	assert try Balance(b, t.From) == from
 }

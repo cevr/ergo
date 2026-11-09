@@ -23,8 +23,13 @@ law TextSurvivesRendering(words []string) {
 }
 
 // HrefIsSafe: a Url never names a scheme other than http, https and
-// mailto.
-law HrefIsSafe(raw string) { SafeScheme(HrefOf(Href(raw))) }
+// mailto. The raw text starts with a scheme picked from a list half the
+// time: generated strings rarely spell one.
+law HrefIsSafe(raw string, scheme int) {
+	let schemes = []string{"javascript:", "JAVASCRIPT:", "data:", "http:", "vbscript:", "", "a/", " javascript:"}
+	let pick = if scheme < 0 { -(scheme + 1) } else { scheme }
+	SafeScheme(HrefOf(Href(schemes[pick%len(schemes)]+raw))) && SafeScheme(HrefOf(Href(raw)))
+}
 
 // SafeScheme reports whether href is relative or has the scheme http,
 // https or mailto.

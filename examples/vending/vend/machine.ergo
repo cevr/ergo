@@ -38,6 +38,9 @@ type OutOfService {}
 // BadCoin is a coin of a value the machine does not take.
 type BadCoin { Cents int }
 
+// Refusal is the row of every refusal.
+type Refusal = NotEnough | SoldOut | NoSuchSlot | Busy | OutOfService | BadCoin
+
 // Start is a machine switched on with slots.
 func Start(slots []Slot) State { Idle{Slots: slots} }
 
@@ -132,7 +135,7 @@ func sell(slots []Slot, name string, credit int) []Event fails NoSuchSlot | Sold
 // Decide is the events of sig in s. It decides; Evolve only folds. A
 // signal the machine refuses is a failure, and a signal that changes
 // nothing has no events.
-func Decide(s State, sig Signal) []Event fails NotEnough | SoldOut | NoSuchSlot | Busy | OutOfService | BadCoin {
+func Decide(s State, sig Signal) []Event fails Refusal {
 	match (s, sig) {
 	case (Off, Resume as r):
 		[]Event{CameBack{At: r.At}}
@@ -235,37 +238,21 @@ func Apply(s State, at duration, es []Event) Decision[State, []Slot] {
 // Step is the machine's transition: the events Decide records, folded by
 // Apply. The machine never ends, so it is never Done: its output type is
 // the stock it would hand over.
-func Step(s State, sig Signal) Decision[State, []Slot] fails NotEnough | SoldOut | NoSuchSlot | Busy | OutOfService | BadCoin {
+func Step(s State, sig Signal) Decision[State, []Slot] fails Refusal {
 	Apply(s, AtOf(sig), try Decide(s, sig))
 }
 
-// Vend is the vending machine as a machine. It starts with no slots; a
-// program starts it with its own by Start.
+// Vend is the vending machine as a machine. Its input is the slots it is
+// switched on with.
 type Vend machine[State, Signal] {
-	initial: Start([]Slot{}),
+	initial: Start,
 	step:    Step,
 }
 
 // Tried is Step(s, sig), or Reject when the machine refuses sig.
 func Tried(s State, sig Signal) Decision[State, []Slot] {
 	Step(s, sig) catch {
-	case NotEnough, SoldOut, NoSuchSlot, Busy, OutOfService, BadCoin:
+	case Refusal:
 		Reject
-	}
-}
-
-// Next is the state after the decision d in s.
-func Next(s State, d Decision[State, []Slot]) State {
-	match d {
-	case Enter[State] as e:
-		e.Next
-	case Stay[State] as k:
-		k.Next
-	case Ignore:
-		s
-	case Reject:
-		s
-	case Done[[]Slot]:
-		s
 	}
 }

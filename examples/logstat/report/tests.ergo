@@ -1,11 +1,8 @@
-// The report's tests: a summary in each style, an empty log, and the
-// laws restated as property tests (#162 runs laws).
+// The report's tests: a summary in each style, an empty log, and Go's
+// escapes. The laws run under ergo test.
 
 import logstat/access
 import logstat/stats
-import rand
-import strconv
-import strings
 
 let lines = []string{
 	"203.0.113.9 - - [08/Nov/2026:10:00:00 +0000] \"GET /api/users?id=7 HTTP/1.1\" 200 512 0.120",
@@ -60,60 +57,5 @@ test QuoteEscapesAsGo {
 	assert Quote("a\"b\\c") == "\"a\\\"b\\\\c\""
 	assert Quote("<a&b>") == "\"\\u003ca\\u0026b\\u003e\""
 	assert Quote("\n\t\r\x01\x1f é") == "\"\\n\\t\\r\\u0001\\u001f é\""
-}
-
-// ascii is the bytes of s below 128.
-func ascii(s string) string {
-	let mut parts = []string{}
-	for i in 0..len(s) {
-		if s[i] < 128 {
-			parts = parts.Append(strings.Slice(s, i, i+1))
-		}
-	}
-	strings.Join(parts, "")
-}
-
-test QuoteReadsBackHolds(s string) {
-	let a = ascii(s)
-	for t in []string{a, a + "\"\\<>&\n\x00\x7f", "\x01" + a} {
-		if ASCII(t) {
-			let back = strconv.Unquote(Quote(t)) catch {
-			case strconv.Malformed:
-				assert false
-				""
-			}
-			assert back == t
-		}
-	}
-}
-
-test QuoteIsSafeHolds(s string) {
-	assert Safe(Quote(s))
-	assert Safe(Quote(s + "\"\\"))
-	assert Safe(Quote("<\x00>&" + s))
-}
-
-test KeyNameReadsBackHolds {
-	for name in Keys {
-		match KeyNamed(name) {
-		case Some as k:
-			assert KeyName(k.Value) == name
-		case None:
-			assert false
-		}
-	}
-}
-
-test EveryRequestIsCountedHolds(seed int, n int) {
-	with context { Random: rand.Seeded(uint64(seed)) } {
-		let mut rs = []access.Request{}
-		for _ in 0..(if n < 0 { -(n + 1) } else { n })%40 {
-			rs = rs.Append(access.Gen())
-		}
-		for k in []Key{ByPath, ByAddr, ByStatus, ByMethod} {
-			let s = Summarize(rs, 0, k, -1)
-			assert stats.Total(s.Classes) == len(rs)
-			assert stats.Total(s.Top) == len(rs)
-		}
-	}
+	assert Quote("a\xffb\xc3") == "\"a\\ufffdb\\ufffd\"" && Quote("\u2028\ufffd") == "\"\\u2028\ufffd\""
 }

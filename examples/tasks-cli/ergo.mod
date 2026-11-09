@@ -1,1 +1,1 @@
-module tasks
+module taskscli

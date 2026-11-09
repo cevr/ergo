@@ -1,10 +1,7 @@
-// The resolver's tests: a small registry by hand, and the laws restated
-// as property tests over generated registries (#162 runs laws; until
-// then these do).
+// The resolver's tests: a small registry by hand. The laws run under ergo
+// test over generated registries.
 
 import deps/semver
-import slices
-import strings
 
 func v(text string) semver.Version {
 	semver.ParseVersion(text) catch {
@@ -66,26 +63,17 @@ test CircularNamesTheRing {
 		rel("b", "1.0.0", []Requirement{req("c", "^1")}),
 		rel("c", "1.0.0", []Requirement{req("a", "^1")}),
 	}}
-	let text = with context { Index: ring } {
-		ringOf([]Requirement{req("a", "*")})
-	}
-	assert text == "a 1.0.0 -> b 1.0.0 -> c 1.0.0 -> a 1.0.0"
-}
-
-// ringOf is the ring that the resolution of root fails Circular with, or
-// "".
-func ringOf(root []Requirement) string needs Index {
-	let _ = Resolve(root) catch {
-	case Circular as c:
-		let mut names = []string{}
-		for p in c.Path {
-			names = names.Append(p.Name + " " + semver.Format(p.V))
+	with context { Index: ring } {
+		let _ = Resolve([]Requirement{req("a", "*")}) catch {
+		case Circular as c:
+			assert c.Path == []Pin{Pin{Name: "a", V: v("1.0.0")}, Pin{Name: "b", V: v("1.0.0")}, Pin{Name: "c", V: v("1.0.0")}, Pin{Name: "a", V: v("1.0.0")}}
+			return
+		case _:
+			assert false
+			return
 		}
-		return strings.Join(names, " -> ")
-	case _:
-		return ""
+		assert false
 	}
-	""
 }
 
 test WhyIsTheShortestChain {
@@ -98,46 +86,5 @@ test WhyIsTheShortestChain {
 		case None:
 			assert false
 		}
-	}
-}
-
-test ResolutionIsSoundHolds(entries []Entry, root []Need) {
-	let t = TableOf(entries)
-	let r = RootOf(root)
-	with context { Index: t } {
-		assert SoundOrFailed(t, r)
-	}
-}
-
-test ResolutionIsDeterministicHolds(entries []Entry, root []Need) {
-	let r = RootOf(root)
-	let a = with context { Index: TableOf(entries) } {
-		Outcome(r)
-	}
-	let b = with context { Index: Table{Releases: slices.Reverse(Distinct(TableOf(entries)).Releases)} } {
-		Outcome(r)
-	}
-	assert a == b
-}
-
-test NoVersionIsHonestHolds(entries []Entry, root []Need) {
-	let t = TableOf(entries)
-	with context { Index: t } {
-		assert Honest(t, RootOf(root))
-	}
-}
-
-test TableKeepsTheIndexLaws(entries []Entry, n int) {
-	let t = TableOf(entries)
-	let name = NameOf(n)
-	let vs = t.Versions(name) catch {
-	case UnknownPackage:
-		return
-	}
-	for i in 1..len(vs) {
-		assert semver.Compare(vs[i-1], vs[i]) > 0
-	}
-	for x in vs {
-		let _ = try t.Needs(name, x)
 	}
 }

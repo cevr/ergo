@@ -1,5 +1,5 @@
-// Shelf's tests, and report.Source's law restated over it (laws are
-// checked, not run, #162).
+// Shelf's tests, and report.Source's law restated over it (it runs only
+// for providers in report, G-exup-1).
 
 import csvreport/report
 

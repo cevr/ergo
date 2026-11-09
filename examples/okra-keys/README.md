@@ -10,9 +10,9 @@ The program is a module of packages (`ergo.mod`: `module okrakeys`), in the Go l
 
 | folder | what it holds |
 | --- | --- |
-| `keys/` | The domain. `keys.ergo` (`Keys` in a JavaScript object's order, `Set`, `Remove`, `Lookup`, `Names`, `IsIndex`), `store.ergo` (the contract `Store`, an operation type with the law `LoadSeesSave`; `StoreFailed`; `Same`; `Mask`), `commands.ergo` (the union `Cmd`, `Parse`, `Usage`), `help.ergo` (effect/cli's help texts), `run.ergo` (`Run`, `EnvVar`, `NotFound`, `InvalidInput`), `laws.ergo`, `tests.ergo`. |
+| `keys/` | The domain. `keys.ergo` (`Keys` in a JavaScript object's order, `Set`, `Remove`, `Lookup`, `Names`, `IsIndex`), `store.ergo` (the contract `Store`, an operation type with the law `LoadSeesSave`; `StoreFailed`; `Mask`), `commands.ergo` (the union `Cmd`, `Parse`, `Usage`), `help.ergo` (effect/cli's help texts), `run.ergo` (`Run`, `EnvVar`, `NotFound`, `InvalidInput`), `laws.ergo`, `tests.ergo`. |
 | `keyfile/` | The file's text. `codec.ergo` (`Decode` as `JSON.parse` reads an object of strings, `Encode` as `JSON.stringify` writes it), `laws.ergo`, `tests.ergo`. Pure. |
-| `files/` | `Home`, the host's `Store`: `.okra/keys.json` under the home directory, through the `fs.Files` and `fs.Writes` it holds. `tests.ergo` drives it over a file system held in a Map. |
+| `files/` | `Home`, the host's `Store`: `.okra/keys.json` under the home directory, through the `fs.Files` and `fs.Writes` it holds. `tests.ergo` drives it over an `fstest.Memory`. |
 | `memory/` | `Vault`, the in-memory `Store` for tests. |
 | `cmd/okra-keys/` | The binary. `main.ergo` binds the host's `os.Process`, the standard streams and a `files.Home`, and is the only place that chooses them; it turns each failure into okra's report. Its tests run the commands over a `memory.Vault` and a process of their own. |
 
@@ -42,12 +42,12 @@ go run ./scripts/examples okra-keys
 - `Mask` and the order of `list` count bytes; okra counts UTF-16 units. They agree for ASCII keys and names.
 - A key is trimmed with Go's `strings.TrimSpace`, which removes U+0085 and not U+FEFF; JavaScript's `trim` does the opposite.
 - okra's global flags (`--help`, `--version`, `--wizard`, `--completions`, `--log-level`) are not ported: the port refuses them as unrecognized flags.
-- okra makes the file 0600 after it writes it; the port cannot (G-ex-d-15).
 
 ## Limits found
 
-- **G-ex-d-15** std `fs` has no chmod and no file mode on `WriteFile`, so a file of secrets is written 0666 less the umask.
-- **G-ex-d-6** No std json: `keyfile` is a hand codec for one shape, and its byte loop needs **G-ex-d-1** (no rune to text) for `\u` escapes.
+Closed in batch 12: G-ex-d-15 (`Save` writes the key file with `WriteFileMode(…, fs.Private())` and its directory with `MkdirAllMode(…, fs.PrivateDir())`: 0600 from the moment it is made, where okra chmods after the write; `TheKeyFileIsTheOwners`), G-ex-d-1 (`utf8.RuneText` for `\u` escapes, hex literals for the surrogate ranges, `strings.PadLeft` for the `\u00XX` form), G-ex-d-5 (`Keys` compares with `==`), G-ex-b-3 (`memory.Vault` holds its keys in a `sync.Ref`; the tests use `fstest.Memory`).
+
+- **G-ex-d-6** No std json: `keyfile` is a hand codec for one shape.
 - **G-ex-d-4** Generated strings hold no quote, backslash or control byte, so the codec's laws `Spice` them.
-- **G-ex-d-5** `Keys` holds a slice, so it has no `==`: `keys.Same`.
-- Known from other lanes: a provider's state is a `Map` field (G-ex-b-3, `memory.Vault`, the tests' `disk`); a composite literal in an `if` header needs parentheses (G-ex-c-2); `try` stands only at the start of an expression, so `a + try f()` needs a `let`.
+- **G-exup-1** `Store`'s law `LoadSeesSave` runs only for providers in `keys` (`skip law Store.LoadSeesSave: no type of the package implements Store`), so `memory`'s and `files`' tests restate it.
+- Known from other lanes: `try` stands only at the start of an expression, so `a + try f()` needs a `let`.

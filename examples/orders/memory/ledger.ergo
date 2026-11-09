@@ -3,43 +3,55 @@
 // connection (cmd/orders).
 
 import orders/orders
+import sync
 
-// Ledger is an orders.Book in memory: the orders by ID, and the IDs in
-// the order they were added. Its maps are shared by every copy, so a
-// Ledger bound in a context keeps its orders from one request to the
-// next. New makes one.
-type Ledger { byID Map[string, orders.Order], order Map[int, string] }
+// entries is what a Ledger holds: the orders by ID, and the IDs in the
+// order they were added.
+type entries { byID Map[string, orders.Order], order []string }
+
+// Ledger is an orders.Book in memory. Its entries are in a sync.Ref, so
+// every copy of a Ledger is the same store: a Ledger bound in a context
+// keeps its orders from one request to the next. New makes one.
+type Ledger { cell sync.Ref[entries] }
 
 // New is an empty Ledger.
 func New() Ledger {
-	let byID Map[string, orders.Order]
-	let order Map[int, string]
-	Ledger{byID: byID, order: order}
+	Ledger{cell: sync.NewRef[entries](entries{byID: Map[string, orders.Order]{}, order: []string{}})}
 }
 
 // Add keeps o under its ID.
 func Add(l Ledger, o orders.Order) fails orders.Taken {
-	match l.byID.Get(o.ID) {
-	case Some[orders.Order]:
+	let added = sync.Modify(l.cell, func(e entries) (bool, entries) {
+		if e.byID.Get(o.ID) != None {
+			return (false, e)
+		}
+		let mut byID = e.byID
+		byID[o.ID] = o
+		(true, entries{byID: byID, order: e.order.Append(o.ID)})
+	})
+	if !added {
 		return orders.Taken{ID: o.ID}
-	case None:
 	}
-	let mut byID = l.byID
-	let mut order = l.order
-	order[len(order)] = o.ID
-	byID[o.ID] = o
 }
 
 // Replace keeps o in place of the order of its ID.
 func Replace(l Ledger, o orders.Order) fails orders.NotFound {
-	let _ = try l.Find(o.ID)
-	let mut byID = l.byID
-	byID[o.ID] = o
+	let found = sync.Modify(l.cell, func(e entries) (bool, entries) {
+		if e.byID.Get(o.ID) == None {
+			return (false, e)
+		}
+		let mut byID = e.byID
+		byID[o.ID] = o
+		(true, entries{..e, byID: byID})
+	})
+	if !found {
+		return orders.NotFound{ID: o.ID}
+	}
 }
 
 // Find is the order of id.
 func Find(l Ledger, id string) orders.Order fails orders.NotFound {
-	match l.byID.Get(id) {
+	match l.cell.Get().byID.Get(id) {
 	case Some[orders.Order] as o:
 		o.Value
 	case None:
@@ -49,15 +61,12 @@ func Find(l Ledger, id string) orders.Order fails orders.NotFound {
 
 // All is every order, in the order they were added.
 func All(l Ledger) []orders.Order {
+	let e = l.cell.Get()
 	let mut out = []orders.Order{}
-	for i in 0..len(l.order) {
-		match l.order.Get(i) {
-		case Some[string] as id:
-			match l.byID.Get(id.Value) {
-			case Some[orders.Order] as o:
-				out = out.Append(o.Value)
-			case None:
-			}
+	for id in e.order {
+		match e.byID.Get(id) {
+		case Some[orders.Order] as o:
+			out = out.Append(o.Value)
 		case None:
 		}
 	}
@@ -65,4 +74,4 @@ func All(l Ledger) []orders.Order {
 }
 
 // Count is how many orders the Ledger holds.
-func Count(l Ledger) int { len(l.byID) }
+func Count(l Ledger) int { len(l.cell.Get().byID) }

@@ -1,5 +1,5 @@
-// The limiter's tests: a burst and its refill worked by hand, and the
-// laws restated as property tests (#162).
+// The limiter's tests: a burst and its refill worked by hand. The laws
+// run under ergo test.
 
 test ABurstThenOneEach {
 	let got = Taken(2, 100ms, []duration{0s, 0s, 0s, 50ms, 100ms, 150ms, 200ms, 450ms, 450ms, 450ms})
@@ -19,41 +19,4 @@ test NextAtWaitsForTheToken {
 	assert NextAt(b, 30ms) == 100ms
 	assert NextAt(b, 130ms) == 130ms
 	assert NextAt(Full(1, 0s, 0s), 5s) == 5s
-}
-
-test RateHoldsHolds(b int, e int, ns []int) {
-	let burst, every = shape(b, e)
-	let got = Taken(burst, every, Times(ns))
-	for i, a in got {
-		for j in i..len(got) {
-			let window = int64(got[j]-a) / int64(every)
-			assert int64(j-i+1) <= int64(burst)+window+1
-		}
-	}
-}
-
-test NeverOverBurstHolds(b int, e int, ns []int) {
-	let burst, every = shape(b, e)
-	let mut k = Full(burst, every, 0s)
-	for t in Times(ns) {
-		assert Tokens(k, t) <= burst
-		match Take(k, t) {
-		case Some[Bucket] as next:
-			k = next.Value
-		case None:
-		}
-	}
-}
-
-test NextAtHasATokenHolds(b int, e int, ns []int) {
-	let burst, every = shape(b, e)
-	let mut k = Full(burst, every, 0s)
-	for t in Times(ns) {
-		match Take(k, NextAt(k, t)) {
-		case Some[Bucket] as next:
-			k = next.Value
-		case None:
-			assert false
-		}
-	}
 }

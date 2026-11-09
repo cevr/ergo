@@ -6,12 +6,12 @@
 // tasks.txt) on the host's file system, and the host's streams.
 
 import fs
+import fstest
 import io
 import os
-import tasks/cli
-import tasks/file
-import tasks/memory
-import tasks/tasks
+import taskscli/cli
+import taskscli/file
+import taskscli/tasks
 
 // path is the file of the tasks: $TASKS_FILE, or tasks.txt in the working
 // directory.
@@ -39,7 +39,7 @@ func main() fails os.Exit needs Ambient {
 }
 
 test TheFileKeepsTasksBetweenRuns {
-	let disk = memory.NewDisk()
+	let disk = fstest.NewMemory()
 	let out = io.NewRecorder()
 	with context { io.Stdout: out, io.Stdin: io.Input{Text: ""} } {
 		try run("t.txt", []string{"create", "one"}, disk, disk)

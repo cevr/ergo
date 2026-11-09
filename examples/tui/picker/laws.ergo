@@ -1,35 +1,27 @@
-// The rules of the picker as laws over Step and Run.
+// The rules of the picker as laws over Step and Run. `ergo test` runs
+// them. Generated keys seldom filter and generated items seldom match, so
+// each law also runs on the scripted languages and on keys that narrow
+// the list first.
 
+import slices
 import strings
 import tui/keys
 
+// langs is the items of the scripted sessions.
+let langs = []string{"Gleam", "ReScript", "Elixir", "Elm"}
+
+// narrow is keys that move down and then narrow the list under the
+// cursor.
+let narrow = []keys.Key{keys.Down, keys.Down, keys.Down, keys.Char{Text: "/"}, keys.Char{Text: "m"}}
+
 // CursorStaysOnTheList: after any keys, the cursor is on a visible item,
 // or at 0 when none is visible.
-law CursorStaysOnTheList(items []string, ks []keys.Key) { CursorStaysOnTheListHolds(items, ks) }
-
-// VisibleIsTheMatches: the visible items are the items that hold the
-// filter, in any case, in their order.
-law VisibleIsTheMatches(items []string, filter string) { VisibleIsTheMatchesHolds(items, filter) }
-
-// TypeThenDeleteIsNoChange: in Filtering, a typed character and then a
-// Backspace leave the filter as it was.
-law TypeThenDeleteIsNoChange(items []string, filter string, c string) { TypeThenDeleteIsNoChangeHolds(items, filter, c) }
-
-// APickIsVisible: what a run picks is an item visible in its last mode.
-law APickIsVisible(items []string, ks []keys.Key) { APickIsVisibleHolds(items, ks) }
-
-// InterruptCancels: Ctrl-C ends the picker with no item, in every mode.
-law InterruptCancels(m Mode) {
-	match Step(m, keys.Interrupt) {
-	case Done[Choice] as d:
-		d.Output == Cancelled
-	case Enter[Mode], Stay[Mode], Ignore, Reject:
-		false
-	}
+law CursorStaysOnTheList(items []string, ks []keys.Key) {
+	cursorStays(items, ks) && cursorStays(langs, ks) && cursorStays(langs, slices.Concat(narrow, ks))
 }
 
-// CursorStaysOnTheListHolds checks CursorStaysOnTheList.
-func CursorStaysOnTheListHolds(items []string, ks []keys.Key) bool {
+// cursorStays checks CursorStaysOnTheList for one run.
+func cursorStays(items []string, ks []keys.Key) bool {
 	for m in Run(Start(items), ks).Frames {
 		let v = ViewOf(m)
 		let n = len(Visible(v))
@@ -40,9 +32,23 @@ func CursorStaysOnTheListHolds(items []string, ks []keys.Key) bool {
 	true
 }
 
-// VisibleIsTheMatchesHolds checks VisibleIsTheMatches, written apart from
-// Visible: it walks the items and the visible list side by side.
-func VisibleIsTheMatchesHolds(items []string, filter string) bool {
+// VisibleIsTheMatches: the visible items are the items that hold the
+// filter, in any case, in their order. The filter is the one given, and a
+// half of an item in upper case, so the list is not empty.
+law VisibleIsTheMatches(items []string, filter string, n int) {
+	if !matches(items, filter) {
+		return false
+	}
+	if len(items) == 0 {
+		return true
+	}
+	let item = items[(if n < 0 { -(n + 1) } else { n })%len(items)]
+	matches(items, strings.ToUpper(strings.Slice(item, 0, len(item)/2)))
+}
+
+// matches checks VisibleIsTheMatches for one filter, apart from Visible:
+// it walks the items and the visible list side by side.
+func matches(items []string, filter string) bool {
 	let shown = Visible(View{Items: items, Filter: filter, Cursor: 0})
 	let mut at = 0
 	for item in items {
@@ -56,17 +62,20 @@ func VisibleIsTheMatchesHolds(items []string, filter string) bool {
 	at == len(shown)
 }
 
-// TypeThenDeleteIsNoChangeHolds checks TypeThenDeleteIsNoChange for a c
-// of one printable ASCII character.
-func TypeThenDeleteIsNoChangeHolds(items []string, filter string, c string) bool {
+// TypeThenDeleteIsNoChange: in Filtering, a typed character and then a
+// Backspace leave the filter as it was.
+law TypeThenDeleteIsNoChange(items []string, filter string, c string) {
 	let letter = if len(c) == 0 || c[0] < 32 || c[0] >= 127 { "a" } else { strings.Slice(c, 0, 1) }
 	let start = Filtering{View: View{Items: items, Filter: filter, Cursor: 0}}
 	let o = Run(start, []keys.Key{keys.Char{Text: letter}, keys.Backspace})
 	ViewOf(Last(o)).Filter == filter
 }
 
-// APickIsVisibleHolds checks APickIsVisible.
-func APickIsVisibleHolds(items []string, ks []keys.Key) bool {
+// APickIsVisible: what a run picks is an item visible in its last mode.
+law APickIsVisible(items []string, ks []keys.Key) { pickIsVisible(items, ks) && pickIsVisible(langs, ks) }
+
+// pickIsVisible checks APickIsVisible for one run.
+func pickIsVisible(items []string, ks []keys.Key) bool {
 	let o = Run(Start(items), ks)
 	match o.Choice {
 	case Some[Choice] as c:
@@ -81,4 +90,19 @@ func APickIsVisibleHolds(items []string, ks []keys.Key) bool {
 	case None:
 		true
 	}
+}
+
+// InterruptCancels: Ctrl-C ends the picker with no item, in every mode.
+law InterruptCancels(v View) {
+	for m in []Mode{Browsing{View: v}, Filtering{View: v}} {
+		match Step(m, keys.Interrupt) {
+		case Done[Choice] as d:
+			if d.Output != Cancelled {
+				return false
+			}
+		case Enter[Mode], Stay[Mode], Emit[Mode, Choice], Ignore, Reject:
+			return false
+		}
+	}
+	true
 }

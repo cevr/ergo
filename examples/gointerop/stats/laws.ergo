@@ -1,6 +1,8 @@
 // The rules of a summary as laws over lists of small whole numbers, so
 // no sum overflows and every rule can be checked to a relative 1e-9.
 
+import math
+
 // Small is xs as float64 values in -500 to 499, with one more value from
 // extra, so the list is never empty.
 func Small(xs []int, extra int) []float64 {
@@ -38,7 +40,7 @@ law ShiftKeepsSpread(xs []int, extra int, c int) {
 	case Empty:
 		return false
 	}
-	Near(b.Mean, a.Mean+shift) && abs(b.StdDev-a.StdDev) <= 1e-6
+	Near(b.Mean, a.Mean+shift) && math.Abs(b.StdDev-a.StdDev) <= 1e-6
 }
 
 // GeoMeanAtMostMean: for positive values the geometric mean is at most

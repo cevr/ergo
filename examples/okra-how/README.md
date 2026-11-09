@@ -46,7 +46,7 @@ The guides are read from `$OKRA_GUIDES`, or from `guides` in the working directo
 
 ## What waits
 
-- Laws run as generated tests when #162 lands; then the property tests that restate them go.
+- `Library.NamedOnce` and `Library.GuideIsRepeatable` are skipped for `memory.Shelf`, a provider in another package (G-exup-1); `memory/tests.ergo` checks them. The domain laws run under `ergo test`, and the property tests that restated them are gone (#162 landed).
 
 ## Cases
 

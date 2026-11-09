@@ -1,42 +1,51 @@
 // The journal's tests: its lines, a corrupt file, a disk that fails, and
-// the ledger.Store laws and the journal's own, restated as property tests
-// (#162). The journal runs on a memory Disk, never on the host.
+// the ledger.Store laws restated as property tests (they run only for
+// providers in ledger's own package, G-exup-1). The journal runs on an
+// fstest.Memory, never on the host.
 
 import fs
+import fstest
 import ledger/ledger
 import ledger/memory
 
-// Broken is a disk that fails every read and write.
+// Broken is a disk that fails every read and write with its reason.
 type Broken { reason string }
 
-func ReadFile(b Broken, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
-	fs.Failed{Path: path, Reason: b.reason}
+func ReadFile(b Broken, path string) string fails fs.NotFound | fs.Denied | fs.Failed { b.at(path) }
+
+func ReadDir(b Broken, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { b.at(path) }
+
+func Stat(b Broken, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { b.at(path) }
+
+func WriteFile(b Broken, path string, _ string) fails fs.NotFound | fs.Denied | fs.Failed { b.at(path) }
+
+func WriteFileMode(b Broken, path string, _ string, _ fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {
+	b.at(path)
 }
 
-func ReadDir(b Broken, path string) []string fails fs.NotFound | fs.Denied | fs.Failed {
-	fs.Failed{Path: path, Reason: b.reason}
-}
+func AppendFile(b Broken, path string, _ string) fails fs.NotFound | fs.Denied | fs.Failed { b.at(path) }
 
-func Stat(b Broken, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
-	fs.Failed{Path: path, Reason: b.reason}
-}
+func MkdirAll(b Broken, path string) fails fs.Denied | fs.Failed { b.at(path) }
 
-func WriteFile(b Broken, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {
-	fs.Failed{Path: path, Reason: b.reason}
-}
+func MkdirAllMode(b Broken, path string, _ fs.Mode) fails fs.Denied | fs.Failed { b.at(path) }
 
-func MkdirAll(b Broken, path string) fails fs.Denied | fs.Failed {
-	fs.Failed{Path: path, Reason: b.reason}
-}
+func Chmod(b Broken, path string, _ fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed { b.at(path) }
 
-// on is a Journal at bank.journal on the Disk d.
-func on(d memory.Disk) Journal { At("bank.journal", d, d) }
+func Rename(b Broken, from string, _ string) fails fs.NotFound | fs.Denied | fs.Failed { b.at(from) }
 
-// day is a Journal on a fresh Disk with the accounts of ledger.Bank and
+func Remove(b Broken, path string) fails fs.NotFound | fs.Denied | fs.Failed { b.at(path) }
+
+// at is b's failure at path.
+func at(b Broken, path string) fs.Failed { fs.Failed{Path: path, Reason: b.reason} }
+
+// on is a Journal at bank.journal on d.
+func on(d fstest.Memory) Journal { At("bank.journal", d, d) }
+
+// day is a Journal on a fresh fstest.Memory with the accounts of ledger.Bank and
 // the transfers of ledger.Day(ns) posted.
-func day(ns []int) ledger.Store {
+func day(ns []int) ledger.Store fails fs.NotFound | fs.Denied | fs.Failed {
 	let text, _ = Written(ledger.Day(ns))
-	on(memory.NewDisk(Map[string, string]{"bank.journal": text}))
+	on(try memory.Files(Map[string, string]{"bank.journal": text}))
 }
 
 // total is the sum of the balances of s.
@@ -70,36 +79,34 @@ func tried(s ledger.Store, t ledger.Transfer) string {
 }
 
 test WritesOneLineEach {
-	let d = memory.NewDisk(Map[string, string]{})
+	let d = fstest.NewMemory()
 	let s ledger.Store = on(d)
 	try s.Open("alice", 0)
 	let _ = try s.Post(ledger.Transfer{Key: "d1", From: ledger.World, To: "alice", Amount: 250})
 	let _ = try s.Post(ledger.Transfer{Key: "d1", From: ledger.World, To: "alice", Amount: 250})
-	let r fs.Files = d
-	assert try r.ReadFile("bank.journal") == "open\t\"alice\"\t0\npost\t\"d1\"\t\"world\"\t\"alice\"\t250\n"
+	assert try d.ReadFile("bank.journal") == "open\t\"alice\"\t0\npost\t\"d1\"\t\"world\"\t\"alice\"\t250\n"
 	assert try s.Balance("alice") == 250
 }
 
 test ARefusalWritesNothing {
-	let d = memory.NewDisk(Map[string, string]{})
+	let d = fstest.NewMemory()
 	let s ledger.Store = on(d)
 	try s.Open("alice", 0)
 	assert tried(s, ledger.Transfer{Key: "p", From: "alice", To: ledger.World, Amount: 1}) == "insufficient 0"
-	let r fs.Files = d
-	assert try r.ReadFile("bank.journal") == "open\t\"alice\"\t0\n"
+	assert try d.ReadFile("bank.journal") == "open\t\"alice\"\t0\n"
 }
 
 test CorruptIsUnavailable {
-	assert why(on(memory.NewDisk(Map[string, string]{"bank.journal": "open\t\"a\"\t0\nopen\t\"a\"\t0\n"}))) == "bank.journal:2: the account a does not open"
-	assert why(on(memory.NewDisk(Map[string, string]{"bank.journal": "post\t\"k\"\t\"world\"\t\"a\"\t5\n"}))) == "bank.journal:1: the transfer k does not post"
-	assert why(on(memory.NewDisk(Map[string, string]{"bank.journal": "open\talice\t0\n"}))) == "bank.journal:1: alice is not a quoted word"
-	assert why(on(memory.NewDisk(Map[string, string]{"bank.journal": "close\t\"a\"\n"}))) == "bank.journal:1: not an open or a post line"
+	assert why(on(try memory.Files(Map[string, string]{"bank.journal": "open\t\"a\"\t0\nopen\t\"a\"\t0\n"}))) == "bank.journal:2: the account a does not open"
+	assert why(on(try memory.Files(Map[string, string]{"bank.journal": "post\t\"k\"\t\"world\"\t\"a\"\t5\n"}))) == "bank.journal:1: the transfer k does not post"
+	assert why(on(try memory.Files(Map[string, string]{"bank.journal": "open\talice\t0\n"}))) == "bank.journal:1: alice is not a quoted word"
+	assert why(on(try memory.Files(Map[string, string]{"bank.journal": "close\t\"a\"\n"}))) == "bank.journal:1: not an open or a post line"
 	assert why(At("bank.journal", Broken{reason: "disk on fire"}, Broken{reason: "disk on fire"})) == "bank.journal: disk on fire"
-	assert why(on(memory.NewDisk(Map[string, string]{}))) == "ok"
+	assert why(on(fstest.NewMemory())) == "ok"
 }
 
 test TotalIsKeptHolds(ns []int, m int) {
-	let s = day(ns)
+	let s = try day(ns)
 	let t = ledger.Day([]int{m})[0]
 	let before = try total(s)
 	let _ = s.Post(t) catch {
@@ -111,7 +118,7 @@ test TotalIsKeptHolds(ns []int, m int) {
 }
 
 test PostIsIdempotentHolds(ns []int, m int) {
-	let s = day(ns)
+	let s = try day(ns)
 	let t = ledger.Day([]int{m})[0]
 	let first = s.Post(t) catch {
 	case ledger.KeyReused, ledger.BadAmount, ledger.SameAccount, ledger.UnknownAccount, ledger.InsufficientFunds, ledger.Unavailable:
@@ -123,7 +130,7 @@ test PostIsIdempotentHolds(ns []int, m int) {
 }
 
 test FloorHoldsHolds(ns []int, m int) {
-	let s = day(ns)
+	let s = try day(ns)
 	let t = ledger.Day([]int{m})[0]
 	s.Open("erin", 0) catch {
 	case ledger.AccountExists, ledger.BadFloor, ledger.Unavailable:
@@ -136,17 +143,4 @@ test FloorHoldsHolds(ns []int, m int) {
 		return
 	}
 	assert try s.Balance("erin") >= 0
-}
-
-test ReplayRebuildsHolds(ns []int) {
-	let text, b = Written(ledger.Day(ns))
-	assert Agree(try Replay(text), b)
-}
-
-test AnyWordKeepsHolds(id string, key string) {
-	if id == "" || id == ledger.World {
-		return
-	}
-	let b = try Replay(OpenLine(id, 0) + PostLine(ledger.Transfer{Key: key, From: ledger.World, To: id, Amount: 7}))
-	assert try ledger.Balance(b, id) == 7
 }

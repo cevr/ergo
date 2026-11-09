@@ -1,6 +1,8 @@
-// The generators build documents from Random, for the property tests
-// that restate the laws. A test binds Random to rand.Seeded(seed), so a
-// failing case replays from its seed.
+// The generators build documents from Random; Samples binds Random to
+// rand.Seeded(seed), so the laws that take a seed replay from it: a
+// generated Doc is seldom Printable.
+
+import rand
 
 let keys = []string{"a", "b", "name", "port", "x-y", "k_1", "9"}
 let names = []string{"server", "log", "a.b", "db-1"}
@@ -51,4 +53,11 @@ func Gen() Doc needs Random {
 		tables = tables.Append(GenTable("upstream", true))
 	}
 	Doc{Root: GenTable("", false), Tables: tables}
+}
+
+// Sample is the document Gen builds from seed.
+func Sample(seed int) Doc {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		Gen()
+	}
 }

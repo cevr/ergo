@@ -1,0 +1,60 @@
+// Full fails every write and changes nothing; what needs no room still
+// works.
+
+import fs
+import fstest
+
+test FullKeepsTheOldText(text string) {
+	let m = fstest.NewMemory()
+	try m.WriteFile("f", "old")
+	let full = FullOf(m)
+	assert wrote(full, "f", text) == "failed: f: no space left on device"
+	full.AppendFile("f", text) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+	}
+	assert try m.ReadFile("f") == "old"
+}
+
+test FullMakesNoDirectory {
+	let m = fstest.NewMemory()
+	try m.MkdirAll("db")
+	let full = FullOf(m)
+	try full.MkdirAll("db")
+	assert made(full, "db/new") == "failed: db/new: no space left on device"
+	try m.WriteFile("f", "x")
+	assert made(full, "f") == "failed: f: not a directory"
+}
+
+test FullStillRenamesAndRemoves {
+	let m = fstest.NewMemory()
+	try m.WriteFile("tmp", "new")
+	let full = FullOf(m)
+	try full.Rename("tmp", "f")
+	assert try m.ReadFile("f") == "new"
+	try full.Remove("f")
+	assert try m.ReadDir(".") == []string{}
+}
+
+// wrote is "ok" when w writes text at path, or the failure.
+func wrote(w fs.Writes, path string, text string) string {
+	w.WriteFile(path, text) catch {
+	case fs.NotFound as n:
+		return "not found: " + n.Path
+	case fs.Denied as d:
+		return "denied: " + d.Path
+	case fs.Failed as f:
+		return "failed: " + f.Path + ": " + f.Reason
+	}
+	"ok"
+}
+
+// made is "ok" when w makes the directory path, or the failure.
+func made(w fs.Writes, path string) string {
+	w.MkdirAll(path) catch {
+	case fs.Denied as d:
+		return "denied: " + d.Path
+	case fs.Failed as f:
+		return "failed: " + f.Path + ": " + f.Reason
+	}
+	"ok"
+}

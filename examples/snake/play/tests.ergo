@@ -1,10 +1,11 @@
 // The drivers' tests run over an io.Input and an io.Recorder, with a
-// seeded Random and, for Live, a Scheduler that never waits: no host.
+// seeded Random and, for Live, a virtual clock: no host.
 
 import io
 import rand
 import snake/game
 import strings
+import testing
 
 test KeysAreSignals {
 	let ks = Keys("bwxq")
@@ -48,15 +49,11 @@ test EndOfInputLeavesTheGame {
 	}
 }
 
-// instant is a Scheduler whose Sleep returns at once, so Live ticks as
-// fast as it runs.
-type instant {}
-
-func Sleep(_ instant, _ duration) {}
-
+// Live ticks on a virtual clock, which moves on at once when every task
+// waits.
 test LiveRunsIntoTheWallWithNoKeys {
 	let out = io.NewRecorder()
-	let last = with context { io.Stdin: io.Input{Text: ""}, io.Stdout: out, Random: rand.Seeded(2), Scheduler: instant } {
+	let last = with context { io.Stdin: io.Input{Text: ""}, io.Stdout: out, Random: rand.Seeded(2), Scheduler: testing.NewVirtualClock(0) } {
 		Live(6, 4, 1ms)
 	}
 	assert game.Key(last) == "over wall 0 food 2,3 body 5,2 4,2 3,2 RR"

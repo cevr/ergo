@@ -20,7 +20,7 @@ law CompleteIsIdempotent(texts []string, at int) {
 	case NoSuchItem:
 		return false
 	}
-	Equal(once, twice)
+	once == twice
 }
 
 // ReopenUndoesComplete: reopening an open item that was completed gives
@@ -35,7 +35,7 @@ law ReopenUndoesComplete(texts []string, at int) {
 	case NoSuchItem:
 		return false
 	}
-	Equal(again, l)
+	again == l
 }
 
 // DropRemovesOne: dropping an item keeps every other item, in order.
@@ -50,7 +50,7 @@ law DropRemovesOne(texts []string, at int) {
 			kept = kept.Append(t)
 		}
 	}
-	Equal(l, Of(kept))
+	l == Of(kept)
 }
 
 // OpenAtMostCount: a list never has more open items than items.

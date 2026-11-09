@@ -1,6 +1,7 @@
 // The rules of the driver as laws: the times it writes read back, and a
 // catch-up leaves no deadline behind and never goes back in time.
 
+import time
 import vending/light
 import vending/vend
 
@@ -8,7 +9,7 @@ import vending/vend
 // over any int stays within a run of a few minutes.
 func Clamp(n int, most int) duration {
 	let m = if n < 0 { -(n % (most + 1)) } else { n % (most + 1) }
-	duration(int64(m) * int64(1ms))
+	time.Times(1ms, m)
 }
 
 // ShowReads: Duration reads back every time that Show writes.

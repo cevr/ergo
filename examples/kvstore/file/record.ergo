@@ -2,7 +2,7 @@
 // file: each put and each delete is a line at the end of the log, and a
 // read replays the log. Compact rewrites the log as one put per key. The
 // log reaches the disk only through the fs.Files and fs.Writes values it
-// holds, so a test runs it over a memory.Disk.
+// holds, so a test runs it over a fstest.Memory.
 
 import maps
 import slices
@@ -62,7 +62,7 @@ func Replay(text string) Map[string, string] fails Corrupt {
 		case Set as s:
 			entries[s.Key] = s.Value
 		case Unset as u:
-			let _ = entries.Delete(u.Key)
+			entries = entries.Delete(u.Key)
 		}
 	}
 	entries

@@ -98,10 +98,11 @@ func Step(m Mode, k keys.Key) Decision[Mode, Choice] {
 	}
 }
 
-// Picker is the list picker as a machine: it starts on Languages and
-// moves by Step, one key at a time, until a pick or a cancel is Done.
+// Picker is the list picker as a machine. Its input is the items: it
+// starts browsing them and moves by Step, one key at a time, until a pick
+// or a cancel is Done.
 type Picker machine[Mode, keys.Key] {
-	initial: Start(Languages),
+	initial: Start,
 	step:    Step,
 }
 
@@ -135,11 +136,11 @@ func moved(v View, by int) Option[View] {
 	Some[View]{Value: View{..v, Cursor: to}}
 }
 
-// dropLast is text without its last UTF-8 character.
+// dropLast is text without its last character.
 func dropLast(text string) string {
-	let mut end = len(text) - 1
-	for end > 0 && text[end] >= 128 && text[end] < 192 {
-		end = end - 1
+	let mut last = 0
+	for i, _ in text {
+		last = i
 	}
-	strings.Slice(text, 0, end)
+	strings.Slice(text, 0, last)
 }

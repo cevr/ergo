@@ -3,35 +3,44 @@
 // cancelled. The saga is a machine over the order events and the ticks
 // of a clock. It sends commands; it never changes an order itself.
 
+import machines
 import shop/order
 
-// Stage is where an order's fulfilment is.
-type Stage = AwaitingPayment{Order string, Due int}
+// Stage is where an order's fulfilment is: waiting for its payment until
+// the minute Due, or paid and waiting for the shipment it asked for.
+type Stage = AwaitingPayment{Order string, Due int} | AwaitingShipment{Order string}
 
 // Signal is what a saga reads: an event of its order, or the minute.
 type Signal = Saw{E order.Event} | Tick{Now int}
 
-// Reaction is what a saga does when it ends: send a command, or nothing.
+// Reaction is what a saga does: send a command, or nothing.
 type Reaction = Send{C order.Command} | Nothing{}
 
-// Fulfilment is the saga as a machine.
+// Placing is what starts a saga: its order and the minute it was placed.
+type Placing { Order string, At int }
+
+// Begin is the first stage of the saga of p: waiting for the payment
+// until PayWithin minutes after p.At.
+func Begin(p Placing) Stage { AwaitingPayment{Order: p.Order, Due: p.At + PayWithin} }
+
+// Fulfilment is the saga as a machine. Its input is the order placed.
 type Fulfilment machine[Stage, Signal] {
-	initial: AwaitingPayment{Order: "", Due: 0},
+	initial: Begin,
 	step:    Step,
 }
 
 // PayWithin is the minutes a placed order waits for its payment.
 let PayWithin = 30
 
-// Step is the saga's transition. A payment ends it with a shipment; a
-// cancellation ends it with nothing; a tick at or past the deadline ends
-// it with a cancellation.
+// Step is the saga's transition. A payment sends Ship and waits for the
+// shipment, which ends it; a cancellation ends it with nothing; a tick at
+// or past the payment's deadline ends it with a cancellation.
 func Step(s Stage, sig Signal) Decision[Stage, Reaction] {
 	match (s, sig) {
 	case (AwaitingPayment as w, Saw as seen):
 		match seen.E {
 		case order.PaymentTaken:
-			Done[Reaction]{Output: Send{C: order.Ship{Order: w.Order}}}
+			Emit[Stage, Reaction]{Next: AwaitingShipment{Order: w.Order}, Output: Send{C: order.Ship{Order: w.Order}}}
 		case order.Cancelled:
 			Done[Reaction]{Output: Nothing}
 		case order.Placed, order.ItemAdded, order.Shipped:
@@ -42,6 +51,15 @@ func Step(s Stage, sig Signal) Decision[Stage, Reaction] {
 			return Ignore
 		}
 		Done[Reaction]{Output: Send{C: order.Cancel{Order: w.Order, Reason: "unpaid after \(PayWithin) minutes"}}}
+	case (AwaitingShipment, Saw as seen):
+		match seen.E {
+		case order.Shipped, order.Cancelled:
+			Done[Reaction]{Output: Nothing}
+		case order.Placed, order.ItemAdded, order.PaymentTaken:
+			Ignore
+		}
+	case (AwaitingShipment, Tick):
+		Ignore
 	}
 }
 
@@ -52,7 +70,7 @@ type Running { Order string, At Stage }
 func Starts(e order.Event, now int) Option[Running] {
 	match e {
 	case order.Placed as p:
-		Some[Running]{Value: Running{Order: p.Order, At: AwaitingPayment{Order: p.Order, Due: now + PayWithin}}}
+		Some[Running]{Value: Running{Order: p.Order, At: machines.Initial(machines.Start(Fulfilment{}, Placing{Order: p.Order, At: now}))}}
 	case order.ItemAdded, order.PaymentTaken, order.Shipped, order.Cancelled:
 		None
 	}
@@ -60,7 +78,7 @@ func Starts(e order.Event, now int) Option[Running] {
 
 // Feed steps every running saga the signal is for: an event goes to its
 // order's saga, a tick to every saga. It is the sagas still running and
-// the commands the ended ones send, in the order of the sagas.
+// the commands they send, in the order of the sagas.
 func Feed(running []Running, sig Signal) ([]Running, []order.Command) {
 	let mut still = []Running{}
 	let mut sends = []order.Command{}
@@ -69,22 +87,28 @@ func Feed(running []Running, sig Signal) ([]Running, []order.Command) {
 			still = still.Append(r)
 			continue
 		}
-		match Step(r.At, sig) {
-		case Enter[Stage] as e:
-			still = still.Append(Running{Order: r.Order, At: e.Next})
-		case Stay[Stage] as e:
-			still = still.Append(Running{Order: r.Order, At: e.Next})
-		case Done[Reaction] as d:
-			match d.Output {
-			case Send as s:
-				sends = sends.Append(s.C)
-			case Nothing:
-			}
-		case Ignore, Reject:
-			still = still.Append(r)
+		let d = Step(r.At, sig)
+		match d {
+		case Emit[Stage, Reaction] as e:
+			sends = sent(sends, e.Output)
+		case Done[Reaction] as e:
+			sends = sent(sends, e.Output)
+			continue
+		case Enter[Stage], Stay[Stage], Ignore, Reject:
 		}
+		still = still.Append(Running{Order: r.Order, At: machines.Next(r.At, d)})
 	}
 	(still, sends)
+}
+
+// sent is sends with the command of the reaction r, if it has one.
+func sent(sends []order.Command, r Reaction) []order.Command {
+	match r {
+	case Send as s:
+		sends.Append(s.C)
+	case Nothing:
+		sends
+	}
 }
 
 // isFor reports whether sig is for the saga of the order.

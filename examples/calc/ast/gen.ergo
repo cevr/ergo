@@ -1,7 +1,9 @@
-// The generators build expressions from Random, for the property tests
-// that restate the laws: Gen builds a well-typed expression, GenAny any
-// expression of valid names. A test binds Random to rand.Seeded(seed), so
-// a failing case replays from its seed.
+// The generators build expressions from Random: Gen builds a well-typed
+// expression, GenAny any expression of valid names. Samples binds Random to
+// rand.Seeded(seed), so the laws that take a seed replay from it: a
+// generated Expr seldom has valid names or a type.
+
+import rand
 
 // Names are the variable names that the generators use.
 let Names = []string{"a", "b", "x", "y", "z"}
@@ -122,5 +124,17 @@ func GenAny(depth int) Expr needs Random {
 		If{Cond: GenAny(d), Then: GenAny(d), Else: GenAny(d)}
 	case _:
 		Let{Name: Names[Random.IntN(len(Names))], Val: GenAny(d), Body: GenAny(d)}
+	}
+}
+
+// Samples is e and ten expressions of depth at most 5 from seed: GenAny
+// and well-typed Gen ones in turn.
+func Samples(e Expr, seed int) []Expr {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let mut out = []Expr{e}
+		for i in 0..10 {
+			out = out.Append(if i%2 == 0 { GenAny(5) } else { Gen(5, AnyType(), Top) })
+		}
+		out
 	}
 }

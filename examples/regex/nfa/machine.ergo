@@ -2,8 +2,10 @@
 // program could be at, and whose signals are the bytes of the text and
 // its end.
 
+import machines
 import regex/engine
 import regex/syntax
+import slices
 
 // Signal is what the machine reads: a byte of the text, or its end.
 type Signal = Read{C byte} | End{}
@@ -21,25 +23,21 @@ func Start(p Program) Scan { Live{P: p, At: closure(p, []int{p.start})} }
 // later byte can bring a match back. At the end, it is Done with whether
 // the set holds Accept.
 func Step(s Scan, sig Signal) Decision[Scan, bool] {
-	match s {
-	case Live as l:
-		match sig {
-		case Read as r:
-			let next = advance(l.P, l.At, r.C)
-			if len(next) == 0 {
-				return Done[bool]{Output: false}
-			}
-			Enter[Scan]{Next: Live{P: l.P, At: next}}
-		case End:
-			Done[bool]{Output: accepts(l.P, l.At)}
+	match (s, sig) {
+	case (Live as l, Read as r):
+		let next = advance(l.P, l.At, r.C)
+		if len(next) == 0 {
+			return Done[bool]{Output: false}
 		}
+		Enter[Scan]{Next: Live{P: l.P, At: next}}
+	case (Live as l, End):
+		Done[bool]{Output: accepts(l.P, l.At)}
 	}
 }
 
-// Simulation is the NFA as a machine: it starts at the empty pattern's
-// program; Matches starts it at its own.
+// Simulation is the NFA as a machine. Its input is the program.
 type Simulation machine[Scan, Signal] {
-	initial: Start(Build(syntax.Empty)),
+	initial: Start,
 	step:    Step,
 }
 
@@ -85,11 +83,7 @@ type visit { members []int, marked []bool }
 // closure is the set of instructions that the instructions of from reach
 // through Split, each once, keeping only the ones that read or Accept.
 func closure(p Program, from []int) []int {
-	let mut marked = []bool{}
-	for _ in 0..len(p.insts) {
-		marked = marked.Append(false)
-	}
-	let mut v = visit{members: []int{}, marked: marked}
+	let mut v = visit{members: []int{}, marked: slices.Repeat([]bool{false}, len(p.insts))}
 	for pc in from {
 		v.include(p, pc)
 	}
@@ -121,24 +115,23 @@ func Compile(_ Engine, pattern syntax.Node) engine.Matcher { Compiled{program: B
 type Compiled { program Program }
 
 // Matches runs the machine on text, one signal per byte and then End.
+// It stops at the first Done: no later byte can change the answer.
 func Matches(c Compiled, text string) bool {
-	let mut s = Start(c.program)
+	let m = machines.Start(Simulation{}, c.program)
+	let mut s = machines.Initial(m)
 	for i in 0..len(text) {
-		match Step(s, Read{C: text[i]}) {
-		case Enter[Scan] as e:
-			s = e.Next
-		case Stay[Scan] as st:
-			s = st.Next
-		case Done[bool] as d:
-			return d.Output
-		case Ignore:
-		case Reject:
+		let d = m.Step(s, Read{C: text[i]})
+		match d {
+		case Done[bool] as o:
+			return o.Output
+		case Enter[Scan], Stay[Scan], Emit[Scan, bool], Ignore, Reject:
 		}
+		s = machines.Next(s, d)
 	}
-	match Step(s, End) {
-	case Done[bool] as d:
-		d.Output
-	case _:
-		false
+	match m.Step(s, End) {
+	case Done[bool] as o:
+		o.Output
+	case Enter[Scan], Stay[Scan], Emit[Scan, bool], Ignore, Reject:
+		Unreachable("Step is Done at the End of every text")
 	}
 }

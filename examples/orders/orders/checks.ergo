@@ -1,7 +1,7 @@
 // The checks of Book's laws, one function per law, over the Book in the
-// caller's context. Laws are checked and not run yet (#162), and a member
-// law cannot call a function that needs its own type, so a provider's
-// tests call these (as kvstore's kv/checks.ergo does).
+// caller's context. ergo test skips Book's laws for a provider in another
+// package and a law with a Book parameter (G-exup-1, G-exup-3), so a
+// provider's tests call these.
 
 // FindAfterAddHolds checks the law FindAfterAdd on a Book with no order
 // of o's ID.

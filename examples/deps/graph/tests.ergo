@@ -1,7 +1,6 @@
-// The graph's tests: examples at string nodes, and the laws restated as
-// property tests at int nodes (#162 runs laws; until then these do).
+// The graph's tests: examples at string nodes. The laws, at int nodes, run
+// under ergo test.
 
-import slices
 import strings
 
 func e(from string, to string) Edge[string] { Edge[string]{From: from, To: to} }
@@ -45,35 +44,6 @@ test PathIsShortest {
 	}
 }
 
-test OrderRespectsEdgesHolds(nodes []int, edges []Edge[int]) {
-	let g = Of(nodes, Downhill(edges))
-	let order = try Order(g)
-	for x in g.Edges() {
-		assert slices.Index(order, x.To) < slices.Index(order, x.From)
-	}
-}
-
-test OrderHasEveryNodeOnceHolds(nodes []int, edges []Edge[int]) {
-	let g = Of(nodes, Downhill(edges))
-	assert slices.Equal(slices.Sort(try Order(g)), g.Nodes())
-}
-
-test OrderIsDeterministicHolds(nodes []int, edges []Edge[int]) {
-	let down = Downhill(edges)
-	let a = try Order(Of(nodes, down))
-	let b = try Order(Of(slices.Reverse(nodes), slices.Reverse(down)))
-	assert slices.Equal(a, b)
-}
-
-test CycleIsAClosedWalkHolds(nodes []int, edges []Edge[int]) {
-	let g = Of(nodes, Crowded(edges))
-	let _ = Order(g) catch {
-	case Cycle[int] as c:
-		assert IsClosedWalk(g, c.Path)
-		return
-	}
-}
-
 // A graph with an edge both ways between two nodes has no order.
 test BackEdgeIsACycle(a int, b int) {
 	if a == b {
@@ -86,18 +56,4 @@ test BackEdgeIsACycle(a int, b int) {
 		return
 	}
 	assert false
-}
-
-test PathFollowsEdgesHolds(edges []Edge[int], a int, b int) {
-	let g = Of([]int{Few(a), Few(b)}, Crowded(edges))
-	match g.Path(Few(a), Few(b)) {
-	case Some[[]int] as p:
-		let path = p.Value
-		assert path[0] == Few(a) && path[len(path)-1] == Few(b)
-		for i in 1..len(path) {
-			assert slices.Contains(g.Needs(path[i-1]), path[i])
-		}
-	case None:
-		assert Few(a) != Few(b)
-	}
 }

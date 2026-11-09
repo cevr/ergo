@@ -112,16 +112,3 @@ func Inside(w World) bool {
 	}
 	true
 }
-
-// Same reports whether a and b are the same box with the same particles.
-func Same(a World, b World) bool {
-	if a.width != b.width || a.height != b.height || a.loss != b.loss || a.tick != b.tick || len(a.ps) != len(b.ps) {
-		return false
-	}
-	for i, p in a.ps {
-		if p != b.ps[i] {
-			return false
-		}
-	}
-	true
-}

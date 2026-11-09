@@ -1,4 +1,5 @@
 import cmp
+import maps
 import slices
 
 // Count is how many times a key was seen.
@@ -8,13 +9,7 @@ type Count { Key string, N int }
 func Tally(keys []string) Map[string, int] {
 	let mut m Map[string, int] = Map[string, int]{}
 	for k in keys {
-		// m[k] += 1 reads the Map, and a read may miss (gap G-ex-a-13).
-		match m.Get(k) {
-		case Some as n:
-			m[k] = n.Value + 1
-		case None:
-			m[k] = 1
-		}
+		m[k] = maps.GetOr(m, k, 0) + 1
 	}
 	m
 }

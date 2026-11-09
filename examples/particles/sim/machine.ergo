@@ -13,15 +13,15 @@ type Game { W world.World, Steps int, T world.Tally }
 // paused keeps it as it is.
 type Phase = Running{G Game} | Paused{G Game}
 
-// Input is what drives the machine: a tick of game time, a key of the
-// player, or a box to load.
-type Input = Tick{} | Pause{} | Resume{} | Quit{} | Load{W world.World}
+// Input is what drives the machine: a tick of game time or a key of the
+// player.
+type Input = Tick{} | Pause{} | Resume{} | Quit{}
 
 // Fresh is the game of a box just loaded.
 func Fresh(w world.World) Game { Game{W: w, Steps: 0, T: world.Tally{Bounces: 0, Meetings: 0}} }
 
-// Start is the first phase: paused on a blank box, until a Load.
-func Start() Phase { Paused{G: Fresh(world.Blank())} }
+// Begin is the first phase of the box w: running a fresh game.
+func Begin(w world.World) Phase { Running{G: Fresh(w)} }
 
 // GameOf is the game that p holds.
 func GameOf(p Phase) Game {
@@ -52,7 +52,7 @@ func Advance(g Game) Game {
 // Step is the machine's transition. A tick steps a running box and
 // stays; a paused box ignores it. Pause and Resume enter the other phase,
 // and are ignored in their own. Quit is Done with the game, in either
-// phase. Load enters Running with a fresh game of the new box.
+// phase.
 func Step(p Phase, i Input) Decision[Phase, Game] {
 	match (p, i) {
 	case (Running as r, Tick):
@@ -69,32 +69,13 @@ func Step(p Phase, i Input) Decision[Phase, Game] {
 		Ignore
 	case (_, Quit):
 		Done[Game]{Output: GameOf(p)}
-	case (_, Load as l):
-		Enter[Phase]{Next: Running{G: Fresh(l.W)}}
 	}
 }
 
-// Sim is the game as a machine.
+// Sim is the game as a machine. Its input is the box it starts on.
 type Sim machine[Phase, Input] {
-	initial: Start(),
+	initial: Begin,
 	step:    Step,
-}
-
-// Next is the phase after the decision d in p: Enter and Stay take
-// their Next; Ignore, Reject and Done keep p.
-func Next(p Phase, d Decision[Phase, Game]) Phase {
-	match d {
-	case Enter[Phase] as e:
-		e.Next
-	case Stay[Phase] as s:
-		s.Next
-	case Ignore:
-		p
-	case Reject:
-		p
-	case Done[Game]:
-		p
-	}
 }
 
 // Key is the input of a key the player types: p, r and q, or None for

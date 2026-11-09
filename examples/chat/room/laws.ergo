@@ -1,5 +1,6 @@
 // The rules of the room as laws over Decide and Evolve.
 
+import slices
 import time
 
 // RoomOf is the room after each of names joins in turn; a name that is
@@ -28,24 +29,11 @@ func Apply(s State, sig Signal) State fails NameTaken | NotMember | RoomClosed {
 	next
 }
 
-// SameNames reports whether a and b hold the same names in order.
-func SameNames(a []string, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i, n in a {
-		if n != b[i] {
-			return false
-		}
-	}
-	true
-}
-
 // JoinAppendsOrRefuses: a join adds the name at the end, or fails with
 // NameTaken exactly when the name is a member.
 law JoinAppendsOrRefuses(names []string, name string) {
 	let s = RoomOf(names)
-	let taken = has(Members(s), name)
+	let taken = slices.Contains(Members(s), name)
 	let after = Apply(s, Join{Name: name}) catch {
 	case NameTaken:
 		return taken
@@ -54,28 +42,30 @@ law JoinAppendsOrRefuses(names []string, name string) {
 	case RoomClosed:
 		return false
 	}
-	!taken && SameNames(Members(after), adding(Members(s), name))
+	!taken && Members(after) == Members(s).Append(name)
 }
 
 // SayNeedsMember: a say fails with NotMember exactly when its sender is
 // not a member, and changes no member when it succeeds.
-law SayNeedsMember(names []string, from string, text string) {
+law SayNeedsMember(names []string, n int, text string) {
 	let s = RoomOf(names)
+	// from is a member half the time: a name of names, or a new one.
+	let from = if len(names) > 0 && n%2 == 0 { names[(if n < 0 { -n } else { n })%len(names)] } else { "stranger" }
 	let after = Apply(s, Say{From: from, Text: text}) catch {
 	case NotMember:
-		return !has(Members(s), from)
+		return !slices.Contains(Members(s), from)
 	case NameTaken:
 		return false
 	case RoomClosed:
 		return false
 	}
-	has(Members(s), from) && SameNames(Members(after), Members(s))
+	slices.Contains(Members(s), from) && Members(after) == Members(s)
 }
 
 // LeaveUndoesJoin: a new name that joins and leaves gives the room back.
 law LeaveUndoesJoin(names []string, name string) {
 	let s = RoomOf(names)
-	if has(Members(s), name) {
+	if slices.Contains(Members(s), name) {
 		return true
 	}
 	let back = Apply(try Apply(s, Join{Name: name}), Leave{Name: name}) catch {
@@ -86,7 +76,7 @@ law LeaveUndoesJoin(names []string, name string) {
 	case RoomClosed:
 		return false
 	}
-	SameNames(Members(back), Members(s))
+	Members(back) == Members(s)
 }
 
 // ClosedRefusesAll: after a member shuts the room, every signal fails

@@ -4,7 +4,7 @@
 // Decide is the events command c records against an order in state s, or
 // the rejection that refuses it. The match over (state, command) is
 // exhaustive: a new command or state that no case covers does not check.
-func Decide(s State, c Command) []Event fails UnknownOrder | AlreadyPlaced | InvalidLine | WrongAmount | NotAllowed {
+func Decide(s State, c Command) []Event fails Rejection {
 	match (s, c) {
 	case (Absent, Place as p):
 		try placed(p)

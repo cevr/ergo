@@ -41,9 +41,7 @@ func parseLine(at int, line string) memory.Step fails BadLine {
 		case strconv.OutOfRange:
 			return BadLine{Number: at, Text: line}
 		}
-		// duration has no arithmetic with integers (G-ex-b-4): a second
-		// count converts through int64 nanoseconds.
-		return memory.Tick{By: duration(int64(secs) * 1000000000)}
+		return memory.Tick{By: time.Times(1s, secs)}
 	}
 	if strings.HasSuffix(line, "!") && !strings.Contains(line, " ") {
 		return memory.HangUp{Client: strings.TrimSuffix(line, "!")}

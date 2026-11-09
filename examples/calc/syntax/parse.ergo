@@ -1,6 +1,9 @@
 import calc/ast
 import strconv
 
+// Failure is a text that is not an expression: the row of Parse.
+type Failure = BadChar | Unexpected | TooBig
+
 // Unexpected is a token where the grammar wants another.
 type Unexpected { At int, Want string, Got string }
 
@@ -13,7 +16,7 @@ type parser { toks []Token, pos int }
 
 // Parse is the expression of src. The whole text must be one
 // expression.
-func Parse(src string) ast.Expr fails BadChar | Unexpected | TooBig {
+func Parse(src string) ast.Expr fails Failure {
 	let mut p = parser{toks: try Lex(src), pos: 0}
 	let e = try parseExpr(&p)
 	match peek(&p) {
