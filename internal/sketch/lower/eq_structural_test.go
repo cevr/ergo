@@ -21,25 +21,29 @@ type Pair { A Value, B []int }
 
 type Box[T] { Items []T }
 
+// none is a Go nil slice: a slice let with no value.
+let none []Value
+
 func same[T comparable](a Box[T], b Box[T]) bool { a == b }
 `
 
 // TestErgoRunStructuralEquality is the unit's repro: a recursive union
 // over a slice and a Map, a record with such a field, a tuple, a generic
 // record compared inside a generic function, and an empty slice against
-// an omitted (Go nil) one.
+// a slice let with no value (Go nil).
 func TestErgoRunStructuralEquality(t *testing.T) {
 	wantRun(t, eqDecls+`
 func main() needs Console {
+	let noInts []int
 	let a Value = Branch{Items: []Value{Leaf{N: 1}, Branch{Items: []Value{}, Tags: Map[string, int]{"x": 1}}}, Tags: Map[string, int]{}}
-	let b Value = Branch{Items: []Value{Leaf{N: 1}, Branch{Tags: Map[string, int]{"x": 1}}}, Tags: Map[string, int]{}}
+	let b Value = Branch{Items: []Value{Leaf{N: 1}, Branch{Items: none, Tags: Map[string, int]{"x": 1}}}, Tags: Map[string, int]{}}
 	let c Value = Branch{Items: []Value{Leaf{N: 2}}, Tags: Map[string, int]{}}
 	let p = Pair{A: a, B: []int{2}}
 	let q = Pair{A: b, B: []int{2}}
 	let r = Pair{A: b, B: []int{3}}
 	Console.Println("\(a == b) \(a != c) \(a == c) \(p == q) \(p == r) \((a, 1) == (b, 1)) \((a, 1) == (c, 1))")
-	Console.Println("\(same(Box[int]{Items: []int{1}}, Box[int]{Items: []int{1}})) \(same(Box[int]{}, Box[int]{Items: []int{}})) \(same(Box[int]{Items: []int{1}}, Box[int]{Items: []int{2}}))")
-	Console.Println("\(Branch{Items: []Value{Leaf{N: 2}}, Tags: Map[string, int]{}} == c) \(c != Branch{Tags: Map[string, int]{}}) \(Leaf{N: 2} == c)")
+	Console.Println("\(same(Box[int]{Items: []int{1}}, Box[int]{Items: []int{1}})) \(same(Box[int]{Items: noInts}, Box[int]{Items: []int{}})) \(same(Box[int]{Items: []int{1}}, Box[int]{Items: []int{2}}))")
+	Console.Println("\(Branch{Items: []Value{Leaf{N: 2}}, Tags: Map[string, int]{}} == c) \(c != Branch{Items: none, Tags: Map[string, int]{}}) \(Leaf{N: 2} == c)")
 	Console.Println("\(Map[string, int]{"a": 0} == Map[string, int]{"b": 0}) \(Map[string, int]{"a": 1} == Map[string, int]{"a": 1}) \([]int{} == []int{0})")
 }
 `, "true true false true false true false\ntrue true false\ntrue true false\nfalse true false\n")
@@ -81,7 +85,7 @@ type eqValue struct {
 	leaf      bool
 	n         int
 	items     []*eqValue
-	omitItems bool // written with Items omitted: Go's nil slice
+	omitItems bool // written with Items: none, Go's nil slice
 	tags      map[string]int
 }
 
@@ -210,9 +214,11 @@ func (v *eqValue) ergo() string {
 		tags = append(tags, fmt.Sprintf("%q: %d", k, v.tags[k]))
 	}
 	fields := []string{"Tags: Map[string, int]{" + strings.Join(tags, ", ") + "}"}
+	itemsText := "Items: none" // Go nil (eqDecls)
 	if !v.omitItems {
-		fields = append([]string{"Items: []Value{" + strings.Join(items, ", ") + "}"}, fields...)
+		itemsText = "Items: []Value{" + strings.Join(items, ", ") + "}"
 	}
+	fields = append([]string{itemsText}, fields...)
 	return "Branch{" + strings.Join(fields, ", ") + "}"
 }
 

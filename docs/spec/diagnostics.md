@@ -151,7 +151,7 @@ The checker does not restrict `main`'s capability row; the build refuses what th
 | An initialization cycle: a package `var`'s initializer refers to itself through vars, functions or methods (Go's initialization order, `go/types` initorder). The cycle's vars become invalid, so no capability or error diagnostic follows from them | checker domain tests (`TestRowGraphDomain`) |
 | A value of one type where another is expected: an assignment, an argument, a return, a field or an element | `var-mismatch`, `argument-mismatch`, `return-mismatch` |
 | A type does not implement an interface, or its method's rows are wider (interface assignability) | `interface-missing-method`, `interface-wider-row` |
-| A keyed literal omits a field that has no zero value; `let x T` of a type with no zero value | `keyed-literal-nondefaultable`, `var-nondefaultable` |
+| A keyed literal leaves a field out, whatever its type (no implicit zero; the message names every left-out field and the fixes: name it, or copy it with a record update) ([types: zero values](types.md#zero-values-and-definite-initialisation) 2); `let x T` of a type with no zero value: a record with fields, a tuple or instance that holds one, a union (Zero values 3) | `keyed-literal-nondefaultable`, `var-nondefaultable` |
 | A positional literal lists fewer values than the struct's fields | `positional-literal-short` |
 | A struct field's value is a composite literal with no type, keyed or positional: "missing type in composite literal; write S{h: 1}" (`S{…}` past 40 characters or across a line; Go elides a type only for elements and map keys) ([types: structs](types.md#structs) 3) | checker tests (`TestMissingLiteralType`), classf `generic-elided-struct` |
 | A type switch on a non-union; a case that is not a variant of its subject's union; a case already covered by the cases before it (unreachable) | `type-switch-non-union`, `case-not-variant` |
@@ -238,8 +238,8 @@ Outside the package that declares it, a record with an unexported field, a defin
 
 - A literal of the record or of a defined type over it, keyed, positional or empty: `lib.Q{N: 1}`, `lib.Q{}`, `M{}` with `type M lib.Q`. A key that names an unexported field is also S104.
 - A record update of it, `lib.Q{..q, N: 2}`, even of exported fields only.
-- An implicit zero value: `let q lib.Q` with no value, in a body or at package level, also in a tuple type or an instance (`let b Box[lib.Q]`), and a keyed literal of an enclosing record that leaves a field of such a type unset (`H{B: 1}` with `A lib.Q`).
+- An implicit zero value: `let q lib.Q` with no value, in a body or at package level, also in a tuple type or an instance (`let b Box[lib.Q]`). A keyed literal of an enclosing record that leaves such a field unset (`H{B: 1}` with `A lib.Q`) is S108 (Zero values 2).
 
-Not S114: a value an exported function returns, a conversion between a defined type and its base, a pattern, a copy, and a literal or update of an enclosing record that sets the field. A record with a field of a non-defaultable type that is left unset stays S108 (Zero values 2), which comes first.
+Not S114: a value an exported function returns, a conversion between a defined type and its base, a pattern, a copy, and a literal or update of an enclosing record that sets the field. A keyed literal that leaves any field unset is S108 (Zero values 2).
 
 *Prior art:* Rust refuses a struct literal and a functional update with a private field outside its module (E0451); Gleam's `opaque` types hide their constructors; ReScript's abstract type in an interface file hides the representation; Elixir builds `%S{}` anywhere; Go builds `Q{}` from another package.

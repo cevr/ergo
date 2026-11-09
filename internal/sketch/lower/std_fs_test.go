@@ -208,10 +208,10 @@ func ReadDir(m Files, path string) []string fails fs.NotFound | fs.Denied | fs.F
 
 func Stat(m Files, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
 	if path == "." {
-		return fs.Info{Name: ".", Size: 0, Dir: true}
+		return fs.Info{Name: ".", Size: 0, Dir: true, Perm: 0}
 	}
 	let text = try ReadFile(m, path)
-	fs.Info{Name: path, Size: len(text), Dir: false}
+	fs.Info{Name: path, Size: len(text), Dir: false, Perm: 0}
 }
 `
 

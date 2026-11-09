@@ -91,7 +91,6 @@ var authorityCases = map[string]string{
 	"lit":         "func main() { let q = lib.Q{N: 1}\n let _ = q }\n",
 	"emptylit":    "func main() { let q = lib.Q{}\n let _ = q }\n",
 	"zero":        "func main() { let q lib.Q\n let _ = q }\n",
-	"enclosing":   "type H { A lib.Q, B int }\nfunc main() { let h = H{B: 1}\n let _ = h }\n",
 	"update":      "func main() { let q = lib.ParseQ(1)\n let r = lib.Q{..q, N: 2}\n let _ = r }\n",
 	"defined":     "type M lib.Q\nfunc main() { let m = M{}\n let _ = m }\n",
 	"definedzero": "type M lib.Q\nfunc main() { let m M\n let _ = m }\n",
@@ -101,7 +100,6 @@ var authorityCases = map[string]string{
 var authorityControls = map[string]string{
 	"fieldok":   "func f(q lib.Q) int { q.N }\nfunc main() { }\n",
 	"openlit":   "func main() { let o = lib.Open{A: 1}\n let _ = o }\n",
-	"openzero":  "func main() { let o lib.Open\n let _ = o }\n",
 	"match":     "func f(q lib.Q) int { match q { case lib.Q{N: n}: n } }\nfunc main() { }\n",
 	"letpat":    "func f(q lib.Q) int { let lib.Q{N: n} = q\n n }\nfunc main() { }\n",
 	"parsed":    "func main() { let q = lib.ParseQ(1)\n let _ = q }\n",
@@ -115,8 +113,8 @@ var authorityControls = map[string]string{
 
 // TestConstructionAuthority (types.md, Zero values 6; 196b Q7): outside
 // lib, every way to build a Q or a G but lib's functions is S114, which
-// names lib.ParseQ; inside lib every case checks, and the controls check
-// in both places.
+// names lib.ParseQ; inside lib no case is S114, and the controls check in
+// both places.
 func TestConstructionAuthority(t *testing.T) {
 	lib := checkedLib(t)
 	for name, src := range authorityCases {
@@ -128,8 +126,12 @@ func TestConstructionAuthority(t *testing.T) {
 			if !strings.Contains(ds[0].Message, "lib.ParseQ") || !strings.Contains(ds[0].Message, "only package lib builds it") {
 				t.Errorf("the S114 does not name the way in: %s", ds[0].Message)
 			}
-			if ds := inside(t, src); len(ds) != 0 {
-				t.Errorf("inside lib: got %v, want none", ds)
+			// Inside lib the authority is lifted; a literal or let that
+			// leaves a field out is still S108 (Zero values 2 and 3).
+			for _, d := range inside(t, src) {
+				if d.Code != "S108" {
+					t.Errorf("inside lib: got %v, want no S114", d)
+				}
 			}
 		})
 	}

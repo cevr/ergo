@@ -436,7 +436,7 @@ type Mine {}
 func ReadFile(_ Mine, path string) string fails fs.NotFound | fs.Denied | fs.Failed { "" }
 func ReadDir(_ Mine, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{} }
 func Stat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
-	fs.Info{Name: path, Size: 0, Dir: false}
+	fs.Info{Name: path, Size: 0, Dir: false, Perm: 0}
 }
 
 func use(f fs.Files) { _ = f.ReadFile("a") catch { case fs.NotFound, fs.Denied, fs.Failed: "" } }

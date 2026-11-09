@@ -180,10 +180,11 @@ func main() needs Console {
 	paramKeys := checkPackage(t, "main", []pkgSource{
 		{"/ergo-test/keys/a.ergo", `func f[T comparable](x T) int {
 	let b Box[T]
-	len(b.M)
+	let (_, m) = b
+	len(m)
 }
 
-type Box[T] { M Map[string, T] }
+type Box[T] (int, Map[string, T])
 
 func main() needs Console {
 	Console.Println("\(f(1)) \(g([]int{}))")
@@ -191,7 +192,8 @@ func main() needs Console {
 `},
 		{"/ergo-test/keys/b.ergo", `func g[T](x T) int {
 	let b Box[T]
-	len(b.M) + 1
+	let (_, m) = b
+	len(m) + 1
 }
 `},
 	}, nil)

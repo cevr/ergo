@@ -15,10 +15,10 @@ import (
 var keyedForms = []string{
 	"let m = Map[KT, int]{h%[1]d: 1}; return len(m)",
 	"let m = []Map[KT, int]{{h%[1]d: 1}}; return len(m)",
-	"let m = Map[KT, S]{h%[1]d: {h0: 1}}; return len(m)",
+	"let m = Map[KT, S]{h%[1]d: {h0: 1, K: h%[1]d}}; return len(m)",
 	"let m = Map[S, int]{{h0: 1, K: h%[1]d}: 2}; return len(m)",
 	"let m = Map[KT, Map[KT, int]]{h%[1]d: {h%[2]d: 1}}; return len(m)",
-	"let m = []S{{K: h%[1]d}}; return len(m)",
+	"let m = []S{{K: h%[1]d, h0: 1}}; return len(m)",
 	"let m = Map[KT, []S]{h%[1]d: {{h0: 1, K: h%[2]d}}}; return len(m)",
 	"let m = S{h0: 1, K: h%[1]d}; return m.h0",
 }

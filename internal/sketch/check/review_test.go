@@ -98,7 +98,7 @@ func Open[T, E](b Box[T, E]) T fails E { return b.run() }`},
 	{"M6", "row-kind-conflict-still-reported", "S108", `func Bad[T, E](t Task[T, E], e E) T { return t.Wait() }`},
 	{"M7", "generic-recursive-value", "S108", `type Wrap[T] { Value T }
 type U { Field Wrap[U] }
-func F() U { return U{} }`},
+func F(u U) U { return u }`},
 	{"M7", "generic-recursive-constraint", "S108", `type Wrap[T] { Value T }
 type U { Field Wrap[U] }`},
 	{"M7", "generic-recursive-through-slice", "", `type Wrap[T] { Values []T }
@@ -280,16 +280,16 @@ func F() {
 	main()
 }`},
 	{"M16", "with-default-hint", "", `type Box[T] { X T }
-func F() Box[int] { return with context {} { Box{} } }`},
+func F() Box[int] { return with context {} { Box{X: 0} } }`},
 	{"M17", "map-index-field-assignment", "S108", `type S { X int }
 func F(m Map[int, S]) { m[0].X = 1 }`},
 	{"M17", "map-index-assignment", "", `type S { X int }
 func F(m Map[int, S], n Map[int, int]) {
 	let mut m2 = m
 	let mut n2 = n
-	m2[0] = S{}
+	m2[0] = S{X: 0}
 	m2[1] = S{X: 2}
-	n2[3] = S{}.X
+	n2[3] = S{X: 3}.X
 }`},
 	{"M17", "map-index-field-increment", "S108", `type S { X int }
 func F(m Map[int, S]) { m[2].X += 1 }`},

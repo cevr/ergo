@@ -1030,7 +1030,6 @@ func Give() M { Give() }
 		{"build under an inferred Ambient", readerBase + "func mk() Host {\n\tlet h = NewHost()\n\tHost{..h, root: \"x\"}\n}\n", []string{builds("mk", "fixture.Host (a record update)")}},
 		{"build in a closure under an inferred Ambient", readerBase + "func mk() string fails Gone {\n\tlet f = func() Host {\n\t\tlet h = NewHost()\n\t\tHost{..h, root: \"x\"}\n\t}\n\ttry Read(f())\n}\n", []string{builds("mk", "fixture.Host (a record update)")}},
 		{"generated test parameter that holds a Host", readerBase + "type Box { H Host }\n\ntest T(b Box) {\n\tassert true\n}\n", []string{placeBuilds("T", "fixture.Host (a generated parameter)", "a test")}},
-		{"let's zero value of a record that holds a Host", readerBase + "type Wrap { H Host, N int }\n\nfunc F() string fails Gone {\n\tlet w Wrap\n\ttry Read(w.H)\n}\n", []string{builds("F", "fixture.Host (a let's zero value)")}},
 		{"build in a trailing block", readerBase + "func run(f func() string fails Gone) string fails Gone { try f() }\n\nfunc F() string fails Gone {\n\ttry run() {\n\t\ttry Read(Host{root: \"/\"})\n\t}\n}\n", []string{builds("F", "fixture.Host (a literal)")}},
 		// fu-ambient-ctor r7 (batch-10 r6 Unproven E1, E3): an extern has
 		// no Ergo body to ask. One whose signature mentions Host lists

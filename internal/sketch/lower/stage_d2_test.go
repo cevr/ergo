@@ -255,18 +255,12 @@ func TestErgoRunMapWriteAndLen(t *testing.T) {
 
 // TestErgoRunDefaultMapIsWritable: the default of a Map is an empty,
 // writable Map wherever the lowering produces a default (D-D4, the Map
-// rule): a local and a package let with a Map type and no value, a field a
-// record literal omits, a Map inside a defaulted record at any depth, an
-// elided record in a literal, a generic record's Map field, a defined type
-// over a Map, a tuple's Map and a record that holds itself through a Map.
-// Each is written, then counted with len. Go's nil map panics on the first
-// write.
+// rule): a local and a package let with a Map type and no value, a defined
+// type over a Map and a tuple's Map. A record has no default (types.md,
+// Zero values 2 and 3). Each is written, then counted with len. Go's nil
+// map panics on the first write.
 func TestErgoRunDefaultMapIsWritable(t *testing.T) {
-	wantRun(t, `type R { N int, M Map[string, int] }
-type O { I R, K int }
-type Box[T] { V T, M Map[string, T] }
-type Bag Map[string, int]
-type L { Next Map[string, L], Kids []L, N int }
+	wantRun(t, `type Bag Map[string, int]
 
 let pm Map[string, int]
 
@@ -285,27 +279,6 @@ func main() needs Console {
 	w["a"] = 1
 	report("package let", len(w) == 1)
 
-	let mut r = R{N: 1}
-	r.M["a"] = 1
-	report("omitted field", len(r.M) == 1 && r.N == 1)
-
-	let mut o = O{K: 2}
-	o.I.M["k"] = 1
-	report("nested omitted field", len(o.I.M) == 1)
-
-	let mut d O
-	d.I.M["k"] = 1
-	d.I.M["j"] = 2
-	report("let of a record", len(d.I.M) == 2)
-
-	let mut e = []O{{I: R{N: 3}}}
-	e[0].I.M["k"] = 1
-	report("elided record", len(e[0].I.M) == 1 && e[0].I.N == 3)
-
-	let mut b Box[int]
-	b.M["a"] = b.V + 1
-	report("generic record", len(b.M) == 1)
-
 	let mut g Bag
 	g["x"] = 1
 	report("defined Map", len(g) == 1)
@@ -315,18 +288,14 @@ func main() needs Console {
 	let mut tw = tm
 	tw["a"] = n
 	report("tuple", len(tw) == 1)
-
-	let mut l L
-	l.Next["x"] = L{N: 1}
-	report("recursive record", len(l.Next) == 1)
 }
-`, "local let\npackage let\nomitted field\nnested omitted field\nlet of a record\nelided record\ngeneric record\ndefined Map\ntuple\nrecursive record\n")
+`, "local let\npackage let\ndefined Map\ntuple\n")
 }
 
 // TestErgoRunNamedTupleDefaultMapIsWritable: a defined type over a tuple,
 // and an instance of a generic one, defaults like its tuple, keeping its
 // named Go type (stage D2 round 2 review M1): a direct let, a package let,
-// an omitted record field and a generic instance, each destructured, then
+// and a generic instance, each destructured, then
 // its Map written and counted. A default inside a generic function, whose
 // type mentions the function's type parameter, is built by a generic
 // default function. The first program is the review's reproduction.
@@ -342,9 +311,7 @@ func main() needs Console {
 `, "ok\n")
 	wantRun(t, `type T (int, Map[string, int])
 type P[A] (A, Map[string, A])
-type H { N int, U T }
-type G { Q P[string], K int }
-type Box[A] { V []A, M Map[string, A] }
+type PS[A] ([]A, Map[string, A])
 
 let pt T
 
@@ -355,9 +322,11 @@ func report(name string, ok bool) needs Console {
 }
 
 func inGeneric[A](x A) int {
-	let mut b Box[A]
-	b.M["a"] = x
-	len(b.M)
+	let b PS[A]
+	let (_, bm) = b
+	let mut w = bm
+	w["a"] = x
+	len(w)
 }
 
 func main() needs Console {
@@ -372,49 +341,29 @@ func main() needs Console {
 	pw["a"] = pn
 	report("named tuple package let", len(pw) == 1)
 
-	let h = H{N: 1}
-	let (hn, hm) = h.U
-	let mut hw = hm
-	hw["a"] = hn + h.N
-	report("named tuple omitted field", len(hw) == 1)
-
 	let gi P[string]
 	let (gs, gm) = gi
 	let mut gw = gm
 	gw["k"] = gs
 	report("generic named tuple", len(gw) == 1)
 
-	let g = G{K: 2}
-	let (qs, qm) = g.Q
-	let mut qw = qm
-	qw["k"] = qs
-	report("generic named tuple field", len(qw) == 1 && g.K == 2)
-
 	report("generic function", inGeneric(5) == 1 && inGeneric("s") == 1)
 }
-`, "named tuple let\nnamed tuple package let\nnamed tuple omitted field\ngeneric named tuple\ngeneric named tuple field\ngeneric function\n")
+`, "named tuple let\nnamed tuple package let\ngeneric named tuple\ngeneric function\n")
 }
 
 // TestErgoRunDefaultsShareNoMap: every default builds new Maps (stage D2
-// round 2 review M2): two lets of one record type, the two fields of one
-// type in a record, a package let and a local, and two omitted fields of a
-// literal each get their own Map, though one generated function builds
-// them all.
+// round 2 review M2): two lets of one Map type, a package let and a local
+// each get their own Map. A record has no default (types.md, Zero values
+// 2 and 3), so a record field is never a default.
 func TestErgoRunDefaultsShareNoMap(t *testing.T) {
-	wantRun(t, `type R { M Map[string, int] }
-type O { A R, B R }
-
-let pr R
+	wantRun(t, `let pm Map[string, int]
 
 func main() needs Console {
-	let mut a R
-	let b R
-	a.M["x"] = 1
-	let mut o O
-	o.A.M["y"] = 1
-	let mut p = O{}
-	p.B.M["z"] = 1
-	if len(a.M) == 1 && len(b.M) == 0 && len(o.B.M) == 0 && len(p.A.M) == 0 && len(pr.M) == 0 {
+	let mut a Map[string, int]
+	let b Map[string, int]
+	a["x"] = 1
+	if len(a) == 1 && len(b) == 0 && len(pm) == 0 {
 		Console.Println("independent")
 	}
 }
@@ -450,9 +399,9 @@ func main() needs Console {
 	if len(held) == 1 && len(m) == 0 {
 		Console.Println("map fixed first")
 	}
-	let mut r = R{}
+	let mut r = R{M: Map[string, int]{}}
 	r.M[key(true) catch { case Failed: "z" }] = 2
-	let mut rs = []R{R{}, R{}}
+	let mut rs = []R{R{M: Map[string, int]{}}, R{M: Map[string, int]{}}}
 	rs[1].M["a"] = 3
 	if len(r.M) == 1 && len(rs[0].M) == 0 && len(rs[1].M) == 1 {
 		Console.Println("field and element")

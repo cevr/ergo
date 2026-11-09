@@ -868,15 +868,29 @@ func (c *checker) satisfies(t Type, constraint Type) string {
 	return c.implements(t, it)
 }
 
-// defaultable reports whether t has a valid zero value (types.md, Zero
-// values 1): a basic type, a slice, map or channel, or a struct of
-// defaultable fields. A union, an interface, a function type, a pointer and
-// a struct that holds any of them are not.
-func defaultable(t Type) bool {
-	return defaultableSeen(t, map[Type]bool{})
+// letZero checks `let name T` with no value (types.md, Zero values 3): T
+// must have a zero value. Another package's record that only its package
+// builds is S114 first, since its message names the function to call.
+func (c *checker) letZero(name *syntax.Ident, declared Type) {
+	if declared == nil || isInvalid(declared) {
+		return
+	}
+	if a := zeroAuthority(declared, c.pkg); a != nil {
+		c.errorf(name, CodeAuthority, "let %s of type %s needs a value: its zero value builds a new value of %s, and %s (types.md, Zero values 6)", name.Name, c.localTypeText(declared), qualifiedName(a), authorityText(a))
+		return
+	}
+	if !defaultable(declared) {
+		c.errorf(name, CodeType, "let %s of type %s needs a value: %s has no zero value (types.md, Zero values 3)", name.Name, declared, declared)
+	}
 }
 
-func defaultableSeen(t Type, seen map[Type]bool) bool {
+// defaultable reports whether t has a valid zero value (types.md, Zero
+// values 1): a basic type, a slice or Map, a record with no fields, or a
+// tuple of these. A record with fields has none: it is built only by a
+// literal that names every field or by a record update (Zero values 2,
+// owner q44). A union, an interface, a function type, a pointer and a tuple
+// that holds a record with fields have none either.
+func defaultable(t Type) bool {
 	switch u := under(t).(type) {
 	case *Basic:
 		return true
@@ -884,24 +898,13 @@ func defaultableSeen(t Type, seen map[Type]bool) bool {
 		return true
 	case *Tuple:
 		for _, e := range u.Types {
-			if !defaultableSeen(e, seen) {
+			if !defaultable(e) {
 				return false
 			}
 		}
 		return true
 	case *Struct:
-		// A recursive struct reaches itself through a named type, the same
-		// type object (instances are cached by id).
-		if seen[t] {
-			return true
-		}
-		seen[t] = true
-		for _, f := range u.Fields {
-			if !defaultableSeen(f.Type, seen) {
-				return false
-			}
-		}
-		return true
+		return len(u.Fields) == 0
 	}
 	return false
 }

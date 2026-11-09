@@ -141,10 +141,10 @@ type Counter { n int }
 
 func inc(c *Counter) { c.n = c.n + 1 }
 
-func make() Counter { return Counter{} }
+func make() Counter { return Counter{n: 0} }
 
 func F() {
-	let mut c = Counter{}
+	let mut c = Counter{n: 0}
 	c.inc()
 	let p = &c
 	p.inc()
