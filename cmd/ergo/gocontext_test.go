@@ -18,7 +18,7 @@ import (
 // and no goroutine is left. Outside a mask the context can be cancelled.
 //
 // Mutants it alone catches: the interruption point after the call dropped
-// (the task goes on with "go error context canceled"); the mask ignored
+// (the catch arm runs with "go error context canceled"); the mask ignored
 // (the release's context is cancellable); the user extern's call not
 // passing the context (go build fails); the binding not hiding the
 // parameter (the program does not check).
@@ -61,12 +61,14 @@ import timeout
 extern go runtime/trace.Log func traceLog(category string, message string) needs go.Foreign
 
 func waits() needs Console | go.Foreign {
+	let mut seen = "nothing"
 	scope.OnExit() {
-		Console.Println("released, cancellable " + strconv.FormatBool(hostwait.Cancellable()))
+		Console.Println("released, saw " + seen + ", cancellable " + strconv.FormatBool(hostwait.Cancellable()))
 	}
 	hostwait.Block() catch {
 	case go.Error as e:
-		Console.Println("go error " + e.Text)
+		seen = "go error " + e.Text
+		Console.Println(seen)
 	}
 	Console.Println("after the wait")
 }
@@ -95,7 +97,7 @@ func main() needs Console | Ambient | go.Foreign {
 		return string(stdout)
 	}
 	run("bind", "go", "example.com/hostwait")
-	want := "released, cancellable false\ninterrupted\ncancellable true\nleaked 0\n"
+	want := "released, saw nothing, cancellable false\ninterrupted\ncancellable true\nleaked 0\n"
 	if got := run("run", "cmd/app"); got != want {
 		t.Errorf("ergo run cmd/app:\n%s\nwant:\n%s", got, want)
 	}
