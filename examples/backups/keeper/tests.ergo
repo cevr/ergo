@@ -1,0 +1,86 @@
+// The saga's stories, on the desk over the memory store, and its law as
+// a property test. A law can bind a context, but a law in package keeper
+// that binds memory.NewLog() would make the domain import its provider, so
+// EveryBackupSettles is a test only.
+
+import backups/memory
+import backups/backup
+
+let small = backup.File{Path: "a.txt", Count: 2, Size: 150}
+
+func plan(id string) backup.Command {
+	backup.Plan{Backup: id, Host: "alpha", Files: []backup.File{small}}
+}
+
+// verified reports whether the outcomes record a verify.
+func verified(outcomes []Outcome) bool {
+	for o in outcomes {
+		match o {
+		case Recorded as r:
+			for e in r.Events {
+				match e {
+				case backup.Verified:
+					return true
+				case backup.Planned, backup.FileAdded, backup.Stored, backup.Aborted:
+				}
+			}
+		case Refused:
+		}
+	}
+	false
+}
+
+test AStoredBackupIsVerifiedAtOnce {
+	with context { backup.Backups: memory.NewLog() } {
+		let d, _ = Submit(Open(), plan("a"))
+		assert len(d.Running) == 1
+		let d2, outcomes = Submit(d, backup.Store{Backup: "a", Size: 300})
+		assert len(outcomes) == 2 && verified(outcomes)
+		assert len(d2.Running) == 0
+		assert backup.Backups.Current("a") == backup.Sound{S: backup.Summary{Host: "alpha", Total: 300, Files: 2}}
+	}
+}
+
+test AnUnstoredBackupIsAbortedAtItsDeadline {
+	with context { backup.Backups: memory.NewLog() } {
+		let d, _ = Submit(Open(), plan("a"))
+		let d2, early = Advance(d, StoreWithin-1)
+		assert len(early) == 0 && len(d2.Running) == 1
+		let d3, late = Advance(d2, 1)
+		assert len(late) == 1 && len(d3.Running) == 0
+		assert backup.Backups.Current("a") == backup.Void{S: backup.Summary{Host: "alpha", Total: 300, Files: 2}, Reason: "not stored after 30 minutes"}
+	}
+}
+
+test AnAbortedBackupEndsItsSaga {
+	with context { backup.Backups: memory.NewLog() } {
+		let d, _ = Submit(Open(), plan("a"))
+		let d2, _ = Submit(d, backup.Abort{Backup: "a", Reason: "no longer needed"})
+		assert len(d2.Running) == 0
+		let _, later = Advance(d2, StoreWithin)
+		assert len(later) == 0
+	}
+}
+
+// EveryBackupSettles: run a drawn script a minute per command, then let
+// every deadline pass. No backup is left open or stored: each is verified,
+// aborted, or never planned.
+test EveryBackupSettlesHolds(seed int) {
+	with context { backup.Backups: memory.NewLog() } {
+		let mut d = Open()
+		for c in backup.Script(seed, 40) {
+			let next, _ = Submit(d, c)
+			let later, _ = Advance(next, 1)
+			d = later
+		}
+		let last, _ = Advance(d, StoreWithin)
+		assert len(last.Running) == 0
+		for id in []string{"a", "b"} {
+			match backup.Backups.Current(id) {
+			case backup.Open, backup.Held:
+				assert false
+			case backup.Absent, backup.Sound, backup.Void:
+			}
+		}
+	}
+}

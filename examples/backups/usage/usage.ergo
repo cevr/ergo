@@ -1,0 +1,76 @@
+// Package usage is a view of the backup service: it folds the backup
+// events into the numbers an operator asks for. It reads events only, never an
+// backup's state.
+
+import backups/backup
+
+// Usage is the view: backups planned, stored, verified and aborted, the
+// files, and the size held (stored less freed), in hundredths of a GB.
+type Usage { Planned int, Stored int, Verified int, Aborted int, Files int, Size int64 }
+
+// Project is the view after event e.
+func Project(v Usage, e backup.Event) Usage {
+	match e {
+	case backup.Planned:
+		Usage{..v, Planned: v.Planned + 1}
+	case backup.FileAdded as i:
+		Usage{..v, Files: v.Files + i.Count}
+	case backup.Stored as p:
+		Usage{..v, Stored: v.Stored + 1, Size: v.Size + p.Size}
+	case backup.Verified:
+		Usage{..v, Verified: v.Verified + 1}
+	case backup.Aborted as x:
+		Usage{..v, Aborted: v.Aborted + 1, Size: v.Size - x.Freed}
+	}
+}
+
+// Of is the view of a log, folded from nothing.
+func Of(log []backup.Event) Usage {
+	let mut v = Usage{Planned: 0, Stored: 0, Verified: 0, Aborted: 0, Files: 0, Size: 0}
+	for e in log {
+		v = Project(v, e)
+	}
+	v
+}
+
+// Text is the view as the service prints it.
+func Text(v Usage) string {
+	"planned \(v.Planned), stored \(v.Stored), verified \(v.Verified), aborted \(v.Aborted), files \(v.Files), size \(GB(v.Size))"
+}
+
+// GB is hundredths of a GB as GB: 1250 is "12.50".
+func GB(hundredths int64) string {
+	let sign = if hundredths < 0 { "-" } else { "" }
+	let c = if hundredths < 0 { -hundredths } else { hundredths }
+	let rest = c % 100
+	let pad = if rest < 10 { "0" } else { "" }
+	sign + "\(c / 100)." + pad + "\(rest)"
+}
+
+// SizeIsWhatBackupsHold: the size is the total of the backups that
+// are stored or verified, as their histories replay, and the view counts
+// each backup the log plans.
+law SizeIsWhatBackupsHold(seed int) {
+	Agrees(backup.Simulate(backup.Script(seed, 40)))
+}
+
+// Agrees is the check of SizeIsWhatBackupsHold on a log of the backups
+// "a" and "b".
+func Agrees(log []backup.Event) bool {
+	let mut held = int64(0)
+	let mut planned = 0
+	for id in []string{"a", "b"} {
+		match backup.Replay(backup.Of(log, id)) {
+		case backup.Held as p:
+			held = held + p.S.Total
+		case backup.Sound as s:
+			held = held + s.S.Total
+		case backup.Absent:
+			planned = planned - 1
+		case backup.Open, backup.Void:
+		}
+		planned = planned + 1
+	}
+	let v = Of(log)
+	v.Size == held && v.Planned == planned
+}

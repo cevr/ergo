@@ -1,0 +1,258 @@
+// Slot is one column of the machine: its name on the keypad, what it
+// holds, its cost in units and how many are left.
+type Slot { Name string, Item string, Cost int, Count int }
+
+// State is what the machine is doing. Each state holds the slots, so no
+// state loses the stock. Heating and Forging end at Until, a time since
+// the machine was switched on; a Tick at or after it moves them on.
+type State = Idle{Slots []Slot} | Heating{Slots []Slot, Credit int, Until duration} | Forging{Slots []Slot, Slot string, Until duration} | Cold{Slots []Slot}
+
+// Signal is what reaches the machine, each at a time since it was
+// switched on: an ore the assayer took, a key, the cancel button, the
+// clock, and the douse switch.
+type Signal = Ore{At duration, Worth int} | Select{At duration, Slot string} | Cancel{At duration} | Tick{At duration} | Douse{At duration} | Kindle{At duration}
+
+// Wait is how long the machine keeps a credit with no ore or key.
+let Wait = 30s
+
+// Drop is how long a forged item takes to fall into the tray.
+let Drop = 2s
+
+// The failures of a signal the machine refuses: the state stays as it was.
+
+// NotEnough is a key pressed with less credit than the cost.
+type NotEnough { Slot string, Cost int, Credit int }
+
+// NoStock is a key of an empty slot.
+type NoStock { Slot string }
+
+// NoSuchSlot is a key that names no slot.
+type NoSuchSlot { Slot string }
+
+// Busy is an ore or a key while a forged item drops.
+type Busy {}
+
+// Unlit is an ore or a key while the forge is cold.
+type Unlit {}
+
+// BadOre is an ore of a value the machine does not take.
+type BadOre { Worth int }
+
+// Refusal is the row of every refusal.
+type Refusal = NotEnough | NoStock | NoSuchSlot | Busy | Unlit | BadOre
+
+// Start is a machine switched on with slots.
+func Start(slots []Slot) State { Idle{Slots: slots} }
+
+// SlotsOf is the slots that s holds.
+func SlotsOf(s State) []Slot {
+	match s {
+	case Idle as i:
+		i.Slots
+	case Heating as c:
+		c.Slots
+	case Forging as v:
+		v.Slots
+	case Cold as o:
+		o.Slots
+	}
+}
+
+// CreditOf is the credit that s holds: only Heating holds one.
+func CreditOf(s State) int {
+	match s {
+	case Heating as c:
+		c.Credit
+	case Idle:
+		0
+	case Forging:
+		0
+	case Cold:
+		0
+	}
+}
+
+// Deadline is the time at which s moves on by itself, or None.
+func Deadline(s State) Option[duration] {
+	match s {
+	case Heating as c:
+		Some[duration]{Value: c.Until}
+	case Forging as v:
+		Some[duration]{Value: v.Until}
+	case Idle:
+		None
+	case Cold:
+		None
+	}
+}
+
+// Name is the word for s.
+func Name(s State) string {
+	match s {
+	case Idle:
+		"idle"
+	case Heating:
+		"heating"
+	case Forging:
+		"forging"
+	case Cold:
+		"cold"
+	}
+}
+
+// find is the slot named name in slots.
+func find(slots []Slot, name string) Slot fails NoSuchSlot {
+	for s in slots {
+		if s.Name == name {
+			return s
+		}
+	}
+	NoSuchSlot{Slot: name}
+}
+
+// take is slots with one fewer in the slot named name, in a new slice.
+func take(slots []Slot, name string) []Slot {
+	let mut out = []Slot{}
+	for s in slots {
+		out = out.Append(if s.Name == name { Slot{..s, Count: s.Count - 1} } else { s })
+	}
+	out
+}
+
+// craft is the events of a key for name with credit: the guards are the
+// slot, its stock and the cost, in that order.
+func craft(slots []Slot, name string, credit int) []Event fails NoSuchSlot | NoStock | NotEnough {
+	let s = try find(slots, name)
+	if s.Count <= 0 {
+		return NoStock{Slot: name}
+	}
+	if credit < s.Cost {
+		return NotEnough{Slot: name, Cost: s.Cost, Credit: credit}
+	}
+	[]Event{Forged{Slot: name, Item: s.Item, Cost: s.Cost, Leftover: credit - s.Cost}}
+}
+
+// Decide is the events of sig in s. It decides; Evolve only folds. A
+// signal the machine refuses is a failure, and a signal that changes
+// nothing has no events.
+func Decide(s State, sig Signal) []Event fails Refusal {
+	match (s, sig) {
+	case (Cold, Kindle as r):
+		[]Event{CameBack{At: r.At}}
+	case (Cold, Tick):
+		[]Event{}
+	case (Cold, Douse):
+		[]Event{}
+	case (Cold, _):
+		Unlit
+	case (Forging, Ore):
+		Busy
+	case (Forging, Select):
+		Busy
+	case (Forging, Cancel):
+		Busy
+	case (Forging as v, Tick as t):
+		if t.At >= v.Until { []Event{Dropped{Slot: v.Slot}} } else { []Event{} }
+	case (_, Ore as c):
+		if !IsGrade(c.Worth) {
+			return BadOre{Worth: c.Worth}
+		}
+		[]Event{Accepted{At: c.At, Worth: c.Worth, Credit: CreditOf(s) + c.Worth}}
+	case (_, Select as k):
+		try craft(SlotsOf(s), k.Slot, CreditOf(s))
+	case (Heating as c, Cancel):
+		[]Event{Returned{Worth: c.Credit, Why: "cancel"}}
+	case (Idle, Cancel):
+		[]Event{}
+	case (Heating as c, Tick as t):
+		if t.At >= c.Until { []Event{Returned{Worth: c.Credit, Why: "timeout"}} } else { []Event{} }
+	case (Idle, Tick):
+		[]Event{}
+	case (Heating as c, Douse):
+		[]Event{Returned{Worth: c.Credit, Why: "douse"}, WentCold}
+	case (_, Douse):
+		[]Event{WentCold}
+	case (_, Kindle):
+		[]Event{}
+	}
+}
+
+// Event is what a signal did, in the past tense.
+type Event = Accepted{At duration, Worth int, Credit int} | Forged{Slot string, Item string, Cost int, Leftover int} | Returned{Worth int, Why string} | Dropped{Slot string} | WentCold{} | CameBack{At duration}
+
+// Evolve is s after the event e. A forge starts its drop at the time of
+// the ore or key that made it, so Evolve takes that time.
+func Evolve(s State, at duration, e Event) State {
+	let slots = SlotsOf(s)
+	match e {
+	case Accepted as a:
+		Heating{Slots: slots, Credit: a.Credit, Until: a.At + Wait}
+	case Forged as d:
+		Forging{Slots: take(slots, d.Slot), Slot: d.Slot, Until: at + Drop}
+	case Returned:
+		Idle{Slots: slots}
+	case Dropped:
+		Idle{Slots: slots}
+	case WentCold:
+		Cold{Slots: slots}
+	case CameBack:
+		Idle{Slots: slots}
+	}
+}
+
+// AtOf is the time of sig.
+func AtOf(sig Signal) duration {
+	match sig {
+	case Ore as c:
+		c.At
+	case Select as k:
+		k.At
+	case Cancel as c:
+		c.At
+	case Tick as t:
+		t.At
+	case Douse as v:
+		v.At
+	case Kindle as r:
+		r.At
+	}
+}
+
+// Apply is the decision of the events es in s at the time at: no event
+// is Ignore; events that keep the state's kind Stay; others Enter.
+func Apply(s State, at duration, es []Event) Decision[State, []Slot] {
+	if len(es) == 0 {
+		return Ignore
+	}
+	let mut next = s
+	for e in es {
+		next = Evolve(next, at, e)
+	}
+	if Name(next) == Name(s) {
+		Stay[State]{Next: next}
+	} else {
+		Enter[State]{Next: next}
+	}
+}
+
+// Step is the machine's transition: the events Decide records, folded by
+// Apply. The machine never ends, so it is never Done: its output type is
+// the stock it would hand over.
+func Step(s State, sig Signal) Decision[State, []Slot] fails Refusal {
+	Apply(s, AtOf(sig), try Decide(s, sig))
+}
+
+// Forge is the forge as a machine. Its input is the slots it is
+// switched on with.
+type Forge machine[State, Signal] {
+	initial: Start,
+	step:    Step,
+}
+
+// Tried is Step(s, sig), or Reject when the machine refuses sig.
+func Tried(s State, sig Signal) Decision[State, []Slot] {
+	Step(s, sig) catch {
+	case Refusal:
+		Reject
+	}
+}

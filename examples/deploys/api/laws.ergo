@@ -1,0 +1,109 @@
+// The rules of the HTTP layer as laws over Handle and RouteOf. Handle
+// needs an deploys.Store, so its laws take the Store as a value, a parameter
+// of the law, and bind it in a context they build. ergo test runs each
+// such law once per provider of Store it sees (here memory.Table, built
+// by NewTable). Each calls a function of its name and "Holds", which the
+// tests also call with steered requests.
+
+import deploys/jsontext
+import deploys/deploys
+import strings
+
+// Statuses is every status Handle gives.
+let Statuses = []int{200, 201, 400, 404, 405, 409, 415, 422}
+
+// EveryRequestHasAStatus: for any Store, whatever the method, path and
+// body, Handle answers with one of Statuses and a JSON body: no request
+// reaches a status the API does not document, and none makes it fail.
+law EveryRequestHasAStatus(store deploys.Store, method string, path string, body string) {
+	EveryRequestHasAStatusHolds(store, method, path, body)
+}
+
+// CreateThenShow: for any Store, a valid draft posted is 201 with a
+// Location, and a GET of the Location is 200 with the same body; an
+// invalid one is 422.
+law CreateThenShow(store deploys.Store, d deploys.Draft) { CreateThenShowHolds(store, d) }
+
+// EveryRequestHasAStatusHolds checks EveryRequestHasAStatus.
+func EveryRequestHasAStatusHolds(store deploys.Store, method string, path string, body string) bool {
+	let r = with context { deploys.Store: store } { Handle(Request{Method: method, Path: path, Headers: []Header{}, Body: body}) }
+	let _ = jsontext.Parse(r.Body) catch {
+	case jsontext.Malformed:
+		return false
+	}
+	known(r.Status)
+}
+
+// CreateThenShowHolds checks CreateThenShow.
+func CreateThenShowHolds(store deploys.Store, d deploys.Draft) bool {
+	with context { deploys.Store: store } {
+		let created = Handle(Request{Method: "POST", Path: "/deploys", Headers: []Header{}, Body: jsontext.Encode(DraftJSON(d))})
+		deploys.Validate(d) catch {
+		case deploys.Invalid:
+			return created.Status == 422
+		}
+		match HeaderOf(created.Headers, "Location") {
+		case Some[string] as at:
+			let shown = Handle(Request{Method: "GET", Path: at.Value, Headers: []Header{}, Body: ""})
+			created.Status == 201 && shown.Status == 200 && shown.Body == created.Body
+		case None:
+			false
+		}
+	}
+}
+
+// UnknownPathIs404: a path outside /deploys is 404, whatever the method.
+law UnknownPathIs404(method string, path string) {
+	if strings.HasPrefix(path, "/deploys") {
+		return true
+	}
+	match RouteOf(method, path) {
+	case Nowhere:
+		true
+	case List, Show, Create, Act, Wrong:
+		false
+	}
+}
+
+// WrongMethodNamesTheRight: a known path with another method is Wrong,
+// and each method it allows reaches that path. The method is one of
+// Methods half the time: a generated string is rarely a method.
+law WrongMethodNamesTheRight(id string, method string, m int) {
+	rightNamed(id, method) && rightNamed(id, Methods[(if m < 0 { -(m + 1) } else { m })%len(Methods)]) && rightNamed("dep-1", method)
+}
+
+// Methods is the methods the API knows, and one it does not.
+let Methods = []string{"GET", "POST", "PUT", "DELETE"}
+
+// rightNamed checks WrongMethodNamesTheRight for id and method.
+func rightNamed(id string, method string) bool {
+	if id == "" || strings.Contains(id, "/") {
+		return true
+	}
+	for path in []string{"/deploys", "/deploys/" + id, "/deploys/" + id + "/approve"} {
+		match RouteOf(method, path) {
+		case Wrong as w:
+			for m in strings.Split(w.Allow, ", ") {
+				match RouteOf(m, path) {
+				case Wrong, Nowhere:
+					return false
+				case List, Show, Create, Act:
+				}
+			}
+		case Nowhere:
+			return false
+		case List, Show, Create, Act:
+		}
+	}
+	true
+}
+
+// known reports whether status is one of Statuses.
+func known(status int) bool {
+	for s in Statuses {
+		if s == status {
+			return true
+		}
+	}
+	false
+}

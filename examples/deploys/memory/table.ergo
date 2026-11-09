@@ -1,0 +1,77 @@
+// Package memory holds Table, the in-memory deploys.Store. The server
+// keeps its deploys for one run: Ergo has no listener yet, so a run is one
+// connection (cmd/deploys).
+
+import deploys/deploys
+import sync
+
+// entries is what a Table holds: the deploys by ID, and the IDs in the
+// order they were added.
+type entries { byID Map[string, deploys.Deploy], order []string }
+
+// Table is an deploys.Store in memory. Its entries are in a sync.Ref, so
+// every copy of a Table is the same store: a Table bound in a context
+// keeps its deploys from one request to the next. NewTable makes one.
+type Table { cell sync.Ref[entries] }
+
+// NewTable is an empty Table.
+func NewTable() Table {
+	Table{cell: sync.NewRef[entries](entries{byID: Map[string, deploys.Deploy]{}, order: []string{}})}
+}
+
+// Add keeps o under its ID.
+func Add(l Table, o deploys.Deploy) fails deploys.Taken {
+	let added = sync.Modify(l.cell, func(e entries) (bool, entries) {
+		if e.byID.Get(o.ID) != None {
+			return (false, e)
+		}
+		let mut byID = e.byID
+		byID[o.ID] = o
+		(true, entries{byID: byID, order: e.order.Append(o.ID)})
+	})
+	if !added {
+		return deploys.Taken{ID: o.ID}
+	}
+}
+
+// Replace keeps o in place of the deploy of its ID.
+func Replace(l Table, o deploys.Deploy) fails deploys.NotFound {
+	let found = sync.Modify(l.cell, func(e entries) (bool, entries) {
+		if e.byID.Get(o.ID) == None {
+			return (false, e)
+		}
+		let mut byID = e.byID
+		byID[o.ID] = o
+		(true, entries{..e, byID: byID})
+	})
+	if !found {
+		return deploys.NotFound{ID: o.ID}
+	}
+}
+
+// Find is the deploy of id.
+func Find(l Table, id string) deploys.Deploy fails deploys.NotFound {
+	match l.cell.Get().byID.Get(id) {
+	case Some[deploys.Deploy] as o:
+		o.Value
+	case None:
+		deploys.NotFound{ID: id}
+	}
+}
+
+// All is every deploy, in the order they were added.
+func All(l Table) []deploys.Deploy {
+	let e = l.cell.Get()
+	let mut out = []deploys.Deploy{}
+	for id in e.order {
+		match e.byID.Get(id) {
+		case Some[deploys.Deploy] as o:
+			out = out.Append(o.Value)
+		case None:
+		}
+	}
+	out
+}
+
+// Count is how many deploys the Table holds.
+func Count(l Table) int { len(l.cell.Get().byID) }

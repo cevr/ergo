@@ -1,4 +1,4 @@
-// The source of a sales file, and the report over it.
+// The source of a meter file, and the report over it.
 
 import csv
 
@@ -8,7 +8,7 @@ type Missing { Name string }
 // Unreadable is a file that the source has but cannot read.
 type Unreadable { Name string, Reason string }
 
-// Source is where sales files come from.
+// Source is where meter files come from.
 type Source {
 	// Read is the text of the file name.
 	Read(name string) string fails Missing | Unreadable,
@@ -31,23 +31,23 @@ type Source {
 	},
 }
 
-// Report is the table of the sales in the file name that every one of
+// Report is the table of the readings in the file name that every one of
 // keeps keeps, grouped under k.
 func Report(name string, keeps []Keep, k Key) []string fails Missing | Unreadable | csv.ParseError | MissingColumn | BadNumber needs Source {
 	let text = try Source.Read(name)
-	let mut sales = try Load(text)
+	let mut readings = try Load(text)
 	for keep in keeps {
-		sales = Filter(sales, keep)
+		readings = Filter(readings, keep)
 	}
-	Table(sales, k)
+	Table(readings, k)
 }
 
-// Rows is the CSV rows of sales, with a header first: the inverse of
-// Load for sales whose price is not negative.
-func Rows(sales []Sale) [][]string {
-	let mut out = [][]string{[]string{"region", "product", "units", "price"}}
-	for s in sales {
-		out = out.Append([]string{s.Region, s.Product, "\(s.Units)", Money(s.Cents)})
+// Rows is the CSV rows of readings, with a header first: the inverse of
+// Load for readings whose kW is not negative.
+func Rows(readings []Reading) [][]string {
+	let mut out = [][]string{[]string{"site", "device", "hours", "kw"}}
+	for s in readings {
+		out = out.Append([]string{s.Site, s.Device, "\(s.Hours)", Hundredths(s.Kw)})
 	}
 	out
 }

@@ -1,0 +1,44 @@
+// The domain's pure tests: the rules of a draft and the lifecycle. The
+// laws run under ergo test. Create and Apply need a Store; their tests are
+// in package memory, which provides one.
+
+import slices
+
+test ValidateNamesTheField {
+	let ok = Unit{Image: "app", Replicas: 2, Mem: 450}
+	assert invalid(Draft{Service: "", Units: []Unit{ok}}) == "service is empty"
+	assert invalid(Draft{Service: "web", Units: []Unit{}}) == "units a deploy has at least one unit"
+	assert invalid(Draft{Service: "web", Units: []Unit{ok, Unit{..ok, Image: ""}}}) == "units[1].image is empty"
+	assert invalid(Draft{Service: "web", Units: []Unit{Unit{..ok, Replicas: 0}}}) == "units[0].replicas is not from 1 to 1000"
+	assert invalid(Draft{Service: "web", Units: []Unit{Unit{..ok, Replicas: 1001}}}) == "units[0].replicas is not from 1 to 1000"
+	assert invalid(Draft{Service: "web", Units: []Unit{Unit{..ok, Mem: -1}}}) == "units[0].mem is negative"
+	assert invalid(Draft{Service: "web", Units: []Unit{ok}}) == "valid"
+}
+
+// invalid is the field and reason of Validate(d), or "valid".
+func invalid(d Draft) string {
+	Validate(d) catch {
+	case Invalid as i:
+		return i.Field + " " + i.Reason
+	}
+	"valid"
+}
+
+test TheLifecycleTable {
+	let mut rows = []string{}
+	for s in []Status{Pending, Approved, Live, Cancelled} {
+		for e in []Event{Approve, Release, Cancel} {
+			rows = rows.Append(Name(s) + "+" + EventName(e) + "=" + Name(after(s, e)))
+		}
+	}
+	assert slices.Equal(rows, []string{
+		"pending+approve=approved", "pending+release=pending", "pending+cancel=cancelled",
+		"approved+approve=approved", "approved+release=live", "approved+cancel=cancelled",
+		"live+approve=live", "live+release=live", "live+cancel=live",
+		"cancelled+approve=cancelled", "cancelled+release=cancelled", "cancelled+cancel=cancelled",
+	})
+}
+
+test EventNamesRoundTrip(e Event) {
+	assert EventNamed(EventName(e)) == Some[Event]{Value: e}
+}

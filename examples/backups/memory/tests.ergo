@@ -1,0 +1,85 @@
+// ergo test runs the laws of backup.Backups here, against Log (NewLog), over
+// generated commands. These properties check them again over scripts
+// drawn from a seed, which reach accepted commands far more often: each
+// command of a script is sent in turn, and each law is checked after it.
+
+import backups/backup
+
+// sent is the events and the rejection's name of c, sent to the store.
+func sent(c backup.Command) ([]backup.Event, string) needs backup.Backups {
+	let events = backup.Backups.Send(c) catch {
+	case backup.UnknownBackup:
+		return ([]backup.Event{}, "UnknownBackup")
+	case backup.AlreadyPlanned:
+		return ([]backup.Event{}, "AlreadyPlanned")
+	case backup.InvalidFile:
+		return ([]backup.Event{}, "InvalidFile")
+	case backup.WrongSize:
+		return ([]backup.Event{}, "WrongSize")
+	case backup.NotAllowed:
+		return ([]backup.Event{}, "NotAllowed")
+	}
+	(events, "")
+}
+
+test RejectedCommandEmitsNothingHolds(seed int) {
+	with context { backup.Backups: NewLog() } {
+		for c in backup.Script(seed, 40) {
+			let before = backup.Backups.History(backup.BackupOf(c))
+			let _, rejected = sent(c)
+			if rejected != "" {
+				assert backup.Backups.History(backup.BackupOf(c)) == before
+			}
+		}
+	}
+}
+
+test AcceptedCommandIsRecordedHolds(seed int) {
+	with context { backup.Backups: NewLog() } {
+		for c in backup.Script(seed, 40) {
+			let before = backup.Backups.History(backup.BackupOf(c))
+			let events, rejected = sent(c)
+			if rejected == "" {
+				let mut want = before
+				for e in events {
+					want = want.Append(e)
+				}
+				assert backup.Backups.History(backup.BackupOf(c)) == want
+			}
+		}
+	}
+}
+
+test ReplayRebuildsStateHolds(seed int) {
+	with context { backup.Backups: NewLog() } {
+		for c in backup.Script(seed, 40) {
+			let _, _ = sent(c)
+			let id = backup.BackupOf(c)
+			assert backup.Replay(backup.Backups.History(id)) == backup.Backups.Current(id)
+		}
+	}
+}
+
+// The store records what the reference records: Simulate's log of each
+// backup is the store's history of it.
+test TheStoreAgreesWithTheReference(seed int) {
+	let script = backup.Script(seed, 40)
+	let log = backup.Simulate(script)
+	with context { backup.Backups: NewLog() } {
+		for c in script {
+			let _, _ = sent(c)
+		}
+		assert backup.Backups.History("a") == backup.Of(log, "a")
+		assert backup.Backups.History("b") == backup.Of(log, "b")
+	}
+}
+
+test ARejectionLeavesTheStoreAsItWas {
+	with context { backup.Backups: NewLog() } {
+		let _, first = sent(backup.Plan{Backup: "a", Host: "alpha", Files: []backup.File{backup.File{Path: "a.txt", Count: 2, Size: 150}}})
+		let _, wrong = sent(backup.Store{Backup: "a", Size: 1})
+		assert first == "" && wrong == "WrongSize"
+		assert len(backup.Backups.History("a")) == 2
+		assert backup.Backups.Current("a") == backup.Open{S: backup.Summary{Host: "alpha", Total: 300, Files: 2}}
+	}
+}

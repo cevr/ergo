@@ -1,4 +1,4 @@
-project shop
+project site
   needs web ^2.1
 
 package web 2.1

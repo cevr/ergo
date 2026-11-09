@@ -228,16 +228,16 @@ func one(text string) Map[string, string] {
 	m
 }
 
-let shop = "project shop\n  needs web ^1\n  needs log ^1.2\npackage web 1.0.0\n  needs log ^1.4\npackage web 1.1.0\n  needs log ^2\npackage log 1.2.0\npackage log 1.4.1\npackage log 2.0.0\n"
+let site = "project site\n  needs web ^1\n  needs log ^1.2\npackage web 1.0.0\n  needs log ^1.4\npackage web 1.1.0\n  needs log ^2\npackage log 1.2.0\npackage log 1.4.1\npackage log 2.0.0\n"
 
 test ResolvesWhyAndGraph {
-	assert ran(one(shop), []string{"resolve"}) == "log 1.4.1\nweb 1.0.0\n"
-	assert ran(one(shop), []string{"why", "log"}) == "shop -> log 1.4.1\n"
-	assert ran(one(shop), []string{"graph"}) == "web 1.0.0 -> log 1.4.1\n"
+	assert ran(one(site), []string{"resolve"}) == "log 1.4.1\nweb 1.0.0\n"
+	assert ran(one(site), []string{"why", "log"}) == "site -> log 1.4.1\n"
+	assert ran(one(site), []string{"graph"}) == "web 1.0.0 -> log 1.4.1\n"
 }
 
 test FailuresExit {
-	assert ran(one(shop), []string{"why", "db"}) == "exit 1: deps: shop does not need db\n"
+	assert ran(one(site), []string{"why", "db"}) == "exit 1: deps: site does not need db\n"
 	assert ran(one("project a\n  needs b\n"), []string{"resolve"}) == "exit 1: deps: no release of b\n"
 	assert ran(one("project a\n  needs b\npackage b 1\n  needs b 1\n"), []string{"resolve"}) == "exit 1: deps: circular needs: b 1.0.0 -> b 1.0.0\n"
 	assert ran(one("project a\n  needs b ^2\npackage b 1\n"), []string{"resolve"}) == "exit 1: deps: no version of b keeps every want:\n  ^2 (from the project)\n  versions: 1.0.0\n"

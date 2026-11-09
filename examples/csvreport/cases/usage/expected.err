@@ -1,2 +1,2 @@
 missing required flag or argument: file
-usage: csvreport [-by region|product] [-region name] [-min units] file
+usage: csvreport [-by site|device] [-site name] [-min hours] file

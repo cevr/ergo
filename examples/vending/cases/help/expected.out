@@ -1,6 +1,0 @@
-Usage of vending:
-vending runs a vending machine and a crossing light from a script on standard input.
-  -brief
-    	print only the last line
-  -stock int
-    	how many of each item the machine holds (default 2)

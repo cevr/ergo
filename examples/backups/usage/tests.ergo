@@ -1,0 +1,20 @@
+import backups/backup
+
+test TheViewCountsABackupsLife {
+	let log = []backup.Event{
+		backup.Planned{Backup: "a", Host: "alpha"},
+		backup.FileAdded{Backup: "a", Path: "a.txt", Count: 2, Size: 150},
+		backup.Stored{Backup: "a", Size: 300},
+		backup.Planned{Backup: "b", Host: "beta"},
+		backup.FileAdded{Backup: "b", Path: "b.log", Count: 1, Size: 905},
+		backup.Stored{Backup: "b", Size: 905},
+		backup.Aborted{Backup: "b", Reason: "late", Freed: 905},
+		backup.Verified{Backup: "a"},
+	}
+	assert Text(Of(log)) == "planned 2, stored 2, verified 1, aborted 1, files 3, size 3.00"
+	assert Agrees(log)
+}
+
+test GBHasTwoDecimals {
+	assert GB(0) == "0.00" && GB(5) == "0.05" && GB(1250) == "12.50" && GB(-905) == "-9.05"
+}

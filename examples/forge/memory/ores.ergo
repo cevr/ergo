@@ -1,0 +1,36 @@
+// Package memory keeps the assayer's table in memory: an ore is
+// known by its name, as a test rig or a simulator knows it.
+
+import forge/forge
+
+// Ores is a forge.Assayer over a table from an ore's name to its value
+// in units. NewOres builds one.
+type Ores { values Map[string, int] }
+
+// NewOres is the ores of values whose value is a grade; an ore of
+// any other value is not taken, so Ores keeps the Assayer law
+// TakesOnlyGrades whatever table it is given (ergo test builds it
+// from generated ones).
+func NewOres(values Map[string, int]) Ores {
+	let mut taken = Map[string, int]{}
+	for name, worth in values {
+		if forge.IsGrade(worth) {
+			taken[name] = worth
+		}
+	}
+	Ores{values: taken}
+}
+
+// Standard is the ores of the standard table that the machine takes.
+func Standard() Ores { NewOres(Map[string, int]{"tin": 5, "copper": 10, "iron": 25, "gold": 100}) }
+
+// Value is the value of ore, or Slag when the table has no such
+// ore.
+func Value(c Ores, ore string) int fails forge.Slag {
+	match c.values.Get(ore) {
+	case Some[int] as v:
+		v.Value
+	case None:
+		forge.Slag{Name: ore}
+	}
+}

@@ -1,0 +1,195 @@
+// backups runs an event-sourced backup service over a script read from
+// standard input, one command per line:
+//
+//	plan BACKUP HOST PATH:COUNT:SIZE ...
+//	store BACKUP SIZE
+//	verify BACKUP
+//	abort BACKUP REASON ...
+//	wait MINUTES
+//	usage
+//
+// Sizes are in hundredths of a GB. It prints each command's events or its
+// rejection, the commands the keeper saga sends, and the usage view at the end. Package backup is
+// the aggregate and its contract, usage the view, keeper the saga and
+// the desk, memory the store. This binary is the only place that chooses
+// the providers: the memory store and the host's standard input and
+// output.
+
+import io
+import os
+import backups/keeper
+import backups/memory
+import backups/backup
+import backups/usage
+import strconv
+import strings
+
+// Step is one line of the script.
+type Step = Do{C backup.Command} | Wait{Minutes int} | Report{} | Blank{}
+
+// BadLine is a line of the script that is not a command.
+type BadLine { Line int, Reason string }
+
+// Parse is the step of a line of the script.
+func Parse(n int, line string) Step fails BadLine {
+	let w = strings.Fields(line)
+	if len(w) == 0 || strings.HasPrefix(w[0], "#") {
+		return Blank
+	}
+	match w[0] {
+	case "plan":
+		if len(w) < 4 {
+			return BadLine{Line: n, Reason: "plan needs a backup, a host and a file"}
+		}
+		let mut files = []backup.File{}
+		for i in 3..len(w) {
+			files = files.Append(try fileOf(n, w[i]))
+		}
+		Do{C: backup.Plan{Backup: w[1], Host: w[2], Files: files}}
+	case "store":
+		if len(w) != 3 {
+			return BadLine{Line: n, Reason: "store needs a backup and a size"}
+		}
+		Do{C: backup.Store{Backup: w[1], Size: int64(try whole(n, w[2]))}}
+	case "verify":
+		if len(w) != 2 {
+			return BadLine{Line: n, Reason: "verify needs a backup"}
+		}
+		Do{C: backup.Verify{Backup: w[1]}}
+	case "abort":
+		if len(w) < 3 {
+			return BadLine{Line: n, Reason: "abort needs a backup and a reason"}
+		}
+		let mut reason = w[2]
+		for i in 3..len(w) {
+			reason = reason + " " + w[i]
+		}
+		Do{C: backup.Abort{Backup: w[1], Reason: reason}}
+	case "wait":
+		if len(w) != 2 {
+			return BadLine{Line: n, Reason: "wait needs minutes"}
+		}
+		Wait{Minutes: try whole(n, w[1])}
+	case "usage":
+		Report
+	case _:
+		BadLine{Line: n, Reason: "no command " + w[0]}
+	}
+}
+
+// fileOf is the backup file PATH:COUNT:SIZE.
+func fileOf(n int, text string) backup.File fails BadLine {
+	let parts = strings.Split(text, ":")
+	if len(parts) != 3 {
+		return BadLine{Line: n, Reason: "a file is PATH:COUNT:SIZE, not " + text}
+	}
+	backup.File{Path: parts[0], Count: try whole(n, parts[1]), Size: int64(try whole(n, parts[2]))}
+}
+
+// whole is the text as a whole number. It is not named number, a prelude
+// name (G-ex-c-11).
+func whole(n int, text string) int fails BadLine {
+	strconv.Atoi(text) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return BadLine{Line: n, Reason: "not a number: " + text}
+	}
+}
+
+// Describe is the text of an event.
+func Describe(e backup.Event) string {
+	match e {
+	case backup.Planned as p:
+		"planned for " + p.Host
+	case backup.FileAdded as i:
+		"  \(i.Count) x " + i.Path + " at " + usage.GB(i.Size)
+	case backup.Stored as p:
+		"stored " + usage.GB(p.Size)
+	case backup.Verified:
+		"verified"
+	case backup.Aborted as x:
+		if x.Freed > 0 {
+			return "aborted (" + x.Reason + "), freed " + usage.GB(x.Freed)
+		}
+		"aborted (" + x.Reason + ")"
+	}
+}
+
+// print prints the outcomes and is the view after their events.
+func print(v usage.Usage, outcomes []keeper.Outcome) usage.Usage needs io.Stdout {
+	let mut view = v
+	for o in outcomes {
+		match o {
+		case keeper.Recorded as r:
+			for e in r.Events {
+				io.Stdout.Println(backup.BackupOf(r.C) + ": " + Describe(e))
+				view = usage.Project(view, e)
+			}
+		case keeper.Refused as r:
+			io.Stdout.Println(backup.BackupOf(r.C) + ": refused: " + r.Why)
+		}
+	}
+	view
+}
+
+// run runs the script on standard input against the backups.
+func run() fails os.Exit needs io.Stdin | io.Stdout | backup.Backups {
+	let mut desk = keeper.Open()
+	let mut view = usage.Of([]backup.Event{})
+	let mut n = 0
+	for line in io.Stdin.Lines() {
+		n = n + 1
+		let step = Parse(n, line) catch {
+		case BadLine as b:
+			return os.Exit{Code: 2, Message: "backups: line \(b.Line): " + b.Reason}
+		}
+		match step {
+		case Do as d:
+			let next, outcomes = keeper.Submit(desk, d.C)
+			desk = next
+			view = print(view, outcomes)
+		case Wait as w:
+			io.Stdout.Println("-- \(w.Minutes) minutes later")
+			let next, outcomes = keeper.Advance(desk, w.Minutes)
+			desk = next
+			view = print(view, outcomes)
+		case Report:
+			io.Stdout.Println(usage.Text(view))
+		case Blank:
+		}
+	}
+	io.Stdout.Println(usage.Text(view))
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { io.Stdin: io.NewHost(), io.Stdout: io.NewHost(), backup.Backups: memory.NewLog() } {
+		try run()
+	}
+}
+
+// ran is the output of run on the script, with a failure printed as
+// "exit CODE: MESSAGE".
+func ran(script string) string {
+	let out = io.NewRecorder()
+	with context { io.Stdin: io.Input{Text: script}, io.Stdout: out, backup.Backups: memory.NewLog() } {
+		run() catch {
+		case os.Exit as e:
+			io.Stdout.Println("exit \(e.Code): \(e.Message)")
+		}
+	}
+	out.Text()
+}
+
+test AStoredBackupIsVerifiedAndCounts {
+	let out = ran("plan a alpha a.txt:2:150\nstore a 300\n")
+	assert out == "a: planned for alpha\na:   2 x a.txt at 1.50\na: stored 3.00\na: verified\nplanned 1, stored 1, verified 1, aborted 0, files 2, size 3.00\n"
+}
+
+test AnUnstoredBackupIsAborted {
+	let out = ran("plan b beta b.log:1:900\nwait 45\nverify b\n")
+	assert out == "b: planned for beta\nb:   1 x b.log at 9.00\n-- 45 minutes later\nb: aborted (not stored after 30 minutes)\nb: refused: cannot verify a backup that is aborted\nplanned 1, stored 0, verified 0, aborted 1, files 1, size 0.00\n"
+}
+
+test ABadLineExits {
+	assert ran("# a script\n\nplan a alpha a.txt:x:1\n") == "exit 2: backups: line 3: not a number: x\n"
+	assert ran("restore a\n") == "exit 2: backups: line 1: no command restore\n"
+}

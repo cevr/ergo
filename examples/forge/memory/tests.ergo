@@ -1,0 +1,16 @@
+// ergo test runs the forge.Assayer laws against Ores, built by NewOres
+// from generated tables; this test checks the Standard table.
+
+import forge/forge
+
+test KnowsStandardOres {
+	let a forge.Assayer = Standard()
+	assert try a.Value("iron") == 25
+	assert try a.Value("gold") == 100
+	let v = a.Value("lead") catch {
+	case forge.Slag as c:
+		assert c.Name == "lead"
+		return
+	}
+	assert v == -1
+}

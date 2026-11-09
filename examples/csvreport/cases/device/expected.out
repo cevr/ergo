@@ -1,0 +1,5 @@
+device      readings    hours        energy
+fan                1        2          8.00
+hub                2       13         31.50
+hub, spare         1        5         15.50
+total              4       20         55.00

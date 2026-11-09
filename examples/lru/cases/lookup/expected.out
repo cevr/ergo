@@ -1,0 +1,8 @@
+web :8080 (registry)
+postgres :5432 (registry)
+web :8080 (cache)
+dns :53 (registry)
+postgres :5432 (registry)
+ftp is not in the registry
+web :8080 (registry)
+hits 1, misses 6, held 2, lookups 6

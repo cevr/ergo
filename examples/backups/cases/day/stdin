@@ -1,0 +1,16 @@
+# A day of backups: one stored after a wrong size, one stored and
+# verified before its abort arrives, one never stored.
+plan a alpha a.txt:2:150 b.log:1:900
+plan b beta c.db:1:2500
+plan c gamma d.tar:4:300
+store a 1100
+store a 1200
+store b 2500
+abort b disk is full
+verify b
+plan a alpha a.txt:1:150
+plan d delta e.img:0:100
+usage
+wait 20
+wait 15
+verify c

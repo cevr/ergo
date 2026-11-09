@@ -1,0 +1,101 @@
+// forge runs the forge of a crafting game and the traffic light at the crossing in
+// front of it on one virtual clock, from a script on standard input, and
+// prints what each did and when. Package forge is the forge,
+// light the crossing, drive the script and the clock, and memory the ore
+// table. This binary is the only place that chooses the providers: the
+// Standard ore table as the assayer, and the host's input and output.
+
+import flag
+import io
+import os
+import forge/drive
+import forge/memory
+import forge/forge
+
+let Brief = flag.Bool("brief", false, "print only the last line")
+let Stock = flag.Int("stock", 2, "how many of each item the machine holds")
+
+// Options is the command line, read.
+type Options { Brief bool, Stock int }
+
+// Set is the command line's flags.
+func Set() flag.Set {
+	flag.Set{Name: "forge", Usage: "forge runs a forge and a crossing light from a script on standard input.", Flags: []flag.Flag{Brief, Stock}, Args: []flag.ArgSpec{}}
+}
+
+// Rack is the machine's slots, each with stock items.
+func Rack(stock int) []forge.Slot {
+	[]forge.Slot{forge.Slot{Name: "A1", Item: "sword", Cost: 125, Count: stock}, forge.Slot{Name: "A2", Item: "shield", Cost: 100, Count: stock}, forge.Slot{Name: "B1", Item: "arrows", Cost: 75, Count: stock}}
+}
+
+// read is the options of args, None after help, or the end of the
+// program: help prints the usage, and any other failure exits 2 with it.
+func read(args []string) Option[Options] fails os.Exit needs io.Stdout {
+	let set = Set()
+	let v = flag.Parse(set, args) catch {
+	case err:
+		try flag.Exit(err, flag.Usage(set))
+		return None
+	}
+	let o = Options{Brief: Brief.Get(v), Stock: Stock.Get(v)}
+	if o.Stock < 0 {
+		return os.Exit{Code: 2, Message: "forge: a stock of \(o.Stock) is less than none"}
+	}
+	Some[Options]{Value: o}
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewHost(), forge.Assayer: memory.Standard() } { try run(os.Process.Args()) }
+}
+
+// run is the program after main binds its providers; the tests run it
+// over a recorder and catch its exit.
+func run(args []string) fails os.Exit needs io.Stdout | io.Stdin | forge.Assayer {
+	let o = match try read(args) {
+	case Some[Options] as s:
+		s.Value
+	case None:
+		return
+	}
+	let text = io.Stdin.ReadAll() catch {
+	case io.ReadFailed as r:
+		return os.Exit{Code: 1, Message: "forge: \(r.Reason)"}
+	}
+	let items = drive.ParseScript(text) catch {
+	case drive.BadLine as b:
+		return os.Exit{Code: 2, Message: "forge: line \(b.Line): \(b.Reason): \(b.Text)"}
+	}
+	let end, lines = drive.Run(drive.Fresh(Rack(o.Stock)), items)
+	if !o.Brief {
+		for l in lines {
+			io.Stdout.Println(drive.Text(l))
+		}
+	}
+	io.Stdout.Println(drive.Summary(end))
+}
+
+// session is the output of a run of args on input, as main runs it with
+// the Standard ores, or the exit it ends with.
+func session(args []string, input string) string {
+	let out = io.NewRecorder()
+	with context { io.Stdout: out, io.Stdin: io.Input{Text: input}, forge.Assayer: memory.Standard() } { run(args) } catch {
+	case os.Exit as e:
+		return out.Text() + "exit \(e.Code): \(e.Message)"
+	}
+	out.Text()
+}
+
+test ScriptedRun {
+	let text = session([]string{"-stock", "1"}, "1s ore gold\n2s ore iron\n3s select A1\n4s ore copper\n5s select A1\n40s end\n")
+	assert text == "1s forge: took 100, credit 100\n2s forge: took 25, credit 125\n3s forge: forged sword from A1 for 125, leftover 0\n4s forge: refused: busy dropping\n5s forge: A1 dropped into the tray\n5s forge: refused A1: no stock\n30s light: green\nat 40s: forge idle, light green; in 125 = spent 125 + leftover 0 + returned 0 + credit 0\n"
+}
+
+test RefusalsExit {
+	assert session([]string{"-stock", "-1"}, "") == "exit 2: forge: a stock of -1 is less than none"
+	assert session([]string{}, "1s ore\n") == "exit 2: forge: line 1: ore takes 1 word after it: 1s ore"
+	assert session([]string{"-h"}, "") == flag.Usage(Set())
+}
+
+test BriefPrintsTheTally {
+	assert session([]string{"-brief"}, "1s ore gold\n2s ore lead\n3s cancel\n9s end\n") == "at 9s: forge idle, light red; in 100 = spent 0 + leftover 0 + returned 100 + credit 0\n"
+}
