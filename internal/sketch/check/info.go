@@ -87,8 +87,8 @@ type Package struct {
 	// Tests is every test block with its parameters (stage E, 196l).
 	Tests []*Test
 	// Laws is every law of the package in source order, top-level and
-	// member, a duplicate name included (stage E3b, 196l; law-top):
-	// checked, never run.
+	// member, a duplicate name included (stage E3b, 196l; law-top). The
+	// run build never runs one; the test build runs them through LawRuns.
 	Laws []*Law
 	// LawRuns are the laws the package's test build runs or reports
 	// (laws.go, rule 7): its own laws and the laws of its imports that it
@@ -728,7 +728,8 @@ type Test struct {
 }
 
 // Law is a law (196l, spec D-E4): a top-level declaration or a member of an
-// operation type; checked, never run (#162 runs laws). Its name has no
+// operation type. The test build of the least package that sees it and a
+// binding of its slots runs it (laws.go, rule 7). Its name has no
 // value: Info.Defs maps the name to the Law, and no scope holds it. Added
 // in check-v1 stage E3b (additive). Since law-top, Owner is nil for a
 // top-level law (a contract change: the field was always set before).
