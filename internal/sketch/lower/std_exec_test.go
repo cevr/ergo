@@ -6,7 +6,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-	"time"
 
 	"ergo.local/prototype/internal/lawledger"
 )
@@ -15,20 +14,32 @@ import (
 // host's Runner, which main binds under Ambient. A status that is not 0 is
 // a Result; a missing program is exec.NotFound, which a catch arm takes by
 // name and which an uncaught failure writes with its text and status 1.
-// A stopped task's Run ends its program: Stop returns long before the
-// program's 20s sleep, and the program's output never reaches main; a
-// stopped pipeline leaves none of its processes (an Effect case). A
-// Script binds in the same place and gives back what it holds.
+// A stopped task's Run ends its program: main stops each task once its
+// program has started, and a stopped program never reaches the line after
+// its 20s sleep; a stopped pipeline leaves none of its processes (an
+// Effect case). A Script binds in the same place and gives back what it
+// holds.
+//
+// Each check is an event, not a wall-clock bound (common.md, Test rule).
+// A bound of 15s on the whole test, the build included, failed a correct
+// run whose go build compiled the runtime into a cold cache (exec-flake:
+// 17.5s with a fresh GOCACHE and GOMAXPROCS=1, 0.9s warm). The waits in
+// the program end when a file holds the line they wait for, or when the
+// program that started them is gone, so no wait outlives a hung test.
 func TestExecRuns(t *testing.T) {
-	// The pipeline's processes write their pids here; the file exists
-	// before the program runs, so the shell's wc reads it at once.
-	pidfile := filepath.Join(t.TempDir(), "pids")
-	if err := os.WriteFile(pidfile, nil, 0o600); err != nil {
-		t.Fatal(err)
+	// The started program and the pipeline's processes write their pids
+	// to started and pids, and a program that runs past its sleep writes
+	// to late. Each file exists before the program runs, so the shell's
+	// tests read it at once.
+	dir := t.TempDir()
+	started, pidfile, late := filepath.Join(dir, "started"), filepath.Join(dir, "pids"), filepath.Join(dir, "late")
+	for _, f := range []string{started, pidfile, late} {
+		if err := os.WriteFile(f, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
-	begin := time.Now()
 	runBehaviors(t, []behavior{
-		{name: "exec", src: strings.ReplaceAll(`import exec
+		{name: "exec", src: strings.NewReplacer("STARTED", started, "PIDFILE", pidfile, "LATE", late).Replace(`import exec
 import task
 
 func show(c exec.Command) needs Console | exec.Runner {
@@ -46,24 +57,24 @@ func show(c exec.Command) needs Console | exec.Runner {
 	Console.Println("[\(r.Stdout)|\(r.Stderr)|\(r.Status)]")
 }
 
-func run(clock LiveScheduler) needs Console | exec.Runner {
+func run() needs Console | exec.Runner {
 	show(exec.New("sh", []string{"-c", "echo a; echo b >&2; exit 3"}))
 	show(exec.New("sh", []string{"-c", "printf '%s %s' \"$ERGO_X\" \"$(cat)\""}).WithEnv("ERGO_X", "env").WithStdin("in"))
 	show(exec.New("pwd", []string{}).WithDir("/"))
 	show(exec.New("ergo-exec-missing-7f3a", []string{}))
 	show(exec.New("true", []string{}).WithDir("/nonexistent/loop-probe-x"))
-	let t = task.Go() { show(exec.New("sh", []string{"-c", "sleep 20; echo late"})) }
-	clock.Sleep(100ms)
+	let t = task.Go() { show(exec.New("sh", []string{"-c", "echo $$ >> STARTED; sleep 20; echo late >> LATE"})) }
+	show(exec.New("sh", []string{"-c", "while [ ! -s STARTED ] && ps -p $PPID > /dev/null; do sleep 0.01; done"}))
 	t.Stop()
 	Console.Println("stopped")
-	let p = task.Go() { show(exec.New("sh", []string{"-c", "(sleep 20 & echo $! >> PIDFILE; wait) | (sleep 20 & echo $! >> PIDFILE; wait) & while [ $(wc -l < PIDFILE) -lt 2 ]; do sleep 0.01; done; echo $$ >> PIDFILE; wait; echo late"})) }
-	show(exec.New("sh", []string{"-c", "i=0; while [ $(wc -l < PIDFILE) -lt 3 ] && [ $i -lt 1000 ]; do sleep 0.01; i=$((i+1)); done"}))
+	let p = task.Go() { show(exec.New("sh", []string{"-c", "(sleep 20 & echo $! >> PIDFILE; wait) | (sleep 20 & echo $! >> PIDFILE; wait) & while [ $(wc -l < PIDFILE) -lt 2 ]; do sleep 0.01; done; echo $$ >> PIDFILE; wait; echo late >> LATE"})) }
+	show(exec.New("sh", []string{"-c", "while [ $(wc -l < PIDFILE) -lt 3 ] && ps -p $PPID > /dev/null; do sleep 0.01; done"}))
 	p.Stop()
 	Console.Println("pipeline stopped")
 }
 
 func main() needs Console | Ambient {
-	with context { exec.Runner: exec.NewHost() } { run(NewLiveScheduler()) }
+	with context { exec.Runner: exec.NewHost() } { run() }
 	let mut results = Map[string, exec.Result]{}
 	let c = exec.New("git", []string{"status"})
 	results[exec.Key(c)] = exec.Result{Status: 1, Stdout: "recorded", Stderr: ""}
@@ -72,7 +83,7 @@ func main() needs Console | Ambient {
 		show(exec.New("git", []string{"log"}))
 	}
 }
-`, "PIDFILE", pidfile), stdout: "[a\n|b\n|3]\n[env in||0]\n[/\n||0]\nnot found ergo-exec-missing-7f3a\nfailed true\nstopped\n[||0]\npipeline stopped\n[recorded||1]\nnot found git\n"},
+`), stdout: "[a\n|b\n|3]\n[env in||0]\n[/\n||0]\nnot found ergo-exec-missing-7f3a\nfailed true\n[||0]\nstopped\n[||0]\npipeline stopped\n[recorded||1]\nnot found git\n"},
 		{name: "execUncaught", src: `import exec
 
 func main() fails exec.NotFound | exec.Denied | exec.Failed needs Console | Ambient {
@@ -81,10 +92,14 @@ func main() fails exec.NotFound | exec.Denied | exec.Failed needs Console | Ambi
 }
 `, exit: 1, stderr: []string{"error: exec.NotFound{Name:/nonexistent/loop-probe-x}\n"}},
 	})
-	// The build and two runs take seconds; the stopped program's sleep
-	// would take 20.
-	if took := time.Since(begin); took > 15*time.Second {
-		t.Errorf("TestExecRuns took %v: the stop did not end the program", took)
+	// Stop returns after the task ends, so a stop that did not end the
+	// program makes it run past its sleep and write to late before main
+	// goes on: the order of the kill and the program's own end, which no
+	// load on the host changes.
+	if data, err := os.ReadFile(late); err != nil {
+		t.Fatal(err)
+	} else if len(data) > 0 {
+		t.Errorf("a stopped program ran to its end (late holds %q): the stop did not end the program", data)
 	}
 	// Effect: NodeChildProcessSpawner.test.ts "kills every process in a
 	// pipeline". The stopped task's program ran a pipeline of two stages,
