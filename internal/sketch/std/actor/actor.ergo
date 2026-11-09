@@ -42,8 +42,8 @@ type Actor[S, E, D, F] {
 	// the step failure that ended the actor after a Send or a timer, if
 	// one did. A second Stop does the same at once.
 	Stop() fails F,
-	// Dropped is how many timer signals of ended entries the actor dropped
-	// instead of stepping them (runner rule 6).
+	// Dropped is how many timer and work signals of ended entries the
+	// actor dropped instead of stepping them (runner rules 6 and 11).
 	Dropped() int,
 	// Changes is the actor's state when the loop begins, then each state
 	// it commits (Enter, Stay, Emit), in order; it ends after the actor

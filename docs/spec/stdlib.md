@@ -424,9 +424,9 @@ The table has one row per std package, the prelude included. The Effect module i
 
 [#57](https://github.com/cevr/ergo/issues/57), [#101](https://github.com/cevr/ergo/issues/101). Std `actor` runs a machine live ([runtime.md, Machines and actors](runtime.md#machines-and-actors) 11). Effect module: none in the pin; the behaviour follows effect-machine's `Machine.spawn` and its actor ref. Go convention: a goroutine that owns the state, with a channel and a `switch`. Its laws are in [Std laws](#std-laws) (runner `TestStdActorLawsRun`).
 
-1. `actor.StartMachine(m, capacity, sink)` starts the actor and returns at once. Its row is the step's `needs R` and `Scheduler`, so a test binds a `time.Manual` and controls the timers.
+1. `actor.StartMachine(m, capacity, sink)` starts the actor and returns at once. Its row is the step's `needs R` and `Scheduler`, so a test binds a `time.Manual` and controls the timers; the row holds the work's `R` too. Each entry's `machines.Work` runs as a child of the actor's task (runtime.md, Machines and actors 11 rule 11 and 12).
 2. `a.Send(e) fails Stopped` queues `e`. `a.Ask(e) Decision[S, O] fails Stopped | F` waits for the step's decision or failure. The asker matches the `Decision` exhaustively, a `Reject` included.
-3. `a.State() S` never fails. `a.Stop() fails F` returns the failure that ended the actor, if one did. `a.Dropped() int` counts the stale timer signals. `a.Changes() Seq[S]` gives the committed states.
+3. `a.State() S` never fails. `a.Stop() fails F` returns the failure that ended the actor, if one did. `a.Dropped() int` counts the stale timer and work signals. `a.Changes() Seq[S]` gives the committed states.
 4. Not implemented yet: `actor.Start` with a handler, `actor.Ask` with an `actor.Reply`, `actor.Address`, `actor.StartAgent` and the resource rules (runtime.md, Machines and actors 6 and 7).
 
 *Prior art:* Erlang `gen_statem` run by its process; Gleam OTP `actor` with a typed `Subject`; Akka Typed timers; XState `createActor`.
