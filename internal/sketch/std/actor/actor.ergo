@@ -189,7 +189,8 @@ extern go ergo.local/prototype/runtime/v1.MachineChild func child[S, E, D, W, F,
 // identity: two children of one machine are two children. A child's
 // failure ends only the child (ExitOf reads it); a child's defect ends the
 // parent. send names the entry's signal type, so toParent gives the
-// parent's signals; a Child outside a work is a defect.
+// parent's signals; the checker accepts a Child only with the send of the
+// Listen work that encloses the call (S108 elsewhere).
 func Child[S, E, O, F, R, P](send func(e P), m Machine[S, E, O, F, R], capacity int, toParent func(o O) P) Actor[S, E, Decision[S, O], F] needs R | Scheduler {
 	child(m.Initial, m.Step, func(at S, s S) Decision[S, O] fails F needs R {
 		match m.After(at) {

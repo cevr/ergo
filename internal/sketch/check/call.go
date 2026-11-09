@@ -72,6 +72,9 @@ func (c *checker) callOf(x *syntax.CallExpr, hint Type) operand {
 		c.charge(x, fun.cap)
 		return c.callSig(x, fun.typ.(*Signature), fun)
 	case modeGeneric:
+		if f, _ := fun.obj.(*Func); isStdChild(f) || isStdChild(fun.fn) {
+			c.childRule(x)
+		}
 		return c.callGeneric(x, fun.typ.(*Signature), nil, fun)
 	case modeExtern:
 		// The direct call of an extern, the one use P3 admits: its callee

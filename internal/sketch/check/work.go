@@ -193,6 +193,9 @@ func (c *checker) workLit(x *syntax.CompositeLit, hint Type) operand {
 		// No expected type: the function's result and its error row are
 		// what the rule reads, so they are its own, written or inferred
 		// from its body; its parameter types are written.
+		if lit.Listen != nil {
+			c.markWorkSend(lit.Listen)
+		}
 		op := c.valueExpr(fn, nil)
 		sig, _ = op.typ.(*Signature)
 		switch {
@@ -292,6 +295,63 @@ func (c *checker) workLit(x *syntax.CompositeLit, hint Type) operand {
 		c.pkg.Info.Works[x] = lit
 	}
 	return operand{mode: modeValue, typ: t, expr: x}
+}
+
+// The child rule (MU5, mu5b; runtime.md, Machines and actors 14): a child
+// belongs to an entry, so the capability to start one is given only to
+// the entry's work, as its send. actor.Child takes that send as its first
+// argument, and the checker accepts only the send parameter of a Listen
+// work literal that encloses the call, named as it is: in a step, in
+// main, in a helper that takes a send, with a Run work (it has no send)
+// or with a send copied into another name, the call is S108. The send is
+// a non-escaping function value (types.md, Function values 2), so only a
+// block passed to a non-escaping parameter inside the work can name it,
+// and that block runs while the work runs.
+//
+// Prior art: effect-machine's self.spawn is reachable from a .spawn
+// handler's context argument only, checked by TypeScript's types, but the
+// child's parent signal is not tied to the map; XState's spawnChild is an
+// action creator usable only in an assign or entry action, enforced at
+// run time. Here the send is the capability and its type ties the map's
+// result to the entry's signal.
+
+// markWorkSend records the send parameter of a Listen work's function
+// literal, before its body is checked.
+func (c *checker) markWorkSend(listen syntax.Expr) {
+	fl, ok := unparen(listen).(*syntax.FuncLit)
+	if !ok || fl.Type == nil || fl.Type.Params == nil || len(fl.Type.Params.List) != 1 {
+		return
+	}
+	names := fl.Type.Params.List[0].Names
+	if len(names) != 1 || names[0] == nil || names[0].Name == "_" {
+		return
+	}
+	if c.workSends == nil {
+		c.workSends = map[*syntax.Ident]bool{}
+	}
+	c.workSends[names[0]] = true
+}
+
+// childPath and childName name std actor.Child.
+const childPath, childName = "actor", "Child"
+
+// isStdChild reports whether f is std actor.Child.
+func isStdChild(f *Func) bool {
+	return f != nil && f.Name == childName && f.Pkg != nil && f.Pkg.std && f.Pkg.Path == childPath
+}
+
+// childRule reports a call of actor.Child whose send is not the send of
+// an enclosing Listen work (the child rule above).
+func (c *checker) childRule(x *syntax.CallExpr) {
+	if len(x.Args) == 0 {
+		return
+	}
+	if id, ok := unparen(x.Args[0]).(*syntax.Ident); ok {
+		if v, ok := c.lookup(id.Name).(*Var); ok && v.id != nil && c.workSends[v.id] {
+			return
+		}
+	}
+	c.errorf(x.Args[0], CodeType, "actor.Child starts a child of the entry whose work calls it, so it takes that work's send: call it in the function of a Listen work, with its send parameter as the first argument (runtime.md, Machines and actors 14)")
 }
 
 // assignableTo reports whether a value of type v may be assigned to t.

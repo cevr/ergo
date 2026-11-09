@@ -112,6 +112,9 @@ type checker struct {
 	// which declaration is kept depends on the order, so a decision that
 	// reads the kept one is a follow-on of the duplicate (collectSelfFuncs).
 	dupNames map[string]bool
+	// workSends holds the declaring identifier of each Listen work's send
+	// parameter (workLit): the one value actor.Child accepts (childRule).
+	workSends map[*syntax.Ident]bool
 	// withSites are the with sites the reporting pass recorded, inner
 	// before outer, for the context ownership pass (withown.go).
 	withSites []withSite
