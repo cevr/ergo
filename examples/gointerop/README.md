@@ -14,7 +14,7 @@ A Go version imports `crypto/sha256`, `encoding/hex` and `bufio`, and maps `strc
 
 - **SHA-256 is Go's** (`sha256/`): the provider is `hex.Encode(sha256.Sum(text))`, std `sha256` and `hex` over Go's `crypto/sha256` and `encoding/hex`. It replaced a FIPS 180-4 SHA-256 written in Ergo (0.75 s on 50 MB where Go's assembly takes 0.08 s); the FIPS vectors and coreutils' block-edge digests stay as its tests.
 - **The statistics use Go's `math`** (`stats/`): `math.Sqrt` and `math.Abs` are std; `math.Log`, `math.Exp` and `strings.TrimRight`, which std lacks, are user externs.
-- **Go's errors arrive typed where std adapts them**: `stats.Read` reads numbers with std `strconv.ParseFloat`, whose Go `*NumError` is two failures, `Malformed` and `OutOfRange`; `Read` turns them into `NotANumber{Line, Text}` and `TooLarge{Line, Text}`. A user extern of a Go function that returns an `error` now declares `fails go.Error` (its `Text` is the error's message); this program needs none, since std's typed failures say more.
+- **Go's errors arrive typed where std adapts them**: `stats.Read` reads numbers with std `strconv.ParseFloat`, whose Go `*NumError` is two failures, `Malformed` and `OutOfRange`; `Read` turns them into `NotANumber{Line, Text}` and `TooLarge{Line, Text}`. A user extern of a Go function that returns an `error` now declares `fails go.Error` (its `Text` is the error's message); this program has no such extern: std's typed failures say more.
 - **Extern functions are values**: a user or std extern can be passed where a function is expected (a Go callback of an unnamed function type).
 
 ## Layout

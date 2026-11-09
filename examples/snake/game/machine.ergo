@@ -15,7 +15,8 @@ func Titled(b Board) Mode { Title{Width: b.Width, Height: b.Height} }
 
 // Snake is the game as a machine. Its input is the board: it starts at
 // the board's title and moves by Step until Quit is Done with the score.
-// The first food needs Random, so Begin places it, not the start.
+// Placing the first food draws from Random, so Begin places it, not the
+// start.
 type Snake machine[Mode, Signal] {
 	initial: Titled,
 	step:    Step,
