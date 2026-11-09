@@ -290,14 +290,21 @@ func (e *ContextEntry) End() Pos {
 // interface method. Names is empty for a type-only parameter. Type is nil
 // for type parameters written without a constraint (`type Attempt[T]`). For
 // a method of a capability interface, Names holds the method name and Type
-// is its *FuncType.
+// is its *FuncType. A record member `..R` that includes the fields of the
+// record R (types.md, Structs 7) has Include set, Dots at its `..`, no
+// Names, and R as its Type.
 type Field struct {
-	Doc   *CommentGroup
-	Names []*Ident
-	Type  Expr
+	Doc     *CommentGroup
+	Names   []*Ident
+	Type    Expr
+	Include bool
+	Dots    Pos
 }
 
 func (f *Field) Pos() Pos {
+	if f.Include {
+		return f.Dots
+	}
 	if len(f.Names) > 0 {
 		return f.Names[0].Pos()
 	}

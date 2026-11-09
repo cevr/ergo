@@ -557,6 +557,14 @@ func (p *parser) parseMembers() *members {
 			f := p.parseFieldDecl()
 			f.Doc = doc
 			m.fields = append(m.fields, f)
+		case p.tok.tok == DOTDOT:
+			// `..R` includes the fields of the record R (types.md,
+			// Structs 7).
+			kind = memberField
+			f := &Field{Doc: doc, Include: true, Dots: p.tok.pos}
+			p.next()
+			f.Type = p.parseType(ctxMember)
+			m.fields = append(m.fields, f)
 		default:
 			p.errorf("expected a field, an operation or a law, found %s", p.found())
 		}

@@ -365,6 +365,11 @@ func (p *printer) members(lbrace, rbrace syntax.Pos, list []member, tight bool) 
 
 func (p *printer) fieldMember(f *syntax.Field) member {
 	return member{f, func(aligned bool) {
+		if f.Include {
+			p.token(f.Dots, "..")
+			p.typ(f.Type)
+			return
+		}
 		p.identList(f.Names, false)
 		if aligned {
 			p.sep()
