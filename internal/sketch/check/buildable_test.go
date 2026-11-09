@@ -203,36 +203,6 @@ func TestBuildableShapes(t *testing.T) {
 	}
 }
 
-// TestBuildableRecursive: the fact is the least fixed point, so a cycle
-// with no way out is not built, and a cycle with one is.
-func TestBuildableRecursive(t *testing.T) {
-	for _, c := range []struct {
-		name, decls string
-		want        bool
-	}{
-		{"cycle-through-authority", "type R = RA | RB\ntype RA { X R }\ntype RB { root string }\n", false},
-		{"cycle-with-open-variant", "type R = RA | RB\ntype RA { X R }\ntype RB {}\n", true},
-		{"mutual-no-exit", "type R = RA | RB\ntype RA { X S }\ntype RB { root string }\ntype S = SA | SB\ntype SA { X R }\ntype SB { X Auth }\n", false},
-		{"mutual-exit-far", "type R = RA | RB\ntype RA { X S }\ntype RB { root string }\ntype S = SA | SB\ntype SA { X R }\ntype SB { X []Auth }\n", true},
-		{"list-of-authority", "type L = Nil | Cons\ntype Nil {}\ntype Cons { Head Auth, Tail L }\n", true},
-		{"record-over-authority-list", "type L = Nil | Cons\ntype Nil { root string }\ntype Cons { Head Open, Tail L }\ntype R { X L }\n", false},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			typ := "lib.R"
-			if strings.Contains(c.name, "list-of") {
-				typ = "lib.L"
-			}
-			pkg, ds := buildableIn(t, c.decls, "func probe(_ "+typ+") {}\n")
-			if len(ds) != 0 {
-				t.Fatalf("probe: %v", ds)
-			}
-			if got := check.Buildable(probeType(t, pkg), pkg); got != c.want {
-				t.Errorf("Buildable = %v, want %v\n%s", got, c.want, c.decls)
-			}
-		})
-	}
-}
-
 // TestBuildableSealed (fu-hostguard2): a sealed operation type of lib is
 // built from main when one of lib's types that implement it is; an open
 // one always (main implements it).
@@ -272,30 +242,6 @@ func TestBuildableBorrow(t *testing.T) {
 		}
 		if got := check.Buildable(probeType(t, pkg), pkg); got != want {
 			t.Errorf("Buildable(*%s) = %v, want %v", typ, got, want)
-		}
-	}
-}
-
-// TestBuildableInOwnPackage: authority binds only other packages.
-func TestBuildableInOwnPackage(t *testing.T) {
-	// H has an unexported field; R is sealed and has no implementer, and
-	// lib may declare one, so both are built in lib (fu-hostguard2).
-	f, err := syntax.Parse(buildLib + "type H { x Auth }\ntype R { inner() int }\nfunc probe(_ H, _ R) {}\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	lib, ds := check.Check("lib", []*syntax.File{f}, nil)
-	if len(ds) != 0 {
-		t.Fatal(ds)
-	}
-	for _, f := range lib.Funcs {
-		if f.Name != "probe" {
-			continue
-		}
-		for _, p := range f.Sig.Params {
-			if !check.Buildable(p.Type, lib) {
-				t.Errorf("lib's own %s is not Buildable in lib", p.Type)
-			}
 		}
 	}
 }

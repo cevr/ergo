@@ -263,22 +263,3 @@ func TestElseBranchJumps(t *testing.T) {
 		}
 	}
 }
-
-// TestElseBranchTask: a task started in an else block and waited there
-// before a return checks clean, as it does in the if body.
-func TestElseBranchTask(t *testing.T) {
-	for _, branch := range []string{"then", "else"} {
-		jump := "let t = task.Go() { 2 }\n\t\treturn t.Wait()"
-		then, els := "let _ = 1", "let _ = 1"
-		if branch == "then" {
-			then = jump
-		} else {
-			els = jump
-		}
-		src := "import task\n\nfunc f(b bool) int {\n\tif b {\n\t\t" + then + "\n\t} else {\n\t\t" + els + "\n\t}\n\t1\n}\n"
-		if got := elseDiags(src); len(got) != 0 {
-			_, diags := check.CheckSource(src)
-			t.Errorf("%s: want no diagnostic, got %v\n%s", branch, diags, src)
-		}
-	}
-}

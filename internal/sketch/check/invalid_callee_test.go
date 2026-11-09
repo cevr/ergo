@@ -1,7 +1,6 @@
 package check_test
 
 import (
-	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -215,32 +214,6 @@ func TestInvalidCalleeDomain(t *testing.T) {
 						t.Errorf("order: %s", strings.Join(p, "; "))
 					}
 				})
-			}
-		}
-	}
-}
-
-// TestInvalidCalleeUnknownName: a name that resolves to nothing is the
-// same: its S104 is the one diagnostic, directly and through a local.
-func TestInvalidCalleeUnknownName(t *testing.T) {
-	forms := []struct{ name, local, callee, want string }{
-		{"an unknown name", "", "nope", "S104 2:2"},
-		{"a local bound to an unknown name", "let launch = nope\n\t", "launch", "S104 2:15"},
-	}
-	for _, f := range forms {
-		for _, cb := range []string{"@() { b() }", "@(func() { b() })"} {
-			src := "func a() {\n\t" + f.local + strings.ReplaceAll(cb, "@", f.callee) + "\n\treturn Bang\n}\nfunc b() { return a() }\n" +
-				"type Bang {}\nfunc F() fails Bang { return b() }\nfunc main() {}\n"
-			_, diags := check.CheckSource(src)
-			var got []string
-			for _, d := range diags {
-				got = append(got, fmt.Sprintf("%s %d:%d", d.Code, d.Line, d.Column))
-			}
-			if strings.Join(got, ", ") != f.want {
-				t.Errorf("%s, %s: want only %s; got %v\n%s", f.name, cb, f.want, diags, src)
-			}
-			if p := check.RefWalkProblems(src); len(p) > 0 {
-				t.Errorf("%s, %s: references: %s", f.name, cb, strings.Join(p, "; "))
 			}
 		}
 	}

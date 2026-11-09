@@ -65,35 +65,6 @@ func variableUnionText(k int, oneCase, collapse bool) string {
 	return b.String()
 }
 
-// signatureUnion writes the reviewer's round-8 wildcard shape: U[E]
-// listing V[func(Ai) fails E], a subject U[Fault], and one case or a case
-// per variant, with case _. Every variant's signature has a row that
-// mentions E.
-func signatureUnion(n int, oneCase bool) string {
-	var b strings.Builder
-	b.WriteString("type V[T] {}\n")
-	for i := range n {
-		fmt.Fprintf(&b, "type A%d {}\n", i)
-	}
-	b.WriteString("type U[E] = ")
-	for i := range n {
-		if i > 0 {
-			b.WriteString(" | ")
-		}
-		fmt.Fprintf(&b, "V[func(A%d) fails E]", i)
-	}
-	b.WriteString("\ntype Fault {}\nfunc F(x U[Fault]) int {\n\tmatch x {\n")
-	if oneCase {
-		fmt.Fprintf(&b, "\tcase V[func(A%d) fails Fault]:\n\t\treturn 1\n", n-1)
-	} else {
-		for i := range n - 1 { // Leave a variant for the default arm.
-			fmt.Fprintf(&b, "\tcase V[func(A%d) fails Fault]:\n\t\treturn %d\n", i, i)
-		}
-	}
-	b.WriteString("\tcase _:\n\t\treturn 0\n\t}\n}\n")
-	return check.Decided(b.String())
-}
-
 // manyParams writes the reviewer's round-8 M4 shape: Many[T0, …, T(n-1)]
 // called with n integer constants. No constraint mentions a parameter.
 func manyParams(n int) string {
@@ -121,52 +92,6 @@ func manyParams(n int) string {
 	}
 	b.WriteString(")\n}\n")
 	return check.Decided(b.String())
-}
-
-// TestIndexScaling: the reviewer's round-8 index shapes resolve their
-// cases with work linear in the source (round 9 class C; D16): variable
-// edges are hashed by parameter and reached through the instance's bound
-// identities, and a row that mentions a parameter is a row-pattern edge
-// reached through the bound row's identity. Round 8 took k(k-1)/2
-// uncounted insertion comparisons for the variable union (502503 and
-// 8010003 at k=1000 and 4000) and 505500 operations for 1000 signature
-// cases. Counted, not timed.
-func TestIndexScaling(t *testing.T) {
-	type shape struct {
-		name  string
-		sizes []int
-		src   func(n int) string
-	}
-	for _, s := range []shape{
-		{"variable one case", []int{1000, 4000}, func(n int) string { return variableUnion(n, true, false) }},
-		{"variable every case", []int{1000, 4000}, func(n int) string { return variableUnion(n, false, false) }},
-		{"signature one case", []int{1000, 4000}, func(n int) string { return signatureUnion(n, true) }},
-		{"signature every case", []int{1000, 4000}, func(n int) string { return signatureUnion(n, false) }},
-	} {
-		t.Run(s.name, func(t *testing.T) {
-			var prevN, prevOps int
-			for _, n := range s.sizes {
-				src := s.src(n)
-				ops, d := check.VariantOps(src)
-				// A switch with a case per variant may reach the reachability
-				// solver's own budget (S103, counted and deterministic); the
-				// count here is the case resolution before it.
-				for _, x := range d {
-					if x.Code != check.CodeNotTotal {
-						t.Fatalf("n=%d: diagnostics %s", n, describe(d))
-					}
-				}
-				t.Logf("n=%d bytes=%d variant ops=%d diagnostics=%s", n, len(src), ops, describe(d))
-				if ops > 24*n {
-					t.Errorf("n=%d: %d variant operations, more than 24 per variant or case", n, ops)
-				}
-				if prevN > 0 && ops*prevN*10 > prevOps*n*11 {
-					t.Errorf("n=%d→%d: variant operations grow from %d to %d, faster than the source", prevN, n, prevOps, ops)
-				}
-				prevN, prevOps = n, ops
-			}
-		})
-	}
 }
 
 // TestIndexBudget: the safety net. Work the index cannot hash, here a

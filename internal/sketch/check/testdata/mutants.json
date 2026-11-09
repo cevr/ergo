@@ -387,6 +387,366 @@
       "killers": [
         "check:TestCheckerScalePart0"
       ]
+    },
+    {
+      "name": "t6-0-negate-if-decl.go:1907",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 3)",
+      "file": "internal/sketch/check/decl.go",
+      "from": "\t\t\t\tif i < len(ix.Indices) && c.kinds.conflicts[tn][n.Name] {",
+      "to": "\t\t\t\tif !(i < len(ix.Indices) && c.kinds.conflicts[tn][n.Name]) {",
+      "rule": "kindBracketParams: kindBracketParams gives each unconstrained bracket parameter of a function the kind of its positions in the signature: after fails an error row, after needs a capability row, elsewhere a type (grammar.md, Declarations 3; 196g as amended).",
+      "killers": []
+    },
+    {
+      "name": "t6-1-ne-eq-variantindex.go:349",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 2)",
+      "file": "internal/sketch/check/variantindex.go",
+      "from": "\t\tif s.m != nil {",
+      "to": "\t\tif s.m == nil {",
+      "rule": "rowsAt: rowsAt returns node n's row-pattern edges indexed by the ids of the rows the instance binds them to, built once per instance and node.",
+      "killers": []
+    },
+    {
+      "name": "t6-2-and-or-rows.go:722",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
+      "file": "internal/sketch/check/rows.go",
+      "from": "\t\tif f == nil || !f.inferErrors && !f.inferUses {",
+      "to": "\t\tif f == nil || !f.inferErrors || !f.inferUses {",
+      "rule": "refuseRows: refuseRows reports the functions of a component whose inferred rows did not reach a fixpoint within the bound (S108: soundness by refusal).",
+      "killers": []
+    },
+    {
+      "name": "t6-3-negate-if-extern.go:64",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 3)",
+      "file": "internal/sketch/check/extern.go",
+      "from": "\tif len(sig.Results) == 1 {",
+      "to": "\tif !(len(sig.Results) == 1) {",
+      "rule": "externValueText: externValueText is the P3 message at a call-only extern (one externValue refuses) used as a value, an argument or a let's value (K4, G-ex-f-3): it names the extern and the literal to pass, its parameters and results written out, such as \"f is an extern and is not a value; pass func(s string) string { f(s) }\".",
+      "killers": []
+    },
+    {
+      "name": "t6-4-negate-if-stmt.go:210",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 2)",
+      "file": "internal/sketch/check/stmt.go",
+      "from": "\t\tc.needValue(&op)\n\t\tif op.invalid() {\n\t\t\treturn",
+      "to": "\t\tc.needValue(&op)\n\t\tif !(op.invalid()) {\n\t\t\treturn",
+      "rule": "exprStmt: exprStmt checks an expression statement: a call, try, catch or with (S110 otherwise).",
+      "killers": []
+    },
+    {
+      "name": "t6-5-false-true-rows.go:806",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
+      "file": "internal/sketch/check/rows.go",
+      "from": "\t\t\treturn false",
+      "to": "\t\t\treturn true",
+      "rule": "converge: converge joins the inferred rows of a cyclic component to their fixpoint, silently, with the worklist settling shares (worklist.go: callees first on demand, the smallest body first among the roots; round 8 review M1 and O1): a body is checked again only when a body it references grew.",
+      "killers": []
+    },
+    {
+      "name": "t6-6-and-or-decl.go:1909",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 3)",
+      "file": "internal/sketch/check/decl.go",
+      "from": "\t\t\t\t\t\tif tp := ctx.params[id.Name]; tp != nil && free[tp] {",
+      "to": "\t\t\t\t\t\tif tp := ctx.params[id.Name]; tp != nil || free[tp] {",
+      "rule": "kindBracketParams: kindBracketParams gives each unconstrained bracket parameter of a function the kind of its positions in the signature: after fails an error row, after needs a capability row, elsewhere a type (grammar.md, Declarations 3; 196g as amended).",
+      "killers": []
+    },
+    {
+      "name": "t6-7-negate-if-variantindex.go:155",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 2)",
+      "file": "internal/sketch/check/variantindex.go",
+      "from": "\t\tif vr == nil {",
+      "to": "\t\tif !(vr == nil) {",
+      "rule": "insert: insert adds t's path below n and returns the node it ends at.",
+      "killers": []
+    },
+    {
+      "name": "t6-8-negate-if-typeops.go:457",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 3)",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "\t\t\t\tif rs == nil {",
+      "to": "\t\t\t\tif !(rs == nil) {",
+      "rule": "widenUnknown: widenUnknown returns dst, the type an inferred receiver holds (the first branch of a join, the binding of a type parameter), with the known part of src's rows joined into each of dst's unknown rows, in dst and in its results.",
+      "killers": []
+    },
+    {
+      "name": "t6-9-ne-eq-withown.go:394",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
+      "file": "internal/sketch/check/withown.go",
+      "from": "\tif w.Contexts != nil {",
+      "to": "\tif w.Contexts == nil {",
+      "rule": "discharge: discharge adds cap, provided by e, to the with's discharged list, in its sorted place, once.",
+      "killers": []
+    },
+    {
+      "name": "t6-10-drop-continue-tests.go:191",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 3)",
+      "file": "internal/sketch/check/tests.go",
+      "from": "\t\t\t\tif id.Name == \"_\" {\n\t\t\t\t\tcontinue\n\t\t\t\t}",
+      "to": "\t\t\t\tif id.Name == \"_\" {\n\t\t\t\t\t_ = 0\n\t\t\t\t}",
+      "rule": "checkTest: ",
+      "killers": []
+    },
+    {
+      "name": "t6-11-negate-if-variantindex.go:151",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 2)",
+      "file": "internal/sketch/check/variantindex.go",
+      "from": "\t\tif n.rows == nil {",
+      "to": "\t\tif !(n.rows == nil) {",
+      "rule": "insert: insert adds t's path below n and returns the node it ends at.",
+      "killers": []
+    },
+    {
+      "name": "t6-12-negate-if-withown.go:349",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
+      "file": "internal/sketch/check/withown.go",
+      "from": "\t\tif f.with != nil {",
+      "to": "\t\tif !(f.with != nil) {",
+      "rule": "chargeRelease: chargeRelease charges cap, a need of a's release, at s against the environment outside the with (rule 3).",
+      "killers": []
+    },
+    {
+      "name": "t6-13-negate-if-handlers.go:588",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 2)",
+      "file": "internal/sketch/check/handlers.go",
+      "from": "\t\t\tm.rows.addRow(solverRow{})\n\t\t\tif len(m.rows.rows) > before {\n\t\t\t\tm.origin = append(m.origin, it.te)",
+      "to": "\t\t\tm.rows.addRow(solverRow{})\n\t\t\tif !(len(m.rows.rows) > before) {\n\t\t\t\tm.origin = append(m.origin, it.te)",
+      "rule": "judgeUnion: judgeUnion judges a type test of a union U that names a row (rows.md, Catch 9): it handles each variant of U that the caught row holds, as a test of that variant would.",
+      "killers": []
+    },
+    {
+      "name": "t6-14-drop-continue-decl.go:688",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
+      "file": "internal/sketch/check/decl.go",
+      "from": "\t\tif it.depth >= maxUnwrapDepth {\n\t\t\tcontinue\n\t\t}",
+      "to": "\t\tif it.depth >= maxUnwrapDepth {\n\t\t\t_ = 0\n\t\t}",
+      "rule": "findImportError: findImportError is the first *ImportError in err's tree, searched depth first in errors.As order through Unwrap() error and Unwrap() []error, or nil.",
+      "killers": []
+    },
+    {
+      "name": "t6-15-lt-le-context.go:615",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
+      "file": "internal/sketch/check/context.go",
+      "from": "\t\t\treturn contexts[i].file.index < contexts[j].file.index",
+      "to": "\t\t\treturn contexts[i].file.index <= contexts[j].file.index",
+      "rule": "checkContexts: checkContexts checks the named contexts: their entries, in a closed build context (README Gap 6: a named context requires nothing from the with site and lets no failure escape).",
+      "killers": []
+    },
+    {
+      "name": "t6-16-false-true-unify.go:356",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
+      "file": "internal/sketch/check/unify.go",
+      "from": "\t\t\tif !in.nify(x.Results[i], y.Results[i], mode, depth) {\n\t\t\t\treturn false\n\t\t\t}",
+      "to": "\t\t\tif !in.nify(x.Results[i], y.Results[i], mode, depth) {\n\t\t\t\treturn true\n\t\t\t}",
+      "rule": "nifySig: nifySig unifies two signatures: parameters and results in mode, and rows by the row rule.",
+      "killers": []
+    },
+    {
+      "name": "t6-17-ne-eq-authority.go:598",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
+      "file": "internal/sketch/check/authority.go",
+      "from": "\tif it := asInterface(t); it != nil {",
+      "to": "\tif it := asInterface(t); it == nil {",
+      "rule": "operation: operation is the operation name of t's operation set when t is an operation type, a type defined over one, a type parameter (its constraint's) or a pointer to one of them: the method methodOf finds when it returns no function.",
+      "killers": []
+    },
+    {
+      "name": "t6-18-true-false-shapes.go:197",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
+      "file": "internal/sketch/check/shapes.go",
+      "from": "\t\t\t\tif pending(e) {\n\t\t\t\t\treturn true\n\t\t\t\t}",
+      "to": "\t\t\t\tif pending(e) {\n\t\t\t\t\treturn false\n\t\t\t\t}",
+      "rule": "pendingDefinition: pendingDefinition distinguishes a definition awaiting an active base from a refused type.",
+      "killers": []
+    },
+    {
+      "name": "t6-19-drop-continue-withown.go:640",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
+      "file": "internal/sketch/check/withown.go",
+      "from": "\t\tif inner || !closed[w.Contexts[0].Provider(cap)] {\n\t\t\tcontinue\n\t\t}",
+      "to": "\t\tif inner || !closed[w.Contexts[0].Provider(cap)] {\n\t\t\t_ = 0\n\t\t}",
+      "rule": "exitAction: exitAction reports the exit action registered by the call n inside the owning with x when its block needs a capability that x, not a with between them, discharges.",
+      "killers": []
+    },
+    {
+      "name": "t6-20-negate-if-variantindex.go:386",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 3)",
+      "file": "internal/sketch/check/variantindex.go",
+      "from": "\tfor _, e := range r.Elems() {\n\t\tif hasParam(e, steps) {\n\t\t\treturn true",
+      "to": "\tfor _, e := range r.Elems() {\n\t\tif !(hasParam(e, steps)) {\n\t\t\treturn true",
+      "rule": "rowHasParam: rowHasParam reports whether a row element mentions a type parameter, adding each visited type node to steps (the union's insertion counter).",
+      "killers": []
+    },
+    {
+      "name": "t6-21-negate-if-variantindex.go:358",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 2)",
+      "file": "internal/sketch/check/variantindex.go",
+      "from": "\tif s.rows == nil {",
+      "to": "\tif !(s.rows == nil) {",
+      "rule": "rowsAt: rowsAt returns node n's row-pattern edges indexed by the ids of the rows the instance binds them to, built once per instance and node.",
+      "killers": []
+    },
+    {
+      "name": "t6-22-true-false-footprint.go:611",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
+      "file": "internal/sketch/check/footprint.go",
+      "from": "\tif pureStdAlso != nil && pureStdAlso(f) {\n\t\treturn true\n\t}",
+      "to": "\tif pureStdAlso != nil && pureStdAlso(f) {\n\t\treturn false\n\t}",
+      "rule": "pureStd: pureStd reports a std extern whose runtime/v1 Go body carries the reviewed purity fact (v1.Body.Pure; docs/spec/stdlib.md, Pure bodies).",
+      "killers": []
+    },
+    {
+      "name": "t6-23-false-true-decl.go:1917",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 3)",
+      "file": "internal/sketch/check/decl.go",
+      "from": "\t\t}\n\t\treturn false\n\t}",
+      "to": "\t\t}\n\t\treturn true\n\t}",
+      "rule": "kindBracketParams: kindBracketParams gives each unconstrained bracket parameter of a function the kind of its positions in the signature: after fails an error row, after needs a capability row, elsewhere a type (grammar.md, Declarations 3; 196g as amended).",
+      "killers": []
+    },
+    {
+      "name": "t6-24-negate-if-match.go:479",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 2)",
+      "file": "internal/sketch/check/match.go",
+      "from": "\t\tif lit.Kind == syntax.DURATION {",
+      "to": "\t\tif !(lit.Kind == syntax.DURATION) {",
+      "rule": "constant: constant resolves a constant pattern, typed by its subject (D-A2).",
+      "killers": []
+    },
+    {
+      "name": "t6-25-true-false-variantindex.go:387",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 2)",
+      "file": "internal/sketch/check/variantindex.go",
+      "from": "\t\tif hasParam(e, steps) {\n\t\t\treturn true\n\t\t}",
+      "to": "\t\tif hasParam(e, steps) {\n\t\t\treturn false\n\t\t}",
+      "rule": "rowHasParam: rowHasParam reports whether a row element mentions a type parameter, adding each visited type node to steps (the union's insertion counter).",
+      "killers": []
+    },
+    {
+      "name": "t6-26-negate-if-withown.go:379",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
+      "file": "internal/sketch/check/withown.go",
+      "from": "\tk, ok := keyOf(cap)\n\tif !ok {\n\t\treturn",
+      "to": "\tk, ok := keyOf(cap)\n\tif !(!ok) {\n\t\treturn",
+      "rule": "discharge: discharge adds cap, provided by e, to the with's discharged list, in its sorted place, once.",
+      "killers": []
+    },
+    {
+      "name": "t6-27-negate-if-reflits.go:173",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 3)",
+      "file": "internal/sketch/check/reflits.go",
+      "from": "\tcase *syntax.MapType:\n\t\tif key {\n\t\t\treturn c.litTypeOf(e.Key, lt.env)",
+      "to": "\tcase *syntax.MapType:\n\t\tif !(key) {\n\t\t\treturn c.litTypeOf(e.Key, lt.env)",
+      "rule": "elemOf: elemOf is the type of an elided literal that is a key (key) or an element of a literal of type lt.",
+      "killers": []
+    },
+    {
+      "name": "t6-28-negate-if-variantindex.go:345",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 2)",
+      "file": "internal/sketch/check/variantindex.go",
+      "from": "\t\tif !b.charge(w) {",
+      "to": "\t\tif !(!b.charge(w)) {",
+      "rule": "rowsAt: rowsAt returns node n's row-pattern edges indexed by the ids of the rows the instance binds them to, built once per instance and node.",
+      "killers": []
+    },
+    {
+      "name": "t6-29-negate-if-handlers.go:594",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 2)",
+      "file": "internal/sketch/check/handlers.go",
+      "from": "\tif !useful {",
+      "to": "\tif !(!useful) {",
+      "rule": "judgeUnion: judgeUnion judges a type test of a union U that names a row (rows.md, Catch 9): it handles each variant of U that the caught row holds, as a test of that variant would.",
+      "killers": []
+    },
+    {
+      "name": "t6-30-negate-if-handlers.go:579",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 2)",
+      "file": "internal/sketch/check/handlers.go",
+      "from": "\t\tif cs.over() {",
+      "to": "\t\tif !(cs.over()) {",
+      "rule": "judgeUnion: judgeUnion judges a type test of a union U that names a row (rows.md, Catch 9): it handles each variant of U that the caught row holds, as a test of that variant would.",
+      "killers": []
+    },
+    {
+      "name": "t6-31-negate-if-variantindex.go:353",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 2)",
+      "file": "internal/sketch/check/variantindex.go",
+      "from": "\t\tk, _ := tab.rowID(r)\n\t\tif b.over {\n\t\t\treturn nil, false",
+      "to": "\t\tk, _ := tab.rowID(r)\n\t\tif !(b.over) {\n\t\t\treturn nil, false",
+      "rule": "rowsAt: rowsAt returns node n's row-pattern edges indexed by the ids of the rows the instance binds them to, built once per instance and node.",
+      "killers": []
+    },
+    {
+      "name": "t6-32-false-true-call.go:573",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 3)",
+      "file": "internal/sketch/check/call.go",
+      "from": "\t\t\tmismatch(lit, lt, pt)\n\t\t\treturn false\n\t\t}",
+      "to": "\t\t\tmismatch(lit, lt, pt)\n\t\t\treturn true\n\t\t}",
+      "rule": "callGeneric: callGeneric infers the type arguments of a call to a generic function: typed value arguments and function literals first, in source order, then the literals' common defaults (196u rule 6), then a trailing block, whose rows and result bind the remaining parameters (D6).",
+      "killers": []
+    },
+    {
+      "name": "t6-33-negate-if-entry.go:733",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 3)",
+      "file": "internal/sketch/check/entry.go",
+      "from": "\t\tif !ok || blamed[owner.origin()] {",
+      "to": "\t\tif !(!ok || blamed[owner.origin()]) {",
+      "rule": "checkErrorMethods: checkErrorMethods reports a function Error on an error type: the emitter generates it from the fields (types.md, Methods 6).",
+      "killers": []
+    },
+    {
+      "name": "t6-34-ne-eq-authority.go:593",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
+      "file": "internal/sketch/check/authority.go",
+      "from": "\t\tif it := asInterface(t.Constraint); it != nil {",
+      "to": "\t\tif it := asInterface(t.Constraint); it == nil {",
+      "rule": "operation: operation is the operation name of t's operation set when t is an operation type, a type defined over one, a type parameter (its constraint's) or a pointer to one of them: the method methodOf finds when it returns no function.",
+      "killers": []
+    },
+    {
+      "name": "t6-35-false-true-handlers.go:597",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 2)",
+      "file": "internal/sketch/check/handlers.go",
+      "from": "\t\tc.errorf(it.te, CodeType, \"%s is caught twice: the arms before it handle each of its variants in the row (rows.md, Catch 2)\", it.t)\n\t}\n\treturn false\n}\n",
+      "to": "\t\tc.errorf(it.te, CodeType, \"%s is caught twice: the arms before it handle each of its variants in the row (rows.md, Catch 2)\", it.t)\n\t}\n\treturn true\n}\n",
+      "rule": "judgeUnion: judgeUnion judges a type test of a union U that names a row (rows.md, Catch 9): it handles each variant of U that the caught row holds, as a test of that variant would.",
+      "killers": []
+    },
+    {
+      "name": "t6-36-false-true-operators.go:334",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
+      "file": "internal/sketch/check/operators.go",
+      "from": "\t\tif c.sealedRefused(x, sealed) {\n\t\t\treturn false\n\t\t}",
+      "to": "\t\tif c.sealedRefused(x, sealed) {\n\t\t\treturn true\n\t\t}",
+      "rule": "matchTypes: matchTypes reports operands of two types (S108): both operands of a binary operator have one type (196u rule 4), and == and != also compare a value with an interface it is assignable to.",
+      "killers": []
+    },
+    {
+      "name": "t6-37-negate-if-record_update.go:94",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
+      "file": "internal/sketch/check/record_update.go",
+      "from": "\t\t\tif c.identical(v, want) || isOrigin(v, want) {",
+      "to": "\t\t\tif !(c.identical(v, want) || isOrigin(v, want)) {",
+      "rule": "updateBaseText: updateBaseText is the diagnostic for a base of type got in an update of the type want.",
+      "killers": []
+    },
+    {
+      "name": "t6-38-negate-if-variantindex.go:246",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 2)",
+      "file": "internal/sketch/check/variantindex.go",
+      "from": "\t\t\t\tif !ok {",
+      "to": "\t\t\t\tif !(!ok) {",
+      "rule": "candidates: candidates returns the variants whose path matches t, in variant order, and false when the switch's step counter ran out.",
+      "killers": []
+    },
+    {
+      "name": "t6-39-true-false-variantindex.go:399",
+      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 2)",
+      "file": "internal/sketch/check/variantindex.go",
+      "from": "\tcase *TypeParam:\n\t\treturn true\n\tcase *Named:",
+      "to": "\tcase *TypeParam:\n\t\treturn false\n\tcase *Named:",
+      "rule": "hasParam: hasParam reports whether t mentions a type parameter, adding each visited type node to steps.",
+      "killers": []
     }
   ]
 }

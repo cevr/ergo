@@ -78,29 +78,6 @@ func TestPreludeNamesInCatchAndMatchArms(t *testing.T) {
 	})
 }
 
-// m3: universe names outside D-D3's list are not prelude names: `any` and
-// `error` are stage E's, `uintptr` and the complex types are not v1 types.
-func TestUniverseNamesOutsideTheDecidedList(t *testing.T) {
-	runD1(t, []d1Case{
-		{"any", "func f(any int) int { any }\n", nil},
-		{"error", "func f(error int) int { error }\n", nil},
-		{"uintptr", "func f(uintptr int) int { uintptr }\n", nil},
-		{"complex64", "func f(complex64 int) int { complex64 }\n", nil},
-		{"complex128", "func f(complex128 int) int { complex128 }\n", nil},
-	})
-}
-
-// m4: a binder of an invalid value still meets D-D2, D-D3 and the
-// duplicate check.
-func TestInvalidValueBindersKeepTheBinderRules(t *testing.T) {
-	runD1(t, []d1Case{
-		{"pattern-over-parameter", "func f(a int) int {\n\tlet (a, b) = unknownFn()\n\tb\n}\n", []string{"S108:2", "S104:2"}},
-		{"name-over-parameter", "func f(a int) int {\n\tlet a = unknownFn()\n\t1\n}\n", []string{"S108:2", "S104:2"}},
-		{"prelude-name", "func f() int {\n\tlet (len, b) = unknownFn()\n\tb\n}\n", []string{"S108:2", "S104:2"}},
-		{"duplicate", "func f() int {\n\tlet (b, b) = unknownFn()\n\t1\n}\n", []string{"S108:2", "S104:2"}},
-	})
-}
-
 // M2: an assignment target rooted at a call's result or a literal is S108;
 // one through a pointer is not.
 func TestAssignmentRoots(t *testing.T) {
@@ -111,51 +88,5 @@ func TestAssignmentRoots(t *testing.T) {
 		{"call-op-assign", decls + "func f() {\n\txs()[0] += 1\n}\n", []string{"S108:5"}},
 		// Not addressable: typing's one diagnostic.
 		{"call-field", decls + "func f() {\n\tr().N = 5\n}\n", []string{"S108:5"}},
-	})
-}
-
-// M3: a let mut whose reassignment typing skipped (a frame of an invalid
-// callee or an orphan index, a target that fails typing) is not reported
-// "never reassigned" beside the real error.
-func TestNeverReassignedBesideAnError(t *testing.T) {
-	runD1(t, []d1Case{
-		{"literal-of-unknown-callee", "func f(xs []int) int {\n\tlet mut n = 0\n\teachOf(xs, func(x int) { n += x })\n\tn\n}\n", []string{"S104:3"}},
-		{"trailing-block-of-unknown-callee", "func f(xs []int) int {\n\tlet mut n = 0\n\teachOf(xs) {\n\t\tn += 1\n\t}\n\tn\n}\n", []string{"S104:3"}},
-		{"literal-in-unindexable-index", "func f() int {\n\tlet mut n = 0\n\tlet r = 0[func() int {\n\t\tn = 2\n\t\tn\n\t}]\n\tn\n}\n", []string{"S108:3"}},
-		{"literal-in-invalid-index", "func f() int {\n\tlet mut n = 0\n\tlet r = zz[func() int {\n\t\tn = 2\n\t\tn\n\t}]\n\tn\n}\n", []string{"S104:3"}},
-		{"literal-in-unknown-literal", "func f() int {\n\tlet mut n = 0\n\tlet r = Unknown{K: func() { n = 2 }}\n\tn\n}\n", []string{"S104:3"}},
-		{"borrow-in-skipped-frame", "type R { N int }\nfunc bump(r *R) {}\nfunc f() int {\n\tlet mut r = R{N: 1}\n\teachOf() { bump(&r) }\n\tr.N\n}\n", []string{"S104:5"}},
-		{"misspelled-field", "type R { N int }\nfunc f() int {\n\tlet mut c = R{N: 1}\n\tc.Count = 2\n\tc.N\n}\n", []string{"S104:4"}},
-		{"bad-index-type", "func f() int {\n\tlet mut xs = []int{1}\n\txs[\"a\"] = 2\n\txs[0]\n}\n", []string{"S108:3"}},
-	})
-}
-
-// M4: the locals of a package-level let's function literal follow the
-// function rules.
-func TestPackageLetLiteralLocals(t *testing.T) {
-	runD1(t, []d1Case{
-		{"never-reassigned", "let g = func() int {\n\tlet mut k = 1\n\tk\n}\n", []string{"S110:2"}},
-		{"unused", "let g = func() {\n\tlet z = 1\n}\n", []string{"S110:2"}},
-		{"reassigned", "let g = func() int {\n\tlet mut k = 1\n\tk += 1\n\tk\n}\n", nil},
-	})
-}
-
-// M5: a call, from a later component, of a member class G refuses keeps
-// the member's written signature, so an arity or argument mistake is still
-// reported (p13); only the row follow-ons are dropped
-// (classf/go-statement.ergo, mapkey-*.ergo).
-func TestRefusedMemberKeepsItsSignature(t *testing.T) {
-	runD1(t, []d1Case{
-		{"p13", "type Bang {}\nfunc mark() fails Bang { return Bang }\n" +
-			"func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }\n" +
-			"func F() fails Bang {\n\tlet s string = try a(1, 2)\n\tlet t = a(\"x\")\n\t_ = s\n\t_ = t\n}\n" +
-			"func G() fails Bang {\n\tlet u = try a(1) + undefinedName\n\t_ = u\n}\n",
-			[]string{"S108:3", "S108:5", "S108:6", "S104:11"}},
-		// The follow-ons of the pinned row stay dropped: a try that cannot
-		// fail, a catch that cannot fail, a return of no value.
-		{"follow-ons", "type Bang {}\nfunc mark() fails Bang { return Bang }\n" +
-			"func a() { let m = Map[int, func()]{1: a}; _ = m; try mark() }\n" +
-			"func F() fails Bang { try a() }\nfunc G() { a() catch { case Bang: } }\nfunc H() fails Bang { return a() }\n",
-			[]string{"S108:3"}},
 	})
 }

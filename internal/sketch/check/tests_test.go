@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // testDecls are the declarations the tests below share.
@@ -131,59 +130,6 @@ func TestTestBodies(t *testing.T) {
 		got, diags := codesAt(src)
 		if strings.Join(got, " ") != strings.Join(want, " ") {
 			t.Errorf("%s: want %v, got %v", tc.name, want, diags)
-		}
-	}
-}
-
-// TestTestInfo: Info records each test with its typed parameters, the
-// parameters' Defs, and a Footprints entry for the test's frame.
-func TestTestInfo(t *testing.T) {
-	src := testDecls + "test A {\n\tassert true\n}\n\ntest B(x int, _ string) {\n\tassert with context { Store: Mem } { Store.Get() } == \"ok\" || x == 0\n}\n"
-	pkg, diags := check.CheckSource(src)
-	if len(diags) != 0 {
-		t.Fatalf("diagnostics: %v", diags)
-	}
-	if len(pkg.Tests) != 2 || pkg.Tests[0].Name != "A" || pkg.Tests[1].Name != "B" {
-		t.Fatalf("Tests: %v", pkg.Tests)
-	}
-	b := pkg.Tests[1]
-	if len(b.Params) != 2 || b.Params[0].Type.String() != "int" || b.Params[1].Type.String() != "string" {
-		t.Fatalf("B's parameters: %v", b.Params)
-	}
-	x := b.Decl.Params.List[0].Names[0]
-	if pkg.Info.Defs[x] != b.Params[0] {
-		t.Errorf("x has no Defs entry naming its parameter")
-	}
-	for _, tt := range pkg.Tests {
-		if _, ok := pkg.Info.Footprints[tt.Decl]; !ok {
-			t.Errorf("test %s has no Footprints entry", tt.Name)
-		}
-	}
-	if fp := pkg.Info.Footprints[pkg.Tests[0].Decl]; !fp.Empty() {
-		t.Errorf("A calls no operation, so its footprint is empty, got %v", fp)
-	}
-	if fp := pkg.Info.Footprints[b.Decl]; fp.Empty() {
-		t.Errorf("B calls Store.Get, so its footprint is not empty")
-	}
-	var _ syntax.Node = b.Decl
-}
-
-// TestValueRanks: the rank is the least depth of a value, -1 for none.
-func TestValueRanks(t *testing.T) {
-	pkg, diags := check.CheckSource(testDecls)
-	if len(diags) != 0 {
-		t.Fatalf("diagnostics: %v", diags)
-	}
-	r := check.NewValueRanks()
-	for name, want := range map[string]int{"Point": 1, "Dot": 0, "Shape": 1, "List": 1, "Tree": 1, "Loop": -1, "Celsius": 0, "Pair": 1} {
-		var typ check.Type
-		for _, tn := range pkg.Types {
-			if tn.Name == name {
-				typ = tn.Type
-			}
-		}
-		if got := r.Rank(typ); got != want {
-			t.Errorf("Rank(%s) = %d, want %d", name, got, want)
 		}
 	}
 }

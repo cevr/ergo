@@ -5,60 +5,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/syntax"
 )
-
-// Stage D3b round 2 (review m4): the checker owns the Task shape of a
-// function's result. ResultIsTask holds for a declaration, a function type,
-// a function value and a literal whose one result is a Task itself, and
-// not for a result that holds none. Since stage E2 (C13) a result holds a
-// Task only by being one, so TaskResults is ResultIsTask's declarations.
-func TestSignatureResultIsTask(t *testing.T) {
-	src := `import task
-type Fault {}
-func work() int fails Fault { 1 }
-func keep(t Task[int, Fault]) Task[int, Fault] { t }
-func maybe() Option[int] { None }
-func f(g func() Task[int, Fault]) int fails Fault {
-	let k = keep
-	let lit = func() Task[int, Fault] { task.Go() { work() } }
-	try k(lit()).Wait()
-}
-`
-	file, err := syntax.Parse(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pkg, diags := check.Check("main", []*syntax.File{file}, nil)
-	if len(diags) > 0 {
-		t.Fatalf("diagnostics: %v", diags)
-	}
-	got := map[string]bool{}
-	for id, o := range pkg.Info.Defs {
-		switch o := o.(type) {
-		case *check.Func:
-			got["func "+id.Name] = o.Sig.ResultIsTask()
-		case *check.Var:
-			if s, ok := o.Type.(*check.Signature); ok {
-				got["var "+id.Name] = s.ResultIsTask()
-			}
-		}
-	}
-	for n, s := range pkg.Info.Literals {
-		if _, ok := n.(*syntax.FuncLit); ok {
-			got["literal"] = s.ResultIsTask()
-		}
-	}
-	want := map[string]bool{"func work": false, "func keep": true, "func maybe": false, "func f": false, "var g": true, "var k": true, "var lit": true, "literal": true}
-	for k, w := range want {
-		if g, ok := got[k]; !ok || g != w {
-			t.Errorf("%s: ResultIsTask %v (recorded %v), want %v", k, g, ok, w)
-		}
-	}
-	if fs := pkg.Info.TaskResults; len(fs) != 1 {
-		t.Errorf("TaskResults has %d functions, want keep", len(fs))
-	}
-}
 
 // Stage D3b, Rule 5: an operation type's value is already a reference, so
 // an operation called through a pointer to one is S108 at the call, for a

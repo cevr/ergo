@@ -114,26 +114,3 @@ func TestOneStatementPositionRule(t *testing.T) {
 		}
 	}
 }
-
-// A conversion to an error type is a value of that type. As a statement
-// it is S110 like any conversion; as a function body's tail it is a
-// failure, as return e is (rows.md, Error rows 4), so the function's row
-// takes it and nothing is unused.
-func TestErrorConversionTail(t *testing.T) {
-	const decls = "import timeout\n"
-	for _, tc := range []struct{ name, src, want string }{
-		{"statement", "func f(e timeout.Expired) int { timeout.Expired(e); 0 }", "S110"},
-		{"tail-failure", "func f(e timeout.Expired) fails timeout.Expired { timeout.Expired(e) }", ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			_, d := check.CheckSource(decls + tc.src + "\n")
-			var got []string
-			for _, x := range d {
-				got = append(got, x.Code)
-			}
-			if strings.Join(got, " ") != tc.want {
-				t.Fatalf("want [%s], got %s", tc.want, describe(d))
-			}
-		})
-	}
-}

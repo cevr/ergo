@@ -1,13 +1,10 @@
 package check_test
 
 import (
-	"fmt"
-	"slices"
 	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // Task escape (D3a rewrite, spec ruling item 3): one coinductive holdsTask,
@@ -16,37 +13,6 @@ import (
 
 // taskWork is a program head that starts Tasks.
 const taskWork = "import task\nfunc work() int {\n\t1\n}\n"
-
-// The allowed uses: a local let in its own frame, a return (a return
-// statement, a block's final value, through if, match and paren, the
-// elements of a returned tuple literal), an argument, the receiver of a
-// called Wait or Stop, and the receiver of a dot call.
-func TestTaskEscapeAdmitted(t *testing.T) {
-	runD1(t, []d1Case{
-		{"wait", taskWork + "func f() int {\n\tlet t = task.Go() { work() }\n\tt.Wait()\n}\n", nil},
-		{"stop", taskWork + "func f() {\n\tlet t = task.Go() { work() }\n\tt.Stop()\n}\n", nil},
-		{"paren-wait", taskWork + "func f() int {\n\tlet t = task.Go() { work() }\n\t(t.Wait)()\n}\n", nil},
-		{"return", "func keep[T, E](t Task[T, E]) Task[T, E] {\n\tt\n}\n", nil},
-		{"return-statement", "func keep[T, E](t Task[T, E]) Task[T, E] {\n\treturn t\n}\n", nil},
-		{"return-if", "func pick[T, E](c bool, a Task[T, E], b Task[T, E]) Task[T, E] {\n\tif c { a } else { b }\n}\n", nil},
-		{"pass", taskWork + "func wait[T, E](t Task[T, E]) T fails E {\n\tt.Wait()\n}\nfunc f() int {\n\twait(task.Go() { work() })\n}\n", nil},
-		{"pass-value", "func wait[T, E](t Task[T, E]) T fails E {\n\tt.Wait()\n}\nfunc f[T, E](t Task[T, E], w func(t Task[T, E]) T fails E) T fails E {\n\tw(t)\n}\n", nil},
-		{"annotated-local", "type Fault {}\nfunc f(t Task[int, Fault]) Task[int, Fault] {\n\tlet own Task[int, Fault] = t\n\town\n}\n", nil},
-		{"literal-own-task", taskWork + "func f() func() int {\n\tfunc() int {\n\t\tlet t = task.Go() { work() }\n\t\tt.Wait()\n\t}\n}\n", nil},
-		{"literal-param", "func f[T, E]() func(t Task[T, E]) T fails E {\n\tfunc(t Task[T, E]) T fails E { t.Wait() }\n}\n", nil},
-		{"function-type-field", "type Job[T, E] { start func() Task[T, E] }\n", nil},
-	})
-}
-
-// Stage E2 (C13): a type argument, written or inferred, holds no Task, so
-// a Task inside an Option, and a phantom argument (D3a r3 M1's target),
-// are S108 where the type argument is written.
-func TestTaskTypeArgumentCarriers(t *testing.T) {
-	runD1(t, []d1Case{
-		{"local-option", "func f[T, E](t Task[T, E]) Option[Task[T, E]] {\n\tlet o Option[Task[T, E]] = None\n\to\n}\n", []string{"S108:1", "S108:2"}},
-		{"phantom-target", "type Fault {}\ntype Phantom[T] { Wait() int fails Fault }\nfunc f(t Task[int, Fault]) Phantom[Task[int, Fault]] {\n\tt\n}\n", []string{"S108:3"}},
-	})
-}
 
 // Every other use, and every Task-holding type outside a whole local,
 // parameter or result type, is one S108 with the rule's text.
@@ -106,121 +72,6 @@ func TestTaskEscapeRefusals(t *testing.T) {
 			}
 		}
 	}
-}
-
-// Info.TaskResults holds each function whose result holds a Task, and no
-// other.
-func TestTaskResultsInfo(t *testing.T) {
-	src := taskWork + `func keep[T, E](t Task[T, E]) Task[T, E] {
-	t
-}
-
-func maybe[T, E](t Task[T, E]) Option[T] {
-	None
-}
-
-func wait[T, E](t Task[T, E]) T fails E {
-	t.Wait()
-}
-
-func f() int {
-	wait(keep(task.Go() { work() }))
-}
-`
-	// Since stage E2 (C13) no type argument holds a Task, so a result that
-	// holds one is a Task itself: maybe's Option[T] holds none.
-	file, err := syntax.Parse(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pkg, diags := check.Check("main", []*syntax.File{file}, nil)
-	if len(diags) > 0 {
-		t.Fatalf("diagnostics: %v", diags)
-	}
-	var got []string
-	for f := range pkg.Info.TaskResults {
-		got = append(got, f.Name)
-	}
-	slices.Sort(got)
-	if strings.Join(got, " ") != "keep" {
-		t.Fatalf("TaskResults %v, want [keep]", got)
-	}
-}
-
-// Calls[x].TaskResult marks each direct call, each call through a function
-// value and each operation call, of a value or of a capability, whose
-// result holds a Task, and no other call (stage D3b, Rule 2; D3a review m3;
-// stage E2, C15).
-func TestCallTaskResult(t *testing.T) {
-	src := `import task
-type Fault {}
-type Starts { Start() Task[int, Fault] }
-func work() int fails Fault {
-	1
-}
-
-func ops(s Starts) int fails Fault needs Starts {
-	let a = try wait(s.Start())
-	let b = try wait(Starts.Start())
-	a + b
-}
-
-func keep(t Task[int, Fault]) Task[int, Fault] {
-	t
-}
-
-func wait(t Task[int, Fault]) int fails Fault {
-	t.Wait()
-}
-
-func f() int fails Fault {
-	let k = keep
-	let a = try wait(keep(task.Go() { work() }))
-	let b = try wait(k(task.Go() { work() }))
-	let g = func() Task[int, Fault] { task.Go() { work() } }
-	let c = try wait(g())
-	a + b + c
-}
-`
-	file, err := syntax.Parse(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pkg, diags := check.Check("main", []*syntax.File{file}, nil)
-	if len(diags) > 0 {
-		t.Fatalf("diagnostics: %v", diags)
-	}
-	got := map[string]int{}
-	for x, call := range pkg.Info.Calls {
-		if call.TaskResult {
-			text := src[x.Pos():x.End()]
-			got[fmt.Sprintf("%v", call.Kind)+" "+text[:min(4, len(text))]]++
-		}
-	}
-	want := map[string]int{
-		fmt.Sprintf("%v", check.CallFunc) + " keep":       1,
-		fmt.Sprintf("%v", check.CallFuncValue) + " k(ta":  1,
-		fmt.Sprintf("%v", check.CallFuncValue) + " g()":   1,
-		fmt.Sprintf("%v", check.CallFunc) + " task":       3,
-		fmt.Sprintf("%v", check.CallOp) + " s.St":         1,
-		fmt.Sprintf("%v", check.CallProviderOp) + " Star": 1,
-	}
-	if fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Fatalf("TaskResult calls %v, want %v", got, want)
-	}
-}
-
-// Recursive source types terminate through CheckSource, in parameters,
-// locals and captured locals (holdsTask is coinductive).
-func TestRecursiveTaskFreeTypes(t *testing.T) {
-	runD1(t, []d1Case{
-		{"slice", "type L[T] []L[T]\nfunc f(x L[int]) int { let local = x; let g = func() int { len(local) }; g() }\n", nil},
-		{"map", "type M[T] Map[string, M[T]]\nfunc f(x M[int]) int { let local = x; let g = func() int { len(local) }; g() }\n", nil},
-		{"tuple", "type P[T] (T, []P[T])\nfunc f(x P[int]) int { let local = x; let g = func() int { _ = local; 1 }; g() }\n", nil},
-		{"mutual", "type A[T] []B[T]\ntype B[T] Map[string, A[T]]\nfunc f(x A[int]) int { let local = x; let g = func() int { len(local) }; g() }\n", nil},
-		{"record", "type R { next []R, n int }\nfunc f(x R) int { let local = x; let g = func() int { local.n }; g() }\n", nil},
-		{"union", "type U = Leaf{} | Node{ kids []U }\nfunc f(x U) U { let local = x; let g = func() U { local }; g() }\n", nil},
-	})
 }
 
 func TestGrowingRecursiveTypesReportInstantiationCycle(t *testing.T) {

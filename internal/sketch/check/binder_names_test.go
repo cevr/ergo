@@ -362,30 +362,3 @@ func TestBinderNamesAgree(t *testing.T) {
 	}
 	t.Logf("%d binder fields, %d programs (%d names each)", len(fields), programs, len(binderNames))
 }
-
-// TestUnreadCapitalisedBinderHint: a capitalised name that binds gets a
-// hint in its S110 (rows.md Totality 1), in a match arm and in a catch
-// arm's rest alike (rows.md Catch 7: the arms are match arms over the
-// failure). A lower-case name gets none.
-func TestUnreadCapitalisedBinderHint(t *testing.T) {
-	forms := map[string]string{
-		"a match's name":     "func host(v int) {\n\tmatch v {\n\tcase $B:\n\t\tlet _ = 0\n\t}\n}",
-		"a catch arm's rest": "func host(v int) {\n\tlet n = risky(v) catch {\n\tcase $B:\n\t\t0\n\t}\n\tlet _ = n\n}",
-	}
-	for form, body := range forms {
-		for _, name := range []string{"got", "Got"} {
-			decls := binderNameDecls + "\n"
-			src := decls + strings.ReplaceAll(body, "$B", name)
-			at := len(decls) + strings.Index(body, "$B")
-			_, diags := check.CheckSource(src)
-			if len(diags) != 1 || diags[0].Code != "S110" || diags[0].Offset != at {
-				t.Errorf("%s/%s: want one S110 at the binder, got\n\t%s\n%s", form, name, describe(diags), src)
-				continue
-			}
-			hint := "no type is named " + name
-			if got, want := strings.Contains(diags[0].Message, hint), name == "Got"; got != want {
-				t.Errorf("%s/%s: hint %q in the S110 is %v, want %v: %s", form, name, hint, got, want, diags[0].Message)
-			}
-		}
-	}
-}

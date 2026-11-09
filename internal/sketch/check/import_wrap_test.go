@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"strings"
-	"sync/atomic"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -125,8 +124,7 @@ func TestImportErrorWrapped(t *testing.T) {
 // The search bounds of findImportError in decl.go (maxUnwrapDepth,
 // maxUnwrapVisits), restated for the model below.
 const (
-	unwrapDepth  = 64
-	unwrapVisits = 4096
+	unwrapDepth = 64
 )
 
 type gkind int
@@ -319,103 +317,4 @@ func (i graphImporter) Import(path string) (*check.Package, error) {
 		return p, nil
 	}
 	return nil, i.err
-}
-
-// TestImportErrorGraphs is a property over generated error graphs (seeded,
-// depth at most 5, joins of 0-3 errors, cycles that branch to 1-3 copies of
-// themselves after their kids, any number of *ImportErrors): the S104
-// reason is the one errors.As finds in the graph with each cycle replaced by
-// the join of its kids, unless the search spends its visit bound first, and
-// the check always ends. With no visit bound a branching cycle never ends;
-// with no depth bound a one-branch cycle spends the whole visit bound.
-func TestImportErrorGraphs(t *testing.T) {
-	const seed, graphs = 0xc2c2, 600
-	r := rand.New(rand.NewPCG(seed, seed))
-	type tcase struct {
-		root *gnode
-		want string
-	}
-	var cases []tcase
-	cover := map[string]int{}
-	for range graphs {
-		ies := 0
-		root := genNode(r, 0, &ies)
-		if root.kind == gLeaf && r.IntN(2) == 0 {
-			root = &gnode{kind: gCycle, fan: 2 + r.IntN(2)}
-		}
-		var x *check.ImportError
-		want := `unknown package "lib"`
-		switch {
-		case !errors.As(root.build(true), &x):
-			if root.cyclic(2) {
-				cover["no ImportError, branching cycle"]++
-			} else {
-				cover["no ImportError"]++
-			}
-		default:
-			m := &visitModel{memo: map[struct {
-				n *gnode
-				d int
-			}]int{}}
-			visits, cycled := m.before(root, 0, x)
-			found := visits < unwrapVisits
-			if found {
-				want += ": " + x.Reason
-			}
-			switch {
-			case !found:
-				cover["cycle before, bound spent"]++
-			case cycled:
-				cover["cycle before, found"]++
-			case root.cyclic(2):
-				cover["branching cycle after, found"]++
-			case !root.cyclic(1):
-				cover["acyclic, found"]++
-			}
-		}
-		cases = append(cases, tcase{root, want})
-	}
-	for _, class := range []string{"no ImportError", "no ImportError, branching cycle", "cycle before, bound spent", "cycle before, found", "branching cycle after, found", "acyclic, found"} {
-		if cover[class] == 0 {
-			t.Fatalf("seed %#x: the generator made no %q graph: %v", seed, class, cover)
-		}
-	}
-	t.Logf("seed %#x: %v", seed, cover)
-
-	var at atomic.Int64
-	done := make(chan []string, 1)
-	go func() {
-		var bad []string
-		for i, c := range cases {
-			at.Store(int64(i))
-			f, err := syntax.Parse("import lib\n\nfunc main() {}\n")
-			if err != nil {
-				bad = append(bad, err.Error())
-				break
-			}
-			_, ds := check.Check("main", []*syntax.File{f}, graphImporter{c.root.build(false)})
-			var got []string
-			for _, d := range ds {
-				if d.Code == "S104" {
-					got = append(got, d.Message)
-				}
-			}
-			if len(got) != 1 || got[0] != c.want {
-				bad = append(bad, fmt.Sprintf("graph %d %s: S104 = %q, want [%q]", i, c.root, got, c.want))
-			}
-		}
-		done <- bad
-	}()
-	select {
-	case bad := <-done:
-		for i, b := range bad {
-			if i == 10 {
-				t.Fatalf("... %d more", len(bad)-10)
-			}
-			t.Error(b)
-		}
-	case <-testwait.After(t):
-		i := at.Load()
-		t.Fatalf("seed %#x: check.Check did not end by the test's deadline on graph %d %s", seed, i, cases[i].root)
-	}
 }

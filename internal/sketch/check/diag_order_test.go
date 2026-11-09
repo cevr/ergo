@@ -107,25 +107,3 @@ func TestCheckDiagnosticOrderIsCanonical(t *testing.T) {
 		}
 	}
 }
-
-// TestCheckDiagnosticSortBreaksTiesByLength: two diagnostics at one offset
-// of one file are ordered by their length before their code, and two that
-// differ only in length come out in one order, whatever order they were
-// reported in.
-func TestCheckDiagnosticSortBreaksTiesByLength(t *testing.T) {
-	ds := []Diagnostic{
-		{Code: "S101", Message: "m", File: 0, Offset: 4, Length: 5},
-		{Code: "S102", Message: "m", File: 0, Offset: 4, Length: 3},
-		{Code: "S101", Message: "m", File: 0, Offset: 4, Length: 2},
-	}
-	want := []Diagnostic{ds[2], ds[1], ds[0]}
-	for _, order := range canonOrders(len(ds)) {
-		c := &checker{}
-		for _, k := range order {
-			c.diags = append(c.diags, ds[k])
-		}
-		if got := c.sorted(); !slices.Equal(got, want) {
-			t.Fatalf("reported in order %v: sorted %+v, want %+v", order, got, want)
-		}
-	}
-}

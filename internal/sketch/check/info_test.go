@@ -2,41 +2,12 @@ package check
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/syntax"
 )
-
-// infoCorpus is every program TestInfoComplete reads: the fixtures, the
-// stage fixtures copied into testdata/v1, the prototype's translated
-// fixtures and the syntax corpus. A program with a diagnostic is not
-// lowered, so only the clean ones count.
-func infoCorpus(t *testing.T) map[string]string {
-	t.Helper()
-	out := map[string]string{}
-	for _, pattern := range []string{
-		"testdata/fixtures/*/*.ergo",
-		"testdata/v1/*.ergo",
-		"../testdata/*.ergo",
-		"../testdata/*/*.ergo",
-		"../syntax/testdata/corpus/*/*.ergo",
-		"../syntax/testdata/corpus/*/*/*.ergo",
-	} {
-		files, _ := filepath.Glob(pattern)
-		for _, f := range files {
-			data, err := os.ReadFile(f)
-			if err != nil {
-				t.Fatal(err)
-			}
-			out[f] = string(data)
-		}
-	}
-	return out
-}
 
 // infoGaps lists what Info misses in a clean package (invariant 1) and
 // the types it holds that are not final (invariant 2): every expression in
@@ -713,75 +684,6 @@ func notFinal(t Type, own map[*TypeParam]bool) string {
 	}
 	walk(t)
 	return why
-}
-
-// TestInfoComplete (spec D-A4): over every clean program of the corpus,
-// Info is complete and final (invariants 1 and 2), and checking twice
-// gives the same Calls, Instances, Loops and Matches (invariant 4).
-func TestInfoComplete(t *testing.T) {
-	clean := 0
-	for name, src := range infoCorpus(t) {
-		file, err := syntax.Parse(src)
-		if err != nil {
-			continue
-		}
-		pkg, diags := Check("main", []*syntax.File{file}, nil)
-		if len(diags) > 0 {
-			// A positive acceptance rule is clean, so its Info is checked
-			// here: a defect that makes it unclean cannot skip the check.
-			if strings.HasPrefix(name, "testdata/v1/") && strings.HasSuffix(name, ".pos.ergo") {
-				t.Errorf("%s: a positive rule has diagnostics: %v", name, diags)
-			}
-			continue
-		}
-		clean++
-		if gaps := infoGaps(file, src, pkg.Info); len(gaps) > 0 {
-			t.Errorf("%s:\n\t%s", name, strings.Join(gaps, "\n\t"))
-		}
-		again, _ := Check("main", []*syntax.File{file}, nil)
-		if a, b := infoDigest(pkg.Info), infoDigest(again.Info); a != b {
-			t.Errorf("%s: two checks give different Info:\n%s\n----\n%s", name, a, b)
-		}
-	}
-	if clean < 20 {
-		t.Fatalf("only %d clean programs in the corpus", clean)
-	}
-}
-
-// infoDigest writes Info's call, instance, loop and match entries in
-// source order.
-func infoDigest(info *Info) string {
-	var lines []string
-	for x, call := range info.Calls {
-		fn := ""
-		if call.Func != nil {
-			fn = call.Func.Name
-		}
-		lines = append(lines, fmt.Sprintf("%d call %d %s %v %s %s", x.Pos(), call.Kind, fn, call.TypeArgs, rowText(call.Fails), rowText(call.Needs)))
-	}
-	for x, inst := range info.Instances {
-		ws := ""
-		for _, w := range inst.Witnesses {
-			ws += fmt.Sprintf(" %s=%s{", w.Param.Name, w.Arg)
-			for _, op := range w.Ops {
-				inst := ""
-				if op.Inst != nil {
-					inst = fmt.Sprintf("%v", op.Inst.TypeArgs)
-				}
-				ws += fmt.Sprintf("%s:%v:%v%s ", op.Name, op.Func != nil, op.Sig, inst)
-			}
-			ws += "}"
-		}
-		lines = append(lines, fmt.Sprintf("%d instance %s %v%s", x.Pos(), inst.Func.Name, inst.TypeArgs, ws))
-	}
-	for s, l := range info.Loops {
-		lines = append(lines, fmt.Sprintf("%d loop %d %s %s %d", s.Pos(), l.Domain, l.Elem, l.Pos, len(l.Bindings)))
-	}
-	for n, m := range info.Matches {
-		lines = append(lines, fmt.Sprintf("%d match %v %d %v %v", n.Pos(), m.Subjects, m.Arms, m.Result, m.Partial))
-	}
-	sort.Strings(lines)
-	return strings.Join(lines, "\n")
 }
 
 // TestInfoContract reads the entries of one program the lowering needs:

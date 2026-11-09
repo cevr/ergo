@@ -28,13 +28,11 @@ internal/sketch/check/context.go	written needs row, the
 internal/sketch/check/context.go	// the needs row, then
 internal/sketch/check/contextsum.go	in needs rows, and
 internal/sketch/check/domain_test.go	// still needs C, that
-internal/sketch/check/stage_d1_r5_test.go	and w0 needs Cap2, so
 internal/sketch/lower/checked_lowered_test.go	a needs row, both
 # the entry's diagnostic text (lower/module.go entryError): "main needs CAP, and the host provides only Console and Ambient"
 
 # a comma that ends a list element after a one-name row (grammar.md, Declarations rule 9:
 # parameters and type arguments keep their commas)
-internal/sketch/check/round11_identity_test.go	func l(fn func() needs Store, gn func() needs Store, hn func() needs Log) {}
 internal/sketch/format/rows_test.go	needs ROW, Put()
 internal/sketch/lower/generic_test.go	func apply[A, E, R](f func(A) A fails E needs R, x A) A fails E needs R {
 
@@ -97,3 +95,8 @@ internal/sketch/syntax/testdata/corpus/sketch-eval/review4-work/host/layers.go.s
 internal/sketch/syntax/testdata/corpus/sketch-eval/review4-work/rerun/checkout.go.sketch	*
 internal/sketch/syntax/testdata/corpus/sketch-eval/review4-work/rerun/concurrency.go.sketch	*
 internal/sketch/syntax/testdata/corpus/sketch-eval/review4-work/rerun/layers.go.sketch	*
+
+# the checker's corpus (test-speed T6): the frozen candidates that the corpus rule
+# enumerated from the check tests on 2026-11-09, as those tests wrote them; here a
+# comma ends a parameter after a one-name row (func l(fn func() needs Store, gn …))
+internal/sketch/check/testdata/corpus/corpus-10.txtar	*
