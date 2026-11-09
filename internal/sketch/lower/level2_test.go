@@ -69,6 +69,7 @@ func main() needs Console | go.Foreign {
 // an Option, the partial value kept beside the error, the nil check of a
 // go.Ref.
 func TestLevel2AdaptersRun(t *testing.T) {
+	needsBuild(t)
 	var src strings.Builder
 	src.WriteString(level2Program)
 	var want []string
@@ -149,6 +150,7 @@ func goCutLine(s, p string) string {
 // Go (flag.Lookup of a flag no one defined), is a defect naming the
 // target and the Ergo call, and the program prints nothing after it.
 func TestLevel2NonNilDefect(t *testing.T) {
+	needsBuild(t)
 	const src = `import go flag
 extern go flag.Lookup func lookup(name string) go.Ref[flag.Flag] needs go.Foreign
 func main() needs Console | go.Foreign {

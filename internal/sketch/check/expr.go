@@ -957,7 +957,12 @@ func (c *checker) structLit(x *syntax.CompositeLit, t Type, s *Struct, mark int)
 		return true // a record update takes every field it omits from its base
 	}
 	// A keyed literal names every field: no field takes Go's zero value
-	// in silence (types.md, Zero values 2; owner q44).
+	// in silence (types.md, Zero values 2; owner q44). go.Error{} is not
+	// such a zero: it is the nil Go error (interop.md, Errors 1 and 3),
+	// whose Text is read from Go and never stored.
+	if n, isNamed := t.(*Named); isNamed && len(x.Elts) == 0 && IsGoError(n) {
+		return true
+	}
 	var missing []string
 	for _, f := range s.Fields {
 		if !set[f.Name] && !isInvalid(f.Type) {

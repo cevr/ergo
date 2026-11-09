@@ -203,6 +203,7 @@ var pcInputs = []string{"12", "-7", "x", "", "true", "F", "a:80", "[::1]:9", "ht
 // lost off the reuse path (tuple model), the plain arm taken when Go's
 // error is nil (model), SetCatchSwitchForTest ignored (form check).
 func TestPlainCatchAgrees(t *testing.T) {
+	needsBuild(t)
 	var src strings.Builder
 	src.WriteString(`import go strconv
 import go net
@@ -315,6 +316,7 @@ func ergo_default(s string) string {
 // Mutants: plainCatch never taken; the error always converted; the
 // catch's value a new variable (each over budget).
 func TestPlainCatchInlines(t *testing.T) {
+	needsBuild(t)
 	const src = `import go strconv
 
 func Parse(s string) int64 {

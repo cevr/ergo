@@ -145,6 +145,7 @@ func geModelLine(i int, err error, leaves []error) string {
 // its text (go.Is of io.EOF fails); a Go error field not made a go.Error
 // (build); the update or literal of go.Error not GoErrorText (build).
 func TestGoErrorChainsAgree(t *testing.T) {
+	needsBuild(t)
 	var src strings.Builder
 	src.WriteString(`import go strconv
 import go errors

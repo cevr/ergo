@@ -113,6 +113,7 @@ func genTree(t *testing.T, r *rand.Rand, root string, depth int) {
 // tunnelled rather than passed as Go's error (SkipDir does not skip); the
 // environment not the caller's (build: Tag unbound).
 func TestCallbackTunnelModel(t *testing.T) {
+	needsBuild(t)
 	seeds := []uint64{1, 2, 3}
 	if *callbackSeed != 0 {
 		seeds = []uint64{*callbackSeed}
