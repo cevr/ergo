@@ -530,9 +530,14 @@ func TestPreviewDecidedBlocksCanonical(t *testing.T) {
 	}
 }
 
+// laterProductions are the productions grammar.md gained after the
+// preview's decided sketch: PatternCore (D1) and ArrayType (196y, the
+// fixed arrays that decisions.md 2026-11-02 (c) brought back).
+var laterProductions = []string{"PatternCore", "ArrayType"}
+
 // TestGrammarStatesTheSketch: the syntactic productions of
 // docs/spec/grammar.md are the 62 of the preview's decided sketch plus
-// PatternCore (D1), so the specification and the sketch cannot drift.
+// laterProductions, so the specification and the sketch cannot drift.
 func TestGrammarStatesTheSketch(t *testing.T) {
 	data, err := os.ReadFile("../../../docs/spec/grammar.md")
 	if err != nil {
@@ -549,7 +554,7 @@ func TestGrammarStatesTheSketch(t *testing.T) {
 			spec[m[1]] = true
 		}
 	}
-	sketch := append(sketchProductions(t), "PatternCore")
+	sketch := append(sketchProductions(t), laterProductions...)
 	for _, name := range sketch {
 		if !spec[name] {
 			t.Errorf("grammar.md has no production %s", name)
@@ -585,10 +590,10 @@ func sketchProductions(t *testing.T) []string {
 }
 
 // TestGrammarFixtures: every production of the preview's decided sketch,
-// and PatternCore, has a grammar fixture named after it; each fixture
+// and each of laterProductions, has a grammar fixture named after it; each fixture
 // parses and is canonical.
 func TestGrammarFixtures(t *testing.T) {
-	names := append(sketchProductions(t), "PatternCore")
+	names := append(sketchProductions(t), laterProductions...)
 	have := map[string]bool{}
 	for _, g := range sketchtest.GrammarFixtures {
 		have[g.Name] = true

@@ -436,6 +436,8 @@ func (in *inferer) hasFree(t Type) bool {
 		return in.rowFree(t.Row)
 	case *Slice:
 		return in.hasFree(t.Elem)
+	case *Array:
+		return in.hasFree(t.Elem)
 	case *Map:
 		return in.hasFree(t.Key) || in.hasFree(t.Elem)
 	case *Pointer:
@@ -1213,8 +1215,10 @@ func (c *checker) builtin(x *syntax.CallExpr, b *Builtin) operand {
 		}
 	case *Slice, *Map:
 		return operand{mode: modeValue, typ: Typ[Int]}
+	case *Array:
+		return operand{mode: modeValue, typ: Typ[Int]}
 	}
-	c.errorf(x.Args[0], CodeType, "len takes a slice, a Map or a string, not %s", op.typ)
+	c.errorf(x.Args[0], CodeType, "len takes a slice, an array, a Map or a string, not %s", op.typ)
 	return bad(x)
 }
 

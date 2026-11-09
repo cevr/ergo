@@ -94,6 +94,8 @@ func equalBase(t check.Type) string {
 		return "ergoEqual" + u.Obj.Name
 	case *check.Slice:
 		return "ergoEqualSlice"
+	case *check.Array:
+		return "ergoEqualArray"
 	case *check.Map:
 		return "ergoEqualMap"
 	case *check.Tuple:
@@ -135,6 +137,11 @@ func (l *lowerer) equalFunc(t check.Type, site syntax.Node) (string, []*check.Ty
 	case *check.Slice:
 		i := scope.alloc("i")
 		body.WriteString("\tif len(" + a + ") != len(" + b + ") {\n\t\treturn false\n\t}\n")
+		body.WriteString("\tfor " + i + " := range " + a + " {\n")
+		body.WriteString("\t\tif !" + tc.equalCall(u.Elem, a+"["+i+"]", b+"["+i+"]", site) + " {\n\t\t\treturn false\n\t\t}\n\t}\n\treturn true\n")
+	case *check.Array:
+		// The length is the type's: only the elements differ.
+		i := scope.alloc("i")
 		body.WriteString("\tfor " + i + " := range " + a + " {\n")
 		body.WriteString("\t\tif !" + tc.equalCall(u.Elem, a+"["+i+"]", b+"["+i+"]", site) + " {\n\t\t\treturn false\n\t\t}\n\t}\n\treturn true\n")
 	case *check.Map:
@@ -208,6 +215,8 @@ func (l *lowerer) reserveEquals(pkgs []*check.Package, reserve func(key pkgKey, 
 		reserve(l.equalKey(t), t)
 		switch u := underEqual(t).(type) {
 		case *check.Slice:
+			walk(u.Elem)
+		case *check.Array:
 			walk(u.Elem)
 		case *check.Map:
 			walk(u.Elem)

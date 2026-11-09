@@ -135,6 +135,10 @@ func closeTypeArgs(cl *check.Close, site syntax.Node) []check.Type {
 			if rs, ok := r.(*check.Slice); ok {
 				match(p.Elem, rs.Elem)
 			}
+		case *check.Array:
+			if ra, ok := r.(*check.Array); ok {
+				match(p.Elem, ra.Elem)
+			}
 		case *check.Map:
 			if rm, ok := r.(*check.Map); ok {
 				match(p.Key, rm.Key)

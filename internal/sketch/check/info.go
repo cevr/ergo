@@ -1068,6 +1068,10 @@ func (c *checker) finalType(t Type, memo map[Type]Type) Type {
 		if e := c.finalType(t.Elem, memo); e != t.Elem {
 			out = &Slice{Elem: e}
 		}
+	case *Array:
+		if e := c.finalType(t.Elem, memo); e != t.Elem {
+			out = &Array{Len: t.Len, Elem: e}
+		}
 	case *Pointer:
 		if e := c.finalType(t.Elem, memo); e != t.Elem {
 			out = &Pointer{Elem: e}

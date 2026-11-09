@@ -123,6 +123,9 @@ func (c *checker) loopDomain(s *syntax.RangeStmt, x operand) *Loop {
 	switch u := under(x.typ).(type) {
 	case *Slice:
 		return &Loop{Domain: LoopSlice, Elem: u.Elem, Pos: Typ[Int]}
+	case *Array:
+		// Go's range over an array (196y): the slice domain's form.
+		return &Loop{Domain: LoopSlice, Elem: u.Elem, Pos: Typ[Int]}
 	case *Map:
 		return &Loop{Domain: LoopMap, Elem: u.Elem, Pos: u.Key}
 	case *Pointer:

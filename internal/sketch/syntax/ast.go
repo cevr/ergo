@@ -492,9 +492,14 @@ type (
 		Body     *ContextBody
 	}
 
-	// ArrayType is the slice type `[]T`.
+	// ArrayType is the slice type `[]T`, or the fixed array type `[N]T`
+	// when Len is set: the text of an integer literal at LenPos (196y).
+	// The length is a literal, never an expression, so it holds no name
+	// and no use.
 	ArrayType struct {
 		Lbrack Pos
+		Len    string
+		LenPos Pos
 		Elt    Expr
 	}
 

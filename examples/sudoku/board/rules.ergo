@@ -92,9 +92,9 @@ type Solver {
 	// solver's search, or Unsolvable.
 	Solve(puzzle Grid) Grid fails Unsolvable,
 
-	// The laws draw each puzzle from a seed (Puzzle, Broken): a generated
-	// Grid holds any number of cells, which no puzzle a program reads
-	// does (Parse takes 81).
+	// The laws draw each puzzle from a seed (Puzzle, Broken): a puzzle is
+	// a grid a sudoku can hold, and a Grid has no generator yet (its
+	// cells are a fixed array; types.md, Arrays 7).
 
 	// SolutionSolves: a solution keeps the rules and the givens.
 	law SolutionSolves(seed int, n int) {

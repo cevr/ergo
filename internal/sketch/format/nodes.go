@@ -941,6 +941,9 @@ func (p *printer) expr1(x syntax.Expr, depth int) {
 		p.stmt(x.(syntax.Stmt))
 	case *syntax.ArrayType:
 		p.token(x.Lbrack, "[")
+		if x.Len != "" {
+			p.token(x.LenPos, x.Len)
+		}
 		p.synth("]")
 		p.typ(x.Elt)
 	case *syntax.MapType:

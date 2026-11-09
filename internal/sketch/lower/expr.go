@@ -530,7 +530,7 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 	shape := t
 	if n, ok := t.(*check.Named); ok {
 		switch u := n.Underlying().(type) {
-		case *check.Slice, *check.Map:
+		case *check.Slice, *check.Array, *check.Map:
 			shape = u
 		}
 	}
@@ -595,6 +595,17 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 			values = append(values, e)
 		}
 		vals := fc.elements(values, u.Elem)
+		return goType + "{" + strings.Join(vals, ", ") + "}"
+	case *check.Array:
+		// The checker took every element in order, or none for the
+		// default (types.md, Arrays 2).
+		if len(x.Elts) == 0 {
+			if d := fc.defaultValue(u); d != "" {
+				return goType + "(" + d + ")"
+			}
+			return goType + "{}"
+		}
+		vals := fc.elements(x.Elts, u.Elem)
 		return goType + "{" + strings.Join(vals, ", ") + "}"
 	case *check.Map:
 		var list []syntax.Expr
@@ -718,6 +729,12 @@ func (fc *funcCtx) sliceExpr(x *syntax.SliceExpr) string {
 		return s
 	}
 	low, high := part(x.Low), part(x.High)
+	if _, isArray := underEqual(fc.typeOf(x.X)).(*check.Array); isArray && !fc.isPlace(x.X) {
+		// Go slices only an addressable array (types.md, Arrays 4). The
+		// value rule copies the slice where a write could be seen through
+		// another binding, as it copies a slice of a slice.
+		parts[0] = fc.spill(parts[0])
+	}
 	if x.Slice3 {
 		return parts[0] + "[" + low + ":" + high + ":" + part(x.Max) + "]"
 	}

@@ -99,6 +99,8 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 		return &MachineType{State: c.subst(t.State, m), Signal: c.subst(t.Signal, m)}
 	case *Slice:
 		return &Slice{Elem: c.subst(t.Elem, m)}
+	case *Array:
+		return &Array{Len: t.Len, Elem: c.subst(t.Elem, m)}
 	case *Map:
 		return &Map{Key: c.subst(t.Key, m), Elem: c.subst(t.Elem, m)}
 	case *Pointer:
@@ -751,6 +753,9 @@ func comparableSeen(t Type, seen map[Type]bool) bool {
 			}
 		}
 		return true
+	case *Array:
+		// An array compares when its element does, as in Go (196y).
+		return comparableSeen(u.Elem, seen)
 	case *Interface:
 		return false
 	case *Pointer:
@@ -778,6 +783,8 @@ func Equatable(t Type) bool { return equatableSeen(t, map[Type]bool{}) }
 func equatableSeen(t Type, seen map[Type]bool) bool {
 	switch u := under(t).(type) {
 	case *Slice:
+		return equatableSeen(u.Elem, seen)
+	case *Array:
 		return equatableSeen(u.Elem, seen)
 	case *Map:
 		return equatableSeen(u.Elem, seen)
@@ -882,6 +889,8 @@ func defaultableSeen(t Type, seen map[Type]bool) bool {
 		return true
 	case *Slice, *Map:
 		return true
+	case *Array:
+		return defaultableSeen(u.Elem, seen)
 	case *Tuple:
 		for _, e := range u.Types {
 			if !defaultableSeen(e, seen) {

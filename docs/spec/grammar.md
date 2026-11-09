@@ -122,10 +122,11 @@ UnionType      = [ "|" ] Variant { "|" Variant } .
 Variant        = TypeName [ TypeArgs ] [ Members ] .
 MachineType    = "machine" TypeArgs "{" MachineEntry { "," MachineEntry } [ "," ] "}" .
 MachineEntry   = identifier ":" Expression .
-Type           = TypeName [ TypeArgs ] | SliceType | FuncType | PointerType | "(" Type { "," Type } ")" .
+Type           = TypeName [ TypeArgs ] | SliceType | ArrayType | FuncType | PointerType | "(" Type { "," Type } ")" .
 TypeName       = identifier [ "." identifier ] .
 TypeArgs       = "[" Type { "," Type } "]" .
 SliceType      = "[" "]" Type .
+ArrayType      = "[" int_lit "]" Type .
 PointerType    = "*" Type .
 FuncType       = [ "escaping" ] "func" Signature .
 FuncDecl       = "func" identifier [ TypeParams ] Signature Block .
@@ -214,7 +215,7 @@ Call           = "(" [ ExpressionList [ "," ] ] ")" [ Block ] .
 Primary        = Literal | identifier | CompositeLit | FuncLit | IfExpr | MatchExpr | WithExpr | ContextLit | "(" ExpressionList ")" .
 Literal        = int_lit | float_lit | rune_lit | string_lit | duration_lit .
 CompositeLit   = LiteralType LiteralValue .
-LiteralType    = TypeName [ TypeArgs ] | SliceType .
+LiteralType    = TypeName [ TypeArgs ] | SliceType | ArrayType .
 LiteralValue   = "{" [ ( ".." Expression { "," Element } | Element { "," Element } ) [ "," ] ] "}" .
 Element        = [ ( Expression | LiteralValue ) ":" ] ( Expression | LiteralValue ) .
 FuncLit        = "func" "(" [ LitParam { "," LitParam } ] ")" [ Type ] [ FailsClause ] [ NeedsClause ] Block .
@@ -297,7 +298,7 @@ Every old spelling is S001 at its own token, with a byte span, line and column. 
 | `select` | Ergo has no select; race tasks with `task.Race` |
 | `map[K]V` | Ergo has no map keyword; write `Map[K, V]` |
 | `...T` | Ergo has no variadic parameters; take a slice `[]T` |
-| `[N]T` | Ergo has no fixed arrays; use a slice `[]T` |
+| `[...]T` | Ergo has no array of unknown length; write its length, `[N]T`, or use a slice `[]T` |
 | `L:` | Ergo has no labels; break and continue act on the innermost for |
 | `goto` | goto is not part of the language; use structured control flow |
 | `fallthrough` | fallthrough is not part of the language; list the patterns in one case |

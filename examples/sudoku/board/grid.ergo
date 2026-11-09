@@ -7,9 +7,10 @@ import strings
 
 // Grid is the 81 cells of a sudoku. Its field is unexported, so only this
 // package builds one, through Parse and With: outside board, a Grid
-// always has 81 cells of 0 to 9. Ergo has no fixed arrays (G-ex-e-7), so
-// the cells are a slice.
-type Grid { cells []int }
+// always holds cells of 0 to 9. The 81 cells are a fixed array, a value:
+// a copy of a Grid copies its cells, and the length is the type's (196y,
+// G-ex-e-7 closed).
+type Grid { cells [81]int }
 
 // The failures of Parse.
 
@@ -23,19 +24,23 @@ type BadCell { At int, Text string }
 // "0" for an empty cell. Spaces, line feeds and "|", "-", "+" between
 // cells are layout and are skipped.
 func Parse(text string) Grid fails BadLength | BadCell {
-	let mut cells = []int{}
+	let mut cells [81]int
+	let mut n = 0
 	for i in 0..len(text) {
 		let c = text[i]
-		if c >= '1' && c <= '9' {
-			cells = cells.Append(int(c - '0'))
-		} else if c == '.' || c == '0' {
-			cells = cells.Append(0)
-		} else if !strings.ContainsRune(" \t\r\n|-+", rune(c)) {
+		let cell = c == '.' || c >= '0' && c <= '9'
+		if !cell && !strings.ContainsRune(" \t\r\n|-+", rune(c)) {
 			return BadCell{At: i, Text: text[i : i+1]}
 		}
+		if cell {
+			if n < 81 && c != '.' {
+				cells[n] = int(c - '0')
+			}
+			n += 1
+		}
 	}
-	if len(cells) != 81 {
-		return BadLength{Cells: len(cells)}
+	if n != 81 {
+		return BadLength{Cells: n}
 	}
 	Grid{cells: cells}
 }
@@ -58,24 +63,19 @@ func OfCells(cells []int) Grid fails BadLength | BadCell {
 	if len(cells) != 81 {
 		return BadLength{Cells: len(cells)}
 	}
-	let mut out = []int{}
+	let mut out [81]int
 	for i, c in cells {
 		if c < 0 || c > 9 {
 			return BadCell{At: i, Text: "\(c)"}
 		}
-		out = out.Append(c)
+		out[i] = c
 	}
 	Grid{cells: out}
 }
 
-// Cells is the 81 values of g, in a new slice.
-func Cells(g Grid) []int {
-	let mut out = []int{}
-	for c in g.cells {
-		out = out.Append(c)
-	}
-	out
-}
+// Cells is the 81 values of g, in a new slice: a slice of an array is a
+// copy of its elements.
+func Cells(g Grid) []int { g.cells[0:81] }
 
 // Filled is the number of cells of g that hold a digit.
 func Filled(g Grid) int {

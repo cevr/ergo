@@ -541,6 +541,10 @@ func holdsValueSeen(t check.Type, seen map[check.Type]bool) bool {
 	switch u := t.(type) {
 	case *check.Slice, *check.Map:
 		return true
+	case *check.Array:
+		// Go copies an array as a whole: it needs a copy function only
+		// when an element holds a slice or a Map (196y).
+		return holdsValueSeen(u.Elem, seen)
 	case *check.Tuple:
 		for _, e := range u.Types {
 			if holdsValueSeen(e, seen) {
@@ -564,6 +568,8 @@ func elemOf(t check.Type) check.Type {
 	}
 	switch u := t.(type) {
 	case *check.Slice:
+		return u.Elem
+	case *check.Array:
 		return u.Elem
 	case *check.Map:
 		return u.Elem
@@ -1601,6 +1607,8 @@ func cloneBase(t check.Type) string {
 		return "ergoClone" + u.Obj.Name
 	case *check.Slice:
 		return "ergoCloneSlice"
+	case *check.Array:
+		return "ergoCloneArray"
 	case *check.Map:
 		return "ergoCloneMap"
 	case *check.Tuple:
@@ -1657,6 +1665,13 @@ func (l *lowerer) cloneFunc(t check.Type, site syntax.Node) (string, []*check.Ty
 		body.WriteString("\t" + c + " := make(" + goType + ", len(" + v + "))\n")
 		body.WriteString("\tfor " + k + ", " + e + " := range " + v + " {\n")
 		body.WriteString("\t\t" + c + "[" + k + "] = " + tc.cloneValue(u.Elem, e, site) + "\n\t}\n\treturn " + c + "\n")
+	case *check.Array:
+		// Go copied the array; each element that holds a slice or a Map
+		// is copied in turn.
+		i := scope.alloc("i")
+		body.WriteString("\t" + c + " := " + v + "\n")
+		body.WriteString("\tfor " + i + " := range " + c + " {\n")
+		body.WriteString("\t\t" + c + "[" + i + "] = " + tc.cloneValue(u.Elem, c+"["+i+"]", site) + "\n\t}\n\treturn " + c + "\n")
 	case *check.Tuple:
 		body.WriteString("\t" + c + " := " + v + "\n")
 		for i, et := range u.Types {
@@ -1712,6 +1727,8 @@ func (l *lowerer) reserveClones(pkgs []*check.Package, reserve func(key pkgKey, 
 		}
 		switch u := underEqual(t).(type) {
 		case *check.Slice:
+			walk(u.Elem)
+		case *check.Array:
 			walk(u.Elem)
 		case *check.Map:
 			walk(u.Elem)

@@ -70,6 +70,8 @@ func (in *inferer) mentions(t Type) bool {
 			return walkRow(t.Row, walk)
 		case *Slice:
 			return walk(t.Elem)
+		case *Array:
+			return walk(t.Elem)
 		case *Map:
 			return walk(t.Key) || walk(t.Elem)
 		case *Pointer:
@@ -283,6 +285,9 @@ func (in *inferer) nify(x, y Type, mode unifyMode, depth int) bool {
 	case *Slice:
 		ys, ok := y.(*Slice)
 		return ok && in.nify(x.Elem, ys.Elem, emode, depth)
+	case *Array:
+		ya, ok := y.(*Array)
+		return ok && x.Len == ya.Len && in.nify(x.Elem, ya.Elem, emode, depth)
 	case *Map:
 		ym, ok := y.(*Map)
 		return ok && in.nify(x.Key, ym.Key, emode, depth) && in.nify(x.Elem, ym.Elem, emode, depth)

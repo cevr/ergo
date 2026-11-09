@@ -734,6 +734,8 @@ func walkType(t check.Type, visit func(t check.Type, result bool) bool) bool {
 			}
 		case *check.Slice:
 			return walk(t.Elem, false)
+		case *check.Array:
+			return walk(t.Elem, false)
 		case *check.Map:
 			return walk(t.Key, false) || walk(t.Elem, false)
 		case *check.Pointer:
@@ -1364,6 +1366,8 @@ func mentionsTypeParam(t check.Type) bool {
 			}
 		}
 	case *check.Slice:
+		return mentionsTypeParam(t.Elem)
+	case *check.Array:
 		return mentionsTypeParam(t.Elem)
 	case *check.Map:
 		return mentionsTypeParam(t.Key) || mentionsTypeParam(t.Elem)

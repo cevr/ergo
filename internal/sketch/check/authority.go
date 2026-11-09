@@ -129,6 +129,8 @@ func Constructible(t Type, from *Package) bool {
 			}
 		case *Slice:
 			return ok(u.Elem)
+		case *Array:
+			return ok(u.Elem)
 		case *Map:
 			return ok(u.Key) && ok(u.Elem)
 		case *Union:
@@ -384,6 +386,8 @@ func (m *mentioner) walk(t Type) {
 	case *Pointer:
 		m.walk(u.Elem)
 	case *Slice:
+		m.walk(u.Elem)
+	case *Array:
 		m.walk(u.Elem)
 	case *Map:
 		m.walk(u.Key)

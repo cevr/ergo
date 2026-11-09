@@ -1144,6 +1144,9 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		if c.taskRefused(x.Elt, elem) {
 			return invalid
 		}
+		if x.Len != "" {
+			return c.arrayType(x, elem)
+		}
 		return &Slice{Elem: elem}
 	case *syntax.MapType:
 		if tn := c.declaredMap(); tn != nil {
@@ -2042,6 +2045,9 @@ func (c *checker) collOwner(f *Func) (collKey, []syntax.Expr, bool) {
 	key := collKey{name: f.Name}
 	switch t := d.Type.Params.List[0].Type.(type) {
 	case *syntax.ArrayType:
+		if t.Len != "" {
+			return collKey{}, nil, false // the prelude's are on slices
+		}
 		args = []syntax.Expr{t.Elt}
 	case *syntax.MapType:
 		args, key.isMap = []syntax.Expr{t.Key, t.Value}, true
