@@ -3,7 +3,6 @@ package v1
 import (
 	"reflect"
 	"sync"
-	"time"
 
 	"ergo.local/prototype/runtime/rt"
 )
@@ -144,23 +143,40 @@ func (a *Actor[S, E, D]) traceStart(at *rt.Task, s S) {
 	at.TraceMachine(&rt.MachineEvent{What: rt.MachineStart, Incarnation: 1, Epoch: a.epoch, State: variant(g, s)})
 }
 
-// traceTake reports the envelope env taken in s: its signal, a timer's
-// fire, or, when dropped, a stale signal.
+// signalOf is the variant of the signal of env: a timer's from g's timers.
+func (a *Actor[S, E, D]) signalOf(g *MachineGraph, env *envelope[S, E, D]) string {
+	if env.kind == timerSignal {
+		return a.timerSignal(g, env.at)
+	}
+	return variant(g, env.sig)
+}
+
+// drop drops the stale envelope in a step (a.cur) and counts it (rule
+// 6); traced, it reports it with its own epoch, not the open entry's. It
+// is a call of its own, so handle's frame does not grow (MU18's 2 KB
+// runner stack).
 //
 //go:noinline
-func (a *Actor[S, E, D]) traceTake(at *rt.Task, s S, env *envelope[S, E, D], dropped bool) {
-	g := a.graphOf()
-	m := &rt.MachineEvent{What: rt.MachineSignal, Epoch: a.epoch, Source: sourceNames[env.kind]}
-	if env.kind == timerSignal {
-		m.What, m.Signal = rt.MachineTimerFired, a.timerSignal(g, env.at)
-	} else {
-		m.Signal = variant(g, env.sig)
+func (a *Actor[S, E, D]) drop(at *rt.Task) {
+	a.dropped.Add(1)
+	if at.Traced() {
+		env := a.cur
+		at.TraceMachine(&rt.MachineEvent{What: rt.MachineDropped, Epoch: env.epoch, Source: sourceNames[env.kind],
+			Signal: a.signalOf(a.graphOf(), env)})
 	}
-	if dropped {
-		// The stale signal's own epoch, not the open entry's.
-		m.What, m.Epoch = rt.MachineDropped, env.epoch
-	} else {
-		m.State = variant(g, s)
+}
+
+// traceTake reports the envelope in a step (a.cur), taken in s: its
+// signal, or a timer's fire.
+//
+//go:noinline
+func (a *Actor[S, E, D]) traceTake(at *rt.Task, s S) {
+	env := a.cur
+	g := a.graphOf()
+	m := &rt.MachineEvent{What: rt.MachineSignal, Epoch: a.epoch, Source: sourceNames[env.kind],
+		State: variant(g, s), Signal: a.signalOf(g, env)}
+	if env.kind == timerSignal {
+		m.What = rt.MachineTimerFired
 	}
 	at.TraceMachine(m)
 }
@@ -174,18 +190,20 @@ func (a *Actor[S, E, D]) timerSignal(g *MachineGraph, at S) string {
 	return g.Timers[variant(g, at)]
 }
 
-// traceDecide reports the decision d (of kind k) of the step of env in s.
-// Next is the state after it; the epoch is the entry's after it.
+// traceStep reports the step of the envelope in a step (a.cur) in s: its
+// failure err, or its decision d, with the arm, the state after it (Next)
+// and the entry's epoch after it.
 //
 //go:noinline
-func (a *Actor[S, E, D]) traceDecide(at *rt.Task, s S, env *envelope[S, E, D], d D, k int) {
+func (a *Actor[S, E, D]) traceStep(at *rt.Task, s S, d D, err error) {
 	g := a.graphOf()
-	m := &rt.MachineEvent{What: rt.MachineDecide, Epoch: a.epoch, State: variant(g, s), Decision: decisionNames[k]}
-	if env.kind == timerSignal {
-		m.Signal = a.timerSignal(g, env.at)
-	} else {
-		m.Signal = variant(g, env.sig)
+	if err != nil {
+		at.TraceMachine(&rt.MachineEvent{What: rt.MachineFail, Epoch: a.epoch, State: variant(g, s)})
+		return
 	}
+	k := a.kind(d)
+	m := &rt.MachineEvent{What: rt.MachineDecide, Epoch: a.epoch, State: variant(g, s), Decision: decisionNames[k],
+		Signal: a.signalOf(g, a.cur)}
 	m.Arm = g.arm(m.State, m.Signal)
 	switch k {
 	case decideEnter, decideEmit:
@@ -197,28 +215,30 @@ func (a *Actor[S, E, D]) traceDecide(at *rt.Task, s S, env *envelope[S, E, D], d
 	at.TraceMachine(m)
 }
 
-// traceFail reports a step failure in s.
+// traceArmed reports the timer of the entry that opened in s, when it has
+// one. The runner raises it once the entry's timer is armed and its work
+// started, from open and loop: a hook in arm or startWork would grow
+// their frames, and the runner's stack with them (MU18's 2 KB budget).
 //
 //go:noinline
-func (a *Actor[S, E, D]) traceFail(at *rt.Task, s S) {
-	at.TraceMachine(&rt.MachineEvent{What: rt.MachineFail, Epoch: a.epoch, State: variant(a.graphOf(), s)})
-}
-
-// traceArmed reports the timer of the entry that opened in s, armed for d.
-//
-//go:noinline
-func (a *Actor[S, E, D]) traceArmed(at *rt.Task, s S, d time.Duration) {
+func (a *Actor[S, E, D]) traceArmed(at *rt.Task, s S) {
+	d := a.delay(s)
+	if d == noTimer {
+		return
+	}
 	g := a.graphOf()
 	at.TraceMachine(&rt.MachineEvent{What: rt.MachineTimerArmed, Epoch: a.epoch, State: variant(g, s),
 		Signal: a.timerSignal(g, s), In: d})
 }
 
-// traceWork reports what happened to the work of the entry epoch, opened
-// in s, on the work's task wt.
+// traceWork reports what happened to the work of the entry epoch, on the
+// work's task wt. It names no state: the work's closure would have to
+// hold one, and the entry's epoch already names it (its decide or start
+// event gives the state).
 //
 //go:noinline
-func (a *Actor[S, E, D]) traceWork(wt *rt.Task, what rt.MachineWhat, epoch uint64, s S) {
-	wt.TraceMachine(&rt.MachineEvent{What: what, Epoch: epoch, State: variant(a.graphOf(), s)})
+func (a *Actor[S, E, D]) traceWork(wt *rt.Task, what rt.MachineWhat, epoch uint64) {
+	wt.TraceMachine(&rt.MachineEvent{What: what, Epoch: epoch})
 }
 
 // workEnd is the event of a work's end with err: returned, interrupted,
@@ -233,11 +253,17 @@ func workEnd(err error) rt.MachineWhat {
 	return rt.MachineWorkFailed
 }
 
-// traceChild reports a child of the entry epoch started or stopped.
+// traceChild reports a child of the entry epoch started, and gives its
+// halt, which reports it stopped once it ended.
 //
 //go:noinline
-func (a *Actor[S, E, D]) traceChild(what rt.MachineWhat, epoch uint64) {
-	a.task.TraceMachine(&rt.MachineEvent{What: what, Epoch: epoch})
+func (a *Actor[S, E, D]) traceChild(halt func() error, epoch uint64) func() error {
+	a.task.TraceMachine(&rt.MachineEvent{What: rt.MachineChildStarted, Epoch: epoch})
+	return func() error {
+		err := halt()
+		a.task.TraceMachine(&rt.MachineEvent{What: rt.MachineChildStopped, Epoch: epoch})
+		return err
+	}
 }
 
 // traceStop reports a stop asked of the actor by source.

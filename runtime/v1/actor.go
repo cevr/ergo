@@ -372,6 +372,9 @@ func (a *Actor[S, E, D]) loop(at *rt.Task) (struct{}, error) {
 	a.openKids()
 	a.arm(at, s)
 	a.startWork(at, s)
+	if at.Traced() {
+		a.traceArmed(at, s)
+	}
 	a.started()
 	for {
 		// The envelope is taken into curEnv: one copy, no allocation; the
@@ -405,24 +408,23 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 		return s, true, env.err
 	}
 	// A timer's, a work's and a child's signal carry their entry's epoch:
-	// one of an ended entry is stale (rule 6).
-	stale := env.kind >= timerSignal && env.epoch != a.epoch
-	if at.Traced() {
-		a.traceTake(at, s, env, stale)
-	}
-	switch {
-	case stale:
-		a.dropped.Add(1)
+	// one of an ended entry is stale, dropped and counted (rule 6).
+	if env.kind >= timerSignal && env.epoch != a.epoch {
+		a.drop(at)
 		return s, false, nil
-	case env.kind == timerSignal:
+	}
+	if at.Traced() {
+		a.traceTake(at, s)
+	}
+	if env.kind == timerSignal {
 		d, err = a.fire(at, env.at, s)
-	default:
+	} else {
 		d, err = a.step(at, s, env.sig)
 	}
+	if at.Traced() {
+		a.traceStep(at, s, d, err)
+	}
 	if err != nil {
-		if at.Traced() {
-			a.traceFail(at, s)
-		}
 		if env.kind == askSignal {
 			a.cur = nil
 			env.reply <- answer[S, D]{err: err}
@@ -431,9 +433,6 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 		return s, true, err
 	}
 	k := a.kind(d)
-	if at.Traced() {
-		a.traceDecide(at, s, env, d, k)
-	}
 	if k == decideStay {
 		// One lock for the decision and the commit (MU18).
 		s = a.next(s, d)
@@ -492,6 +491,9 @@ func (a *Actor[S, E, D]) open(at *rt.Task, s S) {
 	a.arm(at, s)
 	a.startWork(at, s)
 	opened = true
+	if at.Traced() {
+		a.traceArmed(at, s)
+	}
 	a.publish(s)
 }
 
@@ -513,9 +515,6 @@ func (a *Actor[S, E, D]) startWork(at *rt.Task, s S) {
 	done := a.kidsDone
 	a.kidsMu.Unlock()
 	owner := &entryRef[S, E, D]{a: a, epoch: epoch, done: done}
-	if at.Traced() {
-		a.traceWork(at, rt.MachineWorkStarted, epoch, s)
-	}
 	holder := rt.NewScope(at)
 	// Shielded from the runner's interruption (a Stop): the runner's end
 	// stops the entry's children first and then the work (rule 13).
@@ -523,6 +522,9 @@ func (a *Actor[S, E, D]) startWork(at *rt.Task, s S) {
 		// The entry the work's Child calls find (rule 13).
 		owners.Store(wt, owner)
 		defer owners.Delete(wt)
+		if wt.Traced() {
+			a.traceWork(wt, rt.MachineWorkStarted, epoch)
+		}
 		// A work that started children ends after their stop (rule 13).
 		defer owner.waitKids()
 		send := func(e E) {
@@ -534,7 +536,7 @@ func (a *Actor[S, E, D]) startWork(at *rt.Task, s S) {
 			return struct{}{}, nil
 		})
 		if wt.Traced() {
-			a.traceWork(wt, workEnd(err), epoch, s)
+			a.traceWork(wt, workEnd(err), epoch)
 		}
 		if err == nil || err == rt.Interrupted {
 			return struct{}{}, nil
@@ -600,11 +602,13 @@ func (r *entryRef[S, E, D]) adopt(start func(func(*rt.Task, error) bool, func(*r
 		return false
 	}
 	halt := start(r.report, r.deliver)
+	if a.task.Traced() {
+		// child-started now, and child-stopped from the halt: a hook in
+		// stopKids would grow the runner's frame.
+		halt = a.traceChild(halt, r.epoch)
+	}
 	a.kids = append(a.kids, &kid{halt: halt})
 	r.adopted.Store(true)
-	if a.task.Traced() {
-		a.traceChild(rt.MachineChildStarted, r.epoch)
-	}
 	return true
 }
 
@@ -649,16 +653,13 @@ func (a *Actor[S, E, D]) openKids() {
 // children that they did not report.
 func (a *Actor[S, E, D]) stopKids() error {
 	a.kidsMu.Lock()
-	ks, done, epoch := a.kids, a.kidsDone, a.kidsEpoch
+	ks, done := a.kids, a.kidsDone
 	a.kids, a.kidsOpen, a.kidsDone = nil, false, nil
 	a.kidsMu.Unlock()
 	var exit error
 	for i := len(ks) - 1; i >= 0; i-- {
 		if err := ks[i].halt(); err != nil {
 			exit = join(exit, err)
-		}
-		if a.task.Traced() {
-			a.traceChild(rt.MachineChildStopped, epoch)
 		}
 	}
 	if done != nil {
@@ -671,9 +672,6 @@ func (a *Actor[S, E, D]) stopKids() error {
 // none of Stop's results: a typed failure ends only the child, and a
 // defect the child reported is not given again.
 func (a *Actor[S, E, D]) halt() error {
-	if a.task.Traced() {
-		a.traceStop("parent")
-	}
 	a.task.Interrupt()
 	a.inbox.Close()
 	<-a.done
@@ -709,9 +707,6 @@ func (a *Actor[S, E, D]) arm(at *rt.Task, s S) {
 	}
 	if d <= 0 {
 		panic(&ActorTimerDefect{State: stateText(s), In: d})
-	}
-	if at.Traced() {
-		a.traceArmed(at, s, d)
 	}
 	env := envelope[S, E, D]{kind: timerSignal, epoch: a.epoch, at: s}
 	holder := rt.NewScope(at)
