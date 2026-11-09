@@ -141,9 +141,7 @@ type oobs struct {
 
 // inboxClosed reports whether a's admission has closed.
 func inboxClosed[S, E, D any](a *Actor[S, E, D]) bool {
-	a.inbox.mu.Lock()
-	defer a.inbox.mu.Unlock()
-	return a.inbox.closed
+	return a.inbox.isClosed()
 }
 
 // runObserveCase runs c and returns what broke, "" when nothing did.

@@ -97,7 +97,7 @@ import (
 //     order; a work that started children waits for their stop before it
 //     ends, so no task ends before its children.
 type Actor[S, E, D any] struct {
-	inbox   *Queue[envelope[S, E, D]]
+	inbox   *mailbox[envelope[S, E, D]]
 	task    *rt.Task
 	sleeper Sleeper
 	span    string
@@ -113,6 +113,8 @@ type Actor[S, E, D any] struct {
 	// the Actor needs no type parameter for the program's Work value.
 	work func(S) (func(*rt.Task, func(E)), bool)
 
+	// spare is a reply channel no Ask or State read holds (takeReply).
+	spare   atomic.Pointer[replySlot[S, D]]
 	dropped atomic.Int64
 	// handled counts the envelopes the runner took and handled, so a test
 	// on a virtual clock can wait until the runner is idle.
@@ -148,10 +150,14 @@ type Actor[S, E, D any] struct {
 	reported atomic.Bool
 
 	// The runner's own fields: only its goroutine reads or writes them.
-	cur     *envelope[S, E, D] // the envelope in a step, nil between steps
+	cur *envelope[S, E, D] // the envelope in a step, nil between steps
+	// curEnv holds the envelope in a step, so taking one allocates
+	// nothing (MU18); cur points to it while the step runs.
+	curEnv  envelope[S, E, D]
 	timer   *rt.Handle[struct{}]
 	working *rt.Handle[struct{}] // the entry's work, nil when it has none
 	epoch   uint64
+	bound   bool // the runner's task is in owners, as nil (runner)
 }
 
 // The decisions of the prelude Decision, in the order kind gives them.
@@ -272,9 +278,9 @@ func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 		panic(fmt.Sprintf("actor.StartMachine: negative capacity %d", capacity))
 	}
 	a := &Actor[S, E, D]{
-		inbox: New[envelope[S, E, D]](capacity), sleeper: sl, span: string(span),
+		inbox: newMailbox[envelope[S, E, D]](capacity, actorReference), sleeper: sl, span: string(span),
 		step: step, fire: fire, delay: delay, kind: kind, next: next, out: out,
-		done: make(chan struct{}), state: initial, subs: map[*changes[S]]struct{}{},
+		done: make(chan struct{}), state: initial,
 		report: report,
 	}
 	a.work = func(s S) (func(*rt.Task, func(E)), bool) {
@@ -311,7 +317,16 @@ func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 func (a *Actor[S, E, D]) runner(started func()) func(*rt.Task) (struct{}, error) {
 	return func(at *rt.Task) (struct{}, error) {
 		a.task = at
-		owners.Store(at, nil)
+		a.inbox.bindTaker(at)
+		// Only an actor below a work's task binds nil: elsewhere the
+		// first of the task and its ancestors in owners is none or nil
+		// already, and no ancestor is added later (a work's task is in
+		// owners before it starts a task), so ownerOf gives nil anyway
+		// (MU18: no map entry per top-level actor).
+		if ownerOf(at) != nil {
+			owners.Store(at, nil)
+			a.bound = true
+		}
 		return a.loop(at, started)
 	}
 }
@@ -320,7 +335,10 @@ func (a *Actor[S, E, D]) runner(started func()) func(*rt.Task) (struct{}, error)
 func (a *Actor[S, E, D]) endRunner(err error, started func()) (struct{}, error) {
 	started() // the first entry's arm or work raised
 	a.finish(err)
-	owners.Delete(a.task)
+	a.inbox.unbindTaker()
+	if a.bound {
+		owners.Delete(a.task)
+	}
 	return struct{}{}, nil
 }
 
@@ -333,13 +351,15 @@ func (a *Actor[S, E, D]) loop(at *rt.Task, started func()) (struct{}, error) {
 	a.startWork(at, s)
 	started()
 	for {
-		env, err := a.inbox.Pop(at)
-		if err != nil {
+		// The envelope is taken into curEnv: one copy, no allocation; the
+		// inbox clears it before it waits.
+		if err := a.inbox.popInto(at, &a.curEnv); err != nil {
 			return struct{}{}, nil // closed and empty
 		}
-		a.cur = &env
+		a.cur = &a.curEnv
 		var end bool
-		s, end, err = a.handle(at, s, &env)
+		var err error
+		s, end, err = a.handle(at, s, a.cur)
 		a.cur = nil
 		if err != nil || end {
 			return struct{}{}, err
@@ -384,6 +404,19 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 		return s, true, err
 	}
 	k := a.kind(d)
+	if k == decideStay {
+		// One lock for the decision and the commit (MU18).
+		s = a.next(s, d)
+		a.mu.Lock()
+		a.latest, a.hasLatest = d, true
+		a.publishLocked(s)
+		a.mu.Unlock()
+		a.cur = nil
+		if env.kind == askSignal {
+			env.reply <- answer[S, D]{d: d}
+		}
+		return s, false, nil
+	}
 	a.mu.Lock()
 	a.latest, a.hasLatest = d, true
 	if k == decideDone {
@@ -403,9 +436,6 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 		if k == decideEmit {
 			a.out(at, d)
 		}
-	case decideStay:
-		s = a.next(s, d)
-		a.publish(s)
 	case decideDone:
 		a.out(at, d)
 	}
@@ -448,7 +478,11 @@ func (a *Actor[S, E, D]) startWork(at *rt.Task, s S) {
 		return
 	}
 	epoch := a.epoch
-	owner := &entryRef[S, E, D]{a: a, epoch: epoch, done: a.kidsDone}
+	a.kidsMu.Lock()
+	a.kidsDone = make(chan struct{})
+	done := a.kidsDone
+	a.kidsMu.Unlock()
+	owner := &entryRef[S, E, D]{a: a, epoch: epoch, done: done}
 	holder := rt.NewScope(at)
 	// Shielded from the runner's interruption (a Stop): the runner's end
 	// stops the entry's children first and then the work (rule 13).
@@ -566,7 +600,7 @@ func (r *entryRef[S, E, D]) waitKids() {
 func (a *Actor[S, E, D]) openKids() {
 	a.kidsMu.Lock()
 	a.kids, a.kidsEpoch, a.kidsOpen = nil, a.epoch, true
-	a.kidsDone = make(chan struct{})
+	a.kidsDone = nil // made by startWork: only a work starts children (MU18)
 	a.kidsMu.Unlock()
 }
 
@@ -691,12 +725,20 @@ func (a *Actor[S, E, D]) stopTimer() {
 // subscriber.
 func (a *Actor[S, E, D]) publish(s S) {
 	a.mu.Lock()
+	a.publishLocked(s)
+	a.mu.Unlock()
+}
+
+// publishLocked is publish with a.mu held.
+func (a *Actor[S, E, D]) publishLocked(s S) {
 	a.state = s
+	if len(a.subs) == 0 {
+		return
+	}
 	for c := range a.subs {
 		c.buf = append(c.buf, s)
 		c.signal()
 	}
-	a.mu.Unlock()
 }
 
 // release answers env as an ended actor does: an Ask with ActorStopped, a
@@ -784,13 +826,38 @@ func (a *Actor[S, E, D]) Send(t *rt.Task, e E) error {
 // ended before e was stepped, and raises rt.Interrupted when t is stopped
 // while it waits (the step, once taken, still runs).
 func (a *Actor[S, E, D]) Ask(t *rt.Task, e E) (D, error) {
-	reply := make(chan answer[S, D], 1)
+	reply := a.takeReply()
 	var zero D
-	if err := a.inbox.Push(t, envelope[S, E, D]{kind: askSignal, sig: e, reply: reply}); err != nil {
+	if err := a.inbox.Push(t, envelope[S, E, D]{kind: askSignal, sig: e, reply: reply.ch}); err != nil {
+		a.giveReply(reply) // never queued: no answer comes
 		return zero, ActorStopped{}
 	}
-	r := a.await(t, reply)
+	r := a.await(t, reply.ch)
+	a.giveReply(reply)
 	return r.d, r.err
+}
+
+// replySlot is a reply channel an Ask or a State read reuses (MU18). Every
+// queued Ask and State read is answered exactly once (rules 1 and 8), so a
+// channel whose answer was taken is empty and nobody else holds it; one
+// whose wait was interrupted may still get its answer, so it is never
+// given back.
+type replySlot[S, D any] struct{ ch chan answer[S, D] }
+
+// takeReply is the actor's spare reply channel, or a new one when another
+// asker holds it (or under the reference runner).
+func (a *Actor[S, E, D]) takeReply() *replySlot[S, D] {
+	if r := a.spare.Swap(nil); r != nil {
+		return r
+	}
+	return &replySlot[S, D]{ch: make(chan answer[S, D], 1)}
+}
+
+// giveReply keeps r, empty, as the spare, unless another one is there.
+func (a *Actor[S, E, D]) giveReply(r *replySlot[S, D]) {
+	if a.inbox.ref == nil {
+		a.spare.CompareAndSwap(nil, r)
+	}
 }
 
 // State is a.State() on t: the state after every signal admitted before
@@ -798,8 +865,9 @@ func (a *Actor[S, E, D]) Ask(t *rt.Task, e E) (D, error) {
 // ended actor it is the last committed state. It never fails; it raises
 // rt.Interrupted when t is stopped while it waits.
 func (a *Actor[S, E, D]) State(t *rt.Task) S {
-	reply := make(chan answer[S, D], 1)
-	if err := a.inbox.Push(t, envelope[S, E, D]{kind: stateRead, reply: reply}); err != nil {
+	reply := a.takeReply()
+	if err := a.inbox.Push(t, envelope[S, E, D]{kind: stateRead, reply: reply.ch}); err != nil {
+		a.giveReply(reply)
 		// Ended or ending: the last state, once the runner has stopped.
 		a.waitDone(t)
 		a.mu.Lock()
@@ -807,7 +875,9 @@ func (a *Actor[S, E, D]) State(t *rt.Task) S {
 		a.mu.Unlock()
 		return s
 	}
-	return a.await(t, reply).s
+	s := a.await(t, reply.ch).s
+	a.giveReply(reply)
+	return s
 }
 
 // await waits for an answer on t: a stop of t raises rt.Interrupted.
@@ -978,6 +1048,9 @@ func (a *Actor[S, E, D]) Changes(t *rt.Task) iter.Seq[S] {
 		a.mu.Lock()
 		c.buf = append(c.buf, a.state)
 		c.ended = a.ended
+		if a.subs == nil {
+			a.subs = map[*changes[S]]struct{}{}
+		}
 		a.subs[c] = struct{}{}
 		a.mu.Unlock()
 		defer func() {

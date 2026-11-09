@@ -729,9 +729,7 @@ func TestActorWaitsAreInterruptible(t *testing.T) {
 
 // inboxParked is how many operations wait in a's inbox.
 func inboxParked[S, E, D any](a *Actor[S, E, D]) int {
-	a.inbox.mu.Lock()
-	defer a.inbox.mu.Unlock()
-	return a.inbox.parked
+	return a.inbox.waiters()
 }
 
 // TestActorStopCascades: a stop of the task that started the actor stops
