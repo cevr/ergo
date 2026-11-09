@@ -981,7 +981,8 @@ func inferProgram(rng *rand.Rand, wrap int) twin {
 	b.both("func Fix(f func(int) int) int { return f(1) }\n\n")
 	b.each("func Rev[T any](x T, f func(T) T) T { return x }\n\n", "func Rev[T](x T, f func(T) T) T { return x }\n\n")
 	// P comes first: the decided list [T, P I0[T]] would give T the
-	// constraint too (one group), and the decided language has no any.
+	// constraint too (one group); [T any, P I0[T]] is the other spelling
+	// (grammar.md, Declarations 3).
 	b.each("func Dep[P I0[T], T any](v T, p P) T { return v }\n\n", "func Dep[P I0[T], T](v T, p P) T { return v }\n\n")
 	b.both("func Main(%s) {\n", strings.Join(values, ", "))
 	name := func(v string) string { return v[:strings.Index(v, " ")] }

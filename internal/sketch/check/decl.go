@@ -861,6 +861,12 @@ func (c *checker) constraintExpr(f *syntax.Field) syntax.Expr {
 		c.errorf(f.Type, CodeUnknown, "error is not a constraint; write [E]: a parameter in an error row is an error row (types.md, Generics 1)")
 		return nil
 	}
+	if id, ok := f.Type.(*syntax.Ident); ok && id.Name == "any" && c.lookupType("any", nil) == nil {
+		// The parser took every `any` a constrained group follows
+		// (Field.Any); this one gives nothing (types.md, Generics 2).
+		c.errorf(f.Type, CodeUnknown, "Ergo has no any; a parameter without a constraint is written bare, [T], and any only ends such a group before a constrained one, [E any, K comparable] (types.md, Generics 2)")
+		return nil
+	}
 	return f.Type
 }
 
