@@ -32,6 +32,8 @@ var notHostExterns = map[string]string{
 	"actor.latest":          "reads the last decision of the program's actor",
 	"actor.feed":            "admits the program's source to the program's actor, whose runner starts it on a task of the program",
 	"actor.live":            "reads the state of the program's actor, or that it has ended",
+	"actor.NewHost":         "makes an empty host, which the program's actor's runner binds when a step of it makes the host",
+	"actor.noHost":          "returns no host (its file imports the runner's packages, so it is not marked pure)",
 	"prelude.Append":        "appends to a slice of the program",
 	"prelude.Get":           "reads a Map of the program",
 	"prelude.Delete":        "changes a Map of the program",

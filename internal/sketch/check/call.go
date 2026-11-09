@@ -72,8 +72,10 @@ func (c *checker) callOf(x *syntax.CallExpr, hint Type) operand {
 		c.charge(x, fun.cap)
 		return c.callSig(x, fun.typ.(*Signature), fun)
 	case modeGeneric:
-		if f, _ := fun.obj.(*Func); TakesWorkSend(f) || TakesWorkSend(fun.fn) {
-			c.childRule(x)
+		if f, _ := fun.obj.(*Func); TakesWorkSend(f) {
+			c.childRule(x, f.Name)
+		} else if TakesWorkSend(fun.fn) {
+			c.childRule(x, fun.fn.Name)
 		}
 		return c.callGeneric(x, fun.typ.(*Signature), nil, fun)
 	case modeExtern:

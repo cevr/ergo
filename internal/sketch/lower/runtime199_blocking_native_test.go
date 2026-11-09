@@ -95,7 +95,7 @@ var childWaitLaws = map[string]bool{"After": true, "MachineStart": true, "Machin
 // that a Feed and a live read on an ended actor fail Stopped at once, and
 // that a fed source never runs after the end returns.
 var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Actor.State": true, "Actor.Changes": true, "Actor.Stop": true,
-	"Actor.Drain": true, "ActorExitKind": true, "ActorFeed": true, "ActorLiveState": true}
+	"Actor.Drain": true, "ActorExitKind": true, "ActorFeed": true, "ActorLiveState": true, "Host.Get": true}
 
 // hostWaitLaws are the callerWait bindings that wait for a host process
 // (std-align S3c): runtime/v1/exec_test.go TestExecStopModel states their

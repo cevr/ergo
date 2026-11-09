@@ -332,21 +332,22 @@ func (c *checker) markWorkSend(listen syntax.Expr) {
 	c.workSends[names[0]] = true
 }
 
-// childPath and childName name std actor.Child.
-const childPath, childName = "actor", "Child"
+// childPath names std actor; Child and ChildIn (mu-host: Child that fills
+// a host) are its functions that start a child of an entry.
+const childPath = "actor"
 
 // TakesWorkSend reports whether a call of f needs the work capability: its
 // first argument must be the send of the Listen work that encloses the
-// call (the child rule; today std actor.Child only). A tool that builds a
-// call of a std function, such as the lowering's std-positions probe,
-// asks this predicate to place the call where the rule admits it.
+// call (the child rule; std actor.Child and actor.ChildIn). A tool that
+// builds a call of a std function, such as the lowering's std-positions
+// probe, asks this predicate to place the call where the rule admits it.
 func TakesWorkSend(f *Func) bool {
-	return f != nil && f.Name == childName && f.Pkg != nil && f.Pkg.std && f.Pkg.Path == childPath
+	return f != nil && (f.Name == "Child" || f.Name == "ChildIn") && f.Pkg != nil && f.Pkg.std && f.Pkg.Path == childPath
 }
 
-// childRule reports a call of actor.Child whose send is not the send of
-// an enclosing Listen work (the child rule above).
-func (c *checker) childRule(x *syntax.CallExpr) {
+// childRule reports a call of actor.Child or actor.ChildIn (name) whose
+// send is not the send of an enclosing Listen work (the child rule above).
+func (c *checker) childRule(x *syntax.CallExpr, name string) {
 	if len(x.Args) == 0 {
 		return
 	}
@@ -355,7 +356,7 @@ func (c *checker) childRule(x *syntax.CallExpr) {
 			return
 		}
 	}
-	c.errorf(x.Args[0], CodeType, "actor.Child starts a child of the entry whose work calls it, so it takes that work's send: call it in the function of a Listen work, with its send parameter as the first argument (runtime.md, Machines and actors 14)")
+	c.errorf(x.Args[0], CodeType, "actor.%s starts a child of the entry whose work calls it, so it takes that work's send: call it in the function of a Listen work, with its send parameter as the first argument (runtime.md, Machines and actors 14)", name)
 }
 
 // assignableTo reports whether a value of type v may be assigned to t.

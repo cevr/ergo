@@ -40,12 +40,16 @@ type runtimeBinding struct {
 	// values (runtime.md, G1): it takes the task and reading package as
 	// hidden arguments and never waits.
 	reads bool
+	// task marks a binding that takes the invocation's task to know where
+	// it runs and never waits: actor.NewHost asks whether it runs in a
+	// step of an actor (runtime.md, Machines and actors 16).
+	task bool
 }
 
 // takesCaller reports a binding whose Go body receives the invocation's
 // task as its hidden CallerTask argument.
 func (b runtimeBinding) takesCaller() bool {
-	return b.wait == callerWait || b.wait == childWait || b.release == callerRelease || b.reads
+	return b.wait == callerWait || b.wait == childWait || b.release == callerRelease || b.reads || b.task
 }
 
 var runtimeBindings = map[string]runtimeBinding{
@@ -222,6 +226,12 @@ var runtimeBindings = map[string]runtimeBinding{
 	// read of Can waits for its answer as State does.
 	"ActorFeed":      {wait: callerWait},
 	"ActorLiveState": {wait: callerWait},
+	// mu-host: NewHost reads its task to find the step it runs in and
+	// never waits; ActorNoHost returns nil; a host's Get waits for the
+	// fill on the caller's task, as State waits for an answer.
+	"NewHost":     {task: true},
+	"ActorNoHost": {},
+	"Host.Get":    {wait: callerWait},
 	// std exec (std-align S3c; stdlib.md, exec): Run waits for the program
 	// on the caller's task. Its cancel hook is the stop of that task: the
 	// body kills the program's process group and waits for the reap

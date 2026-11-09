@@ -173,8 +173,9 @@ func StartMachine[S, E, O, F, R](m Machine[S, E, O, F, R], capacity int, sink fu
 
 // child is start for a child of an entry (MU5; Go body MachineChild): out
 // gets each decision with deliver, which gives a child output to the
-// parent as a signal of the entry that owns the child.
-extern go ergo.local/prototype/runtime/v1.MachineChild func child[S, E, D, W, F, R, P](initial S, step func(s S, e E) D fails F needs R, fire func(at S, s S) D fails F needs R, delay func(s S) duration, workOf func(s S) W, hasWork func(w W) bool, work func(w W, send func(e E)) needs R, kind func(d D) int, next func(s S, d D) S, out func(d D, deliver func(p P)) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
+// parent as a signal of the entry that owns the child. host is the host
+// the child fills (ChildIn), or noHost() (Child).
+extern go ergo.local/prototype/runtime/v1.MachineChild func child[S, E, D, W, F, R, P](host Host[Actor[S, E, D, F]], initial S, step func(s S, e E) D fails F needs R, fire func(at S, s S) D fails F needs R, delay func(s S) duration, workOf func(s S) W, hasWork func(w W) bool, work func(w W, send func(e E)) needs R, kind func(d D) int, next func(s S, d D) S, out func(d D, deliver func(p P)) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
 
 // Child runs m as an actor that the entry of the calling work owns
 // (runtime.md, Machines and actors 14), with an inbox of capacity
@@ -192,7 +193,47 @@ extern go ergo.local/prototype/runtime/v1.MachineChild func child[S, E, D, W, F,
 // parent's signals; the checker accepts a Child only with the send of the
 // Listen work that encloses the call (S108 elsewhere).
 func Child[S, E, O, F, R, P](send func(e P), m Machine[S, E, O, F, R], capacity int, toParent func(o O) P) Actor[S, E, Decision[S, O], F] needs R | Scheduler {
-	child(m.Initial, m.Step, func(at S, s S) Decision[S, O] fails F needs R {
+	childOf(noHost[Actor[S, E, Decision[S, O], F]](), m, capacity, toParent)
+}
+
+// Hosts (mu-host; runtime.md, Machines and actors 16): a name for a child
+// before it exists.
+
+// Host is an empty slot for one A, the child that an entry's work starts.
+// A step makes it with NewHost and puts it in the state it enters; that
+// entry owns it, its work fills it once with ChildIn, and it ends with the
+// entry. The actor shows the entry only after its work filled its hosts,
+// waited, or ended, so a reader that sees the entry finds each host filled
+// unless the work waited first.
+// law-exempt: a host's answers depend on its owner entry, which only an actor's runner opens, fills and ends, and a law has no running entry; the runner's property TestActorHostAgreesWithModel holds its rules against the model host.qnt.
+type Host[A] {
+	// Get is the child once the entry's work filled the host, waiting
+	// while it is empty; it fails Stopped once the entry ended, also after
+	// the fill, so a host never gives a child of another entry.
+	Get() A fails Stopped,
+}
+
+// NewHost is an empty host. Made in a step of an actor, it belongs to the
+// entry the step enters (an Enter or an Emit; a Stay's is the current
+// entry's) and closes when the step enters no state. Made anywhere else,
+// no entry owns it: Get fails Stopped and ChildIn on it is a defect.
+extern go ergo.local/prototype/runtime/v1.NewHost func NewHost[A]() Host[A]
+
+// noHost is the host Child gives child: none.
+extern go ergo.local/prototype/runtime/v1.ActorNoHost func noHost[A]() Host[A]
+
+// ChildIn is Child that fills host with the child it starts: call it in a
+// machine's work, with that work's send, on a host that the entry of the
+// work owns and that is empty. Any other host is a defect, with no child
+// started: a host of an ended entry (a state that carried it into a new
+// entry), a filled host, or one that no entry owns.
+func ChildIn[S, E, O, F, R, P](send func(e P), host Host[Actor[S, E, Decision[S, O], F]], m Machine[S, E, O, F, R], capacity int, toParent func(o O) P) Actor[S, E, Decision[S, O], F] needs R | Scheduler {
+	childOf(host, m, capacity, toParent)
+}
+
+// childOf is the body of Child and ChildIn.
+func childOf[S, E, O, F, R, P](host Host[Actor[S, E, Decision[S, O], F]], m Machine[S, E, O, F, R], capacity int, toParent func(o O) P) Actor[S, E, Decision[S, O], F] needs R | Scheduler {
+	child(host, m.Initial, m.Step, func(at S, s S) Decision[S, O] fails F needs R {
 		match m.After(at) {
 		case Some[Timeout[E]] as t:
 			try m.Step(s, t.Value.Signal)

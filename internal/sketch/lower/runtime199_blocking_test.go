@@ -129,7 +129,7 @@ func TestRuntime199NoWaitBindings(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if hasHidden(body.Hidden, v1.CallerTask) && b.release != callerRelease && !b.reads {
+		if hasHidden(body.Hidden, v1.CallerTask) && b.release != callerRelease && !b.reads && !b.task {
 			t.Errorf("%s takes a hidden task and declares no wait", name)
 		}
 		seen := map[types.Object]bool{}
