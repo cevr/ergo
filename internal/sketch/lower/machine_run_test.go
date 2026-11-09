@@ -592,7 +592,7 @@ func main() {
 	for _, d := range lowerSource("machineconv", src, true).diags {
 		got = append(got, d.String())
 	}
-	want := "cannot use main.M as Machine[main.St, main.Sig, string, , ] in let _: its step step gives a Machine with output int, error row {main.Boom} and capability row {}"
+	want := "cannot use main.M as Machine[main.St, main.Sig, string, , , ] in let _: its step step gives a Machine with output int, error row {main.Boom}, capability row {} and work row {}"
 	if len(got) != 1 || !strings.Contains(got[0], want) {
 		t.Errorf("diagnostics %q, want one with %q and the machine's own Machine", got, want)
 	}
