@@ -105,7 +105,7 @@ func hostSteps(root, pkg, relative string) []*Step {
 	selections := shardArgs(append(groups, nil))
 	var steps []*Step
 	for i, selection := range selections {
-		step := &Step{Name: name, Needs: []string{"go test build"}, Argv: append(append([]string{"go", "test", "-count=1", "-parallel", hostTestParallel(), testTimeout}, selection...), pkg)}
+		step := &Step{Name: name, Needs: []string{"go test build"}, Argv: append(append([]string{"go", "test", "-count=1", "-parallel", hostTestParallel(), testTimeout}, selection...), pkg), Class: classHeavy}
 		if i < len(groups) {
 			step.Name += " " + groups[i][0]
 		}
@@ -180,6 +180,7 @@ func sweepStep(selection string) *Step {
 		Env:     []string{sweepVariable + "=" + selection},
 		ToolEnv: testTools,
 		Sweep:   selection,
+		Class:   classHeavy,
 	}
 }
 
@@ -239,22 +240,24 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		steps = append(steps, step)
 		return step
 	}
-	add(&Step{Name: "no tracked python bytecode", Argv: bytecodeScript.command()})
-	add(&Step{Name: "wayfinder snapshot check", Argv: []string{"go", "run", "./cmd/wayfinder", "check", "--snapshot"}, Inputs: wayfinderSnapshotInputs()})
+	add(&Step{Name: "no tracked python bytecode", Argv: bytecodeScript.command(), Class: classFast})
+	add(&Step{Name: "wayfinder snapshot check", Argv: []string{"go", "run", "./cmd/wayfinder", "check", "--snapshot"}, Inputs: wayfinderSnapshotInputs(), Class: classFast})
 
 	// The Foldkit checks walk the snapshot directory, so files Git ignores
 	// there are inputs too. The importer's controls run with the other Go
 	// packages.
 	foldkit := &Inputs{Paths: []string{"scripts/conformance/", "conformance/", "go.mod"}, Tools: []string{"go"}, Installed: []string{"conformance/upstream/foldkit-d21db423"}}
-	add(&Step{Name: "foldkit corpus self-check", Argv: []string{"go", "run", "./scripts/conformance", "foldkit", "--self-check"}, Inputs: foldkit})
+	add(&Step{Name: "foldkit corpus self-check", Argv: []string{"go", "run", "./scripts/conformance", "foldkit", "--self-check"}, Inputs: foldkit, Class: classFast})
 	add(effectMappingStep())
 
-	add(&Step{Name: "gofmt", Argv: gofmtScript.command(append([]string{"gofmt"}, gofmtDirectories...)...)})
+	add(&Step{Name: "gofmt", Argv: gofmtScript.command(append([]string{"gofmt"}, gofmtDirectories...)...), Class: classFast})
 	// Building every test binary once lets vet, the shards and the CLI build
 	// reuse one compilation instead of racing to repeat it.
-	add(&Step{Name: "go test build", Argv: []string{"go", "test", "-run", "^$", "./..."}})
-	add(&Step{Name: "go vet", Needs: []string{"go test build"}, Argv: []string{"go", "vet", "./..."}})
-	add(&Step{Name: "provenance analyzer", Argv: provenanceAnalyzer(root)})
+	add(&Step{Name: fullBuildStep, Argv: []string{"go", "test", "-run", "^$", "./..."}, Class: classHeavy})
+	add(&Step{Name: "go vet", Needs: []string{"go test build"}, Argv: []string{"go", "vet", "./..."}, Class: classFast})
+	// The analyzer's controls are a go test of another module, uncached,
+	// and its run builds and loads the checker with x/tools: full tier.
+	add(&Step{Name: "provenance analyzer", Argv: provenanceAnalyzer(root), Class: classHeavy})
 
 	durations, err := readDurations(root)
 	if err != nil {
@@ -303,7 +306,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		selections, weights := shardArgs(groups), shardWeights(groups, measured)
 		for i, selection := range selections {
 			argv := append([]string{"go", "test", testTimeout}, selection...)
-			add(&Step{Name: fmt.Sprintf("go test %s [%d/%d]", shortPackage(root, pkg), i+1, len(selections)), Needs: needs, Argv: append(argv, pkg), Env: env, ToolEnv: testTools, Weight: weights[i]})
+			add(&Step{Name: fmt.Sprintf("go test %s [%d/%d]", shortPackage(root, pkg), i+1, len(selections)), Needs: needs, Argv: append(argv, pkg), Env: env, ToolEnv: testTools, Weight: weights[i], Class: classHeavy})
 		}
 	}
 	others := 0.0
@@ -312,7 +315,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 			others += seconds
 		}
 	}
-	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, unsharded...), ToolEnv: testTools, Weight: others})
+	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, unsharded...), ToolEnv: testTools, Weight: others, Class: classHeavy})
 	// The full tier sweeps every package's closure on every run (gate-tier
 	// round 1 and plan G2: "always in the full tier"; owner question 3 of
 	// batch 9, on its default), one package per step, as the fast tier
@@ -337,7 +340,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// The one step that keeps Go's test cache (Step.Hermetic); every other
 	// step runs its go tests uncached.
 	if len(hermetic) > 0 {
-		add(&Step{Name: "go test (hermetic gate packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, hermetic...), Env: hermeticEnvironment, Hermetic: true})
+		add(&Step{Name: "go test (hermetic gate packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, hermetic...), Env: hermeticEnvironment, Hermetic: true, Class: classHeavy})
 	}
 	// prototypes/sketch9 is its own module, so ./... never reaches it, but its
 	// kernel mode links this checkout's runtime/rt. ERGO_REPO_ROOT gives its
@@ -347,14 +350,14 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// against that runtime through a go build subprocess, whose reads Go's test
 	// cache cannot see, so they run uncached; env sets the variable, which the
 	// filtered environment of a plain go test step would drop.
-	add(&Step{Name: "go test ./prototypes/sketch9/sketch (kernel)", Argv: []string{"env", "ERGO_REPO_ROOT=" + root, "go", "test", "-C", "prototypes/sketch9", testTimeout, "-count=1", "-run", "^TestKernel", "./sketch/"}})
+	add(&Step{Name: "go test ./prototypes/sketch9/sketch (kernel)", Argv: []string{"env", "ERGO_REPO_ROOT=" + root, "go", "test", "-C", "prototypes/sketch9", testTimeout, "-count=1", "-run", "^TestKernel", "./sketch/"}, Class: classHeavy})
 	// Without a VCS stamp the binary depends only on its sources, so a commit
 	// that changes none of them reuses the link instead of relinking for a
 	// new revision. The gate's bin/ergo therefore declares no vcs.revision in
 	// its producer identity, while its artifact digest still identifies the
 	// executing bytes.
 	// It writes bin/ (Step.Writes): no closure sweep runs beside it.
-	add(&Step{Name: buildCLIStep, Needs: []string{"go test build"}, Argv: stagedBuild(root, "bin/ergo", "./cmd/ergo"), Writes: []string{"bin/"}})
+	add(&Step{Name: buildCLIStep, Needs: []string{"go test build"}, Argv: stagedBuild(root, "bin/ergo", "./cmd/ergo"), Writes: []string{"bin/"}, Class: classFast})
 	examplesRun, err := examplesStep(root)
 	if err != nil {
 		return nil, err
@@ -365,7 +368,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	if err != nil {
 		return nil, err
 	}
-	add(&Step{Name: "ergo fmt --check", Needs: []string{buildCLIStep}, Argv: append([]string{"./bin/ergo", "fmt", "--check"}, examples...)})
+	add(&Step{Name: "ergo fmt --check", Needs: []string{buildCLIStep}, Argv: append([]string{"./bin/ergo", "fmt", "--check"}, examples...), Class: classFast})
 
 	return steps, nil
 }
@@ -408,7 +411,7 @@ func stagedBuild(root, out, pkg string) []string {
 // record keys the index, so the step still replays inside one. Its own
 // tests run with the other Go packages.
 func effectMappingStep() *Step {
-	return &Step{Name: "effect conformance mapping", Argv: []string{"go", "run", "./scripts/conformance", "check"}}
+	return &Step{Name: "effect conformance mapping", Argv: []string{"go", "run", "./scripts/conformance", "check"}, Class: classFast}
 }
 
 // provenanceAnalyzer returns a command that runs the provenance analyzer's own
@@ -469,6 +472,7 @@ func examplesStep(root string) (*Step, error) {
 	}
 	return &Step{
 		Name:  "examples (default)",
+		Class: classFast,
 		Needs: []string{"build bin/ergo"},
 		Argv:  []string{"go", "run", examplesRunner},
 		Inputs: &Inputs{
