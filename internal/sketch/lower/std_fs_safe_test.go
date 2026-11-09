@@ -79,6 +79,7 @@ func main() needs Console | Ambient {
 // failure names its path. Perm is owner*64 + group*8 + other over the
 // bits read 4, write 2, execute 1.
 func TestFSSafeRuns(t *testing.T) {
+	needsBuild(t)
 	dir := t.TempDir()
 	p := mustLower(t, "fsSafe", fsSafeProgram)
 	exes := buildAll(t, []*lowered{p}, true)

@@ -106,6 +106,7 @@ func ownerProgram(b ownerBase, f ownerFact) string {
 }
 
 func TestTestFactsStayInTests(t *testing.T) {
+	needsBuild(t)
 	type pair struct {
 		name string
 		base ownerBase

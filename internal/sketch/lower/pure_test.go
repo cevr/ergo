@@ -23,6 +23,7 @@ import (
 // the model's output; and a direct call of a pure function allocates
 // nothing (testing.AllocsPerRun beside the emitted code).
 func TestPureFunctionsTakeNoEnv(t *testing.T) {
+	needsBuild(t)
 	var cases []behavior
 	var models []pureModel
 	var tests []*lowered

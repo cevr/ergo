@@ -18,6 +18,7 @@ import (
 
 // TestErgoRunErrorValueRepros is synthesis repros a15 and c3.
 func TestErgoRunErrorValueRepros(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Missing { Key string }
 
 func missing(key string) Missing { Missing{Key: key} }
@@ -83,6 +84,7 @@ func main() needs Console {
 // success value; another error type returned from the same function is a
 // failure.
 func TestErrorValueOtherType(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Missing { Key string }
 type Other { Why string }
 
@@ -183,6 +185,7 @@ func evFunc(name, form, position, target string) (src string, ok bool) {
 // failure target fails with it. The table is enumerated whole; the fixed
 // seed only draws the keys, and a failure prints the program.
 func TestErrorValueRuleTable(t *testing.T) {
+	needsBuild(t)
 	r := rand.New(rand.NewSource(27))
 	var funcs, calls strings.Builder
 	var want strings.Builder

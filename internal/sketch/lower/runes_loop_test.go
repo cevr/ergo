@@ -92,6 +92,7 @@ func runesProgram(strs []string) (string, string) {
 // seeded property over generated strings, valid and invalid UTF-8, against
 // Go's range as the model. A failing seed prints the program.
 func TestErgoRunRunesLoop(t *testing.T) {
+	needsBuild(t)
 	for seed := uint64(1); seed <= 3; seed++ {
 		r := rand.New(rand.NewPCG(seed, 0x4c34))
 		src, want := runesProgram(genRuneStrings(r, 40))
@@ -121,6 +122,7 @@ func TestRunesLoopLowersToGoRange(t *testing.T) {
 // TestErgoRunRunesLoopControl: break, continue and return inside a for
 // over a string, and a defined string type, behave as over a slice.
 func TestErgoRunRunesLoopControl(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Name string
 
 // firstWide is the byte offset of the first rune wider than one byte.

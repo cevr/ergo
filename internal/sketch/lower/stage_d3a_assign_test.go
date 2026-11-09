@@ -14,6 +14,7 @@ import "testing"
 // wider unnamed one. The refusals are the checker's (internal/sketch/check
 // stage_d3a_assign_test.go).
 func TestErgoRunAssignability(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Fault {}
 type Store { Get() int }
 type Count int
@@ -93,6 +94,7 @@ func main() needs Console {
 // admitted these and lowering refused them (S109 "is not a record
 // literal") before the D3a rewrite.
 func TestErgoRunDefinedCollectionLiterals(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Ints []int
 type More Ints
 type Counts Map[string, int]
@@ -135,6 +137,7 @@ func main() needs Console {
 // wanted type (`let s Store = if …`), and without one, where the first arm
 // with a value fixes the type and a later arm converts to it (D-C2).
 func TestErgoRunBranchJoinAssignability(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Store { Get() int }
 type Count int
 type Mem { N int }

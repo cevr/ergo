@@ -107,6 +107,7 @@ func TestRecordUpdateAllocsDriver(t *testing.T) {
 // new: a heap copy that escape analysis happens to keep on the stack is a
 // lowering the contract refuses too.
 func TestRecordUpdateAllocs(t *testing.T) {
+	needsBuild(t)
 	prog := mustLower(t, "update_alloc", updateAllocSource)
 	main := prog.mainGo()
 	for _, fn := range []string{"step", "collect", "twice", "rebox"} {
@@ -176,6 +177,7 @@ value 11
 // the update (a copy of the base with the named fields replaced, the later
 // of two nested updates winning, the base unchanged).
 func TestRecordUpdateRuns(t *testing.T) {
+	needsBuild(t)
 	runBehaviors(t, []behavior{
 		{name: "update_order", src: updateOrderSource, stdout: updateOrderStdout},
 		updateProperty(40),
@@ -269,6 +271,7 @@ func goFuncBody(t *testing.T, src, name string) string {
 // goTestEmitted does, with -v, and returns its output.
 func goTestEmittedVerbose(t *testing.T, prog *lowered, text string) string {
 	t.Helper()
+	fastTierGuard(t, "a go command")
 	root := t.TempDir()
 	write := func(rel string, data []byte) {
 		p := filepath.Join(root, filepath.FromSlash(rel))

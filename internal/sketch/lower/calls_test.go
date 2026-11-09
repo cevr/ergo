@@ -76,6 +76,7 @@ func main() needs Console {
 // directive of its own position; and the ordinary executable, with no
 // reader added, links the table (the defect report reads it).
 func TestCallIdentity(t *testing.T) {
+	needsBuild(t)
 	o := mustLower(t, "calls", callsSource)
 	code := o.mainGo()
 	at := func(snippet string, nth int) (int, int) {
@@ -181,6 +182,7 @@ func TestCallIdentity(t *testing.T) {
 // .ergo position; no Go frame (#230; runtime.md, Exit causes). The pure
 // call into pick is named as well as the capability call into middle.
 func TestDefectReportNamesErgoCallSites(t *testing.T) {
+	needsBuild(t)
 	src := `func pick(xs []int, i int) int {
 	xs[i]
 }

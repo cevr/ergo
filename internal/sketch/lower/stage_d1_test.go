@@ -38,6 +38,7 @@ func TestUntypedLetIsRefusedBeforeLowering(t *testing.T) {
 // `&r` or the implicit one of `r.bump()`, reaches the let mut local.
 // Map entries are D2's (the Map rule).
 func TestErgoRunLetMut(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Inner { N int }
 type Outer { In Inner, Tag string }
 
@@ -154,6 +155,7 @@ func main() needs Console {
 // test TestImplicitBorrowSpellingsInSkippedFrames; stage D1 round 2 review
 // M2).
 func TestErgoRunImplicitBorrowSpellings(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type R { N int }
 
 func Bump(r *R) { r.N = r.N + 1 }

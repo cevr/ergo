@@ -8,6 +8,7 @@ import "testing"
 // block or function literal it has the frame scope of that block, so the
 // checker admits it and it lowers and runs.
 func TestErgoRunFrameNeedsInPackageLetBlocks(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `import task
 import scope
 import log
@@ -52,6 +53,7 @@ func main() needs Console {
 // parameter, and by a literal called at once; a function value whose
 // parameter is non-escaping; and task.Go's escaping block.
 func TestErgoRunEscapingForms(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `import task
 
 type Fault {}

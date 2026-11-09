@@ -19,6 +19,7 @@ import (
 // call of a user extern keeps the environment. The program builds and
 // prints its output.
 func TestPureStdCallsKeepFunctionsPure(t *testing.T) {
+	needsBuild(t)
 	built := runBehaviors(t, []behavior{{name: "purestd", src: pureStdSource, stdout: "HI!\nn=7 n=-1\n3\nhalves\nlow\nwrapped HI!\n"}})
 	o := built["purestd"]
 	if o == nil {

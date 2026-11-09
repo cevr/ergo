@@ -110,6 +110,7 @@ func lines(s string) []string {
 // testdata/e3 and runs both: ergo run prints main's output only, and the
 // test binary prints each test's verdict and exits with the run's status.
 func TestE3Sweep(t *testing.T) {
+	needsBuild(t)
 	progs := e3Programs(t)
 	var builds []*lowered
 	for _, p := range progs {
@@ -146,6 +147,7 @@ func TestE3Sweep(t *testing.T) {
 // TestPropertySeed: --seed N and --seed=N replay the same cases, another
 // seed draws others, and any other argument is a usage error.
 func TestPropertySeed(t *testing.T) {
+	needsBuild(t)
 	src := `func clamp(n int) int {
 	if n > 100 {
 		return 100

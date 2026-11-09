@@ -189,6 +189,7 @@ func TestE4HostTargetsRefused(t *testing.T) {
 }
 
 func TestErgoRunE4Externs(t *testing.T) {
+	needsBuild(t)
 	var builds []*lowered
 	for _, r := range e4Externs {
 		builds = append(builds, mustLower(t, "e4_"+r.name, r.src))
@@ -239,6 +240,7 @@ func main() needs Console { Console.Println(hostlib.Shout("lib") + hostlib.Up(""
 // a result is bound at its Ergo type, so a target's float64 never reaches
 // an interpolation that would print it as the Ergo int (Risk 4).
 func TestErgoRunE4Mismatch(t *testing.T) {
+	needsBuild(t)
 	cases := []struct{ name, src, want string }{
 		{"argument", `extern go strings.ToUpper func Upper(n int) int
 func main() needs Console {
@@ -311,6 +313,7 @@ func main() needs Console {
 // dropped unchecked. An interpolated complex value is E6a's refusal
 // (interp.go), so that cell may be refused instead.
 func TestErgoRunE4ResultUse(t *testing.T) {
+	needsBuild(t)
 	uses := []struct{ name, line string }{
 		{"value", "consume(Wrong({arg}))"},
 		{"statement", "Wrong({arg})"},
@@ -355,6 +358,7 @@ func TestErgoRunE4ResultUse(t *testing.T) {
 // output of each package that fails, by name.
 func e4BuildErrors(t *testing.T, programs []*lowered) map[string]string {
 	t.Helper()
+	fastTierGuard(t, "a go command")
 	root := t.TempDir()
 	write := func(rel string, data []byte) {
 		p := filepath.Join(root, filepath.FromSlash(rel))
@@ -450,6 +454,7 @@ func e4CallChecks(goSrc, target string) (checked int, bad []string) {
 // and the typed binding (hostStmt) keep the call under its //line
 // directive.
 func TestErgoRunE4HostPanic(t *testing.T) {
+	needsBuild(t)
 	for _, use := range []string{`Console.Println(Repeat("x", -1))`, `Repeat("x", -1)`, `let _ = Repeat("x", -1)`} {
 		src := "extern go strings.Repeat func Repeat(s string, n int) string\nfunc main() needs Console {\n\t" + use + "\n\tConsole.Println(\"returned\")\n}\n"
 		out, err := ergoRun(t, src)
@@ -478,6 +483,7 @@ func TestErgoRunE4HostPanic(t *testing.T) {
 // prints "end" and exits 0. So a lowering that drops a no-result call, or
 // a variadic call, runs where Go would panic, and fails here.
 func TestErgoRunE4DiscardVariadic(t *testing.T) {
+	needsBuild(t)
 	type want struct {
 		panic string // "" when the call runs
 		line  int
@@ -593,6 +599,7 @@ func e4Value(t *testing.T, k *check.Basic) (expr, text string) {
 // false { defer CALL }` with the same CALL text, under the call's //line
 // directive. The categories G9 removed are e4HostTargets' S109 rows.
 func TestErgoRunE4TargetCategories(t *testing.T) {
+	needsBuild(t)
 	// A function of the allowlist that takes the parameter type, where one
 	// exists (none takes int8, int16, uint, uint8 first, uint16, uintptr,
 	// complex64 or duration). Its call is an Ergo string expression.
@@ -668,6 +675,7 @@ func TestErgoRunE4TargetCategories(t *testing.T) {
 // equals one std log binds, and reads std log's binding: its own binding
 // never shadows std's, and std's read never sees it.
 func TestContextKeyIdentity(t *testing.T) {
+	needsBuild(t)
 	const src = `import log
 type tag { key string, text string }
 func contextKey(t tag) string { t.key }

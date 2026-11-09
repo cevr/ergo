@@ -11,6 +11,7 @@ import (
 // clean and failed lowering with an internal compiler error or an
 // ownerless refusal. Each now runs.
 func TestErgoRunCorpusGuardForms(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type S {}
 type P {}
 type J { M() int }
@@ -45,6 +46,7 @@ func main() needs Console {
 // check-v1 stage E1: Info gives its call the instance's type arguments
 // (C7, C9).
 func TestCorpusGuardParenthesisedInstance(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `func Fn[T](x T) T { x }
 
 func main() needs Console {

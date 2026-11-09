@@ -40,6 +40,7 @@ func Peek() string needs Console {
 // and closes it once when its block ends; the replace builds Mine in its
 // place and closes nothing.
 func TestRunImportedContext(t *testing.T) {
+	needsBuild(t)
 	lib := checkPackage(t, "lib", []pkgSource{{"/ergo-test/lib/lib.ergo", importedContextLib}}, nil)
 	imp := pkgImporter{"lib": lib.Package}
 	main := checkPackage(t, "main", []pkgSource{{"/ergo-test/ctx/main.ergo", `import lib

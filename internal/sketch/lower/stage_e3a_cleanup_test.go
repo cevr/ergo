@@ -122,6 +122,7 @@ func main() needs Console {
 }
 
 func TestCaseOutcomeProperty(t *testing.T) {
+	needsBuild(t)
 	type point struct {
 		name          string
 		body, cleanup int

@@ -603,6 +603,7 @@ func lowerValueMode(t *testing.T, name, src string, rule bool) *lowered {
 
 // TestValueRuleAgrees is the seeded property (see above).
 func TestValueRuleAgrees(t *testing.T) {
+	needsBuild(t)
 	seeds := []uint64{1, 2, 3, 4, 5, 6}
 	if *valueSeed != 0 {
 		seeds = []uint64{*valueSeed}

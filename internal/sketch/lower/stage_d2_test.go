@@ -20,6 +20,7 @@ import (
 // literal captures one iteration's binding; a binding may be a record
 // pattern; and the domain is evaluated once.
 func TestErgoRunForDomains(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Pair { A int, B int }
 
 func report(name string, ok bool) needs Console {
@@ -171,6 +172,7 @@ func main() needs Console {
 // lawful Seq stops (the Seq counts its yields); a Seq value is also called
 // directly, through its declared function type.
 func TestErgoRunSeq(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `func upTo(n int) Seq[int] {
 	Seq[int](func(yield func(v int) bool) {
 		let mut i = 0
@@ -235,6 +237,7 @@ func main() needs Console {
 // TestErgoRunMapWriteAndLen: a Map write inserts a new entry and replaces
 // an existing one; len counts a slice, a Map and a string's bytes.
 func TestErgoRunMapWriteAndLen(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `func main() needs Console {
 	let mut m = Map[string, int]{"a": 1}
 	m["b"] = 2
@@ -262,6 +265,7 @@ func TestErgoRunMapWriteAndLen(t *testing.T) {
 // Each is written, then counted with len. Go's nil map panics on the first
 // write.
 func TestErgoRunDefaultMapIsWritable(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type R { N int, M Map[string, int] }
 type O { I R, K int }
 type Box[T] { V T, M Map[string, T] }
@@ -331,6 +335,7 @@ func main() needs Console {
 // type mentions the function's type parameter, is built by a generic
 // default function. The first program is the review's reproduction.
 func TestErgoRunNamedTupleDefaultMapIsWritable(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type T (int, Map[string, int])
 func main() needs Console {
     let tup T
@@ -401,6 +406,7 @@ func main() needs Console {
 // literal each get their own Map, though one generated function builds
 // them all.
 func TestErgoRunDefaultsShareNoMap(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type R { M Map[string, int] }
 type O { A R, B R }
 
@@ -428,6 +434,7 @@ func main() needs Console {
 // a Map is a value), so it keeps its one entry. A Map in a record field and
 // in a slice element is a write target too.
 func TestErgoRunMapWriteTargets(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Failed { Code int }
 type R { M Map[string, int] }
 
@@ -467,6 +474,7 @@ func main() needs Console {
 // is closed and empty, and a break leaves the values not yet popped in the
 // queue.
 func TestErgoRunQueueValues(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `import queue
 
 func fill(q queue.Queue[int], n int) fails queue.Closed {

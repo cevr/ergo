@@ -251,6 +251,7 @@ func BenchmarkMatchControl(b *testing.B) {
 `
 
 func TestMatchCostModule(t *testing.T) {
+	needsBuild(t)
 	dir := os.Getenv("MATCH_COST_DIR")
 	if dir == "" {
 		dir = t.TempDir()

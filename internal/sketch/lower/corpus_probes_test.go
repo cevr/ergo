@@ -66,6 +66,7 @@ func parityOverrides(t *testing.T) map[string]string {
 // (the prototype's 36 and its ported TestBuildAndRun program): fewer means
 // the corpus moved or lost a probe.
 func TestCorpusProbesRun(t *testing.T) {
+	needsBuild(t)
 	overrides := parityOverrides(t)
 	type probe struct{ rel, src, want string }
 	var probes []probe

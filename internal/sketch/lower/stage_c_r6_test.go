@@ -9,6 +9,7 @@ import "testing"
 // instances of a one- and a two-parameter one. The reviewer's two
 // witnesses come first.
 func TestErgoRunOperationsConversionDomain(t *testing.T) {
+	needsBuild(t)
 	t.Run("reviewer-generic-source", func(t *testing.T) {
 		wantRun(t, `type G[T] { V T }
 type A[T] { M() T }
@@ -88,6 +89,7 @@ func main() needs Console {
 // its failure row and its service row runs, under a with and a catch.
 // The reviewer's witness, kept in the run matrix.
 func TestErgoRunLiteralRows(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Bad {}
 type Svc { Get() int }
 type P {}

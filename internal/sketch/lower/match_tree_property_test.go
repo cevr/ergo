@@ -1232,6 +1232,7 @@ func lowerSourceMode(name, src string, flat bool) loweredMode {
 }
 
 func TestMatchTreeAgrees(t *testing.T) {
+	needsBuild(t)
 	if matchLowering == "flat" {
 		t.Skip("matchLowering=flat: the build has no tree to compare")
 	}

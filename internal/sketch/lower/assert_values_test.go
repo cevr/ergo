@@ -14,6 +14,7 @@ import (
 // diff; a comparison of two constants, and one whose operand has no
 // literal, print the source text alone, as before.
 func TestAssertShowsValues(t *testing.T) {
+	needsBuild(t)
 	src := `func double(n int) int { n + n + 1 }
 
 test Doubles {
@@ -116,6 +117,7 @@ type Pair (Name, Celsius)
 // back by `let v T = LIT` in a second program, prints the same literal: the
 // text a failed assert shows parses back to the same value.
 func TestAssertLiteralsReadBack(t *testing.T) {
+	needsBuild(t)
 	var show strings.Builder
 	show.WriteString(printDecls)
 	for _, k := range printKinds {

@@ -529,7 +529,10 @@ func TestRuntime199I1Primitives(t *testing.T) { i1CheckPrimitives(t) }
 
 // TestRuntime199I1Live: the live witnesses build and stop (a subtest of
 // the unsplit property).
-func TestRuntime199I1Live(t *testing.T) { i1Live(t) }
+func TestRuntime199I1Live(t *testing.T) {
+	needsBuild(t)
+	i1Live(t)
+}
 
 // Adapted from the round 1 reviewer's zz_ext_test.go: block frames, generated
 // over the same clauses, loop forms and exits as i1Cases.

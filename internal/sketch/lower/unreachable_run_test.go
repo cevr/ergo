@@ -73,6 +73,7 @@ func (c unreachableCase) at(t *testing.T) string {
 }
 
 func TestErgoRunUnreachable(t *testing.T) {
+	needsBuild(t)
 	var programs []*lowered
 	for _, c := range unreachableCases {
 		programs = append(programs, mustLower(t, "unreachable_"+strings.ReplaceAll(c.name, "-", "_"), c.src()))

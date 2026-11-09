@@ -36,6 +36,7 @@ func runExeInput(t *testing.T, exe, stdin string, args ...string) (string, strin
 // io.Stderr writes standard error, io.Stdin.Lines and ReadAll read
 // standard input, and IsTerminal is false on a pipe.
 func TestIORuns(t *testing.T) {
+	needsBuild(t)
 	const lines = `import io
 
 func echo() needs Console | io.Stdout | io.Stderr | io.Stdin {
@@ -88,6 +89,7 @@ func main() fails io.ReadFailed needs Console | Ambient {
 // the rest of the input for the next read: a header line, then a second
 // Lines loop, then ReadAll, over a pipe.
 func TestIOStdinRest(t *testing.T) {
+	needsBuild(t)
 	const rest = `import io
 
 func main() fails io.ReadFailed needs Console | Ambient {
@@ -166,6 +168,7 @@ func main() needs Console {
 // over generated strings, and the same on texts with and without a final
 // line feed, carriage returns and invalid UTF-8.
 func TestIOLaws(t *testing.T) {
+	needsBuild(t)
 	const probe = `import io
 import strings
 

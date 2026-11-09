@@ -73,6 +73,7 @@ func e3bPrograms(t *testing.T) []e3bProgram {
 // ergo run does. A program with tests also runs its test build, which runs
 // its tests, then its laws.
 func TestLawSweep(t *testing.T) {
+	needsBuild(t)
 	progs := e3bPrograms(t)
 	var builds []*lowered
 	tested := 0
@@ -243,6 +244,7 @@ func lawProgram(b ownerBase, f lawFact, top bool) string {
 // reads the law's facts and runs it (#162 law-run-1): every law here holds,
 // so its binary reports the law's run ok and exits 0.
 func TestLawFactsStayOut(t *testing.T) {
+	needsBuild(t)
 	type pair struct {
 		name, okLine string
 		base         ownerBase

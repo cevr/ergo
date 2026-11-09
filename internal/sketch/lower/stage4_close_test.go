@@ -11,6 +11,7 @@ import "testing"
 // TestCloseFormsRelease runs the three forms, nested, and the F close leg
 // of the acceptance (a generic Close that needs Console).
 func TestCloseFormsRelease(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `import queue
 
 type A { Use() string }
@@ -55,6 +56,7 @@ func main() needs Console {
 // a record is a Go function, not a method, so its release passes the type
 // arguments its parameter binds against the provider: Close[int].
 func TestCloseGenericFunctionRelease(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type A { Use() string }
 
 type List[T] []T
@@ -71,6 +73,7 @@ func main() needs Console {
 // TestCloseOverriddenNotRun: a provider that a replace overrides is never
 // built, so its Close never runs; the replacing provider's Close does.
 func TestCloseOverriddenNotRun(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type A { Use() string }
 
 type G[T] { Value T }

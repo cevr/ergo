@@ -31,6 +31,7 @@ import (
 // Queue.Close; a Virtual clock replaces the live clock of NewLiveScheduler.
 // No settling sleep is needed.
 func TestRuntime199MaskProperty(t *testing.T) {
+	needsBuild(t)
 	routes := map[releaseRoute][]string{}
 	for name, binding := range runtimeBindings {
 		if binding.release == notRelease {
@@ -428,6 +429,7 @@ func viaPointer(fail bool, signal queue.Queue[int]) {
 
 func maskNative(t *testing.T, p maskProgram, o *lowered) {
 	t.Helper()
+	fastTierGuard(t, "a go command")
 	dir := t.TempDir()
 	write := func(path string, data []byte) {
 		t.Helper()

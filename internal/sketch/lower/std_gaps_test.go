@@ -93,6 +93,7 @@ func TestStdGapParseGuard(t *testing.T) {
 // TestStdGapOpsConversion (G1): a std function converts a record into an
 // operation type; the program calls its operation.
 func TestStdGapOpsConversion(t *testing.T) {
+	needsBuild(t)
 	imp := pkgImporter{"gapstd": stdFixture(t, "gapstd", gapStd)}
 	const src = `import gapstd
 
@@ -108,6 +109,7 @@ func main() needs Console {
 
 // TestStdGapNamedContext (G2): a with of a std package's named context.
 func TestStdGapNamedContext(t *testing.T) {
+	needsBuild(t)
 	imp := pkgImporter{"gapstd": stdFixture(t, "gapstd", gapStd)}
 	const src = `import gapstd
 

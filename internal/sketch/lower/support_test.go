@@ -86,6 +86,28 @@ func (o *lowered) mainGo() string {
 	return ""
 }
 
+// needsBuild marks a test that starts a go command or a built program: the
+// fast tier (-short) skips it, and the full tier runs it (test-speed plan
+// T3; docs/decisions.md, Q1 of 2026-11-08). Call it first in the test.
+func needsBuild(t testing.TB) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("full tier: builds Go")
+	}
+}
+
+// fastTierGuard fails a test that reaches a helper that builds or runs Go
+// under -short: such a test lacks needsBuild, and would build in the fast
+// tier by accident. buildAll (with a link), runProgram and ergoCLI call it.
+// typecheckGo is in process; its one go list -export per test process is
+// not a build of a program.
+func fastTierGuard(t testing.TB, what string) {
+	t.Helper()
+	if testing.Short() {
+		t.Fatalf("%s under -short: call needsBuild(t) first in the test (the fast tier runs no Go program)", what)
+	}
+}
+
 // buildAll writes each program as package p/NAME of one module and runs go
 // vet and go build on them all, and returns each program's executable. A
 // program that does not compile or vet fails the test with its Go
@@ -98,6 +120,7 @@ func buildAll(t *testing.T, programs []*lowered, link bool) map[string]string {
 		typecheckGo(t, programs)
 		return nil
 	}
+	fastTierGuard(t, "buildAll links Go programs")
 	if len(programs) == 0 {
 		return nil
 	}
@@ -231,6 +254,7 @@ func runProgram(t testing.TB, cmd *exec.Cmd) error {
 // program the limit stopped.
 func runBounded(t testing.TB, cmd *exec.Cmd) error {
 	t.Helper()
+	fastTierGuard(t, "running the program "+cmd.Path)
 	limit, err := proclimit.Limit(os.Environ(), proclimit.DefaultLimit)
 	if err != nil {
 		t.Fatal(err)

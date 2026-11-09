@@ -29,6 +29,7 @@ import (
 var externErrorSeed = flag.Uint64("externerror.seed", 0, "run TestExternErrorRowRuns on this seed alone")
 
 func TestExternErrorRowRuns(t *testing.T) {
+	needsBuild(t)
 	seeds := []uint64{1, 2}
 	if *externErrorSeed != 0 {
 		seeds = []uint64{*externErrorSeed}

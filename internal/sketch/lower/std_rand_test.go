@@ -20,6 +20,7 @@ import (
 // and a second Seeded(3) replays it. The host's draws are in range. An
 // IntN(0) is a defect with Go's message.
 func TestRandRuns(t *testing.T) {
+	needsBuild(t)
 	runBehaviors(t, []behavior{
 		{name: "rand", src: stdRandProgram, stdout: stdRandOutput()},
 		{name: "randdefect", src: stdRandDefect, stdout: "before\n", exit: 2, stderr: []string{"invalid argument to IntN"}},
@@ -36,6 +37,7 @@ func TestRandRuns(t *testing.T) {
 // rand.New(rand.NewPCG(seed, v1.RandSeedHi)). Effect's choice of an empty
 // collection fails; Ergo's is None and draws nothing (a difference row).
 func TestRandEffectCases(t *testing.T) {
+	needsBuild(t)
 	const src = `import rand
 import slices
 
@@ -355,6 +357,7 @@ var stdRandLawStatements = map[string]string{
 // whose runner is this test, each with the row's statement, and that each
 // passed.
 func TestStdRandLawsRun(t *testing.T) {
+	needsBuild(t)
 	if laws := lawProbe(t, "stdrand", stdRandLawsProbe, stdRandLawStatements); laws != nil {
 		lawledger.Run(t, laws)
 	}

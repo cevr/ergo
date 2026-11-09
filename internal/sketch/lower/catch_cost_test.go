@@ -153,6 +153,7 @@ func BenchmarkCatchControl(b *testing.B) {
 `
 
 func TestCatchCostModule(t *testing.T) {
+	needsBuild(t)
 	dir := os.Getenv("CATCH_COST_DIR")
 	if dir == "" {
 		dir = t.TempDir()

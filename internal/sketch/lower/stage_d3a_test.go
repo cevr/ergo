@@ -15,6 +15,7 @@ import "testing"
 // and probe P7delete's); a program's
 // own func Get on a local type keeps its name (decision 9).
 func TestErgoRunPreludeDotCalls(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Store { N int }
 
 func Get(s Store, k string) int {
@@ -76,6 +77,7 @@ func main() needs Console {
 // whose receiver binds some or all of their type parameters; the lowered
 // call writes every type argument (formerly refused naming D-D8).
 func TestErgoRunGenericDotCall(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Pair[A, B] { First A, Second B }
 
 func Swap[A, B](p Pair[A, B]) Pair[B, A] {
@@ -112,6 +114,7 @@ func main() needs Console {
 // with a package-level name (D-D7) names the package; the package-level
 // timeout keeps its own name.
 func TestErgoRunImportAliasForClash(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `import t timeout
 
 func timeout() string {

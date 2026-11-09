@@ -7,6 +7,7 @@ import "testing"
 // prelude's, which std's results and a range literal still use. The
 // lowering gives each its own Go name.
 func TestErgoRunPackageTypeHidesPreludeType(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `import slices
 
 type Option[T] = Present[T]{ V T } | Absent{}

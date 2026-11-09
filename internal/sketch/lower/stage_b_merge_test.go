@@ -10,6 +10,7 @@ import (
 // Bare names carry the same checked record value as the old T{} form,
 // including a generic instance and a record named through its package.
 func TestBareRecordValuesLower(t *testing.T) {
+	needsBuild(t)
 	runBehaviors(t, []behavior{{
 		name: "barerecords",
 		src: `import timeout
@@ -32,6 +33,7 @@ func main() needs Console {
 // Inline variants are package TypeNames in Info. Their declarations and
 // union markers must be emitted even when no body constructs a variant.
 func TestInlineVariantsLower(t *testing.T) {
+	needsBuild(t)
 	runBehaviors(t, []behavior{{
 		name: "inlinevariants",
 		src: `type State = Missing{} | Found{N int}
@@ -80,6 +82,7 @@ func main() needs Console { Console.Println("unused") }
 // says it is a test with no binder, the proof is irrefutable, and lowering
 // evaluates the initializer once and keeps the other names.
 func TestKnownNameLetPatternLower(t *testing.T) {
+	needsBuild(t)
 	src := `type Record { N int }
 type State = Record
 func read() Record needs Console {

@@ -12,6 +12,7 @@ import (
 // and duration (time.Duration, an int64 underneath), and the prelude's
 // Range, whose T is ordered.
 func TestErgoRunE1Constraints(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Celsius float64
 
 func Max[T ordered](a, b T) T {
@@ -56,6 +57,7 @@ func main() needs Console {
 // literal that wraps the std generic queue.New, held and called later (an
 // extern is call-only, P3: queue.New[int] itself is no value).
 func TestErgoRunE1InstanceValues(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `import queue
 
 func Max[T ordered](a, b T) T {
@@ -89,6 +91,7 @@ func main() needs Console {
 // The accept program for stage E1 runs: declared constraints, an instance
 // used as a value, a record Map key and an inferred closure parameter.
 func TestErgoRunE1AcceptGenerics(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Point { X int, Y int }
 
 func Max[T ordered](a, b T) T {
@@ -131,6 +134,7 @@ func main() needs Console {
 // constraint that names its own parameter, a method value, an instance used
 // as a value, and an operations conversion inside a generic function (C8).
 func TestErgoRunE1Witnesses(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Valid {
 	Check() bool,
 }

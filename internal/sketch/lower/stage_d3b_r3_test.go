@@ -13,6 +13,7 @@ import (
 // argument fails with integer divide by zero before the method value's
 // receiver ss[0] is read, which would fail with index out of range.
 func TestErgoRunMethodValueOperandOrder(t *testing.T) {
+	needsBuild(t)
 	out, err := ergoRun(t, `type Shape { Area() int }
 type Sq { N int }
 func Area(s Sq) int { s.N }

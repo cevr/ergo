@@ -60,6 +60,7 @@ func lowerPureCollections(t *testing.T, name, src string, pure bool) *lowered {
 }
 
 func TestPurePreludeEmits(t *testing.T) {
+	needsBuild(t)
 	// lookup's match on m.Get(k) keeps its Get call, and so the Get
 	// wrapper, under the reference Get lowering (getmatch.go); the comma-ok
 	// form reads the Map with no call (TestGetMatchEmits).
@@ -190,6 +191,7 @@ func purePreludeProgram(seed uint64, k int) string {
 // source and both outputs.
 // Replay: go test -run '^TestPurePreludeAgrees$' ./internal/sketch/lower -args -pureprelude.seed=N
 func TestPurePreludeAgrees(t *testing.T) {
+	needsBuild(t)
 	seeds := purePreludeSeeds
 	if *purePreludeSeed != 0 {
 		seeds = []uint64{*purePreludeSeed}

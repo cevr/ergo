@@ -74,6 +74,7 @@ func main() needs Console {
 // an impure one, at any depth of the import chain, keeps the environment.
 // The program prints the same either way.
 func TestPurityAcrossPackages(t *testing.T) {
+	needsBuild(t)
 	c := checkPackage(t, "c", []pkgSource{{"/ergo-test/c/c.ergo", purePkgC}}, nil)
 	b := checkPackage(t, "b", []pkgSource{{"/ergo-test/b/b.ergo", purePkgB}}, pkgImporter{"c": c.Package})
 	a := checkPackage(t, "a", []pkgSource{{"/ergo-test/a/a.ergo", purePkgA}}, pkgImporter{"b": b.Package, "c": c.Package})

@@ -55,6 +55,7 @@ func runBehaviors(t *testing.T, cases []behavior) map[string]*lowered {
 // zero) passes every catch and ends the program with Go's report, which the
 // //line directives point at the .ergo line.
 func TestRowsAndDefects(t *testing.T) {
+	needsBuild(t)
 	built := runBehaviors(t, rowsCases())
 	checkContextBuilds(t, built)
 }

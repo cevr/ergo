@@ -87,6 +87,7 @@ func main() fails Bad needs Console | Ambient {
 // of round 2's generated helpers (v, x, texts, i, e) join them. The names come from the
 // lowering itself, so a new kind of generated entity joins the test.
 func TestLateNamesNeverCaptureLocals(t *testing.T) {
+	needsBuild(t)
 	base := strings.NewReplacer("LOCAL", "local", "PARAM", "param", "BODY", "body", "LIT", "lit").Replace(namesTemplate)
 	file, err := syntax.Parse(base)
 	if err != nil {

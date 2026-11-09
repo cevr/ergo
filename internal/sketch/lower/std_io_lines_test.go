@@ -79,6 +79,7 @@ func inputLinesCases(seed uint64, n int) []string {
 // gives the lines Go's strings.Split gives (inputLinesModel). The seed is
 // 1, or ERGO_SEED; a failure prints the seed, the text, and both outputs.
 func TestInputLinesMatchesModel(t *testing.T) {
+	needsBuild(t)
 	seed := uint64(1)
 	if s := os.Getenv("ERGO_SEED"); s != "" {
 		v, err := strconv.ParseUint(s, 10, 64)

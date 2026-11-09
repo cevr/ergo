@@ -533,6 +533,7 @@ var fsLawStatements = map[string]string{
 // (fs.Host's Go bodies on a real directory) and Memory is Ergo source with
 // no interpreter to run it in process; one build serves every sequence.
 func TestFSMemoryAgreesWithHost(t *testing.T) {
+	needsBuild(t)
 	p := mustLower(t, "fsMemory", fsMemoryProgram)
 	exes := buildAll(t, []*lowered{p}, true)
 	if exes == nil {

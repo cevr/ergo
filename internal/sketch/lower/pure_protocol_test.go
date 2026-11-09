@@ -45,6 +45,7 @@ var goProtocols = map[string]struct{ args, results []string }{
 // error, []byte or a package type, which no Ergo signature of a pure
 // function lowers to, so their matching cell is empty.
 func TestPureMethodsMeetNoHostProtocolByAccident(t *testing.T) {
+	needsBuild(t)
 	names := []string{"Total"} // the control: no protocol has it
 	for name := range goProtocols {
 		names = append(names, name)

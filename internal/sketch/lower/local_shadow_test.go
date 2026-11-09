@@ -18,6 +18,7 @@ import (
 // TestErgoRunLocalShadowRepros are the three examples-wave repros (f7, f7b,
 // f7c), which were S108.
 func TestErgoRunLocalShadowRepros(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type point { x int }
 
 func f() int {
@@ -249,6 +250,7 @@ func shadowNamed(src string, fresh bool) string {
 // the model computes. Over the three seeds every function takes every
 // wrap; the seed picks the values, and a failing seed prints the source.
 func TestErgoRunLocalShadowProperty(t *testing.T) {
+	needsBuild(t)
 	for seed := uint64(1); seed <= 3; seed++ {
 		r := rand.New(rand.NewPCG(seed, 0x4c35))
 		gen, want := genShadowProgram(r, seed)

@@ -6,6 +6,7 @@ import "testing"
 // control transfer in a constructor argument must close prior successes
 // without constructing or registering the entry it escapes.
 func TestRuntime199AcquireFlow(t *testing.T) {
+	needsBuild(t)
 	const prelude = `type A { Use() }
 type B { Use() }
 type First {}

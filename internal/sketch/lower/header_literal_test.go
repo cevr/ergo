@@ -17,6 +17,7 @@ import (
 // checker accepted it; go/format dropped the parentheses, so go build
 // failed with "unexpected { at end of statement".
 func TestErgoRunHeaderLiteral(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `func differs(m Map[string, string], k string, v string) bool {
 	if m.Get(k) != (Some[string]{Value: v}) {
 		return true
@@ -164,6 +165,7 @@ func headerCases(seed uint64) []headerCase {
 // names the seed, the Ergo source of both functions and both outputs.
 // Replay: go test -run '^TestHeaderLiteralAgrees$' ./internal/sketch/lower -args -header.seed=N
 func TestHeaderLiteralAgrees(t *testing.T) {
+	needsBuild(t)
 	seeds := headerSeeds
 	if *headerSeed != 0 {
 		seeds = []uint64{*headerSeed}

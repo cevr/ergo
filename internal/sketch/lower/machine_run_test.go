@@ -463,6 +463,7 @@ func timed(m MT, trace []machines.Timed[Sig], end int) string NEEDS {
 // Ignore treated as Reject, the rejected index, Done's state, inference
 // through a machine value, and every timer rule.
 func TestMachineRunAgreesWithFold(t *testing.T) {
+	needsBuild(t)
 	seed := int64(20)
 	if s := os.Getenv("ERGO_MACHINERUN_SEED"); s != "" {
 		n, err := strconv.ParseInt(s, 10, 64)
@@ -851,6 +852,7 @@ var machinesLawStatements = map[string]string{
 // Std laws 4); it builds and runs because the laws run over the lowered
 // std body, as ergo test runs them.
 func TestStdMachinesLawsRun(t *testing.T) {
+	needsBuild(t)
 	if laws := lawProbe(t, "stdmachines", machinesLawsProbe, machinesLawStatements); laws != nil {
 		lawledger.Run(t, laws)
 	}

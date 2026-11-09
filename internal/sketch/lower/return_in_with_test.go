@@ -10,6 +10,7 @@ import (
 // TestErgoRunReturnInWith (L3 acceptance): the d-10 repro returns 3 for
 // []int{-1, 3}, and its provider closes before the function's exit action.
 func TestErgoRunReturnInWith(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `import scope
 
 type Store { Get() int }
@@ -40,6 +41,7 @@ func main() needs Console {
 // interpolation, an if condition, a match subject); the operands before
 // it are evaluated first, and its provider closes once on both exits.
 func TestErgoRunReturnInWithSlots(t *testing.T) {
+	needsBuild(t)
 	slots := []string{
 		"integer(WITH)",
 		"1 + WITH",
@@ -301,6 +303,7 @@ func (f *rwFunc) model(k int) ([]string, int) {
 // exactly once, the innermost first, before the function's exit actions,
 // which run last first. A failing seed prints the Ergo source.
 func TestErgoRunReturnInWithModel(t *testing.T) {
+	needsBuild(t)
 	cover := map[string]bool{}
 	for _, seed := range []uint64{1, 2, 3} {
 		r := rand.New(rand.NewPCG(seed, 0x4c33))

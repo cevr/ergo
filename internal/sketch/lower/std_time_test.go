@@ -15,6 +15,7 @@ import (
 // decides Before, After and Sub when wall and monotonic disagree; Unix and
 // Add carry nanoseconds into seconds; a host clock's two reads never fall.
 func TestTimeRuns(t *testing.T) {
+	needsBuild(t)
 	runBehaviors(t, []behavior{{name: "time", src: stdTimeProgram, stdout: stdTimeOutput}})
 }
 
@@ -29,6 +30,7 @@ func TestTimeRuns(t *testing.T) {
 // its sleep before adjust. The run takes no wall time near the hours it
 // sleeps: the test bounds it.
 func TestTimeEffectCases(t *testing.T) {
+	needsBuild(t)
 	const src = `import task
 import time
 
@@ -331,6 +333,7 @@ var stdTimeLawStatements = map[string]string{
 // whose runner is this test, each with the row's statement, and that each
 // passed.
 func TestStdTimeLawsRun(t *testing.T) {
+	needsBuild(t)
 	if laws := lawProbe(t, "stdtime", stdTimeLawsProbe, stdTimeLawStatements); laws != nil {
 		lawledger.Run(t, laws)
 	}

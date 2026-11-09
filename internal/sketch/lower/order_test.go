@@ -21,6 +21,7 @@ import (
 // Thousands of composed operands across the cases; finite evidence, not a
 // proof over all programs.
 func TestEvaluationOrder(t *testing.T) {
+	needsBuild(t)
 	const programs, cases = 4, 60
 	var built []*lowered
 	var want []string

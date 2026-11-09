@@ -270,6 +270,7 @@ func flagProbe(t *testing.T, lists [][]string) (string, []string) {
 // flag.Parse is Go's flag. The flags block of flag.Usage is Go's
 // PrintDefaults byte for byte.
 func TestFlagMatchesGo(t *testing.T) {
+	needsBuild(t)
 	lists := flagLists(3000)
 	// The upstream case effect.cli.options-interleaved-with-operands
 	// (conformance/effect-cases.json; Command.test.ts:1823): flags among
@@ -334,6 +335,7 @@ func TestFlagMatchesGo(t *testing.T) {
 // output with status 0; a usage error prints its text and the help to
 // standard error with status 2.
 func TestFlagCommandsRun(t *testing.T) {
+	needsBuild(t)
 	const program = `import flag
 import io
 import os
@@ -441,6 +443,7 @@ func main() fails os.Exit needs Console | Ambient {
 // a runtime report), whether or not the flag was given. The set's own
 // handle reads its value.
 func TestFlagForeignHandle(t *testing.T) {
+	needsBuild(t)
 	const program = `import flag
 import os
 
@@ -731,6 +734,7 @@ var flagLawStatements = map[string]string{
 // whose runner is this test, each with the row's statement, and that each
 // passed.
 func TestFlagLaws(t *testing.T) {
+	needsBuild(t)
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "flaglaws", flagLawTests)}, true)
 	if exes == nil {
 		return

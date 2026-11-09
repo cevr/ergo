@@ -280,6 +280,7 @@ func fiftyOperands() string {
 }
 
 func TestErgoRunE5Contexts(t *testing.T) {
+	needsBuild(t)
 	var builds []*lowered
 	for _, r := range e5Contexts {
 		builds = append(builds, mustLower(t, "e5_"+strings.ReplaceAll(r.name, "-", "_"), r.src))

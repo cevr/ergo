@@ -89,6 +89,7 @@ test SmallStrings(s string) {
 // (the int64 maximum, the int8 bounds, 255 for uint8). Each FAIL line names
 // the seed and the size, and the size is the case's number over four.
 func TestGeneratorsReachEveryClass(t *testing.T) {
+	needsBuild(t)
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "generators", generatorProbes)}, true)
 	if exes == nil {
 		return
@@ -136,6 +137,7 @@ func TestGeneratorsReachEveryClass(t *testing.T) {
 // halving at each level (at most 25 × 12 × 6 ints in a [][][]int); and
 // case 1 (size 0) draws empty collections.
 func TestGeneratorSizeBoundsNesting(t *testing.T) {
+	needsBuild(t)
 	src := `test Nested(xs [][][]int) {
 	let mut n = 0
 	for a in xs {

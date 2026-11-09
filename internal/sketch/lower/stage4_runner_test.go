@@ -295,6 +295,7 @@ func eqMap[K comparable, V comparable](a Map[K, V], b Map[K, V]) bool {
 // Durations also round-trip from values that reach every unit, h to ns
 // (durationTextRoundTrips).
 func TestArgumentTextRoundTrips(t *testing.T) {
+	needsBuild(t)
 	const seeds = 12
 	var first strings.Builder
 	first.WriteString(literalTypes)

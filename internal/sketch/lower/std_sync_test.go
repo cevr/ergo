@@ -62,6 +62,7 @@ func main() needs Console {
 // called directly, and the program prints each result: the two tasks'
 // 40000 Updates all count, and a copy of a record shares its Ref.
 func TestSyncRuns(t *testing.T) {
+	needsBuild(t)
 	progs := runBehaviors(t, []behavior{{
 		name:   "syncruns",
 		src:    syncRunsProgram,
@@ -163,6 +164,7 @@ var syncLawStatements = map[string]string{
 // restates exactly the ledger's laws whose runner is this test, each with
 // the row's statement, and that each passed.
 func TestSyncLaws(t *testing.T) {
+	needsBuild(t)
 	if laws := lawProbe(t, "synclaws", syncLawsProbe, syncLawStatements); laws != nil {
 		lawledger.Run(t, laws)
 	}
@@ -222,6 +224,7 @@ test RecorderTasks(n int) {
 // Recorder); RecorderTasks ends the base's binary with "fatal error:
 // concurrent map writes" (measured at fd156fbb with GOMAXPROCS=2).
 func TestIORecorderBehavesAsBefore(t *testing.T) {
+	needsBuild(t)
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "recorder", recorderProbe)}, true)
 	if exes == nil {
 		return

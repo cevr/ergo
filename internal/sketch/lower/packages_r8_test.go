@@ -437,6 +437,7 @@ func canonCases() []canonCase {
 // builds the same bytes or the same refusal text. Each program's first
 // listing builds and runs, or is refused as the case says.
 func TestCheckIsCanonical(t *testing.T) {
+	needsBuild(t)
 	for _, c := range canonCases() {
 		t.Run(c.name, func(t *testing.T) {
 			var wantDump string
@@ -497,6 +498,7 @@ func TestCheckIsCanonical(t *testing.T) {
 // name sorts first. A let can also observe another through shared closure
 // state, with no defect (the counter case below).
 func TestInitOrderIsCanonical(t *testing.T) {
+	needsBuild(t)
 	files := []pkgSource{
 		{"/init/a.ergo", "let xs1 = []int{1}\nlet A1 = xs1[5]\n"},
 		{"/init/b.ergo", "let xs2 = []int{1, 2}\nlet A2 = xs2[7]\n"},

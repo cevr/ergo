@@ -15,6 +15,7 @@ import (
 // ordered T calls Sort, Max and BinarySearch with its own T; a fallible
 // Transform callback fails through Transform's row into a catch.
 func TestStdSlicesRuns(t *testing.T) {
+	needsBuild(t)
 	runBehaviors(t, []behavior{
 		{name: "slices", src: stdSlicesProgram, stdout: stdSlicesOutput},
 	})
@@ -155,6 +156,7 @@ const stdSlicesOutput = "npm/c:9 github/a:5 npm/a:5 npm/b:5 github/d:1\n" +
 // and reduce with a callback that takes the index) and its Set inputs
 // have no Ergo form: Transform, Filter and Fold take the element only.
 func TestStdSlicesEffectCases(t *testing.T) {
+	needsBuild(t)
 	const src = `import slices
 import cmp
 import strings
@@ -672,6 +674,7 @@ var stdSlicesLawStatements = map[string]string{
 // holds that the probe restates exactly the ledger's laws whose runner is
 // this test, each with the row's statement, and that each passed.
 func TestStdSlicesLawsRun(t *testing.T) {
+	needsBuild(t)
 	if laws := lawProbe(t, "stdslices", stdSlicesLawsProbe, stdSlicesLawStatements); laws != nil {
 		lawledger.Run(t, laws)
 	}

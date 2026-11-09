@@ -74,6 +74,7 @@ func main() fails Bad {
 // type whose field is a type parameter or a generic union is written per
 // instance, so a failing main reports the instance's fields and exits 1.
 func TestGenericErrorText(t *testing.T) {
+	needsBuild(t)
 	var progs []*lowered
 	for _, c := range genericErrorCases {
 		progs = append(progs, mustLower(t, c.name, c.src))

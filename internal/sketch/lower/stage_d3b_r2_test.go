@@ -75,6 +75,7 @@ func main() needs Console {
 // wait took main's task and the program deadlocked). The Seq calls Values
 // inside itself with the environment it is iterated on.
 func TestErgoRunCapturedSeqStops(t *testing.T) {
+	needsBuild(t)
 	o := mustLower(t, "seq", capturedSeqProgram)
 	if goSrc := stripDirectives(o.mainGo()); !strings.Contains(goSrc, ".Values(e.task)") {
 		t.Errorf("the Seq does not call Values with the iterating environment's task:\n%s", goSrc)
@@ -142,6 +143,7 @@ func main() fails queue.Closed needs Console {
 // task that waits through a method value made by main (review M3; before
 // the repair each was an internal compiler error).
 func TestErgoRunMethodValues(t *testing.T) {
+	needsBuild(t)
 	runWithin(t, "methodvalues", methodValueProgram, "3 4 25\nmake 1\nmake 2\nstopped 1\n", 60*time.Second)
 }
 
@@ -201,6 +203,7 @@ func main() fails queue.Closed needs Console {
 // struct{}{} (stage D3b round 1 review M2; before the repair task.Go was
 // refused with a message that named no owner).
 func TestErgoRunNoValueTypeArgument(t *testing.T) {
+	needsBuild(t)
 	o := mustLower(t, "novalue", noValueProgram)
 	if goSrc := stripDirectives(o.mainGo()); !strings.Contains(goSrc, "ergo.Go[struct{}]") || !strings.Contains(goSrc, "run[struct{}]") {
 		t.Errorf("the no-value type argument is not struct{}:\n%s", goSrc)
@@ -251,6 +254,7 @@ func main() needs Console {
 // noValueShapesProgram lowers with no adapter and runs: the Job's Run, the
 // replaced slice element, the later result and the parameter's parameter.
 func TestNoValueTypeArgumentsLower(t *testing.T) {
+	needsBuild(t)
 	o := mustLower(t, "shapes", noValueShapesProgram)
 	if goSrc := stripDirectives(o.mainGo()); !strings.Contains(goSrc, "Job[struct{}]") || !strings.Contains(goSrc, "runAll[struct{}](") {
 		t.Errorf("the no-value type argument is not struct{}:\n%s", goSrc)
@@ -264,6 +268,7 @@ func TestNoValueTypeArgumentsLower(t *testing.T) {
 // by the round 2 audit: before the repair the task read the variable when
 // it ran and printed "2 2").
 func TestErgoRunTaskBodyBoundAtGo(t *testing.T) {
+	needsBuild(t)
 	runWithin(t, "gobound", `import task
 
 func one() int { 1 }
@@ -285,6 +290,7 @@ func main() needs Console {
 // assignment to the variable it came from does not change the queue the
 // Seq reads.
 func TestErgoRunSeqReceiverEvaluatedOnce(t *testing.T) {
+	needsBuild(t)
 	runWithin(t, "seqonce", `import queue
 
 func mk(n int) queue.Queue[int] fails queue.Closed needs Console {

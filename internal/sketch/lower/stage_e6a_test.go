@@ -245,6 +245,7 @@ var textForms = []struct {
 // values; the comparison quotes each text, so a line feed or an invalid
 // byte in a string is compared exactly too.
 func TestInterpolationText(t *testing.T) {
+	needsBuild(t)
 	kinds := textKinds()
 	if len(kinds) != len(check.Typ)-1 {
 		t.Fatalf("%d kinds for %d basic types", len(kinds), len(check.Typ)-1)
@@ -315,6 +316,7 @@ func TestInterpolationText(t *testing.T) {
 // kinds with text between them are one allocation, the concatenation's;
 // a lone small integer is none, as strconv.Itoa's is.
 func TestInterpolationAllocs(t *testing.T) {
+	needsBuild(t)
 	src := `func label(n int, f float64, s string) string {
 	"n=\(n) f=\(f) s=\(s)"
 }
@@ -486,6 +488,7 @@ func main() needs Console {
 }
 
 func TestErgoRunE6aInterpolation(t *testing.T) {
+	needsBuild(t)
 	var builds []*lowered
 	for _, r := range e6aRuns {
 		builds = append(builds, mustLower(t, "e6a_"+strings.ReplaceAll(r.name, "-", "_"), r.src))
@@ -507,6 +510,7 @@ func TestErgoRunE6aInterpolation(t *testing.T) {
 // returns stdout.
 func runFed(t *testing.T, name, src, feed string) string {
 	t.Helper()
+	fastTierGuard(t, "a go command")
 	o := lowerSource(name, src, false)
 	switch {
 	case o.err != nil:

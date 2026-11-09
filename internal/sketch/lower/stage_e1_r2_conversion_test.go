@@ -5,6 +5,7 @@ import "testing"
 // The Conversion fact supplies the instance and witnesses of each
 // generic table function, including a conversion in a generic body.
 func TestErgoRunE1ConversionWitness(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, nestedWitnessDecls+`func AsValid[T Valid](b Box[T]) Valid { b }
 func main() needs Console {
 	let c = Card{N: 1}

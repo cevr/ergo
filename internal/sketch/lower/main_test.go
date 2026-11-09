@@ -72,6 +72,7 @@ const moduleRoot = "../../.."
 // and ergo build write dist/ under the working directory.
 func ergoCLI(t *testing.T) string {
 	t.Helper()
+	fastTierGuard(t, "the ergo CLI")
 	testCLI.once.Do(func() {
 		if testCLI.given != "" {
 			testCLI.path, testCLI.err = givenCLI(testCLI.given)

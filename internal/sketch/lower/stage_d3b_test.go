@@ -20,6 +20,7 @@ import (
 // D5's zero-overhead pure call. The program runs, with a caller of a
 // function value and a package let that calls a function.
 func TestEveryFunctionTakesTheEnvironment(t *testing.T) {
+	needsBuild(t)
 	src := `type Box { N int }
 
 func Twice(b Box) int { b.N * 2 }
@@ -145,6 +146,7 @@ func main() fails Fault needs Console {
 // environment that holds the child's task, with its Site; the exit actions
 // run after the body, last registered first (Rule 2).
 func TestTaskGoAndTaskResults(t *testing.T) {
+	needsBuild(t)
 	o := mustLower(t, "tasks", taskProgram)
 	goSrc := stripDirectives(o.mainGo())
 	for _, want := range []string{
@@ -172,6 +174,7 @@ func TestTaskGoAndTaskResults(t *testing.T) {
 // a literal or a trailing block gives that literal the scope, not its
 // enclosing function (Rule 2).
 func TestFrameScopeOnlyWhereNeeded(t *testing.T) {
+	needsBuild(t)
 	src := `import task
 
 func work() int { 1 }
@@ -268,6 +271,7 @@ func TestTaskInsideAnotherTypeChecked(t *testing.T) {
 // lowered in process first, so a mutant of the lowering (a go test
 // -overlay) reaches it; wantRun builds the CLI with go run.
 func TestErgoRunTaskReturningOperations(t *testing.T) {
+	needsBuild(t)
 	mustLower(t, "taskops", taskOpsProgram)
 	wantRun(t, taskOpsProgram, "3 4 12 101 22\n")
 }
@@ -365,6 +369,7 @@ func main() fails queue.Closed needs Console {
 // a producer and a consumer meet on an unbuffered queue, and a lowered catch
 // matches the runtime's Closed (queue.Closed lowers to ergo.Closed).
 func TestErgoRunQueueOperations(t *testing.T) {
+	needsBuild(t)
 	o := mustLower(t, "queues", queueProgram)
 	goSrc := stripDirectives(o.mainGo())
 	for _, want := range []string{"(q).Push(env.task, ", "(q).Pop(env.task)", "(q).Close()", "ergo.New[int](", "ergo.Closed"} {
@@ -379,6 +384,7 @@ func TestErgoRunQueueOperations(t *testing.T) {
 // empty open queue, so the waiting task ends and the program exits (Rule 3,
 // the poller.ergo hang).
 func TestErgoRunStopReachesPop(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `import queue
 import task
 
@@ -418,6 +424,7 @@ func TestRuntimeFilesHoldRT(t *testing.T) {
 // backslash and a parenthesis, an interpolation may nest, and values are
 // read left to right.
 func TestErgoRunInterpolation(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `func next(n int) int {
 	n + 1
 }
@@ -445,6 +452,7 @@ func main() needs Console {
 // TestErgoRunSliceWithCapacity: slices.WithCapacity calls its runtime/v1
 // body, which has no hidden argument (Rule 6).
 func TestErgoRunSliceWithCapacity(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `import slices
 
 func main() needs Console {

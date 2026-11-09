@@ -13,6 +13,7 @@ import (
 // each base print the value Go's strconv.ParseInt(text, 0, 64) reads; a
 // literal takes the type its context expects (uint8, float64, duration).
 func TestErgoRunNumberLiterals(t *testing.T) {
+	needsBuild(t)
 	r := rand.New(rand.NewPCG(11, 0x4c31))
 	var b strings.Builder
 	b.WriteString(`func main() needs Console {

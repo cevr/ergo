@@ -7,6 +7,7 @@ import "testing"
 // is consumed, its failure still reaches the arms. The five measured
 // shapes, a pattern catch and an empty arm, through the public CLI.
 func TestErgoRunDiscardedCatchOverValue(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type E {}
 type X {}
 type R { B bool }
@@ -61,6 +62,7 @@ func main() needs Console {
 // record, V[A] | V[B], declares its marker method once, on V, and a match
 // over it tells the instances apart.
 func TestErgoRunUnionOfOneGenericRecord(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type A {}
 type B {}
 type V[T] {}

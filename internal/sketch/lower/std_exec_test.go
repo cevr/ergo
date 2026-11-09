@@ -20,6 +20,7 @@ import (
 // stopped pipeline leaves none of its processes (an Effect case). A
 // Script binds in the same place and gives back what it holds.
 func TestExecRuns(t *testing.T) {
+	needsBuild(t)
 	// The pipeline's processes write their pids here; the file exists
 	// before the program runs, so the shell's wc reads it at once.
 	pidfile := filepath.Join(t.TempDir(), "pids")
@@ -184,6 +185,7 @@ var execLawStatements = map[string]string{
 // the row's statement, and that each passed. ScriptNotFoundNamesTheProgram
 // is the probe's own test of the Script provider, not a ledger row.
 func TestExecLaws(t *testing.T) {
+	needsBuild(t)
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "execlaws", execLawsProbe)}, true)
 	if exes == nil {
 		return

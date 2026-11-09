@@ -11,6 +11,7 @@ import (
 // a catch arm takes it, and main's uncaught Malformed is written with its
 // text and status 1.
 func TestStdTextRuns(t *testing.T) {
+	needsBuild(t)
 	runBehaviors(t, []behavior{
 		{name: "text", src: `import strings
 import strconv

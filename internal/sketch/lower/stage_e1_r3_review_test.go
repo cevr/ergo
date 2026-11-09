@@ -4,6 +4,7 @@ import "testing"
 
 // Preserve the reviewer's admitted closure programs verbatim.
 func TestErgoRunE1ReviewClosures(t *testing.T) {
+	needsBuild(t)
 	t.Run("p05-closure-method-value.ergo", func(t *testing.T) {
 		wantRun(t, `type Valid { Check() bool, }
 type Card { N int }

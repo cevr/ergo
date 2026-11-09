@@ -113,6 +113,7 @@ func main() needs Console | Ambient {
 // (check.SealedStd), so both providers convert to it and it lowers as a
 // declaration of the program.
 func TestOSProcessRuns(t *testing.T) {
+	needsBuild(t)
 	host := mustLower(t, "osHost", osProgram)
 	fake := mustLower(t, "osFake", fakeProgram)
 	param := mustLower(t, "osParam", paramProgram)
@@ -148,6 +149,7 @@ func TestOSProcessRuns(t *testing.T) {
 // have run; a Code outside 1..125 adds a line and exits 1 (runtime.md,
 // Exit causes 8; runtime/v1 TestMainExit holds the rest of the rules).
 func TestOSExitRuns(t *testing.T) {
+	needsBuild(t)
 	const work = `import os
 import scope
 

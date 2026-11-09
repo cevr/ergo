@@ -114,6 +114,7 @@ func main() fails fs.NotFound | fs.Denied | fs.Failed needs Console | Ambient {
 // reason, for a directory read as a file. Main's uncaught failure is
 // written with its path, status 1.
 func TestFSFilesRuns(t *testing.T) {
+	needsBuild(t)
 	if os.Geteuid() == 0 {
 		t.Skip("root reads a file of mode 000, so Denied cannot be made")
 	}
@@ -220,6 +221,7 @@ func Stat(m Files, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Faile
 // the program binds it in a context and passes as a value, and the same
 // functions give the host's lines for the paths the memory holds.
 func TestFSFilesMemory(t *testing.T) {
+	needsBuild(t)
 	mem := checkPackage(t, "memory", []pkgSource{{"/ergo-test/memory/files.ergo", fsMemory}}, nil)
 	root := checkPackage(t, "main", []pkgSource{{"/ergo-test/main/main.ergo", "import fs\nimport memory\nimport strings\n" + fsLib + `
 func run() needs Console | fs.Files {
@@ -324,6 +326,7 @@ func main() needs Console | Ambient {
 // Denied, under a missing directory NotFound, over a directory Failed. No
 // temporary file is left.
 func TestFSWritesRuns(t *testing.T) {
+	needsBuild(t)
 	if os.Geteuid() == 0 {
 		t.Skip("root writes into a directory of mode 0555, so Denied cannot be made")
 	}

@@ -346,6 +346,7 @@ func main() { with W { A.Use() } }
 // field Error_ (its Error method keeps the name), so a field the source
 // names Error_ takes Error__; both keep their values and their text.
 func TestErrorFieldNamesStayDistinct(t *testing.T) {
+	needsBuild(t)
 	o := mustLower(t, "error-fields", `type Bad { Error string, Error_ int }
 
 func check(n int) int fails Bad {

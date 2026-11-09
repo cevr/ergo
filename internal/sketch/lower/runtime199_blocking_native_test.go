@@ -20,6 +20,7 @@ import (
 // polls. They also expose queue parking and replace Live's timer with Virtual.
 // No production hook, settling sleep or guessed delay is required.
 func TestRuntime199BlockingProperty(t *testing.T) {
+	needsBuild(t)
 	var names []string
 	for name, binding := range runtimeBindings {
 		body, err := v1.BodyOf(name)
@@ -244,6 +245,7 @@ func blockingNative(t *testing.T, name, route string) {
 //   - pop-capability: Pop as a capability call's operand in a loop (the
 //     call's poll precedes its operands, not the operation).
 func TestRuntime199DeliveredBeforeStop(t *testing.T) {
+	needsBuild(t)
 	cases := []struct{ name, src string }{
 		{"values", "func subject(q queue.Queue[int]) int fails queue.Closed { for v in q.Values() { return v }; 0 }\n"},
 		{"seq-over-values", `func wrap(q queue.Queue[int]) Seq[int] {
@@ -343,6 +345,7 @@ func TestNativeHarnessesHaveNoWallBound(t *testing.T) {
 // copied runtime into the sweep's fresh cache (fu-lower-flake).
 func nativeGoTest(t *testing.T, dir string) ([]byte, error) {
 	t.Helper()
+	fastTierGuard(t, "a go command")
 	ctx, timeout := context.Background(), "0"
 	if end, ok := t.Deadline(); ok {
 		left := (time.Until(end) - time.Minute).Truncate(time.Second)

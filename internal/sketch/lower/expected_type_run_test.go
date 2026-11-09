@@ -14,6 +14,7 @@ import (
 // verdict half of the property is check's TestConversionAgreesWithLet.
 
 func TestErgoRunExpectedType(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type T = A | B
 type A {}
 type B {}
@@ -70,6 +71,7 @@ func (g *runConvGen) leaf() string {
 // check, each as T(e) and as let v = e; T(v), over inputs that take every
 // if, match and catch branch, and wants the two texts equal.
 func TestErgoRunConversionAgreesWithLet(t *testing.T) {
+	needsBuild(t)
 	const decls = `type Bad {}
 type Celsius float64
 type Count int

@@ -166,6 +166,7 @@ var stdCSVLawStatements = map[string]string{
 // whose runner is this test, each with the row's statement, and that each
 // passed.
 func TestStdCSVLawsRun(t *testing.T) {
+	needsBuild(t)
 	if laws := lawProbe(t, "stdcsv", stdCSVLawsProbe, stdCSVLawStatements); laws != nil {
 		lawledger.Run(t, laws)
 	}

@@ -272,6 +272,7 @@ func sameEmission(t *testing.T, what string, want, got map[string]string) {
 }
 
 func TestLoweringIsCanonical(t *testing.T) {
+	needsBuild(t)
 	const programs = 12
 	for seed := int64(0); seed < programs; seed++ {
 		g := generateProgram(seed)

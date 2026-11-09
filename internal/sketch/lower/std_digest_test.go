@@ -38,6 +38,7 @@ import (
 var digestSeed = flag.Uint64("digest.seed", 0, "run TestStdDigestRuns on this seed alone")
 
 func TestStdDigestRuns(t *testing.T) {
+	needsBuild(t)
 	seeds := []uint64{1, 2}
 	if *digestSeed != 0 {
 		seeds = []uint64{*digestSeed}

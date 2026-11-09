@@ -19,6 +19,7 @@ import (
 // result and a catch. check/tuple_defined_test.go checks the same
 // program.
 func TestErgoRunDefinedTuple(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Pair (int, string)
 
 type Triple (int, string, bool)
@@ -86,6 +87,7 @@ func main() needs Console {
 // constrained type parameter. The Go side reads each key the program
 // binds at each line it prints.
 func TestErgoRunGenericContextKey(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Tag[T] { v T }
 
 func contextKey[T](t Tag[T]) string {
@@ -202,6 +204,7 @@ func TestGenericKeys(t *testing.T) {
 // itself generic over a method-set constraint lowers, as a value and
 // through a dot call.
 func TestErgoRunGenericImplementingFunction(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Valid {
 	Check() bool,
 }
@@ -233,6 +236,7 @@ func main() needs Console {
 // types.md, Operators: each operator of rules 1 to 4 runs, on the
 // operand types the rules name.
 func TestErgoRunOperators(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Celsius float64
 
 type P { X int, Y string }

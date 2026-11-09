@@ -35,6 +35,7 @@ import (
 var externValuesSeed = flag.Uint64("extern.seed", 0, "run TestExternValuesRun on this seed alone")
 
 func TestExternValuesRun(t *testing.T) {
+	needsBuild(t)
 	seeds := []uint64{1, 2, 3}
 	if *externValuesSeed != 0 {
 		seeds = []uint64{*externValuesSeed}

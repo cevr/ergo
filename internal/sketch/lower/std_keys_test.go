@@ -35,6 +35,7 @@ func stdFixture(t *testing.T, path, src string) *check.Package {
 // own failure. A lowering that emits the record's name in place of the row's
 // lowers both to one Go type, and the arms collide.
 func TestStdRecordsBindTheRowsGoName(t *testing.T) {
+	needsBuild(t)
 	const fixture = `type NotFound { Path string }
 
 func Fail(path string) fails NotFound {
@@ -127,6 +128,7 @@ func main() needs Console {
 // by its bare name, so both lowered to v1.NotFound, the fs record's struct,
 // and the catch could not tell them apart.
 func TestStdRecordsKeyedByPackage(t *testing.T) {
+	needsBuild(t)
 	const fixture = `type NotFound { Path string }
 
 func Fail(path string) fails NotFound {

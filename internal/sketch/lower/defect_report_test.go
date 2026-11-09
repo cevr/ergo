@@ -49,6 +49,7 @@ func wantReport(t *testing.T, src, want string) {
 // m1: a program with no call still registers its (empty) call table, so
 // its report has Ergo frames only.
 func TestDefectReportWithoutCalls(t *testing.T) {
+	needsBuild(t)
 	wantReport(t, `func main() {
 	let xs = []int{1, 2, 3}
 	let i = 5
@@ -61,6 +62,7 @@ func TestDefectReportWithoutCalls(t *testing.T) {
 // m1: a package-level let's initializer runs inside the root task, so a
 // defect in it is reported like any other, with its Ergo frames.
 func TestDefectReportInPackageLet(t *testing.T) {
+	needsBuild(t)
 	wantReport(t, `func pick(xs []int, i int) int {
 	xs[i]
 }
@@ -86,6 +88,7 @@ func main() needs Console {
 // after every let it refers to, through functions too, else in
 // declaration order.
 func TestPackageLetsRunInDependencyOrder(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `let total = sum()
 
 func sum() int { base + extra }
@@ -110,6 +113,7 @@ func main() needs Console {
 // written "F at file:line", even when its line also holds a call, and in a
 // recursion that panics on the line of its own recursive call.
 func TestDefectReportNamesThePanickingFrame(t *testing.T) {
+	needsBuild(t)
 	wantReport(t, `func idx() int { 9 }
 
 func at(xs []int) int { xs[idx()] }
@@ -136,6 +140,7 @@ func main() needs Console {
 // on one .ergo line or on the second line of a statement, names its own
 // line, and so does the call that passes a tuple.
 func TestDefectReportLinesAreExact(t *testing.T) {
+	needsBuild(t)
 	wantReport(t, `func at(xs []int, i int) (int, int) {
 	(1, xs[i])
 }

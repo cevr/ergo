@@ -63,6 +63,7 @@ func main() fails queue.Closed needs Console | Ambient {
 // Option for non-blocking take": the program's first lines poll an empty
 // queue (None), offer, and poll the front (Some).
 func TestQueuePollRuns(t *testing.T) {
+	needsBuild(t)
 	var progs map[string]*lowered
 	if !t.Run("effect.queue.poll-option", func(t *testing.T) {
 		progs = runBehaviors(t, []behavior{{
@@ -138,6 +139,7 @@ func TestPollNoneAllocatesNothing(t *testing.T) {
 // TestQueuePollNoneAllocatesNothing: a Poll of an empty queue, called as
 // a pure function from Go, allocates nothing.
 func TestQueuePollNoneAllocatesNothing(t *testing.T) {
+	needsBuild(t)
 	goTestEmitted(t, mustLower(t, "queuepollalloc", queuePollAllocSource), queuePollAllocDriver)
 }
 
@@ -189,6 +191,7 @@ var queuePollLawStatements = map[string]string{
 // it restates exactly the ledger's laws whose runner is this test, each
 // with the row's statement, and that each passed.
 func TestQueuePollLaws(t *testing.T) {
+	needsBuild(t)
 	if laws := lawProbe(t, "queuepolllaws", queuePollLawsProbe, queuePollLawStatements); laws != nil {
 		lawledger.Run(t, laws)
 	}

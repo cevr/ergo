@@ -305,6 +305,7 @@ func lawProbe(t *testing.T, name, probe string, statements map[string]string) ma
 // probe restates exactly the ledger's laws whose runner is this test, each
 // with the row's statement, and that each passed.
 func TestStdLawsRun(t *testing.T) {
+	needsBuild(t)
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "stdlaws", stdLawsProbe)}, true)
 	if exes == nil {
 		return

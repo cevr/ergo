@@ -29,6 +29,7 @@ func same[T comparable](a Box[T], b Box[T]) bool { a == b }
 // record compared inside a generic function, and an empty slice against
 // an omitted (Go nil) one.
 func TestErgoRunStructuralEquality(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, eqDecls+`
 func main() needs Console {
 	let a Value = Branch{Items: []Value{Leaf{N: 1}, Branch{Items: []Value{}, Tags: Map[string, int]{"x": 1}}}, Tags: Map[string, int]{}}
@@ -275,6 +276,7 @@ func check(i int, a Value, b Value, ka []int, kb []int) string {
 // seed and the two values.
 // Replay: go test -run '^TestEqualStructuralAgrees$' ./internal/sketch/lower -args -eq.seed=N
 func TestEqualStructuralAgrees(t *testing.T) {
+	needsBuild(t)
 	seeds := eqSeeds
 	if *eqSeed != 0 {
 		seeds = []uint64{*eqSeed}

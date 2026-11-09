@@ -12,6 +12,7 @@ import "testing"
 // failing callback ends Update with its failure, through Update's row, and
 // leaves the Map as it was.
 func TestStdSlicesMoreRuns(t *testing.T) {
+	needsBuild(t)
 	runBehaviors(t, []behavior{
 		{name: "slicesmore", src: stdSlicesMoreProgram, stdout: stdSlicesMoreOutput},
 	})

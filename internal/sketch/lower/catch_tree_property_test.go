@@ -589,6 +589,7 @@ func catchForeignPatch(t *testing.T, src string, catches []*cCatch) string {
 }
 
 func TestCatchTreeAgrees(t *testing.T) {
+	needsBuild(t)
 	if matchLowering == "flat" {
 		t.Skip("matchLowering=flat: the build has no tree to compare")
 	}

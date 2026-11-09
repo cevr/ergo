@@ -148,6 +148,7 @@ func ascendingCases(seed uint64, n int) []struct {
 // (i, true), i the first index of x. The seed is 1, or ERGO_SEED; a failure
 // prints the seed, the case and both answers.
 func TestStdAscendingMatchesGo(t *testing.T) {
+	needsBuild(t)
 	seed := uint64(1)
 	if s := os.Getenv("ERGO_SEED"); s != "" {
 		v, err := strconv.ParseUint(s, 10, 64)

@@ -18,6 +18,7 @@ import (
 // collide with generated or Go-reserved names, which the namer separates
 // by identity.
 func TestGenericInstantiation(t *testing.T) {
+	needsBuild(t)
 	built := runBehaviors(t, genericCases())
 	checkGenericDecls(t, built)
 }

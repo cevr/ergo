@@ -142,6 +142,7 @@ func permutations(n int) [][]int {
 // refusals; the checker's diagnostics of a catch that misses part of a
 // row are the same text. The program builds and runs once.
 func TestLoweringSetsAreCanonical(t *testing.T) {
+	needsBuild(t)
 	const n = 4
 	for _, refuse := range []bool{false, true} {
 		files := setProgram(n, refuse)

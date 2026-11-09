@@ -63,6 +63,7 @@ func reachUnits(t *testing.T) map[string]Unit {
 // generates 21 programs, so a stride of 4 takes other forms and operand
 // orders at each depth.
 func TestContextReachProperty(t *testing.T) {
+	needsBuild(t)
 	units := reachUnits(t)
 	imp := pkgImporter{}
 	for path, u := range units {
@@ -201,6 +202,7 @@ func TestContextReachProperty(t *testing.T) {
 // its builder is named only from lib's own with facts (withsOf reads every
 // sourced package's).
 func TestContextLibOwnWithSet(t *testing.T) {
+	needsBuild(t)
 	lib := checkPackage(t, "lib", []pkgSource{{"/ergo-test/lib/lib.ergo", importedContextLib + `
 func Both() string needs Console {
 	with W {

@@ -127,6 +127,7 @@ func TestTopLevelLawNamesAbsent(t *testing.T) {
 // main runs under ergo run with the output of the same program without its
 // laws, and its test build runs its tests, then each law.
 func TestErgoRunTopLevelLaw(t *testing.T) {
+	needsBuild(t)
 	data, err := os.ReadFile(filepath.Join("testdata", "e3b", "top_laws.ergo"))
 	if err != nil {
 		t.Fatal(err)

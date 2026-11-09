@@ -12,6 +12,7 @@ import (
 // outer call runs; with blocks, trailing blocks and catch arms yield
 // through a final if or match, and a void catch arm discards its tail.
 func TestErgoRunReviewCForms(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type E { B bool }
 type X {}
 let W = context {}
@@ -67,6 +68,7 @@ func main() needs Console {
 // pattern and several names over a tuple, initialized
 // before their readers whatever the declaration order.
 func TestErgoRunPackageDestructuring(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `let total = a + b + q + r + x + y
 let (a, b) = (1, 2)
 type Point { X int, Y int }
@@ -93,6 +95,7 @@ func main() needs Console {
 // mention T: a type-parameter field's text is lower-v1 stage 3's, for
 // records as well).
 func TestErgoRunDefinedErrorTypes(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type E { N int, Error string }
 type D E
 type Box[T] { V int }
@@ -126,6 +129,7 @@ func main() needs Console {
 // M7: a defined type over a basic type keeps its nominal type in emitted
 // constants: a tail, a conversion, a comparison and a constant pattern.
 func TestErgoRunDefinedBasicConstants(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Flag bool
 type Text string
 type Code int
@@ -147,6 +151,7 @@ func main() needs Console {
 // M2, M8: a catch alternative that leaves a name unbound and equality on a
 // row value are refused before Go; neither program runs.
 func TestErgoRunReviewCRefusals(t *testing.T) {
+	needsBuild(t)
 	for _, tc := range []struct{ name, src string }{
 		{"unbound-alternative", `type E { N int }
 type F {}

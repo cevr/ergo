@@ -104,6 +104,7 @@ func civilCases(r *rand.Rand, n int) (cases, want []string) {
 // builds and runs the program because the calendar is Ergo source, which
 // no in-process interpreter runs; one build serves every case.
 func TestTimeCivilMatchesGo(t *testing.T) {
+	needsBuild(t)
 	p := mustLower(t, "timeCivil", timeCivilProgram)
 	exes := buildAll(t, []*lowered{p}, true)
 	if exes == nil {

@@ -153,6 +153,7 @@ func TestVerifyR3TestsAcrossFiles(t *testing.T) {
 // The round 3 verify's r3-5 case: generic overloads in two files lower as
 // package functions, named in canonical order.
 func TestVerifyR3GenericOverloads(t *testing.T) {
+	needsBuild(t)
 	g := genProgram{libs: []genLib{{"x/lib", []pkgSource{
 		{"/probe/lib/a.ergo", "type Q {}\nfunc Show[T](q Q, x T) T { x }\n"},
 		{"/probe/lib/b.ergo", "type R {}\nfunc Show[T](r R, x T) T { x }\n"},
@@ -168,6 +169,7 @@ func main() needs Console { Console.Println("\(lib.Q.Show(1)) \(lib.R.Show(2))")
 // and its instance in a record's field erase to one Go type, which has one
 // text function, in both builds.
 func TestVerifyR3ErasedRows(t *testing.T) {
+	needsBuild(t)
 	u := checkPackage(t, "main", []pkgSource{{"/probe/rows.ergo", `type Bad {}
 type Hold[E] { F func() fails E }
 type Outer { V Hold[Bad] }

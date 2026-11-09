@@ -7,6 +7,7 @@ import "testing"
 // Statements 5), and the lowered Go does the same at run time. returnInElse
 // is apps-1 probe c7, the regression fixture apps-1 spec.md:318 asks for.
 func TestElseBranchRun(t *testing.T) {
+	needsBuild(t)
 	runBehaviors(t, []behavior{
 		{name: "returnInElse", src: `type Bad { At int }
 

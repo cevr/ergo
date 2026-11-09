@@ -5,6 +5,7 @@ import "testing"
 // Keep the admitted-program sweep as public CLI runs. The cases cross
 // generic constraints, dictionary forwarding, conversions and scope edges.
 func TestErgoRunE1GenericDomain(t *testing.T) {
+	needsBuild(t)
 	for _, tc := range []struct{ name, decls, body, want string }{
 		{"closure-generic-instance", `func Later[T Valid](x T) func() bool { func() bool { let f = All[T]; f(x) } }`, `let f = Later(Card{N: 1}); Console.Println("\(f())")`, "true\n"},
 		{"nested-operation", `func Later[T Valid](x T) func() bool { func() bool { let g = func() bool { x.Check() }; g() } }`, `let f = Later(Card{N: 0}); Console.Println("\(f())")`, "false\n"},

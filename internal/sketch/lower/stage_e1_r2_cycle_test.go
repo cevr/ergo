@@ -5,6 +5,7 @@ import "testing"
 // Completing a deferred definition must preserve legal recursion through
 // a slice. This exercises the resulting field types in native Go too.
 func TestErgoRunE1DefinedRecordIndirection(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Alias Rec
 type Rec { Next []Alias, N int }
 func main() needs Console {

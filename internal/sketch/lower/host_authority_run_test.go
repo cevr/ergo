@@ -38,6 +38,7 @@ func main() needs Console | Ambient {
 // Console and Ambient only, so a main that needs os.Process or Clock is
 // S109 naming both.
 func TestHostAuthorityRuns(t *testing.T) {
+	needsBuild(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "a.md")
 	if err := os.WriteFile(path, []byte("alpha"), 0o644); err != nil {

@@ -51,6 +51,7 @@ func all(p string, q string) string fails filepath.NotRelative {
 // effect.path.join-posix is the evidence of that conformance case
 // (Effect's DenoPath.test.ts "runs the demo program").
 func TestFilepathRuns(t *testing.T) {
+	needsBuild(t)
 	t.Run("effect.path.join-posix", func(t *testing.T) {
 		runBehaviors(t, []behavior{{name: "joinPosix", src: `import filepath
 

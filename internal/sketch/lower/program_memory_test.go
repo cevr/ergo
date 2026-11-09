@@ -20,6 +20,7 @@ import (
 // check sees. Mutant: runBounded runs the program without proclimit (or
 // with limit 0); the program then prints "uncapped".
 func TestRunProgramBoundsAGrowingProgram(t *testing.T) {
+	needsBuild(t)
 	if runtime.GOOS != "linux" {
 		t.Skip("only Linux bounds a started program (internal/proclimit)")
 	}

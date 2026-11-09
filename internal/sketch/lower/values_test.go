@@ -100,6 +100,7 @@ func TestValueRuleElides(t *testing.T) {
 // Only Go's race detector, in a built binary, observes the race; it guards
 // the elide-closure mutant on the task path.
 func TestValueRuleRace(t *testing.T) {
+	needsBuild(t)
 	if testing.Short() {
 		t.Skip("-race build")
 	}

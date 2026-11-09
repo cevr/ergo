@@ -36,6 +36,7 @@ func lowerGetMode(t *testing.T, name, src string, commaOk bool) *lowered {
 // no type; the reference keeps the type switch on Get's Option; both print
 // the same.
 func TestGetMatchEmits(t *testing.T) {
+	needsBuild(t)
 	on := lowerGetMode(t, "getok", e5Source, true)
 	off := lowerGetMode(t, "getref", e5Source, false)
 	fn := goFunc(t, on.mainGo(), "lookup")
@@ -56,6 +57,7 @@ func TestGetMatchEmits(t *testing.T) {
 // TestGetMatchUserGet: a user's own Get on a Map type is a call like any
 // other; only the prelude's Get reads the Map with comma-ok.
 func TestGetMatchUserGet(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Store Map[string, int]
 
 func Get(s Store, k string) Option[int] {
@@ -186,6 +188,7 @@ const getFuncs = 12
 // failure prints the seed, the Ergo source and both outputs.
 // Replay: go test -run '^TestGetMatchAgrees$' ./internal/sketch/lower -args -getmatch.seed=N
 func TestGetMatchAgrees(t *testing.T) {
+	needsBuild(t)
 	seeds := []uint64{1, 2, 3, 4}
 	if *getMatchSeed != 0 {
 		seeds = []uint64{*getMatchSeed}

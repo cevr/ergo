@@ -32,6 +32,7 @@ import (
 // With the default seeds, every branch of the generator is reached
 // (gapBranches), so a mutant of either fix is caught by some program.
 func TestStdGapProperty(t *testing.T) {
+	needsBuild(t)
 	seeds := []uint64{}
 	replay := os.Getenv("ERGO_STD_GAP_SEED")
 	if replay != "" {

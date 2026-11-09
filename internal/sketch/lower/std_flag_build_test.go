@@ -10,6 +10,7 @@ import "testing"
 // 1..65535; a command with no failure of its own is still written
 // flag.Command[C] (types.md, Generics 7).
 func TestFlagBuildOwnFailure(t *testing.T) {
+	needsBuild(t)
 	const program = `import flag
 import os
 import strconv

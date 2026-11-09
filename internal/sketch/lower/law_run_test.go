@@ -56,6 +56,7 @@ func main() needs Console {
 // holds for Tally and fails for Stuck, whose report names Stuck, the seed
 // and the case's provider value.
 func TestLawRunB13(t *testing.T) {
+	needsBuild(t)
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_b13", lawRunB13)}, true)
 	if exes == nil {
 		return
@@ -79,6 +80,7 @@ func TestLawRunB13(t *testing.T) {
 
 // TestLawRunSkips: a law that cannot run says why, and is not counted.
 func TestLawRunSkips(t *testing.T) {
+	needsBuild(t)
 	src := `type Shape {
 	Area() int,
 	law Positive() { Area() >= 0 },
@@ -116,6 +118,7 @@ func main() {}
 // TestLawRunDefinedBool: a law's result may be of a type over bool, at the
 // tail and at a return (types.md, Laws 8); its run converts it.
 func TestLawRunDefinedBool(t *testing.T) {
+	needsBuild(t)
 	src := `type Flag bool
 
 func yes() Flag { Flag(true) }
@@ -145,6 +148,7 @@ func main() {}
 // TestLawRunNoParams: a top-level law with no parameters draws nothing and
 // runs once, as an example test does; a false one fails the run.
 func TestLawRunNoParams(t *testing.T) {
+	needsBuild(t)
 	src := `law Holds() { 1 + 1 == 2 }
 
 law Breaks() { 1 + 1 == 3 }
@@ -232,6 +236,7 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 // the top-level law runs as well. A failure prints the program's source.
 // ERGO_LAWRUN_SEED replays another seed.
 func TestLawRunFindsTheBrokenProvider(t *testing.T) {
+	needsBuild(t)
 	seed := int64(162)
 	if s := os.Getenv("ERGO_LAWRUN_SEED"); s != "" {
 		n, err := strconv.ParseInt(s, 10, 64)

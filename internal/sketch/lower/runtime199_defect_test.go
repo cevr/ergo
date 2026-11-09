@@ -30,6 +30,7 @@ import (
 // parent opened after the fork are not in that snapshot. No Go frame shows,
 // and main exits with status 2.
 func TestRuntime199DefectReport(t *testing.T) {
+	needsBuild(t)
 	src := `import task
 import trace
 import log
@@ -121,6 +122,7 @@ func main() needs Console {
 // traced report equals the untraced one, the status is 2, and the exit
 // holds no task, so ancestry outlives no task.
 func TestRuntime199DefectProperty(t *testing.T) {
+	needsBuild(t)
 	cases := dfCases()
 	f := &dfFile{}
 	for _, l := range []string{"import task", "import queue", "import scope", "import log", "import trace", "", "type Fault {}", "", "func main() {}"} {
@@ -684,6 +686,7 @@ type dfResult struct {
 // does and returns what Main writes. The emitted code is not changed.
 func dfNative(t *testing.T, o *lowered, cases []*dfCase) map[string]dfResult {
 	t.Helper()
+	fastTierGuard(t, "a go command")
 	dir := t.TempDir()
 	write := func(path string, data []byte) {
 		t.Helper()

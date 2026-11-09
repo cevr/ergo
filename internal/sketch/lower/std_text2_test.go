@@ -14,6 +14,7 @@ import (
 // runner is this test (the ones over an Ergo body: Cut and Lines) and runs
 // them with --seed 1.
 func TestStdTextRuns2(t *testing.T) {
+	needsBuild(t)
 	const program = `import strings
 import strconv
 import utf8

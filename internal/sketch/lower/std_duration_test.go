@@ -11,6 +11,7 @@ import "testing"
 // absent, is written back by Render, shows in Defaults as Go's
 // PrintDefaults writes it, and a bad value is Invalid.
 func TestStdDurationRuns(t *testing.T) {
+	needsBuild(t)
 	runBehaviors(t, []behavior{
 		{name: "durations", src: stdDurationProgram, stdout: stdDurationOutput},
 	})

@@ -6,6 +6,7 @@ import "testing"
 // synthesis repro c10 (line 18 written with its type), a generic union, a
 // match nested in an if, and a variant with fields.
 func TestErgoRunUnionJoin(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type State = Open{} | Closed{} | Ajar{ Width int }
 
 func parse(s string) Option[State] {

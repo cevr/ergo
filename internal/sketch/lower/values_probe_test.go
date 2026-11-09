@@ -183,6 +183,7 @@ func main() needs Console {
 // text observes; the generated programs of TestValueRuleAgrees cover the
 // paths in combination.
 func TestValueRuleProbes(t *testing.T) {
+	needsBuild(t)
 	var programs []*lowered
 	for _, p := range valueProbes {
 		programs = append(programs, mustLower(t, "vp"+p.name, p.src))

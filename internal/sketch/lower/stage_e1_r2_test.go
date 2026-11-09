@@ -16,6 +16,7 @@ func All[T Valid](x T) bool { x.Check() }
 
 // A finite chain has no arbitrary witness depth limit (E1 r2 M1).
 func TestErgoRunE1FiniteWitnessChains(t *testing.T) {
+	needsBuild(t)
 	for _, depth := range []int{1, 8, 10, 50} {
 		t.Run(fmt.Sprint(depth), func(t *testing.T) {
 			typ, value := "Card", "Card{N: 1}"
@@ -32,6 +33,7 @@ func TestErgoRunE1FiniteWitnessChains(t *testing.T) {
 // Passing *T to another constrained function adapts the receiver and
 // reuses the enclosing T witness (E1 r2 M2).
 func TestErgoRunE1ForwardedPointerWitness(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, nestedWitnessDecls+`func FromPointer[T Valid](x *T) bool { All(x) }
 func main() needs Console {
 	let mut c = Card{N: 1}

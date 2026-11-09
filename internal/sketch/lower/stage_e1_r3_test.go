@@ -74,6 +74,7 @@ func astTextType(x ast.Expr) string {
 }
 
 func TestErgoRunE1ClosureWitnesses(t *testing.T) {
+	needsBuild(t)
 	for _, tc := range []struct{ name, body string }{
 		{"generic-call", `All(x)`},
 		{"operation-call", `x.Check()`},

@@ -529,6 +529,7 @@ func cxSteps(nodes []*cxNode) []int {
 }
 
 func TestRuntime199ContextLexicalOperand(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `import log
 type A { Use() }
 type Quiet {}
@@ -560,6 +561,7 @@ func main() needs Console {
 
 // Neither a current std key nor its old spelling can forge a std value.
 func TestRuntime199ContextPackageKeys(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `import log
 import trace
 type tag { key string, text string }
@@ -656,6 +658,7 @@ func cxLower(t *testing.T, name, src string, imports cxImporter) *lowered {
 // Go side: the test's Console provider reads both packages' keys through
 // the runtime at each line the program prints.
 func TestRuntime199ContextPackageRead(t *testing.T) {
+	needsBuild(t)
 	const library = `type Tag { text string }
 func New(text string) Tag { Tag{text: text} }
 func contextKey(_ Tag) string { "shared" }
@@ -861,6 +864,7 @@ func contextNative(t *testing.T, o *lowered, cases []cxCase, funcs int) {
 // module, and runs its go test. The emitted code is not changed.
 func contextModuleTest(t *testing.T, o *lowered, test string) {
 	t.Helper()
+	fastTierGuard(t, "a go command")
 	dir := t.TempDir()
 	write := func(path string, data []byte) {
 		t.Helper()

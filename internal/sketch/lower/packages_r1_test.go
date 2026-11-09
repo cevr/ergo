@@ -29,6 +29,7 @@ func buildAndRun(t *testing.T, programs []*lowered, want map[string]string) {
 }
 
 func TestVerifyR1GenericNames(t *testing.T) {
+	needsBuild(t)
 	lib := libraryUnit(t)
 	root := checkPackage(t, "main", []pkgSource{
 		{"/probe/names/a.ergo", `import lib
@@ -100,6 +101,7 @@ func TestVerifyR1InitDAGs(t *testing.T) {
 }
 
 func TestVerifyR1Diamond(t *testing.T) {
+	needsBuild(t)
 	leaf := checkPackage(t, "zleaf", []pkgSource{{"/probe/leaf.ergo", "func start() int { 3 }\nlet N = start()\nfunc Read() int { N }\n"}}, nil)
 	imp := pkgImporter{"zleaf": leaf.Package}
 	left := checkPackage(t, "aleft", []pkgSource{{"/probe/left.ergo", "import zleaf\nfunc start() int { zleaf.Read() + 1 }\nlet N = start()\n"}}, imp)
@@ -135,6 +137,7 @@ func TestVerifyR1ImportedRefusal(t *testing.T) {
 // file. Each test, and each assert, sits in its own file, at the same line
 // and column in each, so only the file can tell them apart.
 func TestVerifyR1TestFailureFile(t *testing.T) {
+	needsBuild(t)
 	root := checkPackage(t, "main", []pkgSource{
 		{"/probe/a.ergo", "func main() {}\n"},
 		{"/probe/b.ergo", "type Bad {}\nfunc bad() fails Bad { Bad }\ntest Later { try bad() }\n"},
@@ -151,6 +154,7 @@ func TestVerifyR1TestFailureFile(t *testing.T) {
 }
 
 func TestTestReportsNameTheirFiles(t *testing.T) {
+	needsBuild(t)
 	files := []pkgSource{{"/probe/reports/main.ergo", "func main() {}\n"}}
 	var want []string
 	for i := 0; i < 3; i++ {
@@ -191,6 +195,7 @@ func opsLib(n string) string {
 // M2 and M3: two packages whose paths end alike (x/lib, y/lib), each with
 // the same declarations; the root names a type lib too.
 func TestVerifyR1PackageAdapterNames(t *testing.T) {
+	needsBuild(t)
 	a := checkPackage(t, "x/lib", []pkgSource{{"/probe/x/lib.ergo", opsLib("1")}}, nil)
 	b := checkPackage(t, "y/lib", []pkgSource{{"/probe/y/lib.ergo", opsLib("2")}}, nil)
 	root := checkPackage(t, "main", []pkgSource{{"/probe/adapters.ergo", `import a x/lib
@@ -204,6 +209,7 @@ func main() needs Console { Console.Println("\(a.Make().Get()) \(b.Make().Get())
 }
 
 func TestVerifyR1AdapterCollision(t *testing.T) {
+	needsBuild(t)
 	a := checkPackage(t, "x/lib", []pkgSource{{"/probe/x/lib.ergo", opsLib("1")}}, nil)
 	b := checkPackage(t, "y/lib", []pkgSource{{"/probe/y/lib.ergo", opsLib("2")}}, nil)
 	root := checkPackage(t, "main", []pkgSource{{"/probe/adapters.ergo", `import a x/lib
@@ -219,6 +225,7 @@ func main() needs Console { let _ = a.Make(); let _ = b.Make(); Console.Println(
 // The text of an error type's instances over two packages' Q, whose
 // displays are both Oops[lib.Q]: each instance has its own text function.
 func TestErrorTextInstancesAcrossPackages(t *testing.T) {
+	needsBuild(t)
 	a := checkPackage(t, "x/lib", []pkgSource{{"/probe/x/lib.ergo", opsLib("1")}}, nil)
 	b := checkPackage(t, "y/lib", []pkgSource{{"/probe/y/lib.ergo", "type Q { M string }\n"}}, nil)
 	root := checkPackage(t, "main", []pkgSource{{"/probe/text.ergo", `import a x/lib
@@ -250,6 +257,7 @@ test G { try g() }
 // (1 to 3 of them), with the same type, function and parameter names in
 // each. Each package k provides k.
 func TestImportedOperationTypes(t *testing.T) {
+	needsBuild(t)
 	paths := []string{"x/lib", "y/lib", "z/lib"}
 	aliases := []string{"a", "b", "c"}
 	src := func(k int) string {
@@ -290,6 +298,7 @@ func Inc(q *Q) int { q.N + 10 }
 // context at the same offsets; W embeds them all, and each with acquires
 // another subset of them. Every order of the files is lowered.
 func TestContextAcquisitionsAcrossFiles(t *testing.T) {
+	needsBuild(t)
 	provider := func(i int) pkgSource {
 		return pkgSource{fmt.Sprintf("/probe/ctx/p%d.ergo", i), fmt.Sprintf(
 			"type C%[1]d { Get() int }\ntype P%[1]d {}\nfunc Get(x P%[1]d) int { %[2]d }\nlet X%[1]d = context { C%[1]d: P%[1]d }\nfunc use%[1]d() int needs C%[1]d { C%[1]d.Get() }\n", i, i+1)}
@@ -326,6 +335,7 @@ func TestContextAcquisitionsAcrossFiles(t *testing.T) {
 }
 
 func TestVerifyR1ContextPositions(t *testing.T) {
+	needsBuild(t)
 	root := checkPackage(t, "main", []pkgSource{
 		{"/probe/a.ergo", "type A { Get() int }\ntype One {}\nfunc Get(x One) int { 1 }\nlet X = context { A: One }\nfunc useA() int needs A { A.Get() }\n"},
 		{"/probe/b.ergo", "type B { Get() int }\ntype Two {}\nfunc Get(x Two) int { 2 }\nlet Y = context { B: Two }\nfunc useB() int needs B { B.Get() }\n"},

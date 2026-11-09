@@ -383,6 +383,7 @@ func main() fails queue.Closed needs Console {
 // The queue handshake and the inherited counting delay put the child in its
 // loop before Stop. Polls before that loop cannot hide a wrong-task adapter.
 func TestRuntime199EnvBindingStops(t *testing.T) {
+	needsBuild(t)
 	for name, src := range i1ValuePrograms() {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

@@ -124,6 +124,7 @@ func mustLowerUnit(t *testing.T, name string, u Unit, tests bool) *lowered {
 }
 
 func TestLowerPackages(t *testing.T) {
+	needsBuild(t)
 	lib := libraryUnit(t)
 	imp := pkgImporter{"lib": lib.Package}
 

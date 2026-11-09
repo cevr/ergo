@@ -32,6 +32,7 @@ func wantRun(t *testing.T, src, want string) {
 }
 
 func TestErgoRunFunctionTails(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Failed { Code int }
 func value() int { 42 }
 func small() int8 { -128 }
@@ -58,6 +59,7 @@ func main() needs Console {
 // D-C2: if and match yield values in every position, branches that leave
 // join any type, and operands keep their left-to-right order.
 func TestErgoRunBranchExpressions(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type E { Code int }
 type A {}
 type B { N int }
@@ -132,6 +134,7 @@ func main() needs Console {
 // row value is returned, matched and assigned to a declared union (ConvRow);
 // a partial catch under try lets the rest escape.
 func TestErgoRunOneCatch(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type NotFound { ID string }
 type Declined { Reason string }
 type Frozen {}
@@ -248,6 +251,7 @@ func main() needs Console {
 // nested, constant, tuple, as and several-subject patterns, let
 // destructuring and tuples run, with no fallback that hides a case.
 func TestErgoRunPatterns(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Inner = Small{N int} | Big{N int, Label string}
 type Shape = Dot | Box{W int, H int} | Wrap{In Inner}
 type Dot {}
@@ -318,6 +322,7 @@ func main() needs Console {
 // 196r, sixth round: try covers the whole expression to its right; the
 // operands still run left to right, and the first failure leaves.
 func TestErgoRunWholeTry(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type E { Code int }
 func a(n int) int fails E needs Console {
 	Console.Println("a")
@@ -340,6 +345,7 @@ func main() needs Console {
 // D-C4: break and continue in a match act on the enclosing for, through
 // the Go switch the match lowers to.
 func TestErgoRunBreakInMatch(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type A {}
 type B { N int }
 type U = A | B

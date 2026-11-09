@@ -24,6 +24,7 @@ func (i contextImporter) Import(path string) (*check.Package, error) {
 // package, so the with builds the imported provider, runs its block and
 // closes the provider once.
 func TestRuntime199ContextImportedBuilds(t *testing.T) {
+	needsBuild(t)
 	for _, embedded := range []bool{false, true} {
 		t.Run(fmt.Sprintf("embedded=%v", embedded), func(t *testing.T) {
 			contexts := "let W = context { A: Get() }\n"
