@@ -148,6 +148,62 @@ law DoneIsFinal(signals []int, e int) {
 	}
 }
 
+// logStep keeps every signal: the state is the list of them, in order.
+func logStep(s []int, e int) Decision[[]int, int] { Stay[[]int]{Next: s.Append(e)} }
+
+func logUntimed(s []int) Option[Timeout[int]] { None }
+
+func logUnworked(s []int) Option[func(send func(e int))] { None }
+
+// fed: a source's values are stepped in its order, each once: the state
+// the actor reaches once it has stepped as many signals is xs.
+func fed(xs []int) bool needs Scheduler {
+	let a = StartMachine(Machine[[]int, int, int]{Initial: []int{}, Step: logStep, After: logUntimed, Work: logUnworked}, 1, func(o int) {})
+	Feed(a, source(xs)) catch {
+	case Stopped:
+		return false
+	}
+	let s = WaitFor(a, func(s []int) bool { len(s) >= len(xs) }) catch {
+	case Stopped:
+		return false
+	}
+	a.Stop()
+	let mut same = len(s) == len(xs)
+	for i in 0..len(s) {
+		same = same && s[i] == xs[i]
+	}
+	same
+}
+
+// FeedStepsInOrder: the actor steps a source's values in the source's
+// order, each once.
+law FeedStepsInOrder(xs []int) {
+	with context { Scheduler: time.NewManual(0) } {
+		fed(xs)
+	}
+}
+
+// can: Can is the pure step's answer in the actor's state while it runs,
+// and false once it has ended (after a Done among the signals).
+func can(signals []int, e int) bool needs Scheduler {
+	let a = sent(signals)
+	let (_, done) = folded(signals)
+	let s = a.State()
+	let c = Can(a, tallyStep, e)
+	let kept = a.State() == s
+	a.Stop()
+	let after = Can(a, tallyStep, e)
+	kept && !after && (if done { !c } else { c == machines.Can(tallyStep, s, e) })
+}
+
+// CanIsTheStep: Can answers as the step would in the actor's state, takes
+// nothing, and answers false once the actor has ended.
+law CanIsTheStep(signals []int, e int) {
+	with context { Scheduler: time.NewManual(0) } {
+		can(signals, e)
+	}
+}
+
 // exitParts is an exit as its variant (0 Finished, 1 Halted, 2 Defected),
 // its state and its output.
 func exitParts(x Exit[int, int]) (int, int, int) {

@@ -30,6 +30,8 @@ var notHostExterns = map[string]string{
 	"actor.failure":         "reads the typed failure that ended the program's actor",
 	"actor.hasLatest":       "reads whether the program's actor stepped a signal",
 	"actor.latest":          "reads the last decision of the program's actor",
+	"actor.feed":            "admits the program's source to the program's actor, whose runner starts it on a task of the program",
+	"actor.live":            "reads the state of the program's actor, or that it has ended",
 	"prelude.Append":        "appends to a slice of the program",
 	"prelude.Get":           "reads a Map of the program",
 	"prelude.Delete":        "changes a Map of the program",

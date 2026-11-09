@@ -217,6 +217,11 @@ var runtimeBindings = map[string]runtimeBinding{
 	// task, shielded from its stop (the owner entry stops it), and waits
 	// for nothing but the child's start, as MachineStart does.
 	"MachineChild": {wait: childWait},
+	// MU10: Feed waits, as a Send does, for room for its source's start
+	// on the caller's task; the runner starts the source. The live State
+	// read of Can waits for its answer as State does.
+	"ActorFeed":      {wait: callerWait},
+	"ActorLiveState": {wait: callerWait},
 	// std exec (std-align S3c; stdlib.md, exec): Run waits for the program
 	// on the caller's task. Its cancel hook is the stop of that task: the
 	// body kills the program's process group and waits for the reap

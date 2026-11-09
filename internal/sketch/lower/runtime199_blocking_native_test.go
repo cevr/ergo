@@ -89,9 +89,13 @@ var childWaitLaws = map[string]bool{"After": true, "MachineStart": true, "Machin
 // runner's end; runtime/v1/actor_observe_test.go
 // TestActorObserveAgreesWithFold states that Drain returns only after
 // every queued signal was stepped and the runner ended, and that every
-// ActorExitKind caller gets the one exit.
+// ActorExitKind caller gets the one exit. MU10: ActorFeed waits for room
+// as a Send does and ActorLiveState for an answer as State does;
+// runtime/v1/actor_feed_test.go TestActorFeedSourcesEndWithTheActor states
+// that a Feed and a live read on an ended actor fail Stopped at once, and
+// that a fed source never runs after the end returns.
 var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Actor.State": true, "Actor.Changes": true, "Actor.Stop": true,
-	"Actor.Drain": true, "ActorExitKind": true}
+	"Actor.Drain": true, "ActorExitKind": true, "ActorFeed": true, "ActorLiveState": true}
 
 // hostWaitLaws are the callerWait bindings that wait for a host process
 // (std-align S3c): runtime/v1/exec_test.go TestExecStopModel states their

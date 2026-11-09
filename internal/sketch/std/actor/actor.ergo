@@ -248,6 +248,48 @@ func Child[S, E, O, F, R, P](send func(e P), m Machine[S, E, O, F, R], capacity 
 	}, capacity)
 }
 
+// Sources of an actor (MU10; runtime.md, Machines and actors 15).
+
+// feed is Feed's Go body (ActorFeed): it admits run, which the actor's
+// runner starts on a task of its own with a send of the actor's signals.
+extern go ergo.local/prototype/runtime/v1.ActorFeed func feed[S, E, D, F](a Actor[S, E, D, F], run func(send func(e E))) fails Stopped
+
+// Feed gives a the values of source as signals, in source's order, for as
+// long as a runs, and returns once the source is admitted. The source runs
+// on a task that a owns, not the caller: it ends when it ends, and when a
+// ends (a Done, a failure, a defect, Stop, Drain) its next value is not
+// sent and the source ends there; a source that waits is stopped. When
+// Stop, Drain or ExitOf returns, no source of a runs. A source's values
+// are a sender's: a full inbox makes the source wait, and Stop drops the
+// queued ones. A defect of the source ends a, as a work's defect does. It
+// fails Stopped when a has ended or its Stop was requested; the source
+// then never runs. The card reader of a sign-in screen is one: each card
+// it reads is a signal, and the reader stops with the screen.
+func Feed[S, E, D, F](a Actor[S, E, D, F], source Seq[E]) fails Stopped {
+	try feed(a, func(send func(e E)) {
+		for e in source {
+			send(e)
+		}
+	})
+}
+
+// live is a State read that fails Stopped when a has ended before it was
+// answered (ActorLiveState).
+extern go ergo.local/prototype/runtime/v1.ActorLiveState func live[S, E, D, F](a Actor[S, E, D, F]) S fails Stopped
+
+// Can is whether a would take e now: false when a has ended (no step
+// runs then), else machines.Can(step, s, e) for the state s after every
+// signal admitted before it, as State reads it. step is a's step, pure:
+// Can runs it on the caller's task and commits nothing. A screen greys a
+// key whose signal the actor cannot take.
+func Can[S, E, O, F](a Actor[S, E, Decision[S, O], F], step func(s S, e E) Decision[S, O], e E) bool {
+	let s = live(a) catch {
+	case Stopped:
+		return false
+	}
+	machines.Can(step, s, e)
+}
+
 // Observing an actor (MU12; runtime.md, Machines and actors 13). Each of
 // these is a loop over Changes, so it judges the state at its start, then
 // each committed state once, in order, and it releases its subscription

@@ -80,6 +80,28 @@ func Next[S, O](s S, d Decision[S, O]) S {
 	}
 }
 
+// Can is whether step takes e in s: its decision is Enter, Stay, Emit or
+// Done, not Ignore or Reject (MU10; runtime.md, Machines and actors 15).
+// step is pure (no failure, no capability), so asking it acts on nothing
+// and commits nothing: a screen greys a key whose signal the state cannot
+// take. A step with a row is no Can's: its answer could act.
+func Can[S, E, O](step func(s S, e E) Decision[S, O], s S, e E) bool {
+	match step(s, e) {
+	case Enter[S]:
+		true
+	case Stay[S]:
+		true
+	case Emit[S, O]:
+		true
+	case Done[O]:
+		true
+	case Ignore:
+		false
+	case Reject:
+		false
+	}
+}
+
 // Start is the machine m started with input: its initial state is
 // m.Start(input), computed for this call, and its step and timers are m's
 // (runtime.md, Machines and actors 10). Run(Start(m, input), signals) runs

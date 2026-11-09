@@ -266,6 +266,57 @@ test ActorSelectByStops(xs []int) {
 test ActorExitIsShared(signals []int) { assert ExitIsShared(signals) }
 
 test ActorSelectOncePerChange(xs []int) { assert SelectOncePerChange(xs) }
+
+func logStep(s []int, e int) Decision[[]int, int] { Stay[[]int]{Next: s.Append(e)} }
+
+func logUntimed(s []int) Option[Timeout[int]] { None }
+
+func logUnworked(s []int) Option[func(send func(e int))] { None }
+
+func fed(xs []int) bool needs Scheduler {
+	let a = actor.StartMachine(Machine[[]int, int, int]{Initial: []int{}, Step: logStep, After: logUntimed, Work: logUnworked}, 1, func(o int) {})
+	actor.Feed(a, source(xs)) catch {
+	case actor.Stopped:
+		return false
+	}
+	let s = actor.WaitFor(a, func(s []int) bool { len(s) >= len(xs) }) catch {
+	case actor.Stopped:
+		return false
+	}
+	a.Stop()
+	let mut same = len(s) == len(xs)
+	for i in 0..len(s) {
+		same = same && s[i] == xs[i]
+	}
+	same
+}
+
+func FeedStepsInOrder(xs []int) bool {
+	with context { Scheduler: time.NewManual(0) } {
+		fed(xs)
+	}
+}
+
+func can(signals []int, e int) bool needs Scheduler {
+	let a = sent(signals)
+	let (_, done) = folded(signals)
+	let s = a.State()
+	let c = actor.Can(a, tallyStep, e)
+	let kept = a.State() == s
+	a.Stop()
+	let after = actor.Can(a, tallyStep, e)
+	kept && !after && (if done { !c } else { c == machines.Can(tallyStep, s, e) })
+}
+
+func CanIsTheStep(signals []int, e int) bool {
+	with context { Scheduler: time.NewManual(0) } {
+		can(signals, e)
+	}
+}
+
+test ActorFeedStepsInOrder(xs []int) { assert FeedStepsInOrder(xs) }
+
+test ActorCanIsTheStep(signals []int, e int) { assert CanIsTheStep(signals, e) }
 `
 
 // actorLawStatements is the statement of each actor law, as the ledger
@@ -273,6 +324,8 @@ test ActorSelectOncePerChange(xs []int) { assert SelectOncePerChange(xs) }
 var actorLawStatements = map[string]string{
 	"actor Actor.ChangesStops":  `ChangesStops(k int) { if k < 1 { return true } Stop() catch { case _: } let mut calls = 0 let s = Changes() s(func(v S) bool { calls = calls + 1 calls < k }) calls == 1 }`,
 	"actor Actor.StopIsFinal":   `StopIsFinal(e E) { Stop() catch { case _: } Send(e) catch { case Stopped: return true } false }`,
+	"actor CanIsTheStep":        `CanIsTheStep(signals []int, e int) { with context { Scheduler: time.NewManual(0) } { can(signals, e) } }`,
+	"actor FeedStepsInOrder":    `FeedStepsInOrder(xs []int) { with context { Scheduler: time.NewManual(0) } { fed(xs) } }`,
 	"actor DoneIsFinal":         `DoneIsFinal(signals []int, e int) { with context { Scheduler: time.NewManual(0) } { doneFinal(signals, e) } }`,
 	"actor ExitIsShared":        `ExitIsShared(signals []int) { with context { Scheduler: time.NewManual(0) } { drainedExit(signals) } }`,
 	"actor SelectStops":         `SelectStops(xs []int) { selectStops(Select(source(xs), func(x int) int { x % 3 })) }`,
