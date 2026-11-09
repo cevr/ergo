@@ -393,6 +393,13 @@ func (c *checker) externInstance(f *Func, g *Signature) (*Signature, string) {
 	targs := make([]Type, len(g.TParams))
 	for i, tp := range g.TParams {
 		t, ok := m[tp]
+		if !ok && tp.Kind != KindType {
+			// IG6: a row parameter of a binding (a sync callback's CE,
+			// CR) is Ergo's alone, and a user extern's callback has no
+			// rows (S109): it is empty.
+			t, ok = &RowArg{Row: newRow()}, true
+			m[tp] = t
+		}
 		if !ok {
 			return nil, fmt.Sprintf("Go cannot infer its type parameter %s from the parameters", tp.Name)
 		}

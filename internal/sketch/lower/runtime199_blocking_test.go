@@ -209,6 +209,9 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// or releases. intn is the generator's Rand, beside GoErrorText
 		// in genFunc.
 		"GoErrorText": true, "Native": true, "GoErrorsNative": true, "GoIs": true, "intn": true,
+		// IG6: a callback's failure handed to Go, and the call's error
+		// untunnelled; neither waits nor releases.
+		"GoCallbackError": true, "GoUntunnel": true, "GoUntunnelEager": true,
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}
