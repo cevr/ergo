@@ -129,3 +129,5 @@ internal/sketch/lower/values_test.go	TestValueRuleMutants	batch-12 value-rule (q
 internal/sketch/lower/values_test.go	TestValueRuleRace	batch-12 value-rule (q26), merged with T7 at the batch-12 integration (round 4): T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/law_run_test.go	TestLawRunState	batch-12 fu-small fs4, merged with T7 at the batch-12 integration (round 4): T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/machine_after_test.go	TestMachineTimerNotPositive	batch-12 fu-small fs2, merged with T7 at the batch-12 integration (round 4): T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
+internal/sketch/lower/law_run_test.go	TestLawRunOtherPackage	batch-13 law-xpkg, merged with T7 at the batch-12 integration (round 5): T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
+internal/sketch/lower/law_run_test.go	TestLawRunLeastPackage	batch-13 law-xpkg, merged with T7 at the batch-12 integration (round 5): T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
