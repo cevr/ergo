@@ -79,7 +79,7 @@ func MapSpan[A, B any](t *Task, span string, xs []A, limit int, f func(*Task, A)
 			i := next
 			next++
 			running++
-			hs[i] = spawn(t, span, false, func(ct *Task) (B, error) {
+			hs[i] = spawn(t, span, false, false, func(ct *Task) (B, error) {
 				defer e.end(t, i)
 				return f(ct, xs[i])
 			})
@@ -189,7 +189,7 @@ func RaceSpan[B any](t *Task, span string, n int, f func(*Task, int) (B, error))
 		}
 	}()
 	for i := range n {
-		hs = append(hs, spawn(t, span, false, func(ct *Task) (B, error) {
+		hs = append(hs, spawn(t, span, false, false, func(ct *Task) (B, error) {
 			// A call that panics keeps own[i] false: its defect stays in
 			// its handle's exit.
 			defer e.end(t, i)

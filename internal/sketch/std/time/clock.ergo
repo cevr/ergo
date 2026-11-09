@@ -55,7 +55,8 @@ type Timeline {
 	// began; d of zero or less returns at once. A stop of the task ends it.
 	Wait(d duration),
 	// Advance moves the time forward by d and wakes each sleeper whose
-	// deadline it reaches, in deadline order. A negative d is a defect.
+	// deadline it reaches, in deadline order, and returns once the tasks
+	// it woke wait again. A negative d is a defect.
 	Advance(d duration),
 	// Sleepers is the number of tasks in Wait.
 	Sleepers() int,
@@ -74,6 +75,7 @@ type Timeline {
 // UTC, with no sleepers. It takes the Unix seconds, not a Time: a function
 // whose first parameter is a Time never reaches the host's state
 // (TestStdHostProvidersHaveAuthority), and a Manual's timeline is state.
+// The calling task is the first member of its domain (stdlib.md, time 6).
 func NewManual(sec int64) Manual { Manual{line: newTimeline(sec, 0)} }
 
 // Now is the Manual's time. Its monotonic reading is the time Advance has
@@ -87,7 +89,11 @@ func Now(m Manual) Time {
 func Sleep(m Manual, d duration) { m.line.Wait(d) }
 
 // Advance moves the time forward by d, waking each sleeper whose deadline
-// it reaches. A negative d is a defect: time never falls.
+// it reaches, one instant at a time. It returns once every task of m's
+// domain but the caller waits again: the task that called NewManual and
+// every task started below it since, actors included. So each timer due
+// by then has fired and every task it woke has run to its next wait. A
+// negative d is a defect: time never falls.
 func Advance(m Manual, d duration) { m.line.Advance(d) }
 
 // Sleepers is the number of tasks asleep on m.

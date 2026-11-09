@@ -163,19 +163,68 @@ func (fc *funcCtx) machineAfter(conv check.Conversion, site syntax.Node) string 
 	if after := conv.Table["After"]; after != nil {
 		return fc.positiveTimers(conv, after, site)
 	}
+	return fc.machineNone(conv, "After", site)
+}
+
+// machineWork is the Work of a machine value's Machine (ConvMachine, MU4):
+// a function that calls the machine's work function and gives the Start
+// of its std machines.Work, or, when it has none, a function that gives
+// every state None (no work). The work function has no rows of its own
+// (checkMachineWork), so its error is always nil.
+//
+//	func(env *Env, s S) (Option[F], error) {
+//		o, _ := work(env, s)
+//		if w, ok := o.(Some[machines.Work[E]]); ok {
+//			return Some[F]{Value: w.Value.Start}, nil
+//		}
+//		return None{}, nil
+//	}
+func (fc *funcCtx) machineWork(conv check.Conversion, site syntax.Node) string {
+	work := conv.Table["Work"]
+	if work == nil {
+		return fc.machineNone(conv, "Work", site)
+	}
+	sig := fc.machineField(conv, "Work", site)
+	some, none := optionVariants(sig.Results[0], site)
+	wsome, _ := optionVariants(work.Sig.Results[0], site)
+	g := fc.funcValue(work, work.Sig, site, nil)
+	gv, o, w := fc.scope.alloc("work"), fc.scope.alloc("o"), fc.scope.alloc("w")
+	return fc.envClosure(callerEnv, "env", site, func(env string) ([]string, string, string) {
+		s := fc.scope.alloc("s")
+		ind := strings.Repeat("\t", fc.depth+1)
+		return []string{s + " " + fc.goType(sig.Params[0].Type)}, fc.valueResults(sig.Results[0]),
+			ind + gv + " := " + g + "\n" +
+				ind + o + ", _ := " + gv + "(" + env + ", " + s + ")\n" +
+				ind + "if " + w + ", ok := " + o + ".(" + fc.goType(wsome) + "); ok {\n" +
+				ind + "\treturn " + fc.goType(some) + "{Value: " + w + ".Value.Start}, nil\n" +
+				ind + "}\n" +
+				ind + "return " + fc.goType(none) + "{}, nil\n"
+	})
+}
+
+// machineField is the type of the prelude Machine's field name, a
+// function func(S) Option[…].
+func (fc *funcCtx) machineField(conv check.Conversion, name string, site syntax.Node) *check.Signature {
 	var sig *check.Signature
 	if n, ok := conv.To.(*check.Named); ok {
 		if st, ok := n.Underlying().(*check.Struct); ok {
 			for _, f := range st.Fields {
-				if f.Name == "After" {
+				if f.Name == name {
 					sig, _ = f.Type.(*check.Signature)
 				}
 			}
 		}
 	}
 	if sig == nil || len(sig.Params) != 1 || len(sig.Results) != 1 {
-		ice(site, "the prelude Machine has no After func(S) Option[Timeout[E]]")
+		ice(site, "the prelude Machine has no %s func(S) Option[…]", name)
 	}
+	return sig
+}
+
+// machineNone is a function of the Machine field name, of the type
+// func(S) Option[…], that gives every state None.
+func (fc *funcCtx) machineNone(conv check.Conversion, name string, site syntax.Node) string {
+	sig := fc.machineField(conv, name, site)
 	_, none := optionVariants(sig.Results[0], site)
 	return fc.envClosure(callerEnv, "_", site, func(string) ([]string, string, string) {
 		ind := strings.Repeat("\t", fc.depth+1)

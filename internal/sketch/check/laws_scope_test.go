@@ -128,7 +128,7 @@ var lawNoBinder = map[string]string{
 	"TypeDecl.Spec": lawType, "VarSpec.Type": lawType, "ContextEntry.Key": lawType, "ContextEntry.Keys": lawType,
 	"ContextDecl.Name": lawPackage, "FuncDecl.Name": lawPackage, "ImportSpec.Name": lawPackage,
 	"TypeDecl.Name": lawPackage, "TestDecl.Name": lawPackage, "VariantSpec.Name": lawPackage,
-	"MachineEntry.Value": lawPackage, "MachineType.Initial": lawPackage, "MachineType.Step": lawPackage, "MachineType.After": lawPackage,
+	"MachineEntry.Value": lawPackage, "MachineType.Initial": lawPackage, "MachineType.Step": lawPackage, "MachineType.After": lawPackage, "MachineType.Work": lawPackage,
 	"LawDecl.Name":     "a law's name is in no scope (laws.go rule 1); one named like an operation is TestLawRules'",
 	"KeyValueExpr.Key": "a record pattern's or literal's key " + lawMember,
 	"SelectorExpr.Sel": "a selector " + lawMember,

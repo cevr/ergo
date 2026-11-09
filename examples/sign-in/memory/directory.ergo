@@ -1,0 +1,42 @@
+// Package memory holds an in-memory provider of the sign-in's Codes.
+
+import strings
+import signin/signin
+
+// Directory is a member directory in memory. It keeps no state: the code
+// sent to a phone is its last four digits reversed, a phone that starts
+// with 000 cannot take a code, and two cards name members.
+type Directory {}
+
+// CodeFor is the code Directory sends to phone.
+func CodeFor(phone string) string {
+	let n = len(phone)
+	if n < 4 {
+		return ""
+	}
+	strings.Slice(phone, n-1, n) + strings.Slice(phone, n-2, n-1) + strings.Slice(phone, n-3, n-2) + strings.Slice(phone, n-4, n-3)
+}
+
+func Send(_ Directory, phone string) fails signin.PhoneUnreachable {
+	if strings.HasPrefix(phone, "000") {
+		return signin.PhoneUnreachable{Phone: phone}
+	}
+}
+
+func Check(_ Directory, phone string, code string) signin.Member fails signin.WrongCode {
+	if code == "" || code != CodeFor(phone) {
+		return signin.WrongCode
+	}
+	signin.Member{ID: "p" + phone, Name: "member " + strings.Slice(phone, len(phone)-4, len(phone))}
+}
+
+func Card(_ Directory, card string) signin.Member fails signin.UnknownCard {
+	match card {
+	case "C-100":
+		signin.Member{ID: "c100", Name: "Ada"}
+	case "C-200":
+		signin.Member{ID: "c200", Name: "Grace"}
+	case _:
+		signin.UnknownCard
+	}
+}

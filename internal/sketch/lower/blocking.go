@@ -30,6 +30,16 @@ const (
 	// the body makes the first member of an auto clock's domain
 	// (testing.NewVirtualClock); the body never waits on it.
 	memberTask
+	// parentTask is the hidden *rt.Task of the invocation environment as
+	// the parent of the task the body starts and the owner it checks
+	// (tasks.Go); the body never waits on it.
+	parentTask
+	// settleWait is the hidden *rt.Task of the invocation environment,
+	// which waits until every other member of a manual clock's domain is
+	// parked (time.Manual's Advance, fua-b). It parks on no primitive of
+	// its own; a stop of the caller ends the wait, and runtime/v1
+	// TestManualAdvanceSettles states its laws.
+	settleWait
 )
 
 type runtimeBinding struct {
@@ -44,12 +54,16 @@ type runtimeBinding struct {
 	// values (runtime.md, G1): it takes the task and reading package as
 	// hidden arguments and never waits.
 	reads bool
+	// task marks a binding that takes the invocation's task to know where
+	// it runs and never waits: actor.NewHost asks whether it runs in a
+	// step of an actor (runtime.md, Machines and actors 16).
+	task bool
 }
 
 // takesCaller reports a binding whose Go body receives the invocation's
 // task as its hidden CallerTask argument.
 func (b runtimeBinding) takesCaller() bool {
-	return b.wait == callerWait || b.wait == childWait || b.wait == memberTask || b.release == callerRelease || b.reads
+	return b.wait == callerWait || b.wait == childWait || b.wait == memberTask || b.wait == parentTask || b.wait == settleWait || b.release == callerRelease || b.reads || b.task
 }
 
 var runtimeBindings = map[string]runtimeBinding{
@@ -75,6 +89,14 @@ var runtimeBindings = map[string]runtimeBinding{
 	"TasksTransform": {wait: childWait},
 	// tasks.Race joins every block's task, the first to end deciding.
 	"TasksRace": {wait: childWait},
+	// tasks.Set (runtime.md, G4): NewSet registers on the frame, as Go
+	// does; tasks.Go starts a member below the caller; Wait joins the
+	// members as their parent, and Stop stops and joins them, uninterruptibly.
+	"TasksNewSet": {},
+	"TasksGo":     {wait: parentTask},
+	"Set.Wait":    {wait: childWait},
+	"Set.Stop":    {wait: childWait},
+	"Set.Len":     {},
 	// The with lifetime owner's scope (with, withClose; resources.md, Context
 	// ownership). None waits, and none is a release route: the release a
 	// with registers is the call of a checked Close, which masks itself
@@ -169,10 +191,13 @@ var runtimeBindings = map[string]runtimeBinding{
 	"TimeTimes":         {},
 	"TimeDivide":        {},
 	"TimeCount":         {},
-	"NewTimeline":       {},
-	"Timeline.Read":     {},
-	"Timeline.Wait":     {wait: callerWait},
-	"Timeline.Advance":  {},
+	// NewTimeline makes the calling task the first member of the manual
+	// clock's domain (fua-b), as NewVirtualTimeline does for an auto one.
+	"NewTimeline":   {wait: memberTask},
+	"Timeline.Read": {},
+	"Timeline.Wait": {wait: callerWait},
+	// Advance waits until the clock's domain settles (fua-b).
+	"Timeline.Advance":  {wait: settleWait},
 	"Timeline.Sleepers": {},
 	// std testing (stdlib.md, Testing): NewVirtualTimeline makes the
 	// calling task the first member of the clock's domain and returns; its
@@ -285,6 +310,50 @@ var runtimeBindings = map[string]runtimeBinding{
 	"IOIsTerminal": {},
 	"IOReadAll":    {wait: callerWait},
 	"IOLines":      {wait: callerWait},
+	// std actor (MU3; runtime.md, Machines and actors 11): MachineSupervise
+	// (MachineStart with a restart budget, MU7)
+	// starts the actor's task as a child of the caller's task (a stop of
+	// the caller cascades into it) and waits for nothing but the child's
+	// start. Send, Ask, State and a Changes loop wait on the caller's task
+	// (for room, an answer or a state); Stop drains the runner
+	// uninterruptibly; Dropped reads a counter; ActorNoTimer returns a
+	// constant.
+	"MachineSupervise": {wait: childWait},
+	"ActorRestarts":    {},
+	"Actor.Send":       {wait: callerWait},
+	"Actor.Ask":        {wait: callerWait},
+	"Actor.State":      {wait: callerWait},
+	"Actor.Changes":    {wait: callerWait},
+	"Actor.Stop":       {wait: drainWait},
+	"Actor.Dropped":    {},
+	"ActorNoTimer":     {},
+	// MU12: Drain waits, as Stop does, for the runner's end, uninterruptibly;
+	// exitKind waits for it on the caller's task; the exit's and the latest
+	// decision's reads take the actor's lock only.
+	"Actor.Drain":    {wait: drainWait},
+	"ActorExitKind":  {wait: callerWait},
+	"ActorFinal":     {},
+	"ActorFailure":   {},
+	"ActorHasLatest": {},
+	"ActorLatest":    {},
+	// MU5: MachineChild starts the child's task as a child of the caller's
+	// task, shielded from its stop (the owner entry stops it), and waits
+	// for nothing but the child's start, as MachineStart does.
+	"MachineChild": {wait: childWait},
+	// MU10: Feed waits, as a Send does, for room for its source's start
+	// on the caller's task; the runner starts the source. The live State
+	// read of Can waits for its answer as State does.
+	"ActorFeed":      {wait: callerWait},
+	"ActorLiveState": {wait: callerWait},
+	// mu-host: NewHost reads its task to find the step it runs in and
+	// never waits; ActorNoHost returns nil; a host's Get waits for the
+	// fill on the caller's task, as State waits for an answer.
+	"NewHost":     {task: true},
+	"ActorNoHost": {},
+	// MU9: keep runs a durable actor's save on the step's task (its
+	// function value takes the task) and never waits by itself.
+	"ActorKeep": {task: true},
+	"Host.Get":  {wait: callerWait},
 	// std exec (std-align S3c; stdlib.md, exec): Run waits for the program
 	// on the caller's task. Its cancel hook is the stop of that task: the
 	// body kills the program's process group and waits for the reap

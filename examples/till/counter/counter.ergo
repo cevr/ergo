@@ -1,0 +1,218 @@
+// Package counter drives the till as an actor from a script of lines and
+// prints what its screen shows.
+//
+// Commands: add ITEM CENTS, pay TENDER..., void, touch, wait (60 s pass on
+// the till's clock). A tender is card:NUMBER:CENTS or voucher:CODE:CENTS.
+
+import actor
+import io
+import machines
+import strconv
+import strings
+import time
+import till/till
+
+// Command is a line of the script.
+type Command = Send{S till.Signal} | Wait{} | Unknown{Line string}
+
+func numeral(s string) Option[int] {
+	let n = strconv.Atoi(s) catch {
+	case strconv.Malformed:
+		return None
+	case strconv.OutOfRange:
+		return None
+	}
+	Some{n}
+}
+
+// tender reads card:NUMBER:CENTS or voucher:CODE:CENTS.
+func tender(word string) Option[till.Tender] {
+	let parts = strings.Split(word, ":")
+	if len(parts) != 3 {
+		return None
+	}
+	match numeral(parts[2]) {
+	case Some[int] as n:
+		match parts[0] {
+		case "card":
+			Some[till.Tender]{till.Card{Number: parts[1], Amount: n.Value}}
+		case "voucher":
+			Some[till.Tender]{till.Voucher{Code: parts[1], Amount: n.Value}}
+		case _:
+			None
+		}
+	case None:
+		None
+	}
+}
+
+// Parse reads a line.
+func Parse(line string) Command {
+	let words = strings.Fields(line)
+	if len(words) == 0 {
+		return Unknown{Line: line}
+	}
+	match words[0] {
+	case "add":
+		if len(words) != 3 {
+			return Unknown{Line: line}
+		}
+		match numeral(words[2]) {
+		case Some[int] as n:
+			Send{S: till.Add{Item: words[1], Price: n.Value}}
+		case None:
+			Unknown{Line: line}
+		}
+	case "pay":
+		let mut tenders = []till.Tender{}
+		for i in 1..len(words) {
+			match tender(words[i]) {
+			case Some[till.Tender] as t:
+				tenders = tenders.Append(t.Value)
+			case None:
+				return Unknown{Line: line}
+			}
+		}
+		Send{S: till.Pay{Tenders: tenders}}
+	case "void":
+		Send{S: till.Void}
+	case "touch":
+		Send{S: till.Touch}
+	case "wait":
+		Wait
+	case _:
+		Unknown{Line: line}
+	}
+}
+
+// Money is cents as d.cc.
+func Money(n int) string {
+	let c = n % 100
+	"\(n / 100).\(if c < 10 { "0" } else { "" })\(c)"
+}
+
+func refs(rs []till.Ref) string {
+	let mut ids = []string{}
+	for r in rs {
+		ids = ids.Append(r.ID)
+	}
+	strings.Join(ids, ", ")
+}
+
+// Show is what the till's screen shows.
+func Show(s till.Sale) string {
+	match s {
+	case till.Basket as b:
+		let note = if b.Note == "" { "" } else { " (\(b.Note))" }
+		"basket: \(len(b.Lines)) items, \(Money(till.Total(b.Lines)))\(note)"
+	case till.Paying as p:
+		"paying \(Money(till.Total(p.Lines))) with \(len(p.Tenders)) tenders"
+	case till.Voiding as v:
+		"refunding \(refs(v.Refs))"
+	case till.Receipt as r:
+		"receipt: \(Money(till.Total(r.Lines))) paid by \(refs(r.Refs))"
+	}
+}
+
+// Told is the line for a result.
+func Told(r till.Result) string {
+	match r {
+	case till.Sold as s:
+		"sold: \(Money(s.Total)) (\(refs(s.Refs)))"
+	case till.Voided:
+		"voided"
+	}
+}
+
+// Ending is the line for the till's exit.
+func Ending(e actor.Exit[till.Sale, till.Result]) string {
+	match e {
+	case actor.Finished[till.Sale, till.Result] as f:
+		Told(f.Output)
+	case actor.Halted[till.Sale] as h:
+		"left at: \(Show(h.State))"
+	case actor.Defected:
+		"defect"
+	}
+}
+
+// busy reports whether the till runs work: a payment or a refund.
+func busy(s till.Sale) bool {
+	match s {
+	case till.Paying:
+		true
+	case till.Voiding:
+		true
+	case till.Basket:
+		false
+	case till.Receipt:
+		false
+	}
+}
+
+func onReceipt(s till.Sale) bool {
+	match s {
+	case till.Receipt:
+		true
+	case _:
+		false
+	}
+}
+
+// Run plays the script on standard input against a till that pays
+// through gateway, on clock.
+func Run(gateway till.Payments, clock time.Manual) needs Console | io.Stdin | Scheduler {
+	let a = actor.StartMachine(machines.Start(till.Till{}, gateway), 8, func(r till.Result) {})
+	Console.Println("screen: \(Show(a.State()))")
+	let mut ended = false
+	for line in io.Stdin.Lines() {
+		Console.Println("> \(line)")
+		if ended {
+			Console.Println("(the sale has ended)")
+			continue
+		}
+		let mut waited = false
+		match Parse(line) {
+		case Unknown as u:
+			Console.Println("? unknown command: \(u.Line)")
+			continue
+		case Wait:
+			// The receipt's timer sleeps from its commit on, so the clock
+			// moves it at once.
+			clock.Advance(60s)
+			waited = true
+		case Send as cmd:
+			let d = a.Ask(cmd.S) catch {
+			case actor.Stopped:
+				ended = true
+				Reject
+			}
+			match d {
+			case Reject:
+				Console.Println("(refused)")
+			case Ignore:
+				Console.Println("(ignored)")
+			case Done[till.Result] as r:
+				Console.Println(Told(r.Output))
+				ended = true
+			case _:
+			}
+		}
+		if ended {
+			continue
+		}
+		// Wait until the till is idle again: the payment runner and its
+		// charges have answered, a refund is done, a waited receipt sold.
+		let s = actor.WaitFor(a, func(s till.Sale) bool { !busy(s) && !(waited && onReceipt(s)) }) catch {
+		case actor.Stopped:
+			Console.Println(Ending(actor.ExitOf(a)))
+			ended = true
+			continue
+		}
+		Console.Println("screen: \(Show(s))")
+	}
+	a.Stop()
+	if !ended {
+		Console.Println(Ending(actor.ExitOf(a)))
+	}
+}

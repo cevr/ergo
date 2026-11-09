@@ -13,7 +13,8 @@ import time
 // until that deadline. Its domain is the task that called NewVirtualClock,
 // from that call on, and every task started below a task of the domain.
 // The waits it sees are a Sleep on it, a queue's Push and Pop, a Task's
-// Wait and Stop, and timeout.After. A wait on anything else (the host's
+// Wait and Stop, timeout.After, and an actor's inbox, Send, Ask, State,
+// Changes, ExitOf and Host.Get. A wait on anything else (the host's
 // input, a file, the host clock, a time.Manual) keeps the time still until
 // it ends. So a test sleeps for hours in no wall time and needs no loop on
 // Sleepers. Every copy of a VirtualClock shares one time. Bind one value

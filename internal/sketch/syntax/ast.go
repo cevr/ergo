@@ -575,7 +575,8 @@ type (
 	}
 
 	// MachineType is `machine[S, E] { initial x; step f }`, with an
-	// optional `after g` entry (the states' timers).
+	// optional `after g` entry (the states' timers) and an optional `work
+	// w` entry (the states' work).
 	MachineType struct {
 		Machine Pos
 		Lbrack  Pos
@@ -588,6 +589,7 @@ type (
 		Initial Expr
 		Step    Expr
 		After   Expr // nil when the machine has no after entry
+		Work    Expr // nil when the machine has no work entry
 	}
 
 	// TupleExpr is a tuple type or value `(A, B)`, or a tuple pattern; a
@@ -603,7 +605,7 @@ type (
 type MachineEntry struct {
 	Doc     *CommentGroup
 	NamePos Pos
-	Name    string // "initial", "step" or "after"
+	Name    string // "initial", "step", "after" or "work"
 	Colon   Pos
 	Value   Expr
 }

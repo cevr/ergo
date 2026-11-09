@@ -1,0 +1,17 @@
+// order-builder is an order builder driven by a script on standard input.
+// This binary is the only place that chooses the providers: the menu,
+// the in-memory kitchen, a manual clock for the actors, and the host's
+// standard input.
+
+import io
+import time
+import orderbuilder/memory
+import orderbuilder/menu
+import orderbuilder/order
+import orderbuilder/screen
+
+func main() needs Console | Ambient {
+	with context { io.Stdin: io.NewHost(), Scheduler: time.NewManual(0), order.Kitchen: memory.Kitchen } {
+		screen.Run(menu.Sample())
+	}
+}

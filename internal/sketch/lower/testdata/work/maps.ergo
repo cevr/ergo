@@ -1,0 +1,98 @@
+import actor
+import time
+import machines
+
+type Phase = Searching{Query string} | Results{Items []string} | Failed{Message string}
+type Signal = Found{Items []string} | Unavailable{} | Typed{Text string}
+
+type Down {}
+
+type Catalog { Search(query string) []string fails Unavailable | Down }
+
+type Fixed { Name string }
+
+func Search(f Fixed, query string) []string fails Unavailable | Down {
+	if query == "down" {
+		return Down
+	}
+	if query == "none" {
+		return Unavailable
+	}
+	[]string{query, f.Name}
+}
+
+func find(s Phase) Option[machines.Work[Signal, Catalog]] {
+	match s {
+	case Searching as q:
+		Some{machines.Work{Run: func() []string fails Unavailable | Down needs Catalog { try Catalog.Search(q.Query) }, OnSuccess: func(items []string) Signal { Found{Items: items} }, OnFailure: func(f) {
+			match f {
+			case Unavailable:
+				Typed{Text: "none"}
+			case Down:
+				Typed{Text: "down"}
+			}
+		}}}
+	case Results:
+		None
+	case Failed:
+		None
+	}
+}
+
+func step(s Phase, e Signal) Decision[Phase, string] {
+	match (s, e) {
+	case (Searching, Found as f):
+		Enter[Phase]{Next: Results{Items: f.Items}}
+	case (Searching, Typed as t):
+		Enter[Phase]{Next: Failed{Message: t.Text}}
+	case (_, _):
+		Ignore
+	}
+}
+
+type Finder machine[Phase, Signal] { initial: start, step: step, work: find }
+
+func start(q string) Phase { Searching{Query: q} }
+
+func show(s Phase) string {
+	match s {
+	case Searching as q:
+		"searching \(q.Query)"
+	case Results as r:
+		"results \(len(r.Items)) \(r.Items[0])"
+	case Failed as f:
+		"failed \(f.Message)"
+	}
+}
+
+// run reads the initial state's work from the Machine value first: when
+// the conversion dropped it, the actor would wait on Changes forever, so
+// the program says so and ends instead.
+func run(q string) string needs Scheduler | Catalog {
+	let m = machines.Start(Finder{}, q)
+	match m.Work(m.Initial) {
+	case None:
+		return "no work"
+	case Some:
+	}
+	let a = actor.StartMachine(m, 1, func(o string) {})
+	let mut last = ""
+	for st in a.Changes() {
+		last = show(st)
+		match st {
+		case Searching:
+		case _:
+			break
+		}
+	}
+	a.Stop()
+	last
+}
+
+func main() needs Console {
+	with context { Scheduler: time.NewManual(0), Catalog: Fixed{Name: "c"} } {
+		Console.Println(run("x"))
+		Console.Println(run("none"))
+		Console.Println(run("down"))
+	}
+}

@@ -1,0 +1,9 @@
+design safe: [ok] (want [ok])
+design noChildGet: [violation] (want [violation])
+design noStoppedGet: [violation] (want [violation])
+design noWaitPublish: [violation] (want [violation])
+design noCarry: [violation] (want [violation])
+publishEarly FillBeforePublish: [violation] (want [violation])
+fillAfterEnd NoFillAfterEnd: [violation] (want [violation])
+getNewer GetSeesItsEntry: [violation] (want [violation])
+MODEL_STATUS=0

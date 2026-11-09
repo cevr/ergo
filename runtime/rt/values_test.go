@@ -14,7 +14,7 @@ func TestValuesComeDownTheAncestry(t *testing.T) {
 	outer := root.WithValue("k", "outer")
 	root.WithValue("k", "shadow")
 	var child Task
-	child.init(root, "child", false)
+	child.init(root, "child", false, false)
 	root.WithValue("late", "x")
 	child.WithValue("own", "c")
 	var got []string

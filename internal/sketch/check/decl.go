@@ -97,6 +97,8 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.checkFrames,
 		c.checkEscapes,
 		c.footprints,
+		// After the footprints: a durable machine's step is pure (MU9).
+		c.checkDurableSteps,
 		// After every body: the first with operand past the with budget,
 		// silent checks included (withbudget.go).
 		c.reportWithBudget,

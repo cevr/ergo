@@ -26,6 +26,7 @@ scripts/gate/tools_linux_test.go	TestGateUnderNohupIgnoresHangup	absence window:
 
 # a window that widens a race a broken runtime loses: the cleanup is slow, so
 # a Wait that does not wait for it sees it unfinished; load only lengthens it
+runtime/v1/actor_host_test.go	hostScript	a pause (100 µs) before the work's fills, so a runner that publishes before the work's first wait shows the entry first; load only lengthens it
 runtime/v1/task_test.go	TestWaitInterrupted	a slow cleanup (5 ms) that Wait must wait for; load only lengthens it
 runtime/v1/task_test.go	TestStop	a slow cleanup (5 ms) that Stop must wait for; load only lengthens it
 runtime/v1/task_test.go	TestFrameReleaseOrder	a slow cleanup (5 ms) whose order the release keeps; load only lengthens it

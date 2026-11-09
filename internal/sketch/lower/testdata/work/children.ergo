@@ -1,0 +1,107 @@
+import actor
+import machines
+import time
+
+// An editor: Type counts an edit, Save gives the count and starts over.
+type Screen = Editing{Name string, Edits int}
+type Edit = Type{} | Save{}
+
+func editStep(s Screen, e Edit) Decision[Screen, int] {
+	match (s, e) {
+	case (Editing as ed, Type):
+		Stay[Screen]{Next: Editing{Name: ed.Name, Edits: ed.Edits + 1}}
+	case (Editing as ed, Save):
+		Emit[Screen, int]{Next: Editing{Name: ed.Name, Edits: 0}, Output: ed.Edits}
+	}
+}
+
+type Editor machine[Screen, Edit] { initial: editing, step: editStep }
+
+func editing(name string) Screen { Editing{Name: name, Edits: 0} }
+
+// A router whose Open entry owns two editors of one machine: two children,
+// kept apart. Their saves come back as Saved signals of the entry.
+type Phase = Open{Saves int, Edits int} | Closed{Saves int, Edits int}
+type Nav = Saved{N int} | Close{}
+
+func routerWork(s Phase) Option[machines.Work[Nav, Scheduler]] {
+	match s {
+	case Open:
+		Some{machines.Work{Listen: func(send func(e Nav)) needs Scheduler {
+			let a = actor.Child(send, machines.Start(Editor{}, "a"), 1, func(n int) Nav { Saved{N: n} })
+			let b = actor.Child(send, machines.Start(Editor{}, "b"), 1, func(n int) Nav { Saved{N: n} })
+			a.Send(Type) catch {
+			case actor.Stopped:
+			}
+			a.Send(Type) catch {
+			case actor.Stopped:
+			}
+			b.Send(Type) catch {
+			case actor.Stopped:
+			}
+			a.Send(Save) catch {
+			case actor.Stopped:
+			}
+			b.Send(Save) catch {
+			case actor.Stopped:
+			}
+		}}}
+	case Closed:
+		None
+	}
+}
+
+func routerStep(s Phase, e Nav) Decision[Phase, string] {
+	match (s, e) {
+	case (Open as o, Saved as sv):
+		Stay[Phase]{Next: Open{Saves: o.Saves + 1, Edits: o.Edits + sv.N}}
+	case (Open as o, Close):
+		Enter[Phase]{Next: Closed{Saves: o.Saves, Edits: o.Edits}}
+	case (Closed, _):
+		Ignore
+	}
+}
+
+type Router machine[Phase, Nav] { initial: Open{Saves: 0, Edits: 0}, step: routerStep, work: routerWork }
+
+func saved(p Phase) bool {
+	match p {
+	case Open as o:
+		o.Saves == 2
+	case Closed:
+		true
+	}
+}
+
+func closed(p Phase) bool {
+	match p {
+	case Open:
+		false
+	case Closed:
+		true
+	}
+}
+
+func run() string fails actor.Stopped needs Scheduler {
+	let r = actor.StartMachine(Router{}, 4, func(o string) {})
+	try actor.WaitFor(r, saved)
+	try r.Send(Close)
+	let end = try actor.WaitFor(r, closed)
+	r.Stop()
+	match end {
+	case Closed as c:
+		"saves \(c.Saves) edits \(c.Edits)"
+	case Open:
+		"open"
+	}
+}
+
+func main() needs Console {
+	with context { Scheduler: time.NewManual(0) } {
+		let text = run() catch {
+		case actor.Stopped:
+			"stopped"
+		}
+		Console.Println(text)
+	}
+}

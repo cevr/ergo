@@ -38,6 +38,16 @@ internal/sketch/lower/std_os_test.go	main needs os.Process, and the host provide
 internal/sketch/check/round11_identity_test.go	func l(fn func() needs Store, gn func() needs Store, hn func() needs Log) {}
 internal/sketch/format/rows_test.go	needs ROW, Put()
 internal/sketch/lower/generic_test.go	func apply[A, E, R](f func(A) A fails E needs R, x A) A fails E needs R {
+internal/sketch/std/actor/actor.ergo	sink func(o O) needs R, recover func() Option[S] fails G needs R, save escaping func
+internal/sketch/std/actor/actor.ergo	save func(prev S, next S, sig E) fails G needs R, prev S
+internal/sketch/std/actor/actor.ergo	fresh func() S fails G needs R, limit int, step
+internal/sketch/std/actor/actor.ergo	sink func(o O) needs R, policy tasks.Restart)
+internal/sketch/std/actor/actor.ergo	sink func(o O) needs R, fresh func() S fails G needs R, limit int)
+internal/sketch/std/actor/actor.ergo	sink func(o O) needs R, policy tasks.Restart, recover escaping func() Option[S] fails G needs R, save escaping func
+internal/sketch/std/actor/actor.ergo	recover func() Option[S] fails G needs R, initial S)
+internal/sketch/std/journal/journal.ergo	step func(s S, e E) Decision[S, O] fails F needs R, s S
+internal/sketch/std/actor/actor.ergo	step func(s S, e E) D fails F needs R, fire func(at S, s S) D fails F needs R, delay func(s S) duration, workOf func(s S) W, hasWork func(w W) bool, work func(w W, send func(e E)) needs R, kind func(d D) int, next func(s S, d D) S, out func(d D) needs R, capacity int
+internal/sketch/std/actor/actor.ergo	step func(s S, e E) D fails F needs R, fire func(at S, s S) D fails F needs R, delay func(s S) duration, workOf func(s S) W, hasWork func(w W) bool, work func(w W, send func(e E)) needs R, kind func(d D) int, next func(s S, d D) S, out func(d D, deliver func(p P)) needs R, capacity int
 
 # the old spelling, named where it is refused: grammar.md rule 9, its diagnostics entry,
 # the parser comment on the parameter case, this check's own doc comment and its host

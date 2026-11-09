@@ -27,6 +27,13 @@ import (
 // flag that a waker clears too eagerly only keeps the clock still, never
 // moves it early; so every waker clears only the waits its event ends.
 //
+// A manual clock (NewManual, time.Manual) has a domain too, but its time
+// moves only by AdvanceSettled: that waits until every member but its
+// caller is parked, fires the earliest due deadline, and waits again, so
+// it returns with every task it woke at its next wait (synctest.Wait's
+// rule). The domain's seen waits are the same for both clocks, so a wait
+// the clock cannot see keeps an AdvanceSettled waiting until it ends.
+//
 // Prior art: Go's testing/synctest moves a bubble's clock when every
 // goroutine of the bubble is durably blocked, which the Go runtime knows
 // and this package learns from its own waits; Tokio's time::pause with
@@ -46,10 +53,26 @@ type member struct {
 type stopSource struct{}
 
 // NewAuto is an auto clock that reads start. t, the calling task, is its
-// first member; a task that was a member of another auto clock leaves it.
+// first member; a task that was a member of another clock's domain leaves
+// it.
 func NewAuto(t *Task, start time.Time) *Virtual {
-	v := NewVirtual(start)
+	v := newDomain(t, start)
 	v.auto = true
+	return v
+}
+
+// NewManual is a manual clock with a domain (time.Manual; fua-b): it reads
+// start and moves only by AdvanceSettled, which waits for the domain to
+// settle, but never on its own. t, the calling task, is its first member,
+// as for NewAuto.
+func NewManual(t *Task, start time.Time) *Virtual {
+	return newDomain(t, start)
+}
+
+// newDomain is a Virtual with a domain whose first member is t.
+func newDomain(t *Task, start time.Time) *Virtual {
+	v := NewVirtual(start)
+	v.domain = true
 	if old := t.member.Load(); old != nil {
 		old.leave()
 	}
@@ -208,6 +231,11 @@ type WakeSource interface {
 // is armed: to the earliest deadline, waking every sleeper of it. v.mu is
 // held.
 func (v *Virtual) idle() {
+	// A Settle looks again: a member parked or left.
+	if v.change != nil {
+		close(v.change)
+		v.change = nil
+	}
 	if !v.auto || v.live == 0 || v.parked < v.live || len(v.timers) == 0 {
 		return
 	}
@@ -251,8 +279,8 @@ var sleepGap func(*Task)
 // of v, and an idle domain wakes it at its deadline. A stop ends the sleep
 // and removes the timer.
 func (v *Virtual) sleep(t *Task, d time.Duration) error {
-	stop := t.Done()
 	if d <= 0 {
+		t.Done()
 		return nil
 	}
 	v.mu.Lock()
@@ -263,9 +291,15 @@ func (v *Virtual) sleep(t *Task, d time.Duration) error {
 	copy(v.timers[i+1:], v.timers[i:])
 	v.timers[i] = tm
 	v.armed.Broadcast()
+	v.mu.Unlock()
+	// Done runs WhenWaiting's hook, so it comes after the timer is armed
+	// (Task.Done), and outside v.mu. A deadline that a move fired in
+	// between is in tm.c, so the sleeper does not park.
+	stop := t.Done()
+	v.mu.Lock()
 	m := t.member.Load()
 	if m != nil && m.v == v {
-		if !(stop != nil && t.stopped.Load()) {
+		if !(stop != nil && t.stopped.Load()) && len(tm.c) == 0 {
 			m.parked, m.stop, m.on = true, stop != nil, [2]any{tm, nil}
 			v.parked++
 		}

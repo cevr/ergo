@@ -170,6 +170,190 @@ law RepeatFollowsDecide(work int, k int, limit int) {
 // binds.
 extern go ergo.local/prototype/runtime/v1.TasksTransform func Transform[A, B, E, R](xs []A, limit int, f func(x A) B fails E needs R) []B fails E needs R
 
+// Closed is the failure of Go on a Set that admits no more tasks: FailFast
+// ended it, or it was stopped. Like queue.Closed, it is a normal end of
+// the protocol, not a stop of the caller.
+type Closed {}
+
+// FailFast is the policy under which the first failure or defect of a
+// member ends the Set: admission closes, the other members are stopped,
+// and Wait gives it.
+type FailFast {}
+
+// LogFailures is the policy under which a member's failure or defect is
+// written to the program's standard error, as main's exit report writes
+// it, and dropped; the Set goes on. A server's handlers use it: one
+// handler's end is not the server's.
+type LogFailures {}
+
+// Restart is the policy under which a member's defect runs its body again,
+// on the same task, up to Limit times for each Go. A typed failure, and
+// the defect after the last restart, end the Set as under FailFast. A
+// negative Limit is a defect.
+type Restart {
+	Limit int,
+}
+
+// Policy is what a member's failure or defect does to its Set. A member
+// stopped by its Set or by its owner has no failure under any policy.
+type Policy = FailFast | LogFailures | Restart
+
+// Set owns any number of tasks, each started by Go and dropped when it
+// ends (docs/spec/runtime.md, G4). The frame that made it owns it, as a
+// frame owns a Task: the frame's end stops every member and waits for
+// it, a return moves the Set to the caller, and no block or other task
+// may hold it. Only the task that made it calls its operations.
+type Set[E] {
+	// Wait waits until no member runs. It fails with the failure that
+	// ended the Set, at this Wait and at each later one, and raises the
+	// defects of members that no Wait or Stop raised yet. A stop of the
+	// caller ends the wait.
+	Wait() fails E,
+	// Stop closes admission, stops every member and waits until each has
+	// ended, its exit actions included. It raises the members' defects
+	// and drops their failures.
+	Stop(),
+	// Len is how many members run now.
+	Len() int,
+
+	// StopEndsEveryMember: after Stop no member runs, and a second Stop
+	// returns and changes nothing.
+	law StopEndsEveryMember() {
+		Stop()
+		Stop()
+		Len() == 0
+	},
+}
+
+// NewSet is an empty Set with the policy p, owned by the calling frame.
+func NewSet[E](p Policy) Set[E] {
+	match p {
+	case FailFast:
+		newSet(0, 0)
+	case LogFailures:
+		newSet(1, 0)
+	case Restart as r:
+		newSet(2, r.Limit)
+	}
+}
+
+extern go ergo.local/prototype/runtime/v1.TasksNewSet func newSet[E](kind int, limit int) Set[E]
+
+// Go starts body as a member of set, on a task of its own below the
+// caller's, and returns at once. The body keeps running after Go returns,
+// so it is escaping. It fails with Closed, and starts nothing, when set
+// admits no more tasks.
+extern go ergo.local/prototype/runtime/v1.TasksGo func Go[E, R](set Set[E], body escaping func() fails E needs R) fails Closed needs R
+
+// lawFailed is the failure of a member in the Set laws.
+type lawFailed {}
+
+// sleepers starts k members of a Set it owns, each counting itself in,
+// counting itself out in an exit action and sleeping an hour, and
+// returns after a second: its frame's end stops them.
+func sleepers(k int, started sync.Ref[int], running sync.Ref[int]) needs Scheduler {
+	let set = NewSet(FailFast)
+	for _ in 0..k {
+		Go(set, func() needs Scheduler {
+			started.Update(func(v int) int { v + 1 })
+			running.Update(func(v int) int { v + 1 })
+			scope.OnExit() { running.Update(func(v int) int { v - 1 }) }
+			Scheduler.Sleep(1h)
+		}) catch {
+		case Closed:
+		}
+	}
+	Scheduler.Sleep(1s)
+}
+
+// NoMemberOutlivesItsFrame: when the function that made a Set returns,
+// every member has ended, its exit actions included, though each would
+// sleep an hour; the return does not wait the hour out.
+law NoMemberOutlivesItsFrame(n int) {
+	let k = limitOf(n)
+	let c = testing.NewVirtualClock(0)
+	let started = sync.NewRef[int](0)
+	let running = sync.NewRef[int](0)
+	with context { Scheduler: c, time.Clock: c } {
+		let start = time.Clock.Now()
+		sleepers(k, started, running)
+		started.Get() == k && running.Get() == 0 && time.Clock.Now().Sub(start) == 1s
+	}
+}
+
+// FinishedAreDropped: a member that ends leaves its Set with no Wait: Len
+// counts the members running, and is 0 once each has ended.
+law FinishedAreDropped(n int) {
+	let k = limitOf(n)
+	let c = testing.NewVirtualClock(0)
+	with context { Scheduler: c, time.Clock: c } {
+		let set = NewSet(FailFast)
+		for i in 0..k {
+			Go(set, func() needs Scheduler { Scheduler.Sleep(duration(int64(i + 1))) }) catch {
+			case Closed:
+			}
+		}
+		let before = set.Len()
+		Scheduler.Sleep(duration(int64(k + 1)))
+		before == k && set.Len() == 0
+	}
+}
+
+// FailFastStopsTheRest: under FailFast, the first failure stops the other
+// members, and Wait fails with it at its instant, not after the others'
+// sleeps; then Go fails Closed.
+law FailFastStopsTheRest(n int) {
+	let k = limitOf(n)
+	let c = testing.NewVirtualClock(0)
+	with context { Scheduler: c, time.Clock: c } {
+		let set = NewSet[lawFailed](FailFast)
+		let start = time.Clock.Now()
+		for _ in 0..k {
+			Go(set, func() needs Scheduler { Scheduler.Sleep(1h) }) catch {
+			case Closed:
+			}
+		}
+		Go(set, func() fails lawFailed needs Scheduler {
+			Scheduler.Sleep(1s)
+			return lawFailed
+		}) catch {
+		case Closed:
+		}
+		set.Wait() catch {
+		case lawFailed:
+			return time.Clock.Now().Sub(start) == 1s && set.Len() == 0 && closedNow(set)
+		}
+		false
+	}
+}
+
+// closedNow reports whether Go on set fails Closed.
+func closedNow(set Set[lawFailed]) bool {
+	Go(set, func() {}) catch {
+	case Closed:
+		return true
+	}
+	false
+}
+
+// RestartRunsAgain: under Restart, a member whose body has a defect runs
+// again, Limit times, and the run after them ends it.
+law RestartRunsAgain(n int) {
+	let limit = limitOf(n) - 1
+	let runs = sync.NewRef[int](0)
+	let set = NewSet(Restart{Limit: limit})
+	Go(set, func() {
+		let r = sync.Modify(runs, func(v int) (int, int) { (v + 1, v + 1) })
+		if r <= limit {
+			Unreachable("a defect the Set restarts")
+		}
+	}) catch {
+	case Closed:
+	}
+	set.Wait()
+	runs.Get() == limit + 1
+}
+
 // limitOf is a limit from 1 to 4, drawn from k.
 func limitOf(k int) int { 1 + (k%4+4)%4 }
 

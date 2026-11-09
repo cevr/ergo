@@ -111,7 +111,7 @@ func TestConcurrentStopAndChildAdmission(t *testing.T) {
 	for range 50 {
 		root := Root("main")
 		parent := &Task{}
-		parent.init(root, "parent", false)
+		parent.init(root, "parent", false, false)
 		start := make(chan struct{})
 		children := make([]*Task, 16)
 		var workers sync.WaitGroup
@@ -119,7 +119,7 @@ func TestConcurrentStopAndChildAdmission(t *testing.T) {
 			workers.Go(func() {
 				<-start
 				children[i] = &Task{}
-				children[i].init(parent, "child", false)
+				children[i].init(parent, "child", false, false)
 			})
 		}
 		for range 4 {
@@ -354,4 +354,23 @@ func TestChildInheritsContextValues(t *testing.T) {
 		t.Fatal("End did not restore the outer values")
 	}
 	_ = endScope(&s)
+}
+
+// TestDoneIsOneChannel: every Done of a task is the one channel its stop
+// closes: the first call, which makes it under the lock, and the later
+// ones, which read it without the lock (MU18), before and after the stop.
+func TestDoneIsOneChannel(t *testing.T) {
+	task := Root("done")
+	first, second := task.Done(), task.Done()
+	if first == nil || second != first {
+		t.Fatalf("Done gave %v, then %v: want one channel", first, second)
+	}
+	task.Interrupt()
+	for i, ch := range []<-chan struct{}{first, second, task.Done()} {
+		select {
+		case <-ch:
+		case <-testwait.After(t):
+			t.Fatalf("Done call %d: its channel did not close at the stop", i+1)
+		}
+	}
 }

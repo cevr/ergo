@@ -750,11 +750,11 @@ func (p *parser) parseMachineType() *MachineType {
 	p.exprLev = 0
 	for p.tok.tok != RBRACE {
 		e := &MachineEntry{Doc: p.leadComment(), NamePos: p.tok.pos}
-		if p.tok.tok != IDENT || p.tok.lit != "initial" && p.tok.lit != "step" && p.tok.lit != "after" {
-			p.errorf("expected initial, step or after, found %s", p.found())
+		if p.tok.tok != IDENT || p.tok.lit != "initial" && p.tok.lit != "step" && p.tok.lit != "after" && p.tok.lit != "work" {
+			p.errorf("expected initial, step, after or work, found %s", p.found())
 		}
 		e.Name = p.tok.lit
-		if e.Name == "initial" && t.Initial != nil || e.Name == "step" && t.Step != nil || e.Name == "after" && t.After != nil {
+		if e.Name == "initial" && t.Initial != nil || e.Name == "step" && t.Step != nil || e.Name == "after" && t.After != nil || e.Name == "work" && t.Work != nil {
 			p.errorf("%s is set twice", e.Name)
 		}
 		p.next()
@@ -765,6 +765,8 @@ func (p *parser) parseMachineType() *MachineType {
 			t.Initial = e.Value
 		case "step":
 			t.Step = e.Value
+		case "work":
+			t.Work = e.Value
 		default:
 			t.After = e.Value
 		}

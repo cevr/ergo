@@ -316,6 +316,9 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		if after := c.machineAfter(v); after != nil {
 			table["After"] = after // else every state has no timer
 		}
+		if work, _ := c.machineWork(v); work != nil {
+			table["Work"] = work // else every state has no work
+		}
 		return assignment{clause: assignMachine, conv: Conversion{Kind: ConvMachine, From: v, To: t, Table: table}}, ""
 	}
 	if it := asInterface(t); it != nil {
