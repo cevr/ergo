@@ -18,8 +18,10 @@ import (
 //     (the generated Go main runs it in the root task's environment), and
 //     it is not a checked Close (a release masks its own body in its task,
 //     release.go);
-//   - its checked signature has no error row, no capability row, no row
-//     or witnessed type parameter, and no Task in its result;
+//   - its checked signature has no error row, no capability row, no
+//     witnessed type parameter, and no Task in its result (a row type
+//     parameter, such as flag.CommandUsage's E, changes nothing: only a
+//     row that holds it, or a call whose row holds it, makes f impure);
 //   - its frame's footprint is empty (Info.Footprints: no capability, no
 //     task start, no opaque call), so it has no interruption point
 //     (runtime.md, I1); and
@@ -137,11 +139,10 @@ func pureCandidate(info *check.Info, f *check.Func) ([]*check.Func, bool) {
 	if len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 || s.ResultIsTask() || info.TaskResults[f] {
 		return nil, false
 	}
-	for _, tp := range s.TParams {
-		if tp.Kind != check.KindType {
-			return nil, false
-		}
-	}
+	// A row type parameter by itself decides nothing: a row of f's own
+	// signature that holds it is not empty (above), and a call through a
+	// value whose row holds it is no pure call (below). So purity follows
+	// what the body does, as for every other function (fu4b).
 	if len(witnessParams(s)) > 0 {
 		return nil, false
 	}
