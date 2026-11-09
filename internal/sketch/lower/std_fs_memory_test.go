@@ -148,17 +148,11 @@ func runLaw(name string, f []string) string needs fs.Files | fs.Writes {
 	}
 }
 
-// Files.ReadIsRepeatable
-func readIsRepeatable(path string) string needs fs.Files {
-	let first = fs.Files.ReadFile(path) catch {
-	case fs.NotFound, fs.Denied, fs.Failed:
-		return "skip"
-	}
-	let second = fs.Files.ReadFile(path) catch {
-	case fs.NotFound, fs.Denied, fs.Failed:
-		return "broken"
-	}
-	verdict(second == first)
+// Files.ReadIsRepeatable: both reads' outcomes, a failure's kind and
+// fields included, as step prints them.
+func readIsRepeatable(path string) string needs fs.Files | fs.Writes {
+	let line = "ReadFile\t" + q(path)
+	verdict(step(line) == step(line))
 }
 
 // Writes.MkdirAllIsIdempotent
@@ -512,7 +506,7 @@ var fsLawStatements = map[string]string{
 	"fstest CopiesShare":             `CopiesShare(path string, text string) { let m = NewMemory() let copy = m copy.MkdirAll(filepath.Dir(path)) catch { case fs.Denied, fs.Failed: return true } copy.WriteFile(path, text) catch { case fs.NotFound, fs.Denied, fs.Failed: return true } try m.ReadFile(path) == text }`,
 	"fstest AppendConcatenates":      `AppendConcatenates(path string, a string, b string) { let m = NewMemory() m.MkdirAll(filepath.Dir(path)) catch { case fs.Denied, fs.Failed: return true } m.WriteFile(path, a) catch { case fs.NotFound, fs.Denied, fs.Failed: return true } try m.AppendFile(path, b) try m.ReadFile(path) == a+b }`,
 	"fstest ModeIsKept":              `ModeIsKept(path string, text string, more string) { let m = NewMemory() m.MkdirAll(filepath.Dir(path)) catch { case fs.Denied, fs.Failed: return true } m.WriteFileMode(path, text, fs.Private()) catch { case fs.NotFound, fs.Denied, fs.Failed: return true } try m.WriteFile(path, more) try m.AppendFile(path, more) let info = try m.Stat(path) info.Perm == fs.Perm(fs.Private()) }`,
-	"fs Files.ReadIsRepeatable":      `ReadIsRepeatable(path string) { let first = ReadFile(path) catch { case NotFound, Denied, Failed: return true } try ReadFile(path) == first }`,
+	"fs Files.ReadIsRepeatable":      `ReadIsRepeatable(path string) { let first = ReadFile(path) catch { case NotFound as e: let _ = ReadFile(path) catch { case NotFound as again: return again == e case Denied, Failed: return false } return false case Denied as e: let _ = ReadFile(path) catch { case Denied as again: return again == e case NotFound, Failed: return false } return false case Failed as e: let _ = ReadFile(path) catch { case Failed as again: return again == e case NotFound, Denied: return false } return false } try ReadFile(path) == first }`,
 	"fs Writes.MkdirAllIsIdempotent": `MkdirAllIsIdempotent(path string) { MkdirAll(path) catch { case Denied, Failed: return true } try MkdirAll(path) true }`,
 	"fs Writes.RemoveThenNotFound":   `RemoveThenNotFound(path string) { Remove(path) catch { case NotFound, Denied, Failed: return true } Remove(path) catch { case NotFound: return true case Denied, Failed: return false } false }`,
 	"fs Writes.RenameMoves":          `RenameMoves(from string, to string, text string) { if from == to { return true } WriteFile(from, text) catch { case NotFound, Denied, Failed: return true } Remove(to) catch { case NotFound: case Denied, Failed: return true } Rename(from, to) catch { case NotFound, Denied, Failed: return true } Rename(from, to) catch { case NotFound: return true case Denied, Failed: return false } false }`,

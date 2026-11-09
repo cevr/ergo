@@ -87,13 +87,38 @@ type Files {
 	ReadDir(path string) []string fails NotFound | Denied | Failed,
 	Stat(path string) Info fails NotFound | Denied | Failed,
 
-	// ReadIsRepeatable: with no writer, a path read once is read again
-	// with the same text. A first read that fails holds it vacuously: an
-	// escaping failure refutes a law, and a missing path fails both reads.
+	// ReadIsRepeatable: with no writer, two reads of one path agree: both
+	// give the same text, or both fail with the same failure, its kind and
+	// its fields. A second read that fails after a first that succeeds
+	// escapes, and an escaping failure refutes a law. The law is written
+	// out by kind: a law runs in the package that sees its providers, so
+	// it can call no helper of fs's own.
 	law ReadIsRepeatable(path string) {
 		let first = ReadFile(path) catch {
-		case NotFound, Denied, Failed:
-			return true
+		case NotFound as e:
+			let _ = ReadFile(path) catch {
+			case NotFound as again:
+				return again == e
+			case Denied, Failed:
+				return false
+			}
+			return false
+		case Denied as e:
+			let _ = ReadFile(path) catch {
+			case Denied as again:
+				return again == e
+			case NotFound, Failed:
+				return false
+			}
+			return false
+		case Failed as e:
+			let _ = ReadFile(path) catch {
+			case Failed as again:
+				return again == e
+			case NotFound, Denied:
+				return false
+			}
+			return false
 		}
 		try ReadFile(path) == first
 	},
