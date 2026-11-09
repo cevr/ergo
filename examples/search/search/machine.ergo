@@ -274,11 +274,105 @@ func Step(s Search, sig Signal) Decision[Search, Output] fails NoSuchHit {
 
 // Finder is the search as a machine: its input is the cart it begins
 // with, its timer is the pause after a key, and its work, which Drive
-// runs, is Work.
+// runs, is Work. Its laws follow (MU6): a state and a signal hold
+// strings and slices, which cannot be listed, so ergo test samples the
+// laws with a body (types.md Laws 10), and Searches is proved by a
+// generated run that is a witness. The laws over a driven search need a
+// Catalog and a Cart, so they stand in memory/laws.ergo, beside the
+// providers.
 type Finder machine[Search, Signal] {
 	initial: Start,
 	step:    Step,
 	after:   Timer,
+
+	// Searches: a key and then the pause start a search.
+	law Searches reaches Searching,
+
+	// ResultsNeedWork: a result of work (Found, IndexFailed, Added, Full)
+	// moves only a state that has work. The runner sends a result only to
+	// the entry that started the work (rule 6), and the step does not
+	// trust that: in any other state it is Ignore.
+	law ResultsNeedWork(s Search, sig Signal) {
+		let result = match sig {
+		case Found:
+			true
+		case IndexFailed:
+			true
+		case Added:
+			true
+		case Full:
+			true
+		case Key:
+			false
+		case Clear:
+			false
+		case Choose:
+			false
+		case Back:
+			false
+		case Checkout:
+			false
+		case Paused:
+			false
+		}
+		let idle = match Work(s) {
+		case None:
+			true
+		case Some[Job]:
+			false
+		}
+		if !result || !idle {
+			return true
+		}
+		let d = Step(s, sig) catch {
+		case NoSuchHit:
+			return false
+		}
+		match d {
+		case Ignore:
+			true
+		case Enter[Search]:
+			false
+		case Stay[Search]:
+			false
+		case Emit[Search, Output]:
+			false
+		case Reject:
+			false
+		case Done[Output]:
+			false
+		}
+	},
+
+	// CheckoutEnds: Checkout ends the run from every state, with the
+	// order of the whole cart.
+	law CheckoutEnds(s Search) {
+		let d = Step(s, Checkout) catch {
+		case NoSuchHit:
+			return false
+		}
+		match d {
+		case Done[Output] as o:
+			match o.Output {
+			case Order as order:
+				len(order.Items) == len(CartOf(s))
+			case Shown:
+				false
+			case Put:
+				false
+			}
+		case Ignore:
+			false
+		case Enter[Search]:
+			false
+		case Stay[Search]:
+			false
+		case Emit[Search, Output]:
+			false
+		case Reject:
+			false
+		}
+	},
 }
 
 // Name is the word of a state.

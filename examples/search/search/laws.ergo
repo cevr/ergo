@@ -2,8 +2,9 @@
 // virtual clock with the Typical costs. Each needs the Catalog and the
 // Cart, so each is a function here, and package memory states it as a law
 // over its providers: a law needs no service, and ergo test does not run
-// a law of this package against a provider of another (G-ma-2). Machines
-// carry no laws yet (M55). Each law draws its key times from integers.
+// a law of this package against a provider of another (G-ma-2). The laws
+// that need no provider are members of Finder (machine.ergo). Each law
+// draws its key times from integers.
 
 import machines
 import strings

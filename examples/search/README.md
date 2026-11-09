@@ -38,11 +38,13 @@ The program is a module of packages (`ergo.mod`: `module search`), in the Go lay
 - **Input-initial (V4).** The machine's input is the cart it begins with: `machines.Start(Finder{}, []Item{})`.
 - **Exhaustive `match`.** `Step` names all ten signals, and each arm whose answer depends on the state names all six states. A result in a state that has no work is `Ignore`. The only `case _` arm is over a script word.
 - **Typed failures.** `IndexDown`, `CartFull`, `NoSuchHit` (a step failure: the runner shows it and keeps the state) and `BadLine`.
-- **Laws.** Four laws over the machine, run by `Drive` on the virtual clock, with key times drawn from integers:
-  - `HitsForLatestQuery`: once the keys stop, the hits shown are those of the whole text typed;
-  - `AtMostOneSearch`: two searches never run at once;
-  - `NoStaleHits`: every show has the hits of its own query, and no result of an ended entry reaches the step (half the gaps put a key at the instant a search ends);
-  - `DebounceCoalesces`: keys each within 250ms of the one before give one search.
+- **Laws.** No law of this program is proved: a search state and a signal hold strings and slices, and a time is an integer, none of which can be listed, so `ergo test` samples each law (types.md Laws 10).
+  - `Finder` declares three laws after its entries (MU6, `machine.ergo`), run by `ergo test search`: `law Searches reaches Searching` (a key and then the pause start a search; proved by the generated run that is its witness), `ResultsNeedWork` (a result of work moves only a state that has work, so the step does not trust the runner's rule 6) and `CheckoutEnds` (Checkout ends the run from every state with the whole cart), each sampled over 100 generated cases.
+  - Four laws over a driven search stand in `memory/laws.ergo`, since they need the providers. They run by `Drive` on the virtual clock, with key times drawn from integers, 100 cases each:
+    - `HitsForLatestQuery`: once the keys stop, the hits shown are those of the whole text typed;
+    - `AtMostOneSearch`: two searches never run at once;
+    - `NoStaleHits`: every show has the hits of its own query, and no result of an ended entry reaches the step (half the gaps put a key at the instant a search ends);
+    - `DebounceCoalesces`: keys each within 250ms of the one before give one search.
 
   The contracts have three member laws: `Catalog.FindIsSubset` (every hit is in the catalogue and holds the query), `Catalog.FindIsStable` (the hits keep the catalogue's order) and `Cart.AddAddsOne` (an add puts one item at the end, or fails `CartFull` exactly when the cart is full). A provider has no state (M23), so the same query always gets the same answer; order is the stability that a provider can break.
 - **Tests.** The laws are the tests. `memory/tests.ergo` calls the three contract laws (G-ma-2) and has one scripted run, `SearchRun`.
@@ -52,8 +54,8 @@ The program is a module of packages (`ergo.mod`: `module search`), in the Go lay
 - **No state-owned work (M45; MU4).** `Drive` is a runner written by hand: `drive.ergo` is about 240 lines (measured: 261 with `Said`) that a `work` member of the machine and a live runner would replace. It runs on a virtual clock, and the job calls its provider when it starts, so the program is a replay, not a live search (MU3, #57).
 - **The entry epoch is kept by hand (M46).** `Drive` keeps the counter and drops stale results. `machines.RunTimed` drops a stale timer, but it has no work, so it cannot run this machine.
 - **No observation of a running machine (M50).** The timeline comes from the lines that `Drive` writes, not from a subscription to the machine.
-- **Machine laws need a provider (M55, G-ma-2).** The machine's rules need `Catalog` and `Cart`, and a law needs no service. So each rule is a function of `search`, and `memory` states it as a law with a `with` of its own providers. The contract laws are functions too, as in keypad.
-- **G-ma-1**, as in keypad: package `search` declares no test, so the examples runner does not run it. Its laws only skip there (G-ma-2).
+- **A driven machine law needs a provider (G-ma-2).** The laws over a driven search need `Catalog` and `Cart`, and a law needs no service. So each is a function of `search`, and `memory` states it as a law with a `with` of its own providers; only the laws over one step or one run of `Step` are members of `Finder`. The contract laws are functions too, as in keypad.
+- **G-ma-1**, as in keypad: package `search` declares no test, so the examples runner does not run it, and `Finder`'s laws run only under `ergo test search`.
 - **No `==` on slices (M29).** `Names` turns items into one text to compare.
 - **No duration × int (M24).** A millisecond is `duration(int64(n) * 1000000)`.
 
