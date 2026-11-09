@@ -134,6 +134,9 @@ func (x *exportTable) lookup(t *testing.T, imports []string) (map[string]string,
 	return x.files, nil
 }
 
+// list runs one go list -export -deps of the runtime packages in paths.
+// It builds Go because go/types needs the runtime's export data, and only
+// the go command writes it (once per test process).
 func (x *exportTable) list(t *testing.T, paths []string) error {
 	root := t.TempDir()
 	write := func(rel string, data []byte) error {
@@ -253,7 +256,8 @@ func TestTypecheckAgreesWithGc(t *testing.T) {
 
 // gcRejects compiles the programs with gc in one go command (go build of
 // many packages discards the result, and it runs no vet) and returns the
-// programs it rejects.
+// programs it rejects. It builds Go because it is the full tier's check
+// that gc agrees with go/types on the emitted Go.
 func gcRejects(t *testing.T, programs []*lowered) (map[string]bool, string) {
 	t.Helper()
 	root := t.TempDir()

@@ -18,6 +18,8 @@ const guardProbeVariable = "ERGO_TEST_GUARD_PROBE"
 
 // TestFastTierGuardProbe calls one helper that builds or runs Go, named by
 // guardProbeVariable, with no needsBuild first; otherwise it does nothing.
+// It builds Go because the probe must reach the real build helpers, so the
+// guard is seen to stop them.
 func TestFastTierGuardProbe(t *testing.T) {
 	switch os.Getenv(guardProbeVariable) {
 	case "":

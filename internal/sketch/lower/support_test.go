@@ -177,7 +177,8 @@ func (m *goModuleDir) program(p *lowered, src string) {
 // goCommand runs go with args in the module. -trimpath (in args) keeps the
 // module's temporary directory out of the compiled runtime packages, so
 // each module reuses the build cache's runtime instead of compiling it
-// again (gate-fast plan section 4).
+// again (gate-fast plan section 4). It builds Go because it is buildAll's
+// one go command: a test that runs a program needs a real binary.
 func (m *goModuleDir) goCommand(args ...string) (string, bool) {
 	cmd := exec.Command("go", args...)
 	cmd.Dir = m.root

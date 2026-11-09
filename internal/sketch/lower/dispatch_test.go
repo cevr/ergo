@@ -19,9 +19,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"ergo.local/prototype/internal/proclimit"
+	"ergo.local/prototype/internal/testwait"
 )
 
 // The dispatcher (test-speed plan T2): buildAll links the programs of one
@@ -259,7 +259,7 @@ func TestDispatchAgreesWithSeparate(t *testing.T) {
 // exit code, stdout and stderr as one comparable string.
 func dispatchRun(t *testing.T, exe string, args []string) string {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := testwait.Context(t, context.Background())
 	defer cancel()
 	cmd := exec.CommandContext(ctx, exe, args...)
 	cmd.Stdin = bytes.NewReader(nil)

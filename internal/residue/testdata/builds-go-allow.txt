@@ -94,4 +94,32 @@ internal/sketch/lower/std_rand_test.go	TestRandEffectCases	existing build at T7:
 internal/sketch/lower/std_slices_test.go	TestStdSlicesEffectCases	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_text2_test.go	TestStdTextRuns2	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_time_test.go	TestTimeEffectCases	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/support_test.go	buildAll	the build helper the rule names: T2 (ts-one-binary) replaces it with the one-binary helper
+internal/sketch/lower/assert_values_test.go	TestAssertLiteralsReadBack	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/assert_values_test.go	TestAssertShowsValues	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/eq_structural_test.go	TestEqualStructuralAgrees	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/extern_error_row_test.go	TestExternErrorRowRuns	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/extern_values_test.go	TestExternValuesRun	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/generators_test.go	TestGeneratorSizeBoundsNesting	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/generators_test.go	TestGeneratorsReachEveryClass	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/getmatch_test.go	TestGetMatchAgrees	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/getmatch_test.go	TestGetMatchEmits	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/header_literal_test.go	TestHeaderLiteralAgrees	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/law_run_test.go	TestLawRunB13	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/law_run_test.go	TestLawRunDefinedBool	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/law_run_test.go	TestLawRunFindsTheBrokenProvider	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/law_run_test.go	TestLawRunNoParams	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/law_run_test.go	TestLawRunSkips	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/machine_run_test.go	TestMachineRunAgreesWithFold	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/program_memory_test.go	TestRunProgramBoundsAGrowingProgram	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/pure_prelude_test.go	TestPurePreludeAgrees	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/pure_prelude_test.go	TestPurePreludeEmits	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/std_digest_test.go	TestStdDigestRuns	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/std_fs_memory_test.go	TestFSMemoryAgreesWithHost	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/std_fs_safe_test.go	TestFSSafeRuns	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/std_sync_test.go	TestIORecorderBehavesAsBefore	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/std_time_civil_test.go	TestTimeCivilMatchesGo	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/unreachable_run_test.go	TestErgoRunUnreachable	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/values_probe_test.go	TestValueRuleProbes	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/values_property_test.go	TestValueRuleAgrees	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/values_test.go	TestValueRuleMutants	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
+internal/sketch/lower/values_test.go	TestValueRuleRace	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
