@@ -221,9 +221,13 @@ type lowerer struct {
 	// inits is the Go code of each package-level initializer, by its
 	// value, which initFunc runs in Info.InitOrder (review m1).
 	inits map[syntax.Expr]string
-	// machineInits are the initial values of the package's machines, in
-	// declaration order, which initFunc runs after every let (machine.go).
-	machineInits []syntax.Expr
+	// machineInits are the initial values of the sourced packages'
+	// machines, in the order they were lowered; initFunc runs them after
+	// every let, in package initialization order (machine.go).
+	machineInits []machineInitial
+	// entryInits records that the entry calls ergoInit; program checks it
+	// against hasInits once every declaration is lowered (F13).
+	entryInits bool
 	// flatRuns are the flat runs of the machines, by machine, made at
 	// their first run (machinerun.go); nil for one whose step takes none.
 	flatRuns map[*check.TypeName]*flatRun
@@ -391,10 +395,23 @@ func (l *lowerer) program() ([]byte, error) {
 	l.nameAll()
 	main := l.mainFunc()
 	l.eachDecl(l.pkg, l.decl)
+	// Every initializer of every sourced package is lowered here, before
+	// the entry decides whether it calls ergoInit: a library's lets, and
+	// its machines' initial values (F13). A library's other declarations
+	// are lowered where they are used.
 	for _, p := range l.sourcedLibs() {
 		l.eachDecl(p, func(d syntax.Decl) {
-			if vd, ok := d.(*syntax.VarDecl); ok {
-				l.packageLet(vd)
+			switch d := d.(type) {
+			case *syntax.VarDecl:
+				l.packageLet(d)
+			case *syntax.TypeDecl:
+				if _, ok := d.Spec.(*syntax.MachineType); ok {
+					tn, ok := p.Info.Defs[d.Name].(*check.TypeName)
+					if !ok {
+						ice(d.Name, "the type %s has no Defs entry", d.Name.Name)
+					}
+					l.emitType(l.useType(l.typeDecl(tn, d.Name)))
+				}
 			}
 		})
 	}
@@ -418,6 +435,11 @@ func (l *lowerer) program() ([]byte, error) {
 	}
 	if len(l.flatBails) > 0 {
 		return l.lowerAgain()
+	}
+	if l.hasInits() && !l.entryInits && (l.tests != nil || (!l.noEntry && main != nil)) {
+		// An initializer lowered after the entry was written would never
+		// run: a value would start as Go's zero value (F13).
+		l.guard(func() { ice(l.file, "a package initializer was lowered after the entry, which does not call ergoInit") })
 	}
 	if len(l.refusals) > 0 {
 		return nil, &Refused{Refusals: sortedRefusals(l.refusals)}
@@ -608,6 +630,7 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 	b.WriteString("\t\t" + env + " := &" + l.env() + "{" + strings.Join(fields, ", ") + "}\n")
 	if l.hasInits() {
 		// The package-level lets run first, in the root task (review m1).
+		l.entryInits = true
 		b.WriteString("\t\t" + l.pkgName(pkgKey{"init", nil}, "ergoInit") + "(" + env + ")\n")
 	}
 	if fd.fallible {

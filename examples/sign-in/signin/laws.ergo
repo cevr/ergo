@@ -2,6 +2,7 @@
 // top-level laws over the step (machine laws, MU6, are not on this base);
 // ergo test runs them.
 
+import slices
 import signin/pad
 
 // methodsOf reads a generated number as the methods on.
@@ -99,8 +100,8 @@ func enters(d Decision[Flow, Result]) Option[Flow] {
 }
 
 // fold steps s over the signals as the actor would, with the work's
-// results given as signals; it stops at Done. (machines.Run needs the
-// work's Codes row although it never runs work: finding F1.)
+// results given as signals; it stops at Done. A Reject keeps the state,
+// as the live actor does; machines.Run would fail Rejected there.
 func fold(s Flow, signals []Signal) (Flow, Option[Result]) {
 	let mut at = s
 	for e in signals {
@@ -200,15 +201,6 @@ law ScanSkipsPhone(n int, digits []int, card string) {
 	!Waits(s) || !methodsIn(s).Card || enters(Step(s, Scanned{Card: card})) == Some[Flow]{Verifying{On: methodsIn(s), Via: ByCard{Card: card}}}
 }
 
-// then is xs and then ys.
-func then(xs []Signal, ys []Signal) []Signal {
-	let mut out = xs
-	for y in ys {
-		out = out.Append(y)
-	}
-	out
-}
-
 // presses is n digit presses, from digits and then 1s.
 func presses(n int, digits []int) []Signal {
 	let mut out = []Signal{}
@@ -220,7 +212,8 @@ func presses(n int, digits []int) []Signal {
 }
 
 // wrongCode is the WrongCode signal as a value: WrongCode is also a
-// failure type, and a failure type's value at a tail fails (finding F3).
+// failure type, and a failure type's value that ends a function fails
+// (rows.md, Tail results 3), so it is bound as a Signal first.
 func wrongCode() Signal {
 	let w Signal = WrongCode
 	w
@@ -229,13 +222,13 @@ func wrongCode() Signal {
 // ThreeStrikes: three wrong codes for one phone lock it; two do not.
 law ThreeStrikes(n int, phone []int, code []int) {
 	let on = Methods{Phone: true, Card: n%2 == 0}
-	let attempt = then(presses(CodeDigits(), code), []Signal{Submit, wrongCode()})
-	let mut script = then(then([]Signal{UsePhone}, presses(PhoneDigits(), phone)), []Signal{Submit, CodeSent})
+	let attempt = slices.Concat(presses(CodeDigits(), code), []Signal{Submit, wrongCode()})
+	let mut script = slices.Concat(slices.Concat([]Signal{UsePhone}, presses(PhoneDigits(), phone)), []Signal{Submit, CodeSent})
 	for _ in 0..MaxTries()-1 {
-		script = then(script, attempt)
+		script = slices.Concat(script, attempt)
 	}
 	let _, early = fold(Start(on), script)
-	let _, end = fold(Start(on), then(script, attempt))
+	let _, end = fold(Start(on), slices.Concat(script, attempt))
 	match (early, end) {
 	case (None, Some[Result] as r):
 		match r.Value {

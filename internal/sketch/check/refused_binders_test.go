@@ -58,8 +58,8 @@ func TestRefusedBinderCases(t *testing.T) {
 		// A refused type a cycle reaches before its refusal adds nothing
 		// as a machine's state, in either declaration order (FuzzCheck
 		// seed b7fef5a76c229eda).
-		{"tbad-machine-cycle", "func A() {}\ntype e = d\ntype r machine[e,A]{initial: 0,\nstep: 0}\ntype d {A(r)}\n", []string{"S108@2:10", "S108@3:18", "S108@4:7"}},
-		{"tbad-machine-cycle-permuted", "type d {A(r)}\ntype r machine[e,A]{initial: 0,\nstep: 0}\ntype e = d\nfunc A() {}\n", []string{"S108@2:18", "S108@3:7", "S108@4:10"}},
+		{"tbad-machine-cycle", "func A() {}\ntype e = d\ntype r machine[e,A]{initial: 0,\nstep: 0}\ntype d {A(r)}\n", []string{"S108@3:16", "S108@3:18", "S108@4:7"}},
+		{"tbad-machine-cycle-permuted", "type d {A(r)}\ntype r machine[e,A]{initial: 0,\nstep: 0}\ntype e = d\nfunc A() {}\n", []string{"S108@2:16", "S108@2:18", "S108@3:7"}},
 		{"defined-machine-cycle", "func A() {}\ntype e d\ntype r machine[e,A]{initial: 0,\nstep: 0}\ntype d {A(r)}\n", []string{"S108@2:8", "S108@3:18", "S108@4:7"}},
 		// An imported package as a catch rest: one S108, the import used.
 		{"catch-import", "import trace\n\ntype E {}\n\nfunc n(v int) int fails E { v }\n\nfunc host(v int) int {\n\tn(v) catch {\n\tcase trace:\n\t\t0\n\t}\n}\n", []string{"S108@9:7"}},

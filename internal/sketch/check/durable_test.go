@@ -99,7 +99,7 @@ func TestDurableStepIsPure(t *testing.T) {
 		},
 		{
 			name: "generic step impure", step: pureStep, helpers: "\ntype Loud {}\n\nfunc loudStep[S, E](s S, e E) Decision[S, int] fails Loud needs Console {\n\tConsole.Println(\"x\")\n\tIgnore\n}\n",
-			call: "journal.Start(Machine[State, Signal, int, Loud, Console]{Initial: Idle, Step: loudStep[State, Signal], After: func(s State) Option[Timeout[Signal]] { None }, Work: func(s State) Option[func(send func(e Signal)) needs Console] { None }}, j, 2, 1, func(o int) {})",
+			call: "journal.Start(Machine[State, Signal, int, Loud, Console, Console]{Initial: Idle, Step: loudStep[State, Signal], After: func(s State) Option[Timeout[Signal]] { None }, Work: func(s State) Option[func(send func(e Signal)) needs Console] { None }}, j, 2, 1, func(o int) {})",
 			want: "step loudStep calls the capability operation Console.Println",
 		},
 		{

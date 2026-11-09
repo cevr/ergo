@@ -9,7 +9,7 @@ Tag: `default`. It is an original program, a neutral re-creation of a common ord
 - `ergo.mod`: `module orderbuilder`.
 - `order/`: the domain.
   - `editor.ergo`: the `Editor` machine (`Choosing | Picking | Nested`); its `Nested` state's work starts a child `Editor` for the chosen item.
-  - `hub.ergo`: the `Builder` machine. Its state is a record, `Shop{Menu, Basket, Screen}`, whose `Screen` (`Browsing | Searching | Editing`) is a region of the state; `Editing`'s work starts the item's `Editor`.
+  - `hub.ergo`: the `Builder` machine. Its state is the record `Hub{Menu, Basket, Screen}`, whose `Screen` (`Browsing | Searching | Editing`) is a region of the state; `Editing`'s work starts the item's `Editor`.
   - `kitchen.ergo`: the contract `Kitchen` with its law `TicketCountsEveryLine`.
   - `laws.ergo`: the hub's and the editor's rules as laws.
 - `menu/`: the menu, as data.
@@ -64,8 +64,7 @@ effect-machine would host the editor with `.spawn(State.Editing, ({ self }) => s
 
 Where Ergo could not improve:
 
-- **The hub's state is a one-variant union.** A machine's state must be a union, so the record `Shop{Menu, Basket, Screen}` is a union of one variant, and the step unwraps it (finding F10).
-- **The address type is long.** `actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]` is written in several places, and `actor.NewHost` needs it written as a type argument (a call infers no type argument from its expected type); there is no type alias (`type X = …` is a union).
+- **A host names its address type.** `actor.NewHost[EditActor]()` writes the address type as a type argument, because a call infers no type argument from its expected type. The alias `EditActor` (F11) keeps it short.
 
 ## Benchmark
 
@@ -73,5 +72,6 @@ No em-parity §3 scenario is this program's own; its costs are a child start per
 
 ## Limits found
 
-- **F10** A machine's state must be a union: a record state with a region field needs a one-variant union and an unwrapping step.
+- **F10** (fixed, fu-mb2) A machine's state had to be a union, so the record state needed a one-variant union and an unwrapping step. A record is now a union of one variant wherever a machine asks for a union.
+- **F11** (fixed, fu-mb2) The address type `actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]` was written nine times: Ergo had no type alias. A union whose only variant is an existing type is now that type, so `type EditActor = actor.Actor[…]` names it once.
 - **F4**, **F7** as in sign-in.

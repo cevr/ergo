@@ -26,8 +26,10 @@ import (
 // stored like any record value. Initial returns the value the initializer
 // computed once. The initial value is checked as a package let is (in a
 // closed context: no failure, no capability), and it runs in the program's
-// initializer inside the root task, after every package let, in
-// declaration order: no let can read a machine's initial value, so this is
+// initializer inside the root task, after every package let, package by
+// package in initialization order and each package's in declaration order
+// (a library's machines are lowered with its lets, program in module.go):
+// no let can read a machine's initial value, so this is
 // an initialization order, and a defect in it is reported at start, as a
 // let's is, even when nothing uses the machine.
 //
@@ -125,11 +127,18 @@ func (l *lowerer) machinePlan(b *strings.Builder, td *typeDecl) {
 		}
 		scope := newNamer(l.names)
 		s, e := scope.alloc("s"), scope.alloc("e")
+		// A step over a record state lowers to a Go method of the record
+		// (methodReceiver), so the state is its receiver (fu-mb2 F10).
+		call := func(lead []string) string {
+			if fd.method != nil {
+				return "(" + s + ")." + fd.name + "(" + strings.Join(append(lead, e), ", ") + ")"
+			}
+			return fd.name + "(" + strings.Join(append(lead, s, e), ", ") + ")"
+		}
 		if machinePure(m.step, fd, site) {
 			// A pure step function takes no environment (pure.go); another
 			// step that reads none is passed nil.
-			args := strings.Join(append(fd.envLead("nil"), s, e), ", ")
-			b.WriteString("func (" + td.name + ") Step(" + s + " " + state + ", " + e + " " + signal + ") " + result + " {\n\treturn " + fd.name + "(" + args + ")\n}\n\n")
+			b.WriteString("func (" + td.name + ") Step(" + s + " " + state + ", " + e + " " + signal + ") " + result + " {\n\treturn " + call(fd.envLead("nil")) + "\n}\n\n")
 			return
 		}
 		env := scope.alloc("env")
@@ -137,7 +146,7 @@ func (l *lowerer) machinePlan(b *strings.Builder, td *typeDecl) {
 		if fd.fallible {
 			results = "(" + result + ", error)"
 		}
-		b.WriteString("func (" + td.name + ") Step(" + env + " *" + l.env() + ", " + s + " " + state + ", " + e + " " + signal + ") " + results + " {\n\treturn " + fd.name + "(" + env + ", " + s + ", " + e + ")\n}\n\n")
+		b.WriteString("func (" + td.name + ") Step(" + env + " *" + l.env() + ", " + s + " " + state + ", " + e + " " + signal + ") " + results + " {\n\treturn " + call([]string{env}) + "\n}\n\n")
 	})
 	if m.start == nil {
 		l.machineInit(td, initial)
@@ -381,5 +390,11 @@ func (l *lowerer) machineInit(td *typeDecl, initial string) {
 	l.analyzeValues(x, l.info)
 	val := fc.assigned(x)
 	l.addInit(x, x, fc.out.String(), []string{initial + " = " + val})
-	l.machineInits = append(l.machineInits, x)
+	l.machineInits = append(l.machineInits, machineInitial{pkg: td.tn.Pkg, x: x})
+}
+
+// machineInitial is a machine's initial value and the package it is declared in.
+type machineInitial struct {
+	pkg *check.Package
+	x   syntax.Expr
 }

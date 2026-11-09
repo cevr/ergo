@@ -79,9 +79,8 @@ No em-parity §3 scenario is this program's own: the costs it exercises (an `Ask
 
 ## Limits found
 
-- **F1** `machines.Run` of a machine with work needs the work's row (`Codes`) although a fold never runs work, so the laws fold the step by hand (`fold`).
-- **F3** A type that is a failure and also a variant of the signal union cannot be a tail value: `WrongCode` at a tail is a failure (rows.md, Tail results). The laws write `let w Signal = WrongCode` first.
+- **F3** (a rule, not a gap) A type that is a failure and also a variant of the signal union fails when its value ends a function (rows.md, Tail results 3). The checker now reports that at the value, with both spellings (S101); the laws write `let w Signal = WrongCode` first, the value spelling.
 - **F4** A law of an imported operation type is not run against this package's providers, so `memory/tests.ergo` restates the `Codes` laws as properties.
 - **F5** (closed by MU10) The card reader is an `actor.Feed` source now.
 - **MB2-G1** A fed value has no answer: a driver that must see its effect waits on a beep the source gives after each `send`, then on `State`.
-- **F6** `[]T` has `Append` only; the laws write a `then` helper to join two slices.
+- **F6** (fixed, fu-mb2) `[]T` had `Append` only, so the laws wrote a `then` helper to join two slices. They now call `slices.Concat`, which never shares an array with its arguments.

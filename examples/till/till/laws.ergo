@@ -3,18 +3,13 @@
 // children stop before the next entry; a late output is dropped) are the
 // runner's rules, proved by MU5's model and test; the cases run them.
 
-// refusing is a gateway for the laws: it refuses every charge. The
-// Payments laws run against it too.
+// refusing is a gateway that refuses every charge: the Payments laws run
+// against it.
 type refusing {}
 
 func Charge(_ refusing, t Tender) Ref fails Refused { Refused{Why: "no"} }
 
 func Refund(_ refusing, r Ref) int { r.Amount }
-
-func gateway() Payments {
-	let g Payments = refusing
-	g
-}
 
 // cents is n cut to 0..9999 (also for the least int, whose negation is
 // itself).
@@ -67,11 +62,11 @@ func sample(n int, prices []int, amounts []int, text string) Sale {
 	let k = if n < 0 { -n } else { n }
 	match k % 4 {
 	case 0:
-		Basket{Lines: lines, Note: text, Gateway: gateway()}
+		Basket{Lines: lines, Note: text}
 	case 1:
-		Paying{Lines: lines, Tenders: tenders, Gateway: gateway()}
+		Paying{Lines: lines, Tenders: tenders}
 	case 2:
-		Voiding{Lines: lines, Refs: refs, Why: text, Gateway: gateway()}
+		Voiding{Lines: lines, Refs: refs, Why: text}
 	case _:
 		Receipt{Lines: lines, Refs: refs}
 	}
@@ -132,7 +127,7 @@ func refused(d Decision[Sale, Result]) bool {
 law TendersPayExactly(prices []int, amounts []int, exact bool) {
 	let lines = linesOf(prices)
 	let tenders = if exact && len(lines) > 0 { split(Total(lines), amounts) } else { tendersOf(amounts) }
-	let d = Step(Basket{Lines: lines, Note: "", Gateway: gateway()}, Pay{Tenders: tenders})
+	let d = Step(Basket{Lines: lines, Note: ""}, Pay{Tenders: tenders})
 	match moved(d) {
 	case Some[Sale] as s:
 		match s.Value {
@@ -173,7 +168,7 @@ law ReceiptOnlyAfterPaid(n int, m int, prices []int, amounts []int, text string)
 
 // NoVoidWhilePaying: a void while charges run is refused.
 law NoVoidWhilePaying(prices []int, amounts []int) {
-	refused(Step(Paying{Lines: linesOf(prices), Tenders: tendersOf(amounts), Gateway: gateway()}, Void))
+	refused(Step(Paying{Lines: linesOf(prices), Tenders: tendersOf(amounts)}, Void))
 }
 
 // TakenChargesAreRefunded: when some tender is declined, every charge
@@ -184,7 +179,7 @@ law TakenChargesAreRefunded(prices []int, ids []string, why string) {
 		refs = refs.Append(Ref{ID: id, Amount: 1})
 	}
 	let reason = "declined: \(why)"
-	match moved(Step(Paying{Lines: linesOf(prices), Tenders: []Tender{}, Gateway: gateway()}, TendersDeclined{Refs: refs, Why: reason})) {
+	match moved(Step(Paying{Lines: linesOf(prices), Tenders: []Tender{}}, TendersDeclined{Refs: refs, Why: reason})) {
 	case Some[Sale] as s:
 		match s.Value {
 		case Voiding as v:
@@ -244,7 +239,7 @@ law OutcomeIgnoresArrival(amounts []int, order int) {
 // so no taken charge is lost to an early end.
 law RunnerWaitsForAll(amounts []int, order int) {
 	let answers = answersOf(amounts, order)
-	let mut s = running(Plan{Tenders: tendersOf(amounts), Gateway: gateway()})
+	let mut s = running(tendersOf(amounts))
 	for i, a in answers {
 		match runStep(s, Answered{A: a}) {
 		case Stay[Run] as x:
@@ -261,7 +256,7 @@ law RunnerWaitsForAll(amounts []int, order int) {
 // ChargeAlwaysAnswers: every signal ends a charge with its answer, and
 // the charge's timer gives up after ChargeWait.
 law ChargeAlwaysAnswers(i int, card string, amount int, m int) {
-	let s = authorize((i, Card{Number: card, Amount: amount}, gateway()))
+	let s = authorize((i, Card{Number: card, Amount: amount}))
 	let k = if m < 0 { -m } else { m }
 	let e ChargeSignal = match k % 3 {
 	case 0:

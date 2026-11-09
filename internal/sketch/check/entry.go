@@ -355,6 +355,16 @@ func (c *checker) checkRecursiveStructs() {
 	}
 }
 
+// unionLike reports a type that a machine takes as its state or signal: a
+// named union, or a named record, which is a union of one variant (fu-mb2
+// F10). match already reads a record subject as one constructor, so a
+// match on a record state is exhaustive with one arm. As asUnion does for
+// a union, it reads a defined type by its underlying type.
+func unionLike(t Type) bool {
+	_, named := t.(*Named)
+	return asUnion(t) != nil || named && asStruct(t) != nil
+}
+
 // checkMachine checks `type X machine[S, E] { initial v; step f }`: v is a
 // value of S, checked in a closed context like a package var; f names a
 // package function from S and E to Decision[S, O] with any rows
@@ -375,11 +385,11 @@ func (c *checker) checkMachine(tn *TypeName) {
 	}{{state, spec.State, "state"}, {signal, spec.Signal, "signal"}} {
 		// A refused type (one a cycle captured before its declaration was
 		// refused, too) adds nothing here (D3; rows.md, Totality 6, P4).
-		if !containsInvalid(part.t) && asUnion(part.t) == nil {
-			c.errorf(part.x, CodeType, "a machine's %s type must be a union, not %s", part.w, part.t)
+		if !containsInvalid(part.t) && !unionLike(part.t) {
+			c.errorf(part.x, CodeType, "a machine's %s type must be a union or a record, not %s", part.w, part.t)
 		}
 	}
-	valid := !isInvalid(state) && !isInvalid(signal) && asUnion(state) != nil && asUnion(signal) != nil
+	valid := !isInvalid(state) && !isInvalid(signal) && unionLike(state) && unionLike(signal)
 	if spec.Initial == nil || spec.Step == nil {
 		c.errorf(tn.Decl.Name, CodeType, "machine %s declares both initial and step (runtime.md, Machines and actors 1)", tn.Name)
 	}
@@ -619,9 +629,10 @@ func isPreludeMachine(t Type) bool {
 	return ok && m != nil && n.origin() == m
 }
 
-// machineValue is the prelude Machine[S, E, O, F, R] that a value of the
-// machine declaration t converts to (README Gap 46), with the machine's
-// step: O is the step's output, F its error row and R its capability row.
+// machineValue is the prelude Machine[S, E, O, F, R, W] that a value of
+// the machine declaration t converts to (README Gap 46), with the
+// machine's step: O is the step's output, F its error row and R its
+// capability row; W is its work's capability row.
 // It is nil when t is not a machine declaration, or when its step is not
 // a function of the checked shape (checkMachine reports that).
 func (c *checker) machineValue(t Type) (*Named, *Func) {
@@ -662,9 +673,12 @@ func (c *checker) machineValue(t Type) (*Named, *Func) {
 	if uses == nil {
 		uses = newRow()
 	}
+	// The work's capability row is the machine's W, apart from the step's
+	// R: a fold (machines.Run) runs no work, so it needs R only, and the
+	// runner (actor.StartMachine) needs both (fumb-e, lane MB F1).
+	works := newRow()
 	if _, wr := c.machineWork(t); wr != nil {
-		// The work's capability row is charged to the machine (MU4).
-		uses = uses.union(c.types, wr)
+		works = wr
 	}
 	if start := machineStart(n.Obj.Pkg, spec); start != nil {
 		// A machine with an input is an InputMachine (V4); a start of the
@@ -674,9 +688,9 @@ func (c *checker) machineValue(t Type) (*Named, *Func) {
 		if im == nil || input == nil || isExtern(start) {
 			return nil, nil
 		}
-		return c.instantiate(im, []Type{input, m.State, m.Signal, r.TArgs[1], &RowArg{Row: errs}, &RowArg{Row: uses}}), f
+		return c.instantiate(im, []Type{input, m.State, m.Signal, r.TArgs[1], &RowArg{Row: errs}, &RowArg{Row: uses}, &RowArg{Row: works}}), f
 	}
-	return c.instantiate(machine, []Type{m.State, m.Signal, r.TArgs[1], &RowArg{Row: errs}, &RowArg{Row: uses}}), f
+	return c.instantiate(machine, []Type{m.State, m.Signal, r.TArgs[1], &RowArg{Row: errs}, &RowArg{Row: uses}, &RowArg{Row: works}}), f
 }
 
 // isPreludeMachineValue reports whether t is an instance of the prelude's

@@ -66,11 +66,10 @@ The same till in effect-machine would use `.spawn(State.Paying, ({ self }) => se
 | stop order | not specified | last started first, before the next entry | runner (MU5 model) |
 | re-entry restarts a timer | `.reenter` vs `.on` | `Enter` vs `Stay`, written | compiler (the decision is a value) |
 | every state × signal decided | unhandled events dropped | total `match`, `(State, _): Ignore` written | compiler |
+| the services a work needs | `R` of the task's Effect | `Work[Signal, Payments \| Scheduler]`: the gateway is a capability the binary binds once (`cmd/till`), not a value in every state | compiler (rows) |
 
 Where Ergo could not improve:
 
-- **The gateway is a value in the state, not a capability.** A work that starts children needs `Scheduler`, and a work that charges needs `Payments`, but `machines.Work[E, R]` cannot be written with a row of two capabilities (finding F8). So `Payments` travels as a field (`Gateway`) of the states and the children's inputs, and the rows show only `Scheduler`. effect-machine has the same shape here (a service in `R`), so this is a gap of Ergo's syntax, not a gain.
-- **Inputs are records.** The runner's input is a `Plan` record because a tuple type whose first element is a slice does not parse (F9).
 - **The driver cannot reach a child.** The counter talks to the till only; children are owned by their entry (MQ10: no ambient registry). A screen that shows a charge's progress would need the child's address handed out as a signal (the `ActorHost` pattern), which this program does not need.
 - Written type arguments and `Ignore` arms, as in sign-in.
 
@@ -80,7 +79,6 @@ em-parity §3 lists "child fan-out" as pending for MU5. This program's split pay
 
 ## Limits found
 
-- **F8** A row of two capabilities cannot be a type argument (`machines.Work[Signal, Payments | Scheduler]` is S001 "expected …"). Measured.
-- **F9** A tuple type whose first element is a slice type does not parse (`func f(in ([]int, string))` is S001 "expected a type"); `(string, []int)` parses. Measured.
+- **F13** A machine whose `initial:` is a value (`initial: Open()`) starts with no state when another package starts it: the value is set by the package's initializer, which an importing program never runs, so the first `match` on the state is a defect. Measured. `Open` takes the starting lines instead.
 - **F4** (sign-in) The `Payments` laws are not run against `memory.Gateway`; `memory/tests.ergo` restates them.
 - **F7** (sign-in) The examples runner does not run the laws of `till/` (a package with laws and no `test`).

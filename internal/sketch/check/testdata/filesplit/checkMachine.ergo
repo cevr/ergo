@@ -1,5 +1,5 @@
 // checkMachine (entry.go, from checkEntry): a machine over a state that is
-// not a union, one whose step is not a function, and one whose step has
+// neither a union nor a record, one whose step is not a function, and one whose step has
 // the wrong type.
 type Closed {}
 type Open {}
@@ -16,7 +16,7 @@ func step(s State, sig Signal) Decision[State, string] {
 }
 func wrong(s State) Decision[State, string] { Done{"wrong"} }
 let notStep = 1
-type NotUnion machine[Closed, Signal] {
+type NotUnion machine[int, Signal] {
 	initial: Closed,
 	step:    step,
 }

@@ -22,7 +22,7 @@ type Line { Item string, Price int, Qty int, Parts []Line }
 type Edit =
 	| Choosing{Item Item, Qty int, Parts []Line}
 	| Picking{Item Item, Qty int, Parts []Line}
-	| Nested{Item Item, Qty int, Parts []Line, Choice Item, Sub actor.Host[actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]]}
+	| Nested{Item Item, Qty int, Parts []Line, Choice Item, Sub actor.Host[EditActor]}
 
 type EditSignal =
 	| More{}
@@ -35,6 +35,11 @@ type EditSignal =
 
 // EditOut is how an editor ends: the line it built, or back with nothing.
 type EditOut = Added{L Line} | WentBack{}
+
+// EditActor is an editor's address. A union whose only variant is an
+// existing type is that type, an alias: the address is actor.Child's result
+// itself, with no wrapper to build or unwrap.
+type EditActor = actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]
 
 type Editor machine[Edit, EditSignal] { initial: editing, step: editStep, work: editWork }
 
@@ -85,7 +90,7 @@ func editStep(s Edit, e EditSignal) Decision[Edit, EditOut] {
 	case (Picking as p, Choose as ch):
 		let choices = p.Item.Slots[len(p.Parts)].Choices
 		if ch.Index >= 0 && ch.Index < len(choices) {
-			Enter[Edit]{Next: Nested{Item: p.Item, Qty: p.Qty, Parts: p.Parts, Choice: choices[ch.Index], Sub: actor.NewHost[actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]]()}}
+			Enter[Edit]{Next: Nested{Item: p.Item, Qty: p.Qty, Parts: p.Parts, Choice: choices[ch.Index], Sub: actor.NewHost[EditActor]()}}
 		} else {
 			Reject
 		}

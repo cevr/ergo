@@ -552,7 +552,7 @@ const (
 	// ConvRow puts an error row's value into a union.
 	ConvRow
 	// ConvMachine puts a machine declaration's value into the prelude's
-	// Machine[S, E, O, F, R] (README Gap 46): Table["Step"] is the
+	// Machine[S, E, O, F, R, W] (README Gap 46): Table["Step"] is the
 	// machine's step function.
 	ConvMachine
 )

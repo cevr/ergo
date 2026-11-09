@@ -14,11 +14,12 @@ type From = FromMenu{Page int} | FromSearch{Query string, Page int}
 type Screen =
 	| Browsing{Page int}
 	| Searching{Query string, Page int}
-	| Editing{Item Item, From From, Editor actor.Host[actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]]}
+	| Editing{Item Item, From From, Editor actor.Host[EditActor]}
 
 // Hub is the hub's state: the menu, the basket and the screen (a record
-// with a union field: the screen is a region of the state).
-type Hub = Shop{Menu Menu, Basket []Line, Screen Screen}
+// with a union field: the screen is a region of the state). A machine
+// takes a record state as a union of one variant.
+type Hub { Menu Menu, Basket []Line, Screen Screen }
 
 type HubSignal =
 	| Next{}
@@ -36,7 +37,10 @@ type Order { Lines []Line, Total int }
 
 type Builder machine[Hub, HubSignal] { initial: Start, step: Step, work: hubWork }
 
-func Start(m Menu) Hub { Shop{Menu: m, Basket: []Line{}, Screen: Browsing{Page: 0}} }
+// HubActor is the hub's address (an alias, as EditActor is).
+type HubActor = actor.Actor[Hub, HubSignal, Decision[Hub, Order]]
+
+func Start(m Menu) Hub { Hub{Menu: m, Basket: []Line{}, Screen: Browsing{Page: 0}} }
 
 // Find is the items of the menu whose name holds the query.
 func Find(m Menu, query string) []Item {
@@ -70,28 +74,20 @@ func back(f From) Screen {
 	}
 }
 
-func show(h Shop, s Screen) Decision[Hub, Order] { Stay[Hub]{Next: Shop{..h, Screen: s}} }
+func show(h Hub, s Screen) Decision[Hub, Order] { Stay[Hub]{Next: Hub{..h, Screen: s}} }
 
-func open(h Shop, s Screen) Decision[Hub, Order] { Enter[Hub]{Next: Shop{..h, Screen: s}} }
+func open(h Hub, s Screen) Decision[Hub, Order] { Enter[Hub]{Next: Hub{..h, Screen: s}} }
 
 // pick opens the editor of the i-th of items.
-func pick(h Shop, items []Item, i int, from From) Decision[Hub, Order] {
+func pick(h Hub, items []Item, i int, from From) Decision[Hub, Order] {
 	if i < 0 || i >= len(items) {
 		return Reject
 	}
-	open(h, Editing{Item: items[i], From: from, Editor: actor.NewHost[actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]]()})
+	open(h, Editing{Item: items[i], From: from, Editor: actor.NewHost[EditActor]()})
 }
 
-// Step is the hub's step. A machine's state is a union, so the hub's one
-// record is a one-variant union, Shop (finding F10).
+// Step is the hub's step: a match on the screen region and the signal.
 func Step(h Hub, e HubSignal) Decision[Hub, Order] {
-	match h {
-	case Shop as s:
-		step(s, e)
-	}
-}
-
-func step(h Shop, e HubSignal) Decision[Hub, Order] {
 	match (h.Screen, e) {
 	case (Browsing as b, Next):
 		if b.Page+1 < len(h.Menu.Pages) {
@@ -126,26 +122,11 @@ func step(h Shop, e HubSignal) Decision[Hub, Order] {
 	case (Searching, _):
 		Ignore
 	case (Editing as ed, LineAdded as a):
-		Enter[Hub]{Next: Shop{..h, Basket: h.Basket.Append(a.L), Screen: back(ed.From)}}
+		Enter[Hub]{Next: Hub{..h, Basket: h.Basket.Append(a.L), Screen: back(ed.From)}}
 	case (Editing as ed, EditorBack):
 		open(h, back(ed.From))
 	case (Editing, _):
 		Ignore
-	}
-}
-
-// ScreenOf is the hub's screen; BasketOf its basket.
-func ScreenOf(h Hub) Screen {
-	match h {
-	case Shop as s:
-		s.Screen
-	}
-}
-
-func BasketOf(h Hub) []Line {
-	match h {
-	case Shop as s:
-		s.Basket
 	}
 }
 
@@ -162,7 +143,7 @@ func toHub(o EditOut) HubSignal {
 // hubWork: Editing hosts the item's editor, a child of the entry; the
 // same Editor machine is a child of the hub and of an editor.
 func hubWork(h Hub) Option[machines.Work[HubSignal, Scheduler]] {
-	match ScreenOf(h) {
+	match h.Screen {
 	case Editing as ed:
 		Some{machines.Work{Listen: func(send func(e HubSignal)) needs Scheduler {
 			let _ = actor.ChildIn(send, ed.Editor, machines.Start(Editor{}, ed.Item), 4, toHub)

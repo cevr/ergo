@@ -302,12 +302,12 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			return assignment{}, "its initial is a value, so it is a Machine, not an InputMachine"
 		}
 		if !c.identical(view, t) {
-			k := len(view.TArgs) - 3
-			o, f, r := view.TArgs[k], view.TArgs[k+1].(*RowArg), view.TArgs[k+2].(*RowArg)
+			k := len(view.TArgs) - 4
+			o, f, r, w := view.TArgs[k], view.TArgs[k+1].(*RowArg), view.TArgs[k+2].(*RowArg), view.TArgs[k+3].(*RowArg)
 			if input {
-				return assignment{}, fmt.Sprintf("its start takes %s and its step %s gives an InputMachine with output %s, error row %s and capability row %s", view.TArgs[0], step.Name, o, rowText(f.Row), rowText(r.Row))
+				return assignment{}, fmt.Sprintf("its start takes %s and its step %s gives an InputMachine with output %s, error row %s, capability row %s and work row %s", view.TArgs[0], step.Name, o, rowText(f.Row), rowText(r.Row), rowText(w.Row))
 			}
-			return assignment{}, fmt.Sprintf("its step %s gives a Machine with output %s, error row %s and capability row %s", step.Name, o, rowText(f.Row), rowText(r.Row))
+			return assignment{}, fmt.Sprintf("its step %s gives a Machine with output %s, error row %s, capability row %s and work row %s", step.Name, o, rowText(f.Row), rowText(r.Row), rowText(w.Row))
 		}
 		table := map[string]*Func{"Step": step}
 		if input {

@@ -6,7 +6,7 @@ import machines
 // back as a signal of the runner's entry. It waits for every answer, so a
 // charge that was taken is never lost when another is declined, and ends
 // with the outcome in tender order.
-type Run = Running{Tenders []Tender, Answers []Answer, Gateway Payments}
+type Run = Running{Tenders []Tender, Answers []Answer}
 
 type RunSignal = Answered{A Answer}
 
@@ -16,11 +16,8 @@ type Outcome = AllTaken{Refs []Ref} | SomeDeclined{Refs []Ref, Why string}
 
 type Runner machine[Run, RunSignal] { initial: running, step: runStep, work: runWork }
 
-// Plan is the runner's input: the tenders and the gateway to charge. (A
-// tuple input `([]Tender, Payments)` does not parse: finding F9.)
-type Plan { Tenders []Tender, Gateway Payments }
-
-func running(p Plan) Run { Running{Tenders: p.Tenders, Answers: []Answer{}, Gateway: p.Gateway} }
+// running is the runner's start: the tenders to charge, none answered.
+func running(tenders []Tender) Run { Running{Tenders: tenders, Answers: []Answer{}} }
 
 func runStep(s Run, e RunSignal) Decision[Run, Outcome] {
 	match (s, e) {
@@ -36,12 +33,12 @@ func runStep(s Run, e RunSignal) Decision[Run, Outcome] {
 
 // runWork starts a charge per tender. The children belong to the entry:
 // when the runner ends, or the till leaves Paying, they stop first.
-func runWork(s Run) Option[machines.Work[RunSignal, Scheduler]] {
+func runWork(s Run) Option[machines.Work[RunSignal, Payments | Scheduler]] {
 	match s {
 	case Running as r:
-		Some{machines.Work{Listen: func(send func(e RunSignal)) needs Scheduler {
+		Some{machines.Work{Listen: func(send func(e RunSignal)) needs Payments | Scheduler {
 			for i in 0..len(r.Tenders) {
-				actor.Child(send, machines.Start(Charger{}, (i, r.Tenders[i], r.Gateway)), 1, func(a Answer) RunSignal { Answered{A: a} })
+				actor.Child(send, machines.Start(Charger{}, (i, r.Tenders[i])), 1, func(a Answer) RunSignal { Answered{A: a} })
 			}
 		}}}
 	}

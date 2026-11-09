@@ -12,9 +12,9 @@ type Line { Item string, Price int }
 
 // Sale is the till's state.
 type Sale =
-	| Basket{Lines []Line, Note string, Gateway Payments}
-	| Paying{Lines []Line, Tenders []Tender, Gateway Payments}
-	| Voiding{Lines []Line, Refs []Ref, Why string, Gateway Payments}
+	| Basket{Lines []Line, Note string}
+	| Paying{Lines []Line, Tenders []Tender}
+	| Voiding{Lines []Line, Refs []Ref, Why string}
 	| Receipt{Lines []Line, Refs []Ref}
 
 // Signal is what the till takes: the person's touches, and the outputs of
@@ -35,13 +35,14 @@ type Result = Sold{Total int, Refs []Ref} | Voided{}
 // ReceiptWait is how long the receipt stays with no touch.
 func ReceiptWait() duration { 60s }
 
+// Till is the till's machine. Its work needs Payments | Scheduler: the
+// runner child charges through the gateway, and starting a child needs
+// the Scheduler. The gateway is a capability the binary binds, not a
+// value carried in every state.
 type Till machine[Sale, Signal] { initial: Open, step: Step, after: timer, work: work }
 
-// Open is an empty basket that pays through gateway. The gateway is a
-// value in the state, not a capability in the work's row: the row of a
-// work that starts children holds Scheduler, and a row of two
-// capabilities cannot be written as Work's type argument (finding F8).
-func Open(gateway Payments) Sale { Basket{Lines: []Line{}, Note: "", Gateway: gateway} }
+// Open is a basket that starts with lines (none for a new sale).
+func Open(lines []Line) Sale { Basket{Lines: lines, Note: ""} }
 
 // Total is the price of the lines.
 func Total(lines []Line) int {
@@ -73,7 +74,7 @@ func Step(s Sale, e Signal) Decision[Sale, Result] {
 		}
 	case (Basket as b, Pay as p):
 		if payable(b.Lines, p.Tenders) {
-			Enter[Sale]{Next: Paying{Lines: b.Lines, Tenders: p.Tenders, Gateway: b.Gateway}}
+			Enter[Sale]{Next: Paying{Lines: b.Lines, Tenders: p.Tenders}}
 		} else {
 			Reject
 		}
@@ -85,9 +86,9 @@ func Step(s Sale, e Signal) Decision[Sale, Result] {
 		Enter[Sale]{Next: Receipt{Lines: p.Lines, Refs: t.Refs}}
 	case (Paying as p, TendersDeclined as d):
 		if len(d.Refs) == 0 {
-			Enter[Sale]{Next: Basket{Lines: p.Lines, Note: d.Why, Gateway: p.Gateway}}
+			Enter[Sale]{Next: Basket{Lines: p.Lines, Note: d.Why}}
 		} else {
-			Enter[Sale]{Next: Voiding{Lines: p.Lines, Refs: d.Refs, Why: d.Why, Gateway: p.Gateway}}
+			Enter[Sale]{Next: Voiding{Lines: p.Lines, Refs: d.Refs, Why: d.Why}}
 		}
 	case (Paying, Void):
 		// A payment in flight is never abandoned: a charge may be taken.
@@ -95,7 +96,7 @@ func Step(s Sale, e Signal) Decision[Sale, Result] {
 	case (Paying, _):
 		Ignore
 	case (Voiding as v, Refunded):
-		Enter[Sale]{Next: Basket{Lines: v.Lines, Note: "\(v.Why); \(len(v.Refs)) refunded", Gateway: v.Gateway}}
+		Enter[Sale]{Next: Basket{Lines: v.Lines, Note: "\(v.Why); \(len(v.Refs)) refunded"}}
 	case (Voiding, _):
 		Ignore
 	case (Receipt as r, Touch):
@@ -133,16 +134,16 @@ func outcome(o Outcome) Signal {
 
 // work: Paying hosts the payment runner as a child; Voiding refunds the
 // charges that were taken.
-func work(s Sale) Option[machines.Work[Signal, Scheduler]] {
+func work(s Sale) Option[machines.Work[Signal, Payments | Scheduler]] {
 	match s {
 	case Paying as p:
-		Some{machines.Work{Listen: func(send func(e Signal)) needs Scheduler {
-			actor.Child(send, machines.Start(Runner{}, Plan{Tenders: p.Tenders, Gateway: p.Gateway}), 1, outcome)
+		Some{machines.Work{Listen: func(send func(e Signal)) needs Payments | Scheduler {
+			actor.Child(send, machines.Start(Runner{}, p.Tenders), 1, outcome)
 		}}}
 	case Voiding as v:
-		Some{machines.Work{Run: func() Signal {
+		Some{machines.Work{Run: func() Signal needs Payments {
 			for r in v.Refs {
-				v.Gateway.Refund(r)
+				Payments.Refund(r)
 			}
 			Refunded
 		}}}

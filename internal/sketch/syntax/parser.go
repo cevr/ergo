@@ -1283,6 +1283,9 @@ func (p *parser) parseType(ctx typeCtx) Expr {
 		saved := p.exprLev
 		p.exprLev = 1
 		first := p.parseType(ctxList)
+		if p.tok.tok == OR {
+			p.errorAt(p.tok.pos, 1, "a row takes no parentheses: write it bare, T[A | B]")
+		}
 		if p.tok.tok != COMMA {
 			p.exprLev = saved
 			return &ParenExpr{Lparen: lparen, X: first, Rparen: p.want(RPAREN)}
@@ -1375,7 +1378,7 @@ func (p *parser) parseTypeArgs(x Expr) Expr {
 	saved := p.exprLev
 	p.exprLev = 1
 	for p.tok.tok != RBRACK {
-		ix.Indices = append(ix.Indices, p.parseType(ctxList))
+		ix.Indices = append(ix.Indices, p.parseTypeArg())
 		if !p.got(COMMA) {
 			break
 		}
@@ -1383,6 +1386,21 @@ func (p *parser) parseTypeArgs(x Expr) Expr {
 	p.exprLev = saved
 	ix.Rbrack = p.want(RBRACK)
 	return ix
+}
+
+// parseTypeArg parses one type argument: a type, or a row `A | B` of a row
+// parameter, written as a row is written after needs and fails (one rule
+// for every row position). The row is a BinaryExpr with Op OR, the shape
+// an expression's index `f[A | B]` already has, so the checker reads one
+// shape in both positions; a row for a type parameter is its error.
+func (p *parser) parseTypeArg() Expr {
+	x := p.parseType(ctxList)
+	for p.tok.tok == OR {
+		pos := p.tok.pos
+		p.next()
+		x = &BinaryExpr{X: x, OpPos: pos, Op: OR, Y: p.parseTypeName("a row")}
+	}
+	return x
 }
 
 // ---------------------------------------------------------------- contexts

@@ -28,7 +28,7 @@ func screenAt(n int, text string) Screen {
 	case 1:
 		Searching{Query: text, Page: 1}
 	case _:
-		Editing{Item: fixture().Pages[0][2], From: if n%2 == 0 { FromMenu{Page: 1} } else { FromSearch{Query: text, Page: 0} }, Editor: actor.NewHost[actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]]()}
+		Editing{Item: fixture().Pages[0][2], From: if n%2 == 0 { FromMenu{Page: 1} } else { FromSearch{Query: text, Page: 0} }, Editor: actor.NewHost[EditActor]()}
 	}
 }
 
@@ -43,9 +43,9 @@ func basketOf(ns []int) []Line {
 func screenAfter(d Decision[Hub, Order]) Option[Screen] {
 	match d {
 	case Enter[Hub] as x:
-		Some{ScreenOf(x.Next)}
+		Some{x.Next.Screen}
 	case Stay[Hub] as x:
-		Some{ScreenOf(x.Next)}
+		Some{x.Next.Screen}
 	case _:
 		None
 	}
@@ -54,9 +54,9 @@ func screenAfter(d Decision[Hub, Order]) Option[Screen] {
 func basketAfter(d Decision[Hub, Order]) []Line {
 	match d {
 	case Enter[Hub] as x:
-		BasketOf(x.Next)
+		x.Next.Basket
 	case Stay[Hub] as x:
-		BasketOf(x.Next)
+		x.Next.Basket
 	case _:
 		[]Line{}
 	}
@@ -78,7 +78,7 @@ func sameScreen(a Screen, b Screen) bool {
 law HistoryRestores(page int, i int, query string, fromSearch bool, add bool) {
 	let m = fixture()
 	let from Screen = if fromSearch { Searching{Query: query, Page: small(page) % 2} } else { Browsing{Page: small(page) % 2} }
-	let h = Shop{Menu: m, Basket: []Line{}, Screen: from}
+	let h = Hub{Menu: m, Basket: []Line{}, Screen: from}
 	let items = match from {
 	case Searching as q:
 		Find(m, q.Query)
@@ -88,7 +88,7 @@ law HistoryRestores(page int, i int, query string, fromSearch bool, add bool) {
 	match screenAfter(Step(h, Open{Index: small(i)})) {
 	case Some[Screen] as s:
 		let ending HubSignal = if add { LineAdded{L: lineOf(i)} } else { EditorBack }
-		match screenAfter(Step(Shop{..h, Screen: s.Value}, ending)) {
+		match screenAfter(Step(Hub{..h, Screen: s.Value}, ending)) {
 		case Some[Screen] as after:
 			sameScreen(after.Value, from)
 		case None:
@@ -103,7 +103,7 @@ law HistoryRestores(page int, i int, query string, fromSearch bool, add bool) {
 // it was; one that adds a line adds exactly that line.
 law BackChangesNothing(ns []int, n int, text string, add bool) {
 	let basket = basketOf(ns)
-	let h = Shop{Menu: fixture(), Basket: basket, Screen: Editing{Item: fixture().Pages[0][0], From: FromMenu{Page: 0}, Editor: actor.NewHost[actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]]()}}
+	let h = Hub{Menu: fixture(), Basket: basket, Screen: Editing{Item: fixture().Pages[0][0], From: FromMenu{Page: 0}, Editor: actor.NewHost[EditActor]()}}
 	if add {
 		let after = basketAfter(Step(h, LineAdded{L: lineOf(n)}))
 		len(after) == len(basket)+1 && Total(after) == Total(basket)+Total([]Line{lineOf(n)})
@@ -173,7 +173,7 @@ law QtyStaysPositive(n int) {
 // an Editing screen it did not open from Browsing or Searching.
 law EditorOpensOnlyFromAList(n int, m int, text string) {
 	let s = screenAt(n, text)
-	let h = Shop{Menu: fixture(), Basket: []Line{}, Screen: s}
+	let h = Hub{Menu: fixture(), Basket: []Line{}, Screen: s}
 	let e HubSignal = match small(m) + small(m/3)*3 {
 	case 0:
 		Open{Index: 0}

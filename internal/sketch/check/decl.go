@@ -803,9 +803,9 @@ func (c *checker) resolveNamed(n *Named) {
 		return
 	}
 	n.state = 1
-	saved := c.cur
-	c.cur = n.Obj.file
-	defer func() { c.cur = saved }()
+	saved, shallow := c.cur, c.shallow
+	c.cur, c.shallow = n.Obj.file, 0
+	defer func() { c.cur, c.shallow = saved, shallow }()
 	d := n.Obj.Decl
 	ctx := &typeCtx{params: map[string]*TypeParam{}, decl: true}
 	if d.TypeParams != nil {
@@ -845,7 +845,17 @@ func (c *checker) resolveNamed(n *Named) {
 			c.expandInclude(n)
 		}
 	case *syntax.InterfaceType:
-		if len(spec.Union) > 0 {
+		if x := aliasTarget(d); x != nil {
+			// A union whose only variant is an existing type is that type
+			// (types.md, Unions 7; F11): every use resolves to the target.
+			n.under = invalid
+			if len(n.TParams) > 0 {
+				c.errorf(d.TypeParams, CodeType, "%s is an alias of its one variant, an existing type, and an alias takes no type parameters yet; write the type where it is used (types.md, Unions 7)", n.Obj.Name)
+				n.alias = invalid
+				break
+			}
+			n.alias = c.typExpr(x, ctx)
+		} else if len(spec.Union) > 0 {
 			n.under = c.unionType(n, spec, ctx)
 		} else {
 			it := c.interfaceType(spec, ctx)
@@ -1268,8 +1278,15 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 	case *syntax.AsPattern:
 		c.errorf(x, CodeType, "expected a type")
 		return invalid
+	case *syntax.BinaryExpr:
+		if x.Op == syntax.OR {
+			c.errorf(x, CodeType, "a row A | B is the argument of a row parameter; here a type is expected")
+		} else {
+			c.errorf(x, CodeType, "expected a type")
+		}
+		return invalid
 	case *syntax.BasicLit, *syntax.CompositeLit, *syntax.KeyValueExpr, *syntax.FuncLit, *syntax.SliceExpr,
-		*syntax.TypeGuard, *syntax.CallExpr, *syntax.UnaryExpr, *syntax.BinaryExpr, *syntax.TryExpr,
+		*syntax.TypeGuard, *syntax.CallExpr, *syntax.UnaryExpr, *syntax.TryExpr,
 		*syntax.CatchExpr, *syntax.ContextLit, *syntax.MachineType, *syntax.InterpolatedString,
 		*syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
 		c.errorf(x, CodeType, "expected a type")
@@ -1300,6 +1317,13 @@ func (c *checker) typeName(x *syntax.Ident, ctx *typeCtx) Type {
 		// defined base can temporarily have no body; the unified cycle
 		// pass needs this edge, rather than an invalid placeholder.
 		if n, ok := o.Type.(*Named); ok && ctx != nil && ctx.decl {
+			if aliasTarget(n.Obj.Decl) != nil {
+				c.resolveNamed(n)
+				return c.aliasOf(n, x)
+			}
+			if c.shallow > 0 {
+				return n // an alias's shallow reading (aliasOf)
+			}
 			c.resolveNamed(n)
 			if !containsInvalid(n) || pendingDefinition(n) {
 				return n
@@ -1331,11 +1355,78 @@ func (c *checker) typeName(x *syntax.Ident, ctx *typeCtx) Type {
 func (c *checker) resolvedType(t Type) Type {
 	if n, ok := t.(*Named); ok {
 		c.resolveNamed(n)
+		if n.Orig == nil && aliasTarget(n.Obj.Decl) != nil {
+			t = c.aliasOf(n, nil)
+		}
 	}
 	if containsInvalid(t) {
 		return invalid
 	}
 	return t
+}
+
+// aliasTarget returns the one variant of `type A = B` when B is an
+// existing type: such a union is that type, an alias (types.md, Unions 7;
+// F11). A variant declared in place, `type A = B{…}`, makes a new type, and
+// so does a union of two or more variants. It is nil for every other
+// declaration.
+func aliasTarget(d *syntax.TypeDecl) syntax.Expr {
+	if d == nil {
+		return nil
+	}
+	it, ok := d.Spec.(*syntax.InterfaceType)
+	if !ok || len(it.Union) != 1 || len(it.Methods) > 0 || len(it.Laws) > 0 {
+		return nil
+	}
+	if _, inline := it.Union[0].(*syntax.VariantSpec); inline {
+		return nil
+	}
+	return it.Union[0]
+}
+
+// aliasOf is the type an alias names. An alias reached again while its
+// target resolves, from a declaration body the target mentions (`type A =
+// actor.Actor[S, E, O]` with `type E = … | Opened{Sub A}`), takes its target
+// from a shallow reading of the target expression: the declarations it names
+// are their Named types, bodies unread, the edge a declaration body keeps
+// for the cycle pass (typeName). It reports nothing; the alias's own
+// resolution reads the target again and reports. An alias reached during
+// its own shallow reading names itself: S108 at the name that closes the
+// cycle.
+func (c *checker) aliasOf(n *Named, at syntax.Node) Type {
+	if n.state == 1 {
+		if n.alias != nil {
+			return n.alias
+		}
+		if at == nil {
+			return invalid
+		}
+		if n.aliasShallow {
+			silent := c.silent
+			c.silent = 0
+			c.errorf(at, CodeType, "the alias %s names itself (types.md, Unions 7)", n.Obj.Name)
+			c.silent = silent
+			return invalid
+		}
+		n.aliasShallow = true
+		saved := c.cur
+		c.cur = n.Obj.file
+		c.silent++
+		c.shallow++
+		t := c.typExpr(aliasTarget(n.Obj.Decl), &typeCtx{params: map[string]*TypeParam{}, decl: true})
+		c.shallow--
+		c.silent--
+		c.cur = saved
+		n.aliasShallow = false
+		if !isInvalid(t) {
+			n.alias = t
+		}
+		return t
+	}
+	if n.alias == nil {
+		return invalid
+	}
+	return n.alias
 }
 
 func (c *checker) qualifiedType(x *syntax.SelectorExpr) Type {
@@ -1517,18 +1608,21 @@ func (c *checker) rowExpr(xs []syntax.Expr, kind Kind, ctx *typeCtx) *Row {
 	return row
 }
 
-// rowArg resolves a written row argument of a generic type or function: one
-// element, as a row of one, or a named row, as the row of its variants. A
+// rowArg resolves a written row argument of a generic type or function: a
+// row `A | B` as a needs or fails row is written, one element being a row
+// of one, and an element that is a named row standing for its variants. A
 // refused element gives nil, so the instance is invalid, as an invalid type
 // argument makes it.
 func (c *checker) rowArg(x syntax.Expr, kind Kind, ctx *typeCtx) *RowArg {
-	t := c.rowElem(x, kind, ctx)
-	if t == nil {
-		return nil
-	}
 	row := newRow()
-	for _, e := range rowMembers(t) {
-		row = row.with(c.types, e)
+	for _, e := range rowArgElems(x) {
+		t := c.rowElem(e, kind, ctx)
+		if t == nil {
+			return nil
+		}
+		for _, m := range rowMembers(t) {
+			row = row.with(c.types, m)
+		}
 	}
 	return &RowArg{Row: row}
 }
@@ -1576,6 +1670,16 @@ func (c *checker) namedRow(x syntax.Expr, t Type) (vs []Type, isRow bool) {
 		}
 	}
 	return u.Variants, true
+}
+
+// rowArgElems is the elements of a written row argument, left to right:
+// the operands of its | (a BinaryExpr with Op OR, in a type and in an
+// expression's index alike), or x alone.
+func rowArgElems(x syntax.Expr) []syntax.Expr {
+	if b, ok := x.(*syntax.BinaryExpr); ok && b.Op == syntax.OR {
+		return append(rowArgElems(b.X), b.Y)
+	}
+	return []syntax.Expr{x}
 }
 
 func (c *checker) rowElem(x syntax.Expr, kind Kind, ctx *typeCtx) Type {
@@ -2125,6 +2229,15 @@ func (c *checker) selfOwner(f *Func) (*Named, []syntax.Expr, bool) {
 		return nil, nil, false
 	}
 	n, _ := tn.Type.(*Named)
+	if n != nil && aliasTarget(n.Obj.Decl) != nil {
+		// An alias is its type (types.md, Unions 7): f is a function of
+		// the target when the target is a plain declared type, and an
+		// ordinary function when it is an instance or not a declared type.
+		n, _ = c.aliasOf(n, nil).(*Named)
+		if n == nil || n.Orig != nil {
+			return nil, nil, false
+		}
+	}
 	if n == nil || n.Obj.Pkg != c.pkg || n.method(f.Name) != nil {
 		return nil, nil, false
 	}

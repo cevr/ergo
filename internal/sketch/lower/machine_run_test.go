@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"os/exec"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -230,7 +231,22 @@ func genRunProgram(r *rand.Rand, k int, seen map[string]bool) machineProgram {
 		ev = append(ev, fmt.Sprintf("E%d", j))
 		fmt.Fprintf(&b, "type E%d { v int }\n", j)
 	}
-	fmt.Fprintf(&b, "type St = %s\ntype Sig = %s\ntype Boom {}\n\n", strings.Join(sv, " | "), strings.Join(ev, " | "))
+	// A machine whose state (or signal) has one variant takes the record
+	// itself in some programs, not a union of it (fu-mb2 F10): St (or Sig)
+	// is then renamed to the record everywhere, and every match on it has
+	// the one arm.
+	stateRecord, signalRecord := ns == 1 && k%2 == 0, ne == 1 && k%3 == 0
+	if stateRecord {
+		seen["a machine with a record state"] = true
+	} else {
+		fmt.Fprintf(&b, "type St = %s\n", strings.Join(sv, " | "))
+	}
+	if signalRecord {
+		seen["a machine with a record signal"] = true
+	} else {
+		fmt.Fprintf(&b, "type Sig = %s\n", strings.Join(ev, " | "))
+	}
+	b.WriteString("type Boom {}\n\n")
 	row, helperRow := " fails Boom", ""
 	if needs {
 		row += " needs Probe"
@@ -475,7 +491,14 @@ func timed(m MT, trace []machines.Timed[Sig], end int) string CLOCKED {
 		want = append(want, fmt.Sprintf("%s @%d %s", told, last, intsText(woke)))
 	}
 	b.WriteString("\t}\n}\n")
-	return machineProgram{name: fmt.Sprintf("machinerun_%02d", k), src: b.String(), want: want}
+	src := b.String()
+	if stateRecord {
+		src = regexp.MustCompile(`\bSt\b`).ReplaceAllString(src, "S0")
+	}
+	if signalRecord {
+		src = regexp.MustCompile(`\bSig\b`).ReplaceAllString(src, "E0")
+	}
+	return machineProgram{name: fmt.Sprintf("machinerun_%02d", k), src: src, want: want}
 }
 
 // TestMachineRunAgreesWithFold is the acceptance property: over generated
@@ -520,7 +543,7 @@ func TestMachineRunAgreesWithFold(t *testing.T) {
 	ends := []string{"running", "finished", "rejected", "boom", "-", "emitted"}
 	cases := []string{"timer fired after a stay", "a stale timer came due", "signal at its timer's deadline", "timer just before a signal", "timer rejected",
 		"timer fired in an entry opened by first", "timer fired in an entry opened by enter", "timer fired in an entry opened by emit", "a timer of an entry a late signal opened fired",
-		"a machine with 0 inputs", "a machine with 1 inputs", "a machine with 2 inputs"}
+		"a machine with 0 inputs", "a machine with 1 inputs", "a machine with 2 inputs", "a machine with a record state", "a machine with a record signal"}
 	missing := func() string {
 		seen["a timer of an entry a late signal opened fired"] = seen["timer fired in an entry opened by enter late"] || seen["timer fired in an entry opened by emit late"]
 		for _, k := range ends {
@@ -620,10 +643,8 @@ func runMachineBounded(t *testing.T, exe string) (stdout, stderr string, code in
 // instance; a mismatch names the machine's own Machine. A diagnostic row:
 // it alone catches a conversion that admits any Machine instance.
 func TestMachineValueConverts(t *testing.T) {
-	src := `type St = A
-type A {}
-type Sig = Go
-type Go {}
+	src := `type St = A{}
+type Sig = Go{}
 type Boom {}
 
 func step(s St, e Sig) Decision[St, int] fails Boom { Ignore }
@@ -641,7 +662,7 @@ func main() {
 	for _, d := range lowerSource("machineconv", src, true).diags {
 		got = append(got, d.String())
 	}
-	want := "cannot use M as Machine[St, Sig, string, , ] in let _: its step step gives a Machine with output int, error row {Boom} and capability row {}"
+	want := "cannot use M as Machine[St, Sig, string, , , ] in let _: its step step gives a Machine with output int, error row {Boom}, capability row {} and work row {}"
 	if len(got) != 1 || !strings.Contains(got[0], want) {
 		t.Errorf("diagnostics %q, want one with %q and the machine's own Machine", got, want)
 	}
@@ -704,10 +725,8 @@ func main() {
 // that admits an after of another type or with a row, which no program
 // that builds can show.
 func TestMachineAfterRefusals(t *testing.T) {
-	head := `type St = A
-type A {}
-type Sig = Go
-type Go {}
+	head := `type St = A{}
+type Sig = Go{}
 
 func step(s St, e Sig) Decision[St, int] { Ignore }
 

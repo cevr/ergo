@@ -99,16 +99,13 @@ func basket(lines []order.Line) string { "basket: \(len(lines)) lines, \(Money(o
 
 // HubText is the hub's screen.
 func HubText(h order.Hub) string {
-	match h {
-	case order.Shop as s:
-		match s.Screen {
-		case order.Browsing as b:
-			"page \(b.Page + 1)/\(len(s.Menu.Pages)): \(names(s.Menu.Pages[b.Page])) | \(basket(s.Basket))"
-		case order.Searching as q:
-			"search \"\(q.Query)\": \(names(order.Find(s.Menu, q.Query))) | \(basket(s.Basket))"
-		case order.Editing as e:
-			"editing \(e.Item.Name) | \(basket(s.Basket))"
-		}
+	match h.Screen {
+	case order.Browsing as b:
+		"page \(b.Page + 1)/\(len(h.Menu.Pages)): \(names(h.Menu.Pages[b.Page])) | \(basket(h.Basket))"
+	case order.Searching as q:
+		"search \"\(q.Query)\": \(names(order.Find(h.Menu, q.Query))) | \(basket(h.Basket))"
+	case order.Editing as e:
+		"editing \(e.Item.Name) | \(basket(h.Basket))"
 	}
 }
 
@@ -128,7 +125,7 @@ func EditText(e order.Edit) string {
 // editorIn is the editor a host holds. The hub and an editor show an entry
 // only after its work filled its host (runtime.md, Machines and actors
 // 16), so Get answers at once; None once that entry ended.
-func editorIn(h actor.Host[actor.Actor[order.Edit, order.EditSignal, Decision[order.Edit, order.EditOut]]]) Option[actor.Actor[order.Edit, order.EditSignal, Decision[order.Edit, order.EditOut]]] {
+func editorIn(h actor.Host[order.EditActor]) Option[order.EditActor] {
 	let a = h.Get() catch {
 	case actor.Stopped:
 		return None
@@ -137,7 +134,7 @@ func editorIn(h actor.Host[actor.Actor[order.Edit, order.EditSignal, Decision[or
 }
 
 // subOf is the nested editor of an editor in st, if it hosts one.
-func subOf(st order.Edit) Option[actor.Actor[order.Edit, order.EditSignal, Decision[order.Edit, order.EditOut]]] {
+func subOf(st order.Edit) Option[order.EditActor] {
 	match st {
 	case order.Nested as n:
 		editorIn(n.Sub)
@@ -147,8 +144,8 @@ func subOf(st order.Edit) Option[actor.Actor[order.Edit, order.EditSignal, Decis
 }
 
 // editorOf is the hub's open editor, if it shows one.
-func editorOf(h order.Hub) Option[actor.Actor[order.Edit, order.EditSignal, Decision[order.Edit, order.EditOut]]] {
-	match order.ScreenOf(h) {
+func editorOf(h order.Hub) Option[order.EditActor] {
+	match h.Screen {
 	case order.Editing as e:
 		editorIn(e.Editor)
 	case _:
@@ -157,7 +154,7 @@ func editorOf(h order.Hub) Option[actor.Actor[order.Edit, order.EditSignal, Deci
 }
 
 func editing(h order.Hub) bool {
-	match order.ScreenOf(h) {
+	match h.Screen {
 	case order.Editing:
 		true
 	case _:
@@ -186,12 +183,12 @@ func Run(menu order.Menu) needs Console | io.Stdin | Scheduler | order.Kitchen {
 			continue
 		}
 		// The open editors, outermost first, each read through its host.
-		let mut chain = []actor.Actor[order.Edit, order.EditSignal, Decision[order.Edit, order.EditOut]]{}
+		let mut chain = []order.EditActor{}
 		let mut next = editorOf(hub.State())
 		let mut going = true
 		for going {
 			match next {
-			case Some[actor.Actor[order.Edit, order.EditSignal, Decision[order.Edit, order.EditOut]]] as a:
+			case Some[order.EditActor] as a:
 				chain = chain.Append(a.Value)
 				next = subOf(a.Value.State())
 			case None:
@@ -264,7 +261,7 @@ func Run(menu order.Menu) needs Console | io.Stdin | Scheduler | order.Kitchen {
 }
 
 // view prints the hub and its open editors.
-func view(hub actor.Actor[order.Hub, order.HubSignal, Decision[order.Hub, order.Order]]) needs Console {
+func view(hub order.HubActor) needs Console {
 	let h = hub.State()
 	Console.Println(HubText(h))
 	let mut next = editorOf(h)
@@ -272,7 +269,7 @@ func view(hub actor.Actor[order.Hub, order.HubSignal, Decision[order.Hub, order.
 	let mut going = true
 	for going {
 		match next {
-		case Some[actor.Actor[order.Edit, order.EditSignal, Decision[order.Edit, order.EditOut]]] as a:
+		case Some[order.EditActor] as a:
 			let st = a.Value.State()
 			Console.Println("\(strings.Repeat("  ", depth))\(EditText(st))")
 			depth = depth + 1
