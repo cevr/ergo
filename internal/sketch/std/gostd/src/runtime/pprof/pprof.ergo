@@ -5,13 +5,16 @@ import go gocontext context
 import go io
 
 // ergo:go func Do(ctx context.Context, labels LabelSet, f func(context.Context))
-extern go runtime/pprof.Do func Do(ctx gocontext.Context, labels LabelSet, f escaping func(gocontext.Context)) needs go.Foreign
+// ergo:context
+extern go runtime/pprof.Do func Do(labels LabelSet, f escaping func(gocontext.Context)) needs go.Foreign
 
 // ergo:go func ForLabels(ctx context.Context, f func(key string, value string) bool)
-extern go runtime/pprof.ForLabels func ForLabels(ctx gocontext.Context, f escaping func(string, string) bool) needs go.Foreign
+// ergo:context
+extern go runtime/pprof.ForLabels func ForLabels(f escaping func(string, string) bool) needs go.Foreign
 
 // ergo:go func Label(ctx context.Context, key string) (string, bool)
-extern go runtime/pprof.Label func Label(ctx gocontext.Context, key string) (string, bool) needs go.Foreign
+// ergo:context
+extern go runtime/pprof.Label func Label(key string) (string, bool) needs go.Foreign
 
 // ergo:go type LabelSet struct
 extern go runtime/pprof.LabelSet type LabelSet {}
@@ -48,7 +51,8 @@ extern go runtime/pprof.Profile.WriteTo func (p *Profile) WriteTo(w io.Writer, d
 // ergo:refused Profiles: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func SetGoroutineLabels(ctx context.Context)
-extern go runtime/pprof.SetGoroutineLabels func SetGoroutineLabels(ctx gocontext.Context) needs go.Foreign
+// ergo:context
+extern go runtime/pprof.SetGoroutineLabels func SetGoroutineLabels() needs go.Foreign
 
 // ergo:go func StartCPUProfile(w io.Writer) error
 extern go runtime/pprof.StartCPUProfile func StartCPUProfile(w io.Writer) fails go.Error needs go.Foreign
@@ -57,7 +61,8 @@ extern go runtime/pprof.StartCPUProfile func StartCPUProfile(w io.Writer) fails 
 extern go runtime/pprof.StopCPUProfile func StopCPUProfile() needs go.Foreign
 
 // ergo:go func WithLabels(ctx context.Context, labels LabelSet) context.Context
-extern go runtime/pprof.WithLabels func WithLabels(ctx gocontext.Context, labels LabelSet) gocontext.Context needs go.Foreign
+// ergo:context
+extern go runtime/pprof.WithLabels func WithLabels(labels LabelSet) gocontext.Context needs go.Foreign
 
 // ergo:go func WriteHeapProfile(w io.Writer) error
 extern go runtime/pprof.WriteHeapProfile func WriteHeapProfile(w io.Writer) fails go.Error needs go.Foreign

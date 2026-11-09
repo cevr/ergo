@@ -226,6 +226,7 @@ type hostPkg struct {
 	refused  map[string]string        // a refused declaration ("F", "T.M") and its reason
 	recvPtr  map[*Func]bool           // a method in the method set of *T only
 	variadic map[*Func]bool           // a function whose last parameter is Go's ...T
+	context  map[*Func]bool           // a function whose hidden first parameter is Go's context.Context (IG10)
 }
 
 func hostOf(p *Package) *hostPkg {
@@ -249,7 +250,7 @@ func (s *GoBindings) Package(path string) (*Package, bool) {
 	c := newChecker(path, goImp{s}, prelude().scope)
 	c.pkg.Name = GoPackageName(path)
 	c.pkg.qualify = true
-	c.pkg.host = &hostPkg{set: s, src: src, c: c, vars: map[*Var]*syntax.VarSpec{}, refused: map[string]string{}, recvPtr: map[*Func]bool{}, variadic: map[*Func]bool{}}
+	c.pkg.host = &hostPkg{set: s, src: src, c: c, vars: map[*Var]*syntax.VarSpec{}, refused: map[string]string{}, recvPtr: map[*Func]bool{}, variadic: map[*Func]bool{}, context: map[*Func]bool{}}
 	s.pkgs[path] = c.pkg
 	return c.pkg, true
 }
@@ -431,12 +432,14 @@ func (h *hostPkg) load() {
 		h.recvPtr[fn] = star
 		tn.Type.(*Named).addMethod(fn)
 	}
-	variadicLines := map[int]bool{}
+	// markers holds the line of each `// ergo:variadic` and
+	// `// ergo:context` comment (Binding files 2).
+	markers := map[int]string{}
 	for _, g := range f.Comments {
 		for _, cm := range g.List {
-			if cm.Text == "// ergo:variadic" {
+			if cm.Text == "// ergo:variadic" || cm.Text == "// ergo:context" {
 				line, _ := f.Position(cm.Pos())
-				variadicLines[line] = true
+				markers[line] = cm.Text
 			}
 			rest, ok := strings.CutPrefix(cm.Text, "// ergo:refused ")
 			if !ok {
@@ -447,12 +450,19 @@ func (h *hostPkg) load() {
 			}
 		}
 	}
-	// `// ergo:variadic` is the line right above its declaration: the
-	// lowering spreads the last argument (xs...).
-	if len(variadicLines) > 0 {
+	// The markers are the lines right above a declaration: with
+	// `// ergo:variadic` the lowering spreads the last argument (xs...);
+	// with `// ergo:context` it passes the task's context first (IG10).
+	if len(markers) > 0 {
 		mark := func(fn *Func) {
-			if line, _ := f.Position(fn.Decl.Pos()); variadicLines[line-1] {
-				h.variadic[fn] = true
+			line, _ := f.Position(fn.Decl.Pos())
+			for l := line - 1; markers[l] != ""; l-- {
+				switch markers[l] {
+				case "// ergo:variadic":
+					h.variadic[fn] = true
+				case "// ergo:context":
+					h.context[fn] = true
+				}
 			}
 		}
 		for _, fn := range c.pkg.Funcs {
@@ -471,6 +481,15 @@ func (h *hostPkg) load() {
 func GoVariadic(f *Func) bool {
 	h := hostOf(f.Pkg)
 	return h != nil && h.variadic[f]
+}
+
+// GoContext reports a Go function or method of import go whose first Go
+// parameter is context.Context, hidden in its Ergo signature (the
+// binding's `// ergo:context`): the call passes the calling task's
+// context, which an interruption cancels (IG10).
+func GoContext(f *Func) bool {
+	h := hostOf(f.Pkg)
+	return h != nil && h.context[f]
 }
 
 // refusal is the binding's reason for a Go declaration it does not import

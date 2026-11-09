@@ -110,7 +110,7 @@ func Merge(platforms []Platform, decls [][]Decl) []Decl {
 }
 
 func same(a, b Decl) bool {
-	return a.Kind == b.Kind && a.Go == b.Go && a.Ergo == b.Ergo && a.Variadic == b.Variadic && a.Refused == b.Refused && slices.Equal(a.Members, b.Members)
+	return a.Kind == b.Kind && a.Go == b.Go && a.Ergo == b.Ergo && a.Variadic == b.Variadic && a.Context == b.Context && a.Refused == b.Refused && slices.Equal(a.Members, b.Members)
 }
 
 var placeholder = regexp.MustCompile(`⟦([^⟧]*)⟧`)
@@ -127,6 +127,9 @@ func Render(path, name, stamp, module string, decls []Decl) (string, error) {
 		if d.Refused != "" {
 			body.WriteString("// ergo:refused " + d.Name + ": " + d.Refused + "\n")
 			continue
+		}
+		if d.Context {
+			body.WriteString("// ergo:context\n")
 		}
 		if d.Variadic {
 			body.WriteString("// ergo:variadic\n")

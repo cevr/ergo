@@ -261,7 +261,10 @@ const (
 type GoExtern struct {
 	Adapter  GoAdapter
 	Variadic bool
-	Basic    bool
+	// Context: the Go target takes a context.Context first, which the
+	// call passes (IG10); such an extern is never Basic.
+	Context bool
+	Basic   bool
 }
 
 // GoExternOf is the admitted adapter of the user extern f, or nil.
@@ -347,7 +350,7 @@ func (c *checker) externAdapter(f *Func) (string, string) {
 	if msg != "" {
 		return msg, CodeType
 	}
-	f.goExtern = &GoExtern{Adapter: adapter, Variadic: GoVariadic(bf), Basic: adapter == AdaptSame && c.externBasicSig(w)}
+	f.goExtern = &GoExtern{Adapter: adapter, Variadic: GoVariadic(bf), Context: GoContext(bf), Basic: adapter == AdaptSame && !GoContext(bf) && c.externBasicSig(w)}
 	return "", ""
 }
 

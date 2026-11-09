@@ -386,7 +386,8 @@ extern go net/http.NewFileTransportFS func NewFileTransportFS(fsys fs.FS) RoundT
 extern go net/http.NewRequest func NewRequest(method string, url string, body io.Reader) go.Ref[Request] fails go.Error needs go.Foreign
 
 // ergo:go func NewRequestWithContext(ctx context.Context, method string, url string, body io.Reader) (*Request, error)
-extern go net/http.NewRequestWithContext func NewRequestWithContext(ctx gocontext.Context, method string, url string, body io.Reader) go.Ref[Request] fails go.Error needs go.Foreign
+// ergo:context
+extern go net/http.NewRequestWithContext func NewRequestWithContext(method string, url string, body io.Reader) go.Ref[Request] fails go.Error needs go.Foreign
 
 // ergo:go func NewResponseController(rw ResponseWriter) *ResponseController
 extern go net/http.NewResponseController func NewResponseController(rw ResponseWriter) Option[go.Ref[ResponseController]] needs go.Foreign
@@ -522,7 +523,8 @@ extern go net/http.Request.AddCookie func (r *Request) AddCookie(c *Cookie) need
 extern go net/http.Request.BasicAuth func (r *Request) BasicAuth() (string, string, bool) needs go.Foreign
 
 // ergo:go func (*Request).Clone(ctx context.Context) *Request
-extern go net/http.Request.Clone func (r *Request) Clone(ctx gocontext.Context) Option[go.Ref[Request]] needs go.Foreign
+// ergo:context
+extern go net/http.Request.Clone func (r *Request) Clone() Option[go.Ref[Request]] needs go.Foreign
 
 // ergo:go func (*Request).Context() context.Context
 extern go net/http.Request.Context func (r *Request) Context() gocontext.Context needs go.Foreign
@@ -573,7 +575,8 @@ extern go net/http.Request.SetPathValue func (r *Request) SetPathValue(name stri
 extern go net/http.Request.UserAgent func (r *Request) UserAgent() string needs go.Foreign
 
 // ergo:go func (*Request).WithContext(ctx context.Context) *Request
-extern go net/http.Request.WithContext func (r *Request) WithContext(ctx gocontext.Context) Option[go.Ref[Request]] needs go.Foreign
+// ergo:context
+extern go net/http.Request.WithContext func (r *Request) WithContext() Option[go.Ref[Request]] needs go.Foreign
 
 // ergo:go func (*Request).Write(w io.Writer) error
 extern go net/http.Request.Write func (r *Request) Write(w io.Writer) fails go.Error needs go.Foreign
@@ -738,7 +741,8 @@ extern go net/http.Server.ServeTLS func (s *Server) ServeTLS(l net.Listener, cer
 extern go net/http.Server.SetKeepAlivesEnabled func (s *Server) SetKeepAlivesEnabled(v bool) needs go.Foreign
 
 // ergo:go func (*Server).Shutdown(ctx context.Context) error
-extern go net/http.Server.Shutdown func (s *Server) Shutdown(ctx gocontext.Context) fails go.Error needs go.Foreign
+// ergo:context
+extern go net/http.Server.Shutdown func (s *Server) Shutdown() fails go.Error needs go.Foreign
 
 // ergo:go var ServerContextKey *contextKey
 // ergo:refused ServerContextKey: a Go variable is host state; call a function
@@ -1017,7 +1021,8 @@ extern go net/http.Transport.Clone func (t *Transport) Clone() Option[go.Ref[Tra
 extern go net/http.Transport.CloseIdleConnections func (t *Transport) CloseIdleConnections() needs go.Foreign
 
 // ergo:go func (*Transport).NewClientConn(ctx context.Context, scheme string, address string) (*ClientConn, error)
-extern go net/http.Transport.NewClientConn func (t *Transport) NewClientConn(ctx gocontext.Context, scheme string, address string) go.Ref[ClientConn] fails go.Error needs go.Foreign
+// ergo:context
+extern go net/http.Transport.NewClientConn func (t *Transport) NewClientConn(scheme string, address string) go.Ref[ClientConn] fails go.Error needs go.Foreign
 
 // ergo:go func (*Transport).RegisterProtocol(scheme string, rt RoundTripper)
 extern go net/http.Transport.RegisterProtocol func (t *Transport) RegisterProtocol(scheme string, rt RoundTripper) needs go.Foreign

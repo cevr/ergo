@@ -44,7 +44,10 @@ type Decl struct {
 	Go       string
 	Ergo     string // the declaration after `extern go <target> `
 	Variadic bool   // the last parameter is Go's ...T, spread at the call
-	Refused  string
+	// Context: the first parameter is Go's context.Context, hidden in the
+	// Ergo signature; the lowering passes the calling task's context (IG10).
+	Context bool
+	Refused string
 	// Members are the refusals of a struct's fields and an interface's
 	// methods, by member name, for a type that maps.
 	Members []Member
@@ -169,12 +172,12 @@ func (m *mapper) decl(obj types.Object, recv *types.Named) Decl {
 			d.Kind = Method
 			d.Name = recv.Obj().Name() + "." + o.Name()
 		}
-		text, variadic, err := m.funcDecl(o, recv)
+		text, variadic, ctx, err := m.funcDecl(o, recv)
 		if err != nil {
 			d.Refused = err.Error()
 			return d
 		}
-		d.Ergo, d.Variadic = text, variadic
+		d.Ergo, d.Variadic, d.Context = text, variadic, ctx
 	case *types.TypeName:
 		d.Kind = Type
 		text, members, lines, err := m.typeDecl(o)
@@ -220,7 +223,7 @@ func (m *mapper) needs(name string) string {
 
 // ---------------------------------------------------------------- functions
 
-func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, error) {
+func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool, error) {
 	sig := f.Type().(*types.Signature)
 	subst := map[*types.TypeParam]types.Type{}
 	var tparams []string
@@ -229,7 +232,7 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, error
 		tp := sig.TypeParams().At(i)
 		c, core, err := constraint(tp)
 		if err != nil {
-			return "", false, err
+			return "", false, false, err
 		}
 		if core != nil {
 			subst[tp] = core
@@ -241,7 +244,7 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, error
 			continue
 		}
 		if unconstrainedBefore {
-			return "", false, refuse("type parameters in an order Ergo cannot write: an unconstrained one before %s %s", tp.Obj().Name(), c)
+			return "", false, false, refuse("type parameters in an order Ergo cannot write: an unconstrained one before %s %s", tp.Obj().Name(), c)
 		}
 		tparams = append(tparams, tp.Obj().Name()+" "+c)
 	}
@@ -250,11 +253,15 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, error
 		target = m.pkg.Path() + "." + recv.Obj().Name() + "." + f.Name()
 	}
 	n := sig.Results().Len()
+	// A first context.Context parameter is hidden (IG10), except in the
+	// context package itself, whose functions take a context as their
+	// subject (context.Cause(ctx)), not as the call's cancellation.
 	sm := &sigMapper{mapper: m, subst: subst, sync: v1.GoSyncCallbacks[target], method: recv != nil,
-		outerFails: n > 0 && isError(sig.Results().At(n-1).Type())}
+		outerFails: n > 0 && isError(sig.Results().At(n-1).Type()),
+		ctx:        m.pkg.Path() != "context" && sig.Params().Len() > 0 && isContext(sig.Params().At(0).Type())}
 	params, results, fails, variadic, err := sm.signature(sig, false)
 	if err != nil {
-		return "", false, err
+		return "", false, false, err
 	}
 	// A synchronous callback's rows are the call's (IG6): row parameters
 	// CE (its failures, when Go's callback returns an error) and CR (what
@@ -268,7 +275,7 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, error
 		}
 		for i := 0; i < sig.TypeParams().Len(); i++ {
 			if sig.TypeParams().At(i).Obj().Name() == row.name {
-				return "", false, refuse("a Go type parameter named %s, the binding's row parameter", row.name)
+				return "", false, false, refuse("a Go type parameter named %s, the binding's row parameter", row.name)
 			}
 		}
 		tparams = append(tparams, row.name)
@@ -309,6 +316,12 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, error
 		b.WriteString(" fails go.Error")
 	}
 	needs := m.needs(f.Name())
+	if sm.ctx {
+		// A call that takes the task's context is a host wait: foreign,
+		// whatever its package (it needs the task, which a pure frame
+		// does not have).
+		needs = " needs go.Foreign"
+	}
 	if sm.usedNeeds {
 		if needs == "" {
 			needs = " needs " + rowNeeds
@@ -317,7 +330,7 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, error
 		}
 	}
 	b.WriteString(needs)
-	return b.String(), variadic, nil
+	return b.String(), variadic, sm.ctx, nil
 }
 
 // The row parameters of a function whose callbacks are synchronous.
@@ -396,6 +409,15 @@ type sigMapper struct {
 	// parameters.
 	sync, method, outerFails bool
 	usedFails, usedNeeds     bool
+	// ctx: the first parameter is context.Context, which the Ergo
+	// signature hides (IG10); the callers pass the task's context.
+	ctx bool
+}
+
+// isContext reports Go's context.Context.
+func isContext(t types.Type) bool {
+	n, ok := types.Unalias(t).(*types.Named)
+	return ok && n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == "context" && n.Obj().Name() == "Context"
 }
 
 // signature maps a Go signature: named parameters, the result type, whether
@@ -404,7 +426,11 @@ type sigMapper struct {
 func (m *sigMapper) signature(sig *types.Signature, cb bool) ([]param, string, bool, bool, error) {
 	var params []param
 	used := map[string]bool{}
-	for i := 0; i < sig.Params().Len(); i++ {
+	first := 0
+	if m.ctx && !cb {
+		first = 1
+	}
+	for i := first; i < sig.Params().Len(); i++ {
 		v := sig.Params().At(i)
 		t := v.Type()
 		var text string

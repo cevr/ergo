@@ -167,6 +167,10 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 	if variadic && len(vals) > 0 {
 		vals[len(vals)-1] += "..."
 	}
+	ctx := c.Kind != check.CallOp && check.GoContext(c.Func)
+	if ctx {
+		vals = append([]string{fc.goContext(x)}, vals...)
+	}
 	text := head + "(" + strings.Join(vals, ", ") + ")"
 	defer fc.identify(x, c)()
 	var goResults []check.Type
@@ -189,9 +193,11 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 	}
 	if len(lhs) == 0 {
 		fc.line(text)
+		fc.afterGoContext(x, ctx)
 		return operand{}
 	}
 	fc.line(strings.Join(lhs, ", ") + " := " + text)
+	fc.afterGoContext(x, ctx)
 	switch {
 	case e != "" && tunnels:
 		fc.goUntunnel(x, e)
@@ -308,6 +314,9 @@ func (fc *funcCtx) goExtern(x *syntax.CallExpr, c *check.Call) operand {
 	if ge.Variadic && len(vals) > 0 {
 		vals[len(vals)-1] += "..."
 	}
+	if ge.Context {
+		vals = append([]string{fc.goContext(x)}, vals...)
+	}
 	text := fc.hostTarget(x, f) + "(" + strings.Join(vals, ", ") + ")"
 	defer fc.identify(x, c)()
 	path, goName := f.Decl.Extern.Split()
@@ -336,9 +345,11 @@ func (fc *funcCtx) goExtern(x *syntax.CallExpr, c *check.Call) operand {
 	}
 	if len(lhs) == 0 {
 		fc.line(text)
+		fc.afterGoContext(x, ge.Context)
 		return operand{}
 	}
 	fc.line(strings.Join(lhs, ", ") + " := " + text)
+	fc.afterGoContext(x, ge.Context)
 	if e != "" {
 		fc.goErrorOf(x, e)
 	}
@@ -466,4 +477,22 @@ func isOptionType(t check.Type) bool {
 func isGoRef(t check.Type) bool {
 	_, ok := check.GoRefElem(t)
 	return ok
+}
+
+// goContext is the hidden context.Context argument of a Go call whose
+// binding marks it (`// ergo:context`, IG10): the calling task's, which
+// an interruption cancels (rt.GoContext; inside a mask, a context that is
+// never cancelled).
+func (fc *funcCtx) goContext(x syntax.Node) string {
+	return fc.l.taskPkg() + ".GoContext(" + taskOf(fc.envExpr(x)) + ")"
+}
+
+// afterGoContext writes, after a Go call that took the task's context, the
+// interruption point at which the call's cancellation becomes the task's
+// interruption: an interrupted task unwinds there, so its releases run,
+// rather than going on with the context.Canceled error Go returned.
+func (fc *funcCtx) afterGoContext(x syntax.Node, ctx bool) {
+	if ctx {
+		fc.poll(x)
+	}
 }
