@@ -68,6 +68,9 @@ type testLowering struct {
 	// operation call in it (CallLawOp) calls its operation type's
 	// capability, which the run binds to the provider under test.
 	law *check.Law
+	// lawPkgs are the imported packages whose laws the build lowers
+	// (owners.go, viewOf), set on first use.
+	lawPkgs map[*check.Package]bool
 }
 
 // LowerTests lowers the checked unit to the Go module of its test binary:
@@ -129,23 +132,29 @@ func (l *lowerer) nameTests() {
 		l.genNamed(t, map[check.Type]bool{}, func(n *check.Named) { l.genName(n) })
 		reserveLit(t)
 	}
-	for _, law := range l.runLaws() {
+	for _, r := range l.runLaws() {
+		law := r.Law
 		l.lawFunc(law)
-		if law.Unrun != "" {
+		if !lawLowered(r) {
 			continue
 		}
-		for _, v := range law.Params {
-			reserveGen(v.Type)
+		for i, v := range law.Params {
+			if !lawSlotParam(law, i) {
+				reserveGen(v.Type)
+			}
 		}
-		for _, p := range l.canon.lawProviders(law) {
-			switch {
-			case p.Unrun != "":
-			case p.Ctor != nil:
-				for _, v := range p.Ctor.Sig.Params {
-					reserveGen(v.Type)
+		for _, b := range r.Bindings {
+			if bindingUnrun(b) != "" {
+				continue
+			}
+			for _, p := range b {
+				if p.Ctor != nil {
+					for _, v := range p.Ctor.Sig.Params {
+						reserveGen(v.Type)
+					}
+				} else {
+					reserveGen(p.Type)
 				}
-			default:
-				reserveGen(p.Type)
 			}
 		}
 	}
@@ -193,21 +202,81 @@ func (l *lowerer) testFunc(t *check.Test) string {
 	return l.pkgName(pkgKey{"test", t}, "ergoTest"+t.Name)
 }
 
-// runLaws are the laws the test build lowers: the root package's, top-level
-// and member, in canonical order, as runTests are its tests (Laws). A law
-// that does not run (Law.Unrun) is reported as skipped and has no body in
-// the build.
-func (l *lowerer) runLaws() []*check.Law {
-	return l.canon.laws(l.pkg)
+// runLaws are the laws the test build reports: the root package's law
+// runs (check.Package.LawRuns), its own laws and the laws of its imports
+// bound to providers it is the least package to see, in canonical order,
+// as runTests are its tests (Laws). A law that does not run (Law.Unrun) is
+// reported as skipped and has no body in the build.
+func (l *lowerer) runLaws() []check.LawRun {
+	return l.canon.lawRuns(l.pkg)
+}
+
+// lawLowered reports whether the build lowers the run's law: it runs and
+// has a binding whose providers all run.
+func lawLowered(r check.LawRun) bool {
+	if r.Law.Unrun != "" {
+		return false
+	}
+	for _, b := range r.Bindings {
+		if bindingUnrun(b) == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// bindingUnrun is why a binding does not run: its first provider's, "" when
+// every provider runs.
+func bindingUnrun(b []check.LawProvider) string {
+	for _, p := range b {
+		if p.Unrun != "" {
+			return p.Unrun
+		}
+	}
+	return ""
 }
 
 // lawTitle is the name a law's report uses: Name at top level, Type.Name
-// for a member law.
-func lawTitle(law *check.Law) string {
+// for a member law, each with its package's name before it when the law
+// is of another package than the one under test.
+func (l *lowerer) lawTitle(law *check.Law) string {
+	title := law.Name
 	if law.Owner != nil {
-		return law.Owner.Name + "." + law.Name
+		title = law.Owner.Name + "." + law.Name
 	}
-	return law.Name
+	if law.Pkg != nil && law.Pkg != l.pkg {
+		title = law.Pkg.Name + "." + title
+	}
+	return title
+}
+
+// providerTitle is the name a report gives a provider: its type's name,
+// with its package's name before it when it is of another package than
+// the one under test.
+func (l *lowerer) providerTitle(p check.LawProvider) string {
+	if pkg := p.Type.Obj.Pkg; pkg != nil && pkg != l.pkg {
+		return pkg.Name + "." + p.Type.Obj.Name
+	}
+	return p.Type.Obj.Name
+}
+
+// bindingLabel is the report's name of a run of law with the binding b:
+// `law T.L for P` for a member law's owner, then `with x = P` for each
+// parameter of an operation type.
+func (l *lowerer) bindingLabel(law *check.Law, b []check.LawProvider) string {
+	label := "law " + l.lawTitle(law)
+	var with []string
+	for k, s := range law.Slots {
+		if s.Param < 0 {
+			label += " for " + l.providerTitle(b[k])
+			continue
+		}
+		with = append(with, law.Params[s.Param].Name+" = "+l.providerTitle(b[k]))
+	}
+	if len(with) > 0 {
+		label += " with " + strings.Join(with, ", ")
+	}
+	return label
 }
 
 func (l *lowerer) lawFunc(law *check.Law) string {
@@ -227,12 +296,22 @@ func (l *lowerer) lawDecl(law *check.Law) {
 	d := law.Decl
 	l.tests.law = law
 	defer func() { l.tests.law = nil }()
+	// A law of an imported package is lowered within its file, reading its
+	// package's Info, as that package's functions are (sources.go); a law
+	// of std, as a std body is: with no line directive (decls.go).
+	defer l.leave(l.enter(d.Name, law.Pkg))
+	sourced := law.Pkg == nil || l.isSourced(law.Pkg)
+	if !sourced {
+		l.info = law.Pkg.Info
+	}
 	l.bodies++
 	scope := newNamer(l.names)
-	fc := newFuncCtx(l, scope, true)
+	fc := newFuncCtx(l, scope, sourced)
 	fc.site = d
-	fc.owner = "law " + lawTitle(law)
-	l.recordDecl(fc.owner, d)
+	fc.owner = "law " + l.lawTitle(law)
+	if sourced {
+		l.recordDecl(fc.owner, d)
+	}
 	fc.env = scope.alloc("env")
 	parts := []string{fc.env + " *" + l.env()}
 	result := check.Type(check.Typ[check.Bool])
@@ -263,7 +342,9 @@ func (l *lowerer) lawDecl(law *check.Law) {
 	}
 	fc.entryPoll(l.info, d)
 	fc.body(d.Body.List)
-	l.user.WriteString(l.directive(d))
+	if sourced {
+		l.user.WriteString(l.directive(d))
+	}
 	l.user.WriteString(head + " {\n")
 	l.user.WriteString(fc.out.String())
 	l.user.WriteString("}\n\n")
@@ -474,7 +555,8 @@ func (l *lowerer) printable(t check.Type, seen map[*check.Named]bool) bool {
 // file:line:column, the file, the one that holds n (locate). A program's
 // file is named by its base name; a std body's node, which no source of
 // the program holds, by its std path (std/maps/maps.ergo), as noCase names
-// it: the prelude's Unreachable called from std code (fs5, batch 12).
+// it: the prelude's Unreachable called from std code (fs5, batch 12), and a
+// law of std (law-xpkg).
 func (l *lowerer) siteText(n syntax.Node) string {
 	file, line, column := l.locate(n, n.Pos())
 	if _, ok := l.sourceOf(n); ok {
@@ -497,9 +579,9 @@ func (l *lowerer) testEntry(b *strings.Builder) {
 	}
 	b.WriteString("\t\treturn " + l.helper("Tests") + "(" + env + ", " + seed + ")\n")
 	b.WriteString("\t})\n}\n\n")
-	for _, law := range l.runLaws() {
-		if law.Unrun == "" {
-			l.lawDecl(law)
+	for _, r := range l.runLaws() {
+		if lawLowered(r) {
+			l.lawDecl(r.Law)
 		}
 	}
 	b.WriteString(l.testRunner())
@@ -524,19 +606,16 @@ func (l *lowerer) testRunner() string {
 	b.WriteString(l.testRunnerHead(env, seed))
 	tests := l.runTests()
 	runs, skips := 0, 0
-	for _, law := range l.runLaws() {
-		switch {
-		case law.Unrun != "":
+	for _, r := range l.runLaws() {
+		if r.Law.Unrun != "" {
 			skips++
-		case law.Owner == nil:
-			runs++
-		default:
-			for _, p := range law.Providers {
-				if p.Unrun == "" {
-					runs++
-				} else {
-					skips++
-				}
+			continue
+		}
+		for _, b := range r.Bindings {
+			if bindingUnrun(b) == "" {
+				runs++
+			} else {
+				skips++
 			}
 		}
 	}
@@ -602,41 +681,59 @@ func (l *lowerer) testRunner() string {
 	return b.String()
 }
 
+// lawSlotParam reports whether the law's parameter i is a slot, an
+// operation type a run binds to a provider (check.Law.Slots).
+func lawSlotParam(law *check.Law, i int) bool {
+	for _, s := range law.Slots {
+		if s.Param == i {
+			return true
+		}
+	}
+	return false
+}
+
 // lawRuns writes the runs of one law into the runner b (Laws): a skip line
-// when it does not run, else one run of testCases cases for a top-level
-// law, and one per provider for a member law. Each run draws from its own
-// stream, named by the law and the provider, so adding a law or a provider
-// changes no other run's cases. A case binds the provider, converted to
-// the law's operation type, in a copy of the runner's environment, draws
-// the parameters, and calls the law's function: a false result refutes it
-// ($Refuted), and an escaping failure or a failed assert fails it as a
-// test's case does.
-func (l *lowerer) lawRuns(b *strings.Builder, law *check.Law, scope *namer, env, seed, failed string) {
+// when it does not run; a note when it is of the package under test and
+// none of its bindings runs here (its providers' packages run it); else one
+// run of testCases cases per binding of its slots, a law with no slots
+// having one. Each run draws from its own stream, named by the law and the
+// binding, so adding a law or a provider changes no other run's cases. A
+// case builds each bound provider, binds the owner's, converted to the
+// law's operation type, in a copy of the runner's environment, passes each
+// parameter's, draws the other parameters, and calls the law's function: a
+// false result refutes it ($Refuted), and an escaping failure or a failed
+// assert fails it as a test's case does.
+func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env, seed, failed string) {
+	law := lr.Law
 	fmtPkg, run, conv := l.helper("fmt"), l.helper("Case"), l.helper("strconv")
-	title := lawTitle(law)
+	title := l.lawTitle(law)
 	if law.Unrun != "" {
 		b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip law "+title+": "+law.Unrun) + ")\n")
 		return
 	}
+	if len(lr.Bindings) == 0 {
+		var types []string
+		for _, s := range law.Slots {
+			types = append(types, s.Type.Obj.Name)
+		}
+		b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("law "+title+" runs where "+strings.Join(types, " and ")+" has a provider: none is in this package or its imports") + ")\n")
+		return
+	}
 	type target struct {
 		label string // the report's name of the run
-		p     *check.LawProvider
+		b     []check.LawProvider
 	}
 	var targets []target
-	if law.Owner == nil {
-		targets = []target{{label: "law " + title}}
-	} else {
-		for _, p := range l.canon.lawProviders(law) {
-			label := "law " + title + " for " + p.Type.Obj.Name
-			if p.Unrun != "" {
-				b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip "+label+": "+p.Unrun) + ")\n")
-				continue
-			}
-			targets = append(targets, target{label: label, p: &p})
+	for _, bd := range lr.Bindings {
+		label := l.bindingLabel(law, bd)
+		if why := bindingUnrun(bd); why != "" {
+			b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip "+label+": "+why) + ")\n")
+			continue
 		}
+		targets = append(targets, target{label: label, b: bd})
 	}
 	at := strconv.Quote(l.siteText(law.Decl))
-	if law.Owner == nil && len(law.Params) == 0 {
+	if len(law.Slots) == 0 && len(law.Params) == 0 {
 		// A top-level law with no parameters draws nothing: it runs once,
 		// as an example test does.
 		label := "law " + title
@@ -660,11 +757,14 @@ func (l *lowerer) lawRuns(b *strings.Builder, law *check.Law, scope *namer, env,
 		sep := ": "
 		var bind []string
 		e, held, err := inner.alloc("e"), inner.alloc("held"), inner.alloc("err")
-		if tg.p != nil {
-			pv := inner.alloc("provider")
-			fc := newFuncCtx(l, inner, false)
-			fc.site = law.Decl
-			if ctor := tg.p.Ctor; ctor != nil {
+		fc := newFuncCtx(l, inner, false)
+		fc.site = law.Decl
+		// provide writes the case's build of the provider p, named by base
+		// and shown as `name = …`, and returns its value converted to the
+		// slot's operation type.
+		provide := func(p check.LawProvider, base, name string) string {
+			pv := inner.alloc(base)
+			if ctor := p.Ctor; ctor != nil {
 				// The provider has no generator: its constructor builds
 				// it for the case, from generated arguments (fs4).
 				cargs := []string{env}
@@ -676,24 +776,35 @@ func (l *lowerer) lawRuns(b *strings.Builder, law *check.Law, scope *namer, env,
 					shownArgs = append(shownArgs, l.litExpr(v.Type, a, law.Decl))
 				}
 				b.WriteString("\t\t\t" + pv + ", _ := " + fc.funcValue(ctor, ctor.Sig, law.Decl, nil) + "(" + strings.Join(cargs, ", ") + ")\n")
-				call := strconv.Quote(sep + "provider = " + ctor.Name + "(")
+				call := strconv.Quote(sep + name + " = " + ctor.Name + "(")
 				if len(shownArgs) > 0 {
 					call += " + " + strings.Join(shownArgs, ` + ", " + `)
 				}
 				shown = append(shown, call, strconv.Quote(")"))
 			} else {
-				b.WriteString("\t\t\t" + pv + " := " + l.genExpr(tg.p.Type, r, strconv.Itoa(testDepth), inner, law.Decl) + "\n")
-				shown = append(shown, strconv.Quote(sep+"provider = "), l.litExpr(tg.p.Type, pv, law.Decl))
+				b.WriteString("\t\t\t" + pv + " := " + l.genExpr(p.Type, r, strconv.Itoa(testDepth), inner, law.Decl) + "\n")
+				shown = append(shown, strconv.Quote(sep+name+" = "), l.litExpr(p.Type, pv, law.Decl))
 			}
 			sep = ", "
-			own := law.Owner.Type.(*check.Named)
-			bind = append(bind, e+"."+l.envField(own.Obj)+" = "+fc.convert(tg.p.Conv, pv, law.Decl))
+			return fc.convert(p.Conv, pv, law.Decl)
+		}
+		bound := map[int]check.LawProvider{}
+		for k, s := range law.Slots {
+			if s.Param < 0 {
+				bind = append(bind, e+"."+l.envField(s.Type.Obj)+" = "+provide(tg.b[k], "provider", "provider"))
+				continue
+			}
+			bound[s.Param] = tg.b[k]
 		}
 		args := []string{"&" + e}
-		for _, v := range law.Params {
+		for k, v := range law.Params {
 			base := v.Name
 			if base == "_" {
 				base = "arg"
+			}
+			if p, ok := bound[k]; ok {
+				args = append(args, provide(p, base, v.Name))
+				continue
 			}
 			a := inner.alloc(base)
 			b.WriteString("\t\t\t" + a + " := " + l.genExpr(v.Type, r, strconv.Itoa(testDepth), inner, law.Decl) + "\n")

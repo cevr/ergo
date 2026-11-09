@@ -7,12 +7,13 @@ import slices
 
 // Registry is a resolve.Index over releases held in memory, each name's
 // releases sorted newest first when it is built. Its field is unexported,
-// so only Of builds one.
+// so only NewRegistry builds one, and ergo test builds each provider of
+// the resolve.Index laws with it.
 type Registry { byName Map[string, []resolve.Release] }
 
-// Of is the registry of releases. Of two releases of one version, the
-// first counts.
-func Of(releases []resolve.Release) Registry {
+// NewRegistry is the registry of releases. Of two releases of one
+// version, the first counts.
+func NewRegistry(releases []resolve.Release) Registry {
 	let mut byName = Map[string, []resolve.Release]{}
 	for r in releases {
 		let have = match byName.Get(r.Name) {

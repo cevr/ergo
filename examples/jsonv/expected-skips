@@ -1,0 +1,5 @@
+# Skip lines `ergo test` prints for this program's packages (fs4, law-xpkg).
+# files.Disk holds an fs.Files and an io.Stdin, and its constructor takes them
+# (a constructor's parameter of an operation type is not bound to a provider
+# yet), so files/tests.ergo restates ReadIsRepeatable over an fstest.Memory.
+skip law app.Documents.ReadIsRepeatable for Disk: its values have no generator: fs.Files is a standard library type; a func NewDisk() Disk with no rows would build one for each case

@@ -274,15 +274,49 @@ func (c *canonical) laws(p *check.Package) []*check.Law {
 	return p.Laws
 }
 
-// lawProviders are law's providers in canonical order: by the source file
-// and offset of each provider's declaration name.
-func (c *canonical) lawProviders(law *check.Law) []check.LawProvider {
-	return declOrder(c, law.Providers, func(p check.LawProvider) syntax.Node {
-		if p.Type.Obj.Decl == nil {
+// lawRuns are p's law runs (check.Package.LawRuns) in canonical order: by
+// the source file and offset of each law's name, and a law of std after
+// them, in the checker's order. Each run's bindings are ordered by their
+// providers' declaration names, slot by slot.
+func (c *canonical) lawRuns(p *check.Package) []check.LawRun {
+	runs := declOrder(c, p.LawRuns, func(r check.LawRun) syntax.Node {
+		if r.Law.Decl == nil {
 			return nil
 		}
-		return p.Type.Obj.Decl.Name
+		return r.Law.Decl.Name
 	})
+	for i, r := range runs {
+		b := slices.Clone(r.Bindings)
+		sort.SliceStable(b, func(x, y int) bool {
+			for k := range b[x] {
+				m, n := providerName(b[x][k]), providerName(b[y][k])
+				if m == n {
+					continue
+				}
+				if m == nil || n == nil {
+					return m != nil
+				}
+				if c.less(m, n) {
+					return true
+				}
+				if c.less(n, m) {
+					return false
+				}
+			}
+			return false
+		})
+		runs[i].Bindings = b
+	}
+	return runs
+}
+
+// providerName is the declaration name of a law provider's type, nil when
+// it has none.
+func providerName(p check.LawProvider) syntax.Node {
+	if p.Type.Obj.Decl == nil {
+		return nil
+	}
+	return p.Type.Obj.Decl.Name
 }
 
 // initOrder is p's package-level initializers in the checker's

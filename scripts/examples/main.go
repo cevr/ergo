@@ -56,8 +56,8 @@ var nonPrograms = map[string]string{
 // caseFiles are the files a case folder may hold.
 var caseFiles = []string{"args", "stdin", "env", "setup.sh", "expected.out", "expected.err", "expected.status"}
 
-// testDeclaration finds a top-level test declaration in an .ergo file.
-var testDeclaration = regexp.MustCompile(`(?m)^test [A-Za-z_]`)
+// testDeclaration finds a test or a law declaration in an .ergo file.
+var testDeclaration = regexp.MustCompile(`(?m)^\s*(test|law) [A-Za-z_]`)
 
 type config struct {
 	root    string
@@ -403,12 +403,14 @@ func finishProgram(p *program, present map[string]bool, problems []string, recor
 			problem("%v", err)
 			continue
 		}
-		if !testDeclaration.Match(content) {
+		// A program of one folder tests its main.ergo when it declares a
+		// test or a law. A module program tests every package folder: a
+		// package that declares no test may provide an operation type
+		// whose laws its test build runs (law-xpkg).
+		if !p.module && !testDeclaration.Match(content) {
 			continue
 		}
 		p.tested = true
-		// A program of one folder tests its main.ergo, as before; a module
-		// program tests each package folder that declares a test.
 		target := p.main
 		if p.module {
 			target = filepath.Dir(source)

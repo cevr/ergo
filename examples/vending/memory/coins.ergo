@@ -4,11 +4,25 @@
 import vending/vend
 
 // Coins is a vend.Acceptor over a table from a coin's name to its value
-// in cents.
+// in cents. NewCoins builds one.
 type Coins { values Map[string, int] }
 
+// NewCoins is the coins of values whose value is a denomination; a coin of
+// any other value is not taken, so Coins keeps the Acceptor law
+// TakesOnlyDenominations whatever table it is given (ergo test builds it
+// from generated ones).
+func NewCoins(values Map[string, int]) Coins {
+	let mut taken = Map[string, int]{}
+	for name, cents in values {
+		if vend.IsDenomination(cents) {
+			taken[name] = cents
+		}
+	}
+	Coins{values: taken}
+}
+
 // US is the coins of the United States that the machine takes.
-func US() Coins { Coins{values: Map[string, int]{"nickel": 5, "dime": 10, "quarter": 25, "dollar": 100}} }
+func US() Coins { NewCoins(Map[string, int]{"nickel": 5, "dime": 10, "quarter": 25, "dollar": 100}) }
 
 // Value is the value of coin, or Counterfeit when the table has no such
 // coin.

@@ -1,6 +1,5 @@
-// The fast solver's tests: known hard puzzles, and the Solver laws
-// restated as property tests (they run only for providers in board,
-// G-exup-1); its own law runs in laws.ergo.
+// The fast solver's tests: known hard puzzles. ergo test runs the
+// board.Solver laws here, against Solver; its own law runs in laws.ergo.
 
 import sudoku/board
 import sudoku/naive
@@ -32,25 +31,13 @@ test UnsolvablePuzzles {
 	assert try solved(".234567891"+strings.Repeat(".", 71)) == "unsolvable"
 }
 
-// blanksOf is a number of blanks from any n: 0 to 59.
-func blanksOf(n int) int { if n < 0 { -(n + 1) % 60 } else { n % 60 } }
-
-test SolutionSolvesHolds(seed int, n int) {
-	assert board.SolutionSolvesHolds(Solver, board.Puzzle(seed, blanksOf(n)))
-	assert board.SolutionSolvesHolds(Solver, board.Puzzle(seed, 64))
-}
-
-test DeterministicHolds(seed int, n int) {
-	assert board.DeterministicHolds(Solver, board.Puzzle(seed, 64))
-	assert board.DeterministicHolds(Solver, board.Puzzle(seed, blanksOf(n)))
-}
-
-test SolvedIsFixedHolds(seed int, n int) {
-	assert board.SolvedIsFixedHolds(Solver, board.Puzzle(seed, blanksOf(n)))
-}
-
-test InconsistentIsUnsolvableHolds(seed int, n int) {
-	assert board.InconsistentIsUnsolvableHolds(Solver, board.Broken(seed, blanksOf(n)+1))
+// The Solver laws draw puzzles of up to 59 blanks, which naive solves at
+// once; propagate also keeps them at 64, where its search matters.
+test KeepsTheLawsAtSixtyFourBlanks(seed int) {
+	let p = board.Puzzle(seed, 64)
+	let s = try Solver.Solve(p)
+	assert board.Solves(s, p)
+	assert (try Solver.Solve(p)) == s
 }
 
 // On puzzles with few blanks the solution is the sample itself, so both

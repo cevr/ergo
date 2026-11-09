@@ -1,37 +1,13 @@
-// Ledger keeps the orders.Book laws (each test runs one of orders' checks
-// on a new Ledger), and the domain's Place and Apply run over it.
+// ergo test runs the orders.Book laws here, against Ledger (NewLedger);
+// these tests run the domain's Place and Apply over it.
 
 import orders/orders
-
-test LedgerFindAfterAdd(o orders.Order) {
-	with context { orders.Book: New() } {
-		assert try orders.FindAfterAddHolds(o)
-	}
-}
-
-test LedgerAddTwiceIsTaken(o orders.Order, other orders.Order) {
-	with context { orders.Book: New() } {
-		assert try orders.AddTwiceIsTakenHolds(o, other)
-	}
-}
-
-test LedgerReplaceKeepsTheCount(o orders.Order, status orders.Status) {
-	with context { orders.Book: New() } {
-		assert try orders.ReplaceKeepsTheCountHolds(o, status)
-	}
-}
-
-test LedgerAllInAddOrder(list []orders.Order) {
-	with context { orders.Book: New() } {
-		assert try orders.AllInAddOrderHolds(list)
-	}
-}
 
 let tea = orders.Line{SKU: "tea", Quantity: 2, Cents: 450}
 let cup = orders.Line{SKU: "cup", Quantity: 1, Cents: 1200}
 
 test PlaceNumbersAndTotals {
-	with context { orders.Book: New() } {
+	with context { orders.Book: NewLedger() } {
 		let first = try orders.Place(orders.Draft{Customer: "ada", Lines: []orders.Line{tea, cup}})
 		let second = try orders.Place(orders.Draft{Customer: "grace", Lines: []orders.Line{cup}})
 		assert first.ID == "ord-1" && first.Total == 2100 && orders.Name(first.Status) == "placed"
@@ -40,7 +16,7 @@ test PlaceNumbersAndTotals {
 }
 
 test AnInvalidDraftAddsNothing {
-	with context { orders.Book: New() } {
+	with context { orders.Book: NewLedger() } {
 		orders.Place(orders.Draft{Customer: "", Lines: []orders.Line{tea}}) catch {
 		case orders.Invalid:
 		}
@@ -60,7 +36,7 @@ func moved(id string, e orders.Event) string needs orders.Book {
 }
 
 test ApplyFollowsTheLifecycle {
-	with context { orders.Book: New() } {
+	with context { orders.Book: NewLedger() } {
 		let o = try orders.Place(orders.Draft{Customer: "ada", Lines: []orders.Line{tea}})
 		assert moved(o.ID, orders.Ship) == "conflict: ord-1 is placed, cannot ship"
 		assert moved(o.ID, orders.Pay) == "paid"

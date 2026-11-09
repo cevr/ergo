@@ -16,9 +16,8 @@ type Policies {
 // NoSuchKiosk is a kiosk name that a store does not hold.
 type NoSuchKiosk { Name string }
 
-// EveryPolicyChecks is the law EveryPolicyChecks as a function: ergo test
-// does not run a law of an imported operation type against another
-// package's provider yet (G-ma-2), so package memory's test calls it.
+// EveryPolicyChecks is the law EveryPolicyChecks as a function, which
+// package memory's test also calls.
 func EveryPolicyChecks() bool needs Policies {
 	for n in Policies.Names() {
 		let p = Policies.Policy(n) catch {

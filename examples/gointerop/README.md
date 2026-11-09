@@ -20,7 +20,7 @@ A Go version imports `crypto/sha256`, `encoding/hex` and `bufio`, and maps `strc
 ## Layout
 
 - `checksum/`: the domain. The operation type `Hasher` (`Sum`, `Name`) with the laws `Deterministic`, `FixedWidth` and `Distinguishes`; list entries (`Entry`, `Parse` fails `BadLine`, `Line`); `Verdict = Matches | Differs{Got} | Missing`, `Check` (needs `Hasher`) and `Report`.
-- `sha256/`: `Hasher`, the SHA-256 provider of `checksum.Hasher`, and its tests (vectors, block edges, the `Hasher` laws restated, since laws run only for providers in their own package: G-exup-1).
+- `sha256/`: `Hasher`, the SHA-256 provider of `checksum.Hasher`, and its tests (vectors and block edges; `ergo test cmd/gointerop` runs the `Hasher` laws against it).
 - `stats/`: `Read`, `Summarize` (Welford's update; fails `Empty`), `Text`, `Lines`; the laws `MeanIsBetween`, `ShiftKeepsSpread`, `GeoMeanAtMostMean`.
 - `cmd/gointerop/main.ergo`: the binary; it binds `checksum.Hasher` to `sha256.Hasher`, `fs.Files` and the standard input to the host. Its tests run on an `fstest.Memory` disk.
 - `testdata/`: `a.txt`, `b.txt` and a `list` with one good, one wrong and one missing entry.
@@ -32,6 +32,6 @@ A Go version imports `crypto/sha256`, `encoding/hex` and `bufio`, and maps `strc
 ## Limits found
 
 - G-ex-f-10 (narrowed): still no `import go`, no `[]byte`, no callback of a named function type, and a failure row at an extern is `go.Error` only. Closed: SHA-256 and hex are std, extern functions are values, `fails go.Error`.
-- G-exup-1: the `checksum.Hasher` laws are skipped for `sha256.Hasher` (a provider in another package), so `sha256/tests.ergo` restates them.
+- G-exup-1 (closed in batch 13): the `checksum.Hasher` laws run against `sha256.Hasher` in `cmd/gointerop`, the least package that sees both, so the tests that restated them are gone.
 
 Closed since ex-f: G-ex-f-11 (`math/bits` and `encoding/hex` are std), G-ex-f-12 (`fstest.Memory`), G-ex-d-5 (`Command` has `==`), G-ex-d-10 (`main` returns from its `with`). Also hit before: G-ex-b-18 (a package-level `Map` makes a "pure" hash nondeterministic, which a mutant uses).

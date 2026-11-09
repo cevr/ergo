@@ -45,15 +45,15 @@ The program is a module of packages (`ergo.mod`: `module search`), in the Go lay
   - `DebounceCoalesces`: keys each within 250ms of the one before give one search.
 
   The contracts have three member laws: `Catalog.FindIsSubset` (every hit is in the catalogue and holds the query), `Catalog.FindIsStable` (the hits keep the catalogue's order) and `Cart.AddAddsOne` (an add puts one item at the end, or fails `CartFull` exactly when the cart is full). A provider has no state (M23), so the same query always gets the same answer; order is the stability that a provider can break.
-- **Tests.** The laws are the tests. `memory/tests.ergo` calls the three contract laws (G-ma-2) and has one scripted run, `SearchRun`.
+- **Tests.** The laws are the tests. `ergo test` runs the three contract laws in `memory` against `Shelf` and `Basket`; `memory/tests.ergo` calls their functions and has one scripted run, `SearchRun`.
 
 ## Limits found
 
 - **No state-owned work (M45; MU4).** `Drive` is a runner written by hand: `drive.ergo` is about 240 lines (measured: 261 with `Said`) that a `work` member of the machine and a live runner would replace. It runs on a virtual clock, and the job calls its provider when it starts, so the program is a replay, not a live search (MU3, #57).
 - **The entry epoch is kept by hand (M46).** `Drive` keeps the counter and drops stale results. `machines.RunTimed` drops a stale timer, but it has no work, so it cannot run this machine.
 - **No observation of a running machine (M50).** The timeline comes from the lines that `Drive` writes, not from a subscription to the machine.
-- **Machine laws need a provider (M55, G-ma-2).** The machine's rules need `Catalog` and `Cart`, and a law needs no service. So each rule is a function of `search`, and `memory` states it as a law with a `with` of its own providers. The contract laws are functions too, as in keypad.
-- **G-ma-1**, as in keypad: package `search` declares no test, so the examples runner does not run it. Its laws only skip there (G-ma-2).
+- **Machine laws need a provider (M55).** The machine's rules need `Catalog` and `Cart`, and a law needs no service. So each rule is a function of `search`, and `memory` states it as a law with a `with` of its own providers. The contract laws are functions too, as in keypad.
+- **G-ma-1** (closed in batch 13): the examples runner tests package `search` too; its contract laws run in `memory`, where their providers are.
 - **No `==` on slices (M29).** `Names` turns items into one text to compare.
 - **No duration × int (M24).** A millisecond is `duration(int64(n) * 1000000)`.
 

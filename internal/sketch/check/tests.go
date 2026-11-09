@@ -208,6 +208,13 @@ func (c *checker) checkTest(test *Test) {
 // ungeneratable is why t is not a generatable type (rule 3), or "" when it
 // is one.
 func (c *checker) ungeneratable(t Type) string {
+	return c.ungeneratableFrom(t, c.pkg)
+}
+
+// ungeneratableFrom is ungeneratable with the construction authority of the
+// package from: a law run generates each value with the authority of the
+// package that owns it (laws.go rule 7), a provider with its own package's.
+func (c *checker) ungeneratableFrom(t Type, from *Package) string {
 	seen := map[*Named]bool{}
 	var why func(t Type) string
 	why = func(t Type) string {
@@ -240,7 +247,7 @@ func (c *checker) ungeneratable(t Type) string {
 			}
 			switch under := u.Underlying().(type) {
 			case *Struct:
-				if obj := literalAuthority(u, c.pkg); obj != nil {
+				if obj := literalAuthority(u, from); obj != nil {
 					// A generator builds the record field by field: only
 					// its package may (types.md, Zero values 6).
 					return authorityText(obj)

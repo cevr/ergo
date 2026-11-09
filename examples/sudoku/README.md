@@ -10,7 +10,7 @@ The program is a module of packages (`ergo.mod`: `module sudoku`), in the Go lay
 
 | folder | what it holds |
 | --- | --- |
-| `board/` | The domain. `grid.ergo` (`Grid` with construction authority, `Parse` with the typed failures `BadLength` and `BadCell`, `At`, `With`, `OfCells`, `Line`, `Picture`), `rules.ergo` (`Units`, `Peers`, `Consistent`, `Solves`, the failure `Unsolvable`, and the operation type `Solver` with four laws), `sample.ergo` (solved grids and puzzles from a seed), `checks.ergo` (the `Solver` laws as functions over a provider, for the providers' tests), `laws.ergo`, `tests.ergo`. |
+| `board/` | The domain. `grid.ergo` (`Grid` with construction authority, `Parse` with the typed failures `BadLength` and `BadCell`, `At`, `With`, `OfCells`, `Line`, `Picture`), `rules.ergo` (`Units`, `Peers`, `Consistent`, `Solves`, the failure `Unsolvable`, and the operation type `Solver` with four laws), `sample.ergo` (solved grids and puzzles from a seed), `laws.ergo`, `tests.ergo`. |
 | `propagate/` | The fast solver: candidate sets as bits, propagation (a cell with one digit left places it; a unit with one place left for a digit places it), and search on copies at the cell with the fewest digits. A dead end is the typed failure `Contradiction`, and the search backtracks by catching it. `laws.ergo`: `AgreesWithNaive`. |
 | `naive/` | The reference solver: plain backtracking cell by cell over a `*[]int`, short enough to be the definition of a solution. |
 | `cmd/sudoku/` | The binary. It binds `board.Solver` to `propagate.Solver` (context `Fast`) or `naive.Solver` (context `Reference`), and is the only place that chooses one. |
@@ -45,5 +45,5 @@ Gaps that other lanes found, met here too:
 - G-ex-d-5 closed in batch 12: grids compare with `==`, and `board.Equal` is gone.
 - A prelude name cannot be a local (G-ex-c-11): the line counter cannot be named `number`, the name of the numeric constraint.
 - A value of an error type in a `catch` arm is not a failure; the arm must `return` it (G-ex-c-3).
-- The `Solver` laws run only for providers in `board` (G-exup-1), a member law's check cannot be shared (G-ex-c-5), and a property test cannot choose its generator (G-ex-d-4): the tests take seeds and build puzzles with `Solution`, `Puzzle` and `Broken`.
+- A property test cannot choose its generator (G-ex-d-4): the `Solver` laws take seeds and build puzzles with `Puzzle`, `BlanksOf` and `Broken`, since a generated `Grid` holds any number of cells. Closed in batch 13: G-exup-1 (`ergo test` runs the `Solver` laws in `naive` and `propagate`, so `checks.ergo` and the tests that restated the laws are gone).
 - A package-level `Map` is global mutable state that a pure function can write (G-ex-b-18): the mutant `sd-determ` breaks the `Deterministic` law that way, and the checker accepts it.

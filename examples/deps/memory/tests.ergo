@@ -1,12 +1,14 @@
-// Registry's tests: it keeps resolve.Index's laws and resolves as Table
-// does. ergo test runs the member laws of an operation type only against
-// the providers of its own package (G-exup-1), so these restate them.
+// Registry's tests. ergo test runs resolve.Index's laws against Registry,
+// built by NewRegistry from generated releases; KeepsTheIndexLaws checks
+// them again over resolve's steered names (TableOf, NameOf), which meet a
+// package with versions far more often than generated names do.
+// ResolvesAsTable: Registry resolves as Table does.
 
 import deps/resolve
 import deps/semver
 
 test KeepsTheIndexLaws(entries []resolve.Entry, n int) {
-	let r = Of(resolve.TableOf(entries).Releases)
+	let r = NewRegistry(resolve.TableOf(entries).Releases)
 	let name = resolve.NameOf(n)
 	let vs = r.Versions(name) catch {
 	case resolve.UnknownPackage:
@@ -26,7 +28,7 @@ test ResolvesAsTable(entries []resolve.Entry, root []resolve.Need) {
 	let a = with context { resolve.Index: t } {
 		resolve.Outcome(rq)
 	}
-	let b = with context { resolve.Index: Of(t.Releases) } {
+	let b = with context { resolve.Index: NewRegistry(t.Releases) } {
 		resolve.Outcome(rq)
 	}
 	assert a == b

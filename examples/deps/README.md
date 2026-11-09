@@ -26,7 +26,7 @@ The program is a module of packages (`ergo.mod`: `module deps`), in the Go layou
 | `graph/` | A directed graph over any ordered node type. `graph.ergo` (`Graph[N ordered]`, `Of`, `Add`, `Link`, `Order` failing `Cycle[N]` with the cycle's path, `Path`), `laws.ergo`, `tests.ergo`. Pure. |
 | `resolve/` | The resolver and its contract. `index.ergo` (the contract `Index`, an operation type with two laws, and its failures), `resolve.ergo` (`Resolve`, its failures `NoVersion`, `NoPlan`, `TooHard`, `Circular`, and `Why`), `table.ergo` (`Table`, an in-package `Index`, and the generators the laws run over), `laws.ergo`, `tests.ergo`. Pure but for its `Index`. |
 | `manifest/` | The file format. `manifest.ergo` (`Manifest`, `BadLine`, the machine `Reader` whose state is the block being read, `Step`, `Read`), `laws.ergo` (`Format` and two laws), `tests.ergo`. Pure. |
-| `memory/` | `Registry`, the `Index` of a manifest's releases, with tests that it keeps `Index`'s laws and resolves as `resolve.Table` does. |
+| `memory/` | `Registry`, the `Index` of a manifest's releases (`NewRegistry`), with tests that it keeps `Index`'s laws and resolves as `resolve.Table` does. |
 | `cmd/deps/` | The binary. `main.ergo` binds the host's `os.Process`, `fs.Files` and `io.Stdout`, and a `memory.Registry` of the manifest, and is the only place that chooses them. Its tests run the commands over an `fstest.Memory`. |
 
 ## What it shows
@@ -58,7 +58,7 @@ Each is written up with a repro in the lane's gap file (`gaps-ex-d.md`).
 - **G-ex-d-9** (still open after T4) Generated ints rarely meet, so the laws' generators are steered by hand (`resolve.NameOf`, `Few`, `RootOf`, `graph.Crowded`, `Few`, `Downhill`). Measured at batch 12 with T4's wider generators, seeds 1 to 5: with the graph steering removed, mutants g1 and g5 survive their own laws; with the names and versions not folded mod 3, r1 survives and r3 is killed by one seed of five. So the steering stays.
 - **G-ex-d-12** `needs` is a keyword, and a parameter named `needs` gets "expected a type".
 - **G-ex-d-13** A law cannot be generic, so the graph laws are stated at `int` nodes.
-- **G-exup-1** (new) `ergo test` runs the laws of `resolve.Index` against `resolve.Table`, in `Index`'s own package, but not against `memory.Registry`, a provider in another package; `memory/tests.ergo` restates them.
+- **G-exup-1** (closed in batch 13) `ergo test` runs the laws of `resolve.Index` against `memory.Registry` too, in package `memory`, building each provider with `NewRegistry`; `memory/tests.ergo` checks them again over the steered names.
 - Known from other lanes: a required positional argument's `Get` is an `Option` (std-strengths F1).
 
 Closed in batch 12: **G-ex-d-10** (L3: `return` leaves a `with`, so `report`, `SoundOrFailed`, `Honest` and `ringOf` are gone); **G-ex-d-11** (V2: `Read` runs `Reader{}` with `machines.Run`; its two impossible outcomes are `Unreachable`); **G-ex-d-14** and G-ex-b-15 (the value rule: `appended`, `appendedNeed`, `copiedWants` and `graph.copied` are gone, and `pinned` copies by assignment); **G-ex-d-5** (W3: `Manifest` has `==`, so `manifest.Same` is gone); G-ex-b-16 (K3: `let b = if …` needs no annotation); the property tests that restated the laws (V1 runs the laws, and the 18 mutants of `mutants.json` are now killed by the laws themselves, seeds 1 to 3); the hand `fs.Files` of `cmd/deps`'s tests (U1: `fstest.NewMemory`).

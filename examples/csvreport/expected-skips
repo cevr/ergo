@@ -1,0 +1,4 @@
+# Skip lines `ergo test` prints for this program's packages (fs4, law-xpkg).
+# locked is a test disk of files/tests.ergo over an fstest.Memory: it has no
+# generator and no constructor. Its tests use it for the Denied case only.
+skip law fs.Files.ReadIsRepeatable for locked: its values have no generator: fstest.Memory is a standard library type; a func Newlocked() locked with no rows would build one for each case

@@ -1,31 +1,14 @@
-// Shelf keeps the how.Library laws. ergo test skips a member law for a
-// provider in another package (G-exup-1), so these tests run each law's
-// check against a Shelf.
+// ergo test runs the how.Library law GuideIsRepeatable against Shelf;
+// these tests check what it does not: the order of the topics, a missing
+// guide, and the catalogue.
 
 import okra/how
 
 let guides = Shelf{Entries: []Entry{Entry{Name: "repo", Text: "---\ndescription: Fetch code.\n---\nrepo body"}, Entry{Name: "keys", Text: "keys body"}}}
 
-test ShelfNamesEachTopicOnce {
+test ShelfKeepsTheOrderOfItsTopics {
 	with context { how.Library: guides } {
-		assert how.NamedOnce(how.Library.Names())
 		assert how.Library.Names() == []string{"repo", "keys"}
-	}
-}
-
-test ShelfGuideIsRepeatable(name string) {
-	with context { how.Library: guides } {
-		for n in []string{"repo", "keys", name} {
-			let first = how.Library.Guide(n) catch {
-			case how.Unreadable:
-				"unreadable"
-			}
-			let second = how.Library.Guide(n) catch {
-			case how.Unreadable:
-				"unreadable"
-			}
-			assert first == second
-		}
 	}
 }
 

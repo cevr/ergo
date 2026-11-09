@@ -71,7 +71,7 @@ A defect is not a failed assert. The runner prints the test's `FAIL` line, `FAIL
 
 ## Laws
 
-`ergo test` runs every law of the package after its tests ([#162](https://github.com/cevr/ergo/issues/162) law-run-1; [types.md](spec/types.md#laws) rule 10). A top-level law runs as a property does, over 100 generated cases. A member law runs once against each provider of its operation type that the package declares, with a generated provider value per case, and a helper that `needs` the type runs against that provider:
+`ergo test` runs every law of the package after its tests ([#162](https://github.com/cevr/ergo/issues/162) law-run-1; [types.md](spec/types.md#laws) rule 10). A top-level law runs as a property does, over 100 generated cases. A member law runs once against each provider of its operation type, with a fresh provider value per case, wherever the provider is declared: the laws that a domain package's `Store` declares run in the `memory` package that declares its provider, when `ergo test` tests that package (the least package that sees the law and the provider runs it; law-xpkg). A law whose parameter is an operation type runs once per provider of that type too. A helper that `needs` the type runs against that provider:
 
 ```text
 ok law Store.PutCountsOne for Tally (100 cases)
@@ -79,8 +79,8 @@ FAIL law Store.PutCountsOne for Stuck (case 1 of 100, seed 7, size 0: provider =
 skip law Box.Keeps: its parameter v has no generator: T is not a generatable type
 ```
 
-A law that cannot run prints a `skip` line with the reason, and the summary counts it: `PASS (2 tests, 1 skipped)`. A provider whose state is a std handle, such as a `sync.Ref`, has no generator; declare its constructor `func NewTally() Tally` (no rows) and each case builds the provider with it. In `examples/`, a skip line that the program's `expected-skips` file does not list fails the gate. A law of a generic operation type is checked and not run yet. So a program need not restate a law as a property test. `ergo run` and `ergo build` contain no Go from a law. The [support table](spec/support.md) lists what each build lowers.
+A law that cannot run prints a `skip` line with the reason, and the summary counts it: `PASS (2 tests, 1 skipped)`. A provider whose state is a std handle, such as a `sync.Ref`, has no generator; declare its constructor `func NewTally() Tally` (no rows) and each case builds the provider with it; a provider with a constructor is always built by it. The package of an operation type with no provider of its own prints `law Store.PutCountsOne runs where Store has a provider: none is in this package or its imports`. In `examples/`, a skip line that the program's `expected-skips` file does not list fails the gate. A law of a generic operation type is checked and not run yet. So a program need not restate a law as a property test. `ergo run` and `ergo build` contain no Go from a law. The [support table](spec/support.md) lists what each build lowers.
 
 ## Example programs
 
-Each program of `examples/` that declares tests runs them in the gate: `go run ./scripts/examples` runs `ergo test <program>/main.ergo` and fails the program when a test fails ([examples/README.md](../examples/README.md)).
+Each program of `examples/` runs its tests and laws in the gate: `go run ./scripts/examples` runs `ergo test <program>/main.ergo` for a program of one folder that declares a test or a law, and `ergo test <folder>` for every package folder of a program of packages, and fails the program when a test fails ([examples/README.md](../examples/README.md)).

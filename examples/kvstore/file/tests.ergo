@@ -1,7 +1,8 @@
 // Log keeps the kv.Store laws: each test runs one of kv's checks on a new
 // Log over an fstest.Memory, the same checks package memory runs on a
-// Table (Store's laws run only in kv's package, G-exup-1). The laws of
-// laws.ergo run as they are.
+// Table. ergo test skips Store's laws for Log (it holds an fs.Files and
+// has no constructor without rows; expected-skips). The laws of laws.ergo
+// run as they are.
 
 import fstest
 import kvstore/kv

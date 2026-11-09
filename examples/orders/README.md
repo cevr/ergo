@@ -21,7 +21,7 @@ The program is a module of packages (`ergo.mod`: `module orders`), in the Go lay
 
 | folder | what it holds |
 | --- | --- |
-| `orders/` | The domain, with no HTTP or JSON in it. `order.ergo` (`Line`, `Draft`, `Order`, `Validate`, `Total`, `Place`, `Apply`, the failure `Invalid`), `lifecycle.ergo` (`Status`, `Event`, `Step`, the machine `Lifecycle`, the failure `Conflict`), `book.ergo` (`Book`, the store contract with four laws, the failures `NotFound` and `Taken`), `checks.ergo` (one function per `Book` law, which a provider's tests call), `laws.ergo` (the lifecycle and total laws), `tests.ergo`. |
+| `orders/` | The domain, with no HTTP or JSON in it. `order.ergo` (`Line`, `Draft`, `Order`, `Validate`, `Total`, `Place`, `Apply`, the failure `Invalid`), `lifecycle.ergo` (`Status`, `Event`, `Step`, the machine `Lifecycle`, the failure `Conflict`), `book.ergo` (`Book`, the store contract with four laws, the failures `NotFound` and `Taken`), `laws.ergo` (the lifecycle and total laws), `tests.ergo`. |
 | `memory/` | `Ledger`, the in-memory `orders.Book`. |
 | `jsontext/` | A JSON value (`Value`, a union), `Parse` with the byte offset of each failure, `Encode`, `Quote`, `Member`, `Int`, and four laws. |
 | `api/` | The HTTP layer as plain functions over records: `message.ergo` (`Request`, `Response`, `Header`, `Problem`, `Reason`), `route.ergo` (`Route`, `RouteOf`), `codec.ergo` (`DraftOf`, `OrderJSON`, the failure `BadBody`), `handle.ergo` (`Handle`), `laws.ergo`. |
@@ -34,7 +34,7 @@ The program is a module of packages (`ergo.mod`: `module orders`), in the Go lay
 - **The lifecycle as a machine with exhaustive transitions.** `Step` matches on `(Status, Event)` and names all twelve pairs; the laws `FinalTakesNoEvent`, `NoWayBack`, `PayIsIdempotent` and `ShippedWasPaid` state its shape. A second payment is `Ignore`d, a ship before payment is `Reject`ed and becomes 409.
 - **Routes as a union.** `RouteOf` is a `Route = List | Show | Create | Act | Wrong | Nowhere`, and `Handle` matches every variant. `UnknownPathIs404` and `WrongMethodNamesTheRight` (each method `Allow` names reaches the path) are its laws.
 - **A pure handler.** `api.Handle(Request) Response needs orders.Book` has no I/O: the tests drive whole conversations with no socket, and a listener, when std has one, binds it unchanged.
-- **A store contract with laws, checked on its provider.** `Book` states `FindAfterAdd`, `AddTwiceIsTaken`, `ReplaceKeepsTheCount` and `AllInAddOrder`; `memory`'s tests run them through `orders/checks.ergo`. The API laws take a `Book` as a law parameter and bind it in a context.
+- **A store contract with laws, checked on its provider.** `Book` states `FindAfterAdd`, `AddTwiceIsTaken`, `ReplaceKeepsTheCount` and `AllInAddOrder`; `ergo test` runs them in `memory` against `memory.Ledger`, built by `NewLedger`. The API laws take a `Book` as a law parameter and bind it in a context; `ergo test` runs them once per provider of `Book` that their package sees.
 - **Format laws.** `RequestRoundTrip` (a request written is read back as it was), `PipelinedRequestsAreAnsweredInOrder` and `ContentLengthIsTheBody`.
 
 `ergo test` runs each law that takes no `orders.Book`; the tests run the others over a `memory.Ledger`. Each law has a mutant (`ex-c/orders/mutants.ts` in the run dir).
@@ -63,7 +63,7 @@ Each limit is recorded with a repro in the lane's gap file (`gaps-ex-c.md`, run 
 
 - **G-ex-c-7: no std http, json or net, and no way to reach `net/http`.** `import go "net/http"` is S109 (#202), and a user `extern` may bind only pure Go packages. The program writes its own JSON (`jsontext`) and HTTP/1.1 text (`http1`), and serves one connection on stdin/stdout.
 - **G-ex-c-8: `io.Stdin` has no read of a given length.** The server reads the whole connection with `ReadAll` before it answers, so a client that waits for each response before the next request gets no answer until it half-closes.
-- **G-ex-c-5 (from kvstore): a member law cannot share its check.** `Book`'s laws are written once as laws and once in `orders/checks.ergo`. `ergo test` skips `Book`'s laws in `orders` (no type of the package implements `Book`) and does not run them against `memory.Ledger` (G-exup-1), and it skips the `api` and `http1` laws that take an `orders.Book` (an operation type has no generator), so the tests still run each of these with a new `memory.Ledger`.
+- Closed in batch 13: G-exup-1 and G-exup-3. `ergo test` runs `Book`'s laws in `memory` against `memory.Ledger`, and the `api` and `http1` laws that take an `orders.Book` with `memory.Ledger` bound to the parameter, so `orders/checks.ergo` and the tests that restated the laws are gone. The `api` properties that steer requests and drafts stay.
 - **The machine has no live runner.** `Apply` steps one event with `Step` and moves with `machines.Next`; an `Emit` would move the order like an `Enter`, though `Step` never emits.
 - Friction, no gap: `number` is a prelude function name and cannot be redeclared (q30 admits only types), so the parser's numeral reader is `numeral`.
 

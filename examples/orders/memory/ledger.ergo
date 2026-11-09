@@ -11,11 +11,11 @@ type entries { byID Map[string, orders.Order], order []string }
 
 // Ledger is an orders.Book in memory. Its entries are in a sync.Ref, so
 // every copy of a Ledger is the same store: a Ledger bound in a context
-// keeps its orders from one request to the next. New makes one.
+// keeps its orders from one request to the next. NewLedger makes one.
 type Ledger { cell sync.Ref[entries] }
 
-// New is an empty Ledger.
-func New() Ledger {
+// NewLedger is an empty Ledger.
+func NewLedger() Ledger {
 	Ledger{cell: sync.NewRef[entries](entries{byID: Map[string, orders.Order]{}, order: []string{}})}
 }
 

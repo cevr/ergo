@@ -1,6 +1,12 @@
 package check
 
-import "ergo.local/prototype/internal/sketch/syntax"
+import (
+	"slices"
+	"sort"
+
+	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/syntax"
+)
 
 // Laws (196l; spec D-E4; law-top; #162 law-run-1). A law is checked here
 // and run by ergo test (rules 7 to 9). Its placement sets what it is
@@ -48,19 +54,33 @@ import "ergo.local/prototype/internal/sketch/syntax"
 //     without `escaping` is non-escaping, as a function's is (writtenParamType).
 //     They need not be generatable: a law whose parameter has no generator
 //     is checked and not run (rule 8).
-//  7. Running (planLaws): ergo test runs a top-level law over generated
-//     values of its parameters, and a member law of a non-generic
-//     operation type against each provider of it: each named type of the
-//     package, in source order, that implements the type (Law.Providers),
-//     with a generated value of the provider and of each parameter per
-//     case. The closed world of the package lists the providers.
+//  7. Running (planLaws): a law quantifies over generated values of its
+//     parameters and over each operation type it names (Law.Slots): its
+//     owner, for a member law of a non-generic operation type, and each
+//     parameter whose type is a non-generic operation type. A run binds
+//     each slot to a provider, a named type that implements it, and draws
+//     a value of each other parameter per case. The test build of a
+//     package P runs a binding when P sees the law and every bound
+//     provider (each is declared in P or in a package P imports, at any
+//     depth, the prelude and std included) and no other package that P
+//     sees sees them all (Package.LawRuns): the least package that sees
+//     the binding runs it, once in the module. So the laws of an operation
+//     type run in the package of each of its providers, wherever the type
+//     is declared (the domain package declares the type, a memory package
+//     provides it), and a law over two packages' providers runs in a
+//     package that imports both (G-exup-1, G-exup-3). A law with no slots
+//     runs in its own package. Each value is generated with the
+//     construction authority of the package that owns it: a parameter
+//     with the law's package's, a provider with its own package's.
 //  8. A law that cannot run says why (Law.Unrun): a parameter with no
-//     generator, a generic operation type, or no provider. A provider
-//     whose values have no generator is built by its constructor New<P>
-//     for each case when the package declares one (LawProvider.Ctor;
-//     fs4), and otherwise says why (LawProvider.Unrun). The test build
-//     reports each skip, and counts the skips in its summary, never as
-//     passed.
+//     generator or a generic operation type; its own package reports it.
+//     A provider is built for each case as its package builds it: by its
+//     package's constructor New<P> when it declares one (LawProvider.Ctor;
+//     fs4), else generated; one with neither says why (LawProvider.Unrun).
+//     The test build reports each skip, and counts the skips in its
+//     summary, never as passed. A law with no binding in its own package
+//     is no skip: its own test build names it as run where its providers
+//     are, so it is never silent.
 //  9. A false tail or an escaping failure refutes the law for that
 //     provider and case.
 //
@@ -80,7 +100,7 @@ import "ergo.local/prototype/internal/sketch/syntax"
 // type is resolved.
 func (c *checker) collectTopLaw(d *syntax.LawDecl, fi *fileInfo) {
 	c.ownBody(d, OwnerLaw)
-	law := &Law{Name: d.Name.Name, Decl: d, file: fi}
+	law := &Law{Name: d.Name.Name, Decl: d, Pkg: c.pkg, file: fi}
 	c.def(d.Name, law)
 	// A second law of a name is checked as well, so which one is reported
 	// does not decide which body's diagnostics appear.
@@ -104,7 +124,7 @@ func (c *checker) collectLaws(spec *syntax.InterfaceType, tn *TypeName, fi *file
 	}
 	names := map[string]bool{}
 	for _, d := range spec.Laws {
-		law := &Law{Name: d.Name.Name, Decl: d, Owner: tn, file: fi}
+		law := &Law{Name: d.Name.Name, Decl: d, Owner: tn, Pkg: c.pkg, file: fi}
 		c.def(d.Name, law)
 		// A second law of a name is checked as well, so which one is
 		// reported does not decide which body's diagnostics appear.
@@ -159,62 +179,206 @@ func (l *Law) capability() *Named {
 // refused (S108), so its plan is never read.
 func (c *checker) planLaws() {
 	for _, law := range c.pkg.Laws {
-		for _, v := range law.Params {
-			if isInvalid(v.Type) {
-				law.Unrun = "a parameter has an invalid type"
-				break
-			}
-			if why := c.ungeneratable(v.Type); why != "" {
-				law.Unrun = "its parameter " + v.Name + " has no generator: " + why
-				break
+		c.planLaw(law)
+	}
+	c.pkg.LawRuns = c.lawRuns()
+}
+
+// planLaw sets the law's slots, or why it does not run (rules 7 and 8).
+func (c *checker) planLaw(law *Law) {
+	var slots []LawSlot
+	for i, v := range law.Params {
+		if isInvalid(v.Type) {
+			law.Unrun = "a parameter has an invalid type"
+			return
+		}
+		if n, ok := v.Type.(*Named); ok {
+			if _, isOps := n.Underlying().(*Interface); isOps {
+				if len(n.TParams) > 0 || len(n.origin().TParams) > 0 {
+					law.Unrun = "its parameter " + v.Name + " has the generic operation type " + n.String() + ", and a run has no type arguments for it"
+					return
+				}
+				slots = append(slots, LawSlot{Param: i, Type: n})
+				continue
 			}
 		}
-		if law.Owner == nil || law.Unrun != "" {
-			continue
+		if why := c.ungeneratable(v.Type); why != "" {
+			law.Unrun = "its parameter " + v.Name + " has no generator: " + why
+			return
 		}
+	}
+	if law.Owner != nil {
 		own := law.capability()
 		if own == nil {
 			law.Unrun = "its operation type " + law.Owner.Name + " is generic, and a run has no type arguments for it"
-			continue
+			return
 		}
-		for _, tn := range c.pkg.Types {
-			p, ok := tn.Type.(*Named)
-			if !ok || p == own || len(p.TParams) > 0 {
-				continue
-			}
-			switch p.Underlying().(type) {
-			case *Interface, *MachineType:
-				continue
-			}
-			a, _ := c.assignability(p, own)
-			if !a.ok() || a.conv.Kind != ConvOperations {
-				continue
-			}
-			lp := LawProvider{Type: p, Conv: a.conv}
-			if why := c.ungeneratable(p); why != "" {
-				if ctor := c.lawConstructor(p); ctor != nil {
-					lp.Ctor = ctor
-				} else {
-					lp.Unrun = "its values have no generator: " + why + "; a func New" + p.Obj.Name + "() " + p.Obj.Name + " with no rows would build one for each case"
-				}
-			}
-			law.Providers = append(law.Providers, lp)
-		}
-		if len(law.Providers) == 0 {
-			law.Unrun = "no type of the package implements " + law.Owner.Name
-		}
+		slots = append([]LawSlot{{Param: -1, Type: own}}, slots...)
 	}
+	law.Slots = slots
 }
 
-// lawConstructor is the constructor a member law's run builds the provider
-// p with when p's values have no generator (rule 7; fs4): the package
-// function New<P> whose one result is p, with no type parameters, no error
-// or capability row and parameters that have generators, which each case
-// draws. A provider whose state is a std handle (a sync.Ref, an
-// fstest.Memory, a queue) is built so, as a program builds it, where a
-// generator could not build it at all. nil when the package has none.
+// lawRuns are the laws the package's test build runs or reports (rule 7):
+// for each law the package sees, the bindings of its slots to the
+// providers the package sees, of which it is the least package to see
+// all. Its own laws come first, then each seen package's, the prelude
+// and std included; the lowering orders them canonically.
+func (c *checker) lawRuns() []LawRun {
+	sees := lawClosures(c.pkg)
+	seen := sees[c.pkg]
+	pkgs := make([]*Package, 0, len(seen))
+	for q := range seen {
+		if q != c.pkg {
+			pkgs = append(pkgs, q)
+		}
+	}
+	sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].Path < pkgs[j].Path })
+	pkgs = append([]*Package{c.pkg}, pkgs...)
+	providers := map[*Named][]LawProvider{}
+	providersOf := func(own *Named) []LawProvider {
+		if ps, ok := providers[own]; ok {
+			return ps
+		}
+		var ps []LawProvider
+		for _, q := range pkgs {
+			for _, tn := range q.Types {
+				if lp, ok := c.lawProvider(tn, own); ok {
+					ps = append(ps, lp)
+				}
+			}
+		}
+		providers[own] = ps
+		return ps
+	}
+	// least reports that no package c.pkg sees, other than c.pkg, sees
+	// every package of parts.
+	least := func(parts []*Package) bool {
+		for _, q := range pkgs[1:] {
+			all := true
+			for _, p := range parts {
+				if !sees[q][p] {
+					all = false
+					break
+				}
+			}
+			if all {
+				return false
+			}
+		}
+		return true
+	}
+	var runs []LawRun
+	for _, q := range pkgs {
+		for _, law := range q.Laws {
+			own := q == c.pkg
+			if law.Unrun != "" || len(law.Slots) == 0 {
+				if own {
+					run := LawRun{Law: law}
+					if law.Unrun == "" {
+						run.Bindings = [][]LawProvider{nil}
+					}
+					runs = append(runs, run)
+				}
+				continue
+			}
+			bindings := [][]LawProvider{nil}
+			for _, s := range law.Slots {
+				var next [][]LawProvider
+				for _, b := range bindings {
+					for _, p := range providersOf(s.Type) {
+						next = append(next, append(slices.Clone(b), p))
+					}
+				}
+				bindings = next
+			}
+			run := LawRun{Law: law}
+			for _, b := range bindings {
+				parts := []*Package{q}
+				for _, p := range b {
+					parts = append(parts, p.Type.Obj.Pkg)
+				}
+				if least(parts) {
+					run.Bindings = append(run.Bindings, b)
+				}
+			}
+			if own || len(run.Bindings) > 0 {
+				runs = append(runs, run)
+			}
+		}
+	}
+	return runs
+}
+
+// lawProvider is the provider tn's type is for the operation type own: a
+// named type, not generic, not an operation type or a machine, that
+// converts to own by its operations. It is built as its package builds it
+// (rule 8): by its package's constructor New<P> when there is one, since
+// a record whose fields only its package sets may hold an invariant that
+// only its functions keep; else generated with its package's authority.
+func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
+	p, ok := tn.Type.(*Named)
+	if !ok || p == own || len(p.TParams) > 0 {
+		return LawProvider{}, false
+	}
+	switch p.Underlying().(type) {
+	case *Interface, *MachineType:
+		return LawProvider{}, false
+	}
+	a, _ := c.assignability(p, own)
+	if !a.ok() || a.conv.Kind != ConvOperations {
+		return LawProvider{}, false
+	}
+	lp := LawProvider{Type: p, Conv: a.conv}
+	if ctor := c.lawConstructor(p); ctor != nil {
+		lp.Ctor = ctor
+	} else if why := c.ungeneratableFrom(p, p.Obj.Pkg); why != "" {
+		lp.Unrun = "its values have no generator: " + why + "; a func New" + p.Obj.Name + "() " + p.Obj.Name + " with no rows would build one for each case"
+	}
+	return lp, true
+}
+
+// lawClosures are, for pkg and each package it sees, the packages each
+// sees: itself, the prelude and its imports at any depth (rule 7).
+func lawClosures(pkg *Package) map[*Package]map[*Package]bool {
+	pre := pkg
+	if pkg.Path != std.PreludePath {
+		pre = prelude().pkg
+	}
+	out := map[*Package]map[*Package]bool{}
+	var walk func(p *Package) map[*Package]bool
+	walk = func(p *Package) map[*Package]bool {
+		if s, ok := out[p]; ok {
+			return s
+		}
+		s := map[*Package]bool{p: true, pre: true}
+		out[p] = s
+		for _, f := range p.files {
+			for _, pn := range f.imports {
+				if pn.Pkg == nil || pn.broken {
+					continue
+				}
+				for q := range walk(pn.Pkg) {
+					s[q] = true
+				}
+			}
+		}
+		return s
+	}
+	walk(pkg)
+	walk(pre)
+	return out
+}
+
+// lawConstructor is the constructor a law's run builds the provider p with
+// when p's values have no generator (rule 8; fs4): the function New<P> of
+// p's package whose one result is p, with no type parameters, no error or
+// capability row and parameters that have generators in that package,
+// which each case draws. A provider whose state is a std handle (a
+// sync.Ref, an fstest.Memory, a queue) is built so, as a program builds
+// it, where a generator could not build it at all. nil when the package
+// has none.
 func (c *checker) lawConstructor(p *Named) *Func {
-	for _, f := range c.pkg.Funcs {
+	for _, f := range p.Obj.Pkg.Funcs {
 		sig := f.Sig
 		if f.Name != "New"+p.Obj.Name || sig == nil || len(sig.TParams) > 0 || len(sig.Results) != 1 || !c.identical(sig.Results[0], p) {
 			continue
@@ -224,7 +388,7 @@ func (c *checker) lawConstructor(p *Named) *Func {
 		}
 		ok := true
 		for _, v := range sig.Params {
-			if isInvalid(v.Type) || c.ungeneratable(v.Type) != "" {
+			if isInvalid(v.Type) || c.ungeneratableFrom(v.Type, p.Obj.Pkg) != "" {
 				ok = false
 			}
 		}

@@ -1,24 +1,11 @@
 // The driver's tests: the script reader and a whole run worked by hand.
 // `ergo test` runs the laws.
 
+import vending/memory
 import vending/vend
 
-// Table is a coin mechanism for the tests: a coin is worth its value in
-// the table, and any other coin is counterfeit.
-type Table { values Map[string, int] }
-
-// Value is the value of coin in t.
-func Value(t Table, coin string) int fails vend.Counterfeit {
-	match t.values.Get(coin) {
-	case Some[int] as v:
-		v.Value
-	case None:
-		vend.Counterfeit{Name: coin}
-	}
-}
-
-// coins is a table of a quarter and a dollar.
-func coins() Table { Table{values: Map[string, int]{"quarter": 25, "dollar": 100}} }
+// coins is the coin table of a quarter and a dollar.
+func coins() memory.Coins { memory.NewCoins(Map[string, int]{"quarter": 25, "dollar": 100}) }
 
 // reason is the reason a script does not read, or "ok".
 func reason(text string) string {

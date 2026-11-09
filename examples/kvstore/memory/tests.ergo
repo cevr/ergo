@@ -1,6 +1,7 @@
-// Table keeps the kv.Store laws. The laws of an operation type run only for
-// providers in its own package (G-exup-1), so each test runs one of kv's
-// checks on a new Table, over generated keys and values.
+// ergo test runs the kv.Store laws here, against Table (NewTable). These
+// tests run the same kv checks on a Table that package file runs on a Log,
+// whose laws ergo test skips (expected-skips), so the two stores keep one
+// contract.
 
 import kvstore/kv
 

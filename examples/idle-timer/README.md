@@ -54,7 +54,7 @@ The program is a module of packages (`ergo.mod`: `module idletimer`), in the Go 
   - `AdminNeedsFiveQuickTaps`
 
   The contract `kiosk.Policies` has two member laws, `EveryPolicyChecks` and `UnlistedIsNoSuchKiosk`. The survey's `StaleTimerNeverSteps` is a rule of the runner, not of this machine: std `machines` holds it (V5, `TestMachineRunAgreesWithFold`), and no edit of this program can break it. `LiveEqualsFold` waits for the live runner (MU3).
-- **Tests.** The laws are the tests. `kiosk/tests.ergo` has one timed run, `KioskRun`. `memory/tests.ergo` calls the two `Policies` laws (G-ma-2).
+- **Tests.** The laws are the tests. `kiosk/tests.ergo` has one timed run, `KioskRun`. `ergo test` runs the two `Policies` laws in `memory` against `Fixed`, and `memory/tests.ergo` calls their functions on the program's table.
 
 ## Limits found
 
@@ -64,7 +64,7 @@ The program is a module of packages (`ergo.mod`: `module idletimer`), in the Go 
 - **No outside source (M49).** Touches come from the script, not from an input stream that feeds the machine.
 - **A timer that is not positive fires at once.** `Check` refuses such a policy, because a state whose timer re-enters it at once never lets time pass (runtime.md, Machines 9.1; lane V follow-up).
 - **Machine laws stand at top level (M55)**, and the laws restate the `Standard` policy's numbers.
-- **G-ma-1 and G-ma-2**, as in keypad.
+- **G-ma-1 and G-ma-2** closed in batch 13, as in keypad.
 - **No duration × int (M24).** `WaitFor` writes `duration(int64(base) * int64(p.AssistFactor))`, and a millisecond is `duration(int64(n) * 1000000)`.
 
 ## Run it

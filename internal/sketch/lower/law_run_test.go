@@ -8,6 +8,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // law-run-1 (#162; types.md, Laws 10): ergo test runs every top-level law
@@ -148,6 +151,204 @@ func TestLawRunState(t *testing.T) {
 	}
 	if got[3] != "FAIL (1 of 2 tests, 1 skipped)" {
 		t.Errorf("the summary is %q", got[3])
+	}
+}
+
+// lawRunStore and lawRunProviders are G-exup-1 and G-exup-3 in the layout
+// AGENTS.md prescribes: the domain package kv declares the operation type
+// Store with a member law and a top-level law that takes a Store, and the
+// package that imports it provides Store. Last keeps GetAfterPut and
+// breaks PutKeepsOthers, Zero breaks both, and Plain, with no generator
+// and no constructor, is a skip.
+const lawRunStore = `type Store {
+	Put(k int, v int),
+	Get(k int) int,
+	law GetAfterPut(k int, v int) {
+		Put(k, v)
+		[]int{Get(k)} == []int{v}
+	},
+}
+
+law PutKeepsOthers(s Store, k int, v int) {
+	with context { Store: s } {
+		Store.Put(k, 1)
+		Store.Put(k + 1, v)
+		Store.Get(k) == 1
+	}
+}
+`
+
+const lawRunProviders = `import kv
+import sync
+
+type Last { v sync.Ref[int] }
+
+func NewLast() Last { Last{v: sync.NewRef(0)} }
+
+func Put(l Last, k int, v int) { l.v.Set(v) }
+
+func Get(l Last, k int) int { l.v.Get() }
+
+type Zero { n int }
+
+func Put(z Zero, k int, v int) {}
+
+func Get(z Zero, k int) int { z.n }
+
+type Plain { v sync.Ref[int] }
+
+func Put(p Plain, k int, v int) { p.v.Set(v) }
+
+func Get(p Plain, k int) int { p.v.Get() }
+
+func main() needs Console {
+	let s kv.Store = NewLast()
+	with context { kv.Store: s } { Console.Println("\(kv.Store.Get(1))") }
+}
+`
+
+// TestLawRunOtherPackage: the laws of an operation type run against each
+// provider of it, in the package that declares the provider: the member
+// law with the provider bound, the top-level law with the provider as its
+// argument. A false law fails with its seed and the provider's build. The
+// domain package's own test build names the laws it leaves to the
+// packages that provide Store, so none is silent there.
+func TestLawRunOtherPackage(t *testing.T) {
+	kv := cxPackage(t, "kv", lawRunStore)
+	imports := cxImporter{"kv": kv}
+	f, err := syntax.Parse(lawRunProviders)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, ds := check.Check("main", []*syntax.File{f}, imports)
+	if len(ds) != 0 {
+		t.Fatal(ds)
+	}
+	files, err := LowerTests(Unit{Package: pkg, Files: []*syntax.File{f}, Sources: []Source{{Path: testSourcePath, Text: lawRunProviders}}, Imports: imports.units()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kvFiles, err := LowerTests(kv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exes := buildAll(t, []*lowered{{name: "lawrun_xpkg", files: files}, {name: "lawrun_kv", files: kvFiles}}, true)
+	if exes == nil {
+		return
+	}
+	stdout, stderr, code := runExeArgs(t, exes["lawrun_xpkg"], "--seed", "7")
+	got := lines(stdout)
+	if code != 1 || len(got) != 7 {
+		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
+	}
+	const plain = ": its values have no generator: sync.Ref[int] is a standard library type; a func NewPlain() Plain with no rows would build one for each case"
+	want := []struct{ line, prefix, suffix string }{
+		{line: "skip law kv.Store.GetAfterPut for Plain" + plain},
+		{line: "ok law kv.Store.GetAfterPut for Last (100 cases)"},
+		{prefix: "FAIL law kv.Store.GetAfterPut for Zero (case ", suffix: "law refuted at lib.ergo:4:2: the law is false"},
+		{line: "skip law kv.PutKeepsOthers with s = Plain" + plain},
+		{prefix: "FAIL law kv.PutKeepsOthers with s = Last (case ", suffix: "law refuted at lib.ergo:10:1: the law is false"},
+		{prefix: "FAIL law kv.PutKeepsOthers with s = Zero (case ", suffix: "law refuted at lib.ergo:10:1: the law is false"},
+		{line: "FAIL (3 of 4 tests, 2 skipped)"},
+	}
+	for i, w := range want {
+		switch {
+		case w.line != "" && got[i] != w.line:
+			t.Errorf("line %d is %q, want %q", i+1, got[i], w.line)
+		case w.line == "" && (!strings.HasPrefix(got[i], w.prefix) || !strings.HasSuffix(got[i], w.suffix) || !strings.Contains(got[i], "seed 7")):
+			t.Errorf("line %d is %q, want %q … seed 7 … %q", i+1, got[i], w.prefix, w.suffix)
+		}
+	}
+	if !strings.Contains(got[4], "s = NewLast()") || !strings.Contains(got[2], "provider = Zero{n: ") {
+		t.Errorf("a failure does not show the provider's build:\n%s\n%s", got[2], got[4])
+	}
+	stdout, stderr, code = runExe(t, exes["lawrun_kv"])
+	wantKV := []string{
+		"law Store.GetAfterPut runs where Store has a provider: none is in this package or its imports",
+		"law PutKeepsOthers runs where Store has a provider: none is in this package or its imports",
+		"PASS (0 tests)",
+	}
+	if code != 0 || !slices.Equal(lines(stdout), wantKV) {
+		t.Errorf("kv: exit %d, stdout:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, strings.Join(wantKV, "\n"), firstLines(stderr, 8))
+	}
+}
+
+// lawRunMem provides kv.Store without importing kv: its types implement
+// Store by their operations alone, so only a package that imports both
+// sees the law and its providers.
+const lawRunMem = `import sync
+
+type Last { v sync.Ref[int] }
+
+func NewLast() Last { Last{v: sync.NewRef(0)} }
+
+func Put(l Last, k int, v int) { l.v.Set(v) }
+
+func Get(l Last, k int) int { l.v.Get() }
+
+type Zero { n int }
+
+func Put(z Zero, k int, v int) {}
+
+func Get(z Zero, k int) int { z.n }
+`
+
+const lawRunBinder = `import kv
+import mem
+
+func main() needs Console {
+	let s kv.Store = mem.NewLast()
+	with context { kv.Store: s } { Console.Println("\(kv.Store.Get(1))") }
+}
+`
+
+// TestLawRunLeastPackage: a law whose operation type and provider are in
+// two packages that do not import each other runs in the package that
+// imports both, the least that sees them, against providers it does not
+// declare; the provider's own package does not see the law and runs none.
+func TestLawRunLeastPackage(t *testing.T) {
+	kv, mem := cxPackage(t, "kv", lawRunStore), cxPackage(t, "mem", lawRunMem)
+	imports := cxImporter{"kv": kv, "mem": mem}
+	f, err := syntax.Parse(lawRunBinder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, ds := check.Check("main", []*syntax.File{f}, imports)
+	if len(ds) != 0 {
+		t.Fatal(ds)
+	}
+	files, err := LowerTests(Unit{Package: pkg, Files: []*syntax.File{f}, Sources: []Source{{Path: testSourcePath, Text: lawRunBinder}}, Imports: imports.units()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	memFiles, err := LowerTests(mem)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exes := buildAll(t, []*lowered{{name: "lawrun_least", files: files}, {name: "lawrun_mem", files: memFiles}}, true)
+	if exes == nil {
+		return
+	}
+	stdout, stderr, code := runExeArgs(t, exes["lawrun_least"], "--seed", "7")
+	got := lines(stdout)
+	want := []string{
+		"ok law kv.Store.GetAfterPut for mem.Last (100 cases)",
+		"FAIL law kv.Store.GetAfterPut for mem.Zero (case ",
+		"FAIL law kv.PutKeepsOthers with s = mem.Last (case ",
+		"FAIL law kv.PutKeepsOthers with s = mem.Zero (case ",
+		"FAIL (3 of 4 tests)",
+	}
+	if code != 1 || len(got) != len(want) {
+		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
+	}
+	for i, w := range want {
+		if !strings.HasPrefix(got[i], w) || strings.HasPrefix(w, "FAIL law") && !strings.Contains(got[i], "seed 7") {
+			t.Errorf("line %d is %q, want %q …", i+1, got[i], w)
+		}
+	}
+	stdout, _, code = runExe(t, exes["lawrun_mem"])
+	if code != 0 || !slices.Equal(lines(stdout), []string{"PASS (0 tests)"}) {
+		t.Errorf("mem: exit %d, stdout:\n%s", code, stdout)
 	}
 }
 

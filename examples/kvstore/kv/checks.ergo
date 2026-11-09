@@ -1,11 +1,10 @@
 // The checks of Store's laws, one function per law, over the Store in the
-// caller's context. `ergo test` runs a member law only for the providers
-// in its type's own package (G-exup-1), and Store's providers are in
-// memory and file, and a member law cannot call a function that needs its
-// own type (it needs no service; types.md, Laws 7). So each law is written
-// twice: as the law in Store, and here as a function a provider's test
-// calls in a context that binds its provider. Package memory and package
-// file run the same checks, so the two stores keep one contract.
+// caller's context. ergo test runs Store's laws against memory.Table, but
+// skips them for file.Log, whose values have no generator and which has no
+// constructor without rows (it holds an fs.Files; expected-skips). A
+// member law cannot call a function that needs its own type (types.md,
+// Laws 7), so each law is written twice: as the law in Store, and here as
+// a function the providers' tests call in a context that binds them.
 
 import slices
 

@@ -1,9 +1,6 @@
-// The NFA's tests: examples, and the Engine laws restated as property
-// tests, since ergo test runs them only for providers in package engine
-// (G-exup-1). A property gets 100 cases, so the seeded ones loop over 20
-// patterns per case.
+// The NFA's tests: examples. ergo test runs the engine.Engine and
+// engine.Matcher laws here, against Engine and Compiled.
 
-import regex/engine
 import regex/syntax
 import strings
 
@@ -49,38 +46,4 @@ test SamplesMatchSometimes {
 		}
 	}
 	assert yes >= 40 && yes <= 360
-}
-
-test LiteralMatchesItselfHolds(text string) {
-	assert engine.LiteralMatchesItselfHolds(Engine, text)
-}
-
-test StarMatchesEmptyHolds(seed int) {
-	for k in 0..20 {
-		assert engine.StarMatchesEmptyHolds(Engine, seed*20+k)
-	}
-}
-
-test AltIsEitherHolds(seed int, other int) {
-	for k in 0..20 {
-		assert engine.AltIsEitherHolds(Engine, seed*20+k, other+k)
-	}
-}
-
-test PlusIsOneThenStarHolds(seed int) {
-	for k in 0..20 {
-		assert engine.PlusIsOneThenStarHolds(Engine, seed*20+k)
-	}
-}
-
-test SearchFindsInsideHolds(seed int, before string, after string) {
-	for k in 0..20 {
-		assert engine.SearchFindsInsideHolds(Engine, seed*20+k, before, after)
-	}
-}
-
-test RepeatableHolds(seed int, other string) {
-	for k in 0..20 {
-		assert engine.RepeatableHolds(Engine, seed*20+k, other)
-	}
 }

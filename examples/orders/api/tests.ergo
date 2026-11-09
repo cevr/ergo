@@ -1,7 +1,7 @@
-// Handle's tests run over a memory.Ledger, with no socket. The laws that
-// take an orders.Book are skipped by ergo test (an operation type has no
-// generator), so EveryRequestHasAStatusHolds and CreateThenShowHolds run
-// them with a new memory.Ledger.
+// Handle's tests run over a memory.Ledger, with no socket. ergo test
+// runs the laws that take an orders.Book here, with a memory.Ledger; these
+// properties check them again with steered methods, paths, bodies and
+// valid drafts, which generated ones seldom reach.
 
 import orders/memory
 import orders/orders
@@ -18,7 +18,7 @@ func call(method string, path string, body string) Response needs orders.Book {
 func line(r Response) string { "\(r.Status) \(r.Body)" }
 
 test AConversation {
-	with context { orders.Book: memory.New() } {
+	with context { orders.Book: memory.NewLedger() } {
 		assert line(call("GET", "/orders", "")) == "200 []"
 		let created = call("POST", "/orders", "{\"customer\":\"ada\",\"lines\":[{\"sku\":\"tea\",\"quantity\":2,\"cents\":450}]}")
 		assert line(created) == "201 {\"id\":\"ord-1\",\"customer\":\"ada\",\"status\":\"placed\",\"total\":900,\"lines\":[{\"sku\":\"tea\",\"quantity\":2,\"cents\":450}]}"
@@ -30,7 +30,7 @@ test AConversation {
 }
 
 test EachFailureHasItsStatus {
-	with context { orders.Book: memory.New() } {
+	with context { orders.Book: memory.NewLedger() } {
 		assert line(call("POST", "/orders", "{\"customer\":")) == "400 {\"error\":\"the body is not JSON: a value is missing at byte 12\"}"
 		assert line(call("POST", "/orders", "[]")) == "422 {\"error\":\"is not an object\",\"field\":\"body\"}"
 		assert line(call("POST", "/orders", "{\"customer\":\"ada\",\"lines\":[{\"sku\":\"tea\",\"quantity\":1.5,\"cents\":1}]}")) == "422 {\"error\":\"is not an integer\",\"field\":\"lines[0].quantity\"}"
@@ -65,15 +65,11 @@ let paths = []string{"/orders", "/orders/ord-1", "/orders/ord-1/pay", "/orders/o
 let bodies = []string{"", "{}", "[]", "{\"customer\":\"ada\",\"lines\":[{\"sku\":\"tea\",\"quantity\":1,\"cents\":5}]}", "{\"customer\":1}", "{"}
 
 test EveryRequestHasAStatusHolds(m int, p int, b int, body string) {
-	let book = memory.New()
+	let book = memory.NewLedger()
 	// Place one order first, so the paths of ord-1 reach an order.
 	let _ = with context { orders.Book: book } { call("POST", "/orders", pick(bodies, 3)) }
 	assert EveryRequestHasAStatusHolds(book, pick(Methods, m), pick(paths, p), pick(bodies, b))
 	assert EveryRequestHasAStatusHolds(book, pick(Methods, m), pick(paths, p), body)
-}
-
-test CreateThenShowHolds(d orders.Draft) {
-	assert CreateThenShowHolds(memory.New(), d)
 }
 
 // A generated draft is mostly invalid (an empty customer, a quantity out
@@ -84,7 +80,7 @@ test CreateThenShowHoldsForValidDrafts(d orders.Draft, n int) {
 		lines = lines.Append(orders.Line{SKU: "s" + l.SKU, Quantity: 1 + (if l.Quantity < 0 { -(l.Quantity + 1) } else { l.Quantity })%1000, Cents: (if l.Cents < 0 { -(l.Cents + 1) } else { l.Cents }) % (orders.MaxCents + 1)})
 	}
 	let valid = orders.Draft{Customer: "c" + d.Customer, Lines: lines}
-	let book = memory.New()
+	let book = memory.NewLedger()
 	assert CreateThenShowHolds(book, valid)
 	assert with context { orders.Book: book } { orders.Book.Count() } == 1
 }

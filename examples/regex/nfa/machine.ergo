@@ -109,10 +109,15 @@ func include(v *visit, p Program, pc int) {
 type Engine {}
 
 // Compile is the Matcher of pattern: its program, run by the machine.
-func Compile(_ Engine, pattern syntax.Node) engine.Matcher { Compiled{program: Build(pattern)} }
+func Compile(_ Engine, pattern syntax.Node) engine.Matcher { NewCompiled(pattern) }
 
-// Compiled is a pattern's program.
+// Compiled is a pattern's program. Only Build makes a program the machine
+// runs, so NewCompiled builds every Compiled, and ergo test builds each
+// provider of the engine.Matcher laws with it.
 type Compiled { program Program }
+
+// NewCompiled is the Compiled of pattern.
+func NewCompiled(pattern syntax.Node) Compiled { Compiled{program: Build(pattern)} }
 
 // Matches runs the machine on text, one signal per byte and then End.
 // It stops at the first Done: no later byte can change the answer.

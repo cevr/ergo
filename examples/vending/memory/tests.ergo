@@ -1,25 +1,7 @@
-// The coin table keeps the vend.Acceptor laws, restated as property tests:
-// ergo test runs them only for providers in package vend (G-exup-1). Over
-// the names of the table and any other name.
+// ergo test runs the vend.Acceptor laws against Coins, built by NewCoins
+// from generated tables; this test checks the US table.
 
 import vending/vend
-
-// pick is one of the table's names, or the name given.
-func pick(n int, other string) string {
-	let k = if n < 0 { -(n % 5) } else { n % 5 }
-	match k {
-	case 0:
-		"nickel"
-	case 1:
-		"dime"
-	case 2:
-		"quarter"
-	case 3:
-		"dollar"
-	case _:
-		other
-	}
-}
 
 test KnowsUSCoins {
 	let a vend.Acceptor = US()
@@ -31,23 +13,4 @@ test KnowsUSCoins {
 		return
 	}
 	assert v == -1
-}
-
-test TakesOnlyDenominationsHolds(n int, other string) {
-	let a vend.Acceptor = US()
-	let v = a.Value(pick(n, other)) catch {
-	case vend.Counterfeit:
-		return
-	}
-	assert vend.IsDenomination(v)
-}
-
-test IsRepeatableHolds(n int, other string) {
-	let a vend.Acceptor = US()
-	let coin = pick(n, other)
-	let first = a.Value(coin) catch {
-	case vend.Counterfeit:
-		return
-	}
-	assert try a.Value(coin) == first
 }

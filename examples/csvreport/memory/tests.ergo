@@ -1,5 +1,5 @@
-// Shelf's tests, and report.Source's law restated over it (it runs only
-// for providers in report, G-exup-1).
+// Shelf's tests. ergo test runs report.Source's law here against Shelf;
+// these tests check it again over shelves built from generated names.
 
 import csvreport/report
 

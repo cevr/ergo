@@ -1,6 +1,5 @@
-// Shelf keeps the quiz.Sets laws. ergo test does not run the laws of an
-// operation type of another package against this package's providers yet
-// (G-ma-2), so these two tests call the laws' functions.
+// ergo test runs the quiz.Sets laws here, against Shelf; these two tests
+// call the laws' functions again on the program's own shelf.
 
 import quiz/quiz
 

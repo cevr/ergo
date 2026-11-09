@@ -1,7 +1,7 @@
-// The laws of order.Orders, restated as property tests of Log over drawn
-// scripts: ergo test runs them only for providers in package order
-// (G-exup-1). Each command of a script is sent in turn, and each law is
-// checked after it.
+// ergo test runs the laws of order.Orders here, against Log (NewLog), over
+// generated commands. These properties check them again over scripts
+// drawn from a seed, which reach accepted commands far more often: each
+// command of a script is sent in turn, and each law is checked after it.
 
 import shop/order
 
@@ -23,7 +23,7 @@ func sent(c order.Command) ([]order.Event, string) needs order.Orders {
 }
 
 test RejectedCommandEmitsNothingHolds(seed int) {
-	with context { order.Orders: New() } {
+	with context { order.Orders: NewLog() } {
 		for c in order.Script(seed, 40) {
 			let before = order.Orders.History(order.OrderOf(c))
 			let _, rejected = sent(c)
@@ -35,7 +35,7 @@ test RejectedCommandEmitsNothingHolds(seed int) {
 }
 
 test AcceptedCommandIsRecordedHolds(seed int) {
-	with context { order.Orders: New() } {
+	with context { order.Orders: NewLog() } {
 		for c in order.Script(seed, 40) {
 			let before = order.Orders.History(order.OrderOf(c))
 			let events, rejected = sent(c)
@@ -51,7 +51,7 @@ test AcceptedCommandIsRecordedHolds(seed int) {
 }
 
 test ReplayRebuildsStateHolds(seed int) {
-	with context { order.Orders: New() } {
+	with context { order.Orders: NewLog() } {
 		for c in order.Script(seed, 40) {
 			let _, _ = sent(c)
 			let id = order.OrderOf(c)
@@ -65,7 +65,7 @@ test ReplayRebuildsStateHolds(seed int) {
 test TheStoreAgreesWithTheReference(seed int) {
 	let script = order.Script(seed, 40)
 	let log = order.Simulate(script)
-	with context { order.Orders: New() } {
+	with context { order.Orders: NewLog() } {
 		for c in script {
 			let _, _ = sent(c)
 		}
@@ -75,7 +75,7 @@ test TheStoreAgreesWithTheReference(seed int) {
 }
 
 test ARejectionLeavesTheStoreAsItWas {
-	with context { order.Orders: New() } {
+	with context { order.Orders: NewLog() } {
 		let _, first = sent(order.Place{Order: "a", Customer: "ana", Lines: []order.Line{order.Line{Sku: "tea", Qty: 2, Price: 150}}})
 		let _, wrong = sent(order.Pay{Order: "a", Amount: 1})
 		assert first == "" && wrong == "WrongAmount"

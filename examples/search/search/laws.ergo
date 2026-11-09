@@ -1,8 +1,8 @@
 // The rules of the search as laws over its machine, run by Drive on the
 // virtual clock with the Typical costs. Each needs the Catalog and the
 // Cart, so each is a function here, and package memory states it as a law
-// over its providers: a law needs no service, and ergo test does not run
-// a law of this package against a provider of another (G-ma-2). Machines
+// over its providers: a law needs no service. (A law of this package
+// that takes a Catalog and a Cart would now run there too.) Machines
 // carry no laws yet (M55). Each law draws its key times from integers.
 
 import machines

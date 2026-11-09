@@ -1,6 +1,7 @@
 // Disk's tests, over an fstest.Memory and a standard input held in
-// memory. They restate app.Documents.ReadIsRepeatable for Disk: a member
-// law runs only for providers in its own package (G-exup-1).
+// memory. They restate app.Documents.ReadIsRepeatable for Disk, which
+// ergo test skips (Disk holds an fs.Files and has no constructor without
+// rows; expected-skips).
 
 import fs
 import fstest

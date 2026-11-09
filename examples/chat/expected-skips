@@ -1,0 +1,5 @@
+# Skip lines `ergo test` prints for this program's packages (fs4, law-xpkg).
+# memory.Conn holds a queue.Queue, which has no generator, and its constructor
+# New(size) is not New<P>: a generated size could be any int. memory/tests.ergo
+# restates HangupIsFinal on a Conn sized to its lines.
+skip law server.Conn.HangupIsFinal for Conn: its values have no generator: queue.Queue[string] is a standard library type; a func NewConn() Conn with no rows would build one for each case

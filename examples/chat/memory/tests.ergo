@@ -1,7 +1,8 @@
 // The memory connection's tests, and the server's: sessions replayed over
 // memory connections with a time.Manual clock, so no test sleeps or
-// touches the host. The Conn law runs only for providers in server
-// (G-exup-1), so it is restated as a test.
+// touches the host. ergo test skips the Conn law (a Conn holds a queue,
+// and its constructor takes a size; expected-skips), so it is restated as
+// a test.
 
 import chat/server
 import queue

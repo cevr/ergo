@@ -41,7 +41,7 @@ The program is a module of packages (`ergo.mod`: `module quiz`), in the Go layou
   - `PickedIsShown`
 
   The contract `quiz.Sets` has two member laws, `EverySetPlays` and `UnlistedIsNoSuchSet`.
-- **Tests.** The laws are the tests. `quiz/tests.ergo` has one run of the machine, `PlantsRun`. `memory/tests.ergo` calls the two `Sets` laws against `Shelf` (G-ma-2).
+- **Tests.** The laws are the tests. `quiz/tests.ergo` has one run of the machine, `PlantsRun`. `ergo test` runs the two `Sets` laws in `memory` against `Shelf`, and `memory/tests.ergo` calls their functions.
 
 ## Limits found
 
@@ -49,8 +49,8 @@ The program is a module of packages (`ergo.mod`: `module quiz`), in the Go layou
 - **A union is not assignable to a union that holds its variants.** A `Settled` value is not a `Quiz`, so `AsQuiz` matches it to rebuild it. Clause 4 of Assignability admits a variant into its union, not a union into a wider one (inferred from the checker's S108 on the assignment; not filed as a gap, because it may be the intended rule).
 - **`==` on a state that holds slices (M29).** The laws and the test compare states through `Key`.
 - **Machine laws stand at top level (M55).**
-- **The examples runner runs a package's laws only when the package declares a `test` (G-ma-1)**, so `quiz/` keeps `PlantsRun`.
-- **A law of an imported operation type does not run against another package's provider (G-ma-2)**, so `memory/tests.ergo` calls the laws' functions.
+- **G-ma-1** (closed in batch 13): the examples runner tests every package folder.
+- **G-ma-2** (closed in batch 13): the `Sets` laws run in `memory` against `Shelf`.
 - **`Run` needs a first state before the set is read.** `let mut q quiz.Quiz` needs a value, so it starts as `Begin(Plants())` and is replaced by the state that the script's set gives. A `let` with no value is allowed only for a type with a default, and a union has none.
 
 ## Run it

@@ -17,9 +17,7 @@ type Sets {
 type NoSuchSet { Name string }
 
 // EverySetPlays is the law EverySetPlays of the Sets in the context, as a
-// function: ergo test does not run a law of an imported operation type
-// against another package's provider yet (G-ma-2), so package memory's
-// test calls it.
+// function, which package memory's test also calls.
 func EverySetPlays() bool needs Sets {
 	for n in Sets.Names() {
 		let set = Sets.Set(n) catch {

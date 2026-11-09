@@ -1,6 +1,5 @@
-// Source keeps the site.Source laws: they run only for providers in
-// site's own package (G-exup-1), so these tests run each law's check
-// against a Source.
+// ergo test runs the site.Source laws here, against Source; these tests
+// run each law's check again against a Source of fixed pages.
 
 import ssg/site
 

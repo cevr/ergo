@@ -148,7 +148,7 @@ func run(args []string) fails os.Exit needs io.Stdout | fs.Files {
 		return
 	}
 	let m = try file(fileOf(c))
-	with context { resolve.Index: memory.Of(m.Releases) } {
+	with context { resolve.Index: memory.NewRegistry(m.Releases) } {
 		let text = answer(c, m) catch {
 		case resolve.NoVersion as n:
 			return exit(noVersion(n))
