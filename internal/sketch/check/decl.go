@@ -1147,8 +1147,15 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 	case *syntax.AsPattern:
 		c.errorf(x, CodeType, "expected a type")
 		return invalid
+	case *syntax.BinaryExpr:
+		if x.Op == syntax.OR {
+			c.errorf(x, CodeType, "a row A | B is the argument of a row parameter; here a type is expected")
+		} else {
+			c.errorf(x, CodeType, "expected a type")
+		}
+		return invalid
 	case *syntax.BasicLit, *syntax.CompositeLit, *syntax.KeyValueExpr, *syntax.FuncLit, *syntax.SliceExpr,
-		*syntax.TypeGuard, *syntax.CallExpr, *syntax.UnaryExpr, *syntax.BinaryExpr, *syntax.TryExpr,
+		*syntax.TypeGuard, *syntax.CallExpr, *syntax.UnaryExpr, *syntax.TryExpr,
 		*syntax.CatchExpr, *syntax.ContextLit, *syntax.MachineType, *syntax.InterpolatedString,
 		*syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
 		c.errorf(x, CodeType, "expected a type")
@@ -1386,15 +1393,30 @@ func (c *checker) rowExpr(xs []syntax.Expr, kind Kind, ctx *typeCtx) *Row {
 	return row
 }
 
-// rowArg resolves a written row argument of a generic type or function: one
-// element, as a row of one. A refused element gives nil, so the instance is
-// invalid, as an invalid type argument makes it.
+// rowArg resolves a written row argument of a generic type or function: a
+// row `A | B` as a needs or fails row is written, one element being a row
+// of one. A refused element gives nil, so the instance is invalid, as an
+// invalid type argument makes it.
 func (c *checker) rowArg(x syntax.Expr, kind Kind, ctx *typeCtx) *RowArg {
-	t := c.rowElem(x, kind, ctx)
-	if t == nil {
-		return nil
+	row := newRow()
+	for _, e := range rowArgElems(x) {
+		t := c.rowElem(e, kind, ctx)
+		if t == nil {
+			return nil
+		}
+		row = row.with(c.types, t)
 	}
-	return &RowArg{Row: newRow().with(c.types, t)}
+	return &RowArg{Row: row}
+}
+
+// rowArgElems is the elements of a written row argument, left to right:
+// the operands of its | (a BinaryExpr with Op OR, in a type and in an
+// expression's index alike), or x alone.
+func rowArgElems(x syntax.Expr) []syntax.Expr {
+	if b, ok := x.(*syntax.BinaryExpr); ok && b.Op == syntax.OR {
+		return append(rowArgElems(b.X), b.Y)
+	}
+	return []syntax.Expr{x}
 }
 
 func (c *checker) rowElem(x syntax.Expr, kind Kind, ctx *typeCtx) Type {

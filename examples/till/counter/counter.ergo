@@ -160,9 +160,9 @@ func onReceipt(s till.Sale) bool {
 }
 
 // Run plays the script on standard input against a till that pays
-// through gateway, on clock.
-func Run(gateway till.Payments, clock time.Manual) needs Console | io.Stdin | Scheduler {
-	let a = actor.StartMachine(machines.Start(till.Till{}, gateway), 8, func(r till.Result) {})
+// through the Payments in the context, on clock.
+func Run(clock time.Manual) needs Console | io.Stdin | till.Payments | Scheduler {
+	let a = actor.StartMachine(machines.Start(till.Till{}, []till.Line{}), 8, func(r till.Result) {})
 	Console.Println("screen: \(Show(a.State()))")
 	let mut ended = false
 	for line in io.Stdin.Lines() {
