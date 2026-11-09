@@ -215,9 +215,30 @@ func (c *checker) arity(x *syntax.CallExpr, sig *Signature, n int) bool {
 	return true
 }
 
+// siteless is sig without its final parameter when the call x, with n
+// arguments, leaves out that parameter and its declared type is the
+// prelude's CallSite: the lowering passes the call's own position there
+// (types.md, Call sites), and Info's Call records it (Call.Site). Every
+// other call keeps sig.
+func (c *checker) siteless(x *syntax.CallExpr, sig *Signature, n int) *Signature {
+	k := len(sig.Params)
+	if k == 0 || n != k-1 {
+		return sig
+	}
+	site := c.preludeOrigin("CallSite")
+	if site == nil || !c.identical(sig.Params[k-1].Type, site) {
+		return sig
+	}
+	c.callInfo(x).Site = site
+	trimmed := *sig
+	trimmed.Params = sig.Params[:k-1]
+	return &trimmed
+}
+
 // callSig checks a call to a function value of a known, non-generic type.
 func (c *checker) callSig(x *syntax.CallExpr, sig *Signature, fun operand) operand {
 	args := argsOf(x)
+	sig = c.siteless(x, sig, args.n())
 	// A tuple is one value (196t): f(g()) passes g's tuple as one argument
 	// and never spreads it over f's parameters.
 	if !c.arity(x, sig, args.n()) {
@@ -527,6 +548,7 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 		return bad(x)
 	}
 	args := argsOf(x)
+	sig = c.siteless(x, sig, args.n())
 	if !c.arity(x, sig, args.n()) {
 		return bad(x)
 	}

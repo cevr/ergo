@@ -83,6 +83,12 @@ type Option[T] = Some[T] | None
 // take an integer T only; the type itself takes any ordered T.
 type Range[T ordered] { Start T, End T }
 
+// CallSite is a position in Ergo source: File as a defect names it, Line
+// and Column from 1, Column in bytes. A call may leave out its callee's
+// final CallSite parameter, and the compiler passes the call's own site
+// (types.md, Call sites).
+type CallSite { File string, Line int, Column int }
+
 // The functions on slices and Maps (#196, fourth round, item 2; spec
 // D-D6). Each is reached only by the dot form on a value of exactly its
 // first parameter's type, xs.Append(x), m.Get(k), m.Delete(k) (D-D8): it

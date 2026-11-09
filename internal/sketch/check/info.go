@@ -517,6 +517,11 @@ type Call struct {
 	// check-v1 stage D3b (additive); the operation kinds in stage E2 (C15),
 	// CallLawOp in E3b (a law is checked as if it ran).
 	TaskResult bool
+	// Site is the prelude's CallSite when the call leaves out its callee's
+	// final CallSite parameter, and the lowering passes the call's own
+	// position after the written arguments (types.md, Call sites); nil
+	// otherwise. Added in unit L3 (additive).
+	Site *Named
 }
 
 // ConversionKind is an implicit conversion's kind.

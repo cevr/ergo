@@ -595,7 +595,19 @@ func (fc *funcCtx) callArgsAddr(list []syntax.Expr, call *syntax.CallExpr, addr 
 			out[i] = fc.spill(out[i])
 		}
 	}
+	if c := fc.l.info.Calls[call]; c != nil && c.Site != nil {
+		out = append(out, fc.siteValue(call, c.Site))
+	}
 	return out
+}
+
+// siteValue is the CallSite the call x passes for the final parameter it
+// leaves out (types.md, Call sites): where x starts, as a defect names it.
+// A constant, so it runs after the written operands with no spill.
+func (fc *funcCtx) siteValue(x *syntax.CallExpr, site *check.Named) string {
+	file, line, column := fc.l.locate(x, x.Pos())
+	td := fc.l.typeDecl(site.Obj, x)
+	return fmt.Sprintf("%s{%s: %q, %s: %d, %s: %d}", fc.goType(site), td.fieldName["File"], file, td.fieldName["Line"], line, td.fieldName["Column"], column)
 }
 
 // typeArgs writes a generic call's type-kinded arguments, from the call's

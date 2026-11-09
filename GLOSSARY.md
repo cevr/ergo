@@ -61,6 +61,8 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Try** (checked): The keyword form `try e`, which yields `e`'s success value and escapes `e`'s failures.
 
+**Call site** (implemented, unit L3): The prelude record `CallSite { File, Line, Column }`, a call's position in Ergo source. A call may leave out its callee's final `CallSite` parameter, and the compiler passes the call's own position; a call that writes it forwards the value. It gives positional identity to `ui` hooks and feeds traces. See [types](docs/spec/types.md#call-sites).
+
 **Catch** (checked): The keyword form `e catch { case T: … }`, which handles named error types of a fallible expression. It covers typed failures only; interruption and defects pass through it.
 
 **Total catch** (checked): A `catch` without `try`. It must handle every error type of the caught row.

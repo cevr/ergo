@@ -326,6 +326,18 @@ Status: rule 1 is **checked** (#196): a function value is assignable to a functi
 4. **Concurrent parameters.** A function parameter that the callee hands to `go`, directly or through another call, is concurrent. The compiler infers this fact and records it in the exported interface summary. A block or literal passed to a concurrent parameter may not assign captured locals, so `parallel { n++ }` is an error. *Prior art:* Swift `@Sendable` parameters.
 5. **Replayable parameters.** A transaction body ([stdlib.md](stdlib.md#sync-and-stm)) may not assign captured locals, use channels or consume a resource, and its footprint holds only `sync.Tx`.
 
+## Call sites
+
+Status: **implemented** (#196 item 13, unit L3): `check/call.go` (`siteless`), `lower/calls.go` (`siteValue`); property `TestCallSitesAgree` (lower), row `TestCallSiteDiagnostics` (check).
+
+1. `CallSite { File string, Line int, Column int }` is a prelude record: a position in Ergo source. `File` is the path the program's defects name for that source file, `Line` and `Column` count from 1, and `Column` counts bytes.
+2. **The hidden parameter.** A call may leave out an argument for its callee's final parameter when that parameter's declared type is `CallSite`. The compiler then passes the site of the call: the position where the call expression starts, as a defect names it. One rule holds for every callee: a declared function, a method, a dot call, an operation of an operation type or a capability, a function literal and a function value. A function type keeps the parameter: `func(n int, at CallSite)` is the type of such a function, and a value of it is called with or without the site.
+3. **Forwarding.** A call that writes the argument passes it as written. So a helper hands its own caller's site on, as Rust's `#[track_caller]` chains: `func expect(ok bool, at CallSite) { … report(at) }`. Nothing is passed on without being written: a call inside a function with a `CallSite` parameter that leaves the site out passes its own position.
+4. Only the final parameter is hidden, and only when its declared type is `CallSite` itself: a type parameter instantiated with `CallSite` is an ordinary parameter, and a call with one argument too few for any other function is S108 ("not enough arguments"). A trailing block is the final written argument, so with the site left out it fills the parameter before the `CallSite`.
+5. The site is a constant, so a call that receives one stays pure, and the call costs one record literal, as Go's `runtime.Caller` would cost a stack walk at run time instead.
+
+*Prior art:* Swift's `#fileID` and `#line` as default arguments (the caller's position, written at the caller); Rust's `#[track_caller]` and `Location::caller()` (a hidden argument, chained through annotated functions); Kotlin's Compose positional keys (a call site's identity, for the `ui` hooks of item 14); MoonBit's `#callsite` attribute (autofill of a source location argument). Go has `runtime.Caller`, a run-time stack walk. Gleam, Elixir and ReScript have no call-site parameter; Elixir's `__CALLER__` is a macro's compile-time environment, the closest form. Ergo takes Swift's shape (the argument is ordinary, written or supplied) with no attribute, since the type alone names it, as the std externs' hidden `Site` argument is named by its Go type ([stdlib.md](stdlib.md), Hidden arguments).
+
 ## Borrows
 
 Status: placement (rule 1, first sentence) is **checked** (#196): `*T` outside a parameter or receiver type is S108; rule 5 is checked (check-v1 stage D3b). The rest is **designed, not yet implemented** ([#197](https://github.com/cevr/ergo/issues/197)).
@@ -391,6 +403,7 @@ Status: **declared** in the embedded prelude (`internal/sketch/std/prelude.ergo`
 - `Timeout[E] { In duration, Signal E }`, a state's timer ([runtime.md](runtime.md#machines-and-actors) 9).
 - `Machine[S, E, O, F, R]`, a machine as a value, a record of `Initial S`, `Step func(s S, e E) Decision[S, O] fails F needs R` and `After func(s S) Option[Timeout[E]]`.
 - `InputMachine[I, S, E, O, F, R]`, a machine whose first state is a function of an input `I`: a record of `Start func(input I) S`, `Step` and `After` as in `Machine`. A machine declaration whose `initial` names a start function converts to it, and to no `Machine` ([runtime.md](runtime.md#machines-and-actors) 10). A value of a machine declaration `type X machine[S, E]` is assignable to the `Machine` whose `O`, `F` and `R` are its step's output, error row and capability row, and to no other type (Assignability, ConvMachine; README Gap 46); inference reads them the same way, so `machines.Run(X{}, signals)` needs no type arguments ([runtime.md](runtime.md#machines-and-actors) 8).
+- `CallSite { File string, Line int, Column int }`, a call's source position, which a call passes for a final `CallSite` parameter it leaves out ([Call sites](#call-sites)).
 - The capabilities `Scheduler`, `Random` and `Console` (`Clock` is `time.Clock`).
 
 ## Unreachable
