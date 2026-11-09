@@ -1,0 +1,316 @@
+// The write's rules as laws over its three machines' steps (machine laws,
+// MU6, are not on this base). The children's lifetimes (each phase's
+// children stop before the next entry; a late output is dropped) are the
+// runner's rules, proved by MU5's model and test; the cases run them.
+
+// refusing is a target that refuses every write: the Targets laws run
+// against it.
+type refusing {}
+
+func Write(_ refusing, t Share) Ref fails Refused { Refused{Why: "no"} }
+
+func Erase(_ refusing, r Ref) int { r.Size }
+
+// hundredths is n cut to 0..9999 (also for the least int, whose negation is
+// itself).
+func hundredths(n int) int {
+	let c = n % 10000
+	if c < 0 { -c } else { c }
+}
+
+func partsOf(partSizes []int) []Part {
+	let mut out = []Part{}
+	for p in partSizes {
+		out = out.Append(Part{Name: "part", Size: hundredths(p) + 1})
+	}
+	out
+}
+
+// sharesOf is a share per size, disks and tapes by turns.
+func sharesOf(shareSizes []int) []Share {
+	let mut out = []Share{}
+	for i, a in shareSizes {
+		if i%2 == 0 {
+			out = out.Append(Disk{Device: "1\(i)", Size: a})
+		} else {
+			out = out.Append(Tape{Label: "V\(i)", Size: a})
+		}
+	}
+	out
+}
+
+// split is shares that cover total exactly: the shareSizes, cut to total, and
+// the rest in a last disk.
+func split(total int, shareSizes []int) []Share {
+	let mut left = total
+	let mut parts = []int{}
+	for a in shareSizes {
+		let c = hundredths(a) % (left + 1)
+		if c > 0 && c < left {
+			parts = parts.Append(c)
+			left = left - c
+		}
+	}
+	sharesOf(parts.Append(left))
+}
+
+// sample is a write state of every variant, picked by n.
+func sample(n int, partSizes []int, shareSizes []int, text string) Job {
+	let parts = partsOf(partSizes)
+	let shares = sharesOf(shareSizes)
+	let refs = []Ref{Ref{ID: text, Size: Total(parts)}}
+	let k = if n < 0 { -n } else { n }
+	match k % 4 {
+	case 0:
+		Staging{Parts: parts, Note: text}
+	case 1:
+		Writing{Parts: parts, Shares: shares}
+	case 2:
+		RollingBack{Parts: parts, Refs: refs, Why: text}
+	case _:
+		Summary{Parts: parts, Refs: refs}
+	}
+}
+
+// signalOf is a write signal of every variant, picked by n.
+func signalOf(n int, shareSizes []int, text string) Signal {
+	let k = if n < 0 { -n } else { n }
+	match k % 8 {
+	case 0:
+		Add{Name: text, Size: k % 500}
+	case 1:
+		Place{Shares: sharesOf(shareSizes)}
+	case 2:
+		Cancel
+	case 3:
+		Touch
+	case 4:
+		SharesWritten{Refs: []Ref{Ref{ID: text, Size: 1}}}
+	case 5:
+		SharesLost{Refs: []Ref{}, Why: text}
+	case 6:
+		Erased
+	case _:
+		Idle
+	}
+}
+
+// moved is the state a decision enters or stays in, if any.
+func moved(d Decision[Job, Result]) Option[Job] {
+	match d {
+	case Enter[Job] as x:
+		Some{x.Next}
+	case Stay[Job] as x:
+		Some{x.Next}
+	case Emit[Job, Result] as x:
+		Some{x.Next}
+	case Ignore:
+		None
+	case Reject:
+		None
+	case Done[Result]:
+		None
+	}
+}
+
+func refused(d Decision[Job, Result]) bool {
+	match d {
+	case Reject:
+		true
+	case _:
+		false
+	}
+}
+
+// SharesCoverExactly: Place starts a write exactly when the shares sum to
+// the staging's total, each positive; otherwise it is refused.
+law SharesCoverExactly(partSizes []int, shareSizes []int, exact bool) {
+	let parts = partsOf(partSizes)
+	let shares = if exact && len(parts) > 0 { split(Total(parts), shareSizes) } else { sharesOf(shareSizes) }
+	let d = Step(Staging{Parts: parts, Note: ""}, Place{Shares: shares})
+	match moved(d) {
+	case Some[Job] as s:
+		match s.Value {
+		case Writing as p:
+			Sum(p.Shares) == Total(parts) && len(parts) > 0
+		case _:
+			false
+		}
+	case None:
+		refused(d) && !placeable(parts, shares)
+	}
+}
+
+// SummaryOnlyAfterWritten: the summary opens only when the runner reports
+// every share taken, or again on a touch of the summary.
+law SummaryOnlyAfterWritten(n int, m int, partSizes []int, shareSizes []int, text string) {
+	let s = sample(n, partSizes, shareSizes, text)
+	let e = signalOf(m, shareSizes, text)
+	match moved(Step(s, e)) {
+	case Some[Job] as next:
+		match next.Value {
+		case Summary:
+			match (s, e) {
+			case (Writing, SharesWritten):
+				true
+			case (Summary, Touch):
+				true
+			case (_, _):
+				false
+			}
+		case _:
+			true
+		}
+	case None:
+		true
+	}
+}
+
+// NoCancelWhileWriting: a cancel while writes run is refused.
+law NoCancelWhileWriting(partSizes []int, shareSizes []int) {
+	refused(Step(Writing{Parts: partsOf(partSizes), Shares: sharesOf(shareSizes)}, Cancel))
+}
+
+// TakenWritesAreErased: when some share is lost, every write
+// that was taken goes to RollingBack, which erases them.
+law TakenWritesAreErased(partSizes []int, ids []string, why string) {
+	let mut refs = []Ref{}
+	for id in ids {
+		refs = refs.Append(Ref{ID: id, Size: 1})
+	}
+	let reason = "lost: \(why)"
+	match moved(Step(Writing{Parts: partsOf(partSizes), Shares: []Share{}}, SharesLost{Refs: refs, Why: reason})) {
+	case Some[Job] as s:
+		match s.Value {
+		case RollingBack as v:
+			len(refs) > 0 && len(v.Refs) == len(refs)
+		case Staging as b:
+			len(refs) == 0 && b.Note == reason
+		case _:
+			false
+		}
+	case None:
+		false
+	}
+}
+
+// answersOf is an answer per share, in the order given by order: a
+// share whose size is odd is lost.
+func answersOf(shareSizes []int, order int) []Answer {
+	let shares = sharesOf(shareSizes)
+	let n = len(shares)
+	let mut out = []Answer{}
+	for j in 0..n {
+		let i = if n == 0 { 0 } else { (j + hundredths(order)) % n }
+		let t = shares[i]
+		if SizeOf(t)%2 == 0 {
+			out = out.Append(Taken{Index: i, Share: t, R: Ref{ID: "r\(i)", Size: SizeOf(t)}})
+		} else {
+			out = out.Append(Lost{Index: i, Share: t, Why: "odd \(i)"})
+		}
+	}
+	out
+}
+
+// told is an outcome as text.
+func told(o Outcome) string {
+	let mut text = ""
+	let refs = match o {
+	case AllTaken as a:
+		text = "taken"
+		a.Refs
+	case SomeLost as d:
+		text = "lost \(d.Why)"
+		d.Refs
+	}
+	for r in refs {
+		text = text + " " + r.ID
+	}
+	text
+}
+
+// OutcomeIgnoresArrival: the runner's outcome is the same whatever order
+// the writes answer in, and lists the taken writes in share order.
+law OutcomeIgnoresArrival(shareSizes []int, order int) {
+	told(OutcomeOf(answersOf(shareSizes, order))) == told(OutcomeOf(answersOf(shareSizes, 0)))
+}
+
+// RunnerWaitsForAll: the runner ends only after every share answered,
+// so no taken write is lost to an early end.
+law RunnerWaitsForAll(shareSizes []int, order int) {
+	let answers = answersOf(shareSizes, order)
+	let mut s = running(sharesOf(shareSizes))
+	for i, a in answers {
+		match runStep(s, Answered{A: a}) {
+		case Stay[Run] as x:
+			s = x.Next
+		case Done[Outcome]:
+			return i == len(answers)-1
+		case _:
+			return false
+		}
+	}
+	len(answers) == 0
+}
+
+// WriteAlwaysAnswers: every signal ends a write with its answer, and
+// the write's timer gives up after WriteWait.
+law WriteAlwaysAnswers(i int, disk string, size int, m int) {
+	let s = sending((i, Disk{Device: disk, Size: size}))
+	let k = if m < 0 { -m } else { m }
+	let e WriteSignal = match k % 3 {
+	case 0:
+		Acked{R: Ref{ID: disk, Size: size}}
+	case 1:
+		let r WriteSignal = Refused{Why: disk}
+		r
+	case _:
+		NoAnswer
+	}
+	let timed = match writeTimer(s) {
+	case Some[Timeout[WriteSignal]] as t:
+		t.Value.In == WriteWait()
+	case None:
+		false
+	}
+	match writeStep(s, e) {
+	case Done[Answer] as d:
+		timed && match d.Output {
+		case Taken as t:
+			t.Index == i && k%3 == 0
+		case Lost as x:
+			x.Index == i && k%3 != 0
+		}
+	case _:
+		false
+	}
+}
+
+// SummaryTouchRestarts: a touch re-enters the summary (its timer starts
+// again), and its timer's signal closes.
+law SummaryTouchRestarts(partSizes []int, id string) {
+	let r = Summary{Parts: partsOf(partSizes), Refs: []Ref{Ref{ID: id, Size: 1}}}
+	let reentered = match Step(r, Touch) {
+	case Enter[Job]:
+		true
+	case _:
+		false
+	}
+	let closes = match timer(r) {
+	case Some[Timeout[Signal]] as t:
+		match Step(r, t.Value.Signal) {
+		case Done[Result] as d:
+			match d.Output {
+			case Stored as s:
+				s.Total == Total(r.Parts) && t.Value.In == SummaryWait()
+			case Cancelled:
+				false
+			}
+		case _:
+			false
+		}
+	case None:
+		false
+	}
+	reentered && closes
+}

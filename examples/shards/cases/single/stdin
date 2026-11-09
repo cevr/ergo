@@ -1,0 +1,7 @@
+add index 250
+add meta 125
+place disk:4111:375
+add cache 300
+touch
+wait
+touch

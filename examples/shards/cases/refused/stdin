@@ -1,0 +1,5 @@
+add logs 500
+place disk:0999:500
+place disk:4111:200 tape:XZ:300
+place disk:4111:300 tape:AB:200
+cancel

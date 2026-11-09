@@ -1,0 +1,9 @@
+screen: staging: 0 parts, 0.00
+> add logs 500
+screen: staging: 1 parts, 5.00
+> add blob 305
+screen: staging: 2 parts, 8.05
+> place disk:4111:500 tape:AB:305
+screen: summary: 8.05 written to disk-4111, tape-AB
+> wait
+stored: 8.05 (disk-4111, tape-AB)
