@@ -34,7 +34,7 @@ proto/probes/function-reserved.sketch	S108
 proto/probes/handled-duration.sketch	S114
 proto/probes/host-error.sketch	S114
 proto/probes/host-method.sketch	OK
-proto/probes/host-union.sketch	S108 S109 S114
+proto/probes/host-union.sketch	S109 S114
 proto/probes/init-name.sketch	OK
 proto/probes/integer-constant.sketch	S108
 proto/probes/integer-local.sketch	S108 S108
@@ -121,7 +121,7 @@ v0/sketch-eval-8/five/machine-breaker.go.sketch	S103 S104 S108 S108 S108 S108 S1
 v0/sketch-eval-8/five/recipes-retry.go.sketch	S104 S108 S108 S108 S108 S108
 v0/sketch-eval-8/loops/fetchall.go.sketch	S104 S104 S104 S104 S104 S104 S108 S108 S108
 v0/sketch-eval-8/loops/poller_test.go.sketch	S104 S104 S104 S104 S104 S104 S104 S104 S104 S104 S108 S108 S114
-v0/sketch-eval-9/gointerop.go.sketch	S104 S109 S109 S109
+v0/sketch-eval-9/gointerop.go.sketch	S104 S104 S109 S109
 v0/sketch-eval-9/http-endpoints.go.sketch	S104 S104 S104 S108 S108 S108 S110
 v0/sketch-eval-9/loops/poller_test.go.sketch	S104 S104 S104 S104 S104 S104 S104 S104 S104 S104 S108 S108 S114
 v0/sketch-eval-9/stm-batching.go.sketch	S104 S104 S104 S104 S104 S104 S104 S104 S104 S108
