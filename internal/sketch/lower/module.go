@@ -232,8 +232,6 @@ type lowerer struct {
 	flatSet   map[*check.TypeName]*flatUnion
 	flatOff   map[*check.TypeName]bool
 	flatBails []*check.TypeName
-	// unit is the lowered unit, which a bail lowers again.
-	unit Unit
 	// instances are the concrete instances of each generic type that the
 	// program's types name (text.go, instancesOf), computed once.
 	instances map[*check.TypeName][]check.Type
@@ -277,12 +275,16 @@ func newLowerer(u Unit) *lowerer { return newBuildLowerer(u, nil) }
 // newBuildLowerer is the lowerer of u for the run build (tests nil) or the
 // test build, which decides the facts it reads (owners.go).
 func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
-	c := canonicalize(u)
+	return lowererOf(canonicalize(u), u.Package, tests)
+}
+
+// lowererOf is the lowerer of the canonical unit c of the package pkg.
+func lowererOf(c *canonical, pkg *check.Package, tests *testLowering) *lowerer {
 	l := &lowerer{
 		tests:     tests,
 		canon:     c,
-		pkg:       u.Package,
-		info:      u.Package.Info,
+		pkg:       pkg,
+		info:      pkg.Info,
 		file:      c.srcs[0].file,
 		src:       c.srcs[0].path,
 		srcs:      c.srcs,
@@ -301,7 +303,6 @@ func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
 		typeKeys:  map[check.Type]string{},
 		methods:   map[*check.Package]map[*check.TypeName][]*check.Func{},
 		envFields: map[*check.TypeName]string{},
-		unit:      u,
 	}
 	l.reads = l.readVars()
 	return l

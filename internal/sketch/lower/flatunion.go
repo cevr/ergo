@@ -77,18 +77,21 @@ type flatUnion struct {
 	slot     []bool         // whether variant k has fields, and so a slot
 }
 
-// flatBail is a refusal that sends the program back to be lowered again
-// with the union tn as an interface (flatUnion's rule, last sentence).
-type flatBailed struct{ tn *check.TypeName }
-
 // flatBail stops the lowering at n, which meets the flat union fu in a form
-// this file does not lower.
+// this file does not lower: guard records fu, and program lowers the
+// program again with fu an interface (lowerAgain). The refusal is an ice
+// that names the union, so it is reported as one if a lowering ever kept
+// it.
 func flatBail(n syntax.Node, fu *flatUnion) {
-	var pos syntax.Pos
-	if n != nil {
-		pos = n.Pos()
-	}
-	panic(refusal{pos: pos, node: n, msg: "internal compiler error: the flat union " + fu.tn.Name + " met a form it does not lower (flatunion.go); lowered again as an interface", flat: fu.tn})
+	defer func() {
+		r := recover()
+		if ref, ok := r.(refusal); ok {
+			ref.flat = fu.tn
+			r = ref
+		}
+		panic(r)
+	}()
+	ice(n, "the flat union %s meets a form flatunion.go does not lower, so the program is lowered again with it an interface", fu.tn.Name)
 }
 
 // lowerAgain lowers the program again, from the start, with every union
@@ -99,7 +102,7 @@ func (l *lowerer) lowerAgain() ([]byte, error) {
 	if l.tests != nil {
 		tests = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
 	}
-	next := newBuildLowerer(l.unit, tests)
+	next := lowererOf(l.canon, l.pkg, tests)
 	next.noEntry, next.matchTest = l.noEntry, l.matchTest
 	next.flatOff = map[*check.TypeName]bool{}
 	for tn := range l.flatOff {
