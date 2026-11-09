@@ -8,6 +8,7 @@ import (
 	"iter"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,10 +17,11 @@ import (
 )
 
 // A program that checks clean builds (stage C round 3 review M1, the
-// structural guard; round 4 review T1 to T3). The check package's tests
-// hold the checker's corpus inline, as Go strings. This test reads them
-// from ../check/*_test.go with go/parser, so a new check test joins the
-// corpus with no list to keep.
+// structural guard; round 4 review T1 to T3). The checker's corpus is
+// ../check/testdata/corpus (readCheckCorpus): the candidates that the
+// enumeration rule below made from ../check's test files on 2026-11-09,
+// when those files held the corpus inline as Go strings (test-speed T6).
+// The rule still reads this package's own test files (checkCorpus).
 //
 // The enumeration rule (checkCorpus): in each test file, a named string is
 // a const or var whose value is a string literal, or a sum of literals and
@@ -58,12 +60,11 @@ type corpusCandidate struct {
 
 // corpusDomain is the corpus, read once per test process.
 var corpusDomain = sync.OnceValues(func() ([]string, error) {
-	sources, _, _, _, err := readCorpus("../check", maxCandidates)
+	sources, _, _, _, err := readCheckCorpus(maxCandidates)
 	return sources, err
 })
 
-// corpusSplit's domain is read from ../check's test files, which other
-// units edit, so it is not pinned; its parts cover it.
+// corpusSplit's domain is the checker's corpus; its parts cover it.
 var corpusSplit = newSplit(split[corpusCandidate]{
 	name:  "TestCheckCorpusBuilds",
 	parts: corpusParts,
@@ -99,11 +100,20 @@ func TestCheckCorpusBuildsPart9(t *testing.T)  { corpusSplit.Part(t, 9) }
 func TestCheckCorpusBuildsPart10(t *testing.T) { corpusSplit.Part(t, 10) }
 func TestCheckCorpusBuildsPart11(t *testing.T) { corpusSplit.Part(t, 11) }
 
-// TestCheckCorpusBuildsDomain: the corpus reader finds the check tests.
+// TestCheckCorpusBuildsDomain: the corpus reader finds the checker's
+// corpus, and every candidate may be a program.
 func TestCheckCorpusBuildsDomain(t *testing.T) {
-	sources, files, total, k := checkCorpus(t, "../check", maxCandidates)
-	if files < 30 || len(sources) < 200 {
-		t.Fatalf("the corpus has %d candidates from %d files; the check tests moved?", len(sources), files)
+	sources, files, total, k, err := readCheckCorpus(maxCandidates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sources) < 200 {
+		t.Fatalf("the corpus has %d candidates from %d files; did %s move?", len(sources), files, checkCorpusDir)
+	}
+	for i, src := range sources {
+		if !looksLikeSource(src) || !strings.HasSuffix(src, "\n") {
+			t.Errorf("candidate %d is not a program:\n%s", i, src)
+		}
 	}
 	if k > 1 {
 		t.Logf("sampled every %dth of %d candidates", k, total)
@@ -299,6 +309,57 @@ func checkCorpus(t *testing.T, dir string, limit int) (out []string, files, tota
 		t.Fatal(err)
 	}
 	return out, files, total, k
+}
+
+// checkCorpusDir holds the checker's corpus: the candidates that the
+// enumeration rule made from ../check's test files when they held the
+// corpus inline (test-speed T6, 2026-11-09), so cutting check tests no
+// longer shrinks it. Each file is a txtar-style archive: a line
+// "-- NNNNN.ergo --" starts each candidate.
+const checkCorpusDir = "../check/testdata/corpus"
+
+// readCheckCorpus returns the checker's corpus in its stable order, the
+// number of corpus files, the number of candidates, and the stride k:
+// past limit it keeps every k-th candidate, from the first.
+func readCheckCorpus(limit int) (out []string, files, total, k int, err error) {
+	paths, err := filepath.Glob(filepath.Join(checkCorpusDir, "*.txtar"))
+	if err != nil {
+		return nil, 0, 0, 0, err
+	}
+	sort.Strings(paths)
+	var all []string
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return nil, 0, 0, 0, err
+		}
+		all = append(all, splitCorpusArchive(string(data))...)
+	}
+	k = 1
+	if len(all) > limit {
+		k = (len(all) + limit - 1) / limit
+	}
+	for i := 0; i < len(all); i += k {
+		out = append(out, all[i])
+	}
+	return out, len(paths), len(all), k, nil
+}
+
+// corpusHeader matches the line that starts a candidate of a corpus file.
+var corpusHeader = regexp.MustCompile(`(?m)^-- [0-9]+\.ergo --\n`)
+
+// splitCorpusArchive returns the candidates of one corpus file, in order.
+func splitCorpusArchive(data string) []string {
+	bounds := corpusHeader.FindAllStringIndex(data, -1)
+	var out []string
+	for i, b := range bounds {
+		end := len(data)
+		if i+1 < len(bounds) {
+			end = bounds[i+1][0]
+		}
+		out = append(out, data[b[1]:end])
+	}
+	return out
 }
 
 // readCorpus is checkCorpus, with an error.

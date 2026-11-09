@@ -1,0 +1,3798 @@
+-- 07000.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func F() int { try keep() { a(1) } }
+-- 07001.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func F() int { try keep() { a(1) } }
+-- 07002.ergo --
+func F() int { keep() { a(1) } catch { case Bang: 2 } }
+-- 07003.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func F() int { keep() { a(1) } catch { case Bang: 2 } }
+-- 07004.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func F() int { keep() { a(1) } catch { case Bang: 2 } }
+-- 07005.ergo --
+func F() { return store() { a(1) } }
+-- 07006.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func F() { return store() { a(1) } }
+-- 07007.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func F() { return store() { a(1) } }
+-- 07008.ergo --
+func F() int { try keep(func() int { try a(1) }) }
+-- 07009.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func F() int { try keep(func() int { try a(1) }) }
+-- 07010.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func F() int { try keep(func() int { try a(1) }) }
+-- 07011.ergo --
+func F() int fails Bang { try (func() int { a(1) })() }
+-- 07012.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func F() int fails Bang { try (func() int { a(1) })() }
+-- 07013.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func F() int fails Bang { try (func() int { a(1) })() }
+-- 07014.ergo --
+func F() int fails Bang { try ((func() int { a(1) }))() }
+-- 07015.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func F() int fails Bang { try ((func() int { a(1) }))() }
+-- 07016.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func F() int fails Bang { try ((func() int { a(1) }))() }
+-- 07017.ergo --
+func F() int fails Bang { try (func() int { try a(1) })() }
+-- 07018.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func F() int fails Bang { try (func() int { try a(1) })() }
+-- 07019.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func F() int fails Bang { try (func() int { try a(1) })() }
+-- 07020.ergo --
+func F() int { (func() int { a(1) })() catch { case Bang: 2 } }
+-- 07021.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func F() int { (func() int { a(1) })() catch { case Bang: 2 } }
+-- 07022.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func F() int { (func() int { a(1) })() catch { case Bang: 2 } }
+-- 07023.ergo --
+func F() int fails Bang { try run(func() int { a(1) }) }
+-- 07024.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func F() int fails Bang { try run(func() int { a(1) }) }
+-- 07025.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func F() int fails Bang { try run(func() int { a(1) }) }
+-- 07026.ergo --
+func F() int fails Bang { try run() { a(1) } }
+-- 07027.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func F() int fails Bang { try run() { a(1) } }
+-- 07028.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func F() int fails Bang { try run() { a(1) } }
+-- 07029.ergo --
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+-- 07030.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+-- 07031.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+-- 07032.ergo --
+func F() int fails Bang { try run(z) }
+-- 07033.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func F() int fails Bang { try run(z) }
+-- 07034.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func F() int fails Bang { try run(z) }
+-- 07035.ergo --
+func F() int fails Bang { try keep(func() int { 1 }) + a(1) }
+-- 07036.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func F() int fails Bang { try keep(func() int { 1 }) + a(1) }
+-- 07037.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func F() int fails Bang { try keep(func() int { 1 }) + a(1) }
+-- 07038.ergo --
+func F(c bool) int fails Bang { try if c { a(1) } else { 2 } }
+-- 07039.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func F(c bool) int fails Bang { try if c { a(1) } else { 2 } }
+-- 07040.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func F(c bool) int fails Bang { try if c { a(1) } else { 2 } }
+-- 07041.ergo --
+type Q { N int }
+func h(q Q) int { let m = Map[int, func(Q) int]{1: h}; _ = m; try mark(); 1 }
+-- 07042.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+type Q { N int }
+func h(q Q) int { let m = Map[int, func(Q) int]{1: h}; _ = m; try mark(); 1 }
+-- 07043.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+type Q { N int }
+func h(q Q) int { let m = Map[int, func(Q) int]{1: h}; _ = m; try mark(); 1 }
+-- 07044.ergo --
+func F(q Q) int fails Bang { try q.h() }
+-- 07045.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func F(q Q) int fails Bang { try q.h() }
+-- 07046.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func F(q Q) int fails Bang { try q.h() }
+-- 07047.ergo --
+func g[T](v T) T { let m = Map[int, func(int) int]{1: g[int]}; _ = m; try mark(); v }
+-- 07048.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func g[T](v T) T { let m = Map[int, func(int) int]{1: g[int]}; _ = m; try mark(); v }
+-- 07049.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func g[T](v T) T { let m = Map[int, func(int) int]{1: g[int]}; _ = m; try mark(); v }
+-- 07050.ergo --
+func F() int fails Bang { try g[int](1) }
+-- 07051.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func F() int fails Bang { try g[int](1) }
+-- 07052.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func F() int fails Bang { try g[int](1) }
+-- 07053.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+-- 07054.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+-- 07055.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+-- 07056.ergo --
+func each(cb func()) { cb() }
+-- 07057.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func each(cb func()) { cb() }
+-- 07058.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func each(cb func()) { cb() }
+-- 07059.ergo --
+func f() int {
+	let mut r = R{N: 0}
+	unknown(func() { 
+-- 07060.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func f() int {
+	let mut r = R{N: 0}
+	unknown(func() { 
+-- 07061.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func f() int {
+	let mut r = R{N: 0}
+	unknown(func() { 
+-- 07062.ergo --
+func f() int {
+	let mut r = R{N: 0}
+	each(func() { 
+-- 07063.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func f() int {
+	let mut r = R{N: 0}
+	each(func() { 
+-- 07064.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func f() int {
+	let mut r = R{N: 0}
+	each(func() { 
+-- 07065.ergo --
+type Y { M() int }
+type Y { N int }
+type E { N int }
+func f(y Y) {}
+func f(e E) {}
+-- 07066.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+type Y { M() int }
+type Y { N int }
+type E { N int }
+func f(y Y) {}
+func f(e E) {}
+-- 07067.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+type Y { M() int }
+type Y { N int }
+type E { N int }
+func f(y Y) {}
+func f(e E) {}
+-- 07068.ergo --
+type Y { N int }
+type Y { M() int }
+type E { N int }
+func f(y Y) {}
+func f(e E) {}
+-- 07069.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+type Y { N int }
+type Y { M() int }
+type E { N int }
+func f(y Y) {}
+func f(e E) {}
+-- 07070.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+type Y { N int }
+type Y { M() int }
+type E { N int }
+func f(y Y) {}
+func f(e E) {}
+-- 07071.ergo --
+type Y { M() int }
+type Y { N int }
+func f(y Y) {}
+func f(y *Y) {}
+-- 07072.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+type Y { M() int }
+type Y { N int }
+func f(y Y) {}
+func f(y *Y) {}
+-- 07073.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+type Y { M() int }
+type Y { N int }
+func f(y Y) {}
+func f(y *Y) {}
+-- 07074.ergo --
+type Y { N int }
+type Y { M() int }
+func f(y Y) {}
+func f(n int) {}
+-- 07075.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+type Y { N int }
+type Y { M() int }
+func f(y Y) {}
+func f(n int) {}
+-- 07076.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+type Y { N int }
+type Y { M() int }
+func f(y Y) {}
+func f(n int) {}
+-- 07077.ergo --
+type A{A()A}
+type A{A()A}
+type y{A()A}
+type y{A A}
+func l(A y)A{A00}
+type e{A A}
+func l(A e)A{A0000}
+-- 07078.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+type A{A()A}
+type A{A()A}
+type y{A()A}
+type y{A A}
+func l(A y)A{A00}
+type e{A A}
+func l(A e)A{A0000}
+-- 07079.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+type A{A()A}
+type A{A()A}
+type y{A()A}
+type y{A A}
+func l(A y)A{A00}
+type e{A A}
+func l(A e)A{A0000}
+-- 07080.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+-- 07081.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+-- 07082.ergo --
+func Id[T](x T) T { x }
+-- 07083.ergo --
+type Y[T] { N T }
+type Y[T] { M T }
+type E { N int }
+func f(y Y[int]) {}
+func f(e E) {}
+-- 07084.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+type Y[T] { N T }
+type Y[T] { M T }
+type E { N int }
+func f(y Y[int]) {}
+func f(e E) {}
+-- 07085.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+type Y[T] { N T }
+type Y[T] { M T }
+type E { N int }
+func f(y Y[int]) {}
+func f(e E) {}
+-- 07086.ergo --
+func Id[T](x T) T { x }
+type Y[T] { N T }
+type Y[T] { M T }
+type E { N int }
+func f(y Y[int]) {}
+func f(e E) {}
+-- 07087.ergo --
+type Y[T, U] { N T, M U }
+type Y[T, U] { P T, Q U }
+type E { N int }
+func f[T](y Y[T, T]) {}
+func f(e E) {}
+-- 07088.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+type Y[T, U] { N T, M U }
+type Y[T, U] { P T, Q U }
+type E { N int }
+func f[T](y Y[T, T]) {}
+func f(e E) {}
+-- 07089.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+type Y[T, U] { N T, M U }
+type Y[T, U] { P T, Q U }
+type E { N int }
+func f[T](y Y[T, T]) {}
+func f(e E) {}
+-- 07090.ergo --
+func Id[T](x T) T { x }
+type Y[T, U] { N T, M U }
+type Y[T, U] { P T, Q U }
+type E { N int }
+func f[T](y Y[T, T]) {}
+func f(e E) {}
+-- 07091.ergo --
+type Y { N int }
+type Y { M int }
+type Z { N int }
+type Z { M int }
+func main(y Y) {}
+func main(z Z) {}
+-- 07092.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+type Y { N int }
+type Y { M int }
+type Z { N int }
+type Z { M int }
+func main(y Y) {}
+func main(z Z) {}
+-- 07093.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+type Y { N int }
+type Y { M int }
+type Z { N int }
+type Z { M int }
+func main(y Y) {}
+func main(z Z) {}
+-- 07094.ergo --
+func Id[T](x T) T { x }
+type Y { N int }
+type Y { M int }
+type Z { N int }
+type Z { M int }
+func main(y Y) {}
+func main(z Z) {}
+-- 07095.ergo --
+type Y[T] { N T }
+type Y[T] { M T }
+type E { N int }
+func f[T](y Y[T]) {}
+func f(e E) {}
+-- 07096.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+type Y[T] { N T }
+type Y[T] { M T }
+type E { N int }
+func f[T](y Y[T]) {}
+func f(e E) {}
+-- 07097.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+type Y[T] { N T }
+type Y[T] { M T }
+type E { N int }
+func f[T](y Y[T]) {}
+func f(e E) {}
+-- 07098.ergo --
+func Id[T](x T) T { x }
+type Y[T] { N T }
+type Y[T] { M T }
+type E { N int }
+func f[T](y Y[T]) {}
+func f(e E) {}
+-- 07099.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+-- 07100.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+-- 07101.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+-- 07102.ergo --
+func Id[T](x T) T { x }
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+-- 07103.ergo --
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+-- 07104.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+-- 07105.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+-- 07106.ergo --
+func Id[T](x T) T { x }
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+-- 07107.ergo --
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+-- 07108.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+-- 07109.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+-- 07110.ergo --
+func Id[T](x T) T { x }
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+-- 07111.ergo --
+func e(A)A{A{{{0(){e}}}}}
+-- 07112.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func e(A)A{A{{{0(){e}}}}}
+-- 07113.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func e(A)A{A{{{0(){e}}}}}
+-- 07114.ergo --
+func Id[T](x T) T { x }
+func e(A)A{A{{{0(){e}}}}}
+-- 07115.ergo --
+func e() { int{func() { e() }} }
+-- 07116.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func e() { int{func() { e() }} }
+-- 07117.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func e() { int{func() { e() }} }
+-- 07118.ergo --
+func Id[T](x T) T { x }
+func e() { int{func() { e() }} }
+-- 07119.ergo --
+func e() { int{0() { e() }} }
+-- 07120.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func e() { int{0() { e() }} }
+-- 07121.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func e() { int{0() { e() }} }
+-- 07122.ergo --
+func Id[T](x T) T { x }
+func e() { int{0() { e() }} }
+-- 07123.ergo --
+func e() { Map[int,int]{0() { e() }} }
+-- 07124.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func e() { Map[int,int]{0() { e() }} }
+-- 07125.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func e() { Map[int,int]{0() { e() }} }
+-- 07126.ergo --
+func Id[T](x T) T { x }
+func e() { Map[int,int]{0() { e() }} }
+-- 07127.ergo --
+func e() int { let mut n = 0; int{0() { n = 1 }}; n }
+-- 07128.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func e() int { let mut n = 0; int{0() { n = 1 }}; n }
+-- 07129.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func e() int { let mut n = 0; int{0() { n = 1 }}; n }
+-- 07130.ergo --
+func Id[T](x T) T { x }
+func e() int { let mut n = 0; int{0() { n = 1 }}; n }
+-- 07131.ergo --
+func e() int { let mut n = 0; Map[int,int]{0() { n = 1 }}; n }
+-- 07132.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func e() int { let mut n = 0; Map[int,int]{0() { n = 1 }}; n }
+-- 07133.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func e() int { let mut n = 0; Map[int,int]{0() { n = 1 }}; n }
+-- 07134.ergo --
+func Id[T](x T) T { x }
+func e() int { let mut n = 0; Map[int,int]{0() { n = 1 }}; n }
+-- 07135.ergo --
+type P { X func() }
+func e() int { let mut n = 0; _ = P{X: func() {}, X: func() { n = 1 }}; n }
+-- 07136.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+type P { X func() }
+func e() int { let mut n = 0; _ = P{X: func() {}, X: func() { n = 1 }}; n }
+-- 07137.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+type P { X func() }
+func e() int { let mut n = 0; _ = P{X: func() {}, X: func() { n = 1 }}; n }
+-- 07138.ergo --
+func Id[T](x T) T { x }
+type P { X func() }
+func e() int { let mut n = 0; _ = P{X: func() {}, X: func() { n = 1 }}; n }
+-- 07139.ergo --
+func e() int { let mut n = 0; _ = Breaker{func() { n = 1 }}; n }
+-- 07140.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func e() int { let mut n = 0; _ = Breaker{func() { n = 1 }}; n }
+-- 07141.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func e() int { let mut n = 0; _ = Breaker{func() { n = 1 }}; n }
+-- 07142.ergo --
+func Id[T](x T) T { x }
+func e() int { let mut n = 0; _ = Breaker{func() { n = 1 }}; n }
+-- 07143.ergo --
+func e() { _ = Breaker{0() { e() }} }
+-- 07144.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func e() { _ = Breaker{0() { e() }} }
+-- 07145.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func e() { _ = Breaker{0() { e() }} }
+-- 07146.ergo --
+func Id[T](x T) T { x }
+func e() { _ = Breaker{0() { e() }} }
+-- 07147.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+-- 07148.ergo --
+func Id[T](x T) T { x }
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+-- 07149.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func Id[T](x T) T { x }
+-- 07150.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func Id[T](x T) T { x }
+-- 07151.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func F() int fails Bang { try (func() int { a(1) })() }
+-- 07152.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func F() int fails Bang { try (func() int { a(1) })() }
+-- 07153.ergo --
+func Id[T](x T) T { x }
+func F() int fails Bang { try (func() int { a(1) })() }
+-- 07154.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func F() int { try keep(func() int { a(1) }) }
+-- 07155.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func F() int { try keep(func() int { a(1) }) }
+-- 07156.ergo --
+func Id[T](x T) T { x }
+func F() int { try keep(func() int { a(1) }) }
+-- 07157.ergo --
+func F() int fails Bang { let g = func() int { a(1) }; try g() }
+-- 07158.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func F() int fails Bang { let g = func() int { a(1) }; try g() }
+-- 07159.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func F() int fails Bang { let g = func() int { a(1) }; try g() }
+-- 07160.ergo --
+func Id[T](x T) T { x }
+func F() int fails Bang { let g = func() int { a(1) }; try g() }
+-- 07161.ergo --
+func F() int fails Bang { let g = a; try g(1) }
+-- 07162.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func F() int fails Bang { let g = a; try g(1) }
+-- 07163.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func F() int fails Bang { let g = a; try g(1) }
+-- 07164.ergo --
+func Id[T](x T) T { x }
+func F() int fails Bang { let g = a; try g(1) }
+-- 07165.ergo --
+func F(c bool) int fails Bang { try (if c { func() int { a(1) } } else { func() int { 1 } })() }
+-- 07166.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func F(c bool) int fails Bang { try (if c { func() int { a(1) } } else { func() int { 1 } })() }
+-- 07167.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func F(c bool) int fails Bang { try (if c { func() int { a(1) } } else { func() int { 1 } })() }
+-- 07168.ergo --
+func Id[T](x T) T { x }
+func F(c bool) int fails Bang { try (if c { func() int { a(1) } } else { func() int { 1 } })() }
+-- 07169.ergo --
+func F() int fails Bang { try (func() func() int { func() int { a(1) } })()() }
+-- 07170.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func F() int fails Bang { try (func() func() int { func() int { a(1) } })()() }
+-- 07171.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func F() int fails Bang { try (func() func() int { func() int { a(1) } })()() }
+-- 07172.ergo --
+func Id[T](x T) T { x }
+func F() int fails Bang { try (func() func() int { func() int { a(1) } })()() }
+-- 07173.ergo --
+func F() int fails Bang { try Id(func() int { a(1) })() }
+-- 07174.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func F() int fails Bang { try Id(func() int { a(1) })() }
+-- 07175.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func F() int fails Bang { try Id(func() int { a(1) })() }
+-- 07176.ergo --
+func Id[T](x T) T { x }
+func F() int fails Bang { try Id(func() int { a(1) })() }
+-- 07177.ergo --
+func b() int { a(1) }
+-- 07178.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func b() int { a(1) }
+-- 07179.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func b() int { a(1) }
+-- 07180.ergo --
+func Id[T](x T) T { x }
+func b() int { a(1) }
+-- 07181.ergo --
+func F() int fails Bang { try b() }
+-- 07182.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func F() int fails Bang { try b() }
+-- 07183.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func F() int fails Bang { try b() }
+-- 07184.ergo --
+func Id[T](x T) T { x }
+func F() int fails Bang { try b() }
+-- 07185.ergo --
+func F() int { b() }
+-- 07186.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func F() int { b() }
+-- 07187.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func F() int { b() }
+-- 07188.ergo --
+func Id[T](x T) T { x }
+func F() int { b() }
+-- 07189.ergo --
+func F() int { try choose(func() int { 1 }, func() int { a(1) }) }
+-- 07190.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func F() int { try choose(func() int { 1 }, func() int { a(1) }) }
+-- 07191.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func F() int { try choose(func() int { 1 }, func() int { a(1) }) }
+-- 07192.ergo --
+func Id[T](x T) T { x }
+func F() int { try choose(func() int { 1 }, func() int { a(1) }) }
+-- 07193.ergo --
+func F() int { try choose(func() int { 1 }) { a(1) } }
+-- 07194.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func F() int { try choose(func() int { 1 }) { a(1) } }
+-- 07195.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func F() int { try choose(func() int { 1 }) { a(1) } }
+-- 07196.ergo --
+func Id[T](x T) T { x }
+func F() int { try choose(func() int { 1 }) { a(1) } }
+-- 07197.ergo --
+func F() int { choose(func() int { 1 }, func() int { a(1) }) catch { case Bang: 2 } }
+-- 07198.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func F() int { choose(func() int { 1 }, func() int { a(1) }) catch { case Bang: 2 } }
+-- 07199.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func F() int { choose(func() int { 1 }, func() int { a(1) }) catch { case Bang: 2 } }
+-- 07200.ergo --
+func Id[T](x T) T { x }
+func F() int { choose(func() int { 1 }, func() int { a(1) }) catch { case Bang: 2 } }
+-- 07201.ergo --
+func F() int fails Bang { try choose(func() int { a(1) }, func() int { 1 }) }
+-- 07202.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func F() int fails Bang { try choose(func() int { a(1) }, func() int { 1 }) }
+-- 07203.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func F() int fails Bang { try choose(func() int { a(1) }, func() int { 1 }) }
+-- 07204.ergo --
+func Id[T](x T) T { x }
+func F() int fails Bang { try choose(func() int { a(1) }, func() int { 1 }) }
+-- 07205.ergo --
+func F() int { try keep(func() int { keep(func() int { a(1) }) }) }
+-- 07206.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func F() int { try keep(func() int { keep(func() int { a(1) }) }) }
+-- 07207.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func F() int { try keep(func() int { keep(func() int { a(1) }) }) }
+-- 07208.ergo --
+func Id[T](x T) T { x }
+func F() int { try keep(func() int { keep(func() int { a(1) }) }) }
+-- 07209.ergo --
+func F() int { try keep(Id(func() int { a(1) })) }
+-- 07210.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func F() int { try keep(Id(func() int { a(1) })) }
+-- 07211.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func F() int { try keep(Id(func() int { a(1) })) }
+-- 07212.ergo --
+func Id[T](x T) T { x }
+func F() int { try keep(Id(func() int { a(1) })) }
+-- 07213.ergo --
+type Box { Fn func() int }
+-- 07214.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+type Box { Fn func() int }
+-- 07215.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+type Box { Fn func() int }
+-- 07216.ergo --
+func Id[T](x T) T { x }
+type Box { Fn func() int }
+-- 07217.ergo --
+func F() int { try (Box{Fn: func() int { a(1) }}).Fn() }
+-- 07218.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func F() int { try (Box{Fn: func() int { a(1) }}).Fn() }
+-- 07219.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func F() int { try (Box{Fn: func() int { a(1) }}).Fn() }
+-- 07220.ergo --
+func Id[T](x T) T { x }
+func F() int { try (Box{Fn: func() int { a(1) }}).Fn() }
+-- 07221.ergo --
+func F() int { try ([]func() int{func() int { a(1) }})[0]() }
+-- 07222.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func F() int { try ([]func() int{func() int { a(1) }})[0]() }
+-- 07223.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func F() int { try ([]func() int{func() int { a(1) }})[0]() }
+-- 07224.ergo --
+func Id[T](x T) T { x }
+func F() int { try ([]func() int{func() int { a(1) }})[0]() }
+-- 07225.ergo --
+func mk() func() int { func() int { a(1) } }
+-- 07226.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func mk() func() int { func() int { a(1) } }
+-- 07227.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func mk() func() int { func() int { a(1) } }
+-- 07228.ergo --
+func Id[T](x T) T { x }
+func mk() func() int { func() int { a(1) } }
+-- 07229.ergo --
+func F() int { try mk()() }
+-- 07230.ergo --
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func F() int { try mk()() }
+-- 07231.ergo --
+func choose[E1, E2](cb func() int fails E1, ignored func() int fails E2) int fails E1 { _ = ignored; try cb() }
+func F() int { try mk()() }
+-- 07232.ergo --
+func Id[T](x T) T { x }
+func F() int { try mk()() }
+-- 07233.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+-- 07234.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+-- 07235.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+-- 07236.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+-- 07237.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+-- 07238.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+-- 07239.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+-- 07240.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+-- 07241.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+-- 07242.ergo --
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+-- 07243.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+-- 07244.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+-- 07245.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+-- 07246.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+-- 07247.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+-- 07248.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+-- 07249.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+-- 07250.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+-- 07251.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+-- 07252.ergo --
+func G() int { walk() }
+-- 07253.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func G() int { walk() }
+-- 07254.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func G() int { walk() }
+-- 07255.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func G() int { walk() }
+-- 07256.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func G() int { walk() }
+-- 07257.ergo --
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+-- 07258.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+-- 07259.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+-- 07260.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+-- 07261.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+-- 07262.ergo --
+func walk() int fails Bang {
+-- 07263.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func walk() int fails Bang {
+-- 07264.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func walk() int fails Bang {
+-- 07265.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func walk() int fails Bang {
+-- 07266.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func walk() int fails Bang {
+-- 07267.ergo --
+func walk() int fails Bang needs Cap {
+-- 07268.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func walk() int fails Bang needs Cap {
+-- 07269.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func walk() int fails Bang needs Cap {
+-- 07270.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func walk() int fails Bang needs Cap {
+-- 07271.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func walk() int fails Bang needs Cap {
+-- 07272.ergo --
+func F() int {
+-- 07273.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func F() int {
+-- 07274.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func F() int {
+-- 07275.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func F() int {
+-- 07276.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func F() int {
+-- 07277.ergo --
+func F() int needs Cap {
+-- 07278.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func F() int needs Cap {
+-- 07279.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func F() int needs Cap {
+-- 07280.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func F() int needs Cap {
+-- 07281.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func F() int needs Cap {
+-- 07282.ergo --
+func G() int {
+-- 07283.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func G() int {
+-- 07284.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func G() int {
+-- 07285.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func G() int {
+-- 07286.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func G() int {
+-- 07287.ergo --
+func G() int needs Cap {
+-- 07288.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func G() int needs Cap {
+-- 07289.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func G() int needs Cap {
+-- 07290.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func G() int needs Cap {
+-- 07291.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func G() int needs Cap {
+-- 07292.ergo --
+func H() int fails Bang {
+-- 07293.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func H() int fails Bang {
+-- 07294.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func H() int fails Bang {
+-- 07295.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func H() int fails Bang {
+-- 07296.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func H() int fails Bang {
+-- 07297.ergo --
+func H() int fails Bang needs Cap {
+-- 07298.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func H() int fails Bang needs Cap {
+-- 07299.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func H() int fails Bang needs Cap {
+-- 07300.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func H() int fails Bang needs Cap {
+-- 07301.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func H() int fails Bang needs Cap {
+-- 07302.ergo --
+type Cap { M() }
+func walk() { let m = Map[int, func()]{1: walk}; _ = m; Cap.M() }
+func F() { try walk() }
+-- 07303.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+type Cap { M() }
+func walk() { let m = Map[int, func()]{1: walk}; _ = m; Cap.M() }
+func F() { try walk() }
+-- 07304.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+type Cap { M() }
+func walk() { let m = Map[int, func()]{1: walk}; _ = m; Cap.M() }
+func F() { try walk() }
+-- 07305.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+type Cap { M() }
+func walk() { let m = Map[int, func()]{1: walk}; _ = m; Cap.M() }
+func F() { try walk() }
+-- 07306.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+type Cap { M() }
+func walk() { let m = Map[int, func()]{1: walk}; _ = m; Cap.M() }
+func F() { try walk() }
+-- 07307.ergo --
+type Cap { M() }
+type Bang {}
+func mark() fails Bang { return Bang }
+-- 07308.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+type Cap { M() }
+type Bang {}
+func mark() fails Bang { return Bang }
+-- 07309.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+type Cap { M() }
+type Bang {}
+func mark() fails Bang { return Bang }
+-- 07310.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+type Cap { M() }
+type Bang {}
+func mark() fails Bang { return Bang }
+-- 07311.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+type Cap { M() }
+type Bang {}
+func mark() fails Bang { return Bang }
+-- 07312.ergo --
+func w() needs Cap { let m = Map[int, func() needs Cap]{1: w}; _ = m; Cap.M(); try mark() }
+-- 07313.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func w() needs Cap { let m = Map[int, func() needs Cap]{1: w}; _ = m; Cap.M(); try mark() }
+-- 07314.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func w() needs Cap { let m = Map[int, func() needs Cap]{1: w}; _ = m; Cap.M(); try mark() }
+-- 07315.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func w() needs Cap { let m = Map[int, func() needs Cap]{1: w}; _ = m; Cap.M(); try mark() }
+-- 07316.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func w() needs Cap { let m = Map[int, func() needs Cap]{1: w}; _ = m; Cap.M(); try mark() }
+-- 07317.ergo --
+func G() { w() }
+-- 07318.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func G() { w() }
+-- 07319.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func G() { w() }
+-- 07320.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func G() { w() }
+-- 07321.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func G() { w() }
+-- 07322.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+type Bang {}
+func mark() fails Bang { return Bang }
+-- 07323.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+type Bang {}
+func mark() fails Bang { return Bang }
+-- 07324.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+type Bang {}
+func mark() fails Bang { return Bang }
+-- 07325.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+type Bang {}
+func mark() fails Bang { return Bang }
+-- 07326.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+-- 07327.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+-- 07328.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+-- 07329.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+-- 07330.ergo --
+type Q {}
+type Cap2 { N() }
+-- 07331.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+-- 07332.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+type Q {}
+type Cap2 { N() }
+-- 07333.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+type Q {}
+type Cap2 { N() }
+-- 07334.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+type Q {}
+type Cap2 { N() }
+-- 07335.ergo --
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+-- 07336.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+-- 07337.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+-- 07338.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+-- 07339.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+-- 07340.ergo --
+func mq() fails Q { return Q }
+-- 07341.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func mq() fails Q { return Q }
+-- 07342.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func mq() fails Q { return Q }
+-- 07343.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func mq() fails Q { return Q }
+-- 07344.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func mq() fails Q { return Q }
+-- 07345.ergo --
+func q(n int) int fails Q { try mq(); n }
+-- 07346.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func q(n int) int fails Q { try mq(); n }
+-- 07347.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func q(n int) int fails Q { try mq(); n }
+-- 07348.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func q(n int) int fails Q { try mq(); n }
+-- 07349.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func q(n int) int fails Q { try mq(); n }
+-- 07350.ergo --
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+-- 07351.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+-- 07352.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+-- 07353.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+-- 07354.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+-- 07355.ergo --
+func pick[T](x T, y T) T { x }
+-- 07356.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func pick[T](x T, y T) T { x }
+-- 07357.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func pick[T](x T, y T) T { x }
+-- 07358.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func pick[T](x T, y T) T { x }
+-- 07359.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func pick[T](x T, y T) T { x }
+-- 07360.ergo --
+func F(c bool) int { (if c { %X } else { %Y })(1) }
+-- 07361.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func F(c bool) int { (if c { %X } else { %Y })(1) }
+-- 07362.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func F(c bool) int { (if c { %X } else { %Y })(1) }
+-- 07363.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func F(c bool) int { (if c { %X } else { %Y })(1) }
+-- 07364.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func F(c bool) int { (if c { %X } else { %Y })(1) }
+-- 07365.ergo --
+func F() int { let mut g = %X; g = %Y; g(1) }
+-- 07366.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func F() int { let mut g = %X; g = %Y; g(1) }
+-- 07367.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func F() int { let mut g = %X; g = %Y; g(1) }
+-- 07368.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func F() int { let mut g = %X; g = %Y; g(1) }
+-- 07369.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func F() int { let mut g = %X; g = %Y; g(1) }
+-- 07370.ergo --
+func F() int { pick(%X, %Y)(1) }
+-- 07371.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func F() int { pick(%X, %Y)(1) }
+-- 07372.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func F() int { pick(%X, %Y)(1) }
+-- 07373.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func F() int { pick(%X, %Y)(1) }
+-- 07374.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func F() int { pick(%X, %Y)(1) }
+-- 07375.ergo --
+func F() int { let mut g = %X; g = func(n int) int { %TRY%Y(n) }; g(1) }
+-- 07376.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func F() int { let mut g = %X; g = func(n int) int { %TRY%Y(n) }; g(1) }
+-- 07377.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func F() int { let mut g = %X; g = func(n int) int { %TRY%Y(n) }; g(1) }
+-- 07378.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func F() int { let mut g = %X; g = func(n int) int { %TRY%Y(n) }; g(1) }
+-- 07379.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func F() int { let mut g = %X; g = func(n int) int { %TRY%Y(n) }; g(1) }
+-- 07380.ergo --
+func F(c bool) int { (if c { a } else { q })(1) }
+-- 07381.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func F(c bool) int { (if c { a } else { q })(1) }
+-- 07382.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func F(c bool) int { (if c { a } else { q })(1) }
+-- 07383.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func F(c bool) int { (if c { a } else { q })(1) }
+-- 07384.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func F(c bool) int { (if c { a } else { q })(1) }
+-- 07385.ergo --
+func F(c bool) int fails Bang { try (if c { a } else { q })(1) }
+-- 07386.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func F(c bool) int fails Bang { try (if c { a } else { q })(1) }
+-- 07387.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func F(c bool) int fails Bang { try (if c { a } else { q })(1) }
+-- 07388.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func F(c bool) int fails Bang { try (if c { a } else { q })(1) }
+-- 07389.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func F(c bool) int fails Bang { try (if c { a } else { q })(1) }
+-- 07390.ergo --
+func F() int { let mut g = a; g = func(n int) int { try q(n) }; g(1) }
+-- 07391.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func F() int { let mut g = a; g = func(n int) int { try q(n) }; g(1) }
+-- 07392.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func F() int { let mut g = a; g = func(n int) int { try q(n) }; g(1) }
+-- 07393.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func F() int { let mut g = a; g = func(n int) int { try q(n) }; g(1) }
+-- 07394.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func F() int { let mut g = a; g = func(n int) int { try q(n) }; g(1) }
+-- 07395.ergo --
+func H() int fails Q { try pick(a, q)(1) }
+-- 07396.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func H() int fails Q { try pick(a, q)(1) }
+-- 07397.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func H() int fails Q { try pick(a, q)(1) }
+-- 07398.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func H() int fails Q { try pick(a, q)(1) }
+-- 07399.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func H() int fails Q { try pick(a, q)(1) }
+-- 07400.ergo --
+func K() int fails Q { try pick(q, a)(1) }
+-- 07401.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func K() int fails Q { try pick(q, a)(1) }
+-- 07402.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func K() int fails Q { try pick(q, a)(1) }
+-- 07403.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func K() int fails Q { try pick(q, a)(1) }
+-- 07404.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func K() int fails Q { try pick(q, a)(1) }
+-- 07405.ergo --
+func F() int { pick(a, func(n int) int { try q(n) })(1) }
+-- 07406.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func F() int { pick(a, func(n int) int { try q(n) })(1) }
+-- 07407.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func F() int { pick(a, func(n int) int { try q(n) })(1) }
+-- 07408.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func F() int { pick(a, func(n int) int { try q(n) })(1) }
+-- 07409.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func F() int { pick(a, func(n int) int { try q(n) })(1) }
+-- 07410.ergo --
+func F() int fails Q { try pick(w, func(n int) int { try qc(n) })(1) }
+-- 07411.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func F() int fails Q { try pick(w, func(n int) int { try qc(n) })(1) }
+-- 07412.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func F() int fails Q { try pick(w, func(n int) int { try qc(n) })(1) }
+-- 07413.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func F() int fails Q { try pick(w, func(n int) int { try qc(n) })(1) }
+-- 07414.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func F() int fails Q { try pick(w, func(n int) int { try qc(n) })(1) }
+-- 07415.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+-- 07416.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+-- 07417.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+-- 07418.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+-- 07419.ergo --
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+-- 07420.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+-- 07421.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+-- 07422.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+-- 07423.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+-- 07424.ergo --
+func run[T](x T, f T) T { x }
+-- 07425.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func run[T](x T, f T) T { x }
+-- 07426.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func run[T](x T, f T) T { x }
+-- 07427.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func run[T](x T, f T) T { x }
+-- 07428.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func run[T](x T, f T) T { x }
+-- 07429.ergo --
+func mk[T](f T) func() T { func() T { f } }
+-- 07430.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func mk[T](f T) func() T { func() T { f } }
+-- 07431.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func mk[T](f T) func() T { func() T { f } }
+-- 07432.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+-- 07433.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func mk[T](f T) func() T { func() T { f } }
+-- 07434.ergo --
+func F() int { let g = run(z) { try mq(); 1 }; g() }
+-- 07435.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func F() int { let g = run(z) { try mq(); 1 }; g() }
+-- 07436.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func F() int { let g = run(z) { try mq(); 1 }; g() }
+-- 07437.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func F() int { let g = run(z) { try mq(); 1 }; g() }
+-- 07438.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func F() int { let g = run(z) { try mq(); 1 }; g() }
+-- 07439.ergo --
+func F() int fails Q { let g = run(zw) { Cap2.N(); try mq(); 1 }; try g() }
+-- 07440.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func F() int fails Q { let g = run(zw) { Cap2.N(); try mq(); 1 }; try g() }
+-- 07441.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func F() int fails Q { let g = run(zw) { Cap2.N(); try mq(); 1 }; try g() }
+-- 07442.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func F() int fails Q { let g = run(zw) { Cap2.N(); try mq(); 1 }; try g() }
+-- 07443.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func F() int fails Q { let g = run(zw) { Cap2.N(); try mq(); 1 }; try g() }
+-- 07444.ergo --
+func q0() int fails Q { try mq(); 1 }
+func F(c bool) int { (if c { mk(z) } else { mk(q0) })()() }
+-- 07445.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func q0() int fails Q { try mq(); 1 }
+func F(c bool) int { (if c { mk(z) } else { mk(q0) })()() }
+-- 07446.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func q0() int fails Q { try mq(); 1 }
+func F(c bool) int { (if c { mk(z) } else { mk(q0) })()() }
+-- 07447.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func q0() int fails Q { try mq(); 1 }
+func F(c bool) int { (if c { mk(z) } else { mk(q0) })()() }
+-- 07448.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func q0() int fails Q { try mq(); 1 }
+func F(c bool) int { (if c { mk(z) } else { mk(q0) })()() }
+-- 07449.ergo --
+func q0() int fails Q { try mq(); 1 }
+func F(c bool) int { (if c { mk(q0) } else { mk(z) })()() }
+-- 07450.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func q0() int fails Q { try mq(); 1 }
+func F(c bool) int { (if c { mk(q0) } else { mk(z) })()() }
+-- 07451.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func q0() int fails Q { try mq(); 1 }
+func F(c bool) int { (if c { mk(q0) } else { mk(z) })()() }
+-- 07452.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func q0() int fails Q { try mq(); 1 }
+func F(c bool) int { (if c { mk(q0) } else { mk(z) })()() }
+-- 07453.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func q0() int fails Q { try mq(); 1 }
+func F(c bool) int { (if c { mk(q0) } else { mk(z) })()() }
+-- 07454.ergo --
+func w0() int needs Cap2 { Cap2.N(); 1 }
+func F(c bool) int { let g = if c { mk(z) } else { mk(w0) }; 1 }
+-- 07455.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func w0() int needs Cap2 { Cap2.N(); 1 }
+func F(c bool) int { let g = if c { mk(z) } else { mk(w0) }; 1 }
+-- 07456.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func w0() int needs Cap2 { Cap2.N(); 1 }
+func F(c bool) int { let g = if c { mk(z) } else { mk(w0) }; 1 }
+-- 07457.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func w0() int needs Cap2 { Cap2.N(); 1 }
+func F(c bool) int { let g = if c { mk(z) } else { mk(w0) }; 1 }
+-- 07458.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func w0() int needs Cap2 { Cap2.N(); 1 }
+func F(c bool) int { let g = if c { mk(z) } else { mk(w0) }; 1 }
+-- 07459.ergo --
+func q0() int fails Q { try mq(); 1 }
+func b0() int fails Bang { try mark(); 1 }
+func F(c bool) int { let h = run(z, q0); let g = if c { mk(h) } else { mk(b0) }; 1 }
+-- 07460.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func q0() int fails Q { try mq(); 1 }
+func b0() int fails Bang { try mark(); 1 }
+func F(c bool) int { let h = run(z, q0); let g = if c { mk(h) } else { mk(b0) }; 1 }
+-- 07461.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func q0() int fails Q { try mq(); 1 }
+func b0() int fails Bang { try mark(); 1 }
+func F(c bool) int { let h = run(z, q0); let g = if c { mk(h) } else { mk(b0) }; 1 }
+-- 07462.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func q0() int fails Q { try mq(); 1 }
+func b0() int fails Bang { try mark(); 1 }
+func F(c bool) int { let h = run(z, q0); let g = if c { mk(h) } else { mk(b0) }; 1 }
+-- 07463.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func q0() int fails Q { try mq(); 1 }
+func b0() int fails Bang { try mark(); 1 }
+func F(c bool) int { let h = run(z, q0); let g = if c { mk(h) } else { mk(b0) }; 1 }
+-- 07464.ergo --
+func q0() int fails Q { try mq(); 1 }
+func b0() int fails Bang { try mark(); 1 }
+func F(c bool) int { let h = run(z, q0); let g = if c { mk(b0) } else { mk(h) }; 1 }
+-- 07465.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func q0() int fails Q { try mq(); 1 }
+func b0() int fails Bang { try mark(); 1 }
+func F(c bool) int { let h = run(z, q0); let g = if c { mk(b0) } else { mk(h) }; 1 }
+-- 07466.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func q0() int fails Q { try mq(); 1 }
+func b0() int fails Bang { try mark(); 1 }
+func F(c bool) int { let h = run(z, q0); let g = if c { mk(b0) } else { mk(h) }; 1 }
+-- 07467.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func q0() int fails Q { try mq(); 1 }
+func b0() int fails Bang { try mark(); 1 }
+func F(c bool) int { let h = run(z, q0); let g = if c { mk(b0) } else { mk(h) }; 1 }
+-- 07468.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func q0() int fails Q { try mq(); 1 }
+func b0() int fails Bang { try mark(); 1 }
+func F(c bool) int { let h = run(z, q0); let g = if c { mk(b0) } else { mk(h) }; 1 }
+-- 07469.ergo --
+func ap[T](x T) func(f T) T { func(f T) T { f } }
+func F() int { _ = ap(z)() { try mq(); 1 }; 1 }
+-- 07470.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func ap[T](x T) func(f T) T { func(f T) T { f } }
+func F() int { _ = ap(z)() { try mq(); 1 }; 1 }
+-- 07471.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func ap[T](x T) func(f T) T { func(f T) T { f } }
+func F() int { _ = ap(z)() { try mq(); 1 }; 1 }
+-- 07472.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func ap[T](x T) func(f T) T { func(f T) T { f } }
+func F() int { _ = ap(z)() { try mq(); 1 }; 1 }
+-- 07473.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func ap[T](x T) func(f T) T { func(f T) T { f } }
+func F() int { _ = ap(z)() { try mq(); 1 }; 1 }
+-- 07474.ergo --
+func ap[T](x T) func(f T) T { func(f T) T { f } }
+func F() int { _ = ap(zw)() { Cap2.N(); try mq(); 1 }; 1 }
+-- 07475.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func ap[T](x T) func(f T) T { func(f T) T { f } }
+func F() int { _ = ap(zw)() { Cap2.N(); try mq(); 1 }; 1 }
+-- 07476.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func ap[T](x T) func(f T) T { func(f T) T { f } }
+func F() int { _ = ap(zw)() { Cap2.N(); try mq(); 1 }; 1 }
+-- 07477.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func ap[T](x T) func(f T) T { func(f T) T { f } }
+func F() int { _ = ap(zw)() { Cap2.N(); try mq(); 1 }; 1 }
+-- 07478.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func ap[T](x T) func(f T) T { func(f T) T { f } }
+func F() int { _ = ap(zw)() { Cap2.N(); try mq(); 1 }; 1 }
+-- 07479.ergo --
+func ap[T](x T) func(f T) T { func(f T) T { f } }
+func F() int { _ = ap(z)(func() int { try mq(); 1 }); 1 }
+-- 07480.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func ap[T](x T) func(f T) T { func(f T) T { f } }
+func F() int { _ = ap(z)(func() int { try mq(); 1 }); 1 }
+-- 07481.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func ap[T](x T) func(f T) T { func(f T) T { f } }
+func F() int { _ = ap(z)(func() int { try mq(); 1 }); 1 }
+-- 07482.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func ap[T](x T) func(f T) T { func(f T) T { f } }
+func F() int { _ = ap(z)(func() int { try mq(); 1 }); 1 }
+-- 07483.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func ap[T](x T) func(f T) T { func(f T) T { f } }
+func F() int { _ = ap(z)(func() int { try mq(); 1 }); 1 }
+-- 07484.ergo --
+func ap[T](x T) func(f T) T { func(f T) T { f } }
+func F() int { _ = ap(zw)(func() int fails Q { Cap2.N(); try mq(); 1 }); 1 }
+-- 07485.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func ap[T](x T) func(f T) T { func(f T) T { f } }
+func F() int { _ = ap(zw)(func() int fails Q { Cap2.N(); try mq(); 1 }); 1 }
+-- 07486.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func ap[T](x T) func(f T) T { func(f T) T { f } }
+func F() int { _ = ap(zw)(func() int fails Q { Cap2.N(); try mq(); 1 }); 1 }
+-- 07487.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func ap[T](x T) func(f T) T { func(f T) T { f } }
+func F() int { _ = ap(zw)(func() int fails Q { Cap2.N(); try mq(); 1 }); 1 }
+-- 07488.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func ap[T](x T) func(f T) T { func(f T) T { f } }
+func F() int { _ = ap(zw)(func() int fails Q { Cap2.N(); try mq(); 1 }); 1 }
+-- 07489.ergo --
+type y{}
+func t(){y{{t} }}
+-- 07490.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+type y{}
+func t(){y{{t} }}
+-- 07491.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+type y{}
+func t(){y{{t} }}
+-- 07492.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+type y{}
+func t(){y{{t} }}
+-- 07493.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+type y{}
+func t(){y{{t} }}
+-- 07494.ergo --
+type y{a int}
+func t() { _ = y{a: 1, b: {t}} }
+-- 07495.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+type y{a int}
+func t() { _ = y{a: 1, b: {t}} }
+-- 07496.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+type y{a int}
+func t() { _ = y{a: 1, b: {t}} }
+-- 07497.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+type y{a int}
+func t() { _ = y{a: 1, b: {t}} }
+-- 07498.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+type y{a int}
+func t() { _ = y{a: 1, b: {t}} }
+-- 07499.ergo --
+type y{a int}
+func t() { _ = y{a: 1, 1: {t}} }

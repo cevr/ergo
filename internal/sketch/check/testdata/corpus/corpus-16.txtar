@@ -1,0 +1,5243 @@
+-- 08000.ergo --
+func f(string int) int { string + 1 }
+-- 08001.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(string int) int { string + 1 }
+-- 08002.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(string int) int { string + 1 }
+-- 08003.ergo --
+type R { N int }
+func use(n int) {}
+func f(string int) int { string + 1 }
+-- 08004.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(string int) int { string + 1 }
+-- 08005.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(string int) int { string + 1 }
+-- 08006.ergo --
+func f(Sleep int) int { Sleep + 1 }
+-- 08007.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(Sleep int) int { Sleep + 1 }
+-- 08008.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(Sleep int) int { Sleep + 1 }
+-- 08009.ergo --
+type R { N int }
+func use(n int) {}
+func f(Sleep int) int { Sleep + 1 }
+-- 08010.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(Sleep int) int { Sleep + 1 }
+-- 08011.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(Sleep int) int { Sleep + 1 }
+-- 08012.ergo --
+func f(len int) int { len + 1 }
+-- 08013.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(len int) int { len + 1 }
+-- 08014.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(len int) int { len + 1 }
+-- 08015.ergo --
+type R { N int }
+func use(n int) {}
+func f(len int) int { len + 1 }
+-- 08016.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(len int) int { len + 1 }
+-- 08017.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(len int) int { len + 1 }
+-- 08018.ergo --
+func run(f func(int) int) int { f(1) }
+func f() int { run(func(Task int) int { Task }) }
+-- 08019.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int) int) int { f(1) }
+func f() int { run(func(Task int) int { Task }) }
+-- 08020.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func run(f func(int) int) int { f(1) }
+func f() int { run(func(Task int) int { Task }) }
+-- 08021.ergo --
+type R { N int }
+func use(n int) {}
+func run(f func(int) int) int { f(1) }
+func f() int { run(func(Task int) int { Task }) }
+-- 08022.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func run(f func(int) int) int { f(1) }
+func f() int { run(func(Task int) int { Task }) }
+-- 08023.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func run(f func(int) int) int { f(1) }
+func f() int { run(func(Task int) int { Task }) }
+-- 08024.ergo --
+func f() int {
+	let Map = 1
+	Map + 1
+}
+-- 08025.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int {
+	let Map = 1
+	Map + 1
+}
+-- 08026.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int {
+	let Map = 1
+	Map + 1
+}
+-- 08027.ergo --
+type R { N int }
+func use(n int) {}
+func f() int {
+	let Map = 1
+	Map + 1
+}
+-- 08028.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int {
+	let Map = 1
+	Map + 1
+}
+-- 08029.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int {
+	let Map = 1
+	Map + 1
+}
+-- 08030.ergo --
+func f() int {
+	let ordered = 1
+	ordered
+}
+-- 08031.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int {
+	let ordered = 1
+	ordered
+}
+-- 08032.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int {
+	let ordered = 1
+	ordered
+}
+-- 08033.ergo --
+type R { N int }
+func use(n int) {}
+func f() int {
+	let ordered = 1
+	ordered
+}
+-- 08034.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int {
+	let ordered = 1
+	ordered
+}
+-- 08035.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int {
+	let ordered = 1
+	ordered
+}
+-- 08036.ergo --
+func f() int {
+	let Sleep = 1
+	Sleep
+}
+-- 08037.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int {
+	let Sleep = 1
+	Sleep
+}
+-- 08038.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int {
+	let Sleep = 1
+	Sleep
+}
+-- 08039.ergo --
+type R { N int }
+func use(n int) {}
+func f() int {
+	let Sleep = 1
+	Sleep
+}
+-- 08040.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int {
+	let Sleep = 1
+	Sleep
+}
+-- 08041.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int {
+	let Sleep = 1
+	Sleep
+}
+-- 08042.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+	case E as Decision:
+		Decision.N
+	}
+}
+-- 08043.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+type E { N int }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+	case E as Decision:
+		Decision.N
+	}
+}
+-- 08044.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+type E { N int }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+	case E as Decision:
+		Decision.N
+	}
+}
+-- 08045.ergo --
+type R { N int }
+func use(n int) {}
+type E { N int }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+	case E as Decision:
+		Decision.N
+	}
+}
+-- 08046.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+type E { N int }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+	case E as Decision:
+		Decision.N
+	}
+}
+-- 08047.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+type E { N int }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+	case E as Decision:
+		Decision.N
+	}
+}
+-- 08048.ergo --
+func f(xs []int) int {
+	let mut s = 0
+	for number in xs {
+		s += number
+	}
+	s
+}
+-- 08049.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(xs []int) int {
+	let mut s = 0
+	for number in xs {
+		s += number
+	}
+	s
+}
+-- 08050.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(xs []int) int {
+	let mut s = 0
+	for number in xs {
+		s += number
+	}
+	s
+}
+-- 08051.ergo --
+type R { N int }
+func use(n int) {}
+func f(xs []int) int {
+	let mut s = 0
+	for number in xs {
+		s += number
+	}
+	s
+}
+-- 08052.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(xs []int) int {
+	let mut s = 0
+	for number in xs {
+		s += number
+	}
+	s
+}
+-- 08053.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(xs []int) int {
+	let mut s = 0
+	for number in xs {
+		s += number
+	}
+	s
+}
+-- 08054.ergo --
+type Maybe { Value int }
+func f(xs []int, m Maybe) int {
+	let length = len(xs)
+	length + m.Value
+}
+-- 08055.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+type Maybe { Value int }
+func f(xs []int, m Maybe) int {
+	let length = len(xs)
+	length + m.Value
+}
+-- 08056.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+type Maybe { Value int }
+func f(xs []int, m Maybe) int {
+	let length = len(xs)
+	length + m.Value
+}
+-- 08057.ergo --
+type R { N int }
+func use(n int) {}
+type Maybe { Value int }
+func f(xs []int, m Maybe) int {
+	let length = len(xs)
+	length + m.Value
+}
+-- 08058.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+type Maybe { Value int }
+func f(xs []int, m Maybe) int {
+	let length = len(xs)
+	length + m.Value
+}
+-- 08059.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+type Maybe { Value int }
+func f(xs []int, m Maybe) int {
+	let length = len(xs)
+	length + m.Value
+}
+-- 08060.ergo --
+type E { N int }
+type F {}
+-- 08061.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+type E { N int }
+type F {}
+-- 08062.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+type E { N int }
+type F {}
+-- 08063.ergo --
+type R { N int }
+func use(n int) {}
+type E { N int }
+type F {}
+-- 08064.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+type E { N int }
+type F {}
+-- 08065.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+type E { N int }
+type F {}
+-- 08066.ergo --
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+-- 08067.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+-- 08068.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+-- 08069.ergo --
+type R { N int }
+func use(n int) {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+-- 08070.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+-- 08071.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+-- 08072.ergo --
+func f() { g() catch { case a as e: use(a) } }
+-- 08073.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() { g() catch { case a as e: use(a) } }
+-- 08074.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() { g() catch { case a as e: use(a) } }
+-- 08075.ergo --
+type R { N int }
+func use(n int) {}
+func f() { g() catch { case a as e: use(a) } }
+-- 08076.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() { g() catch { case a as e: use(a) } }
+-- 08077.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() { g() catch { case a as e: use(a) } }
+-- 08078.ergo --
+func f() int { gf() catch { case E{N: e}, a as e: e + "x" } }
+-- 08079.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int { gf() catch { case E{N: e}, a as e: e + "x" } }
+-- 08080.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int { gf() catch { case E{N: e}, a as e: e + "x" } }
+-- 08081.ergo --
+type R { N int }
+func use(n int) {}
+func f() int { gf() catch { case E{N: e}, a as e: e + "x" } }
+-- 08082.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int { gf() catch { case E{N: e}, a as e: e + "x" } }
+-- 08083.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int { gf() catch { case E{N: e}, a as e: e + "x" } }
+-- 08084.ergo --
+func f() int { gf() catch { case a as e, E{N: e}: e + "x" } }
+-- 08085.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int { gf() catch { case a as e, E{N: e}: e + "x" } }
+-- 08086.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int { gf() catch { case a as e, E{N: e}: e + "x" } }
+-- 08087.ergo --
+type R { N int }
+func use(n int) {}
+func f() int { gf() catch { case a as e, E{N: e}: e + "x" } }
+-- 08088.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int { gf() catch { case a as e, E{N: e}: e + "x" } }
+-- 08089.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int { gf() catch { case a as e, E{N: e}: e + "x" } }
+-- 08090.ergo --
+let K = 1
+type T {}
+func h() {}
+-- 08091.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+-- 08092.ergo --
+func f(xs []int64) int64 {
+	let mut n int64 = 0
+	for x in xs {
+		n += x
+	}
+	n
+}
+-- 08093.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(xs []int64) int64 {
+	let mut n int64 = 0
+	for x in xs {
+		n += x
+	}
+	n
+}
+-- 08094.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(xs []int64) int64 {
+	let mut n int64 = 0
+	for x in xs {
+		n += x
+	}
+	n
+}
+-- 08095.ergo --
+func f(xs []int64) int64 {
+	let mut n int64 = 0
+	for i, x in xs {
+		n += int64(i) * x
+	}
+	n
+}
+-- 08096.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(xs []int64) int64 {
+	let mut n int64 = 0
+	for i, x in xs {
+		n += int64(i) * x
+	}
+	n
+}
+-- 08097.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(xs []int64) int64 {
+	let mut n int64 = 0
+	for i, x in xs {
+		n += int64(i) * x
+	}
+	n
+}
+-- 08098.ergo --
+func f(m Map[string, int]) int {
+	let mut n = 0
+	for v in m {
+		n += v
+	}
+	n
+}
+-- 08099.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(m Map[string, int]) int {
+	let mut n = 0
+	for v in m {
+		n += v
+	}
+	n
+}
+-- 08100.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(m Map[string, int]) int {
+	let mut n = 0
+	for v in m {
+		n += v
+	}
+	n
+}
+-- 08101.ergo --
+func f(m Map[string, int]) int {
+	let mut n = 0
+	for k, v in m {
+		n += len(k) + v
+	}
+	n
+}
+-- 08102.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(m Map[string, int]) int {
+	let mut n = 0
+	for k, v in m {
+		n += len(k) + v
+	}
+	n
+}
+-- 08103.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(m Map[string, int]) int {
+	let mut n = 0
+	for k, v in m {
+		n += len(k) + v
+	}
+	n
+}
+-- 08104.ergo --
+func f(m Map[string, int]) string {
+	let mut s = ""
+	for k in m {
+		s = s + k
+	}
+	s
+}
+-- 08105.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(m Map[string, int]) string {
+	let mut s = ""
+	for k in m {
+		s = s + k
+	}
+	s
+}
+-- 08106.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(m Map[string, int]) string {
+	let mut s = ""
+	for k in m {
+		s = s + k
+	}
+	s
+}
+-- 08107.ergo --
+func f(n int) int {
+	let mut t = 0
+	for i in 0..n {
+		t += i
+	}
+	t
+}
+-- 08108.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(n int) int {
+	let mut t = 0
+	for i in 0..n {
+		t += i
+	}
+	t
+}
+-- 08109.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(n int) int {
+	let mut t = 0
+	for i in 0..n {
+		t += i
+	}
+	t
+}
+-- 08110.ergo --
+func f() int64 {
+	let r Range[int64] = 0..3
+	let mut t int64 = 0
+	for i in r {
+		t += i
+	}
+	t
+}
+-- 08111.ergo --
+let K = 1
+type T {}
+func h() {}
+func f() int64 {
+	let r Range[int64] = 0..3
+	let mut t int64 = 0
+	for i in r {
+		t += i
+	}
+	t
+}
+-- 08112.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f() int64 {
+	let r Range[int64] = 0..3
+	let mut t int64 = 0
+	for i in r {
+		t += i
+	}
+	t
+}
+-- 08113.ergo --
+func f() int {
+	let mut t = 0
+	for i in (Range[int]{Start: 1, End: 4}) {
+		t += i
+	}
+	t
+}
+-- 08114.ergo --
+let K = 1
+type T {}
+func h() {}
+func f() int {
+	let mut t = 0
+	for i in (Range[int]{Start: 1, End: 4}) {
+		t += i
+	}
+	t
+}
+-- 08115.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f() int {
+	let mut t = 0
+	for i in (Range[int]{Start: 1, End: 4}) {
+		t += i
+	}
+	t
+}
+-- 08116.ergo --
+func count(n int) Seq[int] {
+	Seq[int](func(yield func(v int) bool) {
+		for i in 0..n {
+			if !yield(i) {
+				break
+			}
+		}
+	})
+}
+func f() int {
+	let mut t = 0
+	for v in count(3) {
+		t += v
+	}
+	t
+}
+-- 08117.ergo --
+let K = 1
+type T {}
+func h() {}
+func count(n int) Seq[int] {
+	Seq[int](func(yield func(v int) bool) {
+		for i in 0..n {
+			if !yield(i) {
+				break
+			}
+		}
+	})
+}
+func f() int {
+	let mut t = 0
+	for v in count(3) {
+		t += v
+	}
+	t
+}
+-- 08118.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func count(n int) Seq[int] {
+	Seq[int](func(yield func(v int) bool) {
+		for i in 0..n {
+			if !yield(i) {
+				break
+			}
+		}
+	})
+}
+func f() int {
+	let mut t = 0
+	for v in count(3) {
+		t += v
+	}
+	t
+}
+-- 08119.ergo --
+func g(y func(v int) bool) bool {
+	y(1)
+}
+-- 08120.ergo --
+let K = 1
+type T {}
+func h() {}
+func g(y func(v int) bool) bool {
+	y(1)
+}
+-- 08121.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func g(y func(v int) bool) bool {
+	y(1)
+}
+-- 08122.ergo --
+func g() {
+	let h = func(y func(v int) bool) {
+		_ = y(1)
+	}
+	h(func(v int) bool { v > 0 })
+}
+-- 08123.ergo --
+let K = 1
+type T {}
+func h() {}
+func g() {
+	let h = func(y func(v int) bool) {
+		_ = y(1)
+	}
+	h(func(v int) bool { v > 0 })
+}
+-- 08124.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func g() {
+	let h = func(y func(v int) bool) {
+		_ = y(1)
+	}
+	h(func(v int) bool { v > 0 })
+}
+-- 08125.ergo --
+func f() int {
+	let mut n = 1
+	for n < 10 {
+		n *= 2
+	}
+	for {
+		break
+	}
+	n
+}
+-- 08126.ergo --
+let K = 1
+type T {}
+func h() {}
+func f() int {
+	let mut n = 1
+	for n < 10 {
+		n *= 2
+	}
+	for {
+		break
+	}
+	n
+}
+-- 08127.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f() int {
+	let mut n = 1
+	for n < 10 {
+		n *= 2
+	}
+	for {
+		break
+	}
+	n
+}
+-- 08128.ergo --
+func f(ps [](int, int)) int {
+	let mut t = 0
+	for (a, b) in ps {
+		t += a * b
+	}
+	t
+}
+-- 08129.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(ps [](int, int)) int {
+	let mut t = 0
+	for (a, b) in ps {
+		t += a * b
+	}
+	t
+}
+-- 08130.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(ps [](int, int)) int {
+	let mut t = 0
+	for (a, b) in ps {
+		t += a * b
+	}
+	t
+}
+-- 08131.ergo --
+func f(xs []int) int {
+	let mut n = 0
+	for _ in xs {
+		n += 1
+	}
+	for i, _ in xs {
+		n += i
+	}
+	n
+}
+-- 08132.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(xs []int) int {
+	let mut n = 0
+	for _ in xs {
+		n += 1
+	}
+	for i, _ in xs {
+		n += i
+	}
+	n
+}
+-- 08133.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(xs []int) int {
+	let mut n = 0
+	for _ in xs {
+		n += 1
+	}
+	for i, _ in xs {
+		n += i
+	}
+	n
+}
+-- 08134.ergo --
+func f(s string) int {
+	let mut n = 0
+	for c in s {
+		n += c
+	}
+	n
+}
+-- 08135.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(s string) int {
+	let mut n = 0
+	for c in s {
+		n += c
+	}
+	n
+}
+-- 08136.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(s string) int {
+	let mut n = 0
+	for c in s {
+		n += c
+	}
+	n
+}
+-- 08137.ergo --
+func f() int {
+	let mut n = 0
+	for x in 5 {
+		n += x
+	}
+	n
+}
+-- 08138.ergo --
+let K = 1
+type T {}
+func h() {}
+func f() int {
+	let mut n = 0
+	for x in 5 {
+		n += x
+	}
+	n
+}
+-- 08139.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f() int {
+	let mut n = 0
+	for x in 5 {
+		n += x
+	}
+	n
+}
+-- 08140.ergo --
+func f(p *[]int) int {
+	let mut n = 0
+	for x in p {
+		n += x
+	}
+	n
+}
+-- 08141.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(p *[]int) int {
+	let mut n = 0
+	for x in p {
+		n += x
+	}
+	n
+}
+-- 08142.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(p *[]int) int {
+	let mut n = 0
+	for x in p {
+		n += x
+	}
+	n
+}
+-- 08143.ergo --
+func f() int {
+	let mut n = 0
+	for x in true {
+		n += x
+	}
+	n
+}
+-- 08144.ergo --
+let K = 1
+type T {}
+func h() {}
+func f() int {
+	let mut n = 0
+	for x in true {
+		n += x
+	}
+	n
+}
+-- 08145.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f() int {
+	let mut n = 0
+	for x in true {
+		n += x
+	}
+	n
+}
+-- 08146.ergo --
+type R { N int }
+func f(r R) int {
+	let mut n = 0
+	for x in r {
+		n += x
+	}
+	n
+}
+-- 08147.ergo --
+let K = 1
+type T {}
+func h() {}
+type R { N int }
+func f(r R) int {
+	let mut n = 0
+	for x in r {
+		n += x
+	}
+	n
+}
+-- 08148.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+type R { N int }
+func f(r R) int {
+	let mut n = 0
+	for x in r {
+		n += x
+	}
+	n
+}
+-- 08149.ergo --
+func f() int {
+	let mut n = 0
+	for i, x in 0..3 {
+		n += i + x
+	}
+	n
+}
+-- 08150.ergo --
+let K = 1
+type T {}
+func h() {}
+func f() int {
+	let mut n = 0
+	for i, x in 0..3 {
+		n += i + x
+	}
+	n
+}
+-- 08151.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f() int {
+	let mut n = 0
+	for i, x in 0..3 {
+		n += i + x
+	}
+	n
+}
+-- 08152.ergo --
+func f(s Seq[int]) int {
+	let mut n = 0
+	for i, x in s {
+		n += i + x
+	}
+	n
+}
+-- 08153.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(s Seq[int]) int {
+	let mut n = 0
+	for i, x in s {
+		n += i + x
+	}
+	n
+}
+-- 08154.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(s Seq[int]) int {
+	let mut n = 0
+	for i, x in s {
+		n += i + x
+	}
+	n
+}
+-- 08155.ergo --
+func f() int {
+	let mut n = 0
+	for x in (Range[string]{Start: "a", End: "b"}) {
+		n += len(x)
+	}
+	n
+}
+-- 08156.ergo --
+let K = 1
+type T {}
+func h() {}
+func f() int {
+	let mut n = 0
+	for x in (Range[string]{Start: "a", End: "b"}) {
+		n += len(x)
+	}
+	n
+}
+-- 08157.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f() int {
+	let mut n = 0
+	for x in (Range[string]{Start: "a", End: "b"}) {
+		n += len(x)
+	}
+	n
+}
+-- 08158.ergo --
+func f() {
+	for 1 {
+		break
+	}
+}
+-- 08159.ergo --
+let K = 1
+type T {}
+func h() {}
+func f() {
+	for 1 {
+		break
+	}
+}
+-- 08160.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f() {
+	for 1 {
+		break
+	}
+}
+-- 08161.ergo --
+func f(xs []int) {
+	for y in xs {
+		y = y + 1
+	}
+}
+-- 08162.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(xs []int) {
+	for y in xs {
+		y = y + 1
+	}
+}
+-- 08163.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(xs []int) {
+	for y in xs {
+		y = y + 1
+	}
+}
+-- 08164.ergo --
+func f(xs []int) int {
+	let mut n = 0
+	for x in xs {
+		n += 1
+	}
+	n
+}
+-- 08165.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(xs []int) int {
+	let mut n = 0
+	for x in xs {
+		n += 1
+	}
+	n
+}
+-- 08166.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(xs []int) int {
+	let mut n = 0
+	for x in xs {
+		n += 1
+	}
+	n
+}
+-- 08167.ergo --
+func f(xs []int) int {
+	let mut n = 0
+	for i, x in xs {
+		n += x
+	}
+	n
+}
+-- 08168.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(xs []int) int {
+	let mut n = 0
+	for i, x in xs {
+		n += x
+	}
+	n
+}
+-- 08169.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(xs []int) int {
+	let mut n = 0
+	for i, x in xs {
+		n += x
+	}
+	n
+}
+-- 08170.ergo --
+func f(s float64) int {
+	let mut n = 0
+	for c in s {
+		n += c
+	}
+	n
+}
+-- 08171.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(s float64) int {
+	let mut n = 0
+	for c in s {
+		n += c
+	}
+	n
+}
+-- 08172.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(s float64) int {
+	let mut n = 0
+	for c in s {
+		n += c
+	}
+	n
+}
+-- 08173.ergo --
+func f(s float64) int {
+	let mut n = 0
+	for i, b in s {
+		n += i + b
+	}
+	n
+}
+-- 08174.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(s float64) int {
+	let mut n = 0
+	for i, b in s {
+		n += i + b
+	}
+	n
+}
+-- 08175.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(s float64) int {
+	let mut n = 0
+	for i, b in s {
+		n += i + b
+	}
+	n
+}
+-- 08176.ergo --
+func f() int {
+	let mut n = 0
+	for i, b in 5 {
+		n += i + b
+	}
+	n
+}
+-- 08177.ergo --
+let K = 1
+type T {}
+func h() {}
+func f() int {
+	let mut n = 0
+	for i, b in 5 {
+		n += i + b
+	}
+	n
+}
+-- 08178.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f() int {
+	let mut n = 0
+	for i, b in 5 {
+		n += i + b
+	}
+	n
+}
+-- 08179.ergo --
+func f(xs []int) {
+	for Some in xs {
+	}
+}
+-- 08180.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(xs []int) {
+	for Some in xs {
+	}
+}
+-- 08181.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(xs []int) {
+	for Some in xs {
+	}
+}
+-- 08182.ergo --
+func f(xs []int) {
+	for len in xs {
+	}
+}
+-- 08183.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(xs []int) {
+	for len in xs {
+	}
+}
+-- 08184.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(xs []int) {
+	for len in xs {
+	}
+}
+-- 08185.ergo --
+func f() {
+	let Some = 1
+}
+-- 08186.ergo --
+let K = 1
+type T {}
+func h() {}
+func f() {
+	let Some = 1
+}
+-- 08187.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f() {
+	let Some = 1
+}
+-- 08188.ergo --
+func f() int {
+	let r = 0..3
+	r.End - r.Start
+}
+-- 08189.ergo --
+let K = 1
+type T {}
+func h() {}
+func f() int {
+	let r = 0..3
+	r.End - r.Start
+}
+-- 08190.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f() int {
+	let r = 0..3
+	r.End - r.Start
+}
+-- 08191.ergo --
+func f(n int64) int64 {
+	let r = 0..n
+	r.End
+}
+-- 08192.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(n int64) int64 {
+	let r = 0..n
+	r.End
+}
+-- 08193.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(n int64) int64 {
+	let r = 0..n
+	r.End
+}
+-- 08194.ergo --
+func f() int64 {
+	let r Range[int64] = 1..3
+	r.Start
+}
+-- 08195.ergo --
+let K = 1
+type T {}
+func h() {}
+func f() int64 {
+	let r Range[int64] = 1..3
+	r.Start
+}
+-- 08196.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f() int64 {
+	let r Range[int64] = 1..3
+	r.Start
+}
+-- 08197.ergo --
+func f() int64 {
+	let r = 0..3
+	r.End
+}
+-- 08198.ergo --
+let K = 1
+type T {}
+func h() {}
+func f() int64 {
+	let r = 0..3
+	r.End
+}
+-- 08199.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f() int64 {
+	let r = 0..3
+	r.End
+}
+-- 08200.ergo --
+func f(a int, b int64) int {
+	let r = a..b
+	r.End
+}
+-- 08201.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(a int, b int64) int {
+	let r = a..b
+	r.End
+}
+-- 08202.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(a int, b int64) int {
+	let r = a..b
+	r.End
+}
+-- 08203.ergo --
+func f() int {
+	let r = 1.0..2.0
+	0
+}
+-- 08204.ergo --
+let K = 1
+type T {}
+func h() {}
+func f() int {
+	let r = 1.0..2.0
+	0
+}
+-- 08205.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f() int {
+	let r = 1.0..2.0
+	0
+}
+-- 08206.ergo --
+func f() int {
+	let r = "a".."b"
+	0
+}
+-- 08207.ergo --
+let K = 1
+type T {}
+func h() {}
+func f() int {
+	let r = "a".."b"
+	0
+}
+-- 08208.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f() int {
+	let r = "a".."b"
+	0
+}
+-- 08209.ergo --
+func sum(r Range[int]) int {
+	let mut t = 0
+	for i in r {
+		t += i
+	}
+	t
+}
+func f() int { sum(2..5) }
+-- 08210.ergo --
+let K = 1
+type T {}
+func h() {}
+func sum(r Range[int]) int {
+	let mut t = 0
+	for i in r {
+		t += i
+	}
+	t
+}
+func f() int { sum(2..5) }
+-- 08211.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func sum(r Range[int]) int {
+	let mut t = 0
+	for i in r {
+		t += i
+	}
+	t
+}
+func f() int { sum(2..5) }
+-- 08212.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+let K = 1
+type T {}
+func h() {}
+-- 08213.ergo --
+func f() {
+	let K = 2
+}
+-- 08214.ergo --
+let K = 1
+type T {}
+func h() {}
+func f() {
+	let K = 2
+}
+-- 08215.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f() {
+	let K = 2
+}
+-- 08216.ergo --
+func f(xs []int) {
+	for K in xs {
+	}
+}
+-- 08217.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(xs []int) {
+	for K in xs {
+	}
+}
+-- 08218.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(xs []int) {
+	for K in xs {
+	}
+}
+-- 08219.ergo --
+func f() {
+	let true = false
+	_ = true
+}
+-- 08220.ergo --
+let K = 1
+type T {}
+func h() {}
+func f() {
+	let true = false
+	_ = true
+}
+-- 08221.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f() {
+	let true = false
+	_ = true
+}
+-- 08222.ergo --
+func f(xs []bool) {
+	for true in xs {
+		_ = true
+	}
+}
+-- 08223.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(xs []bool) {
+	for true in xs {
+		_ = true
+	}
+}
+-- 08224.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(xs []bool) {
+	for true in xs {
+		_ = true
+	}
+}
+-- 08225.ergo --
+func f() {
+	let Console = 1
+	_ = Console
+}
+-- 08226.ergo --
+let K = 1
+type T {}
+func h() {}
+func f() {
+	let Console = 1
+	_ = Console
+}
+-- 08227.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f() {
+	let Console = 1
+	_ = Console
+}
+-- 08228.ergo --
+func f(xs []int) {
+	for Console in xs {
+		_ = Console
+	}
+}
+-- 08229.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(xs []int) {
+	for Console in xs {
+		_ = Console
+	}
+}
+-- 08230.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(xs []int) {
+	for Console in xs {
+		_ = Console
+	}
+}
+-- 08231.ergo --
+func f(ts []T) int {
+	let mut n = 0
+	for T in ts {
+		let _ = T
+		n += 1
+	}
+	n
+}
+-- 08232.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(ts []T) int {
+	let mut n = 0
+	for T in ts {
+		let _ = T
+		n += 1
+	}
+	n
+}
+-- 08233.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(ts []T) int {
+	let mut n = 0
+	for T in ts {
+		let _ = T
+		n += 1
+	}
+	n
+}
+-- 08234.ergo --
+func f(ts []T) int {
+	let mut n = 0
+	for T in ts {
+		n += 1
+	}
+	n
+}
+-- 08235.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(ts []T) int {
+	let mut n = 0
+	for T in ts {
+		n += 1
+	}
+	n
+}
+-- 08236.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(ts []T) int {
+	let mut n = 0
+	for T in ts {
+		n += 1
+	}
+	n
+}
+-- 08237.ergo --
+func f(xs []int) int {
+	let mut n = 0
+	for h in xs {
+		n += h
+	}
+	n
+}
+-- 08238.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(xs []int) int {
+	let mut n = 0
+	for h in xs {
+		n += h
+	}
+	n
+}
+-- 08239.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(xs []int) int {
+	let mut n = 0
+	for h in xs {
+		n += h
+	}
+	n
+}
+-- 08240.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+-- 08241.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+-- 08242.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+-- 08243.ergo --
+func f(m Map[string, int]) Map[string, int] {
+	let mut n = m
+	n["a"] = 1
+	n["b"] = len(n)
+	n
+}
+-- 08244.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(m Map[string, int]) Map[string, int] {
+	let mut n = m
+	n["a"] = 1
+	n["b"] = len(n)
+	n
+}
+-- 08245.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(m Map[string, int]) Map[string, int] {
+	let mut n = m
+	n["a"] = 1
+	n["b"] = len(n)
+	n
+}
+-- 08246.ergo --
+func f(m Map[string, int]) Map[string, int] {
+	let mut n = m
+	(n["a"]) = 1
+	n
+}
+-- 08247.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(m Map[string, int]) Map[string, int] {
+	let mut n = m
+	(n["a"]) = 1
+	n
+}
+-- 08248.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(m Map[string, int]) Map[string, int] {
+	let mut n = m
+	(n["a"]) = 1
+	n
+}
+-- 08249.ergo --
+func f(m Map[string, int]) int {
+	m["a"]
+}
+-- 08250.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(m Map[string, int]) int {
+	m["a"]
+}
+-- 08251.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(m Map[string, int]) int {
+	m["a"]
+}
+-- 08252.ergo --
+func f(m Map[string, Option[int]]) Option[int] {
+	m["a"]
+}
+-- 08253.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(m Map[string, Option[int]]) Option[int] {
+	m["a"]
+}
+-- 08254.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(m Map[string, Option[int]]) Option[int] {
+	m["a"]
+}
+-- 08255.ergo --
+func f(m Map[string, int]) Map[string, int] {
+	let mut n = m
+	n["a"] += 1
+	n
+}
+-- 08256.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(m Map[string, int]) Map[string, int] {
+	let mut n = m
+	n["a"] += 1
+	n
+}
+-- 08257.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(m Map[string, int]) Map[string, int] {
+	let mut n = m
+	n["a"] += 1
+	n
+}
+-- 08258.ergo --
+func f(m Map[string, Map[string, int]]) {
+	let mut n = m
+	n["a"]["b"] = 1
+}
+-- 08259.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(m Map[string, Map[string, int]]) {
+	let mut n = m
+	n["a"]["b"] = 1
+}
+-- 08260.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(m Map[string, Map[string, int]]) {
+	let mut n = m
+	n["a"]["b"] = 1
+}
+-- 08261.ergo --
+func f(m Map[string, int], k Map[int, string]) Map[string, int] {
+	let mut n = m
+	n[k[1]] = 1
+	n
+}
+-- 08262.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(m Map[string, int], k Map[int, string]) Map[string, int] {
+	let mut n = m
+	n[k[1]] = 1
+	n
+}
+-- 08263.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(m Map[string, int], k Map[int, string]) Map[string, int] {
+	let mut n = m
+	n[k[1]] = 1
+	n
+}
+-- 08264.ergo --
+func f(xs []int, m Map[int, int], s string) int {
+	len(xs) + len(m) + len(s) + len("abc")
+}
+-- 08265.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(xs []int, m Map[int, int], s string) int {
+	len(xs) + len(m) + len(s) + len("abc")
+}
+-- 08266.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(xs []int, m Map[int, int], s string) int {
+	len(xs) + len(m) + len(s) + len("abc")
+}
+-- 08267.ergo --
+func f(p *[]int) int {
+	len(p)
+}
+-- 08268.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(p *[]int) int {
+	len(p)
+}
+-- 08269.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(p *[]int) int {
+	len(p)
+}
+-- 08270.ergo --
+func f() int {
+	len(3)
+}
+-- 08271.ergo --
+let K = 1
+type T {}
+func h() {}
+func f() int {
+	len(3)
+}
+-- 08272.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f() int {
+	len(3)
+}
+-- 08273.ergo --
+func f(p *[]int) int {
+	p[0]
+}
+-- 08274.ergo --
+let K = 1
+type T {}
+func h() {}
+func f(p *[]int) int {
+	p[0]
+}
+-- 08275.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f(p *[]int) int {
+	p[0]
+}
+-- 08276.ergo --
+func f() {
+	_ = 
+-- 08277.ergo --
+let K = 1
+type T {}
+func h() {}
+func f() {
+	_ = 
+-- 08278.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+func f() {
+	_ = 
+-- 08279.ergo --
+type A000000[A]{A A0}
+type A[A]{A A0[A0]}
+func e(A0)A{A{{{{e}}}}}
+-- 08280.ergo --
+let K = 1
+type T {}
+func h() {}
+type A000000[A]{A A0}
+type A[A]{A A0[A0]}
+func e(A0)A{A{{{{e}}}}}
+-- 08281.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+type A000000[A]{A A0}
+type A[A]{A A0[A0]}
+func e(A0)A{A{{{{e}}}}}
+-- 08282.ergo --
+type B[T]{a T, b func()}
+func t() { _ = B{b: {t}} }
+-- 08283.ergo --
+let K = 1
+type T {}
+func h() {}
+type B[T]{a T, b func()}
+func t() { _ = B{b: {t}} }
+-- 08284.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+type B[T]{a T, b func()}
+func t() { _ = B{b: {t}} }
+-- 08285.ergo --
+type B[T]{b func(), a T}
+func t() { _ = B{{t}} }
+-- 08286.ergo --
+let K = 1
+type T {}
+func h() {}
+type B[T]{b func(), a T}
+func t() { _ = B{{t}} }
+-- 08287.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+type B[T]{b func(), a T}
+func t() { _ = B{{t}} }
+-- 08288.ergo --
+type B[T]{a T, c T, b func()}
+func t() { _ = B{a: 1, c: 1.5, b: {t}} }
+-- 08289.ergo --
+let K = 1
+type T {}
+func h() {}
+type B[T]{a T, c T, b func()}
+func t() { _ = B{a: 1, c: 1.5, b: {t}} }
+-- 08290.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+type B[T]{a T, c T, b func()}
+func t() { _ = B{a: 1, c: 1.5, b: {t}} }
+-- 08291.ergo --
+type B[T]{a T, b func()}
+func t() { _ = B{a: 1, b: {t}} }
+-- 08292.ergo --
+let K = 1
+type T {}
+func h() {}
+type B[T]{a T, b func()}
+func t() { _ = B{a: 1, b: {t}} }
+-- 08293.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+type B[T]{a T, b func()}
+func t() { _ = B{a: 1, b: {t}} }
+-- 08294.ergo --
+type B[T]{a T, b func()}
+func e() int { let mut n = 0; _ = B{b: {func() { n = 1 }}}; n }
+-- 08295.ergo --
+let K = 1
+type T {}
+func h() {}
+type B[T]{a T, b func()}
+func e() int { let mut n = 0; _ = B{b: {func() { n = 1 }}}; n }
+-- 08296.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+type B[T]{a T, b func()}
+func e() int { let mut n = 0; _ = B{b: {func() { n = 1 }}}; n }
+-- 08297.ergo --
+type B[T]{a T, b func()}
+func e() int { let mut n = 0; _ = B{a: 1, b: {func() { n = 1 }}}; n }
+-- 08298.ergo --
+let K = 1
+type T {}
+func h() {}
+type B[T]{a T, b func()}
+func e() int { let mut n = 0; _ = B{a: 1, b: {func() { n = 1 }}}; n }
+-- 08299.ergo --
+func f(xs []int, m Map[string, bool], s Seq[int64]) int {
+	let mut n = 0
+	for x in xs {
+		n += x
+	}
+	for k, b in m {
+		if b {
+			n += len(k)
+		}
+	}
+	for i in 0..3 {
+		n += i
+	}
+	for v in s {
+		n += int(v)
+	}
+	n
+}
+type B[T]{a T, b func()}
+func e() int { let mut n = 0; _ = B{a: 1, b: {func() { n = 1 }}}; n }
+-- 08300.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+-- 08301.ergo --
+type Ints []int
+func f(xs Ints) []int { let raw []int = xs; raw }
+-- 08302.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Ints []int
+func f(xs Ints) []int { let raw []int = xs; raw }
+-- 08303.ergo --
+type Ints []int
+func f(xs []int) Ints { let named Ints = xs; named }
+-- 08304.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Ints []int
+func f(xs []int) Ints { let named Ints = xs; named }
+-- 08305.ergo --
+type Counts Map[string, int]
+func f(xs Counts) Map[string, int] { let raw Map[string, int] = xs; raw }
+-- 08306.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Counts Map[string, int]
+func f(xs Counts) Map[string, int] { let raw Map[string, int] = xs; raw }
+-- 08307.ergo --
+type Counts Map[string, int]
+func f(xs Map[string, int]) Counts { let named Counts = xs; named }
+-- 08308.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Counts Map[string, int]
+func f(xs Map[string, int]) Counts { let named Counts = xs; named }
+-- 08309.ergo --
+type Pair (int, string)
+func f(xs Pair) (int, string) { let raw (int, string) = xs; raw }
+-- 08310.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Pair (int, string)
+func f(xs Pair) (int, string) { let raw (int, string) = xs; raw }
+-- 08311.ergo --
+type Pair (int, string)
+func f(xs (int, string)) Pair { let named Pair = xs; named }
+-- 08312.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Pair (int, string)
+func f(xs (int, string)) Pair { let named Pair = xs; named }
+-- 08313.ergo --
+type F func(v int) int
+func f(xs F) func(v int) int { let raw func(v int) int = xs; raw }
+-- 08314.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type F func(v int) int
+func f(xs F) func(v int) int { let raw func(v int) int = xs; raw }
+-- 08315.ergo --
+type F func(v int) int
+func f(xs escaping func(v int) int) F { let named F = xs; named }
+-- 08316.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type F func(v int) int
+func f(xs escaping func(v int) int) F { let named F = xs; named }
+-- 08317.ergo --
+type Ints []int
+func g(xs []int) int { len(xs) }
+func f(xs Ints) int { g(xs) }
+-- 08318.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Ints []int
+func g(xs []int) int { len(xs) }
+func f(xs Ints) int { g(xs) }
+-- 08319.ergo --
+type Ints []int
+type Box { xs []int }
+func f(xs Ints) Box { Box{xs: xs} }
+-- 08320.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Ints []int
+type Box { xs []int }
+func f(xs Ints) Box { Box{xs: xs} }
+-- 08321.ergo --
+type Ints []int
+func f(xs Ints) [][]int { [][]int{xs} }
+-- 08322.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Ints []int
+func f(xs Ints) [][]int { [][]int{xs} }
+-- 08323.ergo --
+type Pair (int, string)
+func f(p Pair, q (int, string)) bool { p == q }
+-- 08324.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Pair (int, string)
+func f(p Pair, q (int, string)) bool { p == q }
+-- 08325.ergo --
+type A []int
+type B []int
+func f(x A) B { x }
+-- 08326.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type A []int
+type B []int
+func f(x A) B { x }
+-- 08327.ergo --
+type Mem { N int }
+type A Mem
+type B Mem
+func f(x A) B { x }
+-- 08328.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Mem { N int }
+type A Mem
+type B Mem
+func f(x A) B { x }
+-- 08329.ergo --
+type Mem { N int }
+type Mem2 Mem
+func f(x Mem2) Mem { x }
+-- 08330.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Mem { N int }
+type Mem2 Mem
+func f(x Mem2) Mem { x }
+-- 08331.ergo --
+type Count int
+func f(x Count) int { x }
+-- 08332.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Count int
+func f(x Count) int { x }
+-- 08333.ergo --
+type Count int
+func f(x int) Count { x }
+-- 08334.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Count int
+func f(x int) Count { x }
+-- 08335.ergo --
+func f[T](x T) int { x }
+-- 08336.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+func f[T](x T) int { x }
+-- 08337.ergo --
+type Ints []int
+func f(xs Ints) []int64 { xs }
+-- 08338.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Ints []int
+func f(xs Ints) []int64 { xs }
+-- 08339.ergo --
+type A []int
+type B []int
+func two() (A, A) { (A{1}, A{2}) }
+func f() int { let x, y B = two(); len(x) + len(y) }
+-- 08340.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type A []int
+type B []int
+func two() (A, A) { (A{1}, A{2}) }
+func f() int { let x, y B = two(); len(x) + len(y) }
+-- 08341.ergo --
+type Mem { N int }
+type A Mem
+type B Mem
+func f(x A) B { B(Mem(x)) }
+-- 08342.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Mem { N int }
+type A Mem
+type B Mem
+func f(x A) B { B(Mem(x)) }
+-- 08343.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func f() Store { Count(3) }
+-- 08344.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func f() Store { Count(3) }
+-- 08345.ergo --
+type Store { Get() int }
+type Mem { N int }
+type Mem2 Mem
+func Get(m Mem2) int { m.N }
+func f(m Mem2) Store { m }
+-- 08346.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Store { Get() int }
+type Mem { N int }
+type Mem2 Mem
+func Get(m Mem2) int { m.N }
+func f(m Mem2) Store { m }
+-- 08347.ergo --
+type Sized { Size() int }
+type Ints []int
+func Size(xs Ints) int { len(xs) }
+func f(xs Ints) Sized { xs }
+-- 08348.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Sized { Size() int }
+type Ints []int
+func Size(xs Ints) int { len(xs) }
+func f(xs Ints) Sized { xs }
+-- 08349.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f() int { let a, b Store = two(); a.Get() + b.Get() }
+-- 08350.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f() int { let a, b Store = two(); a.Get() + b.Get() }
+-- 08351.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func f(s Store) bool { s == Count(1) }
+-- 08352.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func f(s Store) bool { s == Count(1) }
+-- 08353.ergo --
+func f() Option[int] { Some{1} }
+-- 08354.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+func f() Option[int] { Some{1} }
+-- 08355.ergo --
+type Other Some[int]
+func f(x Other) Option[int] { x }
+-- 08356.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Other Some[int]
+func f(x Other) Option[int] { x }
+-- 08357.ergo --
+type Other Some[int]
+func f(x Other) Option[int] { Some[int](x) }
+-- 08358.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Other Some[int]
+func f(x Other) Option[int] { Some[int](x) }
+-- 08359.ergo --
+func f(o Option[int]) bool { o == None }
+-- 08360.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+func f(o Option[int]) bool { o == None }
+-- 08361.ergo --
+type Fault {}
+func seven() int { 7 }
+func f() int {
+	let g func() int fails Fault = seven
+	g() catch { case Fault: 0 }
+}
+-- 08362.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Fault {}
+func seven() int { 7 }
+func f() int {
+	let g func() int fails Fault = seven
+	g() catch { case Fault: 0 }
+}
+-- 08363.ergo --
+type Fault {}
+type G func() int
+func f(h G) int {
+	let g func() int fails Fault = h
+	g() catch { case Fault: 0 }
+}
+-- 08364.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Fault {}
+type G func() int
+func f(h G) int {
+	let g func() int fails Fault = h
+	g() catch { case Fault: 0 }
+}
+-- 08365.ergo --
+type F func(n int) int
+type G func(n int) int
+func f(x F) G { x }
+-- 08366.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type F func(n int) int
+type G func(n int) int
+func f(x F) G { x }
+-- 08367.ergo --
+type Store { Get() int }
+type MyStore Store
+func f(s MyStore) int {
+	let a MyStore = s
+	_ = MyStore(s)
+	a.Get()
+}
+-- 08368.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Store { Get() int }
+type MyStore Store
+func f(s MyStore) int {
+	let a MyStore = s
+	_ = MyStore(s)
+	a.Get()
+}
+-- 08369.ergo --
+type Getter[T] { Get() T }
+type IntGetter Getter[int]
+func f(g IntGetter) int { g.Get() }
+-- 08370.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Getter[T] { Get() T }
+type IntGetter Getter[int]
+func f(g IntGetter) int { g.Get() }
+-- 08371.ergo --
+type A {}
+type B {}
+type U = A | B
+type MyU U
+func f(u MyU) MyU { let v = u; v }
+-- 08372.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type A {}
+type B {}
+type U = A | B
+type MyU U
+func f(u MyU) MyU { let v = u; v }
+-- 08373.ergo --
+type MyOpt Option[int]
+func f(o MyOpt) MyOpt { let b = o; b }
+func g() MyOpt { Some{1} }
+-- 08374.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type MyOpt Option[int]
+func f(o MyOpt) MyOpt { let b = o; b }
+func g() MyOpt { Some{1} }
+-- 08375.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t MyTask) int fails Fault { t.Wait() }
+-- 08376.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t MyTask) int fails Fault { t.Wait() }
+-- 08377.ergo --
+import queue
+type MyQ queue.Queue[int]
+func f(q MyQ) { q.Close() }
+-- 08378.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+import queue
+type MyQ queue.Queue[int]
+func f(q MyQ) { q.Close() }
+-- 08379.ergo --
+type Store { Get() int }
+type A Store
+type B A
+func f(b B) int { b.Get() }
+-- 08380.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Store { Get() int }
+type A Store
+type B A
+func f(b B) int { b.Get() }
+-- 08381.ergo --
+type Count int
+func f(c Count) int { int(c) }
+-- 08382.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Count int
+func f(c Count) int { int(c) }
+-- 08383.ergo --
+type Mem { N int }
+type Mem2 Mem
+func f(m Mem2) int { m.N }
+-- 08384.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Mem { N int }
+type Mem2 Mem
+func f(m Mem2) int { m.N }
+-- 08385.ergo --
+type Pair[A, B] { First A, Second B }
+type P2 Pair[int, int]
+func f(p P2) int { p.First + p.Second }
+-- 08386.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Pair[A, B] { First A, Second B }
+type P2 Pair[int, int]
+func f(p P2) int { p.First + p.Second }
+-- 08387.ergo --
+type S2 Some[int]
+func f(s S2) int { s.Value }
+-- 08388.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type S2 Some[int]
+func f(s S2) int { s.Value }
+-- 08389.ergo --
+type Ints []int
+type Counts Map[string, int]
+type F func(n int) int
+type Pair (int, string)
+func f(a Ints, b Counts, c F, d Pair) int { let (n, _) = d; len(a) + len(b) + c(1) + n }
+-- 08390.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Ints []int
+type Counts Map[string, int]
+type F func(n int) int
+type Pair (int, string)
+func f(a Ints, b Counts, c F, d Pair) int { let (n, _) = d; len(a) + len(b) + c(1) + n }
+-- 08391.ergo --
+type Store { Get() int }
+type MyStore Store
+-- 08392.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Store { Get() int }
+type MyStore Store
+-- 08393.ergo --
+type Ints []int
+func f(xs Ints) {
+-- 08394.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Ints []int
+func f(xs Ints) {
+-- 08395.ergo --
+type Counts Map[string, int]
+func f(m Counts) {
+-- 08396.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Counts Map[string, int]
+func f(m Counts) {
+-- 08397.ergo --
+type Ints []int
+func f(xs Ints, raw int) {
+-- 08398.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Ints []int
+func f(xs Ints, raw int) {
+-- 08399.ergo --
+type Ints []int
+type Other []int
+func f(x Ints) Other {
+-- 08400.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Ints []int
+type Other []int
+func f(x Ints) Other {
+-- 08401.ergo --
+type Ints []int
+type Other []int
+let raw = 1
+func f(x Ints) Other {
+-- 08402.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Ints []int
+type Other []int
+let raw = 1
+func f(x Ints) Other {
+-- 08403.ergo --
+type P (int, int)
+type Q (int, int)
+func f(x P) Q {
+-- 08404.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type P (int, int)
+type Q (int, int)
+func f(x P) Q {
+-- 08405.ergo --
+type Celsius float64
+type Temp Celsius
+func f(x float64) Temp {
+-- 08406.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Celsius float64
+type Temp Celsius
+func f(x float64) Temp {
+-- 08407.ergo --
+type Mem { N int }
+type Mem2 Mem
+func f(x Mem2) Mem {
+-- 08408.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+type Mem { N int }
+type Mem2 Mem
+func f(x Mem2) Mem {
+-- 08409.ergo --
+func f() int {
+	let a, b []int64 = ([]int{1}, []int{2})
+	len(a) + len(b)
+}
+-- 08410.ergo --
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+func two() (Count, Count) { (Count(1), Count(2)) }
+func f(s Store) int {
+	let a, b Store = two()
+	let p, q Store = (Count(7), s)
+	let x, y Store = (s, s)
+	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
+}
+func f() int {
+	let a, b []int64 = ([]int{1}, []int{2})
+	len(a) + len(b)
+}
+-- 08411.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+-- 08412.ergo --
+type DStore Store
+-- 08413.ergo --
+type Store { Get() int }
+-- 08414.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+type Store { Get() int }
+-- 08415.ergo --
+type DStore Store
+type Store { Get() int }
+-- 08416.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+type A {}
+-- 08417.ergo --
+type DStore Store
+type A {}
+-- 08418.ergo --
+type B {}
+-- 08419.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+type B {}
+-- 08420.ergo --
+type DStore Store
+type B {}
+-- 08421.ergo --
+type U = A | B
+-- 08422.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+type U = A | B
+-- 08423.ergo --
+type DStore Store
+type U = A | B
+-- 08424.ergo --
+type Log { Put() int }
+-- 08425.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+type Log { Put() int }
+-- 08426.ergo --
+type DStore Store
+type Log { Put() int }
+-- 08427.ergo --
+type L {}
+-- 08428.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+type L {}
+-- 08429.ergo --
+type DStore Store
+type L {}
+-- 08430.ergo --
+func Put(l L) int { 1 }
+-- 08431.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func Put(l L) int { 1 }
+-- 08432.ergo --
+type DStore Store
+func Put(l L) int { 1 }
+-- 08433.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+type Mem {}
+-- 08434.ergo --
+type DStore Store
+type Mem {}
+-- 08435.ergo --
+func Get(m Mem) int { 1 }
+-- 08436.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func Get(m Mem) int { 1 }
+-- 08437.ergo --
+type DStore Store
+func Get(m Mem) int { 1 }
+-- 08438.ergo --
+type C {}
+-- 08439.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+type C {}
+-- 08440.ergo --
+type DStore Store
+type C {}
+-- 08441.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+type Fault {}
+-- 08442.ergo --
+type DStore Store
+type Fault {}
+-- 08443.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+type Box[T] { V T }
+-- 08444.ergo --
+type DStore Store
+type Box[T] { V T }
+-- 08445.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+type DStore Store
+-- 08446.ergo --
+type DU U
+-- 08447.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+type DU U
+-- 08448.ergo --
+type DStore Store
+type DU U
+-- 08449.ergo --
+func f() int needs DStore | Log { Log.Put() }
+func main() { with context { Log: L } { _ = f() } }
+-- 08450.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func f() int needs DStore | Log { Log.Put() }
+func main() { with context { Log: L } { _ = f() } }
+-- 08451.ergo --
+type DStore Store
+func f() int needs DStore | Log { Log.Put() }
+func main() { with context { Log: L } { _ = f() } }
+-- 08452.ergo --
+func f() int needs Log | DStore { Log.Put() }
+-- 08453.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func f() int needs Log | DStore { Log.Put() }
+-- 08454.ergo --
+type DStore Store
+func f() int needs Log | DStore { Log.Put() }
+-- 08455.ergo --
+func g() int fails Fault { 1 }
+func f() int fails DStore | Fault { try g() }
+-- 08456.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func g() int fails Fault { 1 }
+func f() int fails DStore | Fault { try g() }
+-- 08457.ergo --
+type DStore Store
+func g() int fails Fault { 1 }
+func f() int fails DStore | Fault { try g() }
+-- 08458.ergo --
+func g() int fails DStore | Fault { 1 }
+func f() int { g() catch {
+case Fault: 2
+} }
+-- 08459.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func g() int fails DStore | Fault { 1 }
+func f() int { g() catch {
+case Fault: 2
+} }
+-- 08460.ergo --
+type DStore Store
+func g() int fails DStore | Fault { 1 }
+func f() int { g() catch {
+case Fault: 2
+} }
+-- 08461.ergo --
+func g() int fails C { 1 }
+func f() int fails DStore | Fault | C { try g() }
+func h() int { f() catch {
+case Fault: 1
+case C: 2
+} }
+-- 08462.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func g() int fails C { 1 }
+func f() int fails DStore | Fault | C { try g() }
+func h() int { f() catch {
+case Fault: 1
+case C: 2
+} }
+-- 08463.ergo --
+type DStore Store
+func g() int fails C { 1 }
+func f() int fails DStore | Fault | C { try g() }
+func h() int { f() catch {
+case Fault: 1
+case C: 2
+} }
+-- 08464.ergo --
+func g() int fails C { 1 }
+func F() int fails DStore | Fault { try g() }
+-- 08465.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func g() int fails C { 1 }
+func F() int fails DStore | Fault { try g() }
+-- 08466.ergo --
+type DStore Store
+func g() int fails C { 1 }
+func F() int fails DStore | Fault { try g() }
+-- 08467.ergo --
+func k() int needs Store { Store.Get() }
+func F() int needs DStore | Log { k() }
+-- 08468.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func k() int needs Store { Store.Get() }
+func F() int needs DStore | Log { k() }
+-- 08469.ergo --
+type DStore Store
+func k() int needs Store { Store.Get() }
+func F() int needs DStore | Log { k() }
+-- 08470.ergo --
+type Ops2 { Run() int fails DStore | C }
+func Run(m Mem) int fails Fault { 1 }
+func f() Ops2 { Mem }
+-- 08471.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+type Ops2 { Run() int fails DStore | C }
+func Run(m Mem) int fails Fault { 1 }
+func f() Ops2 { Mem }
+-- 08472.ergo --
+type DStore Store
+type Ops2 { Run() int fails DStore | C }
+func Run(m Mem) int fails Fault { 1 }
+func f() Ops2 { Mem }
+-- 08473.ergo --
+func g() int fails C { 1 }
+func f() int { let h = func() int fails DStore { try g() }
+h() catch {
+case _: 1
+} }
+-- 08474.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func g() int fails C { 1 }
+func f() int { let h = func() int fails DStore { try g() }
+h() catch {
+case _: 1
+} }
+-- 08475.ergo --
+type DStore Store
+func g() int fails C { 1 }
+func f() int { let h = func() int fails DStore { try g() }
+h() catch {
+case _: 1
+} }
+-- 08476.ergo --
+func g() int fails C { 1 }
+func f() int fails Box[DStore] | C { try g() }
+-- 08477.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func g() int fails C { 1 }
+func f() int fails Box[DStore] | C { try g() }
+-- 08478.ergo --
+type DStore Store
+func g() int fails C { 1 }
+func f() int fails Box[DStore] | C { try g() }
+-- 08479.ergo --
+func g() int fails Box[DStore] | C { 1 }
+func f() int { g() catch {
+case C: 2
+} }
+-- 08480.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func g() int fails Box[DStore] | C { 1 }
+func f() int { g() catch {
+case C: 2
+} }
+-- 08481.ergo --
+type DStore Store
+func g() int fails Box[DStore] | C { 1 }
+func f() int { g() catch {
+case C: 2
+} }
+-- 08482.ergo --
+func g() int fails Box[DStore] { 1 }
+func f() int { g() catch {
+case _: 2
+} }
+-- 08483.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func g() int fails Box[DStore] { 1 }
+func f() int { g() catch {
+case _: 2
+} }
+-- 08484.ergo --
+type DStore Store
+func g() int fails Box[DStore] { 1 }
+func f() int { g() catch {
+case _: 2
+} }
+-- 08485.ergo --
+func k() int needs Log { Log.Put() }
+func mk() func() int needs DStore | Log { k }
+-- 08486.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func k() int needs Log { Log.Put() }
+func mk() func() int needs DStore | Log { k }
+-- 08487.ergo --
+type DStore Store
+func k() int needs Log { Log.Put() }
+func mk() func() int needs DStore | Log { k }
+-- 08488.ergo --
+func k() int needs Log { Log.Put() }
+func f() int needs Log | Store {
+let h func() int needs DStore | Log = k
+let w func() int needs Log | Store = h
+w()
+}
+-- 08489.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func k() int needs Log { Log.Put() }
+func f() int needs Log | Store {
+let h func() int needs DStore | Log = k
+let w func() int needs Log | Store = h
+w()
+}
+-- 08490.ergo --
+type DStore Store
+func k() int needs Log { Log.Put() }
+func f() int needs Log | Store {
+let h func() int needs DStore | Log = k
+let w func() int needs Log | Store = h
+w()
+}
+-- 08491.ergo --
+func k() int needs Log | Store { Log.Put() }
+func f() int needs Log | Store {
+let h func() int needs DStore | Log = k
+h()
+}
+-- 08492.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func k() int needs Log | Store { Log.Put() }
+func f() int needs Log | Store {
+let h func() int needs DStore | Log = k
+h()
+}
+-- 08493.ergo --
+type DStore Store
+func k() int needs Log | Store { Log.Put() }
+func f() int needs Log | Store {
+let h func() int needs DStore | Log = k
+h()
+}
+-- 08494.ergo --
+func g() int fails C { 1 }
+func f(h func() int fails DStore | C) int fails C { try h() }
+func k() int { f(g) catch {
+case C: 1
+} }
+-- 08495.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func g() int fails C { 1 }
+func f(h func() int fails DStore | C) int fails C { try h() }
+func k() int { f(g) catch {
+case C: 1
+} }
+-- 08496.ergo --
+type DStore Store
+func g() int fails C { 1 }
+func f(h func() int fails DStore | C) int fails C { try h() }
+func k() int { f(g) catch {
+case C: 1
+} }
+-- 08497.ergo --
+func g() int fails C | Box[Store] { 1 }
+func f() int { g() catch {
+case C: 1
+case Box[DStore]: 2
+} }
+-- 08498.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func g() int fails C | Box[Store] { 1 }
+func f() int { g() catch {
+case C: 1
+case Box[DStore]: 2
+} }
+-- 08499.ergo --
+type DStore Store
+func g() int fails C | Box[Store] { 1 }
+func f() int { g() catch {
+case C: 1
+case Box[DStore]: 2
+} }

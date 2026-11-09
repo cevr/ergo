@@ -1,0 +1,6317 @@
+-- 05500.ergo --
+let _ = with context {
+	X0,
+	X1,
+	X2,
+} { 1 }
+let _ = with context {
+	X3,
+	X4,
+	X5,
+} { 2 }
+-- 05501.ergo --
+type V%d {}
+-- 05502.ergo --
+type U%d = 
+-- 05503.ergo --
+type R%d {}
+func M(_ R%d) { R%d.M() }
+-- 05504.ergo --
+type R%d {}
+func M(_ R%d) { f%d() }
+func f%d() { R%d.M(); f%d() }
+-- 05505.ergo --
+type R%d {}
+let v%d = func() { R%d.M() }
+func M(_ R%d) { _ = v%d }
+-- 05506.ergo --
+type Job[E] {}
+func Run[E](_ Job[E]) fails E {}
+-- 05507.ergo --
+type Job[R] {}
+func Run[R](_ Job[R]) needs R {}
+-- 05508.ergo --
+type Job[E] {}
+func Run[F](_ Job[F]) fails F {}
+-- 05509.ergo --
+type Job[E] {}
+func Run[E](j *Job[E]) fails E {}
+-- 05510.ergo --
+type Job[R] { f func() needs R }
+func Run[R](_ Job[R]) needs R {}
+-- 05511.ergo --
+type Job[E] { next []Job[E] }
+func Next[E](j Job[E]) Job[E] { return j }
+func Run[E](_ Job[E]) fails E {}
+-- 05512.ergo --
+type A[E] { b []B[E] }
+type B[E] { a []A[E] }
+func Run[E](_ B[E]) fails E {}
+-- 05513.ergo --
+type Box[T] {}
+func Put[T](_ Box[T], x T) {}
+-- 05514.ergo --
+type A[E, F] {}
+func Run[E, F](_ A[E, F]) fails E | F {}
+-- 05515.ergo --
+type Job[E] { v E }
+func Run[E](_ Job[E]) fails E {}
+-- 05516.ergo --
+type Job[E error] {}
+func Run[E](_ Job[E]) fails E {}
+-- 05517.ergo --
+type A {}
+type B {}
+type Choice = Missing
+type Full = A | B
+func F(c Choice, d Full) A {
+	
+-- 05518.ergo --
+type R[P any] struct{}
+func (R[P]) M(x R[[]P]) {}
+-- 05519.ergo --
+type R[P] {}
+func M[P](_ R[P], x R[[]P]) {}
+-- 05520.ergo --
+type R[P any] struct{}
+func (R[P]) M() R[[]P]
+-- 05521.ergo --
+type R[P] {}
+extern go fixture.M func M[P](_ R[P]) R[[]P]
+-- 05522.ergo --
+type R[P any] struct{}
+type I[P any] interface{ F(R[[]P]) }
+func (R[P]) M(x I[P]) {}
+-- 05523.ergo --
+type R[P] {}
+type I[P] { F(R[[]P]) }
+func M[P](_ R[P], x I[P]) {}
+-- 05524.ergo --
+type R[P any] struct{}
+func (R[Q]) M(x R[[]Q]) {}
+-- 05525.ergo --
+type R[P] {}
+func M[Q](_ R[Q], x R[[]Q]) {}
+-- 05526.ergo --
+type R[P any] struct{}
+type S[Q any] struct{}
+func (R[P]) M(x S[[]P]) {}
+func (S[Q]) N(x R[Q]) {}
+-- 05527.ergo --
+type R[P] {}
+type S[Q] {}
+func M[P](_ R[P], x S[[]P]) {}
+func N[Q](_ S[Q], x R[Q]) {}
+-- 05528.ergo --
+type R[P any] struct{}
+func F[T any](x R[[]T]) {}
+func (R[P]) M() { var r R[P]; _ = r; F[P](R[[]P]{}) }
+-- 05529.ergo --
+type R[P] {}
+func F[T](x R[[]T]) {}
+func M[P](_ R[P]) { let r R[P]; _ = r; F[P](R[[]P]{}) }
+-- 05530.ergo --
+type R[P any] struct{}
+func (R[P]) M(x R[P]) {}
+-- 05531.ergo --
+type R[P] {}
+func M[P](_ R[P], x R[P]) {}
+-- 05532.ergo --
+type R[P any] struct{}
+type S[Q any] struct{}
+func (R[P]) M(x S[P]) {}
+func (S[Q]) N(x R[Q]) {}
+-- 05533.ergo --
+type R[P] {}
+type S[Q] {}
+func M[P](_ R[P], x S[P]) {}
+func N[Q](_ S[Q], x R[Q]) {}
+-- 05534.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+-- 05535.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+-- 05536.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+-- 05537.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+-- 05538.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+-- 05539.ergo --
+func G() int { return Get(Has[int]{V: 1}, 2) }
+-- 05540.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G() int { return Get(Has[int]{V: 1}, 2) }
+-- 05541.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G() int { return Get(Has[int]{V: 1}, 2) }
+-- 05542.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G() int { return Get(Has[int]{V: 1}, 2) }
+-- 05543.ergo --
+func G() int { return Get(Empty, 2) }
+-- 05544.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G() int { return Get(Empty, 2) }
+-- 05545.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G() int { return Get(Empty, 2) }
+-- 05546.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G() int { return Get(Empty, 2) }
+-- 05547.ergo --
+func G(s string) string { return Get(Has[int]{V: 1}, s) }
+-- 05548.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G(s string) string { return Get(Has[int]{V: 1}, s) }
+-- 05549.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G(s string) string { return Get(Has[int]{V: 1}, s) }
+-- 05550.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G(s string) string { return Get(Has[int]{V: 1}, s) }
+-- 05551.ergo --
+func G() { Pair(Has[int]{V: 1}, Has[int]{V: 2}) }
+-- 05552.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G() { Pair(Has[int]{V: 1}, Has[int]{V: 2}) }
+-- 05553.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G() { Pair(Has[int]{V: 1}, Has[int]{V: 2}) }
+-- 05554.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G() { Pair(Has[int]{V: 1}, Has[int]{V: 2}) }
+-- 05555.ergo --
+func G() { Pair(Has[int]{V: 1}, Has[string]{V: "a"}) }
+-- 05556.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G() { Pair(Has[int]{V: 1}, Has[string]{V: "a"}) }
+-- 05557.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G() { Pair(Has[int]{V: 1}, Has[string]{V: "a"}) }
+-- 05558.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G() { Pair(Has[int]{V: 1}, Has[string]{V: "a"}) }
+-- 05559.ergo --
+func G() int { return Get(Has2, 2) }
+type Has2 {}
+-- 05560.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G() int { return Get(Has2, 2) }
+type Has2 {}
+-- 05561.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G() int { return Get(Has2, 2) }
+type Has2 {}
+-- 05562.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G() int { return Get(Has2, 2) }
+type Has2 {}
+-- 05563.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+-- 05564.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+-- 05565.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+-- 05566.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+-- 05567.ergo --
+func G(x W) int { return FnI(x) }
+-- 05568.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G(x W) int { return FnI(x) }
+-- 05569.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G(x W) int { return FnI(x) }
+-- 05570.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G(x W) int { return FnI(x) }
+-- 05571.ergo --
+func G(x J) int { return FnI(x) }
+-- 05572.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G(x J) int { return FnI(x) }
+-- 05573.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G(x J) int { return FnI(x) }
+-- 05574.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G(x J) int { return FnI(x) }
+-- 05575.ergo --
+func G(s S) int { return FnI(s) }
+-- 05576.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G(s S) int { return FnI(s) }
+-- 05577.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G(s S) int { return FnI(s) }
+-- 05578.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G(s S) int { return FnI(s) }
+-- 05579.ergo --
+func G(p *P) int { return FnI(p) }
+-- 05580.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G(p *P) int { return FnI(p) }
+-- 05581.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G(p *P) int { return FnI(p) }
+-- 05582.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G(p *P) int { return FnI(p) }
+-- 05583.ergo --
+func G(s S) int { return FnN(s) }
+-- 05584.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G(s S) int { return FnN(s) }
+-- 05585.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G(s S) int { return FnN(s) }
+-- 05586.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G(s S) int { return FnN(s) }
+-- 05587.ergo --
+func G(x W) int { return FnN(x) }
+-- 05588.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G(x W) int { return FnN(x) }
+-- 05589.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G(x W) int { return FnN(x) }
+-- 05590.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G(x W) int { return FnN(x) }
+-- 05591.ergo --
+func G(r R) int { return FnI(r) }
+-- 05592.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G(r R) int { return FnI(r) }
+-- 05593.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G(r R) int { return FnI(r) }
+-- 05594.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G(r R) int { return FnI(r) }
+-- 05595.ergo --
+func G(x E, y R) { _ = Two(x, y) }
+-- 05596.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G(x E, y R) { _ = Two(x, y) }
+-- 05597.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G(x E, y R) { _ = Two(x, y) }
+-- 05598.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G(x E, y R) { _ = Two(x, y) }
+-- 05599.ergo --
+func G(x E, y R) { _ = Two(y, x) }
+-- 05600.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G(x E, y R) { _ = Two(y, x) }
+-- 05601.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G(x E, y R) { _ = Two(y, x) }
+-- 05602.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G(x E, y R) { _ = Two(y, x) }
+-- 05603.ergo --
+func G(x E, y R) { _ = Two[E](x, y) }
+-- 05604.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G(x E, y R) { _ = Two[E](x, y) }
+-- 05605.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G(x E, y R) { _ = Two[E](x, y) }
+-- 05606.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G(x E, y R) { _ = Two[E](x, y) }
+-- 05607.ergo --
+func G(x E, y R) { _ = Two[E](y, x) }
+-- 05608.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G(x E, y R) { _ = Two[E](y, x) }
+-- 05609.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G(x E, y R) { _ = Two[E](y, x) }
+-- 05610.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G(x E, y R) { _ = Two[E](y, x) }
+-- 05611.ergo --
+func G(x E, y F) { _ = Two(x, y) }
+-- 05612.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G(x E, y F) { _ = Two(x, y) }
+-- 05613.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G(x E, y F) { _ = Two(x, y) }
+-- 05614.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G(x E, y F) { _ = Two(x, y) }
+-- 05615.ergo --
+func G(x E, y EN) { _ = Two(x, y) }
+-- 05616.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G(x E, y EN) { _ = Two(x, y) }
+-- 05617.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G(x E, y EN) { _ = Two(x, y) }
+-- 05618.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G(x E, y EN) { _ = Two(x, y) }
+-- 05619.ergo --
+func G(x J, y J) { _ = Two(x, y) }
+-- 05620.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G(x J, y J) { _ = Two(x, y) }
+-- 05621.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G(x J, y J) { _ = Two(x, y) }
+-- 05622.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G(x J, y J) { _ = Two(x, y) }
+-- 05623.ergo --
+func G(a []int, b string) { FnS(a, b) }
+-- 05624.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G(a []int, b string) { FnS(a, b) }
+-- 05625.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G(a []int, b string) { FnS(a, b) }
+-- 05626.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G(a []int, b string) { FnS(a, b) }
+-- 05627.ergo --
+func G(a []int, b int) { FnS(a, b) }
+-- 05628.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G(a []int, b int) { FnS(a, b) }
+-- 05629.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G(a []int, b int) { FnS(a, b) }
+-- 05630.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G(a []int, b int) { FnS(a, b) }
+-- 05631.ergo --
+func G(x J, y K) { _ = Two(x, y) }
+-- 05632.ergo --
+type Has[T] { V T }
+
+type Empty {}
+
+type Opt[T] = Has[T] | Empty
+
+func Get[T](o Opt[T], d T) T { return d }
+
+func Pair[T](o Opt[T], p Opt[T]) {}
+func G(x J, y K) { _ = Two(x, y) }
+-- 05633.ergo --
+type S struct{}
+
+func (S) M() int { return 1 }
+
+type P struct{}
+
+func (*P) M() int { return 1 }
+
+type I[T any] interface{ M() T }
+
+type J interface{ M() int }
+
+type K interface{ M() int }
+
+type W interface {
+	M() int
+	N()
+}
+
+type E interface{ M() }
+
+type F interface{ M() }
+
+type EN interface {
+	M()
+	N()
+}
+
+type A[T any] interface{ M() T }
+
+type R struct{}
+
+func (R) M() {}
+
+func FnI[T any](x A[T]) T { return x.M() }
+
+func FnN[T any](x I[T]) T { return x.M() }
+
+func Two[T any](a T, b T) T { return a }
+
+func FnS[T any](a []T, b T) {}
+func G(x J, y K) { _ = Two(x, y) }
+-- 05634.ergo --
+type S {}
+
+func M(_ S) int { return 1 }
+
+type P {}
+
+func M(_ *P) int { return 1 }
+
+type I[T] { M() T }
+
+type J { M() int }
+
+type K { M() int }
+
+type W {
+	M() int,
+	N(),
+}
+
+type E { M() }
+
+type F { M() }
+
+type EN {
+	M(),
+	N(),
+}
+
+type A[T] { M() T }
+
+type R {}
+
+func M(_ R) {}
+
+func FnI[T](x A[T]) T { return x.M() }
+
+func FnN[T](x I[T]) T { return x.M() }
+
+func Two[T](a T, b T) T { return a }
+
+func FnS[T](a []T, b T) {}
+func G(x J, y K) { _ = Two(x, y) }
+-- 05635.ergo --
+type U = 
+-- 05636.ergo --
+
+func F(u U) int {
+	match u {
+-- 05637.ergo --
+func Two[T any](a T, b T) T { return a }
+
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B any](a A, b B) A { return a }
+
+func Each[A, B any](f func(A, B) A, a A, b B) {}
+
+type S struct{}
+
+func (S) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+-- 05638.ergo --
+func Two[T](a T, b T) T { return a }
+
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B](a A, b B) A { return a }
+
+func Each[A, B](f func(A, B) A, a A, b B) {}
+
+type S {}
+
+func M(S, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+-- 05639.ergo --
+func Two[T](a T, b T) T { return a }
+
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B](a A, b B) A { return a }
+
+func Each[A, B](f func(A, B) A, a A, b B) {}
+
+type S {}
+
+func M(S, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func Two[T any](a T, b T) T { return a }
+
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B any](a A, b B) A { return a }
+
+func Each[A, B any](f func(A, B) A, a A, b B) {}
+
+type S struct{}
+
+func (S) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+-- 05640.ergo --
+func Two[T any](a T, b T) T { return a }
+
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B any](a A, b B) A { return a }
+
+func Each[A, B any](f func(A, B) A, a A, b B) {}
+
+type S struct{}
+
+func (S) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func Two[T](a T, b T) T { return a }
+
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B](a A, b B) A { return a }
+
+func Each[A, B](f func(A, B) A, a A, b B) {}
+
+type S {}
+
+func M(S, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+-- 05641.ergo --
+func F() int32 { return Two(1, 'a') }
+-- 05642.ergo --
+func Two[T any](a T, b T) T { return a }
+
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B any](a A, b B) A { return a }
+
+func Each[A, B any](f func(A, B) A, a A, b B) {}
+
+type S struct{}
+
+func (S) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F() int32 { return Two(1, 'a') }
+-- 05643.ergo --
+func Two[T](a T, b T) T { return a }
+
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B](a A, b B) A { return a }
+
+func Each[A, B](f func(A, B) A, a A, b B) {}
+
+type S {}
+
+func M(S, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F() int32 { return Two(1, 'a') }
+-- 05644.ergo --
+func F() int32 { return Two('a', 1) }
+-- 05645.ergo --
+func Two[T any](a T, b T) T { return a }
+
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B any](a A, b B) A { return a }
+
+func Each[A, B any](f func(A, B) A, a A, b B) {}
+
+type S struct{}
+
+func (S) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F() int32 { return Two('a', 1) }
+-- 05646.ergo --
+func Two[T](a T, b T) T { return a }
+
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B](a A, b B) A { return a }
+
+func Each[A, B](f func(A, B) A, a A, b B) {}
+
+type S {}
+
+func M(S, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F() int32 { return Two('a', 1) }
+-- 05647.ergo --
+func F() int { return Two(1, 'a') }
+-- 05648.ergo --
+func Two[T any](a T, b T) T { return a }
+
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B any](a A, b B) A { return a }
+
+func Each[A, B any](f func(A, B) A, a A, b B) {}
+
+type S struct{}
+
+func (S) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F() int { return Two(1, 'a') }
+-- 05649.ergo --
+func Two[T](a T, b T) T { return a }
+
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B](a A, b B) A { return a }
+
+func Each[A, B](f func(A, B) A, a A, b B) {}
+
+type S {}
+
+func M(S, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F() int { return Two(1, 'a') }
+-- 05650.ergo --
+func F() int { return Two('a', 1) }
+-- 05651.ergo --
+func Two[T any](a T, b T) T { return a }
+
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B any](a A, b B) A { return a }
+
+func Each[A, B any](f func(A, B) A, a A, b B) {}
+
+type S struct{}
+
+func (S) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F() int { return Two('a', 1) }
+-- 05652.ergo --
+func Two[T](a T, b T) T { return a }
+
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B](a A, b B) A { return a }
+
+func Each[A, B](f func(A, B) A, a A, b B) {}
+
+type S {}
+
+func M(S, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F() int { return Two('a', 1) }
+-- 05653.ergo --
+func F() int { return Two[int](1, 'a') }
+-- 05654.ergo --
+func Two[T any](a T, b T) T { return a }
+
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B any](a A, b B) A { return a }
+
+func Each[A, B any](f func(A, B) A, a A, b B) {}
+
+type S struct{}
+
+func (S) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F() int { return Two[int](1, 'a') }
+-- 05655.ergo --
+func Two[T](a T, b T) T { return a }
+
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B](a A, b B) A { return a }
+
+func Each[A, B](f func(A, B) A, a A, b B) {}
+
+type S {}
+
+func M(S, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F() int { return Two[int](1, 'a') }
+-- 05656.ergo --
+func F() { _ = Two(1, "a") }
+-- 05657.ergo --
+func Two[T any](a T, b T) T { return a }
+
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B any](a A, b B) A { return a }
+
+func Each[A, B any](f func(A, B) A, a A, b B) {}
+
+type S struct{}
+
+func (S) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F() { _ = Two(1, "a") }
+-- 05658.ergo --
+func Two[T](a T, b T) T { return a }
+
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B](a A, b B) A { return a }
+
+func Each[A, B](f func(A, B) A, a A, b B) {}
+
+type S {}
+
+func M(S, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F() { _ = Two(1, "a") }
+-- 05659.ergo --
+func F(x S) { Use(x) }
+-- 05660.ergo --
+func Two[T any](a T, b T) T { return a }
+
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B any](a A, b B) A { return a }
+
+func Each[A, B any](f func(A, B) A, a A, b B) {}
+
+type S struct{}
+
+func (S) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F(x S) { Use(x) }
+-- 05661.ergo --
+func Two[T](a T, b T) T { return a }
+
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B](a A, b B) A { return a }
+
+func Each[A, B](f func(A, B) A, a A, b B) {}
+
+type S {}
+
+func M(S, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F(x S) { Use(x) }
+-- 05662.ergo --
+func F(x S) { UseN(x) }
+-- 05663.ergo --
+func Two[T any](a T, b T) T { return a }
+
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B any](a A, b B) A { return a }
+
+func Each[A, B any](f func(A, B) A, a A, b B) {}
+
+type S struct{}
+
+func (S) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F(x S) { UseN(x) }
+-- 05664.ergo --
+func Two[T](a T, b T) T { return a }
+
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B](a A, b B) A { return a }
+
+func Each[A, B](f func(A, B) A, a A, b B) {}
+
+type S {}
+
+func M(S, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F(x S) { UseN(x) }
+-- 05665.ergo --
+func F(x S) { Use[int](x) }
+-- 05666.ergo --
+func Two[T any](a T, b T) T { return a }
+
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B any](a A, b B) A { return a }
+
+func Each[A, B any](f func(A, B) A, a A, b B) {}
+
+type S struct{}
+
+func (S) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F(x S) { Use[int](x) }
+-- 05667.ergo --
+func Two[T](a T, b T) T { return a }
+
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B](a A, b B) A { return a }
+
+func Each[A, B](f func(A, B) A, a A, b B) {}
+
+type S {}
+
+func M(S, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F(x S) { Use[int](x) }
+-- 05668.ergo --
+func F() int { return Apply(Id, 1) }
+-- 05669.ergo --
+func Two[T any](a T, b T) T { return a }
+
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B any](a A, b B) A { return a }
+
+func Each[A, B any](f func(A, B) A, a A, b B) {}
+
+type S struct{}
+
+func (S) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F() int { return Apply(Id, 1) }
+-- 05670.ergo --
+func Two[T](a T, b T) T { return a }
+
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B](a A, b B) A { return a }
+
+func Each[A, B](f func(A, B) A, a A, b B) {}
+
+type S {}
+
+func M(S, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F() int { return Apply(Id, 1) }
+-- 05671.ergo --
+func F() int { return Fix(Id) }
+-- 05672.ergo --
+func Two[T any](a T, b T) T { return a }
+
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B any](a A, b B) A { return a }
+
+func Each[A, B any](f func(A, B) A, a A, b B) {}
+
+type S struct{}
+
+func (S) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F() int { return Fix(Id) }
+-- 05673.ergo --
+func Two[T](a T, b T) T { return a }
+
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B](a A, b B) A { return a }
+
+func Each[A, B](f func(A, B) A, a A, b B) {}
+
+type S {}
+
+func M(S, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F() int { return Fix(Id) }
+-- 05674.ergo --
+func F() { Each(Pick[int], 1, "a") }
+-- 05675.ergo --
+func Two[T any](a T, b T) T { return a }
+
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B any](a A, b B) A { return a }
+
+func Each[A, B any](f func(A, B) A, a A, b B) {}
+
+type S struct{}
+
+func (S) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F() { Each(Pick[int], 1, "a") }
+-- 05676.ergo --
+func Two[T](a T, b T) T { return a }
+
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B](a A, b B) A { return a }
+
+func Each[A, B](f func(A, B) A, a A, b B) {}
+
+type S {}
+
+func M(S, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F() { Each(Pick[int], 1, "a") }
+-- 05677.ergo --
+func F() int { return Apply(Id[int], 1) }
+-- 05678.ergo --
+func Two[T any](a T, b T) T { return a }
+
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B any](a A, b B) A { return a }
+
+func Each[A, B any](f func(A, B) A, a A, b B) {}
+
+type S struct{}
+
+func (S) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F() int { return Apply(Id[int], 1) }
+-- 05679.ergo --
+func Two[T](a T, b T) T { return a }
+
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B](a A, b B) A { return a }
+
+func Each[A, B](f func(A, B) A, a A, b B) {}
+
+type S {}
+
+func M(S, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F() int { return Apply(Id[int], 1) }
+-- 05680.ergo --
+func F() int { return Fix(Id[int]) }
+-- 05681.ergo --
+func Two[T any](a T, b T) T { return a }
+
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B any](a A, b B) A { return a }
+
+func Each[A, B any](f func(A, B) A, a A, b B) {}
+
+type S struct{}
+
+func (S) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F() int { return Fix(Id[int]) }
+-- 05682.ergo --
+func Two[T](a T, b T) T { return a }
+
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Fix(f func(int) int) int { return f(1) }
+
+func Pick[A, B](a A, b B) A { return a }
+
+func Each[A, B](f func(A, B) A, a A, b B) {}
+
+type S {}
+
+func M(S, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func Use[T comparable, P IM[T]](x P) {}
+
+func UseN[T comparable, P I[T]](x P) {}
+func F() int { return Fix(Id[int]) }
+-- 05683.ergo --
+type V%d[T] {}
+-- 05684.ergo --
+type S struct{}
+
+func (S) M(int8) {}
+
+type R struct{}
+
+func (R) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q struct{}
+
+func (Q) Get() int8 { return 0 }
+
+type IG[T any] interface{ Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Rev[T any](x T, f func(T) T) T { return f(x) }
+-- 05685.ergo --
+type S {}
+
+func M(S, int8) {}
+
+type R {}
+
+func M(R, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q {}
+
+func Get(_ Q) int8 { return 0 }
+
+type IG[T] { Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Rev[T](x T, f func(T) T) T { return f(x) }
+-- 05686.ergo --
+type S {}
+
+func M(S, int8) {}
+
+type R {}
+
+func M(R, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q {}
+
+func Get(_ Q) int8 { return 0 }
+
+type IG[T] { Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Rev[T](x T, f func(T) T) T { return f(x) }
+type S struct{}
+
+func (S) M(int8) {}
+
+type R struct{}
+
+func (R) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q struct{}
+
+func (Q) Get() int8 { return 0 }
+
+type IG[T any] interface{ Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Rev[T any](x T, f func(T) T) T { return f(x) }
+-- 05687.ergo --
+type S struct{}
+
+func (S) M(int8) {}
+
+type R struct{}
+
+func (R) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q struct{}
+
+func (Q) Get() int8 { return 0 }
+
+type IG[T any] interface{ Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Rev[T any](x T, f func(T) T) T { return f(x) }
+type S {}
+
+func M(S, int8) {}
+
+type R {}
+
+func M(R, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q {}
+
+func Get(_ Q) int8 { return 0 }
+
+type IG[T] { Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Rev[T](x T, f func(T) T) T { return f(x) }
+-- 05688.ergo --
+func F(s S) { G(1, s) }
+-- 05689.ergo --
+type S struct{}
+
+func (S) M(int8) {}
+
+type R struct{}
+
+func (R) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q struct{}
+
+func (Q) Get() int8 { return 0 }
+
+type IG[T any] interface{ Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Rev[T any](x T, f func(T) T) T { return f(x) }
+func F(s S) { G(1, s) }
+-- 05690.ergo --
+type S {}
+
+func M(S, int8) {}
+
+type R {}
+
+func M(R, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q {}
+
+func Get(_ Q) int8 { return 0 }
+
+type IG[T] { Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Rev[T](x T, f func(T) T) T { return f(x) }
+func F(s S) { G(1, s) }
+-- 05691.ergo --
+func F(r R) { G('a', r) }
+-- 05692.ergo --
+type S struct{}
+
+func (S) M(int8) {}
+
+type R struct{}
+
+func (R) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q struct{}
+
+func (Q) Get() int8 { return 0 }
+
+type IG[T any] interface{ Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Rev[T any](x T, f func(T) T) T { return f(x) }
+func F(r R) { G('a', r) }
+-- 05693.ergo --
+type S {}
+
+func M(S, int8) {}
+
+type R {}
+
+func M(R, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q {}
+
+func Get(_ Q) int8 { return 0 }
+
+type IG[T] { Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Rev[T](x T, f func(T) T) T { return f(x) }
+func F(r R) { G('a', r) }
+-- 05694.ergo --
+func F(s S) { GN(1, s) }
+-- 05695.ergo --
+type S struct{}
+
+func (S) M(int8) {}
+
+type R struct{}
+
+func (R) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q struct{}
+
+func (Q) Get() int8 { return 0 }
+
+type IG[T any] interface{ Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Rev[T any](x T, f func(T) T) T { return f(x) }
+func F(s S) { GN(1, s) }
+-- 05696.ergo --
+type S {}
+
+func M(S, int8) {}
+
+type R {}
+
+func M(R, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q {}
+
+func Get(_ Q) int8 { return 0 }
+
+type IG[T] { Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Rev[T](x T, f func(T) T) T { return f(x) }
+func F(s S) { GN(1, s) }
+-- 05697.ergo --
+func F(q Q) { GR(1, q) }
+-- 05698.ergo --
+type S struct{}
+
+func (S) M(int8) {}
+
+type R struct{}
+
+func (R) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q struct{}
+
+func (Q) Get() int8 { return 0 }
+
+type IG[T any] interface{ Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Rev[T any](x T, f func(T) T) T { return f(x) }
+func F(q Q) { GR(1, q) }
+-- 05699.ergo --
+type S {}
+
+func M(S, int8) {}
+
+type R {}
+
+func M(R, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q {}
+
+func Get(_ Q) int8 { return 0 }
+
+type IG[T] { Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Rev[T](x T, f func(T) T) T { return f(x) }
+func F(q Q) { GR(1, q) }
+-- 05700.ergo --
+func F(s S) { G[int8](1, s) }
+-- 05701.ergo --
+type S struct{}
+
+func (S) M(int8) {}
+
+type R struct{}
+
+func (R) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q struct{}
+
+func (Q) Get() int8 { return 0 }
+
+type IG[T any] interface{ Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Rev[T any](x T, f func(T) T) T { return f(x) }
+func F(s S) { G[int8](1, s) }
+-- 05702.ergo --
+type S {}
+
+func M(S, int8) {}
+
+type R {}
+
+func M(R, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q {}
+
+func Get(_ Q) int8 { return 0 }
+
+type IG[T] { Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Rev[T](x T, f func(T) T) T { return f(x) }
+func F(s S) { G[int8](1, s) }
+-- 05703.ergo --
+func F(s S, v int8) { G(v, s) }
+-- 05704.ergo --
+type S struct{}
+
+func (S) M(int8) {}
+
+type R struct{}
+
+func (R) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q struct{}
+
+func (Q) Get() int8 { return 0 }
+
+type IG[T any] interface{ Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Rev[T any](x T, f func(T) T) T { return f(x) }
+func F(s S, v int8) { G(v, s) }
+-- 05705.ergo --
+type S {}
+
+func M(S, int8) {}
+
+type R {}
+
+func M(R, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q {}
+
+func Get(_ Q) int8 { return 0 }
+
+type IG[T] { Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Rev[T](x T, f func(T) T) T { return f(x) }
+func F(s S, v int8) { G(v, s) }
+-- 05706.ergo --
+func F(s S, v int) { G(v, s) }
+-- 05707.ergo --
+type S struct{}
+
+func (S) M(int8) {}
+
+type R struct{}
+
+func (R) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q struct{}
+
+func (Q) Get() int8 { return 0 }
+
+type IG[T any] interface{ Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Rev[T any](x T, f func(T) T) T { return f(x) }
+func F(s S, v int) { G(v, s) }
+-- 05708.ergo --
+type S {}
+
+func M(S, int8) {}
+
+type R {}
+
+func M(R, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q {}
+
+func Get(_ Q) int8 { return 0 }
+
+type IG[T] { Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Rev[T](x T, f func(T) T) T { return f(x) }
+func F(s S, v int) { G(v, s) }
+-- 05709.ergo --
+func F(s S) { G[int](1, s) }
+-- 05710.ergo --
+type S struct{}
+
+func (S) M(int8) {}
+
+type R struct{}
+
+func (R) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q struct{}
+
+func (Q) Get() int8 { return 0 }
+
+type IG[T any] interface{ Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Rev[T any](x T, f func(T) T) T { return f(x) }
+func F(s S) { G[int](1, s) }
+-- 05711.ergo --
+type S {}
+
+func M(S, int8) {}
+
+type R {}
+
+func M(R, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q {}
+
+func Get(_ Q) int8 { return 0 }
+
+type IG[T] { Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Rev[T](x T, f func(T) T) T { return f(x) }
+func F(s S) { G[int](1, s) }
+-- 05712.ergo --
+func F() int8 { return Apply(func(v int8) int8 { return v }, 1) }
+-- 05713.ergo --
+type S struct{}
+
+func (S) M(int8) {}
+
+type R struct{}
+
+func (R) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q struct{}
+
+func (Q) Get() int8 { return 0 }
+
+type IG[T any] interface{ Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Rev[T any](x T, f func(T) T) T { return f(x) }
+func F() int8 { return Apply(func(v int8) int8 { return v }, 1) }
+-- 05714.ergo --
+type S {}
+
+func M(S, int8) {}
+
+type R {}
+
+func M(R, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q {}
+
+func Get(_ Q) int8 { return 0 }
+
+type IG[T] { Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Rev[T](x T, f func(T) T) T { return f(x) }
+func F() int8 { return Apply(func(v int8) int8 { return v }, 1) }
+-- 05715.ergo --
+func F() int8 { return Rev(1, func(v int8) int8 { return v }) }
+-- 05716.ergo --
+type S struct{}
+
+func (S) M(int8) {}
+
+type R struct{}
+
+func (R) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q struct{}
+
+func (Q) Get() int8 { return 0 }
+
+type IG[T any] interface{ Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Rev[T any](x T, f func(T) T) T { return f(x) }
+func F() int8 { return Rev(1, func(v int8) int8 { return v }) }
+-- 05717.ergo --
+type S {}
+
+func M(S, int8) {}
+
+type R {}
+
+func M(R, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q {}
+
+func Get(_ Q) int8 { return 0 }
+
+type IG[T] { Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Rev[T](x T, f func(T) T) T { return f(x) }
+func F() int8 { return Rev(1, func(v int8) int8 { return v }) }
+-- 05718.ergo --
+func F() int8 { return Apply[int8](func(v int8) int8 { return v }, 1) }
+-- 05719.ergo --
+type S struct{}
+
+func (S) M(int8) {}
+
+type R struct{}
+
+func (R) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q struct{}
+
+func (Q) Get() int8 { return 0 }
+
+type IG[T any] interface{ Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Rev[T any](x T, f func(T) T) T { return f(x) }
+func F() int8 { return Apply[int8](func(v int8) int8 { return v }, 1) }
+-- 05720.ergo --
+type S {}
+
+func M(S, int8) {}
+
+type R {}
+
+func M(R, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q {}
+
+func Get(_ Q) int8 { return 0 }
+
+type IG[T] { Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Rev[T](x T, f func(T) T) T { return f(x) }
+func F() int8 { return Apply[int8](func(v int8) int8 { return v }, 1) }
+-- 05721.ergo --
+func F() string { return Apply(func(v string) string { return v }, "a") }
+-- 05722.ergo --
+type S struct{}
+
+func (S) M(int8) {}
+
+type R struct{}
+
+func (R) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q struct{}
+
+func (Q) Get() int8 { return 0 }
+
+type IG[T any] interface{ Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Rev[T any](x T, f func(T) T) T { return f(x) }
+func F() string { return Apply(func(v string) string { return v }, "a") }
+-- 05723.ergo --
+type S {}
+
+func M(S, int8) {}
+
+type R {}
+
+func M(R, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q {}
+
+func Get(_ Q) int8 { return 0 }
+
+type IG[T] { Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Rev[T](x T, f func(T) T) T { return f(x) }
+func F() string { return Apply(func(v string) string { return v }, "a") }
+-- 05724.ergo --
+func F() { _ = Apply(func(v int8) int8 { return v }, "a") }
+-- 05725.ergo --
+type S struct{}
+
+func (S) M(int8) {}
+
+type R struct{}
+
+func (R) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q struct{}
+
+func (Q) Get() int8 { return 0 }
+
+type IG[T any] interface{ Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Rev[T any](x T, f func(T) T) T { return f(x) }
+func F() { _ = Apply(func(v int8) int8 { return v }, "a") }
+-- 05726.ergo --
+type S {}
+
+func M(S, int8) {}
+
+type R {}
+
+func M(R, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q {}
+
+func Get(_ Q) int8 { return 0 }
+
+type IG[T] { Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Rev[T](x T, f func(T) T) T { return f(x) }
+func F() { _ = Apply(func(v int8) int8 { return v }, "a") }
+-- 05727.ergo --
+func F() { _ = Apply(func(v int8) string { return "" }, 1) }
+-- 05728.ergo --
+type S struct{}
+
+func (S) M(int8) {}
+
+type R struct{}
+
+func (R) M(int) {}
+
+type I[T any] interface{ M(T) }
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q struct{}
+
+func (Q) Get() int8 { return 0 }
+
+type IG[T any] interface{ Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Rev[T any](x T, f func(T) T) T { return f(x) }
+func F() { _ = Apply(func(v int8) string { return "" }, 1) }
+-- 05729.ergo --
+type S {}
+
+func M(S, int8) {}
+
+type R {}
+
+func M(R, int) {}
+
+type I[T] { M(T) }
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) {}
+
+func GN[T comparable, P I[T]](v T, p P) {}
+
+type Q {}
+
+func Get(_ Q) int8 { return 0 }
+
+type IG[T] { Get() T }
+
+func GR[T comparable, P IG[T]](v T, p P) {}
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Rev[T](x T, f func(T) T) T { return f(x) }
+func F() { _ = Apply(func(v int8) string { return "" }, 1) }
+-- 05730.ergo --
+type A {}
+type B {}
+type C {}
+type V[T] {}
+type W[T, Q] {}
+type P = V[A] | V[B]
+type G[T] = W[T, A] | W[T, []T] | W[A, T]
+type S = V[func() A] | V[func(A) []B] | V[Map[A, []B]]
+-- 05731.ergo --
+type V[T, Q] {}
+-- 05732.ergo --
+type A {}
+type B {}
+type C {}
+type V[T] {}
+type W[T, Q] {}
+type P = V[A] | V[B]
+type G[T] = W[T, A] | W[T, []T] | W[A, T]
+type S = V[func() A] | V[func(A) []B] | V[Map[A, []B]]
+type V[T, Q] {}
+-- 05733.ergo --
+type A {}
+type B {}
+type C {}
+type V[T] {}
+type W[T, Q] {}
+type P = V[A] | V[B]
+type G[T] = W[T, A] | W[T, []T] | W[A, T]
+type S = V[func() A] | V[func(A) []B] | V[Map[A, []B]]
+type A%d {}
+-- 05734.ergo --
+type A {}
+type B {}
+type C {}
+type V[T] {}
+type W[T, Q] {}
+type P = V[A] | V[B]
+type G[T] = W[T, A] | W[T, []T] | W[A, T]
+type S = V[func() A] | V[func(A) []B] | V[Map[A, []B]]
+type U[T] = 
+-- 05735.ergo --
+
+func F(
+-- 05736.ergo --
+type A {}
+type B {}
+type C {}
+type V[T] {}
+type W[T, Q] {}
+type P = V[A] | V[B]
+type G[T] = W[T, A] | W[T, []T] | W[A, T]
+type S = V[func() A] | V[func(A) []B] | V[Map[A, []B]]
+
+func F(
+-- 05737.ergo --
+type V[T] {}
+-- 05738.ergo --
+type A {}
+type B {}
+type C {}
+type V[T] {}
+type W[T, Q] {}
+type P = V[A] | V[B]
+type G[T] = W[T, A] | W[T, []T] | W[A, T]
+type S = V[func() A] | V[func(A) []B] | V[Map[A, []B]]
+type V[T] {}
+-- 05739.ergo --
+type V[T, Q] {}
+type B {}
+-- 05740.ergo --
+type A {}
+type B {}
+type C {}
+type V[T] {}
+type W[T, Q] {}
+type P = V[A] | V[B]
+type G[T] = W[T, A] | W[T, []T] | W[A, T]
+type S = V[func() A] | V[func(A) []B] | V[Map[A, []B]]
+type V[T, Q] {}
+type B {}
+-- 05741.ergo --
+type A {}
+type B {}
+type C {}
+type V[T] {}
+type W[T, Q] {}
+type P = V[A] | V[B]
+type G[T] = W[T, A] | W[T, []T] | W[A, T]
+type S = V[func() A] | V[func(A) []B] | V[Map[A, []B]]
+type U = 
+-- 05742.ergo --
+
+func F(x %s) int {
+-- 05743.ergo --
+type A {}
+type B {}
+type C {}
+type V[T] {}
+type W[T, Q] {}
+type P = V[A] | V[B]
+type G[T] = W[T, A] | W[T, []T] | W[A, T]
+type S = V[func() A] | V[func(A) []B] | V[Map[A, []B]]
+
+func F(x %s) int {
+-- 05744.ergo --
+func F(x P) int { match x { case V[A]: return 1
+	case V[B]: return 2 }
+	return 0 }
+-- 05745.ergo --
+type A {}
+type B {}
+type C {}
+type V[T] {}
+type W[T, Q] {}
+type P = V[A] | V[B]
+type G[T] = W[T, A] | W[T, []T] | W[A, T]
+type S = V[func() A] | V[func(A) []B] | V[Map[A, []B]]
+func F(x P) int { match x { case V[A]: return 1
+	case V[B]: return 2 }
+	return 0 }
+-- 05746.ergo --
+func F(x P) int { match x { case V[A]: return 1 }
+	return 0 }
+-- 05747.ergo --
+type A {}
+type B {}
+type C {}
+type V[T] {}
+type W[T, Q] {}
+type P = V[A] | V[B]
+type G[T] = W[T, A] | W[T, []T] | W[A, T]
+type S = V[func() A] | V[func(A) []B] | V[Map[A, []B]]
+func F(x P) int { match x { case V[A]: return 1 }
+	return 0 }
+-- 05748.ergo --
+func F(x P) int { match x { case V[C]: return 1
+	case _: return 0 } }
+-- 05749.ergo --
+type A {}
+type B {}
+type C {}
+type V[T] {}
+type W[T, Q] {}
+type P = V[A] | V[B]
+type G[T] = W[T, A] | W[T, []T] | W[A, T]
+type S = V[func() A] | V[func(A) []B] | V[Map[A, []B]]
+func F(x P) int { match x { case V[C]: return 1
+	case _: return 0 } }
+-- 05750.ergo --
+func F(x G[B]) int { match x { case W[B, A]: return 1
+	case W[B, []B]: return 2
+	case W[A, B]: return 3 }
+	return 0 }
+-- 05751.ergo --
+type A {}
+type B {}
+type C {}
+type V[T] {}
+type W[T, Q] {}
+type P = V[A] | V[B]
+type G[T] = W[T, A] | W[T, []T] | W[A, T]
+type S = V[func() A] | V[func(A) []B] | V[Map[A, []B]]
+func F(x G[B]) int { match x { case W[B, A]: return 1
+	case W[B, []B]: return 2
+	case W[A, B]: return 3 }
+	return 0 }
+-- 05752.ergo --
+func F(x G[B]) int { match x { case W[B, []A]: return 1
+	case _: return 0 } }
+-- 05753.ergo --
+type A {}
+type B {}
+type C {}
+type V[T] {}
+type W[T, Q] {}
+type P = V[A] | V[B]
+type G[T] = W[T, A] | W[T, []T] | W[A, T]
+type S = V[func() A] | V[func(A) []B] | V[Map[A, []B]]
+func F(x G[B]) int { match x { case W[B, []A]: return 1
+	case _: return 0 } }
+-- 05754.ergo --
+func F(x G[A]) int { match x { case W[A, A]: return 1
+	case W[A, []A]: return 2 }
+	return 0 }
+-- 05755.ergo --
+type A {}
+type B {}
+type C {}
+type V[T] {}
+type W[T, Q] {}
+type P = V[A] | V[B]
+type G[T] = W[T, A] | W[T, []T] | W[A, T]
+type S = V[func() A] | V[func(A) []B] | V[Map[A, []B]]
+func F(x G[A]) int { match x { case W[A, A]: return 1
+	case W[A, []A]: return 2 }
+	return 0 }
+-- 05756.ergo --
+func F(x G[A]) int { match x { case W[A, A]: return 1
+	case W[A, []A]: return 2
+	case _: return 0 } }
+-- 05757.ergo --
+type A {}
+type B {}
+type C {}
+type V[T] {}
+type W[T, Q] {}
+type P = V[A] | V[B]
+type G[T] = W[T, A] | W[T, []T] | W[A, T]
+type S = V[func() A] | V[func(A) []B] | V[Map[A, []B]]
+func F(x G[A]) int { match x { case W[A, A]: return 1
+	case W[A, []A]: return 2
+	case _: return 0 } }
+-- 05758.ergo --
+func F(x S) int { match x { case V[func() A]: return 1
+	case V[func(A) []B]: return 2
+	case V[Map[A, []B]]: return 3 }
+	return 0 }
+-- 05759.ergo --
+type A {}
+type B {}
+type C {}
+type V[T] {}
+type W[T, Q] {}
+type P = V[A] | V[B]
+type G[T] = W[T, A] | W[T, []T] | W[A, T]
+type S = V[func() A] | V[func(A) []B] | V[Map[A, []B]]
+func F(x S) int { match x { case V[func() A]: return 1
+	case V[func(A) []B]: return 2
+	case V[Map[A, []B]]: return 3 }
+	return 0 }
+-- 05760.ergo --
+func F(x S) int { match x { case V[func() B]: return 1
+	case _: return 0 } }
+-- 05761.ergo --
+type A {}
+type B {}
+type C {}
+type V[T] {}
+type W[T, Q] {}
+type P = V[A] | V[B]
+type G[T] = W[T, A] | W[T, []T] | W[A, T]
+type S = V[func() A] | V[func(A) []B] | V[Map[A, []B]]
+func F(x S) int { match x { case V[func() B]: return 1
+	case _: return 0 } }
+-- 05762.ergo --
+func F(x S) int { match x { case V[Map[A, B]]: return 1
+	case _: return 0 } }
+-- 05763.ergo --
+type A {}
+type B {}
+type C {}
+type V[T] {}
+type W[T, Q] {}
+type P = V[A] | V[B]
+type G[T] = W[T, A] | W[T, []T] | W[A, T]
+type S = V[func() A] | V[func(A) []B] | V[Map[A, []B]]
+func F(x S) int { match x { case V[Map[A, B]]: return 1
+	case _: return 0 } }
+-- 05764.ergo --
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B any](a A, b B) A { return a }
+
+type S struct{}
+
+func (S) M(int8) {}
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+-- 05765.ergo --
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B](a A, b B) A { return a }
+
+type S {}
+
+func M(S, int8) {}
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+-- 05766.ergo --
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B](a A, b B) A { return a }
+
+type S {}
+
+func M(S, int8) {}
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B any](a A, b B) A { return a }
+
+type S struct{}
+
+func (S) M(int8) {}
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+-- 05767.ergo --
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B any](a A, b B) A { return a }
+
+type S struct{}
+
+func (S) M(int8) {}
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B](a A, b B) A { return a }
+
+type S {}
+
+func M(S, int8) {}
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+-- 05768.ergo --
+func F() int { return Id(Apply(Id, 1)) }
+-- 05769.ergo --
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B any](a A, b B) A { return a }
+
+type S struct{}
+
+func (S) M(int8) {}
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+func F() int { return Id(Apply(Id, 1)) }
+-- 05770.ergo --
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B](a A, b B) A { return a }
+
+type S {}
+
+func M(S, int8) {}
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+func F() int { return Id(Apply(Id, 1)) }
+-- 05771.ergo --
+func F(s S) int8 { return Id(G(1, s)) }
+-- 05772.ergo --
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B any](a A, b B) A { return a }
+
+type S struct{}
+
+func (S) M(int8) {}
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+func F(s S) int8 { return Id(G(1, s)) }
+-- 05773.ergo --
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B](a A, b B) A { return a }
+
+type S {}
+
+func M(S, int8) {}
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+func F(s S) int8 { return Id(G(1, s)) }
+-- 05774.ergo --
+func F() int { return Id(Id(Apply(Id, 1))) }
+-- 05775.ergo --
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B any](a A, b B) A { return a }
+
+type S struct{}
+
+func (S) M(int8) {}
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+func F() int { return Id(Id(Apply(Id, 1))) }
+-- 05776.ergo --
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B](a A, b B) A { return a }
+
+type S {}
+
+func M(S, int8) {}
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+func F() int { return Id(Id(Apply(Id, 1))) }
+-- 05777.ergo --
+func F(n int) int { return Pair(Apply(Id, 1), n) }
+-- 05778.ergo --
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B any](a A, b B) A { return a }
+
+type S struct{}
+
+func (S) M(int8) {}
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+func F(n int) int { return Pair(Apply(Id, 1), n) }
+-- 05779.ergo --
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B](a A, b B) A { return a }
+
+type S {}
+
+func M(S, int8) {}
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+func F(n int) int { return Pair(Apply(Id, 1), n) }
+-- 05780.ergo --
+func F() int { return Id(missing) }
+-- 05781.ergo --
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B any](a A, b B) A { return a }
+
+type S struct{}
+
+func (S) M(int8) {}
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+func F() int { return Id(missing) }
+-- 05782.ergo --
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B](a A, b B) A { return a }
+
+type S {}
+
+func M(S, int8) {}
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+func F() int { return Id(missing) }
+-- 05783.ergo --
+func F() int { return Id(Pair(missing, 1)) }
+-- 05784.ergo --
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B any](a A, b B) A { return a }
+
+type S struct{}
+
+func (S) M(int8) {}
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+func F() int { return Id(Pair(missing, 1)) }
+-- 05785.ergo --
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B](a A, b B) A { return a }
+
+type S {}
+
+func M(S, int8) {}
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+func F() int { return Id(Pair(missing, 1)) }
+-- 05786.ergo --
+func F() int { return Pair(Apply(Id, 1), missing) }
+-- 05787.ergo --
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B any](a A, b B) A { return a }
+
+type S struct{}
+
+func (S) M(int8) {}
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+func F() int { return Pair(Apply(Id, 1), missing) }
+-- 05788.ergo --
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B](a A, b B) A { return a }
+
+type S {}
+
+func M(S, int8) {}
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+func F() int { return Pair(Apply(Id, 1), missing) }
+-- 05789.ergo --
+func F() int { return Pair(Apply(Id, 1), Apply(Id, 2)) }
+-- 05790.ergo --
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B any](a A, b B) A { return a }
+
+type S struct{}
+
+func (S) M(int8) {}
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+func F() int { return Pair(Apply(Id, 1), Apply(Id, 2)) }
+-- 05791.ergo --
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B](a A, b B) A { return a }
+
+type S {}
+
+func M(S, int8) {}
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+func F() int { return Pair(Apply(Id, 1), Apply(Id, 2)) }
+-- 05792.ergo --
+func F() int { return Id(Apply(Id[int], 1)) }
+-- 05793.ergo --
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B any](a A, b B) A { return a }
+
+type S struct{}
+
+func (S) M(int8) {}
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+func F() int { return Id(Apply(Id[int], 1)) }
+-- 05794.ergo --
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B](a A, b B) A { return a }
+
+type S {}
+
+func M(S, int8) {}
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+func F() int { return Id(Apply(Id[int], 1)) }
+-- 05795.ergo --
+func F(s S) int8 { return Id(G[int8](1, s)) }
+-- 05796.ergo --
+func Id[U any](x U) U { return x }
+
+func Apply[T any](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B any](a A, b B) A { return a }
+
+type S struct{}
+
+func (S) M(int8) {}
+
+type IM[T any] interface{ M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+func F(s S) int8 { return Id(G[int8](1, s)) }
+-- 05797.ergo --
+func Id[U](x U) U { return x }
+
+func Apply[T](f func(T) T, x T) T { return f(x) }
+
+func Pair[A, B](a A, b B) A { return a }
+
+type S {}
+
+func M(S, int8) {}
+
+type IM[T] { M(T) }
+
+func G[T comparable, P IM[T]](v T, p P) T { return v }
+func F(s S) int8 { return Id(G[int8](1, s)) }
+-- 05798.ergo --
+func Id[T any](x T) T { return x }
+
+func Two[T any](a T, b T) T { return a }
+-- 05799.ergo --
+func Id[T](x T) T { return x }
+
+func Two[T](a T, b T) T { return a }
+-- 05800.ergo --
+func Id[T](x T) T { return x }
+
+func Two[T](a T, b T) T { return a }
+func Id[T any](x T) T { return x }
+
+func Two[T any](a T, b T) T { return a }
+-- 05801.ergo --
+func Id[T any](x T) T { return x }
+
+func Two[T any](a T, b T) T { return a }
+func Id[T](x T) T { return x }
+
+func Two[T](a T, b T) T { return a }
+-- 05802.ergo --
+func F(n uint) int { return 1 << n }
+-- 05803.ergo --
+func Id[T any](x T) T { return x }
+
+func Two[T any](a T, b T) T { return a }
+func F(n uint) int { return 1 << n }
+-- 05804.ergo --
+func Id[T](x T) T { return x }
+
+func Two[T](a T, b T) T { return a }
+func F(n uint) int { return 1 << n }
+-- 05805.ergo --
+func F(n uint) int8 { return Id[int8](1 << n) }
+-- 05806.ergo --
+func Id[T any](x T) T { return x }
+
+func Two[T any](a T, b T) T { return a }
+func F(n uint) int8 { return Id[int8](1 << n) }
+-- 05807.ergo --
+func Id[T](x T) T { return x }
+
+func Two[T](a T, b T) T { return a }
+func F(n uint) int8 { return Id[int8](1 << n) }
+-- 05808.ergo --
+func F(n uint) int8 { return Id[int8](256 << n) }
+-- 05809.ergo --
+func Id[T any](x T) T { return x }
+
+func Two[T any](a T, b T) T { return a }
+func F(n uint) int8 { return Id[int8](256 << n) }
+-- 05810.ergo --
+func Id[T](x T) T { return x }
+
+func Two[T](a T, b T) T { return a }
+func F(n uint) int8 { return Id[int8](256 << n) }
+-- 05811.ergo --
+func F(n uint) uint8 { return -1 >> n }
+-- 05812.ergo --
+func Id[T any](x T) T { return x }
+
+func Two[T any](a T, b T) T { return a }
+func F(n uint) uint8 { return -1 >> n }
+-- 05813.ergo --
+func Id[T](x T) T { return x }
+
+func Two[T](a T, b T) T { return a }
+func F(n uint) uint8 { return -1 >> n }
+-- 05814.ergo --
+func F(n uint) int8 { return (128) << n }
+-- 05815.ergo --
+func Id[T any](x T) T { return x }
+
+func Two[T any](a T, b T) T { return a }
+func F(n uint) int8 { return (128) << n }
+-- 05816.ergo --
+func Id[T](x T) T { return x }
+
+func Two[T](a T, b T) T { return a }
+func F(n uint) int8 { return (128) << n }
+-- 05817.ergo --
+func F(n uint) float64 { return float64(1 << n) }
+-- 05818.ergo --
+func Id[T any](x T) T { return x }
+
+func Two[T any](a T, b T) T { return a }
+func F(n uint) float64 { return float64(1 << n) }
+-- 05819.ergo --
+func Id[T](x T) T { return x }
+
+func Two[T](a T, b T) T { return a }
+func F(n uint) float64 { return float64(1 << n) }
+-- 05820.ergo --
+func F(n uint) float64 { return 1 << n }
+-- 05821.ergo --
+func Id[T any](x T) T { return x }
+
+func Two[T any](a T, b T) T { return a }
+func F(n uint) float64 { return 1 << n }
+-- 05822.ergo --
+func Id[T](x T) T { return x }
+
+func Two[T](a T, b T) T { return a }
+func F(n uint) float64 { return 1 << n }
+-- 05823.ergo --
+func F() float64 { return 1 << 3 }
+-- 05824.ergo --
+func Id[T any](x T) T { return x }
+
+func Two[T any](a T, b T) T { return a }
+func F() float64 { return 1 << 3 }
+-- 05825.ergo --
+func Id[T](x T) T { return x }
+
+func Two[T](a T, b T) T { return a }
+func F() float64 { return 1 << 3 }
+-- 05826.ergo --
+func F(n uint, v int8) int8 { return Two(1 << n, v) }
+-- 05827.ergo --
+func Id[T any](x T) T { return x }
+
+func Two[T any](a T, b T) T { return a }
+func F(n uint, v int8) int8 { return Two(1 << n, v) }
+-- 05828.ergo --
+func Id[T](x T) T { return x }
+
+func Two[T](a T, b T) T { return a }
+func F(n uint, v int8) int8 { return Two(1 << n, v) }
+-- 05829.ergo --
+func F(n uint, v int8) int8 { return Two(v, 1 << n) }
+-- 05830.ergo --
+func Id[T any](x T) T { return x }
+
+func Two[T any](a T, b T) T { return a }
+func F(n uint, v int8) int8 { return Two(v, 1 << n) }
+-- 05831.ergo --
+func Id[T](x T) T { return x }
+
+func Two[T](a T, b T) T { return a }
+func F(n uint, v int8) int8 { return Two(v, 1 << n) }
+-- 05832.ergo --
+func F(n uint) int32 { return 'a' << n }
+-- 05833.ergo --
+func Id[T any](x T) T { return x }
+
+func Two[T any](a T, b T) T { return a }
+func F(n uint) int32 { return 'a' << n }
+-- 05834.ergo --
+func Id[T](x T) T { return x }
+
+func Two[T](a T, b T) T { return a }
+func F(n uint) int32 { return 'a' << n }
+-- 05835.ergo --
+func F(n uint) int8 { return int8(1) << n }
+-- 05836.ergo --
+func Id[T any](x T) T { return x }
+
+func Two[T any](a T, b T) T { return a }
+func F(n uint) int8 { return int8(1) << n }
+-- 05837.ergo --
+func Id[T](x T) T { return x }
+
+func Two[T](a T, b T) T { return a }
+func F(n uint) int8 { return int8(1) << n }
+-- 05838.ergo --
+func F(n uint, x int8) int8 { return x << n }
+-- 05839.ergo --
+func Id[T any](x T) T { return x }
+
+func Two[T any](a T, b T) T { return a }
+func F(n uint, x int8) int8 { return x << n }
+-- 05840.ergo --
+func Id[T](x T) T { return x }
+
+func Two[T](a T, b T) T { return a }
+func F(n uint, x int8) int8 { return x << n }
+-- 05841.ergo --
+func F() int8 { return 1 << 3 }
+-- 05842.ergo --
+func Id[T any](x T) T { return x }
+
+func Two[T any](a T, b T) T { return a }
+func F() int8 { return 1 << 3 }
+-- 05843.ergo --
+func Id[T](x T) T { return x }
+
+func Two[T](a T, b T) T { return a }
+func F() int8 { return 1 << 3 }
+-- 05844.ergo --
+func F() int { return Id(1 << 3) }
+-- 05845.ergo --
+func Id[T any](x T) T { return x }
+
+func Two[T any](a T, b T) T { return a }
+func F() int { return Id(1 << 3) }
+-- 05846.ergo --
+func Id[T](x T) T { return x }
+
+func Two[T](a T, b T) T { return a }
+func F() int { return Id(1 << 3) }
+-- 05847.ergo --
+
+func F(x U[
+-- 05848.ergo --
+type U[E] = 
+-- 05849.ergo --
+
+type Fault {}
+func F(x U[Fault]) int {
+	match x {
+-- 05850.ergo --
+func Many[
+-- 05851.ergo --
+) {}
+func F() {
+	Many(
+-- 05852.ergo --
+type Log { Put() }
+type Store { Get() int }
+-- 05853.ergo --
+func k() int needs Log | Store { Log.Put()
+	Store.Get() }
+-- 05854.ergo --
+func f() int needs Log | Store {
+	let h func() int needs Log = k
+	h()
+}
+func main() {}
+-- 05855.ergo --
+func f() int needs Log | Store {
+	let h int = k
+	h
+}
+func main() {}
+-- 05856.ergo --
+type A {}
+type B {}
+type C {}
+func g() fails A | B { return A }
+-- 05857.ergo --
+func f() int fails C {
+	let x = g() catch {
+	case C:
+		1
+	}
+	x
+}
+func main() {}
+-- 05858.ergo --
+func f(s string) int {
+	let mut n = 0
+	for i, r in s {
+		let j int = i
+		let c rune = r
+		n += j + int(c)
+	}
+	n
+}
+-- 05859.ergo --
+func f(s string) rune {
+	let mut m rune = 0
+	for r in s {
+		m = r
+	}
+	m
+}
+-- 05860.ergo --
+func f(s string) int {
+	let mut n = 0
+	for i, _ in s {
+		n = i
+	}
+	n
+}
+-- 05861.ergo --
+type Name string
+
+func f(s Name) rune {
+	let mut m rune = 0
+	for r in s {
+		m = r
+	}
+	m
+}
+-- 05862.ergo --
+func f() int {
+	let mut n = 0
+	for r in "héllo" {
+		n += int(r)
+	}
+	n
+}
+-- 05863.ergo --
+func f(s string) byte {
+	let mut m byte = 0
+	for r in s {
+		m = r
+	}
+	m
+}
+-- 05864.ergo --
+func f(s string) string {
+	let mut m = ""
+	for r in s {
+		m = r
+	}
+	m
+}
+-- 05865.ergo --
+func f(s string) int64 {
+	let mut m int64 = 0
+	for i, _ in s {
+		m = i
+	}
+	m
+}
+-- 05866.ergo --
+func f(s string) {
+	for r in s {
+	}
+}
+-- 05867.ergo --
+func f(p *string) {
+	for r in p {
+		let _ = r
+	}
+}
+-- 05868.ergo --
+func f(s string) {
+	for i, r, x in s {
+	}
+}
+-- 05869.ergo --
+type %s { Label() string }
+-- 05870.ergo --
+type P {}
+-- 05871.ergo --
+func Label(_ P) string { return "p%s" }
+-- 05872.ergo --
+func Pad() string { return "p%s" }
+-- 05873.ergo --
+let B = context { %s: P }
+-- 05874.ergo --
+type Y%d { Label() string }
+-- 05875.ergo --
+let W%d = context { Y%d: P, B }
+-- 05876.ergo --
+type T%d { V int64 }
+-- 05877.ergo --
+func f%d(t T%d) int64 { return t.V }
+-- 05878.ergo --
+type S%d { Label() string }
+-- 05879.ergo --
+type M%d { Text string }
+-- 05880.ergo --
+func Label(m M%d) string { return m.Text }
+-- 05881.ergo --
+func use%d() string needs S%d { return S%d.Label() }
+-- 05882.ergo --
+type R {
+-- 05883.ergo --
+func make() R {
+-- 05884.ergo --
+func sum(r R) int64 {
+-- 05885.ergo --
+func first(r R) int64 {
+-- 05886.ergo --
+func main() { let _ = sum(make()) + first(make()) }
+-- 05887.ergo --
+func pick(r R) int64 {
+-- 05888.ergo --
+func main() { let _ = pick(R{}) }
+-- 05889.ergo --
+func f(a int64) int64 {
+-- 05890.ergo --
+func main() { let _ = f(1) }
+-- 05891.ergo --
+func g(a int64) int64 { return a + 1 }
+-- 05892.ergo --
+type L0 { V int64 }
+-- 05893.ergo --
+type L%d { In L%d }
+-- 05894.ergo --
+func main() { let _ = %s }
+-- 05895.ergo --
+type S0 { V int64 }
+-- 05896.ergo --
+type S%d { N S%d }
+-- 05897.ergo --
+func f(s S%d) int64 { return s%s.V }
+-- 05898.ergo --
+func f(a int64) int64 { return a%s }
+-- 05899.ergo --
+func f(x int64) int64 {
+-- 05900.ergo --
+type V%d { On bool }
+-- 05901.ergo --
+func f(u U) int64 {
+-- 05902.ergo --
+func main() { let _ = f(V0{On: true}) }
+-- 05903.ergo --
+type U[%s] = %s
+-- 05904.ergo --
+func f(x U[%s]) int64 {
+-- 05905.ergo --
+type Fault {}
+-- 05906.ergo --
+type U[E] = %s
+-- 05907.ergo --
+func f(x U[Fault]) int64 {
+-- 05908.ergo --
+func walk() int64 fails Fault { return 1 }
+-- 05909.ergo --
+func apply(f func() int64 fails Fault) int64 fails Fault { return f() }
+-- 05910.ergo --
+func f%d() int64 fails Fault { return try walk() }
+-- 05911.ergo --
+func Run() int64 fails Fault {
+-- 05912.ergo --
+func main() { let _ = Run() catch { case Fault: 0 } }
+-- 05913.ergo --
+func walk() int64 fails Fault { return missing }
+-- 05914.ergo --
+type B%d { V int64 }
+-- 05915.ergo --
+func Get(b B%d) int64 { return b.V }
+-- 05916.ergo --
+func make%d() B%d { return B%d{V: %d} }
+-- 05917.ergo --
+func f() int64 {
+-- 05918.ergo --
+func main() { let _ = f() }
+-- 05919.ergo --
+type Store { Get() string }
+-- 05920.ergo --
+func Get(_ Mem) string { return "m" }
+-- 05921.ergo --
+func f%d(k int64) string {
+-- 05922.ergo --
+func f%d(k int64) string { return try f%d(k - 1) }
+-- 05923.ergo --
+func Run(k int64) string fails Fault needs Store { return try f0(k) }
+-- 05924.ergo --
+type Store { Label() string }
+-- 05925.ergo --
+type Memory { Text string }
+-- 05926.ergo --
+func Label(m Memory) string { return m.Text }
+-- 05927.ergo --
+func run() string needs Store { return Store.Label() }
+-- 05928.ergo --
+let W0 = context { Store: Memory{Text: "live"} }
+-- 05929.ergo --
+func run%d() string { return with W%d { run() } }
+-- 05930.ergo --
+type E%d {}
+-- 05931.ergo --
+func f(k int64) int64 fails %s {
+-- 05932.ergo --
+func g(k int64) int64 {
+-- 05933.ergo --
+func main() { let _ = g(1) }
+-- 05934.ergo --
+type Many[%s] {
+-- 05935.ergo --
+func first(m Many[%s]) int64 { return m.F0 }
+-- 05936.ergo --
+func many[%s](%s) {}
+-- 05937.ergo --
+func main() { many(%s) }
+-- 05938.ergo --
+
+type Log { Write(s string) }
+type A {}
+type B {}
+func getB() B { return B }
+func m(a A) {
+	_ = f
+}
+func m(b B) {}
+func f() {
+	getB().m()
+	Log.Write("x")
+}
+func main() {}
+-- 05939.ergo --
+
+type Log { Write(s string) }
+type A {}
+type B {}
+func getB() B { return B }
+func m(a A) {
+	_ = f
+}
+func m(b B) {}
+func f() {
+	let x = getB()
+	x.m()
+	Log.Write("x")
+}
+func main() {}
+-- 05940.ergo --
+
+type A {}
+type B {}
+func getB() B { return B }
+func m(a A) int { return v }
+func m(b B) int { return 1 }
+let v = getB().m()
+func main() {}
+-- 05941.ergo --
+
+type A {}
+type B {}
+func getB() B { return B }
+func m(a A) int { return v }
+func m(b B) int { return v }
+let v = getB().m()
+func main() {}
+-- 05942.ergo --
+
+func H() { try h() }
+func h() { try mk().knock() }
+func K() fails Bang { try h() }
+func mk() Door { return Door{} }
+func knock(d Door) { try fail() }
+func fail() fails Bang { return Bang }
+type Door { open bool }
+type Bang {}
+func main() {}
+-- 05943.ergo --
+
+func H(ds []Door, w Wrap) { try h(ds, w) }
+func h(ds []Door, w Wrap) {
+	let d = mk()
+	try d.knock()
+	try ds[0].knock()
+	try w.door.knock()
+}
+func K(ds []Door, w Wrap) fails Bang { try h(ds, w) }
+func mk() Door { return Door{} }
+func knock(d Door) { try fail() }
+func fail() fails Bang { return Bang }
+type Wrap { door Door }
+type Door { open bool }
+type Bang {}
+func main() {}
+-- 05944.ergo --
+
+type Log { Write(s string) }
+type T { m func() }
+type U {}
+func m(u U) {
+	_ = f
+}
+func getT() T { return T{m: func() {}} }
+func f() {
+	getT().m()
+	Log.Write("x")
+}
+func main() {}
+-- 05945.ergo --
+type R%d {}
+func mk%d() R%d { return R%d }
+func m(_ R%d) {}
+func f%d() {
+	let x = mk%d()
+	x.m()
+}
+-- 05946.ergo --
+type Box { n int }
+func same[T](b Box, x T) T { return x }
+-- 05947.ergo --
+type Counter { Value int }
+func Value(c Counter) int { return c.Value + 1 }
+-- 05948.ergo --
+type Counter { Value int }
+func Value(c Counter) int { return c.Value + 1 }
+type Box { n int }
+func same[T](b Box, x T) T { return x }
+-- 05949.ergo --
+type Box { n int }
+func same[T](b Box, x T) T { return x }
+type Counter { Value int }
+func Value(c Counter) int { return c.Value + 1 }
+-- 05950.ergo --
+func f(b Box) int { return b.same[int](1) }
+func main() {}
+-- 05951.ergo --
+type Box { n int }
+func same[T](b Box, x T) T { return x }
+func f(b Box) int { return b.same[int](1) }
+func main() {}
+-- 05952.ergo --
+type Counter { Value int }
+func Value(c Counter) int { return c.Value + 1 }
+func f(b Box) int { return b.same[int](1) }
+func main() {}
+-- 05953.ergo --
+func f(b Box) int { return b.same(1) }
+func main() {}
+-- 05954.ergo --
+type Box { n int }
+func same[T](b Box, x T) T { return x }
+func f(b Box) int { return b.same(1) }
+func main() {}
+-- 05955.ergo --
+type Counter { Value int }
+func Value(c Counter) int { return c.Value + 1 }
+func f(b Box) int { return b.same(1) }
+func main() {}
+-- 05956.ergo --
+func f(b Box) int { return b.same[string](1) }
+func main() {}
+-- 05957.ergo --
+type Box { n int }
+func same[T](b Box, x T) T { return x }
+func f(b Box) int { return b.same[string](1) }
+func main() {}
+-- 05958.ergo --
+type Counter { Value int }
+func Value(c Counter) int { return c.Value + 1 }
+func f(b Box) int { return b.same[string](1) }
+func main() {}
+-- 05959.ergo --
+func f(b Box) int { return b.same[int, int](1) }
+func main() {}
+-- 05960.ergo --
+type Box { n int }
+func same[T](b Box, x T) T { return x }
+func f(b Box) int { return b.same[int, int](1) }
+func main() {}
+-- 05961.ergo --
+type Counter { Value int }
+func Value(c Counter) int { return c.Value + 1 }
+func f(b Box) int { return b.same[int, int](1) }
+func main() {}
+-- 05962.ergo --
+type G[T] { v T }
+func pick[T, U](g G[T], u U) U { return u }
+func f(g G[int]) string { return g.pick[string]("x") }
+func main() {}
+-- 05963.ergo --
+type Box { n int }
+func same[T](b Box, x T) T { return x }
+type G[T] { v T }
+func pick[T, U](g G[T], u U) U { return u }
+func f(g G[int]) string { return g.pick[string]("x") }
+func main() {}
+-- 05964.ergo --
+type Counter { Value int }
+func Value(c Counter) int { return c.Value + 1 }
+type G[T] { v T }
+func pick[T, U](g G[T], u U) U { return u }
+func f(g G[int]) string { return g.pick[string]("x") }
+func main() {}
+-- 05965.ergo --
+func f(b Box) { let g = b.same[int]; _ = g }
+func main() {}
+-- 05966.ergo --
+type Box { n int }
+func same[T](b Box, x T) T { return x }
+func f(b Box) { let g = b.same[int]; _ = g }
+func main() {}
+-- 05967.ergo --
+type Counter { Value int }
+func Value(c Counter) int { return c.Value + 1 }
+func f(b Box) { let g = b.same[int]; _ = g }
+func main() {}
+-- 05968.ergo --
+type Box { n int }
+type E {}
+func load() int fails E { return 1 }
+func same[T](b Box, x T) T { _ = try load(); return x }
+func f(b Box) int fails E { return try b.same[int](1) }
+func main() {}
+-- 05969.ergo --
+type Box { n int }
+func same[T](b Box, x T) T { return x }
+type Box { n int }
+type E {}
+func load() int fails E { return 1 }
+func same[T](b Box, x T) T { _ = try load(); return x }
+func f(b Box) int fails E { return try b.same[int](1) }
+func main() {}
+-- 05970.ergo --
+type Counter { Value int }
+func Value(c Counter) int { return c.Value + 1 }
+type Box { n int }
+type E {}
+func load() int fails E { return 1 }
+func same[T](b Box, x T) T { _ = try load(); return x }
+func f(b Box) int fails E { return try b.same[int](1) }
+func main() {}
+-- 05971.ergo --
+type Box { n int }
+type E {}
+func load() int fails E { return 1 }
+func same[T](b Box, x T) T { _ = try load(); return x }
+func F(b Box) int { return try b.same[int](1) }
+func main() {}
+-- 05972.ergo --
+type Box { n int }
+func same[T](b Box, x T) T { return x }
+type Box { n int }
+type E {}
+func load() int fails E { return 1 }
+func same[T](b Box, x T) T { _ = try load(); return x }
+func F(b Box) int { return try b.same[int](1) }
+func main() {}
+-- 05973.ergo --
+type Counter { Value int }
+func Value(c Counter) int { return c.Value + 1 }
+type Box { n int }
+type E {}
+func load() int fails E { return 1 }
+func same[T](b Box, x T) T { _ = try load(); return x }
+func F(b Box) int { return try b.same[int](1) }
+func main() {}
+-- 05974.ergo --
+type Read { Value() int }
+func use(r Read) int { return r.Value() }
+func f() int { return use(Counter{Value: 1}) }
+func main() {}
+-- 05975.ergo --
+type Box { n int }
+func same[T](b Box, x T) T { return x }
+type Read { Value() int }
+func use(r Read) int { return r.Value() }
+func f() int { return use(Counter{Value: 1}) }
+func main() {}
+-- 05976.ergo --
+type Counter { Value int }
+func Value(c Counter) int { return c.Value + 1 }
+type Read { Value() int }
+func use(r Read) int { return r.Value() }
+func f() int { return use(Counter{Value: 1}) }
+func main() {}
+-- 05977.ergo --
+func f(c Counter) int { return c.Value }
+func main() {}
+-- 05978.ergo --
+type Box { n int }
+func same[T](b Box, x T) T { return x }
+func f(c Counter) int { return c.Value }
+func main() {}
+-- 05979.ergo --
+type Counter { Value int }
+func Value(c Counter) int { return c.Value + 1 }
+func f(c Counter) int { return c.Value }
+func main() {}
+-- 05980.ergo --
+func f(c Counter) int { return c.Value() }
+func main() {}
+-- 05981.ergo --
+type Box { n int }
+func same[T](b Box, x T) T { return x }
+func f(c Counter) int { return c.Value() }
+func main() {}
+-- 05982.ergo --
+type Counter { Value int }
+func Value(c Counter) int { return c.Value + 1 }
+func f(c Counter) int { return c.Value() }
+func main() {}
+-- 05983.ergo --
+type S {}
+func hs(s S) []func() int { return []func() int{} }
+func f(s S) int { return s.hs[0]() }
+func main() {}
+-- 05984.ergo --
+type Box { n int }
+func same[T](b Box, x T) T { return x }
+type S {}
+func hs(s S) []func() int { return []func() int{} }
+func f(s S) int { return s.hs[0]() }
+func main() {}
+-- 05985.ergo --
+type Counter { Value int }
+func Value(c Counter) int { return c.Value + 1 }
+type S {}
+func hs(s S) []func() int { return []func() int{} }
+func f(s S) int { return s.hs[0]() }
+func main() {}
+-- 05986.ergo --
+type G[T] {}
+func hs[T](g G[T]) []func() int { return []func() int{} }
+func f(g G[int]) int { return g.hs[0]() }
+func main() {}
+-- 05987.ergo --
+type Box { n int }
+func same[T](b Box, x T) T { return x }
+type G[T] {}
+func hs[T](g G[T]) []func() int { return []func() int{} }
+func f(g G[int]) int { return g.hs[0]() }
+func main() {}
+-- 05988.ergo --
+type Counter { Value int }
+func Value(c Counter) int { return c.Value + 1 }
+type G[T] {}
+func hs[T](g G[T]) []func() int { return []func() int{} }
+func f(g G[int]) int { return g.hs[0]() }
+func main() {}
+-- 05989.ergo --
+type S {}
+func hs(s S) []func() int { return []func() int{} }
+func f(s S, i int) int { return s.hs[i]() }
+func main() {}
+-- 05990.ergo --
+type Box { n int }
+func same[T](b Box, x T) T { return x }
+type S {}
+func hs(s S) []func() int { return []func() int{} }
+func f(s S, i int) int { return s.hs[i]() }
+func main() {}
+-- 05991.ergo --
+type Counter { Value int }
+func Value(c Counter) int { return c.Value + 1 }
+type S {}
+func hs(s S) []func() int { return []func() int{} }
+func f(s S, i int) int { return s.hs[i]() }
+func main() {}
+-- 05992.ergo --
+
+type T { n int }
+type Show { show() string }
+func show[T](x T) string { return "generic" }
+let W = context { Show: T{n: 1} }
+func main() {
+	let t = T{n: 1}
+	_ = show(t)
+}
+-- 05993.ergo --
+
+type Box[T] { v T }
+type Show { show() string }
+func show[T, U](b Box[T]) string { return "box" }
+let W = context { Show: Box[int]{v: 1} }
+func main() {}
+-- 05994.ergo --
+
+type Getter { Pair(u int) int }
+type Box[T] { v T }
+func Pair[T, U](b Box[T], u U) U { return u }
+let W = context { Getter: Box[int]{v: 1} }
+func main() {}
+-- 05995.ergo --
+
+type Fixed { n int }
+type Show { show() string }
+func show[U](f Fixed) string { return "fixed" }
+let W = context { Show: Fixed{n: 1} }
+func main() {}
+-- 05996.ergo --
+
+type Box[T] { v T }
+type Show { show() string }
+func show[T](b Box[T]) string { return "box" }
+let W = context { Show: Box[int]{v: 1} }
+func main() {}
+-- 05997.ergo --
+
+
+type Counter { n int }
+
+func bump(c Counter, by int) int { return c.n + by }
+
+func F() int {
+	let c = Counter{n: 1}
+	return c.bump(2) + bump(c, 3)
+}
+-- 05998.ergo --
+
+
+type Counter { n int }
+
+func bump(c Counter, by int) int { return c.n + by }
+
+func F() int {
+	let c = Counter{n: 1}
+	return c.bump("two")
+}
+
+func G() int {
+	let c = Counter{n: 1}
+	return c.bump(1, 2)
+}
+-- 05999.ergo --
+
+
+type Counter { n int }
+
+func label(c Counter) string { return "c" }
+
+func F() int {
+	let c = Counter{n: 1}
+	return c.label()
+}

@@ -11,15 +11,16 @@ import (
 // reaches it. Retired entries fail here, including Interface:any (C10).
 // Replay source programs independently of which named tests are selected.
 func TestRefusedFamiliesHaveWitnesses(t *testing.T) {
-	var sources []string
-	for _, dir := range []string{"../check", "."} {
-		// The bound guards against a runaway corpus walk; a lane that adds check tests raises it in steps.
-		ss, _, total, stride := checkCorpus(t, dir, 12000)
-		if stride != 1 {
-			t.Fatalf("refusal domain was sampled in %s (%d candidates); increase its bound", dir, total)
-		}
-		sources = append(sources, ss...)
+	// The bound guards against a runaway corpus walk; a lane that adds tests raises it in steps.
+	sources, _, total, stride, err := readCheckCorpus(12000)
+	if err != nil || stride != 1 {
+		t.Fatalf("the checker's corpus: %v, or sampled (%d candidates); increase its bound", err, total)
 	}
+	ss, _, total, stride := checkCorpus(t, ".", 12000)
+	if stride != 1 {
+		t.Fatalf("refusal domain was sampled in this package (%d candidates); increase its bound", total)
+	}
+	sources = append(sources, ss...)
 	for _, root := range []string{"../check/testdata", "../testdata", "../../../examples", "testdata"} {
 		err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 			if err != nil {

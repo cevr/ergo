@@ -1,0 +1,4782 @@
+-- 07500.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+type y{a int}
+func t() { _ = y{a: 1, 1: {t}} }
+-- 07501.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+type y{a int}
+func t() { _ = y{a: 1, 1: {t}} }
+-- 07502.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+type y{a int}
+func t() { _ = y{a: 1, 1: {t}} }
+-- 07503.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+type y{a int}
+func t() { _ = y{a: 1, 1: {t}} }
+-- 07504.ergo --
+type y{a int}
+func t() { _ = y{a: 1, a: {t}} }
+-- 07505.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+type y{a int}
+func t() { _ = y{a: 1, a: {t}} }
+-- 07506.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+type y{a int}
+func t() { _ = y{a: 1, a: {t}} }
+-- 07507.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+type y{a int}
+func t() { _ = y{a: 1, a: {t}} }
+-- 07508.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+type y{a int}
+func t() { _ = y{a: 1, a: {t}} }
+-- 07509.ergo --
+type y{a int}
+type p{f func()}
+func t() { _ = y{a: 1, a: p{t}} }
+-- 07510.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+type y{a int}
+type p{f func()}
+func t() { _ = y{a: 1, a: p{t}} }
+-- 07511.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+type y{a int}
+type p{f func()}
+func t() { _ = y{a: 1, a: p{t}} }
+-- 07512.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+type y{a int}
+type p{f func()}
+func t() { _ = y{a: 1, a: p{t}} }
+-- 07513.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+type y{a int}
+type p{f func()}
+func t() { _ = y{a: 1, a: p{t}} }
+-- 07514.ergo --
+type y{a func()}
+func e() int { let mut n = 0; _ = y{a: {func() { n = 1 }}}; n }
+-- 07515.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+type y{a func()}
+func e() int { let mut n = 0; _ = y{a: {func() { n = 1 }}}; n }
+-- 07516.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+type y{a func()}
+func e() int { let mut n = 0; _ = y{a: {func() { n = 1 }}}; n }
+-- 07517.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+type y{a func()}
+func e() int { let mut n = 0; _ = y{a: {func() { n = 1 }}}; n }
+-- 07518.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+type y{a func()}
+func e() int { let mut n = 0; _ = y{a: {func() { n = 1 }}}; n }
+-- 07519.ergo --
+type y{}
+func e() int { let mut n = 0; _ = y{{func() { n = 1 }}}; n }
+-- 07520.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+type y{}
+func e() int { let mut n = 0; _ = y{{func() { n = 1 }}}; n }
+-- 07521.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+type y{}
+func e() int { let mut n = 0; _ = y{{func() { n = 1 }}}; n }
+-- 07522.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+type y{}
+func e() int { let mut n = 0; _ = y{{func() { n = 1 }}}; n }
+-- 07523.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+type y{}
+func e() int { let mut n = 0; _ = y{{func() { n = 1 }}}; n }
+-- 07524.ergo --
+type y{a int}
+func e() int { let mut n = 0; _ = y{a: 1, b: {func() { n = 1 }}}; n }
+-- 07525.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+type y{a int}
+func e() int { let mut n = 0; _ = y{a: 1, b: {func() { n = 1 }}}; n }
+-- 07526.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+type y{a int}
+func e() int { let mut n = 0; _ = y{a: 1, b: {func() { n = 1 }}}; n }
+-- 07527.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+type y{a int}
+func e() int { let mut n = 0; _ = y{a: 1, b: {func() { n = 1 }}}; n }
+-- 07528.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+type y{a int}
+func e() int { let mut n = 0; _ = y{a: 1, b: {func() { n = 1 }}}; n }
+-- 07529.ergo --
+type y{a int}
+func e() int { let mut n = 0; _ = y{a: 1, a: {func() { n = 1 }}}; n }
+-- 07530.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+type y{a int}
+func e() int { let mut n = 0; _ = y{a: 1, a: {func() { n = 1 }}}; n }
+-- 07531.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+type y{a int}
+func e() int { let mut n = 0; _ = y{a: 1, a: {func() { n = 1 }}}; n }
+-- 07532.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+type y{a int}
+func e() int { let mut n = 0; _ = y{a: 1, a: {func() { n = 1 }}}; n }
+-- 07533.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+type y{a int}
+func e() int { let mut n = 0; _ = y{a: 1, a: {func() { n = 1 }}}; n }
+-- 07534.ergo --
+func b() int { let x = a(1); x }
+func F() int fails Bang { try b() }
+-- 07535.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func b() int { let x = a(1); x }
+func F() int fails Bang { try b() }
+-- 07536.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func b() int { let x = a(1); x }
+func F() int fails Bang { try b() }
+-- 07537.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func b() int { let x = a(1); x }
+func F() int fails Bang { try b() }
+-- 07538.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func b() int { let x = a(1); x }
+func F() int fails Bang { try b() }
+-- 07539.ergo --
+func id(n int) int { n }
+func b() int { id(a(1)) }
+func F() int fails Bang { try b() }
+-- 07540.ergo --
+type Cap { M() }
+type Bang {}
+type Other {}
+func mark() fails Bang { return Bang }
+func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }
+func id(n int) int { n }
+func b() int { id(a(1)) }
+func F() int fails Bang { try b() }
+-- 07541.ergo --
+func F() int { walk() catch { case Bang: 1; case Other: 2 } }
+func G() int { walk() }
+func H() int fails Bang { try walk() catch { case Bang: 1 } }
+func id(n int) int { n }
+func b() int { id(a(1)) }
+func F() int fails Bang { try b() }
+-- 07542.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+type Q {}
+type Cap2 { N() }
+func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }
+func mq() fails Q { return Q }
+func q(n int) int fails Q { try mq(); n }
+func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }
+func pick[T](x T, y T) T { x }
+func id(n int) int { n }
+func b() int { id(a(1)) }
+func F() int fails Bang { try b() }
+-- 07543.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }
+type Q {}
+type Cap2 { N() }
+func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }
+func mq() fails Q { return Q }
+func run[T](x T, f T) T { x }
+func mk[T](f T) func() T { func() T { f } }
+func id(n int) int { n }
+func b() int { id(a(1)) }
+func F() int fails Bang { try b() }
+-- 07544.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+-- 07545.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+-- 07546.ergo --
+type R { N int }
+func use(n int) {}
+-- 07547.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+-- 07548.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+-- 07549.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+-- 07550.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+-- 07551.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+-- 07552.ergo --
+type R { N int }
+func use(n int) {}
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+-- 07553.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+-- 07554.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+-- 07555.ergo --
+func g() int fails E { 1 }
+func use(n int) {}
+-- 07556.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func g() int fails E { 1 }
+func use(n int) {}
+-- 07557.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func g() int fails E { 1 }
+func use(n int) {}
+-- 07558.ergo --
+type R { N int }
+func use(n int) {}
+func g() int fails E { 1 }
+func use(n int) {}
+-- 07559.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func g() int fails E { 1 }
+func use(n int) {}
+-- 07560.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func g() int fails E { 1 }
+func use(n int) {}
+-- 07561.ergo --
+func f() int {
+	let x = 1
+	x = 2
+	x
+}
+-- 07562.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int {
+	let x = 1
+	x = 2
+	x
+}
+-- 07563.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int {
+	let x = 1
+	x = 2
+	x
+}
+-- 07564.ergo --
+type R { N int }
+func use(n int) {}
+func f() int {
+	let x = 1
+	x = 2
+	x
+}
+-- 07565.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int {
+	let x = 1
+	x = 2
+	x
+}
+-- 07566.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int {
+	let x = 1
+	x = 2
+	x
+}
+-- 07567.ergo --
+func f() int {
+	let x = 1
+	x += 2
+	x
+}
+-- 07568.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int {
+	let x = 1
+	x += 2
+	x
+}
+-- 07569.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int {
+	let x = 1
+	x += 2
+	x
+}
+-- 07570.ergo --
+type R { N int }
+func use(n int) {}
+func f() int {
+	let x = 1
+	x += 2
+	x
+}
+-- 07571.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int {
+	let x = 1
+	x += 2
+	x
+}
+-- 07572.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int {
+	let x = 1
+	x += 2
+	x
+}
+-- 07573.ergo --
+func f(n int) int {
+	n = 2
+	n
+}
+-- 07574.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(n int) int {
+	n = 2
+	n
+}
+-- 07575.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(n int) int {
+	n = 2
+	n
+}
+-- 07576.ergo --
+type R { N int }
+func use(n int) {}
+func f(n int) int {
+	n = 2
+	n
+}
+-- 07577.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(n int) int {
+	n = 2
+	n
+}
+-- 07578.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(n int) int {
+	n = 2
+	n
+}
+-- 07579.ergo --
+func f() {
+	let h = func(k int) { k = 1 }
+	h(1)
+}
+-- 07580.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() {
+	let h = func(k int) { k = 1 }
+	h(1)
+}
+-- 07581.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() {
+	let h = func(k int) { k = 1 }
+	h(1)
+}
+-- 07582.ergo --
+type R { N int }
+func use(n int) {}
+func f() {
+	let h = func(k int) { k = 1 }
+	h(1)
+}
+-- 07583.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() {
+	let h = func(k int) { k = 1 }
+	h(1)
+}
+-- 07584.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() {
+	let h = func(k int) { k = 1 }
+	h(1)
+}
+-- 07585.ergo --
+func f() int {
+	let (a, b) = (1, 2)
+	a = 3
+	a + b
+}
+-- 07586.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int {
+	let (a, b) = (1, 2)
+	a = 3
+	a + b
+}
+-- 07587.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int {
+	let (a, b) = (1, 2)
+	a = 3
+	a + b
+}
+-- 07588.ergo --
+type R { N int }
+func use(n int) {}
+func f() int {
+	let (a, b) = (1, 2)
+	a = 3
+	a + b
+}
+-- 07589.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int {
+	let (a, b) = (1, 2)
+	a = 3
+	a + b
+}
+-- 07590.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int {
+	let (a, b) = (1, 2)
+	a = 3
+	a + b
+}
+-- 07591.ergo --
+func f(r R) int {
+	let R{N: n} = r
+	n = 3
+	n
+}
+-- 07592.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(r R) int {
+	let R{N: n} = r
+	n = 3
+	n
+}
+-- 07593.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(r R) int {
+	let R{N: n} = r
+	n = 3
+	n
+}
+-- 07594.ergo --
+type R { N int }
+func use(n int) {}
+func f(r R) int {
+	let R{N: n} = r
+	n = 3
+	n
+}
+-- 07595.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(r R) int {
+	let R{N: n} = r
+	n = 3
+	n
+}
+-- 07596.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(r R) int {
+	let R{N: n} = r
+	n = 3
+	n
+}
+-- 07597.ergo --
+func f(u U) int {
+	match u {
+	case E as e:
+		e = E{N: 2}
+		e.N
+	case F:
+		0
+	}
+}
+-- 07598.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(u U) int {
+	match u {
+	case E as e:
+		e = E{N: 2}
+		e.N
+	case F:
+		0
+	}
+}
+-- 07599.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(u U) int {
+	match u {
+	case E as e:
+		e = E{N: 2}
+		e.N
+	case F:
+		0
+	}
+}
+-- 07600.ergo --
+type R { N int }
+func use(n int) {}
+func f(u U) int {
+	match u {
+	case E as e:
+		e = E{N: 2}
+		e.N
+	case F:
+		0
+	}
+}
+-- 07601.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(u U) int {
+	match u {
+	case E as e:
+		e = E{N: 2}
+		e.N
+	case F:
+		0
+	}
+}
+-- 07602.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(u U) int {
+	match u {
+	case E as e:
+		e = E{N: 2}
+		e.N
+	case F:
+		0
+	}
+}
+-- 07603.ergo --
+func f(n int) int {
+	match n {
+	case k:
+		k = 1
+		k
+	}
+}
+-- 07604.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(n int) int {
+	match n {
+	case k:
+		k = 1
+		k
+	}
+}
+-- 07605.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(n int) int {
+	match n {
+	case k:
+		k = 1
+		k
+	}
+}
+-- 07606.ergo --
+type R { N int }
+func use(n int) {}
+func f(n int) int {
+	match n {
+	case k:
+		k = 1
+		k
+	}
+}
+-- 07607.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(n int) int {
+	match n {
+	case k:
+		k = 1
+		k
+	}
+}
+-- 07608.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(n int) int {
+	match n {
+	case k:
+		k = 1
+		k
+	}
+}
+-- 07609.ergo --
+func f() int {
+	g() catch {
+	case E as e:
+		e = E{N: 2}
+		e.N
+	}
+}
+-- 07610.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int {
+	g() catch {
+	case E as e:
+		e = E{N: 2}
+		e.N
+	}
+}
+-- 07611.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int {
+	g() catch {
+	case E as e:
+		e = E{N: 2}
+		e.N
+	}
+}
+-- 07612.ergo --
+type R { N int }
+func use(n int) {}
+func f() int {
+	g() catch {
+	case E as e:
+		e = E{N: 2}
+		e.N
+	}
+}
+-- 07613.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int {
+	g() catch {
+	case E as e:
+		e = E{N: 2}
+		e.N
+	}
+}
+-- 07614.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int {
+	g() catch {
+	case E as e:
+		e = E{N: 2}
+		e.N
+	}
+}
+-- 07615.ergo --
+func f(xs []int) {
+	for x in xs {
+		x = 1
+		use(x)
+	}
+}
+-- 07616.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(xs []int) {
+	for x in xs {
+		x = 1
+		use(x)
+	}
+}
+-- 07617.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(xs []int) {
+	for x in xs {
+		x = 1
+		use(x)
+	}
+}
+-- 07618.ergo --
+type R { N int }
+func use(n int) {}
+func f(xs []int) {
+	for x in xs {
+		x = 1
+		use(x)
+	}
+}
+-- 07619.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(xs []int) {
+	for x in xs {
+		x = 1
+		use(x)
+	}
+}
+-- 07620.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(xs []int) {
+	for x in xs {
+		x = 1
+		use(x)
+	}
+}
+-- 07621.ergo --
+let Limit = 1
+func f() { Limit = 2 }
+-- 07622.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+let Limit = 1
+func f() { Limit = 2 }
+-- 07623.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+let Limit = 1
+func f() { Limit = 2 }
+-- 07624.ergo --
+type R { N int }
+func use(n int) {}
+let Limit = 1
+func f() { Limit = 2 }
+-- 07625.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+let Limit = 1
+func f() { Limit = 2 }
+-- 07626.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+let Limit = 1
+func f() { Limit = 2 }
+-- 07627.ergo --
+let mut Counter = 0
+func f() { Counter = 2 }
+-- 07628.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+let mut Counter = 0
+func f() { Counter = 2 }
+-- 07629.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+let mut Counter = 0
+func f() { Counter = 2 }
+-- 07630.ergo --
+type R { N int }
+func use(n int) {}
+let mut Counter = 0
+func f() { Counter = 2 }
+-- 07631.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+let mut Counter = 0
+func f() { Counter = 2 }
+-- 07632.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+let mut Counter = 0
+func f() { Counter = 2 }
+-- 07633.ergo --
+func f() int {
+	let mut (a, b) = (1, 2)
+	a + b
+}
+-- 07634.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int {
+	let mut (a, b) = (1, 2)
+	a + b
+}
+-- 07635.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int {
+	let mut (a, b) = (1, 2)
+	a + b
+}
+-- 07636.ergo --
+type R { N int }
+func use(n int) {}
+func f() int {
+	let mut (a, b) = (1, 2)
+	a + b
+}
+-- 07637.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int {
+	let mut (a, b) = (1, 2)
+	a + b
+}
+-- 07638.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int {
+	let mut (a, b) = (1, 2)
+	a + b
+}
+-- 07639.ergo --
+func f() int {
+	let mut x = 1
+	x = 2
+	x += 3
+	x
+}
+-- 07640.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int {
+	let mut x = 1
+	x = 2
+	x += 3
+	x
+}
+-- 07641.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int {
+	let mut x = 1
+	x = 2
+	x += 3
+	x
+}
+-- 07642.ergo --
+type R { N int }
+func use(n int) {}
+func f() int {
+	let mut x = 1
+	x = 2
+	x += 3
+	x
+}
+-- 07643.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int {
+	let mut x = 1
+	x = 2
+	x += 3
+	x
+}
+-- 07644.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int {
+	let mut x = 1
+	x = 2
+	x += 3
+	x
+}
+-- 07645.ergo --
+func f() int {
+	let mut a, b = (1, 2)
+	a = b
+	b = a
+	a + b
+}
+-- 07646.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int {
+	let mut a, b = (1, 2)
+	a = b
+	b = a
+	a + b
+}
+-- 07647.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int {
+	let mut a, b = (1, 2)
+	a = b
+	b = a
+	a + b
+}
+-- 07648.ergo --
+type R { N int }
+func use(n int) {}
+func f() int {
+	let mut a, b = (1, 2)
+	a = b
+	b = a
+	a + b
+}
+-- 07649.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int {
+	let mut a, b = (1, 2)
+	a = b
+	b = a
+	a + b
+}
+-- 07650.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int {
+	let mut a, b = (1, 2)
+	a = b
+	b = a
+	a + b
+}
+-- 07651.ergo --
+func f(r R) int {
+	let c = r
+	c.N = 2
+	c.N
+}
+-- 07652.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(r R) int {
+	let c = r
+	c.N = 2
+	c.N
+}
+-- 07653.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(r R) int {
+	let c = r
+	c.N = 2
+	c.N
+}
+-- 07654.ergo --
+type R { N int }
+func use(n int) {}
+func f(r R) int {
+	let c = r
+	c.N = 2
+	c.N
+}
+-- 07655.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(r R) int {
+	let c = r
+	c.N = 2
+	c.N
+}
+-- 07656.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(r R) int {
+	let c = r
+	c.N = 2
+	c.N
+}
+-- 07657.ergo --
+func f(r R) int {
+	r.N = 2
+	r.N
+}
+-- 07658.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(r R) int {
+	r.N = 2
+	r.N
+}
+-- 07659.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(r R) int {
+	r.N = 2
+	r.N
+}
+-- 07660.ergo --
+type R { N int }
+func use(n int) {}
+func f(r R) int {
+	r.N = 2
+	r.N
+}
+-- 07661.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(r R) int {
+	r.N = 2
+	r.N
+}
+-- 07662.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(r R) int {
+	r.N = 2
+	r.N
+}
+-- 07663.ergo --
+func f(xs []int) int {
+	xs[0] = 2
+	xs[0]
+}
+-- 07664.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(xs []int) int {
+	xs[0] = 2
+	xs[0]
+}
+-- 07665.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(xs []int) int {
+	xs[0] = 2
+	xs[0]
+}
+-- 07666.ergo --
+type R { N int }
+func use(n int) {}
+func f(xs []int) int {
+	xs[0] = 2
+	xs[0]
+}
+-- 07667.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(xs []int) int {
+	xs[0] = 2
+	xs[0]
+}
+-- 07668.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(xs []int) int {
+	xs[0] = 2
+	xs[0]
+}
+-- 07669.ergo --
+func f(m Map[string, int]) int {
+	m["a"] = 2
+	len(m)
+}
+-- 07670.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(m Map[string, int]) int {
+	m["a"] = 2
+	len(m)
+}
+-- 07671.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(m Map[string, int]) int {
+	m["a"] = 2
+	len(m)
+}
+-- 07672.ergo --
+type R { N int }
+func use(n int) {}
+func f(m Map[string, int]) int {
+	m["a"] = 2
+	len(m)
+}
+-- 07673.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(m Map[string, int]) int {
+	m["a"] = 2
+	len(m)
+}
+-- 07674.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(m Map[string, int]) int {
+	m["a"] = 2
+	len(m)
+}
+-- 07675.ergo --
+func f(rs []R) {
+	for r in rs {
+		r.N = 1
+		use(r.N)
+	}
+}
+-- 07676.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(rs []R) {
+	for r in rs {
+		r.N = 1
+		use(r.N)
+	}
+}
+-- 07677.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(rs []R) {
+	for r in rs {
+		r.N = 1
+		use(r.N)
+	}
+}
+-- 07678.ergo --
+type R { N int }
+func use(n int) {}
+func f(rs []R) {
+	for r in rs {
+		r.N = 1
+		use(r.N)
+	}
+}
+-- 07679.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(rs []R) {
+	for r in rs {
+		r.N = 1
+		use(r.N)
+	}
+}
+-- 07680.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(rs []R) {
+	for r in rs {
+		r.N = 1
+		use(r.N)
+	}
+}
+-- 07681.ergo --
+func f(r R) int {
+	let mut c = r
+	c.N = 2
+	c.N
+}
+-- 07682.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(r R) int {
+	let mut c = r
+	c.N = 2
+	c.N
+}
+-- 07683.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(r R) int {
+	let mut c = r
+	c.N = 2
+	c.N
+}
+-- 07684.ergo --
+type R { N int }
+func use(n int) {}
+func f(r R) int {
+	let mut c = r
+	c.N = 2
+	c.N
+}
+-- 07685.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(r R) int {
+	let mut c = r
+	c.N = 2
+	c.N
+}
+-- 07686.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(r R) int {
+	let mut c = r
+	c.N = 2
+	c.N
+}
+-- 07687.ergo --
+func f(xs []int) int {
+	let mut ys = xs
+	ys[0] += 2
+	ys[0]
+}
+-- 07688.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(xs []int) int {
+	let mut ys = xs
+	ys[0] += 2
+	ys[0]
+}
+-- 07689.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(xs []int) int {
+	let mut ys = xs
+	ys[0] += 2
+	ys[0]
+}
+-- 07690.ergo --
+type R { N int }
+func use(n int) {}
+func f(xs []int) int {
+	let mut ys = xs
+	ys[0] += 2
+	ys[0]
+}
+-- 07691.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(xs []int) int {
+	let mut ys = xs
+	ys[0] += 2
+	ys[0]
+}
+-- 07692.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(xs []int) int {
+	let mut ys = xs
+	ys[0] += 2
+	ys[0]
+}
+-- 07693.ergo --
+func f(m Map[int, R]) {
+	let mut n = m
+	n[0].N = 1
+}
+-- 07694.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(m Map[int, R]) {
+	let mut n = m
+	n[0].N = 1
+}
+-- 07695.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(m Map[int, R]) {
+	let mut n = m
+	n[0].N = 1
+}
+-- 07696.ergo --
+type R { N int }
+func use(n int) {}
+func f(m Map[int, R]) {
+	let mut n = m
+	n[0].N = 1
+}
+-- 07697.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(m Map[int, R]) {
+	let mut n = m
+	n[0].N = 1
+}
+-- 07698.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(m Map[int, R]) {
+	let mut n = m
+	n[0].N = 1
+}
+-- 07699.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+-- 07700.ergo --
+type R { N int }
+func use(n int) {}
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+-- 07701.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+-- 07702.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+-- 07703.ergo --
+func f(p *R) { p.N = 2 }
+-- 07704.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(p *R) { p.N = 2 }
+-- 07705.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(p *R) { p.N = 2 }
+-- 07706.ergo --
+type R { N int }
+func use(n int) {}
+func f(p *R) { p.N = 2 }
+-- 07707.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(p *R) { p.N = 2 }
+-- 07708.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(p *R) { p.N = 2 }
+-- 07709.ergo --
+func f(p *R) { (*p).N = 2 }
+-- 07710.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(p *R) { (*p).N = 2 }
+-- 07711.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(p *R) { (*p).N = 2 }
+-- 07712.ergo --
+type R { N int }
+func use(n int) {}
+func f(p *R) { (*p).N = 2 }
+-- 07713.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(p *R) { (*p).N = 2 }
+-- 07714.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(p *R) { (*p).N = 2 }
+-- 07715.ergo --
+func f() int {
+	let r = R{N: 1}
+	let p = &r
+	p.bump()
+	r.N
+}
+-- 07716.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int {
+	let r = R{N: 1}
+	let p = &r
+	p.bump()
+	r.N
+}
+-- 07717.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int {
+	let r = R{N: 1}
+	let p = &r
+	p.bump()
+	r.N
+}
+-- 07718.ergo --
+type R { N int }
+func use(n int) {}
+func f() int {
+	let r = R{N: 1}
+	let p = &r
+	p.bump()
+	r.N
+}
+-- 07719.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int {
+	let r = R{N: 1}
+	let p = &r
+	p.bump()
+	r.N
+}
+-- 07720.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int {
+	let r = R{N: 1}
+	let p = &r
+	p.bump()
+	r.N
+}
+-- 07721.ergo --
+func f() int {
+	let mut r = R{N: 1}
+	let p = &r
+	p.bump()
+	r.N
+}
+-- 07722.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int {
+	let mut r = R{N: 1}
+	let p = &r
+	p.bump()
+	r.N
+}
+-- 07723.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int {
+	let mut r = R{N: 1}
+	let p = &r
+	p.bump()
+	r.N
+}
+-- 07724.ergo --
+type R { N int }
+func use(n int) {}
+func f() int {
+	let mut r = R{N: 1}
+	let p = &r
+	p.bump()
+	r.N
+}
+-- 07725.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int {
+	let mut r = R{N: 1}
+	let p = &r
+	p.bump()
+	r.N
+}
+-- 07726.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int {
+	let mut r = R{N: 1}
+	let p = &r
+	p.bump()
+	r.N
+}
+-- 07727.ergo --
+func take(p *R) {}
+func f(r R) { take(&r) }
+-- 07728.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func take(p *R) {}
+func f(r R) { take(&r) }
+-- 07729.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func take(p *R) {}
+func f(r R) { take(&r) }
+-- 07730.ergo --
+type R { N int }
+func use(n int) {}
+func take(p *R) {}
+func f(r R) { take(&r) }
+-- 07731.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func take(p *R) {}
+func f(r R) { take(&r) }
+-- 07732.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func take(p *R) {}
+func f(r R) { take(&r) }
+-- 07733.ergo --
+func f() int {
+	let r = R{N: 1}
+	r.bump()
+	r.N
+}
+-- 07734.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int {
+	let r = R{N: 1}
+	r.bump()
+	r.N
+}
+-- 07735.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int {
+	let r = R{N: 1}
+	r.bump()
+	r.N
+}
+-- 07736.ergo --
+type R { N int }
+func use(n int) {}
+func f() int {
+	let r = R{N: 1}
+	r.bump()
+	r.N
+}
+-- 07737.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int {
+	let r = R{N: 1}
+	r.bump()
+	r.N
+}
+-- 07738.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int {
+	let r = R{N: 1}
+	r.bump()
+	r.N
+}
+-- 07739.ergo --
+func f() int {
+	let mut r = R{N: 1}
+	r.bump()
+	r.N
+}
+-- 07740.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int {
+	let mut r = R{N: 1}
+	r.bump()
+	r.N
+}
+-- 07741.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int {
+	let mut r = R{N: 1}
+	r.bump()
+	r.N
+}
+-- 07742.ergo --
+type R { N int }
+func use(n int) {}
+func f() int {
+	let mut r = R{N: 1}
+	r.bump()
+	r.N
+}
+-- 07743.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int {
+	let mut r = R{N: 1}
+	r.bump()
+	r.N
+}
+-- 07744.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int {
+	let mut r = R{N: 1}
+	r.bump()
+	r.N
+}
+-- 07745.ergo --
+func f(a *R, b *R) {
+	let p = a
+	p = b
+	p.N = 1
+}
+-- 07746.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(a *R, b *R) {
+	let p = a
+	p = b
+	p.N = 1
+}
+-- 07747.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(a *R, b *R) {
+	let p = a
+	p = b
+	p.N = 1
+}
+-- 07748.ergo --
+type R { N int }
+func use(n int) {}
+func f(a *R, b *R) {
+	let p = a
+	p = b
+	p.N = 1
+}
+-- 07749.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(a *R, b *R) {
+	let p = a
+	p = b
+	p.N = 1
+}
+-- 07750.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(a *R, b *R) {
+	let p = a
+	p = b
+	p.N = 1
+}
+-- 07751.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+type R { N int }
+func use(n int) {}
+-- 07752.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+type R { N int }
+func use(n int) {}
+-- 07753.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+type R { N int }
+func use(n int) {}
+-- 07754.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+type R { N int }
+func use(n int) {}
+-- 07755.ergo --
+func f() int {
+	let mut n = 1
+	n
+}
+-- 07756.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int {
+	let mut n = 1
+	n
+}
+-- 07757.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int {
+	let mut n = 1
+	n
+}
+-- 07758.ergo --
+type R { N int }
+func use(n int) {}
+func f() int {
+	let mut n = 1
+	n
+}
+-- 07759.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int {
+	let mut n = 1
+	n
+}
+-- 07760.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int {
+	let mut n = 1
+	n
+}
+-- 07761.ergo --
+func f() {
+	let mut n = 1
+}
+-- 07762.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() {
+	let mut n = 1
+}
+-- 07763.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() {
+	let mut n = 1
+}
+-- 07764.ergo --
+type R { N int }
+func use(n int) {}
+func f() {
+	let mut n = 1
+}
+-- 07765.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() {
+	let mut n = 1
+}
+-- 07766.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() {
+	let mut n = 1
+}
+-- 07767.ergo --
+func f() int {
+	let mut n = 1
+	let inc = func() { n += 1 }
+	inc()
+	n
+}
+-- 07768.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int {
+	let mut n = 1
+	let inc = func() { n += 1 }
+	inc()
+	n
+}
+-- 07769.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int {
+	let mut n = 1
+	let inc = func() { n += 1 }
+	inc()
+	n
+}
+-- 07770.ergo --
+type R { N int }
+func use(n int) {}
+func f() int {
+	let mut n = 1
+	let inc = func() { n += 1 }
+	inc()
+	n
+}
+-- 07771.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int {
+	let mut n = 1
+	let inc = func() { n += 1 }
+	inc()
+	n
+}
+-- 07772.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int {
+	let mut n = 1
+	let inc = func() { n += 1 }
+	inc()
+	n
+}
+-- 07773.ergo --
+func f(r R) int {
+	let mut c = r
+	c.N = 1
+	c.N
+}
+-- 07774.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(r R) int {
+	let mut c = r
+	c.N = 1
+	c.N
+}
+-- 07775.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(r R) int {
+	let mut c = r
+	c.N = 1
+	c.N
+}
+-- 07776.ergo --
+type R { N int }
+func use(n int) {}
+func f(r R) int {
+	let mut c = r
+	c.N = 1
+	c.N
+}
+-- 07777.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(r R) int {
+	let mut c = r
+	c.N = 1
+	c.N
+}
+-- 07778.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(r R) int {
+	let mut c = r
+	c.N = 1
+	c.N
+}
+-- 07779.ergo --
+func f() int {
+	let mut n = 0
+	let run = func() {
+		let mut i = 0
+		for i < 3 {
+			i += 1
+		}
+		n = i
+	}
+	run()
+	n
+}
+-- 07780.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int {
+	let mut n = 0
+	let run = func() {
+		let mut i = 0
+		for i < 3 {
+			i += 1
+		}
+		n = i
+	}
+	run()
+	n
+}
+-- 07781.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int {
+	let mut n = 0
+	let run = func() {
+		let mut i = 0
+		for i < 3 {
+			i += 1
+		}
+		n = i
+	}
+	run()
+	n
+}
+-- 07782.ergo --
+type R { N int }
+func use(n int) {}
+func f() int {
+	let mut n = 0
+	let run = func() {
+		let mut i = 0
+		for i < 3 {
+			i += 1
+		}
+		n = i
+	}
+	run()
+	n
+}
+-- 07783.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int {
+	let mut n = 0
+	let run = func() {
+		let mut i = 0
+		for i < 3 {
+			i += 1
+		}
+		n = i
+	}
+	run()
+	n
+}
+-- 07784.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int {
+	let mut n = 0
+	let run = func() {
+		let mut i = 0
+		for i < 3 {
+			i += 1
+		}
+		n = i
+	}
+	run()
+	n
+}
+-- 07785.ergo --
+func f() {
+	let h = func() int {
+		let mut k = 1
+		k
+	}
+	use(h())
+}
+-- 07786.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() {
+	let h = func() int {
+		let mut k = 1
+		k
+	}
+	use(h())
+}
+-- 07787.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() {
+	let h = func() int {
+		let mut k = 1
+		k
+	}
+	use(h())
+}
+-- 07788.ergo --
+type R { N int }
+func use(n int) {}
+func f() {
+	let h = func() int {
+		let mut k = 1
+		k
+	}
+	use(h())
+}
+-- 07789.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() {
+	let h = func() int {
+		let mut k = 1
+		k
+	}
+	use(h())
+}
+-- 07790.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() {
+	let h = func() int {
+		let mut k = 1
+		k
+	}
+	use(h())
+}
+-- 07791.ergo --
+func f() int {
+	let x
+	x + 1
+}
+-- 07792.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int {
+	let x
+	x + 1
+}
+-- 07793.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int {
+	let x
+	x + 1
+}
+-- 07794.ergo --
+type R { N int }
+func use(n int) {}
+func f() int {
+	let x
+	x + 1
+}
+-- 07795.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int {
+	let x
+	x + 1
+}
+-- 07796.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int {
+	let x
+	x + 1
+}
+-- 07797.ergo --
+let A
+func f() int { A + 1 }
+-- 07798.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+let A
+func f() int { A + 1 }
+-- 07799.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+let A
+func f() int { A + 1 }
+-- 07800.ergo --
+type R { N int }
+func use(n int) {}
+let A
+func f() int { A + 1 }
+-- 07801.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+let A
+func f() int { A + 1 }
+-- 07802.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+let A
+func f() int { A + 1 }
+-- 07803.ergo --
+func f() int {
+	let x int
+	x + 1
+}
+-- 07804.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int {
+	let x int
+	x + 1
+}
+-- 07805.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int {
+	let x int
+	x + 1
+}
+-- 07806.ergo --
+type R { N int }
+func use(n int) {}
+func f() int {
+	let x int
+	x + 1
+}
+-- 07807.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int {
+	let x int
+	x + 1
+}
+-- 07808.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int {
+	let x int
+	x + 1
+}
+-- 07809.ergo --
+let A int
+func f() int { A + 1 }
+-- 07810.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+let A int
+func f() int { A + 1 }
+-- 07811.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+let A int
+func f() int { A + 1 }
+-- 07812.ergo --
+type R { N int }
+func use(n int) {}
+let A int
+func f() int { A + 1 }
+-- 07813.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+let A int
+func f() int { A + 1 }
+-- 07814.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+let A int
+func f() int { A + 1 }
+-- 07815.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+-- 07816.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+-- 07817.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+-- 07818.ergo --
+type R { N int }
+func use(n int) {}
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+-- 07819.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+-- 07820.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+-- 07821.ergo --
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+-- 07822.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+-- 07823.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+-- 07824.ergo --
+type R { N int }
+func use(n int) {}
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+-- 07825.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+-- 07826.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+-- 07827.ergo --
+func f(x int) {
+	if x > 0 {
+		let x = 2
+		use(x)
+	}
+}
+-- 07828.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(x int) {
+	if x > 0 {
+		let x = 2
+		use(x)
+	}
+}
+-- 07829.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(x int) {
+	if x > 0 {
+		let x = 2
+		use(x)
+	}
+}
+-- 07830.ergo --
+type R { N int }
+func use(n int) {}
+func f(x int) {
+	if x > 0 {
+		let x = 2
+		use(x)
+	}
+}
+-- 07831.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(x int) {
+	if x > 0 {
+		let x = 2
+		use(x)
+	}
+}
+-- 07832.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(x int) {
+	if x > 0 {
+		let x = 2
+		use(x)
+	}
+}
+-- 07833.ergo --
+func f(c bool) {
+	let x = 1
+	if c {
+		let x = 2
+		use(x)
+	}
+}
+-- 07834.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(c bool) {
+	let x = 1
+	if c {
+		let x = 2
+		use(x)
+	}
+}
+-- 07835.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(c bool) {
+	let x = 1
+	if c {
+		let x = 2
+		use(x)
+	}
+}
+-- 07836.ergo --
+type R { N int }
+func use(n int) {}
+func f(c bool) {
+	let x = 1
+	if c {
+		let x = 2
+		use(x)
+	}
+}
+-- 07837.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(c bool) {
+	let x = 1
+	if c {
+		let x = 2
+		use(x)
+	}
+}
+-- 07838.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(c bool) {
+	let x = 1
+	if c {
+		let x = 2
+		use(x)
+	}
+}
+-- 07839.ergo --
+func f(x int) {
+	let x = 2
+	use(x)
+}
+-- 07840.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(x int) {
+	let x = 2
+	use(x)
+}
+-- 07841.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(x int) {
+	let x = 2
+	use(x)
+}
+-- 07842.ergo --
+type R { N int }
+func use(n int) {}
+func f(x int) {
+	let x = 2
+	use(x)
+}
+-- 07843.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(x int) {
+	let x = 2
+	use(x)
+}
+-- 07844.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(x int) {
+	let x = 2
+	use(x)
+}
+-- 07845.ergo --
+func f(xs []int) {
+	let x = 0
+	use(x)
+	for x in xs {
+		use(x)
+	}
+}
+-- 07846.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(xs []int) {
+	let x = 0
+	use(x)
+	for x in xs {
+		use(x)
+	}
+}
+-- 07847.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(xs []int) {
+	let x = 0
+	use(x)
+	for x in xs {
+		use(x)
+	}
+}
+-- 07848.ergo --
+type R { N int }
+func use(n int) {}
+func f(xs []int) {
+	let x = 0
+	use(x)
+	for x in xs {
+		use(x)
+	}
+}
+-- 07849.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(xs []int) {
+	let x = 0
+	use(x)
+	for x in xs {
+		use(x)
+	}
+}
+-- 07850.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(xs []int) {
+	let x = 0
+	use(x)
+	for x in xs {
+		use(x)
+	}
+}
+-- 07851.ergo --
+func f(k int) {
+	run(func(k int) { use(k) })
+	use(k)
+}
+-- 07852.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(k int) {
+	run(func(k int) { use(k) })
+	use(k)
+}
+-- 07853.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(k int) {
+	run(func(k int) { use(k) })
+	use(k)
+}
+-- 07854.ergo --
+type R { N int }
+func use(n int) {}
+func f(k int) {
+	run(func(k int) { use(k) })
+	use(k)
+}
+-- 07855.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(k int) {
+	run(func(k int) { use(k) })
+	use(k)
+}
+-- 07856.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(k int) {
+	run(func(k int) { use(k) })
+	use(k)
+}
+-- 07857.ergo --
+func f() {
+	let k = 1
+	run(func(n int) {
+		let k = n
+		use(k)
+	})
+	use(k)
+}
+-- 07858.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() {
+	let k = 1
+	run(func(n int) {
+		let k = n
+		use(k)
+	})
+	use(k)
+}
+-- 07859.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() {
+	let k = 1
+	run(func(n int) {
+		let k = n
+		use(k)
+	})
+	use(k)
+}
+-- 07860.ergo --
+type R { N int }
+func use(n int) {}
+func f() {
+	let k = 1
+	run(func(n int) {
+		let k = n
+		use(k)
+	})
+	use(k)
+}
+-- 07861.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() {
+	let k = 1
+	run(func(n int) {
+		let k = n
+		use(k)
+	})
+	use(k)
+}
+-- 07862.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() {
+	let k = 1
+	run(func(n int) {
+		let k = n
+		use(k)
+	})
+	use(k)
+}
+-- 07863.ergo --
+func each(f func()) { f() }
+func f() {
+	let k = 1
+	each() {
+		let k = 2
+		use(k)
+	}
+	use(k)
+}
+-- 07864.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func each(f func()) { f() }
+func f() {
+	let k = 1
+	each() {
+		let k = 2
+		use(k)
+	}
+	use(k)
+}
+-- 07865.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func each(f func()) { f() }
+func f() {
+	let k = 1
+	each() {
+		let k = 2
+		use(k)
+	}
+	use(k)
+}
+-- 07866.ergo --
+type R { N int }
+func use(n int) {}
+func each(f func()) { f() }
+func f() {
+	let k = 1
+	each() {
+		let k = 2
+		use(k)
+	}
+	use(k)
+}
+-- 07867.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func each(f func()) { f() }
+func f() {
+	let k = 1
+	each() {
+		let k = 2
+		use(k)
+	}
+	use(k)
+}
+-- 07868.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func each(f func()) { f() }
+func f() {
+	let k = 1
+	each() {
+		let k = 2
+		use(k)
+	}
+	use(k)
+}
+-- 07869.ergo --
+func f(n int) int {
+	let k = 1
+	match n {
+	case k:
+		k
+	}
+}
+-- 07870.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(n int) int {
+	let k = 1
+	match n {
+	case k:
+		k
+	}
+}
+-- 07871.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(n int) int {
+	let k = 1
+	match n {
+	case k:
+		k
+	}
+}
+-- 07872.ergo --
+type R { N int }
+func use(n int) {}
+func f(n int) int {
+	let k = 1
+	match n {
+	case k:
+		k
+	}
+}
+-- 07873.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(n int) int {
+	let k = 1
+	match n {
+	case k:
+		k
+	}
+}
+-- 07874.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(n int) int {
+	let k = 1
+	match n {
+	case k:
+		k
+	}
+}
+-- 07875.ergo --
+func f(r R) int {
+	let n = 1
+	let R{N: n} = r
+	n
+}
+-- 07876.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(r R) int {
+	let n = 1
+	let R{N: n} = r
+	n
+}
+-- 07877.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(r R) int {
+	let n = 1
+	let R{N: n} = r
+	n
+}
+-- 07878.ergo --
+type R { N int }
+func use(n int) {}
+func f(r R) int {
+	let n = 1
+	let R{N: n} = r
+	n
+}
+-- 07879.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(r R) int {
+	let n = 1
+	let R{N: n} = r
+	n
+}
+-- 07880.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(r R) int {
+	let n = 1
+	let R{N: n} = r
+	n
+}
+-- 07881.ergo --
+func f(u U) int {
+	let e = 1
+	match u {
+	case E as e:
+		e.N
+	case F:
+		e
+	}
+}
+-- 07882.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(u U) int {
+	let e = 1
+	match u {
+	case E as e:
+		e.N
+	case F:
+		e
+	}
+}
+-- 07883.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(u U) int {
+	let e = 1
+	match u {
+	case E as e:
+		e.N
+	case F:
+		e
+	}
+}
+-- 07884.ergo --
+type R { N int }
+func use(n int) {}
+func f(u U) int {
+	let e = 1
+	match u {
+	case E as e:
+		e.N
+	case F:
+		e
+	}
+}
+-- 07885.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(u U) int {
+	let e = 1
+	match u {
+	case E as e:
+		e.N
+	case F:
+		e
+	}
+}
+-- 07886.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(u U) int {
+	let e = 1
+	match u {
+	case E as e:
+		e.N
+	case F:
+		e
+	}
+}
+-- 07887.ergo --
+func f() int fails E {
+	let err = 1
+	use(err)
+	g() catch {
+	case err:
+		return err
+	}
+}
+-- 07888.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int fails E {
+	let err = 1
+	use(err)
+	g() catch {
+	case err:
+		return err
+	}
+}
+-- 07889.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int fails E {
+	let err = 1
+	use(err)
+	g() catch {
+	case err:
+		return err
+	}
+}
+-- 07890.ergo --
+type R { N int }
+func use(n int) {}
+func f() int fails E {
+	let err = 1
+	use(err)
+	g() catch {
+	case err:
+		return err
+	}
+}
+-- 07891.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int fails E {
+	let err = 1
+	use(err)
+	g() catch {
+	case err:
+		return err
+	}
+}
+-- 07892.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int fails E {
+	let err = 1
+	use(err)
+	g() catch {
+	case err:
+		return err
+	}
+}
+-- 07893.ergo --
+func f() needs Cap {
+	Cap.M()
+	run(func(Cap int) { use(Cap) })
+}
+-- 07894.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() needs Cap {
+	Cap.M()
+	run(func(Cap int) { use(Cap) })
+}
+-- 07895.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() needs Cap {
+	Cap.M()
+	run(func(Cap int) { use(Cap) })
+}
+-- 07896.ergo --
+type R { N int }
+func use(n int) {}
+func f() needs Cap {
+	Cap.M()
+	run(func(Cap int) { use(Cap) })
+}
+-- 07897.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() needs Cap {
+	Cap.M()
+	run(func(Cap int) { use(Cap) })
+}
+-- 07898.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() needs Cap {
+	Cap.M()
+	run(func(Cap int) { use(Cap) })
+}
+-- 07899.ergo --
+func f(c bool) int {
+	if c {
+		let t = 1
+		t
+	} else {
+		let t = 2
+		t
+	}
+}
+-- 07900.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(c bool) int {
+	if c {
+		let t = 1
+		t
+	} else {
+		let t = 2
+		t
+	}
+}
+-- 07901.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(c bool) int {
+	if c {
+		let t = 1
+		t
+	} else {
+		let t = 2
+		t
+	}
+}
+-- 07902.ergo --
+type R { N int }
+func use(n int) {}
+func f(c bool) int {
+	if c {
+		let t = 1
+		t
+	} else {
+		let t = 2
+		t
+	}
+}
+-- 07903.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(c bool) int {
+	if c {
+		let t = 1
+		t
+	} else {
+		let t = 2
+		t
+	}
+}
+-- 07904.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(c bool) int {
+	if c {
+		let t = 1
+		t
+	} else {
+		let t = 2
+		t
+	}
+}
+-- 07905.ergo --
+func f(u U) int {
+	match u {
+	case E as e:
+		e.N
+	case F as e:
+		if e == F { 1 } else { 0 }
+	}
+}
+-- 07906.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(u U) int {
+	match u {
+	case E as e:
+		e.N
+	case F as e:
+		if e == F { 1 } else { 0 }
+	}
+}
+-- 07907.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(u U) int {
+	match u {
+	case E as e:
+		e.N
+	case F as e:
+		if e == F { 1 } else { 0 }
+	}
+}
+-- 07908.ergo --
+type R { N int }
+func use(n int) {}
+func f(u U) int {
+	match u {
+	case E as e:
+		e.N
+	case F as e:
+		if e == F { 1 } else { 0 }
+	}
+}
+-- 07909.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(u U) int {
+	match u {
+	case E as e:
+		e.N
+	case F as e:
+		if e == F { 1 } else { 0 }
+	}
+}
+-- 07910.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(u U) int {
+	match u {
+	case E as e:
+		e.N
+	case F as e:
+		if e == F { 1 } else { 0 }
+	}
+}
+-- 07911.ergo --
+func f() {
+	run(func(k int) { use(k) })
+	run(func(k int) { use(k) })
+}
+-- 07912.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() {
+	run(func(k int) { use(k) })
+	run(func(k int) { use(k) })
+}
+-- 07913.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() {
+	run(func(k int) { use(k) })
+	run(func(k int) { use(k) })
+}
+-- 07914.ergo --
+type R { N int }
+func use(n int) {}
+func f() {
+	run(func(k int) { use(k) })
+	run(func(k int) { use(k) })
+}
+-- 07915.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() {
+	run(func(k int) { use(k) })
+	run(func(k int) { use(k) })
+}
+-- 07916.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() {
+	run(func(k int) { use(k) })
+	run(func(k int) { use(k) })
+}
+-- 07917.ergo --
+func f() int {
+	let helper = 2
+	helper
+}
+-- 07918.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f() int {
+	let helper = 2
+	helper
+}
+-- 07919.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f() int {
+	let helper = 2
+	helper
+}
+-- 07920.ergo --
+type R { N int }
+func use(n int) {}
+func f() int {
+	let helper = 2
+	helper
+}
+-- 07921.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f() int {
+	let helper = 2
+	helper
+}
+-- 07922.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f() int {
+	let helper = 2
+	helper
+}
+-- 07923.ergo --
+func f(helper int) int { helper }
+-- 07924.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(helper int) int { helper }
+-- 07925.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(helper int) int { helper }
+-- 07926.ergo --
+type R { N int }
+func use(n int) {}
+func f(helper int) int { helper }
+-- 07927.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(helper int) int { helper }
+-- 07928.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(helper int) int { helper }
+-- 07929.ergo --
+func f(xs []int) {
+	for helper in xs {
+		use(helper)
+	}
+}
+-- 07930.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(xs []int) {
+	for helper in xs {
+		use(helper)
+	}
+}
+-- 07931.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(xs []int) {
+	for helper in xs {
+		use(helper)
+	}
+}
+-- 07932.ergo --
+type R { N int }
+func use(n int) {}
+func f(xs []int) {
+	for helper in xs {
+		use(helper)
+	}
+}
+-- 07933.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(xs []int) {
+	for helper in xs {
+		use(helper)
+	}
+}
+-- 07934.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(xs []int) {
+	for helper in xs {
+		use(helper)
+	}
+}
+-- 07935.ergo --
+func f(c bool) int {
+	if c {
+		let t = 1
+		use(t)
+	}
+	let t = 2
+	t
+}
+-- 07936.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func f(c bool) int {
+	if c {
+		let t = 1
+		use(t)
+	}
+	let t = 2
+	t
+}
+-- 07937.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func f(c bool) int {
+	if c {
+		let t = 1
+		use(t)
+	}
+	let t = 2
+	t
+}
+-- 07938.ergo --
+type R { N int }
+func use(n int) {}
+func f(c bool) int {
+	if c {
+		let t = 1
+		use(t)
+	}
+	let t = 2
+	t
+}
+-- 07939.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func f(c bool) int {
+	if c {
+		let t = 1
+		use(t)
+	}
+	let t = 2
+	t
+}
+-- 07940.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func f(c bool) int {
+	if c {
+		let t = 1
+		use(t)
+	}
+	let t = 2
+	t
+}
+-- 07941.ergo --
+type Option { Value int }
+func f(o Option) int { o.Value }
+-- 07942.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+type Option { Value int }
+func f(o Option) int { o.Value }
+-- 07943.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+type Option { Value int }
+func f(o Option) int { o.Value }
+-- 07944.ergo --
+type R { N int }
+func use(n int) {}
+type Option { Value int }
+func f(o Option) int { o.Value }
+-- 07945.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+type Option { Value int }
+func f(o Option) int { o.Value }
+-- 07946.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+type Option { Value int }
+func f(o Option) int { o.Value }
+-- 07947.ergo --
+type Opt = Some{V int} | Empty{}
+-- 07948.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+type Opt = Some{V int} | Empty{}
+-- 07949.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+type Opt = Some{V int} | Empty{}
+-- 07950.ergo --
+type R { N int }
+func use(n int) {}
+type Opt = Some{V int} | Empty{}
+-- 07951.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+type Opt = Some{V int} | Empty{}
+-- 07952.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+type Opt = Some{V int} | Empty{}
+-- 07953.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func Option() int { 1 }
+-- 07954.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func Option() int { 1 }
+-- 07955.ergo --
+type R { N int }
+func use(n int) {}
+func Option() int { 1 }
+-- 07956.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func Option() int { 1 }
+-- 07957.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func Option() int { 1 }
+-- 07958.ergo --
+func len(xs []int) int { 0 }
+func f(xs []int) int { len(xs) }
+-- 07959.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func len(xs []int) int { 0 }
+func f(xs []int) int { len(xs) }
+-- 07960.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func len(xs []int) int { 0 }
+func f(xs []int) int { len(xs) }
+-- 07961.ergo --
+type R { N int }
+func use(n int) {}
+func len(xs []int) int { 0 }
+func f(xs []int) int { len(xs) }
+-- 07962.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func len(xs []int) int { 0 }
+func f(xs []int) int { len(xs) }
+-- 07963.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func len(xs []int) int { 0 }
+func f(xs []int) int { len(xs) }
+-- 07964.ergo --
+type A {}
+type B {}
+func Sleep(a A) {}
+func Sleep(b B) {}
+-- 07965.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+type A {}
+type B {}
+func Sleep(a A) {}
+func Sleep(b B) {}
+-- 07966.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+type A {}
+type B {}
+func Sleep(a A) {}
+func Sleep(b B) {}
+-- 07967.ergo --
+type R { N int }
+func use(n int) {}
+type A {}
+type B {}
+func Sleep(a A) {}
+func Sleep(b B) {}
+-- 07968.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+type A {}
+type B {}
+func Sleep(a A) {}
+func Sleep(b B) {}
+-- 07969.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+type A {}
+type B {}
+func Sleep(a A) {}
+func Sleep(b B) {}
+-- 07970.ergo --
+let Console = 1
+-- 07971.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+let Console = 1
+-- 07972.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+let Console = 1
+-- 07973.ergo --
+type R { N int }
+func use(n int) {}
+let Console = 1
+-- 07974.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+let Console = 1
+-- 07975.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+let Console = 1
+-- 07976.ergo --
+type Store { Get() int }
+type Mem {}
+func Get(m Mem) int { 1 }
+let Random = context { Store: Mem }
+func f() int { with Random { Store.Get() } }
+-- 07977.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+type Store { Get() int }
+type Mem {}
+func Get(m Mem) int { 1 }
+let Random = context { Store: Mem }
+func f() int { with Random { Store.Get() } }
+-- 07978.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+type Store { Get() int }
+type Mem {}
+func Get(m Mem) int { 1 }
+let Random = context { Store: Mem }
+func f() int { with Random { Store.Get() } }
+-- 07979.ergo --
+type R { N int }
+func use(n int) {}
+type Store { Get() int }
+type Mem {}
+func Get(m Mem) int { 1 }
+let Random = context { Store: Mem }
+func f() int { with Random { Store.Get() } }
+-- 07980.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+type Store { Get() int }
+type Mem {}
+func Get(m Mem) int { 1 }
+let Random = context { Store: Mem }
+func f() int { with Random { Store.Get() } }
+-- 07981.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+type Store { Get() int }
+type Mem {}
+func Get(m Mem) int { 1 }
+let Random = context { Store: Mem }
+func f() int { with Random { Store.Get() } }
+-- 07982.ergo --
+import string timeout
+func f() string.Expired { string.Expired }
+func g(n string.Expired) {}
+-- 07983.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+import string timeout
+func f() string.Expired { string.Expired }
+func g(n string.Expired) {}
+-- 07984.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+import string timeout
+func f() string.Expired { string.Expired }
+func g(n string.Expired) {}
+-- 07985.ergo --
+type R { N int }
+func use(n int) {}
+import string timeout
+func f() string.Expired { string.Expired }
+func g(n string.Expired) {}
+-- 07986.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+import string timeout
+func f() string.Expired { string.Expired }
+func g(n string.Expired) {}
+-- 07987.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+import string timeout
+func f() string.Expired { string.Expired }
+func g(n string.Expired) {}
+-- 07988.ergo --
+func g[int](x int) int { x }
+-- 07989.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+func g[int](x int) int { x }
+-- 07990.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+func g[int](x int) int { x }
+-- 07991.ergo --
+type R { N int }
+func use(n int) {}
+func g[int](x int) int { x }
+-- 07992.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+func g[int](x int) int { x }
+-- 07993.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+func g[int](x int) int { x }
+-- 07994.ergo --
+type Box[bool] { V bool }
+-- 07995.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+func g() int fails E { 1 }
+func use(n int) {}
+type Box[bool] { V bool }
+-- 07996.ergo --
+type R { N int }
+func bump(r *R) { r.N = r.N + 1 }
+type Box[bool] { V bool }
+-- 07997.ergo --
+type R { N int }
+func use(n int) {}
+type Box[bool] { V bool }
+-- 07998.ergo --
+type E { N int }
+type F {}
+type U = E | F
+type R { N int }
+type Cap { M() }
+func g() int fails E { 1 }
+func use(n int) {}
+func run(f func(int)) { f(1) }
+func helper() int { 1 }
+type Box[bool] { V bool }
+-- 07999.ergo --
+type E { N int }
+type F {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(n int) {}
+type Box[bool] { V bool }

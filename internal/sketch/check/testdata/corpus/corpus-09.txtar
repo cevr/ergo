@@ -1,0 +1,2953 @@
+-- 04500.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type U[T, S number] = | V{X S} | W{}
+-- 04501.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type U[T, S number] = | V{X S} | W{}
+-- 04502.ergo --
+func unrelated() {}
+type U[T, S number] = | V{X S} | W{}
+-- 04503.ergo --
+type parameter T is declared twicetype U[T, S number] = | V{X S} | W{}
+-- 04504.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type U[T, S number] = | V{X S} | W{}
+-- 04505.ergo --
+type U[T, T] = | V{X T} | W{}
+type U[T, S number] = | V{X S} | W{}
+-- 04506.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type U[T, S number] = | V{X S} | W{}
+-- 04507.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type U[T, S number] = | V{X S} | W{}
+-- 04508.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type U[T, S number] = | V{X S} | W{}
+-- 04509.ergo --
+type U[R, T] = | V{X T} | W{}
+type A { S V[int] }
+-- 04510.ergo --
+type U[T] = | V{X T} | W{}
+type U[R, T] = | V{X T} | W{}
+type A { S V[int] }
+-- 04511.ergo --
+type U[T number] = | V{X T} | W{}
+type U[R, T] = | V{X T} | W{}
+type A { S V[int] }
+-- 04512.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type U[R, T] = | V{X T} | W{}
+type A { S V[int] }
+-- 04513.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type U[R, T] = | V{X T} | W{}
+type A { S V[int] }
+-- 04514.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type U[R, T] = | V{X T} | W{}
+type A { S V[int] }
+-- 04515.ergo --
+func unrelated() {}
+type U[R, T] = | V{X T} | W{}
+type A { S V[int] }
+-- 04516.ergo --
+type parameter T is declared twicetype U[R, T] = | V{X T} | W{}
+type A { S V[int] }
+-- 04517.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type U[R, T] = | V{X T} | W{}
+type A { S V[int] }
+-- 04518.ergo --
+type U[T, T] = | V{X T} | W{}
+type U[R, T] = | V{X T} | W{}
+type A { S V[int] }
+-- 04519.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type U[R, T] = | V{X T} | W{}
+type A { S V[int] }
+-- 04520.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type U[R, T] = | V{X T} | W{}
+type A { S V[int] }
+-- 04521.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type U[R, T] = | V{X T} | W{}
+type A { S V[int] }
+-- 04522.ergo --
+type A { S V[int, string] }
+type U[T, S] = | V{X T, Y S} | W{}
+func f() int {
+	let mut n = 1
+	n *= 3
+	let (a, b) = (n, 2)
+	a + b
+}
+-- 04523.ergo --
+type U[T] = | V{X T} | W{}
+type A { S V[int, string] }
+type U[T, S] = | V{X T, Y S} | W{}
+func f() int {
+	let mut n = 1
+	n *= 3
+	let (a, b) = (n, 2)
+	a + b
+}
+-- 04524.ergo --
+type U[T number] = | V{X T} | W{}
+type A { S V[int, string] }
+type U[T, S] = | V{X T, Y S} | W{}
+func f() int {
+	let mut n = 1
+	n *= 3
+	let (a, b) = (n, 2)
+	a + b
+}
+-- 04525.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type A { S V[int, string] }
+type U[T, S] = | V{X T, Y S} | W{}
+func f() int {
+	let mut n = 1
+	n *= 3
+	let (a, b) = (n, 2)
+	a + b
+}
+-- 04526.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type A { S V[int, string] }
+type U[T, S] = | V{X T, Y S} | W{}
+func f() int {
+	let mut n = 1
+	n *= 3
+	let (a, b) = (n, 2)
+	a + b
+}
+-- 04527.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type A { S V[int, string] }
+type U[T, S] = | V{X T, Y S} | W{}
+func f() int {
+	let mut n = 1
+	n *= 3
+	let (a, b) = (n, 2)
+	a + b
+}
+-- 04528.ergo --
+func unrelated() {}
+type A { S V[int, string] }
+type U[T, S] = | V{X T, Y S} | W{}
+func f() int {
+	let mut n = 1
+	n *= 3
+	let (a, b) = (n, 2)
+	a + b
+}
+-- 04529.ergo --
+type parameter T is declared twicetype A { S V[int, string] }
+type U[T, S] = | V{X T, Y S} | W{}
+func f() int {
+	let mut n = 1
+	n *= 3
+	let (a, b) = (n, 2)
+	a + b
+}
+-- 04530.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type A { S V[int, string] }
+type U[T, S] = | V{X T, Y S} | W{}
+func f() int {
+	let mut n = 1
+	n *= 3
+	let (a, b) = (n, 2)
+	a + b
+}
+-- 04531.ergo --
+type U[T, T] = | V{X T} | W{}
+type A { S V[int, string] }
+type U[T, S] = | V{X T, Y S} | W{}
+func f() int {
+	let mut n = 1
+	n *= 3
+	let (a, b) = (n, 2)
+	a + b
+}
+-- 04532.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type A { S V[int, string] }
+type U[T, S] = | V{X T, Y S} | W{}
+func f() int {
+	let mut n = 1
+	n *= 3
+	let (a, b) = (n, 2)
+	a + b
+}
+-- 04533.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type A { S V[int, string] }
+type U[T, S] = | V{X T, Y S} | W{}
+func f() int {
+	let mut n = 1
+	n *= 3
+	let (a, b) = (n, 2)
+	a + b
+}
+-- 04534.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type A { S V[int, string] }
+type U[T, S] = | V{X T, Y S} | W{}
+func f() int {
+	let mut n = 1
+	n *= 3
+	let (a, b) = (n, 2)
+	a + b
+}
+-- 04535.ergo --
+type U[T] = | V{X T} | W{}
+func unrelated() {}
+-- 04536.ergo --
+type U[T number] = | V{X T} | W{}
+func unrelated() {}
+-- 04537.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+func unrelated() {}
+-- 04538.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+func unrelated() {}
+-- 04539.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+func unrelated() {}
+-- 04540.ergo --
+type parameter T is declared twicefunc unrelated() {}
+-- 04541.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)func unrelated() {}
+-- 04542.ergo --
+type U[T, T] = | V{X T} | W{}
+func unrelated() {}
+-- 04543.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+func unrelated() {}
+-- 04544.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+func unrelated() {}
+-- 04545.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+func unrelated() {}
+-- 04546.ergo --
+type U%d[T] = | V%d{X T} | W%d{}
+func f%d() int {
+	let mut x = 1
+	x += 2
+	let P%d{A: a} = P%d{A: x}
+	a
+}
+type P%d { A int }
+-- 04547.ergo --
+type U[T] = | V{X T} | W{}
+type U%d[T] = | V%d{X T} | W%d{}
+func f%d() int {
+	let mut x = 1
+	x += 2
+	let P%d{A: a} = P%d{A: x}
+	a
+}
+type P%d { A int }
+-- 04548.ergo --
+type U[T number] = | V{X T} | W{}
+type U%d[T] = | V%d{X T} | W%d{}
+func f%d() int {
+	let mut x = 1
+	x += 2
+	let P%d{A: a} = P%d{A: x}
+	a
+}
+type P%d { A int }
+-- 04549.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type U%d[T] = | V%d{X T} | W%d{}
+func f%d() int {
+	let mut x = 1
+	x += 2
+	let P%d{A: a} = P%d{A: x}
+	a
+}
+type P%d { A int }
+-- 04550.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type U%d[T] = | V%d{X T} | W%d{}
+func f%d() int {
+	let mut x = 1
+	x += 2
+	let P%d{A: a} = P%d{A: x}
+	a
+}
+type P%d { A int }
+-- 04551.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type U%d[T] = | V%d{X T} | W%d{}
+func f%d() int {
+	let mut x = 1
+	x += 2
+	let P%d{A: a} = P%d{A: x}
+	a
+}
+type P%d { A int }
+-- 04552.ergo --
+func unrelated() {}
+type U%d[T] = | V%d{X T} | W%d{}
+func f%d() int {
+	let mut x = 1
+	x += 2
+	let P%d{A: a} = P%d{A: x}
+	a
+}
+type P%d { A int }
+-- 04553.ergo --
+type parameter T is declared twicetype U%d[T] = | V%d{X T} | W%d{}
+func f%d() int {
+	let mut x = 1
+	x += 2
+	let P%d{A: a} = P%d{A: x}
+	a
+}
+type P%d { A int }
+-- 04554.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type U%d[T] = | V%d{X T} | W%d{}
+func f%d() int {
+	let mut x = 1
+	x += 2
+	let P%d{A: a} = P%d{A: x}
+	a
+}
+type P%d { A int }
+-- 04555.ergo --
+type U[T, T] = | V{X T} | W{}
+type U%d[T] = | V%d{X T} | W%d{}
+func f%d() int {
+	let mut x = 1
+	x += 2
+	let P%d{A: a} = P%d{A: x}
+	a
+}
+type P%d { A int }
+-- 04556.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type U%d[T] = | V%d{X T} | W%d{}
+func f%d() int {
+	let mut x = 1
+	x += 2
+	let P%d{A: a} = P%d{A: x}
+	a
+}
+type P%d { A int }
+-- 04557.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type U%d[T] = | V%d{X T} | W%d{}
+func f%d() int {
+	let mut x = 1
+	x += 2
+	let P%d{A: a} = P%d{A: x}
+	a
+}
+type P%d { A int }
+-- 04558.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type U%d[T] = | V%d{X T} | W%d{}
+func f%d() int {
+	let mut x = 1
+	x += 2
+	let P%d{A: a} = P%d{A: x}
+	a
+}
+type P%d { A int }
+-- 04559.ergo --
+type U[T] = | V{X T} | W{}
+type parameter T is declared twice
+-- 04560.ergo --
+type U[T number] = | V{X T} | W{}
+type parameter T is declared twice
+-- 04561.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type parameter T is declared twice
+-- 04562.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type parameter T is declared twice
+-- 04563.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type parameter T is declared twice
+-- 04564.ergo --
+func unrelated() {}
+type parameter T is declared twice
+-- 04565.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type parameter T is declared twice
+-- 04566.ergo --
+type U[T, T] = | V{X T} | W{}
+type parameter T is declared twice
+-- 04567.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type parameter T is declared twice
+-- 04568.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type parameter T is declared twice
+-- 04569.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type parameter T is declared twice
+-- 04570.ergo --
+type U[T] = | V{X T} | W{}
+type parameter T is used both as a type and as a row (types.md, Generics 1)
+-- 04571.ergo --
+type U[T number] = | V{X T} | W{}
+type parameter T is used both as a type and as a row (types.md, Generics 1)
+-- 04572.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type parameter T is used both as a type and as a row (types.md, Generics 1)
+-- 04573.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type parameter T is used both as a type and as a row (types.md, Generics 1)
+-- 04574.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type parameter T is used both as a type and as a row (types.md, Generics 1)
+-- 04575.ergo --
+func unrelated() {}
+type parameter T is used both as a type and as a row (types.md, Generics 1)
+-- 04576.ergo --
+type parameter T is declared twicetype parameter T is used both as a type and as a row (types.md, Generics 1)
+-- 04577.ergo --
+type U[T, T] = | V{X T} | W{}
+type parameter T is used both as a type and as a row (types.md, Generics 1)
+-- 04578.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type parameter T is used both as a type and as a row (types.md, Generics 1)
+-- 04579.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type parameter T is used both as a type and as a row (types.md, Generics 1)
+-- 04580.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type parameter T is used both as a type and as a row (types.md, Generics 1)
+-- 04581.ergo --
+type U[T] = | V{X T} | W{}
+type U[T, T] = | V{X T} | W{}
+-- 04582.ergo --
+type U[T number] = | V{X T} | W{}
+type U[T, T] = | V{X T} | W{}
+-- 04583.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type U[T, T] = | V{X T} | W{}
+-- 04584.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type U[T, T] = | V{X T} | W{}
+-- 04585.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type U[T, T] = | V{X T} | W{}
+-- 04586.ergo --
+func unrelated() {}
+type U[T, T] = | V{X T} | W{}
+-- 04587.ergo --
+type parameter T is declared twicetype U[T, T] = | V{X T} | W{}
+-- 04588.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type U[T, T] = | V{X T} | W{}
+-- 04589.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type U[T, T] = | V{X T} | W{}
+-- 04590.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type U[T, T] = | V{X T} | W{}
+-- 04591.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type U[T, T] = | V{X T} | W{}
+-- 04592.ergo --
+type U[T] = | V{X T} | W{}
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+-- 04593.ergo --
+type U[T number] = | V{X T} | W{}
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+-- 04594.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+-- 04595.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+-- 04596.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+-- 04597.ergo --
+func unrelated() {}
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+-- 04598.ergo --
+type parameter T is declared twicetype A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+-- 04599.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+-- 04600.ergo --
+type U[T, T] = | V{X T} | W{}
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+-- 04601.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+-- 04602.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+-- 04603.ergo --
+type U[T] = | V{X T} | W{}
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+-- 04604.ergo --
+type U[T number] = | V{X T} | W{}
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+-- 04605.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+-- 04606.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+-- 04607.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+-- 04608.ergo --
+func unrelated() {}
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+-- 04609.ergo --
+type parameter T is declared twicetype A { S V[int] }
+type U[string] = | V{X string} | W{}
+-- 04610.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type A { S V[int] }
+type U[string] = | V{X string} | W{}
+-- 04611.ergo --
+type U[T, T] = | V{X T} | W{}
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+-- 04612.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+-- 04613.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+-- 04614.ergo --
+type U[T] = | V{X T} | W{}
+type U[T] = | V{X T, F func() needs T} | W{}
+-- 04615.ergo --
+type U[T number] = | V{X T} | W{}
+type U[T] = | V{X T, F func() needs T} | W{}
+-- 04616.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type U[T] = | V{X T, F func() needs T} | W{}
+-- 04617.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type U[T] = | V{X T, F func() needs T} | W{}
+-- 04618.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type U[T] = | V{X T, F func() needs T} | W{}
+-- 04619.ergo --
+func unrelated() {}
+type U[T] = | V{X T, F func() needs T} | W{}
+-- 04620.ergo --
+type parameter T is declared twicetype U[T] = | V{X T, F func() needs T} | W{}
+-- 04621.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type U[T] = | V{X T, F func() needs T} | W{}
+-- 04622.ergo --
+type U[T, T] = | V{X T} | W{}
+type U[T] = | V{X T, F func() needs T} | W{}
+-- 04623.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type U[T] = | V{X T, F func() needs T} | W{}
+-- 04624.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type U[T] = | V{X T, F func() needs T} | W{}
+-- 04625.ergo --
+type and row
+-- 04626.ergo --
+type U[T] = | V{X T} | W{}
+type and row
+-- 04627.ergo --
+type U[T number] = | V{X T} | W{}
+type and row
+-- 04628.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type and row
+-- 04629.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type and row
+-- 04630.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type and row
+-- 04631.ergo --
+func unrelated() {}
+type and row
+-- 04632.ergo --
+type parameter T is declared twicetype and row
+-- 04633.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type and row
+-- 04634.ergo --
+type U[T, T] = | V{X T} | W{}
+type and row
+-- 04635.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type and row
+-- 04636.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type and row
+-- 04637.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type and row
+-- 04638.ergo --
+type U[
+-- 04639.ergo --
+type U[T] = | V{X T} | W{}
+type U[
+-- 04640.ergo --
+type U[T number] = | V{X T} | W{}
+type U[
+-- 04641.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type U[
+-- 04642.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type U[
+-- 04643.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type U[
+-- 04644.ergo --
+func unrelated() {}
+type U[
+-- 04645.ergo --
+type parameter T is declared twicetype U[
+-- 04646.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type U[
+-- 04647.ergo --
+type U[T, T] = | V{X T} | W{}
+type U[
+-- 04648.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type U[
+-- 04649.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type U[
+-- 04650.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type U[
+-- 04651.ergo --
+type A { S V[
+-- 04652.ergo --
+type U[T] = | V{X T} | W{}
+type A { S V[
+-- 04653.ergo --
+type U[T number] = | V{X T} | W{}
+type A { S V[
+-- 04654.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type A { S V[
+-- 04655.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type A { S V[
+-- 04656.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type A { S V[
+-- 04657.ergo --
+func unrelated() {}
+type A { S V[
+-- 04658.ergo --
+type parameter T is declared twicetype A { S V[
+-- 04659.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type A { S V[
+-- 04660.ergo --
+type U[T, T] = | V{X T} | W{}
+type A { S V[
+-- 04661.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type A { S V[
+-- 04662.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type A { S V[
+-- 04663.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type A { S V[
+-- 04664.ergo --
+func f(b bool) int { if b {} else {1} }
+-- 04665.ergo --
+type U[T] = | V{X T} | W{}
+func f(b bool) int { if b {} else {1} }
+-- 04666.ergo --
+type U[T number] = | V{X T} | W{}
+func f(b bool) int { if b {} else {1} }
+-- 04667.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+func f(b bool) int { if b {} else {1} }
+-- 04668.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+func f(b bool) int { if b {} else {1} }
+-- 04669.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+func f(b bool) int { if b {} else {1} }
+-- 04670.ergo --
+func unrelated() {}
+func f(b bool) int { if b {} else {1} }
+-- 04671.ergo --
+type parameter T is declared twicefunc f(b bool) int { if b {} else {1} }
+-- 04672.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)func f(b bool) int { if b {} else {1} }
+-- 04673.ergo --
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { if b {} else {1} }
+-- 04674.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { if b {} else {1} }
+-- 04675.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+func f(b bool) int { if b {} else {1} }
+-- 04676.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+func f(b bool) int { if b {} else {1} }
+-- 04677.ergo --
+func f(b bool) int { let x = if b {} else {1}; x }
+-- 04678.ergo --
+type U[T] = | V{X T} | W{}
+func f(b bool) int { let x = if b {} else {1}; x }
+-- 04679.ergo --
+type U[T number] = | V{X T} | W{}
+func f(b bool) int { let x = if b {} else {1}; x }
+-- 04680.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+func f(b bool) int { let x = if b {} else {1}; x }
+-- 04681.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+func f(b bool) int { let x = if b {} else {1}; x }
+-- 04682.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+func f(b bool) int { let x = if b {} else {1}; x }
+-- 04683.ergo --
+func unrelated() {}
+func f(b bool) int { let x = if b {} else {1}; x }
+-- 04684.ergo --
+type parameter T is declared twicefunc f(b bool) int { let x = if b {} else {1}; x }
+-- 04685.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)func f(b bool) int { let x = if b {} else {1}; x }
+-- 04686.ergo --
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { let x = if b {} else {1}; x }
+-- 04687.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { let x = if b {} else {1}; x }
+-- 04688.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+func f(b bool) int { let x = if b {} else {1}; x }
+-- 04689.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+func f(b bool) int { let x = if b {} else {1}; x }
+-- 04690.ergo --
+func f(b bool) int { let x = if b {1}; x }
+-- 04691.ergo --
+type U[T] = | V{X T} | W{}
+func f(b bool) int { let x = if b {1}; x }
+-- 04692.ergo --
+type U[T number] = | V{X T} | W{}
+func f(b bool) int { let x = if b {1}; x }
+-- 04693.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+func f(b bool) int { let x = if b {1}; x }
+-- 04694.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+func f(b bool) int { let x = if b {1}; x }
+-- 04695.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+func f(b bool) int { let x = if b {1}; x }
+-- 04696.ergo --
+func unrelated() {}
+func f(b bool) int { let x = if b {1}; x }
+-- 04697.ergo --
+type parameter T is declared twicefunc f(b bool) int { let x = if b {1}; x }
+-- 04698.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)func f(b bool) int { let x = if b {1}; x }
+-- 04699.ergo --
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { let x = if b {1}; x }
+-- 04700.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { let x = if b {1}; x }
+-- 04701.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+func f(b bool) int { let x = if b {1}; x }
+-- 04702.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+func f(b bool) int { let x = if b {1}; x }
+-- 04703.ergo --
+func f(b bool) int { if b { if b {1} } else {1} }
+-- 04704.ergo --
+type U[T] = | V{X T} | W{}
+func f(b bool) int { if b { if b {1} } else {1} }
+-- 04705.ergo --
+type U[T number] = | V{X T} | W{}
+func f(b bool) int { if b { if b {1} } else {1} }
+-- 04706.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+func f(b bool) int { if b { if b {1} } else {1} }
+-- 04707.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+func f(b bool) int { if b { if b {1} } else {1} }
+-- 04708.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+func f(b bool) int { if b { if b {1} } else {1} }
+-- 04709.ergo --
+func unrelated() {}
+func f(b bool) int { if b { if b {1} } else {1} }
+-- 04710.ergo --
+type parameter T is declared twicefunc f(b bool) int { if b { if b {1} } else {1} }
+-- 04711.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)func f(b bool) int { if b { if b {1} } else {1} }
+-- 04712.ergo --
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { if b { if b {1} } else {1} }
+-- 04713.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { if b { if b {1} } else {1} }
+-- 04714.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+func f(b bool) int { if b { if b {1} } else {1} }
+-- 04715.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+func f(b bool) int { if b { if b {1} } else {1} }
+-- 04716.ergo --
+func f(b bool) int { match b { case true: case false: 1 } }
+-- 04717.ergo --
+type U[T] = | V{X T} | W{}
+func f(b bool) int { match b { case true: case false: 1 } }
+-- 04718.ergo --
+type U[T number] = | V{X T} | W{}
+func f(b bool) int { match b { case true: case false: 1 } }
+-- 04719.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+func f(b bool) int { match b { case true: case false: 1 } }
+-- 04720.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+func f(b bool) int { match b { case true: case false: 1 } }
+-- 04721.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+func f(b bool) int { match b { case true: case false: 1 } }
+-- 04722.ergo --
+func unrelated() {}
+func f(b bool) int { match b { case true: case false: 1 } }
+-- 04723.ergo --
+type parameter T is declared twicefunc f(b bool) int { match b { case true: case false: 1 } }
+-- 04724.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)func f(b bool) int { match b { case true: case false: 1 } }
+-- 04725.ergo --
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { match b { case true: case false: 1 } }
+-- 04726.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { match b { case true: case false: 1 } }
+-- 04727.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+func f(b bool) int { match b { case true: case false: 1 } }
+-- 04728.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+func f(b bool) int { match b { case true: case false: 1 } }
+-- 04729.ergo --
+func f(b bool) int { let x = match b { case true: case false: 1 }; x }
+-- 04730.ergo --
+type U[T] = | V{X T} | W{}
+func f(b bool) int { let x = match b { case true: case false: 1 }; x }
+-- 04731.ergo --
+type U[T number] = | V{X T} | W{}
+func f(b bool) int { let x = match b { case true: case false: 1 }; x }
+-- 04732.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+func f(b bool) int { let x = match b { case true: case false: 1 }; x }
+-- 04733.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+func f(b bool) int { let x = match b { case true: case false: 1 }; x }
+-- 04734.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+func f(b bool) int { let x = match b { case true: case false: 1 }; x }
+-- 04735.ergo --
+func unrelated() {}
+func f(b bool) int { let x = match b { case true: case false: 1 }; x }
+-- 04736.ergo --
+type parameter T is declared twicefunc f(b bool) int { let x = match b { case true: case false: 1 }; x }
+-- 04737.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)func f(b bool) int { let x = match b { case true: case false: 1 }; x }
+-- 04738.ergo --
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { let x = match b { case true: case false: 1 }; x }
+-- 04739.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { let x = match b { case true: case false: 1 }; x }
+-- 04740.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+func f(b bool) int { let x = match b { case true: case false: 1 }; x }
+-- 04741.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+func f(b bool) int { let x = match b { case true: case false: 1 }; x }
+-- 04742.ergo --
+type Fault {}
+func boom() int fails Fault { Fault }
+func f() int { boom() catch { case Fault: } }
+-- 04743.ergo --
+type U[T] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f() int { boom() catch { case Fault: } }
+-- 04744.ergo --
+type U[T number] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f() int { boom() catch { case Fault: } }
+-- 04745.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f() int { boom() catch { case Fault: } }
+-- 04746.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f() int { boom() catch { case Fault: } }
+-- 04747.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f() int { boom() catch { case Fault: } }
+-- 04748.ergo --
+func unrelated() {}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f() int { boom() catch { case Fault: } }
+-- 04749.ergo --
+type parameter T is declared twicetype Fault {}
+func boom() int fails Fault { Fault }
+func f() int { boom() catch { case Fault: } }
+-- 04750.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type Fault {}
+func boom() int fails Fault { Fault }
+func f() int { boom() catch { case Fault: } }
+-- 04751.ergo --
+type U[T, T] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f() int { boom() catch { case Fault: } }
+-- 04752.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f() int { boom() catch { case Fault: } }
+-- 04753.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f() int { boom() catch { case Fault: } }
+-- 04754.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f() int { boom() catch { case Fault: } }
+-- 04755.ergo --
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} } }
+-- 04756.ergo --
+type U[T] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} } }
+-- 04757.ergo --
+type U[T number] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} } }
+-- 04758.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} } }
+-- 04759.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} } }
+-- 04760.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} } }
+-- 04761.ergo --
+func unrelated() {}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} } }
+-- 04762.ergo --
+type parameter T is declared twicetype Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} } }
+-- 04763.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} } }
+-- 04764.ergo --
+type U[T, T] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} } }
+-- 04765.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} } }
+-- 04766.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} } }
+-- 04767.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} } }
+-- 04768.ergo --
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: case false: 1 } } }
+-- 04769.ergo --
+type U[T] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: case false: 1 } } }
+-- 04770.ergo --
+type U[T number] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: case false: 1 } } }
+-- 04771.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: case false: 1 } } }
+-- 04772.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: case false: 1 } } }
+-- 04773.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: case false: 1 } } }
+-- 04774.ergo --
+func unrelated() {}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: case false: 1 } } }
+-- 04775.ergo --
+type parameter T is declared twicetype Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: case false: 1 } } }
+-- 04776.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: case false: 1 } } }
+-- 04777.ergo --
+type U[T, T] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: case false: 1 } } }
+-- 04778.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: case false: 1 } } }
+-- 04779.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: case false: 1 } } }
+-- 04780.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: case false: 1 } } }
+-- 04781.ergo --
+type Fault {}
+func boom() int fails Fault { Fault }
+func nop() {}
+func f() int { boom() catch { case Fault: nop() } }
+-- 04782.ergo --
+type U[T] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func nop() {}
+func f() int { boom() catch { case Fault: nop() } }
+-- 04783.ergo --
+type U[T number] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func nop() {}
+func f() int { boom() catch { case Fault: nop() } }
+-- 04784.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func nop() {}
+func f() int { boom() catch { case Fault: nop() } }
+-- 04785.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type Fault {}
+func boom() int fails Fault { Fault }
+func nop() {}
+func f() int { boom() catch { case Fault: nop() } }
+-- 04786.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type Fault {}
+func boom() int fails Fault { Fault }
+func nop() {}
+func f() int { boom() catch { case Fault: nop() } }
+-- 04787.ergo --
+func unrelated() {}
+type Fault {}
+func boom() int fails Fault { Fault }
+func nop() {}
+func f() int { boom() catch { case Fault: nop() } }
+-- 04788.ergo --
+type parameter T is declared twicetype Fault {}
+func boom() int fails Fault { Fault }
+func nop() {}
+func f() int { boom() catch { case Fault: nop() } }
+-- 04789.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type Fault {}
+func boom() int fails Fault { Fault }
+func nop() {}
+func f() int { boom() catch { case Fault: nop() } }
+-- 04790.ergo --
+type U[T, T] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func nop() {}
+func f() int { boom() catch { case Fault: nop() } }
+-- 04791.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func nop() {}
+func f() int { boom() catch { case Fault: nop() } }
+-- 04792.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func nop() {}
+func f() int { boom() catch { case Fault: nop() } }
+-- 04793.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func nop() {}
+func f() int { boom() catch { case Fault: nop() } }
+-- 04794.ergo --
+func f(b bool) int { if b {1} else {} }
+-- 04795.ergo --
+type U[T] = | V{X T} | W{}
+func f(b bool) int { if b {1} else {} }
+-- 04796.ergo --
+type U[T number] = | V{X T} | W{}
+func f(b bool) int { if b {1} else {} }
+-- 04797.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+func f(b bool) int { if b {1} else {} }
+-- 04798.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+func f(b bool) int { if b {1} else {} }
+-- 04799.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+func f(b bool) int { if b {1} else {} }
+-- 04800.ergo --
+func unrelated() {}
+func f(b bool) int { if b {1} else {} }
+-- 04801.ergo --
+type parameter T is declared twicefunc f(b bool) int { if b {1} else {} }
+-- 04802.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)func f(b bool) int { if b {1} else {} }
+-- 04803.ergo --
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { if b {1} else {} }
+-- 04804.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { if b {1} else {} }
+-- 04805.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+func f(b bool) int { if b {1} else {} }
+-- 04806.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+func f(b bool) int { if b {1} else {} }
+-- 04807.ergo --
+func f(b bool) int { let x = if b {1} else {}; x }
+-- 04808.ergo --
+type U[T] = | V{X T} | W{}
+func f(b bool) int { let x = if b {1} else {}; x }
+-- 04809.ergo --
+type U[T number] = | V{X T} | W{}
+func f(b bool) int { let x = if b {1} else {}; x }
+-- 04810.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+func f(b bool) int { let x = if b {1} else {}; x }
+-- 04811.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+func f(b bool) int { let x = if b {1} else {}; x }
+-- 04812.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+func f(b bool) int { let x = if b {1} else {}; x }
+-- 04813.ergo --
+func unrelated() {}
+func f(b bool) int { let x = if b {1} else {}; x }
+-- 04814.ergo --
+type parameter T is declared twicefunc f(b bool) int { let x = if b {1} else {}; x }
+-- 04815.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)func f(b bool) int { let x = if b {1} else {}; x }
+-- 04816.ergo --
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { let x = if b {1} else {}; x }
+-- 04817.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { let x = if b {1} else {}; x }
+-- 04818.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+func f(b bool) int { let x = if b {1} else {}; x }
+-- 04819.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+func f(b bool) int { let x = if b {1} else {}; x }
+-- 04820.ergo --
+func f(b bool) int { let x = if b { if b {1} else {} } else {1}; x }
+-- 04821.ergo --
+type U[T] = | V{X T} | W{}
+func f(b bool) int { let x = if b { if b {1} else {} } else {1}; x }
+-- 04822.ergo --
+type U[T number] = | V{X T} | W{}
+func f(b bool) int { let x = if b { if b {1} else {} } else {1}; x }
+-- 04823.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+func f(b bool) int { let x = if b { if b {1} else {} } else {1}; x }
+-- 04824.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+func f(b bool) int { let x = if b { if b {1} else {} } else {1}; x }
+-- 04825.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+func f(b bool) int { let x = if b { if b {1} else {} } else {1}; x }
+-- 04826.ergo --
+func unrelated() {}
+func f(b bool) int { let x = if b { if b {1} else {} } else {1}; x }
+-- 04827.ergo --
+type parameter T is declared twicefunc f(b bool) int { let x = if b { if b {1} else {} } else {1}; x }
+-- 04828.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)func f(b bool) int { let x = if b { if b {1} else {} } else {1}; x }
+-- 04829.ergo --
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { let x = if b { if b {1} else {} } else {1}; x }
+-- 04830.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { let x = if b { if b {1} else {} } else {1}; x }
+-- 04831.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+func f(b bool) int { let x = if b { if b {1} else {} } else {1}; x }
+-- 04832.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+func f(b bool) int { let x = if b { if b {1} else {} } else {1}; x }
+-- 04833.ergo --
+func f(b bool) int { match b { case true: if b {1}; case false: 1 } }
+-- 04834.ergo --
+type U[T] = | V{X T} | W{}
+func f(b bool) int { match b { case true: if b {1}; case false: 1 } }
+-- 04835.ergo --
+type U[T number] = | V{X T} | W{}
+func f(b bool) int { match b { case true: if b {1}; case false: 1 } }
+-- 04836.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+func f(b bool) int { match b { case true: if b {1}; case false: 1 } }
+-- 04837.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+func f(b bool) int { match b { case true: if b {1}; case false: 1 } }
+-- 04838.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+func f(b bool) int { match b { case true: if b {1}; case false: 1 } }
+-- 04839.ergo --
+func unrelated() {}
+func f(b bool) int { match b { case true: if b {1}; case false: 1 } }
+-- 04840.ergo --
+type parameter T is declared twicefunc f(b bool) int { match b { case true: if b {1}; case false: 1 } }
+-- 04841.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)func f(b bool) int { match b { case true: if b {1}; case false: 1 } }
+-- 04842.ergo --
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { match b { case true: if b {1}; case false: 1 } }
+-- 04843.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { match b { case true: if b {1}; case false: 1 } }
+-- 04844.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+func f(b bool) int { match b { case true: if b {1}; case false: 1 } }
+-- 04845.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+func f(b bool) int { match b { case true: if b {1}; case false: 1 } }
+-- 04846.ergo --
+func f(b bool) int { let x = match b { case true: if b {1} else {}; case false: 1 }; x }
+-- 04847.ergo --
+type U[T] = | V{X T} | W{}
+func f(b bool) int { let x = match b { case true: if b {1} else {}; case false: 1 }; x }
+-- 04848.ergo --
+type U[T number] = | V{X T} | W{}
+func f(b bool) int { let x = match b { case true: if b {1} else {}; case false: 1 }; x }
+-- 04849.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+func f(b bool) int { let x = match b { case true: if b {1} else {}; case false: 1 }; x }
+-- 04850.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+func f(b bool) int { let x = match b { case true: if b {1} else {}; case false: 1 }; x }
+-- 04851.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+func f(b bool) int { let x = match b { case true: if b {1} else {}; case false: 1 }; x }
+-- 04852.ergo --
+func unrelated() {}
+func f(b bool) int { let x = match b { case true: if b {1} else {}; case false: 1 }; x }
+-- 04853.ergo --
+type parameter T is declared twicefunc f(b bool) int { let x = match b { case true: if b {1} else {}; case false: 1 }; x }
+-- 04854.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)func f(b bool) int { let x = match b { case true: if b {1} else {}; case false: 1 }; x }
+-- 04855.ergo --
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { let x = match b { case true: if b {1} else {}; case false: 1 }; x }
+-- 04856.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { let x = match b { case true: if b {1} else {}; case false: 1 }; x }
+-- 04857.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+func f(b bool) int { let x = match b { case true: if b {1} else {}; case false: 1 }; x }
+-- 04858.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+func f(b bool) int { let x = match b { case true: if b {1} else {}; case false: 1 }; x }
+-- 04859.ergo --
+func f(b bool) int { let x = match b { case true: match b { case true: 1; case false: }; case false: 1 }; x }
+-- 04860.ergo --
+type U[T] = | V{X T} | W{}
+func f(b bool) int { let x = match b { case true: match b { case true: 1; case false: }; case false: 1 }; x }
+-- 04861.ergo --
+type U[T number] = | V{X T} | W{}
+func f(b bool) int { let x = match b { case true: match b { case true: 1; case false: }; case false: 1 }; x }
+-- 04862.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+func f(b bool) int { let x = match b { case true: match b { case true: 1; case false: }; case false: 1 }; x }
+-- 04863.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+func f(b bool) int { let x = match b { case true: match b { case true: 1; case false: }; case false: 1 }; x }
+-- 04864.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+func f(b bool) int { let x = match b { case true: match b { case true: 1; case false: }; case false: 1 }; x }
+-- 04865.ergo --
+func unrelated() {}
+func f(b bool) int { let x = match b { case true: match b { case true: 1; case false: }; case false: 1 }; x }
+-- 04866.ergo --
+type parameter T is declared twicefunc f(b bool) int { let x = match b { case true: match b { case true: 1; case false: }; case false: 1 }; x }
+-- 04867.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)func f(b bool) int { let x = match b { case true: match b { case true: 1; case false: }; case false: 1 }; x }
+-- 04868.ergo --
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { let x = match b { case true: match b { case true: 1; case false: }; case false: 1 }; x }
+-- 04869.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+func f(b bool) int { let x = match b { case true: match b { case true: 1; case false: }; case false: 1 }; x }
+-- 04870.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+func f(b bool) int { let x = match b { case true: match b { case true: 1; case false: }; case false: 1 }; x }
+-- 04871.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+func f(b bool) int { let x = match b { case true: match b { case true: 1; case false: }; case false: 1 }; x }
+-- 04872.ergo --
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: 1; case false: } } }
+-- 04873.ergo --
+type U[T] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: 1; case false: } } }
+-- 04874.ergo --
+type U[T number] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: 1; case false: } } }
+-- 04875.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: 1; case false: } } }
+-- 04876.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: 1; case false: } } }
+-- 04877.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: 1; case false: } } }
+-- 04878.ergo --
+func unrelated() {}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: 1; case false: } } }
+-- 04879.ergo --
+type parameter T is declared twicetype Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: 1; case false: } } }
+-- 04880.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: 1; case false: } } }
+-- 04881.ergo --
+type U[T, T] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: 1; case false: } } }
+-- 04882.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: 1; case false: } } }
+-- 04883.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: 1; case false: } } }
+-- 04884.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: match b { case true: 1; case false: } } }
+-- 04885.ergo --
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} else {} } }
+-- 04886.ergo --
+type U[T] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} else {} } }
+-- 04887.ergo --
+type U[T number] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} else {} } }
+-- 04888.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} else {} } }
+-- 04889.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} else {} } }
+-- 04890.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} else {} } }
+-- 04891.ergo --
+func unrelated() {}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} else {} } }
+-- 04892.ergo --
+type parameter T is declared twicetype Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} else {} } }
+-- 04893.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} else {} } }
+-- 04894.ergo --
+type U[T, T] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} else {} } }
+-- 04895.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} else {} } }
+-- 04896.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} else {} } }
+-- 04897.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b {1} else {} } }
+-- 04898.ergo --
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b { if b {1} } else {1} } }
+-- 04899.ergo --
+type U[T] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b { if b {1} } else {1} } }
+-- 04900.ergo --
+type U[T number] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b { if b {1} } else {1} } }
+-- 04901.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b { if b {1} } else {1} } }
+-- 04902.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b { if b {1} } else {1} } }
+-- 04903.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b { if b {1} } else {1} } }
+-- 04904.ergo --
+func unrelated() {}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b { if b {1} } else {1} } }
+-- 04905.ergo --
+type parameter T is declared twicetype Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b { if b {1} } else {1} } }
+-- 04906.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b { if b {1} } else {1} } }
+-- 04907.ergo --
+type U[T, T] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b { if b {1} } else {1} } }
+-- 04908.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b { if b {1} } else {1} } }
+-- 04909.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b { if b {1} } else {1} } }
+-- 04910.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type Fault {}
+func boom() int fails Fault { Fault }
+func f(b bool) int { boom() catch { case Fault: if b { if b {1} } else {1} } }
+-- 04911.ergo --
+func f() int {1}
+func g() int {2}
+-- 04912.ergo --
+type U[T] = | V{X T} | W{}
+func f() int {1}
+func g() int {2}
+-- 04913.ergo --
+type U[T number] = | V{X T} | W{}
+func f() int {1}
+func g() int {2}
+-- 04914.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+func f() int {1}
+func g() int {2}
+-- 04915.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+func f() int {1}
+func g() int {2}
+-- 04916.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+func f() int {1}
+func g() int {2}
+-- 04917.ergo --
+func unrelated() {}
+func f() int {1}
+func g() int {2}
+-- 04918.ergo --
+type parameter T is declared twicefunc f() int {1}
+func g() int {2}
+-- 04919.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)func f() int {1}
+func g() int {2}
+-- 04920.ergo --
+type U[T, T] = | V{X T} | W{}
+func f() int {1}
+func g() int {2}
+-- 04921.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+func f() int {1}
+func g() int {2}
+-- 04922.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+func f() int {1}
+func g() int {2}
+-- 04923.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+func f() int {1}
+func g() int {2}
+-- 04924.ergo --
+type Bang {}
+
+func g() Bang { Bang }
+
+func main() {
+	let _ = g()
+}
+-- 04925.ergo --
+type Bang {}
+
+func h(b Bang) int { 1 }
+
+func main() {
+	let _ = h(Bang)
+}
+-- 04926.ergo --
+type Bang {}
+
+func g(b bool) int {
+	if b {
+		return Bang
+	}
+	1
+}
+
+func main() {}
+-- 04927.ergo --
+type Bang {}
+
+func g(b bool) int {
+	if b {
+		return Bang
+	}
+	1
+}
+
+func main() {
+	let v = g(true) catch {
+	case Bang:
+		0
+	}
+	let _ = v
+}
+-- 04928.ergo --
+type Bang {}
+
+func g() int fails Bang { return Bang }
+
+func main() {
+	let v = g() catch {
+	case Bang:
+		0
+	}
+	let _ = v
+}
+-- 04929.ergo --
+type Bang {}
+
+func Error(b Bang) string { "bang" }
+
+func main() {
+	let _ = Error(Bang)
+}
+-- 04930.ergo --
+type Bang {}
+
+func Error(b Bang) string { "bang" }
+
+func g() int fails Bang { return Bang }
+
+func main() {
+	let v = g() catch {
+	case Bang:
+		0
+	}
+	let _ = v
+}
+-- 04931.ergo --
+func Error
+-- 04932.ergo --
+type Bang {}
+
+type Oops {}
+
+func g() int fails Oops { return Oops }
+
+func main() {}
+-- 04933.ergo --
+type %s %s
+
+-- 04934.ergo --
+type %s
+
+-- 04935.ergo --
+type %s = %s
+
+-- 04936.ergo --
+func f(%s) {
+-- 04937.ergo --
+func f() { match x { case 
+-- 04938.ergo --
+type U = %s
+
+func f(u U) int {
+	match u {
+-- 04939.ergo --
+type R { 
+-- 04940.ergo --
+ }
+func F(r R) int { match r { case R{F0: true}: return 1
+case _: return 0 } }
+-- 04941.ergo --
+type T (%s)
+func F(t T) int { match t {
+-- 04942.ergo --
+ }
+func F(r R) int { match r {
+-- 04943.ergo --
+func F(
+-- 04944.ergo --
+func F() { let (%s) = (%s)
+_ = (%s)
+}
+-- 04945.ergo --
+type R%d { On bool }
+-- 04946.ergo --
+type R%d { Child R%d }
+-- 04947.ergo --
+func F(r R0) int { match r {
+case 
+-- 04948.ergo --
+type U%d = A%d{} | B%d{}
+-- 04949.ergo --
+type U%d = A%d{Child U%d} | B%d{}
+-- 04950.ergo --
+func F(u U0) int { match u {
+-- 04951.ergo --
+type Instant {}
+
+func Sleep(s Instant, d duration) {}
+
+let Quick = context { Scheduler: Instant }
+
+func nap() needs Scheduler {
+	Scheduler.Sleep(1ms)
+}
+
+func main() needs Ambient {
+	with Quick {
+		Scheduler.Sleep(1h)
+		nap()
+	}
+	let Live = context { Scheduler: NewLiveScheduler() }
+	with Live {
+		nap()
+	}
+	NewLiveScheduler().Sleep(1ms)
+	Instant.Sleep(1h)
+	Sleep(Instant, 1h)
+}
+-- 04952.ergo --
+func f() {
+	Sleep(LiveScheduler, 1ms)
+}
+-- 04953.ergo --
+type Instant {}
+
+func Sleep(s Instant, d duration) {}
+
+let Quick = context { Scheduler: Instant }
+
+func nap() needs Scheduler {
+	Scheduler.Sleep(1ms)
+}
+
+func main() needs Ambient {
+	with Quick {
+		Scheduler.Sleep(1h)
+		nap()
+	}
+	let Live = context { Scheduler: NewLiveScheduler() }
+	with Live {
+		nap()
+	}
+	NewLiveScheduler().Sleep(1ms)
+	Instant.Sleep(1h)
+	Sleep(Instant, 1h)
+}
+func f() {
+	Sleep(LiveScheduler, 1ms)
+}
+-- 04954.ergo --
+func f(xs []int) []int {
+	Append(xs, 1)
+}
+-- 04955.ergo --
+type Instant {}
+
+func Sleep(s Instant, d duration) {}
+
+let Quick = context { Scheduler: Instant }
+
+func nap() needs Scheduler {
+	Scheduler.Sleep(1ms)
+}
+
+func main() needs Ambient {
+	with Quick {
+		Scheduler.Sleep(1h)
+		nap()
+	}
+	let Live = context { Scheduler: NewLiveScheduler() }
+	with Live {
+		nap()
+	}
+	NewLiveScheduler().Sleep(1ms)
+	Instant.Sleep(1h)
+	Sleep(Instant, 1h)
+}
+func f(xs []int) []int {
+	Append(xs, 1)
+}
+-- 04956.ergo --
+func f(m Map[string, int]) Option[int] {
+	Get(m, "k")
+}
+-- 04957.ergo --
+type Instant {}
+
+func Sleep(s Instant, d duration) {}
+
+let Quick = context { Scheduler: Instant }
+
+func nap() needs Scheduler {
+	Scheduler.Sleep(1ms)
+}
+
+func main() needs Ambient {
+	with Quick {
+		Scheduler.Sleep(1h)
+		nap()
+	}
+	let Live = context { Scheduler: NewLiveScheduler() }
+	with Live {
+		nap()
+	}
+	NewLiveScheduler().Sleep(1ms)
+	Instant.Sleep(1h)
+	Sleep(Instant, 1h)
+}
+func f(m Map[string, int]) Option[int] {
+	Get(m, "k")
+}
+-- 04958.ergo --
+func Sleep(s Instant, d duration) {}
+-- 04959.ergo --
+type Instant {}
+
+func Sleep(s Instant, d duration) {}
+
+let Quick = context { Scheduler: Instant }
+
+func nap() needs Scheduler {
+	Scheduler.Sleep(1ms)
+}
+
+func main() needs Ambient {
+	with Quick {
+		Scheduler.Sleep(1h)
+		nap()
+	}
+	let Live = context { Scheduler: NewLiveScheduler() }
+	with Live {
+		nap()
+	}
+	NewLiveScheduler().Sleep(1ms)
+	Instant.Sleep(1h)
+	Sleep(Instant, 1h)
+}
+func Sleep(s Instant, d duration) {}
+-- 04960.ergo --
+func f(len string, len string) {}
+-- 04961.ergo --
+type Instant {}
+
+func Sleep(s Instant, d duration) {}
+
+let Quick = context { Scheduler: Instant }
+
+func nap() needs Scheduler {
+	Scheduler.Sleep(1ms)
+}
+
+func main() needs Ambient {
+	with Quick {
+		Scheduler.Sleep(1h)
+		nap()
+	}
+	let Live = context { Scheduler: NewLiveScheduler() }
+	with Live {
+		nap()
+	}
+	NewLiveScheduler().Sleep(1ms)
+	Instant.Sleep(1h)
+	Sleep(Instant, 1h)
+}
+func f(len string, len string) {}
+-- 04962.ergo --
+type Option[T] = Present[T]{ V T } | Absent{}
+
+func pick(o Option[int]) int {
+	match o {
+	case Present[int]{V: v}:
+		v
+	case Absent:
+		0
+	}
+}
+-- 04963.ergo --
+type Option { Value int }
+
+func f(o Option) int { o.Value }
+-- 04964.ergo --
+type Opt = Some{ V int } | None{}
+
+func f(o Opt) int {
+	match o {
+	case Some{V: v}:
+		v
+	case None:
+		0
+	}
+}
+-- 04965.ergo --
+type Range { lo int, hi int }
+type Seq = Cell{ v int } | Nil{}
+
+func f(r Range, s Seq) int { r.hi - r.lo }
+-- 04966.ergo --
+type Range { lo int }
+
+func f() int {
+	let mut s = 0
+	for i in 0..3 {
+		s += i
+	}
+	s
+}
+-- 04967.ergo --
+type string { b []byte }
+
+func f(x string) int { len(x.b) }
+-- 04968.ergo --
+type true { V int }
+-- 04969.ergo --
+type len { V int }
+-- 04970.ergo --
+type Map[K, V] { keys []K, vals []V }
+
+func size[K, V](m Map[K, V]) int { len(m.keys) }
+
+func f() int {
+	let m = Map[string, int]{keys: []string{"a"}, vals: []int{1}}
+	m.size()
+}
+-- 04971.ergo --
+type Map[K, E] { k K }
+
+type Bad {}
+
+func Run[K, E](m Map[K, E]) int fails E { 1 }
+
+func f(m Map[int, Bad]) int fails Bad { m.Run() }
+-- 04972.ergo --
+type Map[K, V] { keys []K, vals []V }
+
+func f() int {
+	let keys = 1
+	let m = Map[string, int]{keys: []string{"a"}, vals: []int{1}}
+	len(m.vals)
+}
+-- 04973.ergo --
+type Map[K, V] { keys []K }
+
+let keys = m.keys
+
+let m = Map[string, int]{keys: []string{"a"}}
+
+func f() int { len(keys) }
+-- 04974.ergo --
+type Map { n int }
+
+func f(m Map) int { m.n }
+
+func g(m Map[string, int]) {}
+-- 04975.ergo --
+type Option { V int }
+type Option { W int }
+-- 04976.ergo --
+func Option() int { 1 }
+-- 04977.ergo --
+let Option = 1
+-- 04978.ergo --
+func len(xs []int) int { 0 }
+-- 04979.ergo --
+func f[Option comparable](x Option) Option { x }
+-- 04980.ergo --
+type Option { V int }
+
+func f() int {
+	let Option = 1
+	Option
+}
+-- 04981.ergo --
+type Option { V int }
+
+func f(Option int) int { Option }
+-- 04982.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+-- 04983.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+-- 04984.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+-- 04985.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+-- 04986.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+-- 04987.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+-- 04988.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+-- 04989.ergo --
+func f(w Walk) Walk { Walk{..w, Turn: 1} }
+-- 04990.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(w Walk) Walk { Walk{..w, Turn: 1} }
+-- 04991.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(w Walk) Walk { Walk{..w, Turn: 1} }
+-- 04992.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(w Walk) Walk { Walk{..w, Turn: 1} }
+-- 04993.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(w Walk) Walk { Walk{..w, Turn: 1} }
+-- 04994.ergo --
+func f(w Walk) Walk { Walk{..w, At: 2, Turn: 1} }
+-- 04995.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(w Walk) Walk { Walk{..w, At: 2, Turn: 1} }
+-- 04996.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(w Walk) Walk { Walk{..w, At: 2, Turn: 1} }
+-- 04997.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(w Walk) Walk { Walk{..w, At: 2, Turn: 1} }
+-- 04998.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(w Walk) Walk { Walk{..w, At: 2, Turn: 1} }
+-- 04999.ergo --
+func f() Walk { Walk{..mk(), Turn: 1} }
