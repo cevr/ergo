@@ -22,11 +22,11 @@ test DoubleIsEven(n int) {
 }
 ```
 
-A test can use a context, so it swaps providers with no mock framework. The README's opening program ([examples/checkout](../examples/checkout/cmd/checkout/main.ergo)) tests the same `Checkout` with a provider that pays and one that declines:
+A test can use a context, so it swaps providers with no mock framework. The README's opening program ([examples/lookup](../examples/lookup/cmd/lookup/main.ergo)) tests the same `Lookup` with a provider that answers and one that answers nothing:
 
 ```go
-test DeclineIsHandled {
-	assert with Declining { payments.Purchase(100) } == "declined"
+test NotFoundIsHandled {
+	assert with Missing { hosts.Address("example.org") } == "unknown"
 }
 ```
 
@@ -35,14 +35,14 @@ A test declares no `needs` row (S102): the services it uses come from a `with`.
 ## Running
 
 ```sh
-./bin/ergo test examples/checkout/cmd/checkout
+./bin/ergo test examples/lookup/cmd/lookup
 ```
 
 The runner prints one line per test, in source order, then a summary:
 
 ```text
-ok ChargeSucceeds
-ok DeclineIsHandled
+ok ResolveAnswers
+ok NotFoundIsHandled
 PASS (2 tests)
 ```
 

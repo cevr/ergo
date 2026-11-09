@@ -1,0 +1,23 @@
+import lookup/hosts
+import lookup/memory
+import time
+
+// This binary is the only place that chooses the providers. Memory binds
+// the memory providers and a time.Manual, so a test needs no host; main
+// replaces the Manual with the host's scheduler, which needs Ambient.
+let Memory = context { Scheduler: time.NewManual(0), memory.Listing }
+let Missing = context { Memory, replace hosts.Resolver: memory.Empty }
+
+func main() needs Console | Ambient {
+	let live = context { Memory, replace Scheduler: NewLiveScheduler() }
+	Console.Println(with live { hosts.Address("example.org") })
+}
+
+test ResolveAnswers {
+	let answer = try with Memory { hosts.Lookup("example.org") }
+	assert answer.Name == "example.org"
+}
+
+test NotFoundIsHandled {
+	assert with Missing { hosts.Address("example.org") } == "unknown"
+}

@@ -17,7 +17,7 @@ import (
 // what the tests read): cmd/ergo (the README smoke test, the context-reach
 // repro and the package-folder test), internal/sketch/lower (the accepted
 // and refusal inventories) and scripts/examples (the laws of every
-// example). Batch-10 r2 B1: an edit of examples/checkout broke a cmd/ergo
+// example). Batch-10 r2 B1: an edit of the README's opening example broke a cmd/ergo
 // test that reads the program by text, and the lane that made it did not
 // run cmd/ergo.
 var exampleReaders = []string{"cmd/ergo", "internal/sketch/lower", "scripts/examples"}

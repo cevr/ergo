@@ -1,6 +1,0 @@
-import shop/mem
-import shop/p
-
-func main() needs Console {
-	Console.Println(with mem.Paying { p.Use() })
-}

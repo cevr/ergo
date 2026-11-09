@@ -1,0 +1,26 @@
+// ergo test runs the hosts.Resolver law here, against Static and Empty;
+// these tests check it again with fixed names.
+
+import lookup/hosts
+
+test StaticAnswersTheName {
+	with context { hosts.Resolver: Static } {
+		for name in []string{"", "a", "example.org", "example.net"} {
+			let answer = hosts.Resolver.Resolve(name) catch {
+			case hosts.NotFound:
+				hosts.Answer{Name: name, Addr: "unknown"}
+			}
+			assert hosts.Answered(answer, name)
+		}
+	}
+}
+
+test EmptyAnswersNothing {
+	with context { hosts.Resolver: Empty } {
+		let answer = hosts.Resolver.Resolve("example.org") catch {
+		case hosts.NotFound:
+			hosts.Answer{Name: "example.org", Addr: "unknown"}
+		}
+		assert hosts.Answered(answer, "example.org")
+	}
+}

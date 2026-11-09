@@ -1,0 +1,39 @@
+import timeout
+
+type NotFound { Name string }
+type Answer { Name string, Addr string }
+
+// An operation type: the service a caller must supply, with its contract.
+type Resolver {
+	Resolve(name string) Answer fails NotFound,
+
+	// A lookup that succeeds answers the name asked, with an address.
+	law Answered(name string) {
+		let answer = Resolve(name) catch {
+		case NotFound:
+			return true
+		}
+		Answered(answer, name)
+	},
+}
+
+// Answered reports whether answer is for name and has an address: the
+// law's check, which a provider's test calls.
+func Answered(answer Answer, name string) bool {
+	answer.Name == name && answer.Addr != ""
+}
+
+// A signature lists every expected failure and every service the caller must supply.
+func Lookup(name string) Answer fails NotFound | timeout.Expired needs Resolver | Scheduler {
+	timeout.After(2s) { Resolver.Resolve(name) } // the block runs as a child task; at 2s it is stopped
+}
+
+func Address(name string) string needs Resolver | Scheduler {
+	let answer = Lookup(name) catch {
+	case NotFound:
+		Answer{Name: name, Addr: "unknown"}
+	case timeout.Expired:
+		Answer{Name: name, Addr: "timed-out"}
+	}
+	answer.Addr
+}
