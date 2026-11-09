@@ -1,8 +1,9 @@
 // The journal's tests: its lines, a corrupt file, a disk that fails, and
-// the ledger.Store laws restated as property tests (ergo test skips them
-// for Journal, which holds an fs.Files and has no constructor without
-// rows; expected-skips). The journal runs on an fstest.Memory, never on
-// the host.
+// the ledger.Store laws restated as property tests on a day's journal.
+// ergo test runs the laws on Journal itself, each case on a NewJournal
+// over an empty fstest.Memory, where most transfers are refused; the
+// restatements start from a ledger with accounts. The journal runs on an
+// fstest.Memory, never on the host.
 
 import fs
 import fstest
@@ -40,7 +41,7 @@ func Remove(b Broken, path string) fails fs.NotFound | fs.Denied | fs.Failed { b
 func at(b Broken, path string) fs.Failed { fs.Failed{Path: path, Reason: b.reason} }
 
 // on is a Journal at bank.journal on d.
-func on(d fstest.Memory) Journal { At("bank.journal", d, d) }
+func on(d fstest.Memory) Journal { NewJournal(d, d) }
 
 // day is a Journal on a fresh fstest.Memory with the accounts of ledger.Bank and
 // the transfers of ledger.Day(ns) posted.

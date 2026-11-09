@@ -14,10 +14,7 @@ type Store {
 
 	// LoadSeesSave: after a Save, Load is the keys saved, in their order.
 	law LoadSeesSave(names []string, secrets []string) {
-		let mut k = Empty()
-		for i, name in names {
-			k = k.Set(name, if i < len(secrets) { secrets[i] } else { "s" })
-		}
+		let k = NewKeys(names, secrets)
 		let _ = Save(k) catch {
 		case StoreFailed:
 			return true

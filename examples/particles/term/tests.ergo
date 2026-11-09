@@ -32,16 +32,3 @@ test ClearsATerminal {
 	s.Show(frame(2))
 	assert strings.Count(out.Text(), "\x1b[2J") == 2
 }
-
-// The law holds for a Screen in any state: k frames shown first. ergo test
-// skips sim.Screen's law for this Screen (it holds an io.Stdout;
-// expected-skips).
-test ShowCountsOneHolds(n int, phase string, k int) {
-	let s sim.Screen = New(io.NewRecorder())
-	for i in 0..(if k < 0 { -(k % 5) } else { k % 5 }) {
-		s.Show(frame(i))
-	}
-	let before = s.Shown()
-	s.Show(sim.Frame{N: n, Phase: phase, G: sim.Fresh(world.Blank())})
-	assert s.Shown() == before+1
-}

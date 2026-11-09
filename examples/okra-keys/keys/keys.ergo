@@ -19,6 +19,17 @@ type Keys { entries []Entry }
 // Empty is no keys.
 func Empty() Keys { Keys{entries: []Entry{}} }
 
+// NewKeys is Empty with each of names set in turn to the secret at its
+// index in secrets, or to "s" past their end. It is Keys' constructor, so
+// a generator draws each Keys with it, through Set: the order holds.
+func NewKeys(names []string, secrets []string) Keys {
+	let mut k = Empty()
+	for i, name in names {
+		k = k.Set(name, if i < len(secrets) { secrets[i] } else { "s" })
+	}
+	k
+}
+
 // Entries is every stored key, in order.
 func Entries(k Keys) []Entry { k.entries }
 

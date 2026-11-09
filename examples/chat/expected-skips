@@ -1,5 +1,7 @@
-# Skip lines `ergo test` prints for this program's packages (fs4, law-xpkg).
-# memory.Conn holds a queue.Queue, which has no generator, and its constructor
-# New(size) is not New<P>: a generated size could be any int. memory/tests.ergo
-# restates HangupIsFinal on a Conn sized to its lines.
-skip law server.Conn.HangupIsFinal for Conn: its values have no generator: queue.Queue[string] is a standard library type; a func NewConn() Conn with no rows would build one for each case
+# Skip lines `ergo test` prints for this program's packages (fs4, law-xpkg, fu7a).
+# memory.Conn holds a queue.Queue. queue's constructor is New(capacity), not
+# New<Queue>, so a Queue has no builder (check/builders.go). That stays: a
+# generated capacity is any int, and a negative one or one near 2^63 cannot
+# be allocated, so a generator must not draw it. memory/tests.ergo restates
+# HangupIsFinal on a Conn sized to its lines.
+skip law server.Conn.HangupIsFinal for Conn: its values have no generator: queue.Queue[string] is an operation type with no builder: neither queue nor queuetest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewConn() Conn with no rows would build one for each case
