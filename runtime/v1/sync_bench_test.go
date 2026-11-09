@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"maps"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -68,8 +69,8 @@ func benchErgoIncrement(env *benchEnv, v int) (int, error) {
 }
 
 // updateDeferred is benchMutexInt's update with the unlock deferred, so a
-// panic in f leaves the value unlocked: the guarantee the ergo body keeps
-// (TestRefSurvivesADefect), written by hand.
+// panic in f leaves the value unlocked, as the ergo body's deferred end
+// does (TestRefPoisonedByADefect), written by hand.
 func (m *benchMutexInt) updateDeferred(f func(int) int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -171,4 +172,38 @@ func BenchmarkRef(b *testing.B) {
 			}
 		})
 	})
+	// An owned Update of a Map of 1024 entries (V6), which writes the Map
+	// in place, against a Go map guarded by a sync.Mutex: no copy once the
+	// first owned Update has copied the value NewRef shared.
+	b.Run("UpdateOwnedMap/ergo", func(b *testing.B) {
+		r := NewRef(benchMap())
+		clone := func(m map[int]int) map[int]int { return maps.Clone(m) }
+		i := 0
+		for b.Loop() {
+			i++
+			RefUpdateOwned(r, func(m map[int]int) map[int]int {
+				m[i&1023] = i
+				return m
+			}, clone, true)
+		}
+	})
+	b.Run("UpdateOwnedMap/mutex", func(b *testing.B) {
+		var mu sync.Mutex
+		m := benchMap()
+		i := 0
+		for b.Loop() {
+			i++
+			mu.Lock()
+			m[i&1023] = i
+			mu.Unlock()
+		}
+	})
+}
+
+func benchMap() map[int]int {
+	m := make(map[int]int, 1024)
+	for i := range 1024 {
+		m[i] = i
+	}
+	return m
 }

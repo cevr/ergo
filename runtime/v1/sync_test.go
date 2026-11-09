@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"maps"
 	"runtime"
 	"sync"
 	"testing"
@@ -109,16 +110,146 @@ func TestRefReadsTheLastStore(t *testing.T) {
 	}
 }
 
-// TestRefSurvivesADefect: a panic in an Update's function leaves the Ref
-// unlocked, holding the value it held before.
-func TestRefSurvivesADefect(t *testing.T) {
-	r := NewRef(4)
-	func() {
-		defer func() { _ = recover() }()
-		r.Update(func(int) int { panic("defect") })
-	}()
-	r.Update(func(v int) int { return v + 1 })
-	if r.Get() != 5 {
-		t.Errorf("after a defect and an Update the Ref holds %d, want 5", r.Get())
+// TestRefPoisonedByADefect: a panic in the function of an Update, a Modify
+// or an owned Update reaches the caller as it is and poisons the Ref,
+// unlocked: each later Get, Set, Update and Modify raises refPoisoned (the
+// mutant "no poison", and an end that keeps the lock).
+func TestRefPoisonedByADefect(t *testing.T) {
+	raised := func(op func()) (p any) {
+		defer func() { p = recover() }()
+		op()
+		return nil
+	}
+	pair := func(v []int) struct {
+		F0 int
+		F1 []int
+	} {
+		return struct {
+			F0 int
+			F1 []int
+		}{len(v), v}
+	}
+	clone := func(v []int) []int { return append([]int(nil), v...) }
+	defects := map[string]func(r *Ref[[]int]){
+		"Update": func(r *Ref[[]int]) { r.Update(func([]int) []int { panic("defect") }) },
+		"Modify": func(r *Ref[[]int]) {
+			RefModify(r, func([]int) struct {
+				F0 int
+				F1 []int
+			} {
+				panic("defect")
+			})
+		},
+		"UpdateOwned": func(r *Ref[[]int]) {
+			RefUpdateOwned(r, func(v []int) []int {
+				v[0] = 9 // a write in place, then the defect
+				panic("defect")
+			}, clone, true)
+		},
+	}
+	for name, defect := range defects {
+		r := NewRef([]int{1})
+		if p := raised(func() { defect(r) }); p != "defect" {
+			t.Fatalf("%s: the caller got %v, want the defect", name, p)
+		}
+		later := map[string]func(){
+			"Get":    func() { r.Get() },
+			"Set":    func() { r.Set([]int{2}) },
+			"Update": func() { r.Update(func(v []int) []int { return v }) },
+			"Modify": func() { RefModify(r, pair) },
+			"Owned":  func() { RefModifyOwned(r, pair, clone, true) },
+		}
+		for op, f := range later {
+			if p := raised(f); p != refPoisoned {
+				t.Errorf("%s, then %s: raised %v, want the poison defect", name, op, p)
+			}
+		}
+	}
+}
+
+// TestRefOwnsItsValue: an owned Update writes the held value in place, yet
+// no value reached from outside the cell changes: the value given to
+// NewRef, a value Get returned, a value Set stored, and a value a plain
+// Update stored, each shared, is copied before the owned write (the
+// mutants "Get without a share", "NewRef, Set or Update unshared"). After
+// an owned Update whose result is fresh, the next one writes the same Map
+// with no copy (the mutant "copy always", which the benchmark sees too).
+func TestRefOwnsItsValue(t *testing.T) {
+	clones := 0
+	clone := func(m map[int]int) map[int]int {
+		clones++
+		return maps.Clone(m)
+	}
+	given := map[int]int{0: 0}
+	r := NewRef(given)
+	own := func(k int) {
+		RefUpdateOwned(r, func(m map[int]int) map[int]int {
+			m[k] = k
+			return m
+		}, clone, true)
+	}
+	own(1)
+	if len(given) != 1 {
+		t.Errorf("an owned Update wrote the value given to NewRef: %v", given)
+	}
+	own(2)
+	if clones != 1 {
+		t.Errorf("two owned Updates after NewRef made %d copies, want 1", clones)
+	}
+	got := r.Get()
+	own(3)
+	if len(got) != 3 {
+		t.Errorf("an owned Update wrote a value Get returned: %v", got)
+	}
+	set := map[int]int{7: 7}
+	r.Set(set)
+	own(4)
+	if len(set) != 1 {
+		t.Errorf("an owned Update wrote a value Set stored: %v", set)
+	}
+	outside := map[int]int{8: 8}
+	r.Update(func(map[int]int) map[int]int { return outside })
+	own(5)
+	if len(outside) != 1 {
+		t.Errorf("an owned Update wrote a value a plain Update stored: %v", outside)
+	}
+	if want := map[int]int{8: 8, 5: 5}; !maps.Equal(r.Get(), want) {
+		t.Errorf("the Ref holds %v, want %v", r.Get(), want)
+	}
+}
+
+// TestRefOwnedSharedByTasks: owned Updates and Gets from several
+// goroutines at once lose no Update and never write a value a Get
+// returned. A copy made outside the lock (the mutant) loses Updates.
+func TestRefOwnedSharedByTasks(t *testing.T) {
+	const workers, each = 6, 300
+	r := NewRef(map[int]int{})
+	clone := func(m map[int]int) map[int]int { return maps.Clone(m) }
+	var wg sync.WaitGroup
+	for w := range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range each {
+				RefUpdateOwned(r, func(m map[int]int) map[int]int {
+					runtime.Gosched()
+					m[w*each+i] = i
+					return m
+				}, clone, true)
+				if i%3 == 0 {
+					g := r.Get()
+					n := len(g)
+					runtime.Gosched()
+					if len(g) != n {
+						t.Errorf("a value Get returned changed from %d to %d entries", n, len(g))
+						return
+					}
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	if got := len(r.Get()); got != workers*each {
+		t.Errorf("after %d owned Updates the Map has %d entries", workers*each, got)
 	}
 }

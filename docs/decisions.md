@@ -2,6 +2,15 @@
 
 This file is the dated log of the owner's decisions for Ergo, newest first. A decision applies the principles to one feature, construct, stage or tool; [NORTH_STAR.md](../NORTH_STAR.md) holds the principles: what Ergo is for, the pillars, the north stars, the tiebreaks, the owner rules and the rejected directions. Each entry keeps the owner's words, the decision, and its tickets and links as NORTH_STAR.md recorded them; only relative link targets changed, so that they resolve from `docs/`. An entry with two or more dates sorts by its latest date, and entries with the same date keep their order from NORTH_STAR.md. Entries with no date are in the [Undated](#undated) group at the end. Where a moved passage says "above" or "below" and the new order changes what it means, a bracketed note names the entry.
 
+## Owner direction, 2026-11-09
+
+- **A Ref owns its value; a defect poisons it (2026-11-09, q46).** Asked in batch 12 (fu-small-2 fs6: a write to `fstest.Memory` cost O(tree), and n `io.Recorder` Prints O(n²), because the function given to `sync.Modify` copied the held Map before each write); the owner chose option A. Decided:
+  - V6: the parameter of a function literal written at `Ref.Update` or `sync.Modify` takes the held value over and may write it in place. No binding outside the `Ref` ever sees that write: the `Ref` marks a value that may be reached from outside (`NewRef`, `Set`, `Get`, and an `Update` or `Modify` with any other function) and copies it, under its lock, before it hands it over; the lowering proves the literal's results unshared, or the stored value is marked too.
+  - A defect in an `Update`'s or `Modify`'s function poisons the `Ref`: the defect reaches the caller as it is, and every later `Get`, `Set`, `Update` and `Modify` raises a defect that names the poisoning (as Rust's `PoisonError`; the runtime records a defect only at a task's boundary, so the `Ref` does not recover the first one to raise it again). This replaces "a defect leaves the `Ref` usable, with the value it held before" (runtime/v1 `TestRefSurvivesADefect`, now `TestRefPoisonedByADefect`): an in-place write may be half done, and no task may see a torn value. v1 has no escape such as Rust's `into_inner`.
+  - The copying lowering (`valueLowering=copy`) hands nothing over and stays the reference; a seeded property holds the two equal.
+
+  Rules: [stdlib.md, Sync and STM](spec/stdlib.md#sync-and-stm) 1; [types.md, Bindings](spec/types.md#bindings). Principles: correctness first (no torn value is observed); one rule for every `Ref` (owner q39); zero-cost implementations (a change costs what it changes). Prior art: Rust's `Mutex` poisoning; Swift's copy on write; Clojure's transients.
+
 ## Owner direction, 2026-11-08
 
 - **Maps and slices are values (2026-11-08, q26).** Owner, answering batch 12's question 26 (map-alias, #222): "Maps and slices are values: copy where two bindings would share, elided when the source is new or dead". Decided:
