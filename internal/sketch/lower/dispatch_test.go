@@ -137,10 +137,21 @@ var dispatchSeed = flag.Uint64("dispatch.seed", 0, "replay one seed of TestDispa
 // dispatchSeeds are the seeds the full tier runs.
 var dispatchSeeds = []uint64{1, 2}
 
-// dispatchDefects are programs whose defect reports name Ergo frames from
-// the program's own source map: if each process did not register its own
-// tables, a report would name another program's declarations, or Go frames.
-var dispatchDefects = []string{
+// dispatchFixed are the programs every seed holds. The first prints its
+// arguments, so a dispatcher that read the program's name or its arguments
+// from the wrong place shows. The others' defect reports name Ergo frames
+// from the program's own source map: if each process did not register its
+// own tables, a report would name another program's declarations, or Go
+// frames.
+var dispatchFixed = []string{
+	`import os
+
+func main() needs Console | Ambient {
+	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
+	Console.Println("args")
+	for a in args { Console.Println(a) }
+}
+`,
 	`func pick(xs []int) int { xs[4] }
 
 func a(xs []int) int { pick(xs) + 1 }
@@ -175,7 +186,8 @@ func main() needs Console {
 
 // TestDispatchAgreesWithSeparate is the property of the dispatcher: for
 // each program of a seeded sample (corpus programs that lower with an
-// entry, and the programs of dispatchDefects), the dispatcher's run (its
+// entry, and the programs of dispatchFixed), each with one or two seeded
+// arguments, the dispatcher's run (its
 // stdout, stderr and exit code) equals the run of the program's own
 // binary, the reference path. The runs go in a seeded order, all from one
 // dispatcher, so state that one program's package initialization leaks
@@ -195,11 +207,11 @@ func TestDispatchAgreesWithSeparate(t *testing.T) {
 	for _, seed := range seeds {
 		r := rand.New(rand.NewPCG(seed, 0x6469737061746368))
 		var programs []*lowered
-		for i, src := range dispatchDefects {
+		for i, src := range dispatchFixed {
 			programs = append(programs, mustLower(t, fmt.Sprintf("d%d_%d", seed, i), src))
 		}
 		for _, i := range r.Perm(len(sources)) {
-			if len(programs) == len(dispatchDefects)+24 {
+			if len(programs) == len(dispatchFixed)+24 {
 				break
 			}
 			o := lowerSource(fmt.Sprintf("c%d_%d", seed, i), sources[i], true)
@@ -214,33 +226,38 @@ func TestDispatchAgreesWithSeparate(t *testing.T) {
 			t.Fatalf("seed %d: the sample does not build", seed)
 		}
 		compared, unstable := 0, 0
+		words := []string{"one", "--seed", "7", "two words"}
 		for _, p := range programs {
-			want := dispatchRun(t, separate[p.name])
-			got := dispatchRun(t, dispatched[p.name])
+			args := make([]string, 1+r.IntN(2))
+			for i := range args {
+				args[i] = words[r.IntN(len(words))]
+			}
+			want := dispatchRun(t, separate[p.name], args)
+			got := dispatchRun(t, dispatched[p.name], args)
 			if got == want {
 				compared++
 				continue
 			}
-			if again := dispatchRun(t, separate[p.name]); again != want {
+			if again := dispatchRun(t, separate[p.name], args); again != want {
 				unstable++
 				continue
 			}
-			t.Errorf("seed %d (-dispatch.seed=%d): %s runs differently in the dispatcher\ndispatcher: %s\nown binary: %s\nsource:\n%s", seed, seed, p.name, got, want, p.src)
+			t.Errorf("seed %d (-dispatch.seed=%d): %s %q runs differently in the dispatcher\ndispatcher: %s\nown binary: %s\nsource:\n%s", seed, seed, p.name, args, got, want, p.src)
 		}
-		if compared < len(dispatchDefects)+8 {
+		if compared < len(dispatchFixed)+8 {
 			t.Errorf("seed %d: only %d of %d programs compared (%d unstable): the sample lost its domain?", seed, compared, len(programs), unstable)
 		}
 		t.Logf("seed %d: %d programs compared, %d unstable", seed, compared, unstable)
 	}
 }
 
-// dispatchRun runs exe with no input and a deadline and returns its exit
-// code, stdout and stderr as one comparable string.
-func dispatchRun(t *testing.T, exe string) string {
+// dispatchRun runs exe with args, no input and a deadline and returns its
+// exit code, stdout and stderr as one comparable string.
+func dispatchRun(t *testing.T, exe string, args []string) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, exe)
+	cmd := exec.CommandContext(ctx, exe, args...)
 	cmd.Stdin = bytes.NewReader(nil)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
