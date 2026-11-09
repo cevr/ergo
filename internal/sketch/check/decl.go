@@ -484,6 +484,15 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 		}
 		path = p
 	}
+	if spec.Kind == syntax.ImportGo {
+		// Go's rule for an import path, before any name is read from it
+		// (#202 comment, small-fix #231).
+		if why := GoImportPathError(path); why != "" {
+			c.errorf(spec.Path, CodeType, "malformed Go import path %q: %s", path, why)
+			c.bindBrokenImport(fi, spec, path)
+			return
+		}
+	}
 	// A keyword cannot be the name an import binds, so a path whose last
 	// element is one needs an alias (grammar.md, Declarations rule 1; 196w).
 	// The message recognises Go's `import "context"` habit (#220).

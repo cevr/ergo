@@ -78,7 +78,8 @@ func (c *checker) goBindings() *GoBindings {
 }
 
 // importGo resolves `import go path` to the binding of path. The path
-// follows Go's rule (GoImportPathError); a path with no binding is S104 at
+// follows Go's rule (GoImportPathError, checked first by importSpec); a
+// path with no binding is S104 at
 // the import, with the command that writes one. Nothing of the binding is
 // read here.
 func (c *checker) importGo(fi *fileInfo, spec *syntax.ImportSpec, path string) {
@@ -86,16 +87,10 @@ func (c *checker) importGo(fi *fileInfo, spec *syntax.ImportSpec, path string) {
 	if spec.Name != nil {
 		name = spec.Name.Name
 	}
-	broken := func() { c.bindBrokenImportName(fi, spec, path, name) }
-	if why := GoImportPathError(path); why != "" {
-		c.errorf(spec.Path, CodeType, "malformed Go import path %q: %s", path, why)
-		broken()
-		return
-	}
 	pkg, ok := c.goBindings().Package(path)
 	if !ok {
 		c.errorf(spec.Path, CodeUnknown, "no binding for Go package %q; run ergo bind go %s (docs/spec/interop.md)", path, path)
-		broken()
+		c.bindBrokenImportName(fi, spec, path, name)
 		return
 	}
 	if _, dup := fi.scope.names[name]; name != "_" && dup {
@@ -431,6 +426,24 @@ func (h *hostPkg) load() {
 func (h *hostPkg) refusal(name string) string {
 	h.load()
 	return h.refused[name]
+}
+
+// stdGoReturnsError reports whether the function name of Go's standard
+// library package path returns an error last: its embedded binding's row
+// is fails go.Error (a user extern's G4 rule reads it; IG2 deleted the
+// hand table v1.PureErrorFuncs).
+func stdGoReturnsError(path, name string) bool {
+	src, ok := gostd.Binding(path)
+	if !ok {
+		return false
+	}
+	prefix := "extern go " + path + "." + name + " func "
+	for _, line := range strings.Split(src, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return strings.Contains(line, " fails go.Error")
+		}
+	}
+	return false
 }
 
 // isHostNamed reports a type of a Go package.

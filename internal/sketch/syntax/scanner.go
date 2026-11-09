@@ -55,6 +55,7 @@ type scanner struct {
 	paths   int  // path words still to lex as PATH on this line
 	pathGo  bool // the next path word may be `go` (right after import)
 	externs bool // the previous token is extern: `go` then one path word
+	goPath  bool // after import go: the path words follow Go's rule, which the checker applies (#231)
 	interp  []interpolation
 }
 
@@ -80,24 +81,24 @@ func (s *scanner) emit(tok Token, pos, end int, lit string) {
 	// The word contexts of import and extern.
 	switch {
 	case tok == IMPORT:
-		s.paths, s.pathGo, s.externs = 2, true, false
+		s.paths, s.pathGo, s.externs, s.goPath = 2, true, false, false
 	case tok == EXTERN:
-		s.paths, s.pathGo, s.externs = 0, false, true
+		s.paths, s.pathGo, s.externs, s.goPath = 0, false, true, false
 	case tok == GO && s.externs:
 		s.paths, s.pathGo, s.externs = 1, false, false
 	case tok == GO && s.pathGo:
-		s.pathGo = false
+		s.pathGo, s.goPath = false, true
 	case tok == PATH:
 		s.paths--
 		s.pathGo = false
 	default:
-		s.paths, s.pathGo, s.externs = 0, false, false
+		s.paths, s.pathGo, s.externs, s.goPath = 0, false, false, false
 	}
 }
 
 // insertSemi emits the semicolon a newline at pos implies.
 func (s *scanner) insertSemi(pos int) {
-	s.paths, s.pathGo, s.externs = 0, false, false
+	s.paths, s.pathGo, s.externs, s.goPath = 0, false, false, false
 	if s.semi {
 		s.toks = append(s.toks, token{SEMICOLON, Pos(pos), Pos(pos), "\n"})
 		s.semi = false
@@ -239,6 +240,13 @@ func (s *scanner) pathWord(start int) {
 		}
 		if !pathRune(r) {
 			break
+		}
+		if s.goPath {
+			// A Go import path: the checker applies Go's rule
+			// (module.CheckImportPath; check.GoImportPathError, #231).
+			end += size
+			elementStart = false
+			continue
 		}
 		if r == '/' || r == '.' {
 			if elementStart {

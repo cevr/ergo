@@ -282,6 +282,11 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 	if v == NoValue {
 		return assignment{}, "it has no value"
 	}
+	if _, borrow := v.(*Pointer); borrow && refElem(t) != nil {
+		// A borrow lives no longer than its call (types.md, Borrows); a
+		// go.Ref is a Go pointer a Go function returned (q38).
+		return assignment{}, "a borrow is not kept as a go.Ref"
+	}
 	if c.sameUnderlying(v, t) {
 		return assignment{clause: assignUnderlying}, ""
 	}
