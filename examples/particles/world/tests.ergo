@@ -1,6 +1,4 @@
-// The box's tests: worked steps, and the laws restated as property tests.
-// The compiler checks laws and does not run them yet (#162); until it
-// does, these tests run them.
+// The box's tests: worked steps. The laws run under ergo test.
 
 import rand
 

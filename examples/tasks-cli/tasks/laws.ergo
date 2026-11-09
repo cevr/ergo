@@ -2,22 +2,7 @@
 
 // ViewShowsWhatMatches: a listing holds each task that matches it, once,
 // and no other.
-law ViewShowsWhatMatches(tasks []Task, which Which, min Priority) { ViewShowsWhatMatchesHolds(tasks, which, min) }
-
-// ViewIsOrdered: a listing puts the more urgent task first, and the
-// earlier one first within a priority.
-law ViewIsOrdered(tasks []Task, which Which, min Priority) {
-	let shown = View(Numbered(tasks), which, min)
-	for i, t in shown {
-		if i > 0 && Before(shown[i-1], t) >= 0 {
-			return false
-		}
-	}
-	true
-}
-
-// ViewShowsWhatMatchesHolds checks ViewShowsWhatMatches.
-func ViewShowsWhatMatchesHolds(tasks []Task, which Which, min Priority) bool {
+law ViewShowsWhatMatches(tasks []Task, which Which, min Priority) {
 	let numbered = Numbered(tasks)
 	let shown = View(numbered, which, min)
 	let mut matching = 0
@@ -35,6 +20,18 @@ func ViewShowsWhatMatchesHolds(tasks []Task, which Which, min Priority) bool {
 		matching = matching + want
 	}
 	len(shown) == matching
+}
+
+// ViewIsOrdered: a listing puts the more urgent task first, and the
+// earlier one first within a priority.
+law ViewIsOrdered(tasks []Task, which Which, min Priority) {
+	let shown = View(Numbered(tasks), which, min)
+	for i, t in shown {
+		if i > 0 && Before(shown[i-1], t) >= 0 {
+			return false
+		}
+	}
+	true
 }
 
 // matches is the rule of a listing, written apart from Shows so the law

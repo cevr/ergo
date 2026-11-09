@@ -1,6 +1,7 @@
 import slices
 
-// The listing laws restated as property tests (#162), and the names.
+// A listing of each kind and the names. The listing laws run under ergo
+// test; the Board laws are skipped (G-exup-1), memory's tests check them.
 
 let a = Task{ID: 1, Title: "write the spec", Priority: Medium, State: Open}
 let b = Task{ID: 2, Title: "fix the build", Priority: Urgent, State: Open}
@@ -17,17 +18,4 @@ test AListingOfEachKind {
 test PriorityNamesRoundTrip(p Priority) {
 	assert PriorityNamed(PriorityName(p)) == Some[Priority]{Value: p}
 	assert PriorityNamed("soon") == None
-}
-
-test ViewShowsWhatMatchesHolds(tasks []Task, which Which, min Priority) {
-	assert ViewShowsWhatMatchesHolds(tasks, which, min)
-}
-
-test ViewIsOrderedHolds(tasks []Task, which Which, min Priority) {
-	let shown = View(Numbered(tasks), which, min)
-	for i, t in shown {
-		if i > 0 {
-			assert Before(shown[i-1], t) < 0
-		}
-	}
 }

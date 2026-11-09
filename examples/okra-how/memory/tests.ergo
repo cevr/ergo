@@ -1,6 +1,6 @@
-// Shelf keeps the how.Library laws. The compiler checks laws and does not
-// run them yet (#162); until it does, these tests run each law's check
-// against a Shelf.
+// Shelf keeps the how.Library laws. ergo test skips a member law for a
+// provider in another package (G-exup-1), so these tests run each law's
+// check against a Shelf.
 
 import okra/how
 

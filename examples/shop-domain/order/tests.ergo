@@ -1,7 +1,5 @@
-// The aggregate's stories: each command from each state, each rejection
-// with its fields, and the laws restated as property tests. The compiler
-// checks laws and does not run them yet (#162); until it does, these
-// tests run them.
+// The aggregate's stories: each command from each state and each
+// rejection with its fields. The laws run under ergo test.
 
 let tea = Line{Sku: "tea", Qty: 2, Price: 150}
 let mug = Line{Sku: "mug", Qty: 1, Price: 900}
