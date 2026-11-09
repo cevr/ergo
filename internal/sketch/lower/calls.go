@@ -45,6 +45,8 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 			ice(x, "len with %d arguments", len(x.Args))
 		}
 		return operand{val: "len(" + fc.value(x.Args[0]) + ")"}
+	case check.CallGoError:
+		return fc.goErrorCall(x, c) // gocall.go
 	}
 	if check.IsUnreachable(c) {
 		return fc.unreachableValue(x)
@@ -405,11 +407,11 @@ func (fc *funcCtx) hostValue(f *check.Func, sig *check.Signature, site syntax.No
 			e := fc.scope.alloc("err")
 			body += ind + "var " + e + " error\n"
 			if len(sig.Results) == 0 {
-				return params, fc.valueResults(nil), body + ind + e + " = " + text + "\n" + ind + "return struct{}{}, " + fc.l.rt() + ".GoErrorOf(" + e + ")\n"
+				return params, fc.valueResults(nil), body + ind + e + " = " + text + "\n" + ind + "return struct{}{}, " + fc.l.goErrorOf() + "(" + e + ")\n"
 			}
 			r := fc.scope.alloc("r")
 			body += ind + "var " + r + " " + fc.goType(sig.Results[0]) + "\n" + ind + r + ", " + e + " = " + text + "\n"
-			return params, fc.valueResults(sig.Results[0]), body + ind + "return " + r + ", " + fc.l.rt() + ".GoErrorOf(" + e + ")\n"
+			return params, fc.valueResults(sig.Results[0]), body + ind + "return " + r + ", " + fc.l.goErrorOf() + "(" + e + ")\n"
 		}
 		if len(sig.Results) == 0 {
 			return params, fc.valueResults(nil), body + ind + text + "\n" + ind + "return struct{}{}, nil\n"
@@ -495,7 +497,7 @@ func (fc *funcCtx) hostStmt(x *syntax.CallExpr, c *check.Call, v, text string) s
 // check, then the call, its result bound to v at the Ergo result's Go type
 // and its error to e, typed error, so a target whose results differ is go
 // build's error at the call's line. A non-nil error becomes
-// go.Error{Text: err.Error()} (v1.GoErrorOf). The partial value a Go
+// the go.Error that keeps it (v1.GoErrorOf, IG5). The partial value a Go
 // function returns with an error (strconv's limit on a range error) is
 // dropped: the caller reads v only when e is nil, as an Ergo failure has
 // no value.

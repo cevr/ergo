@@ -162,6 +162,7 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 	if c.Recv != nil {
 		head, vals = vals[0]+head, vals[1:]
 	}
+	fc.goErrorArgs(sig, vals)
 	if variadic && len(vals) > 0 {
 		vals[len(vals)-1] += "..."
 	}
@@ -211,9 +212,37 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 	return operand{val: v, err: e}
 }
 
+// goErrorArgs makes each go.Error argument of a Go call, vals in sig's
+// parameter order, the native error it keeps (IG5): a Go `error`
+// parameter gets Go's own error, so errors.Join, fmt and errors.Is in Go
+// see the chain the Go call made; the zero go.Error is nil. A []go.Error
+// (Go's ...error) is converted element by element.
+func (fc *funcCtx) goErrorArgs(sig *check.Signature, vals []string) {
+	for i, p := range sig.Params {
+		if i >= len(vals) {
+			return
+		}
+		switch t := p.Type.(type) {
+		case *check.Named:
+			if check.IsGoError(t) {
+				vals[i] = "(" + vals[i] + ").Native()"
+			}
+		case *check.Slice:
+			if n, ok := t.Elem.(*check.Named); ok && check.IsGoError(n) {
+				vals[i] = fc.l.rt() + ".GoErrorsNative(" + vals[i] + ")"
+			}
+		}
+	}
+}
+
 // goResult is the Ergo value of the Go result r of type t (the Ergo type
 // the binding gives it), whose call's error is e ("" when it has none).
 func (fc *funcCtx) goResult(x syntax.Node, t check.Type, r, e, name string) string {
+	if n, ok := t.(*check.Named); ok && check.IsGoError(n) {
+		// A Go `error` value that is not the last result (a field, a
+		// tuple element): the go.Error that keeps it (IG5).
+		return fc.l.goErrorFrom() + "(" + r + ")"
+	}
 	switch {
 	case isOptionType(t):
 		some, none := optionVariants(t, x)
@@ -271,6 +300,7 @@ func (fc *funcCtx) goExtern(x *syntax.CallExpr, c *check.Call) operand {
 			vals[i] = fc.spill(fc.hostCallback(fc.bindFunc(vals[i]), cb, x))
 		}
 	}
+	fc.goErrorArgs(f.Sig, vals)
 	if ge.Variadic && len(vals) > 0 {
 		vals[len(vals)-1] += "..."
 	}
@@ -353,7 +383,52 @@ func (fc *funcCtx) goErrorOf(x syntax.Expr, e string) {
 		fc.rawErr = nil
 		return
 	}
-	fc.line(e + " = " + fc.l.rt() + ".GoErrorOf(" + e + ")")
+	fc.line(e + " = " + fc.l.goErrorOf() + "(" + e + ")")
+}
+
+// goErrorCall lowers go.Is(e, target), errors.Is on the native errors
+// (v1.GoIs), and go.As[T](e), errors.As into a T (v1.GoAs), Some when Go
+// finds one (IG5; check/goerror.go).
+func (fc *funcCtx) goErrorCall(x *syntax.CallExpr, c *check.Call) operand {
+	args := fc.operands(x.Args, true)
+	if c.Name == "go.Is" {
+		return operand{val: fc.l.rt() + ".GoIs(" + args[0] + ", " + args[1] + ")"}
+	}
+	v, ok := fc.temp("v"), fc.temp("ok")
+	fc.line(v + ", " + ok + " := " + fc.l.rt() + ".GoAs[" + fc.goType(c.Type) + "](" + args[0] + ")")
+	return operand{val: fc.someWhen(x, fc.typeOf(x), ok, v)}
+}
+
+// goErrorEager selects the reference lowering of go.Error (G4's eager
+// form): the text is computed at the failure (v1.GoErrorEagerOf), where
+// the default keeps the native error and computes Text when it is read
+// (IG5; TestGoErrorChainsAgree runs both).
+var goErrorEager bool
+
+// SetGoErrorEagerForTest selects the eager go.Error (true) or the lazy one
+// (false), and returns a function that restores the previous choice.
+func SetGoErrorEagerForTest(eager bool) func() {
+	old := goErrorEager
+	goErrorEager = eager
+	return func() { goErrorEager = old }
+}
+
+// goErrorOf is the runtime function that makes a Go call's error its
+// failure, go.Error or nil.
+func (l *lowerer) goErrorOf() string {
+	if goErrorEager {
+		return l.rt() + ".GoErrorEagerOf"
+	}
+	return l.rt() + ".GoErrorOf"
+}
+
+// goErrorFrom is the runtime function that makes a Go error variable (a
+// binding's sentinel, io.EOF) a go.Error value.
+func (l *lowerer) goErrorFrom() string {
+	if goErrorEager {
+		return l.rt() + ".GoErrorEagerFrom"
+	}
+	return l.rt() + ".GoErrorFrom"
 }
 
 // someWhen is a new variable of the Option type t: Some(v) when cond holds,

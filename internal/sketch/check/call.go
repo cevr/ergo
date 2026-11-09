@@ -67,6 +67,9 @@ func (c *checker) callOf(x *syntax.CallExpr, hint Type) operand {
 		}
 		return c.conversion(x, fun.typ)
 	case modeBuiltin:
+		if b := fun.obj.(*Builtin); goErrorBuiltin(b) {
+			return c.goErrorCall(x, b, fun.targ)
+		}
 		return c.builtin(x, fun.obj.(*Builtin))
 	case modeCapFn:
 		c.charge(x, fun.cap)

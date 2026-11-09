@@ -51,6 +51,8 @@ type operand struct {
 	// method is the operation an operation-type or capability selector
 	// names (Info.Calls).
 	method *Method
+	// targ is go.As[T]'s written type argument (modeBuiltin).
+	targ Type
 }
 
 func (o *operand) invalid() bool { return o.mode == modeInvalid }
@@ -1148,6 +1150,10 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 				c.errorf(x.Sel, CodeUnknown, "%s (grammar.md, Visibility 2)", hiddenFieldText(s, x.Sel.Name))
 				return bad(x)
 			}
+			if n, ok := t.(*Named); ok && IsGoError(n) {
+				// Text is the native error's text, read-only (IG5).
+				return operand{mode: modeValue, typ: f.Type}
+			}
 			return operand{mode: modeValue, typ: f.Type, addressable: base.addressable || isPointer(base.typ)}
 		}
 	}
@@ -1400,6 +1406,8 @@ func (c *checker) qualified(x *syntax.SelectorExpr, pn *PkgName) operand {
 		return operand{mode: modeValue, typ: o.Sig, fn: o}
 	case *Var:
 		return operand{mode: modeValue, typ: o.Type}
+	case *Builtin:
+		return operand{mode: modeBuiltin, obj: o, typ: invalid} // go.Is, go.As
 	}
 	c.errorf(x, CodeUnknown, "%s.%s is not a value or a type", pn.Name, x.Sel.Name)
 	return bad(x)
@@ -1437,6 +1445,15 @@ func (c *checker) index(x *syntax.IndexExpr, hint Type) operand {
 			return bad(x)
 		}
 		return operand{mode: modeType, typ: t}
+	case modeBuiltin:
+		if b, _ := base.obj.(*Builtin); b != nil && b.Name == "go.As" && unparen(x.X) == x.X {
+			// go.As[T]: T is checked at the call (goErrorCall).
+			if len(x.Indices) != 1 {
+				c.errorf(x, CodeType, "go.As takes one type argument, not %d", len(x.Indices))
+				return bad(x)
+			}
+			return operand{mode: modeBuiltin, obj: b, typ: invalid, targ: c.typExpr(x.Indices[0], c.localTypeCtx())}
+		}
 	}
 	c.needValue(&base)
 	c.handled(&base)

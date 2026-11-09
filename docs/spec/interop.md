@@ -103,6 +103,20 @@ Each call's row comes from the reviewed tables of `runtime/v1`, never from the G
 
 *Prior art:* Gleam's `@external` and ReScript's `@module` externals are direct calls with no adapter, as here when no Map or slice crosses shared; Kotlin/Native's cinterop and Swift's Clang importer map a nullable pointer to an optional the same way; Swift copies an `Array` passed to C only when its buffer is shared, as the value rule copies a live operand.
 
+## Go errors
+
+`go.Error { Text string }` keeps the Go error it was made from (IG5, #202: "with `errors.Is` and `errors.As` kept").
+
+1. **Made.** A Go call whose last result is a non-nil `error` fails with the `go.Error` of that error; a typed nil (a nil `*T` in a non-nil `error`) is an error, as Go's `err != nil` says. A binding's error variable (`io.EOF`, `fs.ErrNotExist`) is the `go.Error` of Go's variable. A Go `error` read from a field or a non-last result is a `go.Error` too (`go.Error{}` when nil). `go.Error{Text: s}` written in Ergo makes a Go error of its own whose text is `s`; two of the same text are `go.Is` of each other.
+2. **Text** is the Go error's `Error()` when the field is read, never a copy taken at the failure: a failure no code prints costs what hand Go's `return err` costs. `Text` is read-only (S108 "cannot assign"); `go.Error{..e, Text: s}` makes a new one.
+3. **Passed to Go.** A `go.Error` argument for a Go `error` parameter (and each element of a `[]go.Error` for `...error`) is Go's own error, so `errors.Join` and Go code see the chain Go made; `go.Error{}` is `nil`.
+4. **`go.Is(e go.Error, target go.Error) bool`** is `errors.Is` on the two Go errors: `go.Is(e, fs.ErrNotExist)`.
+5. **`go.As[T](e go.Error) Option[T]`** is `errors.As`: `Some` of the first error in the chain that is a `T`. `T` is a type of a Go binding whose Go method set has `Error() string` (a value type whose method has a value receiver, or a `go.Ref[S]`), or a Go interface; any other `T` is S108 at the call, because `errors.As` panics on it. `go.As[go.Ref[fs.PathError]](e)`; `go.As[strconv.NumError](e)` is S108 ("implements error through a pointer receiver; write go.Ref[strconv.NumError]").
+6. **Equality.** `==` on `go.Error` compares `Text` (G4's rule, kept). Go's `==` on errors compares identity and panics on an error type Go cannot compare, so `go.Error` is equatable but not comparable: it is no `Map` key and does not satisfy `comparable` (S108).
+7. **Lowering.** `v1.GoError` holds the Go error; `Text` lowers to the method `Text()`, `go.Is` to `errors.Is`, `go.As[T]` to `errors.As` into a `T` and an `Option`. The eager form (the text computed at the failure, G4's) is kept as the reference lowering (`lower.SetGoErrorEagerForTest`); `TestGoErrorChainsAgree` runs generated chains under both against Go's own `errors` package, and `runtime/v1`'s `TestGoErrorChainsModel` covers chains only a Go package can build (custom `Unwrap`, a typed nil).
+
+*Prior art:* Go's own `errors.Is`/`errors.As` are the semantics. Swift's `NSError **` convention keeps the `NSError` object behind `throws`, and Swift code casts it (`as? URLError`) as `go.As` does; Kotlin/JVM keeps the Java exception object and `is`-checks it. Gleam and Elixir keep the host's error term as data (`{error, enoent}`); ReScript's `Js.Exn.Error` keeps the JS exception. Effect's `Cause` keeps the original defect object for the same reason: a typed failure that drops the host value cannot be asked about it later.
+
 ## Level 2 adapters
 
 A user `extern go P.F func name(sig)` names a function of P's binding, and its written signature must be one adapter of the Level 1 signature the binding gives (IG4). The checker reads the binding and runs no Go tool, so an adapter is checked, not trusted ([grammar.md](grammar.md#declarations), Declarations 2):

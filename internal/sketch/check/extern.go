@@ -518,7 +518,7 @@ func paramName(p *Var, i int) string {
 
 // externGoErrorRow reports the one fails row a user extern may write (G4,
 // decision O14): exactly go.Error. Its Go target's last result is error,
-// and the lowering turns a non-nil error into go.Error{Text: err.Error()}.
+// and the lowering turns a non-nil error into the go.Error that keeps it (IG5).
 func externGoErrorRow(errs *Row) bool {
 	elems := errs.Elems()
 	if len(elems) != 1 {
