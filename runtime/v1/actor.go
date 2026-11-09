@@ -366,6 +366,9 @@ func inboxExit(err error) error {
 // that the first entry's children run.
 func (a *Actor[S, E, D]) loop(at *rt.Task) (struct{}, error) {
 	s := a.state
+	if at.Traced() {
+		a.traceStart(at, s)
+	}
 	a.openKids()
 	a.arm(at, s)
 	a.startWork(at, s)
@@ -398,24 +401,28 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 	case stateRead:
 		env.reply <- answer[S, D]{s: s}
 		return s, false, nil
-	case timerSignal:
-		if env.epoch != a.epoch {
-			a.dropped.Add(1)
-			return s, false, nil
-		}
-		d, err = a.fire(at, env.at, s)
-	case workSignal, childSignal:
-		if env.epoch != a.epoch {
-			a.dropped.Add(1)
-			return s, false, nil
-		}
-		d, err = a.step(at, s, env.sig)
 	case workDefect:
 		return s, true, env.err
+	}
+	// A timer's, a work's and a child's signal carry their entry's epoch:
+	// one of an ended entry is stale (rule 6).
+	stale := env.kind >= timerSignal && env.epoch != a.epoch
+	if at.Traced() {
+		a.traceTake(at, s, env, stale)
+	}
+	switch {
+	case stale:
+		a.dropped.Add(1)
+		return s, false, nil
+	case env.kind == timerSignal:
+		d, err = a.fire(at, env.at, s)
 	default:
 		d, err = a.step(at, s, env.sig)
 	}
 	if err != nil {
+		if at.Traced() {
+			a.traceFail(at, s)
+		}
 		if env.kind == askSignal {
 			a.cur = nil
 			env.reply <- answer[S, D]{err: err}
@@ -424,6 +431,9 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 		return s, true, err
 	}
 	k := a.kind(d)
+	if at.Traced() {
+		a.traceDecide(at, s, env, d, k)
+	}
 	if k == decideStay {
 		// One lock for the decision and the commit (MU18).
 		s = a.next(s, d)
@@ -503,6 +513,9 @@ func (a *Actor[S, E, D]) startWork(at *rt.Task, s S) {
 	done := a.kidsDone
 	a.kidsMu.Unlock()
 	owner := &entryRef[S, E, D]{a: a, epoch: epoch, done: done}
+	if at.Traced() {
+		a.traceWork(at, rt.MachineWorkStarted, epoch, s)
+	}
 	holder := rt.NewScope(at)
 	// Shielded from the runner's interruption (a Stop): the runner's end
 	// stops the entry's children first and then the work (rule 13).
@@ -520,6 +533,9 @@ func (a *Actor[S, E, D]) startWork(at *rt.Task, s S) {
 			run(wt, send)
 			return struct{}{}, nil
 		})
+		if wt.Traced() {
+			a.traceWork(wt, workEnd(err), epoch, s)
+		}
 		if err == nil || err == rt.Interrupted {
 			return struct{}{}, nil
 		}
@@ -586,6 +602,9 @@ func (r *entryRef[S, E, D]) adopt(start func(func(*rt.Task, error) bool, func(*r
 	halt := start(r.report, r.deliver)
 	a.kids = append(a.kids, &kid{halt: halt})
 	r.adopted.Store(true)
+	if a.task.Traced() {
+		a.traceChild(rt.MachineChildStarted, r.epoch)
+	}
 	return true
 }
 
@@ -630,13 +649,16 @@ func (a *Actor[S, E, D]) openKids() {
 // children that they did not report.
 func (a *Actor[S, E, D]) stopKids() error {
 	a.kidsMu.Lock()
-	ks, done := a.kids, a.kidsDone
+	ks, done, epoch := a.kids, a.kidsDone, a.kidsEpoch
 	a.kids, a.kidsOpen, a.kidsDone = nil, false, nil
 	a.kidsMu.Unlock()
 	var exit error
 	for i := len(ks) - 1; i >= 0; i-- {
 		if err := ks[i].halt(); err != nil {
 			exit = join(exit, err)
+		}
+		if a.task.Traced() {
+			a.traceChild(rt.MachineChildStopped, epoch)
 		}
 	}
 	if done != nil {
@@ -649,6 +671,9 @@ func (a *Actor[S, E, D]) stopKids() error {
 // none of Stop's results: a typed failure ends only the child, and a
 // defect the child reported is not given again.
 func (a *Actor[S, E, D]) halt() error {
+	if a.task.Traced() {
+		a.traceStop("parent")
+	}
 	a.task.Interrupt()
 	a.inbox.Close()
 	<-a.done
@@ -684,6 +709,9 @@ func (a *Actor[S, E, D]) arm(at *rt.Task, s S) {
 	}
 	if d <= 0 {
 		panic(&ActorTimerDefect{State: stateText(s), In: d})
+	}
+	if at.Traced() {
+		a.traceArmed(at, s, d)
 	}
 	env := envelope[S, E, D]{kind: timerSignal, epoch: a.epoch, at: s}
 	holder := rt.NewScope(at)
@@ -819,6 +847,9 @@ func (a *Actor[S, E, D]) finish(exit error) {
 		c.signal()
 	}
 	a.mu.Unlock()
+	if a.task.Traced() {
+		a.traceExit()
+	}
 	// A child's defect ends its parent (rule 13): pushed now, or raised by
 	// the parent's stop of the child when it cannot be pushed.
 	if a.report != nil {
@@ -931,6 +962,9 @@ func (a *Actor[S, E, D]) Stop() error {
 	// raises at its check, so no envelope is taken after the request, also
 	// one queued before it. A Send admitted between the two is queued
 	// before the close and released (dropped) by finish.
+	if a.task.Traced() {
+		a.traceStop("stop")
+	}
 	a.task.Interrupt()
 	a.inbox.Close()
 	<-a.done
@@ -945,6 +979,9 @@ func (a *Actor[S, E, D]) Stop() error {
 // result is Stop's: the typed failure that ended the actor, its defect
 // raised. A Stop during a Drain overtakes it: the rest is dropped.
 func (a *Actor[S, E, D]) Drain() error {
+	if a.task.Traced() {
+		a.traceStop("drain")
+	}
 	a.inbox.Close()
 	<-a.done
 	return a.result()
@@ -985,6 +1022,11 @@ func ActorExitKind[S, E, D any](t *rt.Task, a *Actor[S, E, D]) int {
 	a.waitDone(t)
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	return a.exitKindLocked()
+}
+
+// exitKindLocked is how the ended actor ended, with a.mu held.
+func (a *Actor[S, E, D]) exitKindLocked() int {
 	if a.exit != nil && a.exit != rt.Interrupted {
 		// The order of result: Stop returns the failure, else raises the
 		// defect, also after a Done.

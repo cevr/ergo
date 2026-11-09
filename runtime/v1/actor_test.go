@@ -50,7 +50,14 @@ type tmachine struct {
 	table  [][]tcell
 	timers []ttimer
 	init   tstate
+	// arms are the step's arms in match order (MU15): the first that
+	// takes a pair of state and signal variants is the arm that steps it.
+	arms []tarm
 }
+
+// tarm is one arm of a generated step: the state and signal variant it
+// takes, -1 for any.
+type tarm struct{ state, sig int }
 
 var errBoom = errors.New("boom")
 
@@ -158,6 +165,10 @@ type ref struct {
 	handled  int
 	dropped  int
 	seen     map[string]bool
+	// epoch is the open entry's, and events the machine events the
+	// runner must raise, in order (MU15).
+	epoch  uint64
+	events []rt.MachineEvent
 }
 
 // open opens an entry in r.s at r.now: it arms the slot, and reports
@@ -169,11 +180,14 @@ func (r *ref) open() bool {
 	if d != ActorNoTimer() && d <= 0 {
 		r.ended, r.defect = true, true
 		r.seen["a timer that is not positive is a defect"] = true
+		r.exit("defected")
 		return false
 	}
 	if d != ActorNoTimer() {
 		tm := r.m.timers[r.s.v]
 		r.armed, r.deadline, r.due = true, r.now+int(d), tsig{tm.sig, tm.x}
+		r.events = append(r.events, rt.MachineEvent{What: rt.MachineTimerArmed, Epoch: r.epoch, State: stateVariant(r.s),
+			Signal: sigVariant(r.due), In: d})
 		return true
 	}
 	return false
@@ -182,16 +196,20 @@ func (r *ref) open() bool {
 // step steps e (a timer's signal when timer) and reports the decision,
 // whether a new timer is armed, and the step's failure.
 func (r *ref) step(e tsig, timer, asked bool) (tdec, bool, error) {
+	r.take(e, timer, asked)
 	d, err := r.m.decide(r.s, e)
 	if err != nil {
+		r.events = append(r.events, rt.MachineEvent{What: rt.MachineFail, Epoch: r.epoch, State: stateVariant(r.s)})
 		if asked {
 			r.seen["a failure to its asker"] = true
 			return d, false, err
 		}
 		r.seen["a failure ends the actor"] = true
 		r.ended, r.failed = true, true
+		r.exit("failed")
 		return d, false, err
 	}
+	r.decided(e, d)
 	armed := false
 	switch d.kind {
 	case decideEnter, decideEmit:
@@ -199,6 +217,7 @@ func (r *ref) step(e tsig, timer, asked bool) (tdec, bool, error) {
 		// actor before the Emit's output and the answer, so the asker
 		// gets Stopped.
 		r.s = d.next
+		r.epoch++
 		armed = r.open()
 		if r.defect {
 			if asked {
@@ -223,6 +242,7 @@ func (r *ref) step(e tsig, timer, asked bool) (tdec, bool, error) {
 		r.outs = append(r.outs, d.out)
 		r.ended = true
 		r.seen["done"] = true
+		r.exit("finished")
 	}
 	return d, armed, nil
 }
@@ -358,8 +378,11 @@ func (dr *driver) signal(o op) {
 		}
 		dr.gateOpen <- struct{}{}
 		r.handled++ // the gate
+		r.take(tsig{v: gate}, false, false)
+		r.decided(tsig{v: gate}, tdec{kind: decideIgnore})
 		r.seen["a signal at its timer's deadline"] = true
 		epochBefore := r.deadline
+		stale, staleSig := r.epoch, r.due
 		_, armed, _ := r.step(o.e, false, false)
 		if !r.ended {
 			r.handled++
@@ -371,6 +394,8 @@ func (dr *driver) signal(o op) {
 				r.dropped++
 				r.handled++
 				r.seen["a stale timer dropped"] = true
+				r.events = append(r.events, rt.MachineEvent{What: rt.MachineDropped, Epoch: stale, Source: "timer",
+					Signal: sigVariant(staleSig)})
 				dr.idle()
 				if armed {
 					dr.expectArm()
@@ -424,6 +449,18 @@ func genActorCase(r *rand.Rand) actorCase {
 		}
 	}
 	m.init = tstate{r.Intn(ns), r.Intn(9) - 4}
+	// The arms: some single pairs, some rows or columns, in any order,
+	// and often a last catch-all; a pair that no arm takes has none.
+	for range r.Intn(ns*ne) + 1 {
+		a := tarm{r.Intn(ns+1) - 1, r.Intn(ne+1) - 1}
+		if r.Intn(3) > 0 {
+			a = tarm{r.Intn(ns), r.Intn(ne)}
+		}
+		m.arms = append(m.arms, a)
+	}
+	if r.Intn(4) > 0 {
+		m.arms = append(m.arms, tarm{-1, -1})
+	}
 	c := actorCase{m: m, capacity: r.Intn(3) + 2}
 	at := 0
 	for range r.Intn(12) + 1 {
@@ -441,11 +478,16 @@ func genActorCase(r *rand.Rand) actorCase {
 // runActorCase runs c on both sides and returns the first difference.
 func runActorCase(c actorCase, seen map[string]bool) string {
 	regs := make(chan sleep, 4)
-	task := rt.Root("actor driver")
+	// The run is traced (MU15): its machine events must be the
+	// reference's, each decision with the arm the reference finds.
+	log := &machineLog{}
+	task := rt.TracedRoot("actor driver", log)
+	registerTestGraph(c.m)
 	dr := &driver{task: task, regs: regs, gateOpen: make(chan struct{}), entered: make(chan struct{}, 1)}
 	dr.r = &ref{m: c.m, s: c.m.init, seen: seen}
 	dr.a = c.m.start(task, releaser{regs}, c.capacity, dr.gateOpen, dr.entered, &dr.mu, &dr.outs)
 	r := dr.r
+	r.events = append(r.events, rt.MachineEvent{What: rt.MachineStart, Incarnation: 1, State: stateVariant(r.s)})
 	if r.open() {
 		dr.expectArm()
 	}
@@ -476,6 +518,8 @@ func runActorCase(c actorCase, seen map[string]bool) string {
 			}
 			stopped = true
 			seen["a stop"] = true
+			r.events = append(r.events, rt.MachineEvent{What: rt.MachineStop, Source: "stop"})
+			r.exit("halted")
 		case o.kind == "tie" && !(r.armed && r.deadline == o.at):
 			dr.signal(op{at: o.at, kind: "send", e: o.e})
 		default:
@@ -492,6 +536,13 @@ func runActorCase(c actorCase, seen map[string]bool) string {
 		dr.failf("final state %v; want %v", got, r.s)
 	}
 	err, raised := stopOf(dr.a)
+	r.events = append(r.events, rt.MachineEvent{What: rt.MachineStop, Source: "stop"})
+	if !r.ended && !stopped {
+		r.exit("halted")
+	}
+	if diff := log.diff(r.events); diff != "" {
+		dr.failf("machine events: %s", diff)
+	}
 	if r.failed != errors.Is(err, errBoom) {
 		dr.failf("Stop: %v; want boom %v", err, r.failed)
 	}

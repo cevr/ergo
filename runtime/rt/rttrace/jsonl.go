@@ -38,6 +38,10 @@ type Line struct {
 	Def    string   `json:"def"`
 	Site   string   `json:"site,omitempty"`
 	Cause  []Reason `json:"cause,omitempty"`
+	// Machine is a machine event's line (rt.MachineEvent.String), such as
+	// "decide epoch=1 state=Idle signal=Tick decision=Enter arm=a.ergo:9
+	// next=Busy".
+	Machine string `json:"machine,omitempty"`
 }
 
 // Reason is one reason of a body-exit cause, the outcome of a call-exit, or
@@ -98,6 +102,10 @@ func Lines(recs []Record, sites map[string]string) []Line {
 			}
 		case rt.TracePanic:
 			l.Cause = []Reason{{Reason: "defect", Name: typeName(r.Defect), InRelease: r.InRelease}}
+		case rt.TraceMachine:
+			if m := r.Event.Machine(); m != nil {
+				l.Machine = m.String()
+			}
 		}
 		out[i] = l
 	}
