@@ -665,32 +665,24 @@ func (fc *funcCtx) bindFunc(fv string) string {
 // panic, which unwinds through the Go body as through any call. fv is
 // bound once, here, as adaptFunc binds it.
 //
-// A parameter whose Go shape takes the hidden task first and returns an
-// error last, such as the f of tasks.Transform, func(*rt.Task, A) (B, error)
-// (batch-12 C2), takes a function value with a row: the adapter runs fv
-// on a copy of the environment that holds that task, as adaptFunc runs a
-// task.Go block, and returns fv's error.
+// A parameter whose Go shape takes the hidden task, such as the f of
+// tasks.Transform, func(*rt.Task, A) (B, error) (batch-12 C2), or the step
+// of actor.StartMachine (MU3), follows one rule, adaptTaskFunc (owner q39:
+// one rule for "a std parameter that takes the caller's task").
 func (fc *funcCtx) adaptPlainFunc(fv string, shape *v1.Body, sig *check.Signature, site syntax.Node) string {
-	tasked := len(shape.Hidden) == 1 && shape.Hidden[0] == v1.CallerTask && len(shape.Results) == 2 && shape.Results[1] == "error"
-	if len(shape.Hidden) != 0 && !tasked {
+	if len(shape.Hidden) != 0 {
 		return fc.adaptTaskFunc(fv, shape, sig, site)
 	}
 	switch {
 	case len(shape.Params) != len(sig.Params):
 		ice(site, "a std function parameter has %d Go parameters for %d Ergo parameters", len(shape.Params), len(sig.Params))
-	case tasked && len(sig.Results) != 1:
-		ice(site, "a std function parameter with a task returns %v for %d Ergo results", shape.Results, len(sig.Results))
-	case !tasked && (len(shape.Results) != 1 || shape.Results[0] == "error" || len(sig.Results) != 1):
+	case len(shape.Results) != 1 || shape.Results[0] == "error" || len(sig.Results) != 1:
 		ice(site, "a std function parameter with parameters returns %v for %d Ergo results", shape.Results, len(sig.Results))
-	case !tasked && (len(rowElems(sig.Errors)) != 0 || len(rowElems(sig.Uses)) != 0):
+	case len(rowElems(sig.Errors)) != 0 || len(rowElems(sig.Uses)) != 0:
 		ice(site, "a std function parameter with parameters takes a function value with a row")
 	}
 	fv = fc.bindFunc(fv)
-	binding := capturedEnv
-	if tasked {
-		binding = childEnv
-	}
-	return fc.envClosure(binding, "e", site, func(env string) (params []string, results, body string) {
+	return fc.envClosure(capturedEnv, "e", site, func(env string) (params []string, results, body string) {
 		args := []string{env}
 		for _, p := range sig.Params {
 			name := fc.scope.alloc("p")
@@ -699,9 +691,6 @@ func (fc *funcCtx) adaptPlainFunc(fv string, shape *v1.Body, sig *check.Signatur
 		}
 		ind := strings.Repeat("\t", fc.depth+1)
 		call := fv + "(" + strings.Join(args, ", ") + ")"
-		if tasked {
-			return params, " (" + fc.goType(sig.Results[0]) + ", error)", ind + "return " + call + "\n"
-		}
 		r := fc.scope.alloc("r")
 		return params, " " + fc.goType(sig.Results[0]), ind + r + ", _ := " + call + "\n" + ind + "return " + r + "\n"
 	})
