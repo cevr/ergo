@@ -77,8 +77,11 @@ func (p tableProgram) lower() (*lowered, error) {
 type programTable struct {
 	test     string
 	programs []tableProgram
-	// Set by the shared build.
-	built   bool
+	// Set by the shared build: build is its number in the process.
+	built bool
+	build int
+	// used: the table's own test ran a program of it.
+	used    bool
 	exes    map[string]string
 	lowered map[string]*lowered
 }
@@ -125,6 +128,9 @@ func tableExe(t *testing.T, name string) string {
 	}
 	if !tb.built {
 		buildTables(t, tb, false)
+	}
+	if top, _, _ := strings.Cut(t.Name(), "/"); top == tb.test {
+		tb.used = true
 	}
 	return tb.exes[name]
 }
@@ -189,7 +195,7 @@ func buildTables(t *testing.T, want *programTable, every bool) {
 		if exes != nil {
 			programTables.builds++
 			for _, tb := range batch {
-				tb.built = true
+				tb.built, tb.build = true, programTables.builds
 				tb.exes = map[string]string{}
 				for _, p := range tb.programs {
 					tb.exes[p.name] = exes[p.name]
@@ -359,8 +365,9 @@ var tablesSeed = flag.Uint64("tables.seed", 0, "replay one seed of TestProgramTa
 // a seeded order and with seeded arguments, each run in a fresh directory.
 // The tables are built in a subtest, so an executable that lived in a
 // test's own directory would be gone when the runs start. Building every
-// table is at most one go build, a second use builds nothing, and a whole
-// run of the package (no -run, no -skip) builds the tables once. A program whose
+// table is at most one go build, a second use builds nothing, and the
+// tables of the tests that ran before it in the process come from one
+// shared build (run it with them: the selection's check). A program whose
 // own binary gives two different runs is not compared. A failing seed
 // prints the program; -tables.seed=N replays it.
 //
@@ -401,8 +408,16 @@ func TestProgramTablesAgreeWithSeparate(t *testing.T) {
 	if builds-before > 1 {
 		t.Errorf("building every table made %d shared builds; want at most 1", builds-before)
 	}
-	if flagValue("test.run") == "" && flagValue("test.skip") == "" && builds != 1 {
-		t.Errorf("a whole run made %d shared builds of the program tables; want 1", builds)
+	first := 0
+	for _, tb := range programTables.all {
+		if tb.used && (first == 0 || tb.build < first) {
+			first = tb.build
+		}
+	}
+	for _, tb := range programTables.all {
+		if tb.used && tb.build != first {
+			t.Errorf("the tables of %s and of other tests that ran came from different shared builds (%d, %d); want one", tb.test, tb.build, first)
+		}
 	}
 	separate := buildSeparate(t, programs)
 	if separate == nil {
