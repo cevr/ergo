@@ -147,7 +147,7 @@ func pureRowProgram(seed uint64, k int) (string, []pureRowFn, map[string]bool) {
 // pure exactly when its body calls no value, no host extern, no user
 // extern and no impure function, and each such function lowers with no
 // environment while every other keeps one. The programs go through go vet
-// and go build (no link): a caller that passes the environment to a pure
+// and go build (no link); it builds Go because a caller that passes the environment to a pure
 // callee, or none to an impure one, fails there; go/types alone would need
 // the runtime module loaded as go build loads it. A failing seed prints
 // the Ergo source.

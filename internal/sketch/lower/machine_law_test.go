@@ -419,6 +419,8 @@ func genListedLaws(r *rand.Rand) *listedLaws {
 // of it within the caps, it fails at its first listed case when its body
 // is false there, and any other run is 100 generated cases. A property
 // test over the same values follows the same rule (mu6c).
+// It builds Go because the laws run in the built test binary (ergo test),
+// the only place a law runs.
 // ERGO_MACHINELAW_SEED replays another seed; a failure prints the source.
 func TestMachineLawTables(t *testing.T) {
 	seed := int64(57)
@@ -554,7 +556,8 @@ func main() {}
 // TestMachineLawRuns: a false reachability law over a machine whose graph
 // cannot be listed fails with the seed and the run that refutes it; a
 // witness proves a reaches law; a law that reads a payload is tested,
-// never proved.
+// never proved. It builds Go because the laws run in the built test
+// binary (ergo test), the only place a law runs.
 func TestMachineLawRuns(t *testing.T) {
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "machinelaw_runs", machineLawRuns)}, true)
 	if exes == nil {

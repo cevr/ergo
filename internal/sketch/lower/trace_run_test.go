@@ -18,7 +18,7 @@ import (
 // ERGO_TRACE (MU15; runtime.md, Machines and actors 15): each decide line
 // of the trace names the arm that the machine's graph, read from the same
 // source, gives its state and signal; and each work started ends (returned,
-// failed or interrupted) in the same entry. A binary run is needed: the
+// failed or interrupted) in the same entry. It builds Go because the
 // arms the runner names are the ones the lowering wrote into the program
 // (v1.RegisterMachine), which only the lowered program holds.
 func TestErgoRunTracesMachineArms(t *testing.T) {

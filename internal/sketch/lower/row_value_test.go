@@ -268,7 +268,14 @@ func (s rvShape) testProgram() string {
 	return b.String()
 }
 
+// TestRowValueFieldsAgree is the seeded property of row values in fields
+// (q47): each seed's run program prints its cases' codes and comparisons,
+// which match the model's lines, and its property tests over Box[row]
+// draw every member. It builds Go because the values under test are the
+// lowered program's (Go error values in fields, their ==, and the
+// generators of the built test binary); Ergo has no reference interpreter.
 func TestRowValueFieldsAgree(t *testing.T) {
+	needsBuild(t)
 	seeds := []uint64{1, 2, 3}
 	if *rvSeed != 0 {
 		seeds = []uint64{*rvSeed}

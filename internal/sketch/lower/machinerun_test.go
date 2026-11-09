@@ -528,7 +528,7 @@ func runFlatCase(t *testing.T, exes map[string]string, c flatRunCase) (flat, old
 
 // TestMachineFlatRunAgrees is the seeded property (see above).
 //
-// It builds and runs the programs because the behaviour under test is the
+// It builds Go because the behaviour under test is the
 // lowered Go (the flat step's returns, the tag switch and the loop), and
 // the repository has no reference interpreter of Ergo; RunTimed and the
 // reference lowering are its references.
@@ -565,7 +565,8 @@ var machineMutants = flag.Bool("machine.mutants", false, "run TestMachineFlatRun
 // TestMachineFlatRunMutants breaks each helper of the flat run and of the
 // flat union in turn (machineMutant, unionMutant) and requires the
 // property's programs to show it: each helper has a guard that fails
-// without it. It builds a set of programs per mutant, so it runs only with
+// without it. It builds Go because each mutant is a lowering whose built
+// program must show it; it builds a set of programs per mutant, so it runs only with
 // -machine.mutants:
 // go test -run '^TestMachineFlatRunMutants$' ./internal/sketch/lower -args -machine.mutants
 func TestMachineFlatRunMutants(t *testing.T) {

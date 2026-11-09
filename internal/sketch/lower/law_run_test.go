@@ -471,8 +471,8 @@ func main() {}
 // with no constructor, each case on its own world: a fresh fstest.Memory
 // that the provider's fs.Files and fs.Writes share, an io.Recorder for its
 // io.Stdout (nothing reaches the binary's output) and a new sync.Ref. A
-// false law fails with its seed and the provider's build. It builds the
-// test binary because the law runner is that binary; no interpreter runs
+// false law fails with its seed and the provider's build.
+// It builds Go because the law runner is that binary; no interpreter runs
 // a law. Mutants it kills: one world for every case (Book fails at its
 // second case), a builder per field (Book's reads miss its writes), a host
 // provider as a builder (fs.NewHost and fstest.NewMemory are two builders,
