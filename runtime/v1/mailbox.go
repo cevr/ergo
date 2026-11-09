@@ -131,12 +131,18 @@ func (m *mailbox[T]) pushWait(t *rt.Task, v T) error {
 
 // popInto is Queue.Pop for the runner, the one taker, into *dst: the
 // value is copied once, from the ring to dst. On a failure, and before a
-// wait, *dst is the zero value, so it keeps no reference.
+// wait, *dst is the zero value, so it keeps no reference. A stopped take
+// returns rt.Interrupted as its error, where Pop raises it: the runner
+// ends with that exit without a panic, whose unwinding (and the stack it
+// grows to) was most of a stop's cost (MU18 profile).
 func (m *mailbox[T]) popInto(t *rt.Task, dst *T) error {
 	if m.ref != nil {
 		return m.refPopInto(t, dst)
 	}
-	t.Check()
+	if t.Stopped() {
+		*dst = *new(T)
+		return rt.Interrupted
+	}
 	m.mu.Lock()
 	for {
 		if m.frontInto(dst) {
@@ -170,7 +176,7 @@ func (m *mailbox[T]) popInto(t *rt.Task, dst *T) error {
 		m.parked--
 		if !woke {
 			m.mu.Unlock()
-			panic(rt.Interrupted)
+			return rt.Interrupted
 		}
 	}
 }

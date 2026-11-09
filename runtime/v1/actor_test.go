@@ -777,6 +777,28 @@ func TestActorStopCascades(t *testing.T) {
 	}
 }
 
+// TestActorStopExitIsTheReferences: a Stop of an idle actor ends its
+// runner with the exit the reference runner's raised interruption gives,
+// though the mailbox runner ends without a panic (MU18).
+func TestActorStopExitIsTheReferences(t *testing.T) {
+	exits := map[bool]error{}
+	for _, ref := range []bool{false, true} {
+		old := actorReference
+		actorReference = ref
+		a := signalLog(rt.Root("stop"), 1, nil, nil)
+		actorReference = old
+		if err := a.Stop(); err != nil {
+			t.Fatalf("reference %v: Stop: %v", ref, err)
+		}
+		a.mu.Lock()
+		exits[ref] = a.exit
+		a.mu.Unlock()
+	}
+	if exits[false] != rt.Interrupted || exits[true] != rt.Interrupted {
+		t.Fatalf("the exit after Stop: mailbox runner %v, reference %v; want the interruption for both", exits[false], exits[true])
+	}
+}
+
 // BenchmarkActorAsk is one Ask of a counter machine: admission, one step
 // on the runner's goroutine, the commit and the answer.
 func BenchmarkActorAsk(b *testing.B) {

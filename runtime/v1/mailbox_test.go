@@ -58,6 +58,9 @@ func (m mailBox) bind(t *rt.Task) { m.bindTaker(t) }
 func (m mailBox) pop(t *rt.Task) (int, error) {
 	var v int
 	err := m.popInto(t, &v)
+	if err == rt.Interrupted {
+		panic(err) // as the Queue's Pop raises it
+	}
 	return v, err
 }
 func (m mailBox) line() int {
@@ -174,7 +177,7 @@ func mailboxTrace(seed int64, capacity int, b box, want []string) (log []string)
 		}
 	}
 	for range 40 {
-		switch k := r.Intn(8); {
+		switch k := r.Intn(9); {
 		case k == 0 && !closed && len(queued) < capacity && len(pending) == 0:
 			next++
 			say("push %d: %v", next, b.Push(rt.Root("p"), next))
@@ -253,6 +256,12 @@ func mailboxTrace(seed int64, capacity int, b box, want []string) (log []string)
 			say("rejected: %v", ends)
 			waiting, pending = nil, nil
 			settle(0)
+		case k == 8 && len(queued) > 0:
+			// A take by a task already stopped raises and takes nothing,
+			// though a value is there.
+			taker := newTaker()
+			taker.Interrupt()
+			say("take by a stopped task raised: %v", interrupted(func() { _, _ = b.pop(taker) }))
 		case k == 7 && closed:
 			next++
 			v := next

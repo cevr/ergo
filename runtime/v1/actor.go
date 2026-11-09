@@ -348,6 +348,20 @@ func (a *Actor[S, E, D]) endRunner(_ struct{}, err error) (struct{}, error) {
 	return struct{}{}, nil
 }
 
+// inboxExit is the runner's exit when its take fails: a stop while it
+// waited is the interruption, the exit guarded gives a raised one, with no
+// panic; a closed and empty inbox is a normal end. It is a call of its
+// own, so loop's frame stays as small as before (an idle runner's stack
+// fits 2 KB).
+//
+//go:noinline
+func inboxExit(err error) error {
+	if err == rt.Interrupted {
+		return err
+	}
+	return nil
+}
+
 // loop is the runner (rules 1 to 7 and 10). a.started tells MachineStart
 // that the first entry's children run.
 func (a *Actor[S, E, D]) loop(at *rt.Task) (struct{}, error) {
@@ -360,7 +374,7 @@ func (a *Actor[S, E, D]) loop(at *rt.Task) (struct{}, error) {
 		// The envelope is taken into curEnv: one copy, no allocation; the
 		// inbox clears it before it waits.
 		if err := a.inbox.popInto(at, &a.curEnv); err != nil {
-			return struct{}{}, nil // closed and empty
+			return struct{}{}, inboxExit(err)
 		}
 		a.cur = &a.curEnv
 		var end bool
