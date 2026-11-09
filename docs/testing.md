@@ -71,9 +71,10 @@ A defect is not a failed assert. The runner prints the test's `FAIL` line, `FAIL
 
 ## Laws
 
-`ergo test` runs every law of the package after its tests ([#162](https://github.com/cevr/ergo/issues/162) law-run-1; [types.md](spec/types.md#laws) rule 10). A top-level law runs as a property does, over 100 generated cases. A member law runs once against each provider of its operation type that the package declares, with a generated provider value per case, and a helper that `needs` the type runs against that provider:
+`ergo test` runs every law of the package after its tests ([#162](https://github.com/cevr/ergo/issues/162) law-run-1; [types.md](spec/types.md#laws) rule 10). A top-level law runs once. A member law runs once against each provider of its operation type that the package declares, with a provider value per case, and a helper that `needs` the type runs against that provider. One rule decides each run: when the provider and every parameter have a type that can be listed (a `bool`, records and unions of such, a type defined over one, tuples; at most 256 values a type and 4096 cases), the run takes every value and is reported proved; otherwise it takes 100 generated cases, as a property does, and is reported tested:
 
 ```text
+ok law Flags.Merge (proved: all 8 cases)
 ok law Store.PutCountsOne for Tally (100 cases)
 FAIL law Store.PutCountsOne for Stuck (case 1 of 100, seed 7, size 0: provider = Stuck{at: 3}, n = -9): law refuted at main.ergo:4:2: the law is false
 skip law Box.Keeps: its parameter v has no generator: T is not a generatable type
