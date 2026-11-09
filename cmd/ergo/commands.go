@@ -61,6 +61,7 @@ var commands = []cliCommand{
 	{name: "query", fate: removed, reason: toolingReason, ticket: ticketTooling},
 	{name: "type", fate: removed, reason: toolingReason, ticket: ticketTooling},
 	{name: "graph", fate: removed, reason: toolingReason, ticket: ticketTooling},
+	{name: "inspect machine", usage: "inspect machine FILE|DIR [--json]", help: inspectMachineHelp, run: inspectMachineCommand},
 	{name: "inspect", fate: removed, reason: toolingReason, ticket: ticketTooling},
 	{name: "explain", fate: removed, reason: toolingReason, ticket: ticketTooling},
 	{name: "lsp", fate: dark, ticket: ticketTooling},
@@ -125,6 +126,9 @@ func command(args []string) error {
 		return exitStatusError{code: 1, message: c.stubMessage()}
 	}
 	rest := args[1:]
+	if strings.Contains(c.name, " ") {
+		rest = args[2:] // a word and its subcommand
+	}
 	if len(rest) == 1 && (rest[0] == "--help" || rest[0] == "-h") {
 		help := c.help
 		if help == "" {

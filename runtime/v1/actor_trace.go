@@ -33,11 +33,13 @@ import (
 
 // MachineArm is one arm of a machine's step, as the compiler read it: its
 // .ergo position (file:line) and the state and signal variants it takes,
-// nil for any.
+// nil for any. A partial arm's patterns test more than the variants (a
+// field or a literal), so a pair it takes may pass on to a later arm.
 type MachineArm struct {
 	Site    string
 	States  []string
 	Signals []string
+	Partial bool
 }
 
 // MachineGraph is what the traced runner reads of a machine's graph: its
@@ -92,17 +94,25 @@ func variant(g *MachineGraph, v any) string {
 }
 
 // arm is the site of g's first arm that takes the pair (state, signal),
-// "" when g is nil or no arm does.
+// "" when g is nil or no arm does. After a partial arm it names each arm
+// that may have taken the pair, up to the first whole one: "a:3 or a:5".
 func (g *MachineGraph) arm(state, signal string) string {
 	if g == nil {
 		return ""
 	}
+	site := ""
 	for _, a := range g.Arms {
 		if takes(a.States, state) && takes(a.Signals, signal) {
-			return a.Site
+			if site != "" {
+				site += " or "
+			}
+			site += a.Site
+			if !a.Partial {
+				break
+			}
 		}
 	}
-	return ""
+	return site
 }
 
 // takes reports whether the variants vs (nil for any) hold v.

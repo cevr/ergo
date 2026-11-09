@@ -391,7 +391,11 @@ func Main(body func(*rt.Task) error) {
 }
 
 // runMain runs body as the root task and returns its canonical exit.
-func runMain(body func(*rt.Task) error) error { return runOn(rt.Root("main"), body) }
+func runMain(body func(*rt.Task) error) error {
+	root, written := rootFor()
+	defer written()
+	return runOn(root, body)
+}
 
 // runOn runs body on root, a task with no parent, and returns its canonical
 // exit. A traced root reports as an untraced one does.
