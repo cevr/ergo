@@ -174,7 +174,7 @@ func flatRunProgram(seed uint64, k int, reached map[string]bool) (name, src stri
 	g.signals = g.r.IntN(3) + 1
 	fallible, needs := g.r.IntN(3) == 0, g.r.IntN(4) == 0
 	var b strings.Builder
-	b.WriteString("import machines\n\n")
+	b.WriteString("import machines\nimport testing\nimport time\n\n")
 	states := g.r.IntN(3) + 1
 	reached[fmt.Sprintf("%d variants", states)] = true
 	for i := range states {
@@ -314,14 +314,21 @@ func told(o machines.Outcome[St, int]) string {
 `)
 	fmt.Fprintf(&b, "func run(signals []Sig) string%s {\n\tlet o = machines.Run(M{}, signals) catch {\n%s\t}\n\ttold(o)\n}\n\n", runRows, catch)
 	fmt.Fprintf(&b, "func from(s St, signals []Sig) string%s {\n\tlet o = machines.From(M{}, s, signals) catch {\n%s\t}\n\ttold(o)\n}\n\n", runRows, catch)
-	fmt.Fprintf(&b, "func timed(signals []Sig) string%s {\n\tlet mut trace = []machines.Timed[Sig]{}\n\tfor e in signals {\n\t\ttrace = trace.Append(machines.Timed[Sig]{At: 0s, Signal: e})\n\t}\n\tlet o = machines.RunTimed(M{}, trace, 0s) catch {\n%s\t}\n\ttold(o)\n}\n\n", runRows, catch)
+	timedRows := runRows
+	if timedRows != "" {
+		timedRows += " | time.Clock | Scheduler"
+	}
+	fmt.Fprintf(&b, "func timed(signals []Sig) string%s {\n\tlet mut trace = []machines.Timed[Sig]{}\n\tfor e in signals {\n\t\ttrace = trace.Append(machines.Timed[Sig]{At: 0s, Signal: e})\n\t}\n\tlet o = machines.RunTimed(M{}, trace, 0s) catch {\n%s\t}\n\ttold(o)\n}\n\n", timedRows, catch)
 	// == of two signals, and of a signal and a variant (flatVariantValue).
 	fmt.Fprintf(&b, "func same(signals []Sig) int {\n\tlet mut n = 0\n\tfor e in signals {\n\t\tif e == (%s) {\n\t\t\tn = n + 1\n\t\t}\n\t\tif e == signals[0] {\n\t\t\tn = n + 10\n\t\t}\n\t}\n\tn\n}\n\n", g.sigLit(g.r.IntN(g.signals), "1"))
-	b.WriteString("func main() needs Console {\n")
-	ind := "\t"
+	// RunTimed reads the context's one clock (clock-one): a virtual clock
+	// bound as both.
+	b.WriteString("func main() needs Console {\n\tlet c = testing.NewVirtualClock(0)\n")
+	ind := "\t\t"
 	if needs {
-		b.WriteString("\twith context { Probe: Quiet } {\n")
-		ind = "\t\t"
+		b.WriteString("\twith context { Scheduler: c, time.Clock: c, Probe: Quiet } {\n")
+	} else {
+		b.WriteString("\twith context { Scheduler: c, time.Clock: c } {\n")
 	}
 	for l := range 3 {
 		n := g.r.IntN(8) + 1
@@ -343,10 +350,7 @@ func told(o machines.Outcome[St, int]) string {
 			}
 		}
 	}
-	if needs {
-		b.WriteString("\t}\n")
-	}
-	b.WriteString("}\n")
+	b.WriteString("\t}\n}\n")
 	return fmt.Sprintf("flatrun%d_%02d", seed, k), b.String(), !fallible
 }
 
