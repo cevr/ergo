@@ -38,9 +38,9 @@ func ReceiptWait() duration { 60s }
 type Till machine[Sale, Signal] { initial: Open, step: Step, after: timer, work: work }
 
 // Open is an empty basket that pays through gateway. The gateway is a
-// value in the state, not a capability in the work's row: a work that
-// starts children needs Scheduler, and a row of two capabilities cannot
-// be written as Work's type argument (finding F8).
+// value in the state, not a capability in the work's row: the row of a
+// work that starts children holds Scheduler, and a row of two
+// capabilities cannot be written as Work's type argument (finding F8).
 func Open(gateway Payments) Sale { Basket{Lines: []Line{}, Note: "", Gateway: gateway} }
 
 // Total is the price of the lines.
