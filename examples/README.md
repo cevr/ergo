@@ -58,7 +58,7 @@ A case passes when stdout, stderr and the status all equal the recorded ones. A 
 
 ## Test leg
 
-A program can declare its own tests: a top-level `.ergo` file with a line that starts with `test` and a name. For such a program the runner runs `ergo test <dir>/main.ergo` after the build and prints `ok <program>: test (<time>)`, or `FAIL <program>: test` with the command's output. A failing test fails the program, and its cases still run. A test leg is never skipped: any reply other than a pass is a failure. A reply over the cap fails as `FAIL <program>: test: stdout over 1048576 bytes`, with the stream names of the cap rule above, and with no output printed.
+The runner tests every package, as `go test ./...` does, whether or not it declares a test or a law: the compiler decides what its test build runs, which may be a std law against a provider it declares (fu6b, G-ma-1). For a program of one folder the runner runs `ergo test <dir>/main.ergo` after the build and prints `ok <program>: test (<time>)`, or `FAIL <program>: test` with the command's output. A failing test fails the program, and its cases still run. A test leg is never skipped: any reply other than a pass is a failure. A reply over the cap fails as `FAIL <program>: test: stdout over 1048576 bytes`, with the stream names of the cap rule above, and with no output printed.
 
 ## Record leg
 
