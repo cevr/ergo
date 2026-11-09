@@ -22,6 +22,7 @@ import (
 // arms the runner names are the ones the lowering wrote into the program
 // (v1.RegisterMachine), which only the lowered program holds.
 func TestErgoRunTracesMachineArms(t *testing.T) {
+	needsBuild(t)
 	src, err := os.ReadFile(filepath.Join("testdata", "work", "listen.ergo"))
 	if err != nil {
 		t.Fatal(err)

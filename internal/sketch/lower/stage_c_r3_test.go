@@ -13,6 +13,7 @@ import (
 // (a constraint) over a row value of such a variant (q47); equality over a
 // union whose variants all compare runs.
 func TestErgoRunComparability(t *testing.T) {
+	needsBuild(t)
 	const decls = `type E { N []int }
 type F {}
 type V = E | F

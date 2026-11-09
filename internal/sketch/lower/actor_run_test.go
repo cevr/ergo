@@ -432,6 +432,7 @@ var actorLawStatements = map[string]string{
 // Std laws 4); it builds and runs because the laws run over the lowered
 // std body and the runtime's actor runner, as ergo test runs them.
 func TestStdActorLawsRun(t *testing.T) {
+	needsBuild(t)
 	if laws := lawProbe(t, "stdactor", actorLawsProbe, actorLawStatements); laws != nil {
 		lawledger.Run(t, laws)
 	}

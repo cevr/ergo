@@ -119,6 +119,7 @@ func main() needs Console | go.Foreign {
 // nullable field, the spread of a variadic, the tuple of two results and
 // the Go interface argument; the checker sees only the Ergo program.
 func TestImportGoRuns(t *testing.T) {
+	needsBuild(t)
 	var src strings.Builder
 	src.WriteString(importGoProgram)
 	var want []string
@@ -267,6 +268,7 @@ func goTableLine(rows []string) string {
 // It builds Go because the subject is which operand the
 // emitted Go copies; only a run shows an alias.
 func TestHostCopyElisionAgrees(t *testing.T) {
+	needsBuild(t)
 	for _, seed := range importGoSeeds(1, 2, 3) {
 		r := rand.New(rand.NewPCG(seed, 0x51ce))
 		var body strings.Builder
@@ -359,6 +361,7 @@ func copyElisionCase(r *rand.Rand, k int) (string, string) {
 // fails go.Error, so the call is the defect. It builds Go because
 // the report is the running program's.
 func TestImportGoDefects(t *testing.T) {
+	needsBuild(t)
 	panics := mustLower(t, "go_panic", `import go strings
 
 func repeat(s string, n int) string needs go.Foreign {

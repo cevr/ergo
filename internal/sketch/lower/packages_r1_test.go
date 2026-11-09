@@ -33,6 +33,7 @@ func buildAndRun(t *testing.T, programs []*lowered, want map[string]string) {
 }
 
 func TestVerifyR1GenericNames(t *testing.T) {
+	needsBuild(t)
 	lib := libraryUnit(t)
 	root := checkPackage(t, "main", []pkgSource{
 		{"/probe/names/a.ergo", `import lib
@@ -149,6 +150,7 @@ func TestVerifyR1InitDAGs(t *testing.T) {
 }
 
 func TestVerifyR1Diamond(t *testing.T) {
+	needsBuild(t)
 	leaf := checkPackage(t, "zleaf", []pkgSource{{"/probe/leaf.ergo", "func start() int { 3 }\nlet N = start()\nfunc Read() int { N }\n"}}, nil)
 	imp := pkgImporter{"zleaf": leaf.Package}
 	left := checkPackage(t, "aleft", []pkgSource{{"/probe/left.ergo", "import zleaf\nfunc start() int { zleaf.Read() + 1 }\nlet N = start()\n"}}, imp)
@@ -228,6 +230,7 @@ test G { try g() }
 // is also the success value of a root function that fails with the
 // previous lib's Missing.
 func TestImportedOperationTypes(t *testing.T) {
+	needsBuild(t)
 	paths := []string{"x/lib", "y/lib", "z/lib"}
 	aliases := []string{"a", "b", "c"}
 	src := func(k int) string {
@@ -282,6 +285,7 @@ func Fail(w string) int fails Missing { return Missing{Why: w} }
 // context at the same offsets; W embeds them all, and each with acquires
 // another subset of them. Every order of the files is lowered.
 func TestContextAcquisitionsAcrossFiles(t *testing.T) {
+	needsBuild(t)
 	provider := func(i int) pkgSource {
 		return pkgSource{fmt.Sprintf("/probe/ctx/p%d.ergo", i), fmt.Sprintf(
 			"type C%[1]d { Get() int }\ntype P%[1]d {}\nfunc Get(x P%[1]d) int { %[2]d }\nlet X%[1]d = context { C%[1]d: P%[1]d }\nfunc use%[1]d() int needs C%[1]d { C%[1]d.Get() }\n", i, i+1)}
@@ -318,6 +322,7 @@ func TestContextAcquisitionsAcrossFiles(t *testing.T) {
 }
 
 func TestVerifyR1ContextPositions(t *testing.T) {
+	needsBuild(t)
 	root := checkPackage(t, "main", []pkgSource{
 		{"/probe/a.ergo", "type A { Get() int }\ntype One {}\nfunc Get(x One) int { 1 }\nlet X = context { A: One }\nfunc useA() int needs A { A.Get() }\n"},
 		{"/probe/b.ergo", "type B { Get() int }\ntype Two {}\nfunc Get(x Two) int { 2 }\nlet Y = context { B: Two }\nfunc useB() int needs B { B.Get() }\n"},

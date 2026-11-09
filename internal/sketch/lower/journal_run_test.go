@@ -351,6 +351,7 @@ func journalLawTestName(key string) string {
 // has the actor runner. MemoryRecoveryIsTheFold is the model-based test of
 // durable.qnt (MU9's acceptance).
 func TestStdJournalLawsRun(t *testing.T) {
+	needsBuild(t)
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "stdjournal", journalLawsProbe)}, true)
 	if exes == nil {
 		return
@@ -478,6 +479,7 @@ func main() needs Console | Ambient {
 // parse skips the snapshot line, so the next process replays the signals
 // after the snapshot from the initial state).
 func TestJournalFileRecovers(t *testing.T) {
+	needsBuild(t)
 	path := filepath.Join(t.TempDir(), "counter.journal")
 	exes := buildAll(t, []*lowered{mustLower(t, "journalfile", journalFileProgram)}, true)
 	if exes == nil {

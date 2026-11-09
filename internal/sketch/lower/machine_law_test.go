@@ -423,6 +423,7 @@ func genListedLaws(r *rand.Rand) *listedLaws {
 // the only place a law runs.
 // ERGO_MACHINELAW_SEED replays another seed; a failure prints the source.
 func TestMachineLawTables(t *testing.T) {
+	needsBuild(t)
 	seed := int64(57)
 	if s := os.Getenv("ERGO_MACHINELAW_SEED"); s != "" {
 		n, err := strconv.ParseInt(s, 10, 64)
@@ -559,6 +560,7 @@ func main() {}
 // never proved. It builds Go because the laws run in the built test
 // binary (ergo test), the only place a law runs.
 func TestMachineLawRuns(t *testing.T) {
+	needsBuild(t)
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "machinelaw_runs", machineLawRuns)}, true)
 	if exes == nil {
 		return

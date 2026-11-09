@@ -196,6 +196,7 @@ func genSched(r *rand.Rand, depth int, reach map[string]bool) *schedModel {
 // its limit exactly, a jitter draw that ignores the run count, and a
 // constructor that clamps another way.
 func TestScheduleAgreesWithModel(t *testing.T) {
+	needsBuild(t)
 	seed := uint64(13)
 	if s := os.Getenv("ERGO_SCHEDULE_SEED"); s != "" {
 		n, err := strconv.ParseUint(s, 10, 64)
@@ -493,6 +494,7 @@ var stdScheduleLawStatements = map[string]string{
 // whose runner is this test, each with the row's statement, and that each
 // passed.
 func TestStdScheduleLawsRun(t *testing.T) {
+	needsBuild(t)
 	if laws := lawProbe(t, "stdschedule", stdScheduleLawsProbe, stdScheduleLawStatements); laws != nil {
 		lawledger.Run(t, laws)
 	}

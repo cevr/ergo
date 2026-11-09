@@ -13,6 +13,7 @@ import "testing"
 // call outside the clock's domain, and the run would hang) and returns its
 // failure to the body.
 func TestTransformRuns(t *testing.T) {
+	needsBuild(t)
 	const src = `import tasks
 import testing
 import time
@@ -68,6 +69,7 @@ func main() needs Console {
 // (a wrong task would leave it outside the clock's domain and the run would
 // hang) and the binding of tasks.Closed.
 func TestSetRuns(t *testing.T) {
+	needsBuild(t)
 	const src = `import scope
 import sync
 import tasks

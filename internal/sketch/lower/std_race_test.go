@@ -11,6 +11,7 @@ import "testing"
 // build checks Race's Ergo body, which hands the blocks to the Go body as
 // one indexed function, and the lowering's adapter of that function.
 func TestRaceRuns(t *testing.T) {
+	needsBuild(t)
 	const src = `import scope
 import tasks
 import testing

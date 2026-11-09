@@ -315,6 +315,7 @@ func (g *incGraph) use(flats map[int][]incFlat) (string, string) {
 // (decls.go): only the built program shows a field the Go struct lost or
 // misplaced. ERGO_SEED=<n> replays one seed.
 func TestIncludedRecordFlattens(t *testing.T) {
+	needsBuild(t)
 	seeds := make([]int64, 40)
 	for i := range seeds {
 		seeds[i] = int64(i + 1)

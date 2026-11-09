@@ -248,6 +248,7 @@ func spLiteral(t *spType, i int) string {
 // write is seen through its own record only. ERGO_SEED=<n> replays one
 // seed.
 func TestSpreadMatchesModel(t *testing.T) {
+	needsBuild(t)
 	seeds := make([]int64, 30)
 	for i := range seeds {
 		seeds[i] = int64(i + 1)
@@ -310,6 +311,7 @@ func TestSpreadMatchesModel(t *testing.T) {
 // reassigns through a function literal (the lowering may read a variable
 // base in place only when no named value runs code first).
 func TestSpreadBaseBeforeValues(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Pp { A int }
 
 type P { ..Pp, B int }

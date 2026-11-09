@@ -17,6 +17,7 @@ import (
 // runtime/v1 model test calls the Go body directly: only a build checks
 // that the lowering passes the iterating task, the one the stop reaches.
 func TestStdinStopRuns(t *testing.T) {
+	needsBuild(t)
 	const src = `import io
 import queue
 import task

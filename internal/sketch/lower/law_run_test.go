@@ -134,6 +134,7 @@ func main() needs Console {
 // builds, a provider with no constructor and no generator is a skip line
 // with the reason, and the summary counts the skip.
 func TestLawRunState(t *testing.T) {
+	needsBuild(t)
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_state", lawRunState)}, true)
 	if exes == nil {
 		return
@@ -218,6 +219,7 @@ func main() needs Console {
 // domain package's own test build names the laws it leaves to the
 // packages that provide Store, so none is silent there.
 func TestLawRunOtherPackage(t *testing.T) {
+	needsBuild(t)
 	kv := cxPackage(t, "kv", lawRunStore)
 	imports := cxImporter{"kv": kv}
 	f, err := syntax.Parse(lawRunProviders)
@@ -311,6 +313,7 @@ func main() needs Console {
 // imports both, the least that sees them, against providers it does not
 // declare; the provider's own package does not see the law and runs none.
 func TestLawRunLeastPackage(t *testing.T) {
+	needsBuild(t)
 	kv, mem := cxPackage(t, "kv", lawRunStore), cxPackage(t, "mem", lawRunMem)
 	imports := cxImporter{"kv": kv, "mem": mem}
 	f, err := syntax.Parse(lawRunBinder)
@@ -479,6 +482,7 @@ func main() {}
 // so Book skips; or "echo:" reaches stdout), and a capability with no
 // builder that runs instead of its skip line.
 func TestLawRunCapabilities(t *testing.T) {
+	needsBuild(t)
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_caps", lawRunCapabilities)}, true)
 	if exes == nil {
 		return
@@ -509,6 +513,7 @@ func TestLawRunCapabilities(t *testing.T) {
 // TestLawRunDefinedBool: a law's result may be of a type over bool, at the
 // tail and at a return (types.md, Laws 8); its run converts it.
 func TestLawRunDefinedBool(t *testing.T) {
+	needsBuild(t)
 	src := `type Flag bool
 
 func yes() Flag { Flag(true) }
@@ -539,6 +544,7 @@ func main() {}
 // runs its one case, so a run that holds is proved (Laws 10); a false one
 // fails the run.
 func TestLawRunNoParams(t *testing.T) {
+	needsBuild(t)
 	src := `law Holds() { 1 + 1 == 2 }
 
 law Breaks() { 1 + 1 == 3 }
@@ -626,6 +632,7 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 // the top-level law runs as well. A failure prints the program's source.
 // ERGO_LAWRUN_SEED replays another seed.
 func TestLawRunFindsTheBrokenProvider(t *testing.T) {
+	needsBuild(t)
 	seed := int64(162)
 	if s := os.Getenv("ERGO_LAWRUN_SEED"); s != "" {
 		n, err := strconv.ParseInt(s, 10, 64)
@@ -804,6 +811,7 @@ func main() {}
 // sync.Ref that only the runtime runs; no in-process interpreter runs a
 // member law against a provider.
 func TestLawRunReadIsRepeatable(t *testing.T) {
+	needsBuild(t)
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_files", lawRunFiles)}, true)
 	if exes == nil {
 		return

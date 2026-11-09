@@ -533,6 +533,7 @@ func runFlatCase(t *testing.T, exes map[string]string, c flatRunCase) (flat, old
 // the repository has no reference interpreter of Ergo; RunTimed and the
 // reference lowering are its references.
 func TestMachineFlatRunAgrees(t *testing.T) {
+	needsBuild(t)
 	seeds := []uint64{1, 2}
 	if *flatRunSeed != 0 {
 		seeds = []uint64{*flatRunSeed}

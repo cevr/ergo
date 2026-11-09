@@ -14,6 +14,7 @@ import (
 // listen.ergo has a Run whose result and failure are signals (no maps)
 // and a Listen whose ticks the step reads until it leaves the state.
 func TestErgoRunMachineWork(t *testing.T) {
+	needsBuild(t)
 	for name, want := range map[string]string{
 		"maps.ergo":   "results 2 x\nfailed none\nfailed down\n",
 		"listen.ergo": "ticks 9\nunavailable\n",

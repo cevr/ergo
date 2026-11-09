@@ -208,6 +208,7 @@ value 11
 // the update (a copy of the base with the named fields replaced, the later
 // of two nested updates winning, the base unchanged).
 func TestRecordUpdateRuns(t *testing.T) {
+	needsBuild(t)
 	runBehaviors(t, []behavior{
 		{name: "update_order", src: updateOrderSource, stdout: updateOrderStdout},
 		updateProperty(40),

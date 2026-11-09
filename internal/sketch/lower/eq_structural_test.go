@@ -32,6 +32,7 @@ func same[T comparable](a Box[T], b Box[T]) bool { a == b }
 // record compared inside a generic function, and an empty slice against
 // a slice let with no value (Go nil).
 func TestErgoRunStructuralEquality(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, eqDecls+`
 func main() needs Console {
 	let noInts []int

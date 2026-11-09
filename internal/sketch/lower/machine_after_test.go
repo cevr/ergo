@@ -25,6 +25,7 @@ import (
 // After wrapper and of std machines' Ergo body, and the loop it replaces is
 // visible only in a run; the repository has no reference interpreter.
 func TestMachineTimerNotPositive(t *testing.T) {
+	needsBuild(t)
 	seed := int64(9)
 	if s := os.Getenv("ERGO_MACHINETIMER_SEED"); s != "" {
 		n, err := strconv.ParseInt(s, 10, 64)
