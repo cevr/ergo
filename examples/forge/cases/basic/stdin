@@ -1,0 +1,21 @@
+# A morning at the corner: a forging with leftover ore, a lump of slag, a
+# timeout, a press of the crossing button, and a fault the engineer repairs.
+1s ore gold
+2s ore iron
+3s ore iron
+4s select A1
+4500ms select B1
+9s ore glass
+10s ore iron
+12s select B1
+20s ore copper
+35s button
+41s ore tin
+42s select Z9
+50s douse
+55s ore gold
+58s kindle
+70s fault
+80s button
+95s repair
+2m end

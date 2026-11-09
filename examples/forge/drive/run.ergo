@@ -1,0 +1,234 @@
+import machines
+import slices
+import time
+import forge/light
+import forge/forge
+
+// Both is the two machines side by side, the ore the forge
+// has kept, and the time of the last thing that happened.
+type Both { Forge forge.State, Light light.Light, Tally forge.Tally, Now duration }
+
+// Line is one line of the log: when, which machine, and what it did.
+type Line { At duration, Who string, Text string }
+
+// Fresh is both machines switched on at time 0, the forge with
+// slots.
+func Fresh(slots []forge.Slot) Both {
+	Both{Forge: machines.Initial(machines.Start(forge.Forge{}, slots)), Light: machines.Initial(light.Crossing{}), Tally: forge.Tally{In: 0, Spent: 0, Leftover: 0, Returned: 0}, Now: 0s}
+}
+
+// Show is the text of d as a script writes it: whole seconds as "12s",
+// anything else as "1500ms". Duration reads it back (ShowReads).
+func Show(d duration) string {
+	let ms = time.Count(d, 1ms)
+	if ms%1000 == 0 {
+		return "\(ms / 1000)s"
+	}
+	"\(ms)ms"
+}
+
+// Text is the text of l.
+func Text(l Line) string { "\(Show(l.At)) \(l.Who): \(l.Text)" }
+
+// Due is the deadline that comes first: the forge's, the
+// light's, or none.
+type Due = ForgeDue{At duration} | LightDue{At duration} | NoneDue{}
+
+// within is o when it is at or before upto.
+func within(o Option[duration], upto duration) Option[duration] {
+	match o {
+	case Some[duration] as d:
+		if d.Value <= upto { o } else { None }
+	case None:
+		None
+	}
+}
+
+// due is the first deadline of b at or before upto. On a tie the forge
+// goes first, so a run is the same each time.
+func due(b Both, upto duration) Due {
+	match (within(forge.Deadline(b.Forge), upto), within(light.Deadline(b.Light), upto)) {
+	case (Some[duration] as v, Some[duration] as l):
+		if v.Value <= l.Value { ForgeDue{At: v.Value} } else { LightDue{At: l.Value} }
+	case (Some[duration] as v, None):
+		ForgeDue{At: v.Value}
+	case (None, Some[duration] as l):
+		LightDue{At: l.Value}
+	case (None, None):
+		NoneDue
+	}
+}
+
+// CatchUp is b at the time upto: each deadline at or before it gets its
+// Tick at the deadline itself, first deadline first. A Tick at a deadline
+// always moves its machine on, so the loop ends.
+func CatchUp(b Both, upto duration) (Both, []Line) {
+	let mut now = b
+	let mut log = []Line{}
+	for {
+		match due(now, upto) {
+		case ForgeDue as v:
+			let next, lines = toForge(now, forge.Tick{At: v.At})
+			now = next
+			log = slices.Concat(log, lines)
+		case LightDue as l:
+			let next, lines = toLight(now, light.Tick{At: l.At})
+			now = next
+			log = slices.Concat(log, lines)
+		case NoneDue:
+			break
+		}
+	}
+	if upto > now.Now {
+		now = Both{..now, Now: upto}
+	}
+	(now, log)
+}
+
+// eventText is the log text of e.
+func eventText(e forge.Event) string {
+	match e {
+	case forge.Accepted as a:
+		"took \(a.Worth), credit \(a.Credit)"
+	case forge.Forged as s:
+		"forged \(s.Item) from \(s.Slot) for \(s.Cost), leftover \(s.Leftover)"
+	case forge.Returned as r:
+		"returned \(r.Worth) (\(r.Why))"
+	case forge.Dropped as d:
+		"\(d.Slot) dropped into the tray"
+	case forge.WentCold:
+		"went cold"
+	case forge.CameBack:
+		"lit again"
+	}
+}
+
+// toForge is b after the forge takes sig, and the lines it
+// logs: one per event, or one for a refusal.
+func toForge(b Both, sig forge.Signal) (Both, []Line) {
+	let at = forge.AtOf(sig)
+	let es = forge.Decide(b.Forge, sig) catch {
+	case forge.NotEnough as n:
+		return (Both{..b, Now: at}, []Line{Line{At: at, Who: "forge", Text: "refused \(n.Slot): costs \(n.Cost), credit \(n.Credit)"}})
+	case forge.NoStock as o:
+		return (Both{..b, Now: at}, []Line{Line{At: at, Who: "forge", Text: "refused \(o.Slot): no stock"}})
+	case forge.NoSuchSlot as n:
+		return (Both{..b, Now: at}, []Line{Line{At: at, Who: "forge", Text: "refused \(n.Slot): no such slot"}})
+	case forge.Busy:
+		return (Both{..b, Now: at}, []Line{Line{At: at, Who: "forge", Text: "refused: busy dropping"}})
+	case forge.Unlit:
+		return (Both{..b, Now: at}, []Line{Line{At: at, Who: "forge", Text: "refused: cold"}})
+	case forge.BadOre as c:
+		return (Both{..b, Now: at}, []Line{Line{At: at, Who: "forge", Text: "refused ore of \(c.Worth)"}})
+	}
+	let mut lines = []Line{}
+	for e in es {
+		lines = lines.Append(Line{At: at, Who: "forge", Text: eventText(e)})
+	}
+	(Both{..b, Forge: machines.Next(b.Forge, forge.Apply(b.Forge, at, es)), Tally: forge.Kept(b.Tally, es), Now: at}, lines)
+}
+
+// cueAt is the time of c.
+func cueAt(c light.Cue) duration {
+	match c {
+	case light.Tick as t:
+		t.At
+	case light.Button as p:
+		p.At
+	case light.Fault as f:
+		f.At
+	case light.Repair as r:
+		r.At
+	}
+}
+
+// lightText is the log text of the light l after a change.
+func lightText(l light.Light) string {
+	match l {
+	case light.Green as g:
+		if g.Asked { "green, ends early" } else { "green" }
+	case light.Red:
+		"red"
+	case light.Yellow:
+		"yellow"
+	case light.Flashing:
+		"flashing red"
+	}
+}
+
+// toLight is b after the light takes c, and the line it logs.
+func toLight(b Both, c light.Cue) (Both, []Line) {
+	let at = cueAt(c)
+	let d = light.Step(b.Light, c)
+	let next = Both{..b, Light: machines.Next(b.Light, d), Now: at}
+	match d {
+	case Enter[light.Light] as e:
+		(next, []Line{Line{At: at, Who: "light", Text: lightText(e.Next)}})
+	case Stay[light.Light] as s:
+		(next, []Line{Line{At: at, Who: "light", Text: lightText(s.Next)}})
+	case Emit[light.Light, string] as m:
+		(next, []Line{Line{At: at, Who: "light", Text: m.Output}})
+	case Ignore:
+		(next, []Line{Line{At: at, Who: "light", Text: "ignored, still \(light.Colour(b.Light))"}})
+	case Reject:
+		(next, []Line{})
+	case Done[string]:
+		(next, []Line{})
+	}
+}
+
+// Deliver is b after the item it, and the lines it logs. A ore goes
+// through the assayer first: an ore it refuses never reaches the
+// machine. End changes nothing.
+func Deliver(b Both, it Item) (Both, []Line) needs forge.Assayer {
+	match it {
+	case OreIn as c:
+		let worth = forge.Assayer.Value(c.Ore) catch {
+		case forge.Slag as f:
+			return (Both{..b, Now: c.At}, []Line{Line{At: c.At, Who: "assay", Text: "slag \(f.Name)"}})
+		}
+		toForge(b, forge.Ore{At: c.At, Worth: worth})
+	case Key as k:
+		toForge(b, forge.Select{At: k.At, Slot: k.Slot})
+	case CancelKey as c:
+		toForge(b, forge.Cancel{At: c.At})
+	case DouseKey as s:
+		toForge(b, forge.Douse{At: s.At})
+	case KindleKey as r:
+		toForge(b, forge.Kindle{At: r.At})
+	case Press as p:
+		toLight(b, light.Button{At: p.At})
+	case Break as f:
+		toLight(b, light.Fault{At: f.At})
+	case Fix as f:
+		toLight(b, light.Repair{At: f.At})
+	case End as e:
+		(Both{..b, Now: e.At}, []Line{})
+	}
+}
+
+// Run is b after the items, in order, and the log: before each item, the
+// deadlines up to its time; after End, nothing more.
+func Run(b Both, items []Item) (Both, []Line) needs forge.Assayer {
+	let mut now = b
+	let mut log = []Line{}
+	for it in items {
+		let caught, ticks = CatchUp(now, ItemAt(it))
+		let next, lines = Deliver(caught, it)
+		now = next
+		log = slices.Concat(slices.Concat(log, ticks), lines)
+		match it {
+		case End:
+			break
+		case OreIn, Key, CancelKey, DouseKey, KindleKey, Press, Break, Fix:
+		}
+	}
+	(now, log)
+}
+
+// Summary is the last line of a run: the time, each machine, and the
+// ore, which always adds up (forge.OreIsKept).
+func Summary(b Both) string {
+	let k = b.Tally
+	"at \(Show(b.Now)): forge \(forge.Name(b.Forge)), light \(light.Colour(b.Light)); in \(k.In) = spent \(k.Spent) + leftover \(k.Leftover) + returned \(k.Returned) + credit \(forge.CreditOf(b.Forge))"
+}
