@@ -1,0 +1,7 @@
+pay card:1:100
+add free 0
+add bread 250
+pay card:1:100
+pay cash:1:250
+void
+add bread 250
