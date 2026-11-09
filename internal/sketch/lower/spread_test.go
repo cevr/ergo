@@ -261,7 +261,7 @@ func TestSpreadMatchesModel(t *testing.T) {
 	}
 	var decls, body, want strings.Builder
 	decls.WriteString(spGlobals)
-	valid, refused := 0, 0
+	valid, refused, carried := 0, 0, 0
 	for _, seed := range seeds {
 		rng := rand.New(rand.NewSource(seed))
 		sp := genSpread(rng, fmt.Sprintf("P%d", seed))
@@ -290,16 +290,18 @@ func TestSpreadMatchesModel(t *testing.T) {
 				continue
 			}
 			valid++
-			spRun(rng, c, i, &decls, &body, &want)
+			if spRun(rng, c, i, &decls, &body, &want) {
+				carried++
+			}
 		}
 	}
 	if t.Failed() {
 		return
 	}
-	if valid == 0 || refused == 0 {
-		t.Fatalf("%d spreads check and %d are refused: the generator must make both", valid, refused)
+	if valid == 0 || refused == 0 || carried == 0 {
+		t.Fatalf("%d spreads check, %d are refused and %d copy a slice from a base alive after: the generator must make each", valid, refused, carried)
 	}
-	t.Logf("%d spreads run, %d refused", valid, refused)
+	t.Logf("%d spreads run (%d copy a slice from a base alive after), %d refused", valid, carried, refused)
 	wantRun(t, decls.String()+"\nfunc main() needs Console {\n"+body.String()+"}\n", want.String())
 }
 
@@ -340,12 +342,15 @@ func spRefused(t *testing.T, seed int64, sp *spSpec, c *spCase, i int) {
 }
 
 // spRun writes case c's statements and the lines the model says they
-// print.
-func spRun(rng *rand.Rand, c *spCase, i int, decls, body, want *strings.Builder) {
+// print. It reports whether the result copies a slice field from a base
+// that is written and read after the spread.
+func spRun(rng *rand.Rand, c *spCase, i int, decls, body, want *strings.Builder) bool {
 	local := rng.Intn(2) == 0
 	alive := local && rng.Intn(2) == 0 // the base is read after the spread
-	tTags := slices.IndexFunc(c.t.fields, func(f spField) bool { return f.typ == "[]int" })
+	// The base is a let mut written after the spread, or a plain let.
 	sTags := slices.IndexFunc(c.s.fields, func(f spField) bool { return f.typ == "[]int" })
+	write := alive && sTags >= 0 && rng.Intn(2) == 0
+	tTags := slices.IndexFunc(c.t.fields, func(f spField) bool { return f.typ == "[]int" })
 	let := func(mut bool) string {
 		if mut {
 			return "let mut "
@@ -354,7 +359,7 @@ func spRun(rng *rand.Rand, c *spCase, i int, decls, body, want *strings.Builder)
 	}
 	base := fmt.Sprintf("s%d", i)
 	if local {
-		fmt.Fprintf(body, "\t%s%s = %s\n", let(alive && sTags >= 0), base, spLiteral(c.s, i))
+		fmt.Fprintf(body, "\t%s%s = %s\n", let(write), base, spLiteral(c.s, i))
 	} else {
 		// The base is a call that prints its tag: evaluated once, first.
 		fmt.Fprintf(decls, "func base%d() %s needs Console {\n\tConsole.Println(\"b%d\")\n\t%s\n}\n", i, c.s.text, i, spLiteral(c.s, i))
@@ -396,7 +401,7 @@ func spRun(rng *rand.Rand, c *spCase, i int, decls, body, want *strings.Builder)
 		for j, f := range c.s.fields {
 			_, baseShown[j], _ = spValue(f.typ, i, j, false)
 		}
-		if sTags >= 0 {
+		if write {
 			fmt.Fprintf(body, "\t%s.%s[1] = %d\n", base, c.s.fields[sTags].name, 800+i)
 			_, _, tg := spValue("[]int", i, sTags, false)
 			baseShown[sTags] = fmt.Sprintf("%d,%d", tg[0], 800+i)
@@ -407,4 +412,5 @@ func spRun(rng *rand.Rand, c *spCase, i int, decls, body, want *strings.Builder)
 		fmt.Fprintf(body, "\tConsole.Println(%s(%s))\n", c.t.show, r)
 	}
 	fmt.Fprintf(want, "%s\n", line)
+	return alive && tTags >= 0 && sTags >= 0 && !slices.Contains(c.named, tTags)
 }
