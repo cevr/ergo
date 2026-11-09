@@ -1,14 +1,16 @@
 // The memory connection's tests, and the server's: sessions replayed over
 // memory connections with a time.Manual clock, so no test sleeps or
-// touches the host. Laws are checked, not run (#162), so the Conn law is
-// restated as a test.
+// touches the host. The Conn law runs only for providers in server
+// (G-exup-1), so it is restated as a test.
 
 import chat/server
 import queue
 import time
 
 test HangupIsFinalHolds(lines []string) {
-	let c = New(8)
+	// Room for every line: a Send to a full connection waits for a reader,
+	// and this test reads only after the close.
+	let c = New(len(lines) + 1)
 	for l in lines {
 		c.Send(l) catch {
 		case server.Hangup:

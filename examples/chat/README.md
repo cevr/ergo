@@ -27,8 +27,7 @@ The program is a module of packages (`ergo.mod`: `module chat`), in the Go layou
 
 ```sh
 go build -o bin/ergo ./cmd/ergo
-./bin/ergo build examples/chat/cmd/chat -o /tmp/chat
-/tmp/chat < examples/chat/cases/session/stdin
+./bin/ergo run examples/chat/cmd/chat < examples/chat/cases/session/stdin
 ./bin/ergo test examples/chat/memory   # and room, cmd/chat
 go run ./scripts/examples chat
 ```
@@ -43,8 +42,8 @@ Gaps that other lanes found, met here too:
 
 - No network in std (G-ex-c-7): the connections are in memory, and the binary replays a script instead of listening on a port.
 - No task group (G-ex-b-17): `serveAll` starts one task per frame and recurses for the rest.
-- No virtual clock that advances when every task waits (G-ex-b-5): the replay advances the clock by script steps; an idle timeout with `timeout.After` works on a `time.Manual`, but its test must spin on `Sleepers()`, so the server has none.
-- No actor runner and no supervision (#57, #101): the room's task is a loop over `Decide` and `Evolve`; a step cannot emit its events and go on (G-ex-a-9), so `Room`'s `Step` folds them and the server does not use it.
+- A virtual clock that advances when every task waits is now std `testing.VirtualClock` (G-ex-b-5 closed). The replay keeps `time.Manual`, because the script's `+SECONDS` lines say when time moves; an idle timeout is still not built.
+- No actor runner and no supervision (#57, #101): the room's task is a loop over `Decide` and `Evolve`. `Room`'s `Step` now emits its events (G-ex-a-9 closed), but a machine has no clock, so it stamps a say at time zero and the server, which stamps each say with its clock, does not use it.
 - A machine's state is a union (G-ex-c-16): `State` has two variants where `Shutdown` would do as a flag.
-- No integer arithmetic on durations (G-ex-b-4) and no `ParseDuration` (G-ex-b-9): `+SECONDS` converts through `int64` nanoseconds.
-- Laws are not run (#162); `with` is a keyword, so a helper cannot be named `with`.
+- `+SECONDS` is `time.Times(1s, n)` (G-ex-b-4 closed).
+- The `Conn` law runs only for providers in `server` (G-exup-1), so `memory`'s tests restate it; `with` is a keyword, so a helper cannot be named `with`.

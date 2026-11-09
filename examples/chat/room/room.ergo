@@ -4,6 +4,7 @@
 // records its events; Evolve folds an event into the state and decides
 // nothing.
 
+import slices
 import time
 
 // Signal is what a client asks of the room.
@@ -38,7 +39,7 @@ func Decide(s State, sig Signal, now time.Time) []Event fails NameTaken | NotMem
 	case Open as o:
 		match sig {
 		case Join as j:
-			if has(o.Members, j.Name) {
+			if slices.Contains(o.Members, j.Name) {
 				return NameTaken{Name: j.Name}
 			}
 			[]Event{Joined{Name: j.Name}}
@@ -57,7 +58,7 @@ func Decide(s State, sig Signal, now time.Time) []Event fails NameTaken | NotMem
 
 // member fails with NotMember unless name is a member of o.
 func member(o Open, name string) fails NotMember {
-	if !has(o.Members, name) {
+	if !slices.Contains(o.Members, name) {
 		return NotMember{Name: name}
 	}
 }
@@ -70,9 +71,9 @@ func Evolve(s State, e Event) State {
 	case Open as o:
 		match e {
 		case Joined as j:
-			Open{Members: adding(o.Members, j.Name)}
+			Open{Members: o.Members.Append(j.Name)}
 		case Left as l:
-			Open{Members: removing(o.Members, l.Name)}
+			Open{Members: slices.Filter(o.Members, func(n string) bool { n != l.Name })}
 		case Said:
 			s
 		case Closed:
@@ -82,14 +83,16 @@ func Evolve(s State, e Event) State {
 }
 
 // Step is the room as a machine's transition: the events of sig folded
-// into s. A step cannot also give its events (G-ex-a-9), so the server
-// calls Decide and Evolve itself.
+// into s, and emitted. A machine has no clock, so a Said is stamped at
+// time zero; the server, which stamps each say with its clock, calls
+// Decide and Evolve itself.
 func Step(s State, sig Signal) Decision[State, []Event] fails NameTaken | NotMember | RoomClosed {
+	let events = try Decide(s, sig, time.Unix(0, 0))
 	let mut next = s
-	for e in try Decide(s, sig, time.Unix(0, 0)) {
+	for e in events {
 		next = Evolve(next, e)
 	}
-	Enter[State]{Next: next}
+	Emit[State, []Event]{Next: next, Output: events}
 }
 
 // Room is the chat room as a machine.
@@ -102,44 +105,10 @@ type Room machine[State, Signal] {
 func Members(s State) []string {
 	match s {
 	case Open as o:
-		let mut out = []string{}
-		for n in o.Members {
-			out = out.Append(n)
-		}
-		out
+		o.Members
 	case Shutdown:
 		[]string{}
 	}
-}
-
-// has reports whether names holds name.
-func has(names []string, name string) bool {
-	for n in names {
-		if n == name {
-			return true
-		}
-	}
-	false
-}
-
-// adding is names and then name, in a new slice.
-func adding(names []string, name string) []string {
-	let mut out = []string{}
-	for n in names {
-		out = out.Append(n)
-	}
-	out.Append(name)
-}
-
-// removing is names less name, in a new slice.
-func removing(names []string, name string) []string {
-	let mut out = []string{}
-	for n in names {
-		if n != name {
-			out = out.Append(n)
-		}
-	}
-	out
 }
 
 // Render is the line that every member reads for e.
