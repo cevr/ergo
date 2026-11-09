@@ -36,8 +36,15 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 			// It starts a member below the caller and never parks: the
 			// runtime/v1 TestSetModel states its laws.
 		case memberTask:
-			// It records the caller as a member of an auto clock and never
-			// parks; runtime/v1 TestVirtualClockModel states its laws.
+			// It records the caller as a member of an auto or manual
+			// clock and never parks; runtime/v1 TestVirtualClockModel and
+			// TestManualAdvanceSettles state its laws.
+		case settleWait:
+			// It waits for its clock's domain to settle, on no primitive
+			// the native barrier can hold: runtime/v1
+			// TestManualAdvanceSettles states that it returns only once
+			// every task it woke waits again, and that a stop of the
+			// caller ends it.
 		case childWait:
 			// A child join parks on no primitive of its own: its stop, mask
 			// and drain laws are the runtime/v1 tests of its body, which
@@ -256,7 +263,7 @@ func blockingNative(t *testing.T, name, route string) {
 		case "ergo/runtime/v1/time.go":
 			from := "func (l *Timeline) Wait(t *rt.Task, d time.Duration) {"
 			data = replace(data, from, from+"\n\tdefer BlockingEnter(\"Timeline.Wait\", t)()")
-			data = replace(data, "return &Timeline{v: rt.NewVirtual(start), start: start}", "return &Timeline{v: rt.BlockingClock, start: start}")
+			data = replace(data, "return &Timeline{v: rt.NewManual(t, start), start: start}", "return &Timeline{v: rt.BlockingClock, start: start}")
 		case "ergo/runtime/rt/clock.go":
 			data = replace(data, "return liveTimer{time.NewTimer(d)}", "return BlockingClock.NewTimer(d)")
 		case "ergo/runtime/rt/handle.go":

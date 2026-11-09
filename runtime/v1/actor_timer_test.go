@@ -44,7 +44,10 @@ func TestActorTimerArmsBeforePublish(t *testing.T) {
 // enters state i+1; the last state has none. It returns what broke, or "".
 func timerChain(delays []time.Duration) string {
 	root := rt.Root("timer chain")
-	l := NewTimeline(0, 0)
+	// The clock's domain is a root of its own: the actor is no member, so
+	// Advance does not wait for it, and the publish order shows.
+	clock := rt.Root("clock")
+	l := NewTimeline(clock, 0, 0)
 	last := len(delays)
 	step := func(*rt.Task, tstate, tsig) (tdec, error) { return tdec{kind: decideIgnore}, nil }
 	fire := func(_ *rt.Task, at tstate, _ tstate) (tdec, error) {
@@ -77,7 +80,7 @@ func timerChain(delays []time.Duration) string {
 		if n := l.Sleepers(); n != 1 {
 			return "state " + strconv.Itoa(s.v) + " is published with " + strconv.Itoa(n) + " sleepers registered, want its timer's 1"
 		}
-		l.Advance(delays[s.v])
+		l.Advance(clock, delays[s.v])
 		want++
 	}
 	return "the actor ended before the last state"

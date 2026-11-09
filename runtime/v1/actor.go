@@ -177,8 +177,10 @@ type Actor[S, E, D any] struct {
 	mu    sync.Mutex
 	state S // the last committed state
 	ended bool
-	exit  error // the runner's exit, read after done closes
-	subs  map[*changes[S]]struct{}
+	// doneWait are the waitDone callers parked in a clock's domain.
+	doneWait []*rt.Task
+	exit     error // the runner's exit, read after done closes
+	subs     map[*changes[S]]struct{}
 	// latest is the decision of the last signal stepped (rule 12), and
 	// final the Done decision that ended the actor, when one did.
 	latest    D
@@ -265,7 +267,7 @@ type envelope[S, E, D any] struct {
 	sig   E
 	epoch uint64
 	at    S // a timer's: the state its entry opened in
-	reply chan answer[S, D]
+	reply *replySlot[S, D]
 	err   error // a work defect's exit
 }
 
@@ -555,7 +557,7 @@ func (a *Actor[S, E, D]) crash(at *rt.Task) {
 			a.mu.Lock()
 			s := a.state
 			a.mu.Unlock()
-			env.reply <- answer[S, D]{s: s}
+			env.reply.give(answer[S, D]{s: s})
 		default:
 			a.release(&env)
 		}
@@ -622,7 +624,7 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 	var err error
 	switch env.kind {
 	case stateRead:
-		env.reply <- answer[S, D]{s: s}
+		env.reply.give(answer[S, D]{s: s})
 		return s, false, nil
 	case timerSignal:
 		if env.epoch != a.epoch {
@@ -648,7 +650,7 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 		a.closeNewHosts()
 		if env.kind == askSignal {
 			a.cur = nil
-			env.reply <- answer[S, D]{err: err}
+			env.reply.give(answer[S, D]{err: err})
 			return s, false, nil
 		}
 		return s, true, err
@@ -674,7 +676,7 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 		a.mu.Unlock()
 		a.cur = nil
 		if env.kind == askSignal {
-			env.reply <- answer[S, D]{d: d}
+			env.reply.give(answer[S, D]{d: d})
 		}
 		return s, false, nil
 	}
@@ -702,7 +704,7 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 	}
 	a.cur = nil
 	if env.kind == askSignal {
-		env.reply <- answer[S, D]{d: d}
+		env.reply.give(answer[S, D]{d: d})
 	}
 	return s, k == decideDone, nil
 }
@@ -1065,12 +1067,12 @@ func (a *Actor[S, E, D]) publishLocked(s S) {
 func (a *Actor[S, E, D]) release(env *envelope[S, E, D]) {
 	switch env.kind {
 	case askSignal:
-		env.reply <- answer[S, D]{err: ActorStopped{}}
+		env.reply.give(answer[S, D]{err: ActorStopped{}})
 	case stateRead:
 		a.mu.Lock()
 		s := a.state
 		a.mu.Unlock()
-		env.reply <- answer[S, D]{s: s, err: ActorStopped{}}
+		env.reply.give(answer[S, D]{s: s, err: ActorStopped{}})
 	}
 }
 
@@ -1163,13 +1165,13 @@ func (a *Actor[S, E, D]) startFeed(at *rt.Task, id uint64) {
 // (std actor's Can reads it, MU10). It raises rt.Interrupted when t is
 // stopped while it waits.
 func ActorLiveState[S, E, D any](t *rt.Task, a *Actor[S, E, D]) (S, error) {
-	reply := a.takeReply()
-	if err := a.inbox.Push(t, envelope[S, E, D]{kind: stateRead, reply: reply.ch}); err != nil {
+	reply := a.takeReply(t)
+	if err := a.inbox.Push(t, envelope[S, E, D]{kind: stateRead, reply: reply}); err != nil {
 		a.giveReply(reply)
 		var zero S
 		return zero, ActorStopped{}
 	}
-	r := a.await(t, reply.ch)
+	r := a.await(t, reply)
 	a.giveReply(reply)
 	return r.s, r.err
 }
@@ -1227,6 +1229,11 @@ func (a *Actor[S, E, D]) finish(exit error) {
 		c.ended = true
 		c.signal()
 	}
+	// The waits for the end are unparked now, before done closes: early,
+	// which only keeps a clock's domain unsettled until it closes (fua-b).
+	for _, w := range a.doneWait {
+		rt.Waking(w, a).Done()
+	}
 	a.mu.Unlock()
 	// A child's defect ends its parent (rule 13): pushed now, or raised by
 	// the parent's stop of the child when it cannot be pushed.
@@ -1255,13 +1262,13 @@ func (a *Actor[S, E, D]) Send(t *rt.Task, e E) error {
 // ended before e was stepped, and raises rt.Interrupted when t is stopped
 // while it waits (the step, once taken, still runs).
 func (a *Actor[S, E, D]) Ask(t *rt.Task, e E) (D, error) {
-	reply := a.takeReply()
+	reply := a.takeReply(t)
 	var zero D
-	if err := a.inbox.Push(t, envelope[S, E, D]{kind: askSignal, sig: e, reply: reply.ch}); err != nil {
+	if err := a.inbox.Push(t, envelope[S, E, D]{kind: askSignal, sig: e, reply: reply}); err != nil {
 		a.giveReply(reply) // never queued: no answer comes
 		return zero, ActorStopped{}
 	}
-	r := a.await(t, reply.ch)
+	r := a.await(t, reply)
 	a.giveReply(reply)
 	return r.d, r.err
 }
@@ -1271,15 +1278,30 @@ func (a *Actor[S, E, D]) Ask(t *rt.Task, e E) (D, error) {
 // channel whose answer was taken is empty and nobody else holds it; one
 // whose wait was interrupted may still get its answer, so it is never
 // given back.
-type replySlot[S, D any] struct{ ch chan answer[S, D] }
+// task is the asker's, so the runner can unpark it in a clock's domain
+// before it answers (fua-b).
+type replySlot[S, D any] struct {
+	ch   chan answer[S, D]
+	task *rt.Task
+}
+
+// give answers r's asker. In a clock's domain the asker is unparked first
+// (rt idle.go), so no window shows it parked while it can run; the
+// channel has room for the one answer, so the send never waits.
+func (r *replySlot[S, D]) give(ans answer[S, D]) {
+	k := rt.Waking(r.task, r)
+	r.ch <- ans
+	k.Done()
+}
 
 // takeReply is the actor's spare reply channel, or a new one when another
-// asker holds it (or under the reference runner).
-func (a *Actor[S, E, D]) takeReply() *replySlot[S, D] {
+// asker holds it (or under the reference runner), for the asker t.
+func (a *Actor[S, E, D]) takeReply(t *rt.Task) *replySlot[S, D] {
 	if r := a.spare.Swap(nil); r != nil {
+		r.task = t
 		return r
 	}
-	return &replySlot[S, D]{ch: make(chan answer[S, D], 1)}
+	return &replySlot[S, D]{ch: make(chan answer[S, D], 1), task: t}
 }
 
 // giveReply keeps r, empty, as the spare, unless another one is there.
@@ -1294,8 +1316,8 @@ func (a *Actor[S, E, D]) giveReply(r *replySlot[S, D]) {
 // ended actor it is the last committed state. It never fails; it raises
 // rt.Interrupted when t is stopped while it waits.
 func (a *Actor[S, E, D]) State(t *rt.Task) S {
-	reply := a.takeReply()
-	if err := a.inbox.Push(t, envelope[S, E, D]{kind: stateRead, reply: reply.ch}); err != nil {
+	reply := a.takeReply(t)
+	if err := a.inbox.Push(t, envelope[S, E, D]{kind: stateRead, reply: reply}); err != nil {
 		a.giveReply(reply)
 		// Ended or ending: the last state, once the runner has stopped.
 		a.waitDone(t)
@@ -1304,29 +1326,65 @@ func (a *Actor[S, E, D]) State(t *rt.Task) S {
 		a.mu.Unlock()
 		return s
 	}
-	s := a.await(t, reply.ch).s
+	s := a.await(t, reply).s
 	a.giveReply(reply)
 	return s
 }
 
 // await waits for an answer on t: a stop of t raises rt.Interrupted.
-func (a *Actor[S, E, D]) await(t *rt.Task, reply chan answer[S, D]) answer[S, D] {
+// In a clock's domain it waits parked on reply (fua-b).
+func (a *Actor[S, E, D]) await(t *rt.Task, reply *replySlot[S, D]) answer[S, D] {
 	t.Check()
+	var p rt.Parked
+	if t.InDomain() {
+		p = rt.Park(t, reply, t.Done(), func() bool { return len(reply.ch) > 0 })
+	}
 	select {
-	case r := <-reply:
+	case r := <-reply.ch:
+		p.Unpark()
 		return r
 	case <-t.Done():
+		p.Unpark()
 		panic(rt.Interrupted)
 	}
 }
 
-// waitDone waits on t until the runner has ended.
+// waitDone waits on t until the runner has ended. In a clock's domain it
+// waits parked on the actor until finish unparks it (fua-b).
 func (a *Actor[S, E, D]) waitDone(t *rt.Task) {
+	var p rt.Parked
+	if t.InDomain() {
+		a.mu.Lock()
+		if !a.ended {
+			a.doneWait = append(a.doneWait, t)
+			p = rt.Park(t, a, t.Done(), nil)
+		}
+		a.mu.Unlock()
+	}
 	select {
 	case <-a.done:
 	case <-t.Done():
+		a.dropDoneWait(t, p)
 		panic(rt.Interrupted)
 	}
+	a.dropDoneWait(t, p)
+}
+
+// dropDoneWait unparks t, a waitDone in a clock's domain, and removes it
+// from doneWait.
+func (a *Actor[S, E, D]) dropDoneWait(t *rt.Task, p rt.Parked) {
+	if !t.InDomain() {
+		return
+	}
+	p.Unpark()
+	a.mu.Lock()
+	for i, w := range a.doneWait {
+		if w == t {
+			a.doneWait = append(a.doneWait[:i], a.doneWait[i+1:]...)
+			break
+		}
+	}
+	a.mu.Unlock()
 }
 
 // Stop is a.Stop(): it interrupts the runner, closes admission and waits,
@@ -1503,11 +1561,17 @@ type changes[S any] struct {
 	buf   []S
 	ended bool
 	wake  chan struct{}
+	// task is the subscriber while it waits in a clock's domain (fua-b).
+	task *rt.Task
 }
 
-// signal wakes the subscriber's wait. The actor's mu is held.
+// signal wakes the subscriber's wait; in a clock's domain it is unparked
+// first (rt idle.go). The actor's mu is held.
 func (c *changes[S]) signal() {
 	if c.wake != nil {
+		if c.task != nil {
+			rt.Waking(c.task, c).Done()
+		}
 		close(c.wake)
 		c.wake = nil
 	}
@@ -1535,12 +1599,22 @@ func (a *Actor[S, E, D]) nextChange(t *rt.Task, c *changes[S]) (S, bool) {
 			c.wake = make(chan struct{})
 		}
 		ch := c.wake
+		// In a clock's domain the subscriber parks under a.mu, which
+		// signal holds too (fua-b).
+		var p rt.Parked
+		if t.InDomain() {
+			c.task = t
+			p = rt.Park(t, c, t.Done(), nil)
+		}
 		a.mu.Unlock()
 		select {
 		case <-ch:
 		case <-t.Done():
+			p.Unpark()
 			panic(rt.Interrupted)
 		}
 		a.mu.Lock()
+		p.Unpark()
+		c.task = nil
 	}
 }

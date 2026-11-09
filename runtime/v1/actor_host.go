@@ -30,6 +30,8 @@ type Host[A any] struct {
 	owner any // the actor whose entry owns it
 	child A
 	wake  chan struct{} // made by a waiting Get, closed by the fill or the close
+	// parked are the Gets waiting in a clock's domain (fua-b).
+	parked []*rt.Task
 }
 
 // hostCell is a host as the runner sees it, whatever its A.
@@ -91,10 +93,33 @@ func (h *Host[A]) Get(t *rt.Task) (A, error) {
 			h.wake = make(chan struct{})
 		}
 		w := h.wake
+		// In a clock's domain the Get parks under h.mu, which the fill
+		// and the close hold too (fua-b).
+		var p rt.Parked
+		inDomain := t.InDomain()
+		if inDomain {
+			h.parked = append(h.parked, t)
+			p = rt.Park(t, h, t.Done(), nil)
+		}
 		h.mu.Unlock()
+		stopped := false
 		select {
 		case <-w:
 		case <-t.Done():
+			stopped = true
+		}
+		if inDomain {
+			p.Unpark()
+			h.mu.Lock()
+			for i, x := range h.parked {
+				if x == t {
+					h.parked = append(h.parked[:i], h.parked[i+1:]...)
+					break
+				}
+			}
+			h.mu.Unlock()
+		}
+		if stopped {
 			panic(rt.Interrupted)
 		}
 	}
@@ -132,6 +157,9 @@ func (h *Host[A]) fill(c A) {
 
 func (h *Host[A]) wakeLocked() {
 	if h.wake != nil {
+		for _, t := range h.parked {
+			rt.Waking(t, h).Done()
+		}
 		close(h.wake)
 		h.wake = nil
 	}

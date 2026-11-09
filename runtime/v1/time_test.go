@@ -44,7 +44,8 @@ func TestManualClockModel(t *testing.T) {
 func manualModelRun(t *testing.T, seed uint64) {
 	r := rand.New(rand.NewPCG(seed, 2))
 	startSec := r.Int64N(4_000_000_000) - 2_000_000_000
-	line := NewTimeline(startSec, 0)
+	clock := rt.Root("clock")
+	line := NewTimeline(clock, startSec, 0)
 	var now int64 // the model time
 	var lastMono int64
 	var asleep []*manualSleeper
@@ -114,7 +115,7 @@ func manualModelRun(t *testing.T, seed uint64) {
 			check("sleep")
 		case op < 8: // Advance(d)
 			d := r.Int64N(3_000)
-			line.Advance(time.Duration(d))
+			line.Advance(clock, time.Duration(d))
 			now += d
 			check("advance")
 		case op < 9 && len(asleep) > 0: // stop one sleeper
@@ -137,7 +138,7 @@ func manualModelRun(t *testing.T, seed uint64) {
 		for _, s := range asleep {
 			last = max(last, s.deadline)
 		}
-		line.Advance(time.Duration(last - now))
+		line.Advance(clock, time.Duration(last-now))
 		now = last
 		check("drain")
 	}
@@ -155,7 +156,8 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 // included, wakes every sleeper due and leaves none (the firing order is
 // rt.Virtual's, tested there).
 func TestManualAdvanceWakesAllDue(t *testing.T) {
-	line := NewTimeline(0, 0)
+	clock := rt.Root("clock")
+	line := NewTimeline(clock, 0, 0)
 	ds := []time.Duration{30, 10, 20, 10}
 	order := make(chan int, len(ds))
 	for i, d := range ds {
@@ -166,7 +168,7 @@ func TestManualAdvanceWakesAllDue(t *testing.T) {
 		}()
 		line.v.AwaitTimers(i + 1)
 	}
-	line.Advance(25)
+	line.Advance(clock, 25)
 	var got []int
 	for range 3 {
 		got = append(got, <-order)
@@ -175,7 +177,7 @@ func TestManualAdvanceWakesAllDue(t *testing.T) {
 	if len(got) != 3 || got[0] != 1 || got[1] != 2 || got[2] != 3 || line.Sleepers() != 1 {
 		t.Fatalf("Advance(25) woke %v, Sleepers %d; want [1 2 3] and 1", got, line.Sleepers())
 	}
-	line.Advance(5)
+	line.Advance(clock, 5)
 	if last := <-order; last != 0 {
 		t.Fatalf("woke %d last", last)
 	}
@@ -191,7 +193,7 @@ func TestManualAdvanceNegativeIsADefect(t *testing.T) {
 			t.Fatal("Advance(-1) did not panic")
 		}
 	}()
-	NewTimeline(0, 0).Advance(-1)
+	NewTimeline(rt.Root("clock"), 0, 0).Advance(rt.Root("caller"), -1)
 }
 
 // timeFromBodies is the Go time a Reading names.
@@ -214,9 +216,10 @@ func TestTimeLaws(t *testing.T) {
 				}
 				prev = next
 			}
-			line := NewTimeline(5, 0)
+			clock := rt.Root("clock")
+			line := NewTimeline(clock, 5, 0)
 			a := line.Read()
-			line.Advance(7)
+			line.Advance(clock, 7)
 			if b := line.Read(); b.Mono < a.Mono || b.Mono-a.Mono != 7 {
 				t.Fatalf("NowNeverFalls/AdvanceMovesRead: %+v then %+v", a, b)
 			}

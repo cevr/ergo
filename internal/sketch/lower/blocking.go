@@ -34,6 +34,12 @@ const (
 	// the parent of the task the body starts and the owner it checks
 	// (tasks.Go); the body never waits on it.
 	parentTask
+	// settleWait is the hidden *rt.Task of the invocation environment,
+	// which waits until every other member of a manual clock's domain is
+	// parked (time.Manual's Advance, fua-b). It parks on no primitive of
+	// its own; a stop of the caller ends the wait, and runtime/v1
+	// TestManualAdvanceSettles states its laws.
+	settleWait
 )
 
 type runtimeBinding struct {
@@ -57,7 +63,7 @@ type runtimeBinding struct {
 // takesCaller reports a binding whose Go body receives the invocation's
 // task as its hidden CallerTask argument.
 func (b runtimeBinding) takesCaller() bool {
-	return b.wait == callerWait || b.wait == childWait || b.wait == memberTask || b.wait == parentTask || b.release == callerRelease || b.reads || b.task
+	return b.wait == callerWait || b.wait == childWait || b.wait == memberTask || b.wait == parentTask || b.wait == settleWait || b.release == callerRelease || b.reads || b.task
 }
 
 var runtimeBindings = map[string]runtimeBinding{
@@ -185,10 +191,13 @@ var runtimeBindings = map[string]runtimeBinding{
 	"TimeTimes":         {},
 	"TimeDivide":        {},
 	"TimeCount":         {},
-	"NewTimeline":       {},
-	"Timeline.Read":     {},
-	"Timeline.Wait":     {wait: callerWait},
-	"Timeline.Advance":  {},
+	// NewTimeline makes the calling task the first member of the manual
+	// clock's domain (fua-b), as NewVirtualTimeline does for an auto one.
+	"NewTimeline":   {wait: memberTask},
+	"Timeline.Read": {},
+	"Timeline.Wait": {wait: callerWait},
+	// Advance waits until the clock's domain settles (fua-b).
+	"Timeline.Advance":  {wait: settleWait},
 	"Timeline.Sleepers": {},
 	// std testing (stdlib.md, Testing): NewVirtualTimeline makes the
 	// calling task the first member of the clock's domain and returns; its

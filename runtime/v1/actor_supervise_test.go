@@ -321,7 +321,7 @@ func supRun(t *testing.T, c supCase) supOutcome {
 				continue
 			}
 			ch := make(chan answer[[]int, rdec], 1)
-			if err := a.inbox.Push(driver, envelope[[]int, int, rdec]{kind: op.kind, sig: op.e, reply: ch}); err != nil {
+			if err := a.inbox.Push(driver, envelope[[]int, int, rdec]{kind: op.kind, sig: op.e, reply: &replySlot[[]int, rdec]{ch: ch}}); err != nil {
 				t.Fatalf("batch %d: push while the runner is held: %v", bi, err)
 			}
 			chans = append(chans, ch)

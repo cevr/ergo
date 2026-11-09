@@ -44,10 +44,12 @@ type Timeline struct {
 	start time.Time
 }
 
-// NewTimeline is a timeline that reads time.Unix(sec, nsec).
-func NewTimeline(sec int64, nsec int64) *Timeline {
+// NewTimeline is time.Manual's timeline: a manual clock (rt.NewManual)
+// that reads time.Unix(sec, nsec). t, the calling task, is the first
+// member of its domain, so Advance waits for the tasks below it (fua-b).
+func NewTimeline(t *rt.Task, sec int64, nsec int64) *Timeline {
 	start := time.Unix(sec, nsec).UTC()
-	return &Timeline{v: rt.NewVirtual(start), start: start}
+	return &Timeline{v: rt.NewManual(t, start), start: start}
 }
 
 // NewVirtualTimeline is testing.VirtualClock's timeline: an auto clock
@@ -75,14 +77,21 @@ func (l *Timeline) Wait(t *rt.Task, d time.Duration) {
 	}
 }
 
-// Advance moves the time forward by d, waking each sleeper whose deadline
-// it reaches, in deadline order. A negative d is a defect: time never
-// falls.
-func (l *Timeline) Advance(d time.Duration) {
+// Advance is Advance(d) on the caller's task t: it moves the time forward
+// by d, one deadline at a time, waking each sleeper whose deadline it
+// reaches, in deadline order, and it returns once every task of the
+// clock's domain but t waits again on a wait the clock sees
+// (rt.AdvanceSettled): each timer due by then has fired and every task it
+// woke has run to its next wait, an actor's step included (fua-b). A
+// negative d is a defect: time never falls. A stop of t raises
+// rt.Interrupted.
+func (l *Timeline) Advance(t *rt.Task, d time.Duration) {
 	if d < 0 {
 		panic("time.Manual: Advance by a negative duration")
 	}
-	l.v.Advance(d)
+	if err := l.v.AdvanceSettled(t, d); err != nil {
+		raise(err)
+	}
 }
 
 // Sleepers is the number of sleepers waiting.

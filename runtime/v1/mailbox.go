@@ -44,6 +44,9 @@ type mailbox[T any] struct {
 	taker *rt.Task
 	// parked counts the operations parked: the runner and the senders.
 	parked int
+	// domainTaker is the runner while it waits in a clock's domain (rt
+	// idle.go): notify unparks it before it wakes it (fua-b).
+	domainTaker *rt.Task
 }
 
 // actorReference selects the reference runner for the actors started
@@ -58,6 +61,18 @@ type mailSender[T any] struct {
 	accepted bool
 	rejected bool
 	wake     chan struct{}
+	// task is the Push's task when it waits in a clock's domain.
+	task *rt.Task
+}
+
+// signal wakes s; in a clock's domain its task is unparked first (rt
+// idle.go), so no window shows it parked while it can run. The mailbox's
+// mu is held.
+func (s *mailSender[T]) signal() {
+	if s.task != nil {
+		rt.Waking(s.task, s).Done()
+	}
+	s.wake <- struct{}{}
 }
 
 // newMailbox is the inbox of an actor with the given capacity (not
@@ -104,8 +119,16 @@ func (m *mailbox[T]) pushWait(t *rt.Task, v T) error {
 	m.senders = append(m.senders, s)
 	m.notify() // at capacity 0 the runner takes v straight from s
 	stop := t.Done()
+	inDomain := t.InDomain()
+	if inDomain {
+		s.task = t
+	}
 	for !s.accepted && !s.rejected {
 		m.parked++
+		var p rt.Parked
+		if inDomain {
+			p = rt.Park(t, s, stop, nil)
+		}
 		m.mu.Unlock()
 		woke := true
 		select {
@@ -114,6 +137,7 @@ func (m *mailbox[T]) pushWait(t *rt.Task, v T) error {
 			woke = false
 		}
 		m.mu.Lock()
+		p.Unpark()
 		m.parked--
 		if !woke && !s.accepted && !s.rejected {
 			m.dropSender(s)
@@ -156,6 +180,14 @@ func (m *mailbox[T]) popInto(t *rt.Task, dst *T) error {
 		}
 		m.waiting = true
 		m.parked++
+		// In a clock's domain the runner parks under m.mu, so notify, which
+		// runs under m.mu too, unparks it before it wakes it; its stop
+		// unparks it in rt's Interrupt (fua-b).
+		var p rt.Parked
+		if t.InDomain() {
+			m.domainTaker = t
+			p = rt.Park(t, m, t.Done(), nil)
+		}
 		m.mu.Unlock()
 		woke := true
 		if t == m.taker {
@@ -172,6 +204,8 @@ func (m *mailbox[T]) popInto(t *rt.Task, dst *T) error {
 			}
 		}
 		m.mu.Lock()
+		p.Unpark()
+		m.domainTaker = nil
 		m.waiting = false
 		m.parked--
 		if !woke {
@@ -252,7 +286,7 @@ func (m *mailbox[T]) Close() {
 		m.closed = true
 		for i, s := range m.senders {
 			s.rejected = true
-			s.wake <- struct{}{}
+			s.signal()
 			m.senders[i] = nil
 		}
 		m.senders = nil
@@ -289,6 +323,9 @@ func (m *mailbox[T]) isClosed() bool {
 func (m *mailbox[T]) notify() {
 	if m.waiting {
 		m.waiting = false
+		if m.domainTaker != nil {
+			rt.Waking(m.domainTaker, m).Done()
+		}
 		select {
 		case m.wake <- struct{}{}:
 		default: // a token is there already
@@ -336,14 +373,14 @@ func (m *mailbox[T]) frontInto(dst *T) bool {
 			s := m.popSender()
 			m.put(s.v)
 			s.accepted = true
-			s.wake <- struct{}{}
+			s.signal()
 		}
 		return true
 	}
 	if len(m.senders) > 0 {
 		s := m.popSender()
 		s.accepted = true
-		s.wake <- struct{}{}
+		s.signal()
 		*dst = s.v
 		return true
 	}
