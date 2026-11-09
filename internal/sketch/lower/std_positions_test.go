@@ -186,6 +186,11 @@ func useSource(c stdMatchFunc, method bool) string {
 	for i, p := range sig.Params {
 		args[i] = "p" + strconv.Itoa(i)
 		params[i] = args[i] + " " + p.Type.String()
+		// An escaping parameter (actor.StartDurable's save) takes an
+		// escaping argument, so use's parameter is escaping too.
+		if s, ok := p.Type.(*check.Signature); ok && !s.NonEscaping {
+			params[i] = args[i] + " escaping " + p.Type.String()
+		}
 	}
 	if check.TakesWorkSend(c.fn) {
 		return workUseSource(c, params, args)
@@ -217,7 +222,32 @@ func useSource(c stdMatchFunc, method bool) string {
 		call = "try " + call
 	}
 	b.WriteString(" {\n\t" + call + "\n}\n")
+	if check.TakesDurableMachine(c.fn) {
+		return durableUseSource(b.String(), sig.Params[0].Type.String())
+	}
 	return b.String()
+}
+
+// durableUseSource is the use of a durable runner
+// (check.TakesDurableMachine) built from plain, its use with the machine
+// parameter p0 passed through. The durable rule admits only a machine whose
+// step the checker sees, so the call passes a Machine literal whose Step
+// names useStep, a pure package function; the rest of the machine is p0's.
+// The runner's lowered body does not depend on which step it gets.
+func durableUseSource(plain, machine string) string {
+	open := strings.Index(machine, "[")
+	if open < 0 || !strings.HasPrefix(machine, "Machine[") {
+		panic("a durable runner's first parameter is " + machine + ", not a Machine")
+	}
+	targs := strings.Split(machine[open+1:len(machine)-1], ", ")
+	if len(targs) != 5 {
+		panic("a durable runner's machine is " + machine + ": want Machine[S, E, O, F, R]")
+	}
+	s, e, o, f, r := targs[0], targs[1], targs[2], targs[3], targs[4]
+	lit := machine + "{Initial: p0.Initial, Step: useStep[" + strings.Join(targs, ", ") + "], After: p0.After, Work: p0.Work}"
+	use := strings.Replace(plain, "(p0, ", "("+lit+", ", 1)
+	step := "func useStep[" + strings.Join(targs, ", ") + "](s " + s + ", e " + e + ") Decision[" + s + ", " + o + "] fails " + f + " needs " + r + " {\n\tIgnore\n}\n"
+	return use + "\n" + step
 }
 
 // workUseSource is the use of a function that needs the work capability

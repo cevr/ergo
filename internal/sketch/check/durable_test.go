@@ -88,6 +88,15 @@ func TestDurableStepIsPure(t *testing.T) {
 		},
 		{name: "literal", step: pureStep, call: "journal.Start(" + literal + ", j, 2, 1, func(o int) {})"},
 		{
+			name: "generic step", step: pureStep, helpers: "\nfunc keepStep[S, E](s S, e E) Decision[S, int] { Ignore }\n",
+			call: "journal.Start(Machine[State, Signal, int]{Initial: Idle, Step: keepStep[State, Signal], After: func(s State) Option[Timeout[Signal]] { None }, Work: func(s State) Option[func(send func(e Signal))] { None }}, j, 2, 1, func(o int) {})",
+		},
+		{
+			name: "generic step impure", step: pureStep, helpers: "\ntype Loud {}\n\nfunc loudStep[S, E](s S, e E) Decision[S, int] fails Loud needs Console {\n\tConsole.Println(\"x\")\n\tIgnore\n}\n",
+			call: "journal.Start(Machine[State, Signal, int, Loud, Console]{Initial: Idle, Step: loudStep[State, Signal], After: func(s State) Option[Timeout[Signal]] { None }, Work: func(s State) Option[func(send func(e Signal)) needs Console] { None }}, j, 2, 1, func(o int) {})",
+			want: "step loudStep calls the capability operation Console.Println",
+		},
+		{
 			name: "value", step: pureStep, helpers: "\nfunc counter() Machine[State, Signal, int] { Counter{} }\n",
 			call: "journal.Start(counter(), j, 2, 1, func(o int) {})",
 			want: "journal.Start replays the saved signals with the machine's step, so the checker must see that the step is pure: pass a machine declaration's value X{}, machines.Start(X{}, input), or a Machine literal whose Step names a function",

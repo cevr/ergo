@@ -13,7 +13,8 @@ import (
 // the same state by construction. The checker must see which function is
 // the step, so the machine argument is a declaration's value `X{}`,
 // machines.Start(X{}, input), or a prelude Machine literal whose Step
-// names a package function; anything else is S108 too. The step
+// names a package function (a generic one instantiated, step[S, E], too);
+// anything else is S108 too. The step
 // is pure when its footprint is empty (rows.md, Footprints 2 and 3): no
 // capability, no task start and no opaque call. The diagnostic names the
 // first call in the step's body that makes it impure. Work and timers stay
@@ -99,7 +100,14 @@ func (c *checker) durableStep(arg syntax.Expr) *Func {
 			if k, ok := kv.Key.(*syntax.Ident); !ok || k.Name != "Step" {
 				continue
 			}
-			id, ok := unparen(kv.Value).(*syntax.Ident)
+			// The step is a function's name, or a generic one's name
+			// instantiated (step[S, E, O, F, R]): either way the
+			// checker sees its body.
+			v := unparen(kv.Value)
+			if ix, ok := v.(*syntax.IndexExpr); ok {
+				v = unparen(ix.X)
+			}
+			id, ok := v.(*syntax.Ident)
 			if !ok {
 				return nil
 			}
