@@ -193,9 +193,9 @@ func allReached(reached map[string]bool) bool {
 	return true
 }
 
-// TestCallSitesAgree is the seeded property (see above). It builds Go
-// because the property is about the value a callee receives when the
-// program runs: the checker records only that a call leaves the site out,
+// TestCallSitesAgree is the seeded property (see above).
+// It builds Go because the property is about the value a callee receives
+// when the program runs: the checker records only that a call leaves the site out,
 // and the lowered literal is seen as the callee's value only by running it.
 func TestCallSitesAgree(t *testing.T) {
 	seeds := []uint64{1, 2, 3}
