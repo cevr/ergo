@@ -24,6 +24,11 @@ import ergo.local/prototype/internal/sketch/std ergo.local/prototype/internal/sk
 # ergo.local package but runtime and runtime/rt (go list -deps), so it
 # cannot name, receive or build a syntax node.
 import ergo.local/prototype/runtime/v1
+# std/gostd (#202, IG2, the Go standard library bindings): gobinding.go
+# calls only gostd.Binding(path string) (string, bool), the embedded text
+# of one binding. gostd imports embed and no ergo.local package (go list
+# -deps), so it cannot name, receive or build a syntax node.
+import ergo.local/prototype/internal/sketch/std/gostd
 
 # The syntax callees that yield a node, each with the only sites that may
 # call it (E2b round 4 review M2). Each site parses a whole file and checks
@@ -31,7 +36,10 @@ import ergo.local/prototype/runtime/v1
 # parses inside its preludeOnce.Do closure, prelude$1.
 # stdExternResultSet (extern.go, #206) parses the std sources, checks
 # nothing and returns only type names, so no node it makes reaches a pass.
-callee Parse CheckSource prelude$1 (*stdImporter).load stdExternResultSet
+# (*hostPkg).load (gobinding.go, #202 IG2) parses one Go binding's whole
+# file and checks it as that binding's package (c.files), like
+# (*stdImporter).load.
+callee Parse CheckSource prelude$1 (*stdImporter).load (*hostPkg).load stdExternResultSet
 
 # The checker's own functions that parse caller text, with the sites that
 # may reference them: none, so a pass cannot reach the parser through the
