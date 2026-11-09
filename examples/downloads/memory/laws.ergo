@@ -1,0 +1,88 @@
+// The downloads' live rules: each law plays one file against a fresh
+// Server on a fresh manual clock, run as an actor, and reads what Play
+// shows. The file's step rules are fetch's laws; the runner's (a chunk of
+// an ended entry is never stepped; Select drops equal views) are std
+// actor's, held by its models and properties.
+
+import downloads/fetch
+import downloads/script
+import strings
+import time
+
+func pick(n int, count int) int { ((n % count) + count) % count }
+
+// play is what Play shows for one get of the file numbered file.
+func play(file int, cancel bool) []string {
+	let url = fetch.Files[pick(file, len(fetch.Files))]
+	let clock = time.NewManual(0)
+	with context { fetch.Source: NewServer(), Scheduler: clock } {
+		script.Play([]script.Get{script.Get{Url: url, Cancel: cancel}}, clock)
+	}
+}
+
+// waits is the waits Play shows in lines, in milliseconds, in order.
+func waits(lines []string) []string {
+	let mut out = []string{}
+	for l in lines {
+		let at = strings.Index(l, "waiting ")
+		if at >= 0 {
+			out = out.Append(strings.TrimSuffix(l[at+8:], "ms"))
+		}
+	}
+	out
+}
+
+// EndIsTheFile: a file the server has is saved with every byte; late.bin
+// fails after Budget retries; gone.zip is not found; a file cancelled at
+// its first wait ends cancelled, and one that never waits is saved.
+law EndIsTheFile(file int, cancel bool) {
+	let lines = play(file, cancel)
+	let url = fetch.Files[pick(file, len(fetch.Files))]
+	let last = lines[len(lines)-1]
+	let waited = len(waits(lines)) > 0
+	if cancel && waited {
+		return strings.Contains(last, " cancelled at ")
+	}
+	match url {
+	case "late.bin":
+		strings.HasSuffix(last, " failed: \(fetch.Budget + 1) timeouts")
+	case "gone.zip":
+		strings.HasSuffix(last, " failed: not found")
+	case _:
+		strings.HasSuffix(last, " saved \(Size(url)) bytes")
+	}
+}
+
+// WaitsDouble: the waits before the retries of a file are 100ms, 200ms,
+// 400ms, …, Budget of them at most.
+law WaitsDouble(file int) {
+	let ws = waits(play(file, false))
+	if len(ws) > fetch.Budget {
+		return false
+	}
+	let mut want = 100
+	for w in ws {
+		if w != "\(want)" {
+			return false
+		}
+		want = want * 2
+	}
+	true
+}
+
+// ProgressOncePerChange: Play shows a progress line only when the view
+// changes (actor.Select), so no two lines in a row are the same once the
+// time is taken out, and the bytes never go back.
+law ProgressOncePerChange(file int) {
+	let lines = play(file, false)
+	let mut prev = ""
+	for l in lines[1:] {
+		let words = strings.Fields(l)
+		let rest = strings.Join(words[1:], " ")
+		if rest == prev {
+			return false
+		}
+		prev = rest
+	}
+	true
+}

@@ -1,0 +1,106 @@
+// Package script plays a list of downloads, one file at a time, each run
+// as an actor on a manual clock, and shows each file's progress and its
+// end.
+
+import actor
+import downloads/fetch
+import machines
+import strings
+import time
+
+// BadLine is a line the script cannot read.
+type BadLine { Line int, Why string }
+
+// Get is a line of the script: fetch Url, and cancel it at its first
+// wait when Cancel is set.
+type Get { Url string, Cancel bool }
+
+// Read reads the lines of a script: `get URL` or `get URL cancel` (cancel
+// the file when it first waits for a retry). A blank line or a line that
+// starts with # is skipped.
+func Read(lines []string) []Get fails BadLine {
+	let mut out = []Get{}
+	for i, line in lines {
+		let text = strings.TrimSpace(line)
+		let w = strings.Fields(text)
+		if len(w) == 0 || strings.HasPrefix(text, "#") {
+			continue
+		}
+		if w[0] != "get" || len(w) < 2 || len(w) > 3 || (len(w) == 3 && w[2] != "cancel") {
+			return BadLine{Line: i + 1, Why: "a line is get URL or get URL cancel"}
+		}
+		out = out.Append(Get{Url: w[1], Cancel: len(w) == 3})
+	}
+	out
+}
+
+// View is the part of a file's state a progress line shows: the bytes so
+// far, and the wait before a retry (0 while it does not wait).
+type View { Got int, Wait duration }
+
+// ViewOf is the view of s.
+func ViewOf(s fetch.File) View {
+	match s {
+	case fetch.Waiting as w:
+		View{Got: w.Got, Wait: fetch.Backoff(w.Try)}
+	case fetch.Fetching as f:
+		View{Got: f.Got, Wait: 0s}
+	case fetch.Queued:
+		View{Got: 0, Wait: 0s}
+	}
+}
+
+// Play fetches each file of gets in turn on clock, which only Play
+// moves, and is what it shows: for each file a line per change of its
+// view (actor.Select over Changes: the bytes, or a wait), then its end
+// (actor.ExitOf). When a file waits, Play moves the clock by the wait, so
+// its timer fires; a file to cancel is cancelled at its first wait
+// instead.
+func Play(gets []Get, clock time.Manual) []string needs fetch.Source | Scheduler {
+	let mut lines = []string{}
+	let mut now = 0s
+	for g in gets {
+		lines = lines.Append("> get \(g.Url)\(if g.Cancel { " cancel" } else { "" })")
+		let a = actor.StartMachine(machines.Start(fetch.Download{}, g.Url), 4, func(e fetch.End) {})
+		a.Send(fetch.Begin) catch {
+		case actor.Stopped:
+		}
+		for v in actor.Select(a.Changes(), ViewOf) {
+			if v.Wait == 0s {
+				lines = lines.Append("  @\(ms(now)) \(v.Got) bytes")
+				continue
+			}
+			lines = lines.Append("  @\(ms(now)) \(v.Got) bytes, waiting \(ms(v.Wait))ms")
+			// A wait with no timer would never end: Play says so and
+			// cancels the file, instead of waiting for ever.
+			let timed = match fetch.Timer(a.State()) {
+			case Some[Timeout[fetch.Signal]]:
+				true
+			case None:
+				false
+			}
+			if !timed {
+				lines = lines.Append("  ?? the wait has no timer")
+			}
+			if g.Cancel || !timed {
+				a.Send(fetch.Cancel) catch {
+				case actor.Stopped:
+				}
+				continue
+			}
+			clock.Advance(v.Wait)
+			now = now + v.Wait
+		}
+		match actor.ExitOf(a) {
+		case actor.Finished[fetch.File, fetch.End] as f:
+			lines = lines.Append("  @\(ms(now)) \(fetch.EndText(f.Output))")
+		case actor.Halted[fetch.File]:
+			lines = lines.Append("  @\(ms(now)) stopped")
+		case actor.Defected:
+			lines = lines.Append("  @\(ms(now)) defected")
+		}
+	}
+	lines
+}
+
+func ms(d duration) int64 { int64(d) / 1000000 }

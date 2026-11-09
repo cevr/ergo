@@ -1,0 +1,50 @@
+// Package memory holds the in-memory source of files.
+
+import downloads/fetch
+import sync
+
+// Server is a fetch.Source of five fixed files, in chunks of 1000 bytes
+// at most. slow.iso times out twice at byte 1000 before it gives that
+// chunk; late.bin always times out; gone.zip is not found. It counts the
+// calls for slow.iso, so every copy of a Server is one server: NewServer
+// makes one.
+type Server { calls sync.Ref[int] }
+
+// NewServer is a server no one has called.
+func NewServer() Server { Server{calls: sync.NewRef[int](0)} }
+
+// Size is the size of url in bytes, 0 for a file the server does not
+// have.
+func Size(url string) int {
+	match url {
+	case "a.txt":
+		1000
+	case "b.img":
+		3500
+	case "slow.iso":
+		2500
+	case "late.bin":
+		800
+	case _:
+		0
+	}
+}
+
+// Chunk is the chunk of url from byte from.
+func Chunk(s Server, url string, from int) fetch.Chunk fails fetch.NotFound | fetch.TimedOut {
+	let size = Size(url)
+	if size == 0 || from < 0 || from >= size {
+		return fetch.NotFound{Url: url}
+	}
+	if url == "late.bin" {
+		return fetch.TimedOut{Url: url}
+	}
+	if url == "slow.iso" && from == 1000 {
+		let n = sync.Modify(s.calls, func(c int) (int, int) { (c, c + 1) })
+		if n < 2 {
+			return fetch.TimedOut{Url: url}
+		}
+	}
+	let bytes = if size-from > 1000 { 1000 } else { size - from }
+	fetch.Chunk{Bytes: bytes, Last: from+bytes == size}
+}
