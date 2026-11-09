@@ -56,7 +56,7 @@ internal/sketch/syntax/parser.go	`f func() needs A, B`: the entries
 internal/residue/row_residue_test.go	writes `needs A, B` or
 internal/residue/row_residue_test.go	// `provides A, B` is prose
 internal/residue/residue_host_test.go	{"needs A, B", "provides A, B", "needs (A, B)", "x needs pkg.A ,B", "provides\tA,\tB"}
-cmd/ergo/readme_smoke_test.go	"timeout.Expired needs Payments, Scheduler {"
+cmd/ergo/readme_smoke_test.go	timeout.Expired needs Resolver, Scheduler {"
 internal/sketch/sketchtest/fixtures.go	"let f = func() needs (A, B) {
 internal/sketch/sketchtest/fixtures.go	"func f() needs (A, B) {}
 
