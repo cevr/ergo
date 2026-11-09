@@ -47,11 +47,15 @@ type Virtual struct {
 	now    time.Time
 	seq    uint64
 	timers []*virtualTimer // sorted by (when, seq)
-	// An auto clock (idle.go) also moves when every live member of its
-	// domain is parked; steps counts those moves.
-	auto         bool
+	// A clock with a domain (idle.go: an auto clock or a manual one)
+	// counts its live members and the parked ones; an auto clock also
+	// moves when every live member is parked, and steps counts those
+	// moves. change is closed when a member parks or leaves, so a Settle
+	// looks again.
+	domain, auto bool
 	live, parked int
 	steps        int
+	change       chan struct{}
 }
 
 type virtualTimer struct {
@@ -131,6 +135,80 @@ func (v *Virtual) Advance(d time.Duration) {
 	v.armed.Broadcast()
 }
 
+// AdvanceSettled is Advance for a clock with a domain (time.Manual,
+// fua-b), called by t: it waits until the domain settles (Settle), then
+// moves the time to the earliest deadline due by now+d, fires every timer
+// of that instant, in arming order, and settles again, until no timer is
+// due; then the time reads now+d. So when it returns, each timer due by
+// then has fired at its own instant, and every task it woke, and every
+// task those woke, has run to a wait the clock sees. On a clock with no
+// domain it is Advance. It is an interruption point of t: a stop of t
+// returns Interrupted, with the timers of the instants not reached armed.
+func (v *Virtual) AdvanceSettled(t *Task, d time.Duration) error {
+	if !v.domain {
+		v.Advance(d)
+		return nil
+	}
+	v.mu.Lock()
+	target := v.now.Add(d)
+	v.mu.Unlock()
+	for {
+		if err := v.Settle(t); err != nil {
+			return err
+		}
+		v.mu.Lock()
+		if len(v.timers) == 0 || v.timers[0].when.After(target) {
+			if target.After(v.now) {
+				v.now = target
+			}
+			v.armed.Broadcast()
+			v.mu.Unlock()
+			return nil
+		}
+		when := v.timers[0].when
+		v.now = when
+		for len(v.timers) > 0 && v.timers[0].when.Equal(when) {
+			tm := v.timers[0]
+			v.timers = v.timers[1:]
+			v.fire(tm)
+		}
+		v.armed.Broadcast()
+		v.mu.Unlock()
+	}
+}
+
+// Settle waits until every live member of v's domain but t is parked:
+// each waits on a wait the clock sees (idle.go). A member that runs, or
+// waits on anything else, keeps it waiting. With no domain it returns at
+// once. A stop of t ends it with Interrupted.
+func (v *Virtual) Settle(t *Task) error {
+	if !v.domain {
+		return nil
+	}
+	v.mu.Lock()
+	for {
+		self := 0
+		if m := t.member.Load(); m != nil && m.v == v && !m.parked {
+			self = 1
+		}
+		if v.parked >= v.live-self {
+			v.mu.Unlock()
+			return nil
+		}
+		if v.change == nil {
+			v.change = make(chan struct{})
+		}
+		ch := v.change
+		v.mu.Unlock()
+		select {
+		case <-ch:
+		case <-t.Done():
+			return Interrupted
+		}
+		v.mu.Lock()
+	}
+}
+
 // Pending returns the number of armed timers.
 func (v *Virtual) Pending() int {
 	v.mu.Lock()
@@ -154,7 +232,7 @@ func Sleep(t *Task, s Scheduler, d time.Duration) error {
 	if t.Stopped() {
 		return Interrupted
 	}
-	if v, ok := s.(*Virtual); ok && v.auto {
+	if v, ok := s.(*Virtual); ok && v.domain {
 		return v.sleep(t, d)
 	}
 	timer := s.NewTimer(d)
