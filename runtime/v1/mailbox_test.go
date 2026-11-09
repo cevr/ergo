@@ -30,6 +30,7 @@ type box interface {
 	Close()
 	Len() int
 	waiters() int
+	line() int // the Pushes waiting for room
 }
 
 type queueBox struct{ *Queue[int] }
@@ -40,6 +41,11 @@ func (q queueBox) waiters() int {
 	defer q.mu.Unlock()
 	return q.parked
 }
+func (q queueBox) line() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.senders)
+}
 
 type mailBox struct{ *mailbox[int] }
 
@@ -48,37 +54,54 @@ func (m mailBox) pop(t *rt.Task) (int, error) {
 	err := m.popInto(t, &v)
 	return v, err
 }
+func (m mailBox) line() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.senders)
+}
+
+// diverged stops a trace at the first line that differs from the
+// reference's, before a wait that a broken box might never end.
+type diverged struct{}
 
 // mailboxTrace runs one generated trace on b and returns what each
 // operation gave. The trace depends only on seed and a model of the
 // contents (queued values, waiting Pushes, closed), never on b, so the
-// Queue and the mailbox get the same operations.
-func mailboxTrace(seed int64, capacity int, b box) []string {
+// Queue and the mailbox get the same operations. With want (the Queue's
+// log), it stops at the first line that differs: every wait it does next
+// is one the reference's line proves will end.
+func mailboxTrace(seed int64, capacity int, b box, want []string) (log []string) {
 	r := rand.New(rand.NewSource(seed))
-	var log []string
+	defer func() {
+		if x := recover(); x != nil {
+			if _, ok := x.(diverged); !ok {
+				panic(x)
+			}
+		}
+	}()
+	say := func(format string, args ...any) {
+		log = append(log, fmt.Sprintf(format, args...))
+		if want != nil && (len(log) > len(want) || log[len(log)-1] != want[len(log)-1]) {
+			panic(diverged{})
+		}
+	}
 	var queued, pending []int // the model: values in the queue, waiting Pushes' values
 	closed := false
 	next := 0
 	type waiter struct {
 		v    int
 		task *rt.Task
-		res  chan string
 	}
 	var waiting []*waiter // in the order they began
-	results := map[int]string{}
+	finished := make(chan string, 64)
 	settle := func(n int) {
 		for b.waiters() != n {
 			runtime.Gosched()
 		}
 	}
-	// accept moves the oldest waiting Push into the model's queue, as a
-	// take does (its Push returns nil).
-	accept := func() {
-		w := waiting[0]
-		waiting = waiting[1:]
-		pending = pending[1:]
-		results[w.v] = <-w.res
-	}
+	// finish waits for one waiting Push to return, whichever it is, and
+	// says which and how.
+	finish := func(what string) { say("%s: %s", what, <-finished) }
 	interrupted := func(f func()) (raised bool) {
 		defer func() {
 			if x := recover(); x != nil {
@@ -95,19 +118,19 @@ func mailboxTrace(seed int64, capacity int, b box) []string {
 		switch k := r.Intn(8); {
 		case k == 0 && !closed && len(queued) < capacity && len(pending) == 0:
 			next++
-			log = append(log, fmt.Sprintf("push %d: %v", next, b.Push(rt.Root("p"), next)))
+			say("push %d: %v", next, b.Push(rt.Root("p"), next))
 			queued = append(queued, next)
 		case k <= 1 && !closed && (len(queued) == capacity || len(pending) > 0):
 			// A Push that waits for room.
 			next++
-			w := &waiter{v: next, task: rt.Root("w"), res: make(chan string, 1)}
+			w := &waiter{v: next, task: rt.Root("w")}
 			go func() {
 				var err error
 				if interrupted(func() { err = b.Push(w.task, w.v) }) {
-					w.res <- "interrupted"
+					finished <- fmt.Sprintf("push %d interrupted", w.v)
 					return
 				}
-				w.res <- fmt.Sprint(err)
+				finished <- fmt.Sprintf("push %d returned %v", w.v, err)
 			}()
 			waiting = append(waiting, w)
 			pending = append(pending, next)
@@ -115,24 +138,25 @@ func mailboxTrace(seed int64, capacity int, b box) []string {
 		case k == 2 && len(waiting) > 0:
 			// A waiting Push stopped: its value never enters.
 			i := r.Intn(len(waiting))
-			w := waiting[i]
-			w.task.Interrupt()
-			results[w.v] = <-w.res
+			waiting[i].task.Interrupt()
+			finish("stopped")
 			waiting = slices.Delete(waiting, i, i+1)
 			pending = slices.Delete(pending, i, i+1)
 			settle(len(waiting))
 		case k == 3:
 			v, ok := b.Poll()
-			log = append(log, fmt.Sprintf("poll: %d %v", v, ok))
+			say("poll: %d %v", v, ok)
 			switch {
 			case len(queued) > 0:
 				queued = queued[1:]
 				if len(pending) > 0 {
 					queued = append(queued, pending[0])
-					accept()
+					waiting, pending = waiting[1:], pending[1:]
+					finish("accepted")
 				}
 			case len(pending) > 0:
-				accept()
+				waiting, pending = waiting[1:], pending[1:]
+				finish("accepted")
 			}
 			settle(len(waiting))
 		case k == 4 && !closed && len(queued) == 0 && len(pending) == 0:
@@ -144,8 +168,8 @@ func mailboxTrace(seed int64, capacity int, b box) []string {
 			}()
 			settle(1)
 			next++
-			log = append(log, fmt.Sprintf("push %d to a waiting take: %v", next, b.Push(rt.Root("p"), next)))
-			log = append(log, "the waiting take: "+<-got)
+			say("push %d to a waiting take: %v", next, b.Push(rt.Root("p"), next))
+			say("the waiting take: %s", <-got)
 			settle(0)
 		case k == 5 && !closed && len(queued) == 0 && len(pending) == 0:
 			// A take that waits, stopped.
@@ -154,49 +178,48 @@ func mailboxTrace(seed int64, capacity int, b box) []string {
 			go func() { got <- interrupted(func() { _, _ = b.pop(taker) }) }()
 			settle(1)
 			taker.Interrupt()
-			log = append(log, fmt.Sprintf("stopped take raised: %v", <-got))
+			say("stopped take raised: %v", <-got)
 			settle(0)
 		case k == 6 && r.Intn(4) == 0:
 			b.Close()
-			log = append(log, "close")
+			say("close")
 			closed = true
-			for _, w := range waiting {
-				results[w.v] = <-w.res
+			// Each waiting Push returns Closed, in any order.
+			var ends []string
+			for range waiting {
+				ends = append(ends, <-finished)
 			}
+			slices.Sort(ends)
+			say("rejected: %v", ends)
 			waiting, pending = nil, nil
 			settle(0)
 		case k == 7 && closed:
 			next++
-			log = append(log, fmt.Sprintf("push %d after close: %v", next, b.Push(rt.Root("p"), next)))
+			say("push %d after close: %v", next, b.Push(rt.Root("p"), next))
 			if len(queued) > 0 {
 				v, err := b.pop(rt.Root("taker"))
-				log = append(log, fmt.Sprintf("pop after close: %d %v", v, err))
+				say("pop after close: %d %v", v, err)
 				queued = queued[1:]
 			} else {
 				_, err := b.pop(rt.Root("taker"))
-				log = append(log, fmt.Sprintf("pop of closed and empty: %v", err))
+				say("pop of closed and empty: %v", err)
 			}
 		}
-		log = append(log, fmt.Sprintf("len %d", b.Len()))
+		say("len %d line %d", b.Len(), b.line())
 	}
 	b.Close()
-	for _, w := range waiting {
-		results[w.v] = <-w.res
+	var ends []string
+	for range waiting {
+		ends = append(ends, <-finished)
 	}
+	slices.Sort(ends)
+	say("rejected at the end: %v", ends)
 	for {
 		v, ok := b.Poll()
 		if !ok {
 			break
 		}
-		log = append(log, fmt.Sprintf("left %d", v))
-	}
-	ids := make([]int, 0, len(results))
-	for v := range results {
-		ids = append(ids, v)
-	}
-	slices.Sort(ids)
-	for _, v := range ids {
-		log = append(log, fmt.Sprintf("push %d returned %s", v, results[v]))
+		say("left %d", v)
 	}
 	return log
 }
@@ -206,7 +229,8 @@ func mailboxTrace(seed int64, capacity int, b box) []string {
 // 9, the mailbox gives what the reference Queue gives for each Push, a
 // Push that waits for room (taken, stopped or rejected by a Close), a Poll,
 // a take that waits (fed or stopped), a Close, the operations after it,
-// and Len. A failure prints the seed and both logs.
+// and Len and the line of waiting Pushes after each step. A failure prints
+// the seed and both logs; the mailbox's stops at its first difference.
 func TestMailboxAgreesWithQueue(t *testing.T) {
 	seed := int64(1)
 	if s := os.Getenv("ERGO_ACTOR_SEED"); s != "" {
@@ -219,8 +243,8 @@ func TestMailboxAgreesWithQueue(t *testing.T) {
 	for i := range 300 {
 		caseSeed := seed*100003 + int64(i)
 		capacity := i % 10
-		want := mailboxTrace(caseSeed, capacity, queueBox{New[int](capacity)})
-		got := mailboxTrace(caseSeed, capacity, mailBox{newMailbox[int](capacity, false)})
+		want := mailboxTrace(caseSeed, capacity, queueBox{New[int](capacity)}, nil)
+		got := mailboxTrace(caseSeed, capacity, mailBox{newMailbox[int](capacity, false)}, want)
 		if !slices.Equal(got, want) {
 			t.Fatalf("seed %d, case %d (trace seed %d, capacity %d):\nmailbox:\n  %s\nQueue:\n  %s", seed, i, caseSeed, capacity,
 				strings.Join(got, "\n  "), strings.Join(want, "\n  "))
