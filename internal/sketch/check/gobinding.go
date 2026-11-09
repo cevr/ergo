@@ -182,7 +182,9 @@ func (c *checker) hostSelector(x *syntax.SelectorExpr, base operand, n *Named, h
 				c.fn.reach.methodNames = append(c.fn.reach.methodNames, x.Sel.Name)
 			}
 		}
-		return operand{mode: modeValue, typ: sig, method: m}
+		// A struct's method is its Func, so the call records it (CallFunc
+		// with a receiver); an interface's is its Method (CallOp).
+		return operand{mode: modeValue, typ: sig, method: m, fn: fn}
 	}
 	if why := h.refusal(n.Obj.Name + "." + x.Sel.Name); why != "" {
 		c.errorf(x.Sel, CodeOutside, "%s.%s is not imported from Go: %s (the binding of %s refuses it)", n, x.Sel.Name, why, n.Obj.Pkg.Path)
@@ -194,15 +196,16 @@ func (c *checker) hostSelector(x *syntax.SelectorExpr, base operand, n *Named, h
 
 // hostPkg is the binding of one Go package.
 type hostPkg struct {
-	set     *GoBindings
-	src     string
-	c       *checker // the binder
-	fi      *fileInfo
-	loaded  bool
-	err     string                   // the binding does not parse
-	vars    map[*Var]*syntax.VarSpec // a const or error var, typed on first use
-	refused map[string]string        // a refused declaration ("F", "T.M") and its reason
-	recvPtr map[*Func]bool           // a method in the method set of *T only
+	set      *GoBindings
+	src      string
+	c        *checker // the binder
+	fi       *fileInfo
+	loaded   bool
+	err      string                   // the binding does not parse
+	vars     map[*Var]*syntax.VarSpec // a const or error var, typed on first use
+	refused  map[string]string        // a refused declaration ("F", "T.M") and its reason
+	recvPtr  map[*Func]bool           // a method in the method set of *T only
+	variadic map[*Func]bool           // a function whose last parameter is Go's ...T
 }
 
 func hostOf(p *Package) *hostPkg {
@@ -226,7 +229,7 @@ func (s *GoBindings) Package(path string) (*Package, bool) {
 	c := newChecker(path, goImp{s}, prelude().scope)
 	c.pkg.Name = GoPackageName(path)
 	c.pkg.qualify = true
-	c.pkg.host = &hostPkg{set: s, src: src, c: c, vars: map[*Var]*syntax.VarSpec{}, refused: map[string]string{}, recvPtr: map[*Func]bool{}}
+	c.pkg.host = &hostPkg{set: s, src: src, c: c, vars: map[*Var]*syntax.VarSpec{}, refused: map[string]string{}, recvPtr: map[*Func]bool{}, variadic: map[*Func]bool{}}
 	s.pkgs[path] = c.pkg
 	return c.pkg, true
 }
@@ -408,8 +411,13 @@ func (h *hostPkg) load() {
 		h.recvPtr[fn] = star
 		tn.Type.(*Named).addMethod(fn)
 	}
+	variadicLines := map[int]bool{}
 	for _, g := range f.Comments {
 		for _, cm := range g.List {
+			if cm.Text == "// ergo:variadic" {
+				line, _ := f.Position(cm.Pos())
+				variadicLines[line] = true
+			}
 			rest, ok := strings.CutPrefix(cm.Text, "// ergo:refused ")
 			if !ok {
 				continue
@@ -419,6 +427,30 @@ func (h *hostPkg) load() {
 			}
 		}
 	}
+	// `// ergo:variadic` is the line right above its declaration: the
+	// lowering spreads the last argument (xs...).
+	if len(variadicLines) > 0 {
+		mark := func(fn *Func) {
+			if line, _ := f.Position(fn.Decl.Pos()); variadicLines[line-1] {
+				h.variadic[fn] = true
+			}
+		}
+		for _, fn := range c.pkg.Funcs {
+			mark(fn)
+		}
+		for _, tn := range c.pkg.Types {
+			for _, m := range tn.Type.(*Named).mlist {
+				mark(m)
+			}
+		}
+	}
+}
+
+// GoVariadic reports a Go function or method of import go whose last
+// parameter is Go's ...T (the binding's `// ergo:variadic`).
+func GoVariadic(f *Func) bool {
+	h := hostOf(f.Pkg)
+	return h != nil && h.variadic[f]
 }
 
 // refusal is the binding's reason for a Go declaration it does not import
@@ -459,6 +491,13 @@ func refElem(t Type) Type {
 		return nil
 	}
 	return n.TArgs[0]
+}
+
+// GoRefElem is T for go.Ref[T] (a Go *T the lowering passes as is), and
+// whether t is one.
+func GoRefElem(t Type) (Type, bool) {
+	e := refElem(t)
+	return e, e != nil
 }
 
 // goForeign is the predeclared go.Foreign.

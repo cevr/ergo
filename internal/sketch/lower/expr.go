@@ -210,6 +210,10 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 	case 0, check.ConvVariant:
 		return val
 	case check.ConvOperations:
+		if n, ok := conv.To.(*check.Named); ok && n.Obj.Pkg.Host() {
+			// A Go value to a Go interface: Go's own implicit conversion.
+			return val
+		}
 		return fc.operations(conv, val, site)
 	case check.ConvRow:
 		// The row value holds one of the union's error variants, which
@@ -402,6 +406,11 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 		return fc.methodValue(x, op)
 	}
 	recv := fc.value(x.X)
+	if hostRecv(fc.typeOf(x.X)) {
+		// A field of a Go struct is Go's field, read as a result is
+		// (gocall.go): a nil pointer is None, a Map or slice is copied.
+		return fc.goResult(x, fc.typeOf(x), fc.spill(recv+"."+x.Sel.Name), "", "")
+	}
 	return recv + "." + fc.fieldName(x)
 }
 

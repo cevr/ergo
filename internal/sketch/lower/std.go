@@ -120,8 +120,8 @@ func (l *lowerer) needsFrame(x *syntax.CallExpr) bool {
 	if c.TaskResult {
 		return true
 	}
-	if c.Kind != check.CallFunc {
-		return false
+	if c.Kind != check.CallFunc || c.Func.Pkg.Host() {
+		return false // a Go call of import go takes no frame (gocall.go)
 	}
 	body, _, ok := l.stdBody(l.funcDecl(c.Func))
 	return ok && hasHidden(body.Hidden, v1.Frame)

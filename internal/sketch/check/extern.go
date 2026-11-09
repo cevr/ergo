@@ -304,6 +304,12 @@ func IsGoError(n *Named) bool {
 	return n != nil && n.Obj != nil && n.Obj.Pkg == universeOnce.goPkg && n.Obj.Name == "Error"
 }
 
+// IsGoForeign reports the predeclared go.Foreign, the authority to run
+// unreviewed Go (import go), which only the entry provides.
+func IsGoForeign(n *Named) bool {
+	return n != nil && n.Obj != nil && n.Obj.Pkg == universeOnce.goPkg && n.Obj.Name == "Foreign"
+}
+
 // externErrorRefusal is the refusal of a user extern whose fails row does
 // not match its Go target (G4), or "": a target whose last result is error
 // must declare fails go.Error, and a target with no error result must not.

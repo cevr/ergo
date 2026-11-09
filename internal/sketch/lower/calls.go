@@ -49,6 +49,9 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 	if check.IsUnreachable(c) {
 		return fc.unreachableValue(x)
 	}
+	if goImportCall(c, fc.typeOf) {
+		return fc.goCall(x, c) // gocall.go
+	}
 	text, result, fallible := fc.callText(x, c)
 	defer fc.identify(x, c)()
 	if hostCalled(c) {
@@ -113,6 +116,16 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 // call that cannot fail at this site drops its error, which is nil.
 func (fc *funcCtx) callStmt(x *syntax.CallExpr) string {
 	c := fc.l.info.Calls[x]
+	if goImportCall(c, fc.typeOf) {
+		// A Go call writes its own statements (goCall); a discarded
+		// value is used once so Go accepts it.
+		if op := fc.goCall(x, c); op.err != "" {
+			ice(x, "an untried fallible call in a statement")
+		} else if op.val != "" {
+			return "_ = " + op.val
+		}
+		return ""
+	}
 	fc.stmtCall = x // a fused call's value is a name, no statement (update.go)
 	text, _, fallible := fc.callText(x, c)
 	fc.stmtCall = nil
@@ -278,7 +291,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 // result, and with a target in
 // Go's standard library (check/extern.go).
 func userExtern(f *check.Func) bool {
-	return f != nil && f.Decl != nil && f.Decl.Extern != nil && f.Decl.Extern.Target != nil && !f.Pkg.Std()
+	return f != nil && f.Decl != nil && f.Decl.Extern != nil && f.Decl.Extern.Target != nil && !f.Pkg.Std() && !f.Pkg.Host()
 }
 
 // hostCall is the Go text of the call x of the user extern c.Func: a direct
@@ -527,6 +540,14 @@ func (l *lowerer) hostImportNames(pkgs []*check.Package) {
 				seen[path] = true
 				paths = append(paths, path)
 			}
+		}
+	}
+	// Every Go package the program reaches through import go (libraryPackages).
+	l.libraries()
+	for _, p := range l.goPkgs {
+		if p.Path != "time" && !seen[p.Path] {
+			seen[p.Path] = true
+			paths = append(paths, p.Path)
 		}
 	}
 	sort.Strings(paths)

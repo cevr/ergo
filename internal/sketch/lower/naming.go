@@ -297,7 +297,18 @@ func (l *lowerer) libraryPackages() []*check.Package {
 	var out []*check.Package
 	var add func(p *check.Package)
 	add = func(p *check.Package) {
-		if p == nil || seen[p] || p.Info == nil {
+		if p == nil || seen[p] {
+			return
+		}
+		if p.Host() {
+			// A Go package (import go) has no Ergo source to lower: its
+			// declarations are Go's, named through its Go import
+			// (hostImportNames).
+			seen[p] = true
+			l.goPkgs = append(l.goPkgs, p)
+			return
+		}
+		if p.Info == nil {
 			return
 		}
 		seen[p] = true

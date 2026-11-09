@@ -163,6 +163,7 @@ type lowerer struct {
 	nodeIDs  map[syntax.Node]int      // node identities for keys (nodeID)
 	libs     []*check.Package         // the libraries the program reaches (libraries)
 	libsDone bool
+	goPkgs   []*check.Package        // the Go packages the program reaches (import go; libraryPackages)
 	stdSrc   map[syntax.Node]stdFile // each node of a reached std package's files (locate)
 	initPkgs []*check.Package        // the sourced libraries in initialization order
 
@@ -548,6 +549,12 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 		var prelude string
 		if ok && n.Obj.Pkg != nil && n.Obj.Pkg.Path == "prelude" {
 			prelude = n.Obj.Name
+		}
+		if ok && check.IsGoForeign(n) {
+			// go.Foreign (import go) has no operation, so no code reads it
+			// from the environment: the checker's row is the authority
+			// (rows.md, Entry 4), and the environment holds nothing for it.
+			continue
 		}
 		switch prelude {
 		case "Console":

@@ -38,6 +38,14 @@ func (tc *typeCtx) goType(t check.Type) string {
 		}
 		return t.Name
 	case *check.Named:
+		// A Go type of import go is Go's own type; go.Ref[T] is Go's *T
+		// (docs/spec/interop.md, Lowering).
+		if elem, ok := check.GoRefElem(t); ok {
+			return "*" + tc.goType(elem)
+		}
+		if t.Obj.Pkg.Host() {
+			return tc.l.hostPkg(t.Obj.Pkg.Path, tc.site) + "." + t.Obj.Name
+		}
 		// A std type is the runtime's Go type (stage D3b; std.go).
 		name := tc.l.runtimeType(t, tc.site)
 		if name == "" {
