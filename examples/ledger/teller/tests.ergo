@@ -1,10 +1,9 @@
-// The counter's tests: money, the command reader, a morning at the
-// counter on a memory store, and the law restated (#162).
+// The counter's tests: money, the command reader and a morning at the
+// counter on a memory store (the law runs in laws.ergo).
 
 import ledger/ledger
 import ledger/memory
 import strconv
-import strings
 
 // reason is why text does not read, or "ok".
 func reason(text string) string {
@@ -18,7 +17,7 @@ func reason(text string) string {
 // counter is the answers to text at a counter on a fresh memory store.
 func counter(text string) []string fails BadCommand | ledger.Unavailable {
 	let cs = try ParseAll(text)
-	with context { ledger.Store: memory.New() } { try Serve(cs) }
+	with context { ledger.Store: memory.NewStore() } { try Serve(cs) }
 }
 
 test WritesDollars {
@@ -61,11 +60,4 @@ test AMorningAtTheCounter {
 	assert out[10] == "world -$50.00, alice $29.75, bob $20.25"
 	assert out[11] == "refused: alice is open already"
 	assert len(out) == 12
-}
-
-test AmountReadsDollarsHolds(cents int64) {
-	if cents < 0 || cents > 9000000000000000000 {
-		return
-	}
-	assert try Amount(strings.TrimPrefix(Dollars(cents), "$")) == cents
 }

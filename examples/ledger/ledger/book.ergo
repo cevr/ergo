@@ -61,17 +61,6 @@ func Empty() Book {
 	Book{floors: Map[string, int64]{World: WorldFloor}, balances: Map[string, int64]{World: 0}, receipts: Map[string, Receipt]{}, count: 0}
 }
 
-// clone is a copy of m. A Map is shared by every copy of a Book (stdlib.md,
-// Slices and Maps; #197), so a change goes into a copy, and the Book given
-// stays as it was.
-func clone[K comparable, V](m Map[K, V]) Map[K, V] {
-	let mut out = Map[K, V]{}
-	for k, v in m {
-		out[k] = v
-	}
-	out
-}
-
 // Open is b with the account id, at zero, which may go down to floor.
 func Open(b Book, id string, floor int64) Book fails AccountExists | BadFloor {
 	match b.floors.Get(id) {
@@ -82,8 +71,8 @@ func Open(b Book, id string, floor int64) Book fails AccountExists | BadFloor {
 	if floor > 0 {
 		return BadFloor{ID: id, Floor: floor}
 	}
-	let mut floors = clone(b.floors)
-	let mut balances = clone(b.balances)
+	let mut floors = b.floors
+	let mut balances = b.balances
 	floors[id] = floor
 	balances[id] = 0
 	Book{..b, floors: floors, balances: balances}
@@ -140,8 +129,8 @@ func Apply(b Book, t Transfer) (Book, Receipt) fails KeyReused | BadAmount | Sam
 		return InsufficientFunds{ID: t.From, Balance: from, Amount: t.Amount, Floor: low}
 	}
 	let r = Receipt{Key: t.Key, From: t.From, To: t.To, Amount: t.Amount, Seq: b.count + 1}
-	let mut balances = clone(b.balances)
-	let mut receipts = clone(b.receipts)
+	let mut balances = b.balances
+	let mut receipts = b.receipts
 	balances[t.From] = from - t.Amount
 	balances[t.To] = to + t.Amount
 	receipts[t.Key] = r

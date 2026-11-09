@@ -1,13 +1,13 @@
-// Store keeps the ledger.Store laws, restated as property tests (#162)
-// over a store that has had a day of transfers; Disk keeps fs's.
+// Store keeps the ledger.Store laws over a store that has had a day of
+// transfers: the laws run only for providers in ledger's own package
+// (G-exup-1), so the tests restate them.
 
-import fs
 import ledger/ledger
 
 // day is a Store with the accounts of ledger.Bank and the transfers of
 // ledger.Day(ns) posted, the refused ones left out.
 func day(ns []int) ledger.Store {
-	let s ledger.Store = New()
+	let s ledger.Store = NewStore()
 	for id in []string{"alice", "bob", "carol"} {
 		s.Open(id, if id == "bob" { -500 } else { 0 }) catch {
 		case ledger.AccountExists, ledger.BadFloor, ledger.Unavailable:
@@ -33,7 +33,7 @@ func total(s ledger.Store) int64 fails ledger.UnknownAccount | ledger.Unavailabl
 }
 
 test CopiesShareTheBook {
-	let s = New()
+	let s = NewStore()
 	let copy = s
 	try s.Open("alice", 0)
 	let _ = try copy.Post(ledger.Transfer{Key: "d", From: ledger.World, To: "alice", Amount: 5})
@@ -78,14 +78,4 @@ test FloorHoldsHolds(ns []int, m int) {
 		return
 	}
 	assert try s.Balance("erin") >= 0
-}
-
-test DiskReadsWhatItWrote(path string, text string) {
-	let d = NewDisk(Map[string, string]{})
-	let w fs.Writes = d
-	let r fs.Files = d
-	try w.WriteFile(path, text)
-	assert try r.ReadFile(path) == text
-	let again = try r.ReadFile(path)
-	assert try r.ReadFile(path) == again
 }

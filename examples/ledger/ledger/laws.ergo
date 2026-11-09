@@ -66,8 +66,10 @@ law Balances(ns []int) {
 }
 
 // ApplyIsIdempotent: a transfer applied again gives its first receipt and
-// the same balances.
-law ApplyIsIdempotent(ns []int, t Transfer) {
+// the same balances. The transfer is one of Day's, so it meets the
+// accounts and keys of the day.
+law ApplyIsIdempotent(ns []int, m int) {
+	let t = Day([]int{m})[0]
 	let b = Posted(Bank(), Day(ns))
 	let once, first = Apply(b, t) catch {
 	case KeyReused, BadAmount, SameAccount, UnknownAccount, InsufficientFunds:
@@ -93,7 +95,8 @@ law FloorsHold(ns []int) {
 
 // ApplyLeavesItsArgument: Apply makes a new Book and leaves the one it is
 // given as it was, though the two share no field the program can see.
-law ApplyLeavesItsArgument(ns []int, t Transfer) {
+law ApplyLeavesItsArgument(ns []int, m int) {
+	let t = Day([]int{m})[0]
 	let b = Posted(Bank(), Day(ns))
 	let before = Count(b)
 	let from = Balance(b, t.From) catch {

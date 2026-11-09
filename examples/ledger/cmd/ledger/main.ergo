@@ -7,6 +7,7 @@
 
 import flag
 import fs
+import fstest
 import io
 import ledger/file
 import ledger/ledger
@@ -40,7 +41,7 @@ func main() fails os.Exit needs Ambient {
 
 // run is the program after main binds the host. The disk is a parameter,
 // not a capability, because only the journal store uses it, and a test
-// gives a memory Disk.
+// gives an fstest.Memory.
 func run(args []string, disk fs.Files, writes fs.Writes) fails os.Exit needs io.Stdout | io.Stdin {
 	let path = match try read(args) {
 	case Some[string] as s:
@@ -56,7 +57,7 @@ func run(args []string, disk fs.Files, writes fs.Writes) fails os.Exit needs io.
 	case teller.BadCommand as b:
 		return os.Exit{Code: 2, Message: "ledger: line \(b.Line): \(b.Reason)"}
 	}
-	let store ledger.Store = if path == "" { memory.New() } else { file.At(path, disk, writes) }
+	let store ledger.Store = if path == "" { memory.NewStore() } else { file.At(path, disk, writes) }
 	with context { ledger.Store: store } { serve(cs) } catch {
 	case ledger.Unavailable as u:
 		return os.Exit{Code: 1, Message: "ledger: \(u.Reason)"}
@@ -73,7 +74,7 @@ func serve(cs []teller.Command) fails ledger.Unavailable needs ledger.Store | io
 
 // session is the output of a run of args on input, with disk as the
 // host's file system, or the exit it ends with.
-func session(args []string, input string, disk memory.Disk) string {
+func session(args []string, input string, disk fstest.Memory) string {
 	let out = io.NewRecorder()
 	with context { io.Stdout: out, io.Stdin: io.Input{Text: input} } { run(args, disk, disk) } catch {
 	case os.Exit as e:
@@ -83,22 +84,21 @@ func session(args []string, input string, disk memory.Disk) string {
 }
 
 test MemoryForgets {
-	let d = memory.NewDisk(Map[string, string]{})
+	let d = fstest.NewMemory()
 	assert session([]string{}, "open alice\ndeposit d1 alice 5\n", d) == "opened alice\n#1 d1: $5.00 from world to alice\n"
 	assert session([]string{}, "balance alice\n", d) == "refused: no account alice\n"
 }
 
 test JournalRemembers {
-	let d = memory.NewDisk(Map[string, string]{})
+	let d = fstest.NewMemory()
 	let args = []string{"-journal", "bank.journal"}
 	assert session(args, "open alice\ndeposit d1 alice 5\n", d) == "opened alice\n#1 d1: $5.00 from world to alice\n"
 	assert session(args, "deposit d1 alice 5\ndeposit d2 alice 2.50\nbalance alice\n", d) == "#1 d1: $5.00 from world to alice\n#2 d2: $2.50 from world to alice\nalice $7.50\n"
-	let r fs.Files = d
-	assert try r.ReadFile("bank.journal") == "open\t\"alice\"\t0\npost\t\"d1\"\t\"world\"\t\"alice\"\t500\npost\t\"d2\"\t\"world\"\t\"alice\"\t250\n"
+	assert try d.ReadFile("bank.journal") == "open\t\"alice\"\t0\npost\t\"d1\"\t\"world\"\t\"alice\"\t500\npost\t\"d2\"\t\"world\"\t\"alice\"\t250\n"
 }
 
 test RefusalsExit {
-	let d = memory.NewDisk(Map[string, string]{"bad.journal": "open\talice\t0\n"})
+	let d = try memory.Files(Map[string, string]{"bad.journal": "open\talice\t0\n"})
 	assert session([]string{"-journal", "bad.journal"}, "open bob\naccounts\n", d) == "exit 1: ledger: bad.journal:1: alice is not a quoted word"
 	assert session([]string{}, "open\n", d) == "exit 2: ledger: line 1: open is not open ID [OVERDRAFT], deposit KEY ID AMOUNT, withdraw KEY ID AMOUNT, pay KEY FROM TO AMOUNT, balance ID or accounts"
 	assert session([]string{"-h"}, "", d) == flag.Usage(Set())

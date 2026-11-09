@@ -1,48 +1,50 @@
-// Package memory keeps things in memory: a ledger.Store whose Book lives
-// as long as the program, and Disk, a file system for tests.
+// Package memory keeps a ledger.Store whose Book lives as long as the
+// program, and Files, an fstest.Memory holding given files, for tests.
 
 import ledger/ledger
+import sync
 
-// Store is a ledger.Store over one Book in memory. Copies of a Store
-// share it. A provider can change only a Map (gaps G-ex-b-3), so the Book
-// is the one value of a Map with the one key 0: a reference cell.
-type Store { cell Map[int, ledger.Book] }
+// Store is a ledger.Store over one Book in memory. The Book is in a
+// sync.Ref, so every copy of a Store is the same ledger: a Store bound in
+// a context keeps its Book from one call to the next. Each change is one
+// sync.Modify, so two tasks posting at once lose no transfer.
+type Store { cell sync.Ref[ledger.Book] }
 
-// New is a Store with an empty Book.
-func New() Store { Store{cell: Map[int, ledger.Book]{0: ledger.Empty()}} }
+// NewStore is a Store with an empty Book.
+func NewStore() Store { Store{cell: sync.NewRef[ledger.Book](ledger.Empty())} }
 
-// book is the Book of s.
-func book(s Store) ledger.Book {
-	match s.cell.Get(0) {
-	case Some[ledger.Book] as b:
-		b.Value
-	case None:
-		ledger.Empty()
-	}
-}
-
-// keep makes b the Book of s.
-func keep(s Store, b ledger.Book) {
-	let mut cell = s.cell
-	cell[0] = b
-}
-
-// Open opens the account id with its floor.
+// Open opens the account id with its floor. The change is one sync.Modify
+// that keeps the Book it found; ledger.Open is pure, so running it again
+// on that Book outside the Modify gives the refusal the change met.
 func Open(s Store, id string, floor int64) fails ledger.AccountExists | ledger.BadFloor | ledger.Unavailable {
-	keep(s, try ledger.Open(book(s), id, floor))
+	let found = sync.Modify(s.cell, func(b ledger.Book) (ledger.Book, ledger.Book) {
+		let next = ledger.Open(b, id, floor) catch {
+		case ledger.AccountExists, ledger.BadFloor:
+			return (b, b)
+		}
+		(b, next)
+	})
+	let _ = try ledger.Open(found, id, floor)
 }
 
-// Post posts t.
+// Post posts t: one sync.Modify, then the receipt or the refusal of the
+// pure ledger.Apply on the Book the change found, as Open does.
 func Post(s Store, t ledger.Transfer) ledger.Receipt fails ledger.KeyReused | ledger.BadAmount | ledger.SameAccount | ledger.UnknownAccount | ledger.InsufficientFunds | ledger.Unavailable {
-	let next, r = try ledger.Apply(book(s), t)
-	keep(s, next)
+	let found = sync.Modify(s.cell, func(b ledger.Book) (ledger.Book, ledger.Book) {
+		let next, _ = ledger.Apply(b, t) catch {
+		case ledger.KeyReused, ledger.BadAmount, ledger.SameAccount, ledger.UnknownAccount, ledger.InsufficientFunds:
+			return (b, b)
+		}
+		(b, next)
+	})
+	let _, r = try ledger.Apply(found, t)
 	r
 }
 
 // Balance is the balance of id.
 func Balance(s Store, id string) int64 fails ledger.UnknownAccount | ledger.Unavailable {
-	try ledger.Balance(book(s), id)
+	try ledger.Balance(s.cell.Get(), id)
 }
 
 // Accounts is the accounts, World first and then by name.
-func Accounts(s Store) []string fails ledger.Unavailable { ledger.IDs(book(s)) }
+func Accounts(s Store) []string fails ledger.Unavailable { ledger.IDs(s.cell.Get()) }
