@@ -1,4 +1,5 @@
 import jsonv/json
+import math
 import strconv
 import strings
 import utf8
@@ -213,7 +214,7 @@ func article(kind string) string {
 // 3e2 are integers, as JSON Schema counts them.
 func isInteger(text string) bool {
 	let f = valueOf(text)
-	f == trunc(f)
+	f == math.Trunc(f)
 }
 
 // valueOf is the number text as a float64; past the range of float64 it
@@ -229,5 +230,3 @@ func valueOf(text string) float64 {
 
 // formatFloat is the shortest text of f that reads back as f.
 func formatFloat(f float64) string { strconv.FormatFloat(f, 'g', -1) }
-
-extern go math.Trunc func trunc(f float64) float64

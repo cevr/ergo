@@ -1,52 +1,31 @@
-// Disk's tests, over a file system and a standard input held in memory.
-// They restate app.Documents.ReadIsRepeatable for Disk (#162 runs member
-// laws against every provider; until then this does).
+// Disk's tests, over an fstest.Memory and a standard input held in
+// memory. They restate app.Documents.ReadIsRepeatable for Disk: a member
+// law runs only for providers in its own package (G-exup-1).
 
 import fs
+import fstest
 import io
 import jsonv/app
-
-// tree is an fs.Files of paths to texts; "locked" is denied.
-type tree { texts Map[string, string] }
-
-func ReadFile(t tree, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
-	if path == "locked" {
-		return fs.Denied{Path: path}
-	}
-	match t.texts.Get(path) {
-	case Some[string] as s:
-		s.Value
-	case None:
-		fs.NotFound{Path: path}
-	}
-}
-
-func ReadDir(_ tree, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
-
-func Stat(_ tree, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+import sync
 
 // drained is a standard input that gives its text to the first ReadAll
 // and nothing after, as the host's does.
-type drained { text string, reads Map[int, int] }
+type drained { text string, reads sync.Ref[int] }
 
 func ReadAll(d drained) string fails io.ReadFailed {
-	let n = match d.reads.Get(0) {
-	case Some[int] as r:
-		r.Value
-	case None:
-		0
-	}
-	let mut reads = d.reads
-	reads[0] = n + 1
+	let n = sync.Modify(d.reads, func(n int) (int, int) { (n, n + 1) })
 	if n == 0 { d.text } else { "" }
 }
 
 func Lines(d drained) Seq[string] { (io.Input{Text: d.text}).Lines() }
 
-func disk(text string) Disk {
-	let mut texts = Map[string, string]{}
-	texts["a.json"] = "[1]"
-	New(tree{texts: texts}, drained{text: text, reads: Map[int, int]{}})
+// disk is a Disk over a.json, a directory dir and the standard input
+// text.
+func disk(text string) Disk fails fs.NotFound | fs.Denied | fs.Failed {
+	let files = fstest.NewMemory()
+	try files.WriteFile("a.json", "[1]")
+	try files.MkdirAll("dir")
+	New(files, drained{text: text, reads: sync.NewRef[int](0)})
 }
 
 // outcome is the text of Read(name), or the failure's name.
@@ -60,15 +39,19 @@ func outcome(d Disk, name string) string {
 }
 
 test ReadsFilesAndStdin {
-	let d = disk("{}")
+	let d = try disk("{}")
 	assert outcome(d, "a.json") == "[1]" && outcome(d, "-") == "{}"
 	assert outcome(d, "b.json") == "no document b.json"
-	assert outcome(d, "locked") == "unreadable locked: permission denied"
+	assert outcome(d, "dir") == "unreadable dir: is a directory"
 }
 
+// A copy of the Disk shares what it kept: the second read of "-", by
+// another copy, still gives the text the drained input gave once.
 test ReadIsRepeatableHolds(text string, name string) {
-	let d = disk(text)
+	let d = try disk(text)
+	let e = d
 	for n in []string{"-", "a.json", name} {
-		assert outcome(d, n) == outcome(d, n)
+		assert outcome(d, n) == outcome(e, n)
 	}
+	assert outcome(d, "-") == text
 }

@@ -1,5 +1,6 @@
 import strconv
 import strings
+import utf8
 
 // The failures of Parse. Each holds At, the byte offset in the text where
 // the parser stopped; Locate turns it into a line and a column.
@@ -27,7 +28,8 @@ type InvalidUTF8 { At int }
 // TooDeep is an array or object nested more than Limit levels deep.
 type TooDeep { At int, Limit int }
 
-// SyntaxError is every failure of Parse, for Describe and Offset.
+// SyntaxError is every failure of Parse: its row, and the union Describe
+// and Offset take.
 type SyntaxError = Unexpected | BadEscape | BadNumber | ControlInString | InvalidUTF8 | TooDeep
 
 // MaxDepth is how deep arrays and objects may nest.
@@ -38,7 +40,7 @@ let MaxDepth = 1000
 type scanner { text string, pos int, depth int }
 
 // Parse reads text as exactly one JSON value, with white space around it.
-func Parse(text string) Value fails Unexpected | BadEscape | BadNumber | ControlInString | InvalidUTF8 | TooDeep {
+func Parse(text string) Value fails SyntaxError {
 	let mut s = scanner{text: text, pos: 0, depth: 0}
 	skipSpace(&s)
 	let v = try value(&s)
@@ -134,7 +136,7 @@ func skipSpace(s *scanner) {
 }
 
 // value reads one value at the cursor; white space before it is skipped.
-func value(s *scanner) Value fails Unexpected | BadEscape | BadNumber | ControlInString | InvalidUTF8 | TooDeep {
+func value(s *scanner) Value fails SyntaxError {
 	match peek(s) {
 	case '{':
 		try object(s)
@@ -175,7 +177,7 @@ func open(s *scanner) fails TooDeep {
 	s.pos = s.pos + 1
 }
 
-func array(s *scanner) Value fails Unexpected | BadEscape | BadNumber | ControlInString | InvalidUTF8 | TooDeep {
+func array(s *scanner) Value fails SyntaxError {
 	try open(s)
 	let mut items = []Value{}
 	skipSpace(s)
@@ -201,7 +203,7 @@ func array(s *scanner) Value fails Unexpected | BadEscape | BadNumber | ControlI
 	}
 }
 
-func object(s *scanner) Value fails Unexpected | BadEscape | BadNumber | ControlInString | InvalidUTF8 | TooDeep {
+func object(s *scanner) Value fails SyntaxError {
 	try open(s)
 	let mut members = []Member{}
 	skipSpace(s)
@@ -305,7 +307,7 @@ func str(s *scanner) string fails Unexpected | BadEscape | ControlInString | Inv
 			s.pos = s.pos + 1
 		} else {
 			let n = leadLength(c)
-			if n == 0 || s.pos+n > len(s.text) || !validUTF8(strings.Slice(s.text, s.pos, s.pos+n)) {
+			if n == 0 || s.pos+n > len(s.text) || !utf8.ValidString(strings.Slice(s.text, s.pos, s.pos+n)) {
 				return InvalidUTF8{At: s.pos}
 			}
 			s.pos = s.pos + n
@@ -356,20 +358,20 @@ func escape(s *scanner) string fails BadEscape {
 		"\t"
 	case 'u':
 		let hi = try hex4(s, at)
-		if hi < 55296 || hi > 57343 {
-			return runeText(hi)
+		if hi < 0xD800 || hi > 0xDFFF {
+			return utf8.RuneText(rune(hi))
 		}
 		// A high surrogate needs a low one after it: \uD83D\uDE00 is one
 		// code point. A lone surrogate is no character (jq refuses it too).
-		if hi > 56319 || !strings.HasPrefix(strings.Slice(s.text, s.pos, len(s.text)), "\\u") {
+		if hi > 0xDBFF || !strings.HasPrefix(strings.Slice(s.text, s.pos, len(s.text)), "\\u") {
 			return BadEscape{At: at, Text: strings.Slice(s.text, at, s.pos)}
 		}
 		s.pos = s.pos + 2
 		let lo = try hex4(s, at)
-		if lo < 56320 || lo > 57343 {
+		if lo < 0xDC00 || lo > 0xDFFF {
 			return BadEscape{At: at, Text: strings.Slice(s.text, at, s.pos)}
 		}
-		runeText(65536 + (hi-55296)*1024 + (lo - 56320))
+		utf8.RuneText(rune(0x10000 + (hi-0xD800)*1024 + (lo - 0xDC00)))
 	case _:
 		BadEscape{At: at, Text: strings.Slice(s.text, at, s.pos)}
 	}
@@ -405,19 +407,3 @@ func hexDigit(c byte) int {
 	}
 	-1
 }
-
-// runeText is the UTF-8 text of the code point cp. Ergo has no conversion
-// from a rune to its text (gap G-ex-d-1), so this spells cp as a Go
-// escape \UXXXXXXXX and unquotes it.
-func runeText(cp int) string {
-	let digits = formatInt(int64(cp), 16)
-	let quoted = "\"\\U" + strings.Repeat("0", 8-len(digits)) + digits + "\""
-	strconv.Unquote(quoted) catch {
-	case strconv.Malformed:
-		"\ufffd"
-	}
-}
-
-extern go strconv.FormatInt func formatInt(n int64, base int) string
-
-extern go unicode/utf8.ValidString func validUTF8(s string) bool

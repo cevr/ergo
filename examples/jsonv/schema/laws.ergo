@@ -24,7 +24,7 @@ law JoinAcceptsBoth(a json.Value, b json.Value) {
 // the same schema.
 law SchemaRoundTrips(v json.Value) {
 	let s = Infer(json.Lawful(v))
-	Equal(try FromJSON(ToJSON(s)), s)
+	try FromJSON(ToJSON(s)) == s
 }
 
 // OtherKindsAreRejected: the schema inferred from a value rejects a value

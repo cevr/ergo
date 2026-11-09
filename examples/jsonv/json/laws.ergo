@@ -3,6 +3,7 @@
 // (Lawful), since a generated Number may hold any text.
 
 import strconv
+import strings
 
 // Lawful is v with each number's text made a JSON number and each string
 // made valid UTF-8: the values Parse returns.
@@ -28,7 +29,7 @@ func Lawful(v Value) Value {
 		}
 		Number{Text: text}
 	case Text as t:
-		Text{V: toValidUTF8(t.V, "\ufffd")}
+		Text{V: strings.ToValidUTF8(t.V, "\ufffd")}
 	case Array as a:
 		let mut items = []Value{}
 		for item in a.Items {
@@ -38,7 +39,7 @@ func Lawful(v Value) Value {
 	case Object as o:
 		let mut members = []Member{}
 		for m in o.Members {
-			members = members.Append(Member{Key: toValidUTF8(m.Key, "\ufffd"), V: Lawful(m.V)})
+			members = members.Append(Member{Key: strings.ToValidUTF8(m.Key, "\ufffd"), V: Lawful(m.V)})
 		}
 		Object{Members: members}
 	case Null:
@@ -64,7 +65,7 @@ func IsNumber(text string) bool {
 // CompactRoundTrips: the compact text of a value parses back to it.
 law CompactRoundTrips(v Value) {
 	let w = Lawful(v)
-	Equal(try Parse(Compact(w)), w)
+	try Parse(Compact(w)) == w
 }
 
 // IndentRoundTrips: the indented text parses back to the value, whatever
@@ -72,7 +73,7 @@ law CompactRoundTrips(v Value) {
 law IndentRoundTrips(v Value, tabs bool) {
 	let w = Lawful(v)
 	let indent = if tabs { "\t" } else { "  " }
-	Equal(try Parse(Indent(w, indent)), w)
+	try Parse(Indent(w, indent)) == w
 }
 
 // IndentIsIdempotent: indenting an indented text again changes nothing.

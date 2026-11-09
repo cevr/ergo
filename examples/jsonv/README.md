@@ -10,8 +10,8 @@ The program is a module of packages (`ergo.mod`: `module jsonv`), in the Go layo
 
 | folder | what it holds |
 | --- | --- |
-| `json/` | The codec. `value.ergo` (the union `Value`, `Member`, `Kind`, `Get`, `Equal`), `parse.ergo` (the scanner, `Parse`, its six typed failures, the union `SyntaxError`, `Describe`, `Offset`, `Locate`), `print.ergo` (`Compact`, `Indent`, `Quoted`), `laws.ergo`, `tests.ergo`. Pure. |
-| `schema/` | The schema language. `schema.ergo` (the union `Schema`, `Equal`, `Infer`, `Join`), `validate.ergo` (`Validate`, `Check`, the union `Violation`, `Describe`, paths), `codec.ergo` (`FromJSON`, `ToJSON`, `BadSchema`), `laws.ergo`, `tests.ergo`. Pure. |
+| `json/` | The codec. `value.ergo` (the union `Value`, `Member`, `Kind`, `Get`), `parse.ergo` (the scanner, `Parse`, its six typed failures and their named row `SyntaxError`, `Describe`, `Offset`, `Locate`), `print.ergo` (`Compact`, `Indent`, `Quoted`), `laws.ergo`, `tests.ergo`. Pure. |
+| `schema/` | The schema language. `schema.ergo` (the union `Schema`, `Infer`, `Join`), `validate.ergo` (`Validate`, `Check`, the union `Violation`, `Describe`, paths), `codec.ergo` (`FromJSON`, `ToJSON`, `BadSchema`), `laws.ergo`, `tests.ergo`. Pure. |
 | `app/` | The commands. `documents.ergo` (the contract `Documents`, an operation type with the law `ReadIsRepeatable`, and its failures), `commands.ergo` (the union `Cmd`, the flags, `Parse`), `run.ergo` (`Load`, `Answer`, `Run`). |
 | `memory/` | `Shelf`, the in-memory `Documents` for tests. |
 | `files/` | `Disk`, the host's `Documents`: a path is read through the `fs.Files` value it holds, `-` through its `io.Stdin` value, kept after the first read. `tests.ergo` drives it over an in-memory file system and a standard input that drains. |
@@ -19,17 +19,17 @@ The program is a module of packages (`ergo.mod`: `module jsonv`), in the Go layo
 
 ## What it shows
 
-- **A union for the data, exhaustive `match` for every rule.** `Value = Null | Bool | Number | Text | Array | Object`; `Equal` matches the pair `(a, b)`, so Maranget's check sees every pair of kinds. `Schema` and `Violation` are unions too, and `Describe` and `PathOf` name every variant, with no `case _`.
-- **Typed failures with positions and paths.** `Parse` fails `Unexpected | BadEscape | BadNumber | ControlInString | InvalidUTF8 | TooDeep`, each with the byte offset; `Locate` makes a line and a column. A schema violation carries a path from `$` (`$.home.zip`, `$["a b"]`), and a bad schema names the path in the schema (`$.properties.when.type`). `app.Run` catches each failure by name and turns it into an exit status.
+- **A union for the data, exhaustive `match` for every rule.** `Value = Null | Bool | Number | Text | Array | Object`, compared with `==` (a recursive union of slices has structural equality). `Schema` and `Violation` are unions too, and `Describe` and `PathOf` name every variant, with no `case _`.
+- **Typed failures with positions and paths.** `Parse` fails `SyntaxError`, the named row `Unexpected | BadEscape | BadNumber | ControlInString | InvalidUTF8 | TooDeep`, each with the byte offset; `Locate` makes a line and a column. A schema violation carries a path from `$` (`$.home.zip`, `$["a b"]`), and a bad schema names the path in the schema (`$.properties.when.type`). `app.Run` catches each failure by name and turns it into an exit status.
 - **A pointer-receiver scanner.** The parser is a Go programmer's recursive descent over `*scanner`, with a depth limit (`MaxDepth`), and runs of plain bytes taken as one slice.
-- **Laws.** `json` states five laws (`CompactRoundTrips`, `IndentRoundTrips`, `IndentIsIdempotent`, `CompactIgnoresLayout`, `FailuresPointIntoTheText`), `schema` six (`AnythingAcceptsAll`, `InferredAccepts`, `JoinAcceptsBoth`, `SchemaRoundTrips`, `OtherKindsAreRejected`, `PathsAreRooted`), and `app.Documents` one, `ReadIsRepeatable`, which `files.Disk` keeps by remembering standard input. Each package's tests restate them as property tests over generated `Value`s, and `cmd/jsonv` checks that `check` accepts what `infer` prints.
+- **Laws.** `json` states five laws (`CompactRoundTrips`, `IndentRoundTrips`, `IndentIsIdempotent`, `CompactIgnoresLayout`, `FailuresPointIntoTheText`), `schema` six (`AnythingAcceptsAll`, `InferredAccepts`, `JoinAcceptsBoth`, `SchemaRoundTrips`, `OtherKindsAreRejected`, `PathsAreRooted`), and `app.Documents` one, `ReadIsRepeatable`, which `files.Disk` keeps by remembering standard input in a `sync.Ref` its copies share. `ergo test` runs the `json` and `schema` laws over generated `Value`s, whose strings hold quotes, backslashes, control bytes and invalid UTF-8; `files/tests.ergo` restates `ReadIsRepeatable` (G-exup-1), and `cmd/jsonv` checks that `check` accepts what `infer` prints.
 - **A contract in the domain, providers named after their dependency.** `app` declares `Documents`; `memory.Shelf` and `files.Disk` provide it; `main` chooses `files.Disk`.
 
 ## Run it
 
 ```sh
 go build -o bin/ergo ./cmd/ergo
-./bin/ergo run examples/jsonv/cmd/jsonv fmt examples/jsonv/testdata/kitchen.json
+./bin/ergo run examples/jsonv/cmd/jsonv -- fmt examples/jsonv/testdata/kitchen.json
 ./bin/ergo test examples/jsonv/json
 go run ./scripts/examples jsonv
 ```
@@ -42,12 +42,9 @@ go run ./scripts/examples jsonv
 
 Each is written up with a repro in the lane's gap file (`gaps-ex-d.md`).
 
-- **G-ex-d-1** No rune or byte converts to its text. A `\u` escape is decoded by spelling `\UXXXXXXXX` and calling `strconv.Unquote` (`runeText`); one byte of the source is `strings.Slice`.
-- **G-ex-d-2** A union of error types cannot name a row, so `Parse`'s six failures are written out in five signatures beside the union `SyntaxError`.
-- **G-ex-d-3** `strconv.FormatInt`, `utf8.ValidString`, `strings.ToValidUTF8` and `math.Trunc` are not in std; the program binds them with user externs, which the pure allowlist admits.
-- **G-ex-d-4** A property test's strings come from a fixed alphabet with no quote, backslash or control byte; the tests map them through `spice` to reach the escapes.
-- **G-ex-d-5** A type that holds a slice has no `==`: `json.Equal` and `schema.Equal` are written by hand.
 - **G-ex-d-6** No std json and no derived codec (#49): `schema/codec.ergo` is the hand codec a derivation would write.
-- **G-ex-d-7** `ergo fmt --check` takes files, not a package folder.
 - **G-ex-d-8** `jsonv min` of 8 MB is 1.8x jq's time and 2.3x its memory (one run, loaded host); the Go control is pending.
-- Known before this program: `files.Disk` remembers standard input in a `Map` field, the one shared mutable cell (G-ex-b-3); a required positional argument's `Get` is an `Option` (std-strengths F1, S5a).
+- A required positional argument's `Get` is an `Option` (std-strengths F1, S5a).
+- **G-exup-1**: `app.Documents.ReadIsRepeatable` is skipped for `files.Disk` and `memory.Shelf` (providers in other packages); `files/tests.ergo` restates it.
+
+Closed in batch 12: G-ex-d-1 (S3: `utf8.RuneText`; the `\U` spelling and `strconv.Unquote` are gone), G-ex-d-2 (L2: `Parse` and its four helpers fail the named row `SyntaxError`), G-ex-d-3 (S1/S3/U: std `strconv.FormatInt`, `utf8.ValidString`, `strings.ToValidUTF8`, `math.Trunc`; the four user externs are gone), G-ex-d-4 (T4: generated strings hold the escapes; `spice` is gone, `QuotedEscapes` keeps the one DEL case the round trip cannot see), G-ex-d-5 (W3: `json.Equal`, `schema.Equal` gone), G-ex-d-7 (`ergo fmt --check DIR`), G-ex-b-3 here (the value rule: `Disk` keeps standard input in a `sync.Ref`, where a copied `Map` no longer shares), and the property tests that restated the laws (V1). Surrogate bounds are hex literals (L1).

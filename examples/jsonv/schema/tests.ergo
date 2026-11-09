@@ -1,5 +1,4 @@
-// The schema's tests: examples, and the laws restated as property tests
-// (#162 runs laws; until then these do).
+// The schema's tests: examples. The laws run under ergo test.
 
 import jsonv/json
 import strings
@@ -82,42 +81,5 @@ test JoinOfObjectsKeepsCommonRequired {
 test BoundsRoundTrip(min float64, n int) {
 	let count = if n < 0 { -(n + 1) } else { n }
 	let s = IsArray{Items: IsNumber{Integer: false, Min: Some[float64]{Value: min}, Max: None}, MinItems: count}
-	assert Equal(try FromJSON(ToJSON(s)), s)
-}
-
-test AnythingAcceptsAllHolds(v json.Value) {
-	assert len(Validate(Anything, v)) == 0
-}
-
-test InferredAcceptsHolds(v json.Value) {
-	let w = json.Lawful(v)
-	assert len(Validate(Infer(w), w)) == 0
-}
-
-test JoinAcceptsBothHolds(a json.Value, b json.Value) {
-	let x = json.Lawful(a)
-	let y = json.Lawful(b)
-	let s = Join(Infer(x), Infer(y))
-	assert len(Validate(s, x)) == 0 && len(Validate(s, y)) == 0
-}
-
-test SchemaRoundTripsHolds(v json.Value) {
-	let s = Infer(json.Lawful(v))
-	assert Equal(try FromJSON(ToJSON(s)), s)
-}
-
-test OtherKindsAreRejectedHolds(a json.Value, b json.Value) {
-	let x = json.Lawful(a)
-	let y = json.Lawful(b)
-	if json.Kind(x) == json.Kind(y) {
-		return
-	}
-	let found = Validate(Infer(x), y)
-	assert len(found) == 1 && PathOf(found[0]) == "$"
-}
-
-test PathsAreRootedHolds(a json.Value, b json.Value) {
-	for x in Validate(Infer(json.Lawful(a)), json.Lawful(b)) {
-		assert strings.HasPrefix(PathOf(x), "$")
-	}
+	assert try FromJSON(ToJSON(s)) == s
 }

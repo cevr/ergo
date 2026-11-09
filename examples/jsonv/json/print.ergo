@@ -106,7 +106,7 @@ func scalar(w *writer, v Value) {
 // has them; any other byte is written as it is. Invalid UTF-8 is written
 // as U+FFFD, as Go's encoding/json writes it.
 func quote(w *writer, raw string) {
-	let s = toValidUTF8(raw, "\ufffd")
+	let s = strings.ToValidUTF8(raw, "\ufffd")
 	put(w, "\"")
 	let mut run = 0
 	for i in 0..len(s) {
@@ -139,9 +139,8 @@ func escapeOf(c byte) string {
 	case '\t':
 		"\\t"
 	case _:
-		if c < 32 || c == 127 {
-			let h = formatInt(int64(c), 16)
-			return "\\u00" + strings.Repeat("0", 2-len(h)) + h
+		if c < 0x20 || c == 0x7f {
+			return "\\u00" + strings.PadLeft(strconv.FormatInt(int64(c), 16), 2, '0')
 		}
 		""
 	}
@@ -156,5 +155,3 @@ func Quoted(s string) string {
 
 // FormatNumber is the JSON text of an integer.
 func FormatNumber(n int) Value { Number{Text: strconv.Itoa(n)} }
-
-extern go strings.ToValidUTF8 func toValidUTF8(s string, replacement string) string
