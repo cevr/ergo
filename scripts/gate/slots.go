@@ -1,9 +1,6 @@
 package main
 
-import (
-	"math"
-	"sync"
-)
+import "sync"
 
 // slotPool hands out the gate's step slots: at most its size at once. A
 // step that waits for a slot waits in one of two queues: a freed slot goes
@@ -20,7 +17,7 @@ import (
 // and become the gate's tail. In the batch-10 merge tier the closure sweep
 // of internal/sketch/lower, the longest step (841 s), started at 381 s,
 // behind steps of seconds (fu-sweep-deadline). A step with no weight (0)
-// counts as the heaviest: the gate has no record of how long it takes.
+// weighs unrecordedWeight: the gate has no record of how long it takes.
 type slotPool struct {
 	mu     sync.Mutex
 	free   int
@@ -32,6 +29,17 @@ type waiter struct {
 	ready  chan struct{}
 	weight float64
 }
+
+// unrecordedWeight is the expected seconds of a step with no weight: a
+// step that runs no recorded tests (gofmt, go vet, the examples), or the
+// tests of a package that durations.json has no row for yet. It is not the
+// heaviest: before gl-durations an unknown step counted as the heaviest, and
+// the steps of every package without a row (scripts/gate/*) took the first
+// slots ahead of the closure sweep of internal/sketch/lower. 30 s is about
+// a test package's step with its build; a package's rows come from
+// `./scripts/gate.sh -record-durations`, and TestStepsWeighTheirRecordedTime
+// fails while a test package has none.
+const unrecordedWeight = 30.0
 
 func newSlotPool(size int) *slotPool {
 	return &slotPool{free: size}
@@ -55,7 +63,7 @@ func (p *slotPool) acquireWeighted(first bool, weight float64) {
 		queue = 0
 	}
 	if weight <= 0 {
-		weight = math.Inf(1)
+		weight = unrecordedWeight
 	}
 	ready := make(chan struct{})
 	p.queues[queue] = append(p.queues[queue], waiter{ready, weight})

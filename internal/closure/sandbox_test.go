@@ -79,6 +79,12 @@ type sandbox struct {
 	Root    string
 	Scratch []string
 	Kernel  []string `json:",omitempty"`
+	// Shared are the scratch directories that need not be empty: the Go
+	// build cache that the runs of one package share (runPlan). It was
+	// made empty for the package, and only the package's runs wrote it,
+	// each in its sandbox, where no run can make a hard link of a checkout
+	// file in it (EXDEV, S2) or write the checkout through one.
+	Shared []string `json:",omitempty"`
 }
 
 // helperMain runs the helper modes of this test binary, from TestMain,
@@ -398,14 +404,30 @@ func (s scratch) env() []string {
 // remove deletes the scratch directories. A test or the go command may
 // leave a directory without write permission (the module cache does), so
 // it makes each directory writable first.
-func (s scratch) remove() error {
-	filepath.WalkDir(s.base, func(p string, d fs.DirEntry, err error) error {
+func (s scratch) remove() error { return removeTree(s.base) }
+
+// removeTree deletes dir, making each directory in it writable first.
+func removeTree(dir string) error {
+	filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err == nil && d.IsDir() {
 			os.Chmod(p, 0o700)
 		}
 		return nil
 	})
-	return os.RemoveAll(s.base)
+	return os.RemoveAll(dir)
+}
+
+// newSharedCache makes the Go build cache that the runs of one package
+// share (runPlan): an empty directory outside the checkout, by its
+// physical path, writable in each run's sandbox as a scratch directory is.
+// The go command locks and writes its entries so that processes can share
+// one cache at once.
+func newSharedCache() (string, error) {
+	dir, err := os.MkdirTemp("", "eg")
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(dir)
 }
 
 // withEnv returns env with each entry of extra, replacing an entry of env

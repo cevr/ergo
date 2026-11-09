@@ -36,8 +36,11 @@ const costFile = "scripts/gate/durations.json"
 // sweepRunBudget is the recorded test time one run of the sweep holds at
 // most: a run holds more only when it is one test that alone exceeds it.
 // Swept, a test takes about four times its recorded time in CPU (the
-// observer and a cold GOCACHE per run: internal/sketch/lower recorded 368 s
-// and its sweep took 1472 CPU-s in batch-10 try9), so a run of 45 s takes
+// observer and, until gl-sweep-cache shared one GOCACHE across a package's
+// runs, a cold GOCACHE per run: internal/sketch/lower recorded 368 s and
+// its sweep took 1472 CPU-s in batch-10 try9; at 409 s recorded, 2014
+// CPU-s with a cache per run and 1521 with the shared one, gl-sweep-cache,
+// measured under load), so a run of 45 s takes
 // about 3 CPU-minutes, and at the batch-10 gate's share (0.45 CPU per run)
 // about 7 minutes: well under the 20 minute run deadline (runDeadline).
 const sweepRunBudget = 45.0

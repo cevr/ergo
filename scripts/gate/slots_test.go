@@ -64,8 +64,9 @@ func TestSlotPoolServesWritersFirst(t *testing.T) {
 
 // TestSlotPoolServesTheHeaviestFirst: with every slot taken, a freed slot
 // goes to the writers' queue first, then to the heaviest waiting step; a
-// step with no weight counts as the heaviest, and steps of equal weight
-// go in the order they came.
+// step with no weight weighs unrecordedWeight (after a heavier step, before
+// a lighter one, not first), and steps of equal weight go in the order they
+// came.
 func TestSlotPoolServesTheHeaviestFirst(t *testing.T) {
 	pool := newSlotPool(1)
 	pool.acquire(false)
@@ -90,17 +91,17 @@ func TestSlotPoolServesTheHeaviestFirst(t *testing.T) {
 		}
 	}
 	start("light", false, 5)
-	start("heavy", false, 50)
 	start("unknown", false, 0)
-	start("mid", false, 20)
-	start("mid2", false, 20)
+	start("heavy", false, 2*unrecordedWeight)
+	start("mid", false, unrecordedWeight/2)
+	start("mid2", false, unrecordedWeight/2)
 	start("writer", true, 1)
 	pool.release()
 	var got []string
 	for range queued {
 		got = append(got, <-order)
 	}
-	if want := []string{"writer", "unknown", "heavy", "mid", "mid2", "light"}; !slices.Equal(got, want) {
+	if want := []string{"writer", "heavy", "unknown", "mid", "mid2", "light"}; !slices.Equal(got, want) {
 		t.Fatalf("slots went to %v, want %v", got, want)
 	}
 }
@@ -146,9 +147,11 @@ func TestLongestStepTakesTheFirstFreedSlot(t *testing.T) {
 	}
 }
 
-// TestStepsWeighTheirRecordedTime: in the full tier each sharded test step
-// weighs the recorded time of its tests, the other packages' step theirs,
-// a closure sweep sweepWeightFactor times its package's, and the closure
+// TestStepsWeighTheirRecordedTime: in the full tier every swept package
+// has rows in durations.json, every step that runs a package's tests has a
+// weight, each sharded test step weighs the recorded time of its tests, the
+// other packages' step theirs, a closure sweep sweepWeightFactor times its
+// package's (a host package's the stated default), and the closure
 // sweep of internal/sketch/lower is the heaviest step after the writers,
 // so it takes the first slot the writers free (batch-10: it started at
 // 381 s of the merge tier and was its longest step). Every sweep step has
@@ -180,12 +183,28 @@ func TestStepsWeighTheirRecordedTime(t *testing.T) {
 	shards := map[string]float64{}
 	for i, step := range steps {
 		if step.Sweep != "" {
-			if want := sweepWeightFactor * total(module+"/"+step.Sweep); math.Abs(step.Weight-want) > 1e-6 {
+			// Each test package has one sweep step: its package needs
+			// rows, from which its test steps weigh; only a host
+			// package's sweep, which skips its tests, weighs the stated
+			// default.
+			if _, ok := durations[module+"/"+step.Sweep]; !ok {
+				t.Errorf("%s has no row for %s: its steps weigh unrecordedWeight; run ./scripts/gate.sh -record-durations ./%s", durationsFile, step.Sweep, step.Sweep)
+			}
+			want := sweepWeightFactor * total(module+"/"+step.Sweep)
+			if slices.Contains(hostTestPackages, step.Sweep) {
+				want = 0
+			} else if step.Weight <= 0 {
+				t.Errorf("%s weighs nothing, as a step with no record", step.Name)
+			}
+			if math.Abs(step.Weight-want) > 1e-6 {
 				t.Errorf("%s weighs %v, want %v", step.Name, step.Weight, want)
 			}
 			if !slices.Contains(step.Argv, sweepTimeout) {
 				t.Errorf("%s: argv %q lacks %s", step.Name, step.Argv, sweepTimeout)
 			}
+		}
+		if runsGoTest(step) && step.Sweep == "" && step.Name != fullBuildStep && step.Weight <= 0 {
+			t.Errorf("%s runs recorded tests and has no weight", step.Name)
 		}
 		if pkg := step.Argv[len(step.Argv)-1]; strings.HasPrefix(step.Name, "go test ./") && strings.Contains(step.Name, "/") && strings.Contains(step.Name, "[") {
 			shards[pkg] += step.Weight
