@@ -231,7 +231,10 @@ var runtimeBindings = map[string]runtimeBinding{
 	// fill on the caller's task, as State waits for an answer.
 	"NewHost":     {task: true},
 	"ActorNoHost": {},
-	"Host.Get":    {wait: callerWait},
+	// MU9: keep runs a durable actor's save on the step's task (its
+	// function value takes the task) and never waits by itself.
+	"ActorKeep": {task: true},
+	"Host.Get":  {wait: callerWait},
 	// std exec (std-align S3c; stdlib.md, exec): Run waits for the program
 	// on the caller's task. Its cancel hook is the stop of that task: the
 	// body kills the program's process group and waits for the reap

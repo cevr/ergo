@@ -171,6 +171,55 @@ func StartMachine[S, E, O, F, R](m Machine[S, E, O, F, R], capacity int, sink fu
 	}, capacity)
 }
 
+// StartDurable is StartMachine for a machine whose transitions outlive the
+// actor (MU9; runtime.md, Machines and actors 17). recover runs once, at
+// the start: Some state is the state the actor starts in, None starts it
+// in m's initial state; a failure of recover fails StartDurable, and no
+// actor starts. save gets the state before, the state after and the
+// signal of each step that commits (Enter, Stay, Emit; a timer's and a
+// work's signal too). It runs after the step decided and before the actor
+// commits the state, opens the entry, gives an output or answers the Ask,
+// so no one sees a state that save did not keep. Ignore, Reject and Done
+// commit no state, so save does not run for them. A failure of save is a
+// defect that ends the actor (ActorSaveDefect, with the failure's text):
+// the actor cannot keep its promise that a committed state outlives it,
+// and the state does not change; an Ask in the step gets Stopped.
+//
+// The step of m must be pure: the checker refuses a machine whose step
+// has an effect (S108), because a recovery steps the saved signals again.
+// Work and timers stay: their results reach the step as signals, and save
+// keeps those the step commits. A signal of an ended entry is dropped
+// before the step (runner rule 6), so it is never saved and never
+// replayed.
+func StartDurable[S, E, O, F, R, G](m Machine[S, E, O, F, R], capacity int, sink func(o O) needs R, recover func() Option[S] fails G needs R, save escaping func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | Scheduler {
+	let initial = match try recover() {
+	case Some[S] as s:
+		s.Value
+	case None:
+		m.Initial
+	}
+	let step = m.Step
+	StartMachine(Machine[S, E, O, F, R]{Initial: initial, Step: func(s S, e E) Decision[S, O] fails F needs R {
+		let d = try step(s, e)
+		match d {
+		case Enter[S] as en:
+			keep(save, s, en.Next, e)
+		case Stay[S] as st:
+			keep(save, s, st.Next, e)
+		case Emit[S, O] as em:
+			keep(save, s, em.Next, e)
+		case Ignore:
+		case Reject:
+		case Done[O]:
+		}
+		d
+	}, After: m.After, Work: m.Work}, capacity, sink)
+}
+
+// keep is save(prev, next, sig), with its failure a defect
+// (ActorSaveDefect): the Go body ActorKeep.
+extern go ergo.local/prototype/runtime/v1.ActorKeep func keep[S, E, G, R](save func(prev S, next S, sig E) fails G needs R, prev S, next S, sig E) needs R
+
 // child is start for a child of an entry (MU5; Go body MachineChild): out
 // gets each decision with deliver, which gives a child output to the
 // parent as a signal of the entry that owns the child. host is the host

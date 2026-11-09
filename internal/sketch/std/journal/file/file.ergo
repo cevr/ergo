@@ -1,0 +1,109 @@
+// Package file is a journal.Journal kept in a file of the host (MU9), so a
+// durable actor recovers after the process ends. The file is text, one
+// line per entry: `s "…"` for the snapshot (the first line, when there is
+// one) and `e "…"` for each signal after it, each value the Go-quoted text
+// its codec gives. Each Append and Snapshot writes the whole file through
+// fs.WriteFile, which writes a new file and renames it over the old one:
+// a crash leaves the old journal or the new one, never a part. Snapshots
+// keep the file short, since they drop the signals before them.
+//
+// Effect: effect-machine's cluster journal (an append per accepted event)
+// over a store the program picks. Go control: os.WriteFile of a temporary
+// file and os.Rename, the atomic replace of one file.
+
+import fs
+import journal
+import strconv
+import strings
+
+// Journal is the file journal of states S and signals E. Its values are
+// copies of one journal; one process writes the file at a time.
+type Journal[S, E] {
+	append   escaping func(e E) fails journal.Failed,
+	snapshot escaping func(s S) fails journal.Failed,
+	load     escaping func() journal.Log[S, E],
+}
+
+// Open is the journal of the file at path, read with host: an empty one
+// when there is no file there yet. states and signals turn the values
+// into text and back. It fails when the file cannot be read or holds a
+// line that is not an entry, or a value its codec cannot decode.
+func Open[S, E](host fs.Host, path string, states journal.Codec[S], signals journal.Codec[E]) Journal[S, E] fails journal.Failed {
+	let text = host.ReadFile(path) catch {
+	case fs.NotFound:
+		""
+	case fs.Denied:
+		return journal.Failed{Reason: "\(path): permission denied"}
+	case fs.Failed as f:
+		return journal.Failed{Reason: "\(path): \(f.Reason)"}
+	}
+	let log = try parse(text, states, signals)
+	let mut snap = log.Snapshot
+	let mut kept = log.Signals
+	let mut written = text
+	Journal[S, E]{
+		append: func(e E) fails journal.Failed {
+			let next = written + "e " + strconv.Quote(signals.Encode(e)) + "\n"
+			try write(host, path, next)
+			written = next
+			kept = kept.Append(e)
+		},
+		snapshot: func(s S) fails journal.Failed {
+			let next = "s " + strconv.Quote(states.Encode(s)) + "\n"
+			try write(host, path, next)
+			written = next
+			snap = Some[S]{Value: s}
+			kept = []E{}
+		},
+		load: func() journal.Log[S, E] { journal.Log[S, E]{Snapshot: snap, Signals: kept} },
+	}
+}
+
+// Append writes e after the signals kept before it.
+func Append[S, E](j Journal[S, E], e E) fails journal.Failed { try j.append(e) }
+
+// Snapshot writes the file anew with s as its only entry.
+func Snapshot[S, E](j Journal[S, E], s S) fails journal.Failed { try j.snapshot(s) }
+
+// Load is the last snapshot and the signals after it, as written. It
+// never fails (the row is the contract's): Open read the file, and only
+// this journal writes it.
+func Load[S, E](j Journal[S, E]) journal.Log[S, E] fails journal.Failed { j.load() }
+
+// write makes the file at path hold text.
+func write(host fs.Host, path string, text string) fails journal.Failed {
+	host.WriteFile(path, text) catch {
+	case fs.NotFound:
+		return journal.Failed{Reason: "\(path): no such directory"}
+	case fs.Denied:
+		return journal.Failed{Reason: "\(path): permission denied"}
+	case fs.Failed as f:
+		return journal.Failed{Reason: "\(path): \(f.Reason)"}
+	}
+}
+
+// parse reads the entries of a journal file.
+func parse[S, E](text string, states journal.Codec[S], signals journal.Codec[E]) journal.Log[S, E] fails journal.Failed {
+	let mut snap Option[S] = None
+	let mut kept = []E{}
+	let mut n = 0
+	for raw in strings.Lines(text) {
+		n = n + 1
+		let line = strings.TrimSuffix(raw, "\n")
+		if len(line) < 2 {
+			return journal.Failed{Reason: "line \(n) is not an entry"}
+		}
+		let quoted = strconv.Unquote(strings.Slice(line, 2, len(line))) catch {
+		case strconv.Malformed:
+			return journal.Failed{Reason: "line \(n) is not an entry"}
+		}
+		if strings.HasPrefix(line, "s ") && n == 1 {
+			snap = Some[S]{Value: try states.Decode(quoted)}
+		} else if strings.HasPrefix(line, "e ") {
+			kept = kept.Append(try signals.Decode(quoted))
+		} else {
+			return journal.Failed{Reason: "line \(n) is not an entry"}
+		}
+	}
+	journal.Log[S, E]{Snapshot: snap, Signals: kept}
+}

@@ -310,6 +310,29 @@ func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, host *Ho
 	return c
 }
 
+// ActorKeep is the body of std actor's keep (MU9; runtime.md, Machines and
+// actors 17): it runs a durable actor's save of one committed transition,
+// in the step, before the runner commits it. A typed failure of save is a
+// defect (ActorSaveDefect) that ends the actor: the actor cannot keep its
+// promise that a committed state outlives it. effect-machine's cluster
+// journal defects an append failure the same way.
+func ActorKeep[S, E any](t *rt.Task, save func(*rt.Task, S, S, E) error, prev, next S, sig E) {
+	if err := save(t, prev, next, sig); err != nil {
+		panic(&ActorSaveDefect{Reason: err.Error()})
+	}
+}
+
+// ActorSaveDefect is the defect of a durable actor whose save failed:
+// Reason is the save's failure.
+type ActorSaveDefect struct {
+	Reason string
+}
+
+// String is the defect's text.
+func (d *ActorSaveDefect) String() string {
+	return "actor.StartDurable: the save of a committed transition failed: " + d.Reason
+}
+
 // ActorChildDefect is the defect of an actor.Child called where no entry
 // owns it: outside a machine's work (in a step, or on a task the program
 // started elsewhere), or with a map whose result is not the entry's

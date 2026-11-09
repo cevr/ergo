@@ -321,6 +321,39 @@ func main() {
 	use(Mine)
 }
 `,
+	// std journal (MU9): open; journal/memory and journal/file are
+	// providers that programs could write too.
+	"journal.Journal": `import journal
+
+type Mine {}
+
+func Append(_ Mine, e int) fails journal.Failed {}
+func Snapshot(_ Mine, s int) fails journal.Failed {}
+func Load(_ Mine) journal.Log[int, int] fails journal.Failed { journal.Log[int, int]{Snapshot: None, Signals: []int{}} }
+
+func use(j journal.Journal[int, int]) {
+	j.Append(1) catch {
+	case journal.Failed:
+	}
+}
+
+func main() {
+	use(Mine)
+}
+`,
+	"journal.Codec": `import journal
+
+type Mine {}
+
+func Encode(_ Mine, v int) string { "" }
+func Decode(_ Mine, text string) int fails journal.Failed { 0 }
+
+func use(c journal.Codec[int]) { _ = c.Encode(1) }
+
+func main() {
+	use(Mine)
+}
+`,
 	// std actor (mu-host): NewHost's extern returns the Host.
 	"actor.Host": `import actor
 
@@ -569,6 +602,8 @@ var openStd = map[string]bool{
 	"io.Stderr":         true,
 	"io.Stdin":          true,
 	"exec.Runner":       true,
+	"journal.Journal":   true,
+	"journal.Codec":     true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type

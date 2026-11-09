@@ -1,0 +1,42 @@
+// Package memory is a journal.Journal kept in the process's memory (MU9).
+// It outlives an actor, not the process: a test crashes an actor, starts a
+// new one with journal.Start over the same Journal, and checks what it
+// recovered. A program that must survive a restart of the process uses
+// journal/file.
+
+import journal
+
+// Journal is the memory journal of states S and signals E. Its values are
+// copies of one journal: each sees what any of them kept.
+type Journal[S, E] {
+	append   escaping func(e E) fails journal.Failed,
+	snapshot escaping func(s S),
+	load     escaping func() journal.Log[S, E],
+}
+
+// New is an empty journal: no snapshot and no signals.
+func New[S, E]() Journal[S, E] {
+	let mut snap Option[S] = None
+	let mut signals = []E{}
+	Journal[S, E]{
+		append:   func(e E) fails journal.Failed { signals = signals.Append(e) },
+		snapshot: func(s S) {
+			snap = Some[S]{Value: s}
+			signals = []E{}
+		},
+		load: func() journal.Log[S, E] { journal.Log[S, E]{Snapshot: snap, Signals: signals} },
+	}
+}
+
+// Append keeps e after the signals kept before it. A journal from New
+// never fails; the row is the contract's, and this package's laws build a
+// journal whose append fails, to crash an actor at a chosen save.
+func Append[S, E](j Journal[S, E], e E) fails journal.Failed { try j.append(e) }
+
+// Snapshot keeps s and drops the signals kept so far. It never fails
+// (the row is the contract's).
+func Snapshot[S, E](j Journal[S, E], s S) fails journal.Failed { j.snapshot(s) }
+
+// Load is the last snapshot and the signals after it. It never fails
+// (the row is the contract's).
+func Load[S, E](j Journal[S, E]) journal.Log[S, E] fails journal.Failed { j.load() }

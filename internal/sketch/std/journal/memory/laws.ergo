@@ -1,0 +1,252 @@
+// The laws of a durable actor over a memory journal (MU9; the model
+// docs/research/actor-machine/durable.qnt). RecoveryIsTheFold is the
+// model-based property: a generated trace of Asks with crashes at
+// generated points (a crash between steps, a save that fails before it
+// writes, a save that fails after it writes), each crash followed by a
+// recovery from the journal; DroppedIsNotJournaled holds that a work's
+// signal of an ended entry is not kept. They run on a time.Manual that no
+// one advances (a law cannot hold Ambient).
+
+import actor
+import journal
+import machines
+import queue
+import time
+
+// tallyStep reaches each committing Decision and Ignore and Reject by the
+// signal mod 5; it has no Done, so an actor ends only by a crash. Its
+// states stay in 0..1008, and an Enter's state depends on the order of
+// the signals.
+func tallyStep(s int, e int) Decision[int, int] {
+	match ((e % 5) + 5) % 5 {
+	case 0:
+		Enter[int]{Next: ((s*3 + e%1009) % 1009 + 1009) % 1009}
+	case 1:
+		Stay[int]{Next: (s + 1) % 1009}
+	case 2:
+		Ignore
+	case 3:
+		Reject
+	case _:
+		Emit[int, int]{Next: (s * 2) % 1009, Output: s}
+	}
+}
+
+func untimed(s int) Option[Timeout[int]] { None }
+
+func unworked(s int) Option[func(send func(e int))] { None }
+
+func tally() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked} }
+
+// fold is machines.From over the signals from tally's initial state: the
+// state a recovery must reach.
+func fold(signals []int) int {
+	let o = machines.From(tally(), 0, signals) catch {
+	case machines.Rejected:
+		return -1
+	}
+	match o {
+	case machines.Running[int, int] as r:
+		r.State
+	case machines.Finished[int, int]:
+		-1
+	}
+}
+
+// within is whether want is a subsequence of all: each answered commit is
+// kept, in order.
+func within(want []int, all []int) bool {
+	let mut i = 0
+	for x in all {
+		if i < len(want) && want[i] == x {
+			i = i + 1
+		}
+	}
+	i == len(want)
+}
+
+// crashing is a memory journal whose next Append fails when armed: mode 1
+// before it writes, mode 2 after. all is every signal it wrote, also
+// those a snapshot dropped (the model's history).
+func crashing() (Journal[int, int], func(mode int), func() []int) {
+	let inner = New[int, int]()
+	let mut armed = 0
+	let mut all = []int{}
+	let j = Journal[int, int]{
+		append: func(e int) fails journal.Failed {
+			let mode = armed
+			armed = 0
+			if mode == 1 {
+				return journal.Failed{Reason: "crash before the write"}
+			}
+			try inner.Append(e)
+			all = all.Append(e)
+			if mode == 2 {
+				return journal.Failed{Reason: "crash after the write"}
+			}
+		},
+		snapshot: func(s int) { inner.snapshot(s) },
+		load:     func() journal.Log[int, int] { inner.load() },
+	}
+	(j, func(mode int) { armed = mode }, func() []int { all })
+}
+
+// recovers runs ops over a durable tally actor on j: an op k mod 9 of 8
+// crashes the actor between steps, 7 arms a crash of the next save, and
+// any other op is a signal, asked. After each crash a new actor recovers
+// from j. It holds that each recovered state is the fold of every signal
+// kept, and that each Ask answered with a commit is kept.
+func recovers(j journal.Journal[int, int], arm func(mode int), all func() []int, ops []int, every int) bool needs Scheduler {
+	let n = ((every % 4) + 4) % 4
+	let mut a = journal.Start(tally(), j, n, 4, func(o int) {}) catch {
+	case _:
+		return false
+	}
+	let mut want = []int{}
+	for x in ops {
+		let k = ((x % 9) + 9) % 9
+		let mut crashed = false
+		if k == 8 {
+			a.Stop()
+			crashed = true
+		} else if k == 7 {
+			arm(1 + ((x / 9) % 2 + 2) % 2)
+		} else {
+			let d = a.Ask(x) catch {
+			case actor.Stopped:
+				// The save failed: a defect ended the actor.
+				crashed = true
+				Ignore
+			}
+			match d {
+			case Enter[int]:
+				want = want.Append(x)
+			case Stay[int]:
+				want = want.Append(x)
+			case Emit[int, int]:
+				want = want.Append(x)
+			case _:
+			}
+			if !within(want, all()) {
+				return false
+			}
+		}
+		if crashed {
+			a = journal.Start(tally(), j, n, 4, func(o int) {}) catch {
+			case _:
+				return false
+			}
+			if a.State() != fold(all()) {
+				return false
+			}
+		}
+	}
+	let last = a.State()
+	a.Stop()
+	last == fold(all()) && within(want, all())
+}
+
+// RecoveryIsTheFold: after any crash, the recovered actor's state is
+// machines.From of every signal the journal kept, and every Ask answered
+// with a commit is in the journal.
+law RecoveryIsTheFold(ops []int, every int) {
+	with context { Scheduler: time.NewManual(0) } {
+		let (j, arm, all) = crashing()
+		recovers(j, arm, all, ops, every)
+	}
+}
+
+// relay is the machine of DroppedIsNotJournaled: 0 Go Emits into 1, whose
+// work sends Ping (12) once gate opens; 11 Leave Enters 2; Ping Stays with
+// 100 more; 13 is ignored.
+func relayStep(s int, e int) Decision[int, int] {
+	match (s, e) {
+	case (0, 10):
+		Emit[int, int]{Next: 1, Output: 0}
+	case (1, 11):
+		Enter[int]{Next: 2}
+	case (_, 12):
+		Stay[int]{Next: s + 100}
+	case (_, _):
+		Ignore
+	}
+}
+
+// dropped runs relay so that a Ping of entry 1 is queued behind Leave and
+// so dropped: the sink of Go's Emit holds the runner until the work has
+// sent Ping, and Leave was queued before. It holds that the actor dropped
+// one signal, that the journal kept Go and Leave only, and that a
+// recovery reaches the actor's state.
+func dropped(j journal.Journal[int, int]) bool needs Scheduler {
+	let start = queue.New[int](1)
+	let gate = queue.New[int](1)
+	let sent = queue.New[int](1)
+	let relay = Machine[int, int, int]{Initial: 0, Step: relayStep, After: func(s int) Option[Timeout[int]] { None }, Work: func(s int) Option[func(send func(e int))] {
+		if s != 1 {
+			return None
+		}
+		Some[func(send func(e int))]{Value: func(send func(e int)) {
+			gate.Pop() catch {
+			case queue.Closed:
+				return
+			}
+			send(12)
+			sent.Push(1) catch {
+			case queue.Closed:
+			}
+		}}
+	}}
+	let a = journal.Start(relay, j, 0, 4, func(o int) {
+		start.Pop() catch {
+		case queue.Closed:
+			return
+		}
+		gate.Push(1) catch {
+		case queue.Closed:
+		}
+		sent.Pop() catch {
+		case queue.Closed:
+		}
+	}) catch {
+	case _:
+		return false
+	}
+	a.Send(10) catch {
+	case actor.Stopped:
+		return false
+	}
+	a.Send(11) catch {
+	case actor.Stopped:
+		return false
+	}
+	start.Push(1) catch {
+	case queue.Closed:
+		return false
+	}
+	a.Ask(13) catch {
+	case actor.Stopped:
+		return false
+	}
+	let state = a.State()
+	let drops = a.Dropped()
+	a.Stop()
+	let log = j.Load() catch {
+	case journal.Failed:
+		return false
+	}
+	let b = journal.Start(relay, j, 0, 4, func(o int) {}) catch {
+	case _:
+		return false
+	}
+	let back = b.State()
+	b.Stop()
+	drops == 1 && state == 2 && back == 2 && len(log.Signals) == 2 && log.Signals[0] == 10 && log.Signals[1] == 11
+}
+
+// DroppedIsNotJournaled: a work's signal that its entry's end dropped is
+// not kept, so a recovery does not step it.
+law DroppedIsNotJournaled() {
+	with context { Scheduler: time.NewManual(0) } {
+		dropped(New[int, int]())
+	}
+}
