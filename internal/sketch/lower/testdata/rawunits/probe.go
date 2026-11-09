@@ -19,6 +19,7 @@ func escConvert(u lower.Unit) []*syntax.File {
 		Files   []*syntax.File
 		Sources []lower.Source
 		Imports []lower.Unit
+		Go      lower.GoModule
 	})(u).Files
 }
 
