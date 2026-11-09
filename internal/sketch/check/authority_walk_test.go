@@ -43,14 +43,17 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"ctx":     {why: "the checker that substitutes an instance's body"},
 	},
 	"Struct": {
-		"Fields": {sel: "Fields"},
-		"obj":    {sel: "obj"},
-		"index":  {why: "a cache of Fields"},
+		"Fields":    {sel: "Fields"},
+		"obj":       {sel: "obj"},
+		"index":     {why: "a cache of Fields"},
+		"includes":  {why: "the ..R members, spliced into Fields (and cleared) by expandIncludes before any walk"},
+		"expanding": {why: "splice state"},
 	},
 	"Field": {
-		"Type": {sel: "Type"},
-		"Name": {why: "a name: every field is walked, hidden or not"},
-		"Pos":  {why: "a position"},
+		"Type":   {sel: "Type"},
+		"Name":   {why: "a name: every field is walked, hidden or not"},
+		"Pos":    {why: "a position"},
+		"origin": {why: "the declaring field: this field's Type is its type here, and the walk reads it"},
 	},
 	"Interface": {
 		"Methods": {sel: "Methods"},

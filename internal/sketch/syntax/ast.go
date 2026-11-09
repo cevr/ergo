@@ -293,15 +293,22 @@ func (e *ContextEntry) End() Pos {
 // K comparable]`), whose `any` is at Any (grammar.md, Declarations). Any is 0
 // when there is none: an `any` never starts a file. For a method of a
 // capability interface, Names holds the method name and Type is its
-// *FuncType.
+// *FuncType. A record member `..R` that includes the fields of the record R
+// (types.md, Structs 7) has Include set, Dots at its `..`, no Names, and R
+// as its Type.
 type Field struct {
-	Doc   *CommentGroup
-	Names []*Ident
-	Type  Expr
-	Any   Pos
+	Doc     *CommentGroup
+	Names   []*Ident
+	Type    Expr
+	Any     Pos
+	Include bool
+	Dots    Pos
 }
 
 func (f *Field) Pos() Pos {
+	if f.Include {
+		return f.Dots
+	}
 	if len(f.Names) > 0 {
 		return f.Names[0].Pos()
 	}

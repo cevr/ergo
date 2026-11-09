@@ -16,3 +16,13 @@ type Store {
 	Find(id string) Order fails NotFound | Unavailable needs Clock,
 	Put(id string, o Order),
 }
+
+// Included records (types.md, Structs 7).
+type Visit { ..Owned, S Session }
+
+type Listing[T] {
+	..Page[T],
+	Title string, // the heading
+}
+
+type Kiosk = Suspended{..Owned} | Prompt{..Visit, Left int}

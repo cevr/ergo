@@ -49,6 +49,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 				c.resolveNamed(tn.Type.(*Named))
 			}
 		},
+		c.expandIncludes,
 		c.checkUnitContextNames,
 		// Expanding type instantiations are rejected before any walk
 		// expands instances (round-2 M1, M5).
@@ -806,6 +807,9 @@ func (c *checker) resolveNamed(n *Named) {
 		s := c.structType(spec, ctx)
 		s.obj = n.Obj
 		n.under = s
+		if c.includesExpanded {
+			c.expandInclude(n)
+		}
 	case *syntax.InterfaceType:
 		if len(spec.Union) > 0 {
 			n.under = c.unionType(n, spec, ctx)
@@ -877,6 +881,12 @@ func (c *checker) structType(spec *syntax.StructType, ctx *typeCtx) *Struct {
 		t := c.typExpr(field.Type, ctx)
 		if c.taskRefused(field.Type, t) {
 			t = invalid
+		}
+		if field.Include {
+			if n := c.includeTarget(field, t); n != nil {
+				s.includes = append(s.includes, &include{member: field, at: len(s.Fields), target: n})
+			}
+			continue
 		}
 		for _, name := range field.Names {
 			if seen[name.Name] && name.Name != "_" {

@@ -1196,13 +1196,7 @@ func (c *checker) checkPkgVar(pv *pkgVar) {
 		if pv.spec.Type == nil {
 			c.untypedLet(pv.spec.Names[pv.idx])
 		}
-		if declared != nil && !isInvalid(declared) && !defaultable(declared) {
-			c.errorf(pv.spec.Names[pv.idx], CodeType, "let %s of type %s needs a value: %s has no zero value (types.md, Zero values 3)", pv.obj.Name, declared, declared)
-		} else if declared != nil && !isInvalid(declared) {
-			if a := zeroAuthority(declared, c.pkg); a != nil {
-				c.errorf(pv.spec.Names[pv.idx], CodeAuthority, "let %s of type %s needs a value: its zero value builds a new value of %s, and %s (types.md, Zero values 6)", pv.obj.Name, c.localTypeText(declared), qualifiedName(a), authorityText(a))
-			}
-		}
+		c.letZero(pv.spec.Names[pv.idx], declared)
 		pv.obj.Type = declared
 	case len(pv.spec.Values) == len(pv.spec.Names):
 		op := c.valueExpr(pv.spec.Values[pv.idx], declared)

@@ -950,46 +950,30 @@ func (c *checker) structLit(x *syntax.CompositeLit, t Type, s *Struct, mark int)
 	if x.Base != nil {
 		return true // a record update takes every field it omits from its base
 	}
+	// A keyed literal names every field: no field takes Go's zero value
+	// in silence (types.md, Zero values 2; owner q44).
 	var missing []string
-	var held *TypeName // the authority an omitted field's zero needs
-	var heldField string
 	for _, f := range s.Fields {
-		if set[f.Name] || isInvalid(f.Type) {
-			continue
-		}
-		if !defaultable(f.Type) {
+		if !set[f.Name] && !isInvalid(f.Type) {
 			missing = append(missing, f.Name)
-		} else if a := zeroAuthority(f.Type, c.pkg); a != nil && held == nil {
-			held, heldField = a, f.Name
 		}
 	}
 	if len(missing) > 0 {
-		c.errorf(x, CodeType, "%s must set %s: a %s has no zero value (types.md, Zero values 2)", t, strings.Join(missing, ", "), kindName(s, missing[0]))
-		return false
-	}
-	if held != nil {
-		c.errorf(x, CodeAuthority, "%s must set %s: its zero value builds a new value of %s, and %s (types.md, Zero values 6)", c.localTypeText(t), heldField, qualifiedName(held), authorityText(held))
+		c.errorf(x, CodeType, "%s", missingFieldsText(t, missing))
 		return false
 	}
 	return true
 }
 
-func kindName(s *Struct, field string) string {
-	f, _ := s.field(field)
-	if f == nil {
-		return "field"
+// missingFieldsText is the S108 text of a keyed literal of t that does not
+// set the fields missing, with the two fixes: name each one, or copy them
+// from a value with a record update.
+func missingFieldsText(t Type, missing []string) string {
+	them := "it"
+	if len(missing) > 1 {
+		them = "them"
 	}
-	switch under(f.Type).(type) {
-	case *Union:
-		return "union"
-	case *Interface:
-		return "interface value"
-	case *Signature:
-		return "function value"
-	case *Struct:
-		return "struct of non-defaultable fields"
-	}
-	return f.Type.String()
+	return fmt.Sprintf("%s{…} does not set %s: a record literal names every field; write %s: …, or copy %s from a value with %s{..v, …} (types.md, Zero values 2)", t, strings.Join(missing, ", "), missing[0], them, t)
 }
 
 // strayValue checks a value that a struct literal's refusal route skips (an

@@ -31,9 +31,9 @@ func Checkout(amount int64) Receipt fails Declined | timeout.Expired needs Payme
 func Purchase(amount int64) string needs Payments | Scheduler {
 	let receipt = Checkout(amount) catch {
 	case Declined:
-		Receipt{ID: "declined"}
+		Receipt{ID: "declined", Amount: 0}
 	case timeout.Expired:
-		Receipt{ID: "timed-out"}
+		Receipt{ID: "timed-out", Amount: 0}
 	}
 	receipt.ID
 }

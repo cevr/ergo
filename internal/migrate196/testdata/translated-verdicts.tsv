@@ -67,7 +67,7 @@ proto/probes/provider-helper.sketch	S108 S108
 proto/probes/provider-parameter.sketch	S106 S108 S108
 proto/probes/provider-scheduler.sketch	S106 S108
 proto/probes/receiver-parameter.sketch	S108 S108
-proto/probes/recursive-product.sketch	S108 S109
+proto/probes/recursive-product.sketch	S108 S108 S109
 proto/probes/recursive-sum-ok.sketch	S108 S109
 proto/probes/same-local-as-cap.sketch	OK
 proto/probes/shadow-unused.sketch	S108

@@ -167,10 +167,11 @@ var lawFacts = []lawFact{
 	{name: "adapter", canary: "opsSq4AsShape4",
 		decls: "type Shape4 {\n\tArea() int,\n}\n\ntype Sq4 {}\n\nfunc Area(_ Sq4) int {\n\t4\n}\n",
 		law:   "law L() {\n\t\tlet s Shape4 = Sq4\n\t\ts.Area() == 4\n\t}"},
-	// A let without a value of a record holding a Map needs a default.
+	// A let without a value of a defined type holding a Map needs a
+	// default (a record has none: types.md, Zero values 3).
 	{name: "default-map", canary: "ergoDefaultReg5",
-		decls: "type Reg5 { M Map[string, int] }\n",
-		law:   "law L(k string) {\n\t\tlet mut r Reg5\n\t\tr.M[k] = 5\n\t\tlen(r.M) == 1\n\t}"},
+		decls: "type Reg5 (int, Map[string, int])\n",
+		law:   "law L(k string) {\n\t\tlet r Reg5\n\t\tlet (_, m) = r\n\t\tlet mut w = m\n\t\tw[k] = 5\n\t\tlen(w) == 1\n\t}"},
 	// A generic record and function instantiated only by a law.
 	{name: "generic-instance",
 		decls: "type Box6[T] { V T }\n\nfunc wrap6[T](v T) Box6[T] {\n\tBox6{V: v}\n}\n",
@@ -191,11 +192,11 @@ var lawFacts = []lawFact{
 	// with the law.
 	{name: "library-import", canary: "WithCapacity", imports: "import slices\n\n",
 		law: "law L(s string) {\n\t\tlet xs = slices.WithCapacity[int](len(s))\n\t\tlen(xs) == 0\n\t}"},
-	// A tuple type only a law uses, holding a record whose default holds a
-	// Map: a build that walks the tuple reserves the default's name.
+	// A tuple type only a law uses, holding a defined type whose default
+	// holds a Map: a build that walks the tuple reserves the default's name.
 	{name: "tuple", canary: "ergoDefaultReg12",
-		decls: "type Reg12 { M Map[string, int] }\n",
-		law:   "law L(n int, s string) {\n\t\tlet p = (n, s, Reg12{})\n\t\tlet (a, b, r) = p\n\t\ta == n && b == s && len(r.M) == 0\n\t}"},
+		decls: "type Reg12 (int, Map[string, int])\n",
+		law:   "law L() {\n\t\tlet p (int, string, Reg12)\n\t\tlet (a, b, r) = p\n\t\tlet (_, m) = r\n\t\ta == 0 && b == \"\" && len(m) == 0\n\t}"},
 	// A package let only a law reads.
 	{name: "package-let",
 		decls: "let Limit13 = 13\n",

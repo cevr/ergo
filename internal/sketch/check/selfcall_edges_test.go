@@ -94,7 +94,7 @@ func main() {}
 func H() { try h() }
 func h() { try mk().knock() }
 func K() fails Bang { try h() }
-func mk() Door { return Door{} }
+func mk() Door { return Door{open: false} }
 func knock(d Door) { try fail() }
 func fail() fails Bang { return Bang }
 type Door { open bool }
@@ -110,7 +110,7 @@ func h(ds []Door, w Wrap) {
 	try w.door.knock()
 }
 func K(ds []Door, w Wrap) fails Bang { try h(ds, w) }
-func mk() Door { return Door{} }
+func mk() Door { return Door{open: false} }
 func knock(d Door) { try fail() }
 func fail() fails Bang { return Bang }
 type Wrap { door Door }

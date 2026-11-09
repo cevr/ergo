@@ -58,10 +58,11 @@ var ownerFacts = []ownerFact{
 	{name: "adapter", marker: "opsSq4AsShape4",
 		decls: "type Shape4 {\n\tArea() int,\n}\n\ntype Sq4 {}\n\nfunc Area(_ Sq4) int {\n\t4\n}\n",
 		test:  "test T {\n\tlet s Shape4 = Sq4\n\tassert s.Area() == 4\n}\n"},
-	// A let without a value of a record holding a Map needs a default.
+	// A let without a value of a defined type holding a Map needs a
+	// default (a record has none: types.md, Zero values 3).
 	{name: "default-map", marker: "ergoDefaultReg5",
-		decls: "type Reg5 { M Map[string, int] }\n",
-		test:  "test T {\n\tlet mut r Reg5\n\tr.M[\"a\"] = 5\n\tassert len(r.M) == 1\n}\n"},
+		decls: "type Reg5 (int, Map[string, int])\n",
+		test:  "test T {\n\tlet r Reg5\n\tlet (_, m) = r\n\tlet mut w = m\n\tw[\"a\"] = 5\n\tassert len(w) == 1\n}\n"},
 	// A generic record and function instantiated only by a test.
 	{name: "generic-instance",
 		decls: "type Box6[T] { V T }\n\nfunc wrap6[T](v T) Box6[T] {\n\tBox6{V: v}\n}\n",

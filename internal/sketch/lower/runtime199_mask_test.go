@@ -880,7 +880,7 @@ func Close(c Conn) {
 }
 
 func main() {
-	Close(Conn{})
+	Close(Conn{Fail: false})
 }
 `
 	o := mustLower(t, "externClose", src)

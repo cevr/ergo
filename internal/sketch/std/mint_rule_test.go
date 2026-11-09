@@ -14,15 +14,14 @@ import (
 type mintBuild struct{ name, pre, expr string }
 
 // mintBuilds are the build forms of a record with authority (check.Mints:
-// literal, record update, conversion, an omitted field's zero value, a
-// let's zero value, an elided literal). A bare record and a constant
+// literal, record update, conversion, an elided literal; a record has no
+// zero value, so no let or omitted field builds one: types.md, Zero values
+// 2 and 3). A bare record and a constant
 // build a type that holds no authority; TestMintsEachForm has their rows.
 var mintBuilds = []mintBuild{
 	{"literal", "", `Host{root: "/"}`},
 	{"record update", "", `Host{..Host{root: "/"}, root: "x"}`},
 	{"conversion", "", `Host(Host{root: "/"})`},
-	{"omitted field's zero value", "", `Wrap{N: 1}.H`},
-	{"let's zero value", "let z Host", "z"},
 	{"elided literal", "", `[]Host{{root: "/"}}[0]`},
 }
 
@@ -95,8 +94,6 @@ type Reader { Get() int }
 func Get(_ Host) int { 1 }
 
 type Box { H Host }
-
-type Wrap { H Host, N int }
 
 type Other { n int }
 

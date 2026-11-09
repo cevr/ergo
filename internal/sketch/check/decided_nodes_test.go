@@ -192,6 +192,12 @@ type E {}
 func f() P { _ = E; return P{X: 1, Y: 2} }
 func main() {}
 `, nil},
+	{"record type", "a record includes another's fields", `
+type P { X int, Y int }
+type Q { ..P, Z int }
+func f() Q { return Q{X: 1, Y: 2, Z: 3} }
+func main() {}
+`, nil},
 	{"operation type", "an operation type as a capability", `
 type Log { Write(s string) }
 func f() needs Log { Log.Write("x") }
