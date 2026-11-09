@@ -1,5 +1,5 @@
 // The search's rules over the live actor: each law plays a script of keys
-// against the search on a fresh manual clock, with Shelf as the catalogue.
+// against the search on a fresh manual clock, with Listing as the index.
 // The runner's own rules (one work at a time, no result of an ended entry
 // stepped) are std actor's, held by its model and property (MU4); no edit
 // of this program can break them.
@@ -37,7 +37,7 @@ func millis(n int) duration { duration(int64(n) * 1000000) }
 
 func play(s script.Script) []string {
 	let clock = time.NewManual(0)
-	with context { search.Catalog: Shelf, Scheduler: clock } {
+	with context { search.Index: Listing, Scheduler: clock } {
 		script.Play(s, clock)
 	}
 }
@@ -50,7 +50,7 @@ law HitsForLatestQuery(gaps []int) {
 		return true
 	}
 	let text = strings.Slice(word, 0, len(s.Trace))
-	let hits = Find(Shelf, text) catch {
+	let hits = Find(Listing, text) catch {
 	case search.IndexDown:
 		return false
 	}
@@ -60,7 +60,7 @@ law HitsForLatestQuery(gaps []int) {
 			last = l
 		}
 	}
-	strings.HasSuffix(last, search.Name(search.Showing{Query: text, Hits: hits, Cart: []search.Item{}}))
+	strings.HasSuffix(last, search.Name(search.Showing{Query: text, Hits: hits, Pins: []search.Entry{}}))
 }
 
 // DebounceCoalesces: a key restarts the pause, so the search runs once

@@ -1,15 +1,15 @@
 # two keys within the pause: one search of "pe", from 350; the memory
-# catalogue answers at once
+# index answers at once
 @0 key p
 @100 key e
-@1000 choose 2
+@1000 pin 2
 # hit 9 is not on the screen
-@1200 choose 9
+@1200 pin 9
 @1300 clear
 @1400 key a
 # "a" is searched from 1650 and shown; the key at 1700 types on, and
 # "ap" is searched from 1950
 @1700 key p
-@2500 choose 1
-@2700 checkout
+@2500 pin 1
+@2700 open
 @3000 end

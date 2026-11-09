@@ -1,19 +1,19 @@
 @0 idle
 @0 typing "ea"
 @250 searching "ea"
-@250 showing "ea": Bread, Pear, Peach, Pineapple
+@250 showing "ea": Bread.md, Pear.md, Peach.md, Pineapple.md
 @250 ! shown "ea": 4 hits
-@1000 showing "ea": Bread, Pear, Peach, Pineapple
-@1000 ! put Bread in the cart
-@1200 showing "ea": Bread, Pear, Peach, Pineapple
-@1200 ! put Pear in the cart
-@1400 showing "ea": Bread, Pear, Peach, Pineapple
-@1400 ! put Peach in the cart
-@1600 problem: the cart is full
-@1800 showing "ea": Bread, Pear, Peach, Pineapple
+@1000 showing "ea": Bread.md, Pear.md, Peach.md, Pineapple.md
+@1000 ! pinned Bread.md
+@1200 showing "ea": Bread.md, Pear.md, Peach.md, Pineapple.md
+@1200 ! pinned Pear.md
+@1400 showing "ea": Bread.md, Pear.md, Peach.md, Pineapple.md
+@1400 ! pinned Peach.md
+@1600 problem: the pins are full
+@1800 showing "ea": Bread.md, Pear.md, Peach.md, Pineapple.md
 @1900 idle
 @2000 typing "watermelonpie"
 @2250 searching "watermelonpie"
 @2250 problem: the index is down
 @2800 showing "watermelonpie": no hits
-@2900 ! order: Bread, Pear, Peach
+@2900 ! opened: Bread.md, Pear.md, Peach.md

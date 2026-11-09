@@ -1,34 +1,34 @@
-// Package search is search as you type over a catalogue, with a pause
-// before each search, last-query-wins, and adding a hit to a cart. The
+// Package search is search as you type over a index, with a pause
+// before each search, last-query-wins, and adding a hit to the pins. The
 // machine is pure; its timer and its work (the search) are members, and
 // the actor runner runs them (MU4).
 
 import strings
 
-// Item is an item of the catalogue.
-type Item { Name string, Price int }
+// Entry is an entry of the index.
+type Entry { Name string, Size int }
 
-// IndexDown is a search the catalogue cannot answer.
+// IndexDown is a search the index cannot answer.
 type IndexDown { Query string }
 
-// Catalog is the contract of the catalogue the search reads.
-type Catalog {
-	All() []Item,
-	Find(query string) []Item fails IndexDown,
+// Index is the contract of the index the search reads.
+type Index {
+	All() []Entry,
+	Find(query string) []Entry fails IndexDown,
 
-	// Every hit is an item of the catalogue whose name holds the query,
+	// Every hit is an entry of the index whose name holds the query,
 	// in any case.
 	law FindIsSubset(n int, k int) { FindIsSubset(n, k) },
 
-	// The hits keep the order of the catalogue. (A provider has no state
+	// The hits keep the pinned entries of the index. (A provider has no state
 	// (M23), so the same query always has the same answer; this is the
 	// stability a law can break.)
 	law FindIsStable(n int, k int) { FindIsStable(n, k) },
 }
 
-// Probe is a query the laws draw from the catalogue: one or two letters
-// of the name of an item, so that it has hits.
-func Probe(all []Item, n int, k int) string {
+// Probe is a query the laws draw from the index: one or two letters
+// of the name of an entry, so that it has hits.
+func Probe(all []Entry, n int, k int) string {
 	if len(all) == 0 {
 		return "x"
 	}
@@ -42,12 +42,12 @@ func Probe(all []Item, n int, k int) string {
 
 func pick(n int, count int) int { ((n % count) + count) % count }
 
-// FindIsSubset is the law FindIsSubset of the Catalog in the context, as
+// FindIsSubset is the law FindIsSubset of the Index in the context, as
 // a function, which memory's tests also call.
-func FindIsSubset(n int, k int) bool needs Catalog {
-	let all = Catalog.All()
+func FindIsSubset(n int, k int) bool needs Index {
+	let all = Index.All()
 	let query = Probe(all, n, k)
-	let hits = Catalog.Find(query) catch {
+	let hits = Index.Find(query) catch {
 	case IndexDown:
 		return true
 	}
@@ -60,10 +60,10 @@ func FindIsSubset(n int, k int) bool needs Catalog {
 }
 
 // FindIsStable is the law FindIsStable as a function: each hit comes
-// later in the catalogue than the hit before it.
-func FindIsStable(n int, k int) bool needs Catalog {
-	let all = Catalog.All()
-	let hits = Catalog.Find(Probe(all, n, k)) catch {
+// later in the index than the hit before it.
+func FindIsStable(n int, k int) bool needs Index {
+	let all = Index.All()
+	let hits = Index.Find(Probe(all, n, k)) catch {
 	case IndexDown:
 		return true
 	}
@@ -84,24 +84,24 @@ func FindIsStable(n int, k int) bool needs Catalog {
 }
 
 // Matches reports whether the name of it holds the query, in any case.
-func Matches(it Item, query string) bool {
+func Matches(it Entry, query string) bool {
 	strings.Contains(strings.ToLower(it.Name), strings.ToLower(query))
 }
 
-func holds(items []Item, it Item) bool {
-	for x in items {
-		if x.Name == it.Name && x.Price == it.Price {
+func holds(entries []Entry, it Entry) bool {
+	for x in entries {
+		if x.Name == it.Name && x.Size == it.Size {
 			return true
 		}
 	}
 	false
 }
 
-// Names is the names of items, as one text to compare: Ergo has no == on
+// Names is the names of entries, as one text to compare: Ergo has no == on
 // slices (M29).
-func Names(items []Item) string {
+func Names(entries []Entry) string {
 	let mut out = []string{}
-	for it in items {
+	for it in entries {
 		out = out.Append(it.Name)
 	}
 	strings.Join(out, ", ")

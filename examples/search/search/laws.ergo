@@ -1,27 +1,27 @@
 // The step's own rules, as top-level laws over Step. MU6 machine laws
 // landed beside this program; moving these into Finder is a follow-up.
-// The live laws are in memory, where the catalogue is.
+// The live laws are in memory, where the index is.
 
-// CartHoldsRoom: a chosen hit goes into the cart and is told, unless the
-// cart holds Room items; then the screen shows the problem.
-law CartHoldsRoom(n int) {
+// PinsHoldRoom: a hit is pinned and told, unless the
+// pins hold Room entries; then the screen shows the problem.
+law PinsHoldRoom(n int) {
 	let have = ((n % 5) + 5) % 5
-	let mut cart = []Item{}
+	let mut pins = []Entry{}
 	for i in 0..have {
-		cart = cart.Append(Item{Name: "x\(i)", Price: i})
+		pins = pins.Append(Entry{Name: "x\(i)", Size: i})
 	}
-	let hits = []Item{Item{Name: "Pear", Price: 150}}
-	let d = Step(Showing{Query: "pe", Hits: hits, Cart: cart}, Choose{Hit: 1}) catch {
+	let hits = []Entry{Entry{Name: "Pear.md", Size: 150}}
+	let d = Step(Showing{Query: "pe", Hits: hits, Pins: pins}, Pin{Hit: 1}) catch {
 	case NoSuchHit:
 		return false
 	}
 	match d {
 	case Emit[Search, Output] as e:
-		have < Room && len(CartOf(e.Next)) == have+1 && e.Output == Put{Name: "Pear"}
+		have < Room && len(PinsOf(e.Next)) == have+1 && e.Output == Pinned{Name: "Pear.md"}
 	case Enter[Search] as en:
 		match en.Next {
 		case Problem as p:
-			have >= Room && len(p.Cart) == have
+			have >= Room && len(p.Pins) == have
 		case _:
 			false
 		}
