@@ -225,6 +225,13 @@ type Info struct {
 	// receiver; and an instantiation used as a value, Max[int], keyed by
 	// the *syntax.IndexExpr. Added in check-v1 stage E1 (additive).
 	Instances map[syntax.Expr]*Instance
+	// ReturnedValues is every expression a return or a function body's
+	// tail gives back whose type is an error type, true when the
+	// function's declared result makes it the success value and false
+	// when it is a failure (K1, fs1; rows.md, Error rows 4). The checker
+	// decides it by type identity; the lowering reads it and never
+	// compares types again (batch-12 M1: two packages named errs).
+	ReturnedValues map[syntax.Expr]bool
 }
 
 // Instance is one instantiation of a generic function.
@@ -298,6 +305,8 @@ func newInfo() *Info {
 		TaskResults:   map[*Func]bool{},
 		Footprints:    map[syntax.Node]Footprint{},
 		Instances:     map[syntax.Expr]*Instance{},
+
+		ReturnedValues: map[syntax.Expr]bool{},
 	}
 }
 
