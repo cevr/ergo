@@ -51,10 +51,47 @@ func (h *Handle[T]) run(body func(*Task) (T, error)) {
 	h.value, h.err = Run(&h.task, body)
 }
 
-// finish detaches the task and publishes the exit that Run settled.
+// finish detaches the task and publishes the exit that Run settled. In an
+// auto clock's domain the waiter's join is unparked in the step that
+// closes done, and the task leaves the domain after it. The waiter is the
+// parent, the only task that waits for done; detach clears the link, so
+// it is read first.
 func (h *Handle[T]) finish() {
+	waiter := h.task.parent.Load()
 	h.task.detach()
+	m := waiter.waking(h)
 	close(h.done)
+	m.unlock()
+	if own := h.task.member.Load(); own != nil {
+		own.leave()
+	}
+}
+
+// finished reports whether the task has finished.
+func (h *Handle[T]) finished() bool {
+	select {
+	case <-h.done:
+		return true
+	default:
+		return false
+	}
+}
+
+// join waits, uninterruptibly, until the task has finished, parked on h
+// when w, the waiter, is in an auto clock's domain.
+func (h *Handle[T]) join(w *Task) {
+	m := h.park(w, nil)
+	<-h.done
+	m.unpark()
+}
+
+// park parks w, the waiter, on h and on stop when w is in an auto
+// clock's domain, and returns nil otherwise, with no allocation.
+func (h *Handle[T]) park(w *Task, stop <-chan struct{}) *member {
+	if w.member.Load() == nil {
+		return nil
+	}
+	return park(w, h, nil, stop, h.finished)
 }
 
 // Task is the started task, for its ID and span.
@@ -70,10 +107,13 @@ func (h *Handle[T]) Wait() (T, error) {
 	owner := h.owner
 	h.consumed, h.owner = true, nil
 	if !owner.Stopped() {
+		stop := owner.Done()
+		m := h.park(owner, stop)
 		select {
 		case <-h.done:
-		case <-owner.Done():
+		case <-stop:
 		}
+		m.unpark()
 		// Done closes only on a stop the owner can observe, so an owner that
 		// is still not stopped was woken by the task finishing.
 		if !owner.Stopped() {
@@ -84,7 +124,7 @@ func (h *Handle[T]) Wait() (T, error) {
 		}
 	}
 	h.task.Interrupt()
-	<-h.done
+	h.join(owner)
 	if h.task.trace != nil {
 		h.task.traceForget()
 	}
@@ -109,7 +149,7 @@ func (h *Handle[T]) Stop() error {
 	owner := h.owner
 	h.consumed, h.owner = true, nil
 	h.task.Interrupt()
-	<-h.done
+	h.join(owner)
 	if h.task.trace != nil {
 		h.task.childEvent(TraceObserve, owner, false)
 	}

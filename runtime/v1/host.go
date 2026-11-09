@@ -2,6 +2,7 @@ package v1
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"io"
 	"io/fs"
@@ -13,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+
+	"ergo.local/prototype/runtime/rt"
 )
 
 // The bodies of std os (docs/spec/stdlib.md, host packages). Each is a
@@ -417,9 +420,9 @@ func FSRemove(path string) error {
 // The bodies of std io (docs/spec/stdlib.md, io). Each writes or reads a
 // standard stream of the host process, so none is pure. A write is one
 // unbuffered WriteString, as Console.Println is, so writes of Console and
-// io keep program order. A read of standard input waits for the host and
-// cannot be stopped: it is an uninterruptible host wait, as a read of a
-// file is.
+// io keep program order. A read of standard input waits for the host on
+// the caller's task, and a stop of that task ends the wait (io 3; batch-12
+// C3); a read of a file is still an uninterruptible host wait.
 
 // ReadFailed is io.ReadFailed: a read of standard input failed. It is a
 // record of a v1 package, so the lowering binds io.ReadFailed to this Go
@@ -450,34 +453,126 @@ func IOIsTerminal() bool {
 	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
-// IOReadAll is the body of io.Host's ReadAll: the rest of standard input,
-// from where the last read stopped.
-func IOReadAll() (string, error) {
-	return stdinReader().readAll()
+// IOReadAll is the body of io.Host's ReadAll on t, the caller's task: the
+// rest of standard input, from where the last read stopped. A stop of t
+// ends the wait and raises rt.Interrupted; the text it had read stays for
+// the next read (stdlib.md, io 3).
+func IOReadAll(t *rt.Task) (string, error) {
+	return stdinReader().readAll(t)
 }
 
-// IOLines is the body of io.Host's Lines: the rest of standard input, one
-// line at a time, each without its line feed; a last line with no line
-// feed is a line. A line has no length limit (bufio.Reader, not
-// bufio.Scanner). A read failure other than the end of the input panics:
-// a Seq has no failure row, and ending it early would hide the failure.
-// A break leaves the rest of the input in the shared reader for the next
-// read.
-func IOLines() iter.Seq[string] {
-	return stdinReader().lines()
+// IOLines is the body of io.Host's Lines on t, the iterating task: the
+// rest of standard input, one line at a time, each without its line feed;
+// a last line with no line feed is a line. A line has no length limit
+// (bufio.Reader, not bufio.Scanner). A read failure other than the end of
+// the input panics: a Seq has no failure row, and ending it early would
+// hide the failure. A break leaves the rest of the input in the shared
+// reader for the next read. Each step is an interruption point of t: a
+// stop ends the wait for the next line and raises rt.Interrupted, and the
+// line read after the stop stays for the next read.
+func IOLines(t *rt.Task) iter.Seq[string] {
+	return stdinReader().lines(t)
 }
 
 // lineReader is one buffered reader that every read of its input goes
 // through, so a read starts where the one before it stopped: the bytes
-// that the buffer read ahead stay for the next read. Its lock makes each
-// read whole when two tasks read at once.
+// that the buffer read ahead stay for the next read.
+//
+// A read that may wait on the host runs on a goroutine of its own, at most
+// one at a time (reading), so the waiting task can leave on a stop while
+// the read goes on: the line it lands goes to pending, which the next read
+// takes first, so no byte is lost and the order holds. A line that the
+// buffer holds whole is read in place, since that read cannot wait. Its
+// lock makes each line whole when two tasks read at once. Prior art: Go's
+// reader goroutine with a select on its channel and ctx.Done(); Effect's
+// Terminal.readInput, a stream that interruption ends.
 type lineReader struct {
-	mu sync.Mutex
-	br *bufio.Reader
+	mu      sync.Mutex
+	br      *bufio.Reader // read by the reading goroutine alone while reading
+	pending []string      // the lines read and not taken, each with its line feed if it had one
+	err     error         // the read error after pending, taken once (io.EOF at the end)
+	reading bool          // a read goroutine is out
+	landed  chan struct{} // closed when the read out lands
 }
 
 func newLineReader(r io.Reader) *lineReader {
 	return &lineReader{br: bufio.NewReader(r)}
+}
+
+// next is the next line, with its line feed if it has one, or the read
+// error (io.EOF at the end of the input). ok is false when stop closes
+// first: then nothing is taken.
+func (l *lineReader) next(stop <-chan struct{}) (line string, err error, ok bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for {
+		switch {
+		case len(l.pending) > 0:
+			line = l.pending[0]
+			l.pending = l.pending[1:]
+			return line, nil, true
+		case l.err != nil:
+			err, l.err = l.err, nil
+			return "", err, true
+		case !l.reading && l.whole():
+			line, err = l.br.ReadString('\n')
+			return line, err, true
+		case !l.reading:
+			l.reading = true
+			l.landed = make(chan struct{})
+			go l.read()
+		}
+		landed := l.landed
+		l.mu.Unlock()
+		select {
+		case <-landed:
+		case <-stop:
+			l.mu.Lock()
+			return "", nil, false
+		}
+		l.mu.Lock()
+	}
+}
+
+// whole reports whether the buffer holds a whole line, so a read cannot
+// wait. l.mu is held and no read is out.
+func (l *lineReader) whole() bool {
+	b, _ := l.br.Peek(l.br.Buffered())
+	return bytes.IndexByte(b, '\n') >= 0
+}
+
+// read is the read goroutine: it reads one line, which may wait on the
+// host, and lands it.
+func (l *lineReader) read() {
+	line, err := l.br.ReadString('\n')
+	l.mu.Lock()
+	if line != "" {
+		l.pending = append(l.pending, line)
+	}
+	l.err = err
+	l.reading = false
+	close(l.landed)
+	l.mu.Unlock()
+}
+
+// unread puts text, read and not delivered, back in front of the lines
+// not taken, one line each.
+func (l *lineReader) unread(text string) {
+	if text == "" {
+		return
+	}
+	var lines []string
+	for text != "" {
+		i := strings.IndexByte(text, '\n') + 1
+		if i == 0 {
+			i = len(text)
+		}
+		lines = append(lines, text[:i])
+		text = text[i:]
+	}
+	l.mu.Lock()
+	l.pending = append(lines, l.pending...)
+	l.mu.Unlock()
 }
 
 // stdin is the process's one lineReader over os.Stdin, and stdinFile the
@@ -499,40 +594,43 @@ func stdinReader() *lineReader {
 	return stdin
 }
 
-// readAll is the rest of the input.
-func (l *lineReader) readAll() (string, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	data, err := io.ReadAll(l.br)
-	if err != nil {
-		return "", ReadFailed{Reason: fsReason(err)}
+// readAll is the rest of the input, read on t. A stop of t puts back what
+// it read and raises rt.Interrupted.
+func (l *lineReader) readAll(t *rt.Task) (string, error) {
+	t.Check()
+	stop := t.Done()
+	var b strings.Builder
+	for {
+		line, err, ok := l.next(stop)
+		if !ok {
+			l.unread(b.String())
+			panic(rt.Interrupted)
+		}
+		b.WriteString(line)
+		switch {
+		case err == io.EOF:
+			return b.String(), nil
+		case err != nil:
+			return "", ReadFailed{Reason: fsReason(err)}
+		}
 	}
-	return string(data), nil
 }
 
-// readLine is the next line with its line feed, if it has one.
-func (l *lineReader) readLine() (string, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.br.ReadString('\n')
-}
-
-// lines is the rest of the input, as IOLines gives it.
-func (l *lineReader) lines() iter.Seq[string] {
+// lines is the rest of the input, as IOLines gives it, read on t.
+func (l *lineReader) lines(t *rt.Task) iter.Seq[string] {
 	return func(yield func(string) bool) {
 		for {
-			line, err := l.readLine()
-			if err != nil && err != io.EOF {
+			t.Check()
+			line, err, ok := l.next(t.Done())
+			switch {
+			case !ok:
+				panic(rt.Interrupted)
+			case err == io.EOF:
+				return
+			case err != nil:
 				panic("io.Stdin.Lines: " + err.Error())
 			}
-			if strings.HasSuffix(line, "\n") {
-				if !yield(line[:len(line)-1]) {
-					return
-				}
-			} else if line != "" && !yield(line) {
-				return
-			}
-			if err == io.EOF {
+			if !yield(strings.TrimSuffix(line, "\n")) {
 				return
 			}
 		}

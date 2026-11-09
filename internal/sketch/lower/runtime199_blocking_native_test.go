@@ -31,6 +31,9 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 		}
 		switch binding.wait {
 		case noWait:
+		case memberTask:
+			// It records the caller as a member of an auto clock and never
+			// parks; runtime/v1 TestVirtualClockModel states its laws.
 		case childWait:
 			// A child join parks on no primitive of its own: its stop, mask
 			// and drain laws are the runtime/v1 tests of its body, which
@@ -64,15 +67,26 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 // the caller is the interruption, both children drained),
 // TestAfterMaskedCaller (a masked caller runs After to its end, the stop
 // pending), TestAfterBodyFirst and TestAfterDeadlineFromScheduler (no
-// child outlives the call).
-var childWaitLaws = map[string]bool{"After": true}
+// child outlives the call); and runtime/v1/tasks_test.go for
+// TasksTransform: TestTransformCallerStopped (a stop of the caller is the
+// interruption, the calls drained; a masked caller runs to its end) and
+// TestTransformModel (no call outlives the map); for TasksRace, which waits
+// through the same rt ends line, TestRaceModel (every block has ended and
+// run its exit action when Race returns).
+var childWaitLaws = map[string]bool{"After": true, "TasksTransform": true, "TasksRace": true}
 
 // hostWaitLaws are the callerWait bindings that wait for a host process
 // (std-align S3c): runtime/v1/exec_test.go TestExecStopModel states their
 // laws (a stop before the call starts nothing, a stop while the program
 // runs kills its group and returns after the reap, a masked caller runs
 // it to its end), and lower TestExecRuns stops a task that waits in one.
-var hostWaitLaws = map[string]bool{"ExecRun": true}
+// The reads of standard input wait for the host's input (batch-12 C3):
+// runtime/v1/stdin_stop_test.go TestIOStdinStopModel states their laws (a
+// stop ends the wait, each line is taken once and in order, the line read
+// after a stop stays for the next read); a masked caller's Done is nil, so
+// its read runs to its end; lower TestStdinStopRuns stops a task that waits
+// in Lines.
+var hostWaitLaws = map[string]bool{"ExecRun": true, "IOReadAll": true, "IOLines": true}
 
 // blockingRoutes is the route axis of a binding (runtime.md, I1): the
 // waiting task of a callerWait binding is the task that invokes the call,
@@ -300,7 +314,7 @@ func deliveredNative(t *testing.T, src string) {
 		if f.Path == "ergo/runtime/v1/queue.go" {
 			// Pop and Values each take through this line; the seam must
 			// reach both, so a drift fails here.
-			from := "v, ok := q.take(t.Done())"
+			from := "v, ok := q.take(t, t.Done())"
 			if n := strings.Count(string(data), from); n != 2 {
 				t.Fatalf("delivery seam %q occurs %d times, want 2 (Pop, Values)", from, n)
 			}

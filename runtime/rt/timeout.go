@@ -48,7 +48,7 @@ func AfterSpan[T any](t *Task, s Scheduler, d time.Duration, span string, body f
 		m := t.Mask()
 		if h != nil && !joined {
 			h.task.Interrupt()
-			<-h.done
+			h.join(t)
 			if h.task.trace != nil {
 				h.task.traceForget()
 			}
@@ -66,8 +66,11 @@ func AfterSpan[T any](t *Task, s Scheduler, d time.Duration, span string, body f
 	}()
 	timer = s.NewTimer(d)
 	h = spawn(t, span, false, body)
+	stop := t.Done()
+	m := raceParked(t, h, timer, stop)
 	select {
 	case <-h.done:
+		m.unpark()
 		joined = true
 		if h.task.trace != nil {
 			h.task.childEvent(TraceObserve, t, true)
@@ -75,20 +78,22 @@ func AfterSpan[T any](t *Task, s Scheduler, d time.Duration, span string, body f
 		c.Add(h.err)
 		v = h.value
 	case <-timer.C():
+		m.unpark()
 		if h.task.trace != nil {
 			h.task.childEvent(TraceDeadline, t, false)
 		}
 		h.task.Interrupt()
-		<-h.done
+		h.join(t)
 		joined = true
 		if h.task.trace != nil {
 			h.task.childEvent(TraceObserve, t, false)
 		}
 		c.Add(defectsOf(h.err))
 		c.AddFailure(Expired{})
-	case <-t.Done():
+	case <-stop:
+		m.unpark()
 		h.task.Interrupt()
-		<-h.done
+		h.join(t)
 		joined = true
 		if h.task.trace != nil {
 			h.task.traceForget()
@@ -96,6 +101,31 @@ func AfterSpan[T any](t *Task, s Scheduler, d time.Duration, span string, body f
 		c.Add(defectsOf(h.err))
 	}
 	return v, nil
+}
+
+// raceParked parks t, After's caller, on its body h and its deadline when
+// t is in an auto clock's domain and the deadline wakes its waiter
+// (WakeSource); a deadline that does not keeps t unparked, so the clock
+// does not move while the race waits on it. ready: the body has finished
+// or the deadline has passed (its C is closed).
+func raceParked[T any](t *Task, h *Handle[T], timer Timer, stop <-chan struct{}) *member {
+	if t.member.Load() == nil {
+		return nil
+	}
+	if _, ok := timer.(WakeSource); !ok {
+		return nil
+	}
+	return park(t, h, timer, stop, func() bool {
+		if h.finished() {
+			return true
+		}
+		select {
+		case <-timer.C():
+			return true // a WakeSource's C is closed when it fires
+		default:
+			return false
+		}
+	})
 }
 
 // stopTimer disarms a timer as a release: a panic in the provider's Stop is a

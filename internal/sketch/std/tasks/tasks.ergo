@@ -1,0 +1,147 @@
+// Package tasks runs a function over many values at once (docs/spec/
+// stdlib.md, Tasks; #207). Transform is the first: Effect's Effect.forEach
+// with { concurrency }, Go's errgroup.Group with SetLimit. Its name is
+// slices.Transform's, the concurrent form of it: Map is the prelude's type,
+// which no package redeclares (#196). Race is Effect's raceAll. Set is
+// runtime.md G4's.
+
+import scope
+import sync
+import testing
+import time
+
+// Race runs each block on a task of its own, and the first block to end
+// decides: Race gives its value, or fails with its failure. The other
+// blocks are stopped, and Race returns only after each has ended, its exit
+// actions included. Blocks that end at the same instant, before the stop
+// reaches them, tie, and the earliest of them in blocks wins. A loser's
+// failure is dropped; a defect in any block is raised. A stop of the
+// calling task stops every block. Race of no blocks is a defect.
+//
+// A loser may end its work before the stop reaches it, so a race of two
+// queue Pops can take a value from the losing queue and drop it. To wait
+// for whichever of two sources has a value, give the task one queue of a
+// union that every source pushes to (the inbox pattern) instead.
+func Race[T, E, R](blocks []func() T fails E needs R) T fails E needs R {
+	try race(len(blocks), func(i int) T fails E needs R { try blocks[i]() })
+}
+
+extern go ergo.local/prototype/runtime/v1.TasksRace func race[T, E, R](n int, f func(i int) T fails E needs R) T fails E needs R
+
+// Transform is f of each element of xs, in the order of xs, with each
+// call on a task of its own and at most limit calls running at once. It
+// waits for whichever call ends first: when one fails, no call starts
+// after it, the calls still running are stopped and waited for, and
+// Transform fails with that failure. Every task it starts has ended when
+// it returns. A stop of the calling task stops every call. A limit below 1
+// is a defect. The calls share f's providers, which the caller's row
+// binds.
+extern go ergo.local/prototype/runtime/v1.TasksTransform func Transform[A, B, E, R](xs []A, limit int, f func(x A) B fails E needs R) []B fails E needs R
+
+// limitOf is a limit from 1 to 4, drawn from k.
+func limitOf(k int) int { 1 + (k%4+4)%4 }
+
+// TransformEqualsLoop: with no failure, Transform gives what a loop over xs gives.
+law TransformEqualsLoop(xs []int, k int) {
+	let got = Transform(xs, limitOf(k), func(x int) int { x*3 - 1 })
+	let mut ok = len(got) == len(xs)
+	for i in 0..len(xs) {
+		ok = ok && got[i] == xs[i]*3-1
+	}
+	ok
+}
+
+// TransformKeepsOrder: the results are in the order of xs, not the order the
+// calls end. Each call sleeps longer the earlier its element, on a
+// VirtualClock, so the calls end last to first.
+law TransformKeepsOrder(xs []int, k int) {
+	let c = testing.NewVirtualClock(0)
+	with context { Scheduler: c, time.Clock: c } {
+		let n = len(xs)
+		let mut idx = []int{}
+		for i in 0..n {
+			idx = idx.Append(i)
+		}
+		let got = Transform(idx, limitOf(k), func(i int) int needs Scheduler {
+			Scheduler.Sleep(duration(int64(n - i)))
+			xs[i]
+		})
+		let mut ok = len(got) == n
+		for i in 0..n {
+			ok = ok && got[i] == xs[i]
+		}
+		ok
+	}
+}
+
+// LimitHolds: at most limit calls run at once, and limit of them do when
+// xs has that many. Each call counts itself in while it sleeps on a
+// VirtualClock, so every call started before the clock moves overlaps.
+law LimitHolds(xs []int, k int) {
+	let limit = limitOf(k)
+	let c = testing.NewVirtualClock(0)
+	let running = sync.NewRef[int](0)
+	let most = sync.NewRef[int](0)
+	with context { Scheduler: c, time.Clock: c } {
+		let got = Transform(xs, limit, func(x int) int needs Scheduler {
+			let now = sync.Modify(running, func(v int) (int, int) { (v + 1, v + 1) })
+			most.Update(func(m int) int {
+				if now > m {
+					return now
+				}
+				m
+			})
+			Scheduler.Sleep(1s)
+			running.Update(func(v int) int { v - 1 })
+			x
+		})
+		let want = if len(xs) < limit { len(xs) } else { limit }
+		len(got) == len(xs) && most.Get() == want && running.Get() == 0
+	}
+}
+
+// EarliestWins: on a VirtualClock, the block with the shortest sleep wins,
+// the earliest of them on a tie, and Race returns at that instant: the
+// longer sleeps were stopped, not waited out.
+law EarliestWins(ds []int) {
+	let c = testing.NewVirtualClock(0)
+	with context { Scheduler: c, time.Clock: c } {
+		let mut blocks = []func() int needs Scheduler{}
+		let mut best = 0
+		let mut sleeps = []int{}
+		for d in ds.Append(0) {
+			let i = len(sleeps)
+			let s = 1 + (d%5+5)%5
+			sleeps = sleeps.Append(s)
+			if s < sleeps[best] {
+				best = i
+			}
+			blocks = blocks.Append(func() int needs Scheduler {
+				Scheduler.Sleep(duration(int64(s)))
+				i
+			})
+		}
+		let start = time.Clock.Now()
+		let won = Race(blocks)
+		won == best && time.Clock.Now().Sub(start) == duration(int64(sleeps[best]))
+	}
+}
+
+// LosersStopped: Race returns after every loser has ended, its exit
+// actions included: a loser that sleeps an hour is stopped, and its
+// cleanup has run when Race returns.
+law LosersStopped(n int) {
+	let c = testing.NewVirtualClock(0)
+	let cleaned = sync.NewRef[int](0)
+	with context { Scheduler: c, time.Clock: c } {
+		let won = Race([]func() int needs Scheduler{
+			func() int needs Scheduler {
+				scope.OnExit() { cleaned.Update(func(v int) int { v + 1 }) }
+				Scheduler.Sleep(1h)
+				0
+			},
+			func() int needs Scheduler { n },
+		})
+		won == n && cleaned.Get() == 1
+	}
+}

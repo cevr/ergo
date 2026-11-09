@@ -32,6 +32,10 @@ type Task struct {
 	// trace is the tree's tracer, nil when tracing is off (trace.go). It is
 	// fixed before t runs, so any goroutine may read it.
 	trace *tracer
+	// member is t's place in an auto clock's domain (idle.go), nil when t
+	// is in none. It is fixed before t runs, except for the task that
+	// makes an auto clock, which sets its own.
+	member atomic.Pointer[member]
 
 	mu    sync.Mutex
 	stop  chan struct{} // made by Done on first use, closed by Interrupt
@@ -65,6 +69,7 @@ func (t *Task) init(parent *Task, span string, masked bool) {
 	t.values = parent.values
 	t.trace = parent.trace
 	t.shielded = parent.regions.shields()
+	t.join(parent)
 	if masked {
 		t.regions.push(protecting)
 	}
@@ -145,10 +150,14 @@ func (t *Task) Interrupt() {
 		if t.trace != nil {
 			t.traceTask(TraceCancelRequest, nil)
 		}
+		// A wait that ends on the stop is unparked in the step that makes
+		// the stop visible (idle.go).
+		m := t.waking(stopSource{})
 		t.stopped.Store(true)
 		if t.stop != nil {
 			close(t.stop)
 		}
+		m.unlock()
 		// Locks are taken ancestor first; detach takes only the parent's
 		// lock, so the walk cannot deadlock with a finishing child.
 		for c := t.first; c != nil; c = c.next {

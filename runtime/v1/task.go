@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"fmt"
 	"time"
 
 	"ergo.local/prototype/runtime/rt"
@@ -514,6 +515,57 @@ func After[A any](span Site, t *rt.Task, s Sleeper, d time.Duration, body func(*
 	panic("unreachable")
 }
 
+// TasksTransform is tasks.Transform(xs, limit, f) (docs/spec/stdlib.md, Tasks): f on
+// each element, each call on a child task of t, at most limit at once, the
+// results in the order of xs. span and t are the hidden site and task
+// arguments; f receives the child's task. rt.MapSpan waits for whichever
+// child ends first: the first failure stops and drains the rest and is the
+// result. A defect, in f or in a drain, is raised in the caller, as
+// Task.Wait raises it; so is an interruption of t. A limit below 1 is a
+// defect of the caller. Prior art: errgroup.Group with SetLimit; Effect's
+// Effect.forEach with { concurrency }.
+func TasksTransform[A, B any](span Site, t *rt.Task, xs []A, limit int, f func(*rt.Task, A) (B, error)) ([]B, error) {
+	if limit < 1 {
+		panic(fmt.Sprintf("tasks.Transform: limit %d is less than 1", limit))
+	}
+	out, err := rt.MapSpan(t, string(span), xs, limit, func(ct *rt.Task, a A) (B, error) {
+		return guarded(ct, func(ct *rt.Task) (B, error) { return f(ct, a) })
+	})
+	if err == nil {
+		return out, nil
+	}
+	if f, ok := rt.Failure(err); ok {
+		return nil, f
+	}
+	raise(err)
+	panic("unreachable")
+}
+
+// TasksRace is the body of tasks.Race over n blocks (docs/spec/stdlib.md,
+// Tasks): f(i) runs block i, each on a child task of t, and the first to
+// end decides; the rest are stopped and drained before it returns
+// (rt.RaceSpan). span and t are the hidden site and task arguments; f
+// receives the child's task. Race of no blocks is a defect of the caller:
+// it would never end. Prior art: Effect.raceAll; Go's select over result
+// channels and a cancel of the losers.
+func TasksRace[T any](span Site, t *rt.Task, n int, f func(*rt.Task, int) (T, error)) (T, error) {
+	if n < 1 {
+		panic("tasks.Race: no blocks to race")
+	}
+	v, err := rt.RaceSpan(t, string(span), n, func(ct *rt.Task, i int) (T, error) {
+		return guarded(ct, func(ct *rt.Task) (T, error) { return f(ct, i) })
+	})
+	if err == nil {
+		return v, nil
+	}
+	if f, ok := rt.Failure(err); ok {
+		var zero T
+		return zero, f
+	}
+	raise(err)
+	panic("unreachable")
+}
+
 // deadlines is the rt.Scheduler of one After call: each timer it arms is a
 // child of t that sleeps on the program's Scheduler.
 type deadlines struct {
@@ -532,7 +584,11 @@ func (ds deadlines) NewTimer(d time.Duration) rt.Timer {
 		return guarded(ct, func(ct *rt.Task) (struct{}, error) {
 			defer func() {
 				if !ct.Stopped() {
+					// The race's caller may be parked on this deadline in
+					// an auto clock's domain (rt idle.go).
+					w := rt.Waking(ds.t, dl)
 					close(dl.fired)
+					w.Done()
 				}
 			}()
 			ds.s.Sleep(ct, d)
@@ -549,8 +605,12 @@ type deadline struct {
 	fired chan time.Time
 }
 
-// C delivers when the deadline passes.
+// C delivers when the deadline passes: it closes.
 func (dl *deadline) C() <-chan time.Time { return dl.fired }
+
+// WakesItsWaiter marks a deadline as an rt.WakeSource: its fire wakes the
+// race's caller through rt.Waking, so the caller may park on it.
+func (dl *deadline) WakesItsWaiter() {}
 
 // Stop stops and drains the deadline child, so no child of After outlives
 // it, and reports whether the deadline had not passed. A defect of the

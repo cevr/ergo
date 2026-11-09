@@ -50,6 +50,15 @@ func NewTimeline(sec int64, nsec int64) *Timeline {
 	return &Timeline{v: rt.NewVirtual(start), start: start}
 }
 
+// NewVirtualTimeline is testing.VirtualClock's timeline: an auto clock
+// (rt.NewAuto) that reads time.Unix(sec, nsec). t, the calling task, is the
+// first member of its domain, so the time moves on its own when every task
+// of the domain waits; Advance still moves it by hand.
+func NewVirtualTimeline(t *rt.Task, sec int64, nsec int64) *Timeline {
+	start := time.Unix(sec, nsec).UTC()
+	return &Timeline{v: rt.NewAuto(t, start), start: start}
+}
+
 // Read is the timeline's time; Mono is the virtual time since the start.
 func (l *Timeline) Read() Reading {
 	n := l.v.Now()

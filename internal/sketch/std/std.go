@@ -34,6 +34,8 @@ import (
 //go:embed hex/*.ergo base64/*.ergo sha256/*.ergo crc32/*.ergo
 //go:embed machines/*.ergo
 //go:embed csv/*.ergo
+//go:embed testing/*.ergo
+//go:embed tasks/*.ergo
 var sources embed.FS
 
 // PreludePath is the package path of the prelude. No import names it: its

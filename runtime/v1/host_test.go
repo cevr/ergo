@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/runtime/rt"
 )
 
 // TestOSArgs: os.Host's Args body is the arguments after the program name,
@@ -447,7 +449,7 @@ func TestIOLinesSplit(t *testing.T) {
 	for _, s := range cases {
 		for _, r := range []interface{ Read([]byte) (int, error) }{strings.NewReader(s), &oneByte{s: s}} {
 			var lines []string
-			for line := range newLineReader(r).lines() {
+			for line := range newLineReader(r).lines(rt.Root("io")) {
 				lines = append(lines, line)
 			}
 			joined := strings.Join(lines, "\n")
@@ -461,7 +463,7 @@ func TestIOLinesSplit(t *testing.T) {
 	}
 	// A break stops the Seq.
 	n := 0
-	for range newLineReader(strings.NewReader("a\nb\nc\n")).lines() {
+	for range newLineReader(strings.NewReader("a\nb\nc\n")).lines(rt.Root("io")) {
 		n++
 		break
 	}
@@ -484,7 +486,7 @@ func TestIOStdinConcurrent(t *testing.T) {
 	done := make(chan int)
 	for g := range got {
 		go func() {
-			for line := range l.lines() {
+			for line := range l.lines(rt.Root("io")) {
 				got[g] = append(got[g], line)
 			}
 			done <- g
@@ -545,7 +547,7 @@ func TestIOStdinShared(t *testing.T) {
 		var plan []string
 		for step := 0; step < 4 && got.Len() < len(s); step++ {
 			if next(3) == 0 {
-				all, err := IOReadAll()
+				all, err := IOReadAll(rt.Root("io"))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -560,7 +562,7 @@ func TestIOStdinShared(t *testing.T) {
 				k = 1
 			}
 			n := 0
-			for line := range IOLines() {
+			for line := range IOLines(rt.Root("io")) {
 				rest := s[got.Len():]
 				if strings.HasPrefix(rest, line+"\n") {
 					got.WriteString(line + "\n")
@@ -573,7 +575,7 @@ func TestIOStdinShared(t *testing.T) {
 				}
 			}
 		}
-		all, err := IOReadAll()
+		all, err := IOReadAll(rt.Root("io"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -623,7 +625,7 @@ func TestIOBodies(t *testing.T) {
 		t.Fatal(err)
 	}
 	inW.Close()
-	all, err := IOReadAll()
+	all, err := IOReadAll(rt.Root("io"))
 	os.Stdout, os.Stderr, os.Stdin = oldOut, oldErr, oldIn
 	outW.Close()
 	errW.Close()
@@ -687,7 +689,7 @@ func BenchmarkIOLines(b *testing.B) {
 		b.ReportAllocs()
 		for range b.N {
 			n := 0
-			for range newLineReader(strings.NewReader(text)).lines() {
+			for range newLineReader(strings.NewReader(text)).lines(rt.Root("io")) {
 				n++
 			}
 		}

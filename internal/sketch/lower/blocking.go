@@ -26,6 +26,10 @@ const (
 	// children's exits and the parent's stop end its wait, and the
 	// runtime/v1 laws of After (timeout_test.go) are its native property.
 	childWait
+	// memberTask is the hidden *rt.Task of the invocation environment, which
+	// the body makes the first member of an auto clock's domain
+	// (testing.NewVirtualClock); the body never waits on it.
+	memberTask
 )
 
 type runtimeBinding struct {
@@ -45,7 +49,7 @@ type runtimeBinding struct {
 // takesCaller reports a binding whose Go body receives the invocation's
 // task as its hidden CallerTask argument.
 func (b runtimeBinding) takesCaller() bool {
-	return b.wait == callerWait || b.wait == childWait || b.release == callerRelease || b.reads
+	return b.wait == callerWait || b.wait == childWait || b.wait == memberTask || b.release == callerRelease || b.reads
 }
 
 var runtimeBindings = map[string]runtimeBinding{
@@ -66,6 +70,11 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Release":      {release: callerRelease},
 	"New":          {},
 	"WithCapacity": {},
+	// tasks.Transform joins its children, whichever ends first, as their
+	// parent (stdlib.md, Tasks; rt.MapSpan).
+	"TasksTransform": {wait: childWait},
+	// tasks.Race joins every block's task, the first to end deciding.
+	"TasksRace": {wait: childWait},
 	// The with lifetime owner's scope (with, withClose; resources.md, Context
 	// ownership). None waits, and none is a release route: the release a
 	// with registers is the call of a checked Close, which masks itself
@@ -163,6 +172,10 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Timeline.Wait":     {wait: callerWait},
 	"Timeline.Advance":  {},
 	"Timeline.Sleepers": {},
+	// std testing (stdlib.md, Testing): NewVirtualTimeline makes the
+	// calling task the first member of the clock's domain and returns; its
+	// Wait is Timeline.Wait's.
+	"NewVirtualTimeline": {wait: memberTask},
 	// std rand (std-align S2c; stdlib.md, rand): each draw takes the
 	// source's lock for one step of the PCG, or reads Go's global
 	// generator, and none waits on a task.
@@ -258,13 +271,14 @@ var runtimeBindings = map[string]runtimeBinding{
 	"FSRename":        {},
 	"FSRemove":        {},
 	// std io (S1b; stdlib.md, io): bodies that write or read a standard
-	// stream of the host process. A read of standard input is an
-	// uninterruptible host wait, as a read of a file is; none releases.
+	// stream of the host process; none releases. A read of standard input
+	// waits on the caller's task (batch-12 C3, decision O15): a stop of that
+	// task ends the wait, and the line read after it stays for the next read.
 	"IOPrint":      {},
 	"IOEprint":     {},
 	"IOIsTerminal": {},
-	"IOReadAll":    {},
-	"IOLines":      {},
+	"IOReadAll":    {wait: callerWait},
+	"IOLines":      {wait: callerWait},
 	// std exec (std-align S3c; stdlib.md, exec): Run waits for the program
 	// on the caller's task. Its cancel hook is the stop of that task: the
 	// body kills the program's process group and waits for the reap
