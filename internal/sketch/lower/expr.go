@@ -389,6 +389,18 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 						return fc.funcValue(o, fc.typeOf(x), x, nil)
 					}
 				case *check.Var:
+					if o.Name == x.Sel.Name && pn.Pkg.Host() {
+						// A Go constant or error variable of import go
+						// is Go's own; an error is go.Error as G4 builds
+						// it (IG5 keeps the native error).
+						goName := fc.l.hostPkg(pn.Pkg.Path, x) + "." + o.Name
+						if n, ok := o.Type.(*check.Named); ok && check.IsGoError(n) {
+							return fc.l.rt() + ".GoError{Text: " + goName + ".Error()}"
+						}
+						// Typed as the binding says: Go's untyped constant
+						// would take its default type (math.MaxInt64 as int).
+						return fc.goType(o.Type) + "(" + goName + ")"
+					}
 					if o.Name == x.Sel.Name {
 						// An imported package's let, lowered with the
 						// program (sources.go).

@@ -111,7 +111,7 @@ func main() needs Console | go.Foreign {
 // ports; patterns that compile or not; numbers that parse or not; table
 // rows), each printed line equal to Go's own result computed here.
 //
-// It builds and runs the program because the subject is the emitted Go:
+// It builds Go because the subject is the emitted Go:
 // the Go imports, the results bound at their Go types, the nil-to-None of a
 // nullable field, the spread of a variadic, the tuple of two results and
 // the Go interface argument; the checker sees only the Ergo program.
@@ -258,7 +258,7 @@ func goTableLine(rows []string) string {
 // what an Ergo binding holds, and an Ergo write never reaches Go. A failing
 // seed prints its replay flag and the program.
 //
-// It builds and runs both programs because the subject is which operand the
+// It builds Go because the subject is which operand the
 // emitted Go copies; only a run shows an alias.
 func TestHostCopyElisionAgrees(t *testing.T) {
 	for _, seed := range importGoSeeds(1, 2, 3) {
@@ -350,7 +350,7 @@ func copyElisionCase(r *rand.Rand, k int) (string, string) {
 // result that is nil with a nil error, are defects whose report names the
 // Ergo call site. net/http's ProxyFromEnvironment returns nil, nil when no
 // proxy is set (its documentation), which its binding types go.Ref[url.URL]
-// fails go.Error, so the call is the defect. It builds and runs because
+// fails go.Error, so the call is the defect. It builds Go because
 // the report is the running program's.
 func TestImportGoDefects(t *testing.T) {
 	panics := mustLower(t, "go_panic", `import go strings

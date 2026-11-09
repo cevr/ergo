@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"syscall"
 	"testing"
-	"time"
 )
 
 func sha(content string) string {
@@ -73,12 +73,23 @@ func TestImageMemoRecallsByFileKeyAndRehashesAChangedFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(20 * time.Millisecond)
-	if err := os.WriteFile(image, []byte("compiler B"), 0o755); err != nil {
-		t.Fatal(err)
+	ctime := func() syscall.Timespec {
+		var st syscall.Stat_t
+		if err := syscall.Stat(image, &st); err != nil {
+			t.Fatal(err)
+		}
+		return st.Ctim
 	}
-	if err := os.Chtimes(image, stat.ModTime(), stat.ModTime()); err != nil {
-		t.Fatal(err)
+	before := ctime()
+	// The event is the change time moving past the recorded one: the
+	// kernel's clock for it is coarse, so rewrite until it has.
+	for ctime() == before {
+		if err := os.WriteFile(image, []byte("compiler B"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(image, stat.ModTime(), stat.ModTime()); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if id := memoIdentity(t, image, dir); id.Digest != sha("compiler B") {
 		t.Fatal("in-place rewrite recalled a stale digest", id)
