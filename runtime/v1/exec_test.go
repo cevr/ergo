@@ -135,6 +135,14 @@ func genExecCase(r *rand.Rand, dir string, i int) execCase {
 // runExecCase runs c's program on a task of its own and stops the task as
 // c says. It returns what the call gave: its result, its error, and
 // whether it raised rt.Interrupted.
+//
+// It waits on events, not on time: the stop of a running or masked case
+// lands after the program wrote its pid (or not at all when Run returned
+// first, which the model's checks then report), and the call's end is Run's
+// return. A program that the stop does not end runs to its own end ("echo
+// never", an Exited outcome), so the model's check fails it by order. A
+// slow host (a late shell start, a loaded CPU) changes neither order; the
+// test binary's -timeout bounds a hang.
 func runExecCase(t *testing.T, c execCase) (res ExecResult, err error, interrupted bool, took time.Duration) {
 	t.Helper()
 	task := rt.Root("exec test")
@@ -171,21 +179,22 @@ func runExecCase(t *testing.T, c execCase) (res ExecResult, err error, interrupt
 	if c.stop == "running" || c.stop == "masked" {
 		// The stop lands while the program runs: after it wrote its pid,
 		// at a random point of what follows.
-		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+		for {
+			select {
+			case got := <-done:
+				return got.res, got.err, got.interrupted, time.Since(begin)
+			default:
+			}
 			if data, _ := os.ReadFile(c.pidfile); len(data) > 0 {
 				break
 			}
+			time.Sleep(time.Millisecond)
 		}
 		time.Sleep(c.delay)
 		task.Interrupt()
 	}
-	select {
-	case got := <-done:
-		return got.res, got.err, got.interrupted, time.Since(begin)
-	case <-time.After(15 * time.Second):
-		t.Fatalf("Run did not return in 15s for %s:\n%s", c.stop, c.script)
-		return
-	}
+	got := <-done
+	return got.res, got.err, got.interrupted, time.Since(begin)
 }
 
 // procLine is the stat line of pid, for a failure message.
