@@ -465,10 +465,16 @@ func (l *lowerer) printable(t check.Type, seen map[*check.Named]bool) bool {
 }
 
 // siteText is the position of the node n as a report names it:
-// file:line:column, the file, the one that holds n (at), by its base name.
+// file:line:column, the file, the one that holds n (locate). A program's
+// file is named by its base name; a std body's node, which no source of
+// the program holds, by its std path (std/maps/maps.ergo), as noCase names
+// it: the prelude's Unreachable called from std code (fs5, batch 12).
 func (l *lowerer) siteText(n syntax.Node) string {
-	_, src, line, column := l.at(n, n.Pos())
-	return path.Base(strings.ReplaceAll(src, "\\", "/")) + ":" + strconv.Itoa(line) + ":" + strconv.Itoa(column)
+	file, line, column := l.locate(n, n.Pos())
+	if _, ok := l.sourceOf(n); ok {
+		file = path.Base(strings.ReplaceAll(file, "\\", "/"))
+	}
+	return file + ":" + strconv.Itoa(line) + ":" + strconv.Itoa(column)
 }
 
 // testEntry writes the test build's Go main and harness (Test mode, rule 2).
