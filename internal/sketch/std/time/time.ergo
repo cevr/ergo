@@ -82,6 +82,29 @@ func Unix(sec int64, nsec int64) Time {
 	Time{sec: s, nsec: n, mono: 0, hasMono: false}
 }
 
+// NewTime is Time's constructor, the one a generator builds a Time with
+// (runtime.md, Tests 6): the instant sec seconds and nsec nanoseconds after
+// January 1, 1970 UTC, as Unix gives it, kept in the years 1 to 9999 that
+// Format and Parse write and read. A sec in those years is kept, so a
+// small sec is an instant near 1970; a sec outside them wraps by their
+// span, and nsec wraps into 0..999,999,999 within the second. So a law or
+// a property that takes a Time draws instants mostly near 1970, the edges
+// of the years, and any second between, and each one formats and parses.
+func NewTime(sec int64, nsec int64) Time {
+	let span = int64(315537897600)
+	let mut s = sec % span
+	if s < -62135596800 {
+		s = s + span
+	} else if s > 253402300799 {
+		s = s - span
+	}
+	let mut n = nsec % 1000000000
+	if n < 0 {
+		n = n + 1000000000
+	}
+	Unix(s, n)
+}
+
 // UnixSeconds is the Unix seconds of t (Go's t.Unix()).
 func UnixSeconds(t Time) int64 { t.sec }
 

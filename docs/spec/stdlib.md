@@ -154,6 +154,7 @@ Std `time` (std-align S2b) follows Go's `time` package for names and meaning, an
 | --- | --- | --- |
 | `Time` | record with unexported fields: Unix seconds, nanoseconds, and a monotonic reading when a clock made it | none |
 | `Unix`, `UnixSeconds`, `Nanosecond` | `Unix(sec int64, nsec int64) Time` (nsec carried into the seconds, as Go's); `UnixSeconds(t Time) int64` (Go's `t.Unix()`); `Nanosecond(t Time) int64` | Ergo |
+| `NewTime` | `NewTime(sec int64, nsec int64) Time`: `Unix` kept in the years 1 to 9999 (a `sec` outside them wraps by their span; `nsec` wraps into its second). It is `Time`'s constructor, which a generator draws a `Time` with ([runtime.md, Tests](runtime.md#tests) 6), so a law or property may take a `Time` or a record that holds one | Ergo |
 | `Add`, `Sub`, `Before`, `After`, `Equal` | `Add(t Time, d duration) Time`; `Sub(t Time, u Time) duration` (saturated, as Go's); `Before`, `After`, `Equal(t Time, u Time) bool` | Ergo over `TimeSub`, `TimeSubMono` |
 | `Layout` | `RFC3339 \| RFC3339Nano \| DateTime \| DateOnly \| TimeOnly \| Custom{Text}`; `LayoutText(l Layout) string` | Ergo |
 | `Format`, `Parse` | `Format(t Time, layout Layout) string`; `Parse(layout Layout, value string) Time fails ParseError` | `TimeFormat`, `TimeParse` (timetext.go) |
