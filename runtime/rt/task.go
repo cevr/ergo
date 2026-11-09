@@ -155,7 +155,7 @@ func (t *Task) Interrupt() {
 		}
 		if t.waker {
 			if wake, ok := wakers.Load(t); ok {
-				wake.(func())()
+				wake.(Waker).Wake()
 			}
 		}
 		// Locks are taken ancestor first; detach takes only the parent's
@@ -189,6 +189,9 @@ func (t *Task) Check() {
 	}
 }
 
+// A Waker is woken by a stop request (OnInterrupt).
+type Waker interface{ Wake() }
+
 // OnInterrupt sets wake, which the stop request of t calls once, so a wait
 // on a channel of the caller's own can wake on a stop without a select on
 // Done (MU18: an actor's runner waits on its inbox's wake channel). wake
@@ -202,7 +205,7 @@ func (t *Task) Check() {
 // task's own goroutine. The wakes live in a map beside the tree (wakers),
 // so a task without one pays nothing and keeps its size. Prior art: Go's
 // context.AfterFunc.
-func (t *Task) OnInterrupt(wake func()) {
+func (t *Task) OnInterrupt(wake Waker) {
 	t.mu.Lock()
 	if wake == nil {
 		wakers.Delete(t)
@@ -215,11 +218,11 @@ func (t *Task) OnInterrupt(wake func()) {
 	stopped := t.stopped.Load()
 	t.mu.Unlock()
 	if stopped {
-		wake()
+		wake.Wake()
 	}
 }
 
-// wakers holds the OnInterrupt wakes: *Task -> func().
+// wakers holds the OnInterrupt wakes: *Task -> Waker.
 var wakers sync.Map
 
 // Done returns a channel that is closed when a stop is requested, for a

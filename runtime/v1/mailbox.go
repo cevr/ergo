@@ -63,10 +63,19 @@ type mailSender[T any] struct {
 // newMailbox is the inbox of an actor with the given capacity (not
 // negative: machineStart checked it).
 func newMailbox[T any](capacity int, reference bool) *mailbox[T] {
+	m := &mailbox[T]{}
+	m.init(capacity, reference)
+	return m
+}
+
+// init makes m, a zero mailbox, the empty open inbox of the capacity (the
+// Actor holds its mailbox by value).
+func (m *mailbox[T]) init(capacity int, reference bool) {
 	if reference {
-		return &mailbox[T]{ref: New[T](capacity)}
+		m.ref = New[T](capacity)
+		return
 	}
-	return &mailbox[T]{capacity: capacity, wake: make(chan struct{}, 1)}
+	m.capacity, m.wake = capacity, make(chan struct{}, 1)
 }
 
 // Push is Queue.Push.
@@ -125,9 +134,7 @@ func (m *mailbox[T]) pushWait(t *rt.Task, v T) error {
 // wait, *dst is the zero value, so it keeps no reference.
 func (m *mailbox[T]) popInto(t *rt.Task, dst *T) error {
 	if m.ref != nil {
-		v, err := m.ref.Pop(t)
-		*dst = v
-		return err
+		return m.refPopInto(t, dst)
 	}
 	t.Check()
 	m.mu.Lock()
@@ -136,8 +143,7 @@ func (m *mailbox[T]) popInto(t *rt.Task, dst *T) error {
 			m.mu.Unlock()
 			return nil
 		}
-		var zero T
-		*dst = zero
+		*dst = *new(T)
 		if m.closed {
 			m.mu.Unlock()
 			return Closed{}
@@ -169,6 +175,17 @@ func (m *mailbox[T]) popInto(t *rt.Task, dst *T) error {
 	}
 }
 
+// refPopInto is popInto on the reference Queue. It is a call of its own,
+// so its value's copy is not in popInto's frame, which stays on the
+// runner's stack while it waits (the stack of an idle actor, MU18).
+//
+//go:noinline
+func (m *mailbox[T]) refPopInto(t *rt.Task, dst *T) error {
+	v, err := m.ref.Pop(t)
+	*dst = v
+	return err
+}
+
 // bindTaker makes t, the runner's task, the taker whose stop wakes a
 // waiting popInto (rt's OnInterrupt), so its wait needs no select.
 func (m *mailbox[T]) bindTaker(t *rt.Task) {
@@ -176,7 +193,7 @@ func (m *mailbox[T]) bindTaker(t *rt.Task) {
 		return
 	}
 	m.taker = t
-	t.OnInterrupt(m.kick)
+	t.OnInterrupt(m)
 }
 
 // unbindTaker removes the taker's wake before its task ends.
@@ -186,9 +203,9 @@ func (m *mailbox[T]) unbindTaker() {
 	}
 }
 
-// kick puts a wake token without waiting: the runner looks again. It
+// Wake (rt.Waker) puts a wake token without waiting: the runner looks again. It
 // takes no lock (it runs under the stopping task's lock).
-func (m *mailbox[T]) kick() {
+func (m *mailbox[T]) Wake() {
 	select {
 	case m.wake <- struct{}{}:
 	default:

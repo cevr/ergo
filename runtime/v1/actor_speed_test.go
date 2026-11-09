@@ -45,12 +45,23 @@ func handCounter(capacity int) (chan handReq, chan struct{}) {
 	return in, done
 }
 
-func speedBytes() uint64 {
+func speedBytes() runtime.MemStats {
 	runtime.GC()
 	runtime.GC()
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-	return m.HeapAlloc + m.StackInuse
+	return m
+}
+
+// reportBytes reports the heap and stack bytes per idle actor since
+// before, and their sum.
+func reportBytes(b *testing.B, before runtime.MemStats, n int) {
+	after := speedBytes()
+	heap := float64(after.HeapAlloc-before.HeapAlloc) / float64(n)
+	stack := float64(after.StackInuse-before.StackInuse) / float64(n)
+	b.ReportMetric(heap, "heapB/actor")
+	b.ReportMetric(stack, "stackB/actor")
+	b.ReportMetric(heap+stack, "B/actor")
 }
 
 func BenchmarkActorSpeed(b *testing.B) {
@@ -106,7 +117,7 @@ func BenchmarkActorSpeed(b *testing.B) {
 				as = append(as, speedCounter(root, 64))
 				n++
 			}
-			b.ReportMetric(float64(speedBytes()-before)/float64(n), "B/actor")
+			reportBytes(b, before, n)
 			for _, a := range as {
 				_ = a.Stop()
 			}
@@ -183,7 +194,7 @@ func BenchmarkActorSpeed(b *testing.B) {
 			hs = append(hs, h)
 			n++
 		}
-		b.ReportMetric(float64(speedBytes()-before)/float64(n), "B/actor")
+		reportBytes(b, before, n)
 		for _, h := range hs {
 			close(h)
 		}

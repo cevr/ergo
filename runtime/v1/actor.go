@@ -97,7 +97,7 @@ import (
 //     order; a work that started children waits for their stop before it
 //     ends, so no task ends before its children.
 type Actor[S, E, D any] struct {
-	inbox   *mailbox[envelope[S, E, D]]
+	inbox   mailbox[envelope[S, E, D]] // in the Actor: no allocation of its own
 	task    *rt.Task
 	sleeper Sleeper
 	span    string
@@ -120,6 +120,10 @@ type Actor[S, E, D any] struct {
 	// on a virtual clock can wait until the runner is idle.
 	handled atomic.Int64
 	done    chan struct{}
+	// ready is done once the first entry's children run (started): a
+	// WaitGroup in the Actor, so a start allocates no channel for it.
+	ready   sync.WaitGroup
+	isReady atomic.Bool
 
 	mu    sync.Mutex
 	state S // the last committed state
@@ -278,7 +282,7 @@ func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 		panic(fmt.Sprintf("actor.StartMachine: negative capacity %d", capacity))
 	}
 	a := &Actor[S, E, D]{
-		inbox: newMailbox[envelope[S, E, D]](capacity, actorReference), sleeper: sl, span: string(span),
+		sleeper: sl, span: string(span),
 		step: step, fire: fire, delay: delay, kind: kind, next: next, out: out,
 		done: make(chan struct{}), state: initial,
 		report: report,
@@ -291,49 +295,51 @@ func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 		return func(t *rt.Task, send func(E)) { work(t, w, send) }, true
 	}
 	holder := rt.NewScope(t)
-	ready := make(chan struct{})
-	var once sync.Once
-	started := func() { once.Do(func() { close(ready) }) }
+	a.inbox.init(capacity, actorReference)
+	a.ready.Add(1)
 	if report != nil {
 		// A child: t's interruption does not reach it; its owner entry
 		// stops it, in order (rule 13).
 		rt.GoShielded(&holder, a.span, func(at *rt.Task) (struct{}, error) {
-			_, err := guarded(at, a.runner(started))
-			return a.endRunner(err, started)
+			return a.endRunner(guarded(at, a.runner))
 		})
 	} else {
 		rt.Go(&holder, a.span, func(at *rt.Task) (struct{}, error) {
-			_, err := guarded(at, a.runner(started))
-			return a.endRunner(err, started)
+			return a.endRunner(guarded(at, a.runner))
 		})
 	}
-	<-ready
+	a.ready.Wait()
 	return a
 }
 
-// runner is the runner task's body: the loop, on a task that owns no
-// entry, so a Child in a step finds none (rule 13), also when the actor
-// is a child started in a work.
-func (a *Actor[S, E, D]) runner(started func()) func(*rt.Task) (struct{}, error) {
-	return func(at *rt.Task) (struct{}, error) {
-		a.task = at
-		a.inbox.bindTaker(at)
-		// Only an actor below a work's task binds nil: elsewhere the
-		// first of the task and its ancestors in owners is none or nil
-		// already, and no ancestor is added later (a work's task is in
-		// owners before it starts a task), so ownerOf gives nil anyway
-		// (MU18: no map entry per top-level actor).
-		if ownerOf(at) != nil {
-			owners.Store(at, nil)
-			a.bound = true
-		}
-		return a.loop(at, started)
+// started tells machineStart that the first entry's children run, once.
+func (a *Actor[S, E, D]) started() {
+	if a.isReady.CompareAndSwap(false, true) {
+		a.ready.Done()
 	}
 }
 
+// runner is the runner task's body, run by guarded: the loop, on a task
+// that owns no entry, so a Child in a step finds none (rule 13), also
+// when the actor is a child started in a work.
+func (a *Actor[S, E, D]) runner(at *rt.Task) (struct{}, error) {
+	a.task = at
+	a.inbox.bindTaker(at)
+	// Only an actor below a work's task binds nil: elsewhere the first of
+	// the task and its ancestors in owners is none or nil already, and no
+	// ancestor is added later (a work's task is in owners before it starts
+	// a task), so ownerOf gives nil anyway (MU18: no map entry per
+	// top-level actor).
+	if ownerOf(at) != nil {
+		owners.Store(at, nil)
+		a.bound = true
+	}
+	return a.loop(at)
+}
+
 // endRunner ends the runner task after its loop returned or raised.
-func (a *Actor[S, E, D]) endRunner(err error, started func()) (struct{}, error) {
-	started() // the first entry's arm or work raised
+func (a *Actor[S, E, D]) endRunner(_ struct{}, err error) (struct{}, error) {
+	a.started() // the first entry's arm or work raised
 	a.finish(err)
 	a.inbox.unbindTaker()
 	if a.bound {
@@ -342,14 +348,14 @@ func (a *Actor[S, E, D]) endRunner(err error, started func()) (struct{}, error) 
 	return struct{}{}, nil
 }
 
-// loop is the runner (rules 1 to 7 and 10). started tells MachineStart
+// loop is the runner (rules 1 to 7 and 10). a.started tells MachineStart
 // that the first entry's children run.
-func (a *Actor[S, E, D]) loop(at *rt.Task, started func()) (struct{}, error) {
+func (a *Actor[S, E, D]) loop(at *rt.Task) (struct{}, error) {
 	s := a.state
 	a.openKids()
 	a.arm(at, s)
 	a.startWork(at, s)
-	started()
+	a.started()
 	for {
 		// The envelope is taken into curEnv: one copy, no allocation; the
 		// inbox clears it before it waits.
