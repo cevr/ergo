@@ -17,9 +17,9 @@ func CodeFor(phone string) string {
 	strings.Slice(phone, n-1, n) + strings.Slice(phone, n-2, n-1) + strings.Slice(phone, n-3, n-2) + strings.Slice(phone, n-4, n-3)
 }
 
-func Send(_ Directory, phone string) fails signin.Unreachable {
+func Send(_ Directory, phone string) fails signin.PhoneUnreachable {
 	if strings.HasPrefix(phone, "000") {
-		return signin.Unreachable{Phone: phone}
+		return signin.PhoneUnreachable{Phone: phone}
 	}
 }
 

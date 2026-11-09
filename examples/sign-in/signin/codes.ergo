@@ -1,8 +1,8 @@
 // Member is a signed-in member.
 type Member { ID string, Name string }
 
-// Unreachable is a phone that a code cannot be sent to.
-type Unreachable { Phone string }
+// PhoneUnreachable is a phone that a code cannot be sent to.
+type PhoneUnreachable { Phone string }
 
 // WrongCode is a code that does not match the one sent. It is also a
 // signal of the flow, so the work that checks a code needs no failure map.
@@ -15,7 +15,7 @@ type UnknownCard {}
 // them, and reads member cards. A provider package implements it (memory
 // in this program).
 type Codes {
-	Send(phone string) fails Unreachable,
+	Send(phone string) fails PhoneUnreachable,
 	Check(phone string, code string) Member fails WrongCode,
 	Card(card string) Member fails UnknownCard,
 

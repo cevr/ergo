@@ -210,16 +210,16 @@ func timer(s Flow) Option[Timeout[Signal]] {
 // work is each state's work against Codes. The runner starts it after the
 // state's entry commits and interrupts it when the entry ends, so a Cancel
 // during a verify drops its answer. WrongCode and UnknownCard are signals
-// and need no map; Unreachable is mapped to SendFailed.
+// and need no map; PhoneUnreachable is mapped to SendFailed.
 func work(s Flow) Option[machines.Work[Signal, Codes]] {
 	match s {
 	case SendingCode as w:
-		Some{machines.Work{Run: func() Signal fails Unreachable needs Codes {
+		Some{machines.Work{Run: func() Signal fails PhoneUnreachable needs Codes {
 			try Codes.Send(w.Phone)
 			CodeSent
 		}, OnFailure: func(f) {
 			match f {
-			case Unreachable as u:
+			case PhoneUnreachable as u:
 				SendFailed{Why: "cannot send a code to \(u.Phone)"}
 			}
 		}}}
