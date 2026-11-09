@@ -30,10 +30,9 @@ import (
 // Mutants it alone catches: the emitted go.mod drops the replace lines; the
 // emitted module drops go.sum; a relative replacement not made absolute;
 // the stamp compared without the replacement or against another version;
-// ergo check runs a go command on a miss; a module binding left out of the
-// build key (the lie would reuse the good build); bind writes no module
-// stamp; bind admits an internal package; import go of an internal path
-// asks for ergo bind; ergo fmt of a folder rewrites ergo.bind.
+// ergo check runs a go command on a miss; bind writes no module stamp;
+// bind admits an internal package; import go of an internal path asks for
+// ergo bind; ergo fmt of a folder rewrites ergo.bind.
 //
 // Builds Go because module resolution (require, replace, go.sum, the
 // proxy) is go build's: no in-process check sees it.
