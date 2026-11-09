@@ -17,7 +17,7 @@ import (
 // endless. A positive In arms a timer that fires end/In times; an In that
 // is not positive is a defect that names the machine, the state and the
 // duration for a declared machine, and the run's time for a Machine built
-// from parts. No run loops: runBounded stops one that does not end and the
+// from parts. No run loops: runMachineBounded stops one that does not end and the
 // test fails. The seed draws the durations; ERGO_MACHINETIMER_SEED replays
 // another one, and a failure prints the program.
 //
@@ -63,7 +63,7 @@ func TestMachineTimerNotPositive(t *testing.T) {
 		return
 	}
 	for _, p := range progs {
-		stdout, stderr, code, ended := runBounded(t, exes[p.name])
+		stdout, stderr, code, ended := runMachineBounded(t, exes[p.name])
 		if !ended {
 			t.Fatalf("seed %d, In %d: still running after %s, stopped: a timer that is not positive loops\nsource:\n%s", seed, p.in, programBound, p.src)
 		}
