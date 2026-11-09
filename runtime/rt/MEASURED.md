@@ -1,4 +1,4 @@
-# runtime/rt receipt
+# runtime/rt measurements
 
 Package `rt` is the kernel runtime that emitted sketch code links against (#198). It implements the runtime rules of `docs/spec/runtime.md` (I1, I2, G1, G2) and the release rules of `docs/spec/resources.md` (R5, R7, R8, R9, R27). It has no Effect runtime code and does not import the prototype. The start point was `prototypes/sketch9/sketch/rt`. That package's task tree, `After` and review tests were rewritten here, not copied as they were.
 

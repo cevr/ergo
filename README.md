@@ -202,7 +202,7 @@ cause trace of the root exit (links recorded by the runtime; candidates are labe
         task #2 exited with interrupted (seq 10)
 ```
 
-With tracing off, a program makes no extra allocations ([measured](runtime/rt/RECEIPT.md#tracing-off-and-on-188)).
+With tracing off, a program makes no extra allocations ([measured](runtime/rt/MEASURED.md#tracing-off-and-on-188)).
 
 ## Built for agents
 

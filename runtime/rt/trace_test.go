@@ -7,7 +7,7 @@ import (
 
 // TestTraceOffAddsNoAllocs checks the off path: with no tracer installed the
 // poll, a spawn and wait, and an acquire and release allocate exactly what
-// they did before the hook existed (RECEIPT.md, Measured costs: 0, 3 and 0).
+// they did before the hook existed (MEASURED.md, Measured costs: 0, 3 and 0).
 func TestTraceOffAddsNoAllocs(t *testing.T) {
 	if raceEnabled {
 		t.Skip("allocation counts differ under -race")
