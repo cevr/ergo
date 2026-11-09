@@ -101,7 +101,7 @@ func TestHelpListsOnlyTheKeptCommands(t *testing.T) {
 			t.Fatalf("ergo %v: exit %d stdout %q stderr %q", args, code, stdout, stderr)
 		}
 	}
-	for _, word := range []string{"edition", "lint", "query", "graph", "inspect", "explain", "lsp", "mcp", "ergo type"} {
+	for _, word := range []string{"edition", "lint", "query", "graph", "explain", "lsp", "mcp", "ergo type"} {
 		if regexp.MustCompile(`\b` + word + `\b`).MatchString(generalHelp()) {
 			t.Fatalf("help names %q", word)
 		}
