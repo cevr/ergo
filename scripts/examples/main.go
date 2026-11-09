@@ -274,7 +274,7 @@ func loadProgram(dir, name string, record bool) (*program, []string) {
 			if !entry.IsDir() {
 				problem("%s is not a folder", file)
 			}
-		case file == "main.ergo" || file == "README.md" || file == "tags" || file == "origin" || file == "record.sh" || strings.HasSuffix(file, ".ergo"):
+		case file == "main.ergo" || file == "README.md" || file == "tags" || file == "origin" || file == "record.sh" || file == expectedSkipsFile || strings.HasSuffix(file, ".ergo"):
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 				continue
@@ -283,7 +283,7 @@ func loadProgram(dir, name string, record bool) (*program, []string) {
 				p.sources = append(p.sources, filepath.Join(dir, file))
 			}
 		default:
-			problem("unexpected %s; a program folder holds main.ergo, README.md, tags and cases/, and may hold origin with record.sh, testdata/ and other .ergo files", file)
+			problem("unexpected %s; a program folder holds main.ergo, README.md, tags and cases/, and may hold origin with record.sh, expected-skips, testdata/ and other .ergo files", file)
 		}
 	}
 	if !present["main.ergo"] {
@@ -311,7 +311,7 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			if !entry.IsDir() {
 				problem("%s is not a folder", file)
 			}
-		case file == "ergo.mod" || file == "README.md" || file == "tags" || file == "origin" || file == "record.sh" || strings.HasSuffix(file, ".ergo"):
+		case file == "ergo.mod" || file == "README.md" || file == "tags" || file == "origin" || file == "record.sh" || file == expectedSkipsFile || strings.HasSuffix(file, ".ergo"):
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 				continue
@@ -325,7 +325,7 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			}
 			problems = append(problems, packageSources(p, filepath.Join(p.dir, file), file)...)
 		default:
-			problem("unexpected %s; a program of packages holds ergo.mod, cmd/%s/main.ergo, package folders, README.md, tags and cases/, and may hold origin with record.sh and testdata/", file, p.name)
+			problem("unexpected %s; a program of packages holds ergo.mod, cmd/%s/main.ergo, package folders, README.md, tags and cases/, and may hold origin with record.sh, expected-skips and testdata/", file, p.name)
 		}
 	}
 	if !present["cmd"] {
@@ -682,12 +682,47 @@ func (r *runner) testTarget(p *program, target, leg string) {
 		fmt.Fprintf(r.out, "FAIL %s: %s: %s\n", p.name, leg, o.overCap())
 		r.fail(p.name + ": " + leg)
 	case o.passed():
+		if skips := unexpectedSkips(o.stdout, p.dir); len(skips) > 0 {
+			fmt.Fprintf(r.out, "FAIL %s: %s: %d unexpected skips; run each law, or list its line in %s with the reason (fs4)\n", p.name, leg, len(skips), expectedSkipsFile)
+			for _, s := range skips {
+				fmt.Fprintf(r.out, "    %s\n", s)
+			}
+			r.fail(p.name + ": " + leg)
+			return
+		}
 		fmt.Fprintf(r.out, "ok %s: %s (%s)\n", p.name, leg, seconds(o.elapsed))
 	default:
 		fmt.Fprintf(r.out, "FAIL %s: %s%s\n", p.name, leg, o.why(r.cfg.timeout))
 		r.printOutput(o, nil)
 		r.fail(p.name + ": " + leg)
 	}
+}
+
+// expectedSkipsFile names, in a program's folder, the skip lines its ergo
+// test may print: one line each, exactly as printed, with a line starting
+// "#" for the reason. A skip that it does not list fails the test leg
+// (fs4), so a law the runner cannot run is never silent.
+const expectedSkipsFile = "expected-skips"
+
+// unexpectedSkips are the lines of an ergo test's stdout that report a
+// skip ("skip law …") and that the program's expected-skips file does not
+// list.
+func unexpectedSkips(stdout []byte, dir string) []string {
+	expected := map[string]bool{}
+	if data, err := os.ReadFile(filepath.Join(dir, expectedSkipsFile)); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "#") {
+				expected[line] = true
+			}
+		}
+	}
+	var out []string
+	for _, line := range strings.Split(string(stdout), "\n") {
+		if strings.HasPrefix(line, "skip ") && !expected[strings.TrimSpace(line)] {
+			out = append(out, line)
+		}
+	}
+	return out
 }
 
 // recordProgram runs a port's original through record.sh for each case and

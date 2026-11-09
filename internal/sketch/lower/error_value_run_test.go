@@ -127,11 +127,16 @@ var (
 	evForms     = []string{"literal", "call", "local", "catch"}
 	evPositions = []string{"tail", "return"}
 	// value: the result is Missing; failure: int with the row {Missing};
-	// refused: int with no row, where the failure escapes (S101).
-	evTargets = []string{"value", "failure", "refused"}
+	// refused: int with no row, where the failure escapes (S101); named:
+	// Fail, a named union of error types that holds Missing, so the value
+	// is the success value too (fs1).
+	evTargets = []string{"value", "failure", "refused", "named"}
 )
 
 const evDecls = `type Missing { Key string }
+type Other { Why string }
+type Fail = Missing | Other
+func other() int fails Other { 1 }
 func missing(k string) Missing { Missing{Key: k} }
 func probe(k string) int fails Missing {
 	if k != "" {
@@ -151,8 +156,8 @@ func evFunc(name, form, position, target string) (src string, ok bool) {
 	if form == "catch" && position == "tail" {
 		return "", false
 	}
-	head := map[string]string{"value": "Missing", "failure": "int fails Missing", "refused": "int"}[target]
-	other := map[string]string{"value": `Missing{Key: "other"}`, "failure": "7", "refused": "7"}[target]
+	head := map[string]string{"value": "Missing", "failure": "int fails Missing", "refused": "int", "named": "Fail"}[target]
+	other := map[string]string{"value": `Missing{Key: "other"}`, "failure": "7", "refused": "7", "named": `Other{Why: "other"}`}[target]
 	var prelude, expr string
 	switch form {
 	case "literal":
@@ -178,7 +183,7 @@ func evFunc(name, form, position, target string) (src string, ok bool) {
 
 // TestErrorValueRuleTable is the K1 property: every (form, position,
 // target) of the rule table, each with a seeded key, checks as the table
-// says (value and failure check; refused is one S101), and the checked
+// says (value, failure and named check; refused is one S101), and the checked
 // ones run as it says: a value target returns the Missing value, a
 // failure target fails with it. The table is enumerated whole; the fixed
 // seed only draws the keys, and a failure prints the program.
@@ -221,12 +226,16 @@ func TestErrorValueRuleTable(t *testing.T) {
 				case "failure":
 					fmt.Fprintf(&calls, "\tlet v%s = %s(%q) catch {\n\tcase Missing as m:\n\t\tConsole.Println(\"%s failed \\(m.Key)\")\n\t\t0\n\t}\n\tConsole.Println(\"\\(v%s)\")\n", name, name, key, name, name)
 					fmt.Fprintf(&want, "%s failed %s\n0\n", name, key)
+				case "named":
+					fmt.Fprintf(&calls, "\tmatch %s(%q) {\n\tcase Missing as m:\n\t\tConsole.Println(\"%s member \\(m.Key)\")\n\tcase Other:\n\t\tConsole.Println(\"%s other\")\n\t}\n", name, key, name, name)
+					fmt.Fprintf(&want, "%s member %s\n", name, key)
 				}
 			}
 		}
 	}
-	if n != 21 {
-		t.Fatalf("the table has %d rows, want 21", n)
+	// Every cell but catch at the tail.
+	if want := (len(evForms)*len(evPositions) - 1) * len(evTargets); n != want {
+		t.Fatalf("the table has %d rows, want %d", n, want)
 	}
 	if t.Failed() {
 		return

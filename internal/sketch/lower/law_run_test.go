@@ -77,7 +77,82 @@ func TestLawRunB13(t *testing.T) {
 	}
 }
 
-// TestLawRunSkips: a law that cannot run says why, and is not counted.
+// lawRunState is integration finding F3's shape (fs4): a member law whose
+// operations change the provider's state. Under the value rule the state
+// lives in a sync.Ref, a std type that has no generator, so the providers
+// are built by their constructors, one for each case: Tally keeps the law,
+// Lossy breaks it, and Plain, with no constructor, is a skip that the
+// summary counts.
+const lawRunState = `import sync
+
+type Counter {
+	Add(n int),
+	Total() int,
+	law AddAdds(n int) {
+		let before = Total()
+		Add(n)
+		Add(n)
+		Total() == before + 2 * n
+	},
+}
+
+type Tally { total sync.Ref[int] }
+
+func NewTally() Tally { Tally{total: sync.NewRef(0)} }
+
+func Add(t Tally, n int) { t.total.Update(func(v int) int { v + n }) }
+
+func Total(t Tally) int { t.total.Get() }
+
+type Lossy { total sync.Ref[int] }
+
+func NewLossy(start int) Lossy { Lossy{total: sync.NewRef(start)} }
+
+func Add(l Lossy, n int) { l.total.Set(n) }
+
+func Total(l Lossy) int { l.total.Get() }
+
+type Plain { total sync.Ref[int] }
+
+func Add(p Plain, n int) { p.total.Set(p.total.Get() + n) }
+
+func Total(p Plain) int { p.total.Get() }
+
+func main() needs Console {
+	Console.Println("\(NewTally().Total() + NewLossy(0).Total())")
+}
+`
+
+// TestLawRunState: F3's law runs against each provider its constructor
+// builds, a provider with no constructor and no generator is a skip line
+// with the reason, and the summary counts the skip.
+func TestLawRunState(t *testing.T) {
+	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_state", lawRunState)}, true)
+	if exes == nil {
+		return
+	}
+	stdout, stderr, code := runExeArgs(t, exes["lawrun_state"], "--seed", "7")
+	got := lines(stdout)
+	if code != 1 || len(got) != 4 {
+		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
+	}
+	if got[1] != "ok law Counter.AddAdds for Tally (100 cases)" {
+		t.Errorf("line 2 is %q", got[1])
+	}
+	if !strings.HasPrefix(got[2], "FAIL law Counter.AddAdds for Lossy (case ") || !strings.Contains(got[2], "provider = NewLossy(") ||
+		!strings.HasSuffix(got[2], "law refuted at main.ergo:6:2: the law is false") {
+		t.Errorf("line 3 is %q", got[2])
+	}
+	if want := "skip law Counter.AddAdds for Plain: its values have no generator: sync.Ref[int] is a standard library type; a func NewPlain() Plain with no rows would build one for each case"; got[0] != want {
+		t.Errorf("line 1 is %q, want %q", got[0], want)
+	}
+	if got[3] != "FAIL (1 of 2 tests, 1 skipped)" {
+		t.Errorf("the summary is %q", got[3])
+	}
+}
+
+// TestLawRunSkips: a law that cannot run says why, and the summary counts
+// it as skipped, never as a test (fs4).
 func TestLawRunSkips(t *testing.T) {
 	src := `type Shape {
 	Area() int,
@@ -103,10 +178,10 @@ func main() {}
 	}
 	stdout, stderr, code := runExe(t, exes["lawrun_skips"])
 	want := []string{
-		"skip law Shape.Positive for Fn: its values have no generator: func(int) int is a function type",
+		"skip law Shape.Positive for Fn: its values have no generator: func(int) int is a function type; a func NewFn() Fn with no rows would build one for each case",
 		"skip law Box.Keeps: its parameter v has no generator: T is not a generatable type",
 		"skip law Calls: its parameter f has no generator: func(int) int is a function type",
-		"PASS (0 tests)",
+		"PASS (0 tests, 3 skipped)",
 	}
 	if code != 0 || !slices.Equal(lines(stdout), want) {
 		t.Errorf("exit %d, stdout:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, strings.Join(want, "\n"), firstLines(stderr, 8))

@@ -53,7 +53,7 @@ A type that mixes fields with operations or laws is S108 from the parser ([gramm
 ### S101: undeclared error
 
 - An error escapes through `try` and is not in the declared row (`reject/undeclared-error.ergo`, `undeclared-error`).
-- A function returns a value of an error type, a type named in an error row of its package, and its row does not list it (`probes/error-as-value.ergo`); a function whose declared result is that error type returns it as its value (K1; [rows](rows.md#error-rows) 4).
+- A function returns a value of an error type, a type named in an error row of its package, and its row does not list it (`probes/error-as-value.ergo`); a function whose declared result is that error type, or a union of error types that holds it, returns it as its value (K1, fs1; [rows](rows.md#error-rows) 4).
 - A partial `try … catch` leaves an undeclared error (`partial-catch-rest`).
 - An inline context's provider expression can fail, and the enclosing function does not declare it (`probes/context-initializer-error.ergo`).
 - A named context's provider can fail while it is built: a named context is closed (`probes/named-context-failure.ergo`; README Gap 6).

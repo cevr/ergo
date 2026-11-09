@@ -754,9 +754,14 @@ type Law struct {
 // LawProvider is a provider a member law runs against (Law.Providers).
 // Unrun is why it does not, "" when it does: its values have no
 // generator.
+//
+// Ctor is the provider's constructor when its values have no generator
+// and the package declares New<P> (laws.go, lawConstructor; fs4): each
+// case calls it, with generated arguments, instead of generating a value.
 type LawProvider struct {
 	Type  *Named
 	Conv  Conversion
+	Ctor  *Func
 	Unrun string
 }
 

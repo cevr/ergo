@@ -702,14 +702,24 @@ func (c *checker) errorValueRow(t Type) *Row {
 // or yields: nil when the function's declared result is that error type,
 // so the value is the success value, as a constructor
 // func missing(k string) Missing { Missing{Key: k} } returns it (K1;
-// rows.md, Error rows 4). In any other body an error value is a failure.
+// rows.md, Error rows 4). A declared result that is a union whose every
+// member is an error type is a value too: a value whose error types are
+// all members of it is the success value (fs1, under q27). In any other
+// body an error value is a failure.
 func (c *checker) returnedErrorRow(t Type) *Row {
 	row := c.errorValueRow(t)
 	if row == nil || c.fn == nil || c.fn.t == nil || c.fn.t.law {
 		return row
 	}
-	if r := c.fn.t.results; len(r) == 1 && c.errorValueRow(r[0]) != nil && c.identical(t, r[0]) {
-		return nil
+	if r := c.fn.t.results; len(r) == 1 {
+		declared := c.errorValueRow(r[0])
+		if _, union := under(r[0]).(*Union); declared == nil && union {
+			// A named union, type Fail = Bad | Oops.
+			declared = c.errorValueRow(under(r[0]))
+		}
+		if declared != nil && row.subsetOf(c.types, declared) {
+			return nil
+		}
 	}
 	return row
 }

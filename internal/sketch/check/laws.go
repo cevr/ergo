@@ -56,8 +56,11 @@ import "ergo.local/prototype/internal/sketch/syntax"
 //     case. The closed world of the package lists the providers.
 //  8. A law that cannot run says why (Law.Unrun): a parameter with no
 //     generator, a generic operation type, or no provider. A provider
-//     whose values have no generator says why (LawProvider.Unrun). The
-//     test build reports each as skipped, never as passed.
+//     whose values have no generator is built by its constructor New<P>
+//     for each case when the package declares one (LawProvider.Ctor;
+//     fs4), and otherwise says why (LawProvider.Unrun). The test build
+//     reports each skip, and counts the skips in its summary, never as
+//     passed.
 //  9. A false tail or an escaping failure refutes the law for that
 //     provider and case.
 //
@@ -189,7 +192,11 @@ func (c *checker) planLaws() {
 			}
 			lp := LawProvider{Type: p, Conv: a.conv}
 			if why := c.ungeneratable(p); why != "" {
-				lp.Unrun = "its values have no generator: " + why
+				if ctor := c.lawConstructor(p); ctor != nil {
+					lp.Ctor = ctor
+				} else {
+					lp.Unrun = "its values have no generator: " + why + "; a func New" + p.Obj.Name + "() " + p.Obj.Name + " with no rows would build one for each case"
+				}
 			}
 			law.Providers = append(law.Providers, lp)
 		}
@@ -197,6 +204,55 @@ func (c *checker) planLaws() {
 			law.Unrun = "no type of the package implements " + law.Owner.Name
 		}
 	}
+}
+
+// lawConstructor is the constructor a member law's run builds the provider
+// p with when p's values have no generator (rule 7; fs4): the package
+// function New<P> whose one result is p, with no type parameters, no error
+// or capability row and parameters that have generators, which each case
+// draws. A provider whose state is a std handle (a sync.Ref, an
+// fstest.Memory, a queue) is built so, as a program builds it, where a
+// generator could not build it at all. nil when the package has none.
+func (c *checker) lawConstructor(p *Named) *Func {
+	for _, f := range c.pkg.Funcs {
+		sig := f.Sig
+		if f.Name != "New"+p.Obj.Name || sig == nil || len(sig.TParams) > 0 || len(sig.Results) != 1 || !c.identical(sig.Results[0], p) {
+			continue
+		}
+		if rowHolds(sig.Errors) || rowHolds(sig.Uses) {
+			continue
+		}
+		ok := true
+		for _, v := range sig.Params {
+			if isInvalid(v.Type) || c.ungeneratable(v.Type) != "" {
+				ok = false
+			}
+		}
+		if ok {
+			return f
+		}
+	}
+	return nil
+}
+
+// rowHolds reports whether r holds an element, through its variables'
+// solutions.
+func rowHolds(r *Row) bool {
+	for _, e := range r.Elems() {
+		switch e := e.(type) {
+		case *RowVar:
+			if rowHolds(e.Solution()) {
+				return true
+			}
+		case *RowArg:
+			if rowHolds(e.Row) {
+				return true
+			}
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 // checkLaws checks each law body after every function body converged: no

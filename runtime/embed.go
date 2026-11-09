@@ -25,7 +25,6 @@ import (
 //go:embed v1/host.go
 //go:embed v1/collections.go
 //go:embed v1/time.go v1/timetext.go
-//go:embed v1/csv.go
 //go:embed v1/rand.go
 //go:embed v1/sync.go
 //go:embed v1/path.go v1/numbers.go v1/digest.go v1/goerror.go v1/csv.go

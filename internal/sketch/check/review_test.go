@@ -74,17 +74,6 @@ func F() {
 		}
 	}
 }`},
-	{"M4", "error-union-as-value", "S108 S101", `type A {}
-type B {}
-type V = A | B
-func Fail() fails A | B { return A }
-func F() V {
-	Fail() catch {
-	case A as e, B as e:
-		return e
-	}
-	return A
-}`},
 	{"M5", "generic-named-constraint-inferred", "S108", `type I { M() }
 type S {}
 func M(_ S) {}
