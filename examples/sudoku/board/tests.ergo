@@ -1,5 +1,4 @@
-// The board's tests: examples, and the laws restated as property tests
-// (laws are checked, not run, #162).
+// The board's tests: examples (the laws run in laws.ergo).
 
 let easy = "003020600900305001001806400008102900700000008006708200002609500800203009005010300"
 
@@ -59,20 +58,7 @@ test SolvesNeedsGivens {
 	assert !Solves(s, Solution(2))
 }
 
-test SampleIsSolvedHolds(seed int) {
-	assert Solves(Solution(seed), Solution(seed))
-}
-
-test LineRoundTripHolds(seed int, blanks int) {
-	let p = Puzzle(seed, if blanks < 0 { 0 } else { blanks % 82 })
-	assert Equal(try Parse(Line(p)), p)
-}
-
-test BrokenIsInconsistentHolds(seed int, blanks int) {
-	assert !Consistent(Broken(seed, 1+(if blanks < 0 { -(blanks + 1) } else { blanks })%80))
-}
-
 test SamplesVary {
-	assert !Equal(Solution(1), Solution(2)) && !Equal(Solution(2), Solution(3))
+	assert Solution(1) != Solution(2) && Solution(2) != Solution(3)
 	assert Puzzle(4, 30).Filled() == 51
 }

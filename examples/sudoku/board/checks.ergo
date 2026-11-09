@@ -1,6 +1,6 @@
 // The laws of Solver as checks over a provider value, for the providers'
-// property tests. A member law is not run (#162) and cannot be called, so
-// each check restates its law's body (G-ex-c-5).
+// property tests. A member law runs only for providers in its type's package
+// (G-exup-1) and cannot be called, so each check restates its law's body (G-ex-c-5).
 
 // SolutionSolvesHolds is law SolutionSolves for s.
 func SolutionSolvesHolds(s Solver, puzzle Grid) bool {
@@ -21,7 +21,7 @@ func DeterministicHolds(s Solver, puzzle Grid) bool {
 	case Unsolvable:
 		return false
 	}
-	Equal(a, b)
+	a == b
 }
 
 // SolvedIsFixedHolds is law SolvedIsFixed for s.
@@ -34,7 +34,7 @@ func SolvedIsFixedHolds(s Solver, puzzle Grid) bool {
 	case Unsolvable:
 		return false
 	}
-	Equal(again, solved)
+	again == solved
 }
 
 // InconsistentIsUnsolvableHolds is law InconsistentIsUnsolvable for s.

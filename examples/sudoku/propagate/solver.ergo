@@ -6,6 +6,7 @@
 // search tries each digit of the cell with the fewest, on a copy, and
 // backtracks on a contradiction, which is a typed failure.
 
+import bits
 import sudoku/board
 
 // Solver is the propagating solver.
@@ -141,7 +142,7 @@ func search(s state) state fails Contradiction {
 	}
 	for d in 1..10 {
 		if s.cand[best]&(1<<d) != 0 {
-			let mut t = s.copied()
+			let mut t = s
 			t.assign(best, d) catch {
 			case Contradiction:
 				continue
@@ -156,33 +157,11 @@ func search(s state) state fails Contradiction {
 	Contradiction
 }
 
-// copied is s in a new state that shares nothing with it.
-func copied(s state) state {
-	let mut cand = []int{}
-	for c in s.cand {
-		cand = cand.Append(c)
-	}
-	state{cand: cand}
-}
-
-// count is the number of digits in the set c. There is no math/bits
-// (G-ex-e-8), so it counts the bits one by one.
-func count(c int) int {
-	let mut n = 0
-	let mut x = c
-	for x != 0 {
-		x = x & (x - 1)
-		n += 1
-	}
-	n
-}
+// count is the number of digits in the set c.
+func count(c int) int { bits.OnesCount(uint(c)) }
 
 // lowest is the lowest digit of the set c, or 0 when it is empty.
 func lowest(c int) int {
-	for d in 1..10 {
-		if c&(1<<d) != 0 {
-			return d
-		}
-	}
-	0
+	let digits = c & 0x3FE
+	if digits == 0 { 0 } else { bits.TrailingZeros(uint(digits)) }
 }
