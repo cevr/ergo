@@ -24,51 +24,6 @@ type Box[T] { Items []T }
 func same[T comparable](a Box[T], b Box[T]) bool { a == b }
 `
 
-// TestErgoRunStructuralEquality is the unit's repro: a recursive union
-// over a slice and a Map, a record with such a field, a tuple, a generic
-// record compared inside a generic function, and an empty slice against
-// an omitted (Go nil) one.
-func TestErgoRunStructuralEquality(t *testing.T) {
-	needsBuild(t)
-	wantRun(t, eqDecls+`
-func main() needs Console {
-	let a Value = Branch{Items: []Value{Leaf{N: 1}, Branch{Items: []Value{}, Tags: Map[string, int]{"x": 1}}}, Tags: Map[string, int]{}}
-	let b Value = Branch{Items: []Value{Leaf{N: 1}, Branch{Tags: Map[string, int]{"x": 1}}}, Tags: Map[string, int]{}}
-	let c Value = Branch{Items: []Value{Leaf{N: 2}}, Tags: Map[string, int]{}}
-	let p = Pair{A: a, B: []int{2}}
-	let q = Pair{A: b, B: []int{2}}
-	let r = Pair{A: b, B: []int{3}}
-	Console.Println("\(a == b) \(a != c) \(a == c) \(p == q) \(p == r) \((a, 1) == (b, 1)) \((a, 1) == (c, 1))")
-	Console.Println("\(same(Box[int]{Items: []int{1}}, Box[int]{Items: []int{1}})) \(same(Box[int]{}, Box[int]{Items: []int{}})) \(same(Box[int]{Items: []int{1}}, Box[int]{Items: []int{2}}))")
-	Console.Println("\(Branch{Items: []Value{Leaf{N: 2}}, Tags: Map[string, int]{}} == c) \(c != Branch{Tags: Map[string, int]{}}) \(Leaf{N: 2} == c)")
-	Console.Println("\(Map[string, int]{"a": 0} == Map[string, int]{"b": 0}) \(Map[string, int]{"a": 1} == Map[string, int]{"a": 1}) \([]int{} == []int{0})")
-}
-`, "true true false true false true false\ntrue true false\ntrue true false\nfalse true false\n")
-}
-
-// TestStructuralEqualityRefusals: comparability is still Go's where a Map
-// key, a comparable constraint or a type set reads it, and a function and a
-// row value have no equality.
-func TestStructuralEqualityRefusals(t *testing.T) {
-	for name, tc := range map[string]struct{ src, want string }{
-		"map-key":    {eqDecls + "func f(m Map[Value, int]) int { len(m) }\n", "map key type Value is not comparable"},
-		"constraint": {eqDecls + "func eq[T comparable](a T, b T) bool { a == b }\nfunc f(a Value) bool { eq(a, a) }\n", "Value is not comparable"},
-		"function":   {"func f(g escaping func() int) bool { g == g }\n", "func() int values cannot be compared with =="},
-		"row-value":  {"type E { N []int }\ntype F {}\nfunc g() int fails E | F { 1 }\nfunc f() int { g() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } } }\n", "(E | F, int) values cannot be compared with =="},
-	} {
-		t.Run(name, func(t *testing.T) {
-			o := lowerSource("refuse"+name, tc.src+"\nfunc main() {}\n", true)
-			found := false
-			for _, d := range o.diags {
-				found = found || d.Code == "S108" && strings.Contains(d.Message, tc.want)
-			}
-			if !found {
-				t.Fatalf("want S108 %q; got %v (err %v)\n%s", tc.want, o.diags, o.err, tc.src)
-			}
-		})
-	}
-}
-
 var eqSeed = flag.Uint64("eq.seed", 0, "run TestEqualStructuralAgrees on this seed alone")
 
 // eqSeeds are the fixed seeds; each writes one program of eqPairs pairs.

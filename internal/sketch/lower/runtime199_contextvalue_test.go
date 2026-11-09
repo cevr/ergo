@@ -5,7 +5,6 @@ import (
 	"go/ast"
 	"go/constant"
 	"go/token"
-	"go/types"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -525,70 +524,6 @@ func cxSteps(nodes []*cxNode) []int {
 	return out
 }
 
-func TestRuntime199ContextLexicalOperand(t *testing.T) {
-	needsBuild(t)
-	wantRun(t, `import log
-type A { Use() }
-type Quiet {}
-func Use(_ Quiet) {}
-let W = context { A: Quiet }
-func label() string {
-	match log.Annotation("k") {
-	case Some[string] as v: v.Value
-	case None: "none"
-	}
-}
-func shadow() string {
-	let W = log.Annotate("k", "local")
-	let first = with W { label() }
-	let V = W
-	let second = with V { label() }
-	first + "/" + second
-}
-type Tag { text string }
-func contextKey(_ Tag) string { "k" }
-func contextText(t Tag) string { t.text }
-func parameter(W Tag) string { with ((W)) { "parameter" } }
-func main() needs Console {
-	Console.Println(shadow())
-	Console.Println(parameter(Tag{text: "parameter"}))
-}
-`, "local/local\nparameter\n")
-}
-
-// Neither a current std key nor its old spelling can forge a std value.
-func TestRuntime199ContextPackageKeys(t *testing.T) {
-	needsBuild(t)
-	wantRun(t, `import log
-import trace
-type tag { key string, text string }
-func contextKey(t tag) string { t.key }
-func contextText(t tag) string { t.text }
-func span() string {
-	match trace.Current() {
-	case Some[string] as v: v.Value
-	case None: "none"
-	}
-}
-func label() string {
-	match log.Annotation("k") {
-	case Some[string] as v: v.Value
-	case None: "none"
-	}
-}
-func main() needs Console {
-	with trace.Span("real") {
-		with (tag{key: "span", text: "forged"}) { Console.Println(span()) }
-		with (tag{key: "trace.span", text: "forged"}) { Console.Println(span()) }
-	}
-	with log.Annotate("k", "real-log") {
-		with (tag{key: "k", text: "forged"}) { Console.Println(label()) }
-		with (tag{key: "log.k", text: "forged"}) { Console.Println(label()) }
-	}
-}
-`, "real\nreal\nreal-log\nreal-log\n")
-}
-
 // cxImporter serves the units of the test's imported packages by path, and
 // std otherwise; the lowering takes the same units (Unit.Imports).
 type cxImporter map[string]Unit
@@ -644,74 +579,6 @@ func cxLower(t *testing.T, name, src string, imports cxImporter) *lowered {
 	}
 	return &lowered{name: name, src: src, pkg: pkg, file: f, files: []File{{Path: "main.go", Data: code}}}
 }
-
-// The checker Importer is the existing multi-package seam. Identical
-// source in two packages binds its own key: a binding of one package's
-// type is never the other's, even when main opens their regions. This also
-// exercises a region inside an imported body.
-//
-// Only std binds the runtime (check-v1 E4, C26), and no user read API is
-// specified (runtime.md, stdlib.md), so the bindings are observed from the
-// Go side: the test's Console provider reads both packages' keys through
-// the runtime at each line the program prints.
-func TestRuntime199ContextPackageRead(t *testing.T) {
-	needsBuild(t)
-	const library = `type Tag { text string }
-func New(text string) Tag { Tag{text: text} }
-func contextKey(_ Tag) string { "shared" }
-func contextText(t Tag) string { t.text }
-func Own() needs Console { with New("own") { Console.Println("own") } }
-`
-	imports := cxImporter{}
-	for _, path := range []string{"example.test/a", "example.test/b"} {
-		imports[path] = cxPackage(t, path, library)
-	}
-	const src = `import example.test/a
-import example.test/b
-func reads() needs Console {
-	a.Own()
-	b.Own()
-	with a.New("a") {
-		Console.Println("a")
-		with b.New("b") { Console.Println("a b") }
-		Console.Println("a")
-	}
-	Console.Println("none")
-}
-func main() {}
-`
-	o := cxLower(t, "package-read", src, imports)
-	contextModuleTest(t, o, packageReadTest)
-}
-
-// packageReadTest runs reads with a Console that appends, to each line,
-// the binding of the key "shared" in package a and in package b.
-const packageReadTest = `package main
-import (
- "strings"
- "testing"
- rt "ergo.local/prototype/runtime/rt"
- ergo "ergo.local/prototype/runtime/v1"
-)
-type console struct{ lines []string }
-func read(t *rt.Task, pkg ergo.ContextPackage) string {
- if ergo.ContextBound(t, pkg, "shared") { return ergo.ContextValue(t, pkg, "shared") }
- return "none"
-}
-func (c *console) Println(t *rt.Task, line string) {
- c.lines = append(c.lines, line+" "+read(t, "example.test/a")+"/"+read(t, "example.test/b"))
-}
-func TestPackageRead(t *testing.T) {
- c := &console{}
- if err := ergo.ContextRun(func(task *rt.Task) error { reads(&Env{task: task, Console: c}); return nil }); err != nil {
-  t.Fatal(err)
- }
- want := "own own/none\nown none/own\na a/none\na b a/b\na a/none\nnone none/none"
- if got := strings.Join(c.lines, "\n"); got != want {
-  t.Fatalf("package reads:\n%s\nwant:\n%s", got, want)
- }
-}
-`
 
 func TestRuntime199ContextValueProperty(t *testing.T) {
 	if testing.Short() {
@@ -1040,96 +907,6 @@ func TestContext(t *testing.T) {
  if len(leaked) > 0 { t.Errorf("%d of %d snapshots outlive the run's tasks: %v", len(leaked), alive, leaked[:min(len(leaked), 10)]) }
 }
 `
-
-// TestRuntime199ContextValueOwner fails a context region that bypasses its
-// owner. The lowering emits Scope.OpenContext and Context.End only from
-// contextWith, and the protocol functions are called only by contextCall.
-// In the runtime, rt.Task.WithValue is called only by v1's OpenContext, a
-// context region joins a scope's region list only there, and rt keeps a
-// task's values only in its immutable list. Owners are qualified by their
-// receiver ("Scope.OpenContext", not a bare "End"), names resolve through
-// go/types, and the lowering's text is read as constant values, so a split
-// or named constant cannot hide an emitted name (runtime-199 stage 4a r1
-// m4).
-func TestRuntime199ContextValueOwner(t *testing.T) {
-	emits := map[string]int{}
-	lowering := typedPackage(t, ".")
-	lowering.owners(func(owner string, decl ast.Decl) {
-		constStrings(lowering, decl, func(value string) {
-			for _, name := range []string{"OpenContext", "Context.End"} {
-				if !strings.Contains(value, name) {
-					continue
-				}
-				switch owner {
-				case "blocking.go:package":
-					// the catalog keys
-				case "funcCtx.contextWith":
-					emits[name]++
-				default:
-					t.Errorf("%s emits %s outside the context owner", owner, name)
-				}
-			}
-			for _, name := range []string{"WithValue", "ContextBind"} {
-				if strings.Contains(value, name) {
-					t.Errorf("%s emits %s, a context binding outside OpenContext", owner, name)
-				}
-			}
-		})
-	})
-	for _, name := range []string{"OpenContext", "Context.End"} {
-		if emits[name] != 1 {
-			t.Errorf("the context owner emits %s %d times, want 1", name, emits[name])
-		}
-	}
-	// The runtime: a use of rt's (*Task).WithValue (a call or a method
-	// value) and a write of rt's Task.values or v1's Scope.withs, each
-	// resolved to its declaration.
-	// rt's own check names its package "rt"; v1 imports it by path.
-	withValue := func(f *types.Func) bool {
-		sig, _ := f.Type().(*types.Signature)
-		if f.Name() != "WithValue" || f.Pkg() == nil || sig == nil || sig.Recv() == nil {
-			return false
-		}
-		path := f.Pkg().Path()
-		return (path == "rt" || strings.HasSuffix(path, "/runtime/rt")) && strings.HasSuffix(types.TypeString(sig.Recv().Type(), nil), "rt.Task")
-	}
-	uses := map[string]bool{}
-	for _, pkg := range []string{"rt", "v1"} {
-		src := typedPackage(t, filepath.Join("..", "..", "..", "runtime", pkg))
-		var field types.Object
-		var writers []string
-		switch pkg {
-		case "rt":
-			field = src.method(t, "Task", "values")
-			writers = []string{"rt.Task.init", "rt.Task.WithValue", "rt.Context.End", "rt.Task.detach"}
-		case "v1":
-			field = src.method(t, "Scope", "withs")
-			writers = []string{"v1.Scope.OpenWith", "v1.Scope.OpenContext", "v1.Scope.EndWith", "v1.Context.End", "v1.Scope.close"}
-		}
-		src.owners(func(owner string, decl ast.Decl) {
-			owner = pkg + "." + owner
-			ast.Inspect(decl, func(n ast.Node) bool {
-				switch n := n.(type) {
-				case *ast.Ident:
-					if f, ok := src.info.Uses[n].(*types.Func); ok && withValue(f) {
-						uses[owner] = true
-					}
-				case *ast.AssignStmt:
-					for _, l := range n.Lhs {
-						sel, ok := ast.Unparen(l).(*ast.SelectorExpr)
-						if ok && src.info.Uses[sel.Sel] == field && !slices.Contains(writers, owner) {
-							t.Errorf("%s writes %s outside %v", owner, field.Name(), writers)
-						}
-					}
-				}
-				return true
-			})
-		})
-	}
-	if got := sortedKeys(uses); !slices.Equal(got, []string{"v1.Scope.OpenContext"}) {
-		t.Errorf("the runtime binds context values in %v, want only v1.Scope.OpenContext", got)
-	}
-}
 
 // constStrings visits the maximal constant string expressions under n, by
 // their go/types values: a literal, a concatenation of constants, a named

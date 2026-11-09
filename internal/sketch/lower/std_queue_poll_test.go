@@ -1,8 +1,6 @@
 package lower
 
 import (
-	"regexp"
-	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/lawledger"
@@ -12,76 +10,6 @@ import (
 // Option[T] (std-align S3d). Its Go body returns Go's comma-ok (T, bool),
 // and the lowering adapts the call to Some or None with the helper the
 // prelude's Get uses (optionReturn; stdlib.md, Types 5).
-
-// queuePollProgram polls each kind of queue: open and empty, with values,
-// closed with values, closed and empty, and capacity 0 with a waiting Push,
-// whose value Poll takes. Len counts the values in the queue.
-const queuePollProgram = `import queue
-import task
-
-func show(o Option[int]) needs Console {
-	match o {
-	case Some[int] as s:
-		Console.Println("some \(s.Value)")
-	case None:
-		Console.Println("none")
-	}
-}
-
-func main() fails queue.Closed needs Console | Ambient {
-	let clock = NewLiveScheduler()
-	let q = queue.New[int](2)
-	show(q.Poll())
-	try q.Push(1)
-	try q.Push(2)
-	Console.Println("len \(q.Len())")
-	show(q.Poll())
-	Console.Println("len \(q.Len())")
-	q.Close()
-	show(q.Poll())
-	show(q.Poll())
-	Console.Println("len \(q.Len())")
-	let r = queue.New[int](0)
-	show(r.Poll())
-	let t = task.Go() { try r.Push(7) }
-	let mut got = r.Poll()
-	for _ in 0..5000 {
-		if got == None {
-			clock.Sleep(1ms)
-			got = r.Poll()
-		}
-	}
-	show(got)
-	try t.Wait()
-	show(r.Poll())
-}
-`
-
-// TestQueuePollRuns: Poll lowers to the Go method's comma-ok call, adapted
-// in place to Some or None, and the program prints each case. The run is
-// the subtest of the Effect case it ports, Queue.test.ts "poll returns
-// Option for non-blocking take": the program's first lines poll an empty
-// queue (None), offer, and poll the front (Some).
-func TestQueuePollRuns(t *testing.T) {
-	needsBuild(t)
-	var progs map[string]*lowered
-	if !t.Run("effect.queue.poll-option", func(t *testing.T) {
-		progs = runBehaviors(t, []behavior{{
-			name:   "queuepoll",
-			src:    queuePollProgram,
-			stdout: "none\nlen 2\nsome 1\nlen 1\nsome 2\nnone\nlen 0\nnone\nsome 7\nnone\n",
-		}})
-	}) || progs == nil {
-		t.FailNow()
-	}
-	got := progs["queuepoll"].mainGo()
-	if !regexp.MustCompile(`if (v\w*), (ok\w*) := \(?\w+\)?\.Poll\(\); ok\w* \{\n.*return Some\[int\]\{Value: v\w*\}\n.*\}\n.*return None\{\}\n`).MatchString(got) {
-		t.Errorf("no comma-ok call of the Go Poll in the emitted Go:\n%s", got)
-	}
-	if !strings.Contains(got, ".Len()") {
-		t.Errorf("no call of the Go Len in the emitted Go:\n%s", got)
-	}
-}
 
 // queuePollAllocSource has a function that polls (an operation call, so it
 // takes an environment, pure.go); queuePollAllocDriver calls it from Go

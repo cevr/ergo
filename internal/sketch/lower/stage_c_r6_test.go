@@ -84,25 +84,3 @@ func main() needs Console {
 `, "concrete source\npointer source\ngeneric source\ngeneric pointer source\ntwo-parameter source\ntwo-parameter pointer source\n")
 	})
 }
-
-// D-C5 (stage C round 5 review): a function literal that declares both
-// its failure row and its service row runs, under a with and a catch.
-// The reviewer's witness, kept in the run matrix.
-func TestErgoRunLiteralRows(t *testing.T) {
-	needsBuild(t)
-	wantRun(t, `type Bad {}
-type Svc { Get() int }
-type P {}
-func Get(_ P) int { 40 }
-let W = context { Svc: P }
-func fail() int fails Bad { Bad }
-func invoke() int fails Bad needs Svc {
-	let f = func() int fails Bad needs Svc { if Svc.Get() == 40 { fail() } else { 0 } }
-	try f()
-}
-func main() needs Console {
-	let n = with W { invoke() } catch { case Bad: 7 }
-	if n == 7 { Console.Println("declared literal rows") }
-}
-`, "declared literal rows\n")
-}

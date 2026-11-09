@@ -3,7 +3,6 @@ package lower
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -65,125 +64,6 @@ func viaValue(f fs.Files) string {
 	"value \(strings.TrimSpace(text))"
 }
 `
-
-// fsHostProgram reads a working directory that holds a.md, an unreadable
-// b.md and sub/ with 20 files, through fs.Host bound in a context.
-const fsHostProgram = "import fs\nimport strings\n" + fsLib + `
-func run() needs Console | fs.Files {
-	Console.Println(read("a.md"))
-	Console.Println(list("."))
-	Console.Println(list("sub"))
-	Console.Println(stat("a.md"))
-	Console.Println(stat("sub"))
-	Console.Println(read("missing.md"))
-	Console.Println(read("b.md"))
-	Console.Println(read("sub"))
-	Console.Println(list("missing"))
-	Console.Println(list("a.md"))
-	Console.Println(stat("missing.md"))
-}
-
-// main chooses the host: it lists Ambient, which only the entry provides,
-// and makes fs.Host with fs.NewHost (stdlib.md, Host packages).
-func main() needs Console | Ambient {
-	let live = context { fs.Files: fs.NewHost() }
-	with live {
-		run()
-		Console.Println(viaValue(fs.NewHost()))
-	}
-}
-`
-
-// fsUncaught leaves the failure of ReadFile(argument) to main.
-const fsUncaught = `import fs
-import os
-
-func main() fails fs.NotFound | fs.Denied | fs.Failed needs Console | Ambient {
-	let live = context { fs.Files: fs.NewHost(), os.Process: os.NewHost() }
-	with live {
-		let text = try fs.Files.ReadFile(os.Process.Args()[0])
-		Console.Println(text)
-	}
-}
-`
-
-// TestFSFilesRuns: std fs reads the host file system through fs.Host
-// bound in a context (stdlib.md, fs). ReadFile is the file's text and
-// ReadDir the sorted names; a catch over the row takes NotFound for a
-// missing path, Denied for an unreadable file and Failed, with the host's
-// reason, for a directory read as a file. Main's uncaught failure is
-// written with its path, status 1.
-func TestFSFilesRuns(t *testing.T) {
-	needsBuild(t)
-	if os.Geteuid() == 0 {
-		t.Skip("root reads a file of mode 000, so Denied cannot be made")
-	}
-	dir := t.TempDir()
-	write := func(name, text string, mode os.FileMode) {
-		t.Helper()
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), mode); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write("a.md", "alpha\n", 0o644)
-	write("b.md", "beta\n", 0o644)
-	if err := os.Chmod(filepath.Join(dir, "b.md"), 0); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dir, "b.md"), 0o644) })
-	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// 20 names, written in an order that is not sorted, so an unsorted
-	// ReadDir fails the golden on every run.
-	var sorted []string
-	for i := 0; i < 20; i++ {
-		sorted = append(sorted, fmt.Sprintf("n%02d", i))
-	}
-	for i := 19; i >= 0; i-- {
-		write(filepath.Join("sub", sorted[(i*7)%20]), "", 0o644)
-	}
-
-	host := mustLower(t, "fsHost", fsHostProgram)
-	uncaught := mustLower(t, "fsUncaught", fsUncaught)
-	exes := buildAll(t, []*lowered{host, uncaught}, true)
-	if exes == nil {
-		t.Fatal("the lowered programs do not build")
-	}
-	want := strings.Join([]string{
-		"text alpha",
-		"3: a.md b.md sub",
-		"20: " + strings.Join(sorted, " "),
-		"a.md 6",
-		"sub dir",
-		"NotFound missing.md",
-		"Denied b.md",
-		"Failed sub: is a directory",
-		"NotFound missing",
-		"Failed a.md: not a directory",
-		"NotFound missing.md",
-		"value alpha",
-	}, "\n") + "\n"
-	cases := []struct {
-		name, exe string
-		args      []string
-		stdout    string
-		stderr    string
-		exit      int
-	}{
-		{"host", exes["fsHost"], nil, want, "", 0},
-		{"uncaughtNotFound", exes["fsUncaught"], []string{"missing.md"}, "", "error: fs.NotFound{Path:missing.md}\n", 1},
-		{"uncaughtDenied", exes["fsUncaught"], []string{"b.md"}, "", "error: fs.Denied{Path:b.md}\n", 1},
-		{"uncaughtFailed", exes["fsUncaught"], []string{"sub"}, "", "error: fs.Failed{Path:sub Reason:is a directory}\n", 1},
-		{"uncaughtRead", exes["fsUncaught"], []string{"a.md"}, "alpha\n\n", "", 0},
-	}
-	for _, c := range cases {
-		stdout, stderr, code := runIn(t, dir, c.exe, c.args...)
-		if stdout != c.stdout || stderr != c.stderr || code != c.exit {
-			t.Errorf("%s: exit %d, want %d\nstdout %q\nwant   %q\nstderr %q\nwant   %q", c.name, code, c.exit, stdout, c.stdout, stderr, c.stderr)
-		}
-	}
-}
 
 // fsMemory is package memory: a program's own Files provider over a map
 // of paths to text, with the names its root directory lists.

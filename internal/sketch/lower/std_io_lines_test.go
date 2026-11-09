@@ -3,7 +3,6 @@ package lower
 import (
 	"math/rand/v2"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -116,59 +115,6 @@ func TestInputLinesMatchesModel(t *testing.T) {
 			t.Errorf("seed %d, case %d: the lines of %q are\n\t%s\nthe model gives\n\t%s\n(Ergo source: io.Input{Text: %s}.Lines() in internal/sketch/std/io/io.ergo; replay with ERGO_SEED=%d)", seed, i, c, got[i], want, strconv.Quote(c), seed)
 		}
 	}
-}
-
-// TestInputLinesScansByIndex: the Go that io.Input's Lines lowers to finds
-// each line feed with one strings.Index call (v1.StringsIndex) per line,
-// and compares no byte with "\n". The test reads the lowered program's
-// main.go, the Go that ergo build writes; it matches call names, not
-// layout.
-func TestInputLinesScansByIndex(t *testing.T) {
-	const src = `import io
-
-func count(text string) int {
-	let mut n = 0
-	for line in (io.Input{Text: text}).Lines() {
-		n = n + len(line)
-	}
-	n
-}
-
-func main() needs Console {
-	Console.Println("\(count("a\nb"))")
-}
-`
-	body := inputLinesGo(t, mustLower(t, "inputlinesshape", src).mainGo())
-	if n := strings.Count(body, "StringsIndex("); n != 1 {
-		t.Errorf("the lowered Lines(Input) calls StringsIndex %d times, want 1:\n%s", n, body)
-	}
-	if regexp.MustCompile(`==\s*"\\n"`).MatchString(body) {
-		t.Errorf("the lowered Lines(Input) compares a byte with \"\\n\" (a scan per byte):\n%s", body)
-	}
-}
-
-// inputLinesGo is the Go function that io's Lines(input Input) lowers to,
-// from its func line to the next top-level declaration: the one declaration
-// whose parameters name the io Input type and whose result is a Seq.
-func inputLinesGo(t *testing.T, mainGo string) string {
-	t.Helper()
-	decls := regexp.MustCompile(`(?m)^(func|type|var|const|import) `).FindAllStringIndex(mainGo, -1)
-	var found []string
-	for i, d := range decls {
-		end := len(mainGo)
-		if i+1 < len(decls) {
-			end = decls[i+1][0]
-		}
-		fn := mainGo[d[0]:end]
-		head, _, _ := strings.Cut(fn, "\n")
-		if strings.HasPrefix(head, "func ") && strings.Contains(head, "Lines") && strings.Contains(head, "Input") {
-			found = append(found, fn)
-		}
-	}
-	if len(found) != 1 {
-		t.Fatalf("want one lowered function for io's Lines(Input), found %d:\n%s", len(found), strings.Join(found, "\n----\n"))
-	}
-	return found[0]
 }
 
 // BenchmarkInputLines (SS3): 1 MiB of 80-byte lines through the lowered

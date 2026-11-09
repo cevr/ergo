@@ -5,45 +5,28 @@
 # new test that builds Go says why in its doc comment (AGENTS.md, Tests).
 
 internal/sketch/build/identity_test.go	linkVariant	existing build at T7: follow-up FU-sketch-build-why (no T unit owns internal/sketch/build) writes its builds Go because line
-internal/sketch/lower/accepted_test.go	runAccepted	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/bench_emitted_test.go	emittedBench	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/calls_test.go	TestCallIdentity	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/calls_test.go	TestDefectReportNamesErgoCallSites	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/catch_tree_property_test.go	TestCatchTreeAgrees	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/checked_lowered_test.go	runChecked	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/context_import_test.go	TestRunImportedContext	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/context_reach_test.go	TestContextLibOwnWithSet	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/context_reach_test.go	TestContextReachProperty	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/corpus_test.go	runCorpus	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/defect_report_test.go	defectReport	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/host_authority_run_test.go	TestHostAuthorityRuns	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/main_test.go	TestErgoCLIProbe	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/main_test.go	ergoCLI	the CLI build helper the rule names (one build per test process): T3 (ts-fast-inproc) guards it with needsBuild
 internal/sketch/lower/match_tree_property_test.go	TestMatchTreeAgrees	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/names_test.go	TestLateNamesNeverCaptureLocals	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/order_test.go	TestEvaluationOrder	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/packages_r1_test.go	TestErrorTextInstancesAcrossPackages	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/packages_r1_test.go	TestTestReportsNameTheirFiles	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/packages_r1_test.go	TestVerifyR1TestFailureFile	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/packages_r1_test.go	buildAndRun	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/packages_r4_test.go	TestVerifyR3ErasedRows	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/packages_r8_test.go	TestInitOrderIsCanonical	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/packages_test.go	TestLowerPackages	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/pure_pkg_test.go	TestPurityAcrossPackages	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/pure_test.go	TestPureFunctionsTakeNoEnv	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/record_update_test.go	goTestEmittedVerbose	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/rows_test.go	runBehaviors	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/runtime199_acquire_test.go	TestRuntime199AcquireFlow	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/runtime199_blocking_native_test.go	nativeBuild	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/runtime199_context_import_test.go	TestRuntime199ContextImportedBuilds	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/runtime199_contextbuild_test.go	TestRuntime199ContextBuildProperty	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/runtime199_contextbuild_test.go	TestRuntime199ContextCloseFootprint	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/runtime199_contextbuild_test.go	TestRuntime199ContextEmbeddedFootprint	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/runtime199_contextbuild_test.go	TestRuntime199ContextExitActions	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/runtime199_contextbuild_test.go	TestRuntime199ContextFreshProvider	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/runtime199_defect_test.go	TestRuntime199DefectReport	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/runtime199_i1_test.go	i1Live	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/stage4_forms_test.go	TestGenericErrorText	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/stage4_machine_test.go	TestMachinePlanValues	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/stage4_machine_test.go	goTestEmitted	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/stage4_refusals_test.go	TestErrorFieldNamesStayDistinct	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
@@ -53,61 +36,37 @@ internal/sketch/lower/stage4_runner_test.go	runnerModelCheck	existing build at T
 internal/sketch/lower/stage_c_test.go	ergoRun	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/stage_d3b_r2_test.go	runWithin	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/stage_e3a_cleanup_test.go	TestCaseOutcomeProperty	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/stage_e3a_owners_test.go	TestTestFactsStayInTests	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/stage_e3a_test.go	TestE3Sweep	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/stage_e3a_test.go	TestPropertySeed	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/stage_e3b_test.go	TestLawFactsStayOut	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/stage_e3b_test.go	TestLawSweep	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/stage_e4_test.go	TestContextKeyIdentity	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/stage_e4_test.go	TestErgoRunE4DiscardVariadic	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/stage_e4_test.go	TestErgoRunE4Externs	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/stage_e4_test.go	TestErgoRunE4TargetCategories	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/stage_e4_test.go	e4BuildErrors	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/stage_e5_test.go	TestErgoRunE5Contexts	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/stage_e6a_test.go	TestErgoRunE6aInterpolation	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/stage_e6a_test.go	TestInterpolationLowersWithoutBoxing	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/stage_e6a_test.go	runFed	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/stage_lawtop_test.go	TestErgoRunTopLevelLaw	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_ascending_test.go	TestStdAscendingMatchesGo	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_exec_test.go	TestExecLaws	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/std_flag_build_test.go	TestFlagBuildOwnFailure	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/std_flag_test.go	TestFlagCommandsRun	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_flag_test.go	TestFlagForeignHandle	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_flag_test.go	TestFlagLaws	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_flag_test.go	flagProbe	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/std_fs_test.go	TestFSFilesRuns	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_fs_test.go	TestFSWritesRuns	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_gaps_property_test.go	TestStdGapProperty	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_gaps_property_test.go	TestStdGapRealStd	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/std_gaps_test.go	runGapProgram	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_io_lines_test.go	TestInputLinesMatchesModel	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_io_test.go	TestIOLaws	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/std_io_test.go	TestIORuns	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_io_test.go	TestIOStdinRest	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/std_keys_test.go	TestStdRecordsBindTheRowsGoName	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_keys_test.go	TestStdRecordsKeyedByPackage	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_laws_test.go	TestStdLawsRun	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_laws_test.go	lawProbe	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/std_os_test.go	TestOSExitRuns	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_os_test.go	TestOSProcessRuns	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/std_rand_test.go	TestRandEffectCases	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/std_slices_test.go	TestStdSlicesEffectCases	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_text2_test.go	TestStdTextRuns2	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/std_time_test.go	TestTimeEffectCases	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/assert_values_test.go	TestAssertLiteralsReadBack	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
 internal/sketch/lower/assert_values_test.go	TestAssertShowsValues	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
 internal/sketch/lower/eq_structural_test.go	TestEqualStructuralAgrees	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
 internal/sketch/lower/extern_error_row_test.go	TestExternErrorRowRuns	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
 internal/sketch/lower/extern_values_test.go	TestExternValuesRun	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
-internal/sketch/lower/generators_test.go	TestGeneratorSizeBoundsNesting	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
 internal/sketch/lower/generators_test.go	TestGeneratorsReachEveryClass	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
 internal/sketch/lower/getmatch_test.go	TestGetMatchAgrees	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
-internal/sketch/lower/getmatch_test.go	TestGetMatchEmits	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
 internal/sketch/lower/header_literal_test.go	TestHeaderLiteralAgrees	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
 internal/sketch/lower/law_run_test.go	TestLawRunB13	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
-internal/sketch/lower/law_run_test.go	TestLawRunDefinedBool	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
-internal/sketch/lower/law_run_test.go	TestLawRunFindsTheBrokenProvider	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
-internal/sketch/lower/law_run_test.go	TestLawRunNoParams	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
 internal/sketch/lower/law_run_test.go	TestLawRunSkips	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
 internal/sketch/lower/machine_run_test.go	TestMachineRunAgreesWithFold	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line
 internal/sketch/lower/program_memory_test.go	TestRunProgramBoundsAGrowingProgram	arrived at the ts-t2 base after T7's base (batch 12): T5 (ts-cut-lower) cuts it or gives it its doc line

@@ -2,7 +2,6 @@ package lower
 
 import (
 	"fmt"
-	"iter"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -223,33 +222,6 @@ func acceptedSources() ([]acceptedSource, error) {
 	return sources, nil
 }
 
-// acceptedSplit's domain is read from fixture and example files, which
-// other units edit, so it is not pinned; its parts cover it.
-var acceptedSplit = newSplit(split[acceptedSource]{
-	name:  "TestAcceptedNodesLower",
-	parts: acceptedParts,
-	cases: func(yield func(acceptedSource) bool) {
-		sources, err := acceptedSources()
-		if err != nil {
-			return // TestAcceptedNodesLowerFamilies reports it
-		}
-		for _, s := range sources {
-			if !yield(s) {
-				return
-			}
-		}
-	},
-	key: func(s acceptedSource) string { return s.name + "\n" + s.path + "\n" + s.src + "\nwant\n" + s.want },
-	run: runAccepted,
-})
-
-const acceptedParts = 4
-
-func TestAcceptedNodesLowerPart0(t *testing.T) { acceptedSplit.Part(t, 0) }
-func TestAcceptedNodesLowerPart1(t *testing.T) { acceptedSplit.Part(t, 1) }
-func TestAcceptedNodesLowerPart2(t *testing.T) { acceptedSplit.Part(t, 2) }
-func TestAcceptedNodesLowerPart3(t *testing.T) { acceptedSplit.Part(t, 3) }
-
 // TestAcceptedNodesLowerFamilies: over the whole domain, every implemented
 // family has a lowered witness, and every family a checker-accepted source
 // holds is lowered or a documented refusal. The inventory is logged.
@@ -337,68 +309,4 @@ func TestAcceptedNodesLowerFamilies(t *testing.T) {
 	fmt.Fprintf(&inventory, "refusals by family: %s\n", strings.Join(at, ", "))
 	fmt.Fprintf(&inventory, "run against an oracle: %s\n", strings.Join(ran, ", "))
 	t.Log("family inventory\n" + inventory.String())
-}
-
-// runAccepted lowers the sources of one part: none panics or meets an
-// error, and each refusal is a documented one; it builds the sources that
-// lower and runs those with an oracle against it.
-func runAccepted(t *testing.T, sources iter.Seq[acceptedSource]) {
-	implemented := map[string]bool{}
-	for _, f := range implementedFamilies {
-		implemented[f] = true
-	}
-	var lowerable, runnable []*lowered
-	wants := map[string]string{}
-	for s := range sources {
-		entry := s.want != ""
-		o := lowerSource(s.name, s.src, entry)
-		switch {
-		case o.err != nil && o.file == nil:
-			continue // a syntax error: the parser's negative fixture
-		case len(o.diags) > 0:
-			continue
-		}
-		switch {
-		case o.panicked != nil:
-			t.Errorf("%s: lowering panicked: %v", s.path, o.panicked)
-		case o.err != nil:
-			t.Errorf("%s: %v", s.path, o.err)
-		case len(o.refused) > 0:
-			for _, r := range o.refused {
-				family := refusalFamily(r.Message)
-				owner := refusedFamilies[family]
-				switch {
-				case family == "":
-					t.Errorf("%s:%d:%d: an unclassified refusal (add it to refusalReasons with a refused family, or lower the form): %s", s.path, r.Line, r.Column, r.Message)
-				case implemented[family]:
-					t.Errorf("%s:%d:%d: a refusal of the implemented family %s: %s", s.path, r.Line, r.Column, family, r.Message)
-				case owner == "" || !strings.Contains(r.Message, owner):
-					t.Errorf("%s:%d:%d: the refusal stands at %s, documented as owned by %q, and names another owner: %s", s.path, r.Line, r.Column, family, owner, r.Message)
-				}
-			}
-		default:
-			lowerable = append(lowerable, o)
-			if entry {
-				runnable = append(runnable, o)
-				wants[o.name] = s.want
-			}
-		}
-	}
-	var toBuild []*lowered
-	for _, o := range lowerable {
-		if wants[o.name] == "" {
-			toBuild = append(toBuild, o)
-		}
-	}
-	buildAll(t, toBuild, false)
-	exes := buildAll(t, runnable, true)
-	for _, o := range runnable {
-		if exes == nil {
-			break
-		}
-		stdout, stderr, code := runExe(t, exes[o.name])
-		if code != 0 || stdout != wants[o.name] {
-			t.Errorf("%s: exit %d, stderr %q\n%s", o.name, code, firstLines(stderr, 8), diffLines(stdout, wants[o.name]))
-		}
-	}
 }

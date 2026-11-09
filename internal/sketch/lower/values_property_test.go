@@ -49,7 +49,6 @@ const (
 	kMaps               // []Map[int, int]
 )
 
-var kindType = []string{"Map[int, int]", "[]int", "Box", "[]Map[int, int]"}
 var kindDigest = []string{"dm", "ds", "db", "dms"}
 
 // mval is a model value: m and s for a Map, a slice or a Box, ms for a

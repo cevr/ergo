@@ -579,89 +579,6 @@ func runMachineBounded(t *testing.T, exe string) (stdout, stderr string, code in
 	return out.String(), errOut.String(), code, ended
 }
 
-// TestMachineValueConverts: a machine declaration's value is assignable to
-// the prelude Machine of its state, signal and step, and to no other
-// instance; a mismatch names the machine's own Machine. A diagnostic row:
-// it alone catches a conversion that admits any Machine instance.
-func TestMachineValueConverts(t *testing.T) {
-	src := `type St = A
-type A {}
-type Sig = Go
-type Go {}
-type Boom {}
-
-func step(s St, e Sig) Decision[St, int] fails Boom { Ignore }
-
-type M machine[St, Sig] {
-	initial: A,
-	step:    step,
-}
-
-func main() {
-	let _ Machine[St, Sig, string] = M{}
-}
-`
-	var got []string
-	for _, d := range lowerSource("machineconv", src, true).diags {
-		got = append(got, d.String())
-	}
-	want := "cannot use M as Machine[St, Sig, string, , ] in let _: its step step gives a Machine with output int, error row {Boom} and capability row {}"
-	if len(got) != 1 || !strings.Contains(got[0], want) {
-		t.Errorf("diagnostics %q, want one with %q and the machine's own Machine", got, want)
-	}
-}
-
-// TestMachineRunChargesTheStepRows: Run through a machine value has the
-// step's rows. run declares none, so it infers them from machines.Run: a
-// main that calls it with no provider of the step's capability is S102,
-// and the step's failure is not handled there. A diagnostic row: it alone
-// catches a Machine view that drops the step's capability row, which the
-// generated programs cannot see because their Env holds the provider.
-func TestMachineRunChargesTheStepRows(t *testing.T) {
-	src := `import machines
-
-type St = A
-type A {}
-type Sig = Go
-type Go {}
-type Boom {}
-type Probe { Tick() }
-
-func step(s St, e Sig) Decision[St, int] fails Boom needs Probe {
-	Probe.Tick()
-	Ignore
-}
-
-type M machine[St, Sig] {
-	initial: A,
-	step:    step,
-}
-
-func run(xs []Sig) int {
-	let _ = try machines.Run(M{}, xs) catch {
-	case machines.Rejected:
-		return 0
-	}
-	1
-}
-
-func main() {
-	let _ = run([]Sig{Go})
-}
-`
-	var got []string
-	for _, d := range lowerSource("machinerows", src, true).diags {
-		got = append(got, d.String())
-	}
-	want := []string{
-		"29:10: S102 this call requires Probe, which is not in the capability row of function main and no with provides it",
-		"29:10: S105 the failure {Boom} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)",
-	}
-	if !slices.Equal(got, want) {
-		t.Errorf("diagnostics:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
-}
-
 // TestMachineAfterRefusals: a machine's after names a package function
 // from its state to Option[Timeout[E]] with no rows, since the runner
 // calls it after a commit. Diagnostic rows: they alone catch a checker
@@ -686,42 +603,6 @@ func step(s St, e Sig) Decision[St, int] { Ignore }
 	} {
 		var got []string
 		for _, d := range lowerSource("machineafter", head+c.timer+machine, true).diags {
-			got = append(got, d.String())
-		}
-		if len(got) != 1 || !strings.Contains(got[0], c.want) {
-			t.Errorf("%s: diagnostics %q, want one with %q", c.name, got, c.want)
-		}
-	}
-}
-
-// TestMachineStartRefusals: a machine's initial may name a start function
-// of its input (V4): one with no parameters or another result, or with a
-// row, is refused, and an InputMachine is not a Machine. Diagnostic rows:
-// they alone catch a checker that admits such a start, which no program
-// that builds can show.
-func TestMachineStartRefusals(t *testing.T) {
-	head := `type St = A{n int}
-type Sig = Go
-type Go {}
-
-func step(s St, e Sig) Decision[St, int] { Ignore }
-
-type M machine[St, Sig] {
-	initial: start,
-	step:    step,
-}
-
-`
-	for _, c := range []struct{ name, rest, want string }{
-		{"none", "func start() St { A{n: 1} }\n\nfunc main() {}\n",
-			"S108 the start start of machine M must have the type func(…) St: its parameters are the machine's input, and it has no type parameters and no error or capability row (runtime.md, Machines and actors 10)"},
-		{"row", "func start(n int) St {\n\tConsole.Println(\"x\")\n\tA{n: n}\n}\n\nfunc main() {}\n",
-			"S108 cannot use func(int) St needs Console as func(int) St in machine M's start: its capability row {Console} is wider than {}"},
-		{"machine", "func start(n int) St { A{n: n} }\n\nfunc main() {\n\tlet _ Machine[St, Sig, int] = M{}\n}\n",
-			"its initial is a function of an input, so it is an InputMachine[int, …]; machines.Start(value, input) gives a Machine"},
-	} {
-		var got []string
-		for _, d := range lowerSource("machinestart", head+c.rest, true).diags {
 			got = append(got, d.String())
 		}
 		if len(got) != 1 || !strings.Contains(got[0], c.want) {

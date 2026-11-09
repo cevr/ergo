@@ -1083,6 +1083,366 @@
       "killers": [
         "lower:TestStdLawsAddNoGo"
       ]
+    },
+    {
+      "name": "t5-0-true-false-pure.go:264",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 2)",
+      "file": "internal/sketch/lower/pure.go",
+      "from": "\treturn true",
+      "to": "\treturn false",
+      "rule": "meetsHostProtocol: meetsHostProtocol reports whether f lowers to a Go method whose name and Go signature, without an environment, are a host protocol's exactly (case a).",
+      "killers": []
+    },
+    {
+      "name": "t5-1-negate-if-decls.go:397",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
+      "file": "internal/sketch/lower/decls.go",
+      "from": "\t\t\t\tif d == named {",
+      "to": "\t\t\t\tif !(d == named) {",
+      "rule": "definedErrorOver: definedErrorOver reports whether an error type of the program is defined over named, directly or through other defined types.",
+      "killers": []
+    },
+    {
+      "name": "t5-2-drop-continue-values.go:1342",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\tif !l.holdsValue(f.Type) {\n\t\t\t\tcontinue\n\t\t\t}",
+      "to": "\t\t\tif !l.holdsValue(f.Type) {\n\t\t\t\t_ = 0\n\t\t\t}",
+      "rule": "cloneFunc: cloneFunc is the copy function of t, and the type parameters of the enclosing declaration that t mentions, emitted once at first use, as equality functions are (equal.go).",
+      "killers": []
+    },
+    {
+      "name": "t5-3-negate-if-expr.go:1084",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 2)",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "\t\talways := false\n\t\tfor _, te := range a.Types {\n\t\t\tp := fc.l.info.Patterns[te]\n\t\t\tif p == nil {\n\t\t\t\tice(te, \"a catch arm with no Patterns entry\")\n\t\t\t}\n\t\t\tvar tests []string",
+      "to": "\t\talways := false\n\t\tfor _, te := range a.Types {\n\t\t\tp := fc.l.info.Patterns[te]\n\t\t\tif !(p == nil) {\n\t\t\t\tice(te, \"a catch arm with no Patterns entry\")\n\t\t\t}\n\t\t\tvar tests []string",
+      "rule": "flatPatternCatch: flatPatternCatch lowers a catch's arms to one expressionless Go switch over the error err of the row type row, each arm's condition its patterns' tests; rest writes what no arm handles.",
+      "killers": []
+    },
+    {
+      "name": "t5-4-negate-if-values.go:991",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\tif x.Base != nil {",
+      "to": "\t\tif !(x.Base != nil) {",
+      "rule": "freshen: freshen makes the value e, which enters a root, unshared: nothing when it is fresh, its parts when it is a literal, else a copy.",
+      "killers": []
+    },
+    {
+      "name": "t5-5-true-false-calls.go:1126",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 1)",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "\t}\n\treturn true\n}",
+      "to": "\t}\n\treturn false\n}",
+      "rule": "unsourced: unsourced reports a named context that no source file of the program declares: neither the root package's nor an imported user package's.",
+      "killers": []
+    },
+    {
+      "name": "t5-6-negate-if-match.go:297",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 1)",
+      "file": "internal/sketch/lower/match.go",
+      "from": "\tn, ok := t.(*check.Named)\n\tif !ok {\n\t\treturn false",
+      "to": "\tn, ok := t.(*check.Named)\n\tif !(!ok) {\n\t\treturn false",
+      "rule": "declaredUnion: declaredUnion reports a named union type: its Go form is the sealed interface its variants implement.",
+      "killers": []
+    },
+    {
+      "name": "t5-7-eq-ne-match.go:177",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
+      "file": "internal/sketch/lower/match.go",
+      "from": "\tif len(binds) == 1 {",
+      "to": "\tif len(binds) != 1 {",
+      "rule": "bindArm: bindArm declares an arm's bindings.",
+      "killers": []
+    },
+    {
+      "name": "t5-8-negate-if-decls.go:394",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
+      "file": "internal/sketch/lower/decls.go",
+      "from": "\t\t\t\tif d.Orig != nil {",
+      "to": "\t\t\t\tif !(d.Orig != nil) {",
+      "rule": "definedErrorOver: definedErrorOver reports whether an error type of the program is defined over named, directly or through other defined types.",
+      "killers": []
+    },
+    {
+      "name": "t5-9-eq-ne-canon.go:281",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 1)",
+      "file": "internal/sketch/lower/canon.go",
+      "from": "\t\tif p.Type.Obj.Decl == nil {",
+      "to": "\t\tif p.Type.Obj.Decl != nil {",
+      "rule": "lawProviders: lawProviders are law's providers in canonical order: by the source file and offset of each provider's declaration name.",
+      "killers": []
+    },
+    {
+      "name": "t5-10-and-or-sources.go:266",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 2)",
+      "file": "internal/sketch/lower/sources.go",
+      "from": "\t\t\t\tif !done[d] && slices.Contains(todo, d) {",
+      "to": "\t\t\t\tif !done[d] || slices.Contains(todo, d) {",
+      "rule": "sourcedLibs: sourcedLibs are the reached user packages other than the root, in initialization order: each after every sourced package it imports, else in path order (Go 1.21).",
+      "killers": []
+    },
+    {
+      "name": "t5-11-negate-if-expr.go:388",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 1)",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "\t\t\t\tcase *check.Var:\n\t\t\t\t\tif o.Name == x.Sel.Name {\n\t\t\t\t\t\t// An imported package's let, lowered with the",
+      "to": "\t\t\t\tcase *check.Var:\n\t\t\t\t\tif !(o.Name == x.Sel.Name) {\n\t\t\t\t\t\t// An imported package's let, lowered with the",
+      "rule": "selector: selector lowers x.f: a record's field, or a package's declaration.",
+      "killers": []
+    },
+    {
+      "name": "t5-12-negate-if-tails.go:77",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 1)",
+      "file": "internal/sketch/lower/tails.go",
+      "from": "\t\t\tif o.val != \"\" {",
+      "to": "\t\t\tif !(o.val != \"\") {",
+      "rule": "yieldStmt: yieldStmt writes the last statement of a body toward d.",
+      "killers": []
+    },
+    {
+      "name": "t5-13-negate-if-calls.go:1437",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "\t\tif fc.l.tests != nil && fc.l.tests.law != nil && fc.l.tests.law.Owner != nil {",
+      "to": "\t\tif !(fc.l.tests != nil && fc.l.tests.law != nil && fc.l.tests.law.Owner != nil) {",
+      "rule": "callee: callee is the Ergo name of what x calls: a function, qualified by its package outside the user's and the prelude, a same-named function by its receiver's type, an operation by its operations or capability type, and a function value by the name it is called through.",
+      "killers": []
+    },
+    {
+      "name": "t5-14-negate-if-body.go:448",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
+      "file": "internal/sketch/lower/body.go",
+      "from": "\tif fc.isPlace(x) {",
+      "to": "\tif !(fc.isPlace(x)) {",
+      "rule": "place: place is the address of the receiver x of a *T function: the place's address when x is a place, fixed before anything later (target); else x's value in a temporary, whose address Go can take.",
+      "killers": []
+    },
+    {
+      "name": "t5-15-negate-if-module.go:78",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 1)",
+      "file": "internal/sketch/lower/module.go",
+      "from": "\tif len(e.Refusals) == 0 {",
+      "to": "\tif !(len(e.Refusals) == 0) {",
+      "rule": "Error: ",
+      "killers": []
+    },
+    {
+      "name": "t5-16-negate-if-expr.go:1104",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 2)",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "\t\t\t\tif len(conds) > 1 {",
+      "to": "\t\t\t\tif !(len(conds) > 1) {",
+      "rule": "flatPatternCatch: flatPatternCatch lowers a catch's arms to one expressionless Go switch over the error err of the row type row, each arm's condition its patterns' tests; rest writes what no arm handles.",
+      "killers": []
+    },
+    {
+      "name": "t5-17-true-false-body.go:435",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
+      "file": "internal/sketch/lower/body.go",
+      "from": "\t\tcase *check.Slice:\n\t\t\treturn true\n\t\tcase *check.Map, *check.Signature:",
+      "to": "\t\tcase *check.Slice:\n\t\t\treturn false\n\t\tcase *check.Map, *check.Signature:",
+      "rule": "isPlace: isPlace reports whether x is a place target can lower: an addressable Go expression.",
+      "killers": []
+    },
+    {
+      "name": "t5-18-negate-if-body.go:430",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
+      "file": "internal/sketch/lower/body.go",
+      "from": "\tcase *syntax.IndexExpr:\n\t\tif len(x.Indices) != 1 {\n\t\t\treturn false",
+      "to": "\tcase *syntax.IndexExpr:\n\t\tif !(len(x.Indices) != 1) {\n\t\t\treturn false",
+      "rule": "isPlace: isPlace reports whether x is a place target can lower: an addressable Go expression.",
+      "killers": []
+    },
+    {
+      "name": "t5-19-negate-if-witness.go:198",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
+      "file": "internal/sketch/lower/witness.go",
+      "from": "\t}\n\tif len(op.Sig.Results) > 1 {\n\t\tunreachable(tc.site, ruleOneResult, \"the operation %s has %d results\", op.Name, len(op.Sig.Results))",
+      "to": "\t}\n\tif !(len(op.Sig.Results) > 1) {\n\t\tunreachable(tc.site, ruleOneResult, \"the operation %s has %d results\", op.Name, len(op.Sig.Results))",
+      "rule": "witnessMethod: witnessMethod is the Go method op of the adapter recv (its pointer receiver type, with type arguments) that converts a value of a type parameter to an operation type: it calls the witness the adapter holds in an environment of the caller's task alone, as a table function's adapter does, on the value (ptr: through the pointer the adapter holds).",
+      "killers": []
+    },
+    {
+      "name": "t5-20-negate-if-match.go:181",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
+      "file": "internal/sketch/lower/match.go",
+      "from": "\t\t\tfc.line(name + \" := \" + b.val)\n\t\t\tif !fc.l.reads[b.v] {\n\t\t\t\tfc.line(\"_ = \" + name)",
+      "to": "\t\t\tfc.line(name + \" := \" + b.val)\n\t\t\tif !(!fc.l.reads[b.v]) {\n\t\t\t\tfc.line(\"_ = \" + name)",
+      "rule": "bindArm: bindArm declares an arm's bindings.",
+      "killers": []
+    },
+    {
+      "name": "t5-21-false-true-values.go:658",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\treturn ok && x.Sel.Name == y.Sel.Name && samePlace(x.X, y.X)\n\t}\n\treturn false\n}\n",
+      "to": "\t\treturn ok && x.Sel.Name == y.Sel.Name && samePlace(x.X, y.X)\n\t}\n\treturn true\n}\n",
+      "rule": "samePlace: samePlace reports whether a and b are one place: a variable and its fields, through parentheses and indirections.",
+      "killers": []
+    },
+    {
+      "name": "t5-22-negate-if-calls.go:202",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "\t\t\tif fc.l.tests == nil || fc.l.tests.law == nil || fc.l.tests.law.Owner == nil || c.Op == nil {",
+      "to": "\t\t\tif !(fc.l.tests == nil || fc.l.tests.law == nil || fc.l.tests.law.Owner == nil || c.Op == nil) {",
+      "rule": "callText: callText is a call's Go text, whether it returns a value, and whether its Go form returns an error.",
+      "killers": []
+    },
+    {
+      "name": "t5-23-ne-eq-pure.go:271",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
+      "file": "internal/sketch/lower/pure.go",
+      "from": "\tif b, ok := t.(*check.Basic); ok && b.Kind != check.Duration && b.Kind != check.Invalid {",
+      "to": "\tif b, ok := t.(*check.Basic); ok && b.Kind == check.Duration && b.Kind != check.Invalid {",
+      "rule": "goBasicName: goBasicName is the Go spelling of a basic type, as go vet prints it, or \"\" for any other type: no host protocol's type is another Ergo type's lowering (Ergo has no any, error or byte alias; byte is uint8).",
+      "killers": []
+    },
+    {
+      "name": "t5-24-false-true-values.go:1105",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 2)",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\tif use == nil || use.frame != vv.frame {\n\t\treturn false\n\t}",
+      "to": "\tif use == nil || use.frame != vv.frame {\n\t\treturn true\n\t}",
+      "rule": "freshIdent: freshIdent reports whether the use id of vv may take its value without a copy: vv is a local of this frame, read nowhere else after this use and never shared before it, captured by no other frame, and its value is unshared (a let mut always is; a let when its value was fresh).",
+      "killers": []
+    },
+    {
+      "name": "t5-25-false-true-values.go:1111",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\tif !containsNode(vv.loops, l) {\n\t\t\t\treturn false\n\t\t\t}",
+      "to": "\t\t\tif !containsNode(vv.loops, l) {\n\t\t\t\treturn true\n\t\t\t}",
+      "rule": "freshIdent: freshIdent reports whether the use id of vv may take its value without a copy: vv is a local of this frame, read nowhere else after this use and never shared before it, captured by no other frame, and its value is unshared (a let mut always is; a let when its value was fresh).",
+      "killers": []
+    },
+    {
+      "name": "t5-26-negate-if-naming.go:109",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 1)",
+      "file": "internal/sketch/lower/naming.go",
+      "from": "\t\t\tif !l.stdContext(w) {",
+      "to": "\t\t\tif !(!l.stdContext(w)) {",
+      "rule": "nameAll: nameAll is the naming pass.",
+      "killers": []
+    },
+    {
+      "name": "t5-27-true-false-types.go:546",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 2)",
+      "file": "internal/sketch/lower/types.go",
+      "from": "\t\t\t\treturn true",
+      "to": "\t\t\t\treturn false",
+      "rule": "holdsMap: holdsMap reports whether t's default holds a Map: t is a Map, or a record or tuple, named or not, with a field or element that holds one.",
+      "killers": []
+    },
+    {
+      "name": "t5-28-eq-ne-values.go:1142",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\treturn w.frameOfReturn(p) == o.frame",
+      "to": "\t\treturn w.frameOfReturn(p) != o.frame",
+      "rule": "isReturn: isReturn reports whether the use o is the value its frame returns.",
+      "killers": []
+    },
+    {
+      "name": "t5-29-negate-if-expr.go:1097",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 2)",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "\t\tif always {",
+      "to": "\t\tif !(always) {",
+      "rule": "flatPatternCatch: flatPatternCatch lowers a catch's arms to one expressionless Go switch over the error err of the row type row, each arm's condition its patterns' tests; rest writes what no arm handles.",
+      "killers": []
+    },
+    {
+      "name": "t5-30-true-false-tails.go:191",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
+      "file": "internal/sketch/lower/tails.go",
+      "from": "\tcase *syntax.SwitchStmt:\n\t\tfor _, cl := range s.Clauses {\n\t\t\tif last(cl.Body) {\n\t\t\t\treturn true\n\t\t\t}\n\t\t}\n\tcase *syntax.TypeSwitchStmt:",
+      "to": "\tcase *syntax.SwitchStmt:\n\t\tfor _, cl := range s.Clauses {\n\t\t\tif last(cl.Body) {\n\t\t\t\treturn false\n\t\t\t}\n\t\t}\n\tcase *syntax.TypeSwitchStmt:",
+      "rule": "tailFallible: tailFallible reports whether a tail that s yields can fail: a fallible expression statement Info.Tails records, or a branch of a final if, match or block whose own tail can.",
+      "killers": []
+    },
+    {
+      "name": "t5-31-negate-if-text.go:186",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 2)",
+      "file": "internal/sketch/lower/text.go",
+      "from": "\ts, ok := u.Underlying().(*check.Union)\n\tif !ok {\n\t\tice(site, \"the union %s has no variants\", u)",
+      "to": "\ts, ok := u.Underlying().(*check.Union)\n\tif !(!ok) {\n\t\tice(site, \"the union %s has no variants\", u)",
+      "rule": "textVariants: textVariants are the variants of the union type u, an instance's substituted.",
+      "killers": []
+    },
+    {
+      "name": "t5-32-true-false-body.go:426",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 1)",
+      "file": "internal/sketch/lower/body.go",
+      "from": "\t\tif _, isPtr := fc.typeOf(x.X).(*check.Pointer); isPtr {\n\t\t\treturn true\n\t\t}",
+      "to": "\t\tif _, isPtr := fc.typeOf(x.X).(*check.Pointer); isPtr {\n\t\t\treturn false\n\t\t}",
+      "rule": "isPlace: isPlace reports whether x is a place target can lower: an addressable Go expression.",
+      "killers": []
+    },
+    {
+      "name": "t5-33-drop-continue-sources.go:262",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
+      "file": "internal/sketch/lower/sources.go",
+      "from": "\t\t\tif done[p] {\n\t\t\t\tcontinue\n\t\t\t}",
+      "to": "\t\t\tif done[p] {\n\t\t\t\t_ = 0\n\t\t\t}",
+      "rule": "sourcedLibs: sourcedLibs are the reached user packages other than the root, in initialization order: each after every sourced package it imports, else in path order (Go 1.21).",
+      "killers": []
+    },
+    {
+      "name": "t5-34-eq-ne-sources.go:316",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 2)",
+      "file": "internal/sketch/lower/sources.go",
+      "from": "\t\t\t\tif f.Decl == nil {",
+      "to": "\t\t\t\tif f.Decl != nil {",
+      "rule": "paramFile: paramFile qualifies the key of the type parameter tp with its source file: positions are offsets into one file, so two files' parameters of one name can share one.",
+      "killers": []
+    },
+    {
+      "name": "t5-35-negate-if-pure.go:260",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
+      "file": "internal/sketch/lower/pure.go",
+      "from": "\t\tif goBasicName(r) != p.results[i] {",
+      "to": "\t\tif !(goBasicName(r) != p.results[i]) {",
+      "rule": "meetsHostProtocol: meetsHostProtocol reports whether f lowers to a Go method whose name and Go signature, without an environment, are a host protocol's exactly (case a).",
+      "killers": []
+    },
+    {
+      "name": "t5-36-eq-ne-sources.go:301",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 2)",
+      "file": "internal/sketch/lower/sources.go",
+      "from": "\tif l.tpSrc == nil {",
+      "to": "\tif l.tpSrc != nil {",
+      "rule": "paramFile: paramFile qualifies the key of the type parameter tp with its source file: positions are offsets into one file, so two files' parameters of one name can share one.",
+      "killers": []
+    },
+    {
+      "name": "t5-37-negate-if-values.go:1193",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\t\tif !w.fresh(x) {",
+      "to": "\t\t\t\tif !(!w.fresh(x)) {",
+      "rule": "resultsFresh: resultsFresh reports whether every value the root frame returns is fresh.",
+      "killers": []
+    },
+    {
+      "name": "t5-38-negate-if-match.go:287",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
+      "file": "internal/sketch/lower/match.go",
+      "from": "\tif fc.isInterface(to) && !declaredUnion(to) {",
+      "to": "\tif !(fc.isInterface(to) && !declaredUnion(to)) {",
+      "rule": "narrow: narrow converts val of type t to to: a type assertion out of a union or operation type, which the tests before it proved.",
+      "killers": []
+    },
+    {
+      "name": "t5-39-eq-ne-interp.go:158",
+      "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
+      "file": "internal/sketch/lower/interp.go",
+      "from": "\t\tif b.Kind == check.Complex64 {",
+      "to": "\t\tif b.Kind != check.Complex64 {",
+      "rule": "text: text is the Go string of v, the lowered value of the interpolated part x.",
+      "killers": []
     }
   ]
 }

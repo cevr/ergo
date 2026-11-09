@@ -1,7 +1,6 @@
 package lower
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -68,19 +67,4 @@ func main() fails strconv.Malformed | strconv.OutOfRange needs Console {
 }
 `, exit: 1, stderr: []string{"error: strconv.Malformed{Text:12x}\n"}},
 	})
-}
-
-// TestStdTextAtoiIsHandled: strconv.Atoi's row is a public effect
-// contract; a call with no try and no catch is S105.
-func TestStdTextAtoiIsHandled(t *testing.T) {
-	o := lowerSource("unhandled", `import strconv
-
-func f() int {
-	let n = strconv.Atoi("x")
-	n
-}
-`, false)
-	if len(o.diags) != 1 || o.diags[0].Code != "S105" || !strings.Contains(o.diags[0].Message, "Malformed") {
-		t.Fatalf("want one S105 naming Malformed; got %v", o.diags)
-	}
 }

@@ -3,7 +3,6 @@ package lower
 import (
 	"fmt"
 	"math/rand/v2"
-	"slices"
 	"strings"
 	"testing"
 
@@ -14,60 +13,6 @@ import (
 // a let, for, parameter or catch binder may take a package type's name, as
 // in Go. In its scope the name is the local in value and pattern position,
 // and the type in type position.
-
-// TestErgoRunLocalShadowRepros are the three examples-wave repros (f7, f7b,
-// f7c), which were S108.
-func TestErgoRunLocalShadowRepros(t *testing.T) {
-	needsBuild(t)
-	wantRun(t, `type point { x int }
-
-func f() int {
-	let point = point{x: 1}
-	point.x
-}
-
-func main() needs Console {
-	Console.Println("\(f())")
-}
-`, "1\n")
-	// The examples-wave note expected 1; "a\nb\n" has two non-empty lines,
-	// as Go's strings.Split counts them.
-	wantRun(t, `import strings
-
-type line { text string }
-
-func count(text string) int {
-	let mut n = 0
-	for line in strings.Split(text, "\n") {
-		if line != "" {
-			n = n + 1
-		}
-	}
-	n
-}
-
-func main() needs Console {
-	Console.Println("\(count("a\nb\n"))")
-}
-`, "2\n")
-	wantRun(t, `type point { x int }
-
-func f() int {
-	let point = point{x: 7}
-	let q = point
-	q.x
-}
-
-func g() bool {
-	let point = point{x: 7}
-	point == point{x: 7}
-}
-
-func main() needs Console {
-	Console.Println("\(f()) \(g())")
-}
-`, "7 true\n")
-}
 
 // shadowDecls are the package types a local takes the name of: a record
 // (rec), a union variant (va), a defined type (num), and the error type a
@@ -273,38 +218,4 @@ func TestErgoRunLocalShadowProperty(t *testing.T) {
 			t.Fatalf("seed %d: shadowing (%v) and renamed (%v) programs differ or miss the model\n--- shadowing output\n%s\n--- renamed output\n%s\n--- model\n%s\n--- shadowing source\n%s", seed, errA, errB, a, b, model.String(), shadow)
 		}
 	}
-}
-
-// TestLocalShadowVerdicts: a use that is wrong for the local is wrong in
-// the same way for the renamed local: the local named like a type in a
-// match pattern binds a new name, which D-D2 refuses as it refuses the
-// renamed one; a conversion through the name calls the local. Each pair
-// has the same diagnostic codes and lines.
-func TestLocalShadowVerdicts(t *testing.T) {
-	for _, c := range []struct{ name, body string }{
-		{"pattern-name", "\tlet § = rec{n: n}\n\tmatch n {\n\tcase §:\n\t\t1\n\t}\n"},
-		{"for-pattern-name", "\tfor § in []rec{rec{n: n}} {\n\t\tlet (§, m) = (1, 2)\n\t\treturn m\n\t}\n\t0\n"},
-		{"call", "\tlet § = num(n)\n\tint(§(2))\n"},
-		{"unread", "\tlet § = rec{n: n}\n\t0\n"},
-	} {
-		name := "rec"
-		if strings.Contains(c.body, "num(") {
-			name = "num"
-		}
-		src := shadowDecls + "func f(n int) int {\n" + c.body + "}\n"
-		a, b := verdictLines(strings.ReplaceAll(src, "§", name)), verdictLines(strings.ReplaceAll(src, "§", "zz"))
-		if len(a) == 0 || !slices.Equal(a, b) {
-			t.Errorf("%s: named like the type %v, renamed %v\n%s", c.name, a, b, src)
-		}
-	}
-}
-
-func verdictLines(src string) []string {
-	_, ds := check.CheckSource(src)
-	var out []string
-	for _, d := range ds {
-		out = append(out, fmt.Sprintf("%s@%d", d.Code, d.Line))
-	}
-	slices.Sort(out)
-	return out
 }

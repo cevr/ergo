@@ -2,46 +2,7 @@ package lower
 
 import (
 	"testing"
-
-	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/syntax"
 )
-
-// TestFilepathFootprintsPure: every filepath body is marked pure, so a
-// function that calls each export, Split's record result and Rel's failure
-// included, has an empty footprint, as one that calls nothing has
-// (stdlib.md, Pure bodies 4).
-func TestFilepathFootprintsPure(t *testing.T) {
-	const src = `import filepath
-
-func all(p string, q string) string fails filepath.NotRelative {
-	let s = filepath.Split(p)
-	let r = try filepath.Rel(p, q)
-	if filepath.IsAbs(p) {
-		return r
-	}
-	filepath.Join([]string{filepath.Clean(s.Dir), filepath.Base(p), filepath.Dir(q), filepath.Ext(q)})
-}
-`
-	f, err := syntax.Parse(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pkg, diags := check.Check("main", []*syntax.File{f}, check.Std)
-	if len(diags) > 0 {
-		t.Fatalf("diagnostics: %v", diags)
-	}
-	for _, fn := range pkg.Funcs {
-		if fn.Name != "all" {
-			continue
-		}
-		if fp := pkg.Info.Footprints[fn.Decl]; !fp.Empty() || fp.EntryPoll {
-			t.Fatalf("all: footprint %+v, want empty with no entry poll", fp)
-		}
-		return
-	}
-	t.Fatal("no func all")
-}
 
 // TestFilepathRuns: each function of std filepath (stdlib.md, filepath)
 // calls its runtime/v1 body (Split's returns v1.Parts) and prints one

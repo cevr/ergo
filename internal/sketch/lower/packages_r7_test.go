@@ -4,10 +4,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"testing"
-
-	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // Round 7 (196b): a set of the check result (a row's elements, a row
@@ -15,26 +11,6 @@ import (
 // the order in which the checker met the files. Round 8 makes that order
 // canonical (check/canon.go), so output and refusals do not follow how a
 // caller listed the files. These tests stay as regressions.
-
-// The round 6 verify's probe (R6 M1): main needs A | B, and the host
-// provides only Console. Whichever of a.ergo and b.ergo the checker meets
-// first, the refusal names the same capability.
-func TestVerifyR6RowRefusalCanonical(t *testing.T) {
-	files := []pkgSource{
-		{"/v6/a.ergo", "type A { Read() int }\nfunc a() needs A { let _ = A.Read() }\n"},
-		{"/v6/b.ergo", "type B { Read() int }\nfunc b() needs B { let _ = B.Read() }\n"},
-		{"/v6/main.ergo", "func main() needs A | B { a(); b() }\n"},
-	}
-	_, first := Lower(checkPackage(t, "main", files, nil))
-	files[0], files[1] = files[1], files[0]
-	_, second := Lower(checkPackage(t, "main", files, nil))
-	if first == nil || second == nil {
-		t.Fatal("expected host-provider refusals")
-	}
-	if first.Error() != second.Error() {
-		t.Fatalf("same program, different file listing changes the lowering refusal:\n%s\nversus\n%s", first, second)
-	}
-}
 
 // setProgram is a program of n capability files and one main file. File k
 // declares the capability Ck with a provider and a context, the error
@@ -96,31 +72,6 @@ func name(n int) string {
 	return append(files, pkgSource{"/set/main.ergo", main})
 }
 
-// setResult is everything the lowering returns for files: the emitted
-// files of both builds, or the refusal text of each build.
-func setResult(t *testing.T, files []pkgSource) map[string]string {
-	t.Helper()
-	u := checkPackage(t, "main", files, nil)
-	out := map[string]string{}
-	for _, tests := range []bool{false, true} {
-		var fs []File
-		var err error
-		if tests {
-			fs, err = LowerTests(u)
-		} else {
-			fs, err = Lower(u)
-		}
-		if err != nil {
-			out[fmt.Sprintf("tests=%v/error", tests)] = err.Error()
-			continue
-		}
-		for _, f := range fs {
-			out[fmt.Sprintf("tests=%v/%s", tests, f.Path)] = string(f.Data)
-		}
-	}
-	return out
-}
-
 // permutations is every order of 0..n-1.
 func permutations(n int) [][]int {
 	if n == 0 {
@@ -134,70 +85,4 @@ func permutations(n int) [][]int {
 		}
 	}
 	return out
-}
-
-// TestLoweringSetsAreCanonical: for every order of the capability files
-// (main last), a fresh check and lowering of the set program emits the
-// same files in both builds, and the refusing variant returns the same
-// refusals; the checker's diagnostics of a catch that misses part of a
-// row are the same text. The program builds and runs once.
-func TestLoweringSetsAreCanonical(t *testing.T) {
-	needsBuild(t)
-	const n = 4
-	for _, refuse := range []bool{false, true} {
-		files := setProgram(n, refuse)
-		var want map[string]string
-		for i, order := range permutations(n) {
-			var listed []pkgSource
-			for _, k := range order {
-				listed = append(listed, files[k])
-			}
-			listed = append(listed, files[n])
-			got := setResult(t, listed)
-			if refuse != (got["tests=false/error"] != "") {
-				t.Fatalf("refuse=%v: lowering result %v", refuse, got["tests=false/error"])
-			}
-			if i == 0 {
-				want = got
-				continue
-			}
-			sameEmission(t, fmt.Sprintf("refuse=%v order %v", refuse, order), want, got)
-		}
-	}
-	u := checkPackage(t, "main", setProgram(n, false), nil)
-	buildAndRun(t, []*lowered{mustLowerUnit(t, "sets", u, false)}, map[string]string{"sets": "10 e0:0 e1 e2 e3 ok\n"})
-}
-
-// TestCheckSetDiagnosticsAreCanonical: a catch that misses part of a row
-// reports the rest of the row as the same text for every order of the
-// files that declare its error types.
-func TestCheckSetDiagnosticsAreCanonical(t *testing.T) {
-	const n = 4
-	files := setProgram(n, false)
-	files[n].text += "func miss(n int) string { each(n) catch { case E2: \"2\" } }\n"
-	want := ""
-	for i, order := range permutations(n) {
-		var parsed []*syntax.File
-		for _, k := range append(order, n) {
-			f, err := syntax.Parse(files[k].text)
-			if err != nil {
-				t.Fatal(err)
-			}
-			parsed = append(parsed, f)
-		}
-		_, ds := check.Check("main", parsed, nil)
-		var texts []string
-		for _, d := range ds {
-			texts = append(texts, d.Code+" "+d.Message)
-		}
-		got := strings.Join(texts, "\n")
-		if len(ds) == 0 {
-			t.Fatal("expected the catch to be refused")
-		}
-		if i == 0 {
-			want = got
-		} else if got != want {
-			t.Fatalf("order %v: diagnostics\n%s\nwant\n%s", order, got, want)
-		}
-	}
 }

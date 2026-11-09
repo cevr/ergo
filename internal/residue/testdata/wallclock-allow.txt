@@ -11,5 +11,4 @@ runtime/v1/runtime_test.go	TestSleep	a lower bound (Sleep waits at least d); loa
 # and never times it. These bounds are over the 10 s floor; each row names the
 # unit that removes it.
 internal/sketch/lower/std_exec_test.go	TestExecRuns	T5 (ts-cut-lower): the stop ends the program, an event (its exit), not under 15 s
-internal/sketch/lower/std_time_test.go	TestTimeEffectCases	T5 (ts-cut-lower): the program's exit is the event; the 30 s bound goes
 internal/sketch/build/trim_test.go	TestUseMark	follow-up FU-sketch-build-trim-wallclock (no T unit owns internal/sketch/build): the mark's age against the test's clock, not under a minute of wall time

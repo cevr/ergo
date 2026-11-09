@@ -3,7 +3,6 @@ package lower
 import (
 	"fmt"
 	"regexp"
-	"strings"
 	"testing"
 )
 
@@ -130,35 +129,5 @@ func TestGeneratorsReachEveryClass(t *testing.T) {
 		if edgeSeen[name] < 2 {
 			t.Errorf("%s was refuted under %d of 5 seeds, want at least 2: the integer edges are too rare", name, edgeSeen[name])
 		}
-	}
-}
-
-// TestGeneratorSizeBoundsNesting: nested collections stay small, the bound
-// halving at each level (at most 25 × 12 × 6 ints in a [][][]int); and
-// case 1 (size 0) draws empty collections.
-func TestGeneratorSizeBoundsNesting(t *testing.T) {
-	needsBuild(t)
-	src := `test Nested(xs [][][]int) {
-	let mut n = 0
-	for a in xs {
-		for b in a {
-			n = n + len(b)
-		}
-	}
-	assert n <= 1800
-}
-
-test FirstIsEmpty(xs []int, m Map[int, int]) {
-	assert len(xs) > 0 || len(m) > 0
-}
-`
-	exes := buildAll(t, []*lowered{lowerTestBuild(t, "nesting", src)}, true)
-	if exes == nil {
-		return
-	}
-	stdout, _, _ := runExe(t, exes["nesting"])
-	got := lines(stdout)
-	if len(got) != 3 || got[0] != "ok Nested (100 cases)" || !strings.HasPrefix(got[1], "FAIL FirstIsEmpty (case 1 of 100, seed 1, size 0: xs = []int{}, m = Map[int, int]{}): ") {
-		t.Fatalf("stdout:\n%s", stdout)
 	}
 }

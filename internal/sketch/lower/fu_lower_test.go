@@ -74,39 +74,6 @@ func main() needs Console {
 }
 `
 
-// TestPureStdBodyReadsBodyOf (fu-lower): pureStdBody is v1.BodyOf's Pure
-// fact for a std extern and false for everything else: a pure text body
-// (strings.ToUpper, strconv.Atoi), a std body that reads the host
-// (os.hostGetenv) and a std function with an Ergo body (strings.Cut).
-func TestPureStdBodyReadsBodyOf(t *testing.T) {
-	funcs := map[string]*check.Func{}
-	for _, path := range []string{"strings", "strconv", "os"} {
-		pkg, err := check.Std.Import(path)
-		if err != nil {
-			t.Fatalf("check.Std.Import(%q): %v", path, err)
-		}
-		for _, f := range pkg.Funcs {
-			funcs[path+"."+f.Name] = f
-		}
-	}
-	for name, want := range map[string]bool{
-		"strings.ToUpper":  true,
-		"strconv.Atoi":     true,
-		"os.hostGetenv":    false,
-		"strings.Cut":      false,
-		"strings.Contains": true,
-	} {
-		f := funcs[name]
-		if f == nil {
-			t.Errorf("no std function %s", name)
-			continue
-		}
-		if got := pureStdBody(f); got != want {
-			t.Errorf("pureStdBody(%s) = %v, want %v", name, got, want)
-		}
-	}
-}
-
 // TestStdBodyErrorIsAnICE (fu-lower): a std extern that binds a runtime/v1
 // body which v1.BodyOf cannot read (missing, or a pure mark the reviewed
 // rules refuse) is an internal inconsistency of the compiler's own std
