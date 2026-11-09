@@ -3,14 +3,18 @@
 import lru/catalog
 import strconv
 import strings
+import sync
 
-// Table is a Catalog over a fixed price list. It also counts its
-// lookups, in a Map since a provider keeps state only in a Map field
-// (G-ex-b-3), so a test sees how many lookups a Memo saved.
-type Table { prices Map[string, int], lookups Map[string, int] }
+// Table is a Catalog over a fixed price list. It also counts its lookups
+// in a sync.Ref, which every copy shares, so a test sees how many lookups
+// a Memo saved.
+type Table { prices Map[string, int], lookups sync.Ref[int] }
 
 // BadRow is a line of a price list that is not "SKU CENTS".
 type BadRow { Line string }
+
+// NewTable is a Table of prices that has looked nothing up.
+func NewTable(prices Map[string, int]) Table { Table{prices: prices, lookups: sync.NewRef[int](0)} }
 
 // Parse is the Table of a price list: one "SKU CENTS" per line; blank
 // lines are skipped.
@@ -33,13 +37,12 @@ func Parse(text string) Table fails BadRow {
 		}
 		prices[fields[0]] = cents
 	}
-	Table{prices: prices, lookups: Map[string, int]{}}
+	NewTable(prices)
 }
 
 // Price is the listed price of sku.
 func Price(t Table, sku string) int fails catalog.Unknown {
-	let mut lookups = t.lookups
-	lookups["n"] = Lookups(t) + 1
+	t.lookups.Update(func(n int) int { n + 1 })
 	match t.prices.Get(sku) {
 	case Some[int] as p:
 		p.Value
@@ -49,11 +52,4 @@ func Price(t Table, sku string) int fails catalog.Unknown {
 }
 
 // Lookups is how many times Price ran.
-func Lookups(t Table) int {
-	match t.lookups.Get("n") {
-	case Some[int] as n:
-		n.Value
-	case None:
-		0
-	}
-}
+func Lookups(t Table) int { t.lookups.Get() }

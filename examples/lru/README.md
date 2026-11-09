@@ -20,7 +20,7 @@ lru bench 1000000                              # 1e6 cache operations, prints a 
 
 - **Generics with constraints.** `Cache[K comparable, V]`; `Sorted[K ordered, V]` needs ordering only where it sorts.
 - **Typed failures through a generic wrapper.** `memo.Get` has the rows of its `load`: quoting fails `catalog.Unknown` and needs `catalog.Catalog`, and the memo itself names neither.
-- **Laws.** `cache/laws.ergo`: `CapacityBound`, `GetAfterPut`, `MostRecentKept`, `EvictsTheLeastRecent`; `cache/model.ergo`: `ModelAgrees` (60 seeded operations agree with the reference model, outcome by outcome and entry by entry); `memo/laws.ergo`: `Transparent`, `CountsAddUp`, `RemembersAfterMiss`, `FailureIsNotRemembered`; `catalog.Catalog`: `Stable`, `NotNegative`. Laws are checked and not run yet (#162), so each package's `tests.ergo` restates them as property tests, also over seeded runs longer than the three-element slices the generator makes.
+- **Laws.** `cache/laws.ergo`: `CapacityBound`, `GetAfterPut`, `MostRecentKept`, `EvictsTheLeastRecent`; `cache/model.ergo`: `ModelAgrees` (60 seeded operations agree with the reference model, outcome by outcome and entry by entry); `memo/laws.ergo`: `Transparent`, `CountsAddUp`, `RemembersAfterMiss`, `FailureIsNotRemembered`; `catalog.Catalog`: `Stable`, `NotNegative`. The cache and memo laws run as they are, each over the generated keys and over a seeded run of up to 24 keys that meet again (`KeysOf`); `catalog.Catalog`'s laws run only for providers in `catalog` (G-exup-1), so `memory`'s tests restate them for `Table`.
 - **Exhaustive match.** `Option` results everywhere a Go LRU returns `(V, bool)`; the model's `Op` and `Outcome` unions.
 
 ## Cases
@@ -42,4 +42,4 @@ New gaps (`gaps-ex-f.md`):
 - G-ex-f-5: a non-generic function on an instance (`Apply(c *Cache[int, int], …)`) is not a dot call, and the message does not say why.
 - G-ex-f-6: `match m.Get(k)` builds an `Option` interface and a type switch where Go writes comma-ok, and a function that reads a Map takes the environment and polls the task.
 
-Also hit: G-ex-b-3 (a provider keeps state only in a Map: `Table` counts lookups in one, and the cache, which needs `*Cache`, can be no provider), G-ex-b-18, G-ex-c-11 (`number` is a prelude name), G-ex-d-9, G-ex-d-10 (`main` calls `run` so a failure can `return`), G-ex-d-13 (laws at `int`).
+Closed in batch 12: G-ex-b-3 (`Table` counts lookups in a `sync.Ref`; the old Map counter wrote through a copy under the value rule and counted nothing), G-ex-d-10 (`main` holds the commands and returns from inside its `with`). Also hit: G-ex-b-18, G-ex-c-11 (`number` is a prelude name), G-ex-d-13 (laws at `int`), G-exup-1.

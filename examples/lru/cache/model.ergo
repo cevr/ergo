@@ -95,19 +95,6 @@ func without(m Model, key int) []Entry[int, int] {
 	out
 }
 
-// SameEntries reports whether a and b hold the same entries in order.
-func SameEntries(a []Entry[int, int], b []Entry[int, int]) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i, e in a {
-		if e != b[i] {
-			return false
-		}
-	}
-	true
-}
-
 // ModelAgrees: over a run of operations drawn from seed, the cache gives
 // each outcome the model gives, and holds the model's entries in order.
 law ModelAgrees(n int, seed int) {
@@ -121,7 +108,7 @@ law ModelAgrees(n int, seed int) {
 		let got = Apply(&c, op)
 		let next, want = m.Step(op)
 		m = next
-		if got != want || !SameEntries(c.Entries(), m.entries) {
+		if got != want || c.Entries() != m.entries {
 			return false
 		}
 	}
