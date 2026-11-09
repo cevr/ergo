@@ -115,6 +115,13 @@ func mailboxTrace(seed int64, capacity int, b box, want []string) (log []string)
 			return "no end after " + patience.String()
 		}
 	}
+	// push is a Push the reference admits at once (room, or a waiting
+	// take), run where it cannot hang the trace.
+	push := func(v int) string {
+		c := make(chan string, 1)
+		go func() { c <- fmt.Sprint(b.Push(rt.Root("p"), v)) }()
+		return recv(c)
+	}
 	settle := func(n int) {
 		deadline := time.Now().Add(patience)
 		for b.waiters() != n {
@@ -180,7 +187,7 @@ func mailboxTrace(seed int64, capacity int, b box, want []string) (log []string)
 		switch k := r.Intn(9); {
 		case k == 0 && !closed && len(queued) < capacity && len(pending) == 0:
 			next++
-			say("push %d: %v", next, b.Push(rt.Root("p"), next))
+			say("push %d: %s", next, push(next))
 			queued = append(queued, next)
 		case k <= 1 && !closed && (len(queued) == capacity || len(pending) > 0):
 			// A Push that waits for room.
@@ -231,7 +238,7 @@ func mailboxTrace(seed int64, capacity int, b box, want []string) (log []string)
 			}()
 			settle(1)
 			next++
-			say("push %d to a waiting take: %v", next, b.Push(rt.Root("p"), next))
+			say("push %d to a waiting take: %s", next, push(next))
 			say("the waiting take: %s", recv(got))
 			settle(0)
 		case k == 5 && !closed && len(queued) == 0 && len(pending) == 0:
