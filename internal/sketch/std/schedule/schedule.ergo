@@ -1,0 +1,185 @@
+// Package schedule says when to try again and when to stop: the policy of
+// a retry, a repeat or a restart budget (docs/spec/stdlib.md, Schedule;
+// #179). Effect's Schedule is the reference for the intent. A Schedule
+// here is a pure value, not an effect: Decide(s, runs, elapsed) is the whole
+// of its meaning, a function of the runs so far and the time since the
+// first began, so a test folds it with no clock, and tasks.Retry and
+// tasks.Repeat read the time only through the context's one clock
+// (runtime.md, Machines and actors 9.6).
+
+import math
+
+// Schedule is a policy. Build one with Spaced, Exponential, Recurs and
+// Forever, and combine them with And, Or, UpTo and Jitter. Its variants
+// are this package's own, so every Schedule is one these functions made.
+type Schedule = spaced | exponential | recurs | upTo | jitter | both | either
+
+type spaced { every duration }
+
+type exponential { base duration, factor float64, cap duration }
+
+type recurs { times int }
+
+type upTo { inner Schedule, limit duration }
+
+type jitter { inner Schedule, low float64, high float64, seed uint64 }
+
+type both { first Schedule, second Schedule }
+
+type either { first Schedule, second Schedule }
+
+// Next is a schedule's decision after a run: run again after a delay, or
+// stop.
+type Next = Continue | Stop
+
+// Continue: start the next run After this delay.
+type Continue { After duration }
+
+// Stop: start no more runs.
+type Stop {}
+
+// Spaced continues forever, every d after the run before ends (Effect
+// spaced). A d below zero is zero, as Go's time.Sleep reads it.
+func Spaced(d duration) Schedule { spaced{every: atLeastZero(d)} }
+
+// Forever continues forever with no delay (Effect forever).
+func Forever() Schedule { spaced{every: 0s} }
+
+// Exponential continues forever; the delay after run n is base times
+// factor to the power n-1, and never more than cap (Effect exponential,
+// with the cap Go's backoff libraries add). A factor below 1 is 1; a base
+// or cap below zero is zero.
+func Exponential(base duration, factor float64, cap duration) Schedule {
+	let f = if factor >= 1.0 { factor } else { 1.0 }
+	exponential{base: atLeastZero(base), factor: f, cap: atLeastZero(cap)}
+}
+
+// Recurs continues n times with no delay, then stops (Effect recurs): a
+// retry by it runs at most n+1 times. An n below zero is zero.
+func Recurs(n int) Schedule { recurs{times: if n > 0 { n } else { 0 }} }
+
+// UpTo is s, but it stops where s would start a run more than limit after
+// the first run began (Effect upTo, which may still start one late; this
+// one never does).
+func UpTo(s Schedule, limit duration) Schedule { upTo{inner: s, limit: atLeastZero(limit)} }
+
+// Jitter is s with each delay scaled by a factor drawn from [low, high)
+// (Effect jittered, 0.8 to 1.2 by default). The draw is a hash of seed and
+// the run count, so the schedule stays a pure value: to keep many clients
+// apart, give each its own seed (from Random). Each bound is moved into
+// [0, 1000] (NaN is 0), and a high below low is low.
+func Jitter(s Schedule, low float64, high float64, seed uint64) Schedule {
+	let lo = factorIn(low)
+	let hi = factorIn(high)
+	jitter{inner: s, low: lo, high: if hi >= lo { hi } else { lo }, seed: seed}
+}
+
+func factorIn(f float64) float64 {
+	if f >= 1000.0 {
+		return 1000.0
+	}
+	if f >= 0.0 { f } else { 0.0 }
+}
+
+// And continues while both continue, after the longer of their delays
+// (Effect intersect).
+func And(a Schedule, b Schedule) Schedule { both{first: a, second: b} }
+
+// Or continues while either continues, after the shorter of the delays of
+// those that continue (Effect union).
+func Or(a Schedule, b Schedule) Schedule { either{first: a, second: b} }
+
+// Decide is s's decision after runs runs (1 for the first), when elapsed
+// has passed since the first run began. It reads nothing else: the same
+// arguments give the same decision.
+func Decide(s Schedule, runs int, elapsed duration) Next {
+	match s {
+	case spaced as p:
+		Continue{After: p.every}
+	case exponential as e:
+		Continue{After: grow(e.base, e.factor, e.cap, runs)}
+	case recurs as r:
+		if runs <= r.times {
+			return Continue{After: 0s}
+		}
+		Stop
+	case upTo as u:
+		match Decide(u.inner, runs, elapsed) {
+		case Continue as c:
+			if c.After > u.limit-elapsed {
+				return Stop
+			}
+			c
+		case Stop:
+			Stop
+		}
+	case jitter as j:
+		match Decide(j.inner, runs, elapsed) {
+		case Continue as c:
+			// No product is added to in float64, so no Go target can
+			// fuse a multiply-add and round it another way.
+			let span = j.high - j.low
+			Continue{After: scale(c.After, j.low) + scale(c.After, span*unit(j.seed, runs))}
+		case Stop:
+			Stop
+		}
+	case both as b:
+		match (Decide(b.first, runs, elapsed), Decide(b.second, runs, elapsed)) {
+		case (Continue as x, Continue as y):
+			if x.After >= y.After { x } else { y }
+		case _:
+			Stop
+		}
+	case either as e:
+		match (Decide(e.first, runs, elapsed), Decide(e.second, runs, elapsed)) {
+		case (Continue as x, Continue as y):
+			if x.After <= y.After { x } else { y }
+		case (Continue as x, Stop):
+			x
+		case (Stop, Continue as y):
+			y
+		case (Stop, Stop):
+			Stop
+		}
+	}
+}
+
+// grow is base times factor to the power runs-1, saturated at cap; runs
+// below 1 count as 1.
+func grow(base duration, factor float64, cap duration, runs int) duration {
+	if base == 0s {
+		return 0s
+	}
+	let n = if runs > 1 { runs - 1 } else { 0 }
+	let x = float64(int64(base)) * math.Pow(factor, float64(n))
+	if x >= float64(int64(cap)) {
+		return cap
+	}
+	duration(int64(x))
+}
+
+// scale is d times f, f of zero or more, saturated at 4.6e18 ns (about
+// 146 years), so the sum of two scales fits a duration.
+func scale(d duration, f float64) duration {
+	let x = float64(int64(d)) * f
+	if x >= 4.6e18 {
+		return duration(int64(4600000000000000000))
+	}
+	duration(int64(x))
+}
+
+// unit is a draw in [0, 1) for run n of a jitter seeded by seed:
+// SplitMix64 of seed+n, its top 53 bits.
+func unit(seed uint64, n int) float64 {
+	float64(mix(seed+uint64(n))>>11) / 9007199254740992.0
+}
+
+// mix is SplitMix64's output for the state x.
+func mix(x uint64) uint64 {
+	let mut z = x + 0x9e3779b97f4a7c15
+	z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9
+	z = (z ^ (z >> 27)) * 0x94d049bb133111eb
+	z ^ (z >> 31)
+}
+
+func atLeastZero(d duration) duration { if d > 0s { d } else { 0s } }

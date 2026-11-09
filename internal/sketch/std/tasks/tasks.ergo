@@ -5,6 +5,7 @@
 // which no package redeclares (#196). Race is Effect's raceAll. Set is
 // runtime.md G4's.
 
+import schedule
 import scope
 import sync
 import testing
@@ -27,6 +28,137 @@ func Race[T, E, R](blocks []func() T fails E needs R) T fails E needs R {
 }
 
 extern go ergo.local/prototype/runtime/v1.TasksRace func race[T, E, R](n int, f func(i int) T fails E needs R) T fails E needs R
+
+// Retry runs block until it gives a value or s stops (Effect retry): after
+// the n-th run fails, s decides by n and the time since the first run
+// began on the context's time.Clock; Continue sleeps its delay on the
+// context's Scheduler and runs block again, and Stop fails with that run's
+// failure. A defect or a stop of the task ends Retry at once. s does not
+// read the failure: a failure that must not be retried is caught in block
+// and given as a value of block's result.
+func Retry[T, E, R](s schedule.Schedule, block func() T fails E needs R) T fails E needs R | Scheduler | time.Clock {
+	let start = time.Clock.Now()
+	let mut runs = 0
+	for {
+		runs = runs + 1
+		let v = block() catch {
+		case err:
+			match schedule.Decide(s, runs, time.Clock.Now().Sub(start)) {
+			case schedule.Continue as c:
+				Scheduler.Sleep(c.After)
+				continue
+			case schedule.Stop:
+				return err
+			}
+		}
+		return v
+	}
+}
+
+// Repeat runs block, and again while s continues (Effect repeat): after
+// the n-th run gives a value, s decides by n and the time since the first
+// run began; Continue sleeps its delay, and Stop gives the last value. A
+// failure of block is Repeat's at once.
+func Repeat[T, E, R](s schedule.Schedule, block func() T fails E needs R) T fails E needs R | Scheduler | time.Clock {
+	let start = time.Clock.Now()
+	let mut runs = 0
+	for {
+		runs = runs + 1
+		let v = try block()
+		match schedule.Decide(s, runs, time.Clock.Now().Sub(start)) {
+		case schedule.Continue as c:
+			Scheduler.Sleep(c.After)
+		case schedule.Stop:
+			return v
+		}
+	}
+}
+
+// lawFailed is the failure of the retry laws' block: the run that failed.
+type lawFailed { Run int }
+
+// lawSchedule is an exponential backoff from 10ms, at most 1 to 6
+// retries, up to a limit of 1ms to 5s, drawn from k and limit.
+func lawSchedule(k int, limit int) schedule.Schedule {
+	let retries = schedule.Recurs(1 + (k%6+6)%6)
+	let l = duration(int64(1+(limit%5000+5000)%5000) * 1000000)
+	schedule.Exponential(10ms, 2.0, 1s).And(retries).UpTo(l)
+}
+
+// RetryFollowsDecide: on a VirtualClock, Retry runs block as often as
+// Decide says, sleeps the delays it gives, and ends with the run the fold
+// of Decide ends with: the first run that does not fail, or the failure
+// of the run after which Decide stops. Each run takes w.
+law RetryFollowsDecide(failing int, work int, k int, limit int) {
+	let s = lawSchedule(k, limit)
+	let w = duration(int64((work%300+300)%300) * 1000000)
+	let n = (failing%10 + 10) % 10
+	let mut runs = 0
+	let mut at = 0s
+	let mut want = 0
+	for want == 0 {
+		runs = runs + 1
+		at = at + w
+		if runs > n {
+			want = runs
+		} else {
+			match schedule.Decide(s, runs, at) {
+			case schedule.Continue as c:
+				at = at + c.After
+			case schedule.Stop:
+				want = 0 - runs
+			}
+		}
+	}
+	let c = testing.NewVirtualClock(0)
+	let calls = sync.NewRef[int](0)
+	with context { Scheduler: c, time.Clock: c } {
+		let start = time.Clock.Now()
+		let got = Retry(s, func() int fails lawFailed needs Scheduler {
+			Scheduler.Sleep(w)
+			let i = sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) })
+			if i <= n {
+				return lawFailed{Run: i}
+			}
+			i
+		}) catch {
+		case lawFailed as f:
+			0 - f.Run
+		}
+		got == want && calls.Get() == runs && time.Clock.Now().Sub(start) == at
+	}
+}
+
+// RepeatFollowsDecide: on a VirtualClock, Repeat runs block until Decide
+// stops, sleeps the delays it gives, and gives the last run's value. Each
+// run takes w.
+law RepeatFollowsDecide(work int, k int, limit int) {
+	let s = lawSchedule(k, limit)
+	let w = duration(int64((work%300+300)%300) * 1000000)
+	let mut runs = 0
+	let mut at = 0s
+	let mut more = true
+	for more {
+		runs = runs + 1
+		at = at + w
+		match schedule.Decide(s, runs, at) {
+		case schedule.Continue as c:
+			at = at + c.After
+		case schedule.Stop:
+			more = false
+		}
+	}
+	let c = testing.NewVirtualClock(0)
+	let calls = sync.NewRef[int](0)
+	with context { Scheduler: c, time.Clock: c } {
+		let start = time.Clock.Now()
+		let got = Repeat(s, func() int needs Scheduler {
+			Scheduler.Sleep(w)
+			sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) })
+		})
+		got == runs && calls.Get() == runs && time.Clock.Now().Sub(start) == at
+	}
+}
 
 // Transform is f of each element of xs, in the order of xs, with each
 // call on a task of its own and at most limit calls running at once. It
