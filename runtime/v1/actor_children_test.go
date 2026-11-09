@@ -475,10 +475,21 @@ func runChildrenCase(seed int64, r *rand.Rand, n int, seen map[string]bool) (ops
 		id := kids[r.Intn(len(kids))]
 		ops = append(ops, kop{kind: "boom", id: id})
 		_ = actor(id).Send(task, ksig{kind: kBoom})
-		<-root.done
-		// The child, then each ancestor up to the root, ends.
+		// The child, then each ancestor up to the root, ends. A child pushes
+		// its defect to its parent before its done closes, so an Ask sent
+		// to the parent after that is queued behind the defect and fails
+		// Stopped; an Ask that a parent steps proves the defect was lost
+		// (no wait on the root that such a loss would hang). The probe is
+		// an output that Stays, so it stops no child (a re-entry's stop of
+		// the dead child would raise the defect itself).
 		for x := id; x != ""; x = ref.parent[x] {
+			<-actor(x).done
 			ref.end(x)
+			if p := ref.parent[x]; p != "" {
+				if _, err := actor(p).Ask(task, ksig{kind: kOut, from: "probe", pentry: -1}); !errors.As(err, new(ActorStopped)) {
+					return ops, fmt.Sprintf("boom %s: %s answered %v after its child %s ended by a defect, want Stopped", id, p, err, x)
+				}
+			}
 		}
 		var raised any
 		func() {
