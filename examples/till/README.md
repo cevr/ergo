@@ -79,7 +79,6 @@ em-parity §3 lists "child fan-out" as pending for MU5. This program's split pay
 
 ## Limits found
 
-- **F9** A tuple type whose first element is a slice type does not parse (`func f(in ([]int, string))` is S001 "expected a type"); `(string, []int)` parses. Measured.
 - **F13** A machine whose `initial:` is a value (`initial: Open()`) starts with no state when another package starts it: the value is set by the package's initializer, which an importing program never runs, so the first `match` on the state is a defect. Measured. `Open` takes the starting lines instead.
 - **F4** (sign-in) The `Payments` laws are not run against `memory.Gateway`; `memory/tests.ergo` restates them.
 - **F7** (sign-in) The examples runner does not run the laws of `till/` (a package with laws and no `test`).

@@ -426,9 +426,12 @@ const notAValue = "a type is not a value; write a literal or a conversion"
 // parseIndexValue parses one index, or one type argument of an
 // instantiation: `Map[string, []int]{}`, `Option[func() int]`. A type is
 // taken only when a `,` or `]` follows it; else the index is an expression.
+// A `(` may open a tuple type, `Option[([]int, string)]`, whose elements
+// are any types (fumb-c, F9): a tuple of names reads the same as a type or
+// as an expression, and one with an element that is no type falls back.
 func (p *parser) parseIndexValue() Expr {
 	switch {
-	case p.tok.tok == MUL, p.tok.tok == LBRACK, p.tok.tok == FUNC, p.tok.tok == ESCAPING:
+	case p.tok.tok == MUL, p.tok.tok == LBRACK, p.tok.tok == FUNC, p.tok.tok == ESCAPING, p.tok.tok == LPAREN:
 	case p.tok.tok == IDENT && p.tok.lit == "Map" && p.peek(1).tok == LBRACK:
 	default:
 		return p.parseExpr()
