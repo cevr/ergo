@@ -249,10 +249,3 @@ func press(b Board, k Key, at duration) Decision[Pad, Output] fails TooShort {
 		Emit[Pad, Output]{Next: b, Output: Submitted{ID: f.Spec.ID, Text: Text(f)}}
 	}
 }
-
-// Keypad is the on-screen keyboard as a machine: it starts at the Login
-// board and moves by Step, until Close.
-type Keypad machine[Pad, Signal] {
-	initial: Start(),
-	step:    Step,
-}
