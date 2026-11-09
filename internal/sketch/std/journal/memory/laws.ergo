@@ -93,11 +93,12 @@ func crashing() (Journal[int, int], func(mode int), func() []int) {
 
 // recovers runs ops over a durable tally actor on j: an op k mod 9 of 8
 // crashes the actor between steps, 7 arms a crash of the next save, and
-// any other op is a signal, asked. After each crash a new actor recovers
-// from j. It holds that each recovered state is the fold of every signal
-// kept, and that each Ask answered with a commit is kept.
+// any other op is a signal, asked; a snapshot is taken every 1 to 3
+// saves. After each crash a new actor recovers from j. It holds that each
+// recovered state is the fold of every signal kept, and that each Ask
+// answered with a commit is kept.
 func recovers(j journal.Journal[int, int], arm func(mode int), all func() []int, ops []int, every int) bool needs Scheduler {
-	let n = ((every % 4) + 4) % 4
+	let n = 1 + ((every % 3) + 3) % 3
 	let mut a = journal.Start(tally(), j, n, 4, func(o int) {}) catch {
 	case _:
 		return false

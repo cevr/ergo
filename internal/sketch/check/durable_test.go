@@ -61,6 +61,7 @@ const pureStep = `{
 // rule each refused row is accepted.
 func TestDurableStepIsPure(t *testing.T) {
 	const start = "journal.Start(Counter{}, j, 2, 1, func(o int) {})"
+	const literal = "Machine[State, Signal, int]{Initial: Idle, Step: step, After: func(s State) Option[Timeout[Signal]] { None }, Work: func(s State) Option[func(send func(e Signal))] { None }}"
 	for _, c := range []struct {
 		name, step, helpers, call, want string
 	}{
@@ -85,10 +86,11 @@ func TestDurableStepIsPure(t *testing.T) {
 			call: "actor.StartDurable(Counter{}, 1, func(o int) {}, func() Option[State] fails journal.Failed { None }, func(p State, n State, e Signal) fails journal.Failed { try j.Append(e) })",
 			want: "actor.StartDurable replays the saved signals with the machine's step, so the step must be pure: step step calls",
 		},
+		{name: "literal", step: pureStep, call: "journal.Start(" + literal + ", j, 2, 1, func(o int) {})"},
 		{
 			name: "value", step: pureStep, helpers: "\nfunc counter() Machine[State, Signal, int] { Counter{} }\n",
 			call: "journal.Start(counter(), j, 2, 1, func(o int) {})",
-			want: "journal.Start replays the saved signals with the machine's step, so the checker must see that the step is pure: pass a machine declaration's value X{}, or machines.Start(X{}, input)",
+			want: "journal.Start replays the saved signals with the machine's step, so the checker must see that the step is pure: pass a machine declaration's value X{}, machines.Start(X{}, input), or a Machine literal whose Step names a function",
 		},
 	} {
 		t.Run(c.name, func(t *testing.T) {

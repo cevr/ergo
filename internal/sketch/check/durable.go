@@ -10,9 +10,10 @@ import (
 // a machine given to a durable runner, std actor.StartDurable or
 // journal.Start, has a pure step. A recovery steps the saved signals
 // again, so a step with an effect would act twice; a pure step replays to
-// the same state by construction. The checker sees the step only through
-// a machine declaration, so the machine argument is a declaration's value
-// `X{}`, or machines.Start(X{}, input); anything else is S108 too. The step
+// the same state by construction. The checker must see which function is
+// the step, so the machine argument is a declaration's value `X{}`,
+// machines.Start(X{}, input), or a prelude Machine literal whose Step
+// names a package function; anything else is S108 too. The step
 // is pure when its footprint is empty (rows.md, Footprints 2 and 3): no
 // capability, no task start and no opaque call. The diagnostic names the
 // first call in the step's body that makes it impure. Work and timers stay
@@ -53,7 +54,7 @@ func (c *checker) checkDurableSteps() {
 		arg := d.x.Args[0]
 		step := c.durableStep(arg)
 		if step == nil {
-			c.errorf(arg, CodeType, "%s replays the saved signals with the machine's step, so the checker must see that the step is pure: pass a machine declaration's value X{}, or machines.Start(X{}, input) (runtime.md, Machines and actors 17)", d.name)
+			c.errorf(arg, CodeType, "%s replays the saved signals with the machine's step, so the checker must see that the step is pure: pass a machine declaration's value X{}, machines.Start(X{}, input), or a Machine literal whose Step names a function (runtime.md, Machines and actors 17)", d.name)
 			continue
 		}
 		info := step.Pkg.Info
@@ -80,11 +81,37 @@ func (c *checker) durableStep(arg syntax.Expr) *Func {
 		}
 		arg = unparen(call.Args[0])
 	}
-	if _, ok := arg.(*syntax.CompositeLit); !ok {
+	lit, ok := arg.(*syntax.CompositeLit)
+	if !ok {
 		return nil
 	}
 	n, ok := c.pkg.Info.Types[arg].(*Named)
-	if !ok || n.Obj == nil || n.Obj.Decl == nil || n.Obj.Pkg == nil {
+	if !ok {
+		return nil
+	}
+	if m := preludeType("Machine"); m != nil && n.origin() == m {
+		// A prelude Machine literal: its Step names a package function.
+		for _, e := range lit.Elts {
+			kv, ok := e.(*syntax.KeyValueExpr)
+			if !ok {
+				continue
+			}
+			if k, ok := kv.Key.(*syntax.Ident); !ok || k.Name != "Step" {
+				continue
+			}
+			id, ok := unparen(kv.Value).(*syntax.Ident)
+			if !ok {
+				return nil
+			}
+			f, _ := c.pkg.Info.Uses[id].(*Func)
+			if f == nil || f.Decl == nil || f.Decl.Body == nil {
+				return nil
+			}
+			return f
+		}
+		return nil
+	}
+	if n.Obj == nil || n.Obj.Decl == nil || n.Obj.Pkg == nil {
 		return nil
 	}
 	if _, ok := n.under.(*MachineType); !ok {

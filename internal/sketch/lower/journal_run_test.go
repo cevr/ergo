@@ -186,8 +186,8 @@ func crashing() Crashing {
 }
 
 func recovers(j journal.Journal[int, int], arm func(mode int), all func() []int, ops []int, every int) bool needs Scheduler {
-	let n = ((every % 4) + 4) % 4
-	let mut a = journal.Start(tally(), j, n, 4, func(o int) {}) catch {
+	let n = 1 + ((every % 3) + 3) % 3
+	let mut a = journal.Start(Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked}, j, n, 4, func(o int) {}) catch {
 	case _:
 		return false
 	}
@@ -220,7 +220,7 @@ func recovers(j journal.Journal[int, int], arm func(mode int), all func() []int,
 			}
 		}
 		if crashed {
-			a = journal.Start(tally(), j, n, 4, func(o int) {}) catch {
+			a = journal.Start(Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked}, j, n, 4, func(o int) {}) catch {
 			case _:
 				return false
 			}
@@ -260,7 +260,7 @@ func dropped(j journal.Journal[int, int]) bool needs Scheduler {
 	let start = queue.New[int](1)
 	let gate = queue.New[int](1)
 	let sent = queue.New[int](1)
-	let relay = Machine[int, int, int]{Initial: 0, Step: relayStep, After: func(s int) Option[Timeout[int]] { None }, Work: func(s int) Option[func(send func(e int))] {
+	let relayWork = func(s int) Option[func(send func(e int))] {
 		if s != 1 {
 			return None
 		}
@@ -274,8 +274,8 @@ func dropped(j journal.Journal[int, int]) bool needs Scheduler {
 			case queue.Closed:
 			}
 		}}
-	}}
-	let a = journal.Start(relay, j, 0, 4, func(o int) {
+	}
+	let a = journal.Start(Machine[int, int, int]{Initial: 0, Step: relayStep, After: untimed, Work: relayWork}, j, 0, 4, func(o int) {
 		start.Pop() catch {
 		case queue.Closed:
 			return
@@ -313,7 +313,7 @@ func dropped(j journal.Journal[int, int]) bool needs Scheduler {
 	case journal.Failed:
 		return false
 	}
-	let b = journal.Start(relay, j, 0, 4, func(o int) {}) catch {
+	let b = journal.Start(Machine[int, int, int]{Initial: 0, Step: relayStep, After: untimed, Work: relayWork}, j, 0, 4, func(o int) {}) catch {
 	case _:
 		return false
 	}
