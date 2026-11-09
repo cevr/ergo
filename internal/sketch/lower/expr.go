@@ -787,9 +787,17 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	if m.Partial != partial {
 		ice(x, "a catch whose Partial fact disagrees with its try")
 	}
+	plain := fc.plainCatch(x, m)
+	if plain && catchBinding(fc.l.info, x) == nil {
+		fc.rawErr = x.X
+	}
 	o := fc.expr(x.X)
+	fc.rawErr = nil
 	if o.err == "" {
 		ice(x.X, "catch on an expression that cannot fail")
+	}
+	if plain {
+		return fc.plainCatchBody(x, m, o)
 	}
 	result := ""
 	if m.Result != nil {

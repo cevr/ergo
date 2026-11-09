@@ -191,7 +191,7 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 	}
 	fc.line(strings.Join(lhs, ", ") + " := " + text)
 	if e != "" {
-		fc.line(e + " = " + fc.l.rt() + ".GoErrorOf(" + e + ")")
+		fc.goErrorOf(x, e)
 	}
 	vs := make([]string, len(goResults))
 	for i, t := range goResults {
@@ -306,7 +306,7 @@ func (fc *funcCtx) goExtern(x *syntax.CallExpr, c *check.Call) operand {
 	}
 	fc.line(strings.Join(lhs, ", ") + " := " + text)
 	if e != "" {
-		fc.line(e + " = " + fc.l.rt() + ".GoErrorOf(" + e + ")")
+		fc.goErrorOf(x, e)
 	}
 	switch ge.Adapter {
 	case check.AdaptNonNil:
@@ -341,6 +341,19 @@ func (fc *funcCtx) goExtern(x *syntax.CallExpr, c *check.Call) operand {
 		parts[i] = tupleField(i) + ": " + s
 	}
 	return operand{val: fc.goType(f.Sig.Results[0]) + "{" + strings.Join(parts, ", ") + "}", err: e}
+}
+
+// goErrorOf writes the conversion of the Go error e of the call x to
+// go.Error (v1.GoErrorOf), unless x is the call a plain catch takes with
+// its error unread (fc.rawErr, plainCatch): that catch tests e against nil
+// alone, which the conversion keeps, so hand Go's `if err != nil` is all
+// it writes.
+func (fc *funcCtx) goErrorOf(x syntax.Expr, e string) {
+	if fc.rawErr != nil && fc.rawErr == x {
+		fc.rawErr = nil
+		return
+	}
+	fc.line(e + " = " + fc.l.rt() + ".GoErrorOf(" + e + ")")
 }
 
 // someWhen is a new variable of the Option type t: Some(v) when cond holds,

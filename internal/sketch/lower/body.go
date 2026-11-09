@@ -129,6 +129,10 @@ type funcCtx struct {
 	// header counts the statement headers being lowered (header.go): inside
 	// one, a composite literal of the TypeName form is parenthesized.
 	header int
+	// rawErr is the Go call whose error a plain catch takes unread
+	// (plainCatch): the call leaves Go's error as it is, since only its
+	// nil test is read (goErrorOf).
+	rawErr syntax.Expr
 }
 
 func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {

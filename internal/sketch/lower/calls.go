@@ -508,7 +508,7 @@ func (fc *funcCtx) hostFallible(x *syntax.CallExpr, c *check.Call, v, e, text st
 		fc.line("var " + v + " " + fc.goType(c.Func.Sig.Results[0]))
 		fc.line(v + ", " + e + " = " + text)
 	}
-	fc.line(e + " = " + fc.l.rt() + ".GoErrorOf(" + e + ")")
+	fc.goErrorOf(x, e)
 }
 
 // hostPkg is the name in main.go of the Go package path that a user
