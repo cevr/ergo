@@ -149,7 +149,7 @@ The callback type carries `needs R`, so the requirements of the block appear in 
 
 ## Observability and supervision
 
-Status: G1 and G2 are implemented ([#199](https://github.com/cevr/ergo/issues/199)). G3 and G4 are **designed, not yet implemented** ([#69](https://github.com/cevr/ergo/issues/69), [#200](https://github.com/cevr/ergo/issues/200), [#207](https://github.com/cevr/ergo/issues/207)).
+Status: G1 and G2 are implemented ([#199](https://github.com/cevr/ergo/issues/199)). G4 is implemented (batch 13 tasks-set; [#207](https://github.com/cevr/ergo/issues/207)), with an immediate restart: the `schedule` backoff waits for std `schedule`. G3 is **designed, not yet implemented** ([#69](https://github.com/cevr/ergo/issues/69), [#200](https://github.com/cevr/ergo/issues/200)).
 
 ### G1. Context through `with`
 
@@ -167,7 +167,7 @@ Status: G1 is implemented for string values ([#199](https://github.com/cevr/ergo
 
 ### G2. Fork-tree defects
 
-Status: G2 is implemented for `task.Go` ([#199](https://github.com/cevr/ergo/issues/199) stage 4b). The tasks of a `tasks.Set` and restarted tasks (G4) wait for supervision.
+Status: G2 is implemented for `task.Go` ([#199](https://github.com/cevr/ergo/issues/199) stage 4b) and for the members of a `tasks.Set` (G4): a member is a child of the task that started it, named by the site of its `tasks.Go`, and a restarted member keeps its task.
 
 1. Each task records its number, its parent while both run, and its site. The site is the source function that forks the task, the call and its position, written as a call frame is: `middle calls task.Go at main.ergo:12:11` ([stdlib.md](stdlib.md), hidden argument 2). The root task is `main`. A task keeps its site when its `Task` moves to another scope.
 2. A defect is recorded once, on the goroutine of the task where it happens, while the panicking frame is still on the stack. The record holds the panic's value, that task's Go stack, its chain of tasks and a snapshot of the context values in force for it ([G1](#g1-context-through-with)). A panic that no frame of the task meets, in a function without exit actions, is recorded at the task's boundary in the same form; rt's own recovery never records it. The record travels whole. `Wait` raises it in the waiter. `Stop` and an owner's drain raise it or join it to their other causes. A release joins it to the frame's other causes. No path rebuilds it, so a report never shows the waiter's frames or the parent's later context.
@@ -199,11 +199,12 @@ Status: G2 is implemented for `task.Go` ([#199](https://github.com/cevr/ergo/iss
 
 ### G4. `tasks.Set`
 
-1. `tasks.Set(policy)` owns an unbounded number of tasks and drops finished ones. It is a resource: the block that acquired it owns it, or the scope it moved to, such as a provider ([resources.md](resources.md) R4); its owner scope releases it when that scope ends (R5).
-2. The policy is fail-fast, `tasks.LogFailures`, or restart with a `schedule`: `tasks.Restart(schedule.Exponential(1s).UpTo(5))`.
-3. `Set.Go` takes a `func` literal, because the Set keeps it after `Go` returns. The literal escapes, so it may capture a resource only under the structured-lend rule: the Set must be released before the borrow of the resource ends ([resources.md](resources.md#closures)). In `set.Go(func() { actor.Pump(b, signals) })`, when `set` and `b` are bound in the same scope, `set` must be declared after `b`. Other owner arrangements follow R27 and R31: for example, a `set` bound inside a `with` block nested in `b`'s scope is released first and qualifies. In every arrangement, `b.Stop()` while `set` may still run the literal is an error.
-4. A restart policy needs a reusable factory that captures no moved resource. A connection moved into its handler cannot restart, so such a Set uses `tasks.LogFailures`.
-5. *Prior art:* Erlang/OTP `one_for_one` supervisors restart from the child specification; Effect `FiberSet` and `Supervisor`; Go has neither.
+1. `tasks.NewSet[E](policy)` owns any number of tasks and drops each one that ends ([stdlib.md, Tasks](stdlib.md#tasks) 11 to 17). The frame that made it owns it, by the rule that keeps a `Task` in its frame (Tasks rule 8; one rule for both owners of tasks, owner q39): the frame's end stops and drains it with its other entries, last registered first, and a return moves it to the caller. A Set is never a field, an element, a type argument or a capture, so only its owner's task reaches it. A provider that owns a Set waits for the Task-in-a-provider rule (R26), which covers a Set when it lands.
+2. The policy is a union, `tasks.FailFast | tasks.LogFailures | tasks.Restart{Limit}`, matched by `NewSet`. Under `FailFast` the first failure or defect closes the Set and stops the other members; under `LogFailures` it is written to standard error and dropped; under `Restart` a defect runs the body again, at once, up to `Limit` times for each `Go`, and a typed failure or the last defect acts as `FailFast`. A backoff (`tasks.Restart(schedule.Exponential(1s).UpTo(5))`) waits for std `schedule`.
+3. `tasks.Go(set, body)` takes `body` as an escaping function, as `task.Go` takes its block, because the Set runs it after `Go` returns. Its captures follow the rules of `task.Go`'s block: the structured-lend rule for a captured resource ([resources.md](resources.md#closures) R31, R32) is #197's, for both.
+4. A restart runs the same function value, so it starts from what the function captured, never from what the run before it left in local variables. A connection moved into its handler cannot restart; such a Set uses `tasks.LogFailures`.
+5. *Prior art:* Erlang/OTP `one_for_one` supervisors restart from the child specification, within an intensity; Elixir's `Task.Supervisor` and `DynamicSupervisor`; Gleam OTP's `static_supervisor`; Effect `FiberSet`; Go's `errgroup.Group`; Kotlin's `supervisorScope` and `coroutineScope`.
+
 
 <a id="channels"></a>
 

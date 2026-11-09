@@ -59,6 +59,18 @@ import (
 
 const taskEscapeText = "a Task leaves its function only by return; wait on it or return it"
 
+// setEscapeText is taskEscapeText for a value that is a tasks.Set.
+const setEscapeText = "a tasks.Set leaves its function only by return; stop it or return it"
+
+// ownedEscapeText is the text of an escape of a value of type t: a Set's own,
+// else a Task's.
+func ownedEscapeText(t Type) string {
+	if isSet(t) {
+		return setEscapeText
+	}
+	return taskEscapeText
+}
+
 // typeArgsAdmitted applies the type-argument rule (rule 4) to one
 // instantiation of the generic declaration name, tparams := targs, at the
 // node at: when an argument of a type parameter holds a Task it reports
@@ -82,14 +94,33 @@ func (c *checker) typeArgsAdmitted(name string, tparams []*TypeParam, targs []Ty
 	return true
 }
 
-// isTask reports whether t is the prelude's Task[T, E] or an instance of it.
+// isTask reports whether t is a type whose value a frame owns: the
+// prelude's Task[T, E], std tasks.Set[E] (runtime.md, G4), or an instance
+// of one. A Set is an owner of tasks, so it stays in its frame by the same
+// rules as a Task (owner q39: one rule): it leaves only by return, which
+// moves it to the caller, and its owner's end stops and drains it.
 func isTask(t Type) bool {
 	n, ok := t.(*Named)
 	if !ok {
 		return false
 	}
 	o := n.origin().Obj
-	return o != nil && o.Name == "Task" && o.Pkg != nil && o.Pkg.Path == std.PreludePath
+	if o == nil || o.Pkg == nil {
+		return false
+	}
+	switch {
+	case o.Pkg.Path == std.PreludePath:
+		return o.Name == "Task"
+	case o.Pkg.std && o.Pkg.Path == "tasks":
+		return o.Name == "Set"
+	}
+	return false
+}
+
+// isSet reports whether t is std tasks.Set[E] or an instance of it.
+func isSet(t Type) bool {
+	n, ok := t.(*Named)
+	return ok && isTask(t) && n.origin().Obj.Name == "Set"
 }
 
 // ResultIsTask reports whether a function of signature s returns a Task
@@ -256,7 +287,7 @@ func (c *checker) taskRefused(x syntax.Expr, t Type) bool {
 	if isInvalid(t) || !c.holdsTask(t) {
 		return false
 	}
-	c.errorf(x, CodeType, "%s", taskEscapeText)
+	c.errorf(x, CodeType, "%s", ownedEscapeText(t))
 	return true
 }
 
@@ -307,7 +338,7 @@ func (w *taskUses) visit(n syntax.Node, quiet bool) {
 	}
 	if x, ok := n.(syntax.Expr); ok && !quiet && w.escapes(x) {
 		if !w.reported(x) {
-			w.c.errorf(x, CodeType, "%s", taskEscapeText)
+			w.c.errorf(x, CodeType, "%s", ownedEscapeText(w.info.Types[x]))
 		}
 		w.refused++
 		quiet = true
@@ -557,7 +588,8 @@ func (w *taskUses) receiver(x syntax.Expr, sel *syntax.SelectorExpr, i int) bool
 	}
 	switch call.Kind {
 	case CallOp:
-		return isTask(w.info.Types[x]) && (sel.Sel.Name == "Wait" || sel.Sel.Name == "Stop")
+		// Every operation of a Set is its owner's (Wait, Stop, Len).
+		return isTask(w.info.Types[x]) && (sel.Sel.Name == "Wait" || sel.Sel.Name == "Stop" || isSet(w.info.Types[x]))
 	case CallFunc:
 		return true
 	}

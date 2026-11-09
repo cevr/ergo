@@ -228,6 +228,7 @@ var stdRecords = map[string]string{
 	"time.Reading":         "Reading",
 	"utf8.Decoded":         "Decoded",
 	"timeout.Expired":      "Expired",
+	"tasks.Closed":         "TasksClosed",
 }
 
 // StdRecord returns the name of the struct of Source that the record name

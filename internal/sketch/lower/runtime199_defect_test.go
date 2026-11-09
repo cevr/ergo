@@ -921,6 +921,8 @@ func TestRuntime199DefectOwner(t *testing.T) {
 		{"reportDefect", "report"}:    true,
 		{`"panic: "`, "reportDefect"}: true,
 		{"report", "Main"}:            true,
+		// LogFailures writes a member's exit as main's exit report does.
+		{"report", "end"}: true,
 	}
 	seen := map[use]bool{}
 	for _, u := range uses {

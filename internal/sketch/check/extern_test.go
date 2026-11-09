@@ -324,6 +324,21 @@ func main() {
 	use(Mine)
 }
 `,
+	// std tasks (batch 13 tasks-set): newSet's extern returns the Set.
+	"tasks.Set": `import tasks
+
+type Mine {}
+
+func Wait(_ Mine) fails tasks.Closed {}
+func Stop(_ Mine) {}
+func Len(_ Mine) int { 0 }
+
+func use(s tasks.Set[tasks.Closed]) { _ = s.Len() }
+
+func main() {
+	use(Mine)
+}
+`,
 	// std time (S2b): NewManual's extern returns the Timeline.
 	"time.Timeline": `import time
 

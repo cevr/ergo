@@ -32,6 +32,9 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 		}
 		switch binding.wait {
 		case noWait:
+		case parentTask:
+			// It starts a member below the caller and never parks: the
+			// runtime/v1 TestSetModel states its laws.
 		case memberTask:
 			// It records the caller as a member of an auto clock and never
 			// parks; runtime/v1 TestVirtualClockModel states its laws.
@@ -74,7 +77,7 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 // TestTransformModel (no call outlives the map); for TasksRace, which waits
 // through the same rt ends line, TestRaceModel (every block has ended and
 // run its exit action when Race returns).
-var childWaitLaws = map[string]bool{"After": true, "TasksTransform": true, "TasksRace": true}
+var childWaitLaws = map[string]bool{"After": true, "TasksTransform": true, "TasksRace": true, "Set.Wait": true, "Set.Stop": true}
 
 // hostWaitLaws are the callerWait bindings that wait for a host process
 // (std-align S3c): runtime/v1/exec_test.go TestExecStopModel states their

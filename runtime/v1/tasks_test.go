@@ -3,6 +3,7 @@ package v1
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"runtime"
 	"slices"
@@ -158,8 +159,8 @@ func transformRun(c transformCase) transformOutcome {
 	return o
 }
 
-// TestTasksLaws runs the laws of std tasks against TasksTransform
-// (docs/spec/stdlib.md, Std laws), 200 draws each.
+// TestTasksLaws runs the laws of std tasks against TasksTransform,
+// TasksRace and Set (docs/spec/stdlib.md, Std laws), 200 draws each.
 func TestTasksLaws(t *testing.T) {
 	draw := func(r *rand.Rand) ([]int, int) {
 		xs := make([]int, r.IntN(12))
@@ -169,7 +170,7 @@ func TestTasksLaws(t *testing.T) {
 		k := r.Int()
 		return xs, 1 + (k%4+4)%4
 	}
-	lawledger.Run(t, map[string]lawledger.Law{
+	laws := map[string]lawledger.Law{
 		"tasks EarliestWins": {Statement: `EarliestWins(ds []int) { let c = testing.NewVirtualClock(0) with context { Scheduler: c, time.Clock: c } { let mut blocks = []func() int needs Scheduler{} let mut best = 0 let mut sleeps = []int{} for d in ds.Append(0) { let i = len(sleeps) let s = 1 + (d%5+5)%5 sleeps = sleeps.Append(s) if s < sleeps[best] { best = i } blocks = blocks.Append(func() int needs Scheduler { Scheduler.Sleep(duration(int64(s))) i }) } let start = time.Clock.Now() let won = Race(blocks) won == best && time.Clock.Now().Sub(start) == duration(int64(sleeps[best])) } }`, Check: func(t *testing.T) {
 			r := rand.New(rand.NewPCG(1, 25))
 			for range 200 {
@@ -280,7 +281,9 @@ func TestTasksLaws(t *testing.T) {
 				}
 			}
 		}},
-	})
+	}
+	maps.Copy(laws, setLaws())
+	lawledger.Run(t, laws)
 }
 
 // TestTransformCallerStopped: the childWait laws of tasks.Transform

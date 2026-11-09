@@ -38,6 +38,8 @@ var notHostExterns = map[string]string{
 	"sync.Modify":           "changes a Ref of the program with the program's function",
 	"task.Go":               "starts a task of the program",
 	"tasks.Transform":       "starts tasks of the program over its own function",
+	"tasks.Go":              "starts a task of the program; under LogFailures the runtime writes a member's failure to standard error, as main's exit report does",
+	"tasks.newSet":          "makes a Set the calling frame owns",
 	"tasks.race":            "starts a task of the program per block",
 	"testing.newLine":       "makes the virtual timeline, which reads no host clock",
 	"time.newTimeline":      "makes the manual timeline, which reads no host clock",

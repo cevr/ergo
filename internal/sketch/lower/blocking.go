@@ -30,6 +30,10 @@ const (
 	// the body makes the first member of an auto clock's domain
 	// (testing.NewVirtualClock); the body never waits on it.
 	memberTask
+	// parentTask is the hidden *rt.Task of the invocation environment as
+	// the parent of the task the body starts and the owner it checks
+	// (tasks.Go); the body never waits on it.
+	parentTask
 )
 
 type runtimeBinding struct {
@@ -49,7 +53,7 @@ type runtimeBinding struct {
 // takesCaller reports a binding whose Go body receives the invocation's
 // task as its hidden CallerTask argument.
 func (b runtimeBinding) takesCaller() bool {
-	return b.wait == callerWait || b.wait == childWait || b.wait == memberTask || b.release == callerRelease || b.reads
+	return b.wait == callerWait || b.wait == childWait || b.wait == memberTask || b.wait == parentTask || b.release == callerRelease || b.reads
 }
 
 var runtimeBindings = map[string]runtimeBinding{
@@ -75,6 +79,14 @@ var runtimeBindings = map[string]runtimeBinding{
 	"TasksTransform": {wait: childWait},
 	// tasks.Race joins every block's task, the first to end deciding.
 	"TasksRace": {wait: childWait},
+	// tasks.Set (runtime.md, G4): NewSet registers on the frame, as Go
+	// does; tasks.Go starts a member below the caller; Wait joins the
+	// members as their parent, and Stop stops and joins them, uninterruptibly.
+	"TasksNewSet": {},
+	"TasksGo":     {wait: parentTask},
+	"Set.Wait":    {wait: childWait},
+	"Set.Stop":    {wait: childWait},
+	"Set.Len":     {},
 	// The with lifetime owner's scope (with, withClose; resources.md, Context
 	// ownership). None waits, and none is a release route: the release a
 	// with registers is the call of a checked Close, which masks itself
