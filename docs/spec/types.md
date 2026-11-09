@@ -37,11 +37,13 @@ let o Option[int] = None   // clause 4
 Status: **implemented** for slices and Maps by the lowering (value-rule; owner q26, 2026-11-08; [decisions](../decisions.md)): `internal/sketch/lower/values.go`, with `TestValueRuleProbes`, `TestValueRuleAgrees`, `TestValueRuleRace`, `TestValueRuleElides` and `TestValueRuleMutants`.
 
 ```go
-let m = Map[string, int]{"a": 1}
-let mut c = m
-c["b"] = 2          // m still has one entry
-let s = []int{1, 2}
-let t = s.Append(3) // s is still [1, 2]
+func example() {
+	let m = Map[string, int]{"a": 1}
+	let mut c = m
+	c["b"] = 2 // m still has one entry
+	let s = []int{1, 2}
+	let t = s.Append(3) // s is still [1, 2]
+}
 ```
 
 1. **Every value is a value.** A slice and a `Map` are values, as an `int` and a record are: a binding, a field, an element, an argument, a capture and a value sent to a task each hold their own. A write through a `let mut` root or a borrow (`m[k] = v`, `xs[i] = v`, `p.f[k] = v`, `m = m.Delete(k)`, `xs = xs.Append(x)`) is seen through that root alone, never through another binding, a package `let`, a record field, a slice element, the caller's argument, a function literal's capture or another task. The prelude's `Append` and `Delete` leave their argument unchanged ([stdlib.md](stdlib.md#v1-packages-task-scope-queue-and-slice), Slices and Maps). So a function the checker calls pure ([rows.md](rows.md#footprints)) gives equal results for equal arguments, and two tasks never write one Map. Owner q26, 2026-11-08: "Maps and slices are values: copy where two bindings would share, elided when the source is new or dead".
