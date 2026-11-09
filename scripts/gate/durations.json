@@ -218,6 +218,9 @@
     "TestSeparateAdjacentComments": 0,
     "TestTranslateMeaningKept": 0.14
   },
+  "ergo.local/prototype/internal/proclimit": {
+    "TestStartedProgramsDieFirst": 0
+  },
   "ergo.local/prototype/internal/producer": {
     "TestAcquisitionIsOnceAndIdentifiesBytesRatherThanDeclarations": 0,
     "TestCodeSignatureAcceptsOnlyTheKernelsImage": 0,
