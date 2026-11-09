@@ -33,7 +33,7 @@ import (
 // ergo check runs a go command on a miss; a module binding left out of the
 // build key (the lie would reuse the good build); bind writes no module
 // stamp; bind admits an internal package; import go of an internal path
-// asks for ergo bind.
+// asks for ergo bind; ergo fmt of a folder rewrites ergo.bind.
 //
 // Builds Go because module resolution (require, replace, go.sum, the
 // proxy) is go build's: no in-process check sees it.
@@ -160,7 +160,13 @@ func main() needs Console | go.Foreign {
 	if lie == saved {
 		t.Fatalf("the greet binding binds no Hello:\n%s", saved)
 	}
+	// Two more blank lines: ergo fmt would rewrite the binding, but a fmt
+	// of the module's folder skips ergo.bind.
+	lie = strings.Replace(lie, "// ergo:go func Hello", "\n\n// ergo:go func Hello", 1)
 	writeFiles(t, filepath.Dir(greetBinding), map[string]string{"greet.ergo": lie})
+	if out, code := cli(env, "fmt", "."); code != 0 || readText(t, greetBinding) != lie {
+		t.Errorf("ergo fmt of the module: exit %d, or it rewrote ergo.bind\n%s", code, out)
+	}
 	out, code = cli(env, "run", "cmd/app")
 	if code == 0 || !strings.Contains(out, "cmd/app/main.ergo:6:") || !strings.Contains(out, "Howdy") {
 		t.Errorf("ergo run with a lying binding: exit %d, want a go build error at cmd/app/main.ergo:6\n%s", code, out)
