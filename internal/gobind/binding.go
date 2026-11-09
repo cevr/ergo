@@ -183,13 +183,149 @@ func lastElem(p string) string { return p[strings.LastIndex(p, "/")+1:] }
 // File is the binding file of one Go package, from its type-checked
 // package on each platform (pkgs[i] on platforms[i]).
 func File(pkgs []*types.Package, platforms []Platform, goVersion string) (string, error) {
-	var all [][]Decl
-	for _, pkg := range pkgs {
-		all = append(all, Decls(pkg))
+	c := newCloser(platforms)
+	for i, p := range pkgs {
+		c.add(i, p)
 	}
+	return c.file(pkgs[0].Path(), pkgs[0].Name(), goVersion)
+}
+
+// closer merges each package's declarations across the platforms and
+// closes them (Close), reading the closed declarations of every package a
+// declaration names, once each.
+type closer struct {
+	platforms []Platform
+	pkgs      map[string][]*types.Package // by path, one per platform
+	done      map[string][]Decl
+}
+
+func newCloser(platforms []Platform) *closer {
+	return &closer{platforms: platforms, pkgs: map[string][]*types.Package{}, done: map[string][]Decl{}}
+}
+
+func (c *closer) add(i int, p *types.Package) {
+	ps := c.pkgs[p.Path()]
+	if ps == nil {
+		ps = make([]*types.Package, len(c.platforms))
+		c.pkgs[p.Path()] = ps
+	}
+	if ps[i] == nil {
+		ps[i] = p
+	}
+}
+
+func (c *closer) file(path, name, goVersion string) (string, error) {
 	var ps []string
-	for _, p := range platforms {
+	for _, p := range c.platforms {
 		ps = append(ps, p.String())
 	}
-	return Render(pkgs[0].Path(), pkgs[0].Name(), goVersion+" "+strings.Join(ps, " "), Merge(platforms, all))
+	return Render(path, name, goVersion+" "+strings.Join(ps, " "), c.decls(path))
+}
+
+// decls is the merged and closed declarations of the package path. Go
+// imports are acyclic, and a declaration names only types of its package
+// and its imports, so the recursion ends.
+func (c *closer) decls(path string) []Decl {
+	if ds, ok := c.done[path]; ok {
+		return ds
+	}
+	c.done[path] = nil // a cycle, impossible in Go, would read nothing
+	var all [][]Decl
+	var platforms []Platform
+	for i, p := range c.pkgs[path] {
+		if p == nil {
+			continue
+		}
+		ds := Decls(p)
+		for _, d := range ds {
+			for _, rp := range d.refPkgs {
+				c.add(i, rp)
+			}
+		}
+		all = append(all, ds)
+		platforms = append(platforms, c.platforms[i])
+	}
+	merged := Close(path, Merge(platforms, all), func(ref string) bool {
+		p, name := splitRef(ref)
+		for _, d := range c.decls(p) {
+			if d.Name == name {
+				return d.Refused != ""
+			}
+		}
+		return true
+	})
+	c.done[path] = merged
+	return merged
+}
+
+func splitRef(ref string) (path, name string) {
+	i := strings.LastIndex(ref, ".")
+	return ref[:i], ref[i+1:]
+}
+
+// Close refuses each declaration of the package path that names a refused
+// type, of its package or another (refusedElsewhere), until none is left:
+// a struct field or an interface method that names one becomes a refused
+// member, and any other declaration is refused whole. A use of a prelude
+// type (Map, Seq, Option) is refused when the package declares a type of
+// that name, which would hide it in the binding. So every binding checks
+// clean: it names only types that map (docs/spec/interop.md).
+func Close(path string, decls []Decl, refusedElsewhere func(ref string) bool) []Decl {
+	local, refused := map[string]bool{}, map[string]bool{}
+	for _, d := range decls {
+		if d.Kind == Type {
+			local[d.Name] = true
+			refused[d.Name] = d.Refused != ""
+		}
+	}
+	bad := func(refs []string) string {
+		for _, ref := range refs {
+			p, name := splitRef(ref)
+			switch {
+			case p == "" && local[name]:
+				return fmt.Sprintf("the package declares its own %s, which hides Ergo's %s in the binding", name, name)
+			case p == path && refused[name]:
+				return "it names the refused type " + name
+			case p != "" && p != path && refusedElsewhere(ref):
+				return "it names the refused type " + ref
+			}
+		}
+		return ""
+	}
+	for changed := true; changed; {
+		changed = false
+		for i := range decls {
+			d := &decls[i]
+			if d.Refused != "" {
+				continue
+			}
+			if why := bad(d.Refs); why != "" {
+				*d = Decl{Kind: d.Kind, Name: d.Name, Go: d.Go, Refused: why}
+				if d.Kind == Type {
+					refused[d.Name] = true
+				}
+				changed = true
+				continue
+			}
+			var kept []Line
+			for _, l := range d.Lines {
+				if why := bad(l.Refs); why != "" {
+					d.Members = append(d.Members, Member{l.Name, l.Go, why})
+					continue
+				}
+				kept = append(kept, l)
+			}
+			if len(kept) == len(d.Lines) {
+				continue
+			}
+			changed = true
+			if len(kept) == 0 && strings.HasSuffix(d.Go, " interface") {
+				*d = Decl{Kind: d.Kind, Name: d.Name, Go: d.Go, Refused: "no method of the interface maps"}
+				refused[d.Name] = true
+				continue
+			}
+			d.Lines, d.Ergo = kept, typeText(d.Name, kept)
+		}
+	}
+	return decls
 }

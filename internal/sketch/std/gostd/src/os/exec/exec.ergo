@@ -4,7 +4,6 @@
 import go gocontext context
 import go io
 import go os
-import go syscall
 
 // ergo:go type Cmd struct
 extern go os/exec.Cmd type Cmd {
@@ -15,7 +14,6 @@ extern go os/exec.Cmd type Cmd {
 	Stdin        io.Reader,
 	Stdout       io.Writer,
 	Stderr       io.Writer,
-	SysProcAttr  Option[go.Ref[syscall.SysProcAttr]],
 	Process      Option[go.Ref[os.Process]],
 	ProcessState Option[go.Ref[os.ProcessState]],
 	Err          go.Error,
@@ -27,6 +25,9 @@ extern go os/exec.Cmd type Cmd {
 
 // ergo:go Cancel func() error
 // ergo:refused Cmd.Cancel: a Go function as a result, a field or an element
+
+// ergo:go SysProcAttr *syscall.SysProcAttr
+// ergo:refused Cmd.SysProcAttr: it names the refused type syscall.SysProcAttr
 
 // ergo:go func (*Cmd).CombinedOutput() ([]byte, error)
 extern go os/exec.Cmd.CombinedOutput func (c *Cmd) CombinedOutput() []byte fails go.Error needs go.Foreign

@@ -518,12 +518,10 @@ extern go syscall.CmsgSpace func CmsgSpace(datalen int) int needs go.Foreign
 // ergo:refused Cmsghdr: platform-specific: its Go declaration differs on linux/amd64
 
 // ergo:go func (*Cmsghdr).SetLen(length int)
-extern go syscall.Cmsghdr.SetLen func (cmsg *Cmsghdr) SetLen(length int) needs go.Foreign
+// ergo:refused Cmsghdr.SetLen: it names the refused type Cmsghdr
 
 // ergo:go type Conn interface
-extern go syscall.Conn type Conn {
-	SyscallConn() RawConn fails go.Error needs go.Foreign,
-}
+// ergo:refused Conn: no method of the interface maps
 
 // ergo:go func Connect(fd int, sa Sockaddr) (err error)
 // ergo:refused Connect: parameter 2: type Sockaddr is refused: an interface with no exported method
@@ -1308,7 +1306,7 @@ extern go syscall.ForkExec func ForkExec(argv0 string, argv []string, attr *Proc
 // ergo:refused Fsid: platform-specific: its Go declaration differs on linux/amd64
 
 // ergo:go func Fstat(fd int, stat *Stat_t) (err error)
-extern go syscall.Fstat func Fstat(fd int, stat *Stat_t) fails go.Error needs go.Foreign
+// ergo:refused Fstat: it names the refused type Stat_t
 
 // ergo:go func Fstatfs(fd int, stat *Statfs_t) (err error)
 // ergo:refused Fstatfs: platform-specific: its Go declaration differs on linux/amd64
@@ -1323,7 +1321,7 @@ extern go syscall.Fsync func Fsync(fd int) fails go.Error needs go.Foreign
 extern go syscall.Ftruncate func Ftruncate(fd int, length int64) fails go.Error needs go.Foreign
 
 // ergo:go func Futimes(fd int, tv []Timeval) (err error)
-extern go syscall.Futimes func Futimes(fd int, tv []Timeval) fails go.Error needs go.Foreign
+// ergo:refused Futimes: it names the refused type Timeval
 
 // ergo:go func Getdirentries(fd int, buf []byte, basep *uintptr) (n int, err error)
 // ergo:refused Getdirentries: platform-specific: Go does not declare it on linux/amd64
@@ -1386,7 +1384,7 @@ extern go syscall.Getrusage func Getrusage(who int, rusage *Rusage) fails go.Err
 // ergo:refused GetsockoptByte: platform-specific: Go does not declare it on linux/amd64
 
 // ergo:go func GetsockoptICMPv6Filter(fd int, level int, opt int) (*ICMPv6Filter, error)
-extern go syscall.GetsockoptICMPv6Filter func GetsockoptICMPv6Filter(fd int, level int, opt int) go.Ref[ICMPv6Filter] fails go.Error needs go.Foreign
+// ergo:refused GetsockoptICMPv6Filter: it names the refused type ICMPv6Filter
 
 // ergo:go func GetsockoptIPMreq(fd int, level int, opt int) (*IPMreq, error)
 extern go syscall.GetsockoptIPMreq func GetsockoptIPMreq(fd int, level int, opt int) go.Ref[IPMreq] fails go.Error needs go.Foreign
@@ -2440,9 +2438,11 @@ extern go syscall.IP_UNBLOCK_SOURCE let IP_UNBLOCK_SOURCE int
 
 // ergo:go type IPv6MTUInfo struct
 extern go syscall.IPv6MTUInfo type IPv6MTUInfo {
-	Addr RawSockaddrInet6,
-	Mtu  uint32,
+	Mtu uint32,
 }
+
+// ergo:go Addr syscall.RawSockaddrInet6
+// ergo:refused IPv6MTUInfo.Addr: it names the refused type RawSockaddrInet6
 
 // ergo:go type IPv6Mreq struct
 extern go syscall.IPv6Mreq type IPv6Mreq {
@@ -2565,7 +2565,7 @@ extern go syscall.Linger type Linger {
 // ergo:refused Log2phys_t: platform-specific: Go does not declare it on linux/amd64
 
 // ergo:go func Lstat(path string, stat *Stat_t) (err error)
-extern go syscall.Lstat func Lstat(path string, stat *Stat_t) fails go.Error needs go.Foreign
+// ergo:refused Lstat: it names the refused type Stat_t
 
 // ergo:go const MADV_CAN_REUSE untyped int
 // ergo:refused MADV_CAN_REUSE: platform-specific: Go does not declare it on linux/amd64
@@ -2730,7 +2730,7 @@ extern go syscall.Mprotect func Mprotect(b []byte, prot int) fails go.Error need
 // ergo:refused Msghdr: platform-specific: its Go declaration differs on linux/amd64
 
 // ergo:go func (*Msghdr).SetControllen(length int)
-extern go syscall.Msghdr.SetControllen func (msghdr *Msghdr) SetControllen(length int) needs go.Foreign
+// ergo:refused Msghdr.SetControllen: it names the refused type Msghdr
 
 // ergo:go func Munlock(b []byte) (err error)
 extern go syscall.Munlock func Munlock(b []byte) fails go.Error needs go.Foreign
@@ -2907,7 +2907,7 @@ extern go syscall.NOFLSH let NOFLSH int
 extern go syscall.NsecToTimespec func NsecToTimespec(nsec int64) Timespec needs go.Foreign
 
 // ergo:go func NsecToTimeval(nsec int64) Timeval
-extern go syscall.NsecToTimeval func NsecToTimeval(nsec int64) Timeval needs go.Foreign
+// ergo:refused NsecToTimeval: it names the refused type Timeval
 
 // ergo:go const OCRNL untyped int
 extern go syscall.OCRNL let OCRNL int
@@ -3135,11 +3135,13 @@ extern go syscall.Pread func Pread(fd int, p []byte, offset int64) int fails go.
 extern go syscall.ProcAttr type ProcAttr {
 	Dir string,
 	Env []string,
-	Sys Option[go.Ref[SysProcAttr]],
 }
 
 // ergo:go Files []uintptr
 // ergo:refused ProcAttr.Files: Ergo has no uintptr
+
+// ergo:go Sys *syscall.SysProcAttr
+// ergo:refused ProcAttr.Sys: it names the refused type SysProcAttr
 
 // ergo:go func PtraceAttach(pid int) (err error)
 extern go syscall.PtraceAttach func PtraceAttach(pid int) fails go.Error needs go.Foreign
@@ -3479,8 +3481,6 @@ extern go syscall.Rlimit type Rlimit {
 
 // ergo:go type Rusage struct
 extern go syscall.Rusage type Rusage {
-	Utime    Timeval,
-	Stime    Timeval,
 	Maxrss   int64,
 	Ixrss    int64,
 	Idrss    int64,
@@ -3496,6 +3496,12 @@ extern go syscall.Rusage type Rusage {
 	Nvcsw    int64,
 	Nivcsw   int64,
 }
+
+// ergo:go Utime syscall.Timeval
+// ergo:refused Rusage.Utime: it names the refused type Timeval
+
+// ergo:go Stime syscall.Timeval
+// ergo:refused Rusage.Stime: it names the refused type Timeval
 
 // ergo:go const SCM_CREDS untyped int
 // ergo:refused SCM_CREDS: platform-specific: Go does not declare it on linux/amd64
@@ -5169,7 +5175,7 @@ extern go syscall.Setsid func Setsid() int fails go.Error needs go.Foreign
 extern go syscall.SetsockoptByte func SetsockoptByte(fd int, level int, opt int, value byte) fails go.Error needs go.Foreign
 
 // ergo:go func SetsockoptICMPv6Filter(fd int, level int, opt int, filter *ICMPv6Filter) error
-extern go syscall.SetsockoptICMPv6Filter func SetsockoptICMPv6Filter(fd int, level int, opt int, filter *ICMPv6Filter) fails go.Error needs go.Foreign
+// ergo:refused SetsockoptICMPv6Filter: it names the refused type ICMPv6Filter
 
 // ergo:go func SetsockoptIPMreq(fd int, level int, opt int, mreq *IPMreq) (err error)
 extern go syscall.SetsockoptIPMreq func SetsockoptIPMreq(fd int, level int, opt int, mreq *IPMreq) fails go.Error needs go.Foreign
@@ -5190,7 +5196,7 @@ extern go syscall.SetsockoptLinger func SetsockoptLinger(fd int, level int, opt 
 extern go syscall.SetsockoptString func SetsockoptString(fd int, level int, opt int, s string) fails go.Error needs go.Foreign
 
 // ergo:go func SetsockoptTimeval(fd int, level int, opt int, tv *Timeval) (err error)
-extern go syscall.SetsockoptTimeval func SetsockoptTimeval(fd int, level int, opt int, tv *Timeval) fails go.Error needs go.Foreign
+// ergo:refused SetsockoptTimeval: it names the refused type Timeval
 
 // ergo:go func Settimeofday(tp *Timeval) (err error)
 // ergo:refused Settimeofday: platform-specific: its Go declaration differs on linux/amd64
@@ -5324,9 +5330,11 @@ extern go syscall.Socket func Socket(domain int, typ int, proto int) int fails g
 
 // ergo:go type SocketControlMessage struct
 extern go syscall.SocketControlMessage type SocketControlMessage {
-	Header Cmsghdr,
-	Data   []byte,
+	Data []byte,
 }
+
+// ergo:go Header syscall.Cmsghdr
+// ergo:refused SocketControlMessage.Header: it names the refused type Cmsghdr
 
 // ergo:go var SocketDisableIPv6 bool
 // ergo:refused SocketDisableIPv6: a Go variable is host state; call a function
@@ -5338,7 +5346,7 @@ extern go syscall.SocketControlMessage type SocketControlMessage {
 // ergo:refused StartProcess: result 2: Ergo has no uintptr
 
 // ergo:go func Stat(path string, stat *Stat_t) (err error)
-extern go syscall.Stat func Stat(path string, stat *Stat_t) fails go.Error needs go.Foreign
+// ergo:refused Stat: it names the refused type Stat_t
 
 // ergo:go type Stat_t struct
 // ergo:refused Stat_t: platform-specific: its Go declaration differs on linux/amd64
@@ -5695,16 +5703,16 @@ extern go syscall.TimespecToNsec func TimespecToNsec(ts Timespec) int64 needs go
 // ergo:refused Timeval: platform-specific: its Go declaration differs on linux/amd64
 
 // ergo:go func (*Timeval).Nano() int64
-extern go syscall.Timeval.Nano func (tv *Timeval) Nano() int64 needs go.Foreign
+// ergo:refused Timeval.Nano: it names the refused type Timeval
 
 // ergo:go func (*Timeval).Unix() (sec int64, nsec int64)
-extern go syscall.Timeval.Unix func (tv *Timeval) Unix() (int64, int64) needs go.Foreign
+// ergo:refused Timeval.Unix: it names the refused type Timeval
 
 // ergo:go type Timeval32 struct
 // ergo:refused Timeval32: platform-specific: Go does not declare it on linux/amd64
 
 // ergo:go func TimevalToNsec(tv Timeval) int64
-extern go syscall.TimevalToNsec func TimevalToNsec(tv Timeval) int64 needs go.Foreign
+// ergo:refused TimevalToNsec: it names the refused type Timeval
 
 // ergo:go func Truncate(path string, length int64) (err error)
 extern go syscall.Truncate func Truncate(path string, length int64) fails go.Error needs go.Foreign
@@ -5729,7 +5737,7 @@ extern go syscall.UnixRights func UnixRights(fds []int) []byte needs go.Foreign
 extern go syscall.Unsetenv func Unsetenv(key string) fails go.Error needs go.Foreign
 
 // ergo:go func Utimes(path string, tv []Timeval) (err error)
-extern go syscall.Utimes func Utimes(path string, tv []Timeval) fails go.Error needs go.Foreign
+// ergo:refused Utimes: it names the refused type Timeval
 
 // ergo:go func UtimesNano(path string, ts []Timespec) error
 // ergo:refused UtimesNano: platform-specific: its Go declaration differs on linux/amd64

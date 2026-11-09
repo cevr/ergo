@@ -133,7 +133,7 @@ extern go encoding/xml.NewDecoder func NewDecoder(r io.Reader) Option[go.Ref[Dec
 extern go encoding/xml.NewEncoder func NewEncoder(w io.Writer) Option[go.Ref[Encoder]] needs go.Foreign
 
 // ergo:go func NewTokenDecoder(t TokenReader) *Decoder
-extern go encoding/xml.NewTokenDecoder func NewTokenDecoder(t TokenReader) Option[go.Ref[Decoder]] needs go.Foreign
+// ergo:refused NewTokenDecoder: it names the refused type TokenReader
 
 // ergo:go type ProcInst struct
 extern go encoding/xml.ProcInst type ProcInst {

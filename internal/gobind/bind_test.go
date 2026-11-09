@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/gobind"
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/format"
 	"ergo.local/prototype/internal/sketch/std/gostd"
 )
@@ -70,6 +71,18 @@ func TestBindMappingProperty(t *testing.T) {
 		}
 		if again, err := format.Source(text); err != nil || again != text {
 			t.Errorf("binding of %s is not in ergo fmt form (err %v)\n%s", path, err, text)
+		}
+		// Every binding checks clean: the checker resolves each of its
+		// declarations with no diagnostic (IG1's acceptance, IG2's checker).
+		set := check.NewGoBindings(func(p string) (string, bool) {
+			if text, ok := files[p]; ok {
+				return text, true
+			}
+			return gostd.Binding(p)
+		})
+		set.ResolveAll(path)
+		if ds := set.Diagnostics(); len(ds) > 0 {
+			t.Errorf("binding of %s does not check (replay: ERGO_BIND_SEED=%s):\n%s\n--- binding:\n%s", path, strings.TrimPrefix(filepath.Base(path), "p"), strings.Join(ds, "\n"), text)
 		}
 		got := readBinding(t, path, text)
 		var bad []string

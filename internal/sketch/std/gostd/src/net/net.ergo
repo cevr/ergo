@@ -5,7 +5,6 @@ import go gocontext context
 import go io
 import go net/netip
 import go os
-import go syscall
 import go time
 
 // ergo:go type Addr interface
@@ -320,7 +319,7 @@ extern go net.IPConn.SetWriteBuffer func (c *IPConn) SetWriteBuffer(bytes int) f
 extern go net.IPConn.SetWriteDeadline func (c *IPConn) SetWriteDeadline(t time.Time) fails go.Error needs go.Foreign
 
 // ergo:go func (*IPConn).SyscallConn() (syscall.RawConn, error)
-extern go net.IPConn.SyscallConn func (c *IPConn) SyscallConn() syscall.RawConn fails go.Error needs go.Foreign
+// ergo:refused IPConn.SyscallConn: it names the refused type syscall.RawConn
 
 // ergo:go func (*conn).Write(b []byte) (int, error)
 extern go net.IPConn.Write func (c *IPConn) Write(b []byte) int fails go.Error needs go.Foreign
@@ -744,7 +743,7 @@ extern go net.TCPConn.SetWriteBuffer func (c *TCPConn) SetWriteBuffer(bytes int)
 extern go net.TCPConn.SetWriteDeadline func (c *TCPConn) SetWriteDeadline(t time.Time) fails go.Error needs go.Foreign
 
 // ergo:go func (*TCPConn).SyscallConn() (syscall.RawConn, error)
-extern go net.TCPConn.SyscallConn func (c *TCPConn) SyscallConn() syscall.RawConn fails go.Error needs go.Foreign
+// ergo:refused TCPConn.SyscallConn: it names the refused type syscall.RawConn
 
 // ergo:go func (*conn).Write(b []byte) (int, error)
 extern go net.TCPConn.Write func (c *TCPConn) Write(b []byte) int fails go.Error needs go.Foreign
@@ -774,7 +773,7 @@ extern go net.TCPListener.File func (l *TCPListener) File() go.Ref[os.File] fail
 extern go net.TCPListener.SetDeadline func (l *TCPListener) SetDeadline(t time.Time) fails go.Error needs go.Foreign
 
 // ergo:go func (*TCPListener).SyscallConn() (syscall.RawConn, error)
-extern go net.TCPListener.SyscallConn func (l *TCPListener) SyscallConn() syscall.RawConn fails go.Error needs go.Foreign
+// ergo:refused TCPListener.SyscallConn: it names the refused type syscall.RawConn
 
 // ergo:go type UDPAddr struct
 extern go net.UDPAddr type UDPAddr {
@@ -844,7 +843,7 @@ extern go net.UDPConn.SetWriteBuffer func (c *UDPConn) SetWriteBuffer(bytes int)
 extern go net.UDPConn.SetWriteDeadline func (c *UDPConn) SetWriteDeadline(t time.Time) fails go.Error needs go.Foreign
 
 // ergo:go func (*UDPConn).SyscallConn() (syscall.RawConn, error)
-extern go net.UDPConn.SyscallConn func (c *UDPConn) SyscallConn() syscall.RawConn fails go.Error needs go.Foreign
+// ergo:refused UDPConn.SyscallConn: it names the refused type syscall.RawConn
 
 // ergo:go func (*conn).Write(b []byte) (int, error)
 extern go net.UDPConn.Write func (c *UDPConn) Write(b []byte) int fails go.Error needs go.Foreign
@@ -925,7 +924,7 @@ extern go net.UnixConn.SetWriteBuffer func (c *UnixConn) SetWriteBuffer(bytes in
 extern go net.UnixConn.SetWriteDeadline func (c *UnixConn) SetWriteDeadline(t time.Time) fails go.Error needs go.Foreign
 
 // ergo:go func (*UnixConn).SyscallConn() (syscall.RawConn, error)
-extern go net.UnixConn.SyscallConn func (c *UnixConn) SyscallConn() syscall.RawConn fails go.Error needs go.Foreign
+// ergo:refused UnixConn.SyscallConn: it names the refused type syscall.RawConn
 
 // ergo:go func (*conn).Write(b []byte) (int, error)
 extern go net.UnixConn.Write func (c *UnixConn) Write(b []byte) int fails go.Error needs go.Foreign
@@ -964,7 +963,7 @@ extern go net.UnixListener.SetDeadline func (l *UnixListener) SetDeadline(t time
 extern go net.UnixListener.SetUnlinkOnClose func (l *UnixListener) SetUnlinkOnClose(unlink bool) needs go.Foreign
 
 // ergo:go func (*UnixListener).SyscallConn() (syscall.RawConn, error)
-extern go net.UnixListener.SyscallConn func (l *UnixListener) SyscallConn() syscall.RawConn fails go.Error needs go.Foreign
+// ergo:refused UnixListener.SyscallConn: it names the refused type syscall.RawConn
 
 // ergo:go type UnknownNetworkError string
 extern go net.UnknownNetworkError type UnknownNetworkError string

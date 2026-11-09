@@ -48,6 +48,19 @@ type Decl struct {
 	// Members are the refusals of a struct's fields and an interface's
 	// methods, by member name, for a type that maps.
 	Members []Member
+	// Refs are the named types the head of the Ergo text spells (a
+	// signature, a receiver, a defined type's underlying type); Lines
+	// are a struct's or an interface's members with their own refs.
+	// Close reads them; Render does not.
+	Refs    []string
+	Lines   []Line
+	refPkgs []*types.Package
+}
+
+// Line is one field or method of a mapped struct or interface.
+type Line struct {
+	Name, Go, Text string
+	Refs           []string
 }
 
 // Member is a field or interface method that a mapped type leaves out.
@@ -70,14 +83,28 @@ func Map(obj types.Object, recv *types.Named, q Qualifier) Decl {
 	m := &mapper{pkg: obj.Pkg(), q: q}
 	if recv != nil {
 		m.pkg = recv.Obj().Pkg()
+		m.refs = []string{m.pkg.Path() + "." + recv.Obj().Name()}
 	}
-	return m.decl(obj, recv)
+	d := m.decl(obj, recv)
+	if d.Refused == "" {
+		d.Refs = m.refs
+	}
+	d.refPkgs = m.refPkgs
+	return d
 }
 
 type mapper struct {
 	pkg *types.Package
 	q   Qualifier
+	// refs are the named types the Ergo text spells, "path.Name", and
+	// ".Map" for a prelude type (Close); refPkgs their packages.
+	refs    []string
+	refPkgs []*types.Package
 }
+
+// prelude records a use of the prelude type name, which a type of the bound
+// package of that name would hide (Close).
+func (m *mapper) prelude(name string) { m.refs = append(m.refs, "."+name) }
 
 type pos int
 
@@ -150,12 +177,12 @@ func (m *mapper) decl(obj types.Object, recv *types.Named) Decl {
 		d.Ergo, d.Variadic = text, variadic
 	case *types.TypeName:
 		d.Kind = Type
-		text, members, err := m.typeDecl(o)
+		text, members, lines, err := m.typeDecl(o)
 		if err != nil {
 			d.Refused = err.Error()
 			return d
 		}
-		d.Ergo, d.Members = text, members
+		d.Ergo, d.Members, d.Lines = text, members, lines
 	case *types.Const:
 		d.Kind = Const
 		t, err := m.constType(o)
@@ -422,6 +449,7 @@ func (m *sigMapper) typ(t types.Type, at pos, cb bool) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		m.prelude("Map")
 		return "Map[" + k + ", " + v + "]", nil
 	case *types.Array:
 		return "", refuse("Ergo has no fixed arrays; a Go array %s maps to no Ergo type", types.TypeString(t, nil))
@@ -499,6 +527,7 @@ func (m *sigMapper) named(n *types.Named, at pos, cb bool) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		m.prelude("Seq")
 		return "Seq[" + e + "]", nil
 	case n.TypeArgs().Len() > 0:
 		return "", refuse("the generic Go type %s maps to no Ergo type in v1", obj.Name())
@@ -510,6 +539,8 @@ func (m *sigMapper) named(n *types.Named, at pos, cb bool) (string, error) {
 }
 
 func (m *sigMapper) spell(obj *types.TypeName) string {
+	m.refs = append(m.refs, obj.Pkg().Path()+"."+obj.Name())
+	m.refPkgs = append(m.refPkgs, obj.Pkg())
 	if obj.Pkg() == m.pkg {
 		return obj.Name()
 	}
@@ -543,6 +574,7 @@ func (m *sigMapper) pointer(p *types.Pointer, at pos, cb bool) (string, error) {
 	case atErrResult:
 		return "go.Ref[" + s + "]", nil
 	}
+	m.prelude("Option")
 	return "Option[go.Ref[" + s + "]]", nil
 }
 
@@ -615,20 +647,20 @@ func internalPath(path string) bool {
 // typeDecl maps a named type's declaration: `type T basic`, `type T []E`,
 // `type T { Field T, … }` for a struct (read-only fields, q34) or `type T {
 // Method(sig), … }` for an interface.
-func (m *mapper) typeDecl(obj *types.TypeName) (string, []Member, error) {
+func (m *mapper) typeDecl(obj *types.TypeName) (string, []Member, []Line, error) {
 	if path := obj.Pkg().Path(); path == "time" && obj.Name() == "Duration" {
-		return "", nil, refuse("time.Duration is Ergo's duration")
+		return "", nil, nil, refuse("time.Duration is Ergo's duration")
 	}
 	if path := obj.Pkg().Path(); path == "iter" && obj.Name() == "Seq" {
-		return "", nil, refuse("iter.Seq is the prelude Seq")
+		return "", nil, nil, refuse("iter.Seq is the prelude Seq")
 	}
 	if reason := typeRefusal(obj); reason != "" {
-		return "", nil, refuse("%s", reason)
+		return "", nil, nil, refuse("%s", reason)
 	}
 	sm := &sigMapper{mapper: m}
 	n := obj.Type().(*types.Named)
 	var members []Member
-	var lines []string
+	var lines []Line
 	switch u := n.Underlying().(type) {
 	case *types.Struct:
 		for i := 0; i < u.NumFields(); i++ {
@@ -637,12 +669,13 @@ func (m *mapper) typeDecl(obj *types.TypeName) (string, []Member, error) {
 				continue
 			}
 			goText := f.Name() + " " + types.TypeString(f.Type(), func(p *types.Package) string { return p.Name() })
+			m.refs = nil
 			t, err := sm.typ(f.Type(), atField, false)
 			if err != nil {
 				members = append(members, Member{f.Name(), goText, err.Error()})
 				continue
 			}
-			lines = append(lines, f.Name()+" "+t)
+			lines = append(lines, Line{f.Name(), goText, f.Name() + " " + t, m.refs})
 		}
 	case *types.Interface:
 		for i := 0; i < u.NumMethods(); i++ {
@@ -651,6 +684,7 @@ func (m *mapper) typeDecl(obj *types.TypeName) (string, []Member, error) {
 				continue
 			}
 			goText := types.ObjectString(f, func(p *types.Package) string { return p.Name() })
+			m.refs = nil
 			params, results, fails, variadic, err := sm.signature(f.Type().(*types.Signature), false)
 			if err == nil && variadic {
 				err = refuse("a variadic interface method")
@@ -667,22 +701,33 @@ func (m *mapper) typeDecl(obj *types.TypeName) (string, []Member, error) {
 				line += " fails go.Error"
 			}
 			line += m.needs("")
-			lines = append(lines, line)
+			lines = append(lines, Line{f.Name(), goText, line, m.refs})
 		}
+		m.refs = nil
 		if len(lines) == 0 {
-			return "", members, refuse("no method of the interface maps")
+			return "", members, nil, refuse("no method of the interface maps")
 		}
 	default:
 		t, err := sm.typ(u, atInner, false)
 		if err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
-		return "type " + obj.Name() + " " + t, nil, nil
+		return "type " + obj.Name() + " " + t, nil, nil, nil
 	}
+	m.refs = nil
+	return typeText(obj.Name(), lines), members, lines, nil
+}
+
+// typeText is the declaration of a struct or interface type with lines.
+func typeText(name string, lines []Line) string {
 	if len(lines) == 0 {
-		return "type " + obj.Name() + " {}", members, nil
+		return "type " + name + " {}"
 	}
-	return "type " + obj.Name() + " {\n\t" + strings.Join(lines, ",\n\t") + ",\n}", members, nil
+	var texts []string
+	for _, l := range lines {
+		texts = append(texts, l.Text)
+	}
+	return "type " + name + " {\n\t" + strings.Join(texts, ",\n\t") + ",\n}"
 }
 
 // constType maps a constant's type: a typed constant keeps its type, an

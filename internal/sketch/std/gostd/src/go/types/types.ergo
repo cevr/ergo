@@ -344,10 +344,7 @@ extern go go/types.ImporterFrom type ImporterFrom {
 }
 
 // ergo:go type Info struct
-extern go go/types.Info type Info {
-	Types     Map[ast.Expr, TypeAndValue],
-	Implicits Map[ast.Node, Object],
-}
+extern go go/types.Info type Info {}
 
 // ergo:go Instances map[*ast.Ident]types.Instance
 // ergo:refused Info.Instances: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
@@ -369,6 +366,12 @@ extern go go/types.Info type Info {
 
 // ergo:go FileVersions map[*ast.File]string
 // ergo:refused Info.FileVersions: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
+
+// ergo:go Types map[ast.Expr]types.TypeAndValue
+// ergo:refused Info.Types: the package declares its own Map, which hides Ergo's Map in the binding
+
+// ergo:go Implicits map[ast.Node]types.Object
+// ergo:refused Info.Implicits: the package declares its own Map, which hides Ergo's Map in the binding
 
 // ergo:go func (*Info).ObjectOf(id *ast.Ident) Object
 extern go go/types.Info.ObjectOf func (info *Info) ObjectOf(id *ast.Ident) Object needs go.Foreign

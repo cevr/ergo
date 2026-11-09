@@ -100,19 +100,23 @@ func Bind(dir string, env []string, goVersion string, patterns ...string) (map[s
 		}
 	}
 	files := map[string]string{}
+	c := newCloser(Platforms)
+	for i := range Platforms {
+		for _, pkg := range perPlatform[i] {
+			c.add(i, pkg)
+		}
+	}
 	for _, path := range order {
-		var pkgs []*types.Package
-		var platforms []Platform
-		for i, p := range Platforms {
-			if pkg, ok := perPlatform[i][path]; ok {
-				pkgs = append(pkgs, pkg)
-				platforms = append(platforms, p)
+		n := 0
+		for i := range Platforms {
+			if _, ok := perPlatform[i][path]; ok {
+				n++
 			}
 		}
-		if len(pkgs) != len(Platforms) {
+		if n != len(Platforms) {
 			continue // a package of one platform only (syscall/js) has no binding
 		}
-		text, err := File(pkgs, platforms, goVersion)
+		text, err := c.file(path, perPlatform[0][path].Name(), goVersion)
 		if err != nil {
 			return nil, err
 		}

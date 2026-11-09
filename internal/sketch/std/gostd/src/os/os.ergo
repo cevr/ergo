@@ -3,7 +3,6 @@
 
 import go io
 import go io/fs
-import go syscall
 import go time
 
 // ergo:go var Args []string
@@ -142,7 +141,7 @@ extern go os.File.Stat func (f *File) Stat() fs.FileInfo fails go.Error needs go
 extern go os.File.Sync func (f *File) Sync() fails go.Error needs go.Foreign
 
 // ergo:go func (*File).SyscallConn() (syscall.RawConn, error)
-extern go os.File.SyscallConn func (f *File) SyscallConn() syscall.RawConn fails go.Error needs go.Foreign
+// ergo:refused File.SyscallConn: it names the refused type syscall.RawConn
 
 // ergo:go func (*File).Truncate(size int64) error
 extern go os.File.Truncate func (f *File) Truncate(size int64) fails go.Error needs go.Foreign
@@ -360,11 +359,13 @@ extern go os.Pipe func Pipe() (Option[go.Ref[File]], Option[go.Ref[File]]) fails
 extern go os.ProcAttr type ProcAttr {
 	Dir string,
 	Env []string,
-	Sys Option[go.Ref[syscall.SysProcAttr]],
 }
 
 // ergo:go Files []*os.File
 // ergo:refused ProcAttr.Files: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
+
+// ergo:go Sys *syscall.SysProcAttr
+// ergo:refused ProcAttr.Sys: it names the refused type syscall.SysProcAttr
 
 // ergo:go type Process struct
 extern go os.Process type Process {

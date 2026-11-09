@@ -21,12 +21,14 @@ extern go net/http.CanonicalHeaderKey func CanonicalHeaderKey(s string) string n
 // ergo:go type Client struct
 extern go net/http.Client type Client {
 	Transport RoundTripper,
-	Jar       CookieJar,
 	Timeout   duration,
 }
 
 // ergo:go CheckRedirect func(req *http.Request, via []*http.Request) error
 // ergo:refused Client.CheckRedirect: a Go function as a result, a field or an element
+
+// ergo:go Jar http.CookieJar
+// ergo:refused Client.Jar: it names the refused type CookieJar
 
 // ergo:go func (*Client).CloseIdleConnections()
 extern go net/http.Client.CloseIdleConnections func (c *Client) CloseIdleConnections() needs go.Foreign

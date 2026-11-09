@@ -8,9 +8,7 @@ import go reflect
 // ergo:refused Bool: a Go variable is host state; call a function
 
 // ergo:go type ColumnConverter interface
-extern go database/sql/driver.ColumnConverter type ColumnConverter {
-	ColumnConverter(idx int) ValueConverter needs go.Foreign,
-}
+// ergo:refused ColumnConverter: no method of the interface maps
 
 // ergo:go type Conn interface
 extern go database/sql/driver.Conn type Conn {
@@ -92,17 +90,19 @@ extern go database/sql/driver.NamedValueChecker type NamedValueChecker {
 }
 
 // ergo:go type NotNull struct
-extern go database/sql/driver.NotNull type NotNull {
-	Converter ValueConverter,
-}
+extern go database/sql/driver.NotNull type NotNull {}
+
+// ergo:go Converter driver.ValueConverter
+// ergo:refused NotNull.Converter: it names the refused type ValueConverter
 
 // ergo:go func (NotNull).ConvertValue(v any) (Value, error)
 // ergo:refused NotNull.ConvertValue: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go type Null struct
-extern go database/sql/driver.Null type Null {
-	Converter ValueConverter,
-}
+extern go database/sql/driver.Null type Null {}
+
+// ergo:go Converter driver.ValueConverter
+// ergo:refused Null.Converter: it names the refused type ValueConverter
 
 // ergo:go func (Null).ConvertValue(v any) (Value, error)
 // ergo:refused Null.ConvertValue: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
