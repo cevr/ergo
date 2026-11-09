@@ -369,6 +369,10 @@ These terms describe the retired `.ef` language, with its `effect fn`, `run`, `r
 
 **Actor incarnation** (proposed): One running instance associated with an address, distinguished from its predecessors and from its individual state entries.
 
+**Durable actor** (implemented, MU9): A machine actor whose committed transitions a journal keeps before anyone sees them, so a new actor recovers its state by replaying them with the machine's pure step (std `actor.StartDurable`, `journal.Start`). See [runtime](docs/spec/runtime.md#machines-and-actors) 17. A durable entity adds an address and ownership to it.
+
+**Journal** (implemented, MU9): The std operation type `journal.Journal[S, E]` that keeps a durable actor's committed signals after the last snapshot of its state, in order. Its providers are `journal/memory` and `journal/file`.
+
 **Durable entity** (proposed): An addressable actor whose provider contract preserves declared domain data and acknowledged progress across process failure, with explicit storage, codec and ownership policies.
 
 **Workflow replay** (proposed): Reconstructing execution from versioned recorded steps and outcomes under an explicit replay contract; ordinary effect recipes do not imply replay safety.
