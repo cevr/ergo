@@ -29,6 +29,19 @@ This file is the dated log of the owner's decisions for Ergo, newest first. A de
 
   Rules: [types.md, Generics](spec/types.md#generics) 1 and [rows.md, Error rows](spec/rows.md#error-rows) 8. Principles: one consistent rule across the language (q39); explicit contracts (the field's type is the row the operation fails with). Prior art: Zig error sets as value types; OCaml polymorphic variants; Effect's `Exit<A, E>`.
 
+- **A union of one existing type is an alias (2026-11-09, owner q48).** Asked after batch 13's lane MB (finding F11: `actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]` written nine times in order-builder, with no way to name it: `type A T` is a new type that `actor.Child`'s result does not convert to). fu-mb2 built the alias on the assumption; the owner answered "F11 yes". Decided:
+  - `type A = T`, a union whose only variant is an existing type, is that type: every use of `A` is `T`, with no conversion either way. The existing type may be of any kind and any package. A one-variant union declared in place (`type V = R{ … }`) declares its variant and stays a new type.
+  - An alias that names itself is S108; an alias takes no type parameters yet (S108 at the brackets). Diagnostics print the target.
+  - It lowers to Go's `type A = T`; `TestAliasChecksAsItsTarget` holds a program of aliases to the program with each alias written out.
+
+  Rules: [types.md, Unions](spec/types.md#unions) 7. Principles: one rule (a union over existing types is the set of those types, so a union of one is that type; no new keyword). Prior art: Go `type A = T`, Gleam and ReScript type aliases, TypeScript `type A = …`.
+
+- **A parent reaches its child through `actor.Host` (2026-11-09, owner q49).** Asked after lane MB's finding F12: a child's address reached its parent only as a signal (`Opened{Sub: actor.Child(…)}`), so the parent's state held `Option[Actor]` that was `None` until the signal was stepped, and every reader waited for it. mu-host built `actor.Host`; the owner answered "F12 yes". Decided:
+  - `actor.NewHost[A]()`, made in a step, is an empty `actor.Host[A]` that the entered entry owns; the entry's work fills it once with `actor.ChildIn(send, host, m, capacity, toParent)`; `host.Get() A fails Stopped` waits while the host is empty and fails `Stopped` once the entry ended. The entry is published after its work filled its hosts, waited or ended.
+  - `Host` has no member law (its answers depend on an entry only the runner opens); `TestActorHostAgreesWithModel` holds it against the Quint model `host.qnt`.
+
+  Rules: [stdlib.md](spec/stdlib.md), actor 7 (Hosts); [runtime.md, Machines and actors](spec/runtime.md#machines-and-actors) 16. Principles: explicit contracts (the address is in the entered state, not a later signal); Effect behaviour, Ergo constructs (owner, 2026-11-08). Prior art: effect-machine's `ActorHost` (Ergo drops its identity string and hand-written generation check: the entry's end closes the host); Erlang/OTP `supervisor:start_child` returns the pid synchronously.
+
 ## Owner direction, 2026-11-08
 
 - **Maps and slices are values (2026-11-08, q26).** Owner, answering batch 12's question 26 (map-alias, #222): "Maps and slices are values: copy where two bindings would share, elided when the source is new or dead". Decided:
