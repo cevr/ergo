@@ -20,7 +20,7 @@ import time
 func tallyStep(s int, e int) Decision[int, int] {
 	match ((e % 5) + 5) % 5 {
 	case 0:
-		Enter[int]{Next: ((s*3 + e%1009) % 1009 + 1009) % 1009}
+		Enter[int]{Next: ((s*3+e%1009)%1009 + 1009) % 1009}
 	case 1:
 		Stay[int]{Next: (s + 1) % 1009}
 	case 2:
@@ -98,7 +98,7 @@ func crashing() (Journal[int, int], func(mode int), func() []int) {
 // recovered state is the fold of every signal kept, and that each Ask
 // answered with a commit is kept.
 func recovers(j journal.Journal[int, int], arm func(mode int), all func() []int, ops []int, every int) bool needs Scheduler {
-	let n = 1 + ((every % 3) + 3) % 3
+	let n = 1 + ((every%3)+3)%3
 	let mut a = journal.Start(tally(), j, n, 4, func(o int) {}) catch {
 	case _:
 		return false
@@ -111,7 +111,7 @@ func recovers(j journal.Journal[int, int], arm func(mode int), all func() []int,
 			a.Stop()
 			crashed = true
 		} else if k == 7 {
-			arm(1 + ((x / 9) % 2 + 2) % 2)
+			arm(1 + ((x/9)%2+2)%2)
 		} else {
 			let d = a.Ask(x) catch {
 			case actor.Stopped:
