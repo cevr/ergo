@@ -5,16 +5,19 @@ import tui/picker
 
 // OneLineIsMarked: a frame marks exactly one line, the item under the
 // cursor, when an item is visible, and none otherwise; and it has one
-// line per visible item after its header.
-law OneLineIsMarked(m picker.Mode) { OneLineIsMarkedHolds(m) }
-
-// OneLineIsMarkedHolds checks OneLineIsMarked on m with its cursor put on
-// the list, as the picker keeps it.
-func OneLineIsMarkedHolds(m picker.Mode) bool {
+// line per visible item after its header. m's cursor is put on the list
+// first, as the picker keeps it. A generated filter seldom matches, so
+// the law also draws m with no filter, which shows every item.
+law OneLineIsMarked(m picker.Mode) {
 	let v = picker.ViewOf(m)
+	marks(m, v) && marks(m, picker.View{..v, Filter: ""})
+}
+
+// marks checks OneLineIsMarked for the mode of m with the view v.
+func marks(m picker.Mode, v picker.View) bool {
 	let shown = picker.Visible(v)
 	let cursor = if len(shown) == 0 { 0 } else { (if v.Cursor < 0 { -(v.Cursor + 1) } else { v.Cursor }) % len(shown) }
-	let placed picker.Mode = match m {
+	let placed = match m {
 	case picker.Browsing:
 		picker.Browsing{View: picker.View{..v, Cursor: cursor}}
 	case picker.Filtering:

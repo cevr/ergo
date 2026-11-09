@@ -1,21 +1,8 @@
-// The key laws restated as property tests (#162), and the bytes of each
-// key.
-
-import slices
+// The bytes of each key. `ergo test` runs the laws.
 
 test TheBytesOfEachKey {
-	assert slices.Equal(Decode("\x1b[A\x1b[Bé\r\x7f\x1b\x03x\n\x08"), []Key{Up, Down, Char{Text: "é"}, Return, Backspace, Escape, Interrupt, Char{Text: "x"}, Return, Backspace})
-	assert slices.Equal(Decode("\x1b[C\x01a"), []Key{Char{Text: "a"}})
-	assert slices.Equal(Decode("\x1b["), []Key{Escape, Char{Text: "["}})
-	assert slices.Equal(Decode(""), []Key{})
-}
-
-test RoundTripHolds(keys []Key) {
-	let sane = Sane(keys)
-	assert slices.Equal(Decode(Script(sane)), sane)
-}
-
-test DecodeTakesEveryTextHolds(text string) {
-	assert DecodeTakesEveryTextHolds(text)
-	assert DecodeTakesEveryTextHolds(text + "\x1b[A\x05")
+	assert Decode("\x1b[A\x1b[Bé\r\x7f\x1b\x03x\n\x08") == []Key{Up, Down, Char{Text: "é"}, Return, Backspace, Escape, Interrupt, Char{Text: "x"}, Return, Backspace}
+	assert Decode("\x1b[C\x01a") == []Key{Char{Text: "a"}}
+	assert Decode("\x1b[") == []Key{Escape, Char{Text: "["}}
+	assert Decode("") == []Key{}
 }
