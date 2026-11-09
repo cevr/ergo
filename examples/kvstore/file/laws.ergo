@@ -1,8 +1,10 @@
 // The rules of the log as laws over its pure parts, and the rule that a
 // failed write keeps the store as it was.
 
+import fstest
 import kvstore/kv
 import kvstore/memory
+import strings
 
 // RoundTrip: a record's line decodes to the record, whatever its texts.
 law RoundTrip(key string, value string) {
@@ -13,19 +15,19 @@ law RoundTrip(key string, value string) {
 
 // OneLine: a record's line holds no line feed, so the log is one record
 // per line.
-law OneLine(key string, value string) { !hasLineFeed(Encode(Set{Key: key, Value: value})) }
+law OneLine(key string, value string) { !strings.Contains(Encode(Set{Key: key, Value: value}), "\n") }
 
 // CompactedReplaysTheSame: the compacted log of what a log leaves leaves
 // the same entries.
 law CompactedReplaysTheSame(puts []string, drops []int) {
 	let entries = try Replay(logOf(puts, drops))
-	sameMaps(try Replay(Compacted(entries)), entries)
+	try Replay(Compacted(entries)) == entries
 }
 
-// FailedWriteKeepsTheStore: when the disk is full, a put fails Broken and
-// every entry keeps its value.
+// FailedWriteKeepsTheStore: when the disk is full, a put fails Broken with
+// the host's reason, and every entry keeps its value.
 law FailedWriteKeepsTheStore(puts []string, key string, value string) {
-	let disk = memory.NewDisk()
+	let disk = fstest.NewMemory()
 	let before = with context { kv.Store: try Open("db", disk, disk) } {
 		for k in puts {
 			try kv.Store.Put(k, "v "+k)
@@ -33,11 +35,17 @@ law FailedWriteKeepsTheStore(puts []string, key string, value string) {
 		try kv.Snapshot()
 	}
 	with context { kv.Store: try Open("db", disk, memory.FullOf(disk)) } {
-		kv.Store.Put(key, value) catch {
-		case kv.Broken:
-		}
-		kv.Equal(try kv.Snapshot(), before)
+		failure(key, value) == "db/kv.log: no space left on device" && (try kv.Snapshot()) == before
 	}
+}
+
+// failure is the reason Put(key, value) fails with, or "put".
+func failure(key string, value string) string needs kv.Store {
+	kv.Store.Put(key, value) catch {
+	case kv.Broken as b:
+		return b.Reason
+	}
+	"put"
 }
 
 // logOf is the log of a put of each of puts, then a delete of the key
@@ -51,30 +59,4 @@ func logOf(puts []string, drops []int) string {
 		out = out + Encode(Unset{Key: kv.Pick(puts, d)}) + "\n"
 	}
 	out
-}
-
-// hasLineFeed reports whether text holds a line feed.
-func hasLineFeed(text string) bool {
-	for i in 0..len(text) {
-		if text[i] == '\n' {
-			return true
-		}
-	}
-	false
-}
-
-// sameMaps reports whether a and b hold the same entries.
-func sameMaps(a Map[string, string], b Map[string, string]) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, v in a {
-		// The literal is bound first: in an if header, the lowering drops
-		// its parentheses and Go refuses it (gap G-ex-c-2).
-		let want = Some[string]{Value: v}
-		if b.Get(k) != want {
-			return false
-		}
-	}
-	true
 }

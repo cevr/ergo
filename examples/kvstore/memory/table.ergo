@@ -1,25 +1,25 @@
-// Package memory holds the in-memory providers: Table, a kv.Store whose
-// entries live in a map, and Disk, an fs.Files and fs.Writes provider of
-// files in a map, so a test of the file store touches no host disk.
+// Package memory holds Table, a kv.Store whose entries live in a map, and
+// Full, an fs.Writes provider of a disk with no space left, so a test of
+// the file store shows a failed write. The files a test reads and writes
+// are an fstest.Memory.
 
 import kvstore/kv
 import maps
 import slices
+import sync
 
-// Table is a kv.Store in memory. Its map is shared by every copy of the
-// Table, as a Go map is, so a Table bound in a context keeps its entries
-// from one call to the next. Its field is unexported: New makes one.
-type Table { entries Map[string, string] }
+// Table is a kv.Store in memory. Its entries are in a sync.Ref, so every
+// copy of a Table is the same store: a Table bound in a context keeps its
+// entries from one call to the next. Its field is unexported: NewTable
+// makes one.
+type Table { entries sync.Ref[Map[string, string]] }
 
-// New is an empty Table.
-func New() Table {
-	let entries Map[string, string]
-	Table{entries: entries}
-}
+// NewTable is an empty Table.
+func NewTable() Table { Table{entries: sync.NewRef[Map[string, string]](Map[string, string]{})} }
 
 // Get is the value of key.
 func Get(t Table, key string) string fails kv.Missing | kv.Broken {
-	match t.entries.Get(key) {
+	match t.entries.Get().Get(key) {
 	case Some[string] as v:
 		v.Value
 	case None:
@@ -29,18 +29,28 @@ func Get(t Table, key string) string fails kv.Missing | kv.Broken {
 
 // Put makes key hold value.
 func Put(t Table, key string, value string) fails kv.Broken {
-	let mut entries = t.entries
-	entries[key] = value
+	t.entries.Update(func(entries Map[string, string]) Map[string, string] {
+		let mut next = entries
+		next[key] = value
+		next
+	})
 }
 
 // Delete removes key.
 func Delete(t Table, key string) fails kv.Missing | kv.Broken {
-	let _ = try t.Get(key)
-	let _ = t.entries.Delete(key)
+	let found = sync.Modify(t.entries, func(entries Map[string, string]) (bool, Map[string, string]) {
+		if entries.Get(key) == None {
+			return (false, entries)
+		}
+		(true, entries.Delete(key))
+	})
+	if !found {
+		return kv.Missing{Key: key}
+	}
 }
 
 // Keys is every key, sorted.
-func Keys(t Table) []string fails kv.Broken { slices.Sorted(maps.Keys(t.entries)) }
+func Keys(t Table) []string fails kv.Broken { slices.Sorted(maps.Keys(t.entries.Get())) }
 
 // Compact does nothing: a map holds no garbage.
 func Compact(_ Table) fails kv.Broken {}

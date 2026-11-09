@@ -1,0 +1,54 @@
+import fs
+import fstest
+
+// Full is an fs.Writes provider of a disk with no space left over an
+// fstest.Memory: every operation that needs room (a write, an append, a
+// new directory) fails, as the host fails ENOSPC; a directory that is
+// there already is no failure, and Chmod, Rename and Remove, which need no
+// room, change the memory. A test binds it with the memory's reads to show
+// that a failed write leaves the old text.
+type Full { disk fstest.Memory }
+
+// FullOf is the Full disk over m: m's reads, and no room to write.
+func FullOf(m fstest.Memory) Full { Full{disk: m} }
+
+// WriteFile fails: the disk is full.
+func WriteFile(_ Full, path string, _ string) fails fs.NotFound | fs.Denied | fs.Failed { noSpace(path) }
+
+// WriteFileMode fails: the disk is full.
+func WriteFileMode(_ Full, path string, _ string, _ fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {
+	noSpace(path)
+}
+
+// AppendFile fails: the disk is full.
+func AppendFile(_ Full, path string, _ string) fails fs.NotFound | fs.Denied | fs.Failed { noSpace(path) }
+
+// MkdirAll succeeds when the directory is there, and fails otherwise.
+func MkdirAll(f Full, path string) fails fs.Denied | fs.Failed {
+	let info = f.disk.Stat(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return noSpace(path)
+	}
+	if !info.Dir {
+		return fs.Failed{Path: path, Reason: "not a directory"}
+	}
+}
+
+// MkdirAllMode is MkdirAll: a directory that is there keeps its mode.
+func MkdirAllMode(f Full, path string, _ fs.Mode) fails fs.Denied | fs.Failed { try f.MkdirAll(path) }
+
+// Chmod changes the memory: a mode takes no room.
+func Chmod(f Full, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {
+	try f.disk.Chmod(path, mode)
+}
+
+// Rename changes the memory: a rename takes no room.
+func Rename(f Full, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed {
+	try f.disk.Rename(from, to)
+}
+
+// Remove changes the memory: a removal frees room.
+func Remove(f Full, path string) fails fs.NotFound | fs.Denied | fs.Failed { try f.disk.Remove(path) }
+
+// noSpace is the host's failure of a write to a full disk.
+func noSpace(path string) fs.Failed { fs.Failed{Path: path, Reason: "no space left on device"} }

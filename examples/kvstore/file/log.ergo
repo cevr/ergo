@@ -2,6 +2,7 @@ import filepath
 import fs
 import kvstore/kv
 import slices
+import strings
 import maps
 
 // Log is a kv.Store in the file Name in the directory Dir. It holds the
@@ -15,13 +16,35 @@ type Log { path string, files fs.Files, writes fs.Writes }
 let Name = "kv.log"
 
 // Open is the Log in dir: it makes dir and its parents if they are
-// missing. The log file is made by the first put.
+// missing, and removes each kv.log.tmpN file that a crash inside a
+// compaction left (fs.Writes' WriteFile writes one beside the log and
+// renames it over the log). The log file is made by the first put.
 func Open(dir string, files fs.Files, writes fs.Writes) Log fails kv.Broken {
 	writes.MkdirAll(dir) catch {
 	case fs.Denied as d:
 		return kv.Broken{Reason: "permission denied: " + d.Path}
 	case fs.Failed as f:
 		return kv.Broken{Reason: f.Path + ": " + f.Reason}
+	}
+	let names = files.ReadDir(dir) catch {
+	case fs.NotFound as n:
+		return kv.Broken{Reason: "no directory " + n.Path}
+	case fs.Denied as d:
+		return kv.Broken{Reason: "permission denied: " + d.Path}
+	case fs.Failed as f:
+		return kv.Broken{Reason: f.Path + ": " + f.Reason}
+	}
+	for name in names {
+		if !strings.HasPrefix(name, Name+".tmp") {
+			continue
+		}
+		writes.Remove(filepath.Join([]string{dir, name})) catch {
+		case fs.NotFound:
+		case fs.Denied as d:
+			return kv.Broken{Reason: "permission denied: " + d.Path}
+		case fs.Failed as f:
+			return kv.Broken{Reason: f.Path + ": " + f.Reason}
+		}
 	}
 	Log{path: filepath.Join([]string{dir, Name}), files: files, writes: writes}
 }
@@ -63,10 +86,19 @@ func entries(l Log) Map[string, string] fails kv.Broken {
 	}
 }
 
-// add writes r at the end of the log. fs.Writes has no append, so the
-// log is read and written whole.
+// add writes r's line at the end of the log in one append, so a put costs
+// one line, not the whole log. A crash inside the append can leave a part
+// of the last line, which Replay reads as a corrupt line: the log names
+// it and the store is broken, never silently wrong.
 func add(l Log, r Record) fails kv.Broken {
-	try l.write(try l.text() + Encode(r) + "\n")
+	l.writes.AppendFile(l.path, Encode(r)+"\n") catch {
+	case fs.NotFound as n:
+		return kv.Broken{Reason: "no directory for " + n.Path}
+	case fs.Denied as d:
+		return kv.Broken{Reason: "permission denied: " + d.Path}
+	case fs.Failed as f:
+		return kv.Broken{Reason: f.Path + ": " + f.Reason}
+	}
 }
 
 // Get is the value of key: the last put of it, when no delete follows.
