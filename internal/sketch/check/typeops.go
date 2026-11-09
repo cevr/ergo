@@ -74,7 +74,7 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 	case *Struct:
 		s := &Struct{Fields: make([]*Field, len(t.Fields)), obj: t.obj}
 		for i, f := range t.Fields {
-			s.Fields[i] = &Field{Name: f.Name, Type: c.subst(f.Type, m), Pos: f.Pos}
+			s.Fields[i] = &Field{Name: f.Name, Type: c.subst(f.Type, m), Pos: f.Pos, origin: f.Origin()}
 		}
 		return s
 	case *Interface:

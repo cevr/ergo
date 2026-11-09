@@ -126,7 +126,7 @@ Status: **implemented** for rules 1 to 3 and 5: checked by `internal/sketch/chec
 
 ## Structs
 
-Status: **implemented**: rules 1 to 4 are checked by `internal/sketch/check` (check-v1 stage B, D-B2) and lowered to Go structs (check-v1 stage C). Rule 5 is [#197](https://github.com/cevr/ergo/issues/197)'s (aggregate resources, [resources.md](resources.md)); rule 6 is **designed**.
+Status: **implemented**: rules 1 to 4 are checked by `internal/sketch/check` (check-v1 stage B, D-B2) and lowered to Go structs (check-v1 stage C). Rule 5 is [#197](https://github.com/cevr/ergo/issues/197)'s (aggregate resources, [resources.md](resources.md)); rule 6 is **designed**; rule 7 (included records) is **implemented**.
 
 ```go
 type Order {
@@ -152,6 +152,13 @@ let same = Order{"42", 1999}
 4. A struct must not contain itself by value, directly or through other structs or tuple elements (S108). Recursion behind a union is allowed, because a union value is a reference in the lowered Go. The diagnostic names the cycle's members, one report per group of declarations that form one cycle together, at the group's first name in byte order ("A contains itself by value with B"), and a generic declaration is named only when every instantiation of it is infinite or when it writes the instantiation that closes a cycle (`type P[T] { A T, B P[int] }`), never when it only holds one (`type Box[T] { V T }`). *Prior art:* Swift's `indirect enum` boxes recursion; Go rejects an invalid recursive type.
 5. A struct with a resource field is itself a resource ([resources.md](resources.md#what-is-a-resource)).
 6. Designed: struct embedding is allowed only in `context` and in interfaces. Value semantics hold: a copy is a snapshot, slice and Map fields included, and move-on-last-use keeps it cheap ([Bindings](#bindings), implemented for slices and Maps).
+7. **Included record** (owner q43, 2026-11-09; [grammar.md](grammar.md#declarations) Declarations 4). In a record declaration or a variant declared in place, the member `..R` includes the fields of the record `R` at that position, in `R`'s order, as the record's own fields: `type Visit { ..Owned, S Session }`, `type Kiosk = Suspended{..Owned} | Prompt{..Visit, Left int}`. Status: **implemented** by `internal/sketch/check` (`include.go`) and lowered flat (`TestIncludedRecordFlattens`).
+   - `R` is a record with fields declared in this package, possibly an instance (`..Page[T]`). A record of another package, a union, an operation type, a type parameter, a basic or tuple type is S108 at the member, and so is a record with no fields ("drop the member").
+   - A field name occurs once after inclusion: two members that give one name, an include and an own field of one name, and one record included twice through two paths (a diamond) are S108 at the later member, also with one type. So one name has one declaration.
+   - An inclusion cycle (`type A { ..B }`, `type B { ..A }`, also through a variant) is S108, by rule 4. A record that holds the including record through a field (`type A { X []B }`, `type B { ..A }`) is not a cycle.
+   - Each included field keeps its declaration: the field of `R` that declares it, through any depth of includes and in every instance (`check.Field.Origin`). A spread copies a field only from a field of the same declaration ([rule 3](#structs)).
+   - The included fields are ordinary fields everywhere: a keyed or positional literal, a field read, a record pattern (`case Prompt{S: s, Left: n}`), equality, text forms, generated values, codecs and construction authority. `R` stays an ordinary record type. `..` in a pattern stays S001.
+   - Lowering: the Go struct lists every field flat, in order; there is no Go embedding, so the lowering is unchanged. *Prior art:* ReScript 11's record type spread `type c = {...a, x: int}` copies field declarations and refuses a duplicate label; Go embedding promotes fields and refuses an ambiguous one only where it is used; Elm's extensible records type functions over "any record with these fields".
 
 ## Unions
 

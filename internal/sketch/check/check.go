@@ -137,7 +137,10 @@ type checker struct {
 	// subjects whose ids depend on an unbound row variable: the current
 	// component's inference context, discarded when it is final (class F).
 	inferInstances map[int32]*Named
-	inferSubjects  map[any]*switchUnion
+	// includesExpanded is set once expandIncludes ran: a record resolved
+	// later splices its includes in as it resolves (include.go).
+	includesExpanded bool
+	inferSubjects    map[any]*switchUnion
 	// settled marks the functions of a component that converged, whose
 	// reporting pass reads the published solutions; widened records a
 	// reporting pass that computed a wider row (an invariant the tests

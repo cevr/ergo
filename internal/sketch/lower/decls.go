@@ -306,27 +306,27 @@ func (l *lowerer) typeDecl(tn *check.TypeName, site syntax.Node) *typeDecl {
 		// so they avoid its Error method too.
 		avoidError := td.errorType || l.definedErrorOver(named)
 		taken := map[string]bool{}
-		for _, f := range spec.Fields.List {
-			for _, id := range f.Names {
-				field, ok := info.Defs[id].(*check.Field)
-				if !ok {
-					ice(id, "the field %s of %s has no Defs entry", id.Name, tn.Name)
-				}
-				goName := memberName(field.Name)
-				if avoidError && goName == "Error" {
-					goName = "Error_"
-				}
-				// The renamed Error field can meet a field the source
-				// names Error_: the later field in source order takes one
-				// more underscore, until its Go name is free. Every use of
-				// a field reads its Go name from fieldName.
-				for taken[goName] {
-					goName += "_"
-				}
-				taken[goName] = true
-				td.fields = append(td.fields, field)
-				td.fieldName[field.Name] = goName
+		// The record's fields, an included record's among them in place
+		// (types.md, Structs 7): a Go struct lists them flat.
+		rec, ok := named.Underlying().(*check.Struct)
+		if !ok {
+			ice(spec, "the record %s has no struct body", tn.Name)
+		}
+		for _, field := range rec.Fields {
+			goName := memberName(field.Name)
+			if avoidError && goName == "Error" {
+				goName = "Error_"
 			}
+			// The renamed Error field can meet a field the source
+			// names Error_: the later field in source order takes one
+			// more underscore, until its Go name is free. Every use of
+			// a field reads its Go name from fieldName.
+			for taken[goName] {
+				goName += "_"
+			}
+			taken[goName] = true
+			td.fields = append(td.fields, field)
+			td.fieldName[field.Name] = goName
 		}
 	case *syntax.InterfaceType:
 		if len(spec.Union) > 0 {

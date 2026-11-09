@@ -69,6 +69,10 @@ type Named struct {
 type Struct struct {
 	Fields []*Field
 	index  map[string]int
+	// includes are the `..R` members of a record declaration, in source
+	// order, until expandIncludes splices R's fields in (include.go).
+	includes  []*include
+	expanding bool // its includes are being spliced in (an inclusion cycle)
 	// obj is the record declaration whose body this is (an instance keeps
 	// its origin's), so its package owns the fields: a defined type over the
 	// record shares this body and so the package (authority.go).
@@ -80,6 +84,22 @@ type Field struct {
 	Name string
 	Type Type
 	Pos  syntax.Pos
+	// origin is the field of the record declaration that declares this
+	// field: the field itself in its own record, the included record's
+	// field in a record that includes it with `..R` (types.md, Structs 7),
+	// and the generic declaration's field in an instance. nil means the
+	// field itself.
+	origin *Field
+}
+
+// Origin is the declaration of f: two fields have the same declaration
+// when their origins are one field. A spread copies a field only from a
+// field of the same declaration (types.md, Structs 3).
+func (f *Field) Origin() *Field {
+	if f.origin != nil {
+		return f.origin
+	}
+	return f
 }
 
 // Interface is an interface: method signatures (an operation type when it
