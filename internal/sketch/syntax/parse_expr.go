@@ -427,8 +427,9 @@ const notAValue = "a type is not a value; write a literal or a conversion"
 // instantiation: `Map[string, []int]{}`, `Option[func() int]`. A type is
 // taken only when a `,` or `]` follows it; else the index is an expression.
 // A `(` may open a tuple type, `Option[([]int, string)]`, whose elements
-// are any types (fumb-c, F9): a tuple of names reads the same as a type or
-// as an expression, and one with an element that is no type falls back.
+// are any types (fumb-c, F9). It is taken as a type only when an element
+// is a form no expression has (typeOnly); a tuple of names stays the
+// expression's, so its nesting is counted as every expression's is.
 func (p *parser) parseIndexValue() Expr {
 	switch {
 	case p.tok.tok == MUL, p.tok.tok == LBRACK, p.tok.tok == FUNC, p.tok.tok == ESCAPING, p.tok.tok == LPAREN:
@@ -437,14 +438,37 @@ func (p *parser) parseIndexValue() Expr {
 		return p.parseExpr()
 	}
 	if p.exprLev > 0 {
-		start := p.i
+		start, peak := p.i, p.peak
+		paren := p.tok.tok == LPAREN
 		var t Expr
-		if p.attempt(func() { t = p.parseType(ctxList) }) && (p.tok.tok == COMMA || p.tok.tok == RBRACK) {
+		if p.attempt(func() { t = p.parseType(ctxList) }) && (p.tok.tok == COMMA || p.tok.tok == RBRACK) && (!paren || typeOnly(t)) {
 			return t
 		}
 		p.backtrack(start)
+		p.peak = peak
 	}
 	return p.parseExpr()
+}
+
+// typeOnly reports whether the tuple type t has an element, at any depth of
+// nested tuples, that only a type can be: a slice, a borrow, a function
+// type or a Map. A tuple of names and instances reads as an expression.
+func typeOnly(t Expr) bool {
+	tup, ok := t.(*TupleExpr)
+	if !ok {
+		return false
+	}
+	for _, e := range tup.Elts {
+		switch e := e.(type) {
+		case *ArrayType, *StarExpr, *FuncType, *MapType:
+			return true
+		case *TupleExpr:
+			if typeOnly(e) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (p *parser) parseCall(fun Expr) *CallExpr {
