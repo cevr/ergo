@@ -43,4 +43,3 @@ scripts/examples/stop_test.go	TestEveryExitPathStopsTheGroup	-timeout 2s is the 
 
 # load can turn these; each is a named follow-up
 scripts/gate/output_oracle_linux_test.go	runOracleHelper	follow-up FU-oracle-hold: hold the file until the scope watch reports a sample, not 300 ms
-scripts/gate/wholegate_test.go	TestWholeGateRunRecordsAndReplays	follow-up FU-wallclock-replay-window: an injectable replay.RecentWindow; the 10 ms sleeps order writes by wall time
