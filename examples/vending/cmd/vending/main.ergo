@@ -48,9 +48,8 @@ func main() fails os.Exit needs Ambient {
 	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewHost(), vend.Acceptor: memory.US() } { try run(os.Process.Args()) }
 }
 
-// run is the program after main binds its providers. A return cannot
-// leave a with block, so this is a function of its own: help returns
-// early.
+// run is the program after main binds its providers; the tests run it
+// over a recorder and catch its exit.
 func run(args []string) fails os.Exit needs io.Stdout | io.Stdin | vend.Acceptor {
 	let o = match try read(args) {
 	case Some[Options] as s:

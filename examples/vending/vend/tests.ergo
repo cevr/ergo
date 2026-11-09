@@ -1,12 +1,6 @@
-// The machine's tests: a worked session, and the laws restated as
-// property tests. The compiler checks laws and does not run them yet
-// (#162); until it does, these tests run them.
+// The machine's tests: a worked session. `ergo test` runs the laws.
 
-// shelf is two slots: A1 cola at 125 with 2 left, B2 chips at 75 with
-// none left.
-func shelf() []Slot {
-	[]Slot{Slot{Name: "A1", Item: "cola", Price: 125, Count: 2}, Slot{Name: "B2", Item: "chips", Price: 75, Count: 0}}
-}
+import machines
 
 // refused is the name of the failure of sig in s, or "taken".
 func refused(s State, sig Signal) string {
@@ -28,25 +22,25 @@ func refused(s State, sig Signal) string {
 }
 
 test BuyWithChange {
-	let end, b = Run(Start(shelf()), []Signal{Coin{At: 1s, Cents: 100}, Coin{At: 5s, Cents: 25}, Coin{At: 6s, Cents: 25}, Select{At: 9s, Slot: "A1"}, Tick{At: 11s}})
+	let end, b = Run(Start(Shelf()), []Signal{Coin{At: 1s, Cents: 100}, Coin{At: 5s, Cents: 25}, Coin{At: 6s, Cents: 25}, Select{At: 9s, Slot: "A1"}, Tick{At: 11s}})
 	assert Name(end) == "idle"
 	assert b == Books{In: 150, Sales: 125, Change: 25, Refunds: 0}
 	assert SlotsOf(end)[0].Count == 1
 }
 
 test GuardsRefuse {
-	let s = Collecting{Slots: shelf(), Credit: 100, Until: 31s}
+	let s = Collecting{Slots: Shelf(), Credit: 100, Until: 31s}
 	assert refused(s, Select{At: 2s, Slot: "A1"}) == "not enough 100 of 125"
 	assert refused(s, Select{At: 2s, Slot: "B2"}) == "sold out B2"
 	assert refused(s, Select{At: 2s, Slot: "Z9"}) == "no slot Z9"
 	assert refused(s, Coin{At: 2s, Cents: 3}) == "bad coin 3"
-	assert refused(Vending{Slots: shelf(), Slot: "A1", Until: 3s}, Coin{At: 2s, Cents: 25}) == "busy"
-	assert refused(Off{Slots: shelf()}, Select{At: 2s, Slot: "A1"}) == "off"
-	assert refused(Idle{Slots: shelf()}, Select{At: 2s, Slot: "A1"}) == "not enough 0 of 125"
+	assert refused(Vending{Slots: Shelf(), Slot: "A1", Until: 3s}, Coin{At: 2s, Cents: 25}) == "busy"
+	assert refused(Off{Slots: Shelf()}, Select{At: 2s, Slot: "A1"}) == "off"
+	assert refused(Idle{Slots: Shelf()}, Select{At: 2s, Slot: "A1"}) == "not enough 0 of 125"
 }
 
 test CoinsExtendTheWait {
-	let end, _ = Run(Start(shelf()), []Signal{Coin{At: 1s, Cents: 25}, Coin{At: 20s, Cents: 25}, Tick{At: 40s}})
+	let end, _ = Run(Start(Shelf()), []Signal{Coin{At: 1s, Cents: 25}, Coin{At: 20s, Cents: 25}, Tick{At: 40s}})
 	assert CreditOf(end) == 50
 	match Deadline(end) {
 	case Some[duration] as d:
@@ -57,119 +51,17 @@ test CoinsExtendTheWait {
 }
 
 test TimeoutRefundsTheCredit {
-	let end, b = Run(Start(shelf()), []Signal{Coin{At: 1s, Cents: 25}, Tick{At: 31s}})
+	let end, b = Run(Start(Shelf()), []Signal{Coin{At: 1s, Cents: 25}, Tick{At: 31s}})
 	assert Name(end) == "idle" && b.Refunds == 25
 }
 
 test DropTakesTwoSeconds {
-	let s = Vending{Slots: shelf(), Slot: "A1", Until: 12s}
-	assert Name(Next(s, Tried(s, Tick{At: 11s}))) == "vending"
-	assert Name(Next(s, Tried(s, Tick{At: 12s}))) == "idle"
+	let s State = Vending{Slots: Shelf(), Slot: "A1", Until: 12s}
+	assert Name(machines.Next(s, Tried(s, Tick{At: 11s}))) == "vending"
+	assert Name(machines.Next(s, Tried(s, Tick{At: 12s}))) == "idle"
 }
 
 test ServiceRefundsAndResumes {
-	let end, b = Run(Start(shelf()), []Signal{Coin{At: 1s, Cents: 100}, Service{At: 2s}, Coin{At: 3s, Cents: 25}, Resume{At: 4s}})
+	let end, b = Run(Start(Shelf()), []Signal{Coin{At: 1s, Cents: 100}, Service{At: 2s}, Coin{At: 3s, Cents: 25}, Resume{At: 4s}})
 	assert Name(end) == "idle" && b.Refunds == 100 && b.In == 100
-}
-
-test MoneyIsKeptHolds(slots []Slot, sigs []Signal) {
-	let end, b = Run(Start(slots), sigs)
-	assert b.In == b.Sales+b.Change+b.Refunds+CreditOf(end)
-}
-
-// coins is a run of mostly valid signals over shelf(), so the money law
-// is not vacuous: each n picks a signal.
-func coins(ns []int) []Signal {
-	let mut out = []Signal{}
-	for i, n in ns {
-		let at = duration(int64(i) * int64(7s))
-		let k = if n < 0 { -(n % 6) } else { n % 6 }
-		out = out.Append(match k {
-		case 0:
-			Coin{At: at, Cents: 25}
-		case 1:
-			Coin{At: at, Cents: 100}
-		case 2:
-			Select{At: at, Slot: "A1"}
-		case 3:
-			Tick{At: at}
-		case 4:
-			Cancel{At: at}
-		case _:
-			Coin{At: at, Cents: 10}
-		})
-	}
-	out
-}
-
-test MoneyIsKeptOnTheShelf(ns []int) {
-	let end, b = Run(Start(shelf()), coins(ns))
-	assert b.In == b.Sales+b.Change+b.Refunds+CreditOf(end)
-	assert b.Change >= 0
-}
-
-// Over the shelf, so keys meet a slot and a price.
-test ChangeIsNeverNegativeHolds(ns []int) {
-	let mut s = Start(shelf())
-	for sig in coins(ns) {
-		let es = Decide(s, sig) catch {
-		case NotEnough, SoldOut, NoSuchSlot, Busy, OutOfService, BadCoin:
-			continue
-		}
-		for e in es {
-			match e {
-			case Sold as d:
-				assert d.Change >= 0
-			case Accepted:
-			case Refunded:
-			case Dropped:
-			case WentOff:
-			case CameBack:
-			}
-		}
-		s = Next(s, Apply(s, AtOf(sig), es))
-	}
-}
-
-test SaleTakesOneHolds(credit int, n int) {
-	let name = if n%2 == 0 { "A1" } else { "B2" }
-	let s = Collecting{Slots: shelf(), Credit: credit, Until: 30s}
-	let d = Tried(s, Select{At: 1s, Slot: name})
-	match d {
-	case Enter[State] as e:
-		let before = try find(shelf(), name)
-		let after = try find(SlotsOf(e.Next), name)
-		assert before.Count > 0 && after.Count == before.Count-1 && before.Price <= credit
-	case Reject:
-		assert name == "B2" || credit < 125
-	case Stay[State]:
-		assert false
-	case Ignore:
-		assert false
-	case Done[[]Slot]:
-		assert false
-	}
-}
-
-test TimeoutRefundsHolds(credit int, until duration, at duration) {
-	let s = Collecting{Slots: shelf(), Credit: credit, Until: until}
-	let es = try Decide(s, Tick{At: at})
-	if at < until {
-		assert len(es) == 0
-	} else {
-		assert Kept(Books{In: 0, Sales: 0, Change: 0, Refunds: 0}, es).Refunds == credit
-		assert Name(Next(s, Apply(s, at, es))) == "idle"
-	}
-}
-
-test OffTakesNoMoneyHolds(sig Signal) {
-	let s = Off{Slots: shelf()}
-	let es = Decide(s, sig) catch {
-	case OutOfService:
-		return
-	case NotEnough, SoldOut, NoSuchSlot, Busy, BadCoin:
-		assert false
-		return
-	}
-	assert Kept(Books{In: 0, Sales: 0, Change: 0, Refunds: 0}, es).In == 0
 }

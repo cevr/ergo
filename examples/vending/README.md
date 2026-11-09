@@ -10,7 +10,7 @@ The program is a module of packages (`ergo.mod`: `module vending`), in the Go la
 
 | folder | what it holds |
 | --- | --- |
-| `vend/` | The vending machine, a domain package. `coin.ergo` (the contract `Acceptor`, the coin mechanism, with the laws `TakesOnlyDenominations` and `IsRepeatable`; `Denominations`), `machine.ergo` (`Slot`, the `State`, `Signal` and `Event` unions, the typed failures `NotEnough`, `SoldOut`, `NoSuchSlot`, `Busy`, `OutOfService`, `BadCoin`; `Decide`, `Evolve`, `Apply`, `Step`, the `Vend` machine, `Deadline`, `Next`), `laws.ergo`, `tests.ergo`. Pure. |
+| `vend/` | The vending machine, a domain package. `coin.ergo` (the contract `Acceptor`, the coin mechanism, with the laws `TakesOnlyDenominations` and `IsRepeatable`; `Denominations`), `machine.ergo` (`Slot`, the `State`, `Signal` and `Event` unions, the typed failures `NotEnough`, `SoldOut`, `NoSuchSlot`, `Busy`, `OutOfService`, `BadCoin` and their row `Refusal`; `Decide`, `Evolve`, `Apply`, `Step`, the `Vend` machine, whose input is the slots, `Deadline`), `laws.ergo`, `tests.ergo`. Pure. |
 | `light/` | The crossing light, a domain package. `light.ergo` (the `Light` and `Cue` unions, `Step`, the `Crossing` machine, `Deadline`, `Follows`), `laws.ergo`, `tests.ergo`. Pure. |
 | `drive/` | The script and the clock. `script.ergo` (`Item`, `ParseScript`, which fails `BadLine`; `Duration`), `run.ergo` (`Both`, `CatchUp`, `Deliver`, `Run`, `Summary`), `laws.ergo`, `tests.ergo`. Pure, except that a coin goes through `vend.Acceptor`. |
 | `memory/` | `Coins`, a `vend.Acceptor` over a table in memory, and `US()`, the coins the machine takes. |
@@ -21,7 +21,7 @@ The program is a module of packages (`ergo.mod`: `module vending`), in the Go la
 - **Machines with guards and timeouts.** `type Vend machine[State, Signal]` and `type Crossing machine[Light, Cue]`. Each step is one `match` over the pair of state and signal. The vending machine's guards are typed failures in order (the slot, its stock, the price), so a refused key says which guard refused it; `Tried` turns a refusal into `Reject`. A timed state holds its deadline (`Collecting.Until`, `Vending.Until`; a light's `Since` and the phase length), and a `Tick` at or after it moves the machine on.
 - **Decide, then evolve.** `vend.Decide` returns the events of a signal (`Accepted`, `Sold`, `Refunded`, `Dropped`, `WentOff`, `CameBack`) or a failure; `Evolve` only folds them. The books (`Kept`) are a fold over the same events, which is how the money law sees every cent.
 - **A virtual clock that the driver owns.** No machine reads a clock. `drive.CatchUp` delivers each deadline's `Tick` at the deadline itself, first deadline first (the vending machine first on a tie), before each line of the script; a phase begins at the deadline, not when a tick came, so the light does not drift.
-- **Laws.** `vend` states five (`MoneyIsKept`, `ChangeIsNeverNegative`, `SaleTakesOne`, `TimeoutRefunds`, `OffTakesNoMoney`) and the contract `Acceptor` two; `light` five (`ColoursFollow`, `PhasesDoNotDrift`, `GreenLastsMinGreen`, `ButtonShortensGreen`, `OnlyRepairEndsFlashing`); `drive` two (`ShowReads`, `CatchUpLeavesNothingDue`). Each package's tests restate them as property tests, and for each law a mutant of the program makes its test fail.
+- **Laws.** `vend` states five (`MoneyIsKept`, `ChangeIsNeverNegative`, `SaleTakesOne`, `TimeoutRefunds`, `OffTakesNoMoney`) and the contract `Acceptor` two; `light` five (`ColoursFollow`, `PhasesDoNotDrift`, `GreenLastsMinGreen`, `ButtonShortensGreen`, `OnlyRepairEndsFlashing`); `drive` two (`ShowReads`, `CatchUpLeavesNothingDue`). `ergo test` runs them; the run laws also run over a fixed shelf and mostly valid signals, which generated ones seldom are. `memory` restates the `Acceptor` laws as tests (G-exup-1). For each law a mutant of the program fails it (`vending-mutants.json` of the batch-12 ex-upgrade unit, 14 of 14, seeds 1-3).
 - **Exhaustive matches.** Every `match` over a union names each variant or pair; adding a signal makes each step and each driver function a check error until it handles it.
 - **Providers chosen in one place.** Only `cmd/vending/main.ergo` binds `vend.Acceptor`, `io.Stdout`, `io.Stdin` and `os.Process`. Its tests run the same program on a `Recorder` and an `io.Input`.
 
@@ -29,9 +29,8 @@ The program is a module of packages (`ergo.mod`: `module vending`), in the Go la
 
 ```sh
 go build -o bin/ergo ./cmd/ergo
-./bin/ergo build examples/vending/cmd/vending -o /tmp/vending
-/tmp/vending < examples/vending/cases/basic/stdin
-/tmp/vending -brief -stock 0 < examples/vending/cases/brief/stdin
+./bin/ergo run examples/vending/cmd/vending < examples/vending/cases/basic/stdin
+./bin/ergo run examples/vending/cmd/vending -- -brief -stock 0 < examples/vending/cases/brief/stdin
 ./bin/ergo test examples/vending/vend     # and light, drive, memory, cmd/vending
 go run ./scripts/examples vending
 ```
@@ -46,10 +45,10 @@ A script line is a time, a word and maybe one more word: `coin NAME` (`nickel`, 
 
 Each gap is in the lane's gap file (`gaps-ex-b.md`) with a repro.
 
-- **G-ex-b-9** (std): no `time.ParseDuration`, nor a text form of a `duration`. Workaround: `drive.Duration` reads a whole number with one unit, and `drive.Show` writes one back (law `ShowReads`).
-- **G-ex-b-10** (std): no way to join two slices (`slices.Concat`, `append(a, b...)`). Workaround: a local `appendAll` loop in `drive/run.ergo`.
+- **G-ex-b-9** (partly closed by S4): `time.ParseDuration` and `time.DurationText` exist, but a script's time is narrower (a whole number and one unit, no sign, no `1m30s`) and the log writes `1500ms`, not `1.5s`, so `drive.Duration` and `drive.Show` stay (law `ShowReads`); their arithmetic is `time.Times` and `time.Count`.
 - **G-ex-b-11** (diagnostic): `let _ = with … { run(args) } catch { … }`, where `run` has no result, is S107 "the path can reach the end of the block without a value" at the block, not "this expression has no value". Workaround: the `with` as a statement.
-- **G-ex-b-12** (language): a machine cannot state a timeout (`gen_statem`'s `state_timeout`, XState's `after`), so each timed state carries its deadline, each package exports `Deadline`, and `drive.CatchUp` sends the ticks; no checker rule ties them, only the laws. Each package writes its own `Next(s, d)`, and nothing runs a machine value (`actor.StartMachine` is designed, not built).
-- **G-ex-b-4** (seen again): `duration` times an `int` is refused; `drive.Duration` writes `duration(int64(n) * int64(per))`.
-- **G-ex-b-8** (seen again): `ergo run` passes no arguments and the program reads standard input, so it is tried with `ergo build` and the binary.
-- By design, and still friction: the machine's `initial` is a fixed value (`Start([]Slot{})`), so the program starts the machine with its own shelf by `vend.Start`; the machine never ends, so its output type (`[]Slot`) is never seen. Laws are checked, not run (#162), so each is restated as a property test.
+- **G-ex-b-12** (partly closed by V5): a machine can now state its timers (`after`), and `machines.RunTimed` fires them, but for one machine over its own trace. `drive` steps two machines and a coin mechanism on one clock, and each signal carries its own time, so each timed state still carries its deadline, each package exports `Deadline`, and `drive.CatchUp` sends the ticks.
+- **G-exup-2** (checker; type inference): `machines.Next(g, d)` with `g` a variant is S108, so the laws write `let g Light = Green{…}` first.
+- By design, and still friction: the machine never ends, so its output type (`[]Slot`) is never seen, and neither machine emits.
+
+Closed in batch 12: G-ex-b-10 (S2: `slices.Concat`, `appendAll` gone), G-ex-b-4 (S4: `time.Times`), G-ex-b-8 (T1: `ergo run DIR -- ARGS`), the fixed start (V4: `Vend`'s input is the slots, and `drive.Fresh` starts both machines with `machines.Start` and `machines.Initial`), each package's hand `Next` (V2: `machines.Next`), the six-name catches (L2: the row `Refusal`), and the property tests that restated the laws (V1).

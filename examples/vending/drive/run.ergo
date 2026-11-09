@@ -1,3 +1,6 @@
+import machines
+import slices
+import time
 import vending/light
 import vending/vend
 
@@ -11,13 +14,13 @@ type Line { At duration, Who string, Text string }
 // Fresh is both machines switched on at time 0, the vending machine with
 // slots.
 func Fresh(slots []vend.Slot) Both {
-	Both{Vend: vend.Start(slots), Light: light.Start(), Books: vend.Books{In: 0, Sales: 0, Change: 0, Refunds: 0}, Now: 0s}
+	Both{Vend: machines.Initial(machines.Start(vend.Vend{}, slots)), Light: machines.Initial(light.Crossing{}), Books: vend.Books{In: 0, Sales: 0, Change: 0, Refunds: 0}, Now: 0s}
 }
 
 // Show is the text of d as a script writes it: whole seconds as "12s",
 // anything else as "1500ms". Duration reads it back (ShowReads).
 func Show(d duration) string {
-	let ms = int64(d) / int64(1ms)
+	let ms = time.Count(d, 1ms)
 	if ms%1000 == 0 {
 		return "\(ms / 1000)s"
 	}
@@ -67,11 +70,11 @@ func CatchUp(b Both, upto duration) (Both, []Line) {
 		case VendDue as v:
 			let next, lines = toVend(now, vend.Tick{At: v.At})
 			now = next
-			log = appendAll(log, lines)
+			log = slices.Concat(log, lines)
 		case LightDue as l:
 			let next, lines = toLight(now, light.Tick{At: l.At})
 			now = next
-			log = appendAll(log, lines)
+			log = slices.Concat(log, lines)
 		case NoneDue:
 			break
 		}
@@ -80,16 +83,6 @@ func CatchUp(b Both, upto duration) (Both, []Line) {
 		now = Both{..now, Now: upto}
 	}
 	(now, log)
-}
-
-// appendAll is a with the lines of b after its own. The prelude's Append
-// takes one element and std slices has no Concat (gaps G-ex-b-10).
-func appendAll(a []Line, b []Line) []Line {
-	let mut out = a
-	for l in b {
-		out = out.Append(l)
-	}
-	out
 }
 
 // eventText is the log text of e.
@@ -132,7 +125,7 @@ func toVend(b Both, sig vend.Signal) (Both, []Line) {
 	for e in es {
 		lines = lines.Append(Line{At: at, Who: "vend", Text: eventText(e)})
 	}
-	(Both{..b, Vend: vend.Next(b.Vend, vend.Apply(b.Vend, at, es)), Books: vend.Kept(b.Books, es), Now: at}, lines)
+	(Both{..b, Vend: machines.Next(b.Vend, vend.Apply(b.Vend, at, es)), Books: vend.Kept(b.Books, es), Now: at}, lines)
 }
 
 // cueAt is the time of c.
@@ -167,12 +160,14 @@ func lightText(l light.Light) string {
 func toLight(b Both, c light.Cue) (Both, []Line) {
 	let at = cueAt(c)
 	let d = light.Step(b.Light, c)
-	let next = Both{..b, Light: light.Next(b.Light, d), Now: at}
+	let next = Both{..b, Light: machines.Next(b.Light, d), Now: at}
 	match d {
 	case Enter[light.Light] as e:
 		(next, []Line{Line{At: at, Who: "light", Text: lightText(e.Next)}})
 	case Stay[light.Light] as s:
 		(next, []Line{Line{At: at, Who: "light", Text: lightText(s.Next)}})
+	case Emit[light.Light, string] as m:
+		(next, []Line{Line{At: at, Who: "light", Text: m.Output}})
 	case Ignore:
 		(next, []Line{Line{At: at, Who: "light", Text: "ignored, still \(light.Colour(b.Light))"}})
 	case Reject:
@@ -221,7 +216,7 @@ func Run(b Both, items []Item) (Both, []Line) needs vend.Acceptor {
 		let caught, ticks = CatchUp(now, ItemAt(it))
 		let next, lines = Deliver(caught, it)
 		now = next
-		log = appendAll(appendAll(log, ticks), lines)
+		log = slices.Concat(slices.Concat(log, ticks), lines)
 		match it {
 		case End:
 			break

@@ -1,5 +1,6 @@
-// The coin table keeps the vend.Acceptor laws: restated as property tests
-// (#162), over the names of the table and any other name.
+// The coin table keeps the vend.Acceptor laws, restated as property tests:
+// ergo test runs them only for providers in package vend (G-exup-1). Over
+// the names of the table and any other name.
 
 import vending/vend
 
