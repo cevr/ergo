@@ -740,7 +740,7 @@ func tallyStep(s int, e int) Decision[int, int] {
 
 func untimed(s int) Option[Timeout[int]] { None }
 
-func unworked(s int) Option[Work[int]] { None }
+func unworked(s int) Option[func(send func(e int))] { None }
 
 func tally() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked} }
 

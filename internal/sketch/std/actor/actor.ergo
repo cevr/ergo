@@ -121,17 +121,17 @@ func StartMachine[S, E, O, F, R](m Machine[S, E, O, F, R], capacity int, sink fu
 		case None:
 			noTimer()
 		}
-	}, m.Work, func(w Option[Work[E, R]]) bool {
+	}, m.Work, func(w Option[func(send func(e E)) needs R]) bool {
 		match w {
-		case Some[Work[E, R]]:
+		case Some[func(send func(e E)) needs R]:
 			true
 		case None:
 			false
 		}
-	}, func(w Option[Work[E, R]], send func(e E)) needs R {
+	}, func(w Option[func(send func(e E)) needs R], send func(e E)) needs R {
 		match w {
-		case Some[Work[E, R]] as wk:
-			wk.Value.Start(send)
+		case Some[func(send func(e E)) needs R] as wk:
+			wk.Value(send)
 		case None:
 		}
 	}, func(d Decision[S, O]) int {

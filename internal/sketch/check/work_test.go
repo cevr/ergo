@@ -52,7 +52,9 @@ func workRuleSource(c workCase) string {
 			keys = append(keys, "OnFailure: func(f) { Other }")
 		}
 	}
-	return `type V { N int }
+	return `import machines
+
+type V { N int }
 type A {}
 type B {}
 type Other {}
@@ -62,13 +64,13 @@ func gA() int fails A { return A }
 func gB() int fails B { return B }
 func gAB() int fails A | B { return B }
 
-func w() Option[Work[Sig]] {
-	Some{Work{` + strings.Join(keys, ", ") + `}}
+func w() Option[machines.Work[Sig]] {
+	Some{machines.Work{` + strings.Join(keys, ", ") + `}}
 }
 
 func main() {
 	match w() {
-	case Some[Work[Sig]]:
+	case Some[machines.Work[Sig]]:
 	case None:
 	}
 }
@@ -148,4 +150,20 @@ func TestWorkLiteralRule(t *testing.T) {
 		}
 	}
 	t.Logf("%d cases", len(cases))
+}
+
+// TestWorkIsNotAPreludeName pins where the work type lives: std
+// machines.Work, so a program may declare a function or a type named Work
+// (a prelude name could not be declared, D-D3), and its own Work literal
+// is an ordinary record literal, not the work rule's form.
+func TestWorkIsNotAPreludeName(t *testing.T) {
+	for name, src := range map[string]string{
+		"func": "func Work(x int) int { x }\n\nfunc main() { let _ = Work(1) }\n",
+		"type": "type Work { Run int }\n\nfunc main() { let _ = Work{Run: 1} }\n",
+		"beside machines.Work": "import machines\n\ntype Work { Run int }\n\ntype Sig = A | B\ntype A {}\ntype B {}\n\nfunc w() machines.Work[Sig] { machines.Work{Run: func() A { A }} }\n\nfunc main() { let _ = Work{Run: 1}\n\tlet _ = w() }\n",
+	} {
+		if _, diags := check.CheckSource(src); len(diags) != 0 {
+			t.Errorf("%s: %v\n%s", name, diags, src)
+		}
+	}
 }

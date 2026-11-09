@@ -8,7 +8,7 @@ import (
 )
 
 // workLit lowers a Work literal of the work rule's forms (check/work.go;
-// runtime.md, Machines and actors 12) to the prelude Work record whose
+// runtime.md, Machines and actors 12) to the std machines.Work record whose
 // Start runs the work and makes its signals:
 //
 //	Work[E]{Start: func(env *Env, send func(*Env, E) (struct{}, error)) (struct{}, error) {

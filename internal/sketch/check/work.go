@@ -8,13 +8,13 @@ import (
 
 // The work of a machine's states (MU4; runtime.md, Machines and actors
 // 12). A machine declaration's `work: w` entry names a package function
-// w(s S) Option[Work[E, R]]: the runner starts the work of each entry
+// w(s S) Option[machines.Work[E, R]]: the runner starts the work of each entry
 // after the commit and interrupts it when the entry ends. Its capability
 // row R is charged to the machine: the Machine value's R holds it beside
 // the step's (machineValue).
 //
-// A Work literal of the forms Work{Run: f, OnSuccess: g, OnFailure: h}
-// and Work{Listen: f, OnFailure: h} builds the record's Start (the work
+// A Work literal of the forms machines.Work{Run: f, OnSuccess: g, OnFailure: h}
+// and machines.Work{Listen: f, OnFailure: h} builds the record's Start (the work
 // rule, effect-machine's task handler table as one checker rule):
 //   - Run is a function func() T fails F needs R; its result becomes a
 //     signal through OnSuccess func(t T) E. OnSuccess may be left out
@@ -56,31 +56,49 @@ type WorkLit struct {
 	Send   *Signature
 }
 
-// isPreludeWork reports whether t is an instance of the prelude's Work.
-func isPreludeWork(t Type) bool {
+// workPath is the std package that declares Work. Work is not a prelude
+// name: a prelude name is one no program may declare, and a program's own
+// Work (a type or a function) is common.
+const workPath = "machines"
+
+// isWorkType reports whether tn is std machines.Work.
+func isWorkType(tn *TypeName) bool {
+	return tn != nil && tn.Name == "Work" && tn.Pkg != nil && tn.Pkg.std && tn.Pkg.Path == workPath
+}
+
+// isStdWork reports whether t is an instance of std machines.Work.
+func isStdWork(t Type) bool {
 	n, ok := t.(*Named)
-	w := preludeType("Work")
-	return ok && w != nil && n.origin() == w
+	return ok && isWorkType(n.origin().Obj)
 }
 
 // workLitForm reports whether x is a Work literal of the rule's forms: its
-// written type names the prelude's Work and it sets Run or Listen.
+// written type names std machines.Work (qualified, or Work inside the
+// machines package) and it sets Run or Listen.
 func (c *checker) workLitForm(x *syntax.CompositeLit) bool {
-	if x.Type == nil || x.Base != nil || c.pkg.Path == "prelude" {
-		// The prelude declares Work and writes no such literal; reading
-		// preludeType while it is checked would wait on its own check.
+	if x.Type == nil || x.Base != nil {
 		return false
 	}
 	base := x.Type
 	if ix, ok := base.(*syntax.IndexExpr); ok {
 		base = ix.X
 	}
-	id, ok := base.(*syntax.Ident)
-	if !ok {
-		return false
+	var tn *TypeName
+	switch b := base.(type) {
+	case *syntax.Ident:
+		tn, _ = c.lookup(b.Name).(*TypeName)
+	case *syntax.SelectorExpr:
+		// The literal's type resolves the name again (and marks the
+		// import used); here only its object matters.
+		id, ok := b.X.(*syntax.Ident)
+		if !ok {
+			return false
+		}
+		if pn, ok := c.lookup(id.Name).(*PkgName); ok && !pn.broken && pn.Pkg != nil {
+			tn, _ = pn.Pkg.Scope.names[b.Sel.Name].(*TypeName)
+		}
 	}
-	tn, ok := c.lookup(id.Name).(*TypeName)
-	if !ok || tn.Type != Type(preludeType("Work")) {
+	if !isWorkType(tn) {
 		return false
 	}
 	for _, e := range x.Elts {
@@ -98,12 +116,12 @@ func (c *checker) workLitForm(x *syntax.CompositeLit) bool {
 func (c *checker) workLit(x *syntax.CompositeLit, hint Type) operand {
 	mark := c.undiagSeq
 	t := hint
-	if _, written := x.Type.(*syntax.IndexExpr); written || !isPreludeWork(hint) {
+	if _, written := x.Type.(*syntax.IndexExpr); written || !isStdWork(hint) {
 		t = c.literalType(x, hint)
 	}
-	if t == nil || isInvalid(t) || !isPreludeWork(t) {
+	if t == nil || isInvalid(t) || !isStdWork(t) {
 		if t != nil && !isInvalid(t) {
-			c.errorf(x, CodeType, "a Work literal with Run or Listen needs its Work[E, R] from its context, or written type arguments (runtime.md, Machines and actors 12)")
+			c.errorf(x, CodeType, "a Work literal with Run or Listen needs its machines.Work[E, R] from its context, or written type arguments (runtime.md, Machines and actors 12)")
 		}
 		for _, e := range x.Elts {
 			c.strayValue(workValue(e), mark, true)
@@ -311,11 +329,11 @@ func workValue(e syntax.Expr) syntax.Expr {
 }
 
 // checkMachineWork checks a machine's `work: w` entry: w names a package
-// function from the state to Option[Work[E, R]] with no rows of its own;
+// function from the state to Option[machines.Work[E, R]] with no rows of its own;
 // R is the work's capability row, charged to the machine (runtime.md,
 // Machines and actors 12). It returns w, or nil when the entry is refused.
 func (c *checker) checkMachineWork(tn *TypeName, x syntax.Expr, state, signal Type) *Func {
-	want := "func(" + state.String() + ") Option[Work[" + signal.String() + ", R]]"
+	want := "func(" + state.String() + ") Option[machines.Work[" + signal.String() + ", R]]"
 	id, ok := x.(*syntax.Ident)
 	if !ok {
 		c.errorf(x, CodeType, "a machine's work names a function of this package of the type %s (runtime.md, Machines and actors 12)", want)
@@ -361,10 +379,10 @@ func (c *checker) checkMachineWork(tn *TypeName, x syntax.Expr, state, signal Ty
 }
 
 // machineWorkRow is the work's capability row R when sig is func(S)
-// Option[Work[E, R]] with no type parameters, else nil.
+// Option[machines.Work[E, R]] with no type parameters, else nil.
 func (c *checker) machineWorkRow(sig *Signature, state, signal Type) *Row {
-	option, work := preludeType("Option"), preludeType("Work")
-	if option == nil || work == nil || len(sig.TParams) > 0 || len(sig.Params) != 1 || len(sig.Results) != 1 {
+	option := preludeType("Option")
+	if option == nil || len(sig.TParams) > 0 || len(sig.Params) != 1 || len(sig.Results) != 1 {
 		return nil
 	}
 	if !c.identical(sig.Params[0].Type, state) {
@@ -375,7 +393,7 @@ func (c *checker) machineWorkRow(sig *Signature, state, signal Type) *Row {
 		return nil
 	}
 	w, ok := o.TArgs[0].(*Named)
-	if !ok || w.origin() != work || len(w.TArgs) != 2 || !c.identical(w.TArgs[0], signal) {
+	if !ok || !isStdWork(w) || len(w.TArgs) != 2 || !c.identical(w.TArgs[0], signal) {
 		return nil
 	}
 	ra, ok := w.TArgs[1].(*RowArg)

@@ -132,34 +132,23 @@ type Decision[S, O] = Enter[S] | Stay[S] | Emit[S, O] | Ignore | Reject | Done[O
 // entry ended (docs/spec/runtime.md, Machines and actors 9).
 type Timeout[E] { In duration, Signal E }
 
-// Work is the work a state's entry owns (docs/spec/runtime.md, Machines
-// and actors 12): the runner starts it after the commit that opens the
-// entry, before observers see the state, and interrupts it when the entry
-// ends; Start gets send, which gives the machine a signal of this entry
-// (one of an ended entry is dropped), and the work's capability row R is
-// charged to the machine. A Work literal of the forms Work{Run: f,
-// OnSuccess: g, OnFailure: h} and Work{Listen: f, OnFailure: h} builds
-// Start: Run's result becomes a signal through OnSuccess, which may be
-// left out when the result is a signal; a typed failure of Run or Listen
-// becomes a signal through OnFailure, which may be left out when every
-// failure is a signal; an interruption sends nothing, and a defect ends
-// the actor.
-type Work[E, R] { Start func(send func(e E)) needs R }
-
 // Machine is a machine as a value: its initial state, its step, with the
 // step's output O, error row F and capability row R, and the timer of each
 // state (README Gap 46). A value of a machine declaration `type X
 // machine[S, E]` converts to Machine[S, E, O, F, R], with O, F and R read
 // from its step's signature and After from its `after` entry (None for
-// every state when it has none) and Work from its `work` entry (None for
-// every state when it has none; R then holds the work's row too), so a
-// function over any machine names them (std machines.Run). A Machine is
-// also an ordinary record: a test may build one from parts.
+// every state when it has none) and Work from its `work` entry: the Start
+// of the state's std machines.Work, which the runner calls with the
+// entry's send (None for every state when it has none; R then holds the
+// work's row too). So a function over any machine names them (std
+// machines.Run). A Machine is also an ordinary record: a test may build
+// one from parts. The work's type is std machines.Work, not a prelude
+// name: every prelude name is one a program cannot declare.
 type Machine[S, E, O, F, R] {
 	Initial S,
 	Step func(s S, e E) Decision[S, O] fails F needs R,
 	After func(s S) Option[Timeout[E]],
-	Work func(s S) Option[Work[E, R]],
+	Work func(s S) Option[func(send func(e E)) needs R],
 }
 
 // InputMachine is a machine whose initial state is a function of an input
@@ -171,7 +160,7 @@ type InputMachine[I, S, E, O, F, R] {
 	Start func(input I) S,
 	Step func(s S, e E) Decision[S, O] fails F needs R,
 	After func(s S) Option[Timeout[E]],
-	Work func(s S) Option[Work[E, R]],
+	Work func(s S) Option[func(send func(e E)) needs R],
 }
 
 // Task is a started task: task.Go() { … } yields one

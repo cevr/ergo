@@ -13,6 +13,23 @@
 // state_timeout. Go control: a for over the signals that calls the step
 // function.
 
+// Work is the work a state's entry owns (docs/spec/runtime.md, Machines
+// and actors 12): a machine's `work: w` entry names w(s S)
+// Option[machines.Work[E, R]]. The runner starts it after the commit that
+// opens the entry, before observers see the state, and interrupts it when
+// the entry ends; Start gets send, which gives the machine a signal of
+// this entry (one of an ended entry is dropped), and the work's capability
+// row R is charged to the machine. A Work literal of the forms
+// machines.Work{Run: f, OnSuccess: g, OnFailure: h} and
+// machines.Work{Listen: f, OnFailure: h} builds Start: Run's result
+// becomes a signal through OnSuccess, which may be left out when the
+// result is a signal; a typed failure of Run or Listen becomes a signal
+// through OnFailure, which may be left out when every failure is a
+// signal; an interruption sends nothing, and a defect ends the actor.
+// Work lives here, not in the prelude, so a program may still declare a
+// Work of its own (a prelude name cannot be declared).
+type Work[E, R] { Start func(send func(e E)) needs R }
+
 // Finished is a run that the step ended with Done: the state the step saw
 // last, Done's output, and the outputs of the run's Emits before it, in
 // order.
