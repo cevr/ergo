@@ -1,0 +1,11 @@
+screen: choose: phone or card
+> type 1
+(ignored)
+screen: choose: phone or card
+> phone
+screen: phone: __________
+> type 12
+screen: phone: 12________
+> wait
+screen: phone: 12________
+left at: phone: 12________

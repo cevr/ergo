@@ -1,0 +1,6 @@
+screen: choose: scan a card
+> phone
+(refused)
+screen: choose: scan a card
+> scan C-100
+welcome, Ada (c100)
