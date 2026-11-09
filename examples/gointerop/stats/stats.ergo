@@ -1,16 +1,14 @@
-// Package stats summarizes a list of numbers. Ergo's std has no math
-// package, so the square root, logarithm and exponential are Go's own
-// math functions, bound by user externs: math is on the pure allowlist,
-// and these take and return float64 only, the one shape an extern may
-// have.
+// Package stats summarizes a list of numbers. The square root and the
+// absolute value are std math's; std math has no logarithm or exponential,
+// so those are Go's own math functions, bound by user externs: math is on
+// the pure allowlist, and these take and return float64 only.
 
+import math
 import strconv
 import strings
 
-extern go math.Sqrt func sqrt(x float64) float64
 extern go math.Log func log(x float64) float64
 extern go math.Exp func exp(x float64) float64
-extern go math.Abs func abs(x float64) float64
 
 // Std strings has no TrimRight; Go's is one extern away.
 extern go strings.TrimRight func trimRight(s string, cutset string) string
@@ -76,12 +74,12 @@ func Summarize(xs []float64) Summary fails Empty {
 	}
 	let n = float64(len(xs))
 	let geo Option[float64] = if positive { Some{exp(logs / n)} } else { None }
-	Summary{Count: len(xs), Min: lo, Max: hi, Mean: mean, StdDev: sqrt(m2 / n), GeoMean: geo}
+	Summary{Count: len(xs), Min: lo, Max: hi, Mean: mean, StdDev: math.Sqrt(m2 / n), GeoMean: geo}
 }
 
 // Near reports whether a and b agree to a relative 1e-9.
 func Near(a float64, b float64) bool {
-	abs(a-b) <= 1e-9*(1+abs(a)+abs(b))
+	math.Abs(a-b) <= 1e-9*(1+math.Abs(a)+math.Abs(b))
 }
 
 // Text is a number as the summary prints it: up to 6 decimals, no
