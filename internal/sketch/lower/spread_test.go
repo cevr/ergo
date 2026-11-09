@@ -305,6 +305,29 @@ func TestSpreadMatchesModel(t *testing.T) {
 	wantRun(t, decls.String()+"\nfunc main() needs Console {\n"+body.String()+"}\n", want.String())
 }
 
+// TestSpreadBaseBeforeValues: the base of a spread is read before the
+// named values run, also when it is a variable that a named value
+// reassigns through a function literal (the lowering may read a variable
+// base in place only when no named value runs code first).
+func TestSpreadBaseBeforeValues(t *testing.T) {
+	wantRun(t, `type Pp { A int }
+
+type P { ..Pp, B int }
+
+type Q { ..Pp, C int }
+
+func main() needs Console {
+	let mut p = P{A: 1, B: 2}
+	let bump = func() int {
+		p = P{A: 9, B: 9}
+		5
+	}
+	let q = Q{..p, C: bump()}
+	Console.Println("\(q.A) \(q.C) \(p.A)")
+}
+`, "1 5 9\n")
+}
+
 // spRefused checks case c alone and compares its diagnostics with the
 // model's: each an S108 on the spread's line.
 func spRefused(t *testing.T, seed int64, sp *spSpec, c *spCase, i int) {
