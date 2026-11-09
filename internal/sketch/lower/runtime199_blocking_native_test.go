@@ -81,7 +81,13 @@ var childWaitLaws = map[string]bool{"After": true, "MachineStart": true}
 // since rt's Done is nil under a mask); TestActorModelAgreesWithTimedFold
 // and TestActorSendersKeepTheirOrder, that Stop (drainWait) returns only
 // after the runner and its timer ended and every queued Ask was answered.
-var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Actor.State": true, "Actor.Changes": true, "Actor.Stop": true}
+// MU12: Drain (drainWait) and ActorExitKind (callerWait) wait for the
+// runner's end; runtime/v1/actor_observe_test.go
+// TestActorObserveAgreesWithFold states that Drain returns only after
+// every queued signal was stepped and the runner ended, and that every
+// ActorExitKind caller gets the one exit.
+var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Actor.State": true, "Actor.Changes": true, "Actor.Stop": true,
+	"Actor.Drain": true, "ActorExitKind": true}
 
 // hostWaitLaws are the callerWait bindings that wait for a host process
 // (std-align S3c): runtime/v1/exec_test.go TestExecStopModel states their

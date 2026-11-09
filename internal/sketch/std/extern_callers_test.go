@@ -24,6 +24,11 @@ import (
 var notHostExterns = map[string]string{
 	"actor.start":           "starts the program's machine on a task of the program, its timers on the bound Scheduler",
 	"actor.noTimer":         "returns a constant duration (its file imports the runner's packages, so it is not marked pure)",
+	"actor.exitKind":        "waits for the end of the program's actor and reads its exit",
+	"actor.final":           "reads the Done decision of the program's actor",
+	"actor.failure":         "reads the typed failure that ended the program's actor",
+	"actor.hasLatest":       "reads whether the program's actor stepped a signal",
+	"actor.latest":          "reads the last decision of the program's actor",
 	"prelude.Append":        "appends to a slice of the program",
 	"prelude.Get":           "reads a Map of the program",
 	"prelude.Delete":        "changes a Map of the program",

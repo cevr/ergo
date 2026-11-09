@@ -147,3 +147,109 @@ law DoneIsFinal(signals []int, e int) {
 		doneFinal(signals, e)
 	}
 }
+
+// exitParts is an exit as its variant (0 Finished, 1 Halted, 2 Defected),
+// its state and its output.
+func exitParts(x Exit[int, int]) (int, int, int) {
+	match x {
+	case Finished[int, int] as f:
+		(0, f.State, f.Output)
+	case Halted[int] as h:
+		(1, h.State, 0)
+	case Defected:
+		(2, 0, 0)
+	}
+}
+
+// drainedExit: after the signals and a Drain, two ExitOf calls give the
+// same exit, the one the pure fold gives: Finished with the state the
+// Done saw when a Done came, else Halted with the folded state.
+func drainedExit(signals []int) bool needs Scheduler {
+	let a = sent(signals)
+	a.Drain()
+	let (k1, s1, o1) = exitParts(ExitOf(a))
+	let (k2, s2, o2) = exitParts(ExitOf(a))
+	let (want, done) = folded(signals)
+	let mut kind = 1
+	if done {
+		kind = 0
+	}
+	k1 == k2 && s1 == s2 && o1 == o2 && k1 == kind && s1 == want && (!done || o1 == want)
+}
+
+// ExitIsShared: Drain steps every queued signal, and the exit is one
+// value: each ExitOf gives the same, the pure fold's.
+law ExitIsShared(signals []int) {
+	with context { Scheduler: time.NewManual(0) } {
+		drainedExit(signals)
+	}
+}
+
+// SelectOncePerChange: Select gives f of each value, with each value
+// equal to the one before it dropped.
+law SelectOncePerChange(xs []int) {
+	let mut want = []int{}
+	for x in xs {
+		if len(want) == 0 || want[len(want)-1] != x % 3 {
+			want = want.Append(x % 3)
+		}
+	}
+	let mut got = []int{}
+	for v in Select(Seq[int](func(yield func(v int) bool) {
+		for x in xs {
+			if !yield(x) {
+				return
+			}
+		}
+	}), func(x int) int { x % 3 }) {
+		got = got.Append(v)
+	}
+	let mut same = len(got) == len(want)
+	for i in 0..len(got) {
+		same = same && got[i] == want[i]
+	}
+	same
+}
+
+// source is xs as a Seq.
+func source(xs []int) Seq[int] {
+	Seq[int](func(yield func(v int) bool) {
+		for x in xs {
+			if !yield(x) {
+				return
+			}
+		}
+	})
+}
+
+// selectStops: s is a Seq that stops (stdlib.md, Std laws 5): with n the
+// count of its values, a yield that returns false at its k-th call (k
+// from 1 to n+1) is called min(k, n) times.
+func selectStops(s Seq[int]) bool {
+	let mut n = 0
+	s(func(v int) bool {
+		n = n + 1
+		true
+	})
+	for k in 1..n+2 {
+		let mut calls = 0
+		s(func(v int) bool {
+			calls = calls + 1
+			calls < k
+		})
+		if calls != (if k < n { k } else { n }) {
+			return false
+		}
+	}
+	true
+}
+
+// SelectStops: Select is a Seq that stops.
+law SelectStops(xs []int) {
+	selectStops(Select(source(xs), func(x int) int { x % 3 }))
+}
+
+// SelectByStops: SelectBy is a Seq that stops.
+law SelectByStops(xs []int) {
+	selectStops(SelectBy(source(xs), func(x int) int { x % 3 }, func(a int, b int) bool { a == b }))
+}

@@ -204,6 +204,15 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Actor.Stop":    {wait: drainWait},
 	"Actor.Dropped": {},
 	"ActorNoTimer":  {},
+	// MU12: Drain waits, as Stop does, for the runner's end, uninterruptibly;
+	// exitKind waits for it on the caller's task; the exit's and the latest
+	// decision's reads take the actor's lock only.
+	"Actor.Drain":    {wait: drainWait},
+	"ActorExitKind":  {wait: callerWait},
+	"ActorFinal":     {},
+	"ActorFailure":   {},
+	"ActorHasLatest": {},
+	"ActorLatest":    {},
 	// std exec (std-align S3c; stdlib.md, exec): Run waits for the program
 	// on the caller's task. Its cancel hook is the stop of that task: the
 	// body kills the program's process group and waits for the reap

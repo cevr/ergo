@@ -173,16 +173,113 @@ test ActorSendsStepInOrder(signals []int) { assert SendsStepInOrder(signals) }
 test ActorRejectKeepsState(signals []int, n int) { assert RejectKeepsState(signals, n) }
 
 test ActorDoneIsFinal(signals []int, e int) { assert DoneIsFinal(signals, e) }
+
+func exitParts(x actor.Exit[int, int]) (int, int, int) {
+	match x {
+	case actor.Finished[int, int] as f:
+		(0, f.State, f.Output)
+	case actor.Halted[int] as h:
+		(1, h.State, 0)
+	case actor.Defected:
+		(2, 0, 0)
+	}
+}
+
+func drainedExit(signals []int) bool needs Scheduler {
+	let a = sent(signals)
+	a.Drain()
+	let (k1, s1, o1) = exitParts(actor.ExitOf(a))
+	let (k2, s2, o2) = exitParts(actor.ExitOf(a))
+	let (want, done) = folded(signals)
+	let mut kind = 1
+	if done {
+		kind = 0
+	}
+	k1 == k2 && s1 == s2 && o1 == o2 && k1 == kind && s1 == want && (!done || o1 == want)
+}
+
+func ExitIsShared(signals []int) bool {
+	with context { Scheduler: time.NewManual(0) } {
+		drainedExit(signals)
+	}
+}
+
+func SelectOncePerChange(xs []int) bool {
+	let mut want = []int{}
+	for x in xs {
+		if len(want) == 0 || want[len(want)-1] != x % 3 {
+			want = want.Append(x % 3)
+		}
+	}
+	let mut got = []int{}
+	for v in actor.Select(Seq[int](func(yield func(v int) bool) {
+		for x in xs {
+			if !yield(x) {
+				return
+			}
+		}
+	}), func(x int) int { x % 3 }) {
+		got = got.Append(v)
+	}
+	let mut same = len(got) == len(want)
+	for i in 0..len(got) {
+		same = same && got[i] == want[i]
+	}
+	same
+}
+
+func source(xs []int) Seq[int] {
+	Seq[int](func(yield func(v int) bool) {
+		for x in xs {
+			if !yield(x) {
+				return
+			}
+		}
+	})
+}
+
+func selectStops(s Seq[int]) bool {
+	let mut n = 0
+	s(func(v int) bool {
+		n = n + 1
+		true
+	})
+	for k in 1..n+2 {
+		let mut calls = 0
+		s(func(v int) bool {
+			calls = calls + 1
+			calls < k
+		})
+		if calls != (if k < n { k } else { n }) {
+			return false
+		}
+	}
+	true
+}
+
+test ActorSelectStops(xs []int) { assert selectStops(actor.Select(source(xs), func(x int) int { x % 3 })) }
+
+test ActorSelectByStops(xs []int) {
+	assert selectStops(actor.SelectBy(source(xs), func(x int) int { x % 3 }, func(a int, b int) bool { a == b }))
+}
+
+test ActorExitIsShared(signals []int) { assert ExitIsShared(signals) }
+
+test ActorSelectOncePerChange(xs []int) { assert SelectOncePerChange(xs) }
 `
 
 // actorLawStatements is the statement of each actor law, as the ledger
 // writes it.
 var actorLawStatements = map[string]string{
-	"actor Actor.ChangesStops": `ChangesStops(k int) { if k < 1 { return true } Stop() catch { case _: } let mut calls = 0 let s = Changes() s(func(v S) bool { calls = calls + 1 calls < k }) calls == 1 }`,
-	"actor Actor.StopIsFinal":  `StopIsFinal(e E) { Stop() catch { case _: } Send(e) catch { case Stopped: return true } false }`,
-	"actor DoneIsFinal":        `DoneIsFinal(signals []int, e int) { with context { Scheduler: time.NewManual(0) } { doneFinal(signals, e) } }`,
-	"actor RejectKeepsState":   `RejectKeepsState(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { rejectKeeps(signals, n) } }`,
-	"actor SendsStepInOrder":   `SendsStepInOrder(signals []int) { with context { Scheduler: time.NewManual(0) } { inOrder(signals) } }`,
+	"actor Actor.ChangesStops":  `ChangesStops(k int) { if k < 1 { return true } Stop() catch { case _: } let mut calls = 0 let s = Changes() s(func(v S) bool { calls = calls + 1 calls < k }) calls == 1 }`,
+	"actor Actor.StopIsFinal":   `StopIsFinal(e E) { Stop() catch { case _: } Send(e) catch { case Stopped: return true } false }`,
+	"actor DoneIsFinal":         `DoneIsFinal(signals []int, e int) { with context { Scheduler: time.NewManual(0) } { doneFinal(signals, e) } }`,
+	"actor ExitIsShared":        `ExitIsShared(signals []int) { with context { Scheduler: time.NewManual(0) } { drainedExit(signals) } }`,
+	"actor SelectStops":         `SelectStops(xs []int) { selectStops(Select(source(xs), func(x int) int { x % 3 })) }`,
+	"actor SelectByStops":       `SelectByStops(xs []int) { selectStops(SelectBy(source(xs), func(x int) int { x % 3 }, func(a int, b int) bool { a == b })) }`,
+	"actor SelectOncePerChange": `SelectOncePerChange(xs []int) { let mut want = []int{} for x in xs { if len(want) == 0 || want[len(want)-1] != x % 3 { want = want.Append(x % 3) } } let mut got = []int{} for v in Select(Seq[int](func(yield func(v int) bool) { for x in xs { if !yield(x) { return } } }), func(x int) int { x % 3 }) { got = got.Append(v) } let mut same = len(got) == len(want) for i in 0..len(got) { same = same && got[i] == want[i] } same }`,
+	"actor RejectKeepsState":    `RejectKeepsState(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { rejectKeeps(signals, n) } }`,
+	"actor SendsStepInOrder":    `SendsStepInOrder(signals []int) { with context { Scheduler: time.NewManual(0) } { inOrder(signals) } }`,
 }
 
 // TestStdActorLawsRun runs the probe's tests with --seed 1; lawledger.Run

@@ -1654,8 +1654,12 @@ func hostProviderTypes(pkg *check.Package) []*check.TypeName {
 			// program package's extern binds (fu-hostguard2).
 			target, name := f.Decl.Extern.Split()
 			if target == v1Path {
+				// notHostExterns names the impure bodies that reach no
+				// host state (MU12: actor.exitKind and the exit reads take
+				// the program's Actor first, as an operation's receiver).
 				body, err := v1.BodyOf(name)
-				reaches[f] = err != nil || !body.Pure
+				_, notHost := notHostExterns[pkg.Name+"."+f.Name]
+				reaches[f] = (err != nil || !body.Pure) && !notHost
 			} else {
 				reaches[f] = !check.PureGoPackage(target)
 			}

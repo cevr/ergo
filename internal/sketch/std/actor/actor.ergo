@@ -46,9 +46,17 @@ type Actor[S, E, D, F] {
 	// actor dropped instead of stepping them (runner rules 6 and 11).
 	Dropped() int,
 	// Changes is the actor's state when the loop begins, then each state
-	// it commits (Enter, Stay, Emit), in order; it ends after the actor
-	// ends. A break ends it. A loop that does not read keeps the states.
+	// it commits (Enter, Stay, Emit), in order, once each, whatever the
+	// number of loops; it ends after the actor ends and it gave every
+	// state committed before the end, also one a stop overtook. A break
+	// ends it. A loop that does not read keeps the states.
 	Changes() Seq[S],
+	// Drain closes admission, so later Sends and Asks fail Stopped, and
+	// waits until the actor has stepped every signal queued before it, in
+	// order, its Asks answered, and then ended. A Done, a failure or a
+	// defect among them ends it there. It returns as Stop does, and a Stop
+	// overtakes it: the rest is dropped.
+	Drain() fails F,
 
 	// StopIsFinal: after Stop, no signal is admitted: Send fails Stopped.
 	law StopIsFinal(e E) {
@@ -162,3 +170,137 @@ func StartMachine[S, E, O, F, R](m Machine[S, E, O, F, R], capacity int, sink fu
 		}
 	}, capacity)
 }
+
+// Observing an actor (MU12; runtime.md, Machines and actors 13). Each of
+// these is a loop over Changes, so it judges the state at its start, then
+// each committed state once, in order, and it releases its subscription
+// when it returns. No callback is registered with the actor and none runs
+// on its task.
+
+// WaitFor is the first state that pred accepts: the state when the call
+// begins, then each state the actor commits after it, in order; a state
+// committed before the actor ended counts, also when a stop overtook it.
+// It fails Stopped when the actor ends with no such state.
+func WaitFor[S, E, D, F, R](a Actor[S, E, D, F], pred func(s S) bool needs R) S fails Stopped needs R {
+	for s in a.Changes() {
+		if pred(s) {
+			return s
+		}
+	}
+	Stopped
+}
+
+// SendAndWait sends e, and is the first state that pred accepts from the
+// state before e on: it takes the actor's state, sends e, then judges
+// that state and each one the actor commits after it, as WaitFor does. So
+// a change e makes is never missed, also when another sender's signal
+// comes between. It fails Stopped when the Send does, or when the actor
+// ends with no such state.
+func SendAndWait[S, E, D, F, R](a Actor[S, E, D, F], e E, pred func(s S) bool needs R) S fails Stopped needs R {
+	let mut sent = false
+	for s in a.Changes() {
+		if !sent {
+			sent = true
+			try a.Send(e)
+		}
+		if pred(s) {
+			return s
+		}
+	}
+	Stopped
+}
+
+// Finished is an actor that its step ended with Done: its last state and
+// Done's output.
+type Finished[S, O] {
+	State S,
+	Output O,
+}
+
+// Halted is an actor that Stop, Drain or a stop of the task that started
+// it ended: its last state.
+type Halted[S] {
+	State S,
+}
+
+// Defected is an actor that a defect ended (of its step, its timer or its
+// work). The defect itself is Stop's to raise.
+type Defected {}
+
+// Exit is how an actor ended, when no typed failure ended it: ExitOf
+// fails with that failure instead (a failure is a row, never a field).
+type Exit[S, O] = Finished[S, O] | Halted[S] | Defected
+
+// ExitOf waits until a has ended and is how it ended; it fails with the
+// step's typed failure that ended it after a Send or a timer (an Ask's
+// failure goes to the asker and ends nothing). The exit is one value:
+// every caller, at any time, gets the same, and Stop and Drain return the
+// same failure or raise the defect that Defected reports. A stop of the
+// waiting task ends the wait.
+func ExitOf[S, E, O, F](a Actor[S, E, Decision[S, O], F]) Exit[S, O] fails F {
+	let k = exitKind(a)
+	if k == 0 {
+		match final(a) {
+		case Done[O] as d:
+			return Finished[S, O]{State: a.State(), Output: d.Output}
+		case _:
+		}
+	}
+	if k == 2 {
+		try failure(a)
+	}
+	if k == 3 {
+		return Defected
+	}
+	Halted[S]{State: a.State()}
+}
+
+// Latest is the decision of the last signal a stepped (a Reject and an
+// Ignore included; a dropped timer or work signal is not stepped), None
+// before the first. It does not wait.
+func Latest[S, E, D, F](a Actor[S, E, D, F]) Option[D] {
+	if hasLatest(a) {
+		Some[D]{Value: latest(a)}
+	} else {
+		None
+	}
+}
+
+// Select is f of each state of changes, with each value equal (==) to
+// the one before it dropped: a view of one part of the state that changes
+// only when that part does. Select(a.Changes(), f) gives f of the state
+// at its start first.
+func Select[S, T comparable](changes Seq[S], f escaping func(s S) T) Seq[T] {
+	SelectBy(changes, f, func(x T, y T) bool { x == y })
+}
+
+// SelectBy is Select with the equality same.
+func SelectBy[S, T](changes Seq[S], f escaping func(s S) T, same escaping func(x T, y T) bool) Seq[T] {
+	Seq[T](func(yield func(v T) bool) {
+		let mut prev = []T{}
+		for s in changes {
+			let v = f(s)
+			if len(prev) == 1 && same(prev[0], v) {
+				continue
+			}
+			prev = []T{v}
+			if !yield(v) {
+				return
+			}
+		}
+	})
+}
+
+// exitKind waits until a has ended and gives how: 0 Finished, 1 Halted,
+// 2 Failed, 3 Defected. final is the Done that ended it (kind 0), failure
+// fails with its typed failure (kind 2), and hasLatest and latest are
+// the decision of its last step.
+extern go ergo.local/prototype/runtime/v1.ActorExitKind func exitKind[S, E, D, F](a Actor[S, E, D, F]) int
+
+extern go ergo.local/prototype/runtime/v1.ActorFinal func final[S, E, D, F](a Actor[S, E, D, F]) D
+
+extern go ergo.local/prototype/runtime/v1.ActorFailure func failure[S, E, D, F](a Actor[S, E, D, F]) fails F
+
+extern go ergo.local/prototype/runtime/v1.ActorHasLatest func hasLatest[S, E, D, F](a Actor[S, E, D, F]) bool
+
+extern go ergo.local/prototype/runtime/v1.ActorLatest func latest[S, E, D, F](a Actor[S, E, D, F]) D

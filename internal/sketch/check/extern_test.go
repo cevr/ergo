@@ -313,6 +313,7 @@ func State(_ Mine) int { 0 }
 func Stop(_ Mine) fails Bad {}
 func Dropped(_ Mine) int { 0 }
 func Changes(_ Mine) Seq[int] { func(yield func(v int) bool) {} }
+func Drain(_ Mine) fails Bad {}
 
 func use(a actor.Actor[int, int, int, Bad]) { _ = a.Dropped() }
 
