@@ -273,6 +273,85 @@ func TestLawRunOtherPackage(t *testing.T) {
 	}
 }
 
+// lawRunMem provides kv.Store without importing kv: its types implement
+// Store by their operations alone, so only a package that imports both
+// sees the law and its providers.
+const lawRunMem = `import sync
+
+type Last { v sync.Ref[int] }
+
+func NewLast() Last { Last{v: sync.NewRef(0)} }
+
+func Put(l Last, k int, v int) { l.v.Set(v) }
+
+func Get(l Last, k int) int { l.v.Get() }
+
+type Zero { n int }
+
+func Put(z Zero, k int, v int) {}
+
+func Get(z Zero, k int) int { z.n }
+`
+
+const lawRunBinder = `import kv
+import mem
+
+func main() needs Console {
+	let s kv.Store = mem.NewLast()
+	with context { kv.Store: s } { Console.Println("\(kv.Store.Get(1))") }
+}
+`
+
+// TestLawRunLeastPackage: a law whose operation type and provider are in
+// two packages that do not import each other runs in the package that
+// imports both, the least that sees them, against providers it does not
+// declare; the provider's own package does not see the law and runs none.
+func TestLawRunLeastPackage(t *testing.T) {
+	kv, mem := cxPackage(t, "kv", lawRunStore), cxPackage(t, "mem", lawRunMem)
+	imports := cxImporter{"kv": kv, "mem": mem}
+	f, err := syntax.Parse(lawRunBinder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, ds := check.Check("main", []*syntax.File{f}, imports)
+	if len(ds) != 0 {
+		t.Fatal(ds)
+	}
+	files, err := LowerTests(Unit{Package: pkg, Files: []*syntax.File{f}, Sources: []Source{{Path: testSourcePath, Text: lawRunBinder}}, Imports: imports.units()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	memFiles, err := LowerTests(mem)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exes := buildAll(t, []*lowered{{name: "lawrun_least", files: files}, {name: "lawrun_mem", files: memFiles}}, true)
+	if exes == nil {
+		return
+	}
+	stdout, stderr, code := runExeArgs(t, exes["lawrun_least"], "--seed", "7")
+	got := lines(stdout)
+	want := []string{
+		"ok law kv.Store.GetAfterPut for mem.Last (100 cases)",
+		"FAIL law kv.Store.GetAfterPut for mem.Zero (case ",
+		"FAIL law kv.PutKeepsOthers with s = mem.Last (case ",
+		"FAIL law kv.PutKeepsOthers with s = mem.Zero (case ",
+		"FAIL (3 of 4 tests)",
+	}
+	if code != 1 || len(got) != len(want) {
+		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
+	}
+	for i, w := range want {
+		if !strings.HasPrefix(got[i], w) || strings.HasPrefix(w, "FAIL law") && !strings.Contains(got[i], "seed 7") {
+			t.Errorf("line %d is %q, want %q …", i+1, got[i], w)
+		}
+	}
+	stdout, _, code = runExe(t, exes["lawrun_mem"])
+	if code != 0 || !slices.Equal(lines(stdout), []string{"PASS (0 tests)"}) {
+		t.Errorf("mem: exit %d, stdout:\n%s", code, stdout)
+	}
+}
+
 // TestLawRunSkips: a law that cannot run says why, and the summary counts
 // it as skipped, never as a test (fs4).
 func TestLawRunSkips(t *testing.T) {
