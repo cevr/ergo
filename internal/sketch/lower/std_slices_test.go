@@ -333,6 +333,27 @@ test SlicesReverseTwiceIsSame(xs []int) {
 	assert slices.Equal(slices.Reverse(slices.Reverse(xs)), xs)
 }
 
+test SlicesConcatReadsInOrder(a []int, b []int) {
+	let c = slices.Concat(a, b)
+	assert len(c) == len(a) + len(b)
+	for i, x in a {
+		assert c[i] == x
+	}
+	for j, y in b {
+		assert c[len(a) + j] == y
+	}
+}
+
+test SlicesConcatIsACopy(a []int, b []int) {
+	let before = slices.Transform(a, func(x int) int { x })
+	let beforeB = slices.Transform(b, func(x int) int { x })
+	let mut c = slices.Concat(a, b)
+	for i in 0..len(c) {
+		c[i] = c[i] + 1
+	}
+	assert slices.Equal(a, before) && slices.Equal(b, beforeB)
+}
+
 test SlicesContainsIffIndex(xs []int, x int) {
 	let i = slices.Index(xs, x)
 	assert slices.Contains(xs, x) == (i >= 0) && (i < 0 || xs[i] == x)
@@ -547,6 +568,8 @@ var stdSlicesLawStatements = map[string]string{
 	"slices ItemsIsACopy":              `ItemsIsACopy(xs []int) { let a = Ascend(xs) let mut changed = Items(a) for i in 0..len(changed) { changed[i] = len(changed) - i } Equal(Items(a), Sort(xs)) }`,
 	"slices BinarySearchFindsTheFirst": `BinarySearchFindsTheFirst(xs []int, x int) { let a = Ascend(xs) let s = Items(a) match BinarySearch(a, x) { case Some[int] as found: s[found.Value] == x && (found.Value == 0 || s[found.Value-1] < x) case None: !Contains(s, x) } }`,
 	"slices CollectInvertsValues":      `CollectInvertsValues(xs []int) { Equal(Collect(Values(xs)), xs) }`,
+	"slices ConcatIsACopy":             `ConcatIsACopy(a []int, b []int) { let before = Transform(a, func(x int) int { x }) let beforeB = Transform(b, func(x int) int { x }) let mut c = Concat(a, b) for i in 0..len(c) { c[i] = c[i] + 1 } Equal(a, before) && Equal(b, beforeB) }`,
+	"slices ConcatReadsInOrder":        `ConcatReadsInOrder(a []int, b []int) { let c = Concat(a, b) let mut ok = len(c) == len(a)+len(b) for i, x in a { ok = ok && c[i] == x } for j, y in b { ok = ok && c[len(a)+j] == y } ok }`,
 	"slices ContainsIffIndex":          `ContainsIffIndex(xs []int, x int) { let i = Index(xs, x) Contains(xs, x) == (i >= 0) && (i < 0 || xs[i] == x) }`,
 	"slices FilterIsIdempotent":        `FilterIsIdempotent(xs []int) { let even = func(x int) bool { x%2 == 0 } Equal(Filter(Filter(xs, even), even), Filter(xs, even)) }`,
 	"slices FilterKeepsTheAccepted":    `FilterKeepsTheAccepted(xs []int) { let even = func(x int) bool { x%2 == 0 } let kept = Filter(xs, even) let mut i = 0 for x in xs { if even(x) { if i >= len(kept) || kept[i] != x { return false } i = i + 1 } } i == len(kept) }`,

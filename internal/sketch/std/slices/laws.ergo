@@ -76,6 +76,33 @@ law SortStableKeepsTies(xs []int) {
 // ReverseTwiceIsSame: Reverse(Reverse(xs)) is xs.
 law ReverseTwiceIsSame(xs []int) { Equal(Reverse(Reverse(xs)), xs) }
 
+// ConcatReadsInOrder: Concat(a, b) has len(a) + len(b) elements, a's at
+// their own index and then b's. The empty slice as either argument, and
+// associativity, follow from it.
+law ConcatReadsInOrder(a []int, b []int) {
+	let c = Concat(a, b)
+	let mut ok = len(c) == len(a)+len(b)
+	for i, x in a {
+		ok = ok && c[i] == x
+	}
+	for j, y in b {
+		ok = ok && c[len(a)+j] == y
+	}
+	ok
+}
+
+// ConcatIsACopy: a change to Concat's result reaches neither argument,
+// also when b is empty, where Go's append(a, b...) is a itself.
+law ConcatIsACopy(a []int, b []int) {
+	let before = Transform(a, func(x int) int { x })
+	let beforeB = Transform(b, func(x int) int { x })
+	let mut c = Concat(a, b)
+	for i in 0..len(c) {
+		c[i] = c[i] + 1
+	}
+	Equal(a, before) && Equal(b, beforeB)
+}
+
 // ContainsIffIndex: x is in xs exactly when Index finds it, and the
 // element at that index is x.
 law ContainsIffIndex(xs []int, x int) {

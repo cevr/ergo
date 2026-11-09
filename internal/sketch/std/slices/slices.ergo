@@ -56,6 +56,12 @@ func IndexFunc[T, E, R](xs []T, f func(x T) bool fails E needs R) int fails E ne
 // Reverse is a copy of xs in the reverse order.
 extern go ergo.local/prototype/runtime/v1.SlicesReverse func Reverse[T](xs []T) []T
 
+// Concat is a new slice of a's elements and then b's: Go's slices.Concat
+// with two arguments (Effect's Array.appendAll). It has two parameters, not
+// a spread, as every Ergo function does. The result never shares an array
+// with a or b, so a change to it reaches neither.
+extern go ergo.local/prototype/runtime/v1.SlicesConcat func Concat[T](a []T, b []T) []T
+
 // Max is the largest element of xs, or None when xs is empty. A float NaN
 // in xs makes it NaN, as in Go.
 func Max[T ordered](xs []T) Option[T] {

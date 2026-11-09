@@ -80,4 +80,4 @@ No em-parity §3 scenario is this program's own: the costs it exercises (an `Ask
 - **F3** (a rule, not a gap) A type that is a failure and also a variant of the signal union fails when its value ends a function (rows.md, Tail results 3). The checker now reports that at the value, with both spellings (S101); the laws write `let w Signal = WrongCode` first, the value spelling.
 - **F4** A law of an imported operation type is not run against this package's providers, so `memory/tests.ergo` restates the `Codes` laws as properties.
 - **F5** No actor-lifetime source (M49): the card reader is the script.
-- **F6** `[]T` has `Append` only; the laws write a `then` helper to join two slices.
+- **F6** (fixed, fu-mb2) `[]T` had `Append` only, so the laws wrote a `then` helper to join two slices. They now call `slices.Concat`, which never shares an array with its arguments.

@@ -82,6 +82,13 @@ func SlicesReverse[T any](xs []T) []T {
 	return out
 }
 
+// SlicesConcat is slices.Concat(a, b): a new slice of a's elements and then
+// b's, made with one allocation of the summed length. It never shares an
+// array with a or b, as append(a, b...) can.
+//
+//ergo:pure
+func SlicesConcat[T any](a []T, b []T) []T { return slices.Concat(a, b) }
+
 // SlicesClone is slices.Clone(xs): a copy of xs in a new array, so a write
 // to it does not reach xs. slices.Items returns it, so a caller cannot
 // unsort an Ascending (SS5).
