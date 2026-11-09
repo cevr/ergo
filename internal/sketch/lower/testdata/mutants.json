@@ -121,6 +121,7 @@
       "to": "\tif n == 1 && n == 2 {\n",
       "rule": "$LitDuration: $LitDuration writes a duration in its largest exact unit: 1500ms, 2h.",
       "killers": [
+        "lower:TestArgumentTextRoundTrips",
         "lower:TestPropertySeed",
         "lower:TestStdLawsRun",
         "lower:TestLowerPackages"
