@@ -53,6 +53,7 @@ func Main(m *testing.M) int { return MainFunc(m, m.Run) }
 // the preparation, calls m.Run and returns its exit code. It runs only in
 // the process that runs the tests.
 func MainFunc(m *testing.M, run func() int) int {
+	raiseOOMScore()
 	log := testLog(os.Args[1:])
 	if observed || log == "" {
 		return run() // the observed test process, or cmd/go is not caching

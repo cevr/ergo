@@ -302,20 +302,6 @@ func Len(_ Mine) int {
 // operation type with no row here fails TestStdProtocolSealed, and so does
 // a row whose type std no longer declares.
 var sealedPrograms = map[string]string{
-	"sync.Ref": `import sync
-
-type Mine {}
-
-func Get(_ Mine) int { 0 }
-func Set(_ Mine, v int) {}
-func Update(_ Mine, f func(v int) int) {}
-
-func use(r sync.Ref[int]) { r.Set(1) }
-
-func main() {
-	use(Mine)
-}
-`,
 	"queue.Queue": queueMine + `
 func use(q queue.Queue[int]) { q.Close() }
 

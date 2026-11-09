@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"bytes"
 	"context"
 	"os/exec"
 	"strings"
@@ -25,7 +26,11 @@ func runWithin(t *testing.T, name, src, want string, limit time.Duration) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, exes[name]).CombinedOutput()
+	run := exec.CommandContext(ctx, exes[name])
+	var combined bytes.Buffer
+	run.Stdout, run.Stderr = &combined, &combined
+	err := runProgram(t, run)
+	out := combined.Bytes()
 	if ctx.Err() != nil {
 		t.Fatalf("the program did not end within %v (a hang); output so far:\n%s", limit, out)
 	}

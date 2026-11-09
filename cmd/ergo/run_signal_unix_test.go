@@ -48,19 +48,19 @@ func TestRunForwardsSignalsToTheProgram(t *testing.T) {
 // through without a message of ergo's own; a program ended by a signal is
 // an error naming the signal.
 func TestRunPassesTheProgramsExitStatusThrough(t *testing.T) {
-	err := runEntryProcess(exec.Command("sh", "-c", "exit 3"))
+	err := runEntryProcess(exec.Command("sh", "-c", "exit 3"), 0, nil)
 	var exit exitStatusError
 	if !errors.As(err, &exit) || exit.code != 3 || !exit.handled || exit.message != "" {
 		t.Fatalf("exit 3 gave %#v", err)
 	}
-	if err := runEntryProcess(exec.Command("sh", "-c", "exit 0")); err != nil {
+	if err := runEntryProcess(exec.Command("sh", "-c", "exit 0"), 0, nil); err != nil {
 		t.Fatalf("exit 0 gave %v", err)
 	}
-	err = runEntryProcess(exec.Command("sh", "-c", `kill -TERM $$`))
+	err = runEntryProcess(exec.Command("sh", "-c", `kill -TERM $$`), 0, nil)
 	if errors.As(err, &exit) || err == nil || !strings.Contains(err.Error(), "terminated") {
 		t.Fatalf("a program ended by a signal gave %#v", err)
 	}
-	if err := runEntryProcess(exec.Command(filepath.Join(t.TempDir(), "missing"))); err == nil {
+	if err := runEntryProcess(exec.Command(filepath.Join(t.TempDir(), "missing")), 0, nil); err == nil {
 		t.Fatal("a missing program started")
 	}
 }

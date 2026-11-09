@@ -91,7 +91,7 @@ func runExeArgs(t *testing.T, exe string, args ...string) (string, string, int) 
 	cmd := exec.Command(exe, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
+	err := runProgram(t, cmd)
 	code := 0
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {

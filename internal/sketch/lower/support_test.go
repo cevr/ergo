@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -203,7 +204,7 @@ func runExe(t *testing.T, exe string) (string, string, int) {
 	cmd := exec.Command(exe)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
+	err := runProgram(t, cmd)
 	code := 0
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
@@ -212,6 +213,32 @@ func runExe(t *testing.T, exe string) (string, string, int) {
 		t.Fatal(err)
 	}
 	return stdout.String(), stderr.String(), code
+}
+
+// runProgram runs a built program as cmd.Run does, under the test kit's
+// memory limit (ERGO_PROGRAM_MEMORY, 2 GiB by default) and the highest
+// oom_score_adj (internal/proclimit; docs/tooling.md, "Test memory"). A
+// program the limit stopped fails the test with the program and the limit.
+// Every helper that runs a built program goes through it.
+func runProgram(t testing.TB, cmd *exec.Cmd) error {
+	t.Helper()
+	err := runBounded(t, cmd)
+	var limited *proclimit.LimitError
+	if errors.As(err, &limited) {
+		t.Fatal(limited)
+	}
+	return err
+}
+
+// runBounded is runProgram that returns the *proclimit.LimitError of a
+// program the limit stopped.
+func runBounded(t testing.TB, cmd *exec.Cmd) error {
+	t.Helper()
+	limit, err := proclimit.Limit(os.Environ(), proclimit.DefaultLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return proclimit.Run(cmd, limit)
 }
 
 func firstLines(s string, n int) string {

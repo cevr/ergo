@@ -467,7 +467,10 @@ func machineStart(pkg *Package, spec *syntax.MachineType) *Func {
 func (c *checker) checkMachineStart(tn *TypeName, f *Func, id *syntax.Ident, state, signal Type, valid bool) {
 	f.called = true
 	c.pkg.Info.Uses[id] = f
-	if isExtern(f) {
+	// A call-only extern is refused (P3); an extern value (G1) is checked
+	// as a start like any function, and its basic-typed signature is never
+	// a start's.
+	if isExtern(f) && !externValue(f) {
 		c.errorf(id, CodeType, "%s", externCallOnlyText)
 		return
 	}
@@ -529,7 +532,10 @@ func (c *checker) checkMachineAfter(tn *TypeName, x syntax.Expr, state, signal T
 	}
 	f.called = true
 	c.pkg.Info.Uses[id] = f
-	if isExtern(f) {
+	// A call-only extern is refused (P3); an extern value (G1) is checked
+	// as an after like any function, and its basic-typed signature is never
+	// an after's.
+	if isExtern(f) && !externValue(f) {
 		c.errorf(id, CodeType, "%s", externCallOnlyText)
 		return nil
 	}
