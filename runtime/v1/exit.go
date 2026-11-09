@@ -386,6 +386,8 @@ func ergoStack(stack []byte) []string {
 // for a typed failure, 2 when any reason is a defect, as Go's own panic
 // report does, and 130 when every reason is an interruption. Each reason is
 // written on standard error.
+//
+//ergo:host
 func Main(body func(*rt.Task) error) {
 	os.Exit(report(os.Stderr, runMain(body)))
 }

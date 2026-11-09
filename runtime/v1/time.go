@@ -30,6 +30,8 @@ var hostStart = time.Now()
 // TimeHostNow is one read of the host clock (time.Host's Now): one
 // time.Now, whose wall part gives Sec and Nsec and whose monotonic part
 // gives Mono.
+//
+//ergo:host
 func TimeHostNow() Reading {
 	n := time.Now()
 	return Reading{Sec: n.Unix(), Nsec: int64(n.Nanosecond()), Mono: int64(n.Sub(hostStart))}

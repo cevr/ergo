@@ -14,40 +14,21 @@ import (
 	v1 "ergo.local/prototype/runtime/v1"
 )
 
-// notHostExterns are the std externs whose Go body is not pure but reaches
-// no host state: each makes or changes a value of the program, runs code
-// the program gives it, or reads the running task (stdlib.md, Host
-// packages 7). Every other extern whose body is not pure is a host extern.
-// TestStdExternCallersHoldAuthority holds each row to an impure std extern
-// that no host provider's function reaches, so a host body cannot hide
-// here.
-var notHostExterns = map[string]string{
-	"log.contextBound":      "reads the running task's context",
-	"log.contextValue":      "reads the running task's context",
-	"trace.contextBound":    "reads the running task's context",
-	"trace.contextValue":    "reads the running task's context",
-	"queue.New":             "makes a queue",
-	"rand.newStream":        "makes the seeded stream, which reads no host state",
-	"scope.OnExit":          "registers an exit action of the program",
-	"slices.WithCapacity":   "makes a slice",
-	"slices.SortFunc":       "calls the program's comparison",
-	"slices.SortStableFunc": "calls the program's comparison",
-	"slices.sortOwned":      "sorts a slice the call owns",
-	"sync.NewRef":           "makes a Ref",
-	"sync.Modify":           "changes a Ref of the program with the program's function",
-	"task.Go":               "starts a task of the program",
-	"tasks.Transform":       "starts tasks of the program over its own function",
-	"tasks.race":            "starts a task of the program per block",
-	"testing.newLine":       "makes the virtual timeline, which reads no host clock",
-	"time.newTimeline":      "makes the manual timeline, which reads no host clock",
-	"timeout.After":         "races the body against the bound Scheduler, which is the program's",
-}
-
-// hostExtern reports whether the extern f of std reaches host state: its
-// Go body is not pure and notHostExterns does not name it.
+// hostExtern reports whether the extern f of std reaches host state: a
+// runtime/v1 body that its declaration marks //ergo:host (v1.Body.Host;
+// BodyOf refuses an unmarked body that reaches a host member, so an error
+// counts as host too), or a body of another Go package outside the pure
+// allowlist (runtime/rt's Sleep). An impure body that is not marked
+// reaches no host state: it makes or changes a value of the program, runs
+// code the program gives it, or reads the running task (stdlib.md, Host
+// packages 7).
 func hostExtern(f *check.Func) bool {
-	_, listed := notHostExterns[f.Pkg.Name+"."+f.Name]
-	return impureExtern(f) && !listed
+	target, name := f.Decl.Extern.Split()
+	if target == v1Path {
+		body, err := v1.BodyOf(name)
+		return err != nil || body.Host
+	}
+	return !check.PureGoPackage(target)
 }
 
 // impureExtern reports an extern whose Go body is not pure: a runtime/v1
@@ -238,8 +219,9 @@ func TestStdExternCallersHoldAuthority(t *testing.T) {
 	for _, v := range externCallerViolations(pkgs, held, hostExtern) {
 		t.Errorf("%s", v)
 	}
-	// Each notHostExterns row is an impure std extern, and no host
-	// provider's function reaches it.
+	// Each std extern's runtime/v1 body passes BodyOf, which refuses an
+	// unmarked body that reaches a host member; and an impure body that a
+	// host provider's function reaches is marked //ergo:host.
 	externs := map[string]*check.Func{}
 	var reached []string
 	for _, p := range pkgs {
@@ -250,15 +232,14 @@ func TestStdExternCallersHoldAuthority(t *testing.T) {
 		}
 		reached = append(reached, providerExterns(p)...)
 	}
-	for name := range notHostExterns {
-		f, ok := externs[name]
-		switch {
-		case !ok:
-			t.Errorf("notHostExterns lists %s, which is no std extern", name)
-		case !impureExtern(f):
-			t.Errorf("notHostExterns lists %s, whose body is pure", name)
-		case slices.Contains(reached, name):
-			t.Errorf("notHostExterns lists %s, which a host provider's function reaches", name)
+	for name, f := range externs {
+		if target, body := f.Decl.Extern.Split(); target == v1Path {
+			if _, err := v1.BodyOf(body); err != nil {
+				t.Errorf("%s: %v", name, err)
+			}
+		}
+		if slices.Contains(reached, name) && impureExtern(f) && !hostExtern(f) {
+			t.Errorf("a host provider's function reaches %s, whose body is not marked %s", name, v1.HostMark)
 		}
 	}
 	// The host externs found today, so a new one is a decision.

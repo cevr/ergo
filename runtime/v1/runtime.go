@@ -41,6 +41,8 @@ type Console struct{}
 
 // Println writes line and a line feed to standard output in one write, so
 // lines from concurrent writers do not interleave within a line.
+//
+//ergo:host
 func (Console) Println(line string) {
 	_, _ = os.Stdout.WriteString(line + "\n")
 }
@@ -58,6 +60,8 @@ func Sleep(t *rt.Task, d time.Duration) {
 
 // Fail reports main's typed failure on standard error and exits with
 // status 1 (lower-v1 D3: a remaining typed failure is printed, nonzero).
+//
+//ergo:host
 func Fail(err error) {
 	fmt.Fprintf(os.Stderr, "error: %v\n", err)
 	os.Exit(1)

@@ -1649,21 +1649,14 @@ func hostProviderTypes(pkg *check.Package) []*check.TypeName {
 	reaches := map[*check.Func]bool{}
 	for _, f := range pkg.Funcs {
 		if f.Decl != nil && f.Decl.Extern != nil {
-			// A runtime/v1 body reaches unless it is pure; any other Go
+			// A runtime/v1 body reaches when its declaration marks it
+			// //ergo:host (an impure body that is not marked, such as
+			// sync.Modify's, changes a value of the program); any other Go
 			// package unless it is in the pure allowlist (G9), which a
-			// program package's extern binds (fu-hostguard2).
-			target, name := f.Decl.Extern.Split()
-			if target == v1Path {
-				// An impure body that notHostExterns names reaches no host
-				// state (sync.Modify changes a Ref of the program); the
-				// table's own guard holds each row to a body that no host
-				// provider's function reaches (TestStdExternCallersHoldAuthority).
-				body, err := v1.BodyOf(name)
-				_, notHost := notHostExterns[pkg.Name+"."+f.Name]
-				reaches[f] = err != nil || !body.Pure && !notHost
-			} else {
-				reaches[f] = !check.PureGoPackage(target)
-			}
+			// program package's extern binds (fu-hostguard2). hostExtern
+			// is that rule; TestStdExternCallersHoldAuthority holds the
+			// marks.
+			reaches[f] = hostExtern(f)
 		}
 	}
 	for changed := true; changed; {
