@@ -32,7 +32,7 @@ func failure(text string) string {
 	case MissingColumn as m:
 		return "missing \(m.Name)"
 	case BadNumber as n:
-		return "bad \(n.Column) \(n.Text) at row \(n.Row)"
+		return "bad \(n.Field) \(n.Text) at \(n.Line):\(n.Column)"
 	}
 	"ok"
 }
@@ -41,11 +41,13 @@ test LoadFailures {
 	assert failure("") == "missing region"
 	assert failure("region,product,units\n") == "missing price"
 	assert failure("region,product,units,price\nn,t,1\n") == "csv 2:1 wrong number of fields"
-	assert failure("region,product,units,price\nn,t,x,1\n") == "bad units x at row 2"
-	assert failure("region,product,units,price\nn,t,1,1.234\n") == "bad price 1.234 at row 2"
+	assert failure("region,product,units,price\nn,t,x,1\n") == "bad units x at 2:5"
+	assert failure("region,product,units,price\nn,t,1,1.234\n") == "bad price 1.234 at 2:7"
 	assert failure("region,product,units,price\nn,t,1,\"1\n") == "csv 2:10 extraneous or missing \" in quoted-field"
-	// A quoted field over two lines is one record: row 3 is on line 4.
-	assert failure("region,product,units,price\n\"a\nb\",t,1,1\nn,t,x,1\n") == "bad units x at row 3"
+	// A quoted field over two lines is one record: the next record is on
+	// line 4, and a field after the quoted one is on line 3.
+	assert failure("region,product,units,price\n\"a\nb\",t,1,1\nn,t,x,1\n") == "bad units x at 4:5"
+	assert failure("region,product,units,price\n\"a\nb\",t,x,1\n") == "bad units x at 3:6"
 	assert failure(file) == "ok"
 }
 
