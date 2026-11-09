@@ -24,10 +24,25 @@ func (l *lowerer) buildView() check.FactOwner {
 	return check.OwnerProduction
 }
 
-// viewOf is the build's view of the facts of package p.
+// viewOf is the build's view of the facts of package p. A test build that
+// lowers a law of an imported package (check.Package.LawRuns) reads that
+// package's law facts too, never its tests'.
 func (l *lowerer) viewOf(p *check.Package) check.FactOwner {
 	if p == l.pkg {
 		return l.buildView()
+	}
+	if l.tests != nil {
+		if l.tests.lawPkgs == nil {
+			l.tests.lawPkgs = map[*check.Package]bool{}
+			for _, r := range l.pkg.LawRuns {
+				if r.Law.Pkg != l.pkg && lawLowered(r) {
+					l.tests.lawPkgs[r.Law.Pkg] = true
+				}
+			}
+		}
+		if l.tests.lawPkgs[p] {
+			return check.OwnerLaw
+		}
 	}
 	return check.OwnerProduction
 }

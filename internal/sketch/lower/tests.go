@@ -68,6 +68,9 @@ type testLowering struct {
 	// operation call in it (CallLawOp) calls its operation type's
 	// capability, which the run binds to the provider under test.
 	law *check.Law
+	// lawPkgs are the imported packages whose laws the build lowers
+	// (owners.go, viewOf), set on first use.
+	lawPkgs map[*check.Package]bool
 }
 
 // LowerTests lowers the checked unit to the Go module of its test binary:

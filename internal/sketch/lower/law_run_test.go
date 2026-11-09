@@ -165,7 +165,7 @@ const lawRunStore = `type Store {
 	Get(k int) int,
 	law GetAfterPut(k int, v int) {
 		Put(k, v)
-		Get(k) == v
+		[]int{Get(k)} == []int{v}
 	},
 }
 
