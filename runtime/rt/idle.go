@@ -32,7 +32,10 @@ import (
 // caller is parked, fires the earliest due deadline, and waits again, so
 // it returns with every task it woke at its next wait (synctest.Wait's
 // rule). The domain's seen waits are the same for both clocks, so a wait
-// the clock cannot see keeps an AdvanceSettled waiting until it ends.
+// the clock cannot see keeps an AdvanceSettled waiting until it ends. One
+// AdvanceSettled of a clock runs at a time (AdvanceRunning): its caller is
+// not parked, so a second one would wait for the first, and the first for
+// it.
 //
 // Prior art: Go's testing/synctest moves a bubble's clock when every
 // goroutine of the bubble is durably blocked, which the Go runtime knows

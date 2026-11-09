@@ -214,9 +214,9 @@ func runObserveCase(c ocase, seen map[string]bool) string {
 			ended := make(chan error, 1)
 			go func() {
 				if o.kind == "stop" {
-					ended <- a.Stop()
+					ended <- a.Stop(rt.Root("stop"))
 				} else {
-					ended <- a.Drain()
+					ended <- a.Drain(rt.Root("drain"))
 				}
 			}()
 			for !inboxClosed(a) {
@@ -260,7 +260,7 @@ func runObserveCase(c ocase, seen map[string]bool) string {
 			return fmt.Sprintf("exit kind %d, want %d (%q)", k, wantKind, end)
 		}
 	}
-	if err := a.Stop(); (end == "failed") != (err == errBoom) || (end != "failed" && endErr != nil) {
+	if err := a.Stop(rt.Root("stop")); (end == "failed") != (err == errBoom) || (end != "failed" && endErr != nil) {
 		return fmt.Sprintf("Stop %v, the end's %v; want the failure only after %q", err, endErr, end)
 	}
 	if end == "done" && ActorFinal(a).kind != decideDone {

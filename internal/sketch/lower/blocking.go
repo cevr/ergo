@@ -40,6 +40,12 @@ const (
 	// its own; a stop of the caller ends the wait, and runtime/v1
 	// TestManualAdvanceSettles states its laws.
 	settleWait
+	// endWait is the hidden *rt.Task of the invocation environment, which
+	// waits uninterruptibly for an actor's runner to end (Actor.Stop and
+	// Actor.Drain): a stop of the caller does not end it, and in a clock's
+	// domain the caller waits parked on the actor, so a manual clock's
+	// Advance does not wait for it (fua-b, batch-13 round 2 B1).
+	endWait
 )
 
 type runtimeBinding struct {
@@ -63,7 +69,7 @@ type runtimeBinding struct {
 // takesCaller reports a binding whose Go body receives the invocation's
 // task as its hidden CallerTask argument.
 func (b runtimeBinding) takesCaller() bool {
-	return b.wait == callerWait || b.wait == childWait || b.wait == memberTask || b.wait == parentTask || b.wait == settleWait || b.release == callerRelease || b.reads || b.task
+	return b.wait == callerWait || b.wait == childWait || b.wait == memberTask || b.wait == parentTask || b.wait == settleWait || b.wait == endWait || b.release == callerRelease || b.reads || b.task
 }
 
 var runtimeBindings = map[string]runtimeBinding{
@@ -316,21 +322,21 @@ var runtimeBindings = map[string]runtimeBinding{
 	// the caller cascades into it) and waits for nothing but the child's
 	// start. Send, Ask, State and a Changes loop wait on the caller's task
 	// (for room, an answer or a state); Stop drains the runner
-	// uninterruptibly; Dropped reads a counter; ActorNoTimer returns a
-	// constant.
+	// uninterruptibly on the caller's task, parked in a clock's domain;
+	// Dropped reads a counter; ActorNoTimer returns a constant.
 	"MachineSupervise": {wait: childWait},
 	"ActorRestarts":    {},
 	"Actor.Send":       {wait: callerWait},
 	"Actor.Ask":        {wait: callerWait},
 	"Actor.State":      {wait: callerWait},
 	"Actor.Changes":    {wait: callerWait},
-	"Actor.Stop":       {wait: drainWait},
+	"Actor.Stop":       {wait: endWait},
 	"Actor.Dropped":    {},
 	"ActorNoTimer":     {},
 	// MU12: Drain waits, as Stop does, for the runner's end, uninterruptibly;
 	// exitKind waits for it on the caller's task; the exit's and the latest
 	// decision's reads take the actor's lock only.
-	"Actor.Drain":    {wait: drainWait},
+	"Actor.Drain":    {wait: endWait},
 	"ActorExitKind":  {wait: callerWait},
 	"ActorFinal":     {},
 	"ActorFailure":   {},

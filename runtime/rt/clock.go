@@ -1,6 +1,7 @@
 package rt
 
 import (
+	"errors"
 	"sort"
 	"sync"
 	"time"
@@ -56,7 +57,16 @@ type Virtual struct {
 	live, parked int
 	steps        int
 	change       chan struct{}
+	// advancing is set while an AdvanceSettled runs: one at a time.
+	advancing bool
 }
+
+// AdvanceRunning is AdvanceSettled's result when another AdvanceSettled of
+// the clock runs (batch-13 round 2, B1). The first waits until every other
+// member is parked, and a caller of AdvanceSettled is not, so a second
+// member's call can only come while the first runs; waiting for it would
+// wait forever, and both moving the time would have no order.
+var AdvanceRunning = errors.New("another task's Advance of this clock is running")
 
 type virtualTimer struct {
 	v    *Virtual
@@ -144,14 +154,26 @@ func (v *Virtual) Advance(d time.Duration) {
 // task those woke, has run to a wait the clock sees. On a clock with no
 // domain it is Advance. It is an interruption point of t: a stop of t
 // returns Interrupted, with the timers of the instants not reached armed.
+// One runs at a time: a call while another runs returns AdvanceRunning at
+// once and moves nothing.
 func (v *Virtual) AdvanceSettled(t *Task, d time.Duration) error {
 	if !v.domain {
 		v.Advance(d)
 		return nil
 	}
 	v.mu.Lock()
+	if v.advancing {
+		v.mu.Unlock()
+		return AdvanceRunning
+	}
+	v.advancing = true
 	target := v.now.Add(d)
 	v.mu.Unlock()
+	defer func() {
+		v.mu.Lock()
+		v.advancing = false
+		v.mu.Unlock()
+	}()
 	for {
 		if err := v.Settle(t); err != nil {
 			return err

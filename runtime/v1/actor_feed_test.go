@@ -174,9 +174,9 @@ func runFeedCase(t *testing.T, c fcase, seen map[string]bool) string {
 	func() {
 		defer func() { raised = recover() }()
 		if !endedAlone && c.finish == "drain" {
-			_ = a.Drain()
+			_ = a.Drain(rt.Root("drain"))
 		} else {
-			_ = a.Stop()
+			_ = a.Stop(rt.Root("stop"))
 		}
 	}()
 	// The end returned: no source may run now (rule 14).
@@ -302,7 +302,7 @@ func TestActorLiveReadQueuedAtTheEndFailsStopped(t *testing.T) {
 	}
 	go func() {
 		defer close(stopped)
-		_ = a.Stop()
+		_ = a.Stop(rt.Root("stop"))
 	}()
 	for !inboxClosed(a) {
 		select {

@@ -441,7 +441,7 @@ func (dr *driver) signal(o op) {
 // stopOf is a.Stop()'s failure and the defect it raised.
 func stopOf(a *Actor[tstate, tsig, tdec]) (err error, raised any) {
 	defer func() { raised = recover() }()
-	return a.Stop(), nil
+	return a.Stop(rt.Root("stop")), nil
 }
 
 // actorCase is one generated machine and trace.
@@ -533,7 +533,7 @@ func runActorCase(c actorCase, seen map[string]bool) string {
 		r.now = max(r.now, o.at)
 		switch {
 		case o.kind == "stop":
-			if err := dr.a.Stop(); err != nil {
+			if err := dr.a.Stop(rt.Root("stop")); err != nil {
 				dr.failf("stop: %v", err)
 			}
 			stopped = true
@@ -716,10 +716,10 @@ func TestActorSendersKeepTheirOrder(t *testing.T) {
 				}
 				runtime.Gosched()
 			}
-			_ = a.Stop()
+			_ = a.Stop(rt.Root("stop"))
 		}()
 		wg.Wait()
-		_ = a.Stop()
+		_ = a.Stop(rt.Root("stop"))
 		<-stopped
 		got := a.State(root)
 		last := map[int]int{0: -1, 1: -1, 2: -1}
@@ -820,7 +820,7 @@ func TestActorWaitsAreInterruptible(t *testing.T) {
 		if capacity == 4 && !slices.Equal(got, []int{6}) {
 			t.Fatalf("capacity 4: State after the stopped waits gave %v, want [6]", got)
 		}
-		_ = a.Stop()
+		_ = a.Stop(rt.Root("stop"))
 	}
 }
 
@@ -843,7 +843,7 @@ func TestActorStopCascades(t *testing.T) {
 	if err := a.Send(rt.Root("late"), 1); !errors.Is(err, ActorStopped{}) {
 		t.Fatalf("send after the starter's stop: %v", err)
 	}
-	if err := a.Stop(); err != nil {
+	if err := a.Stop(rt.Root("stop")); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
 }
@@ -858,7 +858,7 @@ func TestActorStopExitIsTheReferences(t *testing.T) {
 		actorReference = ref
 		a := signalLog(rt.Root("stop"), 1, nil, nil)
 		actorReference = old
-		if err := a.Stop(); err != nil {
+		if err := a.Stop(rt.Root("stop")); err != nil {
 			t.Fatalf("reference %v: Stop: %v", ref, err)
 		}
 		a.mu.Lock()
@@ -884,7 +884,7 @@ func BenchmarkActorAsk(b *testing.B) {
 	for b.Loop() {
 		_, _ = a.Ask(root, 1)
 	}
-	_ = a.Stop()
+	_ = a.Stop(rt.Root("stop"))
 }
 
 // BenchmarkActorAskHandGo is the Go control of BenchmarkActorAsk: a

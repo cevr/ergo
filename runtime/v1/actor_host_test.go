@@ -281,7 +281,7 @@ func hostScript(t *testing.T, seed int64, n int, rng *rand.Rand, reached map[str
 			}
 			func() {
 				defer func() { raised = recover() }()
-				_ = a.Stop()
+				_ = a.Stop(rt.Root("stop"))
 			}()
 			var text strings.Builder
 			if x, ok := raised.(*exit); ok {
@@ -318,7 +318,7 @@ func hostScript(t *testing.T, seed int64, n int, rng *rand.Rand, reached map[str
 		}
 	}
 	if !defected {
-		_ = a.Stop()
+		_ = a.Stop(rt.Root("stop"))
 		for _, h := range order {
 			if ref[h].want == hostOpen {
 				reached["empty host closed at an end"] = true

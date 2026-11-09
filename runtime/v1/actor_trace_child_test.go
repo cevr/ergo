@@ -34,7 +34,7 @@ func TestActorTracesChildren(t *testing.T) {
 		},
 		kind, next, func(*rt.Task, int) {}, 1)
 	<-started
-	if err := parent.Stop(); err != nil {
+	if err := parent.Stop(rt.Root("stop")); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
 

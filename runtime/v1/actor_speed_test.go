@@ -87,7 +87,7 @@ func BenchmarkActorSpeed(b *testing.B) {
 				_ = a.Send(root, 1)
 			}
 			a.State(root)
-			_ = a.Stop()
+			_ = a.Stop(root)
 		})
 		b.Run("Ask/"+side.name, func(b *testing.B) {
 			defer side.set()()
@@ -97,14 +97,14 @@ func BenchmarkActorSpeed(b *testing.B) {
 			for b.Loop() {
 				_, _ = a.Ask(root, 1)
 			}
-			_ = a.Stop()
+			_ = a.Stop(root)
 		})
 		b.Run("SpawnStop/"+side.name, func(b *testing.B) {
 			defer side.set()()
 			root := rt.Root("bench")
 			b.ReportAllocs()
 			for b.Loop() {
-				_ = speedCounter(root, 64).Stop()
+				_ = speedCounter(root, 64).Stop(root)
 			}
 		})
 		b.Run("Idle/"+side.name, func(b *testing.B) {
@@ -119,7 +119,7 @@ func BenchmarkActorSpeed(b *testing.B) {
 			}
 			reportBytes(b, before, n)
 			for _, a := range as {
-				_ = a.Stop()
+				_ = a.Stop(root)
 			}
 		})
 	}

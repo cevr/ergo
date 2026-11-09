@@ -469,7 +469,7 @@ func runWorkCase(c wcase, seen map[string]bool) string {
 		}
 		o = fit(o, r)
 		if o.kind == "stop" {
-			if err := dr.a.Stop(); err != nil {
+			if err := dr.a.Stop(rt.Root("stop")); err != nil {
 				dr.failf("stop: %v", err)
 			}
 			r.leave()
@@ -544,7 +544,7 @@ func runWorkCase(c wcase, seen map[string]bool) string {
 // stopOfWork is a.Stop()'s failure and the defect it raised.
 func stopOfWork(a *Actor[tstate, tsig, tdec]) (err error, raised any) {
 	defer func() { raised = recover() }()
-	return a.Stop(), nil
+	return a.Stop(rt.Root("stop")), nil
 }
 
 // TestActorWorkAgreesWithFold is the acceptance property of the entries'

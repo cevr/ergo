@@ -103,9 +103,11 @@ var childWaitLaws = map[string]bool{"After": true, "TasksTransform": true, "Task
 // Send, Ask, State or Changes wait with an interruption and that a stopped
 // Send's signal never enters the inbox (a masked waiter waits to the end,
 // since rt's Done is nil under a mask); TestActorModelAgreesWithTimedFold
-// and TestActorSendersKeepTheirOrder, that Stop (drainWait) returns only
-// after the runner and its timer ended and every queued Ask was answered.
-// MU12: Drain (drainWait) and ActorExitKind (callerWait) wait for the
+// and TestActorSendersKeepTheirOrder, that Stop (endWait) returns only
+// after the runner and its timer ended and every queued Ask was answered;
+// TestManualAdvanceSettles, that a Stop or Drain in a clock's domain waits
+// parked, so a manual clock's Advance returns past it (B1).
+// MU12: Drain (endWait) and ActorExitKind (callerWait) wait for the
 // runner's end; runtime/v1/actor_observe_test.go
 // TestActorObserveAgreesWithFold states that Drain returns only after
 // every queued signal was stepped and the runner ended, and that every

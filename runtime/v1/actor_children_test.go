@@ -494,7 +494,7 @@ func runChildrenCase(seed int64, r *rand.Rand, n int, seen map[string]bool) (ops
 		var raised any
 		func() {
 			defer func() { raised = recover() }()
-			_ = root.Stop()
+			_ = root.Stop(rt.Root("stop"))
 		}()
 		var text strings.Builder
 		if x, ok := raised.(*exit); ok {
@@ -506,7 +506,7 @@ func runChildrenCase(seed int64, r *rand.Rand, n int, seen map[string]bool) (ops
 		seen["a child's defect ended the root"] = true
 	} else {
 		ops = append(ops, kop{kind: "stop", id: "r"})
-		if err := root.Stop(); err != nil {
+		if err := root.Stop(rt.Root("stop")); err != nil {
 			return ops, fmt.Sprintf("stop: %v", err)
 		}
 		ref.end("r")
@@ -594,7 +594,7 @@ func TestActorStepChildIsADefect(t *testing.T) {
 	var raised any
 	func() {
 		defer func() { raised = recover() }()
-		_ = parent.Stop()
+		_ = parent.Stop(rt.Root("stop"))
 	}()
 	var text strings.Builder
 	if x, ok := raised.(*exit); ok {

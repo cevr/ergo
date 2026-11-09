@@ -85,13 +85,18 @@ func (l *Timeline) Wait(t *rt.Task, d time.Duration) {
 // clock's domain but t waits again on a wait the clock sees
 // (rt.AdvanceSettled): each timer due by then has fired and every task it
 // woke has run to its next wait, an actor's step included (fua-b). A
-// negative d is a defect: time never falls. A stop of t raises
+// negative d is a defect: time never falls. One Advance of a clock runs at
+// a time: a call while another task's Advance runs is a defect
+// (rt.AdvanceRunning; batch-13 round 2, B1). A stop of t raises
 // rt.Interrupted.
 func (l *Timeline) Advance(t *rt.Task, d time.Duration) {
 	if d < 0 {
 		panic("time.Manual: Advance by a negative duration")
 	}
 	if err := l.v.AdvanceSettled(t, d); err != nil {
+		if err == rt.AdvanceRunning {
+			panic("time.Manual: Advance while " + err.Error() + "; one task advances a clock")
+		}
 		raise(err)
 	}
 }

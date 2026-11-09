@@ -68,7 +68,7 @@ func timerChain(delays []time.Duration) string {
 	a := MachineStart(Site("timer chain"), root, lineSleeper{l}, tstate{}, step, fire, delay,
 		noWork[tstate], hasNoWork, runNoWork[tsig], func(d tdec) int { return d.kind }, next,
 		func(*rt.Task, tdec) {}, 0)
-	defer func() { _ = a.Stop() }()
+	defer func() { _ = a.Stop(root) }()
 	want := 0
 	for s := range a.Changes(root) {
 		if s.v != want {

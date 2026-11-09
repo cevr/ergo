@@ -333,7 +333,7 @@ func supRun(t *testing.T, c supCase) supOutcome {
 						drainResult <- "defect"
 					}
 				}()
-				if err := a.Drain(); err != nil {
+				if err := a.Drain(rt.Root("drain")); err != nil {
 					drainResult <- "failed"
 					return
 				}
@@ -415,7 +415,7 @@ func supRun(t *testing.T, c supCase) supOutcome {
 
 func catchStop(a *Actor[[]int, int, rdec]) (err error, raised any) {
 	defer func() { raised = recover() }()
-	return a.Stop(), nil
+	return a.Stop(rt.Root("stop")), nil
 }
 
 // TestActorSupervisionAgreesWithModel holds rule 16 against the reference

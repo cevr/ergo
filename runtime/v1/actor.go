@@ -1352,20 +1352,27 @@ func (a *Actor[S, E, D]) await(t *rt.Task, reply *replySlot[S, D]) answer[S, D] 
 }
 
 // waitDone waits on t until the runner has ended. In a clock's domain it
-// waits parked on the actor until finish unparks it (fua-b).
-func (a *Actor[S, E, D]) waitDone(t *rt.Task) {
+// waits parked on the actor until finish unparks it (fua-b). A stop of t
+// ends the wait with rt.Interrupted.
+func (a *Actor[S, E, D]) waitDone(t *rt.Task) { a.waitEnd(t, t.Done()) }
+
+// waitEnd waits on t until the runner has ended or stop closes (nil: an
+// uninterruptible wait, Stop's and Drain's). In a clock's domain t waits
+// parked on the actor, and on stop when it is not nil, so a manual clock's
+// Advance does not wait for t (batch-13 round 2, B1): finish unparks it.
+func (a *Actor[S, E, D]) waitEnd(t *rt.Task, stop <-chan struct{}) {
 	var p rt.Parked
 	if t.InDomain() {
 		a.mu.Lock()
 		if !a.ended {
 			a.doneWait = append(a.doneWait, t)
-			p = rt.Park(t, a, t.Done(), nil)
+			p = rt.Park(t, a, stop, nil)
 		}
 		a.mu.Unlock()
 	}
 	select {
 	case <-a.done:
-	case <-t.Done():
+	case <-stop:
 		a.dropDoneWait(t, p)
 		panic(rt.Interrupted)
 	}
@@ -1394,8 +1401,9 @@ func (a *Actor[S, E, D]) dropDoneWait(t *rt.Task, p rt.Parked) {
 // its queued Asks answered ActorStopped (rule 8). It returns the typed
 // failure that ended the actor, if one did, and raises its defects, a
 // work's included (rule 10). A Stop of an ended
-// actor returns the same at once; every Stop is idempotent.
-func (a *Actor[S, E, D]) Stop() error {
+// actor returns the same at once; every Stop is idempotent. t, the
+// caller's task, waits parked in a clock's domain (waitEnd).
+func (a *Actor[S, E, D]) Stop(t *rt.Task) error {
 	// The interruption comes first: once it is set, the runner's next Pop
 	// raises at its check, so no envelope is taken after the request, also
 	// one queued before it. A Send admitted between the two is queued
@@ -1405,7 +1413,7 @@ func (a *Actor[S, E, D]) Stop() error {
 	}
 	a.task.Interrupt()
 	a.inbox.Close()
-	<-a.done
+	a.waitEnd(t, nil)
 	return a.result()
 }
 
@@ -1415,13 +1423,14 @@ func (a *Actor[S, E, D]) Stop() error {
 // and then ended as Stop ends it. A Done, a failure or a defect among the
 // queued signals ends the actor there, as it would without Drain. Its
 // result is Stop's: the typed failure that ended the actor, its defect
-// raised. A Stop during a Drain overtakes it: the rest is dropped.
-func (a *Actor[S, E, D]) Drain() error {
+// raised. A Stop during a Drain overtakes it: the rest is dropped. t, the
+// caller's task, waits parked in a clock's domain (waitEnd).
+func (a *Actor[S, E, D]) Drain(t *rt.Task) error {
 	if a.task.Traced() {
 		a.traceStop("drain")
 	}
 	a.inbox.Close()
-	<-a.done
+	a.waitEnd(t, nil)
 	return a.result()
 }
 
