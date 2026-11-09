@@ -348,12 +348,21 @@ func TestExecStopEndsAPipeline(t *testing.T) {
 	// pipeline". The program runs a pipeline of two stages, each with a
 	// process of its own; a stop of the caller ends every one of them.
 	t.Run("a stop ends every stage", func(t *testing.T) {
-		pidfile := filepath.Join(t.TempDir(), "pids")
+		// The checks are on the order of events, not on time: the stop
+		// lands after the program wrote all three pids, and the program
+		// writes "late" only when its stages end on their own, after their
+		// sleep. Run waits for the group to end before it returns, so a
+		// stop that does not end the program lets "late" reach the file
+		// first. A slow host (a late shell start, a loaded CPU) changes
+		// neither order; the test binary's -timeout bounds a hang.
+		dir := t.TempDir()
+		pidfile, latefile := filepath.Join(dir, "pids"), filepath.Join(dir, "late")
 		script := fmt.Sprintf(`(sleep 20 & echo $! >> %[1]s; wait) | (sleep 20 & echo $! >> %[1]s; wait) &
 while [ "$(wc -l < %[1]s)" -lt 2 ]; do sleep 0.01; done
 echo $$ >> %[1]s
 wait
-`, pidfile)
+echo late >> %[2]s
+`, pidfile, latefile)
 		task := rt.Root("exec test")
 		done := make(chan bool, 1)
 		go func() {
@@ -361,17 +370,21 @@ wait
 			_, _ = ExecRun(task, "sh", []string{"-c", script}, nil, "", "")
 		}()
 		var pids []int
-		for deadline := time.Now().Add(5 * time.Second); len(pids) < 3 && time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+		for len(pids) < 3 {
+			select {
+			case <-done:
+				t.Fatalf("Run returned before the stop, with pids %v", readPids(t, pidfile))
+			default:
+			}
+			time.Sleep(time.Millisecond)
 			pids = readPids(t, pidfile)
 		}
 		task.Interrupt()
-		select {
-		case interrupted := <-done:
-			if !interrupted {
-				t.Fatal("the stop did not end the call with rt.Interrupted")
-			}
-		case <-time.After(15 * time.Second):
-			t.Fatal("Run did not return in 15s after the stop")
+		if interrupted := <-done; !interrupted {
+			t.Fatal("the stop did not end the call with rt.Interrupted")
+		}
+		if late, _ := os.ReadFile(latefile); len(late) > 0 {
+			t.Fatalf("the pipeline ran to its end (late holds %q): the stop did not end the program", late)
 		}
 		if len(pids) != 3 {
 			t.Fatalf("pids %v; want the two stages' and the program's", pids)
