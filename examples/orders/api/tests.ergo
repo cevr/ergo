@@ -1,5 +1,7 @@
-// Handle's tests run over a memory.Ledger, with no socket. The laws are
-// restated as property tests (#162).
+// Handle's tests run over a memory.Ledger, with no socket. The laws that
+// take an orders.Book are skipped by ergo test (an operation type has no
+// generator), so EveryRequestHasAStatusHolds and CreateThenShowHolds run
+// them with a new memory.Ledger.
 
 import orders/memory
 import orders/orders
@@ -59,7 +61,6 @@ test RoutesOfEachPath {
 // pick is the element of xs that n names, for any n.
 func pick(xs []string, n int) string { xs[(if n < 0 { -(n + 1) } else { n })%len(xs)] }
 
-let methods = []string{"GET", "POST", "PUT", "DELETE"}
 let paths = []string{"/orders", "/orders/ord-1", "/orders/ord-1/pay", "/orders/ord-1/ship", "/orders/ord-2/cancel", "/orders/x/y", "/", "/orders/"}
 let bodies = []string{"", "{}", "[]", "{\"customer\":\"ada\",\"lines\":[{\"sku\":\"tea\",\"quantity\":1,\"cents\":5}]}", "{\"customer\":1}", "{"}
 
@@ -67,8 +68,8 @@ test EveryRequestHasAStatusHolds(m int, p int, b int, body string) {
 	let book = memory.New()
 	// Place one order first, so the paths of ord-1 reach an order.
 	let _ = with context { orders.Book: book } { call("POST", "/orders", pick(bodies, 3)) }
-	assert EveryRequestHasAStatusHolds(book, pick(methods, m), pick(paths, p), pick(bodies, b))
-	assert EveryRequestHasAStatusHolds(book, pick(methods, m), pick(paths, p), body)
+	assert EveryRequestHasAStatusHolds(book, pick(Methods, m), pick(paths, p), pick(bodies, b))
+	assert EveryRequestHasAStatusHolds(book, pick(Methods, m), pick(paths, p), body)
 }
 
 test CreateThenShowHolds(d orders.Draft) {
@@ -80,21 +81,10 @@ test CreateThenShowHolds(d orders.Draft) {
 test CreateThenShowHoldsForValidDrafts(d orders.Draft, n int) {
 	let mut lines = []orders.Line{orders.Line{SKU: "sku", Quantity: 1, Cents: 0}}
 	for l in d.Lines {
-		lines = lines.Append(orders.Line{SKU: "s" + l.SKU, Quantity: 1 + (if l.Quantity < 0 { -(l.Quantity + 1) } else { l.Quantity })%1000, Cents: if l.Cents < 0 { -(l.Cents + 1) } else { l.Cents }})
+		lines = lines.Append(orders.Line{SKU: "s" + l.SKU, Quantity: 1 + (if l.Quantity < 0 { -(l.Quantity + 1) } else { l.Quantity })%1000, Cents: (if l.Cents < 0 { -(l.Cents + 1) } else { l.Cents }) % (orders.MaxCents + 1)})
 	}
 	let valid = orders.Draft{Customer: "c" + d.Customer, Lines: lines}
 	let book = memory.New()
 	assert CreateThenShowHolds(book, valid)
 	assert with context { orders.Book: book } { orders.Book.Count() } == 1
-}
-
-test UnknownPathIs404Holds(method string, path string) {
-	if !strings.HasPrefix(path, "/orders") {
-		assert RouteOf(method, path) == Nowhere
-	}
-}
-
-test WrongMethodNamesTheRightHolds(id string, m int) {
-	assert WrongMethodNamesTheRightHolds(id, pick(methods, m))
-	assert WrongMethodNamesTheRightHolds("ord-1", pick(methods, m))
 }

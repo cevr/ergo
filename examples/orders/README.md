@@ -23,7 +23,7 @@ The program is a module of packages (`ergo.mod`: `module orders`), in the Go lay
 | --- | --- |
 | `orders/` | The domain, with no HTTP or JSON in it. `order.ergo` (`Line`, `Draft`, `Order`, `Validate`, `Total`, `Place`, `Apply`, the failure `Invalid`), `lifecycle.ergo` (`Status`, `Event`, `Step`, the machine `Lifecycle`, the failure `Conflict`), `book.ergo` (`Book`, the store contract with four laws, the failures `NotFound` and `Taken`), `checks.ergo` (one function per `Book` law, which a provider's tests call), `laws.ergo` (the lifecycle and total laws), `tests.ergo`. |
 | `memory/` | `Ledger`, the in-memory `orders.Book`. |
-| `jsontext/` | A JSON value (`Value`, a union), `Parse` with the byte offset of each failure, `Encode`, `Quote`, `Equal`, and four laws. |
+| `jsontext/` | A JSON value (`Value`, a union), `Parse` with the byte offset of each failure, `Encode`, `Quote`, `Member`, `Int`, and four laws. |
 | `api/` | The HTTP layer as plain functions over records: `message.ergo` (`Request`, `Response`, `Header`, `Problem`, `Reason`), `route.ergo` (`Route`, `RouteOf`), `codec.ergo` (`DraftOf`, `OrderJSON`, the failure `BadBody`), `handle.ergo` (`Handle`), `laws.ergo`. |
 | `http1/` | The HTTP/1.1 text: `format.ergo` (`ReadRequest`, `WriteRequest`, `WriteResponse`, the failure `Garbled`), `serve.ergo` (`Serve`, one connection), `laws.ergo`. |
 | `cmd/orders/` | The binary: it binds the memory `Ledger` and the host's streams, and is the only place that chooses them. |
@@ -37,7 +37,7 @@ The program is a module of packages (`ergo.mod`: `module orders`), in the Go lay
 - **A store contract with laws, checked on its provider.** `Book` states `FindAfterAdd`, `AddTwiceIsTaken`, `ReplaceKeepsTheCount` and `AllInAddOrder`; `memory`'s tests run them through `orders/checks.ergo`. The API laws take a `Book` as a law parameter and bind it in a context.
 - **Format laws.** `RequestRoundTrip` (a request written is read back as it was), `PipelinedRequestsAreAnsweredInOrder` and `ContentLengthIsTheBody`.
 
-Each law is also a property test (laws are checked, not run yet: #162), and each has a mutant that the test kills (`ex-c/orders/mutants.ts` in the run dir, 20 of 20).
+`ergo test` runs each law that takes no `orders.Book`; the tests run the others over a `memory.Ledger`. Each law has a mutant (`ex-c/orders/mutants.ts` in the run dir).
 
 ## Run it
 
@@ -63,7 +63,13 @@ Each limit is recorded with a repro in the lane's gap file (`gaps-ex-c.md`, run 
 
 - **G-ex-c-7: no std http, json or net, and no way to reach `net/http`.** `import go "net/http"` is S109 (#202), and a user `extern` may bind only pure Go packages. The program writes its own JSON (`jsontext`) and HTTP/1.1 text (`http1`), and serves one connection on stdin/stdout.
 - **G-ex-c-8: `io.Stdin` has no read of a given length.** The server reads the whole connection with `ReadAll` before it answers, so a client that waits for each response before the next request gets no answer until it half-closes.
-- **G-ex-c-9: no byte or rune to string, and no range over runes.** `jsontext.Quote` starts from `strconv.Quote` and rewrites Go's escapes into JSON's; `ValidUTF8` binds `unicode/utf8.ValidString` by a user extern.
-- **G-ex-c-5 (from kvstore): a member law cannot share its check.** `Book`'s laws are written once as laws and once in `orders/checks.ergo`.
-- **The machine has no runner.** `Lifecycle` declares the machine (runtime.md: plan values, no runner until #57/#101), so `Apply` calls `Step` itself and handles all five `Decision` variants.
-- Friction, no gap: hex literals are not in v0 (#81), so `0x10000` is written `65536`; `Option[Value]` and `[]string` are not `==`-comparable (as in Go), so `jsontext.Equal` and `http1.SameRequest` compare by hand; `return` cannot leave a `with` block (grammar.md, Statements 5), so a check that returns early is a function the `with` calls (`createThenShow`); `number` is a prelude name and cannot be redeclared, so the parser's numeral reader is `numeral`.
+- **G-ex-c-5 (from kvstore): a member law cannot share its check.** `Book`'s laws are written once as laws and once in `orders/checks.ergo`. `ergo test` skips `Book`'s laws in `orders` (no type of the package implements `Book`) and does not run them against `memory.Ledger` (G-exup-1), and it skips the `api` and `http1` laws that take an `orders.Book` (an operation type has no generator), so the tests still run each of these with a new `memory.Ledger`.
+- **The machine has no live runner.** `Apply` steps one event with `Step` and moves with `machines.Next`; an `Emit` would move the order like an `Enter`, though `Step` never emits.
+- Friction, no gap: `number` is a prelude function name and cannot be redeclared (q30 admits only types), so the parser's numeral reader is `numeral`.
+
+Found at batch 12 (T4's wider generators), fixed here:
+- `jsontext.Parse` could not read a `\u` surrogate pair, which `Quote` wrote for an astral character, so an astral character did not round-trip (`Malformed` "a bad escape in a string"). `Quote` now writes every character but a quote, a backslash and the controls as it is, and `Parse` decodes the escapes itself, a surrogate pair as its one character and a lone surrogate as U+FFFD, as Go's `encoding/json` does.
+- The laws' `Sane` kept a generated string that is not UTF-8, which JSON text cannot carry; it now makes each string and member name valid UTF-8 (`strings.ToValidUTF8`).
+- A price had no upper bound, so a valid draft could overflow `Total`. `Validate` now refuses a price above `MaxCents` (100,000,000) and an order of more than `MaxLines` (1,000) lines.
+
+Closed in batch 12: G-ex-c-9 (S3 and L4: `Quote` is a `for r in s` loop with `utf8.RuneText`, and `ValidUTF8`'s user extern is std `utf8.ValidString`); hex literals (L1: `0xD800` and the other surrogate bounds); `jsontext.Equal` (W3: a `Value` has `==`); `createThenShow` (L3: `return` leaves the `with`); the hand `Next` match in `Apply` and the laws (V2 `machines.Next`); the aliasing `Ledger` (its maps are in one `sync.Ref`); the property tests that restated laws that `ergo test` runs (V1).

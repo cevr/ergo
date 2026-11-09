@@ -5,6 +5,7 @@
 
 import strconv
 import strings
+import utf8
 
 // Field is one member of an object, in the order of the text.
 type Field { Name string, Value Value }
@@ -44,69 +45,36 @@ func Encode(v Value) string {
 	}
 }
 
-// Quote is s as a JSON string. Ergo has no conversion from a byte or a
-// rune to a string, so it starts from strconv.Quote, Go's quoting, and
-// rewrites the escapes JSON spells another way: \x.., \a, \v and \U, and
-// the escapes of characters that JSON writes as they are.
+// Quote is s as a JSON string: a quote, a backslash and the control
+// characters escaped, every other character written as it is. A byte
+// that is not UTF-8 is written as U+FFFD, as Go's encoding/json does.
 func Quote(s string) string {
-	let q = strconv.Quote(s)
-	let mut out = ""
-	let mut i = 0
-	for _ in 0..len(q) {
-		if i >= len(q) {
-			break
-		}
-		let c = q[i]
-		if c != '\\' {
-			let start = i
-			let next = strings.Index(strings.Slice(q, i, len(q)), "\\")
-			i = if next < 0 { len(q) } else { i + next }
-			out = out + strings.Slice(q, start, i)
-			continue
-		}
-		let e = q[i+1]
-		if e == 'x' {
-			out = out + "\\u00" + strings.Slice(q, i+2, i+4)
-			i = i + 4
-		} else if e == 'a' {
-			out = out + "\\u0007"
-			i = i + 2
-		} else if e == 'v' {
-			out = out + "\\u000b"
-			i = i + 2
-		} else if e == 'U' {
-			out = out + surrogates(strings.Slice(q, i+2, i+10))
-			i = i + 10
-		} else {
-			out = out + strings.Slice(q, i, i+2)
-			i = i + 2
-			if e == 'u' {
-				out = out + strings.Slice(q, i, i+4)
-				i = i + 4
-			}
-		}
+	let mut out = "\""
+	for r in s {
+		out = out + quoted(r)
 	}
-	out
+	out + "\""
 }
 
-// surrogates is the JSON escape of the code point whose eight hex digits
-// are hex: a UTF-16 surrogate pair.
-func surrogates(hex string) string {
-	let n = strconv.ParseInt(hex, 16, 64) catch {
-	case strconv.Malformed, strconv.OutOfRange:
-		return "\\ufffd"
+// quoted is the JSON text of the character r inside a string.
+func quoted(r rune) string {
+	if r == '"' {
+		return "\\\""
 	}
-	let v = n - 65536 // 0x10000: Ergo v0 has no hex literals (#81)
-	"\\u" + hex4(55296+(v>>10)) + "\\u" + hex4(56320+(v&1023))
-}
-
-// hex4 is n in four lower-case hex digits.
-func hex4(n int64) string {
-	let digits = "0123456789abcdef"
-	let mut out = ""
-	for shift in []int64{12, 8, 4, 0} {
-		let d = (n >> shift) & 15
-		out = out + strings.Slice(digits, int(d), int(d)+1)
+	if r == '\\' {
+		return "\\\\"
 	}
-	out
+	if r == '\n' {
+		return "\\n"
+	}
+	if r == '\r' {
+		return "\\r"
+	}
+	if r == '\t' {
+		return "\\t"
+	}
+	if r < 0x20 || r == 0x7f {
+		return "\\u" + strings.PadLeft(strconv.FormatInt(int64(r), 16), 4, '0')
+	}
+	utf8.RuneText(r)
 }

@@ -1,5 +1,6 @@
 import strconv
 import strings
+import utf8
 
 // Parse is the one JSON value of text, with white space around it. Text
 // after the value fails Malformed.
@@ -115,34 +116,77 @@ func array(text string, at int) (Value, int) fails Malformed {
 	Malformed{At: len(text), Reason: "the array does not end"}
 }
 
-// str is the text of the string that starts at the '"' at at. JSON's
-// escapes are Go's except "\/", which Go's Unquote does not read, so
-// that one is rewritten before strconv.Unquote reads the rest.
+// str is the text of the string that starts at the '"' at at, and the
+// offset after it. A \u escape of a UTF-16 surrogate pair is the one
+// character the pair names; a lone surrogate is U+FFFD, as Go's
+// encoding/json reads it.
 func str(text string, at int) (string, int) fails Malformed {
+	let mut out = ""
 	let mut i = at + 1
-	let mut escaped = false
-	for _ in i..len(text) {
+	for i < len(text) {
 		let c = text[i]
+		if c == '"' {
+			return (out, i + 1)
+		}
 		if c < ' ' {
 			return Malformed{At: i, Reason: "a control byte in a string"}
 		}
-		if c == '\\' {
-			escaped = true
-			i = i + 2
+		if c != '\\' {
+			let start = i
+			for i < len(text) && text[i] != '"' && text[i] != '\\' && text[i] >= ' ' {
+				i = i + 1
+			}
+			out = out + strings.Slice(text, start, i)
 			continue
 		}
-		if c == '"' {
-			let raw = strings.Slice(text, at, i+1)
-			let quoted = if escaped { strings.ReplaceAll(raw, "\\/", "/") } else { raw }
-			let s = strconv.Unquote(quoted) catch {
-			case strconv.Malformed:
+		if i+1 >= len(text) {
+			break
+		}
+		let e = text[i+1]
+		if e == 'u' {
+			let r, next = escaped(text, i) catch {
+			case Malformed:
 				return Malformed{At: at, Reason: "a bad escape in a string"}
 			}
-			return (s, i + 1)
+			out = out + utf8.RuneText(r)
+			i = next
+			continue
 		}
-		i = i + 1
+		let one = if e == '"' { "\"" } else if e == '\\' { "\\" } else if e == '/' { "/" } else if e == 'b' { "\b" } else if e == 'f' { "\f" } else if e == 'n' { "\n" } else if e == 'r' { "\r" } else if e == 't' { "\t" } else { "" }
+		if one == "" {
+			return Malformed{At: at, Reason: "a bad escape in a string"}
+		}
+		out = out + one
+		i = i + 2
 	}
 	Malformed{At: at, Reason: "the string does not end"}
+}
+
+// escaped is the character of the \u escape at at, and the offset after
+// it: two escapes for a surrogate pair.
+func escaped(text string, at int) (rune, int) fails Malformed {
+	let first = try hex4At(text, at)
+	if first < 0xD800 || first > 0xDFFF {
+		return (rune(first), at + 6)
+	}
+	if first <= 0xDBFF && at+12 <= len(text) && strings.Slice(text, at+6, at+8) == "\\u" {
+		let second = try hex4At(text, at+6)
+		if second >= 0xDC00 && second <= 0xDFFF {
+			return (rune(0x10000 + (first-0xD800)<<10 + (second - 0xDC00)), at + 12)
+		}
+	}
+	(rune(0xFFFD), at + 6)
+}
+
+// hex4At is the four hex digits after the \u at at.
+func hex4At(text string, at int) int64 fails Malformed {
+	if at+6 > len(text) {
+		return Malformed{At: at, Reason: "a bad escape in a string"}
+	}
+	strconv.ParseInt(strings.Slice(text, at+2, at+6), 16, 64) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return Malformed{At: at, Reason: "a bad escape in a string"}
+	}
 }
 
 // numeral is the number that starts at at: JSON's grammar, an optional

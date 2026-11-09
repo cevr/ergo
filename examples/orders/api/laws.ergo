@@ -1,8 +1,8 @@
 // The rules of the HTTP layer as laws over Handle and RouteOf. Handle
 // needs an orders.Book, so its laws take the Book as a value, a parameter
-// of the law, and bind it in a context they build. A law runner cannot
-// generate a Book (#162), so each such law calls a function of its name
-// and "Holds", which the tests call with a memory.Ledger.
+// of the law, and bind it in a context they build. ergo test cannot
+// generate a Book, so each such law calls a function of its name and
+// "Holds", which the tests call with a memory.Ledger.
 
 import orders/jsontext
 import orders/orders
@@ -35,23 +35,19 @@ func EveryRequestHasAStatusHolds(book orders.Book, method string, path string, b
 
 // CreateThenShowHolds checks CreateThenShow.
 func CreateThenShowHolds(book orders.Book, d orders.Draft) bool {
-	with context { orders.Book: book } { createThenShow(d) }
-}
-
-// createThenShow is CreateThenShowHolds on the Book in the context: a
-// return cannot leave a with block, so the body is a function.
-func createThenShow(d orders.Draft) bool needs orders.Book {
-	let created = Handle(Request{Method: "POST", Path: "/orders", Headers: []Header{}, Body: jsontext.Encode(DraftJSON(d))})
-	orders.Validate(d) catch {
-	case orders.Invalid:
-		return created.Status == 422
-	}
-	match HeaderOf(created.Headers, "Location") {
-	case Some[string] as at:
-		let shown = Handle(Request{Method: "GET", Path: at.Value, Headers: []Header{}, Body: ""})
-		created.Status == 201 && shown.Status == 200 && shown.Body == created.Body
-	case None:
-		false
+	with context { orders.Book: book } {
+		let created = Handle(Request{Method: "POST", Path: "/orders", Headers: []Header{}, Body: jsontext.Encode(DraftJSON(d))})
+		orders.Validate(d) catch {
+		case orders.Invalid:
+			return created.Status == 422
+		}
+		match HeaderOf(created.Headers, "Location") {
+		case Some[string] as at:
+			let shown = Handle(Request{Method: "GET", Path: at.Value, Headers: []Header{}, Body: ""})
+			created.Status == 201 && shown.Status == 200 && shown.Body == created.Body
+		case None:
+			false
+		}
 	}
 }
 
@@ -69,11 +65,17 @@ law UnknownPathIs404(method string, path string) {
 }
 
 // WrongMethodNamesTheRight: a known path with another method is Wrong,
-// and each method it allows reaches that path.
-law WrongMethodNamesTheRight(id string, method string) { WrongMethodNamesTheRightHolds(id, method) }
+// and each method it allows reaches that path. The method is one of
+// Methods half the time: a generated string is rarely a method.
+law WrongMethodNamesTheRight(id string, method string, m int) {
+	rightNamed(id, method) && rightNamed(id, Methods[(if m < 0 { -(m + 1) } else { m })%len(Methods)]) && rightNamed("ord-1", method)
+}
 
-// WrongMethodNamesTheRightHolds checks WrongMethodNamesTheRight.
-func WrongMethodNamesTheRightHolds(id string, method string) bool {
+// Methods is the methods the API knows, and one it does not.
+let Methods = []string{"GET", "POST", "PUT", "DELETE"}
+
+// rightNamed checks WrongMethodNamesTheRight for id and method.
+func rightNamed(id string, method string) bool {
 	if id == "" || strings.Contains(id, "/") {
 		return true
 	}

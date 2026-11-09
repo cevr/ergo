@@ -4,6 +4,8 @@
 // It knows nothing of HTTP or JSON: package api maps its failures to
 // status codes.
 
+import machines
+
 // Line is one product of an order: its SKU, how many, and the price of
 // one in cents.
 type Line { SKU string, Quantity int, Cents int }
@@ -22,15 +24,27 @@ type Invalid { Field string, Reason string }
 // MaxQuantity is the most of one product a line may order.
 let MaxQuantity = 1000
 
+// MaxCents is the highest price of one product, in cents. With
+// MaxQuantity and MaxLines it keeps a total far from the bounds of an
+// int.
+let MaxCents = 100_000_000
+
+// MaxLines is the most lines of an order.
+let MaxLines = 1_000
+
 // Validate fails Invalid at the first rule d breaks: a customer is named,
 // an order has at least one line, a line has a SKU, a quantity from 1 to
-// MaxQuantity and a price that is not negative.
+// MaxQuantity and a price from 0 to MaxCents, and there are at most
+// MaxLines lines.
 func Validate(d Draft) fails Invalid {
 	if d.Customer == "" {
 		return Invalid{Field: "customer", Reason: "is empty"}
 	}
 	if len(d.Lines) == 0 {
 		return Invalid{Field: "lines", Reason: "an order has at least one line"}
+	}
+	if len(d.Lines) > MaxLines {
+		return Invalid{Field: "lines", Reason: "an order has at most \(MaxLines) lines"}
 	}
 	for i, l in d.Lines {
 		let at = "lines[\(i)]"
@@ -42,6 +56,9 @@ func Validate(d Draft) fails Invalid {
 		}
 		if l.Cents < 0 {
 			return Invalid{Field: at + ".cents", Reason: "is negative"}
+		}
+		if l.Cents > MaxCents {
+			return Invalid{Field: at + ".cents", Reason: "is more than \(MaxCents)"}
 		}
 	}
 }
@@ -74,19 +91,15 @@ func Place(d Draft) Order fails Invalid needs Book {
 // and changes nothing; one it ignores changes nothing too.
 func Apply(id string, e Event) Order fails NotFound | Conflict needs Book {
 	let o = try Book.Find(id)
-	let next = match Step(o.Status, e) {
-	case Enter[Status] as n:
-		n.Next
-	case Stay[Status] as n:
-		n.Next
+	let d = Step(o.Status, e)
+	match d {
 	case Ignore:
 		return o
 	case Reject:
 		return Conflict{ID: id, Status: Name(o.Status), Event: EventName(e)}
-	case Done[Status] as d:
-		d.Output
+	case Enter[Status], Stay[Status], Emit[Status, Status], Done[Status]:
 	}
-	let changed = Order{..o, Status: next}
+	let changed = Order{..o, Status: machines.Next(o.Status, d)}
 	try Book.Replace(changed)
 	changed
 }

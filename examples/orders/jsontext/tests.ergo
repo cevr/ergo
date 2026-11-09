@@ -1,7 +1,4 @@
-// The parser's examples, and the laws restated as property tests (the
-// compiler checks laws and does not run them yet, #162).
-
-import strings
+// The parser's examples. The laws run under ergo test.
 
 // failure is the offset and reason Parse(text) fails with, or "parsed".
 func failure(text string) string {
@@ -51,30 +48,4 @@ test MemberAndInt {
 	assert found(Member(o, "x")) == "none"
 	assert Int(Number{Text: "42"}) == Some[int]{Value: 42}
 	assert Int(Number{Text: "4.2"}) == None
-}
-
-test ValidUTF8Rules {
-	assert ValidUTF8("") && ValidUTF8("abc") && ValidUTF8("é😀")
-	assert !ValidUTF8("\xff") && !ValidUTF8("\xc3") && !ValidUTF8("\xed\xa0\x80")
-}
-
-test RoundTripHolds(v Value) {
-	let s = Sane(v)
-	assert Equal(try Parse(Encode(s)), s)
-}
-
-test WhiteSpaceIsIgnoredHolds(v Value) {
-	let s = Sane(v)
-	assert Equal(try Parse(" \n\t"+Encode(s)+"\r\n "), s)
-}
-
-test EncodeIsOneLineHolds(v Value) {
-	assert !strings.Contains(Encode(Sane(v)), "\n")
-}
-
-test QuoteRoundTripHolds(s string) {
-	if !ValidUTF8(s) {
-		return
-	}
-	assert Equal(try Parse(Quote(s)), Str{V: s})
 }

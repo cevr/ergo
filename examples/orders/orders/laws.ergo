@@ -1,5 +1,8 @@
 // The rules of orders as laws over the lifecycle and the draft.
 
+import machines
+import slices
+
 // FinalTakesNoEvent: a shipped or a cancelled order rejects every event.
 law FinalTakesNoEvent(s Status, e Event) {
 	if !Final(s) {
@@ -8,7 +11,7 @@ law FinalTakesNoEvent(s Status, e Event) {
 	match Step(s, e) {
 	case Reject:
 		true
-	case Enter[Status], Stay[Status], Ignore, Done[Status]:
+	case Enter[Status], Stay[Status], Emit[Status, Status], Ignore, Done[Status]:
 		false
 	}
 }
@@ -18,6 +21,8 @@ law FinalTakesNoEvent(s Status, e Event) {
 law NoWayBack(s Status, e Event) {
 	match Step(s, e) {
 	case Enter[Status] as n:
+		Rank(n.Next) > Rank(s)
+	case Emit[Status, Status] as n:
 		Rank(n.Next) > Rank(s)
 	case Stay[Status] as n:
 		Rank(n.Next) == Rank(s)
@@ -37,7 +42,7 @@ law PayIsIdempotent(s Status) {
 // ShippedWasPaid: only a paid order is shipped.
 law ShippedWasPaid(s Status) {
 	match Step(s, Ship) {
-	case Enter[Status]:
+	case Enter[Status], Emit[Status, Status]:
 		Name(s) == "paid"
 	case Stay[Status], Ignore, Reject, Done[Status]:
 		true
@@ -46,14 +51,7 @@ law ShippedWasPaid(s Status) {
 
 // TotalIsTheSumOfLines: a total is additive over the lines.
 law TotalIsTheSumOfLines(a []Line, b []Line) {
-	let mut both = []Line{}
-	for l in a {
-		both = both.Append(l)
-	}
-	for l in b {
-		both = both.Append(l)
-	}
-	Total(both) == Total(a)+Total(b)
+	Total(slices.Concat(a, b)) == Total(a)+Total(b)
 }
 
 // Rank is how far along s is.
@@ -69,15 +67,4 @@ func Rank(s Status) int {
 }
 
 // after is s after e: the next status, or s when e changes nothing.
-func after(s Status, e Event) Status {
-	match Step(s, e) {
-	case Enter[Status] as n:
-		n.Next
-	case Stay[Status] as n:
-		n.Next
-	case Ignore, Reject:
-		s
-	case Done[Status] as d:
-		d.Output
-	}
-}
+func after(s Status, e Event) Status { machines.Next(s, Step(s, e)) }
