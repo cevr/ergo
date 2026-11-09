@@ -9,6 +9,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"ergo.local/prototype/internal/testwait"
 	"time"
 )
 
@@ -112,7 +114,7 @@ func TestTimeCivilMatchesGo(t *testing.T) {
 	exe := exes["timeCivil"]
 	probeRan(exe)
 	cases, want := civilCases(rand.New(rand.NewPCG(9, 41)), 20000)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := testwait.Context(t, context.Background())
 	defer cancel()
 	cmd := exec.CommandContext(ctx, exe)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

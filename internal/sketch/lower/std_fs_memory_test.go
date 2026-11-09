@@ -14,9 +14,9 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
 
 	"ergo.local/prototype/internal/lawledger"
+	"ergo.local/prototype/internal/testwait"
 )
 
 // fsMemoryProgram reads a provider name, "host" or "memory", then one
@@ -454,12 +454,13 @@ func fsLawLine(r *rand.Rand, path, text, fileMode func() string) string {
 
 // runFSProgram runs the built fsMemoryProgram in dir with the provider
 // name and the operation lines on its standard input, in a process group
-// of its own that is killed when it ends or after a minute, under the test
+// of its own that is killed when it ends or at the test's deadline
+// (internal/testwait), under the test
 // kit's memory limit (runProgram, internal/proclimit).
 func runFSProgram(t *testing.T, exe, dir, provider string, ops []string) []string {
 	t.Helper()
 	probeRan(exe)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := testwait.Context(t, context.Background())
 	defer cancel()
 	cmd := exec.CommandContext(ctx, exe)
 	cmd.Dir = dir

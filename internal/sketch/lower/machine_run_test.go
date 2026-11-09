@@ -12,10 +12,10 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
 
 	"ergo.local/prototype/internal/lawledger"
 	"ergo.local/prototype/internal/proclimit"
+	"ergo.local/prototype/internal/testwait"
 )
 
 // machine-run (V2; runtime.md, Machines and actors 2 and 8): std machines
@@ -518,7 +518,7 @@ func TestMachineRunAgreesWithFold(t *testing.T) {
 	for _, p := range progs {
 		stdout, stderr, code, ended := runMachineBounded(t, exes[p.name])
 		if !ended {
-			t.Fatalf("seed %d, %s: still running after %s, stopped: a run that never ends (a timer cascade?)\nsource:\n%s", seed, p.name, programBound, p.src)
+			t.Fatalf("seed %d, %s: still running at the test's deadline, stopped: a run that never ends (a timer cascade?)\nsource:\n%s", seed, p.name, p.src)
 		}
 		if got := lines(stdout); code != 0 || !slices.Equal(got, p.want) {
 			t.Errorf("seed %d, %s: exit %d\nstdout:\n%s\nwant:\n%s\nstderr:\n%s\nsource:\n%s", seed, p.name, code, stdout, strings.Join(p.want, "\n"), firstLines(stderr, 8), p.src)
@@ -526,13 +526,10 @@ func TestMachineRunAgreesWithFold(t *testing.T) {
 	}
 }
 
-// programBound is how long runMachineBounded lets a generated program run. Each
-// one ends in milliseconds; the bound is a guard, not a timing claim.
-const programBound = 30 * time.Second
-
 // runMachineBounded runs a generated program in a process group of its own and
-// stops the group after programBound, reporting whether the program ended
-// by itself. A wrong runner (a mutant whose timer never moves the clock)
+// stops the group at the test's deadline (internal/testwait), reporting
+// whether the program ended by itself. Each one ends in milliseconds; the
+// bound is a guard, not a timing claim, so a loaded host never decides it. A wrong runner (a mutant whose timer never moves the clock)
 // loops forever and may grow without limit: on 2026-11-08 one such
 // program, orphaned when go test's timeout ended the test, took 46.7 GB.
 // Its memory is bounded as every program a test starts is
@@ -560,7 +557,7 @@ func runMachineBounded(t *testing.T, exe string) (stdout, stderr string, code in
 	select {
 	case err = <-done:
 		ended = true
-	case <-time.After(programBound):
+	case <-testwait.After(t):
 		stopGroup()
 		<-done
 		return out.String(), errOut.String(), -1, false
