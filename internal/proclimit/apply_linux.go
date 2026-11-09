@@ -3,29 +3,92 @@
 package proclimit
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"runtime"
 	"strconv"
 	"syscall"
 	"unsafe"
 )
 
-// apply sets the oom_score_adj and RLIMIT_DATA of process pid, a child the
-// caller started and has not yet waited for. RLIMIT_DATA (Linux 4.7 on)
-// counts every private writable mapping, which is where the Go runtime
-// maps its heap and goroutine stacks; its address space reservations are
-// PROT_NONE and do not count, so the limit is close to the heap a program
-// may hold. A child that has already ended (a zombie) has nothing left to
-// bound: the kernel then gives its /proc files to root and refuses the
-// write, and apply returns nil.
-func apply(pid int, limit uint64) error {
-	err := set(pid, limit)
-	if err != nil && ended(pid) {
-		return nil
+// beforeBound, when set (a test), runs after the program is started and
+// before its bound is set, with the program's pid: the window in which a
+// loaded host may deschedule the caller.
+var beforeBound func(pid int)
+
+// start starts cmd stopped at its exec, sets its oom_score_adj and
+// RLIMIT_DATA there, and only then lets it run, so the program's first
+// instruction already runs under both. The program is started traced
+// (SysProcAttr.Ptrace: the child calls ptrace(PTRACE_TRACEME) before its
+// exec), and a traced process stops before the first instruction of the
+// program it execs; the tracer, the thread that started it, sets the bound
+// and detaches. RLIMIT_DATA (Linux 4.7 on) counts every private writable
+// mapping, which is where the Go runtime maps its heap and goroutine
+// stacks; its address space reservations are PROT_NONE and do not count,
+// so the limit is close to the heap a program may hold.
+//
+// Setting the bound after a plain cmd.Start raced the program: one that
+// ran to its end before the caller was scheduled again (a 5 ms delay is
+// enough for a program that reserves 1 GiB) ran unbounded, and the bound
+// was skipped with no error (batch-12 integration round 7: the merge
+// tier's TestRunProgramBoundsAGrowingProgram). A stopped program cannot
+// end first, so a bound that cannot be set is always an error.
+//
+// A host that forbids a process to trace its own child (Yama's
+// ptrace_scope 3, a seccomp filter that refuses ptrace, or a caller that a
+// tracer such as strace -f follows) fails here, with the error: a program
+// never runs without its bound.
+func start(cmd *exec.Cmd, limit uint64) error {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
-	return err
+	if cmd.SysProcAttr.Ptrace {
+		return errors.New("SysProcAttr.Ptrace is set: proclimit traces the program itself to bound it")
+	}
+	// Every ptrace request comes from the thread that started the child,
+	// its tracer, until the detach.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	cmd.SysProcAttr.Ptrace = true
+	err := cmd.Start()
+	cmd.SysProcAttr.Ptrace = false
+	if err != nil {
+		return err
+	}
+	pid := cmd.Process.Pid
+	if beforeBound != nil {
+		beforeBound(pid)
+	}
+	var status syscall.WaitStatus
+	for {
+		_, err = syscall.Wait4(pid, &status, syscall.WALL, nil)
+		if err != syscall.EINTR {
+			break
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("wait for the program's stop at its exec: %w", err)
+	}
+	if !status.Stopped() {
+		// Only a signal from outside (SIGKILL) ends a stopped program, and
+		// the wait has reaped it.
+		return fmt.Errorf("the program ended before it ran (%v)", status)
+	}
+	if err := set(pid, limit); err != nil {
+		return err
+	}
+	// The first stop is the exec's SIGTRAP, which the detach drops; a
+	// signal that came before it is passed on.
+	signal := 0
+	if s := status.StopSignal(); s != syscall.SIGTRAP {
+		signal = int(s)
+	}
+	if _, _, errno := syscall.RawSyscall6(syscall.SYS_PTRACE, syscall.PTRACE_DETACH, uintptr(pid), 0, uintptr(signal), 0, 0); errno != 0 {
+		return fmt.Errorf("let the bounded program run (ptrace detach): %w", errno)
+	}
+	return nil
 }
 
 func set(pid int, limit uint64) error {
@@ -60,20 +123,4 @@ func writeProc(path, value string) error {
 		return &os.PathError{Op: "write", Path: path, Err: err}
 	}
 	return nil
-}
-
-// ended reports whether process pid is exiting or has exited: it has
-// released its memory, so /proc/PID/status shows no VmSize (the kernel
-// gives the process's /proc files to root from that point), or the file is
-// gone. Start returns after the exec, so a running program always has its
-// memory.
-func ended(pid int) bool {
-	fd, err := syscall.Open("/proc/"+strconv.Itoa(pid)+"/status", syscall.O_RDONLY|syscall.O_CLOEXEC, 0)
-	if err != nil {
-		return true
-	}
-	defer syscall.Close(fd)
-	status := make([]byte, 16<<10)
-	n, err := syscall.Read(fd, status)
-	return err != nil || !bytes.Contains(status[:max(n, 0)], []byte("\nVmSize:"))
 }

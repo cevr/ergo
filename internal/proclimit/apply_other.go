@@ -2,5 +2,7 @@
 
 package proclimit
 
-// apply does nothing here: see the package comment.
-func apply(int, uint64) error { return nil }
+import "os/exec"
+
+// start only starts cmd here: see the package comment.
+func start(cmd *exec.Cmd, _ uint64) error { return cmd.Start() }

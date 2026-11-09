@@ -18,9 +18,10 @@
 //     maps more heap gets ENOMEM and stops with "fatal error: runtime: out of
 //     memory" long before it reaches the host's memory.
 //
-// Both are set with prlimit(2) and /proc/PID/oom_score_adj right after the
-// program's exec, so the first instructions of the program run without them;
-// the Go runtime maps no more than a few MiB before main. A process the
+// Both are set with prlimit(2) and /proc/PID/oom_score_adj while the program
+// is stopped at its exec (it is started traced and let go once bounded), so
+// its first instruction already runs under them, however late the caller
+// is scheduled (apply_linux.go, start). A process the
 // program starts inherits both. testinputs.Main gives every test process
 // the same oom_score_adj, so every process a test starts, go build
 // included, inherits it from the first byte.
@@ -111,10 +112,10 @@ func Format(n uint64) string {
 // program. When they cannot be applied, it kills the program, waits for it
 // and returns the error: a program never runs without its bound.
 func Start(cmd *exec.Cmd, limit uint64) error {
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	if err := apply(cmd.Process.Pid, limit); err != nil {
+	if err := start(cmd, limit); err != nil {
+		if cmd.Process == nil {
+			return err
+		}
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		return fmt.Errorf("bound program %s: %w", cmd.Path, err)
