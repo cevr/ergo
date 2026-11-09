@@ -1,0 +1,20 @@
+# The splits that TestSplitsPinNoDomain admits: each pins the count or the
+# digest of its generated domain. A row is `path<TAB>split name<TAB>reason`;
+# a row that admits no pin fails the test. Each row names the unit that
+# removes the pin (test-speed plan, S6); none is added.
+
+internal/sketch/check/catch_oracle_test.go	TestCatchOracleTwoTypes	existing pin at T7: T6 (ts-cut-check) removes it; the split harness keeps each case once
+internal/sketch/check/context_several_test.go	TestSeveralOperandsAreNestingDeterministic	existing pin at T7: T6 (ts-cut-check) removes it; the split harness keeps each case once
+internal/sketch/check/context_several_test.go	TestSeveralOperandsAreNestingSeed1	existing pin at T7: T6 (ts-cut-check) removes it; the split harness keeps each case once
+internal/sketch/check/context_several_test.go	TestSeveralOperandsAreNestingSeed2	existing pin at T7: T6 (ts-cut-check) removes it; the split harness keeps each case once
+internal/sketch/check/laws_domain_test.go	TestLawDomain	existing pin at T7: T6 (ts-cut-check) removes it; the split harness keeps each case once
+internal/sketch/check/pattern_work_test.go	TestMatchArmsLinear	existing pin at T7: T6 (ts-cut-check) removes it; the split harness keeps each case once
+internal/sketch/check/round19_test.go	TestContextBudget	existing pin at T7: T6 (ts-cut-check) removes it; the split harness keeps each case once
+internal/sketch/check/round20_test.go	TestContextBudgetOrder	existing pin at T7: T6 (ts-cut-check) removes it; the split harness keeps each case once
+internal/sketch/check/scale_test.go	TestCheckerScale	existing pin at T7: T6 (ts-cut-check) removes it; the split harness keeps each case once
+internal/sketch/check/selfcall_work_test.go	TestSelfCallWorkLinear	existing pin at T7: T6 (ts-cut-check) removes it; the split harness keeps each case once
+internal/sketch/check/stage_e1c_cycle_gen_test.go	TestE1cCycleGenerator	existing pin at T7: T6 (ts-cut-check) removes it; the split harness keeps each case once
+internal/sketch/check/withsite_work_test.go	TestWithSiteWorkLinear	existing pin at T7: T6 (ts-cut-check) removes it; the split harness keeps each case once
+internal/sketch/lower/checked_lowered_test.go	TestCheckedImpliesLowered	existing pin at T7: T5 (ts-cut-lower, S6) removes it; the split harness keeps each case once
+internal/sketch/lower/runtime199_i1_test.go	TestRuntime199I1Property	existing pin at T7: T5 (ts-cut-lower, S6) removes it; the split harness keeps each case once
+internal/sketch/lower/stage4_runner_test.go	TestTestRunnerModel	existing pin at T7: T5 (ts-cut-lower, S6) removes it; the split harness keeps each case once
