@@ -88,8 +88,9 @@ var updateCases = []updateCase{
 	{"a field set twice", `func f(w Walk) Walk { Walk{..w, Turn: 1, Turn: 2} }`, []string{"1:42 S108"}},
 	{"an unknown field", `func f(w Walk) Walk { Walk{..w, Nope: 1} }`, []string{"1:33 S104"}},
 	{"a field value of another type", `func f(w Walk) Walk { Walk{..w, Turn: "x"} }`, []string{"1:39 S108"}},
-	{"a base of another instance", `func f(b Box[int]) Box[string] { Box[string]{..b, V: "z"} }`, []string{"1:48 S108"}},
-	{"a base of another instance, by the expected type", `func f(b Box[int]) Box[string] { Box{..b, V: "z"} }`, []string{"1:40 S108"}},
+	{"a base of another instance names the field of the changed type", `func f(b Box[int]) Box[string] { Box[string]{..b, V: "z"} }`, nil},
+	{"a base of another instance, by the expected type", `func f(b Box[int]) Box[string] { Box{..b, V: "z"} }`, nil},
+	{"a base of another instance leaves the field of the changed type", `func f(b Box[int]) Box[string] { Box[string]{..b, N: 1} }`, []string{"1:48 S108"}},
 	{"a base that gives no type arguments", `func f(w Walk) int {
 	let c = Box{..w, N: 2}
 	c.N

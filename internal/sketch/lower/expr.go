@@ -629,6 +629,9 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 // no update expression; Borgo lowers Rust's `..rest` to a called function
 // literal that evaluates the field values first.
 func (fc *funcCtx) update(x *syntax.CompositeLit, t check.Type, td *typeDecl) string {
+	if copies, ok := fc.l.info.Spreads[x]; ok {
+		return fc.spread(x, t, td, copies)
+	}
 	u := fc.temp("u")
 	fc.line(u + " := " + fc.value(x.Base))
 	var keys []string
@@ -654,6 +657,53 @@ func (fc *funcCtx) update(x *syntax.CompositeLit, t check.Type, td *typeDecl) st
 		fc.line(u + "." + keys[i] + " = " + vals[i])
 	}
 	return u
+}
+
+// spread lowers a spread `T{..s, F: v}` whose base s has another record
+// type (types.md, Structs 3) to its desugaring: the base bound once,
+// first, then one literal of T with the named values, in source order, and
+// a read of the base for each field the checker recorded as copied
+// (Info.Spreads):
+//
+//	b := s
+//	T{F: v, G: b.G}
+//
+// These are field moves, as hand Go writes them; nothing is allocated.
+func (fc *funcCtx) spread(x *syntax.CompositeLit, t check.Type, td *typeDecl, copies []check.Spread) string {
+	base := fc.value(x.Base)
+	b := "_"
+	if len(copies) > 0 {
+		b = fc.temp("b")
+		fc.line(b + " := " + base)
+	} else {
+		fc.line("_ = " + base)
+	}
+	var parts []string
+	var values []syntax.Expr
+	for _, e := range x.Elts {
+		kv := e.(*syntax.KeyValueExpr)
+		name, ok := td.fieldName[kv.Key.(*syntax.Ident).Name]
+		if !ok {
+			ice(kv.Key, "%s has no field %s", t, kv.Key)
+		}
+		parts = append(parts, name)
+		values = append(values, kv.Value)
+	}
+	vals := fc.operands(values, true)
+	for i := range parts {
+		parts[i] += ": " + vals[i]
+	}
+	if len(copies) > 0 {
+		sn, ok := fc.typeOf(x.Base).(*check.Named)
+		if !ok {
+			ice(x.Base, "a spread base of type %s", fc.typeOf(x.Base))
+		}
+		std := fc.l.typeDecl(sn.Obj, x.Base)
+		for _, c := range copies {
+			parts = append(parts, td.fieldName[c.Field.Name]+": "+b+"."+std.fieldName[c.From.Name])
+		}
+	}
+	return fc.goType(t) + "{" + strings.Join(parts, ", ") + "}"
 }
 
 // elements lowers composite elements left to right; an elided-type element

@@ -174,6 +174,11 @@ type Info struct {
 	// produces it with the clause that admitted the value (types.md,
 	// Assignability); the lowering never derives a conversion again.
 	Implicit map[syntax.Expr]Conversion
+	// Spreads is, for every spread `T{..s, …}` whose base s has a record
+	// type other than T, the fields of T it copies from s, in T's order
+	// (types.md, Structs 3; owner q43). A field T names is not listed. An
+	// update with a base of exactly T has no entry: it copies the base.
+	Spreads map[*syntax.CompositeLit][]Spread
 	// ImplicitElems is, for a value of several elements that a multi-name
 	// let (`let a, b Store = pair()`) or a return of several results takes
 	// apart, each element's implicit conversion in order, a zero
@@ -295,6 +300,7 @@ func newInfo() *Info {
 		Calls:         map[*syntax.CallExpr]*Call{},
 		Closes:        map[syntax.Node]*Close{},
 		Implicit:      map[syntax.Expr]Conversion{},
+		Spreads:       map[*syntax.CompositeLit][]Spread{},
 		ImplicitElems: map[syntax.Expr][]Conversion{},
 		Patterns:      map[syntax.Expr]*Pattern{},
 		Matches:       map[syntax.Node]*Match{},
