@@ -78,7 +78,7 @@ import (
 //     decision of the last stepped signal, final the Done that ended it.
 //  13. Children (MU5): actor.Child, called in an entry's work, starts a
 //     machine actor that the entry owns (MachineChild). The work's task
-//     binds the entry (ownerKey), so the call finds it through its hidden
+//     is the entry's (the owners map), so the call finds it through its hidden
 //     task; a runner binds no entry, so a step's Child is a defect. The
 //     entry keeps its children in a list, in start order, by identity
 //     (two children of one machine are two children). A child's Emit and
@@ -91,8 +91,9 @@ import (
 //     lives inside its parent's entry. A child's typed failure ends only
 //     the child; its defect ends the parent, as a work's defect does
 //     (pushed as a workDefect, or, when that cannot be pushed, raised by
-//     the stop). The children's tasks are children of the work's task,
-//     shielded from its interruption, so only their owner stops them, in
+//     the stop). The children's tasks are children of the work's task
+//     and the work's task a child of the runner's, each shielded from its
+//     parent's interruption (rt.GoShielded), so the runner stops them, in
 //     order; a work that started children waits for their stop before it
 //     ends, so no task ends before its children.
 type Actor[S, E, D any] struct {
@@ -218,7 +219,7 @@ func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 }
 
 // MachineChild is actor.Child's body (rule 13): MachineStart for a child
-// of the entry whose work calls it, found through t's binding. out gets
+// of the entry whose work calls it, found from t (ownerOf). out gets
 // each decision and the entry's deliver, which pushes a child output as
 // the entry's signal. The child's task is a child of t, shielded from t's
 // interruption: its owner entry stops it. A call outside a work is a
@@ -229,7 +230,7 @@ func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, initial 
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
 	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D, func(P)), capacity int) *Actor[S, E, D] {
-	owner, ok := t.Value(ownerKey{}).(childOwner[P])
+	owner, ok := ownerOf(t).(childOwner[P])
 	if !ok {
 		panic(&ActorChildDefect{Site: string(span)})
 	}
@@ -287,33 +288,46 @@ func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 	ready := make(chan struct{})
 	var once sync.Once
 	started := func() { once.Do(func() { close(ready) }) }
-	var shield rt.Mask
 	if report != nil {
-		// A child: started in a protecting region of t, so t's interruption
-		// does not reach it and its owner stops it, in order (rule 13).
-		shield = t.Mask()
-	}
-	rt.Go(&holder, a.span, func(at *rt.Task) (struct{}, error) {
-		a.task = at
-		_, err := guarded(at, func(at *rt.Task) (struct{}, error) { return a.loop(at, started) })
-		started() // the first entry's arm or work raised
-		a.finish(err)
-		return struct{}{}, nil
-	})
-	if report != nil {
-		shield.Unmask()
+		// A child: t's interruption does not reach it; its owner entry
+		// stops it, in order (rule 13).
+		rt.GoShielded(&holder, a.span, func(at *rt.Task) (struct{}, error) {
+			_, err := guarded(at, a.runner(started))
+			return a.endRunner(err, started)
+		})
+	} else {
+		rt.Go(&holder, a.span, func(at *rt.Task) (struct{}, error) {
+			_, err := guarded(at, a.runner(started))
+			return a.endRunner(err, started)
+		})
 	}
 	<-ready
 	return a
+}
+
+// runner is the runner task's body: the loop, on a task that owns no
+// entry, so a Child in a step finds none (rule 13), also when the actor
+// is a child started in a work.
+func (a *Actor[S, E, D]) runner(started func()) func(*rt.Task) (struct{}, error) {
+	return func(at *rt.Task) (struct{}, error) {
+		a.task = at
+		owners.Store(at, nil)
+		return a.loop(at, started)
+	}
+}
+
+// endRunner ends the runner task after its loop returned or raised.
+func (a *Actor[S, E, D]) endRunner(err error, started func()) (struct{}, error) {
+	started() // the first entry's arm or work raised
+	a.finish(err)
+	owners.Delete(a.task)
+	return struct{}{}, nil
 }
 
 // loop is the runner (rules 1 to 7 and 10). started tells MachineStart
 // that the first entry's children run.
 func (a *Actor[S, E, D]) loop(at *rt.Task, started func()) (struct{}, error) {
 	s := a.state
-	// The runner's own task owns no entry: a Child in a step finds none
-	// (rule 13), also when the actor is a child started in a work.
-	at.WithValue(ownerKey{}, nil)
 	a.openKids()
 	a.arm(at, s)
 	a.startWork(at, s)
@@ -438,12 +452,10 @@ func (a *Actor[S, E, D]) startWork(at *rt.Task, s S) {
 	holder := rt.NewScope(at)
 	// Shielded from the runner's interruption (a Stop): the runner's end
 	// stops the entry's children first and then the work (rule 13).
-	shield := at.Mask()
-	defer shield.Unmask()
-	a.working = rt.Go(&holder, a.span+" (work)", func(wt *rt.Task) (struct{}, error) {
-		// The entry the work's Child calls find (rule 13). The task ends
-		// with the work, so the binding needs no End.
-		wt.WithValue(ownerKey{}, owner)
+	a.working = rt.GoShielded(&holder, a.span+" (work)", func(wt *rt.Task) (struct{}, error) {
+		// The entry the work's Child calls find (rule 13).
+		owners.Store(wt, owner)
+		defer owners.Delete(wt)
 		// A work that started children ends after their stop (rule 13).
 		defer owner.waitKids()
 		send := func(e E) {
@@ -467,9 +479,24 @@ func (a *Actor[S, E, D]) startWork(at *rt.Task, s S) {
 	})
 }
 
-// ownerKey is the key of the task value that binds a work's task to the
-// entry that owns its children (rule 13).
-type ownerKey struct{}
+// owners maps the task of a running work to its entry, and the task of a
+// running actor's runner to nil (rule 13). actor.Child finds its entry
+// from its hidden task: the first of the task and its ancestors that is
+// in the map. A step's Child (on a runner's task, or below it) finds nil.
+// It is keyed by task identity, holds an entry only while its work runs,
+// and no program code reads it: the program names no owner. It is not a
+// context value, which a defect's report would print.
+var owners sync.Map // *rt.Task -> any: a childOwner of the entry's signal type, or nil
+
+// ownerOf is the entry that owns a Child called on t, nil when none does.
+func ownerOf(t *rt.Task) any {
+	for x := t; x != nil; x = x.Parent() {
+		if v, ok := owners.Load(x); ok {
+			return v
+		}
+	}
+	return nil
+}
 
 // childOwner is an entry that takes children whose outputs are signals
 // P: entryRef[S, P, D] is one.

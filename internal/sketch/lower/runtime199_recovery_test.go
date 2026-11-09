@@ -95,10 +95,12 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 		"After -> AfterSpan":       "guarded",
 		"deadlines.NewTimer -> Go": "guarded",
 		// actor.StartMachine's runner task and an entry's timer child (MU3).
-		"machineStart -> Go":       "guarded",
-		"Actor[S, E, D].arm -> Go": "guarded",
+		"machineStart -> Go": "guarded",
+		// A child actor's runner (MU5), shielded: its owner entry stops it.
+		"machineStart -> GoShielded": "guarded",
+		"Actor[S, E, D].arm -> Go":   "guarded",
 		// An entry's work child (MU4).
-		"Actor[S, E, D].startWork -> Go": "guarded",
+		"Actor[S, E, D].startWork -> GoShielded": "guarded",
 	}
 	isRT := func(f *types.Func) bool {
 		return f.Pkg() != nil && strings.HasSuffix(f.Pkg().Path(), "/runtime/rt")
