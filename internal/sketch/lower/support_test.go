@@ -129,8 +129,11 @@ func buildAll(t *testing.T, programs []*lowered, link bool) map[string]string {
 		t.Error(err)
 		return nil
 	}
-	if separateBinaries {
+	switch {
+	case separateBinaries:
 		return buildSeparate(t, programs)
+	case dispatchCheck != "":
+		return buildTwins(t, programs)
 	}
 	return buildDispatch(t, programs)
 }
@@ -336,6 +339,9 @@ func runBounded(t testing.TB, cmd *exec.Cmd) error {
 	limit, err := proclimit.Limit(os.Environ(), proclimit.DefaultLimit)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if dispatchCheck != "" {
+		return runTwins(cmd, limit)
 	}
 	return proclimit.Run(cmd, limit)
 }

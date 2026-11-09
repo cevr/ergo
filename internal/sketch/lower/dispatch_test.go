@@ -9,6 +9,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"math/rand/v2"
 	"os"
 	"os/exec"
@@ -16,8 +17,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"ergo.local/prototype/internal/proclimit"
 )
 
 // The dispatcher (test-speed plan T2): buildAll links the programs of one
@@ -311,6 +315,94 @@ func TestDispatcherMain(t *testing.T) {
 	}
 	if _, err := parser.ParseFile(token.NewFileSet(), "main.go", got, 0); err != nil {
 		t.Fatalf("the dispatcher does not parse: %v\n%s", err, got)
+	}
+}
+
+// dispatchCheck (ERGO_TEST_DISPATCH_CHECK=FILE) is the whole-package
+// check of the dispatcher, an evidence run and not a test: buildAll builds
+// both paths, and every run of a dispatched program also runs its own
+// binary with the same arguments, input, environment and directory; a run
+// whose exit code, stdout or stderr differs is appended to FILE. The test
+// sees the dispatcher's run. A program with side effects runs twice, so a
+// line in FILE is a lead to replay, not yet a defect.
+var dispatchCheck = os.Getenv("ERGO_TEST_DISPATCH_CHECK")
+
+// dispatchTwins maps a dispatched program's executable to its own binary.
+var dispatchTwins sync.Map
+
+// buildTwins is buildAll under dispatchCheck.
+func buildTwins(t *testing.T, programs []*lowered) map[string]string {
+	t.Helper()
+	exes := buildDispatch(t, programs)
+	separate := buildSeparate(t, programs)
+	if exes == nil || separate == nil {
+		return nil
+	}
+	for name, exe := range exes {
+		dispatchTwins.Store(exe, separate[name])
+	}
+	appendCheck(fmt.Sprintf("built %d %s\n", len(programs), t.Name()))
+	return exes
+}
+
+// runTwins is runBounded's run under dispatchCheck.
+func runTwins(cmd *exec.Cmd, limit uint64) error {
+	twinPath, ok := dispatchTwins.Load(cmd.Path)
+	if !ok {
+		return proclimit.Run(cmd, limit)
+	}
+	var input []byte
+	if cmd.Stdin != nil {
+		input, _ = io.ReadAll(cmd.Stdin)
+		cmd.Stdin = bytes.NewReader(input)
+	}
+	twin := exec.Command(twinPath.(string), cmd.Args[1:]...)
+	twin.Env, twin.Dir = cmd.Env, cmd.Dir
+	if cmd.Stdin != nil {
+		twin.Stdin = bytes.NewReader(input)
+	}
+	var twinOut, twinErr, out, errOut bytes.Buffer
+	twin.Stdout, twin.Stderr = &twinOut, &twinErr
+	twinRun := proclimit.Run(twin, limit)
+	tee := func(w io.Writer, b *bytes.Buffer) io.Writer {
+		if w == nil {
+			return b
+		}
+		return io.MultiWriter(w, b)
+	}
+	cmd.Stdout, cmd.Stderr = tee(cmd.Stdout, &out), tee(cmd.Stderr, &errOut)
+	run := proclimit.Run(cmd, limit)
+	code := func(err error) string {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			return strconv.Itoa(exit.ExitCode())
+		}
+		if err != nil {
+			return err.Error()
+		}
+		return "0"
+	}
+	appendCheck("ran\n")
+	if code(run) != code(twinRun) || out.String() != twinOut.String() || errOut.String() != twinErr.String() {
+		appendCheck(fmt.Sprintf("DIFF %s %q\n  dispatcher: exit %s stdout %q stderr %q\n  own binary: exit %s stdout %q stderr %q\n",
+			filepath.Base(cmd.Path), cmd.Args[1:], code(run), firstLines(out.String(), 5), firstLines(errOut.String(), 5),
+			code(twinRun), firstLines(twinOut.String(), 5), firstLines(twinErr.String(), 5)))
+	}
+	return run
+}
+
+var checkFile sync.Mutex
+
+func appendCheck(line string) {
+	checkFile.Lock()
+	defer checkFile.Unlock()
+	f, err := os.OpenFile(dispatchCheck, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(line); err != nil {
+		panic(err)
 	}
 }
 
