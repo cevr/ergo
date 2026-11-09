@@ -817,6 +817,17 @@
       "killers": [
         "check:TestCheckerScalePart0"
       ]
+    },
+    {
+      "name": "b14-goerror-empty-literal",
+      "origin": "wf10/batch-14 integration (IG5 x q44)",
+      "file": "internal/sketch/check/expr.go",
+      "from": "isNamed && len(x.Elts) == 0 && IsGoError(n) {",
+      "to": "isNamed && len(x.Elts) == 0 && IsGoError(n) && false {",
+      "rule": "interop.md Go errors 1 and 3, types.md Zero values 2: the empty go.Error{} is the nil Go error, not a record literal that leaves Text out.",
+      "killers": [
+        "lower:TestGoErrorChainsAgree"
+      ]
     }
   ]
 }

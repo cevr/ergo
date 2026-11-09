@@ -561,6 +561,42 @@ func main() {}
 	}
 }
 
+// TestLawRunGenericListed is the repro of a batch-14 merge bug: a law of a
+// generic operation type (L4) whose values can be listed at the provider's
+// instance runs by the one rule (Laws 10, MU6b), proved or refuted at its
+// first case, and its listed case passes the provider and the instance's
+// type arguments as the drawn run does. It builds Go because the subject
+// is the run's report. Mutant: listedRuns reads the law's own parameter
+// types (T), so the run draws 100 cases and is never proved.
+func TestLawRunGenericListed(t *testing.T) {
+	needsBuild(t)
+	src := `type Flip[T comparable] {
+	Not(v T) T,
+	law Moves(v T) { Not(v) != v },
+}
+
+type Turn {}
+
+func Not(_ Turn, v bool) bool { !v }
+
+type Stuck {}
+
+func Not(_ Stuck, v bool) bool { v }
+
+func main() {}
+`
+	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_generic_listed", src)}, true)
+	if exes == nil {
+		return
+	}
+	stdout, stderr, code := runExe(t, exes["lawrun_generic_listed"])
+	got := lines(stdout)
+	if code != 1 || len(got) != 3 || got[0] != "ok law Flip.Moves for Turn (proved: all 2 cases)" ||
+		!strings.HasPrefix(got[1], "FAIL law Flip.Moves for Stuck (case 1 of 2, every value: provider = Stuck, v = false)") {
+		t.Errorf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
+	}
+}
+
 // TestLawRunNoParams: a top-level law with no parameters draws nothing and
 // runs its one case, so a run that holds is proved (Laws 10); a false one
 // fails the run.

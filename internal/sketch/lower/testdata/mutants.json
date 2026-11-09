@@ -1512,6 +1512,17 @@
       "killers": [
         "lower:TestInterpolationText"
       ]
+    },
+    {
+      "name": "b14-generic-listed-own-types",
+      "origin": "wf10/batch-14 integration (L4 x MU6b)",
+      "file": "internal/sketch/lower/lawcases.go",
+      "from": "\t\tif generic {\n\t\t\tt = bd[0].Params[i]\n\t\t}",
+      "to": "\t\tif false {\n\t\t\tt = bd[0].Params[i]\n\t\t}",
+      "rule": "types.md Laws 10: a law of a generic operation type runs at the provider's instance by the one rule; values that can be listed are listed and the run is proved.",
+      "killers": [
+        "lower:TestLawRunGenericListed"
+      ]
     }
   ]
 }

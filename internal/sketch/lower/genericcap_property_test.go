@@ -80,7 +80,7 @@ func gcapProgram(seed uint64) (string, string) {
 		}
 		fmt.Fprintf(&b, "\nfunc use%d() needs %s {\n", f, strings.Join(names, " | "))
 		for _, g := range needs[f] {
-			fmt.Fprintf(&b, "\t%s.%s(E%d{})\n", g.name(), []string{"Put", "Bump"}[g.op], g.elem)
+			fmt.Fprintf(&b, "\t%s.%s(E%d{V: 0})\n", g.name(), []string{"Put", "Bump"}[g.op], g.elem)
 		}
 		b.WriteString("}\n")
 	}
@@ -118,7 +118,7 @@ func gcapProgram(seed uint64) (string, string) {
 				keys = append(keys, pair.name())
 				done[pair], inner[pair] = true, x
 			}
-			fmt.Fprintf(&decls, "\tlet mut b%d = Box[E%d]{}\n", x, g.elem)
+			fmt.Fprintf(&decls, "\tlet mut b%d = Box[E%d]{n: 0}\n", x, g.elem)
 			entries = append(entries, strings.Join(keys, ", ")+fmt.Sprintf(": &b%d", x))
 		}
 		fmt.Fprintf(&body, "%swith context { %s } {\n", indent, strings.Join(entries, ", "))
@@ -172,6 +172,7 @@ func gcapHas(gs []gcapInstance, g gcapInstance) bool {
 // when the program runs: the checker records the rows, and only the run
 // shows that each instance's environment field holds its own provider.
 func TestGenericCapabilitiesAgree(t *testing.T) {
+	needsBuild(t)
 	seeds := []uint64{1, 2, 3}
 	if *gcapSeed != 0 {
 		seeds = []uint64{*gcapSeed}

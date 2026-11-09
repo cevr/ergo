@@ -198,6 +198,7 @@ func allReached(reached map[string]bool) bool {
 // when the program runs: the checker records only that a call leaves the site out,
 // and the lowered literal is seen as the callee's value only by running it.
 func TestCallSitesAgree(t *testing.T) {
+	needsBuild(t)
 	seeds := []uint64{1, 2, 3}
 	if *siteSeed != 0 {
 		seeds = []uint64{*siteSeed}
