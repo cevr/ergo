@@ -9,7 +9,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// The flat run of a machine (MU8; runtime.md, Machines and actors 2). A call
+// The flat run of a machine (MU8; runtime.md, Machines and actors 8). A call
 // machines.Run(X{}, signals) or machines.From(X{}, s, signals) whose machine
 // is a machine declaration's value names its step, so the lowering runs it
 // in a loop of its own instead of std's fold over a Machine record:
