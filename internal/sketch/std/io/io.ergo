@@ -116,7 +116,8 @@ type Recorder { writes sync.Ref[[]string] }
 // NewRecorder is an empty Recorder.
 func NewRecorder() Recorder { Recorder{writes: sync.NewRef[[]string]([]string{})} }
 
-// Print keeps text.
+// Print keeps text. The literal takes the writes over (a Ref owns its
+// value), so Append writes in place: n Prints cost O(n) in all.
 func Print(r Recorder, text string) {
 	r.writes.Update(func(writes []string) []string { writes.Append(text) })
 }
@@ -133,8 +134,12 @@ func Eprintln(r Recorder, line string) { r.Print(line + "\n") }
 // IsTerminal is false: a Recorder is not a terminal.
 func IsTerminal(_ Recorder) bool { false }
 
-// Text is everything written to r, in order.
-func Text(r Recorder) string { strings.Join(r.writes.Get(), "") }
+// Text is everything written to r, in order. It reads the writes inside
+// sync.Modify, not through Get, so the Ref keeps its writes unshared and
+// the next Print appends in place (stdlib.md, Sync and STM 1).
+func Text(r Recorder) string {
+	sync.Modify(r.writes, func(writes []string) (string, []string) { (strings.Join(writes, ""), writes) })
+}
 
 // Input is a Stdin provider for tests: each read sees all of Text.
 type Input { Text string }
