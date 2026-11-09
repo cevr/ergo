@@ -39,6 +39,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.openFrame":     "the frame scope's parent task (NewScope)",
 			"funcCtx.poll":          "the interruption point (Check)",
 			"funcCtx.envClosure":    "a task callback's Env copy",
+			"funcCtx.goContext":     "rt.GoContext, the task as the hidden context.Context of a Go call; it neither waits nor releases (IG10)",
 			"lowerer.testRunner":    "a test case's task, which the case's Capture classifies its unwinding against (E3a M3)",
 			"lowerer.lawRuns":       "a law case's task, which the case's Capture classifies its unwinding against (#162)",
 		}},
