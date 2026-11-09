@@ -34,6 +34,12 @@ type Game = Playing | Won
 
 type Ints []int
 
+type Place { At int }
+
+type Sib1 { ..Place, X int }
+
+type Sib2 { ..Place, Y int }
+
 type Bad { Why string }
 
 func mk() Walk { Walk{At: 1, Turn: 2} }
@@ -113,6 +119,10 @@ var updateCases = []updateCase{
 	{"a slice type", `func f(xs Ints) Ints { Ints{..xs, Turn: 1} }`, []string{"1:24 S108"}},
 	{"an unhandled failure in a field value", `func f(w Walk) Walk { Walk{..w, Turn: risky(1)} }`, []string{"1:39 S105"}},
 	{"an unhandled failure in the base", `func f() Walk { Walk{..walkOrBad(1), Turn: 1} }`, []string{"1:24 S105"}},
+	{"a sibling spread names the field the base lacks", `func f(a Sib1) Sib2 { Sib2{..a, Y: 1} }`, nil},
+	{"a projection to an included record", `func f(a Sib1) Place { Place{..a} }`, nil},
+	{"a sibling spread with no field named", `func f(a Sib1) Sib2 { Sib2{..a} }`, []string{"1:30 S108"}},
+	{"a spread from a record of fields declared apart", `func f(w Walk) Other { Other{..w, Turn: 1} }`, []string{"1:32 S108"}},
 }
 
 // updateTexts holds, by case name, the text a case's first diagnostic must
@@ -121,6 +131,25 @@ var updateTexts = map[string]string{
 	// A Box literal must not give a Pair: the inferred base is an instance
 	// of the literal's own generic record, or it is refused.
 	"a base of another generic record that gives no type arguments": "the base of a record update of Box has type Pair[int], not Box",
+	// The S108 names the field the base lacks, never "the copy is a
+	// itself", which holds only for a base of exactly the literal's type.
+	"a sibling spread with no field named": "Sib2{..a}: Sib1 has no Y; name it: Y: …",
+	// One name from two declarations is not copied, and the fix is the
+	// explicit copy.
+	"a spread from a record of fields declared apart": "Other{..w} does not copy At: Walk's At and Other's At are declared apart, and a spread copies only a field both take from one declaration; write At: w.At",
+}
+
+// TestSpreadAuthority: a spread is a literal of its type, so another
+// package's record that only its package builds is S114 there, whatever
+// the base; no field, hidden or not, is copied past it.
+func TestSpreadAuthority(t *testing.T) {
+	lib := checkedLib(t)
+	ds := outside(t, lib, `func f(g lib.G[int]) lib.G[string] { lib.G[string]{..g, N: 1} }
+func main() {}
+`)
+	if len(ds) != 1 || ds[0].Code != check.CodeAuthority {
+		t.Errorf("a spread of lib.G[string] from lib.G[int] outside lib: want one S114, got %v", ds)
+	}
 }
 
 func updateDiags(src string) []string {
