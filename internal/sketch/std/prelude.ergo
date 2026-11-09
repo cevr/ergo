@@ -149,13 +149,18 @@ type Timeout[E] { In duration, Signal E }
 // state (README Gap 46). A value of a machine declaration `type X
 // machine[S, E]` converts to Machine[S, E, O, F, R], with O, F and R read
 // from its step's signature and After from its `after` entry (None for
-// every state when it has none), so a function over any machine names
-// them (std machines.Run). A Machine is also an ordinary record: a test
-// may build one from parts.
+// every state when it has none) and Work from its `work` entry: the Start
+// of the state's std machines.Work, which the runner calls with the
+// entry's send (None for every state when it has none; R then holds the
+// work's row too). So a function over any machine names them (std
+// machines.Run). A Machine is also an ordinary record: a test may build
+// one from parts. The work's type is std machines.Work, not a prelude
+// name: every prelude name is one a program cannot declare.
 type Machine[S, E, O, F, R] {
 	Initial S,
 	Step func(s S, e E) Decision[S, O] fails F needs R,
 	After func(s S) Option[Timeout[E]],
+	Work func(s S) Option[func(send func(e E)) needs R],
 }
 
 // InputMachine is a machine whose initial state is a function of an input
@@ -167,6 +172,7 @@ type InputMachine[I, S, E, O, F, R] {
 	Start func(input I) S,
 	Step func(s S, e E) Decision[S, O] fails F needs R,
 	After func(s S) Option[Timeout[E]],
+	Work func(s S) Option[func(send func(e E)) needs R],
 }
 
 // Task is a started task: task.Go() { … } yields one

@@ -1,0 +1,19 @@
+// Kitchen keeps the law of order.Kitchen. ergo test does not run a law of
+// an imported operation type against this package's providers (sign-in
+// finding F4), so this property restates it with Kitchen.
+
+import orderbuilder/order
+
+test KitchenCountsEveryLine(qty int, parts int, total int) {
+	let k order.Kitchen = Kitchen
+	let mut ps = []order.Line{}
+	for _ in 0..parts%4 {
+		ps = ps.Append(order.Line{Item: "p", Price: 1, Qty: 1, Parts: []order.Line{}})
+	}
+	let lines = []order.Line{order.Line{Item: "x", Price: 1, Qty: 1, Parts: ps}}
+	let t = k.Send(order.Order{Lines: lines, Total: total}) catch {
+	case order.Closed:
+		order.Ticket{Number: 0, Lines: order.CountLines(lines)}
+	}
+	assert t.Lines == order.CountLines(lines)
+}

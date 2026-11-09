@@ -22,6 +22,9 @@ type Task struct {
 	// into it. The cascade reads only this field, never the owner's mask. It
 	// sits beside stopped so that the two share one word.
 	shielded bool
+	// waker marks a task with an OnInterrupt wake in wakers, guarded by mu;
+	// it fills the same word, so the task keeps its size.
+	waker bool
 	// regions is the stack of open mask regions (regions.go). Only the owner
 	// goroutine reads or writes it, so masking costs no atomic operation.
 	regions regionStack
@@ -52,7 +55,8 @@ func Root(span string) *Task {
 
 // init links t as a child of parent. A child starts interruptible (pinned
 // Effect 4: fork is interruptible unless asked to inherit); masked starts it
-// inside one masked region, for GoMasked.
+// inside one masked region, for GoMasked; shield makes it shielded (see
+// below) whatever parent's regions are, for GoShielded.
 //
 // A child is release-owned and shielded when the nearest enclosing masked
 // region of parent that is not a restore is a protecting one: a release, a
@@ -62,13 +66,13 @@ func Root(span string) *Task {
 // Stop, a timeout and its scope's drain still interrupt it directly. This is
 // Trio's shielded cancel scope and Effect's uninterruptible finalizer. Any
 // other child starts stopped when parent is stopped.
-func (t *Task) init(parent *Task, span string, masked bool) {
+func (t *Task) init(parent *Task, span string, masked, shield bool) {
 	t.id = nextID.Add(1)
 	t.span = span
 	t.parent.Store(parent)
 	t.values = parent.values
 	t.trace = parent.trace
-	t.shielded = parent.regions.shields()
+	t.shielded = shield || parent.regions.shields()
 	t.join(parent)
 	if masked {
 		t.regions.push(protecting)
@@ -158,6 +162,11 @@ func (t *Task) Interrupt() {
 			close(t.stop)
 		}
 		m.unlock()
+		if t.waker {
+			if wake, ok := wakers.Load(t); ok {
+				wake.(StopWaker).Wake()
+			}
+		}
 		// Locks are taken ancestor first; detach takes only the parent's
 		// lock, so the walk cannot deadlock with a finishing child.
 		for c := t.first; c != nil; c = c.next {
@@ -189,13 +198,60 @@ func (t *Task) Check() {
 	}
 }
 
+// A StopWaker is woken by a stop request (OnInterrupt).
+type StopWaker interface{ Wake() }
+
+// OnInterrupt sets wake, which the stop request of t calls once, so a wait
+// on a channel of the caller's own can wake on a stop without a select on
+// Done (MU18: an actor's runner waits on its inbox's wake channel). wake
+// runs on the goroutine that requests the stop, under t's lock, so it must
+// not wait or take a lock that a stop can hold; a send of a token to a
+// buffered channel without waiting is the intended body. When the stop was
+// requested already, wake runs now. Each task has at most one wake: a
+// second call replaces the first, and OnInterrupt(nil) removes it, which
+// the waiter does before its task ends. The waiter checks Stopped after
+// each wake-up, since wake says only that it should look. Call it from the
+// task's own goroutine. The wakes live in a map beside the tree (wakers),
+// so a task without one pays nothing and keeps its size. Prior art: Go's
+// context.AfterFunc.
+func (t *Task) OnInterrupt(wake StopWaker) {
+	t.mu.Lock()
+	if wake == nil {
+		wakers.Delete(t)
+		t.waker = false
+		t.mu.Unlock()
+		return
+	}
+	wakers.Store(t, wake)
+	t.waker = true
+	stopped := t.stopped.Load()
+	t.mu.Unlock()
+	if stopped {
+		wake.Wake()
+	}
+}
+
+// wakers holds the OnInterrupt wakes: *Task -> StopWaker.
+var wakers sync.Map
+
 // Done returns a channel that is closed when a stop is requested, for a
 // blocking wait that must also wake on a stop (I1, rule 5). Inside a masked
 // region it returns nil, so the wait is uninterruptible (I2). Call it from the
-// task's own goroutine.
+// task's own goroutine. Every wait of the runtime calls it after it has
+// registered what it waits for (a Sleep after its timer is armed), so it is
+// also the point where WhenWaiting's hook runs.
 func (t *Task) Done() <-chan struct{} {
+	if waitHooks.n.Load() != 0 {
+		t.fireWaitHook()
+	}
 	if t.regions.top != interruptible {
 		return nil
+	}
+	// Only this goroutine writes t.stop (below), so it reads it without
+	// the lock once it is made; Interrupt only reads it, under the lock
+	// (MU18: an actor's runner and askers wait on it at every park).
+	if ch := t.stop; ch != nil {
+		return ch
 	}
 	t.mu.Lock()
 	if t.stop == nil {
@@ -207,4 +263,38 @@ func (t *Task) Done() <-chan struct{} {
 	ch := t.stop
 	t.mu.Unlock()
 	return ch
+}
+
+// waitHooks holds the hooks of WhenWaiting, keyed by task, and how many
+// there are. A hook lives from WhenWaiting to the task's first wait, so the
+// count is almost always zero and Done pays one atomic load. The hooks are
+// outside Task so that a task keeps its allocation size class
+// (TestTraceHookKeepsTaskSize).
+var waitHooks struct {
+	n atomic.Int64
+	m sync.Map // *Task -> func()
+}
+
+// WhenWaiting runs f once, on t's goroutine, when t first reaches a wait of
+// the runtime (Done), after the wait has registered what it waits for. A
+// Sleep on a virtual clock has armed its timer by then, so a caller that
+// waits for f knows that an Advance fires the sleep. cancel removes the hook
+// if it has not run; call it when t ends. Call WhenWaiting from t's own
+// goroutine.
+func WhenWaiting(t *Task, f func()) (cancel func()) {
+	waitHooks.m.Store(t, f)
+	waitHooks.n.Add(1)
+	return func() {
+		if _, ok := waitHooks.m.LoadAndDelete(t); ok {
+			waitHooks.n.Add(-1)
+		}
+	}
+}
+
+// fireWaitHook runs and removes t's WhenWaiting hook, if t has one.
+func (t *Task) fireWaitHook() {
+	if f, ok := waitHooks.m.LoadAndDelete(t); ok {
+		waitHooks.n.Add(-1)
+		f.(func())()
+	}
 }

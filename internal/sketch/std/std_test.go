@@ -1655,12 +1655,14 @@ func hostProviderTypes(pkg *check.Package) []*check.TypeName {
 			target, name := f.Decl.Extern.Split()
 			if target == v1Path {
 				// An impure body that notHostExterns names reaches no host
-				// state (sync.Modify changes a Ref of the program); the
-				// table's own guard holds each row to a body that no host
-				// provider's function reaches (TestStdExternCallersHoldAuthority).
+				// state (sync.Modify changes a Ref of the program; MU12:
+				// actor.exitKind and the exit reads take the program's Actor
+				// first, as an operation's receiver); the table's own guard
+				// holds each row to a body that no host provider's function
+				// reaches (TestStdExternCallersHoldAuthority).
 				body, err := v1.BodyOf(name)
 				_, notHost := notHostExterns[pkg.Name+"."+f.Name]
-				reaches[f] = err != nil || !body.Pure && !notHost
+				reaches[f] = (err != nil || !body.Pure) && !notHost
 			} else {
 				reaches[f] = !check.PureGoPackage(target)
 			}

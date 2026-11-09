@@ -1,0 +1,311 @@
+// The provider laws of a machine actor (decisions 2026-11-03 (b)): its
+// steps apply in send order, a Reject keeps the state, and Done is final.
+// They run over tally, a Machine built from parts that reaches every
+// Decision, on a time.Manual that no one advances (a law cannot hold
+// Ambient, so it binds no host Scheduler; tally has no timer).
+
+import machines
+import time
+
+// tallyStep reaches each Decision by the signal mod 6.
+func tallyStep(s int, e int) Decision[int, int] {
+	match ((e % 6) + 6) % 6 {
+	case 0:
+		Enter[int]{Next: s + e}
+	case 1:
+		Stay[int]{Next: s + 1}
+	case 2:
+		Ignore
+	case 3:
+		Reject
+	case 4:
+		Emit[int, int]{Next: s - 1, Output: s}
+	case _:
+		Done[int]{Output: s}
+	}
+}
+
+func untimed(s int) Option[Timeout[int]] { None }
+
+func unworked(s int) Option[func(send func(e int))] { None }
+
+func tally() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked} }
+
+// folded is the state of tally after signals, as the pure step gives it,
+// up to the first Done, and whether a Done came.
+func folded(signals []int) (int, bool) {
+	let mut s = 0
+	for e in signals {
+		let d = tallyStep(s, e)
+		match d {
+		case Done[int]:
+			return (s, true)
+		case _:
+			s = machines.Next(s, d)
+		}
+	}
+	(s, false)
+}
+
+// sent is a tally actor that was sent signals; a Send after a Done fails
+// Stopped, which it ignores.
+func sent(signals []int) Actor[int, int, Decision[int, int]] needs Scheduler {
+	let a = StartMachine(tally(), 1, func(o int) {})
+	for e in signals {
+		a.Send(e) catch {
+		case Stopped:
+		}
+	}
+	a
+}
+
+// inOrder: the State after signals is the pure fold's, and a Send fails
+// Stopped only after a Done.
+func inOrder(signals []int) bool needs Scheduler {
+	let a = StartMachine(tally(), 1, func(o int) {})
+	let mut refused = false
+	for e in signals {
+		a.Send(e) catch {
+		case Stopped:
+			refused = true
+		}
+	}
+	let s = a.State()
+	a.Stop()
+	let (want, done) = folded(signals)
+	s == want && (done || !refused)
+}
+
+// rejectKeeps: an Ask of a rejected signal answers Reject and keeps the
+// state.
+func rejectKeeps(signals []int, n int) bool needs Scheduler {
+	let a = sent(signals)
+	let before = a.State()
+	let (_, done) = folded(signals)
+	let d = a.Ask(6*(n%1000) + 3) catch {
+	case Stopped:
+		a.Stop()
+		return done
+	}
+	let after = a.State()
+	a.Stop()
+	match d {
+	case Reject:
+		after == before && !done
+	case _:
+		false
+	}
+}
+
+// doneFinal: after an Ask answered Done, Send fails Stopped and State is
+// the state the Done saw.
+func doneFinal(signals []int, e int) bool needs Scheduler {
+	let a = sent(signals)
+	let before = a.State()
+	let d = a.Ask(5) catch {
+	case Stopped:
+		a.Stop()
+		return true
+	}
+	let mut final = false
+	match d {
+	case Done[int] as dn:
+		final = dn.Output == before
+	case _:
+	}
+	a.Send(e) catch {
+	case Stopped:
+		final = final && a.State() == before
+		a.Stop()
+		return final
+	}
+	a.Stop()
+	false
+}
+
+// SendsStepInOrder: the actor steps a sender's signals in the order it
+// sent them: its State after them is the pure fold's, and a Send fails
+// Stopped only once a Done was stepped.
+law SendsStepInOrder(signals []int) {
+	with context { Scheduler: time.NewManual(0) } {
+		inOrder(signals)
+	}
+}
+
+// RejectKeepsState: an Ask that the step rejects answers Reject and keeps
+// the state.
+law RejectKeepsState(signals []int, n int) {
+	with context { Scheduler: time.NewManual(0) } {
+		rejectKeeps(signals, n)
+	}
+}
+
+// DoneIsFinal: after an Ask answered Done, the actor steps nothing: Send
+// fails Stopped, and State stays the state the Done saw.
+law DoneIsFinal(signals []int, e int) {
+	with context { Scheduler: time.NewManual(0) } {
+		doneFinal(signals, e)
+	}
+}
+
+// logStep keeps every signal: the state is the list of them, in order.
+func logStep(s []int, e int) Decision[[]int, int] { Stay[[]int]{Next: s.Append(e)} }
+
+func logUntimed(s []int) Option[Timeout[int]] { None }
+
+func logUnworked(s []int) Option[func(send func(e int))] { None }
+
+// fed: a source's values are stepped in its order, each once: the state
+// the actor reaches once it has stepped as many signals is xs.
+func fed(xs []int) bool needs Scheduler {
+	let a = StartMachine(Machine[[]int, int, int]{Initial: []int{}, Step: logStep, After: logUntimed, Work: logUnworked}, 1, func(o int) {})
+	Feed(a, source(xs)) catch {
+	case Stopped:
+		return false
+	}
+	let s = WaitFor(a, func(s []int) bool { len(s) >= len(xs) }) catch {
+	case Stopped:
+		return false
+	}
+	a.Stop()
+	let mut same = len(s) == len(xs)
+	for i in 0..len(s) {
+		same = same && s[i] == xs[i]
+	}
+	same
+}
+
+// FeedStepsInOrder: the actor steps a source's values in the source's
+// order, each once.
+law FeedStepsInOrder(xs []int) {
+	with context { Scheduler: time.NewManual(0) } {
+		fed(xs)
+	}
+}
+
+// can: Can is the pure step's answer in the actor's state while it runs,
+// and false once it has ended (after a Done among the signals).
+func can(signals []int, e int) bool needs Scheduler {
+	let a = sent(signals)
+	let (_, done) = folded(signals)
+	let s = a.State()
+	let c = Can(a, tallyStep, e)
+	let kept = a.State() == s
+	a.Stop()
+	let after = Can(a, tallyStep, e)
+	kept && !after && (if done { !c } else { c == machines.Can(tallyStep, s, e) })
+}
+
+// CanIsTheStep: Can answers as the step would in the actor's state, takes
+// nothing, and answers false once the actor has ended.
+law CanIsTheStep(signals []int, e int) {
+	with context { Scheduler: time.NewManual(0) } {
+		can(signals, e)
+	}
+}
+
+// exitParts is an exit as its variant (0 Finished, 1 Halted, 2 Defected),
+// its state and its output.
+func exitParts(x Exit[int, int]) (int, int, int) {
+	match x {
+	case Finished[int, int] as f:
+		(0, f.State, f.Output)
+	case Halted[int] as h:
+		(1, h.State, 0)
+	case Defected:
+		(2, 0, 0)
+	}
+}
+
+// drainedExit: after the signals and a Drain, two ExitOf calls give the
+// same exit, the one the pure fold gives: Finished with the state the
+// Done saw when a Done came, else Halted with the folded state.
+func drainedExit(signals []int) bool needs Scheduler {
+	let a = sent(signals)
+	a.Drain()
+	let (k1, s1, o1) = exitParts(ExitOf(a))
+	let (k2, s2, o2) = exitParts(ExitOf(a))
+	let (want, done) = folded(signals)
+	let mut kind = 1
+	if done {
+		kind = 0
+	}
+	k1 == k2 && s1 == s2 && o1 == o2 && k1 == kind && s1 == want && (!done || o1 == want)
+}
+
+// ExitIsShared: Drain steps every queued signal, and the exit is one
+// value: each ExitOf gives the same, the pure fold's.
+law ExitIsShared(signals []int) {
+	with context { Scheduler: time.NewManual(0) } {
+		drainedExit(signals)
+	}
+}
+
+// SelectOncePerChange: Select gives f of each value, with each value
+// equal to the one before it dropped.
+law SelectOncePerChange(xs []int) {
+	let mut want = []int{}
+	for x in xs {
+		if len(want) == 0 || want[len(want)-1] != x % 3 {
+			want = want.Append(x % 3)
+		}
+	}
+	let mut got = []int{}
+	for v in Select(Seq[int](func(yield func(v int) bool) {
+		for x in xs {
+			if !yield(x) {
+				return
+			}
+		}
+	}), func(x int) int { x % 3 }) {
+		got = got.Append(v)
+	}
+	let mut same = len(got) == len(want)
+	for i in 0..len(got) {
+		same = same && got[i] == want[i]
+	}
+	same
+}
+
+// source is xs as a Seq.
+func source(xs []int) Seq[int] {
+	Seq[int](func(yield func(v int) bool) {
+		for x in xs {
+			if !yield(x) {
+				return
+			}
+		}
+	})
+}
+
+// selectStops: s is a Seq that stops (stdlib.md, Std laws 5): with n the
+// count of its values, a yield that returns false at its k-th call (k
+// from 1 to n+1) is called min(k, n) times.
+func selectStops(s Seq[int]) bool {
+	let mut n = 0
+	s(func(v int) bool {
+		n = n + 1
+		true
+	})
+	for k in 1..n+2 {
+		let mut calls = 0
+		s(func(v int) bool {
+			calls = calls + 1
+			calls < k
+		})
+		if calls != (if k < n { k } else { n }) {
+			return false
+		}
+	}
+	true
+}
+
+// SelectStops: Select is a Seq that stops.
+law SelectStops(xs []int) {
+	selectStops(Select(source(xs), func(x int) int { x % 3 }))
+}
+
+// SelectByStops: SelectBy is a Seq that stops.
+law SelectByStops(xs []int) {
+	selectStops(SelectBy(source(xs), func(x int) int { x % 3 }, func(a int, b int) bool { a == b }))
+}

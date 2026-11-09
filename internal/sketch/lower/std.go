@@ -660,9 +660,10 @@ func (fc *funcCtx) bindFunc(fv string) string {
 // task.Go block, and returns fv's error.
 func (fc *funcCtx) adaptPlainFunc(fv string, shape *v1.Body, sig *check.Signature, site syntax.Node) string {
 	tasked := len(shape.Hidden) == 1 && shape.Hidden[0] == v1.CallerTask && len(shape.Results) == 2 && shape.Results[1] == "error"
+	if len(shape.Hidden) != 0 && !tasked {
+		return fc.adaptTaskFunc(fv, shape, sig, site)
+	}
 	switch {
-	case len(shape.Hidden) != 0 && !tasked:
-		ice(site, "a std function parameter with parameters takes the hidden argument %s", shape.Hidden[0])
 	case len(shape.Params) != len(sig.Params):
 		ice(site, "a std function parameter has %d Go parameters for %d Ergo parameters", len(shape.Params), len(sig.Params))
 	case tasked && len(sig.Results) != 1:
@@ -691,6 +692,78 @@ func (fc *funcCtx) adaptPlainFunc(fv string, shape *v1.Body, sig *check.Signatur
 		}
 		r := fc.scope.alloc("r")
 		return params, " " + fc.goType(sig.Results[0]), ind + r + ", _ := " + call + "\n" + ind + "return " + r + "\n"
+	})
+}
+
+// adaptTaskFunc adapts fv, an Ergo function value of the uniform shape, to
+// shape, a Go function parameter of a std body that takes the hidden task
+// that runs it and then parameters of its own, such as the step
+// func(*rt.Task, S, E) (D, error) of actor.StartMachine (MU3). fv may have
+// rows: it runs on a copy of the caller's environment, captured here, that
+// holds the given task (Rule 1: the providers are captured, the task is the
+// runner's), as a task.Go block does. The Go results are fv's value, when
+// the Ergo function has one, then error, when the Ergo function type has an
+// error row; a Go function with no error drops fv's error, which a checked
+// value with no error row never returns. fv is bound once, here.
+func (fc *funcCtx) adaptTaskFunc(fv string, shape *v1.Body, sig *check.Signature, site syntax.Node) string {
+	fallible := len(shape.Results) > 0 && shape.Results[len(shape.Results)-1] == "error"
+	values := len(shape.Results)
+	if fallible {
+		values--
+	}
+	switch {
+	case len(shape.Hidden) != 1 || shape.Hidden[0] != v1.CallerTask:
+		ice(site, "the hidden arguments %v of a std function parameter with parameters", shape.Hidden)
+	case len(shape.Params) != len(sig.Params):
+		ice(site, "a std function parameter has %d Go parameters for %d Ergo parameters", len(shape.Params), len(sig.Params))
+	case len(sig.Results) > 1 || values != len(sig.Results):
+		ice(site, "a std function parameter returns %v for %d Ergo results", shape.Results, len(sig.Results))
+	}
+	fv = fc.bindFunc(fv)
+	return fc.envClosure(childEnv, "e", site, func(env string) (params []string, results, body string) {
+		args := []string{env}
+		for i, p := range sig.Params {
+			name := fc.scope.alloc("p")
+			if ps, ok := p.Type.(*check.Signature); ok && shape.Params[i].Func != nil {
+				// A function the Go body gives the callback, such as the
+				// send of actor.StartMachine's work (MU4): a plain Go
+				// function, wrapped here in the uniform shape.
+				goParams, goArgs, wrapParams := []string{}, []string{}, []string{}
+				for _, q := range ps.Params {
+					a := fc.scope.alloc("a")
+					goParams = append(goParams, fc.goType(q.Type))
+					wrapParams = append(wrapParams, a+" "+fc.goType(q.Type))
+					goArgs = append(goArgs, a)
+				}
+				if len(ps.Results) != 0 || len(rowElems(ps.Errors)) != 0 || len(rowElems(ps.Uses)) != 0 {
+					ice(site, "a std callback's function parameter with a result or a row")
+				}
+				params = append(params, name+" func("+strings.Join(goParams, ", ")+")")
+				ind := strings.Repeat("\t", fc.depth+2)
+				wrapped := fc.envClosure(callerEnv, "_", site, func(string) ([]string, string, string) {
+					return wrapParams, " (struct{}, error)", ind + name + "(" + strings.Join(goArgs, ", ") + ")\n" + ind + "return struct{}{}, nil\n"
+				})
+				args = append(args, wrapped)
+				continue
+			}
+			params = append(params, name+" "+fc.goType(p.Type))
+			args = append(args, name)
+		}
+		ind := strings.Repeat("\t", fc.depth+1)
+		call := fv + "(" + strings.Join(args, ", ") + ")"
+		switch {
+		case values == 1 && fallible:
+			results, body = " ("+fc.goType(sig.Results[0])+", error)", ind+"return "+call+"\n"
+		case values == 1:
+			r := fc.scope.alloc("r")
+			results, body = " "+fc.goType(sig.Results[0]), ind+r+", _ := "+call+"\n"+ind+"return "+r+"\n"
+		case fallible:
+			err := fc.scope.alloc("err")
+			results, body = " error", ind+"_, "+err+" := "+call+"\n"+ind+"return "+err+"\n"
+		default:
+			body = ind + "_, _ = " + call + "\n"
+		}
+		return params, results, body
 	})
 }
 

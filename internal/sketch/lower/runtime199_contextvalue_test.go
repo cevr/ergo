@@ -1077,19 +1077,19 @@ func TestRuntime199ContextValueOwner(t *testing.T) {
 			t.Errorf("the context owner emits %s %d times, want 1", name, emits[name])
 		}
 	}
-	// The runtime: a use of rt's (*Task).WithValue (a call or a method
-	// value) and a write of rt's Task.values or v1's Scope.withs, each
-	// resolved to its declaration.
+	// The runtime: a use of rt's (*Task).WithValue or Bind (a call or a
+	// method value) and a write of rt's Task.values or v1's Scope.withs,
+	// each resolved to its declaration.
 	// rt's own check names its package "rt"; v1 imports it by path.
-	withValue := func(f *types.Func) bool {
+	taskMethod := func(f *types.Func, name string) bool {
 		sig, _ := f.Type().(*types.Signature)
-		if f.Name() != "WithValue" || f.Pkg() == nil || sig == nil || sig.Recv() == nil {
+		if f.Name() != name || f.Pkg() == nil || sig == nil || sig.Recv() == nil {
 			return false
 		}
 		path := f.Pkg().Path()
 		return (path == "rt" || strings.HasSuffix(path, "/runtime/rt")) && strings.HasSuffix(types.TypeString(sig.Recv().Type(), nil), "rt.Task")
 	}
-	uses := map[string]bool{}
+	uses, binds := map[string]bool{}, map[string]bool{}
 	for _, pkg := range []string{"rt", "v1"} {
 		src := typedPackage(t, filepath.Join("..", "..", "..", "runtime", pkg))
 		var field types.Object
@@ -1097,7 +1097,7 @@ func TestRuntime199ContextValueOwner(t *testing.T) {
 		switch pkg {
 		case "rt":
 			field = src.method(t, "Task", "values")
-			writers = []string{"rt.Task.init", "rt.Task.WithValue", "rt.Context.End", "rt.Task.detach"}
+			writers = []string{"rt.Task.init", "rt.Task.WithValue", "rt.Task.Bind", "rt.Context.End", "rt.Task.detach"}
 		case "v1":
 			field = src.method(t, "Scope", "withs")
 			writers = []string{"v1.Scope.OpenWith", "v1.Scope.OpenContext", "v1.Scope.EndWith", "v1.Context.End", "v1.Scope.close"}
@@ -1107,8 +1107,11 @@ func TestRuntime199ContextValueOwner(t *testing.T) {
 			ast.Inspect(decl, func(n ast.Node) bool {
 				switch n := n.(type) {
 				case *ast.Ident:
-					if f, ok := src.info.Uses[n].(*types.Func); ok && withValue(f) {
+					if f, ok := src.info.Uses[n].(*types.Func); ok && taskMethod(f, "WithValue") {
 						uses[owner] = true
+					}
+					if f, ok := src.info.Uses[n].(*types.Func); ok && taskMethod(f, "Bind") {
+						binds[owner] = true
 					}
 				case *ast.AssignStmt:
 					for _, l := range n.Lhs {
@@ -1124,6 +1127,12 @@ func TestRuntime199ContextValueOwner(t *testing.T) {
 	}
 	if got := sortedKeys(uses); !slices.Equal(got, []string{"v1.Scope.OpenContext"}) {
 		t.Errorf("the runtime binds context values in %v, want only v1.Scope.OpenContext", got)
+	}
+	// Bind is the allocation-free binding of a runtime key: only an
+	// actor's runner binds itself (its hostKey; runtime.md, Machines and
+	// actors 16), and a defect's report prints no such key (contextOf).
+	if got := sortedKeys(binds); !slices.Equal(got, []string{"v1.Actor[S, E, D].runner"}) {
+		t.Errorf("the runtime binds values with Bind in %v, want only v1.Actor[S, E, D].runner", got)
 	}
 }
 

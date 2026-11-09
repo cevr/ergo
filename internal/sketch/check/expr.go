@@ -638,6 +638,10 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 		return *walkLt
 	}
 	mark := c.undiagSeq
+	if c.workLitForm(x) {
+		// The work rule's forms of a Work literal (work.go).
+		return c.workLit(x, hint)
+	}
 	if x.Base != nil {
 		return c.recordUpdate(x, hint, mark, lt)
 	}

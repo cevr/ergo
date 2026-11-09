@@ -174,6 +174,10 @@ type Info struct {
 	// produces it with the clause that admitted the value (types.md,
 	// Assignability); the lowering never derives a conversion again.
 	Implicit map[syntax.Expr]Conversion
+	// Works is every Work literal of the work rule's forms (Run or Listen
+	// with their maps; work.go), which the lowering builds Start from. Nil
+	// when the package has none. Added by MU4 (additive).
+	Works map[*syntax.CompositeLit]*WorkLit
 	// ImplicitElems is, for a value of several elements that a multi-name
 	// let (`let a, b Store = pair()`) or a return of several results takes
 	// apart, each element's implicit conversion in order, a zero

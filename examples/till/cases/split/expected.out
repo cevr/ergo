@@ -1,0 +1,9 @@
+screen: basket: 0 items, 0.00
+> add tea 500
+screen: basket: 1 items, 5.00
+> add cake 305
+screen: basket: 2 items, 8.05
+> pay card:4111:500 voucher:AB:305
+screen: receipt: 8.05 paid by card-4111, voucher-AB
+> wait
+sold: 8.05 (card-4111, voucher-AB)

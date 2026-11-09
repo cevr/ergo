@@ -1,0 +1,88 @@
+page 1/2: 1 burger 6.50, 2 fries 2.50, 3 meal 1.00 | basket: 0 lines, 0.00
+> next
+page 2/2: 1 wrap 6.00, 2 salad 3.00, 3 family 0.00 | basket: 0 lines, 0.00
+> open 3
+editing family | basket: 0 lines, 0.00
+  family: choose first: 1 meal 1.00
+> choose 1
+editing family | basket: 0 lines, 0.00
+  family: meal for first
+    meal: choose main: 1 burger 6.50, 2 wrap 6.00
+> choose 1
+editing family | basket: 0 lines, 0.00
+  family: meal for first
+    meal: burger for main
+      burger x1 6.50: add, more, less or back
+> back
+editing family | basket: 0 lines, 0.00
+  family: meal for first
+    meal: choose main: 1 burger 6.50, 2 wrap 6.00
+> choose 2
+editing family | basket: 0 lines, 0.00
+  family: meal for first
+    meal: wrap for main
+      wrap x1 6.00: add, more, less or back
+> add
+editing family | basket: 0 lines, 0.00
+  family: meal for first
+    meal: choose side: 1 fries 2.50, 2 salad 3.00
+> choose 2
+editing family | basket: 0 lines, 0.00
+  family: meal for first
+    meal: salad for side
+      salad x1 3.00: add, more, less or back
+> add
+editing family | basket: 0 lines, 0.00
+  family: meal for first
+    meal x1 10.00: add, more, less or back
+> add
+editing family | basket: 0 lines, 0.00
+  family: choose second: 1 meal 1.00
+> choose 1
+editing family | basket: 0 lines, 0.00
+  family: meal for second
+    meal: choose main: 1 burger 6.50, 2 wrap 6.00
+> choose 1
+editing family | basket: 0 lines, 0.00
+  family: meal for second
+    meal: burger for main
+      burger x1 6.50: add, more, less or back
+> add
+editing family | basket: 0 lines, 0.00
+  family: meal for second
+    meal: choose side: 1 fries 2.50, 2 salad 3.00
+> choose 1
+editing family | basket: 0 lines, 0.00
+  family: meal for second
+    meal: fries for side
+      fries x1 2.50: add, more, less or back
+> add
+editing family | basket: 0 lines, 0.00
+  family: meal for second
+    meal x1 10.00: add, more, less or back
+> add
+editing family | basket: 0 lines, 0.00
+  family x1 20.00: add, more, less or back
+> more
+editing family | basket: 0 lines, 0.00
+  family x2 20.00: add, more, less or back
+> add
+page 2/2: 1 wrap 6.00, 2 salad 3.00, 3 family 0.00 | basket: 1 lines, 40.00
+> open 3
+editing family | basket: 1 lines, 40.00
+  family: choose first: 1 meal 1.00
+> choose 1
+editing family | basket: 1 lines, 40.00
+  family: meal for first
+    meal: choose main: 1 burger 6.50, 2 wrap 6.00
+> back
+editing family | basket: 1 lines, 40.00
+  family: choose first: 1 meal 1.00
+> back
+page 2/2: 1 wrap 6.00, 2 salad 3.00, 3 family 0.00 | basket: 1 lines, 40.00
+> checkout
+order: 40.00
+  2x family 20.00 [1x meal 10.00 [1x wrap 6.00, 1x salad 3.00], 1x meal 10.00 [1x burger 6.50, 1x fries 2.50]]
+kitchen: ticket 24, 7 to make
+> more
+(the order has ended)

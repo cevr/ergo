@@ -16,6 +16,22 @@
 // function.
 
 import time
+// Work is the work a state's entry owns (docs/spec/runtime.md, Machines
+// and actors 12): a machine's `work: w` entry names w(s S)
+// Option[machines.Work[E, R]]. The runner starts it after the commit that
+// opens the entry, before observers see the state, and interrupts it when
+// the entry ends; Start gets send, which gives the machine a signal of
+// this entry (one of an ended entry is dropped), and the work's capability
+// row R is charged to the machine. A Work literal of the forms
+// machines.Work{Run: f, OnSuccess: g, OnFailure: h} and
+// machines.Work{Listen: f, OnFailure: h} builds Start: Run's result
+// becomes a signal through OnSuccess, which may be left out when the
+// result is a signal; a typed failure of Run or Listen becomes a signal
+// through OnFailure, which may be left out when every failure is a
+// signal; an interruption sends nothing, and a defect ends the actor.
+// Work lives here, not in the prelude, so a program may still declare a
+// Work of its own (a prelude name cannot be declared).
+type Work[E, R] { Start func(send func(e E)) needs R }
 
 // Finished is a run that the step ended with Done: the state the step saw
 // last, Done's output, and the outputs of the run's Emits before it, in
@@ -67,12 +83,34 @@ func Next[S, O](s S, d Decision[S, O]) S {
 	}
 }
 
+// Can is whether step takes e in s: its decision is Enter, Stay, Emit or
+// Done, not Ignore or Reject (MU10; runtime.md, Machines and actors 15).
+// step is pure (no failure, no capability), so asking it acts on nothing
+// and commits nothing: a screen greys a key whose signal the state cannot
+// take. A step with a row is no Can's: its answer could act.
+func Can[S, E, O](step func(s S, e E) Decision[S, O], s S, e E) bool {
+	match step(s, e) {
+	case Enter[S]:
+		true
+	case Stay[S]:
+		true
+	case Emit[S, O]:
+		true
+	case Done[O]:
+		true
+	case Ignore:
+		false
+	case Reject:
+		false
+	}
+}
+
 // Start is the machine m started with input: its initial state is
 // m.Start(input), computed for this call, and its step and timers are m's
 // (runtime.md, Machines and actors 10). Run(Start(m, input), signals) runs
 // a machine with an input.
 func Start[I, S, E, O, F, R](m InputMachine[I, S, E, O, F, R], input I) Machine[S, E, O, F, R] {
-	Machine[S, E, O, F, R]{Initial: m.Start(input), Step: m.Step, After: m.After}
+	Machine[S, E, O, F, R]{Initial: m.Start(input), Step: m.Step, After: m.After, Work: m.Work}
 }
 
 // Initial is m's initial state.

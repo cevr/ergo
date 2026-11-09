@@ -1,0 +1,55 @@
+page 1/2: 1 burger 6.50, 2 fries 2.50, 3 meal 1.00 | basket: 0 lines, 0.00
+> open 1
+editing burger | basket: 0 lines, 0.00
+  burger x1 6.50: add, more, less or back
+> more
+editing burger | basket: 0 lines, 0.00
+  burger x2 6.50: add, more, less or back
+> more
+editing burger | basket: 0 lines, 0.00
+  burger x3 6.50: add, more, less or back
+> more
+editing burger | basket: 0 lines, 0.00
+  burger x4 6.50: add, more, less or back
+> more
+editing burger | basket: 0 lines, 0.00
+  burger x5 6.50: add, more, less or back
+> more
+editing burger | basket: 0 lines, 0.00
+  burger x6 6.50: add, more, less or back
+> more
+editing burger | basket: 0 lines, 0.00
+  burger x7 6.50: add, more, less or back
+> more
+editing burger | basket: 0 lines, 0.00
+  burger x8 6.50: add, more, less or back
+> more
+editing burger | basket: 0 lines, 0.00
+  burger x9 6.50: add, more, less or back
+> more
+editing burger | basket: 0 lines, 0.00
+  burger x10 6.50: add, more, less or back
+> more
+editing burger | basket: 0 lines, 0.00
+  burger x11 6.50: add, more, less or back
+> more
+editing burger | basket: 0 lines, 0.00
+  burger x12 6.50: add, more, less or back
+> more
+editing burger | basket: 0 lines, 0.00
+  burger x13 6.50: add, more, less or back
+> more
+editing burger | basket: 0 lines, 0.00
+  burger x14 6.50: add, more, less or back
+> more
+editing burger | basket: 0 lines, 0.00
+  burger x15 6.50: add, more, less or back
+> more
+editing burger | basket: 0 lines, 0.00
+  burger x16 6.50: add, more, less or back
+> add
+page 1/2: 1 burger 6.50, 2 fries 2.50, 3 meal 1.00 | basket: 1 lines, 104.00
+> checkout
+order: 104.00
+  16x burger 6.50
+kitchen: orders over 100.00 need a call

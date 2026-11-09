@@ -46,7 +46,7 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 				t.Errorf("%s joins children and names no runtime/v1 law test", name)
 			}
 		default:
-			if hostWaitLaws[name] {
+			if hostWaitLaws[name] || actorWaitLaws[name] {
 				// A host wait parks on a host process, not on a runtime
 				// primitive the native barrier can hold; its stop, mask and
 				// reap laws are its runtime/v1 model test.
@@ -77,7 +77,37 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 // TestTransformModel (no call outlives the map); for TasksRace, which waits
 // through the same rt ends line, TestRaceModel (every block has ended and
 // run its exit action when Race returns).
-var childWaitLaws = map[string]bool{"After": true, "TasksTransform": true, "TasksRace": true, "Set.Wait": true, "Set.Stop": true}
+// MachineStart (std actor, MU3) starts the actor's task as a child of the
+// caller and joins nothing: runtime/v1/actor_test.go TestActorStopCascades
+// states that a stop of the caller stops the actor, and
+// TestActorModelAgreesWithTimedFold that Stop drains it.
+// MachineChild (std actor, MU5) starts the child's task as a child of the
+// caller, shielded, and joins nothing: runtime/v1/actor_children_test.go
+// TestActorChildrenAgreeWithTree states that its owner entry stops it,
+// last started first, before the next entry and before the owner ends.
+var childWaitLaws = map[string]bool{"After": true, "TasksTransform": true, "TasksRace": true, "Set.Wait": true, "Set.Stop": true, "MachineStart": true, "MachineChild": true}
+
+// actorWaitLaws are the waiting bindings of std actor (MU3): each waits on
+// the actor's own runner (for room in its inbox, an answer, a state, a
+// change, or the runner's end), which the native barrier cannot hold
+// without a machine. runtime/v1/actor_test.go states their laws:
+// TestActorWaitsAreInterruptible, that a stop of the waiting task ends a
+// Send, Ask, State or Changes wait with an interruption and that a stopped
+// Send's signal never enters the inbox (a masked waiter waits to the end,
+// since rt's Done is nil under a mask); TestActorModelAgreesWithTimedFold
+// and TestActorSendersKeepTheirOrder, that Stop (drainWait) returns only
+// after the runner and its timer ended and every queued Ask was answered.
+// MU12: Drain (drainWait) and ActorExitKind (callerWait) wait for the
+// runner's end; runtime/v1/actor_observe_test.go
+// TestActorObserveAgreesWithFold states that Drain returns only after
+// every queued signal was stepped and the runner ended, and that every
+// ActorExitKind caller gets the one exit. MU10: ActorFeed waits for room
+// as a Send does and ActorLiveState for an answer as State does;
+// runtime/v1/actor_feed_test.go TestActorFeedSourcesEndWithTheActor states
+// that a Feed and a live read on an ended actor fail Stopped at once, and
+// that a fed source never runs after the end returns.
+var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Actor.State": true, "Actor.Changes": true, "Actor.Stop": true,
+	"Actor.Drain": true, "ActorExitKind": true, "ActorFeed": true, "ActorLiveState": true, "Host.Get": true}
 
 // hostWaitLaws are the callerWait bindings that wait for a host process
 // (std-align S3c): runtime/v1/exec_test.go TestExecStopModel states their

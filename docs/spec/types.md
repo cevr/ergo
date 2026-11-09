@@ -365,7 +365,7 @@ Status: **declared** in the embedded prelude (`internal/sketch/std/prelude.ergo`
 - `Task[T, E]`, a resource ([runtime.md](runtime.md#tasks)).
 - `Decision[S, O]` with `Enter`, `Stay`, `Emit`, `Ignore`, `Reject` and `Done` ([runtime.md](runtime.md#machines-and-actors) 2).
 - `Timeout[E] { In duration, Signal E }`, a state's timer ([runtime.md](runtime.md#machines-and-actors) 9).
-- `Machine[S, E, O, F, R]`, a machine as a value, a record of `Initial S`, `Step func(s S, e E) Decision[S, O] fails F needs R` and `After func(s S) Option[Timeout[E]]`.
+- `Machine[S, E, O, F, R]`, a machine as a value, a record of `Initial S`, `Step func(s S, e E) Decision[S, O] fails F needs R`, `After func(s S) Option[Timeout[E]]` and `Work func(s S) Option[func(send func(e E)) needs R]`, the Start of each state's std `machines.Work` (runtime.md, Machines and actors 12; the work type is not a prelude name).
 - `InputMachine[I, S, E, O, F, R]`, a machine whose first state is a function of an input `I`: a record of `Start func(input I) S`, `Step` and `After` as in `Machine`. A machine declaration whose `initial` names a start function converts to it, and to no `Machine` ([runtime.md](runtime.md#machines-and-actors) 10). A value of a machine declaration `type X machine[S, E]` is assignable to the `Machine` whose `O`, `F` and `R` are its step's output, error row and capability row, and to no other type (Assignability, ConvMachine; README Gap 46); inference reads them the same way, so `machines.Run(X{}, signals)` needs no type arguments ([runtime.md](runtime.md#machines-and-actors) 8).
 - The capabilities `Scheduler`, `Random` and `Console` (`Clock` is `time.Clock`).
 

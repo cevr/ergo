@@ -206,6 +206,7 @@ type goDecls map[string]goDecl
 // with no row is a declaration of the program, as strings.Halves is.
 var stdRecords = map[string]string{
 	"base64.Malformed":     "Base64Malformed",
+	"actor.Stopped":        "ActorStopped",
 	"exec.Denied":          "ExecDenied",
 	"exec.Failed":          "ExecFailed",
 	"exec.NotFound":        "ExecNotFound",

@@ -24,6 +24,20 @@ func (t *Task) WithValue(key, value any) Context {
 	return Context{t: t, prev: prev}
 }
 
+// Slot is the storage of one value binding that its owner keeps, so
+// Bind allocates nothing: a runtime/v1 actor keeps one in the Actor to
+// bind itself to its runner's task.
+type Slot struct{ v values }
+
+// Bind is WithValue with the binding's storage in b, which must stay
+// unchanged until End.
+func (t *Task) Bind(b *Slot, key, value any) Context {
+	prev := t.values
+	b.v = values{key: key, value: value, next: prev}
+	t.values = &b.v
+	return Context{t: t, prev: prev}
+}
+
 // End restores the values in force before WithValue. Tasks already started
 // keep the values they inherited.
 func (c Context) End() { c.t.values = c.prev }

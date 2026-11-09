@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -190,12 +191,34 @@ func useSource(c stdMatchFunc, method bool) string {
 	for i, p := range sig.Params {
 		args[i] = "p" + strconv.Itoa(i)
 		params[i] = args[i] + " " + p.Type.String()
+		// An escaping parameter (actor.StartDurable's save) takes an
+		// escaping argument, so use's parameter is escaping too.
+		if s, ok := p.Type.(*check.Signature); ok && !s.NonEscaping {
+			params[i] = args[i] + " escaping " + p.Type.String()
+		}
+	}
+	if check.TakesWorkSend(c.fn) {
+		return workUseSource(c, params, args)
 	}
 	b.WriteString("(" + strings.Join(params, ", ") + ")")
 	// The rest of the signature as the checker spells it: results, fails
 	// and needs.
+	// The parameter list ends at the ")" that closes its "(": a parameter
+	// of function type has parentheses of its own (actor.StartMachine's
+	// sink func(O) needs R).
 	text := sig.String()
-	b.WriteString(text[strings.Index(text, ")")+1:])
+	end, depth := 0, 0
+	for i, r := range text {
+		if r == '(' {
+			depth++
+		} else if r == ')' {
+			if depth--; depth == 0 {
+				end = i
+				break
+			}
+		}
+	}
+	b.WriteString(text[end+1:])
 	call := c.pkg.Name + "." + c.fn.Name + "(" + strings.Join(args, ", ") + ")"
 	if len(args) > 0 && method {
 		call = args[0] + "." + c.fn.Name + "(" + strings.Join(args[1:], ", ") + ")"
@@ -204,7 +227,88 @@ func useSource(c stdMatchFunc, method bool) string {
 		call = "try " + call
 	}
 	b.WriteString(" {\n\t" + call + "\n}\n")
+	if check.TakesDurableMachine(c.fn) {
+		return durableUseSource(b.String(), sig.Params[0].Type.String())
+	}
 	return b.String()
+}
+
+// durableUseSource is the use of a durable runner
+// (check.TakesDurableMachine) built from plain, its use with the machine
+// parameter p0 passed through. The durable rule admits only a machine whose
+// step the checker sees, so the call passes a Machine literal whose Step
+// names useStep, a pure package function; the rest of the machine is p0's.
+// The runner's lowered body does not depend on which step it gets.
+func durableUseSource(plain, machine string) string {
+	open := strings.Index(machine, "[")
+	if open < 0 || !strings.HasPrefix(machine, "Machine[") {
+		panic("a durable runner's first parameter is " + machine + ", not a Machine")
+	}
+	targs := strings.Split(machine[open+1:len(machine)-1], ", ")
+	if len(targs) != 5 {
+		panic("a durable runner's machine is " + machine + ": want Machine[S, E, O, F, R]")
+	}
+	s, e, o, f, r := targs[0], targs[1], targs[2], targs[3], targs[4]
+	lit := machine + "{Initial: p0.Initial, Step: useStep[" + strings.Join(targs, ", ") + "], After: p0.After, Work: p0.Work}"
+	use := strings.Replace(plain, "(p0, ", "("+lit+", ", 1)
+	step := "func useStep[" + strings.Join(targs, ", ") + "](s " + s + ", e " + e + ") Decision[" + s + ", " + o + "] fails " + f + " needs " + r + " {\n\tIgnore\n}\n"
+	return use + "\n" + step
+}
+
+// workUseSource is the use of a function that needs the work capability
+// (check.TakesWorkSend): the call sits in a Listen work's function, the
+// only place the child rule admits it, and the work's send is its first
+// argument, so use takes the other parameters and returns the work.
+//
+// A written row argument has one element (Work[E, R]), so the work's row
+// is the needs row's one concrete element, and each row parameter of that
+// row is bound to it (R | Scheduler with R = Scheduler is Scheduler). The
+// rows are erased in Go, so the lowered body is the same.
+func workUseSource(c stdMatchFunc, params, args []string) string {
+	sig := c.fn.Sig
+	var bound []string
+	concrete := ""
+	for _, e := range sig.Uses.Elems() {
+		if tp, ok := e.(*check.TypeParam); ok {
+			bound = append(bound, tp.Name)
+		} else if concrete == "" {
+			concrete = e.String()
+		} else {
+			panic(fmt.Sprintf("%s.%s needs %s: a written work row has one element", c.pkg.Path, c.fn.Name, sig.Uses))
+		}
+	}
+	if concrete == "" {
+		panic(fmt.Sprintf("%s.%s needs %s: no concrete element to bind its row parameters to", c.pkg.Path, c.fn.Name, sig.Uses))
+	}
+	bind := func(s string) string {
+		for _, n := range bound {
+			s = regexp.MustCompile(`\b`+n+`\b`).ReplaceAllString(s, concrete)
+		}
+		return s
+	}
+	var names []string
+	for _, tp := range sig.TParams {
+		if !slices.Contains(bound, tp.Name) {
+			names = append(names, tp.Name)
+		}
+	}
+	head := "func use"
+	if len(names) > 0 {
+		head += "[" + strings.Join(names, ", ") + "]"
+	}
+	// The work's function captures use's parameters, so a function-typed
+	// one is escaping (types.md, Function values 2).
+	for i, p := range sig.Params {
+		if s, ok := p.Type.(*check.Signature); ok && s.NonEscaping && i > 0 {
+			params[i] = args[i] + " escaping " + p.Type.String()
+		}
+	}
+	send := sig.Params[0].Type.(*check.Signature)
+	work := "machines.Work[" + send.Params[0].Type.String() + ", " + concrete + "]"
+	args[0] = "send"
+	return head + "(" + bind(strings.Join(params[1:], ", ")) + ") " + work + " {\n\t" +
+		work + "{Listen: func(send " + sig.Params[0].Type.String() + ") needs " + concrete + " {\n\t\tlet _ = " +
+		c.pkg.Name + "." + c.fn.Name + "(" + strings.Join(args, ", ") + ")\n\t}}\n}\n"
 }
 
 // programSources are the files of a program of files files that calls c

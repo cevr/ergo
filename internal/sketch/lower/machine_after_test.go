@@ -96,7 +96,7 @@ const machineTimerEnd = 100
 func machineTimerProgram(in int64, parts bool) string {
 	m := "Loop{}"
 	if parts {
-		m = "Machine[St, Sig, int]{Initial: Idle{n: 0}, Step: step, After: timer}"
+		m = "Machine[St, Sig, int]{Initial: Idle{n: 0}, Step: step, After: timer, Work: noWork}"
 	}
 	return fmt.Sprintf(`import machines
 import testing
@@ -126,6 +126,8 @@ func timer(s St) Option[Timeout[Sig]] {
 		None
 	}
 }
+
+func noWork(s St) Option[func(send func(e Sig))] { None }
 
 type Loop machine[St, Sig] {
 	initial: Idle{n: 0},

@@ -1,0 +1,46 @@
+// The pad's rules as laws over generated key presses (ergo test runs them).
+
+import strings
+
+// keyOf reads a generated number as a key: a negative number is Erase, any
+// other is a digit, some of them out of range.
+func keyOf(n int) Key {
+	if n < 0 {
+		Erase
+	} else {
+		Digit{D: n % 12}
+	}
+}
+
+// fill is a pad of max digits after the presses.
+func fill(max int, presses []int) Pad {
+	let mut p = Empty(if max < 0 { 0 } else { max % 12 })
+	for n in presses {
+		p = Press(p, keyOf(n))
+	}
+	p
+}
+
+// DigitsRegionTotal: whatever is pressed, the pad holds only digits and
+// never more than it takes.
+law DigitsRegionTotal(max int, presses []int) {
+	let p = fill(max, presses)
+	len(p.Text) <= p.Max && digitsOnly(p.Text)
+}
+
+// digitsOnly reports whether s holds only the digits 0 to 9.
+func digitsOnly(s string) bool {
+	let mut rest = s
+	for d in 0..10 {
+		rest = strings.ReplaceAll(rest, "\(d)", "")
+	}
+	rest == ""
+}
+
+// EraseUndoesDigit: a digit that the pad takes, then Erase, gives the pad
+// back.
+law EraseUndoesDigit(max int, presses []int, d int) {
+	let p = fill(max, presses)
+	let digit = if d < 0 { -d % 10 } else { d % 10 }
+	Full(p) || Press(Press(p, Digit{D: digit}), Erase) == p
+}

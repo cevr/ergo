@@ -1,0 +1,12 @@
+methods phone
+type 55512345678
+erase
+submit
+type 5
+submit
+type 7654
+submit
+phone
+type 5654
+submit
+erase
