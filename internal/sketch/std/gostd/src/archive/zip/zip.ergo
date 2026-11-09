@@ -115,7 +115,7 @@ extern go archive/zip.ReadCloser.Close func (rc *ReadCloser) Close() fails go.Er
 extern go archive/zip.ReadCloser.Open func (r *ReadCloser) Open(name string) fs.File fails go.Error needs go.Foreign
 
 // ergo:go func (*Reader).RegisterDecompressor(method uint16, dcomp Decompressor)
-// ergo:refused ReadCloser.RegisterDecompressor: parameter 2: type Decompressor is refused: a Go function type maps to no Ergo host type in v1
+extern go archive/zip.ReadCloser.RegisterDecompressor func (r *ReadCloser) RegisterDecompressor(method uint16, dcomp escaping func(io.Reader) io.ReadCloser) needs go.Foreign
 
 // ergo:go type Reader struct
 extern go archive/zip.Reader type Reader {
@@ -129,13 +129,13 @@ extern go archive/zip.Reader type Reader {
 extern go archive/zip.Reader.Open func (r *Reader) Open(name string) fs.File fails go.Error needs go.Foreign
 
 // ergo:go func (*Reader).RegisterDecompressor(method uint16, dcomp Decompressor)
-// ergo:refused Reader.RegisterDecompressor: parameter 2: type Decompressor is refused: a Go function type maps to no Ergo host type in v1
+extern go archive/zip.Reader.RegisterDecompressor func (r *Reader) RegisterDecompressor(method uint16, dcomp escaping func(io.Reader) io.ReadCloser) needs go.Foreign
 
 // ergo:go func RegisterCompressor(method uint16, comp Compressor)
-// ergo:refused RegisterCompressor: parameter 2: type Compressor is refused: a Go function type maps to no Ergo host type in v1
+extern go archive/zip.RegisterCompressor func RegisterCompressor(method uint16, comp escaping func(io.Writer) io.WriteCloser fails go.Error) needs go.Foreign
 
 // ergo:go func RegisterDecompressor(method uint16, dcomp Decompressor)
-// ergo:refused RegisterDecompressor: parameter 2: type Decompressor is refused: a Go function type maps to no Ergo host type in v1
+extern go archive/zip.RegisterDecompressor func RegisterDecompressor(method uint16, dcomp escaping func(io.Reader) io.ReadCloser) needs go.Foreign
 
 // ergo:go const Store uint16
 extern go archive/zip.Store let Store uint16
@@ -165,7 +165,7 @@ extern go archive/zip.Writer.CreateRaw func (w *Writer) CreateRaw(fh *FileHeader
 extern go archive/zip.Writer.Flush func (w *Writer) Flush() fails go.Error needs go.Foreign
 
 // ergo:go func (*Writer).RegisterCompressor(method uint16, comp Compressor)
-// ergo:refused Writer.RegisterCompressor: parameter 2: type Compressor is refused: a Go function type maps to no Ergo host type in v1
+extern go archive/zip.Writer.RegisterCompressor func (w *Writer) RegisterCompressor(method uint16, comp escaping func(io.Writer) io.WriteCloser fails go.Error) needs go.Foreign
 
 // ergo:go func (*Writer).SetComment(comment string) error
 extern go archive/zip.Writer.SetComment func (w *Writer) SetComment(comment string) fails go.Error needs go.Foreign

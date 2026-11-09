@@ -398,10 +398,10 @@ extern go go/ast.FileExports func FileExports(src *File) bool needs go.Foreign
 // ergo:refused Filter: a Go function type maps to no Ergo host type in v1
 
 // ergo:go func FilterDecl(decl Decl, f Filter) bool
-// ergo:refused FilterDecl: parameter 2: type Filter is refused: a Go function type maps to no Ergo host type in v1
+extern go go/ast.FilterDecl func FilterDecl(decl Decl, f escaping func(string) bool) bool needs go.Foreign
 
 // ergo:go func FilterFile(src *File, f Filter) bool
-// ergo:refused FilterFile: parameter 2: type Filter is refused: a Go function type maps to no Ergo host type in v1
+extern go go/ast.FilterFile func FilterFile(src *File, f escaping func(string) bool) bool needs go.Foreign
 
 // ergo:go const FilterFuncDuplicates MergeMode
 extern go go/ast.FilterFuncDuplicates let FilterFuncDuplicates MergeMode
@@ -410,7 +410,7 @@ extern go go/ast.FilterFuncDuplicates let FilterFuncDuplicates MergeMode
 extern go go/ast.FilterImportDuplicates let FilterImportDuplicates MergeMode
 
 // ergo:go func FilterPackage(pkg *Package, f Filter) bool
-// ergo:refused FilterPackage: parameter 2: type Filter is refused: a Go function type maps to no Ergo host type in v1
+extern go go/ast.FilterPackage func FilterPackage(pkg *Package, f escaping func(string) bool) bool needs go.Foreign
 
 // ergo:go const FilterUnassociatedComments MergeMode
 extern go go/ast.FilterUnassociatedComments let FilterUnassociatedComments MergeMode
@@ -599,7 +599,7 @@ extern go go/ast.IndexListExpr.End func (x *IndexListExpr) End() token.Pos needs
 extern go go/ast.IndexListExpr.Pos func (x *IndexListExpr) Pos() token.Pos needs go.Foreign
 
 // ergo:go func Inspect(node Node, f func(Node) bool)
-extern go go/ast.Inspect func Inspect(node Node, f func(Node) bool) needs go.Foreign
+extern go go/ast.Inspect func Inspect[CR](node Node, f func(Node) bool needs CR) needs CR | go.Foreign
 
 // ergo:go type InterfaceType struct
 extern go go/ast.InterfaceType type InterfaceType {
@@ -760,7 +760,7 @@ extern go go/ast.Pkg let Pkg ObjKind
 extern go go/ast.Preorder func Preorder(root Node) Seq[Node] needs go.Foreign
 
 // ergo:go func PreorderStack(root Node, stack []Node, f func(n Node, stack []Node) bool)
-extern go go/ast.PreorderStack func PreorderStack(root Node, stack []Node, f func(Node, []Node) bool) needs go.Foreign
+extern go go/ast.PreorderStack func PreorderStack(root Node, stack []Node, f escaping func(Node, []Node) bool) needs go.Foreign
 
 // ergo:go func Print(fset *token.FileSet, x any) error
 // ergo:refused Print: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type

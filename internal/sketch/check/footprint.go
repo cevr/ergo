@@ -521,7 +521,7 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 		return
 	}
 	switch c.Kind {
-	case CallConversion, CallLen, CallPrelude:
+	case CallConversion, CallLen, CallPrelude, CallGoError:
 		// These calls add no footprint of their own. CallPrelude is
 		// retained compatibility metadata, never produced by the checker.
 	case CallProviderOp:

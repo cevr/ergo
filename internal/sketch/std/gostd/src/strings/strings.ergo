@@ -47,7 +47,7 @@ extern go strings.Contains func Contains(s string, substr string) bool
 extern go strings.ContainsAny func ContainsAny(s string, chars string) bool
 
 // ergo:go func ContainsFunc(s string, f func(rune) bool) bool
-extern go strings.ContainsFunc func ContainsFunc(s string, f func(rune) bool) bool
+extern go strings.ContainsFunc func ContainsFunc[CR](s string, f func(rune) bool needs CR) bool needs CR
 
 // ergo:go func ContainsRune(s string, r rune) bool
 extern go strings.ContainsRune func ContainsRune(s string, r rune) bool
@@ -74,10 +74,10 @@ extern go strings.EqualFold func EqualFold(s string, t string) bool
 extern go strings.Fields func Fields(s string) []string
 
 // ergo:go func FieldsFunc(s string, f func(rune) bool) []string
-extern go strings.FieldsFunc func FieldsFunc(s string, f func(rune) bool) []string
+extern go strings.FieldsFunc func FieldsFunc[CR](s string, f func(rune) bool needs CR) []string needs CR
 
 // ergo:go func FieldsFuncSeq(s string, f func(rune) bool) iter.Seq[string]
-extern go strings.FieldsFuncSeq func FieldsFuncSeq(s string, f func(rune) bool) Seq[string]
+extern go strings.FieldsFuncSeq func FieldsFuncSeq(s string, f escaping func(rune) bool) Seq[string]
 
 // ergo:go func FieldsSeq(s string) iter.Seq[string]
 extern go strings.FieldsSeq func FieldsSeq(s string) Seq[string]
@@ -98,7 +98,7 @@ extern go strings.IndexAny func IndexAny(s string, chars string) int
 extern go strings.IndexByte func IndexByte(s string, c byte) int
 
 // ergo:go func IndexFunc(s string, f func(rune) bool) int
-extern go strings.IndexFunc func IndexFunc(s string, f func(rune) bool) int
+extern go strings.IndexFunc func IndexFunc[CR](s string, f func(rune) bool needs CR) int needs CR
 
 // ergo:go func IndexRune(s string, r rune) int
 extern go strings.IndexRune func IndexRune(s string, r rune) int
@@ -116,13 +116,13 @@ extern go strings.LastIndexAny func LastIndexAny(s string, chars string) int
 extern go strings.LastIndexByte func LastIndexByte(s string, c byte) int
 
 // ergo:go func LastIndexFunc(s string, f func(rune) bool) int
-extern go strings.LastIndexFunc func LastIndexFunc(s string, f func(rune) bool) int
+extern go strings.LastIndexFunc func LastIndexFunc[CR](s string, f func(rune) bool needs CR) int needs CR
 
 // ergo:go func Lines(s string) iter.Seq[string]
 extern go strings.Lines func Lines(s string) Seq[string]
 
 // ergo:go func Map(mapping func(rune) rune, s string) string
-extern go strings.Map func Map(mapping func(rune) rune, s string) string
+extern go strings.Map func Map[CR](mapping func(rune) rune needs CR, s string) string needs CR
 
 // ergo:go func NewReader(s string) *Reader
 extern go strings.NewReader func NewReader(s string) Option[go.Ref[Reader]]
@@ -231,13 +231,13 @@ extern go strings.ToValidUTF8 func ToValidUTF8(s string, replacement string) str
 extern go strings.Trim func Trim(s string, cutset string) string
 
 // ergo:go func TrimFunc(s string, f func(rune) bool) string
-extern go strings.TrimFunc func TrimFunc(s string, f func(rune) bool) string
+extern go strings.TrimFunc func TrimFunc[CR](s string, f func(rune) bool needs CR) string needs CR
 
 // ergo:go func TrimLeft(s string, cutset string) string
 extern go strings.TrimLeft func TrimLeft(s string, cutset string) string
 
 // ergo:go func TrimLeftFunc(s string, f func(rune) bool) string
-extern go strings.TrimLeftFunc func TrimLeftFunc(s string, f func(rune) bool) string
+extern go strings.TrimLeftFunc func TrimLeftFunc[CR](s string, f func(rune) bool needs CR) string needs CR
 
 // ergo:go func TrimPrefix(s string, prefix string) string
 extern go strings.TrimPrefix func TrimPrefix(s string, prefix string) string
@@ -246,7 +246,7 @@ extern go strings.TrimPrefix func TrimPrefix(s string, prefix string) string
 extern go strings.TrimRight func TrimRight(s string, cutset string) string
 
 // ergo:go func TrimRightFunc(s string, f func(rune) bool) string
-extern go strings.TrimRightFunc func TrimRightFunc(s string, f func(rune) bool) string
+extern go strings.TrimRightFunc func TrimRightFunc[CR](s string, f func(rune) bool needs CR) string needs CR
 
 // ergo:go func TrimSpace(s string) string
 extern go strings.TrimSpace func TrimSpace(s string) string

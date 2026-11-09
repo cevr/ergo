@@ -243,6 +243,8 @@ func (c *checker) unusedValue(at syntax.Expr, op operand) {
 	switch {
 	case info.Kind == CallLen:
 		c.errorf(at, CodeUnused, "the value of len is not used")
+	case info.Kind == CallGoError:
+		c.errorf(at, CodeUnused, "the value of %s is not used", info.Name)
 	case info.Kind == CallConversion && !isCapability(info.Type):
 		c.errorf(at, CodeUnused, "the conversion to %s is not used", info.Type)
 	}

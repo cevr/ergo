@@ -8,7 +8,7 @@ extern go time.ANSIC let ANSIC string
 // ergo:refused After: result 1: Ergo has no channels (196c); wrap the Go channel in a Go function of your module, or use std queue
 
 // ergo:go func AfterFunc(d Duration, f func()) *Timer
-extern go time.AfterFunc func AfterFunc(d duration, f func()) Option[go.Ref[Timer]] needs go.Foreign
+extern go time.AfterFunc func AfterFunc(d duration, f escaping func()) Option[go.Ref[Timer]] needs go.Foreign
 
 // ergo:go const April Month
 extern go time.April let April Month

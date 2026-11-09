@@ -39,11 +39,15 @@ type Source struct {
 // or through another import, in any order; each has no Imports of its own.
 // A std package has no unit: the lowering reads its declarations from the
 // checker. A program that reaches a user package with no unit is an error.
+//
+// Go is the root unit's Go requirements (IG7): the Go modules its import go
+// packages outside Go's standard library come from.
 type Unit struct {
 	Package *check.Package
 	Files   []*syntax.File
 	Sources []Source
 	Imports []Unit
+	Go      GoModule
 }
 
 // Validate reports a unit whose files and sources are not aligned, whose

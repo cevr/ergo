@@ -40,6 +40,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.poll":          "the interruption point (Check)",
 			"flatRun.runText":       "the flat machine run's task, read once for its per-signal interruption point (Check; MU8)",
 			"funcCtx.envClosure":    "a task callback's Env copy",
+			"funcCtx.goContext":     "rt.GoContext, the task as the hidden context.Context of a Go call; it neither waits nor releases (IG10)",
 			"lowerer.testRunner":    "a test case's task, which the case's Capture classifies its unwinding against (E3a M3)",
 			"lowerer.lawRuns":       "a law case's task, which the case's Capture classifies its unwinding against (#162)",
 			"lowerer.listedRun":     "a listed law or property case's task, which the case's Capture classifies its unwinding against (MU6b, mu6c)",
@@ -60,6 +61,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"lowerer.funcDecl":          "a declared function's Go name",
 			"funcCtx.optionReturn":      "the Value field of Some, for Get and a std body's comma-ok (S3d)",
 			"funcCtx.goResult":          "the Value field of Some, for a non-nil Go pointer or interface of import go (IG3)",
+			"funcCtx.someWhen":          "the Value field of Some, built from Go's (v, ok) or error by a Level 2 adapter (IG4)",
 			"funcCtx.getArmsLower":      "the Value field of Some, bound in a comma-ok match on Get (lw-get-commaok) or in a callback's comma-ok variant (fs7)",
 			"funcCtx.updateFused":       "the Value field of Some, built from a comma-ok read in maps.Update at its call (vr-elide-2)",
 			"lowerer.methodReceiver":    "a declared method's receiver",
@@ -207,6 +209,13 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// G4: a user extern's error turned into go.Error; it neither
 		// waits nor releases.
 		"GoErrorOf": true,
+		// IG5: go.Error built, passed to Go, and read by go.Is; none waits
+		// or releases. intn is the generator's Rand, beside GoErrorText
+		// in genFunc.
+		"GoErrorText": true, "Native": true, "GoErrorsNative": true, "GoIs": true, "intn": true,
+		// IG6: a callback's failure handed to Go, and the call's error
+		// untunnelled; neither waits nor releases.
+		"GoCallbackError": true, "GoUntunnel": true, "GoUntunnelEager": true,
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}

@@ -757,7 +757,7 @@ extern go go/types.Object type Object {
 }
 
 // ergo:go func ObjectString(obj Object, qf Qualifier) string
-// ergo:refused ObjectString: parameter 2: type Qualifier is refused: a Go function type maps to no Ergo host type in v1
+extern go go/types.ObjectString func ObjectString(obj Object, qf escaping func(*Package) string) string needs go.Foreign
 
 // ergo:go type Package struct
 extern go go/types.Package type Package {}
@@ -937,7 +937,7 @@ extern go go/types.Selection.Type func (s *Selection) Type() Type needs go.Forei
 extern go go/types.SelectionKind type SelectionKind int
 
 // ergo:go func SelectionString(s *Selection, qf Qualifier) string
-// ergo:refused SelectionString: parameter 2: type Qualifier is refused: a Go function type maps to no Ergo host type in v1
+extern go go/types.SelectionString func SelectionString(s *Selection, qf escaping func(*Package) string) string needs go.Foreign
 
 // ergo:go const SendOnly ChanDir
 extern go go/types.SendOnly let SendOnly ChanDir
@@ -1186,7 +1186,7 @@ extern go go/types.TypeParamList.String func (l *TypeParamList) String() string 
 // ergo:refused TypeParamList.TypeParams: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func TypeString(typ Type, qf Qualifier) string
-// ergo:refused TypeString: parameter 2: type Qualifier is refused: a Go function type maps to no Ergo host type in v1
+extern go go/types.TypeString func TypeString(typ Type, qf escaping func(*Package) string) string needs go.Foreign
 
 // ergo:go const Uint BasicKind
 extern go go/types.Uint let Uint BasicKind
@@ -1312,7 +1312,7 @@ extern go go/types.VarKind.String func (kind VarKind) String() string needs go.F
 extern go go/types.WriteExpr func WriteExpr(buf *bytes.Buffer, x ast.Expr) needs go.Foreign
 
 // ergo:go func WriteSignature(buf *bytes.Buffer, sig *Signature, qf Qualifier)
-// ergo:refused WriteSignature: parameter 3: type Qualifier is refused: a Go function type maps to no Ergo host type in v1
+extern go go/types.WriteSignature func WriteSignature(buf *bytes.Buffer, sig *Signature, qf escaping func(*Package) string) needs go.Foreign
 
 // ergo:go func WriteType(buf *bytes.Buffer, typ Type, qf Qualifier)
-// ergo:refused WriteType: parameter 3: type Qualifier is refused: a Go function type maps to no Ergo host type in v1
+extern go go/types.WriteType func WriteType(buf *bytes.Buffer, typ Type, qf escaping func(*Package) string) needs go.Foreign

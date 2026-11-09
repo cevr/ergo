@@ -57,6 +57,7 @@ type typeDecl struct {
 	variants  []*check.TypeName
 	marker    string
 	errorType bool
+	goError   bool // go.Error: Text is a method, a value is built by v1.GoErrorText
 	library   bool
 	emitted   bool
 	queued    bool // a library type queued for emission
@@ -242,8 +243,10 @@ func (l *lowerer) typeName(tn *check.TypeName) string {
 }
 
 // goErrorDecl is the declaration of the predeclared go.Error (G4), which no
-// package declares: the runtime's record v1.GoError, never emitted, whose
-// one field Text keeps its name.
+// package declares: the runtime's v1.GoError, never emitted, which keeps
+// Go's native error (IG5). Its one field Text is read as the method
+// Text(), the error's Error() at the read; a construction calls
+// v1.GoErrorText (goErrorBuild), since no Go field holds Text.
 func (l *lowerer) goErrorDecl(tn *check.TypeName, named *check.Named, site syntax.Node) *typeDecl {
 	if td := l.types[tn]; td != nil {
 		return td
@@ -253,9 +256,9 @@ func (l *lowerer) goErrorDecl(tn *check.TypeName, named *check.Named, site synta
 		ice(site, "go.Error is not a record")
 	}
 	td := &typeDecl{tn: tn, named: named, name: l.rt() + ".GoError", kind: kindRecord, fields: st.Fields,
-		fieldName: map[string]string{}, errorType: true, library: true, emitted: true}
+		fieldName: map[string]string{}, errorType: true, library: true, emitted: true, goError: true}
 	for _, f := range st.Fields {
-		td.fieldName[f.Name] = f.Name
+		td.fieldName[f.Name] = f.Name + "()"
 	}
 	l.types[tn] = td
 	return td

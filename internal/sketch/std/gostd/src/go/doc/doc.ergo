@@ -99,7 +99,7 @@ extern go go/doc.Package type Package {
 // ergo:refused Package.Examples: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*Package).Filter(f Filter)
-// ergo:refused Package.Filter: parameter 1: type Filter is refused: a Go function type maps to no Ergo host type in v1
+extern go go/doc.Package.Filter func (p *Package) Filter(f escaping func(string) bool) needs go.Foreign
 
 // ergo:go func (*Package).HTML(text string) []byte
 extern go go/doc.Package.HTML func (p *Package) HTML(text string) []byte needs go.Foreign

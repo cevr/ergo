@@ -176,7 +176,7 @@ func taskArgGaps(info *Info) []string {
 // type parameters to arguments, each an instantiation typeArgsAdmitted
 // checks. The behaviour matrix (TestTaskTypeArgumentMatrix) has a template
 // for each, or the reason none can carry a Task.
-var taskArgSites = []string{"callGeneric", "instantiateExprs", "instantiateValue", "literalType", "selfCall"}
+var taskArgSites = []string{"callGeneric", "externInstance", "instantiateExprs", "instantiateValue", "literalType", "selfCall"}
 
 // The oracle agrees with holdsTask on the types a program can write and on
 // the instances only the checker builds.
@@ -241,7 +241,8 @@ var taskArgTemplates = []taskArgTemplate{
 // why; typeArgsAdmitted still runs there, so the rule has no hole if the
 // reason stops holding.
 var taskArgUnreachable = map[string]string{
-	"selfCall": "x.f binds f's type parameters to the type arguments of x's own type, a type of the package that was admitted where it was written or inferred",
+	"externInstance": "a user extern binds a generic Go target's type parameters to its written parameter types, and a parameter type that holds a Task is refused where the signature resolves (a Task leaves its function only by return), so the instance is never reached with one",
+	"selfCall":       "x.f binds f's type parameters to the type arguments of x's own type, a type of the package that was admitted where it was written or inferred",
 }
 
 // taskArgShape is a type argument: its text, a value of it, and whether it

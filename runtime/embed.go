@@ -20,7 +20,7 @@ import (
 	"slices"
 )
 
-//go:embed rt/cause.go rt/clock.go rt/doc.go rt/handle.go rt/idle.go rt/machine.go rt/regions.go rt/run.go rt/scope.go rt/task.go rt/tasks.go rt/timeout.go rt/trace.go rt/values.go
+//go:embed rt/cause.go rt/clock.go rt/doc.go rt/gocontext.go rt/handle.go rt/idle.go rt/machine.go rt/regions.go rt/run.go rt/scope.go rt/task.go rt/tasks.go rt/timeout.go rt/trace.go rt/values.go
 //go:embed v1/actor.go v1/actor_host.go v1/actor_trace.go v1/mailbox.go v1/trace.go
 //go:embed rt/rttrace/encode.go rt/rttrace/jsonl.go rt/rttrace/rttrace.go
 //go:embed v1/context.go v1/data.go v1/exit.go v1/queue.go v1/runtime.go v1/task.go v1/text.go
@@ -29,7 +29,7 @@ import (
 //go:embed v1/time.go v1/timetext.go
 //go:embed v1/rand.go
 //go:embed v1/sync.go v1/set.go
-//go:embed v1/path.go v1/numbers.go v1/digest.go v1/goerror.go v1/csv.go
+//go:embed v1/path.go v1/numbers.go v1/digest.go v1/goerror.go v1/gocallback.go v1/csv.go
 //go:embed v1/exec.go v1/exec_exit_kqueue.go v1/exec_exit_linux.go
 var sources embed.FS
 
@@ -50,10 +50,10 @@ type pkg struct {
 // lists and the imports equal to the directories.
 var packages = map[string]pkg{
 	"runtime/rt": {
-		files: []string{"cause.go", "clock.go", "doc.go", "handle.go", "idle.go", "machine.go", "regions.go", "run.go", "scope.go", "task.go", "tasks.go", "timeout.go", "trace.go", "values.go"},
+		files: []string{"cause.go", "clock.go", "doc.go", "gocontext.go", "handle.go", "idle.go", "machine.go", "regions.go", "run.go", "scope.go", "task.go", "tasks.go", "timeout.go", "trace.go", "values.go"},
 	},
 	"runtime/v1": {
-		files:   []string{"actor.go", "actor_host.go", "actor_trace.go", "collections.go", "context.go", "csv.go", "data.go", "digest.go", "exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exit.go", "goerror.go", "host.go", "mailbox.go", "numbers.go", "path.go", "queue.go", "rand.go", "runtime.go", "set.go", "sync.go", "task.go", "text.go", "time.go", "timetext.go", "trace.go"},
+		files:   []string{"actor.go", "actor_host.go", "actor_trace.go", "collections.go", "context.go", "csv.go", "data.go", "digest.go", "exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exit.go", "gocallback.go", "goerror.go", "host.go", "mailbox.go", "numbers.go", "path.go", "queue.go", "rand.go", "runtime.go", "set.go", "sync.go", "task.go", "text.go", "time.go", "timetext.go", "trace.go"},
 		imports: []string{"runtime/rt", "runtime/rt/rttrace"},
 	},
 	"runtime/rt/rttrace": {

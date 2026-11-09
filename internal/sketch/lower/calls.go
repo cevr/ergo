@@ -45,12 +45,17 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 			ice(x, "len with %d arguments", len(x.Args))
 		}
 		return operand{val: "len(" + fc.value(x.Args[0]) + ")"}
+	case check.CallGoError:
+		return fc.goErrorCall(x, c) // gocall.go
 	}
 	if check.IsUnreachable(c) {
 		return fc.unreachableValue(x)
 	}
 	if goImportCall(c, fc.typeOf) {
 		return fc.goCall(x, c) // gocall.go
+	}
+	if goExternCall(c) {
+		return fc.goExtern(x, c) // gocall.go, Level 2 adapters
 	}
 	text, result, fallible := fc.callText(x, c)
 	defer fc.identify(x, c)()
@@ -116,10 +121,16 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 // call that cannot fail at this site drops its error, which is nil.
 func (fc *funcCtx) callStmt(x *syntax.CallExpr) string {
 	c := fc.l.info.Calls[x]
-	if goImportCall(c, fc.typeOf) {
-		// A Go call writes its own statements (goCall); a discarded
-		// value is used once so Go accepts it.
-		if op := fc.goCall(x, c); op.err != "" {
+	if goImportCall(c, fc.typeOf) || goExternCall(c) {
+		// A Go call writes its own statements (goCall, goExtern); a
+		// discarded value is used once so Go accepts it.
+		op := operand{}
+		if goExternCall(c) {
+			op = fc.goExtern(x, c)
+		} else {
+			op = fc.goCall(x, c)
+		}
+		if op.err != "" {
 			ice(x, "an untried fallible call in a statement")
 		} else if op.val != "" {
 			return "_ = " + op.val
@@ -401,11 +412,11 @@ func (fc *funcCtx) hostValue(f *check.Func, sig *check.Signature, site syntax.No
 			e := fc.scope.alloc("err")
 			body += ind + "var " + e + " error\n"
 			if len(sig.Results) == 0 {
-				return params, fc.valueResults(nil), body + ind + e + " = " + text + "\n" + ind + "return struct{}{}, " + fc.l.rt() + ".GoErrorOf(" + e + ")\n"
+				return params, fc.valueResults(nil), body + ind + e + " = " + text + "\n" + ind + "return struct{}{}, " + fc.l.goErrorOf() + "(" + e + ")\n"
 			}
 			r := fc.scope.alloc("r")
 			body += ind + "var " + r + " " + fc.goType(sig.Results[0]) + "\n" + ind + r + ", " + e + " = " + text + "\n"
-			return params, fc.valueResults(sig.Results[0]), body + ind + "return " + r + ", " + fc.l.rt() + ".GoErrorOf(" + e + ")\n"
+			return params, fc.valueResults(sig.Results[0]), body + ind + "return " + r + ", " + fc.l.goErrorOf() + "(" + e + ")\n"
 		}
 		if len(sig.Results) == 0 {
 			return params, fc.valueResults(nil), body + ind + text + "\n" + ind + "return struct{}{}, nil\n"
@@ -491,7 +502,7 @@ func (fc *funcCtx) hostStmt(x *syntax.CallExpr, c *check.Call, v, text string) s
 // check, then the call, its result bound to v at the Ergo result's Go type
 // and its error to e, typed error, so a target whose results differ is go
 // build's error at the call's line. A non-nil error becomes
-// go.Error{Text: err.Error()} (v1.GoErrorOf). The partial value a Go
+// the go.Error that keeps it (v1.GoErrorOf, IG5). The partial value a Go
 // function returns with an error (strconv's limit on a range error) is
 // dropped: the caller reads v only when e is nil, as an Ergo failure has
 // no value.
@@ -504,7 +515,7 @@ func (fc *funcCtx) hostFallible(x *syntax.CallExpr, c *check.Call, v, e, text st
 		fc.line("var " + v + " " + fc.goType(c.Func.Sig.Results[0]))
 		fc.line(v + ", " + e + " = " + text)
 	}
-	fc.line(e + " = " + fc.l.rt() + ".GoErrorOf(" + e + ")")
+	fc.goErrorOf(x, e)
 }
 
 // hostPkg is the name in main.go of the Go package path that a user
@@ -516,8 +527,8 @@ func (l *lowerer) hostPkg(path string, site syntax.Node) string {
 	if path == "time" {
 		return l.timePkg()
 	}
-	if first, _, _ := strings.Cut(path, "/"); first == "" || strings.Contains(first, ".") {
-		ice(site, "a user extern whose target package %q is outside Go's standard library, which the checker refuses (#202)", path)
+	if first, _, _ := strings.Cut(path, "/"); (first == "" || strings.Contains(first, ".")) && !l.goModule.covers(path) {
+		ice(site, "the Go package %q is outside Go's standard library and in no module of the go.mod beside ergo.mod; the loader refuses it (IG7)", path)
 	}
 	if path == "unsafe" {
 		// Go's unsafe holds the qualified built-ins, whose calls the

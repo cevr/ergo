@@ -299,6 +299,9 @@ func ref(t *gt, pos at, cb bool) (string, bool) {
 	case "error":
 		return "go.Error", true
 	case "ptrS":
+		if cb && pos != param {
+			return "", false // a callback's pointer result may be nil (IG6)
+		}
 		switch pos {
 		case param:
 			return "*S", true
@@ -331,10 +334,12 @@ func ref(t *gt, pos at, cb bool) (string, bool) {
 			ps = append(ps, s)
 		}
 		res, fails, ok := refResults(t.results, true)
-		if !ok {
-			return "", false
+		if !ok || strings.HasPrefix(res, "(") {
+			return "", false // one result at most (IG6)
 		}
-		s := "func(" + strings.Join(ps, ", ") + ")"
+		// A generated package is in no reviewed table of synchronous
+		// callbacks, so every callback is escaping (IG6).
+		s := "escaping func(" + strings.Join(ps, ", ") + ")"
 		if res != "" {
 			s += " " + res
 		}

@@ -399,11 +399,11 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 				case *check.Var:
 					if o.Name == x.Sel.Name && pn.Pkg.Host() {
 						// A Go constant or error variable of import go
-						// is Go's own; an error is go.Error as G4 builds
-						// it (IG5 keeps the native error).
+						// is Go's own; an error is the go.Error that keeps
+						// it (IG5), a target of go.Is.
 						goName := fc.l.hostPkg(pn.Pkg.Path, x) + "." + o.Name
 						if n, ok := o.Type.(*check.Named); ok && check.IsGoError(n) {
-							return fc.l.rt() + ".GoErrorOf(" + goName + ").(" + fc.l.rt() + ".GoError)"
+							return fc.l.goErrorFrom() + "(" + goName + ")"
 						}
 						// Typed as the binding says: Go's untyped constant
 						// would take its default type (math.MaxInt64 as int).
@@ -613,6 +613,13 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 			set[td.fields[i].Name] = true
 		}
 		vals := fc.operands(values, true)
+		if td.goError {
+			// go.Error{Text: s}: a native error of its own (IG5).
+			if len(vals) == 0 {
+				return goType + "{}"
+			}
+			return fc.l.rt() + ".GoErrorText(" + vals[0] + ")"
+		}
 		parts := make([]string, len(keys))
 		for i := range keys {
 			parts[i] = keys[i] + ": " + vals[i]
@@ -692,6 +699,11 @@ func (fc *funcCtx) update(x *syntax.CompositeLit, t check.Type, td *typeDecl) st
 		values = append(values, kv.Value)
 	}
 	vals := fc.operands(values, true)
+	if td.goError && len(vals) == 1 {
+		// go.Error has one field: the update is a new go.Error (IG5).
+		fc.line(u + " = " + fc.l.rt() + ".GoErrorText(" + vals[0] + ")")
+		return u
+	}
 	for i := range keys {
 		fc.line(u + "." + keys[i] + " = " + vals[i])
 	}
@@ -879,9 +891,17 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	if m.Partial != partial {
 		ice(x, "a catch whose Partial fact disagrees with its try")
 	}
+	plain := fc.plainCatch(x, m)
+	if plain && catchBinding(fc.l.info, x) == nil {
+		fc.rawErr = x.X
+	}
 	o := fc.expr(x.X)
+	fc.rawErr = nil
 	if o.err == "" {
 		ice(x.X, "catch on an expression that cannot fail")
+	}
+	if plain {
+		return fc.plainCatchBody(x, m, o)
 	}
 	result := ""
 	if m.Result != nil {

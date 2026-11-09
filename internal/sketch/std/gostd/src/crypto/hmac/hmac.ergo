@@ -7,4 +7,4 @@ import go hash
 extern go crypto/hmac.Equal func Equal(mac1 []byte, mac2 []byte) bool needs go.Foreign
 
 // ergo:go func New(h func() hash.Hash, key []byte) hash.Hash
-extern go crypto/hmac.New func New(h func() hash.Hash, key []byte) hash.Hash needs go.Foreign
+extern go crypto/hmac.New func New(h escaping func() hash.Hash, key []byte) hash.Hash needs go.Foreign

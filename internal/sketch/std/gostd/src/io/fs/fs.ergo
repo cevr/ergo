@@ -214,7 +214,7 @@ extern go io/fs.SubFS type SubFS {
 extern go io/fs.ValidPath func ValidPath(name string) bool needs go.Foreign
 
 // ergo:go func WalkDir(fsys FS, root string, fn WalkDirFunc) error
-// ergo:refused WalkDir: parameter 3: type WalkDirFunc is refused: a Go function type maps to no Ergo host type in v1
+extern go io/fs.WalkDir func WalkDir[CE, CR](fsys FS, root string, fn func(string, DirEntry, go.Error) fails CE needs CR) fails CE | go.Error needs CR | go.Foreign
 
 // ergo:go type WalkDirFunc func
 // ergo:refused WalkDirFunc: a Go function type maps to no Ergo host type in v1

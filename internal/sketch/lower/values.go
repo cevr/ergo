@@ -344,7 +344,7 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 			w.calls = append(w.calls, n)
 		} else if c != nil && c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil {
 			w.ergo = append(w.ergo, n)
-		} else if c != nil && goImportCall(c, w.typeOf) {
+		} else if c != nil && (goImportCall(c, w.typeOf) || goExternCall(c)) {
 			list := n.Args
 			if c.Recv != nil {
 				list = append([]syntax.Expr{c.Recv}, list...)

@@ -758,6 +758,13 @@ func comparable(t Type) bool {
 }
 
 func comparableSeen(t Type, seen map[Type]bool) bool {
+	if n, ok := t.(*Named); ok && IsGoError(n) {
+		// go.Error keeps Go's native error (IG5): Go's == would compare
+		// the error's identity, and panic on an error type Go cannot
+		// compare. Its == compares Text (equatable, not comparable), so
+		// it is no Map key.
+		return false
+	}
 	switch u := under(t).(type) {
 	case *Basic:
 		return u.Kind != Invalid

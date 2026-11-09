@@ -87,7 +87,7 @@ func LowerTests(u Unit) ([]File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []File{{Path: "go.mod", Data: []byte(goMod)}, {Path: "main.go", Data: code}}, nil
+	return moduleFiles(u.Go, code), nil
 }
 
 // testHelpers are the harness's package-scope entities: key and preferred
@@ -1476,6 +1476,10 @@ func (l *lowerer) genFunc(n *check.Named, site syntax.Node) string {
 	switch under := n.Underlying().(type) {
 	case *check.Struct:
 		td := l.typeDecl(n.Obj, site)
+		if td.goError {
+			body.WriteString("\treturn " + l.rt() + ".GoErrorText(" + l.genExpr(under.Fields[0].Type, r, d+"-1", scope, site) + ")\n")
+			break
+		}
 		parts := make([]string, len(under.Fields))
 		for i, f := range under.Fields {
 			field, ok := td.fieldName[f.Name]

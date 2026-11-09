@@ -55,8 +55,62 @@ func Runtime() []File {
 	return files
 }
 
-// goMod is the emitted module's go.mod.
-const goMod = "module " + programModule + "\n\ngo " + goVersion + "\n\nrequire " + runtimeModule + " v0.0.0\n\nreplace " + runtimeModule + " => ./" + runtimeDir + "\n"
+// GoModule is what the emitted module needs from the go.mod and go.sum
+// beside ergo.mod (IG7, owner q37; docs/spec/interop.md, Go modules): the
+// Go modules a program's import go packages come from.
+type GoModule struct {
+	// Require are go.mod's require lines, "path version", in its order.
+	Require []string
+	// Replace are its replace lines, "old [version] => new [version]",
+	// a local directory made absolute, since the emitted module lives
+	// elsewhere.
+	Replace []string
+	// Sum is go.sum's text, copied as it is.
+	Sum string
+	// Modules are the module paths a Go import of the program may name
+	// outside Go's standard library: each required module, and the module
+	// of go.mod itself, which Require and Replace then hold.
+	Modules []string
+}
+
+// covers reports whether a Go import path is a package of one of m's
+// modules.
+func (m GoModule) covers(path string) bool {
+	for _, mod := range m.Modules {
+		if path == mod || strings.HasPrefix(path, mod+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// goModFile is the emitted module's go.mod: the runtime's requirement and
+// replacement (the ergo directory), then the program's Go requirements.
+func goModFile(m GoModule) []byte {
+	var b strings.Builder
+	b.WriteString("module " + programModule + "\n\ngo " + goVersion + "\n\nrequire " + runtimeModule + " v0.0.0\n")
+	for _, r := range m.Require {
+		b.WriteString("\nrequire " + r + "\n")
+	}
+	b.WriteString("\nreplace " + runtimeModule + " => ./" + runtimeDir + "\n")
+	for _, r := range m.Replace {
+		b.WriteString("\nreplace " + r + "\n")
+	}
+	return []byte(b.String())
+}
+
+// goMod is the go.mod of a program with no Go requirements.
+var goMod = string(goModFile(GoModule{}))
+
+// moduleFiles are the emitted module's files: go.mod, go.sum when the
+// program has one, and main.go.
+func moduleFiles(m GoModule, code []byte) []File {
+	files := []File{{Path: "go.mod", Data: goModFile(m)}}
+	if m.Sum != "" {
+		files = append(files, File{Path: "go.sum", Data: []byte(m.Sum)})
+	}
+	return append(files, File{Path: "main.go", Data: code})
+}
 
 // Refusal is a checked program that this lowering cannot lower yet: a form
 // whose checker stage has not landed, or an extern with no Go body. It is
@@ -110,7 +164,7 @@ func Lower(u Unit) ([]File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []File{{Path: "go.mod", Data: []byte(goMod)}, {Path: "main.go", Data: code}}, nil
+	return moduleFiles(u.Go, code), nil
 }
 
 // lowerPackage lowers the unit's package once: program runs the naming
@@ -155,11 +209,13 @@ type lowerer struct {
 	// canon is the checked unit in canonical form (canon.go): the only
 	// place the lowering reads the unit's and the checker's lists from.
 	canon *canonical
-	pkg   *check.Package
-	info  *check.Info
-	file  *syntax.File // the current source file (sources.go)
-	src   string       // its admitted path, which //line directives name
-	cur   int          // its index in srcs
+	// goModule is the root unit's Go requirements (hostPkg).
+	goModule GoModule
+	pkg      *check.Package
+	info     *check.Info
+	file     *syntax.File // the current source file (sources.go)
+	src      string       // its admitted path, which //line directives name
+	cur      int          // its index in srcs
 
 	srcs     []srcFile                // every source file in canonical order (canon.srcs)
 	tpSrc    map[*check.TypeParam]int // each type parameter's source file (paramFile)
@@ -280,14 +336,16 @@ func newLowerer(u Unit) *lowerer { return newBuildLowerer(u, nil) }
 // newBuildLowerer is the lowerer of u for the run build (tests nil) or the
 // test build, which decides the facts it reads (owners.go).
 func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
-	return lowererOf(canonicalize(u), u.Package, tests)
+	return lowererOf(canonicalize(u), u.Package, u.Go, tests)
 }
 
-// lowererOf is the lowerer of the canonical unit c of the package pkg.
-func lowererOf(c *canonical, pkg *check.Package, tests *testLowering) *lowerer {
+// lowererOf is the lowerer of the canonical unit c of the package pkg, whose
+// root unit requires the Go modules goModule.
+func lowererOf(c *canonical, pkg *check.Package, goModule GoModule, tests *testLowering) *lowerer {
 	l := &lowerer{
 		tests:     tests,
 		canon:     c,
+		goModule:  goModule,
 		pkg:       pkg,
 		info:      pkg.Info,
 		file:      c.srcs[0].file,

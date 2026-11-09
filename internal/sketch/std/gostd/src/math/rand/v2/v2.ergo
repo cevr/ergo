@@ -149,7 +149,7 @@ extern go math/rand/v2.Rand.Uint64N func (r *Rand) Uint64N(n uint64) uint64 need
 extern go math/rand/v2.Rand.UintN func (r *Rand) UintN(n uint) uint needs go.Foreign
 
 // ergo:go func Shuffle(n int, swap func(i int, j int))
-extern go math/rand/v2.Shuffle func Shuffle(n int, swap func(int, int)) needs go.Foreign
+extern go math/rand/v2.Shuffle func Shuffle[CR](n int, swap func(int, int) needs CR) needs CR | go.Foreign
 
 // ergo:go type Source interface
 extern go math/rand/v2.Source type Source {

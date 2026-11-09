@@ -164,7 +164,7 @@ extern go go/token.FileSet.Base func (s *FileSet) Base() int needs go.Foreign
 extern go go/token.FileSet.File func (s *FileSet) File(p Pos) Option[go.Ref[File]] needs go.Foreign
 
 // ergo:go func (*FileSet).Iterate(yield func(*File) bool)
-extern go go/token.FileSet.Iterate func (s *FileSet) Iterate(yield func(*File) bool) needs go.Foreign
+extern go go/token.FileSet.Iterate func (s *FileSet) Iterate(yield escaping func(*File) bool) needs go.Foreign
 
 // ergo:go func (*FileSet).Position(p Pos) (pos Position)
 extern go go/token.FileSet.Position func (s *FileSet) Position(p Pos) Position needs go.Foreign

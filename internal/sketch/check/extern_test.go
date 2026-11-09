@@ -945,7 +945,7 @@ func main() { with W { A.Use() } }
 		t.Run(name, func(t *testing.T) { judgeOutside(t, src, "#197") })
 	}
 	t.Run("user-extern-close", func(t *testing.T) {
-		judgeOutside(t, "type R {}\nextern go strings.F func Close(r R) // want S109\n", "#202")
+		judgeOutside(t, "type R {}\nextern go example.com/x.F func Close(r R) // want S109\n", "#202")
 	})
 	t.Run("no-std-extern-close", func(t *testing.T) {
 		prog, ds := check.CheckSource("func f(c Console) { c.Println(\"x\") }\n")

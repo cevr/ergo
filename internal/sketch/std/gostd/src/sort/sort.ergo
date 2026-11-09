@@ -2,7 +2,7 @@
 // ergo:bind sort go1.27 darwin/arm64 linux/amd64
 
 // ergo:go func Find(n int, cmp func(int) int) (i int, found bool)
-extern go sort.Find func Find(n int, cmp func(int) int) (int, bool)
+extern go sort.Find func Find[CR](n int, cmp func(int) int needs CR) (int, bool) needs CR
 
 // ergo:go type Float64Slice []float64
 extern go sort.Float64Slice type Float64Slice []float64
@@ -66,7 +66,7 @@ extern go sort.IsSorted func IsSorted(data Interface) bool
 extern go sort.Reverse func Reverse(data Interface) Interface
 
 // ergo:go func Search(n int, f func(int) bool) int
-extern go sort.Search func Search(n int, f func(int) bool) int
+extern go sort.Search func Search[CR](n int, f func(int) bool needs CR) int needs CR
 
 // ergo:go func SearchFloat64s(a []float64, x float64) int
 extern go sort.SearchFloat64s func SearchFloat64s(a []float64, x float64) int

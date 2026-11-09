@@ -500,6 +500,9 @@ const (
 	// build lowers: laws are checked, not run (#162). Added in check-v1
 	// stage E3b (additive).
 	CallLawOp
+	// CallGoError is go.Is or go.As (Name "go.Is" or "go.As"); Type is
+	// As's type argument (IG5, goerror.go). Added in IG5 (additive).
+	CallGoError
 	// CallKindCount bounds the call kinds. Keep it last: exhaustive
 	// consumers must account for a newly admitted kind.
 	CallKindCount
@@ -876,6 +879,9 @@ func (c *checker) recordCall(x *syntax.CallExpr, fun operand) {
 		call.Kind, call.Type = CallConversion, fun.typ
 	case fun.mode == modeBuiltin:
 		call.Kind = CallLen
+		if b, _ := fun.obj.(*Builtin); b != nil && goErrorBuiltin(b) {
+			call.Kind, call.Name, call.Type = CallGoError, b.Name, fun.targ
+		}
 	case fun.mode == modeCapFn:
 		call.Kind, call.Op = CallProviderOp, fun.method
 	case fun.fn != nil:

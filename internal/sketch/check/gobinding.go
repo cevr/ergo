@@ -38,6 +38,11 @@ import (
 type GoBindings struct {
 	lookup func(path string) (string, bool)
 	pkgs   map[string]*Package
+	// Stale, when set, is why the binding of a Go import path that lookup
+	// found no longer matches the module's go.mod (IG7: the loader compares
+	// the binding's stamp with go.mod, reading files only); "" when it
+	// matches. The import is then S104 with the command that rewrites it.
+	Stale func(path string) string
 }
 
 // NewGoBindings returns the Go packages read through lookup, which returns
@@ -87,11 +92,26 @@ func (c *checker) importGo(fi *fileInfo, spec *syntax.ImportSpec, path string) {
 	if spec.Name != nil {
 		name = spec.Name.Name
 	}
-	pkg, ok := c.goBindings().Package(path)
+	for _, elem := range strings.Split(path, "/") {
+		if elem == "internal" || elem == "vendor" {
+			c.errorf(spec.Path, CodeOutside, "import go %q: Go admits an %s package only inside the tree that holds it, and the emitted program is outside every tree (docs/spec/interop.md)", path, elem)
+			c.bindBrokenImportName(fi, spec, path, name)
+			return
+		}
+	}
+	set := c.goBindings()
+	pkg, ok := set.Package(path)
 	if !ok {
 		c.errorf(spec.Path, CodeUnknown, "no binding for Go package %q; run ergo bind go %s (docs/spec/interop.md)", path, path)
 		c.bindBrokenImportName(fi, spec, path, name)
 		return
+	}
+	if set.Stale != nil {
+		if why := set.Stale(path); why != "" {
+			c.errorf(spec.Path, CodeUnknown, "the binding of Go package %q is stale: %s; run ergo bind go %s (docs/spec/interop.md)", path, why, path)
+			c.bindBrokenImportName(fi, spec, path, name)
+			return
+		}
 	}
 	if _, dup := fi.scope.names[name]; name != "_" && dup {
 		c.errorf(spec, CodeType, "%s is imported twice", name)
@@ -206,6 +226,7 @@ type hostPkg struct {
 	refused  map[string]string        // a refused declaration ("F", "T.M") and its reason
 	recvPtr  map[*Func]bool           // a method in the method set of *T only
 	variadic map[*Func]bool           // a function whose last parameter is Go's ...T
+	context  map[*Func]bool           // a function whose hidden first parameter is Go's context.Context (IG10)
 }
 
 func hostOf(p *Package) *hostPkg {
@@ -229,7 +250,7 @@ func (s *GoBindings) Package(path string) (*Package, bool) {
 	c := newChecker(path, goImp{s}, prelude().scope)
 	c.pkg.Name = GoPackageName(path)
 	c.pkg.qualify = true
-	c.pkg.host = &hostPkg{set: s, src: src, c: c, vars: map[*Var]*syntax.VarSpec{}, refused: map[string]string{}, recvPtr: map[*Func]bool{}, variadic: map[*Func]bool{}}
+	c.pkg.host = &hostPkg{set: s, src: src, c: c, vars: map[*Var]*syntax.VarSpec{}, refused: map[string]string{}, recvPtr: map[*Func]bool{}, variadic: map[*Func]bool{}, context: map[*Func]bool{}}
 	s.pkgs[path] = c.pkg
 	return c.pkg, true
 }
@@ -411,12 +432,14 @@ func (h *hostPkg) load() {
 		h.recvPtr[fn] = star
 		tn.Type.(*Named).addMethod(fn)
 	}
-	variadicLines := map[int]bool{}
+	// markers holds the line of each `// ergo:variadic` and
+	// `// ergo:context` comment (Binding files 2).
+	markers := map[int]string{}
 	for _, g := range f.Comments {
 		for _, cm := range g.List {
-			if cm.Text == "// ergo:variadic" {
+			if cm.Text == "// ergo:variadic" || cm.Text == "// ergo:context" {
 				line, _ := f.Position(cm.Pos())
-				variadicLines[line] = true
+				markers[line] = cm.Text
 			}
 			rest, ok := strings.CutPrefix(cm.Text, "// ergo:refused ")
 			if !ok {
@@ -427,12 +450,19 @@ func (h *hostPkg) load() {
 			}
 		}
 	}
-	// `// ergo:variadic` is the line right above its declaration: the
-	// lowering spreads the last argument (xs...).
-	if len(variadicLines) > 0 {
+	// The markers are the lines right above a declaration: with
+	// `// ergo:variadic` the lowering spreads the last argument (xs...);
+	// with `// ergo:context` it passes the task's context first (IG10).
+	if len(markers) > 0 {
 		mark := func(fn *Func) {
-			if line, _ := f.Position(fn.Decl.Pos()); variadicLines[line-1] {
-				h.variadic[fn] = true
+			line, _ := f.Position(fn.Decl.Pos())
+			for l := line - 1; markers[l] != ""; l-- {
+				switch markers[l] {
+				case "// ergo:variadic":
+					h.variadic[fn] = true
+				case "// ergo:context":
+					h.context[fn] = true
+				}
 			}
 		}
 		for _, fn := range c.pkg.Funcs {
@@ -453,29 +483,20 @@ func GoVariadic(f *Func) bool {
 	return h != nil && h.variadic[f]
 }
 
+// GoContext reports a Go function or method of import go whose first Go
+// parameter is context.Context, hidden in its Ergo signature (the
+// binding's `// ergo:context`): the call passes the calling task's
+// context, which an interruption cancels (IG10).
+func GoContext(f *Func) bool {
+	h := hostOf(f.Pkg)
+	return h != nil && h.context[f]
+}
+
 // refusal is the binding's reason for a Go declaration it does not import
 // ("F", or "T.M" for a method), or "".
 func (h *hostPkg) refusal(name string) string {
 	h.load()
 	return h.refused[name]
-}
-
-// stdGoReturnsError reports whether the function name of Go's standard
-// library package path returns an error last: its embedded binding's row
-// is fails go.Error (a user extern's G4 rule reads it; IG2 deleted the
-// hand table v1.PureErrorFuncs).
-func stdGoReturnsError(path, name string) bool {
-	src, ok := gostd.Binding(path)
-	if !ok {
-		return false
-	}
-	prefix := "extern go " + path + "." + name + " func "
-	for _, line := range strings.Split(src, "\n") {
-		if strings.HasPrefix(line, prefix) {
-			return strings.Contains(line, " fails go.Error")
-		}
-	}
-	return false
 }
 
 // isHostNamed reports a type of a Go package.

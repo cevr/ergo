@@ -193,7 +193,7 @@ extern go bufio.Scanner.Err func (s *Scanner) Err() fails go.Error needs go.Fore
 extern go bufio.Scanner.Scan func (s *Scanner) Scan() bool needs go.Foreign
 
 // ergo:go func (*Scanner).Split(split SplitFunc)
-// ergo:refused Scanner.Split: parameter 1: type SplitFunc is refused: a Go function type maps to no Ergo host type in v1
+// ergo:refused Scanner.Split: parameter 1: a callback with more than one result
 
 // ergo:go func (*Scanner).Text() string
 extern go bufio.Scanner.Text func (s *Scanner) Text() string needs go.Foreign
