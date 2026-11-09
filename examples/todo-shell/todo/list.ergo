@@ -95,16 +95,3 @@ func Open(l List) int {
 	}
 	n
 }
-
-// Equal reports whether a and b hold the same items in order.
-func Equal(a List, b List) bool {
-	if len(a.items) != len(b.items) {
-		return false
-	}
-	for i, it in a.items {
-		if it != b.items[i] {
-			return false
-		}
-	}
-	true
-}
