@@ -34,9 +34,11 @@ import "sync"
 //
 // A defect in an Update's or Modify's function (a Go panic) poisons the
 // cell: an owned function may have written part of the value in place, so
-// the cell no longer holds a whole value. The panic goes on to the caller,
-// and every later Get, Set, Update and Modify raises the same panic value
-// again, as Rust's Mutex poisoning reports a lock whose holder panicked.
+// the cell no longer holds a whole value. The panic goes on to the caller
+// as it is: the cell does not recover it (only a task's boundary records a
+// defect, runtime199 DefectOwner), so the defect keeps its own stack. Every
+// later Get, Set, Update and Modify raises the defect refPoisoned, as
+// Rust's Mutex reports a lock whose holder panicked with a PoisonError.
 // The unlock is deferred, so a poisoned cell is never left locked. Get and
 // Set run no program code under the lock and unlock inline. f has an empty
 // row (the lowering's adaptPlainFunc), so it neither waits nor needs a
@@ -60,11 +62,11 @@ type Ref[T any] struct {
 	mu     sync.Mutex
 	v      T
 	shared bool
-	poison *refPoison
+	poison bool
 }
 
-// refPoison is the panic value of the defect that poisoned a Ref.
-type refPoison struct{ p any }
+// refPoisoned is the defect an operation of a poisoned Ref raises.
+const refPoisoned = "sync.Ref is poisoned: a defect in an earlier Update or Modify may have left its value half written"
 
 // NewRef is sync.NewRef: a new cell that holds v. v may be reached from
 // outside the cell, so it is shared.
@@ -75,9 +77,9 @@ func NewRef[T any](v T) *Ref[T] { return &Ref[T]{v: v, shared: true} }
 // cannot panic, so the unlock needs no defer.
 func (r *Ref[T]) Get() T {
 	r.mu.Lock()
-	if p := r.poison; p != nil {
+	if r.poison {
 		r.mu.Unlock()
-		panic(p.p)
+		panic(refPoisoned)
 	}
 	r.shared = true
 	v := r.v
@@ -89,9 +91,9 @@ func (r *Ref[T]) Get() T {
 // shared. A store cannot panic, so the unlock needs no defer.
 func (r *Ref[T]) Set(v T) {
 	r.mu.Lock()
-	if p := r.poison; p != nil {
+	if r.poison {
 		r.mu.Unlock()
-		panic(p.p)
+		panic(refPoisoned)
 	}
 	r.v, r.shared = v, true
 	r.mu.Unlock()
@@ -104,10 +106,11 @@ func (r *Ref[T]) Set(v T) {
 // in it poisons r and must not leave r locked.
 func (r *Ref[T]) Update(f func(v T) T) {
 	r.mu.Lock()
-	defer r.end()
+	done := false
+	defer r.end(&done)
 	r.check()
 	r.v = f(r.v)
-	r.shared = true
+	r.shared, done = true, true
 }
 
 // RefModify is sync.Modify: under r's lock, it calls f once on the value
@@ -120,10 +123,11 @@ func RefModify[T, R any](r *Ref[T], f func(v T) struct {
 	F1 T
 }) R {
 	r.mu.Lock()
-	defer r.end()
+	done := false
+	defer r.end(&done)
 	r.check()
 	out := f(r.v)
-	r.v, r.shared = out.F1, true
+	r.v, r.shared, done = out.F1, true, true
 	return out.F0
 }
 
@@ -135,14 +139,15 @@ func RefModify[T, R any](r *Ref[T], f func(v T) struct {
 // value is shared.
 func RefUpdateOwned[T any](r *Ref[T], f func(v T) T, clone func(v T) T, fresh bool) {
 	r.mu.Lock()
-	defer r.end()
+	done := false
+	defer r.end(&done)
 	r.check()
 	v := r.v
 	if r.shared {
 		v = clone(v)
 	}
 	r.v = f(v)
-	r.shared = !fresh
+	r.shared, done = !fresh, true
 }
 
 // RefModifyOwned is sync.Modify called with a function literal that takes
@@ -154,34 +159,32 @@ func RefModifyOwned[T, R any](r *Ref[T], f func(v T) struct {
 	F1 T
 }, clone func(v T) T, fresh bool) R {
 	r.mu.Lock()
-	defer r.end()
+	done := false
+	defer r.end(&done)
 	r.check()
 	v := r.v
 	if r.shared {
 		v = clone(v)
 	}
 	out := f(v)
-	r.v, r.shared = out.F1, !fresh
+	r.v, r.shared, done = out.F1, !fresh, true
 	return out.F0
 }
 
-// check raises the defect that poisoned r, with r locked; end unlocks it.
+// check raises refPoisoned when r is poisoned, with r locked; end unlocks
+// it.
 func (r *Ref[T]) check() {
-	if p := r.poison; p != nil {
-		panic(p.p)
+	if r.poison {
+		panic(refPoisoned)
 	}
 }
 
-// end unlocks r at the end of an Update or Modify. A panic in the function
-// poisons r (a panic that check raised again keeps the first defect) and
-// goes on to the caller.
-func (r *Ref[T]) end() {
-	if p := recover(); p != nil {
-		if r.poison == nil {
-			r.poison = &refPoison{p: p}
-		}
-		r.mu.Unlock()
-		panic(p)
+// end unlocks r at the end of an Update or Modify. When the operation did
+// not finish (done is false), a panic is on its way to the caller: it
+// poisons r, and is not recovered here.
+func (r *Ref[T]) end(done *bool) {
+	if !*done {
+		r.poison = true
 	}
 	r.mu.Unlock()
 }

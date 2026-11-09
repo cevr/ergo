@@ -19,7 +19,7 @@ type Ref[T] {
 	// lose one of them. It calls f exactly once. A function literal written
 	// here takes the value over and may change it in place; no binding
 	// outside the Ref sees that change (a Ref owns its value). A defect in
-	// f poisons the Ref: every later operation raises it again.
+	// f poisons the Ref: every later operation raises a defect.
 	Update(f func(v T) T),
 
 	// UpdateCallsOnce: Update calls its function exactly once; it never

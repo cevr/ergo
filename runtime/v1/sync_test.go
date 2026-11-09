@@ -111,9 +111,9 @@ func TestRefReadsTheLastStore(t *testing.T) {
 }
 
 // TestRefPoisonedByADefect: a panic in the function of an Update, a Modify
-// or an owned Update reaches the caller and poisons the Ref, unlocked:
-// each later Get, Set, Update and Modify raises the first panic value
-// again (the mutant "no poison", and an end that keeps the lock).
+// or an owned Update reaches the caller as it is and poisons the Ref,
+// unlocked: each later Get, Set, Update and Modify raises refPoisoned (the
+// mutant "no poison", and an end that keeps the lock).
 func TestRefPoisonedByADefect(t *testing.T) {
 	raised := func(op func()) (p any) {
 		defer func() { p = recover() }()
@@ -160,8 +160,8 @@ func TestRefPoisonedByADefect(t *testing.T) {
 			"Owned":  func() { RefModifyOwned(r, pair, clone, true) },
 		}
 		for op, f := range later {
-			if p := raised(f); p != "defect" {
-				t.Errorf("%s, then %s: raised %v, want the first defect again", name, op, p)
+			if p := raised(f); p != refPoisoned {
+				t.Errorf("%s, then %s: raised %v, want the poison defect", name, op, p)
 			}
 		}
 	}
