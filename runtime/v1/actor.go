@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"iter"
 	"math"
-	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -44,7 +43,7 @@ import (
 //     entry opened in. The sleep is registered with the Scheduler before
 //     the entry is published, so an observer that sees the entry and then
 //     advances a manual clock by the delay fires the timer. A delay that is not positive is a defect
-//     (ActorTimerDefect; fs2's rule for machines.RunTimed): it would fire
+//     (MachineTimerDefect, the defect of machines.RunTimed; fs2): it would fire
 //     at its entry's instant, so a state whose timer re-enters it would
 //     never let time pass.
 //  8. End: after Done, a failure after a Send or a timer, a defect, or
@@ -999,7 +998,7 @@ func (a *Actor[S, E, D]) arm(at *rt.Task, s S) {
 		return
 	}
 	if d <= 0 {
-		panic(&ActorTimerDefect{State: stateText(s), In: d})
+		panic(MachineTimerNotPositive("", s, d))
 	}
 	env := envelope[S, E, D]{kind: timerSignal, epoch: a.epoch, at: s}
 	holder := rt.NewScope(at)
@@ -1027,31 +1026,6 @@ const noTimer = time.Duration(math.MinInt64)
 
 // ActorNoTimer is the delay std actor gives a state whose After is None.
 func ActorNoTimer() time.Duration { return noTimer }
-
-// ActorTimerDefect is the defect of an actor whose machine armed a timer
-// with an In that is not positive (rule 7). Its text is the text of
-// machines.RunTimed's defect (fs2), with the state as fmt's %+v writes it.
-type ActorTimerDefect struct {
-	State string
-	In    time.Duration
-}
-
-// String is the defect's text, which the entry's report writes after
-// "panic: ".
-func (d *ActorTimerDefect) String() string {
-	return "an actor's machine: the timer of state " + d.State + " has In " + d.In.String() +
-		", which is not positive; a timer waits a positive duration"
-}
-
-// stateText is s's text: its Go type's name and fields, Idle{n:1}.
-func stateText[S any](s S) string {
-	v := any(s)
-	name := ""
-	if t := reflect.TypeOf(v); t != nil {
-		name = t.Name()
-	}
-	return name + fmt.Sprintf("%+v", v)
-}
 
 // stopTimer stops and drains the current entry's timer child (rule 5). A
 // defect of the child (its Sleep's) ends the actor.

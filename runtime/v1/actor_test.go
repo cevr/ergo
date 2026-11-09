@@ -571,7 +571,7 @@ func runActorCase(c actorCase, seen map[string]bool) string {
 	if x, ok := raised.(*exit); ok {
 		report(&text, x.err)
 	}
-	if want := "panic: an actor's machine: the timer of state tstate{v:"; r.defect != (raised != nil) || r.defect && !strings.Contains(text.String(), want) {
+	if want := "panic: a Machine built from parts: the timer of state tstate{v:"; r.defect != (raised != nil) || r.defect && !strings.Contains(text.String(), want) {
 		dr.failf("Stop raised %v (%q); want the timer defect %v", raised, text.String(), r.defect)
 	}
 	dr.mu.Lock()

@@ -95,8 +95,11 @@ func TextDuration(d time.Duration) string { return d.String() }
 // and actors 9; fs2). Such a timer fires at its entry's instant, so a state
 // whose timer re-enters it never lets time pass. Go's time.NewTicker panics
 // on a non-positive period for the same reason.
-// Machine and State are empty for a Machine built from parts, which has no
-// name; At is then the run's time when the timer was armed.
+// It is the one defect of the rule in every runner: machines.RunTimed and
+// a machine actor (actor rule 7) raise it alike (batch-13 integration, the
+// MU3/fs2 unify). Machine is empty for a Machine built from parts, which
+// has no name. State is empty only where RunTimed's pure check has no
+// state text; At is then the run's time when the timer was armed.
 type MachineTimerDefect struct {
 	Machine string
 	State   string
@@ -108,10 +111,14 @@ type MachineTimerDefect struct {
 // "panic: ".
 func (d *MachineTimerDefect) String() string {
 	const why = ", which is not positive; a timer waits a positive duration"
+	who := "machine " + d.Machine
 	if d.Machine == "" {
-		return "a Machine built from parts: the timer armed at " + TextDuration(d.At) + " has In " + TextDuration(d.In) + why
+		who = "a Machine built from parts"
 	}
-	return "machine " + d.Machine + ": the timer of state " + d.State + " has In " + TextDuration(d.In) + why
+	if d.State == "" {
+		return who + ": the timer armed at " + TextDuration(d.At) + " has In " + TextDuration(d.In) + why
+	}
+	return who + ": the timer of state " + d.State + " has In " + TextDuration(d.In) + why
 }
 
 // MachineTimerNotPositive is the defect of machine's timer armed in state s
