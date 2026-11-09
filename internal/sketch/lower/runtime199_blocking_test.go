@@ -38,6 +38,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.callText":      "a capability operation through the Env's provider field",
 			"funcCtx.openFrame":     "the frame scope's parent task (NewScope)",
 			"funcCtx.poll":          "the interruption point (Check)",
+			"flatRun.runText":       "the flat machine run's task, read once for its per-signal interruption point (Check; MU8)",
 			"funcCtx.envClosure":    "a task callback's Env copy",
 			"lowerer.testRunner":    "a test case's task, which the case's Capture classifies its unwinding against (E3a M3)",
 			"lowerer.lawRuns":       "a law case's task, which the case's Capture classifies its unwinding against (#162)",

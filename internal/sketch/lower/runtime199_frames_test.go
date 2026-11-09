@@ -28,7 +28,7 @@ type i1FrameKind struct {
 }
 
 var i1FrameKinds = []i1FrameKind{
-	{name: "decl", goClass: "decl", params: true, sites: map[string]int{"emitFuncBody": 1}, program: func(ps, row, _ string, body string) string {
+	{name: "decl", goClass: "decl", params: true, sites: map[string]int{"emitBody": 1}, program: func(ps, row, _ string, body string) string {
 		return "func subject(" + ps + ") int" + row + " {\n" + body + "}\n"
 	}},
 	{name: "literal", goClass: "lit", params: true, sites: map[string]int{"funcLitClosure": 1}, program: func(ps, row, attempt string, body string) string {
@@ -44,7 +44,7 @@ var i1FrameKinds = []i1FrameKind{
 	{name: "trailing", goClass: "lit", params: true, sites: map[string]int{"funcLitClosure": 1}, program: func(ps, row, attempt string, body string) string {
 		return "func run(f func() int" + row + ") int" + row + " { " + attempt + "f() }\nfunc subject(" + ps + ") int" + row + " {\n" + attempt + "run() {\n" + body + "}\n}\n"
 	}, wrap: func(_ int, body string) string { return "run() {\n" + body + "}\n" }},
-	{name: "provider", goClass: "decl", sites: map[string]int{"emitFuncBody": 1}, program: func(_, _, _ string, body string) string {
+	{name: "provider", goClass: "decl", sites: map[string]int{"emitBody": 1}, program: func(_, _, _ string, body string) string {
 		return "type Worker { Run(n int) int }\ntype Impl {}\nfunc Run(_ Impl, n int) int {\n" + body + "}\nlet Work = context { Worker: Impl }\nfunc subject() int { with Work { Worker.Run(1) } }\n"
 	}},
 	// The block uses Probe: a with builds only the providers its block
