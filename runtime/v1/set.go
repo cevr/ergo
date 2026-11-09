@@ -194,12 +194,21 @@ func TasksGo(span Site, t *rt.Task, set *Set, body func(*rt.Task) error) error {
 // a defect under Restart with restarts left, in an open Set, while the
 // member is not stopped.
 func (set *Set) restarts(ct *rt.Task, m *member, exit error) bool {
-	if set.kind != setRestart || exit == nil || ct.StopRequested() || !hasDefect(exit) || m.runs > set.limit {
+	if set.kind != setRestart || !restartable(ct, exit, m.runs, set.limit) {
 		return false
 	}
 	set.mu.Lock()
 	defer set.mu.Unlock()
 	return !set.closed
+}
+
+// restartable is tasks.Restart's rule, for a Set's member and for a
+// supervised actor (actor.go rule 16) alike: a run on ct that ended with
+// exit runs again when exit holds a defect, ct's stop was not requested,
+// and runs (this one included) is at most limit, so a body runs at most
+// 1 + limit times. The caller adds its own "still open" check.
+func restartable(ct *rt.Task, exit error, runs, limit int) bool {
+	return exit != nil && !ct.StopRequested() && hasDefect(exit) && runs <= limit
 }
 
 // end records a member's last exit by the policy (rule 3), moves it to

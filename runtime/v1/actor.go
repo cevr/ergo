@@ -119,6 +119,22 @@ import (
 //     stops the children. An entry with hosts and a work is published once
 //     the work filled them, reached its first wait (rt.WhenWaiting) or
 //     ended.
+//  16. Supervision (MU7; MachineSupervise, the model
+//     docs/research/actor-machine/supervise.qnt): a supervised actor's
+//     incarnation that ends with a defect (of a step, a timer, a work, a
+//     child, a source, a save, or of fresh) is restarted by tasks.Restart's
+//     rule (restartable, as a Set's member is): while the actor's stop is
+//     not requested, its admission is open (no Stop, no Drain) and fewer
+//     than limit restarts were made. A crash ends the incarnation as rule
+//     8 ends the actor, but admission stays open: the entry's children,
+//     timer and work are stopped, the ask in the step and every queued
+//     ask are answered ActorStopped, queued sends and signals are
+//     dropped, queued State reads get the last state, and queued Feeds
+//     start (a source lives as long as the actor, rule 14). The new
+//     incarnation starts from fresh(), never from the last state, on a
+//     new epoch, and Restarts counts it. A Done, a Stop, a Drain and a
+//     typed failure end the actor for good; the defect that finds the
+//     budget spent is the actor's exit.
 type Actor[S, E, D any] struct {
 	inbox   mailbox[envelope[S, E, D]] // in the Actor: no allocation of its own
 	task    *rt.Task
@@ -188,6 +204,13 @@ type Actor[S, E, D any] struct {
 	feedMu  sync.Mutex
 	feedSeq uint64
 	feedQ   map[uint64]func(*rt.Task, func(E))
+
+	// Supervision (rule 16): fresh gives each new incarnation's first
+	// state, nil for an actor that is not supervised; limit is the
+	// restart budget; restarts counts the restarts made (Restarts).
+	fresh    func(*rt.Task) (S, error)
+	limit    int
+	restarts atomic.Int64
 
 	// The runner's own fields: only its goroutine reads or writes them.
 	cur *envelope[S, E, D] // the envelope in a step, nil between steps
@@ -267,8 +290,41 @@ func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D), capacity int) *Actor[S, E, D] {
 	return machineStart(span, t, sl, initial, step, fire, delay, workOf, hasWork, work, kind, next,
-		out, capacity, nil)
+		out, capacity, nil, nil, 0)
 }
+
+// MachineSupervise is std actor's supervise: MachineStart for an actor that
+// restarts after a defect (rule 16), at most limit times, each new
+// incarnation from fresh's state; initial is the first incarnation's. A
+// typed failure of fresh is a defect of the incarnation (ActorFreshDefect).
+// A negative limit is a defect, as tasks.Restart's is.
+func MachineSupervise[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
+	fresh func(*rt.Task) (S, error), limit int,
+	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
+	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
+	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
+	out func(*rt.Task, D), capacity int) *Actor[S, E, D] {
+	if limit < 0 {
+		panic(fmt.Sprintf("actor.Supervise: a negative restart limit %d", limit))
+	}
+	return machineStart(span, t, sl, initial, step, fire, delay, workOf, hasWork, work, kind, next,
+		out, capacity, nil, fresh, limit)
+}
+
+// ActorFreshDefect is the defect of a supervised actor whose fresh state
+// failed at a restart (a durable actor's recover): Reason is the failure.
+type ActorFreshDefect struct {
+	Reason string
+}
+
+// String is the defect's text.
+func (d *ActorFreshDefect) String() string {
+	return "actor.Supervise: the state of a restart failed: " + d.Reason
+}
+
+// ActorRestarts is std actor's Restarts(a): how many times a supervised
+// actor restarted (rule 16); 0 for one that never did.
+func ActorRestarts[S, E, D any](a *Actor[S, E, D]) int { return int(a.restarts.Load()) }
 
 // MachineChild is actor.Child's body (rule 13): MachineStart for a child
 // of the entry whose work calls it, found from t (ownerOf). out gets
@@ -298,7 +354,7 @@ func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, host *Ho
 	}
 	adopted, hostOK := owner.adopt(cell, func(report func(*rt.Task, error) bool, deliver func(*rt.Task, P)) func() error {
 		c = machineStart(span, t, sl, initial, step, fire, delay, workOf, hasWork, work, kind, next,
-			func(ct *rt.Task, d D) { out(ct, d, func(p P) { deliver(ct, p) }) }, capacity, report)
+			func(ct *rt.Task, d D) { out(ct, d, func(p P) { deliver(ct, p) }) }, capacity, report, nil, 0)
 		return c.halt
 	}, func() { host.fill(c) })
 	if !hostOK {
@@ -354,7 +410,8 @@ func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
 	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
-	out func(*rt.Task, D), capacity int, report func(*rt.Task, error) bool) *Actor[S, E, D] {
+	out func(*rt.Task, D), capacity int, report func(*rt.Task, error) bool,
+	fresh func(*rt.Task) (S, error), limit int) *Actor[S, E, D] {
 	if capacity < 0 {
 		panic(fmt.Sprintf("actor.StartMachine: negative capacity %d", capacity))
 	}
@@ -362,7 +419,7 @@ func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 		sleeper: sl, span: string(span),
 		step: step, fire: fire, delay: delay, kind: kind, next: next, out: out,
 		done: make(chan struct{}), state: initial,
-		report: report,
+		report: report, fresh: fresh, limit: limit,
 	}
 	a.work = func(s S) (func(*rt.Task, func(E)), bool) {
 		w := workOf(s)
@@ -414,7 +471,81 @@ func (a *Actor[S, E, D]) runner(at *rt.Task) (struct{}, error) {
 	// The binding NewHost reads (rule 15): its storage is in the Actor, so
 	// it allocates nothing, and it lives as long as the runner's task.
 	at.Bind(&a.hostSlot, hostKey{}, hostRunner(a))
-	return a.loop(at)
+	if a.fresh == nil {
+		return a.loop(at)
+	}
+	return a.supervise(at)
+}
+
+// supervise runs a supervised actor's incarnations (rule 16): each one is
+// a loop, and one that ends with a restartable defect while admission is
+// open is cleaned up (crash) and followed by the next, from a fresh state.
+func (a *Actor[S, E, D]) supervise(at *rt.Task) (struct{}, error) {
+	for runs := 1; ; runs++ {
+		_, err := guarded(at, func(at *rt.Task) (struct{}, error) {
+			if runs > 1 {
+				a.renew(at)
+			}
+			return a.loop(at)
+		})
+		if !restartable(at, err, runs, a.limit) || a.inbox.isClosed() {
+			return struct{}{}, err
+		}
+		a.crash(at)
+		a.restarts.Add(1)
+	}
+}
+
+// renew gives a new incarnation its first state, fresh's, never the last
+// one: it is committed and shown to the observers before the loop opens
+// its entry.
+func (a *Actor[S, E, D]) renew(at *rt.Task) {
+	s, err := a.fresh(at)
+	if err != nil {
+		panic(&ActorFreshDefect{Reason: err.Error()})
+	}
+	a.publish(s)
+}
+
+// crash ends an incarnation that a defect ended (rule 16) as finish ends
+// the actor, but leaves admission open: the step's hosts close, the
+// children, the timer and the work stop (their defects are the crash's),
+// the ask of the step and the queued asks are answered ActorStopped, the
+// queued sends and signals are dropped, the queued State reads get the
+// last state, and the queued Feeds start. Envelopes admitted after it
+// counted the queue are the next incarnation's. The epoch moves on, so no
+// signal of the ended incarnation's entries can be stepped.
+func (a *Actor[S, E, D]) crash(at *rt.Task) {
+	a.closeNewHosts()
+	_ = a.stopKids()
+	for _, h := range []*rt.Handle[struct{}]{a.timer, a.working} {
+		if h != nil {
+			_ = h.Stop()
+		}
+	}
+	a.timer, a.working = nil, nil
+	if a.cur != nil {
+		a.release(a.cur)
+		a.cur = nil
+	}
+	for n := a.inbox.Len(); n > 0; n-- {
+		env, ok := a.inbox.Poll()
+		if !ok {
+			break
+		}
+		switch env.kind {
+		case feedStart:
+			a.startFeed(at, env.epoch)
+		case stateRead:
+			a.mu.Lock()
+			s := a.state
+			a.mu.Unlock()
+			env.reply <- answer[S, D]{s: s}
+		default:
+			a.release(&env)
+		}
+	}
+	a.epoch++
 }
 
 // endRunner ends the runner task after its loop returned or raised.
