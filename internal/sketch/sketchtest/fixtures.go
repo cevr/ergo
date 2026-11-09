@@ -58,7 +58,7 @@ var GrammarFixtures = []GrammarFixture{
 	{"Selector", "func f(o Order) string {\n\to.Customer.Name\n}\n"},
 	{"Index", "func f(xs []int64, m Map[string, int64]) int64 {\n\txs[0] + m[\"a\"] + slice.WithCapacity[int64](4)[0]\n}\n"},
 	{"Slice", "func f(xs []int64) {\n\tuse(xs[1:], xs[:2], xs[1:2], xs[1:2:3])\n}\n"},
-	{"Call", "func f() {\n\tg(1, 2)\n\ttask.Go() { work() }\n\ttimeout.After(2s) {\n\t\twork()\n\t}\n}\n"},
+	{"Call", "func f() {\n\tg(1, 2)\n\ttask.Go() { work() }\n\ttimeout.After(2s) {\n\t\twork()\n\t}\n\teach(xs) func(x int) int {\n\t\tx * 2\n\t}\n}\n"},
 	{"Primary", "func f(x int64) {\n\tuse(x, 1, Order{}, func(y) { y }, (x, x), (x))\n}\n"},
 	{"Literal", "func f() {\n\tuse(42, 2.5, 'a', \"s\", `raw`, 500ms, 1e9, .5)\n}\n"},
 	{"CompositeLit", "func f() {\n\tuse(Order{ID: \"1\", Total: 2}, []int64{1, 2}, Map[string, int64]{\"a\": 1}, Pair[int64, bool]{1, true})\n}\n"},

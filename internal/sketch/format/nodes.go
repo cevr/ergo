@@ -880,11 +880,21 @@ func (p *printer) expr1(x syntax.Expr, depth int) {
 			return
 		}
 		p.expr1(x.Fun, depth)
+		args := x.Args
+		if x.TrailingFunc {
+			// The trailing function literal goes back after the `)`
+			// (grammar.md, Expressions 9).
+			args = args[:len(args)-1]
+		}
 		argDepth := depth
-		if len(x.Args) > 1 {
+		if len(args) > 1 {
 			argDepth++
 		}
-		p.list(x.Lparen, "(", nodes(x.Args), func(i int) { p.expr1(x.Args[i], argDepth) }, x.Rparen, ")")
+		p.list(x.Lparen, "(", nodes(args), func(i int) { p.expr1(args[i], argDepth) }, x.Rparen, ")")
+		if x.TrailingFunc {
+			p.space()
+			p.expr1(x.Args[len(x.Args)-1], depth)
+		}
 		if x.Trailing != nil {
 			p.space()
 			p.block(x.Trailing, true)

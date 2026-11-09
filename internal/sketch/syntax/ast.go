@@ -443,6 +443,11 @@ type (
 		Args     []Expr
 		Rparen   Pos
 		Trailing *BlockStmt
+		// TrailingFunc is true when the last of Args is a function
+		// literal written after the `)` (grammar.md, Expressions 9):
+		// it is an argument like any other, and the formatter writes
+		// it back after the call.
+		TrailingFunc bool
 	}
 
 	// StarExpr is `*x`: a pointer type or an indirection.
@@ -632,6 +637,9 @@ func (x *CallExpr) Pos() Pos     { return x.Fun.Pos() }
 func (x *CallExpr) End() Pos {
 	if x.Trailing != nil {
 		return x.Trailing.End()
+	}
+	if x.TrailingFunc {
+		return x.Args[len(x.Args)-1].End()
 	}
 	return x.Rparen + 1
 }

@@ -29,17 +29,17 @@ func Get(t Table, key string) string fails kv.Missing | kv.Broken {
 
 // Put makes key hold value.
 func Put(t Table, key string, value string) fails kv.Broken {
-	t.entries.Update(func(entries Map[string, string]) Map[string, string] { entries.Put(key, value) })
+	t.entries.Update() func(entries Map[string, string]) Map[string, string] { entries.Put(key, value) }
 }
 
 // Delete removes key.
 func Delete(t Table, key string) fails kv.Missing | kv.Broken {
-	let found = sync.Modify(t.entries, func(entries Map[string, string]) (bool, Map[string, string]) {
+	let found = sync.Modify(t.entries) func(entries Map[string, string]) (bool, Map[string, string]) {
 		if entries.Get(key) == None {
 			return (false, entries)
 		}
 		(true, entries.Delete(key))
-	})
+	}
 	if !found {
 		return kv.Missing{Key: key}
 	}
