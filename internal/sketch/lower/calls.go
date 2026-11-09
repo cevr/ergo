@@ -522,8 +522,8 @@ func (l *lowerer) hostPkg(path string, site syntax.Node) string {
 	if path == "time" {
 		return l.timePkg()
 	}
-	if first, _, _ := strings.Cut(path, "/"); first == "" || strings.Contains(first, ".") {
-		ice(site, "a user extern whose target package %q is outside Go's standard library, which the checker refuses (#202)", path)
+	if first, _, _ := strings.Cut(path, "/"); (first == "" || strings.Contains(first, ".")) && !l.goModule.covers(path) {
+		ice(site, "the Go package %q is outside Go's standard library and no module of the go.mod beside ergo.mod provides it, which the loader refuses (IG7)", path)
 	}
 	if path == "unsafe" {
 		// Go's unsafe holds the qualified built-ins, whose calls the

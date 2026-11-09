@@ -152,6 +152,9 @@ func reportLawless(root string, stdout io.Writer) int {
 		if err != nil {
 			return err
 		}
+		if entry.IsDir() && entry.Name() == "ergo.bind" {
+			return filepath.SkipDir // generated Go bindings (IG7), no package
+		}
 		if !entry.IsDir() && strings.HasSuffix(path, ".ergo") && entry.Type().IsRegular() {
 			sources = append(sources, path)
 		}

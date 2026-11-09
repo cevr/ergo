@@ -38,6 +38,11 @@ import (
 type GoBindings struct {
 	lookup func(path string) (string, bool)
 	pkgs   map[string]*Package
+	// Stale, when set, is why the binding of a Go import path that lookup
+	// found no longer matches the module's go.mod (IG7: the loader compares
+	// the binding's stamp with go.mod, reading files only); "" when it
+	// matches. The import is then S104 with the command that rewrites it.
+	Stale func(path string) string
 }
 
 // NewGoBindings returns the Go packages read through lookup, which returns
@@ -87,11 +92,26 @@ func (c *checker) importGo(fi *fileInfo, spec *syntax.ImportSpec, path string) {
 	if spec.Name != nil {
 		name = spec.Name.Name
 	}
-	pkg, ok := c.goBindings().Package(path)
+	for _, elem := range strings.Split(path, "/") {
+		if elem == "internal" || elem == "vendor" {
+			c.errorf(spec.Path, CodeOutside, "import go %q: Go admits an %s package only inside the tree that holds it, and the emitted program is outside every tree (docs/spec/interop.md)", path, elem)
+			c.bindBrokenImportName(fi, spec, path, name)
+			return
+		}
+	}
+	set := c.goBindings()
+	pkg, ok := set.Package(path)
 	if !ok {
 		c.errorf(spec.Path, CodeUnknown, "no binding for Go package %q; run ergo bind go %s (docs/spec/interop.md)", path, path)
 		c.bindBrokenImportName(fi, spec, path, name)
 		return
+	}
+	if set.Stale != nil {
+		if why := set.Stale(path); why != "" {
+			c.errorf(spec.Path, CodeUnknown, "the binding of Go package %q is stale: %s; run ergo bind go %s (docs/spec/interop.md)", path, why, path)
+			c.bindBrokenImportName(fi, spec, path, name)
+			return
+		}
 	}
 	if _, dup := fi.scope.names[name]; name != "_" && dup {
 		c.errorf(spec, CodeType, "%s is imported twice", name)

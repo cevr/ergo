@@ -302,9 +302,15 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 		file := entry.Name()
 		present[file] = true
 		switch {
-		case file == "cases" || file == "testdata":
+		case file == "cases" || file == "testdata" || file == "ergo.bind":
+			// ergo.bind holds the generated bindings of the module's Go
+			// packages (IG7): not package source.
 			if !entry.IsDir() {
 				problem("%s is not a folder", file)
+			}
+		case file == "go.mod" || file == "go.sum":
+			if !entry.Type().IsRegular() {
+				problem("%s is not a regular file", file)
 			}
 		case file == "ergo.mod" || file == "README.md" || file == "tags" || file == "origin" || file == "record.sh" || file == expectedSkipsFile || strings.HasSuffix(file, ".ergo"):
 			if !entry.Type().IsRegular() {
@@ -320,7 +326,7 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			}
 			problems = append(problems, packageSources(p, filepath.Join(p.dir, file), file)...)
 		default:
-			problem("unexpected %s; a program of packages holds ergo.mod, cmd/%s/main.ergo, package folders, README.md, tags and cases/, and may hold origin with record.sh, expected-skips and testdata/", file, p.name)
+			problem("unexpected %s; a program of packages holds ergo.mod, cmd/%s/main.ergo, package folders, README.md, tags and cases/, and may hold origin with record.sh, expected-skips, testdata/, and go.mod, go.sum and ergo.bind/ for its Go packages", file, p.name)
 		}
 	}
 	if !present["cmd"] {

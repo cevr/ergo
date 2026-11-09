@@ -27,7 +27,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	pathpkg "path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -107,6 +106,10 @@ type program struct {
 	// texts holds the text of every file a diagnostic can name, by its
 	// path relative to the module root, ergo.mod included.
 	texts map[string]string
+	// goModule is the Go requirements of go.mod and go.sum (gomod.go), and
+	// bindings the module bindings the check read, by Go import path.
+	goModule lower.GoModule
+	bindings map[string]string
 }
 
 // loader reads and checks one program.
@@ -122,6 +125,13 @@ type loader struct {
 	diags   []report.Diagnostic
 	texts   map[string]string
 	gobind  *check.GoBindings
+	// goMod is the go.mod beside ergo.mod, nil with none; goSum its go.sum.
+	goMod *goMod
+	goSum string
+	// bindings are the module bindings read, by Go import path, and stale
+	// the reason each one does not match go.mod (gomod.go).
+	bindings map[string]string
+	stale    map[string]string
 }
 
 // GoBindings makes the loader a check.GoImporter: the program's packages
@@ -129,6 +139,7 @@ type loader struct {
 func (l *loader) GoBindings() *check.GoBindings {
 	if l.gobind == nil {
 		l.gobind = check.NewGoBindings(l.goBinding)
+		l.gobind.Stale = func(path string) string { return l.stale[path] }
 	}
 	return l.gobind
 }
@@ -137,7 +148,9 @@ func (l *loader) GoBindings() *check.GoBindings {
 // (embedded; a std path always names std), else the module's own,
 // committed at ergo.bind/<path>/<last element>.ergo under the module root
 // (owner q37; docs/spec/interop.md). A binding read is an input of the
-// analysis, so it is part of Text.
+// analysis, so it is part of Text and of the build key. A module binding
+// whose stamp does not match go.mod is stale (gomod.go): the checker
+// reports it at the import.
 func (l *loader) goBinding(path string) (string, bool) {
 	if src, ok := gostd.Binding(path); ok {
 		return src, true
@@ -145,13 +158,21 @@ func (l *loader) goBinding(path string) (string, bool) {
 	if l.module == "" || check.GoImportPathError(path) != "" || strings.Contains(path, "..") {
 		return "", false
 	}
-	rel := pathpkg.Join("ergo.bind", path, pathpkg.Base(path)+".ergo")
+	rel := bindingFile(path)
 	data, err := l.fsys.ReadFile(filepath.Join(l.root, filepath.FromSlash(rel)))
 	if err != nil {
 		return "", false
 	}
-	l.texts[rel] = string(data)
-	return string(data), true
+	src := string(data)
+	l.texts[rel] = src
+	if l.bindings == nil {
+		l.bindings, l.stale = map[string]string{}, map[string]string{}
+	}
+	l.bindings[path] = src
+	if why := staleBinding(l.goMod, path, src); why != "" {
+		l.stale[path] = why
+	}
+	return src, true
 }
 
 const (
@@ -200,7 +221,10 @@ func checkDir(fsys FS, dir string) (Analysis, error) {
 			l.checkAll()
 		}
 	}
-	p := &program{texts: l.texts}
+	p := &program{texts: l.texts, bindings: l.bindings}
+	if l.goMod != nil {
+		p.goModule = l.goMod.lowerModule(l.root, l.goSum)
+	}
 	if len(l.order) > 0 {
 		p.root = l.order[len(l.order)-1]
 		p.imports = l.order[:len(l.order)-1]
@@ -235,6 +259,7 @@ func (l *loader) findModule(dir string) (bool, error) {
 				return true, nil
 			}
 			l.module = module
+			l.readGoModule()
 			return true, nil
 		case err == nil:
 			return false, fmt.Errorf("%s is not a regular file", name)
@@ -599,6 +624,7 @@ func (p *program) unit() lower.Unit {
 	for _, q := range p.imports {
 		u.Imports = append(u.Imports, packageUnit(q))
 	}
+	u.Go = p.goModule
 	return u
 }
 
@@ -622,6 +648,19 @@ func (p *program) dependencies() []build.Dependency {
 			files[f.abs] = f.text
 		}
 		out = append(out, sourceDependency(q.path, files))
+	}
+	// The emitted go.mod and go.sum come from go.mod and go.sum, and the
+	// lowering of a Go call from its module binding: an edit of either
+	// builds again (IG7).
+	m := p.goModule
+	if len(m.Require)+len(m.Replace) > 0 || m.Sum != "" {
+		out = append(out, sourceDependency("go module", map[string]string{
+			GoModFile: strings.Join(m.Require, "\n") + "\n--\n" + strings.Join(m.Replace, "\n"),
+			GoSumFile: m.Sum,
+		}))
+	}
+	for path, src := range p.bindings {
+		out = append(out, sourceDependency("go "+path, map[string]string{bindingFile(path): src}))
 	}
 	return out
 }

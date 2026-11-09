@@ -117,9 +117,10 @@ var placeholder = regexp.MustCompile(`⟦([^⟧]*)⟧`)
 
 // Render writes the binding file of the Go package path, whose package
 // name is name, from its declarations; stamp is the rest of the
-// `// ergo:bind` line (toolchain and platforms). It returns the file
-// formatted as ergo fmt formats it.
-func Render(path, name, stamp string, decls []Decl) (string, error) {
+// `// ergo:bind` line (toolchain and platforms). module, for a package
+// outside Go's standard library, is its module's stamp (ModuleLine), the
+// third line. It returns the file formatted as ergo fmt formats it.
+func Render(path, name, stamp, module string, decls []Decl) (string, error) {
 	var body strings.Builder
 	for _, d := range decls {
 		body.WriteString("\n// ergo:go " + d.Go + "\n")
@@ -167,6 +168,9 @@ func Render(path, name, stamp string, decls []Decl) (string, error) {
 	}
 	text = placeholder.ReplaceAllStringFunc(text, func(s string) string { return local[s[len("⟦"):len(s)-len("⟧")]] })
 	src := Header + "\n// ergo:bind " + path + " " + stamp + "\n"
+	if module != "" {
+		src += ModuleLine + module + "\n"
+	}
 	if imports.Len() > 0 {
 		src += "\n" + imports.String()
 	}
@@ -197,10 +201,23 @@ type closer struct {
 	platforms []Platform
 	pkgs      map[string][]*types.Package // by path, one per platform
 	done      map[string][]Decl
+	// modules is the module stamp of each package outside Go's standard
+	// library, by import path (ModuleLine).
+	modules map[string]string
 }
 
 func newCloser(platforms []Platform) *closer {
 	return &closer{platforms: platforms, pkgs: map[string][]*types.Package{}, done: map[string][]Decl{}}
+}
+
+// name is the Go package name of path, from the first platform that has it.
+func (c *closer) name(path string) string {
+	for _, p := range c.pkgs[path] {
+		if p != nil {
+			return p.Name()
+		}
+	}
+	return lastElem(path)
 }
 
 func (c *closer) add(i int, p *types.Package) {
@@ -219,7 +236,7 @@ func (c *closer) file(path, name, goVersion string) (string, error) {
 	for _, p := range c.platforms {
 		ps = append(ps, p.String())
 	}
-	return Render(path, name, goVersion+" "+strings.Join(ps, " "), c.decls(path))
+	return Render(path, name, goVersion+" "+strings.Join(ps, " "), c.modules[path], c.decls(path))
 }
 
 // decls is the merged and closed declarations of the package path. Go
