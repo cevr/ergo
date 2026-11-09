@@ -41,7 +41,9 @@ import (
 //  7. Timer: delay(s) of an opening state, unless it is ActorNoTimer(),
 //     arms a child that sleeps on the program's Scheduler and then pushes
 //     the timer envelope; fire(at, s) steps it, where at is the state its
-//     entry opened in. A delay that is not positive is a defect
+//     entry opened in. The sleep is registered with the Scheduler before
+//     the entry is published, so an observer that sees the entry and then
+//     advances a manual clock by the delay fires the timer. A delay that is not positive is a defect
 //     (ActorTimerDefect; fs2's rule for machines.RunTimed): it would fire
 //     at its entry's instant, so a state whose timer re-enters it would
 //     never let time pass.
@@ -623,6 +625,12 @@ func (a *Actor[S, E, D]) stopWork() {
 // arm starts the timer child of the entry that opened in s, when delay(s)
 // is not negative. The child sleeps on the program's Scheduler, then
 // pushes the timer envelope with the entry's epoch; a stop ends it first.
+//
+// arm returns once the child's sleep is registered with the Scheduler (its
+// first wait, rt.WhenWaiting) or the child has ended, so the sleep is part
+// of the commit: an observer that sees the entry and then advances a
+// manual clock by the delay always fires the timer (rule 7). The sleep's
+// deadline is the commit's instant, not a later one.
 func (a *Actor[S, E, D]) arm(at *rt.Task, s S) {
 	d := a.delay(s)
 	if d == noTimer {
@@ -633,7 +641,15 @@ func (a *Actor[S, E, D]) arm(at *rt.Task, s S) {
 	}
 	env := envelope[S, E, D]{kind: timerSignal, epoch: a.epoch, at: s}
 	holder := rt.NewScope(at)
+	armed := make(chan struct{})
+	var once sync.Once
+	registered := func() { once.Do(func() { close(armed) }) }
 	a.timer = rt.Go(&holder, a.span+" (timer)", func(ct *rt.Task) (struct{}, error) {
+		cancel := rt.WhenWaiting(ct, registered)
+		defer func() {
+			cancel()
+			registered() // the child ended without a wait
+		}()
 		return guarded(ct, func(ct *rt.Task) (struct{}, error) {
 			a.sleeper.Sleep(ct, d)
 			// Closed: the actor ended; the timer has no one to tell.
@@ -641,6 +657,7 @@ func (a *Actor[S, E, D]) arm(at *rt.Task, s S) {
 			return struct{}{}, nil
 		})
 	})
+	<-armed
 }
 
 // noTimer is the delay of a state with no timer: no timer waits it.

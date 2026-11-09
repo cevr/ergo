@@ -70,7 +70,6 @@ Where Ergo could not improve:
 - **Signatures and type arguments.** `Stay[Flow]{…}`, `Done[Result]{…}`, `Timeout[Signal]{…}`, `Some[Flow]{…}` are written where effect-machine infers (em-parity §4.5 item 1).
 - **Ignore arms.** Seven `(State, _): Ignore` arms; effect-machine drops unhandled events with no line. The arms are the price of totality (q40 keeps them explicit).
 - **The card reader** is the script: there is no actor-lifetime source yet (M49), so a scan is a `Send` from the driver, as effect-machine's `.background` would do from inside.
-- **The driver's wait for the timer**: before `wait` moves the clock, the screen spins until the timer's task sleeps (finding F2).
 
 ## Benchmark
 
@@ -79,7 +78,6 @@ No em-parity §3 scenario is this program's own: the costs it exercises (an `Ask
 ## Limits found
 
 - **F1** `machines.Run` of a machine with work needs the work's row (`Codes`) although a fold never runs work, so the laws fold the step by hand (`fold`).
-- **F2** A state timer's sleep starts on its own task after the entry commits, so a driver on `time.Manual` can move the clock before the timer sleeps and the timer then waits 30 s more. The screen spins on `clock.Sleepers()` before `wait`.
 - **F3** A type that is a failure and also a variant of the signal union cannot be a tail value: `WrongCode` at a tail is a failure (rows.md, Tail results). The laws write `let w Signal = WrongCode` first.
 - **F4** A law of an imported operation type is not run against this package's providers, so `memory/tests.ergo` restates the `Codes` laws as properties.
 - **F5** No actor-lifetime source (M49): the card reader is the script.

@@ -177,12 +177,8 @@ func Run(gateway till.Payments, clock time.Manual) needs Console | io.Stdin | Sc
 			Console.Println("? unknown command: \(u.Line)")
 			continue
 		case Wait:
-			// The receipt's timer sleeps from a task of its own, which may
-			// not sleep yet (sign-in finding F2).
-			if onReceipt(a.State()) {
-				for clock.Sleepers() == 0 {
-				}
-			}
+			// The receipt's timer sleeps from its commit on, so the clock
+			// moves it at once.
 			clock.Advance(60s)
 			waited = true
 		case Send as cmd:

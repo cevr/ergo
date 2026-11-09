@@ -75,4 +75,4 @@ No em-parity §3 scenario is this program's own; its costs are a child start per
 ## Limits found
 
 - **F10** A machine's state must be a union: a record state with a region field needs a one-variant union and an unwrapping step.
-- **F2**, **F4**, **F7** as in sign-in.
+- **F4**, **F7** as in sign-in.

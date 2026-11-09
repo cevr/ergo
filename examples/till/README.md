@@ -82,6 +82,5 @@ em-parity §3 lists "child fan-out" as pending for MU5. This program's split pay
 
 - **F8** A row of two capabilities cannot be a type argument (`machines.Work[Signal, Payments | Scheduler]` is S001 "expected …"). Measured.
 - **F9** A tuple type whose first element is a slice type does not parse (`func f(in ([]int, string))` is S001 "expected a type"); `(string, []int)` parses. Measured.
-- **F2** (sign-in) The receipt's timer sleeps from its own task: the counter spins on `clock.Sleepers()` before `wait`.
 - **F4** (sign-in) The `Payments` laws are not run against `memory.Gateway`; `memory/tests.ergo` restates them.
 - **F7** (sign-in) The examples runner does not run the laws of `till/` (a package with laws and no `test`).

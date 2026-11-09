@@ -95,6 +95,11 @@ module actor_machine {
   var epoch: int
   // timer is the child of the entry timerEpoch: "none", "sleeping", or
   // "stopping" (the runner asked it to stop and waits for its end).
+  // "sleeping" means the sleep is registered with the Scheduler: arm sets
+  // it in the same step that shows the entry to observers, and the runtime
+  // keeps that order (actor.go arm waits for the child's first wait; fumb-a,
+  // TestActorTimerArmsBeforePublish). The interleaving is the model's own;
+  // before fumb-a the runtime let the sleep register after the publish.
   var timer: str
   var timerEpoch: int
   // work is the work child of the entry workEpoch: "none", "running", or

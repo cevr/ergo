@@ -166,15 +166,8 @@ func Run(clock time.Manual) needs Console | io.Stdin | Scheduler | signin.Codes 
 			Console.Println("? unknown command: \(u.Line)")
 			continue
 		case Wait:
-			// The error screen's timer sleeps on the clock from a task of
-			// its own, which may not sleep yet: wait for it before moving
-			// the clock (finding F2).
-			match a.State() {
-			case signin.Failed:
-				for clock.Sleepers() == 0 {
-				}
-			case _:
-			}
+			// The error screen's timer sleeps from its commit on, so the
+			// clock moves it at once.
 			clock.Advance(30s)
 		case Send as cmd:
 			for e in cmd.Signals {
