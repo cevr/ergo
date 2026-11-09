@@ -1,7 +1,4 @@
-// The map's tests: examples, and the laws restated as property tests
-// (#162 runs laws; until then these do).
-
-import strings
+// The map's tests: examples. Its laws run under ergo test.
 
 test CastleRoomsAreReachable {
 	let w = Castle()
@@ -15,26 +12,4 @@ test CastleRoomsAreReachable {
 
 test ParseDirRefusesOtherWords {
 	assert ParseDir("nw") == None && ParseDir("") == None && ParseDir("norths") == None
-}
-
-test OppositeIsAnInvolutionHolds(n int) {
-	let d = DirOf(n)
-	assert Opposite(d) != d && Opposite(Opposite(d)) == d
-}
-
-test ParseDirReadsDirNameHolds(n int) {
-	let d = DirOf(n)
-	let back = Some[Dir]{Value: d}
-	assert ParseDir(DirName(d)) == back && ParseDir(strings.Slice(DirName(d), 0, 1)) == back
-}
-
-test EveryExitHasAWayBackHolds(n int) {
-	let w = Castle()
-	let e = w.Exits[((n%len(w.Exits))+len(w.Exits))%len(w.Exits)]
-	match ExitOf(w, e.To, Opposite(e.Way)) {
-	case Some[Exit] as back:
-		assert back.Value.To == e.From && back.Value.Key == e.Key
-	case None:
-		assert false
-	}
 }

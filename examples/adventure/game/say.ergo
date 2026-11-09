@@ -57,28 +57,24 @@ func EndText(e Ending) string {
 
 func moves(n int) string { if n == 1 { "1 move" } else { "\(n) moves" } }
 
-// Failure is what a failed command tells: it steps s by line again and
-// names each failure. A function cannot take "a failure of Step" as its
-// parameter, since a row has no name and a union of error types is not a
-// row (G-ex-d-2), so Run's catch hands over the state and the line.
-func Failure(s State, line string) string {
-	let _ = Step(s, Said{Line: line}) catch {
+// Failure is what a refused command tells.
+func Failure(r Refusal) string {
+	match r {
 	case Unknown as u:
-		return "I do not know the word \"\(u.Word)\"."
+		"I do not know the word \"\(u.Word)\"."
 	case Missing as m:
-		return strings.ToUpper(strings.Slice(m.Verb, 0, 1)) + strings.Slice(m.Verb, 1, len(m.Verb)) + " what?"
+		strings.ToUpper(strings.Slice(m.Verb, 0, 1)) + strings.Slice(m.Verb, 1, len(m.Verb)) + " what?"
 	case NoWay as n:
-		return "\"\(n.Word)\" is not a direction."
+		"\"\(n.Word)\" is not a direction."
 	case NoExit as n:
-		return "You cannot go \(world.DirName(n.Way)) from here."
+		"You cannot go \(world.DirName(n.Way)) from here."
 	case Barred as b:
-		return b.Text
+		b.Text
 	case NotHere as n:
-		return "There is no \(n.Item) here."
+		"There is no \(n.Item) here."
 	case NotCarried as n:
-		return "You do not carry the \(n.Item)."
+		"You do not carry the \(n.Item)."
 	}
-	""
 }
 
 // Say is what the player is told after line moved s by d.
@@ -115,6 +111,8 @@ func Say(s State, line string, d Decision[State, Ending]) []string {
 		case Go, Quit, Blank:
 			[]string{}
 		}
+	case Emit[State, Ending]:
+		Unreachable("Step never emits: what a step tells is worked out here")
 	case Ignore, Reject:
 		[]string{}
 	}

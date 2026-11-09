@@ -1,8 +1,6 @@
 // The game's tests drive Run with a scripted io.Input and record what it
-// tells with an io.Recorder, with no host. The laws are restated as
-// property tests (#162 runs laws; until then these do).
+// tells with an io.Recorder, with no host. Its laws run under ergo test.
 
-import adventure/world
 import io
 import strings
 
@@ -39,64 +37,4 @@ test FailuresAreToldAndChangeNothing {
 	let text, e = session("dance\ngo\ngo sideways\ntake\ntake lamp\ndrop key\nsouth\n")
 	assert e == Stopped{Moves: 0, At: "gate"}
 	assert strings.Contains(text, "I do not know the word \"dance\".\nGo what?\n\"sideways\" is not a direction.\nTake what?\nThere is no lamp here.\nYou do not carry the key.\nYou cannot go south from here.\n")
-}
-
-test ScriptOfReachesTheGoal {
-	// One generated digit string that wins: the laws' scripts reach every
-	// room. n e take-lamp d take-key u w w u, as base-17 digits, last first.
-	let digits = []int{0, 2, 7, 5, 8, 4, 3, 3, 4}
-	let mut n = 0
-	for i in 0..len(digits) {
-		n = n*17 + digits[len(digits)-1-i]
-	}
-	let mut lines = []string{}
-	for c in ScriptOf(n) {
-		lines = lines.Append(Text(c))
-	}
-	let _, e = session(strings.Join(lines, "\n") + "\n")
-	assert e == Won{Moves: 7}
-}
-
-test ParseInvertsTextHolds(n int) {
-	let c = CommandOf(n)
-	let a = try Parse(Text(c))
-	let b = try Parse(strings.ToUpper(Text(c)))
-	assert a == c && b == c
-}
-
-test ItemsAreKeptHolds(n int) {
-	assert Kept(GameOf(Played(ScriptOf(n))))
-}
-
-test GoingBackReturnsHolds(n int, way int) {
-	let g = GameOf(Played(ScriptOf(n)))
-	let d = world.DirOf(way)
-	let there = Moved(g, d) catch {
-	case NoExit, Barred:
-		return
-	}
-	let back = try Moved(there, world.Opposite(d))
-	assert back.At == g.At && back.Moves == g.Moves+2
-}
-
-test BarredIsTheKeyHolds(n int, way int) {
-	let g = GameOf(Played(ScriptOf(n)))
-	let d = world.DirOf(way)
-	match world.ExitOf(g.World, g.At, d) {
-	case Some[world.Exit] as e:
-		let locked = e.Value.Key != "" && Where(g, e.Value.Key) != world.Carried
-		assert locked == IsBarred(g, d)
-	case None:
-	}
-}
-
-test EndIsStoppedHolds(n int, asking bool) {
-	let g = GameOf(Played(ScriptOf(n)))
-	let s State = if asking { Asking{G: g} } else { Exploring{G: g} }
-	match try Step(s, Ended) {
-	case Done[Ending] as done:
-		assert done.Output == Stopped{Moves: g.Moves, At: g.At}
-	case Enter[State], Stay[State], Ignore, Reject:
-		assert false
-	}
 }

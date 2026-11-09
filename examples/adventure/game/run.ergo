@@ -1,35 +1,31 @@
-import adventure/world
 import io
-
-// Start is the machine's first state. Ergo has no accessor for a
-// machine's initial value (G-ex-d-11), so Run starts here.
-func Start() State { Exploring{G: New(world.Castle())} }
+import machines
 
 // Run plays the castle: it reads lines from io.Stdin and answers each on
 // Console, until the goal, a quit or the end of the input, and returns
 // how the game ended. A line that fails is told and changes nothing.
 func Run() Ending needs Console | io.Stdin {
-	let mut s = Start()
+	let mut s = machines.Initial(Play{})
 	Console.Println(Intro)
 	tell(Describe(GameOf(s)))
 	for line in io.Stdin.Lines() {
 		let d = Step(s, Said{Line: line}) catch {
-		case Unknown, Missing, NoWay, NoExit, Barred, NotHere, NotCarried:
-			Console.Println(Failure(s, line))
+		case Refusal as r:
+			Console.Println(Failure(r))
 			Reject
 		}
 		tell(Say(s, line, d))
 		match d {
 		case Done[Ending] as done:
 			return done.Output
-		case Enter[State], Stay[State], Ignore, Reject:
+		case Enter[State], Stay[State], Emit[State, Ending], Ignore, Reject:
 		}
-		s = Next(s, d)
+		s = machines.Next(s, d)
 	}
 	// The end of the input is Step(s, Ended), Done with this Stopped; the
-	// call would need a catch of seven failures it cannot fail (G-ex-a-3),
-	// so the end is built here, and the law EndIsStopped holds the two
-	// together.
+	// call would need a catch of failures it cannot fail and a match of
+	// decisions it cannot give (G-ex-a-3), so the end is built here, and
+	// the law EndIsStopped holds the two together.
 	let g = GameOf(s)
 	let end = Stopped{Moves: g.Moves, At: g.At}
 	Console.Println(EndText(end))
