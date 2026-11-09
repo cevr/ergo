@@ -2,6 +2,7 @@
 
 import particles/sim
 import particles/world
+import time
 
 test TapeKeepsFramesInOrder {
 	let t = NewTape()
@@ -12,7 +13,8 @@ test TapeKeepsFramesInOrder {
 	assert len(fs) == 2 && fs[0].N == 1 && fs[1].Phase == "paused"
 }
 
-// The law holds for a Tape in any state: k frames shown first.
+// The law holds for a Tape in any state: k frames shown first. ergo test
+// runs sim.Screen's law only for providers in package sim (G-exup-1).
 test ShowCountsOneHolds(n int, phase string, k int) {
 	let s sim.Screen = NewTape()
 	for i in 0..(if k < 0 { -(k % 5) } else { k % 5 }) {
@@ -37,10 +39,7 @@ test ClockIsLateEveryThirdSleep {
 
 test ClockNeverFalls(ms int) {
 	let c = NewClock(0)
-	// The clamp is a let of its own: int64(if …) gives int64 to the
-	// branches (gaps G-ex-b-1).
-	let clamped = if ms < 0 { -(ms % 1000) } else { ms % 1000 }
-	let d = duration(int64(clamped) * int64(1ms))
+	let d = time.Times(1ms, if ms < 0 { -(ms % 1000) } else { ms % 1000 })
 	let before = c.Now()
 	c.Sleep(d)
 	assert !c.Now().Before(before) && c.Now().Sub(before) >= d

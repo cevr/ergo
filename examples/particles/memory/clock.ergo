@@ -21,8 +21,7 @@ func NewClock(sec int64) Clock {
 // Sleep moves c's time on by d, and by a quarter of d more on every
 // third sleep.
 func Sleep(c Clock, d duration) {
-	let slept = int64(c.m.Now().Sub(c.start))
-	let late = if int64(d) > 0 && (slept/int64(d))%3 == 2 { duration(int64(d) / 4) } else { 0s }
+	let late = if d > 0s && time.Count(c.m.Now().Sub(c.start), d)%3 == 2 { time.Divide(d, 4) } else { 0s }
 	c.m.Advance(d + late)
 }
 

@@ -11,7 +11,7 @@ The program is a module of packages (`ergo.mod`: `module particles`), in the Go 
 | folder | what it holds |
 | --- | --- |
 | `world/` | The box, the domain package. `world.ergo` (`Particle`, `World` with construction authority, `Empty`, `Blank`, `Spawn`, `Energy`, the typed failures `BadSize`, `BadLoss`, `TooMany`), `step.ergo` (`Wall`, `Event`, `Step`, `Run`, `Tally`), `laws.ergo`, `tests.ergo`. Pure, except `Spawn`, which needs `Random`. |
-| `sim/` | The game. `machine.ergo` (`Game`, the `Phase` and `Input` unions, `Step`, the `Sim` machine, `Next`, `Key`), `loop.ergo` (the contract `Screen` with its law, `Pace`, `Play`, the fixed-step loop), `laws.ergo`, `tests.ergo`. |
+| `sim/` | The game. `machine.ergo` (`Game`, the `Phase` and `Input` unions, `Begin`, `Step`, the `Sim` machine, `Key`), `loop.ergo` (the contract `Screen` with its law, `Pace`, `Play`, the fixed-step loop), `laws.ergo`, `tests.ergo`. |
 | `render/` | The text: `Box` draws a box, `Status` the line under it. Pure. |
 | `term/` | `Screen`, the `sim.Screen` provider over an `io.Stdout` value: it clears a terminal before each frame. |
 | `memory/` | `Clock`, a `Scheduler` and `time.Clock` that moves on at once when the loop sleeps, a quarter late on every third frame; `Tape`, a `sim.Screen` that keeps its frames. |
@@ -20,8 +20,8 @@ The program is a module of packages (`ergo.mod`: `module particles`), in the Go 
 ## What it shows
 
 - **Exact numbers, so laws are exact.** Positions and velocities are `int`s, and energy is `Σ vx² + vy²`, so `ElasticKeepsEnergy` compares with `==`. A seed replays a run on any host (`SeedReplays`), because the only randomness is `Random`, bound to `rand.Seeded(seed)` in a context.
-- **Laws.** `world` states five (`EnergyNeverRises`, `ElasticKeepsEnergy`, `StaysInTheBox`, `SeedReplays`, `StepCountsOne`), `sim` five over the machine and the loop (`PausedIgnoresTicks`, `RunningTicksStay`, `QuitIsDone`, `PauseResumeRoundTrips`, `StepsFollowTheClock`), and the contract `Screen` one (`ShowCountsOne`), which `memory.Tape`, `term.Screen` and the test screens keep. Each package's tests restate them as property tests, and for each law a mutant of the program makes its test fail.
-- **A machine.** `type Sim machine[Phase, Input]` with `Phase = Running | Paused` and `Input = Tick | Pause | Resume | Quit | Load`. `Step` is one `match` over the pair that names every case, and uses `Enter`, `Stay`, `Ignore` and `Done`.
+- **Laws.** `world` states five (`EnergyNeverRises`, `ElasticKeepsEnergy`, `StaysInTheBox`, `SeedReplays`, `StepCountsOne`), `sim` five over the machine and the loop (`PausedIgnoresTicks`, `RunningTicksStay`, `QuitIsDone`, `PauseResumeRoundTrips`, `StepsFollowTheClock`), and the contract `Screen` one (`ShowCountsOne`), which `memory.Tape`, `term.Screen` and the test screens keep. `ergo test` runs the laws; the screens' tests restate `ShowCountsOne`, which it skips for them (G-exup-1, G-exup-4).
+- **A machine.** `type Sim machine[Phase, Input]` with `Phase = Running | Paused` and `Input = Tick | Pause | Resume | Quit`. Its input is the box: `initial: Begin` runs a fresh game of it, and `Play` starts it with `machines.Start(Sim{}, w)` and moves with `machines.Next`. `Step` is one `match` over the pair that names every case, and uses `Enter`, `Stay`, `Ignore` and `Done`; it never emits, so `Play` moves on an `Emit` as on `Enter` or `Stay`.
 - **A fixed-step loop.** `Play` sleeps a frame on `Scheduler`, reads `time.Clock`, and ticks the machine once per whole `Dt` it owes, carrying the rest. The steps are the elapsed time over `Dt`, rounded down (`StepsFollowTheClock`), whatever the frames took.
 - **Typed failures.** `Spawn` fails `BadSize | BadLoss | TooMany`; `cmd` turns each into an `os.Exit` with its own message.
 - **Providers chosen in one place.** Only `cmd/particles/main.ergo` binds `Random`, `Scheduler`, `time.Clock`, `sim.Screen`, `io.Stdout` and `os.Process`. Its tests run the same game on a `Recorder`.
@@ -30,10 +30,8 @@ The program is a module of packages (`ergo.mod`: `module particles`), in the Go 
 
 ```sh
 go build -o bin/ergo ./cmd/ergo
-./bin/ergo run examples/particles/cmd/particles            # the defaults; ergo run passes no arguments (G-ex-b-8)
-./bin/ergo build examples/particles/cmd/particles -o /tmp/particles
-/tmp/particles -seed 3 -frames 10
-/tmp/particles -live -frames 40                            # paced by the host's clock
+./bin/ergo run examples/particles/cmd/particles -- -seed 3 -frames 10
+./bin/ergo run examples/particles/cmd/particles -- -live -frames 40   # paced by the host's clock
 ./bin/ergo test examples/particles/world
 go run ./scripts/examples particles
 ```
@@ -46,12 +44,11 @@ go run ./scripts/examples particles
 
 Each gap is in the lane's gap file (`gaps-ex-b.md`) with a repro.
 
-- **G-ex-b-1** (checker bug): `int64(if … { } else { })` gives `int64` to the branches. Workaround: a `let` first (`memory/tests.ergo`).
-- **G-ex-b-2** (tooling): a failed `assert a == b` shows only the source, not the values.
-- **G-ex-b-3** (language or std): a provider keeps state only in a `Map` field written through a local (`memory.Tape`, `term.Screen`, the test screens): a `*T` function does not provide an operation, and `sync.Ref` is not built.
-- **G-ex-b-4** (diagnostic; #175): `d / 4` on a `duration` is refused with "write a duration literal such as 4s". Workaround: `duration(int64(d) / 4)`.
-- **G-ex-b-5** (std): no virtual clock that jumps when the program sleeps. `memory.Clock` is one, for one task.
-- **G-ex-b-6** (tooling): `ergo run` leaves `dist/` in a program folder, which the examples runner refuses.
-- **G-ex-b-7** (tooling): `ergo test` prints the check JSON, not the diagnostic lines.
-- **G-ex-b-8** (tooling): `ergo run DIR -seed 3` is "unknown option -seed": `ergo run` passes no arguments to the program, so a CLI is tried by `ergo build` and the binary.
-- By design, and still friction: a `return` cannot leave a `with` block and a `try` inside one leaves the function (rows.md, Error rows 4), so `main` calls `run`, and the test calls `game`, to stop early or catch. `os.Exit` takes 1 to 125, so `read` returns `Option[Options]` and help is `None`. A machine's `initial` is a fixed value, so the game starts paused on `world.Blank()` and a `Load` input brings the seeded box. Laws are checked, not run (#162): a provider that breaks `ShowCountsOne` binds without a word, so each law is restated as a property test.
+- **G-ex-b-4** (partly closed by S4): `d / 4` on a `duration` is still refused with "write a duration literal such as 4s", but `time.Divide(d, 4)` and `time.Count(elapsed, d)` now do the clock's arithmetic.
+- **G-ex-b-5** (partly closed by C1): `testing.VirtualClock` jumps when every task waits, but it sleeps exactly; `memory.Clock` stays, because it makes every third frame late, which the fixed-step loop must carry.
+- **G-exup-1** (`ergo test`): `sim.Screen`'s law runs only for providers in package `sim`, so `memory` and `term` restate it as tests.
+- **G-exup-2** (checker; type inference): `machines.Next(Running{G: g}, d)` is S108, since inference takes `S` from the variant; `PauseResumeRoundTrips` writes `let running Phase = Running{G: g}` first.
+- **G-exup-4** (`ergo test`): a law is skipped for a provider that holds a `sync.Ref` (no generator), so `sim/tests.ergo` restates `ShowCountsOne` for its two screens.
+- By design, and still friction: a `try` inside a `with` block leaves the function (rows.md, Error rows 4), so the test calls `game` to catch the exit. `os.Exit` takes 1 to 125, so `read` returns `Option[Options]` and help is `None`.
+
+Closed in batch 12: G-ex-b-1 (K2: `time.Times(1ms, if …)` with no `let` first), G-ex-b-2 (T3: a failed `assert a == b` shows both values), G-ex-b-3 (`sync.Ref` holds `memory.Tape`'s frames and the screens' counts), G-ex-b-6 and G-ex-b-8 (T1: `ergo run DIR -- ARGS`, no `dist/`), G-ex-b-7 (T2: `ergo test` prints lines), the `Load` input and the paused blank start (V4: the machine's input is the box), the hand `Next` (V2: `machines.Next`), `world.Same` (W3: `==`), `run` (L3: `main` returns from its `with` block), and the property tests that restated the running laws (V1).

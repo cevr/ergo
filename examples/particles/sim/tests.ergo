@@ -1,15 +1,14 @@
-// The game's tests: a scripted game, and the laws restated as property
-// tests. The compiler checks laws and does not run them yet (#162); until
-// it does, these tests run them.
+// The game's tests: scripted games. `ergo test` runs the laws.
 
 import particles/world
+import sync
 import time
 
 // played is a game of box(seed, 8) played with keys for frames frames on
 // a clock with a late frame every third frame, and the frames shown.
 func played(seed uint64, keys string, frames int) (Game, []Frame) {
 	let m = time.NewManual(0)
-	let screen = tape{frames: Map[int, Frame]{}}
+	let screen = tape{frames: sync.NewRef[[]Frame]([]Frame{})}
 	let g = with context { Scheduler: lateEvery{m: m, every: 3}, time.Clock: m, Screen: screen } {
 		Play(box(seed, 8), keys, frames, Pace{Frame: 50ms, Dt: 20ms})
 	}
@@ -18,26 +17,15 @@ func played(seed uint64, keys string, frames int) (Game, []Frame) {
 
 // tape is a Screen that keeps its frames, for the tests of this package
 // (package memory has the Tape of the program; it imports sim).
-type tape { frames Map[int, Frame] }
+type tape { frames sync.Ref[[]Frame] }
 
 func Show(t tape, f Frame) {
-	let mut frames = t.frames
-	frames[len(frames)] = f
+	t.frames.Update(func(fs []Frame) []Frame { fs.Append(f) })
 }
 
-func Shown(t tape) int { len(t.frames) }
+func Shown(t tape) int { len(t.frames.Get()) }
 
-func All(t tape) []Frame {
-	let mut out = []Frame{}
-	for i in 0..len(t.frames) {
-		match t.frames.Get(i) {
-		case Some[Frame] as f:
-			out = out.Append(f.Value)
-		case None:
-		}
-	}
-	out
-}
+func All(t tape) []Frame { t.frames.Get() }
 
 // phases is the phase of each frame, one letter each: r running, p
 // paused, q quit.
@@ -78,7 +66,6 @@ test QuitFirst {
 }
 
 test KeysAreRead {
-	assert Word(Step(Start(), Tick)) == "ignore"
 	match Key("x") {
 	case Some[Input]:
 		assert false
@@ -86,54 +73,10 @@ test KeysAreRead {
 	}
 }
 
-test PausedIgnoresTicksHolds(seed uint64, n int) {
-	assert Word(Step(Paused{G: Fresh(box(seed, n))}, Tick)) == "ignore"
-}
-
-test RunningTicksStayHolds(seed uint64, n int) {
-	let d = Step(Running{G: Fresh(box(seed, n))}, Tick)
-	assert Word(d) == "stay"
-	assert GameOf(Next(Start(), d)).Steps == 1
-}
-
-test QuitIsDoneHolds(seed uint64, n int) {
-	let g = Advance(Fresh(box(seed, n)))
-	for p in []Phase{Running{G: g}, Paused{G: g}} {
-		match Step(p, Quit) {
-		case Done[Game] as d:
-			assert world.Same(d.Output.W, g.W) && d.Output.Steps == 1
-		case Enter[Phase]:
-			assert false
-		case Stay[Phase]:
-			assert false
-		case Ignore:
-			assert false
-		case Reject:
-			assert false
-		}
-	}
-}
-
-test PauseResumeRoundTripsHolds(seed uint64, n int) {
-	let g = Advance(Fresh(box(seed, n)))
-	let paused = Next(Running{G: g}, Step(Running{G: g}, Pause))
-	let back = Next(paused, Step(paused, Resume))
-	assert Name(paused) == "paused" && Name(back) == "running" && world.Same(GameOf(back).W, g.W)
-}
-
-test StepsFollowTheClockHolds(seed uint64, n int, frames int) {
-	let m = time.NewManual(0)
-	let k = if frames < 0 { -(frames % 20) } else { frames % 20 }
-	let g = with context { Scheduler: lateEvery{m: m, every: 3}, time.Clock: m, Screen: blind{n: Map[string, int]{}} } {
-		Play(box(seed, n), "", k, Pace{Frame: 50ms, Dt: 20ms})
-	}
-	assert g.Steps == int(int64(m.Now().Sub(time.Unix(0, 0)))/int64(20ms))
-}
-
-// The law holds for each Screen of this package in any state: k frames
-// shown first.
+// ergo test skips the law ShowCountsOne for tape and blind (a sync.Ref
+// has no generator, G-exup-4), so this test runs it, k frames shown first.
 test ShowCountsOneHolds(n int, phase string, k int) {
-	for s in []Screen{tape{frames: Map[int, Frame]{}}, blind{n: Map[string, int]{}}} {
+	for s in []Screen{tape{frames: sync.NewRef[[]Frame]([]Frame{})}, blind{n: sync.NewRef[int](0)}} {
 		for i in 0..(if k < 0 { -(k % 5) } else { k % 5 }) {
 			s.Show(Frame{N: i, Phase: phase, G: Fresh(world.Blank())})
 		}

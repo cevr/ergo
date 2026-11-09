@@ -6,13 +6,14 @@
 import io
 import particles/render
 import particles/sim
+import sync
 
 // Screen is a sim.Screen that writes to out. Its count of frames is in a
-// Map that every copy shares, as Tape's frames are.
-type Screen { out io.Stdout, count Map[string, int] }
+// sync.Ref, so every copy of a Screen counts the same frames.
+type Screen { out io.Stdout, count sync.Ref[int] }
 
 // New is a Screen that writes to out.
-func New(out io.Stdout) Screen { Screen{out: out, count: Map[string, int]{}} }
+func New(out io.Stdout) Screen { Screen{out: out, count: sync.NewRef[int](0)} }
 
 // Show writes f: on a terminal after the escape that clears the screen.
 func Show(s Screen, f sim.Frame) {
@@ -23,16 +24,8 @@ func Show(s Screen, f sim.Frame) {
 		s.out.Println(line)
 	}
 	s.out.Println(render.Status(f))
-	let mut count = s.count
-	count["shown"] = Shown(s) + 1
+	s.count.Update(func(n int) int { n + 1 })
 }
 
 // Shown is the number of frames s has written.
-func Shown(s Screen) int {
-	match s.count.Get("shown") {
-	case Some[int] as n:
-		n.Value
-	case None:
-		0
-	}
-}
+func Shown(s Screen) int { s.count.Get() }
