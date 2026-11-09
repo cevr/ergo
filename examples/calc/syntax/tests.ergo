@@ -1,9 +1,7 @@
-// The syntax tests: examples of each rule, each failure with its column,
-// and the laws restated as property tests over generated expressions.
-// The compiler checks laws and does not run them yet (#162).
+// The syntax tests: examples of each rule and each failure with its
+// column. The laws run under ergo test.
 
 import calc/ast
-import rand
 
 // text is src parsed and printed again, or the failure as a line.
 func text(src string) string {
@@ -56,42 +54,4 @@ test FailuresNameTheColumn {
 	assert text("x + é") == "bad char é at 5"
 	assert text("99999999999999999999") == "too big 99999999999999999999 at 1"
 	assert text("then") == "want an operand, got \"then\" at 1"
-}
-
-// roundTrips reports whether e reads back from its text.
-func roundTrips(e ast.Expr) bool {
-	let back = Parse(ast.Print(e)) catch {
-	case BadChar, Unexpected, TooBig:
-		return false
-	}
-	back == e
-}
-
-test RoundTripHolds(seed int) {
-	with context { Random: rand.Seeded(uint64(seed)) } {
-		for _ in 0..5 {
-			let e = ast.GenAny(5)
-			assert roundTrips(e)
-		}
-	}
-}
-
-test RoundTripHoldsForTypedExpressions(seed int) {
-	with context { Random: rand.Seeded(uint64(seed)) } {
-		let e = ast.Gen(5, ast.AnyType(), ast.Top)
-		assert roundTrips(e)
-	}
-}
-
-test ColumnsIncreaseHolds(src string) {
-	let toks = Lex(src) catch {
-	case BadChar:
-		return
-	}
-	let mut last = 0
-	for t in toks {
-		assert At(t) > last
-		last = At(t)
-	}
-	assert last == len(src)+1
 }

@@ -3,7 +3,9 @@
 // failure names the column where it is, from 1.
 
 import calc/ast
+import slices
 import strings
+import utf8
 
 // Token is a word of the source and its column.
 type Token = IntTok{Text string, At int} | NameTok{Name string, At int} | SymTok{Sym string, At int} | EndTok{At int}
@@ -44,7 +46,9 @@ func Lex(src string) []Token fails BadChar {
 		}
 		let sym = symbolAt(src, i)
 		if sym == "" {
-			return BadChar{At: start + 1, Char: charAt(src, i)}
+			// The character is its whole UTF-8 sequence, or one invalid byte.
+			let size = utf8.DecodeRuneInString(strings.Slice(src, i, len(src))).Size
+			return BadChar{At: start + 1, Char: strings.Slice(src, i, i+size)}
 		}
 		toks = toks.Append(SymTok{Sym: sym, At: start + 1})
 		i += len(sym)
@@ -56,37 +60,15 @@ func Lex(src string) []Token fails BadChar {
 func symbolAt(src string, i int) string {
 	if i+2 <= len(src) {
 		let two = strings.Slice(src, i, i+2)
-		if slicesHas(pairs, two) {
+		if slices.Contains(pairs, two) {
 			return two
 		}
 	}
 	let one = strings.Slice(src, i, i+1)
-	if slicesHas(singles, one) {
+	if slices.Contains(singles, one) {
 		return one
 	}
 	""
-}
-
-// slicesHas reports whether xs holds x.
-func slicesHas(xs []string, x string) bool {
-	for s in xs {
-		if s == x {
-			return true
-		}
-	}
-	false
-}
-
-// charAt is the character that starts at byte i of src: its first byte
-// and the continuation bytes of UTF-8 after it. The std has no rune
-// decoder (gap G-ex-a-1), so this reads the bytes itself: a continuation
-// byte is 0b10xxxxxx, from 128 up to 191 (decimal, gap G-ex-a-2).
-func charAt(src string, i int) string {
-	let mut j = i + 1
-	for j < len(src) && src[j] >= 128 && src[j] < 192 {
-		j += 1
-	}
-	strings.Slice(src, i, j)
 }
 
 // At is the column of t.

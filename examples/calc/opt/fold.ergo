@@ -13,24 +13,36 @@ import calc/typing
 type Optimizer {
 	Optimize(e ast.Expr) ast.Expr,
 
-	law PreservesMeaning(e ast.Expr) {
-		let _ = typing.Check(e) catch {
-		case typing.Mismatch, typing.Unbound:
-			return true
+	// The laws hold for e and the samples of seed, half of them
+	// well-typed (a generated Expr seldom is).
+	law PreservesMeaning(e ast.Expr, seed int) {
+		for x in ast.Samples(e, seed) {
+			let _ = typing.Check(x) catch {
+			case typing.Failure:
+				continue
+			}
+			if eval.Run(Optimize(x)) != eval.Run(x) {
+				return false
+			}
 		}
-		eval.Run(Optimize(e)) == eval.Run(e)
+		true
 	},
 
-	law KeepsTheType(e ast.Expr) {
-		let t = typing.Check(e) catch {
-		case typing.Mismatch, typing.Unbound:
-			return true
+	law KeepsTheType(e ast.Expr, seed int) {
+		for x in ast.Samples(e, seed) {
+			let t = typing.Check(x) catch {
+			case typing.Failure:
+				continue
+			}
+			let u = typing.Check(Optimize(x)) catch {
+			case typing.Failure:
+				return false
+			}
+			if t != u {
+				return false
+			}
 		}
-		let u = typing.Check(Optimize(e)) catch {
-		case typing.Mismatch, typing.Unbound:
-			return false
-		}
-		t == u
+		true
 	},
 }
 

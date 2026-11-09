@@ -10,11 +10,14 @@ type Mismatch { In string, Want ast.Type, Got ast.Type }
 // Unbound is a variable that no let binds.
 type Unbound { Name string }
 
+// Failure is an expression with no type: the row of Check.
+type Failure = Mismatch | Unbound
+
 // Check is the type of e, which has no free variables.
-func Check(e ast.Expr) ast.Type fails Mismatch | Unbound { try In(e, ast.Top) }
+func Check(e ast.Expr) ast.Type fails Failure { try In(e, ast.Top) }
 
 // In is the type of e with the variables of s.
-func In(e ast.Expr, s ast.Scope) ast.Type fails Mismatch | Unbound {
+func In(e ast.Expr, s ast.Scope) ast.Type fails Failure {
 	match e {
 	case ast.Num:
 		ast.IntT
@@ -63,7 +66,7 @@ func In(e ast.Expr, s ast.Scope) ast.Type fails Mismatch | Unbound {
 }
 
 // want checks that e has type t.
-func want(e ast.Expr, t ast.Type, s ast.Scope) fails Mismatch | Unbound {
+func want(e ast.Expr, t ast.Type, s ast.Scope) fails Failure {
 	let got = try In(e, s)
 	if got != t {
 		return Mismatch{In: ast.Print(e), Want: t, Got: got}

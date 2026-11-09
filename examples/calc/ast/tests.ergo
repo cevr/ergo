@@ -1,5 +1,5 @@
 // The tests of the tree: its text, its scopes, and the generators that
-// the other packages' property tests draw from.
+// the laws of the other packages draw from (Samples).
 
 import rand
 
@@ -18,7 +18,7 @@ test PrintParenthesizesOnlyWhereNeeded {
 
 test ScopesShadow {
 	let s = Bound{Name: "x", T: BoolT, Outer: Bound{Name: "y", T: IntT, Outer: Bound{Name: "x", T: IntT, Outer: Top}}}
-	assert Lookup(s, "x") == Some[Type]{Value: BoolT}
+	assert Lookup(s, "x") == Some{Value: BoolT}
 	assert Lookup(s, "z") == None
 	let ints = NamesOf(s, IntT)
 	assert len(ints) == 1 && ints[0] == "y"

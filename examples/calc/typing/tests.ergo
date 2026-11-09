@@ -1,15 +1,14 @@
-// The checker's tests, and the law Sound restated as a property test
-// over generated well-typed expressions (#162 runs laws).
+// The checker's tests. The law Sound runs under ergo test, over
+// ast.Samples, whose Gen half these tests hold to its type.
 
 import calc/ast
-import calc/eval
 import calc/syntax
 import rand
 
 // typeOf is the type of src as a line: its name, or the failure.
 func typeOf(src string) string {
 	let e = syntax.Parse(src) catch {
-	case syntax.BadChar, syntax.Unexpected, syntax.TooBig:
+	case syntax.Failure:
 		return "syntax"
 	}
 	let t = Check(e) catch {
@@ -39,36 +38,13 @@ test MismatchesNameTheOperand {
 	assert typeOf("(let x = 1 in x) + x") == "unbound x"
 }
 
-// sound reports whether e keeps the law Sound.
-func sound(e ast.Expr) bool {
-	let t = Check(e) catch {
-	case Mismatch, Unbound:
-		return true
-	}
-	let v = eval.Eval(e) catch {
-	case eval.DivByZero:
-		return true
-	case eval.Stuck, eval.Unset:
-		return false
-	}
-	eval.TypeOf(v) == t
-}
-
-test SoundHolds(seed int) {
+// Gen is well-typed at the type it is asked for, so half of the samples
+// the law Sound sees reach the evaluator.
+test GenIsWellTyped(seed int) {
 	with context { Random: rand.Seeded(uint64(seed)) } {
 		for _ in 0..5 {
 			let t = ast.AnyType()
-			let e = ast.Gen(5, t, ast.Top)
-			assert try Check(e) == t
-			assert sound(e)
-		}
-	}
-}
-
-test SoundHoldsForAnyExpression(seed int) {
-	with context { Random: rand.Seeded(uint64(seed)) } {
-		for _ in 0..5 {
-			assert sound(ast.GenAny(4))
+			assert try Check(ast.Gen(5, t, ast.Top)) == t
 		}
 	}
 }
