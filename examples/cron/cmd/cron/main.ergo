@@ -7,11 +7,12 @@
 // standard output and arguments.
 
 import cron/schedule
-import cron/virtual
 import flag
 import fs
+import fstest
 import io
 import os
+import testing
 import time
 
 // Cmd is a command of cron.
@@ -118,7 +119,7 @@ func run(args []string) fails os.Exit needs io.Stdout | fs.Files | time.Clock | 
 		if r.Live {
 			schedule.Run(jobs, until, print)
 		} else {
-			let clock = virtual.NewClock(int64(from) * 60)
+			let clock = testing.NewVirtualClock(int64(from) * 60)
 			with context { time.Clock: clock, Scheduler: clock } {
 				schedule.Run(jobs, until, print)
 			}
@@ -133,32 +134,18 @@ func main() fails os.Exit needs Ambient {
 	}
 }
 
-// The tests run run on a virtual clock, with an io.Recorder and a table
-// in memory: no host.
+// The tests run on a virtual clock, with an io.Recorder and the table in
+// an fstest.Memory: no host.
 
-// table is an fs.Files of one file, "jobs". std fs has no memory
-// provider (G-ex-f-12), so the test writes the three operations.
-type table { text string }
-
-func ReadFile(t table, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
-	if path != "jobs" {
-		return fs.NotFound{Path: path}
-	}
-	t.text
-}
-
-func ReadDir(_ table, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
-
-func Stat(t table, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
-	fs.Info{Name: path, Size: len(try t.ReadFile(path)), Dir: false}
-}
-
-// ran is the output of run on args over the table text, with the clock at
-// 2026-11-08 12:00 UTC, and a failure printed as "exit CODE: MESSAGE".
-func ran(text string, args []string) string {
+// ran is the output of run on args over the table file "jobs" holding
+// text, with the clock at 2026-11-08 12:00 UTC, and a failure printed as
+// "exit CODE: MESSAGE".
+func ran(text string, args []string) string fails fs.NotFound | fs.Denied | fs.Failed {
 	let out = io.NewRecorder()
-	let clock = virtual.NewClock(1794139200)
-	with context { io.Stdout: out, fs.Files: table{text: text}, time.Clock: clock, Scheduler: clock } {
+	let clock = testing.NewVirtualClock(1794139200)
+	let disk = fstest.NewMemory()
+	try disk.WriteFile("jobs", text)
+	with context { io.Stdout: out, fs.Files: disk, time.Clock: clock, Scheduler: clock } {
 		run(args) catch {
 		case os.Exit as e:
 			io.Stdout.Println("exit \(e.Code): \(e.Message)")
@@ -168,18 +155,18 @@ func ran(text string, args []string) string {
 }
 
 test NextPrintsTheFormAndTheTimes {
-	assert ran("", []string{"next", "-n", "2", "0 9 * * mon"}) == "0 9 * * 1\n2026-11-09 09:00 Mon\n2026-11-16 09:00 Mon\n"
-	assert ran("", []string{"next", "@yearly", "-from", "2026-12-31 23:59", "-n", "1"}) == "0 0 1 1 *\n2027-01-01 00:00 Fri\n"
+	assert try ran("", []string{"next", "-n", "2", "0 9 * * mon"}) == "0 9 * * 1\n2026-11-09 09:00 Mon\n2026-11-16 09:00 Mon\n"
+	assert try ran("", []string{"next", "@yearly", "-from", "2026-12-31 23:59", "-n", "1"}) == "0 0 1 1 *\n2027-01-01 00:00 Fri\n"
 }
 
 test RunFiresADayOfJobs {
-	let out = ran("0 */6 * * * sync\n30 12 * * * lunch\n", []string{"run", "jobs"})
+	let out = try ran("0 */6 * * * sync\n30 12 * * * lunch\n", []string{"run", "jobs"})
 	assert out == "2026-11-08 12:30 Sun  lunch\n2026-11-08 18:00 Sun  sync\n2026-11-09 00:00 Mon  sync\n2026-11-09 06:00 Mon  sync\n2026-11-09 12:00 Mon  sync\n"
 }
 
 test FailuresExit {
-	assert ran("", []string{"next", "* * *"}) == "exit 1: cron: 3 fields, not 5\n"
-	assert ran("", []string{"next", "* * * * *", "-from", "noon"}) == "exit 2: cron: bad minute \"noon\": write 2006-01-02 15:04\n"
-	assert ran("ok\n", []string{"run", "jobs"}) == "exit 1: cron: jobs:1: no job name after the expression\n"
-	assert ran("", []string{"run", "nofile"}) == "exit 1: cron: no file nofile\n"
+	assert try ran("", []string{"next", "* * *"}) == "exit 1: cron: 3 fields, not 5\n"
+	assert try ran("", []string{"next", "* * * * *", "-from", "noon"}) == "exit 2: cron: bad minute \"noon\": write 2006-01-02 15:04\n"
+	assert try ran("ok\n", []string{"run", "jobs"}) == "exit 1: cron: jobs:1: no job name after the expression\n"
+	assert try ran("", []string{"run", "nofile"}) == "exit 1: cron: no file nofile\n"
 }

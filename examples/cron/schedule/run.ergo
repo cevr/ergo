@@ -10,10 +10,7 @@ type Firing { Job string, Due Instant, Woke Instant }
 // MinuteOf is the minute of the time t, rounded down.
 func MinuteOf(t time.Time) Instant {
 	let s = time.UnixSeconds(t)
-	// The if is bound first: a conversion gives its type to the branches of
-	// an if inside it (G-ex-b-1).
-	let m = if s >= 0 { s / 60 } else { (s - 59) / 60 }
-	Instant(m)
+	Instant(if s >= 0 { s / 60 } else { (s - 59) / 60 })
 }
 
 // Run fires the jobs on the clock of its context until the minute until:
@@ -38,14 +35,11 @@ func Run[R](jobs []Job, until Instant, fire func(f Firing) needs R) needs time.C
 		}
 		let wait = int64(due)*60 - time.UnixSeconds(time.Clock.Now())
 		if wait > 0 {
-			Scheduler.Sleep(duration(wait * 1000000000))
+			Scheduler.Sleep(time.Times(1s, int(wait)))
 		}
 		let woke = MinuteOf(time.Clock.Now())
-		// Bound first: a literal in an if header loses its parentheses in Go
-		// (G-ex-c-2).
-		let now = Some[Instant]{Value: due}
 		for j in jobs {
-			if Next(j.When, cursor) == now {
+			if Next(j.When, cursor) == (Some[Instant]{Value: due}) {
 				fire(Firing{Job: j.Name, Due: due, Woke: woke})
 			}
 		}

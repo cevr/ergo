@@ -1,3 +1,4 @@
+import slices
 import strings
 
 // BadLine is a line of a table that is not a job: its number, from 1, its
@@ -19,7 +20,7 @@ func ParseTable(text string) []Job fails BadLine {
 		if len(words) <= n {
 			return BadLine{Line: i + 1, Text: line, Reason: "no job name after the expression"}
 		}
-		let expr = joined(words, 0, n)
+		let expr = strings.Join(slices.Slice(words, 0, n), " ")
 		let e = Parse(expr) catch {
 		case FieldCount as f:
 			return BadLine{Line: i + 1, Text: line, Reason: "\(f.Got) fields, not 5"}
@@ -32,17 +33,7 @@ func ParseTable(text string) []Job fails BadLine {
 		case BadRange as r:
 			return BadLine{Line: i + 1, Text: line, Reason: "\(r.Field): range \(r.From)-\(r.To) ends before it starts"}
 		}
-		jobs = jobs.Append(Job{Name: joined(words, n, len(words)), When: e})
+		jobs = jobs.Append(Job{Name: strings.Join(slices.Slice(words, n, len(words)), " "), When: e})
 	}
 	jobs
-}
-
-// joined is words i to j, less j, joined by spaces: a slice has no
-// subslice (G-ex-f-1).
-func joined(words []string, i int, j int) string {
-	let mut out = []string{}
-	for k in i..j {
-		out = out.Append(words[k])
-	}
-	strings.Join(out, " ")
 }
