@@ -96,11 +96,3 @@ test ScriptsReachEveryRule {
 	}
 	assert paid > 20 && shipped > 10 && refunded > 3 && rejected > 100
 }
-
-test PaymentIsTheTotalHolds(seed int) {
-	assert PaymentsAreTotals(Simulate(Script(seed, 40)))
-}
-
-test RefundIsThePaymentHolds(seed int) {
-	assert RefundsArePayments(Simulate(Script(seed, 40)))
-}

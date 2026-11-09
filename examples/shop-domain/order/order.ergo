@@ -22,6 +22,9 @@ type InvalidLine { Order string, Sku string, Reason string }
 type WrongAmount { Order string, Due int64, Got int64 }
 type NotAllowed { Order string, Action string, Status string }
 
+// Rejection is the row of every rejection.
+type Rejection = UnknownOrder | AlreadyPlaced | InvalidLine | WrongAmount | NotAllowed
+
 // Summary is what an order holds in every state after it is placed.
 type Summary { Customer string, Total int64, Items int }
 

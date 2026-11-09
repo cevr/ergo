@@ -19,7 +19,7 @@ func Script(seed int, n int) []Command {
 			let c = drawCommand(id, s)
 			script = script.Append(c)
 			let events = Decide(s, c) catch {
-			case UnknownOrder, AlreadyPlaced, InvalidLine, WrongAmount, NotAllowed:
+			case Rejection:
 				[]Event{}
 			}
 			let mut next = s

@@ -3,14 +3,14 @@
 // records the events. Package memory provides it.
 
 type Orders {
-	Send(c Command) []Event fails UnknownOrder | AlreadyPlaced | InvalidLine | WrongAmount | NotAllowed,
+	Send(c Command) []Event fails Rejection,
 	History(order string) []Event,
 	Current(order string) State,
 
 	// The state a provider keeps is the state its history replays to.
 	law ReplayRebuildsState(c Command) {
 		let _ = Send(c) catch {
-		case UnknownOrder, AlreadyPlaced, InvalidLine, WrongAmount, NotAllowed:
+		case Rejection:
 			return Replay(History(OrderOf(c))) == Current(OrderOf(c))
 		}
 		Replay(History(OrderOf(c))) == Current(OrderOf(c))
@@ -20,7 +20,7 @@ type Orders {
 	law RejectedCommandEmitsNothing(c Command) {
 		let before = len(History(OrderOf(c)))
 		let _ = Send(c) catch {
-		case UnknownOrder, AlreadyPlaced, InvalidLine, WrongAmount, NotAllowed:
+		case Rejection:
 			return len(History(OrderOf(c))) == before
 		}
 		true
@@ -30,7 +30,7 @@ type Orders {
 	law AcceptedCommandIsRecorded(c Command) {
 		let before = len(History(OrderOf(c)))
 		let events = Send(c) catch {
-		case UnknownOrder, AlreadyPlaced, InvalidLine, WrongAmount, NotAllowed:
+		case Rejection:
 			return true
 		}
 		len(History(OrderOf(c))) == before+len(events)
@@ -51,7 +51,7 @@ func Simulate(script []Command) []Event {
 			Absent
 		}
 		let events = Decide(s, c) catch {
-		case UnknownOrder, AlreadyPlaced, InvalidLine, WrongAmount, NotAllowed:
+		case Rejection:
 			[]Event{}
 		}
 		let mut next = s

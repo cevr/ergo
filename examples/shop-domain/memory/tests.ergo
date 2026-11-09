@@ -1,6 +1,7 @@
 // The laws of order.Orders, restated as property tests of Log over drawn
-// scripts (#162): each command of a script is sent in turn, and each law
-// is checked after it.
+// scripts: ergo test runs them only for providers in package order
+// (G-exup-1). Each command of a script is sent in turn, and each law is
+// checked after it.
 
 import shop/order
 
@@ -21,27 +22,13 @@ func sent(c order.Command) ([]order.Event, string) needs order.Orders {
 	(events, "")
 }
 
-// same reports whether two logs hold equal events in the same order. A
-// slice has no == (G-ex-d-5).
-func same(a []order.Event, b []order.Event) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i in 0..len(a) {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	true
-}
-
 test RejectedCommandEmitsNothingHolds(seed int) {
 	with context { order.Orders: New() } {
 		for c in order.Script(seed, 40) {
 			let before = order.Orders.History(order.OrderOf(c))
 			let _, rejected = sent(c)
 			if rejected != "" {
-				assert same(order.Orders.History(order.OrderOf(c)), before)
+				assert order.Orders.History(order.OrderOf(c)) == before
 			}
 		}
 	}
@@ -57,7 +44,7 @@ test AcceptedCommandIsRecordedHolds(seed int) {
 				for e in events {
 					want = want.Append(e)
 				}
-				assert same(order.Orders.History(order.OrderOf(c)), want)
+				assert order.Orders.History(order.OrderOf(c)) == want
 			}
 		}
 	}
@@ -82,8 +69,8 @@ test TheStoreAgreesWithTheReference(seed int) {
 		for c in script {
 			let _, _ = sent(c)
 		}
-		assert same(order.Orders.History("a"), order.Of(log, "a"))
-		assert same(order.Orders.History("b"), order.Of(log, "b"))
+		assert order.Orders.History("a") == order.Of(log, "a")
+		assert order.Orders.History("b") == order.Of(log, "b")
 	}
 }
 
