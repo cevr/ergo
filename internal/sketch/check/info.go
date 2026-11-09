@@ -90,6 +90,10 @@ type Package struct {
 	// member, a duplicate name included (stage E3b, 196l; law-top):
 	// checked, never run.
 	Laws []*Law
+	// LawRuns are the laws the package's test build runs or reports
+	// (laws.go, rule 7): its own laws and the laws of its imports that it
+	// is the least package to see bound to a provider.
+	LawRuns []LawRun
 	// Info is the checker's result for the lowering.
 	Info *Info
 	// ErrorTypes are, by the owner of the body whose error row names them,
@@ -732,31 +736,48 @@ type Law struct {
 	Name  string
 	Decl  *syntax.LawDecl
 	Owner *TypeName // the operation type that declares it; nil at top level
+	Pkg   *Package  // the package that declares it
 	// Params are its parameters, in source order; a field with no name
 	// holds one "_".
 	Params []*Var
 	// Fails is the inferred failure row of its body: a failure that
 	// escapes it refutes the law when ergo test runs it.
 	Fails *Row
-	// Providers are the providers ergo test runs a member law against
-	// (laws.go, Running): each named type of the package that implements
-	// the law's operation type, in source order, with the conversion that
-	// puts its value into the operation type. A top-level law has none.
-	Providers []LawProvider
+	// Slots are the operation types the law quantifies over (laws.go,
+	// rule 7): its owner first, for a member law, then each parameter of an
+	// operation type, in order. A run binds each slot to a provider
+	// (Package.LawRuns).
+	Slots []LawSlot
 	// Unrun is why ergo test does not run the law, "" when it does: a
-	// parameter with no generator, a generic operation type, an operation
-	// type no type of the package implements.
+	// parameter with no generator or a generic operation type.
 	Unrun string
 
 	file *fileInfo // the declaring file, selected while the law is checked
 }
 
-// LawProvider is a provider a member law runs against (Law.Providers).
-// Unrun is why it does not, "" when it does: its values have no
-// generator.
+// LawSlot is an operation type a law quantifies over (Law.Slots): its
+// owner (Param -1) or its parameter Param.
+type LawSlot struct {
+	Param int
+	Type  *Named
+}
+
+// LawRun is a law a package's test build reports (Package.LawRuns): the
+// bindings of its slots that this package runs (laws.go, rule 7). A law
+// of the package with no binding here, or one that does not run
+// (Law.Unrun), has a LawRun with no bindings.
+type LawRun struct {
+	Law *Law
+	// Bindings each hold one provider per slot of Law.Slots, in order. A
+	// law with no slots that runs has one empty binding.
+	Bindings [][]LawProvider
+}
+
+// LawProvider is a provider bound to a law's slot (LawRun.Bindings). Unrun
+// is why it does not run, "" when it does: its values have no generator.
 //
 // Ctor is the provider's constructor when its values have no generator
-// and the package declares New<P> (laws.go, lawConstructor; fs4): each
+// and its package declares New<P> (laws.go, lawConstructor; fs4): each
 // case calls it, with generated arguments, instead of generating a value.
 type LawProvider struct {
 	Type  *Named
