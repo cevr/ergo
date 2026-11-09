@@ -1,17 +1,26 @@
-// The rules of the kiosk as laws over its machine, run on a virtual clock
-// by machines.RunTimed: the runner's timers fire at their deadlines, and a
-// timer of an ended entry is dropped. Machines carry no laws yet (M55),
-// so they stand at top level. Each law draws its times from integers, so
-// that they fall near the deadlines.
+// The rules of the kiosk as laws over its machine, run by machines.RunTimed
+// on a testing.VirtualClock: the runner's timers fire at their deadlines,
+// and a timer of an ended entry is dropped. Machines carry no laws yet
+// (M55), so they stand at top level. Each law draws its times from
+// integers, so that they fall near the deadlines.
 
 import machines
+import testing
+import time
 
 // Run is the kiosk with the Standard policy over trace, until end: its
 // last state and what it told. Step never rejects, so the run never fails
 // Rejected; a run that did would show as Suspended with no events.
 type Run { Last Kiosk, Told []Event }
 
+// run runs the kiosk on a fresh VirtualClock, the one clock of the run's
+// timers: the run sleeps hours of the kiosk's time in no wall time.
 func run(trace []machines.Timed[Signal], end duration) Run {
+	let c = testing.NewVirtualClock(0)
+	with context { Scheduler: c, time.Clock: c } { timed(trace, end) }
+}
+
+func timed(trace []machines.Timed[Signal], end duration) Run needs time.Clock | Scheduler {
 	let m = machines.Start(Idler{}, Standard())
 	let o = machines.RunTimed(m, trace, end) catch {
 	case machines.Rejected:

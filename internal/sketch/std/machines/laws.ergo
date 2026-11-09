@@ -1,6 +1,9 @@
 // The laws of machines run over tally, a machine built from parts whose
 // step reaches every Decision variant by the signal's value.
 
+import testing
+import time
+
 // tallyStep: a signal e moves the count s by its rest modulo 6: 0 enters
 // s + e, 1 stays at s + 1, 2 is ignored, 3 is rejected, 4 emits s and
 // moves to s - 1, 5 is done with s.
@@ -96,7 +99,8 @@ law NextTakesItsState(s int, n int) {
 }
 
 // UntimedRunsAsRun: with no timer, a timed run is the run over its
-// signals, at any times.
+// signals, at any times. It runs on a testing.VirtualClock, so it takes
+// no wall time.
 law UntimedRunsAsRun(signals []int, gaps []int) {
 	let mut trace = []Timed[int]{}
 	let mut at = 0s
@@ -106,9 +110,16 @@ law UntimedRunsAsRun(signals []int, gaps []int) {
 		}
 		trace = trace.Append(Timed[int]{At: at, Signal: e})
 	}
-	let timed = RunTimed(tally(), trace, at) catch {
+	let c = testing.NewVirtualClock(0)
+	let timed = with context { Scheduler: c, time.Clock: c } { timedTally(trace, at) }
+	from(0, signals, 0, []int{}) == timed
+}
+
+// timedTally is the text of the timed run of tally over trace until end.
+func timedTally(trace []Timed[int], end duration) string needs time.Clock | Scheduler {
+	let o = RunTimed(tally(), trace, end) catch {
 	case Rejected as r:
-		return from(0, signals, 0, []int{}) == "rejected \(r.At)"
+		return "rejected \(r.At)"
 	}
-	from(0, signals, 0, []int{}) == told(timed, []int{})
+	told(o, []int{})
 }
