@@ -1,46 +1,75 @@
-// The rules of decoding as laws.
+// The rules of decoding as laws. A generated Config is seldom Valid, so
+// each law also takes a seed and checks the Valid configuration Sample
+// builds from it.
 
 import confparse/toml
 
 // DecodeInvertsEncode: a Valid configuration, encoded, printed and read
 // back, decodes as itself.
-law DecodeInvertsEncode(c Config) {
-	if !Valid(c) {
-		return true
-	}
-	let d = toml.Parse(toml.Print(Encode(c))) catch {
-	case _:
-		return false
-	}
-	let back = Decode(d, Map[string, string]{}) catch {
-	case _:
-		return false
-	}
-	Same(back, c)
-}
-
-// EnvWins: a variable overrides the file's value of its key.
-law EnvWins(c Config, port int) {
-	if !Valid(c) || port < 1 || port > 65535 {
-		return true
-	}
-	let back = Decode(Encode(c), Map[string, string]{"CONFPARSE_LISTEN_PORT": "\(port)"}) catch {
-	case _:
-		return false
-	}
-	back.Listen.Port == port && Same(back, Config{..c, Listen: Listen{..c.Listen, Port: port}})
-}
-
-// FailuresPointIntoTheText: when text parses and does not decode, the
-// failure's place is in the text.
-law FailuresPointIntoTheText(text string) {
-	let d = toml.Parse(text) catch {
-	case _:
-		return true
-	}
-	let _ = Decode(d, Map[string, string]{}) catch {
-	case err:
-		return PosIn(Where(err), text)
+law DecodeInvertsEncode(c Config, seed int) {
+	for x in []Config{c, Sample(seed)} {
+		if !Valid(x) {
+			continue
+		}
+		let d = toml.Parse(toml.Print(Encode(x))) catch {
+		case _:
+			return false
+		}
+		let back = Decode(d, Map[string, string]{}) catch {
+		case _:
+			return false
+		}
+		if back != x {
+			return false
+		}
 	}
 	true
 }
+
+// EnvWins: a variable overrides the file's value of its key.
+law EnvWins(c Config, seed int, port int) {
+	let p = 1 + natural(port)%65535
+	for x in []Config{c, Sample(seed)} {
+		if !Valid(x) {
+			continue
+		}
+		let back = Decode(Encode(x), Map[string, string]{"CONFPARSE_LISTEN_PORT": "\(p)"}) catch {
+		case _:
+			return false
+		}
+		if back != (Config{..x, Listen: Listen{..x.Listen, Port: p}}) {
+			return false
+		}
+	}
+	true
+}
+
+// edits are lines a law adds to a valid file to break it.
+let edits = []string{"", "port = 0", "port = 'x'", "nope = 1", "[nope]", "[[listen]]", "level = 'loud'", "[[upstream]]", "name = 'a'", "addr = 1", "weight = 0", "backup = 1", "[log]", "[listen]"}
+
+// FailuresPointIntoTheText: when text parses and does not decode, the
+// failure's place is in the text: any text, and the text of a sample
+// with the edits that picks name.
+law FailuresPointIntoTheText(text string, seed int, picks []int) {
+	let mut edited = toml.Print(Encode(Sample(seed)))
+	for n in picks {
+		edited = edited + edits[natural(n)%len(edits)] + "\n"
+	}
+	for t in []string{text, edited} {
+		let d = toml.Parse(t) catch {
+		case _:
+			continue
+		}
+		let _ = Decode(d, Map[string, string]{}) catch {
+		case err:
+			if !PosIn(Where(err), t) {
+				return false
+			}
+			continue
+		}
+	}
+	true
+}
+
+// natural is n made not negative.
+func natural(n int) int { if n < 0 { -(n + 1) } else { n } }

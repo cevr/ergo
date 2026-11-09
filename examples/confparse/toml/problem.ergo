@@ -1,5 +1,5 @@
-// Problem is any failure of Parse. A catch arm `case err:` of Parse's
-// row is a Problem, so one function tells them all.
+// Problem is any failure of Parse: its named row. A catch arm `case err:`
+// of Parse is a Problem, so one function tells them all.
 type Problem = Unexpected | Unterminated | BadEscape | TooBig | Duplicate
 
 // PosOf is the position that p names.

@@ -4,40 +4,59 @@ import strings
 
 // PrintParses: the text Print writes of a document reads back as the
 // document, when its keys and names are ones Parse reads and are
-// distinct.
-law PrintParses(d Doc) {
-	if !Printable(d) {
-		return true
+// distinct: d, and the Printable sample of seed.
+law PrintParses(d Doc, seed int) {
+	for x in []Doc{d, Sample(seed)} {
+		if !Printable(x) {
+			continue
+		}
+		let back = Parse(Print(x)) catch {
+		case _:
+			return false
+		}
+		if !SameDoc(back, x) {
+			return false
+		}
 	}
-	let back = Parse(Print(d)) catch {
-	case _:
-		return false
-	}
-	SameDoc(back, d)
+	true
 }
 
 // PrintIsCanonical: printing what Parse read of printed text gives the
-// same text.
-law PrintIsCanonical(text string) {
-	let d = Parse(text) catch {
-	case _:
-		return true
+// same text: for text, text as a value, and the print of a sample.
+law PrintIsCanonical(text string, seed int) {
+	for t in []string{text, "a = " + text, "[x]\nk = [" + text + "]", Print(Sample(seed))} {
+		let d = Parse(t) catch {
+		case _:
+			continue
+		}
+		let once = Print(d)
+		let again = Parse(once) catch {
+		case _:
+			return false
+		}
+		if Print(again) != once {
+			return false
+		}
 	}
-	let once = Print(d)
-	let again = Parse(once) catch {
-	case _:
-		return false
-	}
-	Print(again) == once
+	true
 }
 
 // ProblemPointsIntoTheText: a failure names a line of the text and a
 // column of that line, or the one after its end; a duplicate names its
-// first place before it.
-law ProblemPointsIntoTheText(text string) {
-	let _ = Parse(text) catch {
-	case err:
-		return Points(err, text)
+// first place before it. For text, a sample's print cut at cut with
+// text after it, and a print written twice.
+law ProblemPointsIntoTheText(text string, seed int, cut int) {
+	let printed = Print(Sample(seed))
+	let k = if cut < 0 { -(cut + 1) } else { cut }
+	let broken = strings.Slice(printed, 0, k%(len(printed)+1)) + text
+	for t in []string{text, broken, printed + printed} {
+		let _ = Parse(t) catch {
+		case err:
+			if !Points(err, t) {
+				return false
+			}
+			continue
+		}
 	}
 	true
 }

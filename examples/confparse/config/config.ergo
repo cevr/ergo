@@ -67,16 +67,3 @@ func LevelNamed(name string) Option[Level] {
 
 // Upstream is a server the proxy sends requests to.
 type Upstream { Name string, Addr string, Weight int, Backup bool }
-
-// Same reports whether a and b are the same configuration.
-func Same(a Config, b Config) bool {
-	if a.Name != b.Name || a.Listen != b.Listen || LevelName(a.Log) != LevelName(b.Log) || len(a.Upstreams) != len(b.Upstreams) {
-		return false
-	}
-	for i, u in a.Upstreams {
-		if u != b.Upstreams[i] {
-			return false
-		}
-	}
-	true
-}
