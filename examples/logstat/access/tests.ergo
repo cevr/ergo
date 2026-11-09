@@ -60,10 +60,3 @@ test Classes {
 	assert ClassName(ClassOf(102)) == "1xx"
 	assert ClassName(ClassOf(999)) == "other"
 }
-
-// The samples are Valid, so FormatParses checks the round trip on each.
-test SamplesAreValid(seed int) {
-	for r in Samples(seed) {
-		assert Valid(r)
-	}
-}
