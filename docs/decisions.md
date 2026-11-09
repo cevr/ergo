@@ -2,6 +2,16 @@
 
 This file is the dated log of the owner's decisions for Ergo, newest first. A decision applies the principles to one feature, construct, stage or tool; [NORTH_STAR.md](../NORTH_STAR.md) holds the principles: what Ergo is for, the pillars, the north stars, the tiebreaks, the owner rules and the rejected directions. Each entry keeps the owner's words, the decision, and its tickets and links as NORTH_STAR.md recorded them; only relative link targets changed, so that they resolve from `docs/`. An entry with two or more dates sorts by its latest date, and entries with the same date keep their order from NORTH_STAR.md. Entries with no date are in the [Undated](#undated) group at the end. Where a moved passage says "above" or "below" and the new order changes what it means, a bracketed note names the entry.
 
+## Owner direction, 2026-11-09
+
+- **A row parameter may stand in every type position (2026-11-09, owner q47).** Asked after batch 13's fail-field unit found that `type Exit[T, F] = … | Failed{Error F}` could not hold an actor's failure row `F` (S108 "F is used as an error row and as a type"). Owner: "whatever is more consistent and correct". The orchestrator's ruling: the consistent rule is that a type parameter may appear in every type position, rows included. Decided:
+  - An error row parameter in a type position names the row's value type, the type a `case err:` binding already has: the anonymous union of the row's error types. A row written as a type argument names it too (`Exit[int, NotFound | Busy]`), and the parser reads `|` in type arguments.
+  - The value type has the rules of a union over its members: a member or a narrower row value goes in; a `match` is total over known members and needs `case _` or a binding for a parameter member; `==` applies when every member is equatable (so `err == err` now compares, where it was S108); a property draws one member and prints it as its literal.
+  - It lowers to a Go `error`; a row parameter has no Go type parameter.
+  - A capability row still has no value type, so a type and a capability row stay S108.
+
+  Rules: [types.md, Generics](spec/types.md#generics) 1 and [rows.md, Error rows](spec/rows.md#error-rows) 8. Principles: one consistent rule across the language (q39); explicit contracts (the field's type is the row the operation fails with). Prior art: Zig error sets as value types; OCaml polymorphic variants; Effect's `Exit<A, E>`.
+
 ## Owner direction, 2026-11-08
 
 - **Maps and slices are values (2026-11-08, q26).** Owner, answering batch 12's question 26 (map-alias, #222): "Maps and slices are values: copy where two bindings would share, elided when the source is new or dead". Decided:
