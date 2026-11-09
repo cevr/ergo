@@ -9,11 +9,12 @@ type Menu { Pages [][]Item }
 // the editor ends (history as data).
 type From = FromMenu{Page int} | FromSearch{Query string, Page int}
 
-// Screen is what the hub shows. Editing keeps the open editor's address.
+// Screen is what the hub shows. Editing keeps the open editor's host,
+// which the entry's work fills with the editor.
 type Screen =
 	| Browsing{Page int}
 	| Searching{Query string, Page int}
-	| Editing{Item Item, From From, Editor Option[actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]]}
+	| Editing{Item Item, From From, Editor actor.Host[actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]]}
 
 // Hub is the hub's state: the menu, the basket and the screen (a record
 // with a union field: the screen is a region of the state).
@@ -27,7 +28,6 @@ type HubSignal =
 	| Type{Text string}
 	| Close{}
 	| Checkout{}
-	| EditorOpened{A actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]}
 	| LineAdded{L Line}
 	| EditorBack{}
 
@@ -79,7 +79,7 @@ func pick(h Shop, items []Item, i int, from From) Decision[Hub, Order] {
 	if i < 0 || i >= len(items) {
 		return Reject
 	}
-	open(h, Editing{Item: items[i], From: from, Editor: None})
+	open(h, Editing{Item: items[i], From: from, Editor: actor.NewHost[actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]]()})
 }
 
 // Step is the hub's step. A machine's state is a union, so the hub's one
@@ -125,8 +125,6 @@ func step(h Shop, e HubSignal) Decision[Hub, Order] {
 		open(h, Browsing{Page: q.Page})
 	case (Searching, _):
 		Ignore
-	case (Editing as ed, EditorOpened as o):
-		show(h, Editing{..ed, Editor: Some{o.A}})
 	case (Editing as ed, LineAdded as a):
 		Enter[Hub]{Next: Shop{..h, Basket: h.Basket.Append(a.L), Screen: back(ed.From)}}
 	case (Editing as ed, EditorBack):
@@ -167,7 +165,7 @@ func hubWork(h Hub) Option[machines.Work[HubSignal, Scheduler]] {
 	match ScreenOf(h) {
 	case Editing as ed:
 		Some{machines.Work{Listen: func(send func(e HubSignal)) needs Scheduler {
-			send(EditorOpened{A: actor.Child(send, machines.Start(Editor{}, ed.Item), 4, toHub)})
+			let _ = actor.ChildIn(send, ed.Editor, machines.Start(Editor{}, ed.Item), 4, toHub)
 		}}}
 	case Browsing:
 		None

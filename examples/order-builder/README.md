@@ -14,13 +14,13 @@ Tag: `default`. It is an original program, a neutral re-creation of a common ord
   - `laws.ergo`: the hub's and the editor's rules as laws.
 - `menu/`: the menu, as data.
 - `memory/`: `Kitchen`, an in-memory provider of `order.Kitchen`, and a property that runs its law.
-- `screen/`: the line protocol. It runs the hub with `actor.StartMachine`, finds the open editors through the addresses kept in the states, asks the innermost one, and waits for each to settle with `actor.WaitFor`.
+- `screen/`: the line protocol. It runs the hub with `actor.StartMachine`, finds the open editors through the hosts kept in the states (`host.Get()`), and asks the innermost one. An entry is shown only after its work filled its host, so the screen waits for no editor to start.
 - `cmd/order-builder/main.ergo`: the binary, the only place that chooses the providers.
 
 ## What it shows
 
 - **Recursive children (MU5).** `Editor`'s work starts an `Editor`: one machine is a child of the hub and of itself. Each child belongs to the entry that started it, so when a hub or an editor leaves `Editing` or `Nested`, its editor and that editor's nested editors stop first, innermost first.
-- **A child's address kept in the parent's state.** The work tells its own machine the child's address (`send(Opened{Sub: actor.Child(…)})`); the state keeps it as `Option[actor.Actor[…]]`, and the screen reads it to reach the innermost editor. No registry, no names: an address is a value (MQ10).
+- **A child's host kept in the parent's state.** The step that enters `Editing` or `Nested` puts an empty `actor.NewHost[…]()` in the state; the entry's work fills it with `actor.ChildIn(send, host, …)`, and the screen reads it with `host.Get()` to reach the innermost editor. The runner shows the entry only after the fill, so no signal carries the address and no reader waits for it. No registry, no names: a host is a value (MQ10), and it fails `Stopped` once its entry ended.
 - **Typed output routed by the parent.** An editor ends with `Added{L} | WentBack`; `toHub` and `toPart` map it to the parent's signal. A `Back` in any editor leaves the basket as it was.
 - **History as data.** `Editing.From` is `FromMenu{Page} | FromSearch{Query, Page}`, so the hub returns to the page or the search after an editor, and a search's `close` returns to its page.
 - **An eventless step.** A combo with a slot left starts in `Picking` (`settle`).
@@ -57,7 +57,7 @@ effect-machine would host the editor with `.spawn(State.Editing, ({ self }) => s
 
 | concern | effect-machine | Ergo here | who checks |
 | --- | --- | --- | --- |
-| reaching the current child | look up by string id, or `ActorHost` with a generation check | the address is a value in the parent's state; a Send to an ended child fails `Stopped` | compiler (the type) + runner |
+| reaching the current child | look up by string id, or `ActorHost` with a generation check | an `actor.Host` in the parent's state, which the entry's work fills with `actor.ChildIn` before the entry is shown; a `Get` after the entry ended fails `Stopped`, and a Send to an ended child fails `Stopped` | compiler (the type) + runner (host.qnt) |
 | nested children of one machine | distinct ids per depth | identity, no id | runner |
 | child output | `sendParent` with an event the parent may not handle | `toParent` gives the parent's signal type, which the parent's total step decides | compiler |
 | stop order on leaving a state | not specified | innermost first, before the next entry | runner (MU5 model) |
@@ -65,8 +65,7 @@ effect-machine would host the editor with `.spawn(State.Editing, ({ self }) => s
 Where Ergo could not improve:
 
 - **The hub's state is a one-variant union.** A machine's state must be a union, so the record `Shop{Menu, Basket, Screen}` is a union of one variant, and the step unwraps it (finding F10).
-- **The address type is long.** `actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]` is written in four places; there is no type alias (`type X = …` is a union).
-- **The screen waits by hand for each address.** A child's address reaches its parent as a signal after the entry opens, so the screen waits for each editor to settle (`hubSettled`, `editSettled`) before it asks the innermost one. A lazily acquired child (effect-machine `ActorHost.acquire`, em-parity M63) would wait for the screen.
+- **The address type is long.** `actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]` is written in several places, and `actor.NewHost` needs it written as a type argument (a call infers no type argument from its expected type); there is no type alias (`type X = …` is a union).
 
 ## Benchmark
 

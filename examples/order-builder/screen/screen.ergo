@@ -125,31 +125,34 @@ func EditText(e order.Edit) string {
 	}
 }
 
-func hubSettled(h order.Hub) bool {
-	match order.ScreenOf(h) {
-	case order.Editing as e:
-		match e.Editor {
-		case Some:
-			true
-		case None:
-			false
-		}
+// editorIn is the editor a host holds. The hub and an editor show an entry
+// only after its work filled its host (runtime.md, Machines and actors
+// 16), so Get answers at once; None once that entry ended.
+func editorIn(h actor.Host[actor.Actor[order.Edit, order.EditSignal, Decision[order.Edit, order.EditOut]]]) Option[actor.Actor[order.Edit, order.EditSignal, Decision[order.Edit, order.EditOut]]] {
+	let a = h.Get() catch {
+	case actor.Stopped:
+		return None
+	}
+	Some{a}
+}
+
+// subOf is the nested editor of an editor in st, if it hosts one.
+func subOf(st order.Edit) Option[actor.Actor[order.Edit, order.EditSignal, Decision[order.Edit, order.EditOut]]] {
+	match st {
+	case order.Nested as n:
+		editorIn(n.Sub)
 	case _:
-		true
+		None
 	}
 }
 
-func editSettled(e order.Edit) bool {
-	match e {
-	case order.Nested as n:
-		match n.Sub {
-		case Some:
-			true
-		case None:
-			false
-		}
+// editorOf is the hub's open editor, if it shows one.
+func editorOf(h order.Hub) Option[actor.Actor[order.Edit, order.EditSignal, Decision[order.Edit, order.EditOut]]] {
+	match order.ScreenOf(h) {
+	case order.Editing as e:
+		editorIn(e.Editor)
 	case _:
-		true
+		None
 	}
 }
 
@@ -182,35 +185,15 @@ func Run(menu order.Menu) needs Console | io.Stdin | Scheduler | order.Kitchen {
 			Console.Println("(the order has ended)")
 			continue
 		}
-		// The open editors, outermost first, each settled: its nested
-		// editor, if it has one, has started and told its address.
+		// The open editors, outermost first, each read through its host.
 		let mut chain = []actor.Actor[order.Edit, order.EditSignal, Decision[order.Edit, order.EditOut]]{}
-		let h = actor.WaitFor(hub, hubSettled) catch {
-		case actor.Stopped:
-			order.Start(menu)
-		}
-		let mut next = match order.ScreenOf(h) {
-		case order.Editing as e:
-			e.Editor
-		case _:
-			None
-		}
+		let mut next = editorOf(hub.State())
 		let mut going = true
 		for going {
 			match next {
 			case Some[actor.Actor[order.Edit, order.EditSignal, Decision[order.Edit, order.EditOut]]] as a:
 				chain = chain.Append(a.Value)
-				let st = actor.WaitFor(a.Value, editSettled) catch {
-				case actor.Stopped:
-					going = false
-					order.Choosing{Item: order.Item{Name: "", Price: 0, Slots: []order.Slot{}}, Qty: 1, Parts: []order.Line{}}
-				}
-				next = match st {
-				case order.Nested as n:
-					n.Sub
-				case _:
-					None
-				}
+				next = subOf(a.Value.State())
 			case None:
 				going = false
 			}
@@ -280,36 +263,20 @@ func Run(menu order.Menu) needs Console | io.Stdin | Scheduler | order.Kitchen {
 	hub.Stop()
 }
 
-// view prints the hub and its open editors once they are settled.
+// view prints the hub and its open editors.
 func view(hub actor.Actor[order.Hub, order.HubSignal, Decision[order.Hub, order.Order]]) needs Console {
-	let h = actor.WaitFor(hub, hubSettled) catch {
-	case actor.Stopped:
-		return
-	}
+	let h = hub.State()
 	Console.Println(HubText(h))
-	let mut next = match order.ScreenOf(h) {
-	case order.Editing as e:
-		e.Editor
-	case _:
-		None
-	}
+	let mut next = editorOf(h)
 	let mut depth = 1
 	let mut going = true
 	for going {
 		match next {
 		case Some[actor.Actor[order.Edit, order.EditSignal, Decision[order.Edit, order.EditOut]]] as a:
-			let st = actor.WaitFor(a.Value, editSettled) catch {
-			case actor.Stopped:
-				return
-			}
+			let st = a.Value.State()
 			Console.Println("\(strings.Repeat("  ", depth))\(EditText(st))")
 			depth = depth + 1
-			next = match st {
-			case order.Nested as n:
-				n.Sub
-			case _:
-				None
-			}
+			next = subOf(st)
 		case None:
 			going = false
 		}

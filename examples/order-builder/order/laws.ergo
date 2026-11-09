@@ -2,6 +2,8 @@
 // laws, MU6, are not on this base). Children stopping with their entry,
 // nested ones first, is the runner's rule (MU5); the cases run it.
 
+import actor
+
 func small(n int) int {
 	let c = n % 3
 	if c < 0 { -c } else { c }
@@ -26,7 +28,7 @@ func screenAt(n int, text string) Screen {
 	case 1:
 		Searching{Query: text, Page: 1}
 	case _:
-		Editing{Item: fixture().Pages[0][2], From: if n%2 == 0 { FromMenu{Page: 1} } else { FromSearch{Query: text, Page: 0} }, Editor: None}
+		Editing{Item: fixture().Pages[0][2], From: if n%2 == 0 { FromMenu{Page: 1} } else { FromSearch{Query: text, Page: 0} }, Editor: actor.NewHost[actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]]()}
 	}
 }
 
@@ -101,7 +103,7 @@ law HistoryRestores(page int, i int, query string, fromSearch bool, add bool) {
 // it was; one that adds a line adds exactly that line.
 law BackChangesNothing(ns []int, n int, text string, add bool) {
 	let basket = basketOf(ns)
-	let h = Shop{Menu: fixture(), Basket: basket, Screen: Editing{Item: fixture().Pages[0][0], From: FromMenu{Page: 0}, Editor: None}}
+	let h = Shop{Menu: fixture(), Basket: basket, Screen: Editing{Item: fixture().Pages[0][0], From: FromMenu{Page: 0}, Editor: actor.NewHost[actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]]()}}
 	if add {
 		let after = basketAfter(Step(h, LineAdded{L: lineOf(n)}))
 		len(after) == len(basket)+1 && Total(after) == Total(basket)+Total([]Line{lineOf(n)})

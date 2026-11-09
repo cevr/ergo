@@ -17,12 +17,12 @@ type Slot { Name string, Choices []Item }
 type Line { Item string, Price int, Qty int, Parts []Line }
 
 // Edit is an editor's state. Picking waits for the choice of the next
-// slot; Nested hosts the editor of that choice, whose address Sub the
-// state keeps so a screen can reach it.
+// slot; Nested hosts the editor of that choice: Sub is its host, which
+// the entry's work fills, so a screen reaches the editor through it.
 type Edit =
 	| Choosing{Item Item, Qty int, Parts []Line}
 	| Picking{Item Item, Qty int, Parts []Line}
-	| Nested{Item Item, Qty int, Parts []Line, Choice Item, Sub Option[actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]]}
+	| Nested{Item Item, Qty int, Parts []Line, Choice Item, Sub actor.Host[actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]]}
 
 type EditSignal =
 	| More{}
@@ -30,7 +30,6 @@ type EditSignal =
 	| Choose{Index int}
 	| Add{}
 	| Back{}
-	| Opened{Sub actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]}
 	| PartAdded{L Line}
 	| PartBack{}
 
@@ -86,7 +85,7 @@ func editStep(s Edit, e EditSignal) Decision[Edit, EditOut] {
 	case (Picking as p, Choose as ch):
 		let choices = p.Item.Slots[len(p.Parts)].Choices
 		if ch.Index >= 0 && ch.Index < len(choices) {
-			Enter[Edit]{Next: Nested{Item: p.Item, Qty: p.Qty, Parts: p.Parts, Choice: choices[ch.Index], Sub: None}}
+			Enter[Edit]{Next: Nested{Item: p.Item, Qty: p.Qty, Parts: p.Parts, Choice: choices[ch.Index], Sub: actor.NewHost[actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]]()}}
 		} else {
 			Reject
 		}
@@ -94,8 +93,6 @@ func editStep(s Edit, e EditSignal) Decision[Edit, EditOut] {
 		Done[EditOut]{Output: WentBack}
 	case (Picking, _):
 		Ignore
-	case (Nested as n, Opened as o):
-		Stay[Edit]{Next: Nested{..n, Sub: Some{o.Sub}}}
 	case (Nested as n, PartAdded as a):
 		Enter[Edit]{Next: settle(Choosing{Item: n.Item, Qty: n.Qty, Parts: n.Parts.Append(a.L)})}
 	case (Nested as n, PartBack):
@@ -116,12 +113,12 @@ func toPart(o EditOut) EditSignal {
 }
 
 // editWork: Nested hosts the editor of its choice, a child of the entry,
-// and tells its own editor the child's address.
+// in the state's host.
 func editWork(s Edit) Option[machines.Work[EditSignal, Scheduler]] {
 	match s {
 	case Nested as n:
 		Some{machines.Work{Listen: func(send func(e EditSignal)) needs Scheduler {
-			send(Opened{Sub: actor.Child(send, machines.Start(Editor{}, n.Choice), 4, toPart)})
+			let _ = actor.ChildIn(send, n.Sub, machines.Start(Editor{}, n.Choice), 4, toPart)
 		}}}
 	case Choosing:
 		None
