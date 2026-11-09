@@ -1,11 +1,13 @@
-// Package script runs the kiosk over a script of timed lines on a virtual
-// clock, and shows what it does second by second.
+// Package script runs the kiosk over a script of timed lines on the
+// time.Clock and Scheduler of its context (main binds a virtual clock),
+// and shows what it does second by second.
 
 import idletimer/kiosk
 import io
 import machines
 import strconv
 import strings
+import time
 
 // BadLine is a line the script cannot read.
 type BadLine { Line int, Why string }
@@ -123,7 +125,7 @@ func WithTicks(s Script) []machines.Timed[kiosk.Signal] {
 type View { State kiosk.Kiosk, Told []kiosk.Event }
 
 // Upto is the run of m over the first n signals of trace, until end.
-func Upto(m Machine[kiosk.Kiosk, kiosk.Signal, kiosk.Event], trace []machines.Timed[kiosk.Signal], n int, end duration) View {
+func Upto(m Machine[kiosk.Kiosk, kiosk.Signal, kiosk.Event], trace []machines.Timed[kiosk.Signal], n int, end duration) View needs time.Clock | Scheduler {
 	let mut part = []machines.Timed[kiosk.Signal]{}
 	for i, x in trace {
 		if i < n {
@@ -147,7 +149,7 @@ func Upto(m Machine[kiosk.Kiosk, kiosk.Signal, kiosk.Event], trace []machines.Ti
 // change of state and each event, at the time of the signal it follows,
 // and returns the exit status: 0, or 1 when the script or the policy is
 // refused.
-func Run() int needs Console | io.Stdin | kiosk.Policies {
+func Run() int needs Console | io.Stdin | kiosk.Policies | time.Clock | Scheduler {
 	let mut lines = []string{}
 	for line in io.Stdin.Lines() {
 		lines = lines.Append(line)

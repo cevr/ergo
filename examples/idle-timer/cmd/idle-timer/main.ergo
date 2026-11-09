@@ -4,19 +4,23 @@
 // package script reads the script and runs it with machines.RunTimed;
 // package memory holds the kiosks' policies. This binary is the only place
 // that chooses them: Live binds kiosk.Policies to memory's fixed
-// policies, and io to the host.
+// policies, io to the host, and the clock to a testing.VirtualClock, so
+// the replay of a script of hours takes no wall time.
 
 import idletimer/kiosk
 import idletimer/memory
 import idletimer/script
 import io
 import os
+import testing
+import time
 
 let Live = context { kiosk.Policies: memory.Fixed }
 
 func main() fails os.Exit needs Console | Ambient {
+	let c = testing.NewVirtualClock(0)
 	let status = with Live {
-		with context { io.Stdin: io.NewHost() } {
+		with context { io.Stdin: io.NewHost(), time.Clock: c, Scheduler: c } {
 			script.Run()
 		}
 	}

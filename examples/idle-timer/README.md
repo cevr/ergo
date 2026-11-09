@@ -32,8 +32,8 @@ The program is a module of packages (`ergo.mod`: `module idletimer`), in the Go 
 | --- | --- |
 | `kiosk/` | The domain package. It is pure. `policy.ergo`: `Policy`, `Standard`, `Check` (fails `BadPolicy`). `machine.ergo`: `Screen`, `Session`, the state `Kiosk`, `Signal`, `Event`, `Begin`, `WaitFor`, `Timer`, `Step` and `type Idler machine[Kiosk, Signal] { initial: Begin, step: Step, after: Timer }`. `policies.ergo`: `Policies`, the contract of a store of policies, with two laws. Also `laws.ergo` and `tests.ergo`. |
 | `memory/` | `Fixed`, the in-memory provider of `kiosk.Policies`: `lobby` and `library`. |
-| `script/` | `Read` (fails `BadLine`), `WithTicks`, `Upto` and `Run`, the only function with capabilities (`Console`, `io.Stdin`, `kiosk.Policies`). |
-| `cmd/idle-timer/` | The binary. `main.ergo` binds `let Live = context { kiosk.Policies: memory.Fixed }` and the host's standard input. It is the only place that chooses them. |
+| `script/` | `Read` (fails `BadLine`), `WithTicks`, `Upto` (on `time.Clock` and `Scheduler`) and `Run`, the only function with outside capabilities (`Console`, `io.Stdin`, `kiosk.Policies`, and the clock). |
+| `cmd/idle-timer/` | The binary. `main.ergo` binds `let Live = context { kiosk.Policies: memory.Fixed }`, the host's standard input and a `testing.VirtualClock` for `time.Clock` and `Scheduler`. It is the only place that chooses them. |
 
 ## What it shows
 
@@ -42,7 +42,7 @@ The program is a module of packages (`ergo.mod`: `module idletimer`), in the Go 
 - **`Emit` (q28; MQ1).** Each end of a session moves to `Suspended` and tells its event in one decision.
 - **No stale timer (M46).** The runner drops a timer whose entry has ended. The case `library` shows this with a touch at the very instant the wait ends.
 - **Input-initial (V4).** The machine's input is the policy. `script.Run` checks it first, because a start function cannot fail, and then runs `machines.Start(kiosk.Idler{}, policy)`.
-- **A virtual clock.** `machines.RunTimed` is the pure timed fold. The laws and the program run on it: no host clock and no sleep.
+- **One clock.** `machines.RunTimed` reads the `time.Clock` and `Scheduler` of its context, as every sleep does (runtime.md, Machines 9.6). The laws bind a fresh `testing.VirtualClock` for each run, and `main` binds one for the program, so a script of hours replays in no wall time and no host clock is read.
 - **Exhaustive `match`.** Each state's step is a `match` that names all eleven signals. The only `case _` arms are over a script word or a kiosk name, which are strings.
 - **Typed failures.** `BadPolicy`, `NoSuchKiosk` and `BadLine`. `Step` itself never refuses: a signal that means nothing in a state is `Ignore`.
 - **Laws.** Six top-level laws, run on `RunTimed` by `ergo test` (#162), with times drawn near the deadlines:
