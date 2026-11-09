@@ -72,7 +72,7 @@ func Parse(unit string) Command {
 	}
 }
 
-// Fixed is cents as d.cc.
+// Fixed is hundredths as d.dd.
 func Fixed(n int) string {
 	let c = n % 100
 	"\(n / 100).\(if c < 10 { "0" } else { "" })\(c)"

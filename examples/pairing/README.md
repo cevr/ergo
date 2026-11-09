@@ -70,7 +70,7 @@ The same flow in effect-machine would use: `State`/`Event` schemas; `Machine.mak
 Where Ergo could not improve:
 
 - **Signatures and type arguments.** `Stay[Flow]{…}`, `Done[Result]{…}`, `Timeout[Signal]{…}`, `Some[Flow]{…}` are written where effect-machine infers (em-parity §4.5 item 1).
-- **Ignore arms.** Seven `(State, _): Ignore` arms; effect-machine drops unhandled events with no line. The arms are the price of totality (q40 keeps them explicit).
+- **Ignore arms.** Seven `(State, _): Ignore` arms; effect-machine drops unhandled events with no line. The arms are the cost of totality (q40 keeps them explicit).
 - **The reader's beep.** A source's value is a `Send`: it returns when the value is queued, and nothing tells the screen when the flow has stepped it. The reader pushes a beep after each queued tag so the script can wait for it (finding MB2-G1). effect-machine's `.background` has no such answer either (inferred).
 
 ## Benchmark

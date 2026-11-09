@@ -205,7 +205,7 @@ func Run(clock time.Manual) needs Console | io.Stdin | shards.Targets | Schedule
 			continue
 		}
 		// Wait until the write is idle again: the write runner and its
-		// writes have answered, a erase is done, a waited summary sold.
+		// writes have answered, an erase is done, a waited summary shown.
 		let s = actor.WaitFor(a, func(s shards.Job) bool { !busy(s) && !(waited && onSummary(s)) }) catch {
 		case actor.Stopped:
 			Console.Println(Ending(actor.ExitOf(a)))

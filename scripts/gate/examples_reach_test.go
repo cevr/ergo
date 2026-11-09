@@ -85,7 +85,7 @@ func TestFastTierReachOfAnExampleEdit(t *testing.T) {
 			if slices.Contains(declared, replay.Allowance{Path: ".", Grant: replay.GrantSubtree}) {
 				continue
 			}
-			// The declared entries alone: a directory the checkout does
+			// The declared entries alone: a directory the working tree does
 			// not hold, so no file is taken for one of its sources.
 			if (&replay.Closure{Dir: "-", Declared: declared}).Covers(file) {
 				readers = append(readers, dir)
