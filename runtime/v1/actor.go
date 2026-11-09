@@ -30,11 +30,14 @@ import (
 //  3. Commit: Enter, Stay and Emit commit next(s, d); Ignore and Reject
 //     keep the state; Done keeps it, gives its output and ends the actor.
 //  4. Entry: the first state, an Enter and an Emit open an entry, with a
-//     new epoch. Stay keeps the entry and its timer.
+//     new epoch. Stay keeps the entry, its timer and its work.
 //  5. Exit before entry: when an entry ends, its timer child is stopped and
-//     drained before the next entry arms its own.
-//  6. No stale signal: a timer envelope carries its entry's epoch; one of
-//     an ended entry is dropped, never stepped, and counted (Dropped).
+//     its work is interrupted, and both are drained, before the next entry
+//     arms its timer and starts its work.
+//  6. No stale signal: a timer envelope and a work's signal carry their
+//     entry's epoch; one of an ended entry is dropped, never stepped, and
+//     counted (Dropped). The epoch is the runner's: a work's send is bound
+//     to it when the work starts, so no program code checks it.
 //  7. Timer: delay(s) of an opening state, unless it is ActorNoTimer(),
 //     arms a child that sleeps on the program's Scheduler and then pushes
 //     the timer envelope; fire(at, s) steps it, where at is the state its
@@ -49,6 +52,18 @@ import (
 //  9. Failure: a step failure goes to the asker and the actor goes on;
 //     after a Send or a timer it ends the actor, and Stop returns it. A
 //     defect ends the actor, and Stop raises it.
+//  10. Work (MU4): an entry whose state has work (hasWork(workOf(s)))
+//     starts it as a child task after the commit, after its timer is
+//     armed, and before observers see the state (Changes, the Ask's
+//     answer, the first State; MachineStart returns after the first
+//     entry's work started). The work gets send, which pushes a signal
+//     tagged with the entry's epoch and waits for room as a Send does; an
+//     interrupted work's send raises at its check, so a work that the end
+//     of its entry interrupted sends nothing. The typed failure of a work
+//     is a signal already (the program's map, std actor); a defect of a
+//     work ends the actor whenever it happens, and Stop raises it: it is
+//     pushed as an envelope that is never dropped, or, when admission has
+//     closed, it is the work's exit, which the drain reads.
 type Actor[S, E, D any] struct {
 	inbox   *Queue[envelope[S, E, D]]
 	task    *rt.Task
@@ -61,6 +76,10 @@ type Actor[S, E, D any] struct {
 	kind  func(D) int
 	next  func(S, D) S
 	out   func(*rt.Task, D)
+	// work is the work of a state's entry, and false when it has none
+	// (rule 10): the program's workOf, hasWork and run bound together, so
+	// the Actor needs no type parameter for the program's Work value.
+	work func(S) (func(*rt.Task, func(E)), bool)
 
 	dropped atomic.Int64
 	// handled counts the envelopes the runner took and handled, so a test
@@ -75,9 +94,10 @@ type Actor[S, E, D any] struct {
 	subs  map[*changes[S]]struct{}
 
 	// The runner's own fields: only its goroutine reads or writes them.
-	cur   *envelope[S, E, D] // the envelope in a step, nil between steps
-	timer *rt.Handle[struct{}]
-	epoch uint64
+	cur     *envelope[S, E, D] // the envelope in a step, nil between steps
+	timer   *rt.Handle[struct{}]
+	working *rt.Handle[struct{}] // the entry's work, nil when it has none
+	epoch   uint64
 }
 
 // The decisions of the prelude Decision, in the order kind gives them.
@@ -96,6 +116,8 @@ const (
 	askSignal
 	stateRead
 	timerSignal
+	workSignal // a signal a work sent, tagged with its entry's epoch
+	workDefect // a work's defect: never dropped
 )
 
 type envelope[S, E, D any] struct {
@@ -104,6 +126,7 @@ type envelope[S, E, D any] struct {
 	epoch uint64
 	at    S // a timer's: the state its entry opened in
 	reply chan answer[S, D]
+	err   error // a work defect's exit
 }
 
 type answer[S, D any] struct {
@@ -126,11 +149,15 @@ func (ActorStopped) Error() string { return "actor.Stopped" }
 // site, task and scheduler arguments: the actor's task is a child of t (a
 // stop of t stops it), and its timers sleep on sl. initial is the first
 // state; capacity is the inbox's (0 makes each Send wait for the runner to
-// take it; a negative capacity is a defect). It returns at once: the
-// runner arms the first entry's timer and then waits for signals.
-func MachineStart[S, E, D any](span Site, t *rt.Task, sl Sleeper, initial S,
+// take it; a negative capacity is a defect). workOf, hasWork and work are
+// the entries' work (rule 10): workOf(s) is the program's Work value of a
+// state, hasWork reports whether it is one, and work runs it on the work's
+// task with send. It returns once the runner has armed the first entry's
+// timer and started its work; the runner then waits for signals.
+func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
-	delay func(S) time.Duration, kind func(D) int, next func(S, D) S,
+	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
+	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D), capacity int) *Actor[S, E, D] {
 	if capacity < 0 {
 		panic(fmt.Sprintf("actor.StartMachine: negative capacity %d", capacity))
@@ -140,12 +167,21 @@ func MachineStart[S, E, D any](span Site, t *rt.Task, sl Sleeper, initial S,
 		step: step, fire: fire, delay: delay, kind: kind, next: next, out: out,
 		done: make(chan struct{}), state: initial, subs: map[*changes[S]]struct{}{},
 	}
+	a.work = func(s S) (func(*rt.Task, func(E)), bool) {
+		w := workOf(s)
+		if !hasWork(w) {
+			return nil, false
+		}
+		return func(t *rt.Task, send func(E)) { work(t, w, send) }, true
+	}
 	holder := rt.NewScope(t)
 	ready := make(chan struct{})
+	var once sync.Once
+	started := func() { once.Do(func() { close(ready) }) }
 	rt.Go(&holder, a.span, func(at *rt.Task) (struct{}, error) {
 		a.task = at
-		close(ready)
-		_, err := guarded(at, a.loop)
+		_, err := guarded(at, func(at *rt.Task) (struct{}, error) { return a.loop(at, started) })
+		started() // the first entry's arm or work raised
 		a.finish(err)
 		return struct{}{}, nil
 	})
@@ -153,10 +189,13 @@ func MachineStart[S, E, D any](span Site, t *rt.Task, sl Sleeper, initial S,
 	return a
 }
 
-// loop is the runner (rules 1 to 7).
-func (a *Actor[S, E, D]) loop(at *rt.Task) (struct{}, error) {
+// loop is the runner (rules 1 to 7 and 10). started tells MachineStart
+// that the first entry's children run.
+func (a *Actor[S, E, D]) loop(at *rt.Task, started func()) (struct{}, error) {
 	s := a.state
 	a.arm(at, s)
+	a.startWork(at, s)
+	started()
 	for {
 		env, err := a.inbox.Pop(at)
 		if err != nil {
@@ -189,6 +228,14 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 			return s, false, nil
 		}
 		d, err = a.fire(at, env.at, s)
+	case workSignal:
+		if env.epoch != a.epoch {
+			a.dropped.Add(1)
+			return s, false, nil
+		}
+		d, err = a.step(at, s, env.sig)
+	case workDefect:
+		return s, true, env.err
 	default:
 		d, err = a.step(at, s, env.sig)
 	}
@@ -204,10 +251,10 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 	switch k {
 	case decideEnter, decideEmit:
 		a.stopTimer()
+		a.stopWork()
 		s = a.next(s, d)
 		a.epoch++
-		a.publish(s)
-		a.arm(at, s)
+		a.open(at, s)
 		if k == decideEmit {
 			a.out(at, d)
 		}
@@ -222,6 +269,73 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 		env.reply <- answer[S, D]{d: d}
 	}
 	return s, k == decideDone, nil
+}
+
+// open opens the entry of the committed state s, whose epoch is a.epoch:
+// it arms the entry's timer, starts its work, and then shows s to the
+// observers (rule 10). When the arm or the start raises, s is still the
+// actor's last state: the deferred publish does not recover, so the panic
+// keeps its stack.
+func (a *Actor[S, E, D]) open(at *rt.Task, s S) {
+	opened := false
+	defer func() {
+		if !opened {
+			a.publish(s)
+		}
+	}()
+	a.arm(at, s)
+	a.startWork(at, s)
+	opened = true
+	a.publish(s)
+}
+
+// startWork starts the work of the entry that opened in s, when s has one
+// (rule 10). Its send pushes a work signal with the entry's epoch on the
+// work's task, so an interrupted work raises at the push and sends
+// nothing. Its defect is pushed as a workDefect envelope, never dropped;
+// when the push cannot be made (admission closed, or the work is being
+// stopped), the defect is the work's exit, which stopWork or finish
+// raises.
+func (a *Actor[S, E, D]) startWork(at *rt.Task, s S) {
+	run, ok := a.work(s)
+	if !ok {
+		return
+	}
+	epoch := a.epoch
+	holder := rt.NewScope(at)
+	a.working = rt.Go(&holder, a.span+" (work)", func(wt *rt.Task) (struct{}, error) {
+		send := func(e E) {
+			// Closed: the actor ended; the work has no one to tell.
+			_ = a.inbox.Push(wt, envelope[S, E, D]{kind: workSignal, sig: e, epoch: epoch})
+		}
+		_, err := guarded(wt, func(wt *rt.Task) (struct{}, error) {
+			run(wt, send)
+			return struct{}{}, nil
+		})
+		if err == nil || err == rt.Interrupted {
+			return struct{}{}, nil
+		}
+		_, pushed := guarded(wt, func(wt *rt.Task) (struct{}, error) {
+			return struct{}{}, a.inbox.Push(wt, envelope[S, E, D]{kind: workDefect, err: err})
+		})
+		if pushed == nil {
+			return struct{}{}, nil
+		}
+		return struct{}{}, err
+	})
+}
+
+// stopWork interrupts the current entry's work and waits for its end
+// (rule 5). A defect the work could not push ends the actor.
+func (a *Actor[S, E, D]) stopWork() {
+	h := a.working
+	if h == nil {
+		return
+	}
+	a.working = nil
+	if err := h.Stop(); err != nil {
+		raise(err)
+	}
 }
 
 // arm starts the timer child of the entry that opened in s, when delay(s)
@@ -318,20 +432,21 @@ func (a *Actor[S, E, D]) release(env *envelope[S, E, D]) {
 }
 
 // finish ends the actor (rule 8) on the runner's goroutine, after the loop
-// returned or raised: admission closes, the timer child is drained, the
-// envelope of an interrupted step and every queued one are released, and
-// the Changes subscribers end. It waits for nothing a stop can interrupt.
+// returned or raised: admission closes, the timer child and the work are
+// stopped and drained (a defect of the work joins the exit), the envelope
+// of an interrupted step and every queued one are released (a queued work
+// defect joins the exit), and the Changes subscribers end. It waits for nothing a stop can interrupt.
 func (a *Actor[S, E, D]) finish(exit error) {
 	a.inbox.Close()
-	if h := a.timer; h != nil {
-		a.timer = nil
+	for _, h := range []*rt.Handle[struct{}]{a.timer, a.working} {
+		if h == nil {
+			continue
+		}
 		if err := h.Stop(); err != nil {
-			var c rt.Cause
-			c.Add(exit)
-			c.Add(err)
-			exit = c.Err()
+			exit = join(exit, err)
 		}
 	}
+	a.timer, a.working = nil, nil
 	if a.cur != nil {
 		a.release(a.cur)
 		a.cur = nil
@@ -340,6 +455,11 @@ func (a *Actor[S, E, D]) finish(exit error) {
 		env, ok := a.inbox.Poll()
 		if !ok {
 			break
+		}
+		if env.kind == workDefect {
+			// A work's defect is never dropped (rule 10).
+			exit = join(exit, env.err)
+			continue
 		}
 		a.release(&env)
 	}
@@ -418,9 +538,10 @@ func (a *Actor[S, E, D]) waitDone(t *rt.Task) {
 }
 
 // Stop is a.Stop(): it interrupts the runner, closes admission and waits,
-// uninterruptibly, until it has ended, its timer drained and its queued
-// Asks answered ActorStopped (rule 8). It returns the typed failure that
-// ended the actor, if one did, and raises its defects. A Stop of an ended
+// uninterruptibly, until it has ended, its timer and its work drained and
+// its queued Asks answered ActorStopped (rule 8). It returns the typed
+// failure that ended the actor, if one did, and raises its defects, a
+// work's included (rule 10). A Stop of an ended
 // actor returns the same at once; every Stop is idempotent.
 func (a *Actor[S, E, D]) Stop() error {
 	// The interruption comes first: once it is set, the runner's next Pop
@@ -460,8 +581,8 @@ func defectsOnly(err error) error {
 	return d.Err()
 }
 
-// Dropped is a.Dropped(): how many timer signals of ended entries the
-// runner dropped (rule 6; decision MQ6).
+// Dropped is a.Dropped(): how many timer signals and work signals of ended
+// entries the runner dropped (rule 6; decision MQ6).
 func (a *Actor[S, E, D]) Dropped() int { return int(a.dropped.Load()) }
 
 // Changes is a.Changes() on the iterating task t: the actor's state when

@@ -129,9 +129,17 @@ func (m tmachine) start(t *rt.Task, sl Sleeper, capacity int, gateOpen chan stru
 		*outs = append(*outs, d.out)
 		mu.Unlock()
 	}
-	return MachineStart[tstate, tsig, tdec](Site("actor test"), t, sl, m.init, step, fire, m.in,
-		func(d tdec) int { return d.kind }, next, out, capacity)
+	return MachineStart(Site("actor test"), t, sl, m.init, step, fire, m.in,
+		noWork[tstate], hasNoWork, runNoWork[tsig], func(d tdec) int { return d.kind }, next, out, capacity)
 }
+
+// noWork, hasNoWork and runNoWork are the work of a machine whose states
+// have none.
+func noWork[S any](S) struct{} { return struct{}{} }
+
+func hasNoWork(struct{}) bool { return false }
+
+func runNoWork[E any](*rt.Task, struct{}, func(E)) {}
 
 // ref is the reference: the timed fold of the trace with one timer slot,
 // as machines.RunTimed folds, except that a Reject of an outside signal
@@ -586,9 +594,10 @@ func signalLog(t *rt.Task, capacity int, entered chan struct{}, hold chan struct
 		}
 		return rdec{decideStay, e}, nil
 	}
-	return MachineStart[[]int, int, rdec](Site("signal log"), t, releaser{make(chan sleep)}, nil, step,
+	return MachineStart(Site("signal log"), t, releaser{make(chan sleep)}, nil, step,
 		func(*rt.Task, []int, []int) (rdec, error) { return rdec{kind: decideIgnore}, nil },
-		func([]int) time.Duration { return ActorNoTimer() }, func(d rdec) int { return d.kind },
+		func([]int) time.Duration { return ActorNoTimer() }, noWork[[]int], hasNoWork, runNoWork[int],
+		func(d rdec) int { return d.kind },
 		func(s []int, d rdec) []int {
 			if d.kind == decideStay {
 				return append(slices.Clone(s), d.e)
@@ -744,10 +753,11 @@ func TestActorStopCascades(t *testing.T) {
 // on the runner's goroutine, the commit and the answer.
 func BenchmarkActorAsk(b *testing.B) {
 	root := rt.Root("bench")
-	a := MachineStart[int, int, int](Site("bench"), root, releaser{make(chan sleep)}, 0,
+	a := MachineStart(Site("bench"), root, releaser{make(chan sleep)}, 0,
 		func(_ *rt.Task, s int, e int) (int, error) { return decideStay, nil },
 		func(*rt.Task, int, int) (int, error) { return decideIgnore, nil },
-		func(int) time.Duration { return ActorNoTimer() }, func(d int) int { return d },
+		func(int) time.Duration { return ActorNoTimer() }, noWork[int], hasNoWork, runNoWork[int],
+		func(d int) int { return d },
 		func(s int, d int) int { return s + 1 }, func(*rt.Task, int) {}, 1)
 	b.ReportAllocs()
 	for b.Loop() {
