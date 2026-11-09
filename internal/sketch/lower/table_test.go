@@ -158,6 +158,9 @@ func buildEveryTable(t *testing.T) {
 // (all of them with every), in one shared build. If want does not lower or
 // the shared build fails, want builds alone in t (a table built alone is
 // not marked built: its directory is t's).
+//
+// It builds Go because it is the tables' link: their tests run the
+// programs.
 func buildTables(t *testing.T, want *programTable, every bool) {
 	t.Helper()
 	var batch []*programTable

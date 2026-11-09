@@ -121,6 +121,10 @@ func TestCheckCorpusBuildsDomain(t *testing.T) {
 	t.Logf("candidates %d from %d files", len(sources), files)
 }
 
+// corpusGcVariable selects TestCorpusCompilesWithGc (scripts/gate,
+// corpusGcEnvironment).
+const corpusGcVariable = "ERGO_TEST_CORPUS_GC"
+
 // TestCorpusCompilesWithGc is gc's side of typecheckGo (test-speed plan
 // T1): the parts of TestCheckCorpusBuilds and TestAcceptedNodesLower check
 // their compile-only programs with go/types in process; this test compiles
@@ -128,10 +132,18 @@ func TestCheckCorpusBuildsDomain(t *testing.T) {
 // oracle with gc, in one go command (no vet, no link), so a program that
 // go/types accepts and gc refuses still fails the full tier.
 //
+// It runs only when corpusGcVariable is 1: the gate's full tier sets it on
+// this package's steps, so gc and vet go over the corpus once per full
+// tier, and not in every other run of the package's tests (a bare go test,
+// the closure sweep, each mutant of the ledger). It is 266 of the
+// package's 792 CPU-s (test-speed T5; plan Q2: "gc runs once per full
+// tier on the whole corpus in one command"). The fast tier keeps go/types.
+//
 // It builds Go because its question is gc's verdict.
 func TestCorpusCompilesWithGc(t *testing.T) {
-	if testing.Short() {
-		t.Skip("full tier: builds Go")
+	needsBuild(t)
+	if os.Getenv(corpusGcVariable) != "1" {
+		t.Skip("gc and vet of the corpus run in the gate's full tier: " + corpusGcVariable + "=1")
 	}
 	sources, err := corpusDomain()
 	if err != nil {

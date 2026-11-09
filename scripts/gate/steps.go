@@ -203,6 +203,16 @@ var cliTestPackages = []string{"internal/sketch/lower"}
 // key, is the same on every run and in every checkout.
 var cliTestEnvironment = []string{"ERGO_TEST_CLI=bin/ergo"}
 
+// corpusGcPackage's full-tier steps set corpusGcEnvironment, which runs
+// its TestCorpusCompilesWithGc: gc and go vet over the whole lowered corpus
+// in one go command each (266 CPU-s at the share, test-speed T5). It runs
+// once per full tier (plan Q2), and not in the package's other runs (a
+// bare go test, the closure sweep, the mutant ledger). The fast tier runs
+// -short, which skips it, and checks with go/types in process.
+const corpusGcPackage = "internal/sketch/lower"
+
+var corpusGcEnvironment = []string{"ERGO_TEST_CORPUS_GC=1"}
+
 // gofmtDirectories are the Go trees the gate requires to be gofmt-clean.
 var gofmtDirectories = []string{"cmd", "internal", "runtime", "scripts/gate", "scripts/conformance", "scripts/examples", "examples/go-interop", "tools/provenance"}
 
@@ -274,6 +284,9 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		needs, env := []string{"go test build"}, []string(nil)
 		if cli {
 			needs, env = append(needs, buildCLIStep), cliTestEnvironment
+		}
+		if relative == corpusGcPackage {
+			env = append(slices.Clone(env), corpusGcEnvironment...)
 		}
 		dir := filepath.Join(root, strings.TrimPrefix(pkg, modulePath(root)+"/"))
 		names, err := testNames(dir)
