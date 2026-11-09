@@ -5,21 +5,21 @@
 
 import os
 import relay/text
-import relay/wire
+import relay/chat
 
-func run(frames []string) fails os.Exit needs Console | wire.Codec[wire.Note] | wire.Codec[wire.Join] {
+func run(frames []string) fails os.Exit needs Console | chat.Codec[chat.Note] | chat.Codec[chat.Join] {
 	for frame in frames {
-		let e = wire.Read(frame) catch {
-		case wire.Malformed as m:
+		let e = chat.Read(frame) catch {
+		case chat.Malformed as m:
 			return os.Exit{Code: 1, Message: "relay: \(m.Why): \(m.Frame)"}
 		}
-		Console.Println(wire.Describe(e))
-		Console.Println("  -> " + wire.Forward(e))
+		Console.Println(chat.Describe(e))
+		Console.Println("  -> " + chat.Forward(e))
 	}
 }
 
 func main() fails os.Exit needs Console | Ambient {
-	with context { os.Process: os.NewHost(), wire.Codec[wire.Note]: text.NoteText, wire.Codec[wire.Join]: text.JoinText } {
+	with context { os.Process: os.NewHost(), chat.Codec[chat.Note]: text.NoteText, chat.Codec[chat.Join]: text.JoinText } {
 		try run(os.Process.Args())
 	}
 }

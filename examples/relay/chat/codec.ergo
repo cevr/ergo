@@ -1,4 +1,4 @@
-// Codec is how a relay reads and writes one kind of event on the wire.
+// Codec is how a relay reads and writes one kind of event in a frame.
 // It is generic in the event: the relay needs Codec[Note] and Codec[Join],
 // two capabilities that a binary binds to two providers. Its law is
 // generic too, and runs at each provider's own instance: a provider of

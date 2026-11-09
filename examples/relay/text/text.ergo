@@ -1,8 +1,8 @@
 // Package text writes events as plain text. Each provider implements
-// wire.Codec at one event type, and the codec's RoundTrip law runs here,
+// chat.Codec at one event type, and the codec's RoundTrip law runs here,
 // against each, at its own instance.
 
-import relay/wire
+import relay/chat
 import strconv
 import strings
 
@@ -11,37 +11,37 @@ import strings
 // sender or a body may hold any text, a colon included.
 type NoteText {}
 
-func Encode(_ NoteText, n wire.Note) string { "\(len(n.From)):\(n.From)\(n.Body)" }
+func Encode(_ NoteText, n chat.Note) string { "\(len(n.From)):\(n.From)\(n.Body)" }
 
-func Decode(_ NoteText, s string) wire.Note fails wire.Malformed {
+func Decode(_ NoteText, s string) chat.Note fails chat.Malformed {
 	let (size, rest) = try header(s)
 	if size > len(rest) {
-		return wire.Malformed{Frame: s, Why: "the sender is longer than the frame"}
+		return chat.Malformed{Frame: s, Why: "the sender is longer than the frame"}
 	}
-	wire.Note{From: strings.Slice(rest, 0, size), Body: strings.Slice(rest, size, len(rest))}
+	chat.Note{From: strings.Slice(rest, 0, size), Body: strings.Slice(rest, size, len(rest))}
 }
 
 // JoinText writes a Join as its seat, a colon and the name:
 // Join{Name: "bo", Seat: 2} is "2:bo".
 type JoinText {}
 
-func Encode(_ JoinText, j wire.Join) string { "\(j.Seat):\(j.Name)" }
+func Encode(_ JoinText, j chat.Join) string { "\(j.Seat):\(j.Name)" }
 
-func Decode(_ JoinText, s string) wire.Join fails wire.Malformed {
+func Decode(_ JoinText, s string) chat.Join fails chat.Malformed {
 	let (seat, name) = try header(s)
-	wire.Join{Name: name, Seat: seat}
+	chat.Join{Name: name, Seat: seat}
 }
 
 // header reads the number before the first colon of s, and the rest.
-func header(s string) (int, string) fails wire.Malformed {
+func header(s string) (int, string) fails chat.Malformed {
 	match strings.Cut(s, ":") {
 	case Some[strings.Halves] as h:
 		let n = strconv.Atoi(h.Value.Before) catch {
 		case _:
-			return wire.Malformed{Frame: s, Why: "no number before the colon"}
+			return chat.Malformed{Frame: s, Why: "no number before the colon"}
 		}
 		(n, h.Value.After)
 	case None:
-		wire.Malformed{Frame: s, Why: "no colon"}
+		chat.Malformed{Frame: s, Why: "no colon"}
 	}
 }
