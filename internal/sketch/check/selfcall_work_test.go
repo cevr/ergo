@@ -16,10 +16,54 @@ import (
 // initialization discovery, the silent pass of a cycle, converge and the
 // reporting pass). The tests bound that work by workFactor times the
 // source's syntax nodes, and the worklist's graph steps by workFactor times
-// (bodies + edges), from n = 250 to n = 4000. They never bound the time;
-// they log it.
+// (bodies + edges), at three sizes up to GrowthMaxNodes source nodes, and
+// the work per unit at the largest size by GrowthRatio times that at the
+// smallest. They never bound the time; they log it.
 
 const workFactor = 8
+
+// GrowthMaxNodes is the largest source, in syntax nodes, that a growth test
+// checks (test-speed plan T4). A work counter tells linear from quadratic
+// work at this size: the complexity mutants of T4 fail their tests here,
+// so larger sources only cost time.
+const GrowthMaxNodes = 2000
+
+// GrowthRatio bounds a growth test's work per unit at its largest size
+// over that at its smallest (a quarter of the size). Linear work keeps the
+// ratio near 1 (a log factor and the fixed overhead move it a little);
+// quadratic work makes it grow with the size, to about 4 from n to 4n.
+const GrowthRatio = 1.5
+
+// GrowthSizes is n/4, n/2 and n for the largest n whose source has at most
+// limit units (syntax nodes, cells), from the units of the source at two
+// sizes: a growth source grows linearly in n.
+func GrowthSizes(t testing.TB, limit int, units func(n int) int) []int {
+	t.Helper()
+	a, b := units(16), units(32)
+	per := float64(b-a) / 16
+	if per <= 0 {
+		t.Fatalf("the source does not grow with n: %d units at 16, %d at 32", a, b)
+	}
+	n := int(float64(limit-a)/per) + 16
+	for n > 4 && units(n) > limit {
+		n = n * 9 / 10
+	}
+	if n < 8 {
+		t.Fatalf("the source at n = 8 is over %d units", limit)
+	}
+	return []int{n / 4, n / 2, n}
+}
+
+// GrowthBounded fails t when the work per unit at the largest size passes
+// GrowthRatio times that at the smallest; per holds them by size.
+func GrowthBounded(t testing.TB, what string, sizes []int, per []float64) {
+	t.Helper()
+	first, last := per[0], per[len(per)-1]
+	if first > 0 && last > GrowthRatio*first {
+		t.Errorf("%s: %.2f per unit at n = %d and %.2f at n = %d, want at most %.1f times: the work grows faster than the source",
+			what, first, sizes[0], last, sizes[len(sizes)-1], GrowthRatio)
+	}
+}
 
 // chainSource is the reviewer's star: f0 calls f1…f(n-1) and uses C, and
 // each fi calls f(i-1), so every fi is in one component whose capability
@@ -202,8 +246,15 @@ func checkSettling(src string, settleOnly bool) (*checker, []Diagnostic) {
 	return c, c.sorted()
 }
 
+// SourceNodes counts the syntax nodes of src (sourceNodes, for the
+// package's external tests).
+func SourceNodes(t testing.TB, src string) int {
+	t.Helper()
+	return sourceNodes(t, src)
+}
+
 // sourceNodes counts the syntax nodes of src.
-func sourceNodes(t *testing.T, src string) int {
+func sourceNodes(t testing.TB, src string) int {
 	t.Helper()
 	file, err := syntax.Parse(src)
 	if err != nil {
@@ -217,32 +268,29 @@ func sourceNodes(t *testing.T, src string) int {
 	return count
 }
 
-// selfCallCase is one work case in one mode at one size.
+// selfCallCase is one work case in one mode, checked at three sizes.
 type selfCallCase struct {
 	wc         workCase
 	settleOnly bool
-	n          int
 }
 
-// Each work case in each mode at each size is a case of a split (gate-fast
-// T1): part k checks every fourth case from case k, as a top-level test of
-// its own, dealt to four parallel subtests. Under -short a part keeps
-// every fourth case of its share.
+// Each work case in each mode is a case of a split (gate-fast T1): part k
+// checks every fourth case from case k, as a top-level test of its own,
+// dealt to four parallel subtests. Under -short a part keeps every second
+// case of its share.
 var selfCallWorkLinear = NewSplit(Split[selfCallCase]{
-	Name: "TestSelfCallWorkLinear", Parts: 4, Short: 4, Workers: 4,
+	Name: "TestSelfCallWorkLinear", Parts: 4, Short: 2, Workers: 4,
 	Cases: SeqOf(func() []selfCallCase {
 		var out []selfCallCase
 		for _, settleOnly := range []bool{false, true} {
 			for _, wc := range workCases {
-				for _, n := range []int{250, 500, 1000, 2000, 4000} {
-					out = append(out, selfCallCase{wc, settleOnly, n})
-				}
+				out = append(out, selfCallCase{wc, settleOnly})
 			}
 		}
 		return out
 	}),
 	Key: func(c selfCallCase) string {
-		return fmt.Sprintf("%s settle-only=%v n=%d\n%s", c.wc.name, c.settleOnly, c.n, c.wc.src(c.n))
+		return fmt.Sprintf("%s settle-only=%v\n%s", c.wc.name, c.settleOnly, c.wc.src(3))
 	},
 	Run: runSelfCallWorkLinear,
 })
@@ -254,33 +302,41 @@ func TestSelfCallWorkLinearPart3(t *testing.T) { selfCallWorkLinear.Part(t, 3) }
 
 func runSelfCallWorkLinear(t *testing.T, cases iter.Seq[selfCallCase]) {
 	for sc := range cases {
-		wc, settleOnly, n := sc.wc, sc.settleOnly, sc.n
-		t.Run(fmt.Sprintf("%s settle-only=%v/n=%d", wc.name, settleOnly, n), func(t *testing.T) {
-			src := wc.src(n)
-			nodes := sourceNodes(t, src)
-			start := time.Now()
-			c, diags := checkSettling(src, settleOnly)
-			elapsed := time.Since(start)
-			var codes []string
-			for _, d := range diags {
-				codes = append(codes, d.Code)
+		wc, settleOnly := sc.wc, sc.settleOnly
+		t.Run(fmt.Sprintf("%s settle-only=%v", wc.name, settleOnly), func(t *testing.T) {
+			sizes := GrowthSizes(t, GrowthMaxNodes, func(n int) int { return sourceNodes(t, wc.src(n)) })
+			var perNode, perStep []float64
+			for _, n := range sizes {
+				src := wc.src(n)
+				nodes := sourceNodes(t, src)
+				start := time.Now()
+				c, diags := checkSettling(src, settleOnly)
+				elapsed := time.Since(start)
+				var codes []string
+				for _, d := range diags {
+					codes = append(codes, d.Code)
+				}
+				want := wc.diags
+				if wc.codes != nil {
+					want = wc.codes(n)
+				}
+				if got := strings.Join(codes, " "); got != want {
+					t.Fatalf("n = %d: want %q; got %v", n, want, diags)
+				}
+				graph := c.bodyNodes + c.bodyEdges
+				t.Logf("n = %d: %d source nodes, %d bodies, %d edges; work %d nodes (%.2f per source node); %d settling checks, %d worklist steps, %d fixpoint checks; %s",
+					n, nodes, c.bodyNodes, c.bodyEdges, c.workNodes, float64(c.workNodes)/float64(nodes), c.selfChecks, c.worklistSteps, c.convergeChecks, elapsed)
+				if c.workNodes > workFactor*nodes {
+					t.Errorf("n = %d: the body checks visited %d nodes for %d source nodes (bound %d)", n, c.workNodes, nodes, workFactor*nodes)
+				}
+				if c.worklistSteps > workFactor*graph {
+					t.Errorf("n = %d: %d worklist steps for %d bodies and %d edges (bound %d)", n, c.worklistSteps, c.bodyNodes, c.bodyEdges, workFactor*graph)
+				}
+				perNode = append(perNode, float64(c.workNodes)/float64(nodes))
+				perStep = append(perStep, float64(c.worklistSteps)/float64(max(graph, 1)))
 			}
-			want := wc.diags
-			if wc.codes != nil {
-				want = wc.codes(n)
-			}
-			if got := strings.Join(codes, " "); got != want {
-				t.Fatalf("n = %d: want %q; got %v", n, want, diags)
-			}
-			graph := c.bodyNodes + c.bodyEdges
-			t.Logf("n = %d: %d source nodes, %d bodies, %d edges; work %d nodes (%.2f per source node); %d settling checks, %d worklist steps, %d fixpoint checks; %s",
-				n, nodes, c.bodyNodes, c.bodyEdges, c.workNodes, float64(c.workNodes)/float64(nodes), c.selfChecks, c.worklistSteps, c.convergeChecks, elapsed)
-			if c.workNodes > workFactor*nodes {
-				t.Errorf("n = %d: the body checks visited %d nodes for %d source nodes (bound %d)", n, c.workNodes, nodes, workFactor*nodes)
-			}
-			if c.worklistSteps > workFactor*graph {
-				t.Errorf("n = %d: %d worklist steps for %d bodies and %d edges (bound %d)", n, c.worklistSteps, c.bodyNodes, c.bodyEdges, workFactor*graph)
-			}
+			GrowthBounded(t, "body-check nodes per source node", sizes, perNode)
+			GrowthBounded(t, "worklist steps per body and edge", sizes, perStep)
 		})
 	}
 }
@@ -332,22 +388,18 @@ func armsSource(n int, mode string, catch bool) string {
 // in its arms (round 14 review M1: a Row copied per arm made it O(n²)). The
 // catch's share is the table's charged work (typeTable.work) of the source
 // minus that of the same declarations without the catch, bounded by
-// workFactor times the catch's syntax nodes, from n = 1000 to n = 32000. A
-// written or inferred row of n types costs its own work outside the catch,
-// which the difference leaves out. The test logs the time.
-//
-// That row building is O(n²) (rowExpr's Row.with per element; the inferred
-// row grows one try at a time), so the written and inferred modes stop at
-// n = 4000 to keep the gate fast. The check-v1 follow-up (196r) that makes
-// row building linear restores n = 32000 for them.
+// workFactor times the catch's syntax nodes, at three sizes up to
+// GrowthMaxNodes source nodes, and the work per catch node at the largest
+// by GrowthRatio times that at the smallest. A written or inferred row of
+// n types costs its own work outside the catch, which the difference
+// leaves out. The test logs the time.
 func TestCatchArmsWorkLinear(t *testing.T) {
 	for _, mode := range []string{"out", "written", "inferred"} {
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
-			for _, n := range []int{1000, 2000, 4000, 8000, 16000, 32000} {
-				if mode != "out" && n > 4000 {
-					break
-				}
+			sizes := GrowthSizes(t, GrowthMaxNodes, func(n int) int { return sourceNodes(t, armsSource(n, mode, true)) })
+			var per []float64
+			for _, n := range sizes {
 				src, base := armsSource(n, mode, true), armsSource(n, mode, false)
 				start := time.Now()
 				c, diags := checkSettling(src, false)
@@ -374,7 +426,9 @@ func TestCatchArmsWorkLinear(t *testing.T) {
 				if work > workFactor*nodes {
 					t.Errorf("n = %d: the catch charged %d steps for %d syntax nodes (bound %d)", n, work, nodes, workFactor*nodes)
 				}
+				per = append(per, float64(work)/float64(nodes))
 			}
+			GrowthBounded(t, "catch work per catch node", sizes, per)
 		})
 	}
 }

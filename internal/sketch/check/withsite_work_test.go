@@ -3,6 +3,7 @@ package check
 import (
 	"fmt"
 	"iter"
+	"math"
 	"math/rand"
 	"sort"
 	"strings"
@@ -187,46 +188,36 @@ func withWork(t *testing.T, name, src string) int {
 // passes it by a factor of tens at 4n.
 const withStepsPerByte = 4
 
-// withSiteShape is one case of TestWithSiteWorkLinear: a shape and its
-// smaller size n (the test also checks 4n).
+// withSiteShape is one case of TestWithSiteWorkLinear: a shape.
 type withSiteShape struct {
 	shape string
-	n     int
 }
 
 // withSiteShapes are the shapes of TestWithSiteWorkLinear, in its order.
-// The nested shape is bounded by the parser's nesting cap, so it runs at
-// 50 and 200.
 func withSiteShapes() []withSiteShape {
 	var out []withSiteShape
 	for _, shape := range []string{"wowned", "nested", "several", "stack", "local many", "local chain", "alternating", "local alternating"} {
-		n := 1000
-		if shape == "nested" {
-			n = 50
-		}
-		out = append(out, withSiteShape{shape, n})
+		out = append(out, withSiteShape{shape})
 	}
 	return out
 }
 
 // TestWithSiteWorkLinear (#229 done-when 2 and 3; E5 Design B3): for each
-// shape, the with-site steps at n and at 4n are at most withStepsPerByte
-// per byte of the source, and the steps per byte at 4n at most 1.5 times
-// those at n (linear, with a logarithmic factor for the treaps; a
-// quadratic count grows about four times). One shape took up to 15.6 s
-// of a test under load (check-split round 1), so the shapes are a Split
-// (check-split-2, batch 9) with the domain of the unsplit test at
-// 0a8e52fd: its 8 shapes, each at n and 4n. withOp is one package hook,
-// so a part checks its shapes one after another. The parts run in the
-// full tier only (Short 0), as the unsplit test did (it was over the size
-// cutoff).
+// shape, at three sizes up to GrowthMaxNodes source nodes (test-speed plan
+// T4), the with-site steps are at most withStepsPerByte per byte of the
+// source, and the steps per byte and per log2 of the size at the largest
+// size at most GrowthRatio times those at the smallest (linear, with a
+// logarithmic factor for the treaps; a quadratic count grows about four
+// times). The shapes are a Split (check-split-2, batch 9). withOp is one
+// package hook, so a part checks its shapes one after another. Under
+// -short a part keeps its first shape.
 var withSiteWorkLinear = NewSplit(Split[withSiteShape]{
-	Name: "TestWithSiteWorkLinear", Parts: 4,
+	Name: "TestWithSiteWorkLinear", Parts: 4, Short: 2,
 	Cases: SeqOf(withSiteShapes),
-	Key:   func(c withSiteShape) string { return fmt.Sprintf("%s n=%d,%d", c.shape, c.n, 4*c.n) },
+	Key:   func(c withSiteShape) string { return c.shape },
 	Run: func(t *testing.T, cases iter.Seq[withSiteShape]) {
 		for c := range cases {
-			withSiteWork(t, c.shape, c.n)
+			withSiteWork(t, c.shape)
 		}
 	},
 })
@@ -236,22 +227,25 @@ func TestWithSiteWorkLinearPart1(t *testing.T) { withSiteWorkLinear.Part(t, 1) }
 func TestWithSiteWorkLinearPart2(t *testing.T) { withSiteWorkLinear.Part(t, 2) }
 func TestWithSiteWorkLinearPart3(t *testing.T) { withSiteWorkLinear.Part(t, 3) }
 
-// withSiteWork checks one shape of TestWithSiteWorkLinear at n and 4n.
-func withSiteWork(t *testing.T, shape string, n int) {
+// withSiteWork checks one shape of TestWithSiteWorkLinear at its sizes.
+func withSiteWork(t *testing.T, shape string) {
 	t.Helper()
-	var per [2]float64
-	for i, size := range []int{n, 4 * n} {
+	sizes := GrowthSizes(t, GrowthMaxNodes, func(n int) int { return sourceNodes(t, withShape(shape, n)) })
+	// The treaps cost a logarithmic factor, which at these small sizes
+	// grows as much as the size does, so the ratio is of the steps per
+	// byte and per log2 of the size.
+	var perLog []float64
+	for _, size := range sizes {
 		src := withShape(shape, size)
 		steps := withWork(t, fmt.Sprintf("%s n=%d", shape, size), src)
-		per[i] = float64(steps) / float64(len(src))
-		t.Logf("%s n=%d: %d with-site steps, %d bytes, %.2f per byte", shape, size, steps, len(src), per[i])
+		per := float64(steps) / float64(len(src))
+		perLog = append(perLog, per/math.Log2(float64(size)))
+		t.Logf("%s n=%d: %d with-site steps, %d bytes, %.2f per byte", shape, size, steps, len(src), per)
 		if steps > withStepsPerByte*len(src) {
 			t.Errorf("%s n=%d: %d with-site steps for %d bytes, want at most %d per byte", shape, size, steps, len(src), withStepsPerByte)
 		}
 	}
-	if per[1] > 1.5*per[0] {
-		t.Errorf("%s: %.2f steps per byte at n=%d and %.2f at 4n, want at most 1.5 times", shape, per[0], n, per[1])
-	}
+	GrowthBounded(t, shape+" with-site steps per byte and log2 n", sizes, perLog)
 }
 
 // TestWithScopeIsTheWalk: the with scope answers each charge as the walk of
