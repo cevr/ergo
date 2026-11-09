@@ -205,6 +205,10 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// G4: a user extern's error turned into go.Error; it neither
 		// waits nor releases.
 		"GoErrorOf": true,
+		// IG5: go.Error built, passed to Go, and read by go.Is; none waits
+		// or releases. intn is the generator's Rand, beside GoErrorText
+		// in genFunc.
+		"GoErrorText": true, "Native": true, "GoErrorsNative": true, "GoIs": true, "intn": true,
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}

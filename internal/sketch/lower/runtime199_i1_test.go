@@ -403,9 +403,10 @@ var i1Split = newSplit(split[i1Case]{
 	// exactly. Batch-12 integration joined that with lw-pure-prelude's
 	// re-pin (the host effect became a user extern call, hostTrim, because
 	// the prelude's Append is pure; the same cases): 18647 cases, digest
-	// measured on the merged head.
-	count:  18647,
-	digest: "58b557c59845afb2b0874e863e2505fb31b2423a59bfbe00bb2d75b1d7e49c0a",
+	// measured on the merged head. IG5 added the CallGoError recursion
+	// shape (go-is): 5 cases, 18652, digest measured at its head.
+	count:  18652,
+	digest: "c1c6c88c9b531f90ecdb7eff019e6db5d009159cd7978eff561f26bf4a303408",
 	cases: func(yield func(i1Case) bool) {
 		for _, c := range i1Domain() {
 			if !yield(c) {
