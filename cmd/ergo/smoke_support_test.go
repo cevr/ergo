@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"ergo.local/prototype/internal/report"
+	"ergo.local/prototype/internal/testwait"
 )
 
 // The process smokes drive the package's test CLI in a private workspace,
@@ -37,9 +38,6 @@ const legacyCleanSource = `effect fn main() -> void {
     run Console.log("ok").provide<Console>(Stdout)
 }
 `
-
-// processDeadline bounds one CLI process, a build included.
-const processDeadline = 120 * time.Second
 
 // smokeWorkspace returns a temporary workspace holding copies of the named
 // repository files and directories (relative to the repository root), so no
@@ -285,22 +283,21 @@ func copyJSON(value map[string]any) (map[string]any, error) {
 	return result, nil
 }
 
-// smokeWaitDelay bounds how long a killed or exited smoke child may keep its
-// output pipes open through a surviving grandchild before Wait closes them.
-const smokeWaitDelay = 5 * time.Second
-
 // errSmokeDeadline marks a smoke process that outlived its deadline.
 var errSmokeDeadline = errors.New("smoke process exceeded its deadline")
 
 // runSmokeDeadline runs an unstarted command to completion under a
-// per-operation deadline and returns its output and exit code. On expiry the
-// child is killed and reaped before an errSmokeDeadline error returns. It
-// never touches a testing.T, so concurrent runners may use it.
+// deadline (testwait.Left of the test; 0: none) and returns its output and
+// exit code. On expiry the child is killed and reaped before an
+// errSmokeDeadline error returns. A killed or exited child may keep its
+// output pipes open through a surviving grandchild for as long again before
+// Wait closes them. It never touches a testing.T, so concurrent runners may
+// use it.
 func runSmokeDeadline(command *exec.Cmd, timeout time.Duration) ([]byte, []byte, int, error) {
 	var stdout, stderr bytes.Buffer
 	command.Stdout, command.Stderr = &stdout, &stderr
 	if command.WaitDelay == 0 {
-		command.WaitDelay = smokeWaitDelay
+		command.WaitDelay = timeout
 	}
 	if err := command.Start(); err != nil {
 		return nil, nil, -1, err
@@ -313,11 +310,15 @@ func runSmokeDeadline(command *exec.Cmd, timeout time.Duration) ([]byte, []byte,
 		err = command.Wait()
 		close(done)
 	}()
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
+	var expired <-chan time.Time
+	if timeout > 0 {
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		expired = timer.C
+	}
 	select {
 	case <-done:
-	case <-timer.C:
+	case <-expired:
 		_ = command.Process.Kill()
 		<-done
 		return stdout.Bytes(), stderr.Bytes(), -1, fmt.Errorf("%w: %s %s after %v\nstdout=%q\nstderr=%q",
@@ -334,24 +335,24 @@ func runSmokeDeadline(command *exec.Cmd, timeout time.Duration) ([]byte, []byte,
 }
 
 // runSmokeCommand is runSmokeDeadline failing the test when the command
-// cannot run or outlives its deadline.
-func runSmokeCommand(t *testing.T, timeout time.Duration, command *exec.Cmd) ([]byte, []byte, int) {
+// cannot run or outlives the test's deadline (testwait.Left).
+func runSmokeCommand(t *testing.T, command *exec.Cmd) ([]byte, []byte, int) {
 	t.Helper()
-	stdout, stderr, code, err := runSmokeDeadline(command, timeout)
+	stdout, stderr, code, err := runSmokeDeadline(command, testwait.Left(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return stdout, stderr, code
 }
 
-// runSmokeCLI runs the CLI in directory with input on stdin under a
-// per-operation deadline.
-func runSmokeCLI(t *testing.T, timeout time.Duration, binary, directory, input string, args ...string) ([]byte, []byte, int) {
+// runSmokeCLI runs the CLI in directory with input on stdin until the
+// test's deadline.
+func runSmokeCLI(t *testing.T, binary, directory, input string, args ...string) ([]byte, []byte, int) {
 	t.Helper()
 	command := exec.Command(binary, args...)
 	command.Dir = directory
 	command.Stdin = strings.NewReader(input)
-	return runSmokeCommand(t, timeout, command)
+	return runSmokeCommand(t, command)
 }
 
 // firstLines shortens a process output for a failure message.

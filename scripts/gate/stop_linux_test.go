@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // stopVariable names the tier the helper gate of TestGateStopsItsStepsOnSignal
@@ -332,9 +334,7 @@ func TestStopWaitsForACommandInAStep(t *testing.T) {
 		result, _ := s.stop(syscall.SIGTERM)
 		stopped <- result
 	}()
-	for !s.stopping() {
-		time.Sleep(time.Millisecond)
-	}
+	testwait.Until(t, s.stopping)
 	if err := s.runCommand(exec.Command("true")); !errors.Is(err, errStopped) {
 		t.Fatalf("runCommand during a stop: %v, want errStopped", err)
 	}
@@ -365,7 +365,7 @@ func TestStopWaitsForACommandInAStep(t *testing.T) {
 		}
 	case err := <-ran:
 		t.Fatalf("the command in the step ended (%v) before it said ready", err)
-	case <-time.After(10 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("the command in the step did not say ready")
 	}
 	ready.Close()
@@ -382,7 +382,7 @@ func TestStopWaitsForACommandInAStep(t *testing.T) {
 	}
 	select {
 	case <-stopped:
-	case <-time.After(10 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("the stop did not end after the command in the step ended")
 	}
 }

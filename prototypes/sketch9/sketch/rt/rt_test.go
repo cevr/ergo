@@ -2,6 +2,7 @@ package rt
 
 import (
 	"errors"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -30,7 +31,7 @@ func TestAfterExpiryStopsAndWaitsForChild(t *testing.T) {
 	_, err := After(clock, Root(), time.Second, func(child *Task) (int, error) {
 		close(started)
 		for !child.Stopped() {
-			time.Sleep(time.Millisecond)
+			runtime.Gosched()
 		}
 		finished = true
 		return 0, Interrupted
@@ -49,7 +50,7 @@ func TestAfterParentStopInterrupts(t *testing.T) {
 	_, err := After(clock, parent, time.Second, func(child *Task) (int, error) {
 		parent.Stop()
 		for !child.Stopped() {
-			time.Sleep(time.Millisecond)
+			runtime.Gosched()
 		}
 		return 0, nil
 	})

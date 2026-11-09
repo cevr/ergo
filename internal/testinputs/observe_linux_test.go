@@ -11,8 +11,9 @@ import (
 	"strconv"
 	"syscall"
 	"testing"
-	"time"
 	"unsafe"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // run interprets the filter for one call, as the kernel's classic BPF
@@ -153,7 +154,7 @@ func TestShebangNeverBlocks(t *testing.T) {
 		if got != "" {
 			t.Fatalf("a FIFO named the interpreter %q", got)
 		}
-	case <-time.After(5 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("reading a FIFO's interpreter line blocked")
 	}
 	script := filepath.Join(dir, "script")

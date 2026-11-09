@@ -1,7 +1,6 @@
 package lower
 
 import (
-	"context"
 	"fmt"
 	"go/ast"
 	"go/constant"
@@ -9,12 +8,10 @@ import (
 	"go/types"
 	"math/rand/v2"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -880,12 +877,7 @@ func contextModuleTest(t *testing.T, o *lowered, test string) {
 	write("ergo/runtime/rt/context_probe.go", []byte(contextProbeRT))
 	write("ergo/runtime/v1/context_probe.go", []byte(contextProbeV1))
 	write("context_test.go", []byte(test))
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "test", "-count=1", "-timeout=3m", ".")
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GOWORK=off", "GOPROXY=off")
-	output, err := cmd.CombinedOutput()
+	output, err := nativeGoTest(t, dir, append(os.Environ(), "GOWORK=off", "GOPROXY=off"))
 	if err != nil {
 		t.Fatalf("native %s: %v\n%s\nErgo:\n%s", o.name, err, firstLines(string(output), 120), o.src)
 	}

@@ -11,13 +11,16 @@ import (
 	"sync"
 	"syscall"
 	"testing"
-	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
-// sketchWaitSource prints "ready" and then sleeps for a minute.
+// sketchWaitSource prints "ready" and then sleeps for a day: only the
+// signal ends it within a test, so its exit status tells the two apart
+// with no bound on the time (fu-time-limits).
 const sketchWaitSource = `func wait() needs Console | Scheduler {
 	Console.Println("ready")
-	Scheduler.Sleep(60s)
+	Scheduler.Sleep(24h)
 }
 
 func main() needs Console | Ambient {
@@ -36,10 +39,9 @@ func TestRunForwardsSignalsToTheProgram(t *testing.T) {
 	root := smokeDir(t)
 	file := smokeWrite(t, root, "wait.ergo", sketchWaitSource)
 	for signal, want := range map[syscall.Signal]int{syscall.SIGINT: 130, syscall.SIGTERM: 143} {
-		start := time.Now()
 		stdout, stderr, code := runInterruptedEntry(t, binary, root, signal, "run", file)
-		if stdout != "ready\n" || code != want || stderr != "" || time.Since(start) > 50*time.Second {
-			t.Errorf("%v: code=%d stdout=%q stderr=%q after %v; want exit %d, the program ended by the forwarded signal", signal, code, stdout, stderr, time.Since(start), want)
+		if stdout != "ready\n" || code != want || stderr != "" {
+			t.Errorf("%v: code=%d stdout=%q stderr=%q; want exit %d, the program ended by the forwarded signal", signal, code, stdout, stderr, want)
 		}
 	}
 }
@@ -67,14 +69,15 @@ func TestRunPassesTheProgramsExitStatusThrough(t *testing.T) {
 
 // runInterruptedEntry runs `ergo ARGS` (run or test) in its own process
 // group, signals only `ergo` once the program has printed its first line,
-// and on a timeout kills the whole group so no descendant keeps the capture
-// pipes open. WaitDelay bounds pipe draining.
+// and at the test's deadline kills the whole group so no descendant keeps
+// the capture pipes open. WaitDelay bounds pipe draining by the same
+// deadline.
 func runInterruptedEntry(t *testing.T, binary, root string, signal syscall.Signal, args ...string) (string, string, int) {
 	t.Helper()
 	command := exec.Command(binary, args...)
 	command.Dir = root
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	command.WaitDelay = 5 * time.Second
+	testwait.WaitDelay(t, command)
 	var stderr bytes.Buffer
 	stdout := &readyWriter{ready: make(chan struct{})}
 	command.Stdout, command.Stderr = stdout, &stderr
@@ -91,7 +94,7 @@ func runInterruptedEntry(t *testing.T, binary, root string, signal syscall.Signa
 	case <-stdout.ready:
 	case err := <-done:
 		t.Fatalf("program exited before ready: %v stderr=%q", err, stderr.String())
-	case <-time.After(processDeadline):
+	case <-testwait.After(t):
 		killGroup()
 		t.Fatalf("program did not report ready: stderr=%q", stderr.String())
 	}
@@ -102,7 +105,7 @@ func runInterruptedEntry(t *testing.T, binary, root string, signal syscall.Signa
 	var waitErr error
 	select {
 	case waitErr = <-done:
-	case <-time.After(30 * time.Second):
+	case <-testwait.After(t):
 		killGroup()
 		t.Fatalf("%v did not end the program", signal)
 	}

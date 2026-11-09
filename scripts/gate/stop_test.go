@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // stopEvents records the order of a stop's events.
@@ -142,9 +144,7 @@ func TestStopperKillsAStepArmedDuringTheStop(t *testing.T) {
 		s.stop(syscall.SIGTERM)
 		close(returned)
 	}()
-	for !s.stopping() {
-		time.Sleep(time.Millisecond)
-	}
+	testwait.Until(t, s.stopping)
 	killed := false
 	step.arm(func() { killed = true })
 	if !killed {
@@ -241,15 +241,16 @@ func TestStopperKillsARunningCommandWhole(t *testing.T) {
 	}
 	// The command is armed once Start has returned; only then may the
 	// test close its copy of the write end.
-	for armed := false; !armed; time.Sleep(time.Millisecond) {
+	testwait.Until(t, func() bool {
 		s.mu.Lock()
-		armed = len(s.kills) == 1
-		s.mu.Unlock()
-	}
+		defer s.mu.Unlock()
+		return len(s.kills) == 1
+	})
 	writer.Close()
 	eof := make(chan error, 1)
 	s.atStop(func() error {
-		if err := reader.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		if end, ok := testwait.End(t); !ok {
+		} else if err := reader.SetReadDeadline(end); err != nil {
 			return err
 		}
 		_, err := io.Copy(io.Discard, reader)

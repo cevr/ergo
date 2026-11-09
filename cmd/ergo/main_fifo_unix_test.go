@@ -7,13 +7,12 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
-// fifoBound is how long a refusal of a FIFO may take. An open of the FIFO
-// blocks for good, so any bound tells the two apart; 1 s could fail a
-// loaded host (fu-gate-flakes).
-const fifoBound = 30 * time.Second
+// An open of a FIFO blocks for good, so the test's deadline (testwait)
+// tells a refusal from an open; 1 s failed a loaded host (fu-gate-flakes).
 
 func TestLoadRejectsFIFOBeforeOpen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "blocked.ergo")
@@ -32,7 +31,7 @@ func TestLoadRejectsFIFOBeforeOpen(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "source must be a regular file") {
 			t.Fatalf("unexpected CLI FIFO admission result: %v", err)
 		}
-	case <-time.After(fifoBound):
+	case <-testwait.After(t):
 		t.Fatal("CLI source admission blocked before opening FIFO")
 	}
 }
@@ -54,7 +53,7 @@ func TestFmtRejectsFIFOBeforeOpen(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "EFMT_SPECIAL_FILE") {
 			t.Fatalf("unexpected formatter FIFO admission result: %v", err)
 		}
-	case <-time.After(fifoBound):
+	case <-testwait.After(t):
 		t.Fatal("formatter source admission blocked before opening FIFO")
 	}
 }

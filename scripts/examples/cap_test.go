@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // sizePairs are (stdout, stderr) sizes in bytes around the cap N: each edge
@@ -107,7 +109,7 @@ func TestOutputCap(t *testing.T) {
 			cases[label(i)] = files
 		}
 		f.program("sizer", writer, "slow\n", cases, nil)
-		code, out := f.run("-timeout", "30s", "sizer")
+		code, out := f.run("-timeout", caseTimeout(t), "sizer")
 		small(t, "the case leg", out)
 		oks, fails := verdicts(out)
 		if code != 1 {
@@ -134,7 +136,7 @@ func TestOutputCap(t *testing.T) {
 			cases[label(i)] = map[string]string{"args": fmt.Sprintf("%d\n%d\n", sizes[0], sizes[1]), "expected.out": "keep\n"}
 		}
 		dir := f.program("rec", "#!/bin/sh\necho port\n", "slow\n", cases, map[string]string{"record.sh": writer, "origin": "a fixture original\n"})
-		code, out := f.run("-timeout", "30s", "-record", "rec")
+		code, out := f.run("-timeout", caseTimeout(t), "-record", "rec")
 		small(t, "-record", out)
 		_, fails := verdicts(out)
 		if code != 1 {
@@ -160,7 +162,7 @@ func TestOutputCap(t *testing.T) {
 				t.Errorf("-record %s %v is over the cap and wrote a golden: expected.out %d bytes, expected.err present %t", name, sizes, len(gotOut), hasErr)
 			}
 		}
-		code, out = f.run("-timeout", "30s", "-record", "-check", "rec")
+		code, out = f.run("-timeout", caseTimeout(t), "-record", "-check", "rec")
 		small(t, "-record -check", out)
 		oks, fails := verdicts(out)
 		if code != 1 {
@@ -228,18 +230,18 @@ func TestOutputCapStopsTheGroupAtOnce(t *testing.T) {
 			f := newFixture(t)
 			ticks := filepath.Join(t.TempDir(), "ticks")
 			redirect := map[string]string{"stdout": "", "stderr": " >&2"}[stream]
-			f.program("flood", "#!/bin/sh\n"+ticker(`"$TICKS"`)+fmt.Sprintf("head -c %d /dev/zero%s\nsleep 20\n", 4*outputCap, redirect), "slow\n",
+			f.program("flood", "#!/bin/sh\n"+ticker(`"$TICKS"`)+fmt.Sprintf("head -c %d /dev/zero%s\n", 4*outputCap, redirect)+caseSleep, "slow\n",
 				map[string]map[string]string{"out": {"env": "TICKS=" + ticks + "\n", "expected.out": ""}}, nil)
 			started := time.Now()
-			code, out := f.run("-timeout", "20s", "flood")
+			code, out := f.run("-timeout", caseTimeout(t), "flood")
 			took := time.Since(started)
 			_, fails := verdicts(out)
 			want := fmt.Sprintf(" %s over %d bytes", stream, outputCap)
 			if code != 1 || fails["flood/out"] != want {
 				t.Fatalf("want exit 1 and FAIL flood/out:%s; exit %d\n%.2000s", want, code, out)
 			}
-			if took > 5*time.Second {
-				t.Errorf("the run took %s: the cap must stop the case at once, not at -timeout 20s", took)
+			if took >= caseLife {
+				t.Errorf("the run took %s: the cap must stop the case at once, not when it ends by itself", took)
 			}
 			if grows(t, ticks) {
 				t.Error("the over-cap case's background child still runs")
@@ -257,27 +259,30 @@ func TestAStreamHolderOutsideTheGroupDoesNotHoldTheRunner(t *testing.T) {
 		t.Skip("no /usr/bin/setsid on this host")
 	}
 	f := newFixture(t)
-	// The holder leaves the group, marks its start, sleeps 4 s with the
-	// case's stdout open, then marks its end. The leader waits (at most 10 s)
-	// for the start mark, so the group stop cannot catch the holder before it
-	// left the group; the test waits for the end mark, so no holder outlives
-	// the test.
+	// The holder leaves the group, marks its start, and holds the case's
+	// stdout open until the test releases it after the run (or caseLife
+	// passed: no holder outlives a failed test for long), then marks its
+	// end. The leader waits for the start mark, so the group stop cannot
+	// catch the holder before it left the group; the test waits for the end
+	// mark. A runner that waits for the holder returns only at caseLife
+	// (fu-time-limits: no bound on the runner's speed).
 	marks := t.TempDir()
-	ended := filepath.Join(marks, "ended")
+	ended, release := filepath.Join(marks, "ended"), filepath.Join(marks, "release")
 	t.Cleanup(func() {
-		for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-			if _, err := os.Stat(ended); err == nil {
-				return
-			}
+		if err := os.WriteFile(release, nil, 0o644); err != nil {
+			t.Error(err)
 		}
-		t.Error("the holder never ended")
+		if !testwait.Until(t, func() bool { _, err := os.Stat(ended); return err == nil }) {
+			t.Error("the holder never ended")
+		}
 	})
-	escaper := "#!/bin/sh\n/usr/bin/setsid sh -c 'touch \"$MARKS/started\"; sleep 4; touch \"$MARKS/ended\"' &\n" +
-		`end=$(( $(date +%s) + 10 )); until [ -e "$MARKS/started" ] || [ "$(date +%s)" -ge "$end" ]; do sleep 0.01; done` + "\necho done\n"
+	escaper := "#!/bin/sh\n/usr/bin/setsid sh -c 'touch \"$MARKS/started\"; end=$(( $(date +%s) + " + fmt.Sprint(int(caseLife/time.Second)) +
+		" )); until [ -e \"$MARKS/release\" ] || [ \"$(date +%s)\" -ge \"$end\" ]; do sleep 0.01; done; touch \"$MARKS/ended\"' &\n" +
+		`until [ -e "$MARKS/started" ]; do sleep 0.01; done` + "\necho done\n"
 	f.program("escaper", escaper, "slow\n",
 		map[string]map[string]string{"basic": {"env": "MARKS=" + marks + "\n", "expected.out": "done\n"}}, nil)
 	started := time.Now()
-	code, out := f.run("-timeout", "20s", "escaper")
+	code, out := f.run("-timeout", caseTimeout(t), "escaper")
 	took := time.Since(started)
 	if oks, _ := verdicts(out); code != 0 || !oks["escaper/basic"] {
 		t.Fatalf("exit %d\n%s", code, out)
@@ -285,7 +290,7 @@ func TestAStreamHolderOutsideTheGroupDoesNotHoldTheRunner(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(marks, "started")); err != nil {
 		t.Fatalf("the holder never left the group: %v", err)
 	}
-	if took > 3*time.Second {
-		t.Fatalf("a stream held outside the group held the runner %s", took)
+	if took >= caseLife {
+		t.Fatalf("a stream held outside the group held the runner %s, until the holder ended", took)
 	}
 }

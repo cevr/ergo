@@ -6,7 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // Every exit path of a command stops the process group the runner started
@@ -27,19 +28,19 @@ func TestEveryExitPathStopsTheGroup(t *testing.T) {
 	}{
 		{"pass", func(f *fixture, ticks string) []string {
 			f.program("p", "#!/bin/sh\n"+tick+"echo done\n", "slow\n", map[string]map[string]string{"basic": {"env": "TICKS=" + ticks + "\n", "expected.out": "done\n"}}, nil)
-			return []string{"-timeout", "20s", "p"}
+			return []string{"-timeout", caseTimeout(f.t), "p"}
 		}, 0, "ok p/basic ("},
 		{"fail", func(f *fixture, ticks string) []string {
 			f.program("p", "#!/bin/sh\n"+tick+"echo done\n", "slow\n", map[string]map[string]string{"basic": {"env": "TICKS=" + ticks + "\n", "expected.out": "other\n"}}, nil)
-			return []string{"-timeout", "20s", "p"}
+			return []string{"-timeout", caseTimeout(f.t), "p"}
 		}, 1, "FAIL p/basic: stdout differs"},
 		{"timeout", func(f *fixture, ticks string) []string {
-			f.program("p", "#!/bin/sh\n"+tick+"sleep 20\n", "slow\n", map[string]map[string]string{"basic": {"env": "TICKS=" + ticks + "\n", "expected.out": ""}}, nil)
+			f.program("p", "#!/bin/sh\n"+tick+caseSleep, "slow\n", map[string]map[string]string{"basic": {"env": "TICKS=" + ticks + "\n", "expected.out": ""}}, nil)
 			return []string{"-timeout", "2s", "p"}
 		}, 1, "FAIL p/basic: timed out after 2s"},
 		{"cap", func(f *fixture, ticks string) []string {
-			f.program("p", "#!/bin/sh\n"+tick+fmt.Sprintf("head -c %d /dev/zero\nsleep 20\n", outputCap+1), "slow\n", map[string]map[string]string{"basic": {"env": "TICKS=" + ticks + "\n", "expected.out": ""}}, nil)
-			return []string{"-timeout", "20s", "p"}
+			f.program("p", "#!/bin/sh\n"+tick+fmt.Sprintf("head -c %d /dev/zero\n", outputCap+1)+caseSleep, "slow\n", map[string]map[string]string{"basic": {"env": "TICKS=" + ticks + "\n", "expected.out": ""}}, nil)
+			return []string{"-timeout", caseTimeout(f.t), "p"}
 		}, 1, fmt.Sprintf("FAIL p/basic: stdout over %d bytes", outputCap)},
 		{"build", func(f *fixture, ticks string) []string {
 			f.program("p", "#!/bin/sh\n# BUILDTICK\necho hi\n", "default\n", map[string]map[string]string{"basic": {"expected.out": "hi\n"}}, nil)
@@ -87,7 +88,7 @@ func TestEveryExitPathStopsTheGroup(t *testing.T) {
 func TestAPanicStopsTheGroup(t *testing.T) {
 	f := newFixture(t)
 	ticks := filepath.Join(t.TempDir(), "ticks")
-	f.program("panicky", "#!/bin/sh\n"+ticker(`"$TICKS"`)+"sleep 20\n", "slow\n",
+	f.program("panicky", "#!/bin/sh\n"+ticker(`"$TICKS"`)+caseSleep, "slow\n",
 		map[string]map[string]string{"basic": {"env": "TICKS=" + ticks + "\n", "expected.out": ""}}, nil)
 	started := false
 	testHookStarted = func(argv []string) {
@@ -95,17 +96,13 @@ func TestAPanicStopsTheGroup(t *testing.T) {
 			return
 		}
 		started = true
-		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-			if info, err := os.Stat(ticks); err == nil && info.Size() > 0 {
-				break
-			}
-		}
+		testwait.Until(t, func() bool { info, err := os.Stat(ticks); return err == nil && info.Size() > 0 })
 		panic("injected")
 	}
 	defer func() { testHookStarted = nil }()
 	recovered := func() (r any) {
 		defer func() { r = recover() }()
-		f.run("-timeout", "25s", "panicky")
+		f.run("-timeout", caseTimeout(t), "panicky")
 		return nil
 	}()
 	if !started || recovered != "injected" {

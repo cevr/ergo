@@ -5,14 +5,15 @@ import (
 	"errors"
 	"sync"
 	"testing"
-	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 func waitLatchSignal(t *testing.T, ch <-chan struct{}) {
 	t.Helper()
 	select {
 	case <-ch:
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("managed operation did not complete")
 	}
 }

@@ -8,7 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // TestSlotPoolServesWritersFirst: with every slot taken, a freed slot goes
@@ -20,16 +21,9 @@ func TestSlotPoolServesWritersFirst(t *testing.T) {
 	order := make(chan string, 8)
 	wait := func(first, rest int) {
 		t.Helper()
-		deadline := time.Now().Add(10 * time.Second)
-		for {
-			if f, r := pool.waiting(); f == first && r == rest {
-				return
-			}
-			if time.Now().After(deadline) {
-				f, r := pool.waiting()
-				t.Fatalf("waiting %d, %d; want %d, %d", f, r, first, rest)
-			}
-			time.Sleep(time.Millisecond)
+		if !testwait.Until(t, func() bool { f, r := pool.waiting(); return f == first && r == rest }) {
+			f, r := pool.waiting()
+			t.Fatalf("waiting %d, %d; want %d, %d", f, r, first, rest)
 		}
 	}
 	start := func(name string, first bool) {
@@ -79,15 +73,8 @@ func TestSlotPoolServesTheHeaviestFirst(t *testing.T) {
 			pool.release()
 		}()
 		queued++
-		deadline := time.Now().Add(10 * time.Second)
-		for {
-			if f, r := pool.waiting(); f+r == queued {
-				return
-			}
-			if time.Now().After(deadline) {
-				t.Fatalf("%s did not queue", name)
-			}
-			time.Sleep(time.Millisecond)
+		if !testwait.Until(t, func() bool { f, r := pool.waiting(); return f+r == queued }) {
+			t.Fatalf("%s did not queue", name)
 		}
 	}
 	start("light", false, 5)

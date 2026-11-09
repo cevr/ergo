@@ -1,20 +1,17 @@
 package lower
 
 import (
-	"context"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 )
 
 // The stage 5 cost receipt (runtime.md I1, #190). TestRuntime199CostModule
@@ -145,13 +142,8 @@ func TestRuntime199CostModule(t *testing.T) {
 	}
 	costWrite(t, dir, files)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "test", "-count=1", "-timeout=3m", "-v",
-		"-run", "^TestCostContract$", "-bench", "^BenchmarkRuntime199(Emitted|Target)$", "-benchtime=1x", ".")
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GOWORK=off", "GOPROXY=off", "GOFLAGS=")
-	output, err := cmd.CombinedOutput()
+	output, err := nativeGoTest(t, dir, append(os.Environ(), "GOWORK=off", "GOPROXY=off", "GOFLAGS="),
+		"-test.v", "-test.run=^TestCostContract$", "-test.bench=^BenchmarkRuntime199(Emitted|Target)$", "-test.benchtime=1x")
 	if err != nil {
 		t.Fatalf("cost module: %v\n%s\nGo:\n%s", err, output, stripDirectives(emitted))
 	}

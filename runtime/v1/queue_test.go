@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
 )
 
@@ -74,8 +75,8 @@ func poll[T any](t *testing.T, q *Queue[T]) (T, bool) {
 	select {
 	case r := <-done:
 		return r.v, r.ok
-	case <-time.After(10 * time.Second):
-		t.Fatal("Poll did not return after 10s: it waits")
+	case <-testwait.After(t):
+		t.Fatal("Poll did not return by the test's deadline: it waits")
 		var zero T
 		return zero, false
 	}
@@ -439,18 +440,14 @@ func TestQueueContract(t *testing.T) {
 // wait, not the fast path. The deadline only fails the setup.
 func parked[T any](t *testing.T, q *Queue[T], n int) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for {
+	k := 0
+	if !testwait.Until(t, func() bool {
 		q.mu.Lock()
-		k := q.parked
+		k = q.parked
 		q.mu.Unlock()
-		if k >= n {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("setup: %d operations wait in the queue after 10s; want %d", k, n)
-		}
-		time.Sleep(50 * time.Microsecond)
+		return k >= n
+	}) {
+		t.Fatalf("setup: %d operations wait in the queue at the test's deadline; want %d", k, n)
 	}
 }
 
@@ -461,8 +458,8 @@ func result(t *testing.T, done <-chan error) error {
 	select {
 	case err := <-done:
 		return err
-	case <-time.After(10 * time.Second):
-		t.Fatal("the operation did not return after 10s: nothing woke it")
+	case <-testwait.After(t):
+		t.Fatal("the operation did not return by the test's deadline: nothing woke it")
 		return nil
 	}
 }
@@ -561,7 +558,7 @@ func TestQueueInterleavings(t *testing.T) {
 		}()
 		select {
 		case <-done:
-		case <-time.After(20 * time.Second):
+		case <-testwait.After(t):
 			buf := make([]byte, 1<<16)
 			t.Fatalf("seed %d did not end:\n%s", seed, buf[:runtime.Stack(buf, true)])
 		}
@@ -779,7 +776,7 @@ func interleave(t *testing.T, seed uint64) {
 	go func() {
 		defer wg.Done()
 		for pops.Load() < closeAfter && producersDone.Load() < int64(producers) && consumersDone.Load() < int64(consumers) {
-			time.Sleep(20 * time.Microsecond)
+			runtime.Gosched()
 		}
 		q.Close()
 	}()

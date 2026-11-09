@@ -10,7 +10,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
-	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // The cap fixtures write an exact count of bytes on any host. BSD head, the
@@ -134,18 +135,18 @@ func TestFixtureLoopsEndByThemselves(t *testing.T) {
 			// two loops call it at once (only until the first tick), so a
 			// bounded loop may tick a few times past the bound.
 			const margin = 5
-			for deadline := time.Now().Add(60 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+			if !testwait.Until(t, func() bool {
 				if err := syscall.Kill(-group, 0); errors.Is(err, syscall.ESRCH) {
-					break
+					return true
 				}
 				if n := ticks(tickFile); n > fixtureBound+margin {
 					_ = syscall.Kill(-group, syscall.SIGKILL) // the group this test started
 					t.Fatalf("the fixture loop ran past its %d s bound: %d ticks of one fake second", fixtureBound, n)
 				}
-				if time.Now().After(deadline) {
-					_ = syscall.Kill(-group, syscall.SIGKILL)
-					t.Fatalf("the fixture loop did not end within 60 s of real time (%d ticks)", ticks(tickFile))
-				}
+				return false
+			}) {
+				_ = syscall.Kill(-group, syscall.SIGKILL)
+				t.Fatalf("the fixture loop did not end by the test's deadline (%d ticks)", ticks(tickFile))
 			}
 			if n := ticks(tickFile); n == 0 || n > fixtureBound+margin {
 				t.Fatalf("the fixture loop ticked %d times; want 1 to %d", n, fixtureBound+margin)

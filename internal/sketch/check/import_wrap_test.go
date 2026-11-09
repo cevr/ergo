@@ -7,10 +7,10 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/testwait"
 )
 
 // wrapImporter refuses every non-std path with the error its wrap function
@@ -55,9 +55,9 @@ func (e *joinErr) Unwrap() []error { return e.errs }
 
 // s104Within checks a program that imports lib against imp and returns its
 // S104 messages. It fails the test, and does not wait, when the check has
-// not ended within limit: a search that does not end is a failure, never a
+// not ended by the test's deadline: a search that does not end is a failure, never a
 // stall of the package.
-func s104Within(t *testing.T, imp check.Importer, limit time.Duration) []string {
+func s104Within(t *testing.T, imp check.Importer) []string {
 	t.Helper()
 	f, err := syntax.Parse("import lib\n\nfunc main() {}\n")
 	if err != nil {
@@ -77,8 +77,8 @@ func s104Within(t *testing.T, imp check.Importer, limit time.Duration) []string 
 	select {
 	case got := <-done:
 		return got
-	case <-time.After(limit):
-		t.Fatalf("check.Check did not end within %v", limit)
+	case <-testwait.After(t):
+		t.Fatal("check.Check did not end by the test's deadline")
 		return nil
 	}
 }
@@ -111,7 +111,7 @@ func TestImportErrorWrapped(t *testing.T) {
 		{"fork wraps", func(e error) error { return &forkErr{kids: []error{fmt.Errorf("a: %w", e)}, fan: 2} }, reason},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			got := s104Within(t, wrapImporter{c.wrap}, 10*time.Second)
+			got := s104Within(t, wrapImporter{c.wrap})
 			if len(got) != 1 || got[0] != c.want {
 				t.Fatalf("S104 = %q, want [%q]", got, c.want)
 			}
@@ -414,8 +414,8 @@ func TestImportErrorGraphs(t *testing.T) {
 			}
 			t.Error(b)
 		}
-	case <-time.After(60 * time.Second):
+	case <-testwait.After(t):
 		i := at.Load()
-		t.Fatalf("seed %#x: check.Check did not end within 60s on graph %d %s", seed, i, cases[i].root)
+		t.Fatalf("seed %#x: check.Check did not end by the test's deadline on graph %d %s", seed, i, cases[i].root)
 	}
 }

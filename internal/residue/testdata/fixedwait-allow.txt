@@ -1,0 +1,45 @@
+# The tests that TestTestsWaitNoFixedTime admits: each waits a constant time
+# (time.After, time.Sleep, time.NewTimer or time.AfterFunc of a constant,
+# context.WithTimeout of one, a deadline of time.Now() plus one, a constant
+# WaitDelay or -timeout flag). A row is `path<TAB>function<TAB>reason`; a row
+# that admits no fixed wait fails the test. A reason that names a follow-up
+# marks a wait that a loaded host can still turn; the follow-up removes the row.
+
+# an absence window: the test asserts that an event has not come yet; a slow
+# host only makes it pass more often (it weakens the check, it never fails a
+# correct run)
+runtime/ergo/http_transport_test.go	TestHTTPTransportPublishesOnlyAfterRequestCleanup	absence window: no response bytes before the cleanup ends
+runtime/ergo/http_transport_test.go	TestHTTPTransportShutdownCancelsActiveWorkAndReports503AfterCleanup	absence window: no response and no server end before the cleanup
+runtime/ergo/layers_test.go	TestLayerBuildCancellationReleasesPendingWaitersAndJoinsProducer	absence window: the build does not return before its producer joins
+runtime/ergo/scheduler_test.go	TestTestSchedulerWaitsForHeldManagedTurnBeforeAdvancing	absence window: Adjust does not commit while a fiber holds its turn
+runtime/ergo/scheduler_test.go	TestCancelledSleepUnregistersItsTimer	absence window: no registration within the barrier's 1 ms context; an expired context would race the stale timer's registration in the select
+runtime/v1/queue_stop_test.go	TestQueueWaitsEndOnAStop	absence window: a masked Push does not end on the stop
+scripts/examples/main_test.go	grows	absence window: a stopped ticker writes no tick; a running one ticks every 50 ms
+scripts/gate/budget_scope_linux_test.go	TestStopStepCgroupWaitsForKernelPopulationZero	absence window: the stop does not return while cgroup.events says populated 1
+scripts/gate/rss_unix_test.go	TestWaitForProcessGroupKeepsZombieLeaderWithThreads	absence window: the wait does not end while a zombie leader's threads run
+scripts/gate/rss_unix_test.go	TestRSSWatchTracksItsPS	absence window: the stop does not end while a finish's ps runs
+scripts/gate/stop_linux_test.go	TestStopWaitsForACommandInAStep	absence window: the stop does not end while a command in a step runs
+scripts/gate/stop_test.go	TestStopperOrdersAStop	absence window: the stop does not return before its killed step ends
+scripts/gate/stop_test.go	TestStopperKillsAStepArmedDuringTheStop	absence window: the stop does not return before the armed step ends
+scripts/gate/stop_test.go	TestStopperRefusesTheScopeExecDuringAStop	absence window: no stop begins while the exec is under way
+scripts/gate/tools_linux_test.go	TestGateUnderNohupIgnoresHangup	absence window: the gate under nohup does not end on SIGHUP
+
+# a window that widens a race a broken runtime loses: the cleanup is slow, so
+# a Wait that does not wait for it sees it unfinished; load only lengthens it
+runtime/v1/task_test.go	TestWaitInterrupted	a slow cleanup (5 ms) that Wait must wait for; load only lengthens it
+runtime/v1/task_test.go	TestStop	a slow cleanup (5 ms) that Stop must wait for; load only lengthens it
+runtime/v1/task_test.go	TestFrameReleaseOrder	a slow cleanup (5 ms) whose order the release keeps; load only lengthens it
+scripts/gate/writes_test.go	TestCheckoutEntriesIgnoreLinkedWorktrees	a lower bound: the kernel's file clock must tick between two writes; load only lengthens the sleep
+
+# an order that adds coverage and decides no verdict
+prototypes/actorlib/actor_test.go	TestBlockedSenderWakesOnStopAndReleasesItsMessage	lets the sender block first; the result does not depend on it (a prototype)
+prototypes/actorlib/actor_test.go	TestEveryMessageReleasedOnceUnderConcurrentStop	lets some senders run before the stop; the result does not depend on it (a prototype)
+internal/closure/sandbox_linux_test.go	collectChildren	the poll interval of the run's reaper loop, which the run's own deadline bounds; no verdict
+
+# the timeout under test: the runner's -timeout is the subject, and the case
+# sleeps caseLife, so load cannot end it first
+scripts/examples/main_test.go	TestCaseProcessGroupIsStopped	-timeout 1s is the timeout under test; the case sleeps caseLife
+scripts/examples/stop_test.go	TestEveryExitPathStopsTheGroup	-timeout 2s is the timeout row's subject; the case sleeps caseLife
+
+# load can turn these; each is a named follow-up
+scripts/gate/output_oracle_linux_test.go	runOracleHelper	follow-up FU-oracle-hold: hold the file until the scope watch reports a sample, not 300 ms

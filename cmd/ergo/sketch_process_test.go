@@ -32,7 +32,7 @@ func TestSketchExampleBuildsAndRuns(t *testing.T) {
 		{[]string{"build", source, "-o", filepath.Join("out", "hello")}, filepath.Join("out", "hello")},
 		{[]string{"build", source}, filepath.Join("dist", "main")},
 	} {
-		stdout, stderr, code := runSmokeCLI(t, processDeadline, binary, workspace, "", c.args...)
+		stdout, stderr, code := runSmokeCLI(t, binary, workspace, "", c.args...)
 		if code != 0 || string(stdout) != c.output+"\n" {
 			t.Fatalf("ergo %v: exit %d stdout %q\n%s", c.args, code, stdout, stderr)
 		}
@@ -41,7 +41,7 @@ func TestSketchExampleBuildsAndRuns(t *testing.T) {
 			t.Fatalf("%s printed %q (%v), want %q", c.output, got, err, expected)
 		}
 	}
-	stdout, stderr, code := runSmokeCLI(t, processDeadline, binary, workspace, "", "run", source)
+	stdout, stderr, code := runSmokeCLI(t, binary, workspace, "", "run", source)
 	if code != 0 || !bytes.Equal(stdout, expected) {
 		t.Fatalf("ergo run: exit %d stdout %q, want %q\n%s", code, stdout, expected, stderr)
 	}
@@ -83,8 +83,8 @@ func TestCheckAndDiagnosticsReportLocatedSketchCodes(t *testing.T) {
 		{"clean.ergo", sketchCleanSource, true},
 	} {
 		path := smokeWrite(t, root, file.name, file.text)
-		checkOut, checkErr, checkCode := runSmokeCLI(t, processDeadline, binary, root, "", "check", path)
-		reportOut, reportErr, reportCode := runSmokeCLI(t, processDeadline, binary, root, "", "diagnostics", path, "--json")
+		checkOut, checkErr, checkCode := runSmokeCLI(t, binary, root, "", "check", path)
+		reportOut, reportErr, reportCode := runSmokeCLI(t, binary, root, "", "diagnostics", path, "--json")
 		if (checkCode == 0) != file.clean || (reportCode == 0) != file.clean || checkCode > 1 || reportCode > 1 {
 			t.Fatalf("%s: check exit %d, diagnostics exit %d\n%s%s%s%s", file.name, checkCode, reportCode, checkOut, checkErr, reportOut, reportErr)
 		}
@@ -123,11 +123,11 @@ func TestAManifestSelectsNothing(t *testing.T) {
 		dir := filepath.Join(root, strings.NewReplacer(`"`, "", "{", "", "}", "", ":", "-", " ", "-").Replace(manifest))
 		smokeWrite(t, dir, "ergo.json", manifest)
 		smokeWrite(t, dir, "main.ergo", sketchCleanSource)
-		stdout, stderr, code := runSmokeCLI(t, processDeadline, binary, dir, "", "run", "main.ergo")
+		stdout, stderr, code := runSmokeCLI(t, binary, dir, "", "run", "main.ergo")
 		if code != 0 || string(stdout) != "ok\n" {
 			t.Fatalf("%s: run exit %d stdout %q\n%s", manifest, code, stdout, stderr)
 		}
-		stdout, stderr, code = runSmokeCLI(t, processDeadline, binary, dir, "", "check", "main.ergo")
+		stdout, stderr, code = runSmokeCLI(t, binary, dir, "", "check", "main.ergo")
 		if code != 0 || bytes.Contains(stdout, []byte("edition")) || regexp.MustCompile(`EF14[4-6]`).Match(append(stdout, stderr...)) {
 			t.Fatalf("%s: check exit %d stdout %s stderr %s", manifest, code, stdout, stderr)
 		}
@@ -144,20 +144,20 @@ func TestCommandsReadTheFileALinkNames(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
-	stdout, stderr, code := runSmokeCLI(t, processDeadline, binary, root, "", "check", link)
+	stdout, stderr, code := runSmokeCLI(t, binary, root, "", "check", link)
 	if code != 0 {
 		t.Fatalf("ergo check through the link: exit %d\nstdout %s\nstderr %s", code, stdout, stderr)
 	}
-	direct, _, _ := runSmokeCLI(t, processDeadline, binary, root, "", "check", target)
+	direct, _, _ := runSmokeCLI(t, binary, root, "", "check", target)
 	if smokeJSON(t, stdout)["revision"] != smokeJSON(t, direct)["revision"] {
 		t.Fatal("the link and its target check to different revisions")
 	}
-	stdout, _, code = runSmokeCLI(t, processDeadline, binary, root, "", "diagnostics", link, "--json")
+	stdout, _, code = runSmokeCLI(t, binary, root, "", "diagnostics", link, "--json")
 	uri, _ := report.FileURI(link)
 	if source := smokeJSON(t, stdout)["source"].(map[string]any); code != 0 || source["uri"] != uri {
 		t.Fatalf("diagnostics through the link: exit %d source %v, want %s", code, source, uri)
 	}
-	stdout, stderr, code = runSmokeCLI(t, processDeadline, binary, root, "", "run", link)
+	stdout, stderr, code = runSmokeCLI(t, binary, root, "", "run", link)
 	if code != 0 || string(stdout) != "ok\n" {
 		t.Fatalf("run through the link: exit %d stdout %q\n%s", code, stdout, stderr)
 	}
@@ -170,11 +170,11 @@ func TestALargeSourceChecksAndFmtRefusesIt(t *testing.T) {
 	root := smokeDir(t)
 	large := "//" + strings.Repeat("x", maxFormatInputBytes) + "\n" + sketchCleanSource
 	path := smokeWrite(t, root, "main.ergo", large)
-	if stdout, stderr, code := runSmokeCLI(t, processDeadline, binary, root, "", "check", path); code != 0 {
+	if stdout, stderr, code := runSmokeCLI(t, binary, root, "", "check", path); code != 0 {
 		t.Fatalf("check of a large source: exit %d\n%s\n%s", code, firstLines(stdout), stderr)
 	}
 	for _, args := range [][]string{{"fmt", "--check", path}, {"fmt", path}} {
-		_, stderr, code := runSmokeCLI(t, processDeadline, binary, root, "", args...)
+		_, stderr, code := runSmokeCLI(t, binary, root, "", args...)
 		if code != 2 || !strings.Contains(string(stderr), "EFMT_INPUT_LIMIT") {
 			t.Fatalf("ergo %v: exit %d stderr %q", args, code, stderr)
 		}
@@ -191,7 +191,7 @@ func TestBuildAndRunRefuseASourceThatDoesNotCheck(t *testing.T) {
 	root := smokeDir(t)
 	smokeWrite(t, root, "bad.ergo", sketchMissingNeeds)
 	for _, args := range [][]string{{"run", "--json", "bad.ergo"}, {"build", "bad.ergo"}, {"build", "bad.ergo", "-o", "out/bad"}} {
-		stdout, stderr, code := runSmokeCLI(t, processDeadline, binary, root, "", args...)
+		stdout, stderr, code := runSmokeCLI(t, binary, root, "", args...)
 		envelope := smokeJSON(t, stdout)
 		if code != 1 || envelope["checked"] != false || string(stderr) != "check failed\n" {
 			t.Fatalf("ergo %v: exit %d stdout %s stderr %q", args, code, stdout, stderr)

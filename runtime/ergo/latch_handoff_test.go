@@ -4,7 +4,8 @@ import (
 	"context"
 	"sync/atomic"
 	"testing"
-	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // A signalled waiter that has not run yet is cancelled by its owner's close
@@ -63,7 +64,7 @@ func TestScopeCloseCancelsASignalledWaiterBeforeItRuns(t *testing.T) {
 					select {
 					case <-reported:
 					case <-finished:
-					case <-time.After(3 * time.Second):
+					case <-testwait.After(t):
 						t.Errorf("close handoff timed out: the waiter neither reported nor finished")
 					}
 				},
@@ -97,7 +98,7 @@ func TestScopeCloseCancelsASignalledWaiterBeforeItRuns(t *testing.T) {
 			var out Exit[Unit]
 			select {
 			case out = <-done:
-			case <-time.After(5 * time.Second):
+			case <-testwait.After(t):
 				t.Fatal("close did not complete")
 			}
 			select {

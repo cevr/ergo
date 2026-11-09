@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
+	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
 )
 
@@ -33,7 +33,7 @@ func TestTraceRecorderIsBounded(t *testing.T) {
 	go func() { wg.Wait(); close(finished) }()
 	select {
 	case <-finished:
-	case <-time.After(10 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("emitting tasks blocked on a full recorder")
 	}
 	recs, inFlight := rec.Records()

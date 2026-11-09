@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/report"
+	"ergo.local/prototype/internal/testwait"
 )
 
 // TestProducerSmoke: the producer identity follows the executing artifact
@@ -81,7 +82,7 @@ func TestProducerSmoke(t *testing.T) {
 		if !reflect.DeepEqual(producerSnapshot(t, findings), identity) || !reflect.DeepEqual(findings["snapshot"], before["snapshot"]) {
 			t.Fatalf("diagnostics identity %v, check identity %v", findings["producer"], identity)
 		}
-		stdout, stderr, code := runSmokeCLI(t, processDeadline, installed, directory, "", "fmt", file, "--check", "--json")
+		stdout, stderr, code := runSmokeCLI(t, installed, directory, "", "fmt", file, "--check", "--json")
 		if code != 0 && code != 1 {
 			t.Fatalf("fmt --check: exit %d stderr=%s", code, stderr)
 		}
@@ -170,7 +171,7 @@ func main(){bufio.NewReader(os.Stdin).ReadString('\n');json.NewEncoder(os.Stdout
 		command.Dir = directory
 		release := &replaceOnRead{replace: func() error { return os.Rename(staged, installed) }}
 		command.Stdin = release
-		stdout, stderr, code := runSmokeCommand(t, processDeadline, command)
+		stdout, stderr, code := runSmokeCommand(t, command)
 		if code != 0 || release.err != nil {
 			t.Fatalf("host: exit %d, replacement %v\nstderr=%s", code, release.err, stderr)
 		}
@@ -266,7 +267,7 @@ func main(){bufio.NewReader(os.Stdin).ReadString('\n');json.NewEncoder(os.Stdout
 			{"build, a hit", []string{"build", file, "-o", filepath.Join(directory, "app")}},
 			{"run", []string{"run", file}},
 		} {
-			stdout, stderr, code := runSmokeCLI(t, processDeadline, lazy, directory, "", phase.args...)
+			stdout, stderr, code := runSmokeCLI(t, lazy, directory, "", phase.args...)
 			if code != 0 {
 				t.Fatalf("%s: exit %d\nstdout=%s\nstderr=%s", phase.name, code, stdout, stderr)
 			}
@@ -279,7 +280,7 @@ func main(){bufio.NewReader(os.Stdin).ReadString('\n');json.NewEncoder(os.Stdout
 		}
 		bad := smokeWrite(t, directory, "bad.ergo", sketchMissingNeeds)
 		for _, args := range [][]string{{"check", file}, {"diagnostics", file}, {"build", bad}} {
-			_, stderr, _ := runSmokeCLI(t, processDeadline, lazy, directory, "", args...)
+			_, stderr, _ := runSmokeCLI(t, lazy, directory, "", args...)
 			callers := acquisitions(stderr)
 			if len(callers) == 0 || slices.Contains(callers, cacheKey) {
 				t.Fatalf("ergo %v acquired %v; want the command to acquire for its facts, and the cache never", args, callers)
@@ -346,7 +347,7 @@ func producerSmokeRun(t *testing.T, dir, program string, args ...string) string 
 	t.Helper()
 	command := exec.Command(program, args...)
 	command.Dir = dir
-	stdout, stderr, code := runSmokeCommand(t, processDeadline, command)
+	stdout, stderr, code := runSmokeCommand(t, command)
 	if code != 0 {
 		t.Fatalf("%s %v: exit %d\nstdout=%s\nstderr=%s", program, args, code, stdout, stderr)
 	}
@@ -404,6 +405,7 @@ func producerSmokeOverlays(t *testing.T, root, directory, source string, replace
 	failures := make([]error, 0, len(replacements))
 	var lock sync.Mutex
 	var group sync.WaitGroup
+	limit := testwait.Left(t)
 	for name, replacement := range replacements {
 		modified := smokeWrite(t, directory, name+".txt", replacement)
 		overlay, err := json.Marshal(map[string]any{"Replace": map[string]string{source: modified}})
@@ -418,7 +420,7 @@ func producerSmokeOverlays(t *testing.T, root, directory, source string, replace
 			defer group.Done()
 			command := exec.Command("go", "build", "-buildvcs=false", "-overlay", overlayPath, "-o", binary, "./cmd/ergo")
 			command.Dir = root
-			stdout, stderr, code, err := runSmokeDeadline(command, processDeadline)
+			stdout, stderr, code, err := runSmokeDeadline(command, limit)
 			if err != nil || code != 0 {
 				lock.Lock()
 				failures = append(failures, fmt.Errorf("build %s: exit %d %v\n%s%s", name, code, err, stdout, stderr))

@@ -26,7 +26,7 @@ func diagnosticsSmokeCLI(t *testing.T, binary, path string, strict bool) map[str
 	if strict {
 		arguments = append(arguments, "--strict")
 	}
-	stdout, stderr, code := runSmokeCLI(t, processDeadline, binary, filepath.Dir(path), "", arguments...)
+	stdout, stderr, code := runSmokeCLI(t, binary, filepath.Dir(path), "", arguments...)
 	if code != 0 && code != 1 {
 		t.Fatalf("diagnostics exit %d: %s", code, stderr)
 	}
@@ -94,7 +94,7 @@ func TestDiagnosticsSmokePositions(t *testing.T) {
 			if len(findings) != len(fixture.expected) || findingsReport["checked"] != (len(fixture.expected) == 0) {
 				t.Fatalf("findings = %v", findings)
 			}
-			stdout, _, _ := runSmokeCLI(t, processDeadline, binary, directory, "", "check", path)
+			stdout, _, _ := runSmokeCLI(t, binary, directory, "", "check", path)
 			envelope := smokeJSON(t, stdout)
 			listed, _ := envelope["diagnostics"].([]any)
 			if len(listed) != len(findings) || envelope["revision"] != findingsReport["revision"] {
@@ -143,7 +143,7 @@ func TestDiagnosticsSmokeBounds(t *testing.T) {
 		// Each declaration of f after the first is one S108.
 		name := "findings-" + strconv.Itoa(count) + ".ergo"
 		path := smokeWrite(t, directory, name, "func main() {}\n"+strings.Repeat("func f() {}\n", count+1))
-		stdout, _, code := runSmokeCLI(t, processDeadline, binary, directory, "", "check", path)
+		stdout, _, code := runSmokeCLI(t, binary, directory, "", "check", path)
 		envelope := smokeJSON(t, stdout)
 		listed, _ := envelope["diagnostics"].([]any)
 		if code != 1 || len(listed) != 100 || envelope["diagnosticsTruncated"] != (count > 100) {
@@ -164,10 +164,10 @@ func TestDiagnosticsSmokeBounds(t *testing.T) {
 	}
 	for _, path := range refused {
 		for _, command := range []string{"check", "diagnostics", "build", "run"} {
-			// An open of the FIFO blocks for good, so processDeadline
+			// An open of the FIFO blocks for good, so the test's deadline
 			// tells a refusal from an open; a 5 s bound failed only a
 			// loaded host (fu-gate-flakes).
-			stdout, stderr, code := runSmokeCLI(t, processDeadline, binary, directory, "", command, path)
+			stdout, stderr, code := runSmokeCLI(t, binary, directory, "", command, path)
 			if code != 1 || len(stdout) != 0 || !strings.Contains(string(stderr), "source must be a regular file") {
 				t.Fatalf("ergo %s %s: exit %d stdout %q stderr %q", command, filepath.Base(path), code, stdout, stderr)
 			}

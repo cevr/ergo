@@ -4,7 +4,6 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
-	"time"
 )
 
 // Reviewer probe (round 5, M1): a restore returns to the state of the region
@@ -58,7 +57,7 @@ func TestRestoreChildCancellation(t *testing.T) {
 				controlDone := make(chan struct{})
 				// No rescue for a cancellable child: if the stop does not reach
 				// it, its masked owner waits forever and the watchdog fails.
-				within(t, 10*time.Second, "the masked owner's Wait on its restored child (no deadlock)", func() {
+				within(t, "the masked owner's Wait on its restored child (no deadlock)", func() {
 					go func() {
 						defer close(controlDone)
 						child := <-started

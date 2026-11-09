@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"ergo.local/prototype/internal/lawledger"
+	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
 )
 
@@ -171,19 +172,15 @@ func runExecCase(t *testing.T, c execCase) (res ExecResult, err error, interrupt
 	if c.stop == "running" || c.stop == "masked" {
 		// The stop lands while the program runs: after it wrote its pid,
 		// at a random point of what follows.
-		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
-			if data, _ := os.ReadFile(c.pidfile); len(data) > 0 {
-				break
-			}
-		}
+		testwait.Until(t, func() bool { data, _ := os.ReadFile(c.pidfile); return len(data) > 0 })
 		time.Sleep(c.delay)
 		task.Interrupt()
 	}
 	select {
 	case got := <-done:
 		return got.res, got.err, got.interrupted, time.Since(begin)
-	case <-time.After(15 * time.Second):
-		t.Fatalf("Run did not return in 15s for %s:\n%s", c.stop, c.script)
+	case <-testwait.After(t):
+		t.Fatalf("Run did not return by the test's deadline for %s:\n%s", c.stop, c.script)
 		return
 	}
 }
@@ -361,17 +358,15 @@ wait
 			_, _ = ExecRun(task, "sh", []string{"-c", script}, nil, "", "")
 		}()
 		var pids []int
-		for deadline := time.Now().Add(5 * time.Second); len(pids) < 3 && time.Now().Before(deadline); time.Sleep(time.Millisecond) {
-			pids = readPids(t, pidfile)
-		}
+		testwait.Until(t, func() bool { pids = readPids(t, pidfile); return len(pids) >= 3 })
 		task.Interrupt()
 		select {
 		case interrupted := <-done:
 			if !interrupted {
 				t.Fatal("the stop did not end the call with rt.Interrupted")
 			}
-		case <-time.After(15 * time.Second):
-			t.Fatal("Run did not return in 15s after the stop")
+		case <-testwait.After(t):
+			t.Fatal("Run did not return by the test's deadline after the stop")
 		}
 		if len(pids) != 3 {
 			t.Fatalf("pids %v; want the two stages' and the program's", pids)

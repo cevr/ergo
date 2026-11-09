@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
 )
 
@@ -492,12 +493,8 @@ func TestAbandonedChild(t *testing.T) {
 func TestGapR3NormalClose(t *testing.T) {
 	err := frame(rt.Root("main"), func(s *Scope) error {
 		c := Go(s, "child", func(*rt.Task) (int, error) { return 0, bad{"unobserved"} })
-		deadline := time.Now().Add(10 * time.Second)
-		for c.h.Task().Parent() != nil {
-			if time.Now().After(deadline) {
-				t.Fatal("the child did not finish")
-			}
-			time.Sleep(100 * time.Microsecond)
+		if !testwait.Until(t, func() bool { return c.h.Task().Parent() == nil }) {
+			t.Fatal("the child did not finish")
 		}
 		return nil
 	})
@@ -895,13 +892,9 @@ func TestNoTaskOutlivesItsFrame(t *testing.T) {
 // goroutine exits just after it publishes its exit.
 func waitForGoroutines(t *testing.T, base int) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for runtime.NumGoroutine() > base {
-		if time.Now().After(deadline) {
-			buf := make([]byte, 1<<16)
-			t.Fatalf("%d goroutines; want at most %d:\n%s", runtime.NumGoroutine(), base, buf[:runtime.Stack(buf, true)])
-		}
-		time.Sleep(time.Millisecond)
+	if !testwait.Until(t, func() bool { return runtime.NumGoroutine() <= base }) {
+		buf := make([]byte, 1<<16)
+		t.Fatalf("%d goroutines; want at most %d:\n%s", runtime.NumGoroutine(), base, buf[:runtime.Stack(buf, true)])
 	}
 }
 

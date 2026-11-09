@@ -6,7 +6,8 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
-	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // Stage D3b round 2 (check-v1): a hidden task is bound where the blocking
@@ -14,17 +15,17 @@ import (
 // stage D3b round 1 review"): a Seq from queue.Values waits on the task
 // that iterates it (review M1).
 
-// runWithin lowers src, builds it and runs the program with a time limit,
-// so a hang or a deadlock fails the test with its output instead of
-// stopping the test binary.
-func runWithin(t *testing.T, name, src, want string, limit time.Duration) {
+// runWithin lowers src, builds it and runs the program until the test's
+// deadline (testwait.End), so a hang or a deadlock fails the test with its
+// output instead of stopping the test binary.
+func runWithin(t *testing.T, name, src, want string) {
 	t.Helper()
 	o := mustLower(t, name, src)
 	exes := buildAll(t, []*lowered{o}, true)
 	if exes == nil {
 		return // buildAll reported the Go diagnostics
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	ctx, cancel := testwait.Context(t, context.Background())
 	defer cancel()
 	run := exec.CommandContext(ctx, exes[name])
 	var combined bytes.Buffer
@@ -32,7 +33,7 @@ func runWithin(t *testing.T, name, src, want string, limit time.Duration) {
 	err := runProgram(t, run)
 	out := combined.Bytes()
 	if ctx.Err() != nil {
-		t.Fatalf("the program did not end within %v (a hang); output so far:\n%s", limit, out)
+		t.Fatalf("the program did not end by the test's deadline (a hang); output so far:\n%s", out)
 	}
 	if err != nil || string(out) != want {
 		t.Fatalf("run: %v\n%s\nwant:\n%s\nGo:\n%s", err, out, want, stripDirectives(o.mainGo()))
@@ -79,7 +80,7 @@ func TestErgoRunCapturedSeqStops(t *testing.T) {
 	if goSrc := stripDirectives(o.mainGo()); !strings.Contains(goSrc, ".Values(e.task)") {
 		t.Errorf("the Seq does not call Values with the iterating environment's task:\n%s", goSrc)
 	}
-	runWithin(t, "seqstop", capturedSeqProgram, "stopped\n", 60*time.Second)
+	runWithin(t, "seqstop", capturedSeqProgram, "stopped\n")
 }
 
 // methodValueProgram uses each queue operation and an operation of the
@@ -142,7 +143,7 @@ func main() fails queue.Closed needs Console {
 // task that waits through a method value made by main (review M3; before
 // the repair each was an internal compiler error).
 func TestErgoRunMethodValues(t *testing.T) {
-	runWithin(t, "methodvalues", methodValueProgram, "3 4 25\nmake 1\nmake 2\nstopped 1\n", 60*time.Second)
+	runWithin(t, "methodvalues", methodValueProgram, "3 4 25\nmake 1\nmake 2\nstopped 1\n")
 }
 
 // noValueProgram binds a type parameter to no value with a block that has
@@ -205,7 +206,7 @@ func TestErgoRunNoValueTypeArgument(t *testing.T) {
 	if goSrc := stripDirectives(o.mainGo()); !strings.Contains(goSrc, "ergo.Go[struct{}]") || !strings.Contains(goSrc, "run[struct{}]") {
 		t.Errorf("the no-value type argument is not struct{}:\n%s", goSrc)
 	}
-	runWithin(t, "novalue", noValueProgram, "1121 3 7 1\n", 60*time.Second)
+	runWithin(t, "novalue", noValueProgram, "1121 3 7 1\n")
 }
 
 // noValueShapesProgram binds a type parameter to no value where the checked
@@ -255,7 +256,7 @@ func TestNoValueTypeArgumentsLower(t *testing.T) {
 	if goSrc := stripDirectives(o.mainGo()); !strings.Contains(goSrc, "Job[struct{}]") || !strings.Contains(goSrc, "runAll[struct{}](") {
 		t.Errorf("the no-value type argument is not struct{}:\n%s", goSrc)
 	}
-	runWithin(t, "shapes", noValueShapesProgram, "112 2 3\n", 60*time.Second)
+	runWithin(t, "shapes", noValueShapesProgram, "112 2 3\n")
 }
 
 // TestErgoRunTaskBodyBoundAtGo: a function value passed to task.Go is
@@ -277,7 +278,7 @@ func main() needs Console {
 	let n = t.Wait()
 	Console.Println("\(n) \(f())")
 }
-`, "1 2\n", 60*time.Second)
+`, "1 2\n")
 }
 
 // TestErgoRunSeqReceiverEvaluatedOnce: the receiver of Values is evaluated
@@ -310,5 +311,5 @@ func main() fails queue.Closed needs Console {
 		Console.Println("q \(v)")
 	}
 }
-`, "make 1\nmake 2\nmake 3\ns 1\nr 2\nq 3\n", 60*time.Second)
+`, "make 1\nmake 2\nmake 3\ns 1\nr 2\nq 3\n")
 }

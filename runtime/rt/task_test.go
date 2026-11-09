@@ -5,7 +5,8 @@ import (
 	"runtime"
 	"sync"
 	"testing"
-	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // waitUntil yields until cond holds. Tests use it instead of sleeping.
@@ -15,16 +16,16 @@ func waitUntil(cond func() bool) {
 	}
 }
 
-// waitGroupWithin waits for wg, failing the test after limit. Only a broken
+// waitGroupWithin waits for wg, failing the test at its deadline (testwait). Only a broken
 // runtime makes it wait that long.
-func waitGroupWithin(t *testing.T, wg *sync.WaitGroup, limit time.Duration, what string) {
+func waitGroupWithin(t *testing.T, wg *sync.WaitGroup, what string) {
 	t.Helper()
 	done := make(chan struct{})
 	go func() { wg.Wait(); close(done) }()
 	select {
 	case <-done:
-	case <-time.After(limit):
-		t.Fatalf("%s did not happen within %v", what, limit)
+	case <-testwait.After(t):
+		t.Fatalf("%s did not happen by the test's deadline", what)
 	}
 }
 
@@ -86,7 +87,7 @@ func TestStopPropagatesToDescendants(t *testing.T) {
 			} else {
 				root.Interrupt()
 			}
-			waitGroupWithin(t, &observed, 10*time.Second, "every descendant observing the stop")
+			waitGroupWithin(t, &observed, "every descendant observing the stop")
 			mu.Lock()
 			for _, task := range tasks {
 				if !task.StopRequested() {
