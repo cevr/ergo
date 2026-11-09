@@ -26,11 +26,12 @@ import (
 //     a rebinding x = upM(x, k), in a loop and on a field, an argument
 //     that stays live, and a rebinding whose callback reads the binding.
 //     It also calls maps.Update with a named callback (rebinding, on a
-//     field, and on a Map that stays live). Lowered with the rule, with
-//     the copying lowering "copy" (the rule without owned parameters) and
-//     with maps.Update called rather than written at its site
-//     (updateLowering "call", update.go), all three print the model's
-//     lines.
+//     field, and on a Map that stays live): bumpOpt, which has a comma-ok
+//     variant, and, on a rebinding, bumpVia, which has none. Lowered with
+//     the rule, with the copying lowering "copy" (the rule without owned
+//     parameters), with maps.Update written at its site with its Option
+//     (updateLowering "option") and with it called (updateLowering
+//     "call", update.go), all four print the model's lines.
 //   - The unshared program writes only through let mut roots bound from
 //     literals and reads them only to print, so no write is shared. Lowered
 //     with the rule and with the reference (valueLowering "alias"), both
@@ -212,7 +213,8 @@ func upF(m Map[int, int], k int, f func() int) Map[int, int] {
 	c
 }
 
-// bumpOpt is maps.Update's callback, which update.go calls directly.
+// bumpOpt is maps.Update's callback, which update.go calls directly, as
+// its comma-ok variant.
 func bumpOpt(old Option[int]) int {
 	match old {
 	case Some[int] as v:
@@ -221,6 +223,10 @@ func bumpOpt(old Option[int]) int {
 		300
 	}
 }
+
+// bumpVia passes its Option on, so it has no comma-ok variant: update.go
+// calls it with the Option.
+func bumpVia(old Option[int]) int { bumpOpt(old) }
 
 // bumpAt passes its parameter to maps.Update: a copy at the call, and the
 // prelude imports maps in every program.
@@ -586,12 +592,18 @@ func (g *valueGen) write() {
 	switch b.kind {
 	case kMap:
 		switch g.r.IntN(9) {
-		case 7, 8:
+		case 7:
 			// maps.Update with a named callback, rebinding the Map.
 			key := g.keyOf(b.val.m)
 			g.line(fmt.Sprintf("%s = maps.Update(%s, %d, bumpOpt)", b.name, b.name, key))
 			bumpModel(b.val.m, key)
 			g.reached["update rebind"] = true
+		case 8:
+			// The same with a callback that has no comma-ok variant.
+			key := g.keyOf(b.val.m)
+			g.line(fmt.Sprintf("%s = maps.Update(%s, %d, bumpVia)", b.name, b.name, key))
+			bumpModel(b.val.m, key)
+			g.reached["update rebind option"] = true
 		case 4:
 			// A rebinding hands the old value to an owned parameter.
 			key := g.r.IntN(9)
@@ -734,8 +746,9 @@ func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want 
 
 // lowerValueMode lowers src with the value rule or with the reference
 // "alias"; a mode names another lowering: "copy", the rule without owned
-// parameters, or "update-call", the rule with maps.Update called, not
-// written at its site (update.go).
+// parameters, "update-call", the rule with maps.Update called, not
+// written at its site, or "update-option", the rule with it written at
+// its site with its Option, no comma-ok variant (update.go).
 func lowerValueMode(t *testing.T, name, src string, rule bool, mode ...string) *lowered {
 	t.Helper()
 	saved, savedUpdate := valueLowering, updateLowering
@@ -746,6 +759,8 @@ func lowerValueMode(t *testing.T, name, src string, rule bool, mode ...string) *
 		valueLowering = "alias"
 	case len(mode) > 0 && mode[0] == "update-call":
 		updateLowering = "call"
+	case len(mode) > 0 && mode[0] == "update-option":
+		updateLowering = "option"
 	case len(mode) > 0:
 		valueLowering = mode[0]
 	}
@@ -777,6 +792,10 @@ func TestValueRuleAgrees(t *testing.T) {
 		// maps.Update called, the reference of its rewrite at the site.
 		programs = append(programs, lowerValueMode(t, name+"call", src, true, "update-call"))
 		runs = append(runs, run{seed, src, want, name + "call"})
+		// maps.Update at its site with its Option, the reference of the
+		// callback's comma-ok variant.
+		programs = append(programs, lowerValueMode(t, name+"option", src, true, "update-option"))
+		runs = append(runs, run{seed, src, want, name + "option"})
 		usrc, uwant := valueProgram(seed, false, reached)
 		for _, rule := range []bool{true, false} {
 			name := fmt.Sprintf("vr%dunshared%v", seed, rule)
@@ -819,5 +838,5 @@ var valuePaths = []string{
 	"write map", "delete in place", "write loop", "write slice", "append in place",
 	"write field map", "write field slice", "append field", "write element",
 	"own rebind", "own loop", "own capture", "own slice", "own field", "own live",
-	"update rebind", "update field", "update live",
+	"update rebind", "update rebind option", "update field", "update live",
 }

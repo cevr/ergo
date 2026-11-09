@@ -127,10 +127,16 @@ func TestValueRuleElides(t *testing.T) {
 	if body := goFunc(t, code, "main_1"); strings.Contains(body, "Clone") {
 		t.Errorf("main copies build's fresh result:\n%s", body)
 	}
-	// m = maps.Update(m, k, bump) is written at its site with bump called
-	// directly (update.go); called instead, it calls the owned body.
-	if body := goFunc(t, code, "count"); strings.Contains(body, "Update") || !strings.Contains(body, "bump(") {
-		t.Errorf("m = maps.Update(m, k, bump) is not written at its site:\n%s", body)
+	// m = maps.Update(m, k, bump) is written at its site with bump's
+	// comma-ok variant called directly, no Option built (update.go); with
+	// updateLowering "option" it calls bump with the Option; called
+	// instead, it calls the owned body.
+	if body := goFunc(t, code, "count"); strings.Contains(body, "Update") || !strings.Contains(body, "bumpOk(") || strings.Contains(body, "Some") {
+		t.Errorf("m = maps.Update(m, k, bump) is not written at its site with bump's comma-ok variant:\n%s", body)
+	}
+	option := lowerValueMode(t, "velideoption", valueElideSource, true, "update-option").mainGo()
+	if body := goFunc(t, option, "count"); strings.Contains(body, "Update") || !strings.Contains(body, "bump(") || strings.Contains(option, "bumpOk") {
+		t.Errorf("updateLowering option does not call bump with the Option:\n%s", body)
 	}
 	called := lowerValueMode(t, "velidecall", valueElideSource, true, "update-call").mainGo()
 	update := regexp.MustCompile(`(?s)\nfunc UpdateOwned\[.*?\n}\n`).FindString(called)
@@ -208,7 +214,7 @@ func TestValueRuleMutants(t *testing.T) {
 	if !*valueMutants {
 		t.Skip("run with -value.mutants")
 	}
-	for _, m := range []string{"never-copy", "shallow", "elide-live", "elide-escape", "elide-closure", "in-place", "consume-live", "consume-captured", "own-live", "update-none", "update-no-write"} {
+	for _, m := range []string{"never-copy", "shallow", "elide-live", "elide-escape", "elide-closure", "in-place", "consume-live", "consume-captured", "own-live", "update-none", "update-no-write", "update-ok-none", "update-ok-swap"} {
 		t.Run(m, func(t *testing.T) {
 			saved := valueMutant
 			valueMutant = m
