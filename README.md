@@ -36,9 +36,9 @@ func Checkout(amount int64) Receipt fails Declined | timeout.Expired needs Payme
 func Purchase(amount int64) string needs Payments | Scheduler {
 	let receipt = Checkout(amount) catch {
 	case Declined:
-		Receipt{ID: "declined"}
+		Receipt{ID: "declined", Amount: 0}
 	case timeout.Expired:
-		Receipt{ID: "timed-out"}
+		Receipt{ID: "timed-out", Amount: 0}
 	}
 	receipt.ID
 }
@@ -108,9 +108,9 @@ let SlowWorld = context {
 test SlowGatewayTimesOut {
 	let r = with SlowWorld { Charge(Card{Number: "4242"}, 100) } catch {
 	case timeout.Expired:
-		Receipt{ID: "timed-out"} // reached at once, in virtual time
+		Receipt{ID: "timed-out", Amount: 0} // reached at once, in virtual time
 	case Declined, Frozen:
-		Receipt{}
+		Receipt{ID: "failed", Amount: 0}
 	}
 	assert r.ID == "timed-out"
 }
