@@ -112,6 +112,63 @@ func TestCheckCorpusBuildsDomain(t *testing.T) {
 	t.Logf("candidates %d from %d files", len(sources), files)
 }
 
+// TestCorpusCompilesWithGc is gc's side of typecheckGo (test-speed plan
+// T1): the parts of TestCheckCorpusBuilds and TestAcceptedNodesLower check
+// their compile-only programs with go/types in process; this test compiles
+// every clean corpus program and every accepted-node program without an
+// oracle with gc, in one go command (no vet, no link), so a program that
+// go/types accepts and gc refuses still fails the full tier.
+//
+// It builds Go because its question is gc's verdict.
+func TestCorpusCompilesWithGc(t *testing.T) {
+	if testing.Short() {
+		t.Skip("full tier: builds Go")
+	}
+	sources, err := corpusDomain()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var programs []*lowered
+	clean := func(o *lowered) bool {
+		return o.file != nil && len(o.diags) == 0 && o.panicked == nil && o.err == nil && len(o.refused) == 0
+	}
+	for i, src := range sources {
+		if o := lowerSource(fmt.Sprintf("c%d", i), src, false); clean(o) {
+			programs = append(programs, o)
+		}
+	}
+	corpus := len(programs)
+	accepted, err := acceptedSources()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range accepted {
+		if s.want != "" {
+			continue // built, linked and run by TestAcceptedNodesLower
+		}
+		if o := lowerSource(s.name, s.src, false); clean(o) {
+			programs = append(programs, o)
+		}
+	}
+	if corpus < 100 || len(programs) == corpus {
+		t.Fatalf("%d corpus and %d accepted-node programs: a reader lost its domain?", corpus, len(programs)-corpus)
+	}
+	if err := unparsedGo(programs); err != nil {
+		t.Fatal(err)
+	}
+	rejected, output := gcRejects(t, programs)
+	if len(rejected) > 0 {
+		t.Errorf("gc rejects %d programs:\n%s", len(rejected), firstLines(output, 60))
+		for _, p := range programs {
+			if rejected[p.name] {
+				t.Logf("source of %s:\n%s\nGo:\n%s", p.name, p.src, p.mainGo())
+				break
+			}
+		}
+	}
+	t.Logf("compiled %d corpus and %d accepted-node programs with gc", corpus, len(programs)-corpus)
+}
+
 // runCorpus lowers the candidates of one part and builds its clean
 // programs.
 func runCorpus(t *testing.T, cases iter.Seq[corpusCandidate]) {

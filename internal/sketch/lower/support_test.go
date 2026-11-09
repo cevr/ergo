@@ -87,11 +87,17 @@ func (o *lowered) mainGo() string {
 }
 
 // buildAll writes each program as package p/NAME of one module and runs go
-// vet and go build on them all. It returns each program's executable when
-// link is set. A program that does not compile or vet fails the test with
-// its Go diagnostics and its source.
+// vet and go build on them all, and returns each program's executable. A
+// program that does not compile or vet fails the test with its Go
+// diagnostics and its source. Without link, the question is only whether
+// the Go type-checks: typecheckGo answers it in process, and
+// TestCorpusCompilesWithGc keeps gc's answer in the full tier.
 func buildAll(t *testing.T, programs []*lowered, link bool) map[string]string {
 	t.Helper()
+	if !link {
+		typecheckGo(t, programs)
+		return nil
+	}
 	if len(programs) == 0 {
 		return nil
 	}
@@ -155,15 +161,6 @@ func buildAll(t *testing.T, programs []*lowered, link bool) map[string]string {
 	// runtime instead of compiling it again (gate-fast plan section 4).
 	if out, ok := run("vet", "-trimpath", "-unreachable=false", "./p/..."); !ok {
 		report("vet", out)
-		return nil
-	}
-	if !link {
-		if out, ok := run("build", "-trimpath", "./p/..."); !ok {
-			report("build", out)
-		}
-		for _, p := range programs {
-			probeBuilt("", p.mainGo())
-		}
 		return nil
 	}
 	bin := filepath.Join(root, "bin")
