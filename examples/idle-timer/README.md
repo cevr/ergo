@@ -30,7 +30,7 @@ The program is a module of packages (`ergo.mod`: `module idletimer`), in the Go 
 
 | folder | what it holds |
 | --- | --- |
-| `kiosk/` | The domain package. It is pure. `policy.ergo`: `Policy`, `Standard`, `Check` (fails `BadPolicy`). `machine.ergo`: `Screen`, `Session`, the state `Kiosk`, `Signal`, `Event`, `Begin`, `WaitFor`, `Timer`, `Step` and `type Idler machine[Kiosk, Signal] { initial: Begin, step: Step, after: Timer }`. `policies.ergo`: `Policies`, the contract of a store of policies, with two laws. Also `laws.ergo` and `tests.ergo`. |
+| `kiosk/` | The domain package. It is pure. `policy.ergo`: `Policy`, `Standard`, `Check` (fails `BadPolicy`). `machine.ergo`: `Screen`, `Session`, the state `Kiosk`, `Signal`, `Event`, `Begin`, `WaitFor`, `Timer` and `Step`. `laws.ergo`: `type Idler machine[Kiosk, Signal] { initial: Begin, step: Step, after: Timer, … }` and its laws. `policies.ergo`: `Policies`, the contract of a store of policies, with two laws. Also `tests.ergo`. |
 | `memory/` | `Fixed`, the in-memory provider of `kiosk.Policies`: `lobby` and `library`. |
 | `script/` | `Read` (fails `BadLine`), `WithTicks`, `Upto` and `Run`, the only function with capabilities (`Console`, `io.Stdin`, `kiosk.Policies`). |
 | `cmd/idle-timer/` | The binary. `main.ergo` binds `let Live = context { kiosk.Policies: memory.Fixed }` and the host's standard input. It is the only place that chooses them. |
@@ -45,13 +45,19 @@ The program is a module of packages (`ergo.mod`: `module idletimer`), in the Go 
 - **A virtual clock.** `machines.RunTimed` is the pure timed fold. The laws and the program run on it: no host clock and no sleep.
 - **Exhaustive `match`.** Each state's step is a `match` that names all eleven signals. The only `case _` arms are over a script word or a kiosk name, which are strings.
 - **Typed failures.** `BadPolicy`, `NoSuchKiosk` and `BadLine`. `Step` itself never refuses: a signal that means nothing in a state is `Ignore`.
-- **Laws.** Six top-level laws, run on `RunTimed` by `ergo test` (#162), with times drawn near the deadlines:
-  - `NoAbandonBeforeIdle`
-  - `ActivityDelays`
-  - `StayKeepsDeadline`
-  - `AssistWaitsLonger`
-  - `ContinueKeepsTheSession`
-  - `AdminNeedsFiveQuickTaps`
+- **Laws.** `Idler` declares ten laws after its entries (MU6, `laws.ergo`), run by `ergo test`.
+  - **Proved** (types.md Laws 10): three laws over one step take a `Session`, a `Signal` and a `bool`, types that can be listed, so `ergo test` runs every value and reports `proved`:
+    - `OnlyIdlePrompts`: in a session, only the `Idle` timer brings the prompt, on every screen and assist mode (`proved: all 84 cases`).
+    - `EndsAreTold`: no state of a session ends it in silence; every move to `Suspended` is an `Emit` (`proved: all 168 cases`).
+    - `OnlyTapsOpenAdmin`: only the last quick corner tap opens the admin screen (`proved: all 168 cases`).
+  - **Proved by a witness:** `law Wakes path [Suspended, Waiting]`: a signal from outside begins a session. A generated run that is a witness proves it; the policy is the input and cannot be listed, so `ergo test` draws the runs.
+  - **Sampled:** six timed laws run on `RunTimed` with times drawn near the deadlines, `(100 cases)` each, never proved, because a time is an integer:
+    - `NoAbandonBeforeIdle`
+    - `ActivityDelays`
+    - `StayKeepsDeadline`
+    - `AssistWaitsLonger`
+    - `ContinueKeepsTheSession`
+    - `AdminNeedsFiveQuickTaps`
 
   The contract `kiosk.Policies` has two member laws, `EveryPolicyChecks` and `UnlistedIsNoSuchKiosk`. The survey's `StaleTimerNeverSteps` is a rule of the runner, not of this machine: std `machines` holds it (V5, `TestMachineRunAgreesWithFold`), and no edit of this program can break it. `LiveEqualsFold` waits for the live runner (MU3).
 - **Tests.** The laws are the tests. `kiosk/tests.ergo` has one timed run, `KioskRun`. `memory/tests.ergo` calls the two `Policies` laws (G-ma-2).
@@ -63,7 +69,7 @@ The program is a module of packages (`ergo.mod`: `module idletimer`), in the Go 
 - **No state-owned work and no ticker (M45).** The screen clock's one-second tick is a signal that `WithTicks` adds to the trace. A live program would need a task that sleeps.
 - **No outside source (M49).** Touches come from the script, not from an input stream that feeds the machine.
 - **A timer that is not positive fires at once.** `Check` refuses such a policy, because a state whose timer re-enters it at once never lets time pass (runtime.md, Machines 9.1; lane V follow-up).
-- **Machine laws stand at top level (M55)**, and the laws restate the `Standard` policy's numbers.
+- **The timed laws restate the `Standard` policy's numbers**, and the laws over one step fix the policy to `Standard`: a `Policy` holds durations, which cannot be listed, so a law over every policy is sampled, not proved.
 - **G-ma-1 and G-ma-2**, as in keypad.
 - **No duration × int (M24).** `WaitFor` writes `duration(int64(base) * int64(p.AssistFactor))`, and a millisecond is `duration(int64(n) * 1000000)`.
 
