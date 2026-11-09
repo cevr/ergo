@@ -3,14 +3,13 @@
 // against a Shelf.
 
 import okra/how
-import slices
 
 let guides = Shelf{Entries: []Entry{Entry{Name: "repo", Text: "---\ndescription: Fetch code.\n---\nrepo body"}, Entry{Name: "keys", Text: "keys body"}}}
 
 test ShelfNamesEachTopicOnce {
 	with context { how.Library: guides } {
 		assert how.NamedOnce(how.Library.Names())
-		assert slices.Equal(how.Library.Names(), []string{"repo", "keys"})
+		assert how.Library.Names() == []string{"repo", "keys"}
 	}
 }
 

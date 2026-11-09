@@ -1,8 +1,5 @@
-// The domain's tests: examples of okra's own guides, and the laws as
-// property tests over generated names and texts. The compiler checks laws
-// and does not run them yet (#162); until it does, these tests run them.
-
-import strings
+// The domain's tests: examples of okra's own guides. The laws run under
+// ergo test.
 
 let repoDoc = "---\nname: repo\ndescription: Fetch source code. Use when exploring repos.\n---\n\n# repo\n\nFetch and explore.\n"
 
@@ -80,49 +77,7 @@ func duplicateOf(names []string) Option[string] {
 	None
 }
 
-// missNames reports whether c fails NotFound for name, naming it and
-// exactly known.
-func missNames(c Catalogue, name string, known []string) bool {
-	let _ = c.Find(name) catch {
-	case NotFound as n:
-		return n.Name == name && sameNames(n.Known, known)
-	}
-	false
-}
-
 test DuplicateIsRefused {
 	assert duplicateOf([]string{"a", "b", "a"}) == Some[string]{Value: "a"}
 	assert duplicateOf([]string{"a", "b"}) == None
-}
-
-test FindsEveryTopicHolds(names []string) {
-	if !distinct(names) {
-		assert duplicateOf(names) != None
-		return
-	}
-	let c = try Of(topicsNamed(names))
-	for name in names {
-		let t = try c.Find(name)
-		assert t.Name == name && t.Body == "body of "+name
-	}
-}
-
-test MissNamesTheContentsHolds(names []string, name string) {
-	if !distinct(names) || has(names, name) {
-		return
-	}
-	let c = try Of(topicsNamed(names))
-	assert missNames(c, name, names)
-}
-
-test FrontMatterIsRemovedHolds(description string, body string) {
-	if strings.Contains(description, "\n") || strings.Contains(description, "\r") {
-		return
-	}
-	let t = Parse("t", "---\nname: t\ndescription: "+description+"\n---\n"+body)
-	assert t.Body == strings.TrimSpace(body) && t.Summary == FirstSentence(strings.TrimSpace(description))
-}
-
-test FirstSentenceIsAPrefixHolds(text string) {
-	assert strings.HasPrefix(strings.TrimSpace(text), FirstSentence(text))
 }

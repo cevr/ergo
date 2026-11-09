@@ -4,7 +4,6 @@
 import fs
 import okra/how
 import okra/memory
-import slices
 
 let okra = []memory.File{
 	memory.File{Path: "g/topics", Text: "schedule\n\nrepo\n"},
@@ -15,7 +14,7 @@ let okra = []memory.File{
 test ReadKeepsTheOrderOfTheContents {
 	with context { fs.Files: try memory.Disk(okra) } {
 		let shelf = try Read("g")
-		assert slices.Equal(shelf.Names(), []string{"schedule", "repo"})
+		assert shelf.Names() == []string{"schedule", "repo"}
 		assert try shelf.Guide("repo") == "repo guide"
 		assert len(shelf.Entries) == 2
 	}
