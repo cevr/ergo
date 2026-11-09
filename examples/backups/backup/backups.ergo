@@ -1,39 +1,39 @@
-// Orders is the contract the shop needs: an event-sourced store of
-// orders that decides each command against the order's history and
+// Backups is the contract the backup service needs: an event-sourced store of
+// backups that decides each command against the backup's history and
 // records the events. Package memory provides it.
 
-type Orders {
+type Backups {
 	Send(c Command) []Event fails Rejection,
-	History(order string) []Event,
-	Current(order string) State,
+	History(backup string) []Event,
+	Current(backup string) State,
 
 	// The state a provider keeps is the state its history replays to.
 	law ReplayRebuildsState(c Command) {
 		let _ = Send(c) catch {
 		case Rejection:
-			return Replay(History(OrderOf(c))) == Current(OrderOf(c))
+			return Replay(History(BackupOf(c))) == Current(BackupOf(c))
 		}
-		Replay(History(OrderOf(c))) == Current(OrderOf(c))
+		Replay(History(BackupOf(c))) == Current(BackupOf(c))
 	},
 
-	// A command the order refuses records nothing.
+	// A command the backup refuses records nothing.
 	law RejectedCommandEmitsNothing(c Command) {
-		let before = len(History(OrderOf(c)))
+		let before = len(History(BackupOf(c)))
 		let _ = Send(c) catch {
 		case Rejection:
-			return len(History(OrderOf(c))) == before
+			return len(History(BackupOf(c))) == before
 		}
 		true
 	},
 
-	// A command the order accepts records its events after the history.
+	// A command the backup accepts records its events after the history.
 	law AcceptedCommandIsRecorded(c Command) {
-		let before = len(History(OrderOf(c)))
+		let before = len(History(BackupOf(c)))
 		let events = Send(c) catch {
 		case Rejection:
 			return true
 		}
-		len(History(OrderOf(c))) == before+len(events)
+		len(History(BackupOf(c))) == before+len(events)
 	},
 }
 
@@ -44,7 +44,7 @@ func Simulate(script []Command) []Event {
 	let mut states = Map[string, State]{}
 	let mut log = []Event{}
 	for c in script {
-		let s = match states.Get(OrderOf(c)) {
+		let s = match states.Get(BackupOf(c)) {
 		case Some[State] as found:
 			found.Value
 		case None:
@@ -59,16 +59,16 @@ func Simulate(script []Command) []Event {
 			next = Evolve(next, e)
 			log = log.Append(e)
 		}
-		states[OrderOf(c)] = next
+		states[BackupOf(c)] = next
 	}
 	log
 }
 
-// Of is the events of log that belong to the order.
-func Of(log []Event, order string) []Event {
+// Of is the events of log that belong to the backup.
+func Of(log []Event, backup string) []Event {
 	let mut events = []Event{}
 	for e in log {
-		if StreamOf(e) == order {
+		if StreamOf(e) == backup {
 			events = events.Append(e)
 		}
 	}

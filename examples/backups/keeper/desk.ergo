@@ -1,28 +1,28 @@
-// The desk runs the shop: it sends each command to the orders, starts a
-// saga for each placed order, feeds every event and every minute to the
+// The desk runs the backup service: it sends each command to the backups, starts a
+// saga for each planned backup, feeds every event and every minute to the
 // running sagas, and sends the commands the sagas end with.
 
-import shop/order
+import backups/backup
 
 // Desk is the running sagas and the minute it is.
 type Desk { Running []Running, Now int }
 
 // Outcome is what came of one command: the events it recorded, or the
 // rejection that refused it, as text.
-type Outcome = Recorded{C order.Command, Events []order.Event} | Refused{C order.Command, Why string}
+type Outcome = Recorded{C backup.Command, Events []backup.Event} | Refused{C backup.Command, Why string}
 
 // Open is a desk at minute 0 with no saga running.
 func Open() Desk { Desk{Running: []Running{}, Now: 0} }
 
 // Submit is the desk after command c, and the outcome of c and of each
 // command a saga sent because of it, in the order they ran.
-func Submit(d Desk, c order.Command) (Desk, []Outcome) needs order.Orders {
-	drain(d, []order.Command{c})
+func Submit(d Desk, c backup.Command) (Desk, []Outcome) needs backup.Backups {
+	drain(d, []backup.Command{c})
 }
 
 // Advance is the desk after the clock moves on by minutes, and the
 // outcomes of the commands the sagas sent at the new minute.
-func Advance(d Desk, minutes int) (Desk, []Outcome) needs order.Orders {
+func Advance(d Desk, minutes int) (Desk, []Outcome) needs backup.Backups {
 	let now = d.Now + minutes
 	let still, sends = Feed(d.Running, Tick{Now: now})
 	drain(Desk{Running: still, Now: now}, sends)
@@ -30,7 +30,7 @@ func Advance(d Desk, minutes int) (Desk, []Outcome) needs order.Orders {
 
 // drain sends the queued commands in turn, and queues what the sagas
 // send in reply.
-func drain(d Desk, queued []order.Command) (Desk, []Outcome) needs order.Orders {
+func drain(d Desk, queued []backup.Command) (Desk, []Outcome) needs backup.Backups {
 	let mut desk = d
 	let mut queue = queued
 	let mut outcomes = []Outcome{}
@@ -61,19 +61,19 @@ func drain(d Desk, queued []order.Command) (Desk, []Outcome) needs order.Orders 
 	(desk, outcomes)
 }
 
-// send is the outcome of sending c to the orders.
-func send(c order.Command) Outcome needs order.Orders {
-	let events = order.Orders.Send(c) catch {
-	case order.UnknownOrder:
-		return Refused{C: c, Why: "no such order"}
-	case order.AlreadyPlaced:
-		return Refused{C: c, Why: "already placed"}
-	case order.InvalidLine as l:
-		return Refused{C: c, Why: "bad line " + l.Sku + ": " + l.Reason}
-	case order.WrongAmount as w:
-		return Refused{C: c, Why: "due \(w.Due), paid \(w.Got)"}
-	case order.NotAllowed as n:
-		return Refused{C: c, Why: "cannot " + n.Action + " an order that is " + n.Status}
+// send is the outcome of sending c to the backups.
+func send(c backup.Command) Outcome needs backup.Backups {
+	let events = backup.Backups.Send(c) catch {
+	case backup.UnknownBackup:
+		return Refused{C: c, Why: "no such backup"}
+	case backup.AlreadyPlanned:
+		return Refused{C: c, Why: "already planned"}
+	case backup.InvalidFile as l:
+		return Refused{C: c, Why: "bad file " + l.Path + ": " + l.Reason}
+	case backup.WrongSize as w:
+		return Refused{C: c, Why: "due \(w.Due), stored \(w.Got)"}
+	case backup.NotAllowed as n:
+		return Refused{C: c, Why: "cannot " + n.Action + " a backup that is " + n.Status}
 	}
 	Recorded{C: c, Events: events}
 }

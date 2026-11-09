@@ -1,0 +1,88 @@
+// Decide, Evolve and Replay: the aggregate's three rules. Decide refuses
+// what cannot happen, so Evolve is total and never fails.
+
+// Decide is the events command c records against a backup in state s, or
+// the rejection that refuses it. The match over (state, command) is
+// exhaustive: a new command or state that no case covers does not check.
+func Decide(s State, c Command) []Event fails Rejection {
+	match (s, c) {
+	case (Absent, Plan as p):
+		try planned(p)
+	case (_, Plan as p):
+		AlreadyPlanned{Backup: p.Backup}
+	case (Absent, _):
+		UnknownBackup{Backup: BackupOf(c)}
+	case (Open as o, Store as p):
+		if p.Size != o.S.Total {
+			return WrongSize{Backup: p.Backup, Due: o.S.Total, Got: p.Size}
+		}
+		[]Event{Stored{Backup: p.Backup, Size: p.Size}}
+	case (Open, Abort as x):
+		[]Event{Aborted{Backup: x.Backup, Reason: x.Reason, Freed: 0}}
+	case (Held, Verify as sh):
+		[]Event{Verified{Backup: sh.Backup}}
+	case (Held as p, Abort as x):
+		[]Event{Aborted{Backup: x.Backup, Reason: x.Reason, Freed: p.S.Total}}
+	case (_, Store as p):
+		NotAllowed{Backup: p.Backup, Action: "store", Status: StatusOf(s)}
+	case (_, Verify as sh):
+		NotAllowed{Backup: sh.Backup, Action: "verify", Status: StatusOf(s)}
+	case (_, Abort as x):
+		NotAllowed{Backup: x.Backup, Action: "abort", Status: StatusOf(s)}
+	}
+}
+
+// planned is the events of planning p: Planned, then one FileAdded per file.
+// A backup needs a file; a file needs a path, a count of 1 to 99
+// and a positive size.
+func planned(p Plan) []Event fails InvalidFile {
+	if len(p.Files) == 0 {
+		return InvalidFile{Backup: p.Backup, Path: "", Reason: "a backup needs a file"}
+	}
+	let mut events = []Event{Planned{Backup: p.Backup, Host: p.Host}}
+	for l in p.Files {
+		if l.Path == "" {
+			return InvalidFile{Backup: p.Backup, Path: l.Path, Reason: "no path"}
+		}
+		if l.Count < 1 || l.Count > 99 {
+			return InvalidFile{Backup: p.Backup, Path: l.Path, Reason: "count \(l.Count) is not in 1-99"}
+		}
+		if l.Size <= 0 {
+			return InvalidFile{Backup: p.Backup, Path: l.Path, Reason: "size \(l.Size) is not positive"}
+		}
+		events = events.Append(FileAdded{Backup: p.Backup, Path: l.Path, Count: l.Count, Size: l.Size})
+	}
+	events
+}
+
+// Evolve is the state after event e. It is total: an event the state
+// cannot follow leaves the state as it is, because Decide never records
+// one.
+func Evolve(s State, e Event) State {
+	match (s, e) {
+	case (Absent, Planned as p):
+		Open{S: Summary{Host: p.Host, Total: 0, Files: 0}}
+	case (Open as o, FileAdded as i):
+		Open{S: Summary{..o.S, Total: o.S.Total + int64(i.Count)*i.Size, Files: o.S.Files + i.Count}}
+	case (Open as o, Stored):
+		Held{S: o.S}
+	case (Open as o, Aborted as x):
+		Void{S: o.S, Reason: x.Reason}
+	case (Held as p, Verified):
+		Sound{S: p.S}
+	case (Held as p, Aborted as x):
+		Void{S: p.S, Reason: x.Reason}
+	case (_, _):
+		s
+	}
+}
+
+// Replay is the state of a backup with the history events, folded from
+// Absent.
+func Replay(events []Event) State {
+	let mut s State = Absent
+	for e in events {
+		s = Evolve(s, e)
+	}
+	s
+}
