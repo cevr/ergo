@@ -321,6 +321,24 @@ func main() {
 	use(Mine)
 }
 `,
+	// std actor (mu-host): NewHost's extern returns the Host.
+	"actor.Host": `import actor
+
+type Mine {}
+
+func Get(_ Mine) int fails actor.Stopped { 0 }
+
+func use(h actor.Host[int]) {
+	let _ = h.Get() catch {
+	case actor.Stopped:
+		return
+	}
+}
+
+func main() {
+	use(Mine)
+}
+`,
 	// std time (S2b): NewManual's extern returns the Timeline.
 	"time.Timeline": `import time
 
