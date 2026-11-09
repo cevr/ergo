@@ -1,0 +1,326 @@
+{
+  "about": "The mutant ledger of internal/sketch/check: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants check; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
+  "mutants": [
+    {
+      "name": "existing-0-B1 rowText prints commas",
+      "origin": "196n/mutants-b.json",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "return \"{\" + r.String() + \"}\"",
+      "to": "return \"{\" + r.list(\", \") + \"}\"",
+      "rule": "rowText: rowText prints a row in a message as a set, its names spelled as the source spells a row: `{A | B}` (196n).",
+      "killers": [
+        "check:TestRowTextInMessages"
+      ]
+    },
+    {
+      "name": "existing-1-B2 function type text prints a comma capability row",
+      "origin": "196n/mutants-b.json",
+      "file": "internal/sketch/check/types.go",
+      "from": "if uses := t.Uses.String(); uses != \"\" {",
+      "to": "if uses := t.Uses.list(\", \"); uses != \"\" {",
+      "rule": "String: (no doc comment)",
+      "killers": [
+        "check:TestRowTextInMessages"
+      ]
+    },
+    {
+      "name": "existing-47-close-witnessed-admitted",
+      "origin": "lower-v1/receipts/s4/mutants-s4c-close.json",
+      "file": "internal/sketch/check/withown.go",
+      "from": "\t\tif it != nil && len(it.Methods) > 0 {\n",
+      "to": "\t\tif it != nil && len(it.Methods) > 1000 {\n",
+      "rule": "closeWitnessed: closeWitnessed is the S109 of a provider whose generic Close has a type parameter constrained by operations, or \"\".",
+      "killers": [
+        "lower:TestE4CheckerRefusesFirst"
+      ]
+    },
+    {
+      "name": "existing-61-footprint-keeps-poll",
+      "origin": "batch-12/W/W2/mutants.json",
+      "file": "internal/sketch/check/footprint.go",
+      "from": "\tcase pureStd(f):\n\t\tn.tasks = n.tasks || taskResult\n",
+      "to": "\tcase pureStd(f):\n\t\tn.tasks = n.tasks || taskResult\n\t\tif preludeCollection(f) {\n\t\t\tn.opaque = true\n\t\t}\n",
+      "rule": "runs: runs adds a run of the function f to n: an edge to its node when it is a function of the package, the footprint its package recorded when it is imported, and opaque when its body is unknown.",
+      "killers": [
+        "check:TestFootprintsPurePreludeOff"
+      ]
+    },
+    {
+      "name": "own-check-0-and-or-withown.go:513",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/check/withown.go",
+      "from": "\t\t\tif t := info.Tails[s]; t != nil && !failure(t) {",
+      "to": "\t\t\tif t := info.Tails[s]; t != nil || !failure(t) {",
+      "rule": "providerResults: providerResults collects explicit value returns in this frame and its implicit result tails.",
+      "killers": [
+        "check:TestContextOwnershipFreshFallibleConstructors"
+      ]
+    },
+    {
+      "name": "own-check-1-ne-eq-types.go:519",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/check/types.go",
+      "from": "\t\tfor o != nil && j < len(o.ids) && o.ids[j] < id {",
+      "to": "\t\tfor o == nil && j < len(o.ids) && o.ids[j] < id {",
+      "rule": "minus: minus returns the elements of r that are not in o.",
+      "killers": [
+        "check:TestRowValueOperations",
+        "check:TestFootprintsPureTaskBody",
+        "lower:TestCatchTreeShape"
+      ]
+    },
+    {
+      "name": "own-check-2-negate-if-typeops.go:693",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "\t\t\tif !comparableSeen(f.Type, seen) {",
+      "to": "\t\t\tif !(!comparableSeen(f.Type, seen)) {",
+      "rule": "comparableSeen: (no doc comment)",
+      "killers": [
+        "check:TestComparabilityIsStructural",
+        "check:TestPreludeAndStdAreClean",
+        "check:TestImportNamedLikeContext",
+        "check:TestTopLevelLawMessages"
+      ]
+    },
+    {
+      "name": "own-check-3-negate-if-expr.go:566",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/check/expr.go",
+      "from": "func (c *checker) orphanElements(x *syntax.CompositeLit, mark int, lt litType) {\n\tif x.Base != nil {\n\t\tc.orphan(x.Base, mark) // a record update's base is a value the walk reads",
+      "to": "func (c *checker) orphanElements(x *syntax.CompositeLit, mark int, lt litType) {\n\tif !(x.Base != nil) {\n\t\tc.orphan(x.Base, mark) // a record update's base is a value the walk reads",
+      "rule": "fitsInt64: (no doc comment)",
+      "killers": [
+        "check:TestRefusals196u",
+        "std:TestStdHostHandOutsAcrossPackages",
+        "lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "name": "own-check-4-negate-if-types.go:643",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/check/types.go",
+      "from": "\t\tif len(t.TArgs) > 0 {",
+      "to": "\t\tif !(len(t.TArgs) > 0) {",
+      "rule": "typeString: typeString is a type's canonical text for printing order only: package paths qualify names, and it carries no identity (two distinct declarations of one name print alike).",
+      "killers": [
+        "check:TestContextInfo"
+      ]
+    },
+    {
+      "name": "own-check-5-eq-ne-capset.go:103",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/check/capset.go",
+      "from": "\treturn a == b || a != nil && b != nil && a.keys == b.keys",
+      "to": "\treturn a != b || a != nil && b != nil && a.keys == b.keys",
+      "rule": "sameKeys: sameKeys reports whether summary subtrees a and b are known to hold the same keys: the same node, or one key shape.",
+      "killers": [
+        "check:TestSeveralOperandsAreNestingSeed2Part2",
+        "check:TestWithScopeIsTheWalk"
+      ]
+    },
+    {
+      "name": "own-check-6-ne-eq-typeops.go:59",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "\t\t\tchanged = changed || nb != cur",
+      "to": "\t\t\tchanged = changed || nb == cur",
+      "rule": "subst: subst replaces type parameters by their bindings.",
+      "killers": [
+        "check:TestRowVariableWitnesses",
+        "check:TestIdentityGenericInferred"
+      ]
+    },
+    {
+      "name": "own-check-7-negate-if-capset.go:675",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/check/capset.go",
+      "from": "\t\treturn n, false, false, ok\n\t}\n\tif !m.step(1) {\n\t\treturn n, false, false, false\n\t}",
+      "to": "\t\treturn n, false, false, ok\n\t}\n\tif !(!m.step(1)) {\n\t\treturn n, false, false, false\n\t}",
+      "rule": "capInsert: capInsert returns n with (k, t) added, provided by e, and whether it was added; when over is set, an element already there whose entry is not e is copied with e (changed).",
+      "killers": [
+        "check:TestCapSetPut",
+        "examples:checkout",
+        "lower:TestCheckIsCanonical"
+      ]
+    },
+    {
+      "name": "own-check-8-negate-if-patterns.go:148",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/check/patterns.go",
+      "from": "\t\tif c.silent == 0 {",
+      "to": "\t\tif !(c.silent == 0) {",
+      "rule": "irrefutable: irrefutable resolves the pattern of a let or a for binding against a value of type t (spec D-B5; 196v amended rule 4): a pattern that does not cover t is S103 naming one missing case, and its names still bind (D-D3's cascade rule).",
+      "killers": [
+        "check:TestMatchArmsLinearPart1",
+        "check:TestMatchArmsLinearPart2"
+      ]
+    },
+    {
+      "name": "own-check-9-false-true-operators.go:325",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/check/operators.go",
+      "from": "\t\t\t\tc.errorf(x, CodeType, \"cannot compare %s with %s: a %s satisfies %s through its functions, so it is not a %s value; compare two values of one type\", l.typ, r.typ, from.typ, to.typ, to.typ)\n\t\t\t\treturn false\n\t\t\t}",
+      "to": "\t\t\t\tc.errorf(x, CodeType, \"cannot compare %s with %s: a %s satisfies %s through its functions, so it is not a %s value; compare two values of one type\", l.typ, r.typ, from.typ, to.typ, to.typ)\n\t\t\t\treturn true\n\t\t\t}",
+      "rule": "matchTypes: matchTypes reports operands of two types (S108): both operands of a binary operator have one type (196u rule 4), and == and != also compare a value with an interface it is assignable to.",
+      "killers": [
+        "check:TestAssignabilityClauses"
+      ]
+    },
+    {
+      "name": "own-check-10-negate-if-typeops.go:113",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "\t\t\tif r2 == NoValue {",
+      "to": "\t\t\tif !(r2 == NoValue) {",
+      "rule": "subst: subst replaces type parameters by their bindings.",
+      "killers": [
+        "check:TestDifferentialInfoNames",
+        "check:TestInferenceUnions",
+        "check:TestPreludeAndStdAreClean"
+      ]
+    },
+    {
+      "name": "own-check-11-negate-if-expr.go:995",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/check/expr.go",
+      "from": "\t\tif report {",
+      "to": "\t\tif !(report) {",
+      "rule": "strayValue: strayValue checks a value that a struct literal's refusal route skips (an extra positional value, an unknown field, a key that is not a name, a field set twice).",
+      "killers": [
+        "check:TestStrayStructValuesAreNotReferences"
+      ]
+    },
+    {
+      "name": "own-check-12-negate-if-typeops.go:179",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "\t\tif !c.mayBeIdentical(a.Results[i], b.Results[i]) {",
+      "to": "\t\tif !(!c.mayBeIdentical(a.Results[i], b.Results[i])) {",
+      "rule": "sameShape: sameShape reports whether two signatures have identical parameters and results, where an unknown row may be identical to another row (mayBeIdentical).",
+      "killers": [
+        "check:TestConstructibleFact",
+        "check:TestPreludeAndStdAreClean",
+        "check:TestQualifiedContextEmbed"
+      ]
+    },
+    {
+      "name": "own-check-13-ne-eq-reflits.go:236",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/check/reflits.go",
+      "from": "\tif x.Type != nil {",
+      "to": "\tif x.Type == nil {",
+      "rule": "compositeLit: compositeLit walks a composite literal; lt is its elided type, when its type is not written.",
+      "killers": [
+        "check:TestEveryLiteralRefusalRecordsItsFrames",
+        "check:TestStrayStructValuesAreNotReferences",
+        "check:TestStrayGenericRecordValuesAreNotReferences"
+      ]
+    },
+    {
+      "name": "own-check-14-ne-eq-rows.go:652",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/check/rows.go",
+      "from": "\t\tif ps := f.Decl.Type.Params; ps != nil && len(ps.List) > 0 {",
+      "to": "\t\tif ps := f.Decl.Type.Params; ps == nil && len(ps.List) > 0 {",
+      "rule": "reportGroup: reportGroup reports the class G S108 of each refused member of a component at its declaration, where the row is written: one diagnostic per function, at a position that does not depend on the order of the declarations (round 16).",
+      "killers": [
+        "check:TestClassGMessage",
+        "check:TestClassGProvisionalFrame"
+      ]
+    },
+    {
+      "name": "own-check-15-drop-continue-withown.go:170",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/check/withown.go",
+      "from": "\t\t\t\t}\n\t\t\t\tcontinue\n\t\t\t}",
+      "to": "\t\t\t\t}\n\t\t\t\t_ = 0\n\t\t\t}",
+      "rule": "withOwnership: (no doc comment)",
+      "killers": [],
+      "gap": "plan 2.3: 3 check and 6 lower tests cover it; none asserts that no second diagnostic follows the refusal at the provider"
+    },
+    {
+      "name": "own-check-16-true-false-bindings.go:152",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/check/bindings.go",
+      "from": "\tif c.preludeName(id) {\n\t\treturn true\n\t}",
+      "to": "\tif c.preludeName(id) {\n\t\treturn false\n\t}",
+      "rule": "localBinder: localBinder runs the binder rules for a local about to bind the name id declares in the current scope: a prelude name (D-D3) first, else shadowing (D-D2).",
+      "killers": [
+        "check:TestRefusedBinderCases"
+      ]
+    },
+    {
+      "name": "own-check-17-negate-if-total.go:704",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/check/total.go",
+      "from": "\tm.cover = m.subsumer(q)\n\tif s.over {\n\t\treturn false, false",
+      "to": "\tm.cover = m.subsumer(q)\n\tif !(s.over) {\n\t\treturn false, false",
+      "rule": "caseUseful: caseUseful reports whether case q matches a value the rows of m do not.",
+      "killers": [
+        "check:TestSelfCallWaitsForRow",
+        "check:TestCatchCoverageWitnesses",
+        "check:TestCatchAlternativesBindTheSameNames"
+      ]
+    },
+    {
+      "name": "own-check-18-negate-if-handlers.go:347",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/check/handlers.go",
+      "from": "\t\tif len(arm.Types) > 1 || name != nil {",
+      "to": "\t\tif !(len(arm.Types) > 1 || name != nil) {",
+      "rule": "resolve: resolve resolves one pattern of arm: `case err:`, `case _`, a type test, a record pattern T{F: p}, each with an optional `as` name.",
+      "killers": [
+        "check:TestCatchCoverageWitnesses",
+        "check:TestRowValueOperations",
+        "check:TestFootprintsPureTaskBody"
+      ]
+    },
+    {
+      "name": "own-check-19-negate-if-contextsum.go:646",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/check/contextsum.go",
+      "from": "\tif s == nil {",
+      "to": "\tif !(s == nil) {",
+      "rule": "bodySummary: bodySummary returns the summary of a named or inline context body, which the pass decided; an inline body is finished here, at its first check, within its allowance.",
+      "killers": [
+        "check:TestEscapingPositions",
+        "std:TestStdExternCallersHoldAuthority",
+        "examples:tidewalk-replay"
+      ]
+    },
+    {
+      "name": "t0-law-tail-not-checked",
+      "origin": "wf10 T0 ts-mutant-ledger (rule of check laws_domain_test.go TestLawDomain)",
+      "file": "internal/sketch/check/laws.go",
+      "from": "\tc.lawResult(at, k.typ())\n}",
+      "to": "\t_, _ = at, k.typ()\n}",
+      "rule": "lawBody: a law's tail value is a bool: a tail of another type is S108 at the tail (laws.go rules 5 and 8; laws_domain_test.go TestLawDomain)",
+      "killers": [
+        "check:TestLawRules"
+      ]
+    },
+    {
+      "name": "t0-try-on-infallible-admitted",
+      "origin": "wf10 T0 ts-mutant-ledger (rule of check catch_oracle_test.go, review O3)",
+      "file": "internal/sketch/check/handlers.go",
+      "from": "\tif !op.fallible() {\n\t\tc.errorf(x, CodeType, \"try on an expression that cannot fail (rows.md, Error rows 6)\")",
+      "to": "\tif false {\n\t\tc.errorf(x, CodeType, \"try on an expression that cannot fail (rows.md, Error rows 6)\")",
+      "rule": "try on an expression that cannot fail is S108 (rows.md, Error rows 6; a partial catch that handles the whole row leaves a redundant try)",
+      "killers": [
+        "check:TestTryCoversTheWholeExpression"
+      ]
+    },
+    {
+      "name": "t0-catch-on-infallible-admitted",
+      "origin": "wf10 T0 ts-mutant-ledger (rule of check catch_oracle_test.go)",
+      "file": "internal/sketch/check/handlers.go",
+      "from": "\tif valid && row.Empty() { // an unknown row is not empty",
+      "to": "\tif false && row.Empty() { // an unknown row is not empty",
+      "rule": "a catch on an expression that cannot fail is S108 (rows.md, Catch 1)",
+      "killers": [
+        "check:TestOneDiagnosticEach"
+      ]
+    }
+  ]
+}

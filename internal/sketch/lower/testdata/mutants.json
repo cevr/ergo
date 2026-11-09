@@ -1,0 +1,1084 @@
+{
+  "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
+  "mutants": [
+    {
+      "name": "existing-2-unit-h",
+      "origin": "lower-v1/verify-s4a/r2/mutants-r2.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "{\"h\", 3600e9}",
+      "to": "{\"hr\", 3600e9}",
+      "rule": "$LitDuration: $LitDuration writes a duration in its largest exact unit: 1500ms, 2h.",
+      "killers": [
+        "lower:TestArgumentTextRoundTrips"
+      ],
+      "anchor": {
+        "text": "Replace(harnessGo)"
+      }
+    },
+    {
+      "name": "existing-3-unit-m",
+      "origin": "lower-v1/verify-s4a/r2/mutants-r2.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "{\"m\", 60e9}",
+      "to": "{\"min\", 60e9}",
+      "rule": "$LitDuration: $LitDuration writes a duration in its largest exact unit: 1500ms, 2h.",
+      "killers": [
+        "lower:TestArgumentTextRoundTrips"
+      ],
+      "anchor": {
+        "text": "Replace(harnessGo)"
+      }
+    },
+    {
+      "name": "existing-4-unit-s",
+      "origin": "lower-v1/verify-s4a/r2/mutants-r2.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "{\"s\", 1e9}",
+      "to": "{\"sec\", 1e9}",
+      "rule": "$LitDuration: $LitDuration writes a duration in its largest exact unit: 1500ms, 2h.",
+      "killers": [
+        "lower:TestArgumentTextRoundTrips"
+      ],
+      "anchor": {
+        "text": "Replace(harnessGo)"
+      }
+    },
+    {
+      "name": "existing-5-unit-ms",
+      "origin": "lower-v1/verify-s4a/r2/mutants-r2.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "{\"ms\", 1e6}",
+      "to": "{\"msec\", 1e6}",
+      "rule": "$LitDuration: $LitDuration writes a duration in its largest exact unit: 1500ms, 2h.",
+      "killers": [
+        "lower:TestArgumentTextRoundTrips"
+      ],
+      "anchor": {
+        "text": "Replace(harnessGo)"
+      }
+    },
+    {
+      "name": "existing-6-unit-us",
+      "origin": "lower-v1/verify-s4a/r2/mutants-r2.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "{\"us\", 1e3}",
+      "to": "{\"usec\", 1e3}",
+      "rule": "$LitDuration: $LitDuration writes a duration in its largest exact unit: 1500ms, 2h.",
+      "killers": [
+        "lower:TestArgumentTextRoundTrips"
+      ],
+      "anchor": {
+        "text": "Replace(harnessGo)"
+      }
+    },
+    {
+      "name": "existing-7-unit-ns",
+      "origin": "lower-v1/verify-s4a/r2/mutants-r2.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\treturn $strconv.FormatInt(n, 10) + \"ns\"\n",
+      "to": "\treturn $strconv.FormatInt(n, 10) + \"nsec\"\n",
+      "rule": "$LitDuration: $LitDuration writes a duration in its largest exact unit: 1500ms, 2h.",
+      "killers": [
+        "lower:TestAssertLiteralsReadBack"
+      ],
+      "anchor": {
+        "text": "Replace(harnessGo)"
+      }
+    },
+    {
+      "name": "existing-8-mixed-truncates",
+      "origin": "lower-v1/verify-s4a/r2/mutants-r2.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\t\tif n != 0 && n%u.size == 0 {\n",
+      "to": "\t\tif n/u.size != 0 {\n",
+      "rule": "$LitDuration: $LitDuration writes a duration in its largest exact unit: 1500ms, 2h.",
+      "killers": [
+        "lower:TestArgumentTextRoundTrips"
+      ],
+      "anchor": {
+        "text": "Replace(harnessGo)"
+      }
+    },
+    {
+      "name": "existing-9-minute-dropped",
+      "origin": "lower-v1/verify-s4a/r2/mutants-r2.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "{\"m\", 60e9}, ",
+      "to": "",
+      "rule": "$LitDuration: $LitDuration writes a duration in its largest exact unit: 1500ms, 2h.",
+      "killers": [
+        "lower:TestArgumentTextRoundTrips"
+      ],
+      "anchor": {
+        "text": "Replace(harnessGo)"
+      }
+    },
+    {
+      "name": "existing-10-min-special-dropped",
+      "origin": "lower-v1/verify-s4a/r2/mutants-r2.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\tif n == -1<<63 {\n",
+      "to": "\tif n == 1 && n == 2 {\n",
+      "rule": "$LitDuration: $LitDuration writes a duration in its largest exact unit: 1500ms, 2h.",
+      "killers": [
+        "lower:TestPropertySeed",
+        "lower:TestStdLawsRun",
+        "lower:TestLowerPackages"
+      ],
+      "anchor": {
+        "text": "Replace(harnessGo)"
+      }
+    },
+    {
+      "name": "existing-11-min-special-dropped2",
+      "origin": "lower-v1/verify-s4a/r2/mutants-r2b.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\tif n == -1<<63 {\n",
+      "to": "\tif n == -1<<63+1 {\n",
+      "rule": "$LitDuration: $LitDuration writes a duration in its largest exact unit: 1500ms, 2h.",
+      "killers": [
+        "lower:TestArgumentTextRoundTrips"
+      ],
+      "anchor": {
+        "text": "Replace(harnessGo)"
+      }
+    },
+    {
+      "name": "existing-12-test-runs-main",
+      "origin": "lower-v1/verify-s4a/mutants-s4a.json",
+      "file": "internal/sketch/lower/module.go",
+      "from": "\tcase l.tests != nil:\n",
+      "to": "\tcase l.tests != nil && main == nil:\n",
+      "rule": "program: program lowers the program and assembles main.go: the root package's declarations, file by file, then the lets of each sourced library, in initialization order (sources.go).",
+      "killers": [
+        "lower:TestTestBuildHasEveryTest"
+      ]
+    },
+    {
+      "name": "existing-13-defect-continues",
+      "origin": "lower-v1/verify-s4a/mutants-s4a.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\t$Runtime.Raise(exit)\n",
+      "to": "\tok = false\n",
+      "rule": "$Case: $Case runs one case of the test name, declared at at, on the task t.",
+      "killers": [
+        "lower:TestE3Sweep",
+        "lower:TestTestRunnerModelPart0",
+        "lower:TestTestRunnerModelPart1"
+      ],
+      "anchor": {
+        "text": "Replace(harnessGo)"
+      }
+    },
+    {
+      "name": "existing-14-assert-stops",
+      "origin": "lower-v1/verify-s4a/mutants-s4a.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\t\t\tok = false\n",
+      "to": "\t\t\t$os.Exit(1)\n",
+      "rule": "$Case: $Case runs one case of the test name, declared at at, on the task t.",
+      "killers": [
+        "lower:TestArgumentTextRoundTrips"
+      ],
+      "anchor": {
+        "text": "Replace(harnessGo)"
+      }
+    },
+    {
+      "name": "existing-15-pass-after-fail",
+      "origin": "lower-v1/verify-s4a/mutants-s4a.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "b.WriteString(\"\\tif \" + failed + \" > 0 {\\n\")",
+      "to": "b.WriteString(\"\\tif \" + failed + \" > 1000 {\\n\")",
+      "rule": "testRunner: testRunner is the Go function that runs every test in source order.",
+      "killers": [
+        "lower:TestPropertySeed",
+        "lower:TestVerifyR3ErasedRows"
+      ]
+    },
+    {
+      "name": "existing-16-go-arg-text",
+      "origin": "lower-v1/verify-s4a/mutants-s4a.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "shown = append(shown, strconv.Quote(sep+v.Name+\" = \"), l.litExpr(v.Type, a, t.Decl))",
+      "to": "shown = append(shown, strconv.Quote(sep+v.Name+\" = \"), fmtPkg+\".Sprintf(\\\"%+v\\\", \"+a+\")\")",
+      "rule": "testRunner: testRunner is the Go function that runs every test in source order.",
+      "killers": [
+        "lower:TestPropertySeed"
+      ]
+    },
+    {
+      "name": "existing-17-v-duration-bad-unit",
+      "origin": "lower-v1/verify-s4a/mutants-extra3.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "}{{\"h\", 3600e9}, {\"m\", 60e9}, {\"s\", 1e9}, {\"ms\", 1e6}, {\"us\", 1e3}}",
+      "to": "}{{\"hr\", 3600e9}, {\"min\", 60e9}, {\"sec\", 1e9}, {\"msec\", 1e6}, {\"usec\", 1e3}}",
+      "rule": "$LitDuration: $LitDuration writes a duration in its largest exact unit: 1500ms, 2h.",
+      "killers": [
+        "lower:TestArgumentTextRoundTrips"
+      ],
+      "anchor": {
+        "text": "Replace(harnessGo)"
+      }
+    },
+    {
+      "name": "existing-18-v-map-unsorted",
+      "origin": "lower-v1/verify-s4a/mutants-extra.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\t$sort.Slice(keys, func(i, j int) bool { return less(keys[i], keys[j]) })\n",
+      "to": "\t_ = less\n",
+      "rule": "$LitEntries: $LitEntries writes a Map literal of the type typ, its keys sorted: by less when the key type is ordered, else by the keys' text.",
+      "killers": [
+        "lower:TestAssertShowsValues"
+      ],
+      "anchor": {
+        "text": "Replace(harnessGo)"
+      }
+    },
+    {
+      "name": "existing-19-v-stream-ignores-name",
+      "origin": "lower-v1/verify-s4a/mutants-extra.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\t\tr.s = r.s*31 + uint64(name[i])\n",
+      "to": "\t\tr.s = r.s*1 + 0*uint64(name[i])\n",
+      "rule": "$NewRand: $NewRand is the generator of the test name under seed: each property draws its own stream, so adding a test changes no other test's cases.",
+      "killers": [
+        "lower:TestGeneratorsReachEveryClass"
+      ],
+      "anchor": {
+        "text": "Replace(harnessGo)"
+      }
+    },
+    {
+      "name": "existing-20-v-map-unsorted2",
+      "origin": "lower-v1/verify-s4a/mutants-extra2.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\t$sort.Slice(keys, func(i, j int) bool { return less(keys[i], keys[j]) })\n",
+      "to": "\t$sort.Slice(keys, func(i, j int) bool { return less(keys[i], keys[j]) && false })\n",
+      "rule": "$LitEntries: $LitEntries writes a Map literal of the type typ, its keys sorted: by less when the key type is ordered, else by the keys' text.",
+      "killers": [],
+      "gap": "survived: no test kills it (runner, 2026-11-09)",
+      "anchor": {
+        "text": "Replace(harnessGo)"
+      }
+    },
+    {
+      "name": "existing-21-v-string-unquoted",
+      "origin": "lower-v1/verify-s4a/mutants-extra2.json",
+      "file": "internal/sketch/lower/literal.go",
+      "from": "\t\t\treturn h(\"strconv\") + \".Quote(\" + val + \")\"\n",
+      "to": "\t\t\treturn \"(`\\\"` + \" + val + \" + `\\\"`)\"\n",
+      "rule": "litExpr: litExpr is the Go expression of the Ergo literal of val, val of type t.",
+      "killers": [
+        "lower:TestArgumentTextRoundTrips"
+      ]
+    },
+    {
+      "name": "existing-22-s4b-r2-purity-from-rows",
+      "origin": "lower-v1/verify-s4b/r2/mutants-r2.json",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "return !fd.fallible && len(rowElems(step.Sig.Uses)) == 0 && !fd.readsEnv",
+      "to": "return !fd.fallible && len(rowElems(step.Sig.Uses)) == 0 && frameFootprint(step.Pkg.Info, step.Decl).Empty()",
+      "rule": "machinePure: machinePure reports a step whose plan takes no environment: no error row, no capability row, and a lowered body that never names its environment.",
+      "killers": [
+        "lower:TestMachinePlanStepReadsItsEnvironment"
+      ]
+    },
+    {
+      "name": "existing-23-s4b-r2-reads-never",
+      "origin": "lower-v1/verify-s4b/r2/mutants-r2.json",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "case tok == token.IDENT && lit == id:\n\t\t\treturn true",
+      "to": "case tok == token.IDENT && lit == id:\n\t\t\treturn false",
+      "rule": "namesIdent: namesIdent reports whether the Go text src names the identifier id as a token: a string, a comment or a longer name that holds id does not count.",
+      "killers": [
+        "lower:TestMachinePlanStepReadsItsEnvironment"
+      ]
+    },
+    {
+      "name": "existing-24-verify-r2-helper-call-not-a-read",
+      "origin": "lower-v1/verify-s4b/r2/mutants-r2.json",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "\tif !strings.Contains(src, id) {\n\t\treturn false\n\t}\n",
+      "to": "\tif true {\n\t\treturn strings.Contains(src, \"*\"+id) || strings.Contains(src, id+\".\")\n\t}\n",
+      "rule": "namesIdent: namesIdent reports whether the Go text src names the identifier id as a token: a string, a comment or a longer name that holds id does not count.",
+      "killers": [
+        "lower:TestMachinePlanValues"
+      ]
+    },
+    {
+      "name": "existing-25-machine-initial-zero",
+      "origin": "lower-v1/verify-s4b/r2/mutants-r2.json",
+      "file": "internal/sketch/lower/machine.go",
+      "from": ") Initial() \" + state + \" { return \" + initial + \" }\\n\\n\")",
+      "to": ") Initial() (z \" + state + \") { return }\\n\\n\")",
+      "rule": "machinePlan: machinePlan writes the plan of the machine td and records its initial value for the initializer.",
+      "killers": [
+        "lower:TestMachinePlanValues"
+      ]
+    },
+    {
+      "name": "existing-26-verify-impure-step-nil-env",
+      "origin": "lower-v1/verify-s4b/mutants-verify.json",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "\"(\" + env + \", \" + s + \", \" + e + \")\\n}\\n\\n\")",
+      "to": "\"(nil, \" + s + \", \" + e + \")\\n}\\n\\n\")",
+      "rule": "machinePlan: machinePlan writes the plan of the machine td and records its initial value for the initializer.",
+      "killers": [
+        "lower:TestMachinePlanValues"
+      ]
+    },
+    {
+      "name": "existing-27-pure-too-wide",
+      "origin": "lower-v1/verify-s5abc/mutants.json",
+      "file": "internal/sketch/lower/pure.go",
+      "from": "if len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 || s.ResultIsTask()",
+      "to": "if len(rowElems(s.Errors)) > 0 || s.ResultIsTask()",
+      "rule": "pureCandidate: pureCandidate reports whether f meets every rule of a pure function but the last's fixed point, with the Ergo-bodied functions its body calls, of any package; info is f's own package's Info.",
+      "killers": [
+        "lower:TestStdLawsAddNoGo"
+      ]
+    },
+    {
+      "name": "existing-28-pure-too-wide",
+      "origin": "lower-v1/receipts/s5/mutants-s5c.json",
+      "file": "internal/sketch/lower/pure.go",
+      "from": "\ts := f.Sig\n\tif len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 ||",
+      "to": "\ts := f.Sig\n\tif len(rowElems(s.Uses)) > 0 && len(rowElems(s.Errors)) == 0 {\n\t\treturn nil, true\n\t}\n\tif len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 ||",
+      "rule": "pureCandidate: pureCandidate reports whether f meets every rule of a pure function but the last's fixed point, with the Ergo-bodied functions its body calls, of any package; info is f's own package's Info.",
+      "killers": [
+        "lower:TestStdLawsAddNoGo",
+        "lower:TestErgoRunDefaultMapIsWritable",
+        "lower:TestErgoRunAssignability"
+      ]
+    },
+    {
+      "name": "existing-29-protocol-name-only",
+      "origin": "lower-v1/receipts/s5/mutants-m1.json",
+      "file": "internal/sketch/lower/pure.go",
+      "from": "\tparams := f.Sig.Params[1:]\n",
+      "to": "\treturn true\n\tparams := f.Sig.Params[1:]\n",
+      "rule": "meetsHostProtocol: meetsHostProtocol reports whether f lowers to a Go method whose name and Go signature, without an environment, are a host protocol's exactly (case a).",
+      "killers": [
+        "lower:TestPureMethodsMeetNoHostProtocolByAccident"
+      ]
+    },
+    {
+      "name": "existing-30-protocol-no-mangle",
+      "origin": "lower-v1/receipts/s5/mutants-m1.json",
+      "file": "internal/sketch/lower/pure.go",
+      "from": "\tif _, ok := hostProtocols[name]; !ok {\n\t\treturn name\n\t}\n\ttaken",
+      "to": "\treturn name\n\ttaken",
+      "rule": "protocolFreeName: protocolFreeName is the Go method name of a pure function f that lowers to a method of td under name (case b): name itself unless it is a host protocol's, else the name with an underscore appended until it is free among td's fields and the functions on td, as a field renamed for Error is (typeDecl).",
+      "killers": [
+        "lower:TestPureMethodsMeetNoHostProtocolByAccident"
+      ]
+    },
+    {
+      "name": "existing-31-errortext-drops-field",
+      "origin": "lower-v1/receipts/s4/mutants-s4c-errortext.json",
+      "file": "internal/sketch/lower/text.go",
+      "from": "\tb.WriteString(head + \"\\tswitch \" + v + \" := any(\" + recv + \").(type) {\\n\" + cases.String() + \"\\t}\\n\\treturn \" + name + \"\\n}\\n\\n\")",
+      "to": "\tb.WriteString(head + \"\\treturn \" + name + \"\\n}\\n\\n\")",
+      "rule": "errorMethod: errorMethod writes the Error method of the error type td, and queues the text functions its text needs.",
+      "killers": [
+        "lower:TestErrorTextInstancesAcrossPackages"
+      ]
+    },
+    {
+      "name": "existing-32-errortext-one-instance",
+      "origin": "lower-v1/receipts/s4/mutants-s4c-errortext.json",
+      "file": "internal/sketch/lower/text.go",
+      "from": "\t\tif done[goType] {\n\t\t\tcontinue\n\t\t}",
+      "to": "\t\tif len(done) > 0 {\n\t\t\tcontinue\n\t\t}",
+      "rule": "errorMethod: errorMethod writes the Error method of the error type td, and queues the text functions its text needs.",
+      "killers": [
+        "lower:TestErrorTextInstancesAcrossPackages"
+      ]
+    },
+    {
+      "name": "existing-33-novalue-call-dropped",
+      "origin": "lower-v1/receipts/s4/mutants-s4c-novalue.json",
+      "file": "internal/sketch/lower/body.go",
+      "from": "if text := fc.callStmt(call); text != \"\" {",
+      "to": "if text := fc.callStmt(call); text != \"\" && c.Kind != check.CallFuncValue {",
+      "rule": "discard: discard evaluates x and drops its value: a call is a Go call statement, and any other value is assigned to the blank identifier.",
+      "killers": [
+        "lower:TestErgoRunSeq"
+      ]
+    },
+    {
+      "name": "existing-34-novalue-shape-old",
+      "origin": "lower-v1/receipts/s4/mutants-s4c-novalue.json",
+      "file": "internal/sketch/lower/types.go",
+      "from": "\tif result == nil {\n\t\treturn \" (struct{}, error)\"\n\t}\n\treturn tc.resultList(result, true)",
+      "to": "\treturn tc.resultList(result, true)",
+      "rule": "valueResults: valueResults is the result list of a function value of the uniform shape (funcType): its value, or struct{} when it has none, then the error.",
+      "killers": [
+        "lower:TestStdLawsAddNoGo"
+      ]
+    },
+    {
+      "name": "existing-35-rule-text-names-closed-stage",
+      "origin": "lower-v1/receipts/s4/mutants-s4d-r2.json",
+      "file": "internal/sketch/lower/unreachable.go",
+      "from": "ruleParser = `the decided parser, which builds no such node`",
+      "to": "ruleParser = `the decided parser, which builds no such node; lowered in lower-v1 stage 4`",
+      "rule": "The rules that make a lowering site unreachable (unreachable, module.go).",
+      "killers": [
+        "lower:TestRefusalsNameOpenOwners"
+      ],
+      "anchor": {
+        "file": "internal/sketch/lower/module.go",
+        "text": "\"; unreachable by \"+rule)",
+        "tests": [
+          "lower:TestRefusalsNameOpenOwners",
+          "lower:TestUnreachableRulesRefuse",
+          "lower:TestGenericCloseWithWitnessesNamesOwner",
+          "lower:TestErrorFieldNamesStayDistinct"
+        ]
+      }
+    },
+    {
+      "name": "existing-36-rule-text-is-closed-stage",
+      "origin": "lower-v1/receipts/s4/mutants-s4d-r2.json",
+      "file": "internal/sketch/lower/unreachable.go",
+      "from": "ruleParser = `the decided parser, which builds no such node`",
+      "to": "ruleParser = `lower-v1 stage 4`",
+      "rule": "The rules that make a lowering site unreachable (unreachable, module.go).",
+      "killers": [
+        "lower:TestRefusalsNameOpenOwners"
+      ],
+      "anchor": {
+        "file": "internal/sketch/lower/module.go",
+        "text": "\"; unreachable by \"+rule)",
+        "tests": [
+          "lower:TestRefusalsNameOpenOwners",
+          "lower:TestUnreachableRulesRefuse",
+          "lower:TestGenericCloseWithWitnessesNamesOwner",
+          "lower:TestErrorFieldNamesStayDistinct"
+        ]
+      }
+    },
+    {
+      "name": "existing-37-rule-text-names-unowned-stage",
+      "origin": "lower-v1/receipts/s4/mutants-s4d-r2.json",
+      "file": "internal/sketch/lower/unreachable.go",
+      "from": "ruleParser = `the decided parser, which builds no such node`",
+      "to": "ruleParser = `the decided parser, which builds no such node; waits for stage 5`",
+      "rule": "The rules that make a lowering site unreachable (unreachable, module.go).",
+      "killers": [
+        "lower:TestRefusalsNameOpenOwners"
+      ],
+      "anchor": {
+        "file": "internal/sketch/lower/module.go",
+        "text": "\"; unreachable by \"+rule)",
+        "tests": [
+          "lower:TestRefusalsNameOpenOwners",
+          "lower:TestUnreachableRulesRefuse",
+          "lower:TestGenericCloseWithWitnessesNamesOwner",
+          "lower:TestErrorFieldNamesStayDistinct"
+        ]
+      }
+    },
+    {
+      "name": "existing-38-s4a-r2-duration-h",
+      "origin": "lower-v1/receipts/s4/mutants-s4a-r2.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "{\"h\", 3600e9}, {\"m\", 60e9}",
+      "to": "{\"hr\", 3600e9}, {\"m\", 60e9}",
+      "rule": "$LitDuration: $LitDuration writes a duration in its largest exact unit: 1500ms, 2h.",
+      "killers": [
+        "lower:TestArgumentTextRoundTrips"
+      ],
+      "anchor": {
+        "text": "Replace(harnessGo)"
+      }
+    },
+    {
+      "name": "existing-39-s4a-r2-duration-m",
+      "origin": "lower-v1/receipts/s4/mutants-s4a-r2.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "{\"m\", 60e9}, {\"s\", 1e9}",
+      "to": "{\"min\", 60e9}, {\"s\", 1e9}",
+      "rule": "$LitDuration: $LitDuration writes a duration in its largest exact unit: 1500ms, 2h.",
+      "killers": [
+        "lower:TestArgumentTextRoundTrips"
+      ],
+      "anchor": {
+        "text": "Replace(harnessGo)"
+      }
+    },
+    {
+      "name": "existing-40-s4a-r2-duration-s",
+      "origin": "lower-v1/receipts/s4/mutants-s4a-r2.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "{\"s\", 1e9}, {\"ms\", 1e6}",
+      "to": "{\"sec\", 1e9}, {\"ms\", 1e6}",
+      "rule": "$LitDuration: $LitDuration writes a duration in its largest exact unit: 1500ms, 2h.",
+      "killers": [
+        "lower:TestArgumentTextRoundTrips"
+      ],
+      "anchor": {
+        "text": "Replace(harnessGo)"
+      }
+    },
+    {
+      "name": "existing-41-s4a-r2-duration-ms",
+      "origin": "lower-v1/receipts/s4/mutants-s4a-r2.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "{\"ms\", 1e6}, {\"us\", 1e3}",
+      "to": "{\"msec\", 1e6}, {\"us\", 1e3}",
+      "rule": "$LitDuration: $LitDuration writes a duration in its largest exact unit: 1500ms, 2h.",
+      "killers": [
+        "lower:TestArgumentTextRoundTrips"
+      ],
+      "anchor": {
+        "text": "Replace(harnessGo)"
+      }
+    },
+    {
+      "name": "existing-42-s4a-r2-duration-us",
+      "origin": "lower-v1/receipts/s4/mutants-s4a-r2.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "{\"us\", 1e3}}",
+      "to": "{\"usec\", 1e3}}",
+      "rule": "$LitDuration: $LitDuration writes a duration in its largest exact unit: 1500ms, 2h.",
+      "killers": [
+        "lower:TestArgumentTextRoundTrips"
+      ],
+      "anchor": {
+        "text": "Replace(harnessGo)"
+      }
+    },
+    {
+      "name": "existing-43-s4a-r2-duration-ns",
+      "origin": "lower-v1/receipts/s4/mutants-s4a-r2.json",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "return $strconv.FormatInt(n, 10) + \"ns\"",
+      "to": "return $strconv.FormatInt(n, 10) + \"nsec\"",
+      "rule": "$LitDuration: $LitDuration writes a duration in its largest exact unit: 1500ms, 2h.",
+      "killers": [
+        "lower:TestArgumentTextRoundTrips"
+      ],
+      "anchor": {
+        "text": "Replace(harnessGo)"
+      }
+    },
+    {
+      "name": "existing-44-close-skipped",
+      "origin": "lower-v1/receipts/s4/mutants-s4c-close.json",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\treturn fd.name + targs + \"(\" + outer + \", \" + recv + \")\"\n",
+      "to": "\t_ = targs\n\treturn \"_ = \" + recv\n",
+      "rule": "providerRelease: providerRelease is the release of a provider an owning with built: the call of its checked Close (Acquisition.Close, the checker's fact) on val, the provider's value, in outer, the environment outside the with, where the checker charged the release's needs.",
+      "killers": [
+        "lower:TestCloseGenericFunctionRelease"
+      ]
+    },
+    {
+      "name": "existing-45-close-method-skipped",
+      "origin": "lower-v1/receipts/s4/mutants-s4c-close.json",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\t\treturn \"(\" + recv + \").\" + fd.name + \"(\" + outer + \")\"\n",
+      "to": "\t\treturn \"_ = \" + recv\n",
+      "rule": "providerRelease: providerRelease is the release of a provider an owning with built: the call of its checked Close (Acquisition.Close, the checker's fact) on val, the provider's value, in outer, the environment outside the with, where the checker charged the release's needs.",
+      "killers": [
+        "lower:TestCloseOverriddenNotRun"
+      ]
+    },
+    {
+      "name": "existing-46-close-operation-skipped",
+      "origin": "lower-v1/receipts/s4/mutants-s4c-close.json",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\t\ttext, _, _ := fc.opCall(cl.Receiver, cl.Op, nil, []string{val}, outer, \"\", nil, nil, site)\n\t\treturn text\n",
+      "to": "\t\treturn \"_ = \" + val\n",
+      "rule": "providerRelease: providerRelease is the release of a provider an owning with built: the call of its checked Close (Acquisition.Close, the checker's fact) on val, the provider's value, in outer, the environment outside the with, where the checker charged the release's needs.",
+      "killers": [
+        "lower:TestCloseFormsRelease"
+      ]
+    },
+    {
+      "name": "existing-48-stale-refusal",
+      "origin": "lower-v1/receipts/s4/mutants-s4d.json",
+      "file": "internal/sketch/lower/text.go",
+      "from": "waits for derived text forms (#49)\", t)",
+      "to": "is lowered in lower-v1 stage 4\", t)",
+      "rule": "textTypes: textTypes walks the types whose text functions the text of t needs, in a fixed order, calling visit once for each; it refuses, at site, a type whose text is not lowered.",
+      "killers": [
+        "lower:TestRefusalsBeforeGo"
+      ]
+    },
+    {
+      "name": "existing-49-refusal-names-no-owner",
+      "origin": "lower-v1/receipts/s4/mutants-s4d.json",
+      "file": "internal/sketch/lower/text.go",
+      "from": "waits for derived text forms (#49)\", t)",
+      "to": "waits for derived text forms\", t)",
+      "rule": "textTypes: textTypes walks the types whose text functions the text of t needs, in a fixed order, calling visit once for each; it refuses, at site, a type whose text is not lowered.",
+      "killers": [
+        "lower:TestRefusalsBeforeGo",
+        "lower:TestRefusedFamiliesHaveWitnesses"
+      ]
+    },
+    {
+      "name": "existing-50-rule-names-wrong-code",
+      "origin": "lower-v1/receipts/s4/mutants-s4d.json",
+      "file": "internal/sketch/lower/unreachable.go",
+      "from": "ruleLetNames = `the checker's S108",
+      "to": "ruleLetNames = `the checker's S107",
+      "rule": "The rules that make a lowering site unreachable (unreachable, module.go).",
+      "killers": [
+        "lower:TestUnreachableRulesRefuse"
+      ],
+      "anchor": {
+        "file": "internal/sketch/lower/module.go",
+        "text": "\"; unreachable by \"+rule)",
+        "tests": [
+          "lower:TestRefusalsNameOpenOwners",
+          "lower:TestUnreachableRulesRefuse",
+          "lower:TestGenericCloseWithWitnessesNamesOwner",
+          "lower:TestErrorFieldNamesStayDistinct"
+        ]
+      }
+    },
+    {
+      "name": "existing-51-error-field-collision",
+      "origin": "lower-v1/receipts/s4/mutants-s4d.json",
+      "file": "internal/sketch/lower/decls.go",
+      "from": "for taken[goName] {",
+      "to": "if false {",
+      "rule": "typeDecl: typeDecl is the lowered declaration of tn, its structure read from the declaring package's Info: a record's fields and an operation type's operations are Defs of its declaring names, a union's variants its checked underlying type.",
+      "killers": [
+        "lower:TestErrorFieldNamesStayDistinct"
+      ]
+    },
+    {
+      "name": "existing-52-r2-green-rule-names-open-owner",
+      "origin": "lower-v1/verify-s4d/r2/mutants-green.json",
+      "file": "internal/sketch/lower/unreachable.go",
+      "from": "ruleParser = `the decided parser, which builds no such node`",
+      "to": "ruleParser = `the decided parser, which builds no such node (196b lowers packages)`",
+      "rule": "The rules that make a lowering site unreachable (unreachable, module.go).",
+      "killers": [],
+      "gap": "survived: no test kills it (runner, 2026-11-09)",
+      "anchor": {
+        "file": "internal/sketch/lower/module.go",
+        "text": "\"; unreachable by \"+rule)",
+        "tests": [
+          "lower:TestRefusalsNameOpenOwners",
+          "lower:TestUnreachableRulesRefuse",
+          "lower:TestGenericCloseWithWitnessesNamesOwner",
+          "lower:TestErrorFieldNamesStayDistinct"
+        ]
+      }
+    },
+    {
+      "name": "existing-53-r2-green-rule-open-owner-stage",
+      "origin": "lower-v1/verify-s4d/r2/mutants-green.json",
+      "file": "internal/sketch/lower/unreachable.go",
+      "from": "ruleParser = `the decided parser, which builds no such node`",
+      "to": "ruleParser = `the decided parser, which builds no such node until #196 stage b`",
+      "rule": "The rules that make a lowering site unreachable (unreachable, module.go).",
+      "killers": [],
+      "gap": "plan 2.3: TestRefusalsNameOpenOwners accepts the rule text; stage b may be open again (then the mutant is stale) or the test lost that check; the owner of the rule-text check decides",
+      "anchor": {
+        "file": "internal/sketch/lower/module.go",
+        "text": "\"; unreachable by \"+rule)",
+        "tests": [
+          "lower:TestRefusalsNameOpenOwners",
+          "lower:TestUnreachableRulesRefuse",
+          "lower:TestGenericCloseWithWitnessesNamesOwner",
+          "lower:TestErrorFieldNamesStayDistinct"
+        ]
+      }
+    },
+    {
+      "name": "existing-54-r2-ice-rule-after-check-v1-stage",
+      "origin": "lower-v1/verify-s4d/r2/mutants.json",
+      "file": "internal/sketch/lower/unreachable.go",
+      "from": "ruleNamingPass = `the naming pass (naming.go), which names every package-scope declaration first`",
+      "to": "ruleNamingPass = `the naming pass (naming.go), which names every package-scope declaration first, after check-v1 stage C`",
+      "rule": "The rules that make a lowering site unreachable (unreachable, module.go).",
+      "killers": [
+        "lower:TestRefusalsNameOpenOwners"
+      ],
+      "anchor": {
+        "file": "internal/sketch/lower/module.go",
+        "text": "\"; unreachable by \"+rule)",
+        "tests": [
+          "lower:TestRefusalsNameOpenOwners",
+          "lower:TestUnreachableRulesRefuse",
+          "lower:TestGenericCloseWithWitnessesNamesOwner",
+          "lower:TestErrorFieldNamesStayDistinct"
+        ]
+      }
+    },
+    {
+      "name": "existing-55-r2-ice-rule-check-v1-info-fact",
+      "origin": "lower-v1/verify-s4d/r2/mutants.json",
+      "file": "internal/sketch/lower/unreachable.go",
+      "from": "ruleAccepted = `the checker, which admits no other form here (TestAcceptedNodesLower)`",
+      "to": "ruleAccepted = `the checker, which admits no other form here until a check-v1 Info fact (196b)`",
+      "rule": "The rules that make a lowering site unreachable (unreachable, module.go).",
+      "killers": [
+        "lower:TestRefusalsNameOpenOwners"
+      ],
+      "anchor": {
+        "file": "internal/sketch/lower/module.go",
+        "text": "\"; unreachable by \"+rule)",
+        "tests": [
+          "lower:TestRefusalsNameOpenOwners",
+          "lower:TestUnreachableRulesRefuse",
+          "lower:TestGenericCloseWithWitnessesNamesOwner",
+          "lower:TestErrorFieldNamesStayDistinct"
+        ]
+      }
+    },
+    {
+      "name": "existing-56-r2-rule-unversioned-stage",
+      "origin": "lower-v1/verify-s4d/r2/mutants.json",
+      "file": "internal/sketch/lower/unreachable.go",
+      "from": "ruleParser = `the decided parser, which builds no such node`",
+      "to": "ruleParser = `the decided parser, which builds no such node until stage 5`",
+      "rule": "The rules that make a lowering site unreachable (unreachable, module.go).",
+      "killers": [
+        "lower:TestRefusalsNameOpenOwners"
+      ],
+      "anchor": {
+        "file": "internal/sketch/lower/module.go",
+        "text": "\"; unreachable by \"+rule)",
+        "tests": [
+          "lower:TestRefusalsNameOpenOwners",
+          "lower:TestUnreachableRulesRefuse",
+          "lower:TestGenericCloseWithWitnessesNamesOwner",
+          "lower:TestErrorFieldNamesStayDistinct"
+        ]
+      }
+    },
+    {
+      "name": "existing-57-v-ice-names-closed-stage",
+      "origin": "lower-v1/verify-s4d/mutants-extra.json",
+      "file": "internal/sketch/lower/body.go",
+      "from": "ice(s, \"a break or continue outside a loop\")",
+      "to": "ice(s, \"a break or continue outside a loop, lowered after check-v1 stage B\")",
+      "rule": "branch: branch lowers break and continue to the innermost loop, by a label when a Go switch lies between them.",
+      "killers": [],
+      "gap": "uncovered: no test kills it (runner, 2026-11-09)"
+    },
+    {
+      "name": "existing-58-v-refusal-as-entry-error",
+      "origin": "lower-v1/verify-s4d/mutants-extra.json",
+      "file": "internal/sketch/lower/text.go",
+      "from": "refuse(site, \"the text of an error type with a field of type %s waits for derived text forms (#49)\", t)",
+      "to": "entryError(site, \"main: the text of an error type with a field of type %s\", t)",
+      "rule": "textTypes: textTypes walks the types whose text functions the text of t needs, in a fixed order, calling visit once for each; it refuses, at site, a type whose text is not lowered.",
+      "killers": [
+        "lower:TestRefusalsBeforeGo",
+        "lower:TestRefusedFamiliesHaveWitnesses"
+      ]
+    },
+    {
+      "name": "existing-59-v-rule-code-fixture-missing",
+      "origin": "lower-v1/verify-s4d/mutants-extra.json",
+      "file": "internal/sketch/lower/unreachable.go",
+      "from": "ruleParser = `the decided parser, which builds no such node`",
+      "to": "ruleParser = `the decided parser's S001, which builds no such node`",
+      "rule": "The rules that make a lowering site unreachable (unreachable, module.go).",
+      "killers": [
+        "lower:TestRefusalsNameOpenOwners"
+      ],
+      "anchor": {
+        "file": "internal/sketch/lower/module.go",
+        "text": "\"; unreachable by \"+rule)",
+        "tests": [
+          "lower:TestRefusalsNameOpenOwners",
+          "lower:TestUnreachableRulesRefuse",
+          "lower:TestGenericCloseWithWitnessesNamesOwner",
+          "lower:TestErrorFieldNamesStayDistinct"
+        ]
+      }
+    },
+    {
+      "name": "existing-60-caller-not-pure",
+      "origin": "batch-12/W/W2/mutants.json",
+      "file": "internal/sketch/lower/pure.go",
+      "from": "case c.Kind == check.CallFunc && !c.TaskResult && pureStdBody(c.Func):",
+      "to": "case c.Kind == check.CallFunc && !c.TaskResult && pureStdBody(c.Func) && !strings.Contains(c.Func.Name, \"e\"):",
+      "rule": "pureCandidate: pureCandidate reports whether f meets every rule of a pure function but the last's fixed point, with the Ergo-bodied functions its body calls, of any package; info is f's own package's Info.",
+      "killers": [
+        "lower:TestPurePreludeEmits"
+      ]
+    },
+    {
+      "name": "own-lower-0-drop-continue-naming.go:154",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/lower/naming.go",
+      "from": "\t\t\tif !ok || !l.errorType(named, l.buildView()) || tn.Decl == nil {\n\t\t\t\tcontinue\n\t\t\t}",
+      "to": "\t\t\tif !ok || !l.errorType(named, l.buildView()) || tn.Decl == nil {\n\t\t\t\t_ = 0\n\t\t\t}",
+      "rule": "nameAll: nameAll is the naming pass.",
+      "killers": [
+        "lower:TestLawFactsStayOut"
+      ]
+    },
+    {
+      "name": "own-lower-1-negate-if-std.go:201",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/lower/std.go",
+      "from": "\tif fc.frame.with != \"\" {",
+      "to": "\tif !(fc.frame.with != \"\") {",
+      "rule": "frameScope: frameScope is the address of the current frame scope, the hidden frame or destination argument of a call at site.",
+      "killers": [
+        "lower:TestStdLawsAddNoGo",
+        "lower:TestTestBuildHasEveryTest",
+        "lower:TestRuntime199FrameClassCoverage"
+      ]
+    },
+    {
+      "name": "own-lower-2-negate-if-pure.go:257",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/lower/pure.go",
+      "from": "\t\tif goBasicName(q.Type) != strings.TrimPrefix(p.args[i], \"=\") {",
+      "to": "\t\tif !(goBasicName(q.Type) != strings.TrimPrefix(p.args[i], \"=\")) {",
+      "rule": "meetsHostProtocol: meetsHostProtocol reports whether f lowers to a Go method whose name and Go signature, without an environment, are a host protocol's exactly (case a).",
+      "killers": [],
+      "gap": "plan 2.3: one test covers the line (TestPureMethodsMeetNoHostProtocolByAccident); no case has the same arity and a different parameter type"
+    },
+    {
+      "name": "own-lower-3-negate-if-std.go:274",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/lower/std.go",
+      "from": "\tif len(body.Params) != params {",
+      "to": "\tif !(len(body.Params) != params) {",
+      "rule": "opBody: opBody is the runtime/v1 method of the operation name of the std type n, which takes params Ergo arguments.",
+      "killers": [
+        "lower:TestStdLawsAddNoGo",
+        "lower:TestTestBuildHasEveryTest",
+        "lower:TestRuntime199FrameClassCoverage"
+      ]
+    },
+    {
+      "name": "own-lower-4-negate-if-owners.go:61",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/lower/owners.go",
+      "from": "\t\tif !view.Sees(o) {",
+      "to": "\t\tif !(!view.Sees(o)) {",
+      "rule": "errorTypesRead: errorTypesRead are the error types of package p this build reads.",
+      "killers": [
+        "lower:TestErgoRunDefinedErrorTypes"
+      ]
+    },
+    {
+      "name": "own-lower-5-ne-eq-text.go:205",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/lower/text.go",
+      "from": "\t\t\tif r != nil {",
+      "to": "\t\t\tif r == nil {",
+      "rule": "instancesOf: instancesOf is every concrete instance of the generic type tn that a type of the program names: in an expression, a call's error row, a declaration, a pattern or a literal's signature, of the user package and of every library package, and in the fields of those instances.",
+      "killers": [
+        "lower:TestCheckIsCanonical"
+      ]
+    },
+    {
+      "name": "own-lower-6-negate-if-types.go:636",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/lower/types.go",
+      "from": "\tif den.ExactString() == \"1\" {",
+      "to": "\tif !(den.ExactString() == \"1\") {",
+      "rule": "exactFloat: exactFloat spells a float constant exactly as Go untyped constant arithmetic, num.0/den.",
+      "killers": [
+        "lower:TestErgoRunOperators",
+        "examples:metrics",
+        "lower:TestErgoRunE1GenericDomain"
+      ]
+    },
+    {
+      "name": "own-lower-7-and-or-pure.go:300",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/lower/pure.go",
+      "from": "\t\tif n, ok := first.(*check.Named); ok && (n.Obj == td.tn || n.Orig != nil && n.Orig.Obj == td.tn) {",
+      "to": "\t\tif n, ok := first.(*check.Named); ok || (n.Obj == td.tn || n.Orig != nil && n.Orig.Obj == td.tn) {",
+      "rule": "protocolFreeName: protocolFreeName is the Go method name of a pure function f that lowers to a method of td under name (case b): name itself unless it is a host protocol's, else the name with an underscore appended until it is free among td's fields and the functions on td, as a field renamed for Error is (typeDecl).",
+      "killers": [
+        "lower:TestStdMatchBodiesLowerInAnyProgram",
+        "examples:logstat",
+        "lower:TestLoweringIsCanonical"
+      ]
+    },
+    {
+      "name": "own-lower-8-eq-ne-matchtree.go:537",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/lower/matchtree.go",
+      "from": "\t\tif h.kind == headWild {",
+      "to": "\t\tif h.kind != headWild {",
+      "rule": "specialize: specialize switches on column i: one branch per constructor or constant the rows test, and a default branch of the rows that test nothing there.",
+      "killers": [
+        "lower:TestCatchTreeShape",
+        "lower:TestMatchTreeShape",
+        "lower:TestCatchTreeAgrees"
+      ]
+    },
+    {
+      "name": "own-lower-9-negate-if-decls.go:1133",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/lower/decls.go",
+      "from": "\tif !ok && (id.Name != \"_\" || x == nil) {",
+      "to": "\tif !(!ok && (id.Name != \"_\" || x == nil)) {",
+      "rule": "packageVar: packageVar lowers one name of a package-level let, with its initializer x (nil for none).",
+      "killers": [
+        "lower:TestTestBuildHasEveryTest",
+        "lower:TestErgoRunPackageDestructuring",
+        "lower:TestErgoRunDefaultMapIsWritable"
+      ]
+    },
+    {
+      "name": "own-lower-10-negate-if-body.go:799",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/lower/body.go",
+      "from": "\t\tif s.Tok == syntax.CONTINUE {",
+      "to": "\t\tif !(s.Tok == syntax.CONTINUE) {",
+      "rule": "branch: branch lowers break and continue to the innermost loop, by a label when a Go switch lies between them.",
+      "killers": [
+        "lower:TestRuntime199AcquireFlow"
+      ]
+    },
+    {
+      "name": "own-lower-11-eq-ne-matchtree.go:292",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/lower/matchtree.go",
+      "from": "\t\tif p.Kind == check.PatBind {",
+      "to": "\t\tif p.Kind != check.PatBind {",
+      "rule": "head: head peels a cell's binds and as patterns and classifies what is left against its column c.",
+      "killers": [
+        "lower:TestCatchTreeShape",
+        "lower:TestMatchTreeShape",
+        "examples:adventure"
+      ]
+    },
+    {
+      "name": "own-lower-12-negate-if-calls.go:160",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "\t\tvar rest []string\n\t\tif fd.method != nil {\n\t\t\tif len(vals) == 0 {",
+      "to": "\t\tvar rest []string\n\t\tif !(fd.method != nil) {\n\t\t\tif len(vals) == 0 {",
+      "rule": "callText: callText is a call's Go text, whether it returns a value, and whether its Go form returns an error.",
+      "killers": [
+        "lower:TestVerifyR1ImportedRefusal",
+        "lower:TestStdLawsAddNoGo",
+        "lower:TestRefusalsBeforeGo"
+      ]
+    },
+    {
+      "name": "own-lower-13-ne-eq-matchtree.go:223",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/lower/matchtree.go",
+      "from": "\t\tif r := recover(); r != nil {",
+      "to": "\t\tif r := recover(); r == nil {",
+      "rule": "matchTree: matchTree builds the tree of a match (or a catch, on its one error value) on the subject values vals of the checked types types, or returns nil when it takes the flat lowering.",
+      "killers": [
+        "lower:TestCatchTreeShape",
+        "lower:TestMatchTreeShape",
+        "lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "name": "own-lower-14-negate-if-witness.go:233",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/lower/witness.go",
+      "from": "\tif dest != \"\" {",
+      "to": "\tif !(dest != \"\") {",
+      "rule": "witnessCall: witnessCall is the call of the operation op on a value of the type parameter tp, through tp's witness: vals are the receiver's and the arguments' Go text, env the environment of the call and dest the destination of a returned Task, or \"\".",
+      "killers": [
+        "lower:TestErgoRunGenericImplementingFunction",
+        "lower:TestErgoRunE1ForwardedPointerWitness",
+        "lower:TestErgoRunE1Witnesses"
+      ]
+    },
+    {
+      "name": "own-lower-15-negate-if-witness.go:90",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/lower/witness.go",
+      "from": "\t\tif op.Sig == nil {",
+      "to": "\t\tif !(op.Sig == nil) {",
+      "rule": "witnessValue: witnessValue builds the witness w at a call: a struct literal of the caller's instance of the witness type.",
+      "killers": [
+        "lower:TestErgoRunGenericImplementingFunction",
+        "lower:TestErgoRunE1ForwardedPointerWitness",
+        "lower:TestErgoRunE1Witnesses"
+      ]
+    },
+    {
+      "name": "own-lower-16-ne-eq-lower.go:79",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/lower/lower.go",
+      "from": "\tif len(u.Files) == 0 || len(u.Files) != len(u.Sources) {",
+      "to": "\tif len(u.Files) == 0 || len(u.Files) == len(u.Sources) {",
+      "rule": "validateFiles: validateFiles validates u's own files and sources against the paths seen.",
+      "killers": [
+        "lower:TestUnitValidate",
+        "lower:TestVerifyR1ImportedRefusal",
+        "lower:TestTestBuildHasEveryTest"
+      ]
+    },
+    {
+      "name": "own-lower-17-eq-ne-calls.go:835",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "\t\tif w.Lit == nil {",
+      "to": "\t\tif w.Lit != nil {",
+      "rule": "buildProviders: buildProviders is the acquisition owner shared by named builders and lexical inline and local contexts.",
+      "killers": [
+        "lower:TestStdLawsAddNoGo",
+        "lower:TestRuntime199FrameClassCoverage",
+        "examples:checkout"
+      ]
+    },
+    {
+      "name": "own-lower-18-negate-if-decls.go:766",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/lower/decls.go",
+      "from": "\tif some == nil || none == nil {",
+      "to": "\tif !(some == nil || none == nil) {",
+      "rule": "optionVariants: optionVariants are the Some and None variants of an Option instance.",
+      "killers": [
+        "lower:TestErgoRunDefinedCollectionLiterals",
+        "lower:TestStdMatchBodiesLowerInAnyProgram",
+        "lower:TestStdLawsRun"
+      ]
+    },
+    {
+      "name": "own-lower-19-ne-eq-types.go:339",
+      "origin": "test-speed plan, own sample (gen.ts 20 11)",
+      "file": "internal/sketch/lower/types.go",
+      "from": "\t\tif u.Obj.Pkg != nil {",
+      "to": "\t\tif u.Obj.Pkg == nil {",
+      "rule": "typeKey: typeKey spells t for a key: deterministic, from the source alone, and distinct for distinct Go types.",
+      "killers": [
+        "lower:TestLoweringIsCanonical",
+        "examples:regex"
+      ]
+    },
+    {
+      "name": "t0-names-local-ignores-package-scope",
+      "origin": "wf10 T0 ts-mutant-ledger (rule of lower names_test.go TestLateNamesNeverCaptureLocals)",
+      "file": "internal/sketch/lower/names.go",
+      "from": "\tfor s := n; s != nil; s = s.parent {\n\t\tif s.used[name] {",
+      "to": "\tfor s := n; s != nil && s.parent != nil; s = s.parent {\n\t\tif s.used[name] {",
+      "rule": "names.go: a local's Go name is free in every enclosing scope, the package scope included, so no local captures a package entity (naming pass; names_test.go TestLateNamesNeverCaptureLocals)",
+      "killers": [
+        "lower:TestErgoRunE1ConversionWitness"
+      ]
+    },
+    {
+      "name": "t0-pure-ignores-capability-row",
+      "origin": "wf10 T0 ts-mutant-ledger (rule of lower pure_test.go TestPureFunctionsTakeNoEnv)",
+      "file": "internal/sketch/lower/pure.go",
+      "from": "\tif len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 || s.ResultIsTask() || info.TaskResults[f] {",
+      "to": "\tif len(rowElems(s.Errors)) > 0 || s.ResultIsTask() || info.TaskResults[f] {",
+      "rule": "pureCandidate: a function with a capability row is not pure and keeps its environment (spec D5; pure_test.go TestPureFunctionsTakeNoEnv, the needs variant)",
+      "killers": [
+        "lower:TestStdLawsAddNoGo"
+      ]
+    }
+  ]
+}
