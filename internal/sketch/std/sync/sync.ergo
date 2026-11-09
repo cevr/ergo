@@ -16,7 +16,10 @@ type Ref[T] {
 	Set(v T),
 	// Update stores f of the value the Ref holds. No other operation of the
 	// Ref runs between the read and the store, so two Updates at once never
-	// lose one of them. It calls f exactly once.
+	// lose one of them. It calls f exactly once. A function literal written
+	// here takes the value over and may change it in place; no binding
+	// outside the Ref sees that change (a Ref owns its value). A defect in
+	// f poisons the Ref: every later operation raises it again.
 	Update(f func(v T) T),
 
 	// UpdateCallsOnce: Update calls its function exactly once; it never
@@ -36,7 +39,8 @@ extern go ergo.local/prototype/runtime/v1.NewRef func NewRef[T](v T) Ref[T]
 
 // Modify calls f once on the value r holds, stores the second element of
 // its result and returns the first, with no other operation of r between
-// the read and the store (Effect's Ref.modify).
+// the read and the store (Effect's Ref.modify). As in Update, a literal f
+// takes the value over, and a defect in f poisons r.
 extern go ergo.local/prototype/runtime/v1.RefModify func Modify[T, R](r Ref[T], f func(v T) (R, T)) R
 
 // GetAfterSet: Get gives the value the last Set stored.
