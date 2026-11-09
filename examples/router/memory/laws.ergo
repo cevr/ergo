@@ -1,0 +1,195 @@
+// The router's live rules, over the actors: each law plays generated
+// commands against a router over a fresh memory journal and a Directory,
+// on a manual clock that no one moves. The step's rules are route's laws;
+// the runner's (supervision, durability, hosts) are std actor's, held by
+// its models and properties; these hold that the program wires them as
+// it says.
+
+import actor
+import journal
+import journal/memory
+import router/route
+import router/script
+import strings
+import time
+
+func pick(n int, count int) int { ((n % count) + count) % count }
+
+// commands is a command for each generated number: a route, a remove or
+// an abort of one of four ids, or a reply.
+func commands(moves []int) []script.Command {
+	let topics = []string{"logs", "metrics", "alerts"}
+	let dests = []string{"disk", "socket", "nowhere"}
+	let mut out = []script.Command{}
+	for m in moves {
+		let id = pick(m/5, 4) + 1
+		let topic = topics[pick(m/20, len(topics))]
+		let c = match pick(m, 5) {
+		case 0:
+			script.Send{Signal: route.Submit{Request: route.Request{ID: id, Change: route.Add{Topic: topic, Dest: dests[pick(m/60, len(dests))]}}}}
+		case 1:
+			script.Send{Signal: route.Submit{Request: route.Request{ID: id, Change: route.Remove{Topic: topic}}}}
+		case 2:
+			script.Send{Signal: route.Abort{ID: id}}
+		case 3:
+			script.Send{Signal: route.Reply{Yes: true}}
+		case _:
+			script.Send{Signal: route.Reply{Yes: false}}
+		}
+		out = out.Append(c)
+	}
+	out
+}
+
+// play is what script.Play shows for cmds, with a Directory dir.
+func play(cmds []script.Command, dir Directory) []string {
+	with context { route.Registry: dir, Scheduler: time.NewManual(0) } {
+		script.Play(cmds, memory.New[route.Router, route.Signal](), func() { Arm(dir) }) catch {
+		case journal.Failed as f:
+			[]string{"? \(f.Reason)"}
+		}
+	}
+}
+
+// ReplayEqualsLive: a router opened from the journal is the router that
+// stopped, and the dispatcher takes each table (Play says "??"
+// otherwise).
+law ReplayEqualsLive(moves []int) {
+	let lines = play(commands(moves).Append(script.Restart), NewDirectory())
+	for l in lines {
+		if strings.HasPrefix(l, "  ?? ") || strings.HasPrefix(l, "? ") {
+			return false
+		}
+	}
+	true
+}
+
+// answers is the answer lines of lines, in order.
+func answers(lines []string) []string {
+	let mut out = []string{}
+	for l in lines {
+		if strings.HasPrefix(l, "  = ") || strings.HasPrefix(l, "end: ") {
+			out = out.Append(l)
+		}
+	}
+	out
+}
+
+// RestartRecovers: a check the registry drops restarts the router from
+// its journal, and the router gives the answers, each once, and ends with
+// the table it gives with no drop.
+law RestartRecovers(moves []int, at int) {
+	let cmds = commands(moves)
+	let k = pick(at, len(cmds)+1)
+	let mut dropped = []script.Command{}
+	for i, c in cmds {
+		if i == k {
+			dropped = dropped.Append(script.Drop)
+		}
+		dropped = dropped.Append(c)
+	}
+	if k == len(cmds) {
+		dropped = dropped.Append(script.Drop)
+	}
+	let want = answers(play(cmds, NewDirectory()))
+	let got = answers(play(dropped, NewDirectory()))
+	if len(want) != len(got) {
+		return false
+	}
+	for i, l in want {
+		if got[i] != l {
+			return false
+		}
+	}
+	let mut seen = []string{}
+	for l in got {
+		let id = strings.Fields(l)[1]
+		if strings.HasPrefix(l, "  = ") {
+			for s in seen {
+				if s == id {
+					return false
+				}
+			}
+			seen = seen.Append(id)
+		}
+	}
+	true
+}
+
+// ended is whether the host of l fails Stopped.
+func ended(l route.Lane) bool {
+	let _ = l.Courier.Get() catch {
+	case actor.Stopped:
+		return true
+	}
+	false
+}
+
+// opened is whether the dispatcher d took t in a new entry, which starts
+// its couriers: a host of no new entry is never filled, so a law that
+// waits on it would never end.
+func opened(d actor.Actor[route.Dispatch, route.DispatchSignal, Decision[route.Dispatch, route.Delivered]], t route.Table) bool {
+	let took = d.Ask(route.Use{Table: t}) catch {
+	case actor.Stopped:
+		return false
+	}
+	match took {
+	case Enter[route.Dispatch]:
+		true
+	case _:
+		false
+	}
+}
+
+// HostSeesItsEntry: a courier named through a lane's host is the courier
+// of that entry only: after the next Use, the old host fails Stopped, and
+// the new lane's host gives a running courier.
+law HostSeesItsEntry(n int) {
+	let routes = route.Table{Routes: []route.Route{route.Route{Topic: "logs", Dest: "disk"}}}
+	with context { Scheduler: time.NewManual(0) } {
+		let d = actor.StartMachine(route.Dispatcher{}, 4, func(o route.Delivered) {})
+		if !opened(d, routes) {
+			return false
+		}
+		let old = match route.LaneOf(d.State(), "logs") {
+		case Some[route.Lane] as l:
+			l.Value
+		case None:
+			return false
+		}
+		let _ = old.Courier.Get() catch {
+		case actor.Stopped:
+			return false
+		}
+		for _ in 0..pick(n, 3)+1 {
+			if !opened(d, routes) {
+				return false
+			}
+		}
+		let stale = ended(old)
+		if !stale {
+			d.Stop()
+			return false
+		}
+		let fresh = match route.LaneOf(d.State(), "logs") {
+		case Some[route.Lane] as l:
+			l.Value
+		case None:
+			return false
+		}
+		let c = fresh.Courier.Get() catch {
+		case actor.Stopped:
+			return false
+		}
+		c.Ask(route.Message{Body: "x"}) catch {
+		case actor.Stopped:
+			return false
+		}
+		let s = actor.WaitFor(d, func(s route.Dispatch) bool { len(route.LogOf(s)) == 1 }) catch {
+		case actor.Stopped:
+			return false
+		}
+		d.Stop()
+		len(route.LogOf(s)) == 1
+	}
+}

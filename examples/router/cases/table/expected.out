@@ -1,0 +1,56 @@
+  idle: no routes
+  dispatcher: no routes
+> #1 route logs to disk
+  checking #1 route logs to disk
+  idle: logs -> disk
+  = #1 applied: logs -> disk
+  dispatcher: logs -> disk
+> #2 route metrics to socket
+  checking #2 route metrics to socket
+  idle: logs -> disk, metrics -> socket
+  = #2 applied: logs -> disk, metrics -> socket
+  dispatcher: logs -> disk, metrics -> socket
+> #3 route logs to stdout
+  confirming #3
+  ! #3: logs goes to disk: send it to stdout?
+> #4 route alerts to stdout
+  confirming #3 (waiting: #4)
+> #5 remove metrics
+  confirming #3 (waiting: #4 #5)
+> #3 route traces to disk
+  ? #3 is taken
+> abort #4
+  confirming #3 (waiting: #5)
+  = #4 cancelled
+> yes
+  checking #3 route logs to stdout (waiting: #5)
+  checking #5 remove metrics
+  idle: logs -> stdout
+  = #3 applied: logs -> stdout, metrics -> socket
+  = #5 applied: logs -> stdout
+  dispatcher: logs -> stdout
+> #6 route traces to nowhere
+  checking #6 route traces to nowhere
+  idle: logs -> stdout
+  = #6 refused: no destination nowhere
+> #7 route metrics to disk
+  checking #7 route metrics to disk
+  idle: logs -> stdout, metrics -> disk
+  = #7 applied: logs -> stdout, metrics -> disk
+  dispatcher: logs -> stdout, metrics -> disk
+> no
+  ? no question is open
+> abort #7
+  ? #7 is not open
+> no
+  ? no question is open
+> #8 remove metrics
+  checking #8 remove metrics
+  idle: logs -> stdout
+  = #8 applied: logs -> stdout
+  dispatcher: logs -> stdout
+> send logs hello
+  logs -> stdout: hello
+> send alerts hello
+  ? no route for alerts
+end: logs -> stdout, 8 answers
