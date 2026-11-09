@@ -74,6 +74,32 @@ func goImportCall(c *check.Call, typeOf func(syntax.Expr) check.Type) bool {
 	return false
 }
 
+// hostPkgsIn appends to out the Go packages (import go) of the types that t
+// holds through type arguments, elements and tuples.
+func hostPkgsIn(t check.Type, out []*check.Package) []*check.Package {
+	switch t := t.(type) {
+	case *check.Named:
+		if t.Obj.Pkg.Host() {
+			out = append(out, t.Obj.Pkg)
+		}
+		for _, a := range t.TArgs {
+			out = hostPkgsIn(a, out)
+		}
+	case *check.Slice:
+		out = hostPkgsIn(t.Elem, out)
+	case *check.Map:
+		out = hostPkgsIn(t.Key, out)
+		out = hostPkgsIn(t.Elem, out)
+	case *check.Pointer:
+		out = hostPkgsIn(t.Elem, out)
+	case *check.Tuple:
+		for _, e := range t.Types {
+			out = hostPkgsIn(e, out)
+		}
+	}
+	return out
+}
+
 // goShared reports an operand type whose value Go could write or keep: a
 // Map or a slice (a Go type over one included, url.Values).
 func goShared(t check.Type) bool {

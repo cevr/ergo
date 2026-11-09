@@ -100,6 +100,7 @@ var tupleAssertionExempt = map[string]string{
 	"check/stmt.go returnTuple op.typ":             "the same legacy result list: a return of several values",
 	"check/entry.go checkRecursiveStructs written": "the written template read in parallel with an actual *Tuple; a defined written type holds no template, and nil is the fallback",
 	"check/unify.go nify y":                        "structural unification: x is a *Tuple here, and a defined type unifies only with a defined type",
+	"lower/gocall.go goCall sig.Results[0]":        "a binding's result: Go's several results are an unnamed tuple (gobind), and a Go type defined over one does not exist, so a defined type here is one Go result",
 }
 
 // TestTupleAssertionsUnwrap is C45's guard: a type assertion to *Tuple in

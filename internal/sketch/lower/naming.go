@@ -333,6 +333,12 @@ func (l *lowerer) libraryPackages() []*check.Package {
 		for x, t := range info.Types {
 			if n, ok := t.(*check.Named); ok && l.readsFact(p, x) {
 				add(n.Obj.Pkg)
+				// A Go type inside another (go.Ref[url.URL],
+				// Option[go.Ref[bufio.Reader]]) is Go's, named through
+				// its package's import.
+				for _, h := range hostPkgsIn(n, nil) {
+					add(h)
+				}
 			}
 		}
 		// A dot call reaches a function no name uses: the prelude's
