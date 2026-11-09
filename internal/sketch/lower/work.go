@@ -70,6 +70,12 @@ func (fc *funcCtx) workLit(x *syntax.CompositeLit, lit *check.WorkLit, t check.T
 			}
 			b.WriteString(in + e + ", _ := " + onFailure + "(" + env + ", " + failure + ")\n")
 		} else {
+			if fu := fc.l.flatUnionOf(lit.Signal); fu != nil {
+				// The failure is a variant of the signal, an error value: a
+				// flat signal union holds no error value, so the signal
+				// keeps its interface (flatunion.go; MU4 x MU8b).
+				flatBail(x, fu)
+			}
 			b.WriteString(in + e + " := " + err + ".(" + signal + ")\n")
 		}
 		b.WriteString(in + "return " + send + "(" + env + ", " + e + ")\n" + ind + "}\n")

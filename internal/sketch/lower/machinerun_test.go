@@ -177,32 +177,34 @@ func flatRunProgram(seed uint64, k int, reached map[string]bool) (name, src stri
 	b.WriteString("import machines\nimport testing\nimport time\n\n")
 	states := g.r.IntN(3) + 1
 	reached[fmt.Sprintf("%d variants", states)] = true
+	// The variants are declared in the union: a union of one existing type
+	// is that type, an alias (types.md, Unions 7; F11), and no union.
+	var decls []string
 	for i := range states {
 		g.states = append(g.states, fmt.Sprintf("S%d", i))
 		f := []string{"", "", "t", "xs"}[g.r.IntN(4)]
 		g.fields = append(g.fields, f)
 		switch f {
 		case "t":
-			fmt.Fprintf(&b, "type S%d { n int, t string }\n", i)
+			decls = append(decls, fmt.Sprintf("S%d{ n int, t string }", i))
 		case "xs":
-			fmt.Fprintf(&b, "type S%d { n int, xs []int }\n", i)
+			decls = append(decls, fmt.Sprintf("S%d{ n int, xs []int }", i))
 		default:
-			fmt.Fprintf(&b, "type S%d { n int }\n", i)
+			decls = append(decls, fmt.Sprintf("S%d{ n int }", i))
 		}
 	}
-	b.WriteString("type St = " + strings.Join(g.states, " | ") + "\n")
+	b.WriteString("type St = " + strings.Join(decls, " | ") + "\n")
 	var sigs []string
 	for j := range g.signals {
-		sigs = append(sigs, fmt.Sprintf("E%d", j))
 		kind := []string{"", "", "v", "v", "v", "vt"}[g.r.IntN(6)]
 		g.sigs = append(g.sigs, kind)
 		switch kind {
 		case "":
-			fmt.Fprintf(&b, "type E%d {}\n", j)
+			sigs = append(sigs, fmt.Sprintf("E%d{}", j))
 		case "vt":
-			fmt.Fprintf(&b, "type E%d { v int, t string }\n", j)
+			sigs = append(sigs, fmt.Sprintf("E%d{ v int, t string }", j))
 		default:
-			fmt.Fprintf(&b, "type E%d { v int }\n", j)
+			sigs = append(sigs, fmt.Sprintf("E%d{ v int }", j))
 		}
 	}
 	// An error type that holds a signal: its text needs the union's, so a
@@ -442,11 +444,9 @@ func flatRunCases(t *testing.T, seeds []uint64, check bool, report func(format s
 			// make it flat.
 			ints, strs := 0, 0
 			for _, line := range lines(src) {
-				switch {
-				case strings.HasPrefix(line, "type E") && strings.HasSuffix(line, "{ v int }"):
-					ints++
-				case strings.HasPrefix(line, "type E") && strings.HasSuffix(line, "{ v int, t string }"):
-					strs++
+				if strings.HasPrefix(line, "type Sig = ") {
+					ints += strings.Count(line, "{ v int }")
+					strs += strings.Count(line, "{ v int, t string }")
 				}
 			}
 			wantFlat := !strings.Contains(src, "type Boom { e Sig }") && (strs == 0 || strs == 1 && ints == 0)
@@ -456,7 +456,7 @@ func flatRunCases(t *testing.T, seeds []uint64, check bool, report func(format s
 			if strings.Contains(c.old.mainGo(), "type Sig struct") || strings.Contains(c.ref.mainGo(), "type Sig struct") {
 				report("seed %d, %s: an interface lowering makes the signal union flat\n%s", seed, name, src)
 			}
-			if wantFlat && match == "flat" && strings.Contains(src, "match (s, e)") && strings.Contains(src, "type E1 ") {
+			if wantFlat && match == "flat" && strings.Contains(src, "match (s, e)") && strings.Contains(src, " E1{") {
 				reached["tag test"] = true // a match on two subjects with no tree tests the tag (flatTest)
 			}
 			switch {
