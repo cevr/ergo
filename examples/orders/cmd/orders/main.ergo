@@ -14,7 +14,7 @@ import orders/orders
 import os
 
 // Memory binds the in-memory Ledger: the orders of one connection.
-let Memory = context { orders.Book: memory.New() }
+let Memory = context { orders.Book: memory.NewLedger() }
 
 // run serves the whole of standard input. io.Stdin has no read of a
 // given length, so the requests are read to the end of the input before

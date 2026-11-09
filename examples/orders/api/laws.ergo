@@ -1,8 +1,9 @@
 // The rules of the HTTP layer as laws over Handle and RouteOf. Handle
 // needs an orders.Book, so its laws take the Book as a value, a parameter
-// of the law, and bind it in a context they build. ergo test cannot
-// generate a Book, so each such law calls a function of its name and
-// "Holds", which the tests call with a memory.Ledger.
+// of the law, and bind it in a context they build. ergo test runs each
+// such law once per provider of Book it sees (here memory.Ledger, built
+// by NewLedger). Each calls a function of its name and "Holds", which the
+// tests also call with steered requests.
 
 import orders/jsontext
 import orders/orders

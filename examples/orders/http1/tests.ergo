@@ -1,6 +1,6 @@
 // The HTTP/1.1 text format's tests over a memory.Ledger and an
-// io.Recorder. The laws run under ergo test, but for the one that takes
-// an orders.Book, which PipelinedRequestsAreAnsweredInOrderHolds runs.
+// io.Recorder. ergo test runs the laws here, the one that takes an
+// orders.Book with a memory.Ledger.
 
 import io
 import orders/api
@@ -11,7 +11,7 @@ import strings
 // served is the text Serve writes for text, over a new Ledger.
 func served(text string) string {
 	let out = io.NewRecorder()
-	let _ = with context { orders.Book: memory.New(), io.Stdout: out } { Serve(text) }
+	let _ = with context { orders.Book: memory.NewLedger(), io.Stdout: out } { Serve(text) }
 	out.Text()
 }
 
@@ -50,8 +50,4 @@ test AConnectionOfThreeRequests {
 
 test AGarbledRequestEndsTheConnection {
 	assert served("GET /orders HTTP/1.1\r\n\r\nBREW /pot HTCPCP/1.0\r\n\r\nGET /orders HTTP/1.1\r\n\r\n") == "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n[]HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: 64\r\n\r\n{\"error\":\"garbled request at byte 24: not HTTP/1.x: HTCPCP/1.0\"}"
-}
-
-test PipelinedRequestsAreAnsweredInOrderHolds(paths []string) {
-	assert PipelinedHolds(memory.New(), paths)
 }
