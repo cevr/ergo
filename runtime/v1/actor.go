@@ -677,7 +677,7 @@ func (r *entryRef[S, E, D]) adopt(h hostCell, start func(func(*rt.Task, error) b
 	if !a.kidsOpen || a.kidsEpoch != r.epoch {
 		return false, true
 	}
-	if h != nil && !h.fillable(a, r.epoch) {
+	if h != nil && !h.fillable(a) {
 		return false, false
 	}
 	halt := start(r.report, r.deliver)

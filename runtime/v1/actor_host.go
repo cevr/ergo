@@ -28,19 +28,20 @@ type Host[A any] struct {
 	mu    sync.Mutex
 	state uint8
 	owner any // the actor whose entry owns it
-	epoch uint64
 	child A
 	wake  chan struct{} // made by a waiting Get, closed by the fill or the close
 }
 
 // hostCell is a host as the runner sees it, whatever its A.
 type hostCell interface {
-	// bind makes the host its owner's, in the entry of epoch.
-	bind(owner any, epoch uint64)
+	// bind makes the host its owner's open entry's: every open host is
+	// in its owner's list of the open entry, which closes them all when
+	// the entry ends, so an open host is always of the current entry.
+	bind(owner any)
 	// close ends the host: Get fails ActorStopped from now on.
 	close()
-	// fillable reports whether the host is open and owner's entry epoch's.
-	fillable(owner any, epoch uint64) bool
+	// fillable reports whether the host is open and owner's.
+	fillable(owner any) bool
 }
 
 // hostKey is the key of the runner's binding of its actor to its task:
@@ -99,10 +100,10 @@ func (h *Host[A]) Get(t *rt.Task) (A, error) {
 	}
 }
 
-func (h *Host[A]) bind(owner any, epoch uint64) {
+func (h *Host[A]) bind(owner any) {
 	h.mu.Lock()
 	if h.state == hostMade {
-		h.state, h.owner, h.epoch = hostOpen, owner, epoch
+		h.state, h.owner = hostOpen, owner
 	}
 	h.mu.Unlock()
 }
@@ -115,10 +116,10 @@ func (h *Host[A]) close() {
 	h.mu.Unlock()
 }
 
-func (h *Host[A]) fillable(owner any, epoch uint64) bool {
+func (h *Host[A]) fillable(owner any) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.state == hostOpen && h.owner == owner && h.epoch == epoch
+	return h.state == hostOpen && h.owner == owner
 }
 
 // fill puts c in h; the caller checked fillable under its entry's lock.
@@ -170,7 +171,7 @@ func (a *Actor[S, E, D]) bindNewHosts() {
 	a.kidsMu.Lock()
 	for _, h := range a.newHosts {
 		if a.kidsOpen && a.kidsEpoch == a.epoch {
-			h.bind(a, a.epoch)
+			h.bind(a)
 			a.hosts = append(a.hosts, h)
 			a.hostsLeft++
 		} else {

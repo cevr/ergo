@@ -53,8 +53,9 @@ type hsig struct {
 	kind        int // decideEnter, decideStay or decideIgnore
 	fresh       int // hosts the step makes
 	plans       []int
-	carry       bool // the new state keeps the old state's hosts
-	fillCarried bool // the work fills a carried host: a defect
+	carry       bool          // the new state keeps the old state's hosts
+	fillCarried bool          // the work fills a carried host: a defect
+	tried       chan struct{} // closed once the work tried that fill
 	gate        *Queue[int]
 }
 
@@ -66,6 +67,7 @@ type hst struct {
 	plans       []int
 	carried     []*Host[hostChild]
 	fillCarried bool
+	tried       chan struct{}
 	gate        *Queue[int]
 }
 
@@ -139,7 +141,7 @@ func hostScript(t *testing.T, seed int64, n int, rng *rand.Rand, reached map[str
 		next := hst{entry: s.entry, fresh: fresh, plans: e.plans, gate: e.gate}
 		if e.kind == decideEnter {
 			next.entry = s.entry + 1
-			next.fillCarried = e.fillCarried
+			next.fillCarried, next.tried = e.fillCarried, e.tried
 			if e.carry {
 				next.carried = append(append([]*Host[hostChild]{}, s.fresh...), s.carried...)
 			}
@@ -162,7 +164,10 @@ func hostScript(t *testing.T, seed int64, n int, rng *rand.Rand, reached map[str
 			}
 		}
 		if s.fillCarried && len(s.carried) > 0 {
-			fill(wt, s.carried[0], s.entry)
+			func() {
+				defer close(s.tried)
+				fill(wt, s.carried[0], s.entry)
+			}()
 		}
 		if _, err := s.gate.Pop(wt); err != nil {
 			return
@@ -211,6 +216,7 @@ func hostScript(t *testing.T, seed int64, n int, rng *rand.Rand, reached map[str
 			}
 			e.carry = rng.Intn(3) == 0
 			e.fillCarried = e.carry && len(cur.fresh)+len(cur.carried) > 0 && rng.Intn(4) == 0
+			e.tried = make(chan struct{})
 			e.gate = New[int](2)
 		case r < 8:
 			e.kind = decideStay
@@ -266,9 +272,10 @@ func hostScript(t *testing.T, seed int64, n int, rng *rand.Rand, reached map[str
 			order = append(order, h)
 		}
 		if e.kind == decideEnter && e.fillCarried {
-			// The ChildIn on a carried host is a defect: the actor ends.
+			// The ChildIn on a carried host is a defect: once the work
+			// tried it, Stop raises it (pushed, or the work's exit).
 			defected = true
-			<-a.done
+			<-e.tried
 			for _, h := range order {
 				ref[h].want, ref[h].why = hostClosed, "the actor ended"
 			}
@@ -287,9 +294,7 @@ func hostScript(t *testing.T, seed int64, n int, rng *rand.Rand, reached map[str
 		} else if raised != nil {
 			fail("the Ask raised %v", raised)
 		}
-		if e.kind == decideEnter {
-			cur = s
-		} else if e.kind == decideStay {
+		if e.kind != decideIgnore {
 			cur = s
 		}
 		hostCheck(root, ref, order, fail, reached)

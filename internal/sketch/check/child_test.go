@@ -1,6 +1,7 @@
 package check_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -58,15 +59,18 @@ const childCall = "actor.Child(@, Editor{}, 1, toNav)"
 // argument. Mutants: without the rule each refused row is accepted; with
 // no send marked each accepted row is refused.
 func TestChildOnlyInWork(t *testing.T) {
-	const text = "S108 actor.Child starts a child of the entry whose work calls it, so it takes that work's send: call it in the function of a Listen work, with its send parameter as the first argument (runtime.md, Machines and actors 14)"
+	const text = "S108 actor.%s starts a child of the entry whose work calls it, so it takes that work's send: call it in the function of a Listen work, with its send parameter as the first argument (runtime.md, Machines and actors 14)"
 	rows := []struct {
 		name, body, helpers, inMain string
 		refused                     bool
+		fn                          string // the function called, Child when empty
 	}{
 		{name: "in the work", body: "\t\t\tlet _ = " + strings.Replace(childCall, "@", "send", 1)},
 		{name: "a copy of send", body: "\t\t\tlet k = send\n\t\t\tlet _ = " + strings.Replace(childCall, "@", "k", 1), refused: true},
 		{name: "a helper's send", helpers: "\nfunc open(send func(e Nav)) needs Scheduler { let _ = " + strings.Replace(childCall, "@", "send", 1) + " }\n", body: "\t\t\topen(send)", refused: true},
 		{name: "in main", inMain: "\tlet _ = " + strings.Replace(childCall, "@", "func(e Nav) {}", 1), refused: true},
+		// mu-host: ChildIn is a child start too.
+		{name: "ChildIn in main", fn: "ChildIn", inMain: "\tlet _ = actor.ChildIn(func(e Nav) {}, actor.NewHost[actor.Actor[Screen, Edit, Decision[Screen, int]]](), Editor{}, 1, toNav)", refused: true},
 	}
 	for _, r := range rows {
 		src := childRuleSource(r.body, r.helpers, r.inMain)
@@ -81,12 +85,16 @@ func TestChildOnlyInWork(t *testing.T) {
 			}
 			continue
 		}
-		if len(got) != 1 || got[0] != text {
-			t.Errorf("%s: diagnostics %q, want [%q]\n%s", r.name, got, text, src)
+		fn := r.fn
+		if fn == "" {
+			fn = "Child"
+		}
+		if want := fmt.Sprintf(text, fn); len(got) != 1 || got[0] != want {
+			t.Errorf("%s: diagnostics %q, want [%q]\n%s", r.name, got, want, src)
 			continue
 		}
-		// The position: the first argument of the Child call.
-		if want := strings.LastIndex(src, "actor.Child(") + len("actor.Child("); diags[0].Offset != want {
+		// The position: the first argument of the call.
+		if want := strings.LastIndex(src, "actor."+fn+"(") + len("actor."+fn+"("); diags[0].Offset != want {
 			t.Errorf("%s: diagnostic at offset %d, want %d\n%s", r.name, diags[0].Offset, want, src)
 		}
 	}
