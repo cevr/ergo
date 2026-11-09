@@ -31,6 +31,27 @@ type CheckedFile struct {
 	Syntax *syntax.File
 }
 
+// Checked are the checked packages of the program in import dependency
+// order, the root last: the one package of a source text (Check), or the
+// checked packages of a folder (Packages); nil when the program does not
+// check.
+func (a Analysis) Checked() []*check.Package {
+	if a.program == nil {
+		if a.pkg == nil || len(a.Diagnostics) > 0 {
+			return nil
+		}
+		return []*check.Package{a.pkg}
+	}
+	var out []*check.Package
+	for _, p := range a.Packages() {
+		if p.Package == nil {
+			return nil
+		}
+		out = append(out, p.Package)
+	}
+	return out
+}
+
 // Packages are the packages of a program read from a folder (CheckDir) in
 // import dependency order, the root package last; nil for one source text
 // (Check).

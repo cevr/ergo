@@ -313,6 +313,35 @@ func checkCommand(args []string) error {
 	return nil
 }
 
+const inspectHelp = "usage: ergo inspect FILE|DIR [--target go]\n\n" +
+	"Prints, as JSON, what the program reaches of Go (docs/tooling.md, inspect):\n" +
+	"each Go import with its binding's provenance and the declarations the\n" +
+	"binding refuses, with their reasons; for each function, the Go symbols its\n" +
+	"code reaches and the uninterruptible host waits among them; for each Go\n" +
+	"symbol, its Go declaration, Ergo signature, tier (pure or foreign),\n" +
+	"provenance and wait (none, interruptible, uninterruptible). It runs no Go\n" +
+	"tool.\n\n" +
+	"Exit codes: 0 printed; 1 the source does not check.\n"
+
+// inspectCommand prints, as JSON, what the program reaches of Go
+// (sketchfront.InspectGo; docs/tooling.md, inspect); exit 1 when the
+// source does not check.
+func inspectCommand(args []string) error {
+	opts, err := parseFileOptions("inspect", args)
+	if err != nil {
+		return err
+	}
+	l, err := load(opts.file, opts.target)
+	if err != nil {
+		return err
+	}
+	pkgs := l.analysis.Checked()
+	if !l.result.Checked || pkgs == nil {
+		return refuseUnchecked(l, opts)
+	}
+	return printJSON(sketchfront.InspectGo(pkgs))
+}
+
 // diagnosticsCommand prints the diagnostic report as text or JSON; exit 1
 // when the policy fails, 2 on an invalid invocation.
 func diagnosticsCommand(args []string) error {

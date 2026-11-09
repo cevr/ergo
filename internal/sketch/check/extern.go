@@ -265,6 +265,9 @@ type GoExtern struct {
 	// call passes (IG10); such an extern is never Basic.
 	Context bool
 	Basic   bool
+	// Binding is the Go target's declaration in its binding (Level 1),
+	// which ergo inspect reports (IG8).
+	Binding *Func
 }
 
 // GoExternOf is the admitted adapter of the user extern f, or nil.
@@ -350,7 +353,7 @@ func (c *checker) externAdapter(f *Func) (string, string) {
 	if msg != "" {
 		return msg, CodeType
 	}
-	f.goExtern = &GoExtern{Adapter: adapter, Variadic: GoVariadic(bf), Context: GoContext(bf), Basic: adapter == AdaptSame && !GoContext(bf) && c.externBasicSig(w)}
+	f.goExtern = &GoExtern{Adapter: adapter, Variadic: GoVariadic(bf), Context: GoContext(bf), Basic: adapter == AdaptSame && !GoContext(bf) && c.externBasicSig(w), Binding: bf}
 	return "", ""
 }
 
