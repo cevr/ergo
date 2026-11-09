@@ -2,7 +2,7 @@
 
 This file is the v1 specification of Go imports ([#202](https://github.com/cevr/ergo/issues/202)). It replaces the retired [docs/interop.md](../interop.md), which stays as design reference. The plan with its owner answers (q32 to q38, 2026-11-08) is the wf10 import-go plan; the rules below are its §1 and §2. Terms (Go import, Host package, Ambient) are in the [glossary](../../GLOSSARY.md).
 
-Status per section: **Binding files** and **Type mapping** are implemented by `ergo bind go` (`internal/gobind`, IG1), and the bindings of Go's standard library are embedded (`internal/sketch/std/gostd`). **Checking** is implemented (IG2): the checker reads the bindings, and a binding declaration in user source stays S109 (only a binding declares one). The lowering is IG3 and the Level 2 adapters are IG4.
+Status per section: **Binding files** and **Type mapping** are implemented by `ergo bind go` (`internal/gobind`, IG1), and the bindings of Go's standard library are embedded (`internal/sketch/std/gostd`). **Checking** is implemented (IG2): the checker reads the bindings, and a binding declaration in user source stays S109 (only a binding declares one). **Lowering** is implemented (IG3): Level 1 calls are direct Go calls. The Level 2 adapters are IG4.
 
 ## Two levels, one mechanism
 
@@ -38,7 +38,7 @@ A declaration that does not map is listed in the binding with its reason, so the
 | `time.Duration` | `duration` | direct |
 | `uintptr`, `unsafe.Pointer` | none | refused |
 | named type defined over a basic type | the host type, nominal | `extern go io/fs.FileMode type FileMode uint32` |
-| `[]T` | `[]T` | value rule (types.md Values); IG3 lowers the copy |
+| `[]T` | `[]T` | value rule (types.md Values): copied at the call unless fresh or dead (Lowering 2-3) |
 | `map[K]V` | `Map[K, V]` | as `[]T` |
 | `[N]T` | none | refused: Ergo has no fixed arrays ([grammar.md](grammar.md), Old spellings) |
 | `*S`, `S` a named non-interface type, as a parameter | `*S` | a borrow (types.md Borrows); a `go.Ref[S]` is accepted too (q38) |
@@ -90,3 +90,15 @@ Each call's row comes from the reviewed tables of `runtime/v1`, never from the G
 5. **A wrong binding.** A binding that does not check (an edited or stale file) is S108 at the import, with the first diagnostic and the command that regenerates it.
 
 *Prior art:* Kotlin/Native's cinterop writes a klib of stubs at build time; Swift caches imported modules; Borgo commits its generated `.brg` files. A committed binding keeps `ergo check` hermetic: it reads files, as `go.sum` is read.
+
+## Lowering
+
+1. **Direct calls.** A call of a Go function, a method (of a Go struct through a value, a `go.Ref` or a borrow, or of a Go interface) and a field read lower to Go's own: `url.Parse(raw)`, `u.Hostname()`, `u.Path`, with Go's import in the emitted file (named apart when its name clashes). No environment, no wrapper and no poll: a Go call is not an interruption point ([runtime.md](runtime.md)). `go.Ref[T]` is Go's `*T`; a Go value passed where a Go interface is expected is Go's implicit conversion. `go.Foreign` has no operation, so the environment holds nothing for it. A call into the reviewed pure tier that takes no function is transparent in footprints (owner q35, reversing [stdlib.md](stdlib.md) Pure bodies 3 for `import go`): a function that makes only such calls takes no environment and polls nothing, as hand Go; a user extern stays opaque.
+2. **Values in.** An argument (or a receiver) that is a Map or a slice, or a Go type over one, goes where Go may write or keep it: it is copied unless it is fresh (a literal, a call's result) or a local dead after the call, the value rule of [types.md](types.md) (q26). `sort.Ints(xs)` on a live `xs` sorts a copy; on a dead one it sorts in place, as hand Go does. The copy-always lowering is kept as the reference (`lower.SetHostCopyAlwaysForTest`), and a seeded property holds the two equal to the value model (`TestHostCopyElisionAgrees`).
+3. **Values out.** A Map or slice result is copied unless the reviewed table `freshGoResults` (`lower/gocall.go`) lists the function as returning new memory (`strings.Split`, `regexp.Regexp.FindAllString`); a result such as `regexp.Regexp.SubexpNames`, which shares Go's state, is copied, so a write to it never reaches Go. Several Go results are a tuple; a last `error` is `fails go.Error` (`v1.GoErrorOf`, as G4 lowers an extern).
+4. **Nil.** A nil pointer or interface whose Ergo type is `Option[T]` is `None`, else `Some`. A `go.Ref[S]` result that is nil with a nil error is a defect at the call, `Go returned nil without an error at <file:line:col>: <function>` (`v1.GoNilDefect`): Go's convention that a nil error comes with a value is checked, not assumed.
+5. **Variadic.** The last argument of a `// ergo:variadic` function is spread: `filepath.Join(parts...)`.
+6. **Panics.** A Go panic in an imported call is a defect; the call's `//line` directive names the Ergo call site in the report, and the task's existing recover catches it, with no recover per call.
+7. **Not yet.** A Go function used as a value, and a callback parameter of import go, are IG6; an `import go` of a module's own Go package is IG7 (the lowering imports Go's standard library only).
+
+*Prior art:* Gleam's `@external` and ReScript's `@module` externals are direct calls with no adapter, as here when no Map or slice crosses shared; Kotlin/Native's cinterop and Swift's Clang importer map a nullable pointer to an optional the same way; Swift copies an `Array` passed to C only when its buffer is shared, as the value rule copies a live operand.

@@ -66,7 +66,11 @@ func reLine(p string, s string) string needs go.Foreign {
 
 func numParts(s string) string fails go.Error {
 	let n = try strconv.Atoi(s)
-	"\(n * 2)|\(strconv.FormatInt(int64(n), 36))|\(strconv.Quote(s))"
+	"\(n * 2)|\(strconv.FormatInt(int64(n), 36))|\(quoted(s))"
+}
+
+func quoted(s string) string {
+	strconv.Quote(s)
 }
 
 func numLine(s string) string {
@@ -152,6 +156,12 @@ func TestImportGoRuns(t *testing.T) {
 	}
 	src.WriteString("}\n")
 	prog := mustLower(t, "import_go_runs", src.String())
+	// A call into the reviewed pure tier is transparent (owner q35): the
+	// function that makes only such calls takes no environment and does
+	// not poll, as hand Go; a foreign call's function does.
+	if main := prog.mainGo(); !strings.Contains(main, "func quoted(s string) string {") || !strings.Contains(main, "func urlParts(env *Env, raw string) (string, error) {") {
+		t.Errorf("pure-tier transparency: quoted or urlParts has the wrong environment:\n%s", main)
+	}
 	exes := buildAll(t, []*lowered{prog}, true)
 	if exes == nil {
 		return
