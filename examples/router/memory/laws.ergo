@@ -2,7 +2,7 @@
 // commands against a router over a fresh memory journal and a Directory,
 // on a manual clock that no one moves. The step's rules are route's laws;
 // the runner's (supervision, durability, hosts) are std actor's, held by
-// its models and properties; these hold that the program wires them as
+// its models and properties; these hold that the program binds them as
 // it says.
 
 import actor
