@@ -369,6 +369,10 @@ type Fn { f func(int) int }
 
 func Area(_ Fn) int { 1 }
 
+type Fns {}
+
+func Put(_ Fns, v func(int) int) {}
+
 law Calls(f func(int) int) { f(1) == f(1) }
 
 func main() {}
@@ -380,7 +384,7 @@ func main() {}
 	stdout, stderr, code := runExe(t, exes["lawrun_skips"])
 	want := []string{
 		"skip law Shape.Positive for Fn: its values have no generator: func(int) int is a function type; a func NewFn() Fn with no rows would build one for each case",
-		"skip law Box.Keeps: its parameter v has no generator: T is not a generatable type",
+		"skip law Box.Keeps for Fns: its parameter v has no generator at Box[func(int) int]: func(int) int is a function type",
 		"skip law Calls: its parameter f has no generator: func(int) int is a function type",
 		"PASS (0 tests, 3 skipped)",
 	}
@@ -447,6 +451,7 @@ func main() {}
 // status.
 type lawRunProgram struct {
 	name, src string
+	generic   bool // Op[T], run at each provider's instance
 	want      []string
 	exit      int
 }
@@ -459,7 +464,18 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 	if helper {
 		call = "viaHelper(n)"
 	}
-	fmt.Fprintf(&b, "type Op {\n\tF(n int) int,\n\tlaw Linear(n int) { %s == n * %d + %d },\n}\n\n", call, k, c)
+	// A generic Op[T] (L4) runs its law at each provider's instance: a
+	// provider's F fixes T, to int or int64. Its law calls F bare: a
+	// helper would need Op[T], which is no capability. A literal does not
+	// take a type parameter's type, so the law states affinity without
+	// one: f(2n) = 2f(n) - f(0), which the broken provider's step at its
+	// threshold breaks for n past it (threshold >= 0) or below it (< 0).
+	generic := !helper && r.Intn(2) == 0
+	if generic {
+		b.WriteString("type Op[T number] {\n\tF(n T) T,\n\tlaw Linear(n T) { F(n + n) == F(n) + F(n) - F(n - n) },\n}\n\n")
+	} else {
+		fmt.Fprintf(&b, "type Op {\n\tF(n int) int,\n\tlaw Linear(n int) { %s == n * %d + %d },\n}\n\n", call, k, c)
+	}
 	if helper {
 		b.WriteString("func viaHelper(n int) int needs Op { Op.F(n) }\n\n")
 	}
@@ -473,7 +489,11 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 		if p == broken {
 			body = fmt.Sprintf("if n > %d { n * %d + %d } else { n * %d + %d }", r.Intn(20)-10, k, c+1, k, c)
 		}
-		fmt.Fprintf(&b, "type %s { tag int }\n\nfunc F(_ %s, n int) int { %s }\n\n", name, name, body)
+		elem := "int"
+		if generic && r.Intn(2) == 0 {
+			elem = "int64"
+		}
+		fmt.Fprintf(&b, "type %s { tag int }\n\nfunc F(_ %s, n %s) %s { %s }\n\n", name, name, elem, elem, body)
 		line := "ok law Op.Linear for " + name + " (100 cases)"
 		if p == broken {
 			line = "FAIL law Op.Linear for " + name + " (case "
@@ -499,7 +519,7 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 	} else {
 		want = append(want, fmt.Sprintf("PASS (%d tests)", total))
 	}
-	return lawRunProgram{name: fmt.Sprintf("lawrun_gen_%02d", i), src: b.String(), want: want, exit: exit}
+	return lawRunProgram{name: fmt.Sprintf("lawrun_gen_%02d", i), src: b.String(), want: want, exit: exit, generic: generic}
 }
 
 // TestLawRunFindsTheBrokenProvider is the property: over generated
@@ -520,21 +540,27 @@ func TestLawRunFindsTheBrokenProvider(t *testing.T) {
 	var progs []lawRunProgram
 	var builds []*lowered
 	brokenAt := map[int]bool{}
-	for i := 0; i < 16; i++ {
+	genericBroken := false
+	for i := 0; i < 32; i++ {
 		p := genLawRunProgram(r, i)
 		progs = append(progs, p)
 		builds = append(builds, lowerTestBuild(t, p.name, p.src))
 		for k, w := range p.want {
 			if strings.HasPrefix(w, "FAIL law Op.") {
 				brokenAt[k] = true
+				genericBroken = genericBroken || p.generic
 			}
 		}
 	}
-	// The generator reaches a broken provider in every position.
+	// The generator reaches a broken provider in every position, and a
+	// broken provider of a generic Op[T].
 	for k := 0; k < 3; k++ {
 		if !brokenAt[k] {
 			t.Fatalf("seed %d: no program has a broken provider at position %d", seed, k+1)
 		}
+	}
+	if !genericBroken {
+		t.Fatalf("seed %d: no program has a broken provider of a generic Op", seed)
 	}
 	exes := buildAll(t, builds, true)
 	if exes == nil {

@@ -244,6 +244,11 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		}
 		vals := fc.callArgs(args, x)
 		env := fc.envExpr(x)
+		if recv := fc.l.tests.lawOwnOf(c); recv != "" {
+			// A law of a generic operation type calls the provider it
+			// takes (lawDecl), as a call on a value of the type does.
+			return fc.opCall(cap, c.Op, fc.typeOf(x), append([]string{recv}, vals...), env, fc.opDest(x, c), x, c, x)
+		}
 		// A capability's operation takes the running task first (rows.md,
 		// Rows 7), then a returned Task's destination (methodSig).
 		lead := []string{taskOf(env)}

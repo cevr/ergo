@@ -68,6 +68,10 @@ type testLowering struct {
 	// operation call in it (CallLawOp) calls its operation type's
 	// capability, which the run binds to the provider under test.
 	law *check.Law
+	// lawOwn is the Go parameter that holds the provider under test in a
+	// law of a generic operation type, whose bare operation calls call it;
+	// "" in any other law.
+	lawOwn string
 	// lawPkgs are the imported packages whose laws the build lowers
 	// (owners.go, viewOf), set on first use.
 	lawPkgs map[*check.Package]bool
@@ -138,14 +142,23 @@ func (l *lowerer) nameTests() {
 		if !lawLowered(r) {
 			continue
 		}
+		generic := lawGenericOwner(law) != nil
 		for i, v := range law.Params {
-			if !lawSlotParam(law, i) {
+			if !lawSlotParam(law, i) && !generic {
 				reserveGen(v.Type)
 			}
 		}
 		for _, b := range r.Bindings {
 			if bindingUnrun(b) != "" {
 				continue
+			}
+			if generic {
+				// Drawn at the provider's instance (lawRuns).
+				for i, t := range b[0].Params {
+					if !lawSlotParam(law, i) {
+						reserveGen(t)
+					}
+				}
 			}
 			for _, p := range b {
 				if p.Ctor != nil {
@@ -314,6 +327,23 @@ func (l *lowerer) lawDecl(law *check.Law) {
 	}
 	fc.env = scope.alloc("env")
 	parts := []string{fc.env + " *" + l.env()}
+	tparams := ""
+	if own := lawGenericOwner(law); own != nil {
+		// A law of a generic operation type is a Go generic function in
+		// the type's parameters (types.md, Generics 5), and takes the
+		// provider under test after the environment: its instance is no
+		// environment field, since the law's own type names T (Laws 10).
+		var names map[*check.TypeParam]string
+		tparams, names = l.typeParams(own.TParams, scope, d)
+		fc.params = names
+		args := make([]string, len(own.TParams))
+		for i, tp := range own.TParams {
+			args[i] = names[tp]
+		}
+		l.tests.lawOwn = scope.alloc("own")
+		parts = append(parts, l.tests.lawOwn+" "+fc.goType(own)+"["+strings.Join(args, ", ")+"]")
+		defer func() { l.tests.lawOwn = "" }()
+	}
 	result := check.Type(check.Typ[check.Bool])
 	fc.frame = newFrame(result, true, framePolls(l.info, d))
 	fc.frame.law = true
@@ -326,7 +356,7 @@ func (l *lowerer) lawDecl(law *check.Law) {
 		fc.locals[v] = n
 		parts = append(parts, n+" "+fc.goType(v.Type))
 	}
-	head := "func " + l.lawFunc(law) + "(" + strings.Join(parts, ", ") + ")"
+	head := "func " + l.lawFunc(law) + tparams + "(" + strings.Join(parts, ", ") + ")"
 	frameErr := ""
 	needsFrame := l.bodyNeedsFrame(d.Body.List)
 	if needsFrame {
@@ -684,6 +714,25 @@ func (l *lowerer) testRunner() string {
 
 // lawSlotParam reports whether the law's parameter i is a slot, an
 // operation type a run binds to a provider (check.Law.Slots).
+// lawOwnOf is the provider parameter a law operation call c calls in a
+// law of a generic operation type, "" for any other call or outside the
+// test build.
+func (t *testLowering) lawOwnOf(c *check.Call) string {
+	if t == nil || c.Kind != check.CallLawOp {
+		return ""
+	}
+	return t.lawOwn
+}
+
+// lawGenericOwner is the operation type of a law of a generic operation
+// type that runs (its first slot), nil for any other law.
+func lawGenericOwner(law *check.Law) *check.Named {
+	if len(law.Slots) == 0 || law.Slots[0].Param >= 0 || len(law.Slots[0].Type.TParams) == 0 {
+		return nil
+	}
+	return law.Slots[0].Type
+}
+
 func lawSlotParam(law *check.Law, i int) bool {
 	for _, s := range law.Slots {
 		if s.Param == i {
@@ -791,15 +840,34 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 			return fc.convert(p.Conv, pv, law.Decl)
 		}
 		bound := map[int]check.LawProvider{}
+		args := []string{"&" + e}
+		callee := l.lawFunc(law)
+		generic := lawGenericOwner(law) != nil
 		for k, s := range law.Slots {
+			if s.Param < 0 && generic {
+				// A law of a generic operation type takes its provider
+				// after the environment, at the instance the provider
+				// fixes (lawDecl).
+				args = append(args, provide(tg.b[k], "provider", "provider"))
+				tc := &typeCtx{l: l, site: law.Decl}
+				targs := make([]string, len(tg.b[k].Slot.TArgs))
+				for i, a := range tg.b[k].Slot.TArgs {
+					targs[i] = tc.goType(a)
+				}
+				callee += "[" + strings.Join(targs, ", ") + "]"
+				continue
+			}
 			if s.Param < 0 {
 				bind = append(bind, e+"."+l.envField(s.Type)+" = "+provide(tg.b[k], "provider", "provider"))
 				continue
 			}
 			bound[s.Param] = tg.b[k]
 		}
-		args := []string{"&" + e}
 		for k, v := range law.Params {
+			vt := v.Type
+			if generic {
+				vt = tg.b[0].Params[k]
+			}
 			base := v.Name
 			if base == "_" {
 				base = "arg"
@@ -809,13 +877,13 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 				continue
 			}
 			a := inner.alloc(base)
-			b.WriteString("\t\t\t" + a + " := " + l.genExpr(v.Type, r, strconv.Itoa(testDepth), inner, law.Decl) + "\n")
+			b.WriteString("\t\t\t" + a + " := " + l.genExpr(vt, r, strconv.Itoa(testDepth), inner, law.Decl) + "\n")
 			args = append(args, a)
-			shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(v.Type, a, law.Decl))
+			shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(vt, a, law.Decl))
 			sep = ", "
 		}
 		body := e + " := *" + env + "; " + strings.Join(append(bind, ""), "; ") +
-			held + ", " + err + " := " + l.lawFunc(law) + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
+			held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
 		b.WriteString("\t\t\t" + ok + " = " + run + "(" + taskOf(env) + ", " + name + ", func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " })\n")
 		b.WriteString("\t\t}\n")
 		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", tg.label, testCases)) + ")\n")

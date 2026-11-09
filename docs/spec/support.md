@@ -116,6 +116,6 @@ A refusal names one of these owners.
 - [#197](https://github.com/cevr/ergo/issues/197): further resource ownership.
 - [#199](https://github.com/cevr/ergo/issues/199): the runtime.
 - [#57](https://github.com/cevr/ergo/issues/57): the actor library and its machine runner.
-- [#162](https://github.com/cevr/ergo/issues/162): running the laws that do not run yet: a generic operation type's, and an imported operation type's against this package's providers.
+- [#162](https://github.com/cevr/ergo/issues/162): running the laws that do not run yet: an imported operation type's against this package's providers, and a generic operation type's against a generic provider (L4 runs it at each non-generic provider's instance).
 - [#49](https://github.com/cevr/ergo/issues/49): derived text forms.
 - [#196](https://github.com/cevr/ergo/issues/196): the syntax that the checker admits and no rule defines yet.

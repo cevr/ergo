@@ -56,10 +56,13 @@ import (
 //     is checked and not run (rule 8).
 //  7. Running (planLaws): a law quantifies over generated values of its
 //     parameters and over each operation type it names (Law.Slots): its
-//     owner, for a member law of a non-generic operation type, and each
-//     parameter whose type is a non-generic operation type. A run binds
+//     owner, for a member law, and each parameter whose type is a
+//     non-generic operation type. A run binds
 //     each slot to a provider, a named type that implements it, and draws
-//     a value of each other parameter per case. The test build of a
+//     a value of each other parameter per case. A law of a generic
+//     operation type runs at each provider's instance, which the
+//     provider's operations fix (lawProvider, lawInstance; L4). The test
+//     build of a
 //     package P runs a binding when P sees the law and every bound
 //     provider (each is declared in P or in a package P imports, at any
 //     depth, the prelude and std included) and no other package that P
@@ -73,7 +76,9 @@ import (
 //     construction authority of the package that owns it: a parameter
 //     with the law's package's, a provider with its own package's.
 //  8. A law that cannot run says why (Law.Unrun): a parameter with no
-//     generator or a generic operation type; its own package reports it.
+//     generator or of a generic operation type, or an owner whose type
+//     has a row parameter or an operations-constrained type parameter;
+//     its own package reports it.
 //     A provider is built for each case as its package builds it: by its
 //     package's constructor New<P> when it declares one (LawProvider.Ctor;
 //     fs4), else generated; one with neither says why (LawProvider.Unrun).
@@ -177,6 +182,19 @@ func (l *Law) capability() *Named {
 	return n
 }
 
+// constraintMethods reports whether tp's constraint has operations: a run
+// would pass a witness for it (lower/witness.go), which it does not build.
+func constraintMethods(tp *TypeParam) bool {
+	var it *Interface
+	switch c := tp.Constraint.(type) {
+	case *Interface:
+		it = c
+	case *Named:
+		it, _ = c.Underlying().(*Interface)
+	}
+	return it != nil && len(it.Methods) > 0
+}
+
 // planLaws decides how ergo test runs each law (Running, rules 7 to 9):
 // its providers and, when it does not run, why. A duplicate law is
 // refused (S108), so its plan is never read.
@@ -205,6 +223,12 @@ func (c *checker) planLaw(law *Law) {
 				continue
 			}
 		}
+		steps := 0
+		if hasParam(v.Type, &steps) {
+			// Typed in the owner's type parameters: generated at each
+			// provider's instance (lawRuns).
+			continue
+		}
 		if why := c.ungeneratable(v.Type); why != "" {
 			law.Unrun = "its parameter " + v.Name + " has no generator: " + why
 			return
@@ -213,8 +237,28 @@ func (c *checker) planLaw(law *Law) {
 	if law.Owner != nil {
 		own := law.capability()
 		if own == nil {
-			law.Unrun = "its operation type " + law.Owner.Name + " is generic, and a run has no type arguments for it"
-			return
+			n, _ := law.Owner.Type.(*Named)
+			if n == nil {
+				law.Unrun = "its owner " + law.Owner.Name + " is not an operation type"
+				return
+			}
+			if _, isOps := n.Underlying().(*Interface); !isOps {
+				law.Unrun = "its owner " + law.Owner.Name + " is not an operation type"
+				return
+			}
+			// A law of a generic operation type runs at each provider's
+			// instance (rule 7): the provider fixes the type arguments.
+			for _, tp := range n.TParams {
+				if tp.Kind != KindType {
+					law.Unrun = "its operation type " + law.Owner.Name + " has the row parameter " + tp.Name + ", and a run binds only type parameters"
+					return
+				}
+				if constraintMethods(tp) {
+					law.Unrun = "its operation type " + law.Owner.Name + " constrains " + tp.Name + " by operations, and a run passes no witness"
+					return
+				}
+			}
+			own = n
 		}
 		slots = append([]LawSlot{{Param: -1, Type: own}}, slots...)
 	}
@@ -301,7 +345,7 @@ func (c *checker) lawRuns() []LawRun {
 					parts = append(parts, p.Type.Obj.Pkg)
 				}
 				if least(parts) {
-					run.Bindings = append(run.Bindings, b)
+					run.Bindings = append(run.Bindings, c.lawInstance(law, b))
 				}
 			}
 			if own || len(run.Bindings) > 0 {
@@ -310,6 +354,45 @@ func (c *checker) lawRuns() []LawRun {
 		}
 	}
 	return runs
+}
+
+// lawInstance is the binding b of a law of a generic operation type at
+// its owner's provider's instance (rule 7): the law's parameter types with
+// the instance's type arguments, and why the binding does not run when one
+// of them has no generator. Any other law's binding is b.
+func (c *checker) lawInstance(law *Law, b []LawProvider) []LawProvider {
+	if len(law.Slots) == 0 || law.Slots[0].Param >= 0 || len(law.Slots[0].Type.TParams) == 0 {
+		return b
+	}
+	own := law.Slots[0].Type
+	b = slices.Clone(b)
+	p := b[0]
+	m := map[*TypeParam]Type{}
+	for i, tp := range own.TParams {
+		m[tp] = p.Slot.TArgs[i]
+	}
+	p.Params = make([]Type, len(law.Params))
+	for i, v := range law.Params {
+		p.Params[i] = c.subst(v.Type, m)
+		if p.Unrun != "" || lawSlotParam(law, i) {
+			continue
+		}
+		if why := c.ungeneratableFrom(p.Params[i], law.Pkg); why != "" {
+			p.Unrun = "its parameter " + v.Name + " has no generator at " + p.Slot.String() + ": " + why
+		}
+	}
+	b[0] = p
+	return b
+}
+
+// lawSlotParam reports whether the law's parameter i is a slot.
+func lawSlotParam(law *Law, i int) bool {
+	for _, s := range law.Slots {
+		if s.Param == i {
+			return true
+		}
+	}
+	return false
 }
 
 // lawProvider is the provider tn's type is for the operation type own: a
@@ -327,11 +410,33 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 	case *Interface, *MachineType:
 		return LawProvider{}, false
 	}
-	a, _ := c.assignability(p, own)
+	slot := own
+	var targs []Type
+	if len(own.TParams) > 0 {
+		// A generic operation type: the provider's operations fix its
+		// type arguments, by unifying their signatures with the type's
+		// (Generics 6, interfaces through method sets).
+		in := &inferer{c: c, m: map[*TypeParam]Type{}, set: map[*TypeParam]bool{}}
+		for _, tp := range own.TParams {
+			in.set[tp] = true
+		}
+		it, _ := own.Underlying().(*Interface)
+		if it == nil || !in.implements(it, p, 0) {
+			return LawProvider{}, false
+		}
+		for _, tp := range own.TParams {
+			if in.m[tp] == nil {
+				return LawProvider{}, false
+			}
+			targs = append(targs, in.m[tp])
+		}
+		slot = c.instantiate(own, targs)
+	}
+	a, _ := c.assignability(p, slot)
 	if !a.ok() || a.conv.Kind != ConvOperations {
 		return LawProvider{}, false
 	}
-	lp := LawProvider{Type: p, Conv: a.conv}
+	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot}
 	if _, built := c.constructorWhy(p); built && p.Obj.ctor != nil {
 		lp.Ctor = p.Obj.ctor
 	} else if why := c.ungeneratableFrom(p, p.Obj.Pkg); why != "" {

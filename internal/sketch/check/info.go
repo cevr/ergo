@@ -794,11 +794,20 @@ type LawRun struct {
 // Ctor is the provider's constructor when its values have no generator
 // and its package declares New<P> (laws.go, lawConstructor; fs4): each
 // case calls it, with generated arguments, instead of generating a value.
+//
+// Slot is the operation type the provider converts to: the slot's type, or
+// for a law of a generic operation type the instance its operations fix
+// (Store[Job] for a provider of Store[T] whose Put takes a Job; laws.go,
+// rule 7). Params are then the law's parameter types at that instance,
+// one per parameter, for the owner's provider of such a law; nil
+// otherwise.
 type LawProvider struct {
-	Type  *Named
-	Conv  Conversion
-	Ctor  *Func
-	Unrun string
+	Type   *Named
+	Conv   Conversion
+	Ctor   *Func
+	Unrun  string
+	Slot   *Named
+	Params []Type
 }
 
 // A law is an Object, so Defs records its declaring name.

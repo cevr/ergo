@@ -57,7 +57,7 @@ Each is written up with a repro in the lane's gap file (`gaps-ex-d.md`).
 
 - **G-ex-d-9** (still open after T4) Generated ints rarely meet, so the laws' generators are steered by hand (`resolve.NameOf`, `Few`, `RootOf`, `graph.Crowded`, `Few`, `Downhill`). Measured at batch 12 with T4's wider generators, seeds 1 to 5: with the graph steering removed, mutants g1 and g5 survive their own laws; with the names and versions not folded mod 3, r1 survives and r3 is killed by one seed of five. So the steering stays.
 - **G-ex-d-12** `needs` is a keyword, and a parameter named `needs` gets "expected a type".
-- **G-ex-d-13** A law cannot be generic, so the graph laws are stated at `int` nodes.
+- **G-ex-d-13** A top-level law is not generic, so the graph laws are stated at `int` nodes. Since L4 a law of a generic operation type runs at each provider's instance (`examples/relay`); `graph.Graph` is a record with functions, not an operation type, so its laws stay at `int`.
 - **G-exup-1** (closed in batch 13) `ergo test` runs the laws of `resolve.Index` against `memory.Registry` too, in package `memory`, building each provider with `NewRegistry`; `memory/tests.ergo` checks them again over the steered names.
 - Known from other lanes: a required positional argument's `Get` is an `Option` (std-strengths F1).
 

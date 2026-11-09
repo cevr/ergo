@@ -1,0 +1,25 @@
+// relay reads chat frames from its arguments, "note 3:annhi" or
+// "join 2:bo", and prints for each the line a room shows and the frame
+// it forwards. A frame it cannot read ends it with status 1. This binary
+// is the only place that chooses the codecs: plain text for both kinds.
+
+import os
+import relay/text
+import relay/wire
+
+func run(frames []string) fails os.Exit needs Console | wire.Codec[wire.Note] | wire.Codec[wire.Join] {
+	for frame in frames {
+		let e = wire.Read(frame) catch {
+		case wire.Malformed as m:
+			return os.Exit{Code: 1, Message: "relay: \(m.Why): \(m.Frame)"}
+		}
+		Console.Println(wire.Describe(e))
+		Console.Println("  -> " + wire.Forward(e))
+	}
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost(), wire.Codec[wire.Note]: text.NoteText, wire.Codec[wire.Join]: text.JoinText } {
+		try run(os.Process.Args())
+	}
+}

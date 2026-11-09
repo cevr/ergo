@@ -1,0 +1,12 @@
+// Codec is how a relay reads and writes one kind of event on the wire.
+// It is generic in the event: the relay needs Codec[Note] and Codec[Join],
+// two capabilities that a binary binds to two providers. Its law is
+// generic too, and runs at each provider's own instance: a provider of
+// Codec[Note] is checked over generated Notes (types.md, Laws 10).
+type Codec[T comparable] {
+	Encode(v T) string,
+	Decode(s string) T fails Malformed,
+
+	// RoundTrip: what a codec writes, it reads back unchanged.
+	law RoundTrip(v T) { try Decode(Encode(v)) == v },
+}
