@@ -21,7 +21,7 @@ var ownerText = map[string]string{
 	"#197": "further resource ownership",
 	"#199": "the runtime",
 	"#57":  "the actor library and its machine runner",
-	"#162": "running the laws that do not run yet: a generic operation type's, and an imported operation type's against this package's providers",
+	"#162": "running the laws that do not run yet: an imported operation type's against this package's providers, and a generic operation type's against a generic provider (L4 runs it at each non-generic provider's instance)",
 	"#49":  "derived text forms",
 	"#196": "the syntax that the checker admits and no rule defines yet",
 }

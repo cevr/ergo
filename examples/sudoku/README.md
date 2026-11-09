@@ -35,7 +35,7 @@ go run ./scripts/examples sudoku
 
 New gaps (in `gaps-ex-e.md` of the run):
 
-- **G-ex-e-7**: no fixed arrays. `Grid` holds a slice, a copy appends 81 cells, and the length is checked at run time by `OfCells`. Measured on a loaded host, 1,000 hard puzzles take 0.49 s against 0.28 s for the same algorithm in hand Go with `[81]uint16` (1.75x).
+- G-ex-e-7 closed by L1 (196y): `Grid` holds `[81]int`, a fixed array, so a copy is Go's array copy and the length is the type's. Before, `Grid` held a slice and 1,000 hard puzzles took 0.49 s against 0.28 s for hand Go with `[81]uint16` (1.75x, measured on a loaded host); the new time waits for the lane's bench window.
 - G-ex-e-8 closed in batch 12: `count` and `lowest` use std `bits.OnesCount` and `bits.TrailingZeros`.
 - G-ex-e-5 closed in batch 12: a slice is a value, so `copied` is gone (`let mut t = s`) and `With` sets one cell of its copy.
 

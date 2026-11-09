@@ -1,0 +1,16 @@
+// An Event is what travels through the relay: a Note from one member to
+// the room, or a member who Joins at a seat.
+type Event = Note{From string, Body string} | Join{Name string, Seat int}
+
+// Malformed is a frame the relay cannot read, and why.
+type Malformed { Frame string, Why string }
+
+// Describe is the line the relay shows for an event.
+func Describe(e Event) string {
+	match e {
+	case Note as n:
+		"\(n.From): \(n.Body)"
+	case Join as j:
+		"\(j.Name) joins at seat \(j.Seat)"
+	}
+}

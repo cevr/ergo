@@ -172,7 +172,7 @@ func (w *taskWalk) visit(t Type) (bool, int) {
 	c := w.c
 	c.taskSteps++
 	switch t.(type) {
-	case *Named, *Slice, *Map, *Tuple, *Pointer, *Struct, *Union:
+	case *Named, *Slice, *Array, *Map, *Tuple, *Pointer, *Struct, *Union:
 	default:
 		// A basic type, a type parameter, a row, an operation type
 		// (Interface) and a function type (Signature) hold no Task.
@@ -222,6 +222,8 @@ func (w *taskWalk) visit(t Type) (bool, int) {
 			edge(o.underlying())
 		}
 	case *Slice:
+		edge(t.Elem)
+	case *Array:
 		edge(t.Elem)
 	case *Map:
 		edge(t.Key)

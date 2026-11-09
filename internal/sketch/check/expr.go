@@ -384,7 +384,7 @@ func (c *checker) textForm(e syntax.Expr, t Type) {
 	switch u := under(t).(type) {
 	case *Basic:
 		return
-	case *Struct, *Union, *Tuple, *Slice, *Map:
+	case *Struct, *Union, *Tuple, *Slice, *Array, *Map:
 		c.errorf(e, CodeOutside, "a value of type %s has no text form yet; interpolate one of its fields, or wait for derived text forms (#49)", c.localTypeText(t))
 	case *TypeParam:
 		c.errorf(e, CodeOutside, "a value of type %s has no text form yet: a type parameter has no text form in v1; interpolate a value of a basic type, or wait for derived text forms (#49)", c.localTypeText(u))
@@ -697,6 +697,8 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 		}
 	case *Slice:
 		c.elements(x, u.Elem, lt)
+	case *Array:
+		c.arrayElements(x, t, u, lt)
 	case *Map:
 		// A constant key appears once, compared after conversion to the
 		// key type, as in Go (N3).
@@ -1071,6 +1073,12 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 		}
 	}
 	base := c.expr(x.X, nil)
+	if _, ix := unparen(x.X).(*syntax.IndexExpr); ix && base.mode == modeType && isCapability(base.typ) {
+		// The receiver Store[Job] of Store[Job].Put(j) is a capability
+		// name, as Store is (types.md, Capabilities 7); elsewhere the
+		// instance stays a type (a conversion, a literal).
+		base = operand{mode: modeCap, typ: base.typ, cap: base.typ, obj: base.typ.(*Named).Obj, expr: base.expr}
+	}
 	if c.selfRes != nil && base.mode != modeInvalid {
 		// Typing reached the call: it resolves to a 196m function
 		// (selfCall) or to another member, which takes no edge.
@@ -1490,6 +1498,13 @@ func (c *checker) index(x *syntax.IndexExpr, hint Type) operand {
 	case *Slice:
 		c.intIndex(x.Indices[0])
 		return operand{mode: modeValue, typ: u.Elem, addressable: true}
+	case *Array:
+		// A constant index is checked against the length here; another
+		// is checked when it runs (196y; types.md, Arrays 3).
+		if i, ok := c.intIndex(x.Indices[0]); ok && i >= u.Len {
+			c.errorf(x.Indices[0], CodeType, "index %d is out of bounds of %s, whose length is %d", i, c.localTypeText(base.typ), u.Len)
+		}
+		return operand{mode: modeValue, typ: u.Elem, addressable: true}
 	case *Basic:
 		if isString(t) {
 			if i, ok := c.intIndex(x.Indices[0]); ok {
@@ -1557,6 +1572,9 @@ func (c *checker) sliceExpr(x *syntax.SliceExpr) operand {
 		if n, ok := constLength(base); ok {
 			limit, limited = n, true
 		}
+		if a, ok := under(base.typ).(*Array); ok {
+			limit, limited = a.Len, true
+		}
 	}
 	last, haveLast := int64(0), false
 	for _, e := range []syntax.Expr{x.Low, x.High, x.Max} {
@@ -1578,9 +1596,13 @@ func (c *checker) sliceExpr(x *syntax.SliceExpr) operand {
 	if base.invalid() {
 		return bad(x)
 	}
-	switch under(base.typ).(type) {
+	switch u := under(base.typ).(type) {
 	case *Slice:
 		return operand{mode: modeValue, typ: base.typ}
+	case *Array:
+		// A slice of an array is a new slice of its elements: the array
+		// stays a value (196y; types.md, Arrays 4).
+		return operand{mode: modeValue, typ: &Slice{Elem: u.Elem}}
 	case *Basic:
 		if isString(base.typ) {
 			if x.Slice3 {

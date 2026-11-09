@@ -1,0 +1,6 @@
+ann: hi there
+  -> note 3:annhi there
+bo joins at seat 2
+  -> join 2:bo
+a:b: c: colon
+  -> note 3:a:bc: colon

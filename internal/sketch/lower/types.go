@@ -70,6 +70,8 @@ func (tc *typeCtx) goType(t check.Type) string {
 		return name + "[" + strings.Join(args, ", ") + "]"
 	case *check.Slice:
 		return "[]" + tc.goType(t.Elem)
+	case *check.Array:
+		return "[" + arrayLen(t) + "]" + tc.goType(t.Elem)
 	case *check.Map:
 		return "map[" + tc.goType(t.Key) + "]" + tc.goType(t.Elem)
 	case *check.Pointer:
@@ -258,6 +260,12 @@ func (tc *typeCtx) defaultValue(t check.Type) string {
 		return tc.goType(t) + "{}"
 	case *check.Tuple:
 		return tc.goType(t) + "{" + strings.Join(tc.tupleDefaults(u), ", ") + "}"
+	case *check.Array:
+		// Each element gets its own default, in a loop: the text stays
+		// linear in the type, not in the length (196y).
+		// a_ and i_ end in _, which no Ergo name does (grammar.md,
+		// Reserved names 3).
+		return "func() (a_ " + tc.goType(t) + ") {\n\tfor i_ := range a_ {\n\t\ta_[i_] = " + tc.defaultValue(u.Elem) + "\n\t}\n\treturn\n}()"
 	case *check.Named:
 		name, free := tc.l.defaultFunc(u, tc.site)
 		if len(free) == 0 {
@@ -311,6 +319,9 @@ func (l *lowerer) defaultFunc(n *check.Named, site syntax.Node) (string, []*chec
 		parts = tc.tupleDefaults(under)
 	case *check.Struct:
 		parts = tc.fieldDefaults(l.typeDecl(n.Obj, site), under, nil)
+	case *check.Array:
+		l.gen.WriteString("func " + name + list + "() " + goType + " {\n\treturn " + goType + "(" + tc.defaultValue(under) + ")\n}\n\n")
+		return name, free
 	default:
 		ice(site, "the type %s holds a Map but has no default", n)
 	}
@@ -361,6 +372,8 @@ func (l *lowerer) typeKey(t check.Type) string {
 		k = "$" + u.Name + "@" + strconv.Itoa(int(u.Pos)) + l.paramFile(u)
 	case *check.Slice:
 		k = "[]" + l.typeKey(u.Elem)
+	case *check.Array:
+		k = "[" + arrayLen(u) + "]" + l.typeKey(u.Elem)
 	case *check.Map:
 		k = "map[" + l.typeKey(u.Key) + "]" + l.typeKey(u.Elem)
 	case *check.Pointer:
@@ -443,6 +456,8 @@ func freeTypeParams(t check.Type) []*check.TypeParam {
 			}
 		case *check.Slice:
 			walk(u.Elem)
+		case *check.Array:
+			walk(u.Elem)
 		case *check.Map:
 			walk(u.Key)
 			walk(u.Elem)
@@ -482,6 +497,8 @@ func (l *lowerer) reserveDefaults(reserve func(key pkgKey, base string)) {
 		walked[t] = true
 		switch u := t.(type) {
 		case *check.Slice:
+			walk(u.Elem)
+		case *check.Array:
 			walk(u.Elem)
 		case *check.Map:
 			walk(u.Key)
@@ -550,6 +567,8 @@ func (l *lowerer) holdsMap(t check.Type) bool {
 	switch u := t.(type) {
 	case *check.Map:
 		return true
+	case *check.Array:
+		return l.holdsMap(u.Elem)
 	case *check.Tuple:
 		for _, e := range u.Types {
 			if l.holdsMap(e) {
@@ -568,7 +587,7 @@ func (l *lowerer) holdsMap(t check.Type) bool {
 		switch under := u.Underlying().(type) {
 		case *check.Map:
 			held = true
-		case *check.Tuple:
+		case *check.Tuple, *check.Array:
 			held = l.holdsMap(under)
 		case *check.Struct:
 			for _, f := range under.Fields {

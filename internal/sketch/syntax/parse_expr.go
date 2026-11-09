@@ -494,6 +494,12 @@ func (p *parser) parseCall(fun Expr) *CallExpr {
 	if p.tok.tok == LBRACE && p.exprLev >= 0 {
 		c.Trailing = p.parseBlock()
 	}
+	// A trailing function literal (Expressions 9) is the call's last
+	// argument, written after the `)` on the call's line.
+	if p.tok.tok == FUNC && p.exprLev >= 0 && c.Trailing == nil {
+		c.Args = append(c.Args, p.parseOperand())
+		c.TrailingFunc = true
+	}
 	return c
 }
 

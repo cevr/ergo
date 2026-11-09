@@ -284,6 +284,8 @@ func shape(t Type) (kind byte, ref any, n int64, s string, kids []Type) {
 		return vParam, t, 0, "", nil
 	case *Slice:
 		return vSlice, nil, 0, "", []Type{t.Elem}
+	case *Array:
+		return vArray, nil, t.Len, "", []Type{t.Elem}
 	case *Map:
 		return vMap, nil, 0, "", []Type{t.Key, t.Elem}
 	case *Pointer:

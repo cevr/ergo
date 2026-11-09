@@ -472,6 +472,11 @@ type (
 		Args     []Expr
 		Rparen   Pos
 		Trailing *BlockStmt
+		// TrailingFunc is true when the last of Args is a function
+		// literal written after the `)` (grammar.md, Expressions 9):
+		// it is an argument like any other, and the formatter writes
+		// it back after the call.
+		TrailingFunc bool
 	}
 
 	// StarExpr is `*x`: a pointer type or an indirection.
@@ -521,9 +526,14 @@ type (
 		Body     *ContextBody
 	}
 
-	// ArrayType is the slice type `[]T`.
+	// ArrayType is the slice type `[]T`, or the fixed array type `[N]T`
+	// when Len is set: the text of an integer literal at LenPos (196y).
+	// The length is a literal, never an expression, so it holds no name
+	// and no use.
 	ArrayType struct {
 		Lbrack Pos
+		Len    string
+		LenPos Pos
 		Elt    Expr
 	}
 
@@ -659,6 +669,9 @@ func (x *CallExpr) Pos() Pos     { return x.Fun.Pos() }
 func (x *CallExpr) End() Pos {
 	if x.Trailing != nil {
 		return x.Trailing.End()
+	}
+	if x.TrailingFunc {
+		return x.Args[len(x.Args)-1].End()
 	}
 	return x.Rparen + 1
 }

@@ -541,6 +541,11 @@ type Call struct {
 	// check-v1 stage D3b (additive); the operation kinds in stage E2 (C15),
 	// CallLawOp in E3b (a law is checked as if it ran).
 	TaskResult bool
+	// Site is the prelude's CallSite when the call leaves out its callee's
+	// final CallSite parameter, and the lowering passes the call's own
+	// position after the written arguments (types.md, Call sites); nil
+	// otherwise. Added in unit L3 (additive).
+	Site *Named
 }
 
 // ConversionKind is an implicit conversion's kind.
@@ -819,11 +824,20 @@ type LawRun struct {
 // Ctor is the provider's constructor when its values have no generator
 // and its package declares New<P> (laws.go, lawConstructor; fs4): each
 // case calls it, with generated arguments, instead of generating a value.
+//
+// Slot is the operation type the provider converts to: the slot's type, or
+// for a law of a generic operation type the instance its operations fix
+// (Store[Job] for a provider of Store[T] whose Put takes a Job; laws.go,
+// rule 7). Params are then the law's parameter types at that instance,
+// one per parameter, for the owner's provider of such a law; nil
+// otherwise.
 type LawProvider struct {
-	Type  *Named
-	Conv  Conversion
-	Ctor  *Func
-	Unrun string
+	Type   *Named
+	Conv   Conversion
+	Ctor   *Func
+	Unrun  string
+	Slot   *Named
+	Params []Type
 }
 
 // A law is an Object, so Defs records its declaring name.
@@ -1100,6 +1114,10 @@ func (c *checker) finalType(t Type, memo map[Type]Type) Type {
 	case *Slice:
 		if e := c.finalType(t.Elem, memo); e != t.Elem {
 			out = &Slice{Elem: e}
+		}
+	case *Array:
+		if e := c.finalType(t.Elem, memo); e != t.Elem {
+			out = &Array{Len: t.Len, Elem: e}
 		}
 	case *Pointer:
 		if e := c.finalType(t.Elem, memo); e != t.Elem {

@@ -2,6 +2,7 @@ package check
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -192,6 +193,12 @@ type MachineType struct {
 // Slice is []T.
 type Slice struct{ Elem Type }
 
+// Array is the fixed array [N]T (196y): a value of Len elements.
+type Array struct {
+	Len  int64
+	Elem Type
+}
+
 // Map is map[K]V.
 type Map struct{ Key, Elem Type }
 
@@ -331,6 +338,7 @@ func (*Interface) aType()   {}
 func (*Union) aType()       {}
 func (*MachineType) aType() {}
 func (*Slice) aType()       {}
+func (*Array) aType()       {}
 func (*Map) aType()         {}
 func (*Pointer) aType()     {}
 func (*Signature) aType()   {}
@@ -398,7 +406,10 @@ func (t *Union) String() string {
 func (t *MachineType) String() string {
 	return "machine[" + t.State.String() + ", " + t.Signal.String() + "]"
 }
-func (t *Slice) String() string   { return "[]" + t.Elem.String() }
+func (t *Slice) String() string { return "[]" + t.Elem.String() }
+func (t *Array) String() string {
+	return "[" + strconv.FormatInt(t.Len, 10) + "]" + t.Elem.String()
+}
 func (t *Map) String() string     { return "Map[" + t.Key.String() + ", " + t.Elem.String() + "]" }
 func (t *Pointer) String() string { return "*" + t.Elem.String() }
 func (t *Signature) String() string {
@@ -705,6 +716,8 @@ func typeString(t Type) string {
 		return "{" + t.Row.list("|") + "}"
 	case *Slice:
 		return "[]" + typeString(t.Elem)
+	case *Array:
+		return "[" + strconv.FormatInt(t.Len, 10) + "]" + typeString(t.Elem)
 	case *Map:
 		return "Map[" + typeString(t.Key) + "," + typeString(t.Elem) + "]"
 	case *Pointer:
@@ -849,6 +862,8 @@ func invalidIn(t Type, body bool) bool {
 		return invalidIn(t.Elem, body)
 	case *Slice:
 		return invalidIn(t.Elem, body)
+	case *Array:
+		return invalidIn(t.Elem, body)
 	case *Map:
 		return invalidIn(t.Key, body) || invalidIn(t.Elem, body)
 	case *Tuple:
@@ -911,7 +926,18 @@ func isCapability(t Type) bool {
 		return false
 	}
 	if len(n.origin().TParams) > 0 {
-		return false
+		// A generic operation type is a capability once its type
+		// arguments are written and concrete (types.md, Capabilities 7):
+		// Store[Job], never Store or Store[T].
+		steps := 0
+		if n.Orig == nil {
+			return false
+		}
+		for _, a := range n.TArgs {
+			if hasParam(a, &steps) {
+				return false
+			}
+		}
 	}
 	i, ok := n.underlying().(*Interface)
 	return ok && len(i.Methods) > 0

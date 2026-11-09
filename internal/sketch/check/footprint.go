@@ -649,7 +649,7 @@ func pureGo(f *Func) bool {
 // (lower, pureStdBody).
 func PureStd(f *Func) bool { return pureStd(f) }
 
-// pureCollections, when "off", counts the prelude's Append, Get and Delete
+// pureCollections, when "off", counts the prelude's Append, Get, Delete and Put
 // as opaque calls again, as before lw-pure-prelude: the reference lowering,
 // in which a function that calls them takes the environment and polls its
 // task. A whole build selects it with
@@ -657,13 +657,13 @@ func PureStd(f *Func) bool { return pureStd(f) }
 // and a test with SetPureCollectionsForTest.
 var pureCollections string
 
-// preludeCollection reports the prelude's Append, Get or Delete.
+// preludeCollection reports the prelude's Append, Get, Delete or Put.
 func preludeCollection(f *Func) bool {
 	if f.Pkg == nil || f.Pkg.Path != std.PreludePath {
 		return false
 	}
 	switch f.Name {
-	case "Append", "Get", "Delete":
+	case "Append", "Get", "Delete", "Put":
 		return true
 	}
 	return false

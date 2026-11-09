@@ -273,6 +273,11 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		}
 		vals := fc.callArgs(args, x)
 		env := fc.envExpr(x)
+		if recv := fc.l.tests.lawOwnOf(c); recv != "" {
+			// A law of a generic operation type calls the provider it
+			// takes (lawDecl), as a call on a value of the type does.
+			return fc.opCall(cap, c.Op, fc.typeOf(x), append([]string{recv}, vals...), env, fc.opDest(x, c), x, c, x)
+		}
 		// A capability's operation takes the running task first (rows.md,
 		// Rows 7), then a returned Task's destination (methodSig).
 		lead := []string{taskOf(env)}
@@ -280,7 +285,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			lead = append(lead, dest)
 		}
 		vals = append(lead, vals...)
-		return env + "." + fc.l.envField(cap.Obj) + "." + memberName(c.Op.Name) + "(" + strings.Join(vals, ", ") + ")", len(c.Op.Sig.Results) > 0, len(rowElems(c.Op.Sig.Errors)) > 0
+		return env + "." + fc.l.envField(cap) + "." + memberName(c.Op.Name) + "(" + strings.Join(vals, ", ") + ")", len(c.Op.Sig.Results) > 0, len(rowElems(c.Op.Sig.Errors)) > 0
 	case check.CallFuncValue:
 		// A value of a declared function type (Seq[T]) calls through its
 		// underlying signature.
@@ -632,7 +637,19 @@ func (fc *funcCtx) callArgsAddr(list []syntax.Expr, call *syntax.CallExpr, addr 
 			out[i] = fc.spill(out[i])
 		}
 	}
+	if c := fc.l.info.Calls[call]; c != nil && c.Site != nil {
+		out = append(out, fc.siteValue(call, c.Site))
+	}
 	return out
+}
+
+// siteValue is the CallSite the call x passes for the final parameter it
+// leaves out (types.md, Call sites): where x starts, as a defect names it.
+// A constant, so it runs after the written operands with no spill.
+func (fc *funcCtx) siteValue(x *syntax.CallExpr, site *check.Named) string {
+	file, line, column := fc.l.locate(x, x.Pos())
+	td := fc.l.typeDecl(site.Obj, x)
+	return fmt.Sprintf("%s{%s: %q, %s: %d, %s: %d}", fc.goType(site), td.fieldName["File"], file, td.fieldName["Line"], line, td.fieldName["Column"], column)
 }
 
 // typeArgs writes a generic call's type-kinded arguments, from the call's
@@ -770,6 +787,8 @@ func walkType(t check.Type, visit func(t check.Type, result bool) bool) bool {
 				}
 			}
 		case *check.Slice:
+			return walk(t.Elem, false)
+		case *check.Array:
 			return walk(t.Elem, false)
 		case *check.Map:
 			return walk(t.Key, false) || walk(t.Elem, false)
@@ -1142,7 +1161,7 @@ func (fc *funcCtx) publishProvider(a *check.Acquisition, target string) string {
 		if i < len(e.Conversions) {
 			conv = e.Conversions[i]
 		}
-		fc.line(target + "." + fc.l.envField(cap.Obj) + " = " + fc.convert(conv, val, e.Provider))
+		fc.line(target + "." + fc.l.envField(cap) + " = " + fc.convert(conv, val, e.Provider))
 	}
 	return val
 }
@@ -1401,6 +1420,8 @@ func mentionsTypeParam(t check.Type) bool {
 			}
 		}
 	case *check.Slice:
+		return mentionsTypeParam(t.Elem)
+	case *check.Array:
 		return mentionsTypeParam(t.Elem)
 	case *check.Map:
 		return mentionsTypeParam(t.Key) || mentionsTypeParam(t.Elem)

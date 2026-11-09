@@ -582,6 +582,13 @@ func f() int {
 }
 func main() {}
 `, nil},
+	{"function literal", "a trailing function literal (L-tb)", `
+func apply(n int, h func(int) int) int { h(n) }
+func f() int {
+	apply(2) func(x int) int { return x + 1 }
+}
+func main() {}
+`, nil},
 	{"untyped parameter", "an untyped function literal parameter with no expected type is S108 (D-E1)", `
 func f() { _ = func(x) {} }
 func main() {}
@@ -650,6 +657,14 @@ func f(xs []int, m Map[string, int]) int {
 	return len(ys) + q.Y
 }
 func main() {}
+`, nil},
+	{"core forms", "a fixed array (196y)", `
+func f(a [3]int) int { a[0] + len(a) }
+func main() {
+	let mut b = [3]int{1, 2, 3}
+	b[1] = f(b)
+	_ = b
+}
 `, nil},
 	{"doc comments", "a doc comment on each declaration that keeps one", `
 // The timeout module.

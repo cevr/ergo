@@ -555,6 +555,10 @@ func (g *valueGen) source(k vkind) (string, mval, string) {
 			if b := g.pick(func(b *vbind) bool { return b.kind == kMap }); b != nil {
 				key := g.r.IntN(9)
 				out := b.val.copy()
+				if key%2 == 0 { // no new draw: the seeds keep their paths
+					out.m[key] = key + 300
+					return fmt.Sprintf("%s.Put(%d, %d)", b.name, key, key+300), out, "put live"
+				}
 				delete(out.m, key)
 				return fmt.Sprintf("%s.Delete(%d)", b.name, key), out, "delete live"
 			}
@@ -785,6 +789,16 @@ func (g *valueGen) write() {
 			g.reached["write map"] = true
 		case 1:
 			key := g.r.IntN(9)
+			// The parity of v, already drawn, picks Put or Delete, so the
+			// seeds draw what they drew before Put and reach every path.
+			if v%2 == 0 {
+				g.line(fmt.Sprintf("for i in 0..3 {\n\t\t%s = %s.Put(i + %d, %d)\n\t}", b.name, b.name, key, v))
+				for i := range 3 {
+					b.val.m[i+key] = v
+				}
+				g.reached["put in place"] = true
+				break
+			}
 			g.line(fmt.Sprintf("%s = %s.Delete(%d)", b.name, b.name, key))
 			delete(b.val.m, key)
 			g.reached["delete in place"] = true
@@ -1002,9 +1016,9 @@ func TestValueRuleAgrees(t *testing.T) {
 // valuePaths are the paths the fixed seeds must reach.
 var valuePaths = []string{
 	"bind", "reassign", "source literal", "source binding", "source field", "source element", "source result", "source fresh result",
-	"source append live", "source delete live", "source append element", "source update",
+	"source append live", "source delete live", "source put live", "source append element", "source update",
 	"argument", "pure", "closure", "task", "loop kept", "literal write",
-	"write map", "delete in place", "write loop", "write slice", "append in place",
+	"write map", "delete in place", "put in place", "write loop", "write slice", "append in place",
 	"write field map", "write field slice", "append field", "write element",
 	"own rebind", "own loop", "own capture", "own slice", "own field", "own live",
 	"update rebind", "update rebind option", "update field", "update live",

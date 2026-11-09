@@ -32,13 +32,13 @@ var lexErrorCases = []struct {
 	{"match header, unterminated string after interpolation", `func A(){match A{"\(b)c`, 17, "string literal not terminated"},
 	// bracketsThenParen and the for header's habit scan stopped only at
 	// EOF or a closing token. A member's `[` right before the error may
-	// open `[]T`, so the lexical error is the first; a member's `[` before
-	// anything but `]` is a fixed array or an operation's type parameters,
-	// an error whatever follows, so it comes first in the source.
+	// open `[]T` or `[N]T`, so the lexical error is the first; a member's
+	// `[` before a name is an operation's type parameters or a length
+	// that is not a literal, an error at that name whatever follows (196y).
 	{"member brackets, unterminated string", `type A{F["`, 9, "string literal not terminated"},
 	{"member brackets, invalid byte", "type A{Items [\xff", 14, "invalid UTF-8 byte 0xff"},
-	{"member brackets, open interpolation", `type A{F["\(x`, 8, "Ergo has no fixed arrays; use a slice `[]T`"},
-	{"member brackets closed before the error", `type A{F[T]"`, 8, "Ergo has no fixed arrays; use a slice `[]T`"},
+	{"member brackets, open interpolation", `type A{F["\(x`, 9, "string literal not terminated"},
+	{"member brackets closed before the error", `type A{F[T]"`, 9, "expected \"]\" or an integer length, found \"T\""},
 	{"for header, unterminated string", `func A(){for "`, 13, "string literal not terminated"},
 	{"for header, open interpolation", `func A(){for x in "\(y`, 18, "string literal not terminated"},
 	// A speculative reading (attempt) that reaches the lexical error read

@@ -159,6 +159,10 @@ func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, b
 			bound[s.Param] = k
 		}
 	}
+	// A law of a generic operation type takes its values at the
+	// provider's instance, and its provider after the environment, as
+	// lawRuns calls it (batch-14 integration: one rule for generic laws).
+	generic := lawGenericOwner(law) != nil
 	var vals []listedValue
 	if owner >= 0 {
 		vals = append(vals, listedValue{"provider", bd[owner].Type})
@@ -168,7 +172,11 @@ func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, b
 			vals = append(vals, listedValue{v.Name, bd[k].Type})
 			continue
 		}
-		vals = append(vals, listedValue{v.Name, v.Type})
+		t := v.Type
+		if generic {
+			t = bd[0].Params[i]
+		}
+		vals = append(vals, listedValue{v.Name, t})
 	}
 	at := strconv.Quote(l.siteText(law.Decl))
 	return l.listedRun(b, label, law.Decl, vals, scope, env, failed, func(inner *namer, vs []string) string {
@@ -176,11 +184,23 @@ func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, b
 		fc := newFuncCtx(l, inner, false)
 		fc.site = law.Decl
 		bind := ""
+		args := []string{"&" + e}
+		callee := l.lawFunc(law)
 		if owner >= 0 {
-			bind = e + "." + l.envField(law.Slots[owner].Type.Obj) + " = " + fc.convert(bd[owner].Conv, vs[0], law.Decl) + "; "
+			pv := fc.convert(bd[owner].Conv, vs[0], law.Decl)
+			if generic {
+				args = append(args, pv)
+				tc := &typeCtx{l: l, site: law.Decl}
+				targs := make([]string, len(bd[owner].Slot.TArgs))
+				for i, a := range bd[owner].Slot.TArgs {
+					targs[i] = tc.goType(a)
+				}
+				callee += "[" + strings.Join(targs, ", ") + "]"
+			} else {
+				bind = e + "." + l.envField(law.Slots[owner].Type) + " = " + pv + "; "
+			}
 			vs = vs[1:]
 		}
-		args := []string{"&" + e}
 		for i := range law.Params {
 			if k, ok := bound[i]; ok {
 				args = append(args, fc.convert(bd[k].Conv, vs[i], law.Decl))
@@ -188,7 +208,7 @@ func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, b
 			}
 			args = append(args, vs[i])
 		}
-		return e + " := *" + env + "; " + bind + held + ", " + err + " := " + l.lawFunc(law) + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
+		return e + " := *" + env + "; " + bind + held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
 	})
 }
 

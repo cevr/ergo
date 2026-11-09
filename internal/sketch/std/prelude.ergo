@@ -83,6 +83,12 @@ type Option[T] = Some[T] | None
 // take an integer T only; the type itself takes any ordered T.
 type Range[T ordered] { Start T, End T }
 
+// CallSite is a position in Ergo source: File as a defect names it, Line
+// and Column from 1, Column in bytes. A call may leave out its callee's
+// final CallSite parameter, and the compiler passes the call's own site
+// (types.md, Call sites).
+type CallSite { File string, Line int, Column int }
+
 // The functions on slices and Maps (#196, fourth round, item 2; spec
 // D-D6). Each is reached only by the dot form on a value of exactly its
 // first parameter's type, xs.Append(x), m.Get(k), m.Delete(k) (D-D8): it
@@ -102,6 +108,11 @@ extern go ergo.local/prototype/runtime/v1.Get func Get[K comparable, V](m Map[K,
 // q26), and the lowering deletes in place only for m = m.Delete(k) or a
 // dead m.
 extern go ergo.local/prototype/runtime/v1.Delete func Delete[K comparable, V](m Map[K, V], k K) Map[K, V]
+
+// Put is m with k set to v: the entry is added, or its value replaced. m
+// is unchanged, as Delete leaves it (owner q26), and the lowering writes
+// in place only for m = m.Put(k, v) or a dead m (#196 item 13, L2).
+extern go ergo.local/prototype/runtime/v1.Put func Put[K comparable, V](m Map[K, V], k K, v V) Map[K, V]
 
 // Unreachable states that a path cannot run (owner q29, 2026-11-08). When
 // it runs anyway, it raises a defect that holds reason and the call's

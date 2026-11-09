@@ -228,9 +228,30 @@ func (c *checker) arity(x *syntax.CallExpr, sig *Signature, n int) bool {
 	return true
 }
 
+// siteless is sig without its final parameter when the call x, with n
+// arguments, leaves out that parameter and its declared type is the
+// prelude's CallSite: the lowering passes the call's own position there
+// (types.md, Call sites), and Info's Call records it (Call.Site). Every
+// other call keeps sig.
+func (c *checker) siteless(x *syntax.CallExpr, sig *Signature, n int) *Signature {
+	k := len(sig.Params)
+	if k == 0 || n != k-1 {
+		return sig
+	}
+	site := c.preludeOrigin("CallSite")
+	if site == nil || !c.identical(sig.Params[k-1].Type, site) {
+		return sig
+	}
+	c.callInfo(x).Site = site
+	trimmed := *sig
+	trimmed.Params = sig.Params[:k-1]
+	return &trimmed
+}
+
 // callSig checks a call to a function value of a known, non-generic type.
 func (c *checker) callSig(x *syntax.CallExpr, sig *Signature, fun operand) operand {
 	args := argsOf(x)
+	sig = c.siteless(x, sig, args.n())
 	// A tuple is one value (196t): f(g()) passes g's tuple as one argument
 	// and never spreads it over f's parameters.
 	if !c.arity(x, sig, args.n()) {
@@ -449,6 +470,8 @@ func (in *inferer) hasFree(t Type) bool {
 		return in.rowFree(t.Row)
 	case *Slice:
 		return in.hasFree(t.Elem)
+	case *Array:
+		return in.hasFree(t.Elem)
 	case *Map:
 		return in.hasFree(t.Key) || in.hasFree(t.Elem)
 	case *Pointer:
@@ -538,6 +561,7 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 		return bad(x)
 	}
 	args := argsOf(x)
+	sig = c.siteless(x, sig, args.n())
 	if !c.arity(x, sig, args.n()) {
 		return bad(x)
 	}
@@ -1226,8 +1250,10 @@ func (c *checker) builtin(x *syntax.CallExpr, b *Builtin) operand {
 		}
 	case *Slice, *Map:
 		return operand{mode: modeValue, typ: Typ[Int]}
+	case *Array:
+		return operand{mode: modeValue, typ: Typ[Int]}
 	}
-	c.errorf(x.Args[0], CodeType, "len takes a slice, a Map or a string, not %s", op.typ)
+	c.errorf(x.Args[0], CodeType, "len takes a slice, an array, a Map or a string, not %s", op.typ)
 	return bad(x)
 }
 

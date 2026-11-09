@@ -1220,6 +1220,9 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		if c.taskRefused(x.Elt, elem) {
 			return invalid
 		}
+		if x.Len != "" {
+			return c.arrayType(x, elem)
+		}
 		return &Slice{Elem: elem}
 	case *syntax.MapType:
 		if tn := c.declaredMap(); tn != nil {
@@ -1757,6 +1760,16 @@ func (c *checker) rowElem(x syntax.Expr, kind Kind, ctx *typeCtx) Type {
 		// may be resolved first from a test.
 		c.addErrorType(t.(*Named), c.pkg.OwnerOf(x), x)
 	case KindUses:
+		if n, ok := t.(*Named); ok && len(n.origin().TParams) > 0 && !isCapability(t) {
+			if _, ops := n.Underlying().(*Interface); ops {
+				if n.Orig == nil {
+					c.errorf(x, CodeType, "generic capability %s needs type arguments: write %s[…]", n, n)
+				} else {
+					c.errorf(x, CodeType, "a capability's type arguments are concrete types, and %s names a type parameter", n)
+				}
+				return nil
+			}
+		}
 		if !isCapability(t) {
 			c.errorf(x, CodeUnknown, "%s is not a capability: a capability is a named interface with methods (rows.md, Capability rows 3)", t)
 			return nil
@@ -2220,6 +2233,9 @@ func (c *checker) collOwner(f *Func) (collKey, []syntax.Expr, bool) {
 	key := collKey{name: f.Name}
 	switch t := d.Type.Params.List[0].Type.(type) {
 	case *syntax.ArrayType:
+		if t.Len != "" {
+			return collKey{}, nil, false // the prelude's are on slices
+		}
 		args = []syntax.Expr{t.Elt}
 	case *syntax.MapType:
 		args, key.isMap = []syntax.Expr{t.Key, t.Value}, true

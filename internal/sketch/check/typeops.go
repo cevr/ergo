@@ -104,6 +104,8 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 		return &MachineType{State: c.subst(t.State, m), Signal: c.subst(t.Signal, m)}
 	case *Slice:
 		return &Slice{Elem: c.subst(t.Elem, m)}
+	case *Array:
+		return &Array{Len: t.Len, Elem: c.subst(t.Elem, m)}
 	case *Map:
 		return &Map{Key: c.subst(t.Key, m), Elem: c.subst(t.Elem, m)}
 	case *Pointer:
@@ -803,6 +805,9 @@ func comparableSeen(t Type, seen map[Type]bool) bool {
 			}
 		}
 		return true
+	case *Array:
+		// An array compares when its element does, as in Go (196y).
+		return comparableSeen(u.Elem, seen)
 	case *Interface:
 		return false
 	case *Pointer:
@@ -830,6 +835,8 @@ func Equatable(t Type) bool { return equatableSeen(t, map[Type]bool{}) }
 func equatableSeen(t Type, seen map[Type]bool) bool {
 	switch u := under(t).(type) {
 	case *Slice:
+		return equatableSeen(u.Elem, seen)
+	case *Array:
 		return equatableSeen(u.Elem, seen)
 	case *Map:
 		return equatableSeen(u.Elem, seen)
@@ -936,8 +943,8 @@ func (c *checker) letZero(name *syntax.Ident, declared Type) {
 }
 
 // defaultable reports whether t has a valid zero value (types.md, Zero
-// values 1): a basic type, a slice or Map, a record with no fields, or a
-// tuple of these. A record with fields has none: it is built only by a
+// values 1): a basic type, a slice or Map, a record with no fields, or an
+// array or a tuple of these. A record with fields has none: it is built only by a
 // literal that names every field or by a record update (Zero values 2,
 // owner q44). A union, an interface, a function type, a pointer and a tuple
 // that holds a record with fields have none either.
@@ -947,6 +954,8 @@ func defaultable(t Type) bool {
 		return true
 	case *Slice, *Map:
 		return true
+	case *Array:
+		return defaultable(u.Elem)
 	case *Tuple:
 		for _, e := range u.Types {
 			if !defaultable(e) {

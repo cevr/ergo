@@ -252,8 +252,8 @@ type lowerer struct {
 	methods     map[*check.Package]map[*check.TypeName][]*check.Func
 
 	envName   string
-	envFields map[*check.TypeName]string
-	envOrder  []*check.TypeName
+	envFields map[string]string // by typeKey
+	envOrder  []envCap
 
 	rtName, timeName, taskName string
 	// hostImports are the Go packages a lowered call of a user extern
@@ -365,7 +365,7 @@ func lowererOf(c *canonical, pkg *check.Package, goModule GoModule, tests *testL
 		holds:     map[*check.Named]holdState{},
 		typeKeys:  map[check.Type]string{},
 		methods:   map[*check.Package]map[*check.TypeName][]*check.Func{},
-		envFields: map[*check.TypeName]string{},
+		envFields: map[string]string{},
 	}
 	l.reads = l.readVars()
 	return l
@@ -673,7 +673,7 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 		default:
 			entryError(main.Decl.Name, "main needs %s, and the host provides only Console and Ambient; bind it with a with block inside main", cap)
 		}
-		fields = append(fields, l.envField(n.Obj)+": "+name+"{}")
+		fields = append(fields, l.envField(n)+": "+name+"{}")
 	}
 	var host string
 	if len(methods) > 0 {
