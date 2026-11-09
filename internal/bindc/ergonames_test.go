@@ -190,10 +190,13 @@ func ergoParams(t *testing.T, src string) map[string][]string {
 	return out
 }
 
-// TestErgoConflictsControl: the oracle sees each kind of collision.
+// TestErgoConflictsControl: the oracle sees each kind of collision. The
+// prelude-name row redeclares a prelude function: since owner q30 (L6) a
+// package type may take a prelude type's name (type Option is legal), but a
+// prelude function's name stays S108.
 func TestErgoConflictsControl(t *testing.T) {
 	for _, src := range []string{
-		"import go ergo.local/bind/fixture\n\ntype Option {\n\tV uint32,\n}\n",
+		"import go ergo.local/bind/fixture\n\ntype Unreachable {\n\tV uint32,\n}\n",
 		"import go ergo.local/bind/fixture\n\ntype CallError = NotLoaded{} | Destroyed{}\n\nextern go ergo.local/bind/fixture.CallError func CallError() uint32 fails CallError\n",
 		"import go ergo.local/bind/fixture\n\ntype S = A{} | B{}\n\ntype T = A{} | C{}\n",
 		"import go ergo.local/bind/fixture\n\nextern go ergo.local/bind/fixture.F func F(a uint32, a uint32) uint32\n",
