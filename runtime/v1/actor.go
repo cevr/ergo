@@ -3,6 +3,8 @@ package v1
 import (
 	"fmt"
 	"iter"
+	"math"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,10 +35,13 @@ import (
 //     drained before the next entry arms its own.
 //  6. No stale signal: a timer envelope carries its entry's epoch; one of
 //     an ended entry is dropped, never stepped, and counted (Dropped).
-//  7. Timer: delay(s) of an opening state, when not negative, arms a child
-//     that sleeps on the program's Scheduler and then pushes the timer
-//     envelope; fire(at, s) steps it, where at is the state its entry
-//     opened in.
+//  7. Timer: delay(s) of an opening state, unless it is ActorNoTimer(),
+//     arms a child that sleeps on the program's Scheduler and then pushes
+//     the timer envelope; fire(at, s) steps it, where at is the state its
+//     entry opened in. A delay that is not positive is a defect
+//     (ActorTimerDefect; fs2's rule for machines.RunTimed): it would fire
+//     at its entry's instant, so a state whose timer re-enters it would
+//     never let time pass.
 //  8. End: after Done, a failure after a Send or a timer, a defect, or
 //     Stop, no signal is stepped: the inbox closes, so later Sends and Asks
 //     fail ActorStopped, queued Asks are answered ActorStopped, queued
@@ -224,8 +229,11 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 // pushes the timer envelope with the entry's epoch; a stop ends it first.
 func (a *Actor[S, E, D]) arm(at *rt.Task, s S) {
 	d := a.delay(s)
-	if d < 0 {
+	if d == noTimer {
 		return
+	}
+	if d <= 0 {
+		panic(&ActorTimerDefect{State: stateText(s), In: d})
 	}
 	env := envelope[S, E, D]{kind: timerSignal, epoch: a.epoch, at: s}
 	holder := rt.NewScope(at)
@@ -237,6 +245,37 @@ func (a *Actor[S, E, D]) arm(at *rt.Task, s S) {
 			return struct{}{}, nil
 		})
 	})
+}
+
+// noTimer is the delay of a state with no timer: no timer waits it.
+const noTimer = time.Duration(math.MinInt64)
+
+// ActorNoTimer is the delay std actor gives a state whose After is None.
+func ActorNoTimer() time.Duration { return noTimer }
+
+// ActorTimerDefect is the defect of an actor whose machine armed a timer
+// with an In that is not positive (rule 7). Its text is the text of
+// machines.RunTimed's defect (fs2), with the state as fmt's %+v writes it.
+type ActorTimerDefect struct {
+	State string
+	In    time.Duration
+}
+
+// String is the defect's text, which the entry's report writes after
+// "panic: ".
+func (d *ActorTimerDefect) String() string {
+	return "an actor's machine: the timer of state " + d.State + " has In " + d.In.String() +
+		", which is not positive; a timer waits a positive duration"
+}
+
+// stateText is s's text: its Go type's name and fields, Idle{n:1}.
+func stateText[S any](s S) string {
+	v := any(s)
+	name := ""
+	if t := reflect.TypeOf(v); t != nil {
+		name = t.Name()
+	}
+	return name + fmt.Sprintf("%+v", v)
 }
 
 // stopTimer stops and drains the current entry's timer child (rule 5). A

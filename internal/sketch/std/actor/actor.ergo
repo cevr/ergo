@@ -82,11 +82,15 @@ type Actor[S, E, D, F] {
 }
 
 // start is the Go body: the machine's first state and its step, the step
-// of a timer signal (fire), the delay of each state's timer (negative for
-// none), the decision's kind (Enter 0, Stay 1, Emit 2, Ignore 3, Reject 4,
+// of a timer signal (fire), the delay of each state's timer (noTimer() for
+// none; one that is not positive is a defect), the decision's kind (Enter 0, Stay 1, Emit 2, Ignore 3, Reject 4,
 // Done 5), the state after a decision, the output of a decision, and the
 // inbox's capacity.
 extern go ergo.local/prototype/runtime/v1.MachineStart func start[S, E, D, F, R](initial S, step func(s S, e E) D fails F needs R, fire func(at S, s S) D fails F needs R, delay func(s S) duration, kind func(d D) int, next func(s S, d D) S, out func(d D) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
+
+// noTimer is the delay start reads as "no timer" for a state whose After
+// is None.
+extern go ergo.local/prototype/runtime/v1.ActorNoTimer func noTimer() duration
 
 // StartMachine runs m as an actor with an inbox of capacity signals (0
 // makes each Send wait for the actor to take it; a negative capacity is a
@@ -95,7 +99,9 @@ extern go ergo.local/prototype/runtime/v1.MachineStart func start[S, E, D, F, R]
 // Emit commit their Next; each entry (the first state, an Enter, an Emit)
 // arms m.After's timer on the caller's Scheduler, stopped and drained
 // before the next entry arms its own; a timer of an ended entry is
-// dropped. sink gets each Emit's output and Done's output, in order, on
+// dropped. A timer whose In is not positive is a defect that ends the
+// actor, as in machines.RunTimed: it would fire at its entry's instant,
+// and a state whose timer re-enters it would never let time pass. sink gets each Emit's output and Done's output, in order, on
 // the actor's task; Done then ends the actor. A machine with an input
 // starts as machines.Start(m, input).
 func StartMachine[S, E, O, F, R](m Machine[S, E, O, F, R], capacity int, sink func(o O) needs R) Actor[S, E, Decision[S, O], F] needs R | Scheduler {
@@ -109,13 +115,9 @@ func StartMachine[S, E, O, F, R](m Machine[S, E, O, F, R], capacity int, sink fu
 	}, func(s S) duration {
 		match m.After(s) {
 		case Some[Timeout[E]] as t:
-			if t.Value.In < 0s {
-				0s
-			} else {
-				t.Value.In
-			}
+			t.Value.In
 		case None:
-			-1ns
+			noTimer()
 		}
 	}, func(d Decision[S, O]) int {
 		match d {

@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -72,11 +73,12 @@ func (m tmachine) decide(s tstate, e tsig) (tdec, error) {
 	return d, nil
 }
 
-// in is the delay of s's timer, or -1.
+// in is the delay of s's timer, or ActorNoTimer(). base runs from -1, so
+// the delays include negative ones and 0, which are defects (rule 7).
 func (m tmachine) in(s tstate) time.Duration {
 	tm := m.timers[s.v]
 	if !tm.has {
-		return -1
+		return ActorNoTimer()
 	}
 	return time.Duration(tm.base + ((s.n%3)+3)%3)
 }
@@ -144,16 +146,24 @@ type ref struct {
 	due      tsig // the armed timer's signal, from the state its entry opened in
 	ended    bool
 	failed   bool
+	defect   bool // an entry armed a timer that is not positive
 	handled  int
 	dropped  int
 	seen     map[string]bool
 }
 
 // open opens an entry in r.s at r.now: it arms the slot, and reports
-// whether the runner registers a sleep.
+// whether the runner registers a sleep. A delay that is not positive is
+// the defect that ends the actor.
 func (r *ref) open() bool {
 	r.armed = false
-	if d := r.m.in(r.s); d >= 0 {
+	d := r.m.in(r.s)
+	if d != ActorNoTimer() && d <= 0 {
+		r.ended, r.defect = true, true
+		r.seen["a timer that is not positive is a defect"] = true
+		return false
+	}
+	if d != ActorNoTimer() {
 		tm := r.m.timers[r.s.v]
 		r.armed, r.deadline, r.due = true, r.now+int(d), tsig{tm.sig, tm.x}
 		return true
@@ -177,12 +187,21 @@ func (r *ref) step(e tsig, timer, asked bool) (tdec, bool, error) {
 	armed := false
 	switch d.kind {
 	case decideEnter, decideEmit:
+		// The runner commits, then arms: a defect of the arm ends the
+		// actor before the Emit's output and the answer, so the asker
+		// gets Stopped.
+		r.s = d.next
+		armed = r.open()
+		if r.defect {
+			if asked {
+				return d, false, ActorStopped{}
+			}
+			return d, false, nil
+		}
 		if d.kind == decideEmit {
 			r.outs = append(r.outs, d.out)
 			r.seen["an emit"] = true
 		}
-		r.s = d.next
-		armed = r.open()
 	case decideStay:
 		r.s = d.next
 		if r.armed {
@@ -221,8 +240,6 @@ type driver struct {
 	mu       sync.Mutex
 	outs     []int
 	fail     string
-	fires    int
-	looping  bool // the fire bound ended the trace
 }
 
 func (dr *driver) failf(format string, args ...any) {
@@ -258,33 +275,16 @@ func (dr *driver) idle() {
 	}
 }
 
-// maxFires bounds the timer fires of one case. A timer of delay 0 whose
-// firing opens an entry of delay 0 again fires forever at one virtual
-// instant (a machine's own livelock, not the runner's): past the bound the
-// driver ends the trace and stops the actor inside that loop. A positive
-// delay moves the clock, and a trace ends by time 41, so only a zero-delay
-// loop reaches the bound.
-const maxFires = 64
-
 // due reports whether the armed timer fires before at (before or at it
-// when inclusive) within the fire bound; past the bound it marks the case
-// looping.
+// when inclusive). Each armed delay is positive (rule 7), so each fire
+// moves the clock and the fires of a trace are bounded.
 func (dr *driver) due(at int, inclusive bool) bool {
 	r := dr.r
-	if !r.armed || r.ended || dr.fail != "" || r.deadline > at || !inclusive && r.deadline == at {
-		return false
-	}
-	if dr.fires == maxFires {
-		dr.looping = true
-		r.seen["a stop inside a zero-delay timer loop"] = true
-		return false
-	}
-	return true
+	return r.armed && !r.ended && dr.fail == "" && r.deadline <= at && (inclusive || r.deadline < at)
 }
 
 // fireTimer releases the live timer at its deadline.
 func (dr *driver) fireTimer() {
-	dr.fires++
 	r := dr.r
 	r.now = r.deadline
 	r.armed = false
@@ -385,6 +385,12 @@ func (dr *driver) signal(o op) {
 	}
 }
 
+// stopOf is a.Stop()'s failure and the defect it raised.
+func stopOf(a *Actor[tstate, tsig, tdec]) (err error, raised any) {
+	defer func() { raised = recover() }()
+	return a.Stop(), nil
+}
+
 // actorCase is one generated machine and trace.
 type actorCase struct {
 	m        tmachine
@@ -406,7 +412,7 @@ func genActorCase(r *rand.Rand) actorCase {
 			m.table[i][j] = tcell{kind: kind, target: r.Intn(ns), delta: r.Intn(7) - 3}
 		}
 		if r.Intn(3) > 0 {
-			m.timers[i] = ttimer{has: true, base: r.Intn(4), sig: r.Intn(ne), x: r.Intn(7) - 3}
+			m.timers[i] = ttimer{has: true, base: r.Intn(5) - 1, sig: r.Intn(ne), x: r.Intn(7) - 3}
 		}
 	}
 	m.init = tstate{r.Intn(ns), r.Intn(9) - 4}
@@ -451,9 +457,6 @@ func runActorCase(c actorCase, seen map[string]bool) string {
 		for dr.due(o.at, false) {
 			dr.fireTimer()
 		}
-		if dr.looping {
-			break
-		}
 		if r.ended {
 			continue
 		}
@@ -480,9 +483,17 @@ func runActorCase(c actorCase, seen map[string]bool) string {
 	if got := dr.a.State(task); got != r.s && dr.fail == "" {
 		dr.failf("final state %v; want %v", got, r.s)
 	}
-	err := dr.a.Stop()
+	err, raised := stopOf(dr.a)
 	if r.failed != errors.Is(err, errBoom) {
 		dr.failf("Stop: %v; want boom %v", err, r.failed)
+	}
+	// The defect as the entry's report writes it.
+	var text strings.Builder
+	if x, ok := raised.(*exit); ok {
+		report(&text, x.err)
+	}
+	if want := "panic: an actor's machine: the timer of state tstate{v:"; r.defect != (raised != nil) || r.defect && !strings.Contains(text.String(), want) {
+		dr.failf("Stop raised %v (%q); want the timer defect %v", raised, text.String(), r.defect)
 	}
 	dr.mu.Lock()
 	if !slices.Equal(dr.outs, r.outs) {
@@ -501,9 +512,10 @@ func runActorCase(c actorCase, seen map[string]bool) string {
 }
 
 // zeroDelayLoop is case 112 of seed 1, the first case of every seed: the
-// Emit opens an entry of n 3 at time 0, whose timer (delay n%3 = 0)
-// re-enters with the same n, so it fires forever at time 0. The driver hung
-// in it until the fire bound.
+// Emit opens an entry of n 3 at time 0, whose timer (delay n%3 = 0) would
+// re-enter with the same n and fire forever at time 0. The driver hung in
+// it; a delay that is not positive is now the defect that ends the actor
+// at the Emit, and the asker gets Stopped.
 var zeroDelayLoop = actorCase{
 	m: tmachine{table: [][]tcell{{{kind: "enter", delta: 1}, {kind: "emit"}}},
 		timers: []ttimer{{has: true, x: -1}}, init: tstate{0, 2}},
@@ -532,7 +544,7 @@ func TestActorModelAgreesWithTimedFold(t *testing.T) {
 	seen := map[string]bool{}
 	want := []string{"a timer fired", "a stay keeps the timer", "a stale timer dropped", "a timer fired after a signal at its deadline",
 		"a signal at its timer's deadline", "an emit", "done", "a failure to its asker", "a failure ends the actor", "an asked reject",
-		"a stop", "refused after the end", "a stop inside a zero-delay timer loop"}
+		"a stop", "refused after the end", "a timer that is not positive is a defect"}
 	missing := func() string {
 		for _, w := range want {
 			if !seen[w] {
@@ -576,7 +588,7 @@ func signalLog(t *rt.Task, capacity int, entered chan struct{}, hold chan struct
 	}
 	return MachineStart[[]int, int, rdec](Site("signal log"), t, releaser{make(chan sleep)}, nil, step,
 		func(*rt.Task, []int, []int) (rdec, error) { return rdec{kind: decideIgnore}, nil },
-		func([]int) time.Duration { return -1 }, func(d rdec) int { return d.kind },
+		func([]int) time.Duration { return ActorNoTimer() }, func(d rdec) int { return d.kind },
 		func(s []int, d rdec) []int {
 			if d.kind == decideStay {
 				return append(slices.Clone(s), d.e)
@@ -735,7 +747,7 @@ func BenchmarkActorAsk(b *testing.B) {
 	a := MachineStart[int, int, int](Site("bench"), root, releaser{make(chan sleep)}, 0,
 		func(_ *rt.Task, s int, e int) (int, error) { return decideStay, nil },
 		func(*rt.Task, int, int) (int, error) { return decideIgnore, nil },
-		func(int) time.Duration { return -1 }, func(d int) int { return d },
+		func(int) time.Duration { return ActorNoTimer() }, func(d int) int { return d },
 		func(s int, d int) int { return s + 1 }, func(*rt.Task, int) {}, 1)
 	b.ReportAllocs()
 	for b.Loop() {
