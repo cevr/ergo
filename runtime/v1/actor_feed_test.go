@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"runtime"
 	"slices"
 	"strconv"
 	"sync"
@@ -101,8 +102,10 @@ func testDeadline(t *testing.T) <-chan time.Time {
 type fstate struct {
 	called   atomic.Bool
 	panicked atomic.Bool
-	settled  chan struct{} // closed when it returned, waits, or sent 3 endless values
-	once     sync.Once
+	// sentAfterEnd is set when a send returned after admission closed.
+	sentAfterEnd atomic.Bool
+	settled      chan struct{} // closed when it returned, waits, or sent 3 endless values
+	once         sync.Once
 }
 
 func (f *fstate) settle() { f.once.Do(func() { close(f.settled) }) }
@@ -133,7 +136,13 @@ func runFeedCase(t *testing.T, c fcase, seen map[string]bool) string {
 				panic(rt.Interrupted)
 			case "endless":
 				for k := len(src.values); ; k++ {
+					closed := inboxClosed(a)
 					send(k*8 + i)
+					if closed {
+						// The send on a closed inbox returned: the source
+						// goes on after the actor's end.
+						f.sentAfterEnd.Store(true)
+					}
 					if k == len(src.values)+2 {
 						f.settle()
 					}
@@ -175,6 +184,11 @@ func runFeedCase(t *testing.T, c fcase, seen map[string]bool) string {
 	// The end returned: no source may run now (rule 14).
 	if n := running.Load(); n != 0 {
 		return fmt.Sprintf("%d sources still run after the actor's end", n)
+	}
+	for i, f := range states {
+		if f.sentAfterEnd.Load() {
+			return fmt.Sprintf("source %d: a send returned after the actor's admission closed", i)
+		}
 	}
 	stepped := a.State(root)
 	kind := ActorExitKind(root, a)
@@ -255,6 +269,61 @@ func runFeedCase(t *testing.T, c fcase, seen map[string]bool) string {
 	}
 	seen[map[int]string{exitFinished: "done", exitFailed: "fail", exitDefected: "a source's defect", exitHalted: c.finish}[kind]] = true
 	return ""
+}
+
+// TestActorLiveReadQueuedAtTheEndFailsStopped: a live State read (Can's)
+// queued behind a step when a Stop ends the actor is released with
+// Stopped, not answered as live: the property's reads come after the end,
+// when admission refuses them, so they never reach this release.
+func TestActorLiveReadQueuedAtTheEndFailsStopped(t *testing.T) {
+	root := rt.Root("live read")
+	entered, hold := make(chan struct{}), make(chan struct{})
+	a := signalLog(root, 1, entered, hold)
+	if err := a.Send(root, -1); err != nil {
+		t.Fatal(err)
+	}
+	limit := testDeadline(t)
+	select {
+	case <-entered:
+	case <-limit:
+		t.Fatal("the runner never took the held signal")
+	}
+	read := make(chan error, 1)
+	go func() {
+		_, err := ActorLiveState(rt.Root("reader"), a)
+		read <- err
+	}()
+	stopped := make(chan struct{})
+	for a.inbox.Len() == 0 {
+		select {
+		case <-limit:
+			t.Fatal("the live read was never queued")
+		default:
+			runtime.Gosched()
+		}
+	}
+	go func() {
+		defer close(stopped)
+		_ = a.Stop()
+	}()
+	for !inboxClosed(a) {
+		select {
+		case <-limit:
+			t.Fatal("the Stop never closed admission")
+		default:
+			runtime.Gosched()
+		}
+	}
+	close(hold)
+	select {
+	case err := <-read:
+		if !errors.Is(err, ActorStopped{}) {
+			t.Fatalf("a live read queued at the end: %v, want Stopped", err)
+		}
+	case <-limit:
+		t.Fatal("the queued live read was never answered")
+	}
+	<-stopped
 }
 
 // TestActorFeedSourcesEndWithTheActor is the acceptance property of
