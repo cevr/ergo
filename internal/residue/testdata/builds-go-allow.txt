@@ -59,10 +59,8 @@ internal/sketch/lower/stage_e3a_test.go	TestPropertySeed	existing build at T7: T
 internal/sketch/lower/stage_e3b_test.go	TestLawFactsStayOut	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/stage_e3b_test.go	TestLawSweep	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/stage_e4_test.go	TestContextKeyIdentity	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/stage_e4_test.go	TestErgoRunE4DiscardVariadic	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/stage_e4_test.go	TestErgoRunE4Externs	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/stage_e4_test.go	TestErgoRunE4TargetCategories	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/stage_e4_test.go	e4BuildErrors	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/stage_e5_test.go	TestErgoRunE5Contexts	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/stage_e6a_test.go	TestErgoRunE6aInterpolation	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/stage_e6a_test.go	TestInterpolationLowersWithoutBoxing	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line

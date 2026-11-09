@@ -57,6 +57,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"lowerer.funcDecl":          "a declared function's Go name",
 			"funcCtx.optionReturn":      "the Value field of Some, for Get and a std body's comma-ok (S3d)",
 			"funcCtx.goResult":          "the Value field of Some, for a non-nil Go pointer or interface of import go (IG3)",
+			"funcCtx.someWhen":          "the Value field of Some, built from Go's (v, ok) or error by a Level 2 adapter (IG4)",
 			"funcCtx.getArmsLower":      "the Value field of Some, bound in a comma-ok match on Get (lw-get-commaok) or in a callback's comma-ok variant (fs7)",
 			"funcCtx.updateFused":       "the Value field of Some, built from a comma-ok read in maps.Update at its call (vr-elide-2)",
 			"lowerer.methodReceiver":    "a declared method's receiver",

@@ -94,12 +94,6 @@ func TestLevel2AdaptersRun(t *testing.T) {
 	}
 	src.WriteString("}\n")
 	prog := mustLower(t, "level2_runs", src.String())
-	// A pure-tier user extern is transparent (owner q35, Q3): cutLine
-	// takes no environment, as hand Go; reLine, which calls a foreign
-	// one, does.
-	if main := prog.mainGo(); !strings.Contains(main, "func cutLine(s string, p string) string {") || !strings.Contains(main, "func reLine(env *Env, p string, s string) string {") {
-		t.Errorf("pure-tier transparency: cutLine or reLine has the wrong environment:\n%s", main)
-	}
 	exes := buildAll(t, []*lowered{prog}, true)
 	if exes == nil {
 		return

@@ -629,13 +629,8 @@ func pureStd(f *Func) bool {
 // calls back no Ergo code: its call is transparent in footprints (owner
 // q35, reversing stdlib.md Pure bodies 3 for the reviewed list), and its
 // caller needs no environment or entry poll for it, as hand Go has none.
-// A user extern admitted against its binding (Level 2, IG4) with no needs
-// row is in the same tier and is transparent too: owner Q3 asked for both.
 func pureGo(f *Func) bool {
-	if f == nil || f.Sig == nil || !f.Sig.Uses.Empty() || f.Sig.ResultIsTask() {
-		return false
-	}
-	if !f.Pkg.Host() && f.goExtern == nil {
+	if f == nil || !f.Pkg.Host() || f.Sig == nil || !f.Sig.Uses.Empty() || f.Sig.ResultIsTask() {
 		return false
 	}
 	for _, p := range f.Sig.Params {

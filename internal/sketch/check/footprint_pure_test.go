@@ -67,7 +67,7 @@ func userTrim(s string) string { hostTrim(s) }
 		"reads":    "Env",
 		"loops":    "pure",
 		"makes":    "opaque",
-		"userTrim": "pure", // IG4: a pure-tier user extern is transparent, as import go (q35, Q3)
+		"userTrim": "opaque",
 		// lw-pure-prelude: the prelude's Append, Get and Delete are marked
 		// pure in runtime/v1 (data.go).
 		"appends": "pure",

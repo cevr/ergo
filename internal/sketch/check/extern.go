@@ -339,7 +339,7 @@ func (c *checker) externAdapter(f *Func) (string, string) {
 	wrote := c.types.resolve(w.Uses)
 	switch {
 	case foreign && !goForeignRow(wrote):
-		return fmt.Sprintf("extern go %s runs Go that is not on the reviewed pure list; declare needs go.Foreign, which only main provides (docs/spec/interop.md)", target), CodeType
+		return fmt.Sprintf("extern go %s runs Go that is not on the reviewed pure list; declare needs go.Foreign (only main provides it) (docs/spec/interop.md)", target), CodeType
 	case !foreign && !wrote.Empty():
 		return fmt.Sprintf("extern go %s is on the reviewed pure list and needs nothing; write no needs row", target), CodeType
 	}
