@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // The memory budget, tested through the gate's run as a caller sees it:
@@ -219,7 +221,7 @@ echo "step exited"`, os.Args[0]},
 		// A child that keeps output open after its leader exits fails the
 		// step, and the scope stops the child before the gate drains output.
 		name: "leftover", step: "512M", gate: "2G", scopeOnly: true,
-		steps: func() []*Step { return []*Step{leftoverStep()} },
+		steps: func() []*Step { return []*Step{leftoverStep("60")} },
 		check: func(t *testing.T, _ string, code int, out string, receipts []string) {
 			wantAll(t, out, "== alloc: FAILED", "leftover processes at leader exit:")
 			pid := leftoverPID(out)
@@ -251,9 +253,10 @@ echo "step exited"`, os.Args[0]},
 	},
 }
 
-func leftoverStep() *Step {
+// leftoverStep is a step whose child, sleeping seconds, outlives its leader.
+func leftoverStep(seconds string) *Step {
 	return &Step{Name: "alloc", Argv: []string{"sh", "-c", `echo "$$" > src/leftover-pgid
-sleep 60 &
+sleep ` + seconds + ` &
 child=$!
 echo "$child" > src/leftover-pid
 echo "leftover child pid=$child"
@@ -314,13 +317,54 @@ func processExists(pid int) bool {
 	return state != "" && !strings.HasPrefix(state, "Z") && !strings.HasPrefix(state, "X")
 }
 
-// loadBound is how long a test waits for an event that comes within
-// milliseconds on a quiet host (a pid file written, runBudgeted's return):
-// long enough for a loaded gate host, and well short of the 60 s sleep that
-// the probes' descendants hold, so a run that waits for a descendant is
-// still told from one that does not. Bounds of 2 s and 3 s failed only
-// under load (fu-gate-flakes, batch 11).
-const loadBound = 30 * time.Second
+// A test waits for an event that comes within milliseconds on a quiet host
+// (a pid file written, runBudgeted's return) until the test's own deadline
+// (testwait), never for a fixed time: bounds of 2 s and 3 s failed only
+// under load (fu-gate-flakes, batch 11), and 30 s is a verdict of the load
+// too (fu-time-limits). A probe's descendant sleeps past that deadline
+// (outlive), so a run that waits for the descendant is still told from one
+// that does not.
+
+// outlive is how many seconds a probe's descendant sleeps: twice the time
+// left to the test's deadline, so it outlives the test's wait and a failed
+// test does not leak it for long; a day when the test has no deadline.
+func outlive(t *testing.T) string {
+	t.Helper()
+	if left := testwait.Left(t); left > 0 {
+		return strconv.Itoa(int(2*left/time.Second) + 1)
+	}
+	return "86400"
+}
+
+// readPID waits until the file at path holds a positive pid, or the test's
+// deadline; it returns 0 then.
+func readPID(t *testing.T, path string) int {
+	t.Helper()
+	pid := 0
+	testwait.Until(t, func() bool {
+		if content, err := os.ReadFile(path); err == nil {
+			pid, _ = strconv.Atoi(strings.TrimSpace(string(content)))
+		}
+		return pid > 0
+	})
+	return pid
+}
+
+// beforeDescendant receives a run's result until the test's deadline. The
+// run's descendant pid sleeps past that deadline (outlive), so a result
+// before it is one that did not wait for the descendant. At the deadline it
+// stops the descendant and fails the test with what the run then returns.
+func beforeDescendant[R any](t *testing.T, done <-chan R, pid int, what string) R {
+	t.Helper()
+	select {
+	case result := <-done:
+		return result
+	case <-testwait.After(t):
+		stopProcess(pid)
+		t.Fatalf("%s waited for its descendant %d until the test's deadline; after the test stopped it, it returned %+v", what, pid, <-done)
+		panic("unreachable")
+	}
+}
 
 func stopProcess(pid int) {
 	if pid <= 0 {
@@ -333,10 +377,12 @@ func stopProcess(pid int) {
 	if processExists(pid) {
 		_ = process.Kill()
 	}
-	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	// A wait for the kill to take effect, with no verdict; a cleanup.
+	for range 200 {
 		if !processExists(pid) {
 			return
 		}
+		runtime.Gosched()
 	}
 }
 
@@ -407,49 +453,24 @@ func TestBudgetRSSWatchStopsLeaderExitDescendant(t *testing.T) {
 		out  string
 	}, 1)
 	go func() {
-		code, out := runGate(t, root, cache, []*Step{leftoverStep()})
+		code, out := runGate(t, root, cache, []*Step{leftoverStep(outlive(t))})
 		done <- struct {
 			code int
 			out  string
 		}{code, out}
 	}()
 
-	childPath := filepath.Join(root, "src", "leftover-pid")
-	var childPID int
-	deadline := time.Now().Add(loadBound)
-	for time.Now().Before(deadline) {
-		if content, err := os.ReadFile(childPath); err == nil {
-			childPID, _ = strconv.Atoi(strings.TrimSpace(string(content)))
-			if childPID > 0 {
-				break
-			}
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	childPID := readPID(t, filepath.Join(root, "src", "leftover-pid"))
 	if childPID == 0 {
 		t.Fatal("step did not record the background child's PID")
 	}
-
-	select {
-	case result := <-done:
-		wantAll(t, result.out, "== alloc: FAILED", "leftover processes at leader exit:")
-		if !namedLeftover(result.out, childPID) {
-			t.Errorf("the leftover diagnostic does not name child pid %d:\n%s", childPID, result.out)
-		}
-		if result.code != 1 || processExists(childPID) {
-			t.Fatalf("exit %d, leftover process alive=%t:\n%s", result.code, processExists(childPID), result.out)
-		}
-	case <-time.After(loadBound):
-		child, err := os.FindProcess(childPID)
-		if err == nil {
-			_ = child.Kill()
-		}
-		select {
-		case result := <-done:
-			t.Fatalf("gate did not stop the descendant promptly; after test cleanup it returned %d:\n%s", result.code, result.out)
-		case <-time.After(loadBound):
-			t.Fatal("gate remained blocked after the test stopped its own descendant")
-		}
+	result := beforeDescendant(t, done, childPID, "the gate")
+	wantAll(t, result.out, "== alloc: FAILED", "leftover processes at leader exit:")
+	if !namedLeftover(result.out, childPID) {
+		t.Errorf("the leftover diagnostic does not name child pid %d:\n%s", childPID, result.out)
+	}
+	if result.code != 1 || processExists(childPID) {
+		t.Fatalf("exit %d, leftover process alive=%t:\n%s", result.code, processExists(childPID), result.out)
 	}
 }
 
@@ -468,7 +489,7 @@ func TestBudgetRSSWatchDetectsEscapedOutputHolder(t *testing.T) {
 	var childPID int
 	t.Cleanup(func() { stopProcess(childPID) })
 	pidPath := filepath.Join(root, "src", "escaped-pid")
-	step := &Step{Name: "escaped", Argv: []string{"sh", "-c", `setsid sleep 60 & child=$!; echo "$child" > src/escaped-pid; echo "escaped output holder pid=$child"; exit 0`}}
+	step := &Step{Name: "escaped", Argv: []string{"sh", "-c", `setsid sleep ` + outlive(t) + ` & child=$!; echo "$child" > src/escaped-pid; echo "escaped output holder pid=$child"; exit 0`}}
 	done := make(chan struct {
 		code int
 		out  string
@@ -481,33 +502,12 @@ func TestBudgetRSSWatchDetectsEscapedOutputHolder(t *testing.T) {
 			out  string
 		}{code, out}
 	}()
-	deadline := time.Now().Add(loadBound)
-	for time.Now().Before(deadline) {
-		if content, err := os.ReadFile(pidPath); err == nil {
-			childPID, _ = strconv.Atoi(strings.TrimSpace(string(content)))
-			if childPID > 0 {
-				break
-			}
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	childPID = readPID(t, pidPath)
 	if childPID == 0 {
 		t.Fatal("the step did not record the escaped output holder PID")
 	}
-	var code int
-	var out string
-	select {
-	case result := <-done:
-		code, out = result.code, result.out
-	case <-time.After(loadBound):
-		stopProcess(childPID)
-		select {
-		case result := <-done:
-			t.Fatalf("the RSS gate waited for the escaped writer until test cleanup, then returned %d:\n%s", result.code, result.out)
-		case <-time.After(loadBound):
-			t.Fatal("the RSS gate remained blocked after test cleanup stopped the escaped writer")
-		}
-	}
+	result := beforeDescendant(t, done, childPID, "the RSS gate")
+	code, out := result.code, result.out
 	childPID = leftoverPIDFor(out, "escaped output holder pid=")
 	wantAll(t, out, "== escaped: FAILED", "step output held open by a process outside the step's process group", "gate: FAILED in")
 	if childPID == 0 {
@@ -696,18 +696,14 @@ func TestDrainPipeWaitsInThePoller(t *testing.T) {
 	var mu sync.Mutex
 	drained := make(chan pipeResult, 1)
 	go drainPipe(reader, &recorder, &mu, drained)
-	// The bound is for a slow host to schedule the goroutine; the test ends
-	// as soon as the goroutine parks.
-	deadline := time.Now().Add(10 * time.Second)
-	for drainsWaitingForIO() <= before {
-		if time.Now().After(deadline) {
-			stack := make([]byte, 1<<20)
-			t.Logf("goroutines:\n%s", stack[:runtime.Stack(stack, true)])
-			_ = writer.Close()
-			<-drained
-			t.Fatal("the drain of an empty pipe did not park in the poller (IO wait) within 10 s: it waits on a timer")
-		}
-		time.Sleep(time.Millisecond)
+	// The test ends as soon as the goroutine parks; only the test's
+	// deadline bounds a slow host's scheduling of it.
+	if !testwait.Until(t, func() bool { return drainsWaitingForIO() > before }) {
+		stack := make([]byte, 1<<20)
+		t.Logf("goroutines:\n%s", stack[:runtime.Stack(stack, true)])
+		_ = writer.Close()
+		<-drained
+		t.Fatal("the drain of an empty pipe did not park in the poller (IO wait) by the test's deadline: it waits on a timer")
 	}
 	payload := []byte("output after the wait\n")
 	if _, err := writer.Write(payload); err != nil {
@@ -804,7 +800,7 @@ func TestRunBudgetedDetectsAWriterAfterStepFinish(t *testing.T) {
 	pidPath := filepath.Join(t.TempDir(), "child-pid")
 	var childPID int
 	t.Cleanup(func() { stopProcess(childPID) })
-	command := exec.Command("sh", "-c", `sleep 60 & echo $! > "$1"; echo leader exiting; exit 0`, "sh", pidPath)
+	command := exec.Command("sh", "-c", `sleep `+outlive(t)+` & echo $! > "$1"; echo leader exiting; exit 0`, "sh", pidPath)
 	var output bytes.Buffer
 	command.Stdout = &output
 	command.Stderr = &output
@@ -817,32 +813,12 @@ func TestRunBudgetedDetectsAWriterAfterStepFinish(t *testing.T) {
 		used, err := runBudgeted(passThroughLimiter{}, "held-pipe", command)
 		done <- runResult{used: used, err: err}
 	}()
-	deadline := time.Now().Add(loadBound)
-	for time.Now().Before(deadline) {
-		if content, err := os.ReadFile(pidPath); err == nil {
-			childPID, _ = strconv.Atoi(strings.TrimSpace(string(content)))
-			if childPID > 0 {
-				break
-			}
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	childPID = readPID(t, pidPath)
 	if childPID == 0 {
 		t.Fatal("the step did not record its output-holding child")
 	}
-	select {
-	case result := <-done:
-		if result.err != nil || !strings.Contains(result.used.processIssue, "step output held open") {
-			t.Fatalf("result %+v, want an output-holder process issue", result)
-		}
-	case <-time.After(loadBound):
-		stopProcess(childPID)
-		select {
-		case result := <-done:
-			t.Fatalf("runBudgeted waited for the output writer until test cleanup, then returned %+v", result)
-		case <-time.After(loadBound):
-			t.Fatal("runBudgeted remained blocked after test cleanup stopped the output writer")
-		}
+	if result := beforeDescendant(t, done, childPID, "runBudgeted"); result.err != nil || !strings.Contains(result.used.processIssue, "step output held open") {
+		t.Fatalf("result %+v, want an output-holder process issue", result)
 	}
 }
 
@@ -936,8 +912,8 @@ func (s *siblingFork) finish() usage {
 
 // runSiblingFork runs a step that prints one line under fork, and returns
 // what runBudgeted returned, its output and how long it took. It fails the
-// test if runBudgeted does not return within limit.
-func runSiblingFork(t *testing.T, fork *siblingFork, limit time.Duration) (usage, string, time.Duration, error) {
+// test if runBudgeted does not return by the test's deadline.
+func runSiblingFork(t *testing.T, fork *siblingFork) (usage, string, time.Duration, error) {
 	t.Helper()
 	fork.t = t
 	fork.returned = make(chan struct{})
@@ -962,15 +938,10 @@ func runSiblingFork(t *testing.T, fork *siblingFork, limit time.Duration) (usage
 		close(fork.returned)
 		<-fork.settled
 		return result.used, output.String(), elapsed, result.err
-	case <-time.After(limit):
+	case <-testwait.After(t):
 		close(fork.returned)
 		<-fork.settled
-		select {
-		case result := <-done:
-			t.Fatalf("runBudgeted did not return within %s; after the holder ended it returned %+v", limit, result)
-		case <-time.After(5 * time.Second):
-			t.Fatalf("runBudgeted did not return within %s, nor after the holder ended", limit)
-		}
+		t.Fatalf("runBudgeted did not return by the test's deadline; after the holder ended it returned %+v", <-done)
 	}
 	return usage{}, "", 0, nil
 }
@@ -991,7 +962,7 @@ func TestRunBudgetedWaitsForASiblingForkInFlight(t *testing.T) {
 	execTailBound = 50 * time.Millisecond
 	t.Cleanup(func() { execTailBound = savedTail })
 	fork := &siblingFork{inFlight: true, releaseAfter: 300 * time.Millisecond}
-	used, output, elapsed, err := runSiblingFork(t, fork, 10*time.Second)
+	used, output, elapsed, err := runSiblingFork(t, fork)
 	t.Logf("runBudgeted returned after %s", elapsed)
 	if err != nil || used.processIssue != "" {
 		t.Fatalf("err %v, process issue %q: want neither, the holder was a fork in flight", err, used.processIssue)
@@ -1010,7 +981,7 @@ func TestRunBudgetedWaitsForASiblingForkExecTail(t *testing.T) {
 		t.Skip("the output pipe requires Unix process groups")
 	}
 	fork := &siblingFork{inFlight: true, releaseAfter: 100 * time.Millisecond, execTail: 30 * time.Millisecond}
-	used, output, elapsed, err := runSiblingFork(t, fork, 10*time.Second)
+	used, output, elapsed, err := runSiblingFork(t, fork)
 	t.Logf("runBudgeted returned after %s", elapsed)
 	if err != nil || used.processIssue != "" {
 		t.Fatalf("err %v, process issue %q: want neither, the holder was in its exec tail", err, used.processIssue)
@@ -1036,7 +1007,7 @@ func TestRunBudgetedReportsAHolderPastItsBounds(t *testing.T) {
 				forkSettleBound, execTailBound = 200*time.Millisecond, 100*time.Millisecond
 				t.Cleanup(func() { forkSettleBound, execTailBound = savedFork, savedTail })
 			}
-			used, _, elapsed, err := runSiblingFork(t, &siblingFork{inFlight: inFlight}, 10*time.Second)
+			used, _, elapsed, err := runSiblingFork(t, &siblingFork{inFlight: inFlight})
 			t.Logf("runBudgeted returned after %s", elapsed)
 			if err != nil || !strings.Contains(used.processIssue, "step output held open") {
 				t.Fatalf("err %v, process issue %q: want the holder reported", err, used.processIssue)
@@ -1081,7 +1052,7 @@ func TestDrainPipeDrainsAfterAWriteError(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("the step's write blocked: the drain stopped reading at the write error")
 	}
 	result := <-drained
@@ -1187,14 +1158,7 @@ func TestGateSerializesSameStepTempAcrossGates(t *testing.T) {
 		firstDone <- gateResult{code: code, out: out}
 	}()
 	marker := filepath.Join(stepTemp, "marker")
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(marker); err == nil {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	if _, err := os.Stat(marker); err != nil {
+	if !testwait.Until(t, func() bool { _, err := os.Stat(marker); return err == nil }) {
 		t.Fatal("first gate did not create its temp marker")
 	}
 	secondDone := make(chan gateResult, 1)
@@ -1205,12 +1169,12 @@ func TestGateSerializesSameStepTempAcrossGates(t *testing.T) {
 	var first, second gateResult
 	select {
 	case first = <-firstDone:
-	case <-time.After(8 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("first gate did not finish")
 	}
 	select {
 	case second = <-secondDone:
-	case <-time.After(8 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("second gate did not finish after acquiring the step temp lock")
 	}
 	if first.code != 0 || !strings.Contains(first.out, "first kept marker") {
@@ -1298,7 +1262,7 @@ func TestRunBudgetedDoesNotWaitForOutputAfterStopFailure(t *testing.T) {
 		}
 	}
 	t.Cleanup(stopChild)
-	command := exec.Command("sh", "-c", `sleep 60 & echo $! > "$1"; exit 0`, "sh", pidPath)
+	command := exec.Command("sh", "-c", `sleep `+outlive(t)+` & echo $! > "$1"; exit 0`, "sh", pidPath)
 	var output bytes.Buffer
 	command.Stdout = &output
 	command.Stderr = &output
@@ -1307,40 +1271,18 @@ func TestRunBudgetedDoesNotWaitForOutputAfterStopFailure(t *testing.T) {
 		err  error
 	}
 	done := make(chan result, 1)
-	started := time.Now()
 	go func() {
 		used, err := runBudgeted(failedStopLimiter{}, "probe", command)
 		done <- result{used: used, err: err}
 	}()
-
-	var childPID int
-	deadline := time.Now().Add(loadBound)
-	for time.Now().Before(deadline) {
-		if content, err := os.ReadFile(pidPath); err == nil {
-			childPID, _ = strconv.Atoi(strings.TrimSpace(string(content)))
-			if childPID > 0 {
-				break
-			}
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	childPID := readPID(t, pidPath)
 	if childPID == 0 {
 		t.Fatal("step did not record the background child's PID")
 	}
-	select {
-	case result := <-done:
-		stopChild()
-		if result.err != nil || !result.used.stopFailed {
-			t.Fatalf("runBudgeted result %+v after %s; want prompt return after stop failure", result, time.Since(started))
-		}
-	case <-time.After(loadBound):
-		stopChild()
-		select {
-		case result := <-done:
-			t.Fatalf("runBudgeted waited for descendant output after stop failure: %+v", result)
-		case <-time.After(loadBound):
-			t.Fatal("runBudgeted remained blocked after the test stopped its own descendant")
-		}
+	got := beforeDescendant(t, done, childPID, "runBudgeted after a stop failure")
+	stopChild()
+	if got.err != nil || !got.used.stopFailed {
+		t.Fatalf("runBudgeted result %+v; want a return after the stop failure", got)
 	}
 }
 

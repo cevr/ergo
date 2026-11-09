@@ -147,18 +147,12 @@ func (s *never) Sleep(t *rt.Task, d time.Duration) {
 	panic(rt.Interrupted)
 }
 
+// within runs f and waits for its end, an event: an After whose deadline
+// is not the program's Scheduler sleeps an hour, and go test's -timeout
+// panic names TestDeadline (fu-time-limits: no fixed bound).
 func within(t *testing.T, f func()) {
 	t.Helper()
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		f()
-	}()
-	select {
-	case <-done:
-	case <-time.After(20 * time.Second):
-		t.Fatal("After did not end: its deadline is not the program's Scheduler")
-	}
+	f()
 }
 
 var _ ergo.Sleeper = Scheduler(nil)

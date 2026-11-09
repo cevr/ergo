@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -89,6 +90,17 @@ func TestWholeGateRunRecordsAndReplays(t *testing.T) {
 		{Name: "counted", Argv: outsideCount(counter)},
 		{Name: "flagged", Argv: []string{"sh", "-c", `test -f "$1" && echo "flag present"`, "sh", flag}},
 	}
+	// Each collection reads the test's clock: Walk names a stat-keyed path
+	// recent against it, so the recent window opens at the ignored write
+	// and closes when the test moves the clock past it, at any host speed.
+	// On the wall clock a loaded host started a run RecentWindow after that
+	// write, the run recorded, and the run after the window replayed
+	// (FU-wallclock-replay-window).
+	var clock atomic.Int64
+	clock.Store(time.Now().UnixNano())
+	prior := collectionTime
+	collectionTime = func() time.Time { return time.Unix(0, clock.Load()) }
+	t.Cleanup(func() { collectionTime = prior })
 	g := wholeFixture(t, root, steps)
 	code, out := runWhole(t, g)
 	if code != 0 || !strings.Contains(out, "gate: recorded whole-gate key ") {
@@ -113,9 +125,20 @@ func TestWholeGateRunRecordsAndReplays(t *testing.T) {
 		t.Fatal("a replay under another set of host programs")
 	}
 	// A tracked edit, an ignored touch and a new empty directory each rerun.
+	// From the ignored write on, the clock stands at its mtime, so every
+	// collection sees the file changed within RecentWindow.
+	var written time.Time
 	for i, change := range []func(){
 		func() { write(t, root, "src/input.txt", "two\n") },
-		func() { write(t, root, "runs/ignored.log", "x\n") },
+		func() {
+			write(t, root, "runs/ignored.log", "x\n")
+			info, err := os.Stat(filepath.Join(root, "runs/ignored.log"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			written = info.ModTime()
+			clock.Store(written.UnixNano())
+		},
 		func() {
 			if err := os.Mkdir(filepath.Join(root, "empty"), 0o755); err != nil {
 				t.Fatal(err)
@@ -123,16 +146,16 @@ func TestWholeGateRunRecordsAndReplays(t *testing.T) {
 		},
 	} {
 		change()
-		time.Sleep(10 * time.Millisecond)
 		code, out = runWhole(t, g)
 		if code != 0 || countIn(t, counter) != 2+i {
 			t.Fatalf("change %d: exit %d, ran %d times:\n%s", i, code, countIn(t, counter), out)
 		}
 	}
-	// The ignored file was written within 2 s of the key: that run did not
-	// record, so the same state runs again until the window passes.
+	// The ignored file changed within RecentWindow of both keys: neither
+	// run recorded, so the same state runs again once the window passes.
+	// The second of margin covers a ctime one tick past the mtime.
+	clock.Store(written.Add(replay.RecentWindow + time.Second).UnixNano())
 	// A failed run at a recorded key withdraws the record.
-	time.Sleep(replay.RecentWindow + 100*time.Millisecond)
 	code, out = runWhole(t, g)
 	if code != 0 || !strings.Contains(out, "gate: recorded whole-gate key ") {
 		t.Fatalf("exit %d, no record after the window:\n%s", code, out)

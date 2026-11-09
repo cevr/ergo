@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"ergo.local/prototype/internal/lawledger"
+	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
 )
 
@@ -67,7 +68,7 @@ func manualModelRun(t *testing.T, seed uint64) {
 					if !ok {
 						t.Fatalf("seed %d %s: a sleeper due at %d was interrupted", seed, step, s.deadline)
 					}
-				case <-time.After(5 * time.Second):
+				case <-testwait.After(t):
 					t.Fatalf("seed %d %s: a sleeper due at %d did not wake at %d", seed, step, s.deadline, now)
 				}
 				continue
@@ -142,15 +143,11 @@ func manualModelRun(t *testing.T, seed uint64) {
 	}
 }
 
-// waitFor polls cond for up to 5 seconds.
+// waitFor polls cond until the test's deadline (testwait).
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for !cond() {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s", what)
-		}
-		time.Sleep(time.Millisecond)
+	if !testwait.Until(t, cond) {
+		t.Fatalf("timed out waiting for %s", what)
 	}
 }
 

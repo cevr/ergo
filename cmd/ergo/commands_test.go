@@ -70,7 +70,7 @@ func TestStubsAnswerBeforeReadingArguments(t *testing.T) {
 		}
 		for _, args := range [][]string{nil, {"main.ergo"}, {"--help"}, {"-h"}, {"main.ergo", "--json"}, {"a", "b", "c"}, {"--target", "go"}, {"/nonexistent/loop-probe-x"}} {
 			argv := append(strings.Fields(c.name), args...)
-			stdout, stderr, code := runSmokeCLI(t, processDeadline, binary, dir, "", argv...)
+			stdout, stderr, code := runSmokeCLI(t, binary, dir, "", argv...)
 			if code != 1 || len(stdout) != 0 || string(stderr) != c.stubMessage()+"\n" {
 				t.Fatalf("ergo %s: exit %d stdout %q stderr %q; want exit 1 and %q", strings.Join(argv, " "), code, stdout, stderr, c.stubMessage())
 			}
@@ -96,7 +96,7 @@ func TestHelpListsOnlyTheKeptCommands(t *testing.T) {
 	binary := buildTestCLI(t)
 	dir := t.TempDir()
 	for _, args := range [][]string{nil, {"--help"}, {"-h"}, {"help"}, {"check", "--help"}, {"build", "-h"}} {
-		stdout, stderr, code := runSmokeCLI(t, processDeadline, binary, dir, "", args...)
+		stdout, stderr, code := runSmokeCLI(t, binary, dir, "", args...)
 		if code != 0 || len(stderr) != 0 || string(stdout) != generalHelp() {
 			t.Fatalf("ergo %v: exit %d stdout %q stderr %q", args, code, stdout, stderr)
 		}
@@ -107,12 +107,12 @@ func TestHelpListsOnlyTheKeptCommands(t *testing.T) {
 		}
 	}
 	for args, want := range map[string]string{"diagnostics --help": diagnosticsHelp, "fmt --help": fmtHelp, "fmt -h": fmtHelp} {
-		stdout, _, code := runSmokeCLI(t, processDeadline, binary, dir, "", strings.Fields(args)...)
+		stdout, _, code := runSmokeCLI(t, binary, dir, "", strings.Fields(args)...)
 		if code != 0 || string(stdout) != want {
 			t.Fatalf("ergo %s: exit %d stdout %q", args, code, stdout)
 		}
 	}
-	stdout, stderr, code := runSmokeCLI(t, processDeadline, binary, dir, "", "frobnicate", "main.ergo")
+	stdout, stderr, code := runSmokeCLI(t, binary, dir, "", "frobnicate", "main.ergo")
 	if code != 1 || len(stdout) != 0 || string(stderr) != "unknown command frobnicate; use ergo --help\n" {
 		t.Fatalf("an unknown command: exit %d stdout %q stderr %q", code, stdout, stderr)
 	}

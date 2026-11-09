@@ -16,3 +16,18 @@ For language architecture, runtime/interop contracts, or terminology changes, re
 - On the exe workbox, transferred `.rift` markers may be unregistered and the transferred source is on ext4. If `workrift` cannot resolve it, use an isolated Git worktree as the loop skill permits. Verify registry membership before workspace cleanup.
 - Run `./scripts/gate.sh` (the fast tier) before handoff. The full tier (`./scripts/gate.sh --full`), `--merge` and the macOS check run on every batch head before main. Performance claims require measured evidence.
 - Wayfinder execution is explicitly authorized for this effort; do not close HITL tickets without user feedback.
+
+## Tests
+
+**Tests.** Before you add a test, name the mutant it catches that no existing law, property, example or test catches, and put that mutant in the package's mutant ledger and in the request. If you cannot, do not add the test (owner, 2026-11-08; [decisions](docs/decisions.md#owner-direction-2026-11-08)).
+
+- Prefer, in order: a law on an operation type or machine; a seeded property against a reference model (a failing seed prints the Ergo source, both outputs and the replay command); an example program under `examples/`. Write a concrete row only for a diagnostic's text or position, or as the smallest repro of a fixed bug (name the bug).
+- Check in process. Use the checker's result, the lowered Go text, or `go/types` on the lowered Go (`typecheckGo`) when the question is "does it compile". A test that builds or runs a Go binary states in its doc comment why the in-process check is not enough, builds with the one-binary helper, and calls `needsBuild(t)` (full tier only). Every program it runs has a memory bound the kernel enforces (the 2026-11-08 OOM: one generated test program reached 46.7 GB).
+- No fixed time limits: wait for an event, a channel or a process exit; a deadline only stops a hung test and names it. No wall-clock bounds or ratios.
+- No pinned counts or digests of generated corpora; the split harness checks that the parts run every case once.
+- No golden of the lowered Go's shape, unless the shape is the spec (a speed lowering's promised form, such as "no `env` parameter"); then check the one promised fact.
+- When a rule change flips old rows, delete the rows that only restated the old rule if a property or law covers the new rule; do not rewrite them.
+- A growth or complexity guard counts work (a counter the code exposes) at small sizes; it never times.
+- A unit that deletes tests runs the package's mutant ledger (`go run ./scripts/mutants <pkg>`): every mutant is still killed.
+
+`internal/residue` holds the rules it can read from the source: no fixed waits (`TestTestsWaitNoFixedTime`), no wall-clock comparisons, and none at all in `internal/sketch` (`TestTestsCompareNoWallClock`), no split pins (`TestSplitsPinNoDomain`), and a "builds Go because" line in the doc comment of each `internal/sketch` declaration that builds Go (`TestSketchBuildsSayWhy`). Until the test-speed units land, `typecheckGo` (T1), the one-binary helper (T2), `needsBuild` (T3) and `scripts/mutants` (T0) are planned names.

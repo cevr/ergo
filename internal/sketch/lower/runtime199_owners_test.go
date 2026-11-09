@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -387,7 +386,7 @@ func TestRuntime199EnvBindingStops(t *testing.T) {
 	for name, src := range i1ValuePrograms() {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			runWithin(t, "envbinding", src, "stopped\n", 45*time.Second)
+			runWithin(t, "envbinding", src, "stopped\n")
 		})
 	}
 }

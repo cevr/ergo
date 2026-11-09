@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // The systemd scope tests run each case as a gate re-executed as the gate
@@ -86,11 +88,11 @@ func boundSlice(t *testing.T, slice, size string) {
 // bytes.
 func waitForSliceMemory(t *testing.T, slice string, size int64) {
 	t.Helper()
-	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+	if testwait.Until(t, func() bool {
 		current, err := strconv.ParseInt(systemctl(t, "show", "-p", "MemoryCurrent", "--value", slice), 10, 64)
-		if err == nil && current >= size {
-			return
-		}
+		return err == nil && current >= size
+	}) {
+		return
 	}
 	t.Fatalf("%s never held %s", slice, formatBytes(size))
 }
@@ -863,7 +865,7 @@ func TestStopStepCgroupWaitsForKernelPopulationZero(t *testing.T) {
 		if got.err != nil || len(got.members) != 0 {
 			t.Fatalf("stop after populated 0: %+v", got)
 		}
-	case <-time.After(loadBound):
+	case <-testwait.After(t):
 		t.Fatal("stop did not observe cgroup.events populated 0")
 	}
 }

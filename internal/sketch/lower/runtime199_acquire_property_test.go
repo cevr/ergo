@@ -1,20 +1,17 @@
 package lower
 
 import (
-	"context"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"math/rand/v2"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -707,12 +704,7 @@ func acquireNative(t *testing.T, o *lowered, cases []acqCase) {
 			c.name, c.mode, c.target, c.index, c.depth, c.exit, c.gaps, c.owned, c.want, c.fn, c.k)
 	}
 	write("acquire_test.go", []byte(strings.Replace(acquireNativeTest, "CASES", table.String(), 1)))
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "test", "-count=1", "-timeout=3m", ".")
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GOWORK=off", "GOPROXY=off")
-	output, err := cmd.CombinedOutput()
+	output, err := nativeGoTest(t, dir, append(os.Environ(), "GOWORK=off", "GOPROXY=off"))
 	if err != nil {
 		t.Fatalf("native acquisition cases: %v\n%s\nErgo:\n%s", err, firstLines(string(output), 120), o.src)
 	}

@@ -523,13 +523,12 @@ func init() {
 	if _, err := command("sh", "-c", "cd dirs/current && { (sleep 1; cat value.txt > \"$1\") >/dev/null 2>&1 & }", "sh", out); err != nil {
 		return nil, err
 	}
-	for range 2400 { // 60 s: 5 s failed only a loaded host (fu-gate-flakes)
+	for { // until the write, an event: the test's deadline bounds a hang (5 s failed a loaded host, fu-gate-flakes; fu-time-limits)
 		if data, err := os.ReadFile(out); err == nil && len(data) > 0 {
 			return data, nil
 		}
 		time.Sleep(25 * time.Millisecond)
-	}
-	return nil, os.ErrDeadlineExceeded`,
+	}`,
 		before: "a-1",
 		edit: func(t *testing.T, f *fixture) {
 			f.relink(t, "dirs/current", "../b")

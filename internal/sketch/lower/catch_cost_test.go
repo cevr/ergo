@@ -1,14 +1,11 @@
 package lower
 
 import (
-	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
-	"time"
 )
 
 // TestCatchCostModule (M1b) writes one Go module that holds the emitted
@@ -172,13 +169,8 @@ func TestCatchCostModule(t *testing.T) {
 	}
 	costWrite(t, dir, files)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "test", "-count=1", "-timeout=3m", "-v",
-		"-run", "^TestCatchContract$", "-bench", "^BenchmarkCatch(Emitted|Control)$", "-benchtime=1x", ".")
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GOWORK=off", "GOPROXY=off", "GOFLAGS=")
-	output, err := cmd.CombinedOutput()
+	output, err := nativeGoTest(t, dir, append(os.Environ(), "GOWORK=off", "GOPROXY=off", "GOFLAGS="),
+		"-test.v", "-test.run=^TestCatchContract$", "-test.bench=^BenchmarkCatch(Emitted|Control)$", "-test.benchtime=1x")
 	if err != nil {
 		t.Fatalf("catch cost module: %v\n%s\nGo:\n%s", err, output, stripDirectives(emitted))
 	}

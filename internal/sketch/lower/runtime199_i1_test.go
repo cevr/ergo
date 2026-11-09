@@ -13,10 +13,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/testwait"
 )
 
 // #199 stage 1 (runtime.md, I1): a frame whose footprint is not empty
@@ -1558,7 +1558,7 @@ func i1Live(t *testing.T) {
 		exe := exes[pkg]
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			ctx, cancel := testwait.Context(t, context.Background())
 			defer cancel()
 			probeRan(exe)
 			run := exec.CommandContext(ctx, exe)
@@ -1567,7 +1567,7 @@ func i1Live(t *testing.T) {
 			err := runProgram(t, run)
 			out := combined.Bytes()
 			if ctx.Err() != nil {
-				t.Fatalf("the program did not end within 60s: the stop never reached the frame\n%s", progs[name])
+				t.Fatalf("the program did not end by the test's deadline: the stop never reached the frame\n%s", progs[name])
 			}
 			if err != nil || string(out) != want {
 				t.Fatalf("run: %v\n%s\nwant %q\n%s", err, firstLines(string(out), 20), want, progs[name])

@@ -5,11 +5,11 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/testwait"
 )
 
 // TestStdImportsAreAcyclic: a std package may import another std package
@@ -70,8 +70,8 @@ func TestStdImportConcurrent(t *testing.T) {
 	go func() { wg.Wait(); close(done) }()
 	select {
 	case <-done:
-	case <-time.After(2 * time.Minute):
-		t.Fatal("the std importer did not return within 2 minutes")
+	case <-testwait.After(t):
+		t.Fatal("the std importer did not return by the test's deadline")
 	}
 	for i := range got {
 		if got[i] != got[i%2] {

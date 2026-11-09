@@ -23,6 +23,21 @@ import (
 // failed on three tests of that kind).
 const wallClockFloor = 10 * time.Second
 
+// sketchTests are the checker's and the lowering's tests. They have no
+// floor: a test there compares no measured duration with any constant
+// (AGENTS.md, Tests: a growth or complexity guard counts work; it never
+// times).
+const sketchTests = "internal/sketch/"
+
+// floorOf is the shortest constant duration a test of the file name may
+// compare a measured duration with; 0 refuses every nonzero constant.
+func floorOf(name string) time.Duration {
+	if strings.HasPrefix(name, sketchTests) {
+		return 0
+	}
+	return wallClockFloor
+}
+
 // wallClockAllow is the allow list: a row is `path<TAB>function<TAB>reason`.
 const wallClockAllow = "testdata/wallclock-allow.txt"
 
@@ -30,7 +45,8 @@ const wallClockAllow = "testdata/wallclock-allow.txt"
 // outside a benchmark compares a measured duration (time.Since, a
 // one-argument Sub, and what is computed from them in the same function)
 // with another measured duration (a ratio of two timings) or with a
-// constant duration under wallClockFloor. Such a comparison passes on a
+// constant duration under wallClockFloor, or, in internal/sketch, with any
+// nonzero constant (ts-test-rule, T7). Such a comparison passes on a
 // quiet host and fails on a loaded one. A row of the allow list admits one
 // function of one file and says why; a row that admits nothing fails too.
 func TestTestsCompareNoWallClock(t *testing.T) {
@@ -63,7 +79,11 @@ func TestTestsCompareNoWallClock(t *testing.T) {
 				used[key] = true
 				continue
 			}
-			t.Errorf("%s: %s compares %s; a loaded host decides it (fu-gate-flakes). Bound the wait by an event, or by %v or more, or add `%s<TAB>%s<TAB>reason` to %s", c.at, c.function, c.what, wallClockFloor, name, c.function, wallClockAllow)
+			fix := fmt.Sprintf("Bound the wait by an event, or by %v or more", wallClockFloor)
+			if floorOf(name) == 0 {
+				fix = "A sketch test counts work (a counter the code exposes) and never times it (AGENTS.md, Tests)"
+			}
+			t.Errorf("%s: %s compares %s; a loaded host decides it (fu-gate-flakes). %s, or add `%s<TAB>%s<TAB>reason` to %s", c.at, c.function, c.what, fix, name, c.function, wallClockAllow)
 		}
 	}
 	if files < 100 {
@@ -124,8 +144,8 @@ type wallClockComparison struct {
 
 // wallClockComparisons returns each comparison in src, outside a
 // Benchmark function, of a measured duration with a measured duration or
-// with a constant duration under wallClockFloor (zero left out: a sign
-// test is no timing).
+// with a constant duration under the file's floor (floorOf; zero left out:
+// a sign test is no timing).
 func wallClockComparisons(t *testing.T, name string, src []byte) []wallClockComparison {
 	t.Helper()
 	fset := token.NewFileSet()
@@ -134,6 +154,7 @@ func wallClockComparisons(t *testing.T, name string, src []byte) []wallClockComp
 		t.Fatalf("parse %s: %v", name, err)
 	}
 	consts := fileConstants(file)
+	floor := floorOf(name)
 	var out []wallClockComparison
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
@@ -162,7 +183,7 @@ func wallClockComparisons(t *testing.T, name string, src []byte) []wallClockComp
 					other = b.X
 				}
 				d, ok := m.duration(other)
-				if !ok || d == 0 || d >= wallClockFloor {
+				if !ok || d == 0 || floor > 0 && d >= floor {
 					return true
 				}
 				what = fmt.Sprintf("a measured duration with %v", d)
@@ -399,6 +420,25 @@ func TestWallClockRule(t *testing.T) {
 	} {
 		src := "package p\n\nconst top = 20 * time.Second\nconst low = 3 * time.Second\n\nfunc TestX(t *testing.T) {\n\t" + c.body + "\n}\n"
 		if got := wallClockComparisons(t, "p_test.go", []byte(src)); len(got) != c.bad {
+			t.Errorf("%s: %s: %d comparisons flagged (%v), want %d", c.name, c.body, len(got), got, c.bad)
+		}
+	}
+	// In internal/sketch every nonzero constant is refused, whatever the
+	// operator and the size; zero and the opt-out of benchmarks stay.
+	for _, c := range []struct {
+		body string
+		bad  int
+		name string
+	}{
+		{`if time.Since(start) > 60*time.Second { t.Fatal() }`, 1, "a minute bound in a sketch test"},
+		{`if elapsed := time.Since(start); elapsed >= time.Hour { t.Fatal() }`, 1, "a >= bound in a sketch test"},
+		{`if 500*time.Millisecond < time.Since(start) { t.Fatal() }`, 1, "the constant on the left"},
+		{`if time.Since(start) > top { t.Fatal() }`, 1, "a constant of the file at 20 s"},
+		{`if time.Since(start) > 0 { t.Fatal() }`, 0, "a sign test in a sketch test"},
+		{`if steps > 2*time.Second { t.Fatal() }`, 0, "no measurement in a sketch test"},
+	} {
+		src := "package p\n\nconst top = 20 * time.Second\n\nfunc TestX(t *testing.T) {\n\t" + c.body + "\n}\n"
+		if got := wallClockComparisons(t, "internal/sketch/check/p_test.go", []byte(src)); len(got) != c.bad {
 			t.Errorf("%s: %s: %d comparisons flagged (%v), want %d", c.name, c.body, len(got), got, c.bad)
 		}
 	}

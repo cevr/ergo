@@ -7,13 +7,15 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 func waitSchedulerSignal(t *testing.T, ch <-chan struct{}) {
 	t.Helper()
 	select {
 	case <-ch:
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("managed operation did not complete")
 	}
 }
@@ -27,7 +29,7 @@ func adjustWithin(t *testing.T, scheduler *TestScheduler, milliseconds int64) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatalf("adjust(%d) did not return", milliseconds)
 	}
 }
@@ -100,7 +102,7 @@ func TestTestSchedulerAdvancesSequentialSleepAtIntermediateDeadlines(t *testing.
 			if point != want {
 				t.Fatalf("sleep %d resumed at %d", expected+1, point)
 			}
-		case <-time.After(3 * time.Second):
+		case <-testwait.After(t):
 			t.Fatalf("sleep %d did not resume", expected+1)
 		}
 	}
@@ -148,7 +150,7 @@ func TestTestSchedulerWaitsForHeldManagedTurnBeforeAdvancing(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("adjust did not return after the held turn was released")
 	}
 	select {
@@ -156,7 +158,7 @@ func TestTestSchedulerWaitsForHeldManagedTurnBeforeAdvancing(t *testing.T) {
 		if point != 50 {
 			t.Fatalf("second sleep resumed at %d, want 50", point)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("second sleep did not resume")
 	}
 	if out := <-done; out.IsFailure() {
@@ -212,7 +214,7 @@ func TestTestSchedulerWaitsForLatchContinuationBeforeAdvancing(t *testing.T) {
 			if point != want {
 				t.Fatalf("latch continuation %d resumed at %d, want %d", expected+1, point, want)
 			}
-		case <-time.After(3 * time.Second):
+		case <-testwait.After(t):
 			t.Fatalf("latch continuation %d did not resume", expected+1)
 		}
 	}
@@ -221,7 +223,7 @@ func TestTestSchedulerWaitsForLatchContinuationBeforeAdvancing(t *testing.T) {
 		if out.IsFailure() {
 			t.Fatalf("latch sequence failed: %+v", out)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("latch sequence did not finish")
 	}
 }
@@ -260,7 +262,7 @@ func TestTestSchedulerWaitsForJoinContinuationBeforeAdvancing(t *testing.T) {
 		if point != 20 {
 			t.Fatalf("join continuation resumed at %d, want 20", point)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("join continuation did not resume")
 	}
 	select {
@@ -268,7 +270,7 @@ func TestTestSchedulerWaitsForJoinContinuationBeforeAdvancing(t *testing.T) {
 		if out.IsFailure() {
 			t.Fatalf("join sequence failed: %+v", out)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("join sequence did not finish")
 	}
 }
@@ -308,7 +310,7 @@ func TestTestSchedulerStrongAdjustPreservesCausalIntermediateTimes(t *testing.T)
 			if point != 20 {
 				t.Fatalf("iteration %d joined at %d, want 20", iteration, point)
 			}
-		case <-time.After(3 * time.Second):
+		case <-testwait.After(t):
 			t.Fatalf("iteration %d join continuation did not resume", iteration)
 		}
 		select {
@@ -316,7 +318,7 @@ func TestTestSchedulerStrongAdjustPreservesCausalIntermediateTimes(t *testing.T)
 			if out.IsFailure() {
 				t.Fatalf("iteration %d join sequence failed: %+v", iteration, out)
 			}
-		case <-time.After(3 * time.Second):
+		case <-testwait.After(t):
 			t.Fatalf("iteration %d join sequence did not finish", iteration)
 		}
 	}
@@ -348,7 +350,7 @@ func TestTestSchedulerDeadlineCleanupPreservesIntermediateTime(t *testing.T) {
 			if point != 20 {
 				t.Fatalf("iteration %d timeout resumed at %d, want 20", iteration, point)
 			}
-		case <-time.After(3 * time.Second):
+		case <-testwait.After(t):
 			t.Fatalf("iteration %d timeout continuation did not resume", iteration)
 		}
 		select {
@@ -356,7 +358,7 @@ func TestTestSchedulerDeadlineCleanupPreservesIntermediateTime(t *testing.T) {
 			if out.IsFailure() {
 				t.Fatalf("iteration %d timeout sequence failed: %+v", iteration, out)
 			}
-		case <-time.After(3 * time.Second):
+		case <-testwait.After(t):
 			t.Fatalf("iteration %d timeout sequence did not finish", iteration)
 		}
 	}
@@ -404,7 +406,7 @@ func TestTestSchedulerDoesNotObserveIndependentTimerBeforeJoinPublication(t *tes
 			if point != 20 {
 				t.Fatalf("iteration %d observed join at %d, want 20", iteration, point)
 			}
-		case <-time.After(3 * time.Second):
+		case <-testwait.After(t):
 			t.Fatalf("iteration %d joiner did not resume", iteration)
 		}
 		select {
@@ -412,7 +414,7 @@ func TestTestSchedulerDoesNotObserveIndependentTimerBeforeJoinPublication(t *tes
 			if out.IsFailure() {
 				t.Fatalf("iteration %d sequence failed: %+v", iteration, out)
 			}
-		case <-time.After(3 * time.Second):
+		case <-testwait.After(t):
 			t.Fatalf("iteration %d sequence did not finish", iteration)
 		}
 	}
@@ -453,7 +455,7 @@ func TestTestSchedulerWaitsForScopeCleanupContinuationBeforeAdvancing(t *testing
 		if point != 20 {
 			t.Fatalf("scope continuation resumed at %d, want 20", point)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("scope continuation did not resume")
 	}
 	select {
@@ -461,7 +463,7 @@ func TestTestSchedulerWaitsForScopeCleanupContinuationBeforeAdvancing(t *testing
 		if out.IsFailure() {
 			t.Fatalf("scope sequence failed: %+v", out)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("scope sequence did not finish")
 	}
 }
@@ -514,7 +516,7 @@ func TestTestSchedulerPartialScopeCleanupCanAdvanceAndThenDrain(t *testing.T) {
 		if out.IsFailure() {
 			t.Fatalf("cleanup drain failed: %+v", out)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("cleanup did not complete after its deadline")
 	}
 }
@@ -562,7 +564,7 @@ func TestTestSchedulerNestedResourceCleanupCanAdvanceAndThenDrain(t *testing.T) 
 		if out.IsFailure() {
 			t.Fatalf("nested cleanup failed after its deadline: %+v", out)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("nested cleanup did not complete after its deadline")
 	}
 }
@@ -602,7 +604,7 @@ func TestTestSchedulerScopedNestedCleanupCanAdvanceAndThenDrain(t *testing.T) {
 		if out.IsFailure() {
 			t.Fatalf("scoped nested cleanup failed after its deadline: %+v", out)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("scoped nested cleanup did not complete after its deadline")
 	}
 }
@@ -636,7 +638,7 @@ func TestTestSchedulerPartialLatchCleanupCanBeSignaled(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("partial adjustment blocked on a managed latch cleanup")
 	}
 	if scheduler.Now() != 10 {
@@ -648,7 +650,7 @@ func TestTestSchedulerPartialLatchCleanupCanBeSignaled(t *testing.T) {
 		if out.IsFailure() {
 			t.Fatalf("latch cleanup failed: %+v", out)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("latch signal did not complete cleanup")
 	}
 }
@@ -678,7 +680,7 @@ func TestTestSchedulerWaitsForTimeoutContinuationBeforeAdvancing(t *testing.T) {
 		if point != 20 {
 			t.Fatalf("timeout continuation resumed at %d, want 20", point)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("timeout continuation did not resume")
 	}
 	select {
@@ -686,7 +688,7 @@ func TestTestSchedulerWaitsForTimeoutContinuationBeforeAdvancing(t *testing.T) {
 		if out.IsFailure() {
 			t.Fatalf("timeout sequence failed: %+v", out)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("timeout sequence did not finish")
 	}
 }
@@ -730,7 +732,7 @@ func TestTimeoutUsesSchedulerAndWaitsForCancelledCleanup(t *testing.T) {
 	}
 	select {
 	case <-cleanup:
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("timeout did not release child resource")
 	}
 	out := <-done
@@ -782,7 +784,7 @@ func TestTestSchedulerPartialTimeoutCleanupCanAdvance(t *testing.T) {
 		if out.Failure == nil || out.Failure.Tag != "Timeout" || len(out.Cause()) != 1 {
 			t.Fatalf("wrong timeout result after cleanup: %+v", out)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("timeout did not complete after slow cleanup")
 	}
 }
@@ -880,7 +882,7 @@ func TestTestSchedulerForkedCleanupUsesIndependentContinuations(t *testing.T) {
 				if out.IsFailure() {
 					t.Fatalf("forked cleanup failed after both deadlines: %+v", out)
 				}
-			case <-time.After(3 * time.Second):
+			case <-testwait.After(t):
 				t.Fatal("forked cleanup did not complete after both deadlines")
 			}
 		})
@@ -928,7 +930,7 @@ func TestTestSchedulerTimeoutInsideCleanupCanAdvanceToDeadline(t *testing.T) {
 		if out.IsFailure() {
 			t.Fatalf("outer cleanup failed after nested timeout: %+v", out)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("outer cleanup did not complete after nested timeout")
 	}
 }
@@ -988,7 +990,7 @@ func TestTestSchedulerPartialWorkWinnerCleanupCanAdvance(t *testing.T) {
 		if out.IsFailure() || out.Value != "work" {
 			t.Fatalf("work winner failed after cleanup: %+v", out)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("work winner did not complete after slow cleanup")
 	}
 }
@@ -1045,7 +1047,7 @@ func TestTestSchedulerWorkWinnerWithAlreadyClosingDeadlineCleanupCanAdvance(t *t
 		if out.IsFailure() || out.Value != "work" {
 			t.Fatalf("work winner failed after already-closing cleanup: %+v", out)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("work winner did not complete after already-closing cleanup")
 	}
 }
@@ -1091,7 +1093,7 @@ func TestTestSchedulerDeadlineWinnerWithAlreadyClosingWorkCleanupCanAdvance(t *t
 		if out.Failure == nil || out.Failure.Tag != "Timeout" || len(out.Cause()) != 1 {
 			t.Fatalf("wrong deadline-winner result after cleanup: %+v", out)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("deadline winner did not complete after closing work cleanup")
 	}
 }
@@ -1141,7 +1143,7 @@ func TestTestSchedulerParentInterruptConsumesCleanupInCompletionOrder(t *testing
 			for i := 0; i < 2; i++ {
 				select {
 				case <-ready:
-				case <-time.After(3 * time.Second):
+				case <-testwait.After(t):
 					t.Fatal("parent branches did not become ready")
 				}
 			}
@@ -1149,7 +1151,7 @@ func TestTestSchedulerParentInterruptConsumesCleanupInCompletionOrder(t *testing
 			for i := 0; i < 2; i++ {
 				select {
 				case <-started:
-				case <-time.After(3 * time.Second):
+				case <-testwait.After(t):
 					t.Fatal("parent cleanup did not start")
 				}
 			}
@@ -1178,7 +1180,7 @@ func TestTestSchedulerParentInterruptConsumesCleanupInCompletionOrder(t *testing
 				if !out.Interrupted {
 					t.Fatalf("parent interruption lost its interrupt cause: %+v", out)
 				}
-			case <-time.After(3 * time.Second):
+			case <-testwait.After(t):
 				t.Fatal("parent interruption did not complete after both cleanups")
 			}
 		})
@@ -1235,7 +1237,7 @@ func TestTestSchedulerManagedLatchSignalerReleasesCleanup(t *testing.T) {
 		if out.IsFailure() {
 			t.Fatalf("managed latch signaler failed: %+v", out)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("managed latch signaler did not release cleanup")
 	}
 }
@@ -1318,7 +1320,7 @@ func TestTimeoutParentInterruptRetainsOneAcquireReleaseCleanupDefect(t *testing.
 		if !out.Interrupted || len(cause) != 2 || cause[0].Kind != "interrupt" || cause[1].Kind != "defect" || !errors.Is(cause[1].Err, timerDefect) {
 			t.Fatalf("parent interruption cause was lost or duplicated: %+v", out)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("parent interruption did not complete cleanup")
 	}
 }
@@ -1458,7 +1460,7 @@ func TestManagedRegistrationBarrierReturnsAtIdle(t *testing.T) {
 		if !slices.Equal(got.settled, []bool{true, true, true}) || got.timers != 1 {
 			t.Fatalf("barrier returned before idle: settled (immediate, timed, nested) = %v, pending timers = %d, want the sleep's alone", got.settled, got.timers)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("managed barrier did not return at idle")
 	}
 	select {
@@ -1466,7 +1468,7 @@ func TestManagedRegistrationBarrierReturnsAtIdle(t *testing.T) {
 		if out.IsFailure() {
 			t.Fatalf("barrier root failed: %+v", out)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("barrier root did not finish")
 	}
 }
@@ -1574,7 +1576,7 @@ func TestManagedBarrierCountsCancellationWakes(t *testing.T) {
 				if idle {
 					t.Fatal("barrier judged idle while a fiber woken by cancellation had not run again")
 				}
-			case <-time.After(3 * time.Second):
+			case <-testwait.After(t):
 				t.Fatal("no barrier decided inside the cancellation window")
 			}
 			select {
@@ -1582,7 +1584,7 @@ func TestManagedBarrierCountsCancellationWakes(t *testing.T) {
 				if !settled {
 					t.Fatal("barrier returned while the cancelled fiber was still runnable")
 				}
-			case <-time.After(3 * time.Second):
+			case <-testwait.After(t):
 				t.Fatal("managed barrier did not return")
 			}
 			select {
@@ -1590,7 +1592,7 @@ func TestManagedBarrierCountsCancellationWakes(t *testing.T) {
 				if out.IsFailure() {
 					t.Fatalf("cancellation root failed: %+v", out)
 				}
-			case <-time.After(3 * time.Second):
+			case <-testwait.After(t):
 				t.Fatal("cancellation root did not finish")
 			}
 		})
@@ -1628,7 +1630,7 @@ func TestInterruptingABarrierWaiterIsAnInterruption(t *testing.T) {
 		if out.IsFailure() {
 			t.Fatalf("interrupting a barrier waiter failed: %+v", out.Cause())
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("interrupting a barrier waiter did not finish")
 	}
 }

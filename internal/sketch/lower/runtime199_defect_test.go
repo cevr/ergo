@@ -1,7 +1,6 @@
 package lower
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"go/ast"
@@ -16,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 )
 
 // Fork-tree defects (runtime-199 stage 4b; runtime.md, G2).
@@ -710,12 +708,7 @@ func dfNative(t *testing.T, o *lowered, cases []*dfCase) map[string]dfResult {
 	}
 	write("defect_test.go", []byte(strings.Replace(dfNativeTest, "CASES", table.String(), 1)))
 	out := filepath.Join(dir, "results.json")
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "test", "-count=1", "-timeout=3m", ".")
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GOWORK=off", "GOPROXY=off", "DEFECT_OUT="+out)
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := nativeGoTest(t, dir, append(os.Environ(), "GOWORK=off", "GOPROXY=off", "DEFECT_OUT="+out)); err != nil {
 		t.Fatalf("native defect cases: %v\n%s", err, firstLines(string(output), 120))
 	}
 	data, err := os.ReadFile(out)

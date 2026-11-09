@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
 )
 
@@ -214,14 +215,14 @@ func TestReleaseKeepsStopPending(t *testing.T) {
 							clock.Advance(time.Hour)
 						case <-done:
 							finished = true
-						case <-time.After(3 * time.Second):
+						case <-testwait.After(t):
 							t.Error("release did not reach its timer or end during cleanup")
 							return
 						}
 						if !finished {
 							select {
 							case <-done:
-							case <-time.After(3 * time.Second):
+							case <-testwait.After(t):
 								t.Error("release did not drain")
 							}
 						}
@@ -233,7 +234,7 @@ func TestReleaseKeepsStopPending(t *testing.T) {
 					case err := <-done:
 						finished = true
 						t.Fatalf("release ended before the entry rendezvous: %v", err)
-					case <-time.After(3 * time.Second):
+					case <-testwait.After(t):
 						t.Fatal("release did not enter")
 					}
 				}
@@ -247,7 +248,7 @@ func TestReleaseKeepsStopPending(t *testing.T) {
 					case err := <-done:
 						finished = true
 						t.Fatalf("pending stop interrupted release: %v", err)
-					case <-time.After(3 * time.Second):
+					case <-testwait.After(t):
 						t.Fatal("release did not reach its masked timer")
 					}
 				}
@@ -257,7 +258,7 @@ func TestReleaseKeepsStopPending(t *testing.T) {
 					if err != rt.Interrupted || completed != masked {
 						t.Errorf("exit=%v completed=%t, want interruption and completed=%t", err, completed, masked)
 					}
-				case <-time.After(3 * time.Second):
+				case <-testwait.After(t):
 					t.Fatal("release did not finish")
 				}
 				if clock.Pending() != 0 {

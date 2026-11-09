@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"sync/atomic"
 	"testing"
-	"time"
 
+	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
 )
 
@@ -121,14 +121,14 @@ func TestAgentChannelWaitObservesStop(t *testing.T) {
 			})
 		})
 		<-holding
-		watchdog := time.AfterFunc(5*time.Second, func() {
+		stopWatchdog := testwait.AfterFunc(t, func() {
 			forced.Store(true)
 			close(gate)
 		})
 		if err := a.Stop(); err != nil {
 			return err
 		}
-		watchdog.Stop()
+		stopWatchdog()
 		if forced.Load() {
 			t.Error("Stop could not interrupt the callback's channel wait")
 		}

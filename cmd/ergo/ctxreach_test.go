@@ -23,7 +23,7 @@ func TestErgoRunContextOnlyPackage(t *testing.T) {
 	workspace := smokeWorkspace(t, "cmd/ergo/testdata/ctxreach", readmeSmokeProgram)
 	shop := filepath.Join(workspace, "cmd", "ergo", "testdata", "ctxreach", "shop")
 	for _, app := range []string{"cmd/app", "cmd/app2"} {
-		stdout, stderr, code := runSmokeCLI(t, packagesDeadline, binary, shop, "", "run", app)
+		stdout, stderr, code := runSmokeCLI(t, binary, shop, "", "run", app)
 		if code != 0 || string(stdout) != "mem\n" {
 			t.Errorf("shop: ergo run %s: exit %d stdout %q, want mem\n%s", app, code, stdout, stderr)
 		}
@@ -31,7 +31,7 @@ func TestErgoRunContextOnlyPackage(t *testing.T) {
 	// twoop (round 2 M1, the verifier's probe): `with Mine, n.Q { … }`,
 	// where the second operand is the only name of n.
 	twoop := filepath.Join(workspace, "cmd", "ergo", "testdata", "ctxreach", "twoop")
-	if stdout, stderr, code := runSmokeCLI(t, packagesDeadline, binary, twoop, "", "run", "cmd/twoop"); code != 0 || string(stdout) != "pl hi\n" {
+	if stdout, stderr, code := runSmokeCLI(t, binary, twoop, "", "run", "cmd/twoop"); code != 0 || string(stdout) != "pl hi\n" {
 		t.Errorf("twoop: ergo run cmd/twoop: exit %d stdout %q, want pl hi\n%s", code, stdout, stderr)
 	}
 
@@ -62,11 +62,11 @@ func TestErgoRunContextOnlyPackage(t *testing.T) {
 	if err := os.WriteFile(mainPath, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	stdout, stderr, code := runSmokeCLI(t, packagesDeadline, binary, checkout, "", "check", "cmd/checkout")
+	stdout, stderr, code := runSmokeCLI(t, binary, checkout, "", "check", "cmd/checkout")
 	if code != 0 || !strings.Contains(string(stdout), `"diagnostics":[]`) {
 		t.Fatalf("checkout without Declining: ergo check: exit %d stdout %s\n%s", code, stdout, stderr)
 	}
-	stdout, stderr, code = runSmokeCLI(t, packagesDeadline, binary, checkout, "", "run", "cmd/checkout")
+	stdout, stderr, code = runSmokeCLI(t, binary, checkout, "", "run", "cmd/checkout")
 	if code != 0 || string(stdout) != "paid\n" {
 		t.Errorf("checkout without Declining: ergo run: exit %d stdout %q, want paid\n%s", code, stdout, stderr)
 	}

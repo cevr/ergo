@@ -12,7 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // reapEnded runs on each SIGCHLD in the run's reaper. It must reap each
@@ -28,10 +29,6 @@ const (
 	reapStageVariable = "ERGO_CLOSURE_REAP_STAGE"
 	// reapHelperCode is the helper's exit status, which must reach Wait.
 	reapHelperCode = 7
-	// reapCallBound is how long reapEnded may take. A reapEnded that
-	// blocks on the running child blocks until the stage closes its input,
-	// so any bound tells it apart; 30 s and not 5 s, for a loaded host.
-	reapCallBound = 30 * time.Second
 	// reapChecked is printed when every check ran, so a skip cannot pass.
 	reapChecked = "reap-probe: every check ran"
 )
@@ -90,13 +87,9 @@ func runReapStage(t *testing.T) {
 	if err := other.Start(); err != nil {
 		t.Fatal(err)
 	}
-	until := time.Now().Add(20 * time.Second)
-	for procState(helper.Process.Pid) != "Z" || procState(other.Process.Pid) != "Z" {
-		if time.Now().After(until) {
-			t.Fatalf("the ended children are not zombies within 20s: helper %s, other %s",
-				procState(helper.Process.Pid), procState(other.Process.Pid))
-		}
-		time.Sleep(5 * time.Millisecond)
+	if !testwait.Until(t, func() bool { return procState(helper.Process.Pid) == "Z" && procState(other.Process.Pid) == "Z" }) {
+		t.Fatalf("the ended children are not zombies by the test's deadline: helper %s, other %s",
+			procState(helper.Process.Pid), procState(other.Process.Pid))
 	}
 	stay := reapChild(self, "stay")
 	stayIn, err := stay.StdinPipe()
@@ -119,8 +112,10 @@ func runReapStage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("reapEnded: %v", err)
 		}
-	case <-time.After(reapCallBound):
-		t.Fatalf("reapEnded did not return within %v: it blocks on a child that has not ended", reapCallBound)
+	case <-testwait.After(t):
+		// A reapEnded that blocks on the running child blocks until the
+		// stage closes its input, so the test's deadline tells it apart.
+		t.Fatal("reapEnded did not return by the test's deadline: it blocks on a child that has not ended")
 	}
 
 	if s := procState(stay.Process.Pid); s == "gone" || s == "Z" {
@@ -150,13 +145,13 @@ func TestReapEndedLeavesTheHelperAndRunningChildren(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := testwait.Context(t, context.Background())
 	defer cancel()
-	cmd := exec.CommandContext(ctx, self, "-test.run=^TestReapEndedTarget$", "-test.count=1", "-test.v")
+	cmd := exec.CommandContext(ctx, self, "-test.run=^TestReapEndedTarget$", "-test.count=1", "-test.v", "-test.timeout="+(testwait.Left(t)*9/10).String())
 	cmd.Env = append(os.Environ(), reapStageVariable+"=run")
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() != nil {
-		t.Fatalf("the reap stage did not end within 60s:\n%s", out)
+		t.Fatalf("the reap stage did not end by the test's deadline:\n%s", out)
 	}
 	if err != nil || !strings.Contains(string(out), reapChecked) {
 		t.Fatalf("the reap stage failed: %v\n%s", err, out)

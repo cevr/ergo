@@ -7,7 +7,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 func TestReadRegularFileRejectsFIFOBeforeOpen(t *testing.T) {
@@ -27,7 +28,7 @@ func TestReadRegularFileRejectsFIFOBeforeOpen(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "source must be a regular file") {
 			t.Fatalf("unexpected FIFO admission result: %v", err)
 		}
-	case <-time.After(time.Second):
+	case <-testwait.After(t):
 		t.Fatal("regular-file admission blocked before opening FIFO")
 	}
 }
@@ -53,7 +54,7 @@ func TestOpenRefusesFIFOWithoutBlocking(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "source must be a regular file") {
 			t.Fatalf("unexpected FIFO admission result: %v", err)
 		}
-	case <-time.After(time.Second):
+	case <-testwait.After(t):
 		t.Fatal("Open blocked on a FIFO")
 	}
 }

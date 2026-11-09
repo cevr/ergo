@@ -10,7 +10,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // gateScriptFixture stands in for the gate behind scripts/gate.sh: it says
@@ -90,7 +91,7 @@ func TestGateScriptExecsTheGate(t *testing.T) {
 	select {
 	case line := <-lines:
 		gatePID, _ = strconv.Atoi(strings.TrimPrefix(line, "pid "))
-	case <-time.After(5 * time.Minute): // a hang guard: the build is seconds
+	case <-testwait.After(t): // a hang guard: the build is seconds
 	}
 	if gatePID == 0 {
 		_ = command.Process.Kill()
@@ -114,7 +115,7 @@ func TestGateScriptExecsTheGate(t *testing.T) {
 	go func() { exited <- command.Wait() }()
 	select {
 	case err = <-exited:
-	case <-time.After(5 * time.Minute): // a hang guard
+	case <-testwait.After(t): // a hang guard
 		t.Fatal("the script did not exit after SIGTERM")
 	}
 	var rest strings.Builder

@@ -1,6 +1,7 @@
 package rt
 
 import (
+	"runtime"
 	"testing"
 	"time"
 )
@@ -15,7 +16,7 @@ func TestReviewAfterDeadlineKeepsDefect(t *testing.T) {
 	}()
 	_, err := After(clock, Root(), time.Hour, func(child *Task) (int, error) {
 		for !child.Stopped() {
-			time.Sleep(time.Microsecond)
+			runtime.Gosched()
 		}
 		panic("cleanup defect")
 	})
@@ -45,7 +46,7 @@ func TestReviewAfterAncestorStopReturnsInterruption(t *testing.T) {
 	_, err := After(clock, parent, time.Hour, func(child *Task) (int, error) {
 		root.Stop()
 		for !child.Stopped() {
-			time.Sleep(time.Microsecond)
+			runtime.Gosched()
 		}
 		return 42, nil
 	})

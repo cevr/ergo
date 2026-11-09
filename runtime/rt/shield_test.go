@@ -4,18 +4,20 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // within runs f on its own goroutine and fails the test if f has not returned
-// after limit: a shield that also blocked direct stops would hang instead.
-func within(t *testing.T, limit time.Duration, what string, f func()) {
+// at the test's deadline (testwait): a shield that also blocked direct stops would hang instead.
+func within(t *testing.T, what string, f func()) {
 	t.Helper()
 	done := make(chan struct{})
 	go func() { defer close(done); f() }()
 	select {
 	case <-done:
-	case <-time.After(limit):
-		t.Fatalf("%s did not finish within %v", what, limit)
+	case <-testwait.After(t):
+		t.Fatalf("%s did not finish by the test's deadline", what)
 	}
 }
 
@@ -86,7 +88,7 @@ func TestStopDuringReleaseKeepsHelper(t *testing.T) {
 func TestShieldedHelperStopsDirectly(t *testing.T) {
 	inRelease := func(t *testing.T, release func(task *Task)) {
 		root := Root("main")
-		within(t, 10*time.Second, "the release", func() {
+		within(t, "the release", func() {
 			_, _ = Scoped(root, func(s *Scope) (int, error) {
 				s.Defer(func() {
 					root.Interrupt() // ambient stop: must not be what ends the helper
