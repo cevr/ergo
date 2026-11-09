@@ -223,6 +223,7 @@ var stdRecords = map[string]string{
 	"strconv.Malformed":    "Malformed",
 	"strconv.OutOfRange":   "OutOfRange",
 	"csv.ParseError":       "CSVParseError",
+	"csv.Position":         "CSVPosition",
 	"time.ParseError":      "ParseError",
 	"time.Reading":         "Reading",
 	"utf8.Decoded":         "Decoded",

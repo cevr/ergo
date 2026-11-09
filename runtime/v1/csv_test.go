@@ -67,7 +67,7 @@ func BenchmarkCSV(b *testing.B) {
 	b.Run("Scan/ergo", func(b *testing.B) {
 		for range b.N {
 			n := 0
-			_ = CSVScan(text, func(fields []string) bool { n += len(fields); return true })
+			_ = CSVScan(text, func(fields []string, _ []CSVPosition) bool { n += len(fields); return true })
 			scanSink = n
 		}
 	})
@@ -98,7 +98,8 @@ func BenchmarkCSV(b *testing.B) {
 // TestStdCSVMatchesGo (U4 std-csv; stdlib.md, csv): on 20,000 seeded
 // texts, CSVReadAll gives Go's ReadAll rows or Go's *csv.ParseError as
 // CSVParseError (Line, Column, Reason, Message), and CSVScan, in one pass,
-// the records Go's Read gives before its first error and then ReadAll's
+// the records Go's Read gives before its first error, each with Go's
+// FieldPos of every field (fu6c), and then ReadAll's
 // error (no Reason when there is none); on 20,000 seeded rows,
 // CSVFormat writes what Go's csv.Writer writes, except a lone empty field,
 // which is "". It catches what the laws do not: a reader with other
@@ -124,17 +125,31 @@ func TestStdCSVMatchesGo(t *testing.T) {
 		}
 		rd := csv.NewReader(strings.NewReader(text))
 		prefix := [][]string{}
+		prefixAt := [][]CSVPosition{}
 		for {
 			rec, err := rd.Read()
 			if err != nil {
 				break
 			}
 			prefix = append(prefix, rec)
+			at := make([]CSVPosition, len(rec))
+			for i := range rec {
+				at[i].Line, at[i].Column = rd.FieldPos(i)
+			}
+			prefixAt = append(prefixAt, at)
 		}
 		p := [][]string{}
-		serr := CSVScan(text, func(fields []string) bool { p = append(p, fields); return true })
+		pAt := [][]CSVPosition{}
+		serr := CSVScan(text, func(fields []string, at []CSVPosition) bool {
+			p = append(p, fields)
+			pAt = append(pAt, at)
+			return true
+		})
 		if !slices.EqualFunc(p, prefix, slices.Equal) {
 			t.Fatalf("CSVScan(%q) gives %q; Go %q", text, p, prefix)
+		}
+		if !slices.EqualFunc(pAt, prefixAt, slices.Equal) {
+			t.Fatalf("CSVScan(%q) gives the positions %v; Go's FieldPos %v", text, pAt, prefixAt)
 		}
 		wantEnd := CSVParseError{}
 		if err != nil {
@@ -186,7 +201,7 @@ func TestCSVScanStopsTheRead(t *testing.T) {
 	for _, tail := range []string{"", "x\"y\n"} {
 		r := strings.NewReader(text + tail)
 		calls := 0
-		end := csvScan(r, func([]string) bool { calls++; return false })
+		end := csvScan(r, func([]string, []CSVPosition) bool { calls++; return false })
 		if calls != 1 || end != (CSVParseError{}) {
 			t.Fatalf("tail %q: %d calls, end %#v; want 1 call and no error", tail, calls, end)
 		}

@@ -82,6 +82,40 @@ law FormatIsStable(rows [][]string) {
 	Format(back) == text
 }
 
+// PositionsPointAtFields: Rows gives each field where it starts: one
+// position per field, each after the one before, and at it the field's
+// text, or the quote that opens it.
+law PositionsPointAtFields(rows [][]string) {
+	let text = Format(sample(rows))
+	let lines = strings.Split(text, "\n")
+	let mut last = Position{Line: 0, Column: 0}
+	for r in Rows(text) {
+		match r {
+		case Parsed as p:
+			if len(p.At) != len(p.Fields) {
+				return false
+			}
+			for i, at in p.At {
+				if at.Line < 1 || at.Line < last.Line || at.Line == last.Line && at.Column <= last.Column || at.Line > len(lines) {
+					return false
+				}
+				last = at
+				let line = lines[at.Line-1]
+				if at.Column < 1 || at.Column > len(line)+1 {
+					return false
+				}
+				let rest = strings.Slice(line, at.Column-1, len(line))
+				if !strings.HasPrefix(rest, "\"") && !strings.HasPrefix(rest, p.Fields[i]) {
+					return false
+				}
+			}
+		case Malformed:
+			return false
+		}
+	}
+	true
+}
+
 // RowsStops: Rows is a Seq that stops (stdlib.md, Std laws 5): with n the
 // count of rows a yield that always returns true gets, for each k from 1
 // to n+1, a yield that returns false at its k-th call is called min(k, n)

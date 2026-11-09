@@ -44,19 +44,28 @@ func CSVReadAll(text string) ([][]string, error) {
 	return rows, nil
 }
 
+// CSVPosition is csv.Position: where a field starts in the text, as Go's
+// Reader.FieldPos gives it. Line and Column count from 1, and Column
+// counts bytes; a quoted field starts at its opening quote.
+type CSVPosition struct {
+	Line   int
+	Column int
+}
+
 // CSVScan reads text in one pass, as a loop over Go's Reader.Read does,
-// and calls each with every record, in order, until each returns false or
-// the text ends. It returns the error that stopped Go's reader, or a
-// CSVParseError with no Reason when the text ended or each stopped the
-// read: a stop reads no further record (fs3). Rows is a Seq over it. It
-// takes a function, so it is not marked pure (stdlib.md, Pure bodies 2).
-func CSVScan(text string, each func(fields []string) bool) CSVParseError {
+// and calls each with every record and where each of its fields starts
+// (Reader.FieldPos), in order, until each returns false or the text ends.
+// It returns the error that stopped Go's reader, or a CSVParseError with
+// no Reason when the text ended or each stopped the read: a stop reads no
+// further record (fs3). Rows is a Seq over it. It takes a function, so it
+// is not marked pure (stdlib.md, Pure bodies 2).
+func CSVScan(text string, each func(fields []string, at []CSVPosition) bool) CSVParseError {
 	return csvScan(strings.NewReader(text), each)
 }
 
 // csvScan is CSVScan over r, which a test reads the rest of to see that a
 // stop ends the read.
-func csvScan(r *strings.Reader, each func(fields []string) bool) CSVParseError {
+func csvScan(r *strings.Reader, each func(fields []string, at []CSVPosition) bool) CSVParseError {
 	rd := csv.NewReader(r)
 	for {
 		rec, err := rd.Read()
@@ -71,7 +80,11 @@ func csvScan(r *strings.Reader, each func(fields []string) bool) CSVParseError {
 			}
 			return CSVParseError{Reason: err.Error(), Message: err.Error()}
 		}
-		if !each(rec) {
+		at := make([]CSVPosition, len(rec))
+		for i := range rec {
+			at[i].Line, at[i].Column = rd.FieldPos(i)
+		}
+		if !each(rec, at) {
 			return CSVParseError{}
 		}
 	}
