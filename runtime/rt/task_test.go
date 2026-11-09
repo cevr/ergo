@@ -110,7 +110,7 @@ func TestConcurrentStopAndChildAdmission(t *testing.T) {
 	for range 50 {
 		root := Root("main")
 		parent := &Task{}
-		parent.init(root, "parent", false)
+		parent.init(root, "parent", false, false)
 		start := make(chan struct{})
 		children := make([]*Task, 16)
 		var workers sync.WaitGroup
@@ -118,7 +118,7 @@ func TestConcurrentStopAndChildAdmission(t *testing.T) {
 			workers.Go(func() {
 				<-start
 				children[i] = &Task{}
-				children[i].init(parent, "child", false)
+				children[i].init(parent, "child", false, false)
 			})
 		}
 		for range 4 {

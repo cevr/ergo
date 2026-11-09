@@ -65,7 +65,7 @@ func AfterSpan[T any](t *Task, s Scheduler, d time.Duration, span string, body f
 		}
 	}()
 	timer = s.NewTimer(d)
-	h = spawn(t, span, false, body)
+	h = spawn(t, span, false, false, body)
 	select {
 	case <-h.done:
 		joined = true

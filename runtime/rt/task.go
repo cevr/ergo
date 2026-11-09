@@ -48,7 +48,8 @@ func Root(span string) *Task {
 
 // init links t as a child of parent. A child starts interruptible (pinned
 // Effect 4: fork is interruptible unless asked to inherit); masked starts it
-// inside one masked region, for GoMasked.
+// inside one masked region, for GoMasked; shield makes it shielded (see
+// below) whatever parent's regions are, for GoShielded.
 //
 // A child is release-owned and shielded when the nearest enclosing masked
 // region of parent that is not a restore is a protecting one: a release, a
@@ -58,13 +59,13 @@ func Root(span string) *Task {
 // Stop, a timeout and its scope's drain still interrupt it directly. This is
 // Trio's shielded cancel scope and Effect's uninterruptible finalizer. Any
 // other child starts stopped when parent is stopped.
-func (t *Task) init(parent *Task, span string, masked bool) {
+func (t *Task) init(parent *Task, span string, masked, shield bool) {
 	t.id = nextID.Add(1)
 	t.span = span
 	t.parent.Store(parent)
 	t.values = parent.values
 	t.trace = parent.trace
-	t.shielded = parent.regions.shields()
+	t.shielded = shield || parent.regions.shields()
 	if masked {
 		t.regions.push(protecting)
 	}
