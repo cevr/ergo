@@ -245,8 +245,8 @@ extern go ergo.local/prototype/runtime/v1.TasksNewSet func newSet[E](kind int, l
 // admits no more tasks.
 extern go ergo.local/prototype/runtime/v1.TasksGo func Go[E, R](set Set[E], body escaping func() fails E needs R) fails Closed needs R
 
-// lawFailed is the failure of a member in the Set laws.
-type lawFailed {}
+// setFailed is the failure of a member in the Set laws.
+type setFailed {}
 
 // sleepers starts k members of a Set it owns, each counting itself in,
 // counting itself out in an exit action and sleeping an hour, and
@@ -306,21 +306,21 @@ law FailFastStopsTheRest(n int) {
 	let k = limitOf(n)
 	let c = testing.NewVirtualClock(0)
 	with context { Scheduler: c, time.Clock: c } {
-		let set = NewSet[lawFailed](FailFast)
+		let set = NewSet[setFailed](FailFast)
 		let start = time.Clock.Now()
 		for _ in 0..k {
 			Go(set, func() needs Scheduler { Scheduler.Sleep(1h) }) catch {
 			case Closed:
 			}
 		}
-		Go(set, func() fails lawFailed needs Scheduler {
+		Go(set, func() fails setFailed needs Scheduler {
 			Scheduler.Sleep(1s)
-			return lawFailed
+			return setFailed
 		}) catch {
 		case Closed:
 		}
 		set.Wait() catch {
-		case lawFailed:
+		case setFailed:
 			return time.Clock.Now().Sub(start) == 1s && set.Len() == 0 && closedNow(set)
 		}
 		false
@@ -328,7 +328,7 @@ law FailFastStopsTheRest(n int) {
 }
 
 // closedNow reports whether Go on set fails Closed.
-func closedNow(set Set[lawFailed]) bool {
+func closedNow(set Set[setFailed]) bool {
 	Go(set, func() {}) catch {
 	case Closed:
 		return true

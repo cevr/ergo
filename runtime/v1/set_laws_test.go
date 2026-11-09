@@ -79,7 +79,7 @@ func setLaws() map[string]lawledger.Law {
 				}
 			}
 		}},
-		"tasks FailFastStopsTheRest": {Statement: `FailFastStopsTheRest(n int) { let k = limitOf(n) let c = testing.NewVirtualClock(0) with context { Scheduler: c, time.Clock: c } { let set = NewSet[lawFailed](FailFast) let start = time.Clock.Now() for _ in 0..k { Go(set, func() needs Scheduler { Scheduler.Sleep(1h) }) catch { case Closed: } } Go(set, func() fails lawFailed needs Scheduler { Scheduler.Sleep(1s) return lawFailed }) catch { case Closed: } set.Wait() catch { case lawFailed: return time.Clock.Now().Sub(start) == 1s && set.Len() == 0 && closedNow(set) } false } }`, Check: func(t *testing.T) {
+		"tasks FailFastStopsTheRest": {Statement: `FailFastStopsTheRest(n int) { let k = limitOf(n) let c = testing.NewVirtualClock(0) with context { Scheduler: c, time.Clock: c } { let set = NewSet[setFailed](FailFast) let start = time.Clock.Now() for _ in 0..k { Go(set, func() needs Scheduler { Scheduler.Sleep(1h) }) catch { case Closed: } } Go(set, func() fails setFailed needs Scheduler { Scheduler.Sleep(1s) return setFailed }) catch { case Closed: } set.Wait() catch { case setFailed: return time.Clock.Now().Sub(start) == 1s && set.Len() == 0 && closedNow(set) } false } }`, Check: func(t *testing.T) {
 			r := rand.New(rand.NewPCG(1, 43))
 			for range 200 {
 				k := setLawsLimit(r.Int())
