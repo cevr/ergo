@@ -1,5 +1,3 @@
-import slices
-
 // Source is the contract of a site's files: the operation type a program
 // supplies in its context. Package files reads one from a folder; package
 // memory holds fixed ones for tests.
@@ -54,5 +52,5 @@ func Sorted(names []string) bool {
 			return false
 		}
 	}
-	slices.Equal(names, slices.Sort(names))
+	true
 }

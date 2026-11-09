@@ -1,0 +1,14 @@
+import filepath
+import fs
+import fstest
+
+// Files is a new fstest.Memory that holds files: each path, with its
+// directories, holds its text. A test reads and writes it, never the host.
+func Files(files Map[string, string]) fstest.Memory fails fs.NotFound | fs.Denied | fs.Failed {
+	let m = fstest.NewMemory()
+	for path, text in files {
+		try m.MkdirAll(filepath.Dir(path))
+		try m.WriteFile(path, text)
+	}
+	m
+}

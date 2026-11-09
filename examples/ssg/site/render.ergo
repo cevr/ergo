@@ -83,20 +83,10 @@ func nodes(lib Library, chain []string, ns []Node, scope Scope) string fails Unb
 			case None:
 				return MissingTemplate{Template: name, Line: inc.Line, Name: inc.Name}
 			}
-			parts = parts.Append(try nodes(lib, extend(chain, inc.Name), t.Nodes, scope))
+			parts = parts.Append(try nodes(lib, chain.Append(inc.Name), t.Nodes, scope))
 		}
 	}
 	strings.Join(parts, "")
-}
-
-// extend is chain and then name, in a new slice: Append may share the
-// array of chain with a sibling include (G-ex-d-14).
-func extend(chain []string, name string) []string {
-	let mut out = []string{}
-	for c in chain {
-		out = out.Append(c)
-	}
-	out.Append(name)
 }
 
 // lookup is the value at path in scope: its first name in the innermost

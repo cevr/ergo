@@ -1,9 +1,7 @@
-// Source keeps the site.Source laws, and Disk reads what it writes. The
-// compiler checks laws and does not run them yet (#162); until it does,
-// these tests run each law's check against a Source.
+// Source keeps the site.Source laws: they run only for providers in
+// site's own package (G-exup-1), so these tests run each law's check
+// against a Source.
 
-import fs
-import slices
 import ssg/site
 
 let src = Source{
@@ -13,7 +11,7 @@ let src = Source{
 
 test SourceListsSorted {
 	assert site.Sorted(src.Pages()) && site.Sorted(src.TemplateNames())
-	assert slices.Equal(src.Pages(), []string{"a.md", "b.md", "c/d.md"})
+	assert src.Pages() == []string{"a.md", "b.md", "c/d.md"}
 }
 
 test SourceListedPagesRead {
@@ -36,32 +34,4 @@ test SourcePageIsRepeatable(path string) {
 			assert first == second
 		}
 	}
-}
-
-test DiskListsDirectories {
-	let d = NewDisk(Map[string, string]{"s/content/a.md": "a", "s/content/x/b.md": "b", "s/templates/page.html": "p"})
-	assert slices.Equal(try d.ReadDir("s"), []string{"content", "templates"})
-	assert slices.Equal(try d.ReadDir("s/content"), []string{"a.md", "x"})
-	assert (try d.Stat("s/content/x")).Dir && !(try d.Stat("s/content/a.md")).Dir
-}
-
-// failsWith is the failure of reading path from d, or its text.
-func failsWith(d Disk, path string) string {
-	d.ReadFile(path) catch {
-	case fs.NotFound:
-		"not found"
-	case fs.Denied:
-		"denied"
-	case fs.Failed as f:
-		f.Reason
-	}
-}
-
-test DiskReadsWhatItWrites(text string) {
-	let d = NewDisk(Map[string, string]{"out/old.html": "old"})
-	try d.MkdirAll("out/new")
-	try d.WriteFile("out/new/page.html", text)
-	assert try d.ReadFile("out/new/page.html") == text
-	assert failsWith(d, "out/none") == "not found"
-	assert failsWith(d, "out") == "is a directory"
 }

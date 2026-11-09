@@ -13,11 +13,9 @@ type Output { Path string, Text string }
 func Build() []Output fails Unreadable | BadFrontMatter | Unclosed | Stray | BadTag | Unbound | NotAList | NotText | MissingTemplate | IncludeCycle needs Source {
 	let lib = try library()
 	let mut pages = []Page{}
-	// draft is bound first: a literal in an if header loses its parentheses in Go (G-ex-c-2).
-	let draft = Some[string]{Value: "true"}
 	for path in Source.Pages() {
 		let p = try ParsePage(path, try Source.ReadPage(path))
-		if p.Meta.Get("draft") != draft {
+		if p.Meta.Get("draft") != (Some[string]{Value: "true"}) {
 			pages = pages.Append(p)
 		}
 	}
