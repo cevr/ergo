@@ -20,5 +20,5 @@ open 3
 choose 1
 back
 back
-checkout
+deploy
 more

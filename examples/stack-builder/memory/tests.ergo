@@ -1,0 +1,19 @@
+// Cluster keeps the law of stack.Cluster. ergo test does not run a law of
+// an imported operation type against this package's providers (sign-in
+// finding F4), so this property restates it with Cluster.
+
+import stackbuilder/stack
+
+test ClusterCountsEveryUnit(count int, subs int, total int) {
+	let k stack.Cluster = Cluster
+	let mut ps = []stack.Unit{}
+	for _ in 0..subs%4 {
+		ps = ps.Append(stack.Unit{Part: "p", Size: 1, Count: 1, Subs: []stack.Unit{}})
+	}
+	let units = []stack.Unit{stack.Unit{Part: "x", Size: 1, Count: 1, Subs: ps}}
+	let t = k.Submit(stack.Plan{Units: units, Total: total}) catch {
+	case stack.Full:
+		stack.Ack{Number: 0, Units: stack.CountUnits(units)}
+	}
+	assert t.Units == stack.CountUnits(units)
+}

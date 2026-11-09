@@ -9,15 +9,15 @@ func small(n int) int {
 	if c < 0 { -c } else { c }
 }
 
-// fixture is a menu of two pages with a combo of two slots.
-func fixture() Menu {
-	let a = Item{Name: "a", Price: 100, Slots: []Slot{}}
-	let b = Item{Name: "b", Price: 200, Slots: []Slot{}}
-	let combo = Item{Name: "ab", Price: 50, Slots: []Slot{Slot{Name: "x", Choices: []Item{a, b}}, Slot{Name: "y", Choices: []Item{b, a}}}}
-	Menu{Pages: [][]Item{[]Item{a, b, combo}, []Item{combo, a}}}
+// fixture is a library of two pages with a composite of two slots.
+func fixture() Library {
+	let a = Part{Name: "a", Size: 100, Slots: []Slot{}}
+	let b = Part{Name: "b", Size: 200, Slots: []Slot{}}
+	let composite = Part{Name: "ab", Size: 50, Slots: []Slot{Slot{Name: "x", Choices: []Part{a, b}}, Slot{Name: "y", Choices: []Part{b, a}}}}
+	Library{Pages: [][]Part{[]Part{a, b, composite}, []Part{composite, a}}}
 }
 
-func lineOf(n int) Line { Line{Item: "l\(small(n))", Price: small(n)*100 + 1, Qty: small(n) + 1, Parts: []Line{}} }
+func lineOf(n int) Unit { Unit{Part: "l\(small(n))", Size: small(n)*100 + 1, Count: small(n) + 1, Subs: []Unit{}} }
 
 // screenAt is a hub screen picked by n.
 func screenAt(n int, text string) Screen {
@@ -28,19 +28,19 @@ func screenAt(n int, text string) Screen {
 	case 1:
 		Searching{Query: text, Page: 1}
 	case _:
-		Editing{Item: fixture().Pages[0][2], From: if n%2 == 0 { FromMenu{Page: 1} } else { FromSearch{Query: text, Page: 0} }, Editor: actor.NewHost[EditActor]()}
+		Editing{Part: fixture().Pages[0][2], From: if n%2 == 0 { FromList{Page: 1} } else { FromSearch{Query: text, Page: 0} }, Editor: actor.NewHost[EditActor]()}
 	}
 }
 
-func basketOf(ns []int) []Line {
-	let mut out = []Line{}
+func basketOf(ns []int) []Unit {
+	let mut out = []Unit{}
 	for n in ns {
 		out = out.Append(lineOf(n))
 	}
 	out
 }
 
-func screenAfter(d Decision[Hub, Order]) Option[Screen] {
+func screenAfter(d Decision[Hub, Plan]) Option[Screen] {
 	match d {
 	case Enter[Hub] as x:
 		Some{x.Next.Screen}
@@ -51,14 +51,14 @@ func screenAfter(d Decision[Hub, Order]) Option[Screen] {
 	}
 }
 
-func basketAfter(d Decision[Hub, Order]) []Line {
+func basketAfter(d Decision[Hub, Plan]) []Unit {
 	match d {
 	case Enter[Hub] as x:
-		x.Next.Basket
+		x.Next.Units
 	case Stay[Hub] as x:
-		x.Next.Basket
+		x.Next.Units
 	case _:
-		[]Line{}
+		[]Unit{}
 	}
 }
 
@@ -74,12 +74,12 @@ func sameScreen(a Screen, b Screen) bool {
 }
 
 // HistoryRestores: an editor opened from a page or a search, and left
-// with Back or with an added line, returns the hub to that page or search.
+// with Back or with an added unit, returns the hub to that page or search.
 law HistoryRestores(page int, i int, query string, fromSearch bool, add bool) {
 	let m = fixture()
 	let from Screen = if fromSearch { Searching{Query: query, Page: small(page) % 2} } else { Browsing{Page: small(page) % 2} }
-	let h = Hub{Menu: m, Basket: []Line{}, Screen: from}
-	let items = match from {
+	let h = Hub{Library: m, Units: []Unit{}, Screen: from}
+	let parts = match from {
 	case Searching as q:
 		Find(m, q.Query)
 	case _:
@@ -87,7 +87,7 @@ law HistoryRestores(page int, i int, query string, fromSearch bool, add bool) {
 	}
 	match screenAfter(Step(h, Open{Index: small(i)})) {
 	case Some[Screen] as s:
-		let ending HubSignal = if add { LineAdded{L: lineOf(i)} } else { EditorBack }
+		let ending HubSignal = if add { UnitAdded{L: lineOf(i)} } else { EditorBack }
 		match screenAfter(Step(Hub{..h, Screen: s.Value}, ending)) {
 		case Some[Screen] as after:
 			sameScreen(after.Value, from)
@@ -95,32 +95,32 @@ law HistoryRestores(page int, i int, query string, fromSearch bool, add bool) {
 			false
 		}
 	case None:
-		small(i) >= len(items)
+		small(i) >= len(parts)
 	}
 }
 
-// BackChangesNothing: an editor that ends with Back leaves the basket as
-// it was; one that adds a line adds exactly that line.
+// BackChangesNothing: an editor that ends with Back leaves the plan as
+// it was; one that adds a unit adds exactly that unit.
 law BackChangesNothing(ns []int, n int, text string, add bool) {
-	let basket = basketOf(ns)
-	let h = Hub{Menu: fixture(), Basket: basket, Screen: Editing{Item: fixture().Pages[0][0], From: FromMenu{Page: 0}, Editor: actor.NewHost[EditActor]()}}
+	let plan = basketOf(ns)
+	let h = Hub{Library: fixture(), Units: plan, Screen: Editing{Part: fixture().Pages[0][0], From: FromList{Page: 0}, Editor: actor.NewHost[EditActor]()}}
 	if add {
-		let after = basketAfter(Step(h, LineAdded{L: lineOf(n)}))
-		len(after) == len(basket)+1 && Total(after) == Total(basket)+Total([]Line{lineOf(n)})
+		let after = basketAfter(Step(h, UnitAdded{L: lineOf(n)}))
+		len(after) == len(plan)+1 && Total(after) == Total(plan)+Total([]Unit{lineOf(n)})
 	} else {
 		let after = basketAfter(Step(h, EditorBack))
-		len(after) == len(basket) && Total(after) == Total(basket)
+		len(after) == len(plan) && Total(after) == Total(plan)
 	}
 }
 
-// NestedLinesInsideParent: a combo's line holds one part per slot, each
-// the line its nested editor gave, and its price is the item's and its
-// parts'.
-law NestedLinesInsideParent(picks []int, qty int) {
-	let combo = fixture().Pages[0][2]
-	let mut s = editing(combo)
-	let mut parts = []Line{}
-	for k, slot in combo.Slots {
+// NestedPartsInsideParent: a composite's unit holds one sub-unit per slot, each
+// the unit its nested editor gave, and its size is the part's and its
+// subs'.
+law NestedPartsInsideParent(picks []int, count int) {
+	let composite = fixture().Pages[0][2]
+	let mut s = editing(composite)
+	let mut subs = []Unit{}
+	for k, slot in composite.Slots {
 		let c = if k < len(picks) { small(picks[k]) % len(slot.Choices) } else { 0 }
 		match editStep(s, Choose{Index: c}) {
 		case Enter[Edit] as x:
@@ -128,16 +128,16 @@ law NestedLinesInsideParent(picks []int, qty int) {
 		case _:
 			return false
 		}
-		let part = LineOf(slot.Choices[c], 1+small(k+qty), []Line{})
-		parts = parts.Append(part)
-		match editStep(s, PartAdded{L: part}) {
+		let sub = UnitOf(slot.Choices[c], 1+small(k+count), []Unit{})
+		subs = subs.Append(sub)
+		match editStep(s, SubAdded{L: sub}) {
 		case Enter[Edit] as x:
 			s = x.Next
 		case _:
 			return false
 		}
 	}
-	for _ in 0..small(qty) {
+	for _ in 0..small(count) {
 		match editStep(s, More) {
 		case Stay[Edit] as x:
 			s = x.Next
@@ -149,7 +149,7 @@ law NestedLinesInsideParent(picks []int, qty int) {
 	case Done[EditOut] as d:
 		match d.Output {
 		case Added as a:
-			len(a.L.Parts) == len(combo.Slots) && a.L.Price == combo.Price+Total(parts) && a.L.Qty == small(qty)+1
+			len(a.L.Subs) == len(composite.Slots) && a.L.Size == composite.Size+Total(subs) && a.L.Count == small(count)+1
 		case WentBack:
 			false
 		}
@@ -158,9 +158,9 @@ law NestedLinesInsideParent(picks []int, qty int) {
 	}
 }
 
-// QtyStaysPositive: Less at a quantity of one is refused.
-law QtyStaysPositive(n int) {
-	let s = Choosing{Item: fixture().Pages[0][0], Qty: 1, Parts: []Line{}}
+// CountStaysPositive: Less at a quantity of one is refused.
+law CountStaysPositive(n int) {
+	let s = Choosing{Part: fixture().Pages[0][0], Count: 1, Subs: []Unit{}}
 	match editStep(s, Less) {
 	case Reject:
 		true
@@ -173,7 +173,7 @@ law QtyStaysPositive(n int) {
 // an Editing screen it did not open from Browsing or Searching.
 law EditorOpensOnlyFromAList(n int, m int, text string) {
 	let s = screenAt(n, text)
-	let h = Hub{Menu: fixture(), Basket: []Line{}, Screen: s}
+	let h = Hub{Library: fixture(), Units: []Unit{}, Screen: s}
 	let e HubSignal = match small(m) + small(m/3)*3 {
 	case 0:
 		Open{Index: 0}
@@ -186,11 +186,11 @@ law EditorOpensOnlyFromAList(n int, m int, text string) {
 	case 4:
 		Type{Text: text}
 	case 5:
-		Checkout
+		Deploy
 	case 6:
 		EditorBack
 	case 7:
-		LineAdded{L: lineOf(m)}
+		UnitAdded{L: lineOf(m)}
 	case _:
 		Prev
 	}

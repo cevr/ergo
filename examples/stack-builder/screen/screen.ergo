@@ -1,0 +1,281 @@
+// Package screen drives the stack builder from a script of lines and
+// prints the hub's screen and the open editors, outermost first.
+//
+// Hub commands: next, prev, open N, search, type TEXT, close, deploy.
+// Editor commands go to the innermost open editor: more, less, choose N,
+// add, back. N counts from 1.
+
+import actor
+import io
+import machines
+import strconv
+import strings
+import stackbuilder/stack
+
+// Command is a line of the script.
+type Command = ToHub{S stack.HubSignal} | ToEditor{S stack.EditSignal} | Unknown{Line string}
+
+func index(word string) Option[int] {
+	let n = strconv.Atoi(word) catch {
+	case strconv.Malformed:
+		return None
+	case strconv.OutOfRange:
+		return None
+	}
+	Some{n - 1}
+}
+
+// Parse reads a line.
+func Parse(unit string) Command {
+	let words = strings.Fields(unit)
+	if len(words) == 0 {
+		return Unknown{Line: unit}
+	}
+	let arg = if len(words) > 1 { words[1] } else { "" }
+	match words[0] {
+	case "next":
+		ToHub{S: stack.Next}
+	case "prev":
+		ToHub{S: stack.Prev}
+	case "search":
+		ToHub{S: stack.Search}
+	case "type":
+		ToHub{S: stack.Type{Text: arg}}
+	case "close":
+		ToHub{S: stack.Close}
+	case "deploy":
+		ToHub{S: stack.Deploy}
+	case "open":
+		match index(arg) {
+		case Some[int] as i:
+			ToHub{S: stack.Open{Index: i.Value}}
+		case None:
+			Unknown{Line: unit}
+		}
+	case "choose":
+		match index(arg) {
+		case Some[int] as i:
+			ToEditor{S: stack.Choose{Index: i.Value}}
+		case None:
+			Unknown{Line: unit}
+		}
+	case "more":
+		ToEditor{S: stack.More}
+	case "less":
+		ToEditor{S: stack.Less}
+	case "add":
+		ToEditor{S: stack.Add}
+	case "back":
+		ToEditor{S: stack.Back}
+	case _:
+		Unknown{Line: unit}
+	}
+}
+
+// Fixed is cents as d.cc.
+func Fixed(n int) string {
+	let c = n % 100
+	"\(n / 100).\(if c < 10 { "0" } else { "" })\(c)"
+}
+
+func names(parts []stack.Part) string {
+	let mut out = []string{}
+	for i, it in parts {
+		out = out.Append("\(i + 1) \(it.Name) \(Fixed(it.Size))")
+	}
+	strings.Join(out, ", ")
+}
+
+func unitText(l stack.Unit) string {
+	let mut subs = []string{}
+	for p in l.Subs {
+		subs = subs.Append(unitText(p))
+	}
+	let inner = if len(subs) == 0 { "" } else { " [\(strings.Join(subs, ", "))]" }
+	"\(l.Count)x \(l.Part) \(Fixed(l.Size))\(inner)"
+}
+
+func plan(units []stack.Unit) string { "plan: \(len(units)) units, \(Fixed(stack.Total(units)))" }
+
+// HubText is the hub's screen.
+func HubText(h stack.Hub) string {
+	match h.Screen {
+	case stack.Browsing as b:
+		"page \(b.Page + 1)/\(len(h.Library.Pages)): \(names(h.Library.Pages[b.Page])) | \(plan(h.Units))"
+	case stack.Searching as q:
+		"search \"\(q.Query)\": \(names(stack.Find(h.Library, q.Query))) | \(plan(h.Units))"
+	case stack.Editing as e:
+		"editing \(e.Part.Name) | \(plan(h.Units))"
+	}
+}
+
+// EditText is an editor's screen.
+func EditText(e stack.Edit) string {
+	match e {
+	case stack.Choosing as c:
+		"\(c.Part.Name) x\(c.Count) \(Fixed(stack.UnitOf(c.Part, c.Count, c.Subs).Size)): add, more, less or back"
+	case stack.Picking as p:
+		let slot = p.Part.Slots[len(p.Subs)]
+		"\(p.Part.Name): choose \(slot.Name): \(names(slot.Choices))"
+	case stack.Nested as n:
+		"\(n.Part.Name): \(n.Choice.Name) for \(n.Part.Slots[len(n.Subs)].Name)"
+	}
+}
+
+// editorIn is the editor a host holds. The hub and an editor show an entry
+// only after its work filled its host (runtime.md, Machines and actors
+// 16), so Get answers at once; None once that entry ended.
+func editorIn(h actor.Host[stack.EditActor]) Option[stack.EditActor] {
+	let a = h.Get() catch {
+	case actor.Stopped:
+		return None
+	}
+	Some{a}
+}
+
+// subOf is the nested editor of an editor in st, if it hosts one.
+func subOf(st stack.Edit) Option[stack.EditActor] {
+	match st {
+	case stack.Nested as n:
+		editorIn(n.Sub)
+	case _:
+		None
+	}
+}
+
+// editorOf is the hub's open editor, if it shows one.
+func editorOf(h stack.Hub) Option[stack.EditActor] {
+	match h.Screen {
+	case stack.Editing as e:
+		editorIn(e.Editor)
+	case _:
+		None
+	}
+}
+
+func editing(h stack.Hub) bool {
+	match h.Screen {
+	case stack.Editing:
+		true
+	case _:
+		false
+	}
+}
+
+func nested(e stack.Edit) bool {
+	match e {
+	case stack.Nested:
+		true
+	case _:
+		false
+	}
+}
+
+// Run plays the script on standard input against a hub over library.
+func Run(library stack.Library) needs Console | io.Stdin | Scheduler | stack.Cluster {
+	let hub = actor.StartMachine(machines.Start(stack.Builder{}, library), 8, func(o stack.Plan) {})
+	Console.Println(HubText(hub.State()))
+	let mut ended = false
+	for unit in io.Stdin.Lines() {
+		Console.Println("> \(unit)")
+		if ended {
+			Console.Println("(the plan has ended)")
+			continue
+		}
+		// The open editors, outermost first, each read through its host.
+		let mut chain = []stack.EditActor{}
+		let mut next = editorOf(hub.State())
+		let mut going = true
+		for going {
+			match next {
+			case Some[stack.EditActor] as a:
+				chain = chain.Append(a.Value)
+				next = subOf(a.Value.State())
+			case None:
+				going = false
+			}
+		}
+		let mut refused = false
+		match Parse(unit) {
+		case Unknown as u:
+			Console.Println("? unknown command: \(u.Line)")
+		case ToHub as c:
+			let d = hub.Ask(c.S) catch {
+			case actor.Stopped:
+				Ignore
+			}
+			match d {
+			case Done[stack.Plan] as o:
+				Console.Println("plan: \(Fixed(o.Output.Total))")
+				for l in o.Output.Units {
+					Console.Println("  \(unitText(l))")
+				}
+				let t = stack.Cluster.Submit(o.Output) catch {
+				case stack.Full as shut:
+					Console.Println("cluster: \(shut.Why)")
+					stack.Ack{Number: 0, Units: 0}
+				}
+				if t.Number > 0 {
+					Console.Println("cluster: ack \(t.Number), \(t.Units) to run")
+				}
+				ended = true
+			case Reject:
+				refused = true
+			case _:
+			}
+		case ToEditor as c:
+			if len(chain) == 0 {
+				Console.Println("(no editor is open)")
+			} else {
+				let target = chain[len(chain)-1]
+				let d = target.Ask(c.S) catch {
+				case actor.Stopped:
+					Ignore
+				}
+				match d {
+				case Done[stack.EditOut]:
+					// The editor ended: wait for its parent to take its end.
+					if len(chain) == 1 {
+						actor.WaitFor(hub, func(x stack.Hub) bool { !editing(x) }) catch {
+						case actor.Stopped:
+						}
+					} else {
+						actor.WaitFor(chain[len(chain)-2], func(e stack.Edit) bool { !nested(e) }) catch {
+						case actor.Stopped:
+						}
+					}
+				case Reject:
+					refused = true
+				case _:
+				}
+			}
+		}
+		if refused {
+			Console.Println("(refused)")
+		}
+		if !ended {
+			view(hub)
+		}
+	}
+	hub.Stop()
+}
+
+// view prints the hub and its open editors.
+func view(hub stack.HubActor) needs Console {
+	let h = hub.State()
+	Console.Println(HubText(h))
+	let mut next = editorOf(h)
+	let mut depth = 1
+	let mut going = true
+	for going {
+		match next {
+		case Some[stack.EditActor] as a:
+			let st = a.Value.State()
+			Console.Println("\(strings.Repeat("  ", depth))\(EditText(st))")
+			depth = depth + 1
+			next = subOf(st)
+		case None:
+			going = false
+		}
+	}
+}

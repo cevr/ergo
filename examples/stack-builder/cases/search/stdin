@@ -7,4 +7,4 @@ open 9
 close
 next
 prev
-checkout
+deploy

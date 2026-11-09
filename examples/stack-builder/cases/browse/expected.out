@@ -1,0 +1,44 @@
+page 1/2: 1 server 6.50, 2 drive 2.50, 3 node 1.00 | plan: 0 units, 0.00
+> next
+page 2/2: 1 router 6.00, 2 cache 3.00, 3 twin 0.00 | plan: 0 units, 0.00
+> prev
+page 1/2: 1 server 6.50, 2 drive 2.50, 3 node 1.00 | plan: 0 units, 0.00
+> open 2
+editing drive | plan: 0 units, 0.00
+  drive x1 2.50: add, more, less or back
+> more
+editing drive | plan: 0 units, 0.00
+  drive x2 2.50: add, more, less or back
+> add
+page 1/2: 1 server 6.50, 2 drive 2.50, 3 node 1.00 | plan: 1 units, 5.00
+> open 3
+editing node | plan: 1 units, 5.00
+  node: choose compute: 1 server 6.50, 2 router 6.00
+> choose 2
+editing node | plan: 1 units, 5.00
+  node: router for compute
+    router x1 6.00: add, more, less or back
+> add
+editing node | plan: 1 units, 5.00
+  node: choose storage: 1 drive 2.50, 2 cache 3.00
+> choose 1
+editing node | plan: 1 units, 5.00
+  node: drive for storage
+    drive x1 2.50: add, more, less or back
+> less
+(refused)
+editing node | plan: 1 units, 5.00
+  node: drive for storage
+    drive x1 2.50: add, more, less or back
+> add
+editing node | plan: 1 units, 5.00
+  node x1 9.50: add, more, less or back
+> add
+page 1/2: 1 server 6.50, 2 drive 2.50, 3 node 1.00 | plan: 2 units, 14.50
+> deploy
+plan: 14.50
+  2x drive 2.50
+  1x node 9.50 [1x router 6.00, 1x drive 2.50]
+cluster: ack 93, 4 to run
+> next
+(the plan has ended)

@@ -1,41 +1,41 @@
-# order-builder
+# stack-builder
 
-An order builder: a hub browses a menu by pages, searches it, and opens an item editor as a child actor. A combo's editor opens a nested editor of the same machine for each of its slots, so editors nest as deep as the menu does (a family box of two meals, each a main and a side, is three deep). Each nested editor's line goes into its parent's line. When an editor ends, the hub goes back to the page or the search it was opened from. The order goes to a kitchen at checkout. A script on standard input plays the person.
+A stack builder: a hub browses a library by pages, searches it, and opens a part editor as a child actor. A composite's editor opens a nested editor of the same machine for each of its slots, so editors nest as deep as the library does (a twin of two nodes, each a compute and a storage part, is three deep). Each nested editor's unit goes into its parent's unit. When an editor ends, the hub goes back to the page or the search it was opened from. The plan goes to a cluster at deploy. A script on standard input plays the operator.
 
-Tag: `default`. It is an original program, a neutral re-creation of a common ordering pattern (survey E7). Its goldens were recorded from the program and read by hand.
+Tag: `default`. It is an original program on the shape of survey E7 (recursive child editors with history). Its goldens were recorded from the program and read by hand.
 
 ## Layout
 
-- `ergo.mod`: `module orderbuilder`.
-- `order/`: the domain.
-  - `editor.ergo`: the `Editor` machine (`Choosing | Picking | Nested`); its `Nested` state's work starts a child `Editor` for the chosen item.
-  - `hub.ergo`: the `Builder` machine. Its state is the record `Hub{Menu, Basket, Screen}`, whose `Screen` (`Browsing | Searching | Editing`) is a region of the state; `Editing`'s work starts the item's `Editor`.
-  - `kitchen.ergo`: the contract `Kitchen` with its law `TicketCountsEveryLine`.
+- `ergo.mod`: `module stackbuilder`.
+- `stack/`: the domain.
+  - `editor.ergo`: the `Editor` machine (`Choosing | Picking | Nested`); its `Nested` state's work starts a child `Editor` for the chosen part.
+  - `hub.ergo`: the `Builder` machine. Its state is the record `Hub{Library, Units, Screen}`, whose `Screen` (`Browsing | Searching | Editing`) is a region of the state; `Editing`'s work starts the part's `Editor`.
+  - `cluster.ergo`: the contract `Cluster` with its law `PlanCountsEveryUnit`.
   - `laws.ergo`: the hub's and the editor's rules as laws.
-- `menu/`: the menu, as data.
-- `memory/`: `Kitchen`, an in-memory provider of `order.Kitchen`, and a property that runs its law.
+- `parts/`: the parts library, as data.
+- `memory/`: `Cluster`, an in-memory provider of `stack.Cluster`, and a property that runs its law.
 - `screen/`: the line protocol. It runs the hub with `actor.StartMachine`, finds the open editors through the hosts kept in the states (`host.Get()`), and asks the innermost one. An entry is shown only after its work filled its host, so the screen waits for no editor to start.
-- `cmd/order-builder/main.ergo`: the binary, the only place that chooses the providers.
+- `cmd/stack-builder/main.ergo`: the binary, the only place that chooses the providers.
 
 ## What it shows
 
 - **Recursive children (MU5).** `Editor`'s work starts an `Editor`: one machine is a child of the hub and of itself. Each child belongs to the entry that started it, so when a hub or an editor leaves `Editing` or `Nested`, its editor and that editor's nested editors stop first, innermost first.
 - **A child's host kept in the parent's state.** The step that enters `Editing` or `Nested` puts an empty `actor.NewHost[…]()` in the state; the entry's work fills it with `actor.ChildIn(send, host, …)`, and the screen reads it with `host.Get()` to reach the innermost editor. The runner shows the entry only after the fill, so no signal carries the address and no reader waits for it. No registry, no names: a host is a value (MQ10), and it fails `Stopped` once its entry ended.
-- **Typed output routed by the parent.** An editor ends with `Added{L} | WentBack`; `toHub` and `toPart` map it to the parent's signal. A `Back` in any editor leaves the basket as it was.
-- **History as data.** `Editing.From` is `FromMenu{Page} | FromSearch{Query, Page}`, so the hub returns to the page or the search after an editor, and a search's `close` returns to its page.
-- **An eventless step.** A combo with a slot left starts in `Picking` (`settle`).
-- **A contract with a typed failure.** `Kitchen.Send` fails `Closed`; the screen tells the person.
+- **Typed output routed by the parent.** An editor ends with `Added{L} | WentBack`; `toHub` and `toSub` map it to the parent's signal. A `Back` in any editor leaves the plan as it was.
+- **History as data.** `Editing.From` is `FromList{Page} | FromSearch{Query, Page}`, so the hub returns to the page or the search after an editor, and a search's `close` returns to its page.
+- **An eventless step.** A composite with a slot left starts in `Picking` (`settle`).
+- **A contract with a typed failure.** `Cluster.Submit` fails `Full`; the screen tells the operator.
 
 ## Laws (machine laws as top-level laws; MU6 is not on this base)
 
 | law | rule | mutant it kills (measured, `mutants.sh`) |
 | --- | --- | --- |
 | `HistoryRestores` | an editor from a page or a search returns the hub there, after Back or Add | the hub returns to page 1 |
-| `BackChangesNothing` | Back leaves the basket equal; Add adds exactly the line | a line added twice |
-| `NestedLinesInsideParent` | a combo's line holds one part per slot, each the nested editor's line, at the price of the item and its parts | a part rebuilt with quantity 1; the parts' price dropped |
-| `QtyStaysPositive` | Less at quantity 1 is refused | `> 0` for `> 1` |
+| `BackChangesNothing` | Back leaves the plan equal; Add adds exactly the unit | a unit added twice |
+| `NestedPartsInsideParent` | a composite's unit holds one sub-unit per slot, each the nested editor's unit, at the size of the part and its subs | a sub-unit rebuilt with count 1; the subs' size dropped |
+| `CountStaysPositive` | Less at count 1 is refused | `> 0` for `> 1` |
 | `EditorOpensOnlyFromAList` | only `Open` on a page or a search opens an editor | `search` opens an editor |
-| `Kitchen.TicketCountsEveryLine` | a ticket counts every line, parts included | restated for `memory.Kitchen` |
+| `Cluster.PlanCountsEveryUnit` | an ack counts every unit, subs included | restated for `memory.Cluster` |
 
 That children stop with their entry, nested ones before their parent (survey `NoOrphanEditors`), is the runner's rule, proved by MU5's Quint model and model-based test; the `nested` case runs it (three deep, with backs at each depth).
 
@@ -43,13 +43,13 @@ That children stop with their entry, nested ones before their parent (survey `No
 
 ```sh
 go build -o bin/ergo ./cmd/ergo
-./bin/ergo run examples/order-builder/cmd/order-builder < examples/order-builder/cases/nested/stdin
-./bin/ergo test examples/order-builder/order
-./bin/ergo test examples/order-builder/memory
-go run ./scripts/examples order-builder
+./bin/ergo run examples/stack-builder/cmd/stack-builder < examples/stack-builder/cases/nested/stdin
+./bin/ergo test examples/stack-builder/stack
+./bin/ergo test examples/stack-builder/memory
+go run ./scripts/examples stack-builder
 ```
 
-Cases: `browse` (pages, an item, a meal combo), `nested` (a family box: three editors deep, a back at the third depth and at the second, a back from the top that changes nothing), `search` (an item opened from a search returns to it; close returns to the page), `closed` (the kitchen refuses a large order).
+Cases: `browse` (pages, a part, a node composite), `nested` (a twin: three editors deep, a back at the third depth and at the second, a back from the top that changes nothing), `search` (a part opened from a search returns to it; close returns to the page), `full` (the cluster refuses a large plan).
 
 ## effect-machine side by side
 

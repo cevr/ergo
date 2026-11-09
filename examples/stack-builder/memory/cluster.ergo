@@ -1,0 +1,14 @@
+// Package memory holds an in-memory provider of stack.Cluster.
+
+import stackbuilder/stack
+
+// Cluster numbers acks by the plan's total and refuses a plan over
+// 100.00. It keeps no state.
+type Cluster {}
+
+func Submit(_ Cluster, o stack.Plan) stack.Ack fails stack.Full {
+	if o.Total > 10000 {
+		return stack.Full{Why: "plans over 100.00 need a bigger cluster"}
+	}
+	stack.Ack{Number: 1 + o.Total%97, Units: stack.CountUnits(o.Units)}
+}
