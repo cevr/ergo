@@ -775,11 +775,6 @@ func (c *checker) spelled(t Type) string {
 // checked: a type named in an error row of its package that the body sees
 // (types.md, Error types 1 and 2; owners.go).
 func (c *checker) isErrorValue(t Type) bool {
-	if p, ok := t.(*TypeParam); ok {
-		// The binding of case err: over a row parameter E holds a
-		// failure of E (rows.md, Catch 7): returning it re-raises it.
-		return p.Kind == KindErrors
-	}
 	n, ok := t.(*Named)
 	if !ok {
 		return false
