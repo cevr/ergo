@@ -18,10 +18,11 @@
 //     maps more heap gets ENOMEM and stops with "fatal error: runtime: out of
 //     memory" long before it reaches the host's memory.
 //
-// Both are set with prlimit(2) and /proc/PID/oom_score_adj while the program
-// is stopped at its exec (it is started traced and let go once bounded), so
-// its first instruction already runs under them, however late the caller
-// is scheduled (apply_linux.go, start). A process the
+// Both are set before the program's exec, by a helper: the caller's own
+// binary, run again, which sets them on itself (setrlimit, its own
+// oom_score_adj) and execs the program, which keeps them. The program's
+// first instruction already runs under them, however late the caller is
+// scheduled (apply_linux.go, start). A process the
 // program starts inherits both. testinputs.Main gives every test process
 // the same oom_score_adj, so every process a test starts, go build
 // included, inherits it from the first byte.
