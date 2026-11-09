@@ -1,0 +1,123 @@
+// The laws of the schedule algebra. The ledger in docs/spec/stdlib.md
+// names the Go test that runs each law until #162. A law builds its
+// schedules from a seed (gen), so one generated uint64 reaches every
+// variant.
+
+// within is n moved into lo..hi, so a law covers every n.
+func within(n int64, lo int64, hi int64) int64 {
+	let span = hi - lo + 1
+	let r = n % span
+	if r < 0 {
+		lo + (r + span)
+	} else {
+		lo + r
+	}
+}
+
+// draw is the k-th draw of seed in 0..n-1.
+func draw(seed uint64, k int, n int) int { int(mix(seed+uint64(k)*0x9e3779b97f4a7c15) % uint64(n)) }
+
+// gen is a schedule drawn from seed, depth combinators deep at most, its
+// delays from 0 to 999ms.
+func gen(seed uint64, depth int) Schedule {
+	let kinds = if depth > 0 { 8 } else { 4 }
+	let d = duration(int64(draw(seed, 1, 1000)) * 1000000)
+	let left = mix(seed + 2)
+	let right = mix(seed + 3)
+	match draw(seed, 0, kinds) {
+	case 0:
+		Spaced(d)
+	case 1:
+		Exponential(d, 1.0+float64(draw(seed, 4, 30))/10.0, duration(int64(draw(seed, 5, 10000))*1000000))
+	case 2:
+		Recurs(draw(seed, 4, 8))
+	case 3:
+		Forever()
+	case 4:
+		UpTo(gen(left, depth-1), duration(int64(d)*10))
+	case 5:
+		Jitter(gen(left, depth-1), float64(draw(seed, 4, 20))/10.0, float64(draw(seed, 5, 20))/10.0, right)
+	case 6:
+		And(gen(left, depth-1), gen(right, depth-1))
+	case _:
+		Or(gen(left, depth-1), gen(right, depth-1))
+	}
+}
+
+// RecursStopsAfter: Recurs(k) continues with no delay after runs 1 to k
+// and stops after run k+1, at any elapsed time.
+law RecursStopsAfter(n int64, at int64) {
+	let k = int(within(n, 0, 64))
+	let e = duration(within(at, 0, 1000000000000))
+	let s = Recurs(k)
+	let mut ok = Decide(s, k+1, e) == Stop
+	for runs in 1..k+1 {
+		ok = ok && Decide(s, runs, e) == Continue{After: 0s}
+	}
+	ok
+}
+
+// UpToNeverPassesLimit: UpTo(s, limit) never starts a run more than limit
+// after the first began: a Continue's delay ends by limit.
+law UpToNeverPassesLimit(seed uint64, limit int64, runs int64, at int64) {
+	let l = duration(within(limit, 0, 10000000000))
+	let e = duration(within(at, 0, 20000000000))
+	match Decide(UpTo(gen(seed, 3), l), int(within(runs, 1, 20)), e) {
+	case Continue as c:
+		e+c.After <= l
+	case Stop:
+		true
+	}
+}
+
+// ExponentialUnderCap: an exponential delay never exceeds its cap, and
+// never falls from one run to the next.
+law ExponentialUnderCap(base int64, cap int64, factor int64, runs int64) {
+	let c = duration(within(cap, 0, 1000000000000))
+	let s = Exponential(duration(within(base, 0, 1000000000000)), 1.0+float64(within(factor, 0, 40))/10.0, c)
+	let r = int(within(runs, 1, 200))
+	match (Decide(s, r, 0s), Decide(s, r+1, 0s)) {
+	case (Continue as x, Continue as y):
+		x.After <= c && x.After <= y.After
+	case _:
+		false
+	}
+}
+
+// JitterInBounds: a jittered delay is the inner delay times a factor in
+// [low, high], to within a nanosecond.
+law JitterInBounds(seed uint64, every int64, runs int64) {
+	let d = duration(within(every, 0, 1099511627776))
+	let low = float64(draw(seed, 0, 30)) / 10.0
+	let high = low + float64(draw(seed, 1, 30))/10.0
+	match Decide(Jitter(Spaced(d), low, high, seed), int(within(runs, 1, 1000)), 0s) {
+	case Continue as c:
+		let got = float64(int64(c.After))
+		got >= float64(int64(d))*low-1.0 && got <= float64(int64(d))*high+1.0
+	case Stop:
+		false
+	}
+}
+
+// AndIsMaxOrIsMin: And continues when both do, after the longer delay;
+// Or continues when either does, after the shorter of those that continue.
+law AndIsMaxOrIsMin(a uint64, b uint64, runs int64, at int64) {
+	let x = gen(a, 2)
+	let y = gen(b, 2)
+	let r = int(within(runs, 1, 20))
+	let e = duration(within(at, 0, 20000000000))
+	let both = Decide(And(x, y), r, e)
+	let either = Decide(Or(x, y), r, e)
+	match (Decide(x, r, e), Decide(y, r, e)) {
+	case (Continue as p, Continue as q):
+		let long = if p.After >= q.After { p.After } else { q.After }
+		let short = if p.After <= q.After { p.After } else { q.After }
+		both == Continue{After: long} && either == Continue{After: short}
+	case (Continue as p, Stop):
+		both == Stop && either == p
+	case (Stop, Continue as q):
+		both == Stop && either == q
+	case (Stop, Stop):
+		both == Stop && either == Stop
+	}
+}

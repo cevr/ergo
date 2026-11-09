@@ -684,6 +684,11 @@ func (l *lowerer) isErrorValue(t check.Type, o check.FactOwner) bool {
 		}
 		return len(u.Variants) > 0
 	}
+	if p, ok := t.(*check.TypeParam); ok {
+		// The binding of case err: over a row parameter (the checker's
+		// isErrorValue): a failure, held as Go's error.
+		return p.Kind == check.KindErrors
+	}
 	n, ok := t.(*check.Named)
 	return ok && l.errorType(n, o)
 }
