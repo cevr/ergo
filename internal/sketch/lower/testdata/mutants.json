@@ -1411,6 +1411,7 @@
       "to": "\tcase *syntax.SwitchStmt:\n\t\tfor _, cl := range s.Clauses {\n\t\t\tif last(cl.Body) {\n\t\t\t\treturn false\n\t\t\t}\n\t\t}\n\tcase *syntax.TypeSwitchStmt:",
       "rule": "tailFallible: tailFallible reports whether a tail that s yields can fail: a fallible expression statement Info.Tails records, or a branch of a final if, match or block whose own tail can.",
       "killers": [
+        "lower:TestCheckCorpusBuildsPart2",
         "lower:TestCheckCorpusBuildsPart0"
       ]
     },

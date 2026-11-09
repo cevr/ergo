@@ -160,4 +160,45 @@ func TestBodyGraphScale(t *testing.T) {
 
 // ---------------------------------------------------------------- M3: kinds from methods
 
+// TestKindsFromMethods: a bracket parameter's kind follows its positions in
+// the declaration's body and in its methods' signatures, which bind the
+// receiver's parameters by position (D6; round-3 M3).
+func TestKindsFromMethods(t *testing.T) {
+	cases := []struct{ name, want, src string }{
+		{"method-error-row", "", `type Job[E] {}
+func Run[E](_ Job[E]) fails E {}`},
+		{"method-capability-row", "", `type Job[R] {}
+func Run[R](_ Job[R]) needs R {}`},
+		{"method-renamed-receiver", "", `type Job[E] {}
+func Run[F](_ Job[F]) fails F {}`},
+		{"pointer-receiver", "", `type Job[E] {}
+func Run[E](j *Job[E]) fails E {}`},
+		{"method-and-body-agree", "", `type Job[R] { f func() needs R }
+func Run[R](_ Job[R]) needs R {}`},
+		{"recursive-head-through-method", "", `type Job[E] { next []Job[E] }
+func Next[E](j Job[E]) Job[E] { return j }
+func Run[E](_ Job[E]) fails E {}`},
+		{"mutual-heads-through-method", "", `type A[E] { b []B[E] }
+type B[E] { a []A[E] }
+func Run[E](_ B[E]) fails E {}`},
+		{"method-parameter-type", "", `type Box[T] {}
+func Put[T](_ Box[T], x T) {}`},
+		{"two-row-method", "", `type A[E, F] {}
+func Run[E, F](_ A[E, F]) fails E | F {}`},
+		{"body-type-method-row", "S108", `type Job[E] { v E }
+func Run[E](_ Job[E]) fails E {}`},
+		// Ergo has no error constraint (stage E1, owner answer 4).
+		{"error-constraint-refused", "S104", `type Job[E error] {}
+func Run[E](_ Job[E]) fails E {}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, diags := check.CheckSource(tc.src + "\n")
+			if got := codes(diags); got != tc.want {
+				t.Errorf("want %q, got %s", tc.want, describe(diags))
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------- N1: invalid union
