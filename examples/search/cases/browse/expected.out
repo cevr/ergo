@@ -2,20 +2,20 @@
 @0 typing "p"
 @100 typing "pe"
 @350 searching "pe"
-@750 ! shown "pe": 3 hits
-@750 showing "pe": Grape, Pear, Peach
-@1000 adding Pear
-@1100 ! put Pear in the cart
-@1100 showing "pe": Grape, Pear, Peach
+@350 showing "pe": Grape, Pear, Peach
+@350 ! shown "pe": 3 hits
+@1000 showing "pe": Grape, Pear, Peach
+@1000 ! put Pear in the cart
 @1200 ? no hit 9: 3 shown
 @1300 idle
 @1400 typing "a"
 @1650 searching "a"
+@1650 showing "a": Apple, Apricot jam, Banana, Bread, Cabbage, Carrot, Grape, Pear, Peach, Pineapple
+@1650 ! shown "a": 10 hits
 @1700 typing "ap"
 @1950 searching "ap"
-@2350 ! shown "ap": 4 hits
-@2350 showing "ap": Apple, Apricot jam, Grape, Pineapple
-@2500 adding Apple
-@2600 ! put Apple in the cart
-@2600 showing "ap": Apple, Apricot jam, Grape, Pineapple
+@1950 showing "ap": Apple, Apricot jam, Grape, Pineapple
+@1950 ! shown "ap": 4 hits
+@2500 showing "ap": Apple, Apricot jam, Grape, Pineapple
+@2500 ! put Apple in the cart
 @2700 ! order: Pear, Apple
