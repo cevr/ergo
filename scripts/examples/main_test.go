@@ -674,8 +674,10 @@ func TestExecuteReportsAStartFailureAsAnError(t *testing.T) {
 	}
 }
 
-// The test leg runs ergo test DIR/main.ergo for each program that declares a
-// test, after its build; a failure fails the program and its cases still run.
+// The test leg runs ergo test DIR/main.ergo for each program, one that
+// declares no test or law too (its test build may run a std law against
+// its provider; fu6b), after its build; a failure fails the program and
+// its cases still run.
 // The checkout's compiler has ergo test, so the reply of a compiler without
 // it (the pending line) is a failure like any other, never a skip.
 func TestTestLeg(t *testing.T) {
@@ -694,7 +696,7 @@ func TestTestLeg(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("a failing test: want exit 1, got %d\n%s", code, out)
 	}
-	for _, want := range []string{"ok passing: test (", "FAIL failing: test\n", "    FAIL Fixture: assert failed", "FAIL pending: test\n", "    ergo test: not available yet", "ok other: test ("} {
+	for _, want := range []string{"ok passing: test (", "FAIL failing: test\n", "    FAIL Fixture: assert failed", "FAIL pending: test\n", "    ergo test: not available yet", "ok other: test (", "ok untested: test ("} {
 		if !strings.Contains(out, want) {
 			t.Errorf("no %q\n%s", want, out)
 		}
@@ -712,7 +714,7 @@ func TestTestLeg(t *testing.T) {
 		}
 	}
 	var want []string
-	for _, p := range []string{"failing", "other", "passing", "pending"} {
+	for _, p := range []string{"failing", "other", "passing", "pending", "untested"} {
 		want = append(want, "test "+filepath.Join(f.root, "examples", p, "main.ergo"))
 	}
 	if !slices.Equal(tests, want) {

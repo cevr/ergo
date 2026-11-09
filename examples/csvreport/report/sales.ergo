@@ -15,10 +15,11 @@ type Sale { Region string, Product string, Units int, Cents int64 }
 // MissingColumn is a header without one of the four columns.
 type MissingColumn { Name string }
 
-// BadNumber is a units or price field that is not a number of its form.
-// Row counts the records from the header, 1: std csv gives no line of a
-// record (G-exup-6), and a quoted field may span lines.
-type BadNumber { Row int, Column string, Text string }
+// BadNumber is a units or price field (Field) that is not a number of its
+// form: Line and Column are where the field starts in the text, as the
+// reader gives them (csv.Position), so the message names the input as a
+// csv.ParseError does.
+type BadNumber { Line int, Column int, Field string, Text string }
 
 // columns are the columns a sales file has, in any order.
 let columns = []string{"region", "product", "units", "price"}
@@ -29,9 +30,7 @@ let columns = []string{"region", "product", "units", "price"}
 func Load(text string) []Sale fails csv.ParseError | MissingColumn | BadNumber {
 	let mut at = []int{}
 	let mut out = []Sale{}
-	let mut row = 0
 	for item in csv.Rows(text) {
-		row += 1
 		match item {
 		case csv.Malformed as m:
 			return m.Error
@@ -40,7 +39,7 @@ func Load(text string) []Sale fails csv.ParseError | MissingColumn | BadNumber {
 				at = try header(p.Fields)
 				continue
 			}
-			out = out.Append(try sale(p.Fields, row, at))
+			out = out.Append(try sale(p, at))
 		}
 	}
 	if len(at) == 0 {
@@ -67,20 +66,26 @@ func header(fields []string) []int fails MissingColumn {
 	at
 }
 
-// sale is the sale of the fields of record row, with its columns at at.
-// The reader gives every record as many fields as the header.
-func sale(fields []string, row int, at []int) Sale fails BadNumber {
+// sale is the sale of the record p, with its columns at at. The reader
+// gives every record as many fields as the header.
+func sale(p csv.Parsed, at []int) Sale fails BadNumber {
+	let fields = p.Fields
 	let unitsText = strings.TrimSpace(fields[at[2]])
 	let units = strconv.Atoi(unitsText) catch {
 	case strconv.Malformed, strconv.OutOfRange:
-		return BadNumber{Row: row, Column: "units", Text: unitsText}
+		return bad(p, at[2], "units")
 	}
 	let priceText = strings.TrimSpace(fields[at[3]])
 	let cents = ParseCents(priceText) catch {
 	case NotMoney:
-		return BadNumber{Row: row, Column: "price", Text: priceText}
+		return bad(p, at[3], "price")
 	}
 	Sale{Region: fields[at[0]], Product: fields[at[1]], Units: units, Cents: cents}
+}
+
+// bad is the failure of the field i of p, the column name.
+func bad(p csv.Parsed, i int, name string) BadNumber {
+	BadNumber{Line: p.At[i].Line, Column: p.At[i].Column, Field: name, Text: strings.TrimSpace(p.Fields[i])}
 }
 
 // NotMoney is a text that is not an amount of the form 12, 12.5 or 12.50.

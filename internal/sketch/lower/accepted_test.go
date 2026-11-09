@@ -2,6 +2,8 @@ package lower
 
 import (
 	"fmt"
+	"go/constant"
+	"go/types"
 	"iter"
 	"math/rand"
 	"os"
@@ -30,7 +32,7 @@ var implementedFamilies = []string{
 	"TypeSwitchStmt", "SwitchStmt", "CaseClause", "TypeGuard", "InterpolatedString", "RangeStmt", "ContextLit",
 	"call:Func", "call:Op", "call:ProviderOp", "call:FuncValue", "call:Conversion", "call:Len", "call:With",
 	"pattern:Wildcard", "pattern:TypeTest", "pattern:Const", "pattern:As", "pattern:Bind", "pattern:Record", "pattern:Tuple", "TupleExpr",
-	"conv:Variant", "conv:Operations", "conv:Row", "conv:Machine",
+	"conv:Variant", "conv:Operations", "conv:Row",
 	"basic:bool", "basic:string", "basic:int", "basic:int8", "basic:int16", "basic:int32", "basic:int64",
 	"basic:uint", "basic:uint8", "basic:uint16", "basic:uint32", "basic:uint64", "basic:float32", "basic:float64", "basic:duration",
 	// A test and its asserts lower in the test build (LowerTests, swept by
@@ -41,8 +43,9 @@ var implementedFamilies = []string{
 	// (stage E3b-2).
 	"LawDecl", "call:LawOp",
 	// A machine declaration lowers to a plan value (lower-v1 stage 4,
-	// machine.go; TestMachinePlanValues).
-	"MachineType", "MachineEntry",
+	// machine.go; TestMachinePlanValues), and the value converts to the
+	// prelude's Machine (ConvMachine).
+	"MachineType", "MachineEntry", "conv:Machine",
 }
 
 // refusedFamilies are the families whose lowering waits for a later stage,
@@ -115,8 +118,42 @@ func refusalFamily(message string) string {
 	return ""
 }
 
+// kindFamilies are the family names of check's call, pattern and
+// conversion kinds, by value: each constant of the kind's type, named
+// without the type's prefix (check.CallLawOp is "call:LawOp"). They are
+// read from check's source, not written here, so a kind added there has a
+// family here, and TestAcceptedNodesLowerFamilies fails until the kind is
+// lowered or its refusal is recorded (fu6d: a hand map had no
+// ConvMachine, and its family was the empty "conv:").
+type kindFamilies struct{ call, pattern, conv map[int64]string }
+
+func kindFamilyNames(t *testing.T) kindFamilies {
+	t.Helper()
+	scope := typedPackage(t, "../check").pkg.Scope()
+	names := func(typ, prefix string) map[int64]string {
+		tn, ok := scope.Lookup(typ).(*types.TypeName)
+		if !ok {
+			t.Fatalf("package check declares no type %s", typ)
+		}
+		out := map[int64]string{}
+		for _, name := range scope.Names() {
+			c, ok := scope.Lookup(name).(*types.Const)
+			if !ok || !types.Identical(c.Type(), tn.Type()) || name == typ+"Count" {
+				continue
+			}
+			if !strings.HasPrefix(name, prefix) {
+				t.Fatalf("the %s constant %s does not start with %s", typ, name, prefix)
+			}
+			v, _ := constant.Int64Val(c.Val())
+			out[v] = strings.TrimPrefix(name, prefix)
+		}
+		return out
+	}
+	return kindFamilies{call: names("CallKind", "Call"), pattern: names("PatternKind", "Pat"), conv: names("ConversionKind", "Conv")}
+}
+
 // families lists the families in a checked source.
-func families(file *syntax.File, info *check.Info) map[string]bool {
+func families(file *syntax.File, info *check.Info, kinds kindFamilies) map[string]bool {
 	out := map[string]bool{}
 	syntax.Inspect(file, func(n syntax.Node) bool {
 		if n != nil {
@@ -124,14 +161,11 @@ func families(file *syntax.File, info *check.Info) map[string]bool {
 		}
 		return true
 	})
-	callKinds := []string{"Func", "Op", "ProviderOp", "FuncValue", "Conversion", "Len", "With", "Prelude", "LawOp"}
 	for _, c := range info.Calls {
-		out["call:"+callKinds[c.Kind]] = true
+		out["call:"+kinds.call[int64(c.Kind)]] = true
 	}
-	patternKinds := map[check.PatternKind]string{check.PatWildcard: "Wildcard", check.PatBind: "Bind", check.PatTypeTest: "TypeTest",
-		check.PatRecord: "Record", check.PatConst: "Const", check.PatTuple: "Tuple", check.PatAs: "As"}
 	for _, p := range info.Patterns {
-		out["pattern:"+patternKinds[p.Kind]] = true
+		out["pattern:"+kinds.pattern[int64(p.Kind)]] = true
 	}
 	// case _ of a type match is a clause with no list, which has no
 	// Patterns entry.
@@ -145,9 +179,8 @@ func families(file *syntax.File, info *check.Info) map[string]bool {
 		}
 		return true
 	})
-	convKinds := map[check.ConversionKind]string{check.ConvVariant: "Variant", check.ConvOperations: "Operations", check.ConvRow: "Row", check.ConvMachine: "Machine"}
 	for _, c := range info.Implicit {
-		out["conv:"+convKinds[c.Kind]] = true
+		out["conv:"+kinds.conv[int64(c.Kind)]] = true
 	}
 	for _, t := range info.Types {
 		if b, ok := t.(*check.Basic); ok {
@@ -272,13 +305,14 @@ func TestAcceptedNodesLowerFamilies(t *testing.T) {
 	refusedBy := map[string]int{} // refusals by owner
 	var ran []string
 	lowered, rejected := 0, 0
+	kinds := kindFamilyNames(t)
 	for _, s := range sources {
 		o := lowerSource(s.name, s.src, s.want != "")
 		if o.file == nil || len(o.diags) > 0 {
 			rejected++
 			continue
 		}
-		fams := families(o.file, o.pkg.Info)
+		fams := families(o.file, o.pkg.Info, kinds)
 		for f := range fams {
 			accepted[f] = true
 		}

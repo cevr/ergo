@@ -31,7 +31,18 @@ type TypeName struct {
 	Laws []*Law
 	file *fileInfo
 	id   int
+	// ctor is the type's constructor, which a generator builds its values
+	// with (tests.go rule 3); ctorState is 0 before its package's check
+	// plans it, 1 while it is planned and 2 once planned.
+	ctor      *Func
+	ctorState uint8
 }
+
+// Constructor is the function a generator builds the type's values with
+// (tests.go rule 3): New<T> of its package with no type parameters, one
+// result T, no error or capability row and parameters its package
+// generates. nil when the package declares none.
+func (o *TypeName) Constructor() *Func { return o.ctor }
 
 // Func is a package function, extern included.
 type Func struct {

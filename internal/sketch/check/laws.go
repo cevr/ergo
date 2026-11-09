@@ -77,6 +77,9 @@ import (
 //     A provider is built for each case as its package builds it: by its
 //     package's constructor New<P> when it declares one (LawProvider.Ctor;
 //     fs4), else generated; one with neither says why (LawProvider.Unrun).
+//     The constructor is the one a generator builds any value of P with
+//     (tests.go rule 3, TypeName.Constructor), so a provider and a value
+//     are built by one rule.
 //     The test build reports each skip, and counts the skips in its
 //     summary, never as passed. A law with no binding in its own package
 //     is no skip: its own test build names it as run where its providers
@@ -329,8 +332,8 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 		return LawProvider{}, false
 	}
 	lp := LawProvider{Type: p, Conv: a.conv}
-	if ctor := c.lawConstructor(p); ctor != nil {
-		lp.Ctor = ctor
+	if _, built := c.constructorWhy(p); built && p.Obj.ctor != nil {
+		lp.Ctor = p.Obj.ctor
 	} else if why := c.ungeneratableFrom(p, p.Obj.Pkg); why != "" {
 		lp.Unrun = "its values have no generator: " + why + "; a func New" + p.Obj.Name + "() " + p.Obj.Name + " with no rows would build one for each case"
 	}
@@ -367,36 +370,6 @@ func lawClosures(pkg *Package) map[*Package]map[*Package]bool {
 	walk(pkg)
 	walk(pre)
 	return out
-}
-
-// lawConstructor is the constructor a law's run builds the provider p with
-// when p's values have no generator (rule 8; fs4): the function New<P> of
-// p's package whose one result is p, with no type parameters, no error or
-// capability row and parameters that have generators in that package,
-// which each case draws. A provider whose state is a std handle (a
-// sync.Ref, an fstest.Memory, a queue) is built so, as a program builds
-// it, where a generator could not build it at all. nil when the package
-// has none.
-func (c *checker) lawConstructor(p *Named) *Func {
-	for _, f := range p.Obj.Pkg.Funcs {
-		sig := f.Sig
-		if f.Name != "New"+p.Obj.Name || sig == nil || len(sig.TParams) > 0 || len(sig.Results) != 1 || !c.identical(sig.Results[0], p) {
-			continue
-		}
-		if rowHolds(sig.Errors) || rowHolds(sig.Uses) {
-			continue
-		}
-		ok := true
-		for _, v := range sig.Params {
-			if isInvalid(v.Type) || c.ungeneratableFrom(v.Type, p.Obj.Pkg) != "" {
-				ok = false
-			}
-		}
-		if ok {
-			return f
-		}
-	}
-	return nil
 }
 
 // rowHolds reports whether r holds an element, through its variables'

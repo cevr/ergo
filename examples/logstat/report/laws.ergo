@@ -2,7 +2,6 @@
 
 import logstat/access
 import logstat/stats
-import slices
 import strconv
 import strings
 
@@ -17,10 +16,8 @@ law KeyNameReadsBack(k Key) {
 }
 
 // EveryRequestIsCounted: the status classes and the top counts with no
-// limit each add up to the number of requests: n of the samples of seed
-// (time.Time has no generator, so a law cannot take a Request).
-law EveryRequestIsCounted(seed int, n int, k Key) {
-	let reqs = slices.Slice(access.Samples(seed), 0, (if n < 0 { -(n + 1) } else { n })%11)
+// limit each add up to the number of requests, for any requests.
+law EveryRequestIsCounted(reqs []access.Request, k Key) {
 	let s = Summarize(reqs, 0, k, -1)
 	stats.Total(s.Classes) == s.Requests && stats.Total(s.Top) == s.Requests
 }

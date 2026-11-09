@@ -78,6 +78,9 @@ func (c *checker) run(files []*syntax.File) *Package {
 		// contexts are closed contexts that read the converged inferred rows
 		// (M2).
 		c.checkBodies,
+		// A constructor's rows are inferred, so constructors are planned
+		// once bodies converge, before any generator is decided.
+		c.planConstructors,
 		c.checkTests,
 		c.checkLaws,
 		c.planLaws,

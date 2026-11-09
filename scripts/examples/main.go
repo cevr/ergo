@@ -19,7 +19,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -56,9 +55,6 @@ var nonPrograms = map[string]string{
 // caseFiles are the files a case folder may hold.
 var caseFiles = []string{"args", "stdin", "env", "setup.sh", "expected.out", "expected.err", "expected.status"}
 
-// testDeclaration finds a test or a law declaration in an .ergo file.
-var testDeclaration = regexp.MustCompile(`(?m)^\s*(test|law) [A-Za-z_]`)
-
 type config struct {
 	root    string
 	ergo    string
@@ -81,11 +77,10 @@ type program struct {
 	tags    []string
 	sources []string // the .ergo files the fmt leg checks, sorted
 	port    bool     // holds record.sh and origin
-	tested  bool     // declares a test
 	// module marks a program of packages (196b): ergo.mod, the binary's
 	// package cmd/NAME/main.ergo and package folders. main is what the
-	// build leg builds, and tests are the targets of the test leg: one
-	// per package that declares a test, sorted.
+	// build leg builds, and tests are the targets of the test leg: every
+	// package, sorted.
 	module bool
 	main   string
 	tests  []string
@@ -398,19 +393,12 @@ func finishProgram(p *program, present map[string]bool, problems []string, recor
 		p.tags = tags
 	}
 	for _, source := range p.sources {
-		content, err := os.ReadFile(source)
-		if err != nil {
-			problem("%v", err)
-			continue
-		}
-		// A program of one folder tests its main.ergo when it declares a
-		// test or a law. A module program tests every package folder: a
-		// package that declares no test may provide an operation type
-		// whose laws its test build runs (law-xpkg).
-		if !p.module && !testDeclaration.Match(content) {
-			continue
-		}
-		p.tested = true
+		// The test leg tests every package, as go test ./... does: the
+		// compiler decides what a package's test build runs, its tests,
+		// its laws and the laws of other packages that its providers
+		// bind (law-xpkg), so a package that declares no test or law may
+		// still run one (fu6b, G-ma-1). One rule for a program of one
+		// folder and a program of packages.
 		target := p.main
 		if p.module {
 			target = filepath.Dir(source)
@@ -651,18 +639,16 @@ func (r *runner) runProgram(p *program) {
 		r.toolFailed(p, "build", o, err)
 		return
 	}
-	if p.tested {
-		r.testProgram(p)
-	}
+	r.testProgram(p)
 	for _, c := range p.cases {
 		r.runCase(p, c, []string{binary}, true)
 	}
 }
 
-// testProgram runs the program's own test declarations: `ergo test` of its
-// main.ergo, or of each package folder of a program of packages that
-// declares a test (as go test runs one package at a time). A failure fails
-// the program; its cases still run.
+// testProgram runs the test build of each package of the program: `ergo
+// test` of its main.ergo, or of each package folder of a program of
+// packages (as go test runs one package at a time). A failure fails the
+// program; its cases still run.
 func (r *runner) testProgram(p *program) {
 	for _, target := range p.tests {
 		leg := "test"

@@ -19,8 +19,17 @@ import slices
 // and Message Go's whole text of the error.
 type ParseError { Line int, Column int, Reason string, Message string }
 
-// Parsed is one record of a text: its fields.
-type Parsed { Fields []string }
+// Position is where a field starts in the text, as Go's Reader.FieldPos
+// gives it: Line and Column count from 1, and Column counts bytes, as in
+// ParseError. A quoted field starts at its opening quote, and a field may
+// start on a later line than its record when a quoted field before it
+// spans lines.
+type Position { Line int, Column int }
+
+// Parsed is one record of a text: its fields, and where each starts
+// (At[i] is the start of Fields[i]), so a program that finds a bad value
+// in a field names its line and column, as ParseError does.
+type Parsed { Fields []string, At []Position }
 
 // Malformed is the end of a text that breaks the format: the error Go's
 // reader stops at.
@@ -49,17 +58,18 @@ extern go ergo.local/prototype/runtime/v1.CSVFormat func Format(rows [][]string)
 // and a stop reads no further record (fs3).
 func Rows(text string) Seq[Row] {
 	Seq[Row](func(yield func(r Row) bool) {
-		let e = scan(text, func(fields []string) bool { yield(Parsed{Fields: fields}) })
+		let e = scan(text, func(fields []string, at []Position) bool { yield(Parsed{Fields: fields, At: at}) })
 		if e.Reason != "" {
 			yield(Malformed{Error: e})
 		}
 	})
 }
 
-// scan calls each with every record of text, in order, until each returns
-// false or the text ends, and gives the error Go's reader stopped at, or a
-// ParseError with no Reason when there was none or each stopped.
-extern go ergo.local/prototype/runtime/v1.CSVScan func scan(text string, each func(fields []string) bool) ParseError
+// scan calls each with every record of text and where each of its fields
+// starts, in order, until each returns false or the text ends, and gives
+// the error Go's reader stopped at, or a ParseError with no Reason when
+// there was none or each stopped.
+extern go ergo.local/prototype/runtime/v1.CSVScan func scan(text string, each func(fields []string, at []Position) bool) ParseError
 
 // same reports whether a and b hold the same fields in the same rows.
 func same(a [][]string, b [][]string) bool {

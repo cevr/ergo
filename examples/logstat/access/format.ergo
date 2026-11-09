@@ -25,10 +25,11 @@ func escape(s string) string {
 
 // Valid reports whether Format writes r as a line that Parse reads back
 // as r: the address, method, target and protocol hold no space and are
-// not empty, the status has three digits, and the numbers are not
-// negative and not too long to read.
+// not empty, the status has three digits, the numbers are not negative
+// and not too long to read, and the time is a whole second (the layout
+// writes no fraction).
 func Valid(r Request) bool {
-	plain(r.Addr) && plain(r.Method) && plain(r.Target) && plain(r.Proto) && r.Status >= 100 && r.Status <= 999 && r.Bytes >= 0 && r.Bytes < 1000000000000000000 && r.Micros >= 0 && r.Micros < 1000000000*1000000
+	plain(r.Addr) && plain(r.Method) && plain(r.Target) && plain(r.Proto) && r.Status >= 100 && r.Status <= 999 && r.Bytes >= 0 && r.Bytes < 1000000000000000000 && r.Micros >= 0 && r.Micros < 1000000000*1000000 && time.Nanosecond(r.At) == 0
 }
 
 func plain(s string) bool { s != "" && !strings.Contains(s, " ") && !strings.Contains(s, "\n") }

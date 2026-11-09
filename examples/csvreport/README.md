@@ -19,7 +19,7 @@ The table's key column is as wide as the widest of its name (`region`, `product`
 
 ## What it shows
 
-- **A stream with its error as a value.** std `csv.Rows` is a `Seq[csv.Row]` (`Parsed{Fields} | Malformed{Error}`): `Load` reads the header and each record as they come and stops at the first bad one. A `Seq` has no failure row, so the reader's error is the `Malformed` variant, and `Load` fails with the `csv.ParseError` it carries. The reader is Go's `encoding/csv`: every record has as many fields as the header, so a short row is its "wrong number of fields".
+- **A stream with its error as a value.** std `csv.Rows` is a `Seq[csv.Row]` (`Parsed{Fields, At} | Malformed{Error}`): `Load` reads the header and each record as they come and stops at the first bad one. A `Seq` has no failure row, so the reader's error is the `Malformed` variant, and `Load` fails with the `csv.ParseError` it carries. The reader is Go's `encoding/csv`: every record has as many fields as the header, so a short row is its "wrong number of fields".
 - **Typed failures to exit codes.** `Report` fails `Missing | Unreadable | csv.ParseError | MissingColumn | BadNumber`; `run` names each one with no `case _`, inside the `with` that binds the shelf, so a new failure stops the build until the binary prints it.
 - **Exhaustive match over the domain's unions.** `Keep` and `Key` are unions; `Kept`, `KeyOf` and `Table` match every variant.
 - **Laws that run.** report: `TotalIsFold` (the total equals a loop), `GroupsSumToTotal` (groups add up to the total, keys strictly increase), `FilterKeepsOnly`, `LoadReadsRows` (sales written with `csv.Format` load back), `MoneyRoundTrip`; `ergo test` runs them over generated values, whose strings hold commas, quotes and line feeds. The csv format's own laws are std's.
@@ -36,8 +36,8 @@ go run ./scripts/examples csvreport
 
 ## Limits found
 
-- **G-exup-6**: std `csv` gives no line of a record (Go's `Reader.FieldPos`), so a `BadNumber` names its record's row (the header is row 1), not its line: a quoted field may span lines.
-- **G-exup-1** (closed in batch 13): `Source.ReadIsRepeatable` runs in `memory` against `memory.Shelf`. The test disk `locked` of `files` has no generator and no constructor, so it is skipped (`expected-skips`).
+- **G-exup-6** (closed in batch 13, fu6c): each `csv.Parsed` carries `At`, where each field starts (Go's `Reader.FieldPos`), so a `BadNumber` names the line and column of the bad field, `csvreport: sales.csv:4:5: units x is not a number`, in the form of the reader's own errors. Before, it named its record's count from the header, which is not the line when a quoted field spans lines.
+- **G-exup-1** (closed in batch 13): `Source.ReadIsRepeatable` runs in `memory` against `memory.Shelf`. The std law `fs.Files.ReadIsRepeatable` runs against the test disk `locked` of `files`: its `fstest.Memory` is built by `fstest.NewMemory()`, an empty disk per case (fu6a: a generator builds a type by its constructor).
 - A test-only `locked` provider in `files/tests.ergo` wraps an `fstest.Memory`, which never fails Denied.
 - A provider cannot need a capability its contract does not write (rows.md, Context 2), so `files.Load` reads every named file up front, as okra-how does.
 

@@ -20,7 +20,15 @@ import (
 //  3. A property's parameters are generatable: basic types, and slices,
 //     Maps, tuples, records and unions of generatable types, each named type
 //     declared outside the standard library and holding a finite value
-//     (ValueRanks). Anything else is S108 at the parameter's type.
+//     (ValueRanks). A named type is built as its package builds it: when
+//     its package declares its constructor (TypeName.Constructor: New<T>
+//     with no type parameters, the one result T, no error or capability row,
+//     and parameters that package generates without reaching T), a
+//     generator calls it with generated arguments, wherever T is declared
+//     (std time.Time by time.NewTime); else it builds the value field by
+//     field, which needs the authority of T's package. The rule is the one
+//     law runs build a provider by (laws.go rule 8). Anything else is S108
+//     at the parameter's type.
 //  4. assert stands only in a test body or a law body (laws.go): every
 //     assert whose lexical owner, the innermost test, law, function
 //     declaration or function literal around it, is not a test or a law is
@@ -240,6 +248,9 @@ func (c *checker) ungeneratableFrom(t Type, from *Package) string {
 				return "" // assumed while it is checked: a greatest fixpoint
 			}
 			seen[u] = true
+			if s, built := c.constructorWhy(u); built {
+				return s // built as its package builds it (rule 3)
+			}
 			if u.Obj.Pkg != nil {
 				if _, isStd := std.Package(u.Obj.Pkg.Path); isStd || u.Obj.Pkg.Path == std.PreludePath {
 					return u.String() + " is a standard library type"
@@ -294,6 +305,74 @@ func (c *checker) ungeneratableFrom(t Type, from *Package) string {
 		}
 	}
 	return ""
+}
+
+// constructorWhy reports whether a generator builds n by its constructor
+// (rule 3), and why it cannot when that constructor's parameters reach n
+// itself. A type of another package was planned by its own check.
+func (c *checker) constructorWhy(n *Named) (string, bool) {
+	tn := n.Obj
+	if tn == nil || tn.Pkg == nil || n.Orig != nil || len(n.TArgs) > 0 || len(n.TParams) > 0 {
+		return "", false
+	}
+	if tn.Pkg != c.pkg {
+		return "", tn.ctor != nil
+	}
+	switch tn.ctorState {
+	case 1:
+		return n.String() + "'s constructor New" + tn.Name + " takes a value that holds a " + n.String(), true
+	case 0:
+		c.planConstructor(tn)
+	}
+	return "", tn.ctor != nil
+}
+
+// planConstructors plans the constructor of each type of the package
+// (rule 3), once every body has converged: a constructor's rows are
+// inferred.
+func (c *checker) planConstructors() {
+	for _, tn := range c.pkg.Types {
+		if tn.ctorState == 0 {
+			c.planConstructor(tn)
+		}
+	}
+}
+
+// planConstructor sets tn's constructor: the function New<T> of its
+// package whose one result is T, with no type parameters, no error or
+// capability row and parameters the package generates without reaching T.
+// An operation type and a machine have none: a law binds the one to a
+// provider, and a machine is built by its own declaration.
+func (c *checker) planConstructor(tn *TypeName) {
+	tn.ctorState = 1
+	defer func() { tn.ctorState = 2 }()
+	n, ok := tn.Type.(*Named)
+	if !ok || len(n.TParams) > 0 {
+		return
+	}
+	switch n.Underlying().(type) {
+	case *Interface, *MachineType:
+		return
+	}
+	for _, f := range tn.Pkg.Funcs {
+		sig := f.Sig
+		if f.Name != "New"+tn.Name || sig == nil || len(sig.TParams) > 0 || len(sig.Results) != 1 || !c.identical(sig.Results[0], n) {
+			continue
+		}
+		if rowHolds(sig.Errors) || rowHolds(sig.Uses) {
+			continue
+		}
+		ok := true
+		for _, v := range sig.Params {
+			if isInvalid(v.Type) || c.ungeneratableFrom(v.Type, tn.Pkg) != "" {
+				ok = false
+			}
+		}
+		if ok {
+			tn.ctor = f
+			return
+		}
+	}
 }
 
 // ValueRanks computes the rank of generatable types: the least depth of a

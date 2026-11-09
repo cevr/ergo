@@ -124,6 +124,28 @@ test CsvRowsKeepTheRecordsBefore(rows [][]string) {
 	assert ends == 1 && same(parsed, kept)
 }
 
+test CsvPositionsPointAtFields(rows [][]string) {
+	let text = csv.Format(sample(rows))
+	let lines = strings.Split(text, "\n")
+	let mut last = csv.Position{Line: 0, Column: 0}
+	for r in csv.Rows(text) {
+		match r {
+		case csv.Parsed as p:
+			assert len(p.At) == len(p.Fields)
+			for i, at in p.At {
+				assert at.Line >= 1 && (at.Line > last.Line || at.Line == last.Line && at.Column > last.Column) && at.Line <= len(lines)
+				last = at
+				let line = lines[at.Line-1]
+				assert at.Column >= 1 && at.Column <= len(line)+1
+				let rest = strings.Slice(line, at.Column-1, len(line))
+				assert strings.HasPrefix(rest, "\"") || strings.HasPrefix(rest, p.Fields[i])
+			}
+		case csv.Malformed:
+			assert false
+		}
+	}
+}
+
 test CsvRowsFollowReadAll(text string) {
 	let t = spice(text)
 	let mut parsed = [][]string{}
@@ -154,6 +176,7 @@ test CsvRowsFollowReadAll(text string) {
 // ledger key; lawledger.Run holds it equal to the ledger.
 var stdCSVLawStatements = map[string]string{
 	"csv FormatIsStable":           `FormatIsStable(rows [][]string) { let text = Format(sample(rows)) let back = ReadAll(text) catch { case ParseError: return false } Format(back) == text }`,
+	"csv PositionsPointAtFields":   `PositionsPointAtFields(rows [][]string) { let text = Format(sample(rows)) let lines = strings.Split(text, "\n") let mut last = Position{Line: 0, Column: 0} for r in Rows(text) { match r { case Parsed as p: if len(p.At) != len(p.Fields) { return false } for i, at in p.At { if at.Line < 1 || at.Line < last.Line || at.Line == last.Line && at.Column <= last.Column || at.Line > len(lines) { return false } last = at let line = lines[at.Line-1] if at.Column < 1 || at.Column > len(line)+1 { return false } let rest = strings.Slice(line, at.Column-1, len(line)) if !strings.HasPrefix(rest, "\"") && !strings.HasPrefix(rest, p.Fields[i]) { return false } } case Malformed: return false } } true }`,
 	"csv LinesCount":               `LinesCount(rows [][]string) { let kept = sample(rows) let mut lines = len(kept) for fields in kept { for f in fields { lines = lines + strings.Count(f, "\n") } } strings.Count(Format(kept), "\n") == lines }`,
 	"csv RoundTrip":                `RoundTrip(rows [][]string) { let kept = sample(rows) let back = ReadAll(Format(kept)) catch { case ParseError: return false } same(back, kept) }`,
 	"csv RowsFollowReadAll":        `RowsFollowReadAll(text string) { let t = spice(text) let mut parsed = [][]string{} let mut ends = 0 let mut last = ParseError{Line: 0, Column: 0, Reason: "", Message: ""} for r in Rows(t) { match r { case Parsed as p: if ends > 0 { return false } parsed = parsed.Append(p.Fields) case Malformed as m: ends = ends + 1 last = m.Error } } let all = ReadAll(t) catch { case ParseError as e: return ends == 1 && last == e } ends == 0 && same(parsed, all) }`,

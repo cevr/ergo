@@ -640,6 +640,7 @@ func (l *lowerer) testRunner() string {
 		r, ok, i := inner.alloc("r"), inner.alloc("ok"), inner.alloc("i")
 		b.WriteString("\t{\n")
 		b.WriteString("\t\t" + r + " := " + l.helper("NewRand") + "(" + seed + ", " + strconv.Quote(t.Name) + ")\n")
+		b.WriteString("\t\t" + r + ".env = " + env + "\n")
 		b.WriteString("\t\t" + ok + " := true\n")
 		b.WriteString("\t\tfor " + i + " := 1; " + ok + " && " + i + " <= " + strconv.Itoa(testCases) + "; " + i + "++ {\n")
 		// The case's size grows with its number (QuickCheck's sized):
@@ -750,6 +751,7 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 		name := strconv.Quote(tg.label) + ", " + at
 		b.WriteString("\t{\n")
 		b.WriteString("\t\t" + r + " := " + l.helper("NewRand") + "(" + seed + ", " + strconv.Quote(tg.label) + ")\n")
+		b.WriteString("\t\t" + r + ".env = " + env + "\n")
 		b.WriteString("\t\t" + ok + " := true\n")
 		b.WriteString("\t\tfor " + i + " := 1; " + ok + " && " + i + " <= " + strconv.Itoa(testCases) + "; " + i + "++ {\n")
 		b.WriteString("\t\t\t" + r + ".size = " + i + " / 4\n")
@@ -986,10 +988,13 @@ func $Where(args func() string) string {
 // $Rand draws a property's arguments: splitmix64, so a seed replays every
 // case. size is the case's size, set by the runner before each case: case
 // i of 100 has size i/4, so collections grow with the run (QuickCheck's
-// sized).
+// sized). env is the test runner's environment, which a constructor that a
+// generator calls runs in (check/tests.go rule 3): it has no rows, so it
+// reads only the task.
 type $Rand struct {
 	s    uint64
 	size int
+	env  any
 }
 
 // $NewRand is the generator of the test name under seed: each property
@@ -1221,6 +1226,12 @@ func (l *lowerer) genNamed(t check.Type, seen map[check.Type]bool, visit func(*c
 		}
 		seen[u] = true
 		visit(u)
+		if ctor := genConstructor(u); ctor != nil {
+			for _, v := range ctor.Sig.Params {
+				l.genNamed(v.Type, seen, visit)
+			}
+			return
+		}
 		switch under := u.Underlying().(type) {
 		case *check.Struct:
 			for _, f := range under.Fields {
@@ -1234,6 +1245,15 @@ func (l *lowerer) genNamed(t check.Type, seen map[check.Type]bool, visit func(*c
 			l.genNamed(under, seen, visit)
 		}
 	}
+}
+
+// genConstructor is the constructor a generator builds n's values with, or
+// nil when it builds them field by field (check/tests.go rule 3).
+func genConstructor(n *check.Named) *check.Func {
+	if n.Obj == nil || n.Orig != nil {
+		return nil
+	}
+	return n.Obj.Constructor()
 }
 
 func (l *lowerer) genName(n *check.Named) string {
@@ -1297,6 +1317,26 @@ func (l *lowerer) genFunc(n *check.Named, site syntax.Node) string {
 	scope := newNamer(l.names)
 	r, d := scope.alloc("r"), scope.alloc("d")
 	var body strings.Builder
+	if ctor := genConstructor(n); ctor != nil {
+		// Built as its package builds it: by its constructor, from
+		// generated arguments (check/tests.go rule 3). The constructor has
+		// no rows, so it reads no environment and fails nothing.
+		fc := newFuncCtx(l, scope, false)
+		fc.site = site
+		ev := scope.alloc("env")
+		body.WriteString("\t" + ev + ", _ := " + r + ".env.(*" + l.env() + ")\n")
+		args := []string{ev}
+		for _, v := range ctor.Sig.Params {
+			a := scope.alloc(v.Name)
+			body.WriteString("\t" + a + " := " + l.genExpr(v.Type, r, d+"-1", scope, site) + "\n")
+			args = append(args, a)
+		}
+		v := scope.alloc("v")
+		body.WriteString("\t" + v + ", _ := " + fc.funcValue(ctor, ctor.Sig, site, nil) + "(" + strings.Join(args, ", ") + ")\n")
+		body.WriteString("\treturn " + v + "\n")
+		l.gen.WriteString("func " + name + "(" + r + " *" + l.helper("Rand") + ", " + d + " int) " + goType + " {\n" + body.String() + "}\n\n")
+		return name
+	}
 	switch under := n.Underlying().(type) {
 	case *check.Struct:
 		td := l.typeDecl(n.Obj, site)

@@ -68,7 +68,7 @@ func run(args []string) fails os.Exit needs io.Stdout | fs.Files {
 		case report.MissingColumn as m:
 			return os.Exit{Code: 1, Message: "csvreport: \(q.File): the header has no \(m.Name) column"}
 		case report.BadNumber as n:
-			return os.Exit{Code: 1, Message: "csvreport: \(q.File): row \(n.Row): \(n.Column) \(n.Text) is not a number"}
+			return os.Exit{Code: 1, Message: "csvreport: \(q.File):\(n.Line):\(n.Column): \(n.Field) \(n.Text) is not a number"}
 		}
 		for l in lines {
 			io.Stdout.Println(l)
@@ -114,7 +114,7 @@ test FiltersAndGroupsByProduct {
 
 test FailuresExitOne {
 	assert try ran([]string{"nosuch.csv"}) == "exit 1: csvreport: no file nosuch.csv\n"
-	assert try ran([]string{"bad.csv"}) == "exit 1: csvreport: bad.csv: row 2: units three is not a number\n"
+	assert try ran([]string{"bad.csv"}) == "exit 1: csvreport: bad.csv:2:11: units three is not a number\n"
 	assert try ran([]string{"quote.csv"}) == "exit 1: csvreport: quote.csv:2:9: bare \" in non-quoted-field\n"
 	assert try ran([]string{"short.csv"}) == "exit 1: csvreport: short.csv:2:1: wrong number of fields\n"
 	assert try ran([]string{"cols.csv"}) == "exit 1: csvreport: cols.csv: the header has no product column\n"
