@@ -726,7 +726,18 @@ func (p *parser) parseMachineType() *MachineType {
 	saved := p.exprLev
 	p.exprLev = 0
 	for p.tok.tok != RBRACE {
-		e := &MachineEntry{Doc: p.leadComment(), NamePos: p.tok.pos}
+		doc := p.leadComment()
+		if p.tok.tok == LAW {
+			t.Laws = append(t.Laws, p.parseMachineLaw(doc))
+			if !p.got(COMMA) {
+				break
+			}
+			continue
+		}
+		if len(t.Laws) > 0 {
+			p.errorf("a machine's entries come before its laws")
+		}
+		e := &MachineEntry{Doc: doc, NamePos: p.tok.pos}
 		if p.tok.tok != IDENT || p.tok.lit != "initial" && p.tok.lit != "step" && p.tok.lit != "after" {
 			p.errorf("expected initial, step or after, found %s", p.found())
 		}
@@ -760,6 +771,50 @@ func (p *parser) parseMachineType() *MachineType {
 		p.errorAt(t.Machine, len("machine"), "a machine sets initial and step")
 	}
 	return t
+}
+
+// parseMachineLaw parses a law of a machine (MU6): `law Name(params) {
+// body }` as any law, or a reachability law `law Name reaches V`, `law
+// Name never reaches V` or `law Name path [V1, V2, …]`. reaches, never and
+// path are words only here, after a machine law's name.
+func (p *parser) parseMachineLaw(doc *CommentGroup) *LawDecl {
+	if p.peek(1).tok != IDENT || p.peek(2).tok != IDENT {
+		return p.parseLawDecl(doc, true)
+	}
+	d := &LawDecl{Doc: doc, Law: p.want(LAW)}
+	d.Name = p.parseIdent()
+	r := &LawReach{Never: NoPos, Lbrack: NoPos, Rbrack: NoPos}
+	d.Reach = r
+	if p.tok.lit == "never" {
+		r.Never = p.tok.pos
+		p.next()
+		if p.tok.tok != IDENT || p.tok.lit != "reaches" {
+			p.errorf("expected reaches after never, found %s", p.found())
+		}
+	}
+	r.Word = p.tok.pos
+	switch p.tok.lit {
+	case "reaches":
+		p.next()
+		r.Targets = []*Ident{p.parseIdent()}
+	case "path":
+		if r.Never != NoPos {
+			p.errorf("expected reaches after never, found %s", p.found())
+		}
+		r.Path = true
+		p.next()
+		r.Lbrack = p.want(LBRACK)
+		for {
+			r.Targets = append(r.Targets, p.parseIdent())
+			if !p.got(COMMA) || p.tok.tok == RBRACK {
+				break
+			}
+		}
+		r.Rbrack = p.want(RBRACK)
+	default:
+		p.errorf("expected (, reaches, never reaches or path after a machine law's name, found %s", p.found())
+	}
+	return d
 }
 
 func (p *parser) parseFuncDecl(doc *CommentGroup) *FuncDecl {

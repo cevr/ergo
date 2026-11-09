@@ -546,7 +546,8 @@ type (
 	}
 
 	// MachineType is `machine[S, E] { initial x; step f }`, with an
-	// optional `after g` entry (the states' timers).
+	// optional `after g` entry (the states' timers), and its laws after
+	// the entries.
 	MachineType struct {
 		Machine Pos
 		Lbrack  Pos
@@ -558,7 +559,8 @@ type (
 		Rbrace  Pos
 		Initial Expr
 		Step    Expr
-		After   Expr // nil when the machine has no after entry
+		After   Expr       // nil when the machine has no after entry
+		Laws    []*LawDecl // the machine's laws, in source order (MU6)
 	}
 
 	// TupleExpr is a tuple type or value `(A, B)`, or a tuple pattern; a

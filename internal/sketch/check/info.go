@@ -732,6 +732,12 @@ type Law struct {
 	Name  string
 	Decl  *syntax.LawDecl
 	Owner *TypeName // the operation type that declares it; nil at top level
+	// Machine is the machine type that declares it (MU6), with Owner nil:
+	// a machine law's body has the scope of a top-level law's.
+	Machine *TypeName
+	// Targets are the variants of the machine's state that a reachability
+	// law (Decl.Reach) names, in order.
+	Targets []*Named
 	// Params are its parameters, in source order; a field with no name
 	// holds one "_".
 	Params []*Var

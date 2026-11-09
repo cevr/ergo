@@ -271,6 +271,14 @@ func (c *checker) collect() {
 						c.collectLaws(it, tn, fi)
 					}
 				}
+				if mt, ok := d.Spec.(*syntax.MachineType); ok {
+					for _, l := range mt.Laws {
+						c.ownBody(l, OwnerLaw)
+					}
+					if declared {
+						c.collectMachineLaws(mt, tn, fi)
+					}
+				}
 			case *syntax.FuncDecl:
 				fn := &Func{Name: d.Name.Name, Pkg: c.pkg, Pos: d.Name.Pos(), Decl: d, file: fi}
 				c.funcs = append(c.funcs, fn)

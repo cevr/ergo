@@ -66,6 +66,9 @@ func Inspect(n Node, f func(Node) bool) {
 		walk(n.Name, n.Params, n.Body)
 	case *LawDecl:
 		walk(n.Name, n.Params, n.Body)
+		if n.Reach != nil {
+			idents(n.Reach.Targets)
+		}
 	case *AssertStmt:
 		walk(n.X)
 	case *VariantSpec:
@@ -160,6 +163,9 @@ func Inspect(n Node, f func(Node) bool) {
 		walk(n.State, n.Signal)
 		for _, e := range n.Entries {
 			Inspect(e, f)
+		}
+		for _, l := range n.Laws {
+			Inspect(l, f)
 		}
 	case *MachineEntry:
 		walk(n.Value)

@@ -96,6 +96,8 @@ var testHelpers = []struct{ key, base string }{
 	{"LitFloat", "ergoLitFloat"}, {"LitComplex", "ergoLitComplex"},
 	{"LitDuration", "ergoLitDuration"}, {"LitEntries", "ergoLitEntries"},
 	{"Seed", "ergoSeed"}, {"Tests", "ergoTests"},
+	{"Graph", "ergoGraph"}, {"Node", "ergoNode"}, {"ReachCap", "ergoReachCap"}, {"Explore", "ergoExplore"},
+	{"ExploreAll", "ergoExploreAll"}, {"ExploreRuns", "ergoExploreRuns"}, {"Trace", "ergoTrace"}, {"Refute", "ergoRefute"},
 }
 
 // helper is the Go name of the harness entity key.
@@ -136,6 +138,11 @@ func (l *lowerer) nameTests() {
 		}
 		for _, v := range law.Params {
 			reserveGen(v.Type)
+		}
+		if law.Decl.Reach != nil {
+			for _, t := range l.reachTypes(law) {
+				reserveGen(t)
+			}
 		}
 		for _, p := range l.canon.lawProviders(law) {
 			if p.Unrun == "" {
@@ -198,16 +205,22 @@ func (l *lowerer) runLaws() []*check.Law {
 // lawTitle is the name a law's report uses: Name at top level, Type.Name
 // for a member law.
 func lawTitle(law *check.Law) string {
-	if law.Owner != nil {
+	switch {
+	case law.Owner != nil:
 		return law.Owner.Name + "." + law.Name
+	case law.Machine != nil:
+		return law.Machine.Name + "." + law.Name
 	}
 	return law.Name
 }
 
 func (l *lowerer) lawFunc(law *check.Law) string {
 	base := "ergoLaw" + law.Name
-	if law.Owner != nil {
+	switch {
+	case law.Owner != nil:
 		base = "ergoLaw" + law.Owner.Name + law.Name
+	case law.Machine != nil:
+		base = "ergoLaw" + law.Machine.Name + law.Name
 	}
 	return l.pkgName(pkgKey{"law", law}, base)
 }
@@ -486,7 +499,7 @@ func (l *lowerer) testEntry(b *strings.Builder) {
 	b.WriteString("\t\treturn " + l.helper("Tests") + "(" + env + ", " + seed + ")\n")
 	b.WriteString("\t})\n}\n\n")
 	for _, law := range l.runLaws() {
-		if law.Unrun == "" {
+		if law.Unrun == "" && law.Decl.Reach == nil {
 			l.lawDecl(law)
 		}
 	}
@@ -597,6 +610,9 @@ func (l *lowerer) lawRuns(b *strings.Builder, law *check.Law, scope *namer, env,
 		b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip law "+title+": "+law.Unrun) + ")\n")
 		return
 	}
+	if l.machineLawRuns(b, law, scope, env, seed, failed) {
+		return
+	}
 	type target struct {
 		label string // the report's name of the run
 		p     *check.LawProvider
@@ -694,7 +710,7 @@ func (l *lowerer) harness() string {
 	for _, k := range keys {
 		pairs = append(pairs, "$"+k, names[k])
 	}
-	return strings.NewReplacer(pairs...).Replace(harnessGo)
+	return strings.NewReplacer(pairs...).Replace(harnessGo + harnessReachGo)
 }
 
 const harnessGo = `// $Assertion is a failed assert, the panic that ends its case (196l).
