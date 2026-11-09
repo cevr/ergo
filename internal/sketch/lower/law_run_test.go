@@ -559,12 +559,14 @@ func TestLawRunFindsTheBrokenProvider(t *testing.T) {
 	}
 }
 
-// lawRunFiles provides fs.Files four ways. Drifty's reads of a path both
-// fail NotFound, the second naming another path; Flaky's alternate
-// NotFound and "x"; Shifty's alternate Denied and NotFound; so none keeps
-// fs.Files.ReadIsRepeatable. Steady fails the empty path with NotFound
-// every time and reads "x" otherwise, so it keeps it, its failures
-// included (batch-12 M2, M2a).
+// lawRunFiles provides fs.Files six ways. Drifty's reads of a path both
+// fail NotFound, the second naming another path; DriftyDenied's both fail
+// Denied, the second naming another path; DriftyFailed's both fail Failed
+// with another Reason; Flaky's alternate NotFound and "x"; Shifty's
+// alternate Denied and NotFound; so none keeps fs.Files.ReadIsRepeatable.
+// Steady fails the empty path with NotFound every time and reads "x"
+// otherwise, so it keeps it, its failures included (batch-12 M2, M2a;
+// batch-13 fu8c: a same-kind arm of each kind compares the fields).
 const lawRunFiles = `import fs
 import sync
 
@@ -584,6 +586,40 @@ func ReadFile(f Drifty, path string) string fails fs.NotFound | fs.Denied | fs.F
 func ReadDir(f Drifty, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
 func Stat(f Drifty, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+type DriftyDenied { reads sync.Ref[int] }
+
+func NewDriftyDenied() DriftyDenied { DriftyDenied{reads: sync.NewRef[int](0)} }
+
+func ReadFile(f DriftyDenied, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	let n = f.reads.Get()
+	f.reads.Set(n + 1)
+	if n % 2 == 0 {
+		return fs.Denied{Path: path}
+	}
+	fs.Denied{Path: path + "/other"}
+}
+
+func ReadDir(f DriftyDenied, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+func Stat(f DriftyDenied, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+type DriftyFailed { reads sync.Ref[int] }
+
+func NewDriftyFailed() DriftyFailed { DriftyFailed{reads: sync.NewRef[int](0)} }
+
+func ReadFile(f DriftyFailed, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	let n = f.reads.Get()
+	f.reads.Set(n + 1)
+	if n % 2 == 0 {
+		return fs.Failed{Path: path, Reason: "busy"}
+	}
+	fs.Failed{Path: path, Reason: "gone"}
+}
+
+func ReadDir(f DriftyFailed, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+func Stat(f DriftyFailed, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
 type Flaky { reads sync.Ref[int] }
 
@@ -638,13 +674,14 @@ func main() {}
 // TestLawRunReadIsRepeatable: the std law fs.Files.ReadIsRepeatable
 // compares both reads' outcomes, so it refutes a provider whose reads
 // alternate a failure and a text (Flaky), two failure kinds (Shifty) or
-// one kind with other fields (Drifty), and holds for a steady one.
+// one kind with other fields (Drifty, DriftyDenied, DriftyFailed: one per
+// kind), and holds for a steady one.
 // fstest.Memory and the disk keep it in TestFSMemoryAgreesWithHost and
 // TestStdHostLawsHold. Mutants it kills: a first failed read that holds
 // the law vacuously (Flaky passes), a second failure that is not compared
 // with the first (Shifty passes), and a same-kind arm that compares no
-// field (Drifty passes). It
-// builds Go because the law runner, its provider builds and its seeded
+// field, in any of the three arms (Drifty, DriftyDenied or DriftyFailed
+// passes). It builds Go because the law runner, its provider builds and its seeded
 // cases exist only in the lowered test binary, and Flaky's state is a
 // sync.Ref that only the runtime runs; no in-process interpreter runs a
 // member law against a provider.
@@ -657,10 +694,12 @@ func TestLawRunReadIsRepeatable(t *testing.T) {
 	got := lines(stdout)
 	want := []string{
 		"FAIL law fs.Files.ReadIsRepeatable for Drifty (case ",
+		"FAIL law fs.Files.ReadIsRepeatable for DriftyDenied (case ",
+		"FAIL law fs.Files.ReadIsRepeatable for DriftyFailed (case ",
 		"FAIL law fs.Files.ReadIsRepeatable for Flaky (case ",
 		"FAIL law fs.Files.ReadIsRepeatable for Shifty (case ",
 		"ok law fs.Files.ReadIsRepeatable for Steady (",
-		"FAIL (3 of 4 tests)",
+		"FAIL (5 of 6 tests)",
 	}
 	if code != 1 || len(got) != len(want) {
 		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))

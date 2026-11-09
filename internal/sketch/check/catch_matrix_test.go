@@ -146,7 +146,9 @@ func TestCatchAlternativesBindTheSameNames(t *testing.T) {
 		{"record-then-type", "func f() int {\n\tg() catch { case E{N: x}, F: x }\n}", "S108:5"},
 		{"type-then-record", "func f() int {\n\tg() catch { case F, E{N: x}: x }\n}", "S108:5"},
 		{"as-then-type", "func f() int {\n\tg() catch { case E as e, F: 0 }\n}", "S108:5"},
-		{"as-on-both", "type V = E | F\nfunc f() V {\n\tg() catch { case E as e, F as e: return e }\n\tE{N: 1}\n}", "S108:6"},
+		// Two failures join to their row value (TestCatchTreeAgrees);
+		// two field types that no union lists both have no join.
+		{"as-no-join", "type A { N int }\ntype B {}\ntype H { X A, Y B }\nfunc h() int fails H { 1 }\nfunc f() int {\n\th() catch { case H{X: A{N: 1} as z}, H{Y: _ as z}: 0 }\n}", "S108:9"},
 		{"same-names", "type G { N int }\nfunc h() int fails E | G { 1 }\nfunc f() int {\n\th() catch { case E{N: x}, G{N: x}: x }\n}", ""},
 		{"bound-twice", "func f() int {\n\tg() catch { case E{N: x} as x: 0; case F: 1 }\n}", "S108:5"},
 	} {

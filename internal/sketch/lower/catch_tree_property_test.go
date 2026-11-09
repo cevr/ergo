@@ -185,7 +185,13 @@ func (g *treeGen) catchArm(u *gType) *gArm {
 		if alts[0].kind == pWild || alts[1].kind == pWild {
 			continue
 		}
-		if k := g.r.IntN(3); k > 0 {
+		if k := g.r.IntN(4); k == 3 {
+			// Two error types bound by one name: it binds the row value
+			// of the two (rows.md, Totality 1; fu8a).
+			v, w := gTwoVariants(g, u)
+			alts = [2]*gPat{gJoinedAs(u, v, "b0"), gJoinedAs(u, w, "b0")}
+			a.names = []string{"b0"}
+		} else if k > 0 {
 			if b := g.catchBinds(u, k); b != nil {
 				alts = *b
 				a.names = []string{"b0", "b1"}[:k]
@@ -682,9 +688,17 @@ func TestCatchTreeAgrees(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("or-patterns over two error types, by names bound: %v", orBinds)
-	if orBinds[1] == 0 || orBinds[2] == 0 {
-		t.Errorf("no kept or-pattern binds one name (%d) or two swapped names (%d) across two error types", orBinds[1], orBinds[2])
+	joined := 0
+	for _, c := range catches {
+		for _, a := range c.arms {
+			if len(a.alts) == 2 && a.alts[0][0].joined {
+				joined++
+			}
+		}
+	}
+	t.Logf("or-patterns over two error types, by names bound: %v; binding the row value of two: %d", orBinds, joined)
+	if orBinds[1] == 0 || orBinds[2] == 0 || joined == 0 {
+		t.Errorf("no kept or-pattern binds one name (%d) or two swapped names (%d) across two error types, or one name the row value of two (%d)", orBinds[1], orBinds[2], joined)
 	}
 
 	tree := lowerSourceMode("tree", src.String(), false)

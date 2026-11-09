@@ -276,6 +276,10 @@ func (p *printer) fieldList(l *syntax.FieldList, open, close string) {
 	p.list(l.Opening, open, nodes(l.List), func(i int) {
 		f := l.List[i]
 		p.identList(f.Names, !p.listIndented)
+		if f.Any > 0 {
+			p.space()
+			p.token(f.Any, "any")
+		}
 		if f.Type != nil {
 			if len(f.Names) > 0 {
 				p.space()

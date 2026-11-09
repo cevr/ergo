@@ -39,18 +39,12 @@ func F()                               { _ = func() fails Fault[int] { return Fa
 	{"M3", "local-error-row", "S101", `type Fault {}
 func Identity(v Fault) int { return v }
 func F()                     { _ = func() fails Fault { return Fault } }`},
-	{"M4", "error-union-rethrow", "S108", `type A {}
+	// fu8a: e binds the row value of A and B alone, not of the whole row,
+	// so a match on it is total with two cases.
+	{"M4", "catch-alternatives-join", "", `type A {}
 type B {}
-func Fail() fails A | B { return A }
-func F() fails A | B {
-	Fail() catch {
-	case A as e, B as e:
-		return e
-	}
-}`},
-	{"M4", "catch-union-switch", "S108", `type A {}
-type B {}
-func Fail() fails A | B { return A }
+type C {}
+func Fail() fails A | B | C { return A }
 func F() {
 	Fail() catch {
 	case A as e, B as e:
@@ -60,18 +54,7 @@ func F() {
 		case B:
 			return
 		}
-	}
-}`},
-	{"M4", "catch-union-switch-not-total", "S108", `type A {}
-type B {}
-func Fail() fails A | B { return A }
-func F() {
-	Fail() catch {
-	case A as e, B as e:
-		match e {
-		case A:
-			return
-		}
+	case C:
 	}
 }`},
 	{"M5", "generic-named-constraint-inferred", "S108", `type I { M() }

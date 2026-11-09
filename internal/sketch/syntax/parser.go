@@ -487,9 +487,16 @@ func (p *parser) parseTypeDecl(doc *CommentGroup) *TypeDecl {
 	return d
 }
 
-// parseTypeParams parses `[T ordered]`, `[A, B]` or `[K comparable, V]`
-// with Go's grouping: names before a constraint share it, and names at the
-// end without one have none.
+// isAny reports the constraint name any.
+func isAny(x Expr) bool {
+	id, ok := x.(*Ident)
+	return ok && id.Name == "any"
+}
+
+// parseTypeParams parses `[T ordered]`, `[A, B]`, `[K comparable, V]` or
+// `[E any, K comparable]` with Go's grouping: names before a constraint
+// share it, names at the end without one have none, and `any` gives a group
+// none where a constrained group follows it.
 func (p *parser) parseTypeParams() *FieldList {
 	l := &FieldList{Opening: p.want(LBRACK)}
 	var pending []*Ident
@@ -505,6 +512,14 @@ func (p *parser) parseTypeParams() *FieldList {
 	}
 	if len(pending) > 0 {
 		l.List = append(l.List, &Field{Names: pending})
+	}
+	// `any` ends a group of unconstrained parameters before a constrained
+	// group: `[E any, K comparable]`. Anywhere else it is the checker's
+	// "Ergo has no any" (types.md, Generics 2).
+	for i, f := range l.List[:max(len(l.List)-1, 0)] {
+		if isAny(f.Type) && l.List[i+1].Type != nil && !isAny(l.List[i+1].Type) {
+			f.Any, f.Type = f.Type.Pos(), nil
+		}
 	}
 	if p.tok.tok != RBRACK {
 		p.errorf("expected \"]\" or \",\", found %s", p.found())
