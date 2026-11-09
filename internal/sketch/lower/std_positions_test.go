@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -186,6 +187,9 @@ func useSource(c stdMatchFunc, method bool) string {
 		args[i] = "p" + strconv.Itoa(i)
 		params[i] = args[i] + " " + p.Type.String()
 	}
+	if check.TakesWorkSend(c.fn) {
+		return workUseSource(c, params, args)
+	}
 	b.WriteString("(" + strings.Join(params, ", ") + ")")
 	// The rest of the signature as the checker spells it: results, fails
 	// and needs.
@@ -214,6 +218,62 @@ func useSource(c stdMatchFunc, method bool) string {
 	}
 	b.WriteString(" {\n\t" + call + "\n}\n")
 	return b.String()
+}
+
+// workUseSource is the use of a function that needs the work capability
+// (check.TakesWorkSend): the call sits in a Listen work's function, the
+// only place the child rule admits it, and the work's send is its first
+// argument, so use takes the other parameters and returns the work.
+//
+// A written row argument has one element (Work[E, R]), so the work's row
+// is the needs row's one concrete element, and each row parameter of that
+// row is bound to it (R | Scheduler with R = Scheduler is Scheduler). The
+// rows are erased in Go, so the lowered body is the same.
+func workUseSource(c stdMatchFunc, params, args []string) string {
+	sig := c.fn.Sig
+	var bound []string
+	concrete := ""
+	for _, e := range sig.Uses.Elems() {
+		if tp, ok := e.(*check.TypeParam); ok {
+			bound = append(bound, tp.Name)
+		} else if concrete == "" {
+			concrete = e.String()
+		} else {
+			panic(fmt.Sprintf("%s.%s needs %s: a written work row has one element", c.pkg.Path, c.fn.Name, sig.Uses))
+		}
+	}
+	if concrete == "" {
+		panic(fmt.Sprintf("%s.%s needs %s: no concrete element to bind its row parameters to", c.pkg.Path, c.fn.Name, sig.Uses))
+	}
+	bind := func(s string) string {
+		for _, n := range bound {
+			s = regexp.MustCompile(`\b`+n+`\b`).ReplaceAllString(s, concrete)
+		}
+		return s
+	}
+	var names []string
+	for _, tp := range sig.TParams {
+		if !slices.Contains(bound, tp.Name) {
+			names = append(names, tp.Name)
+		}
+	}
+	head := "func use"
+	if len(names) > 0 {
+		head += "[" + strings.Join(names, ", ") + "]"
+	}
+	// The work's function captures use's parameters, so a function-typed
+	// one is escaping (types.md, Function values 2).
+	for i, p := range sig.Params {
+		if s, ok := p.Type.(*check.Signature); ok && s.NonEscaping && i > 0 {
+			params[i] = args[i] + " escaping " + p.Type.String()
+		}
+	}
+	send := sig.Params[0].Type.(*check.Signature)
+	work := "machines.Work[" + send.Params[0].Type.String() + ", " + concrete + "]"
+	args[0] = "send"
+	return head + "(" + bind(strings.Join(params[1:], ", ")) + ") " + work + " {\n\t" +
+		work + "{Listen: func(send " + sig.Params[0].Type.String() + ") needs " + concrete + " {\n\t\tlet _ = " +
+		c.pkg.Name + "." + c.fn.Name + "(" + strings.Join(args, ", ") + ")\n\t}}\n}\n"
 }
 
 // programSources are the files of a program of files files that calls c

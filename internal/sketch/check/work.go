@@ -335,8 +335,12 @@ func (c *checker) markWorkSend(listen syntax.Expr) {
 // childPath and childName name std actor.Child.
 const childPath, childName = "actor", "Child"
 
-// isStdChild reports whether f is std actor.Child.
-func isStdChild(f *Func) bool {
+// TakesWorkSend reports whether a call of f needs the work capability: its
+// first argument must be the send of the Listen work that encloses the
+// call (the child rule; today std actor.Child only). A tool that builds a
+// call of a std function, such as the lowering's std-positions probe,
+// asks this predicate to place the call where the rule admits it.
+func TakesWorkSend(f *Func) bool {
 	return f != nil && f.Name == childName && f.Pkg != nil && f.Pkg.std && f.Pkg.Path == childPath
 }
 
