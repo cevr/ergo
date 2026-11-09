@@ -668,15 +668,23 @@ func (fc *funcCtx) update(x *syntax.CompositeLit, t check.Type, td *typeDecl) st
 //	b := s
 //	T{F: v, G: b.G}
 //
-// These are field moves, as hand Go writes them; nothing is allocated.
+// These are field moves, as hand Go writes them; nothing is allocated. A
+// base that lowers to a Go variable or field path is read in place when no
+// named value writes statements (so none can run before the reads): the
+// literal is then T{F: v, G: s.G}, with no copy of the base.
 func (fc *funcCtx) spread(x *syntax.CompositeLit, t check.Type, td *typeDecl, copies []check.Spread) string {
 	base := fc.value(x.Base)
-	b := "_"
-	if len(copies) > 0 {
+	b := base
+	inPlace := isGoPath(base)
+	for _, e := range x.Elts {
+		inPlace = inPlace && !fc.emits(e.(*syntax.KeyValueExpr).Value)
+	}
+	switch {
+	case len(copies) == 0:
+		fc.line("_ = " + base)
+	case !inPlace:
 		b = fc.temp("b")
 		fc.line(b + " := " + base)
-	} else {
-		fc.line("_ = " + base)
 	}
 	var parts []string
 	var values []syntax.Expr
@@ -704,6 +712,22 @@ func (fc *funcCtx) spread(x *syntax.CompositeLit, t check.Type, td *typeDecl, co
 		}
 	}
 	return fc.goType(t) + "{" + strings.Join(parts, ", ") + "}"
+}
+
+// isGoPath reports whether s is a Go variable or a field path of one,
+// `a` or `a.b.c`: reading it has no effect and no cost.
+func isGoPath(s string) bool {
+	for _, part := range strings.Split(s, ".") {
+		if part == "" || part[0] >= '0' && part[0] <= '9' {
+			return false
+		}
+		for _, r := range part {
+			if r != '_' && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // elements lowers composite elements left to right; an elided-type element

@@ -38,9 +38,19 @@ func rebox(b Box[int]) Box[int] {
 	Box{..b, N: b.N + 1}
 }
 
+type Pos { At int, Tide int }
+
+type Moving { ..Pos, Turn int, Left string }
+
+type Stopped { ..Pos, Shells int }
+
+func halt(m Moving) Stopped {
+	Stopped{..m, Shells: m.Turn}
+}
+
 func main() needs Console {
 	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
-	Console.Println("\(step(w).Turn) \(collect(w).Shells) \(twice(w).Tide) \(rebox(Box{V: 1, N: 2}).N)")
+	Console.Println("\(step(w).Turn) \(collect(w).Shells) \(twice(w).Tide) \(rebox(Box{V: 1, N: 2}).N) \(halt(Moving{At: 1, Tide: 2, Turn: 3, Left: "x"}).Shells)")
 }
 `
 
@@ -53,6 +63,7 @@ import "testing"
 
 var sink Walk
 var boxSink Box[int]
+var stopSink Stopped
 
 func stepHand(w Walk) Walk {
 	n := w
@@ -60,14 +71,21 @@ func stepHand(w Walk) Walk {
 	return n
 }
 
+func haltHand(m Moving) Stopped {
+	return Stopped{At: m.At, Tide: m.Tide, Shells: m.Turn}
+}
+
 func TestRecordUpdateAllocsDriver(t *testing.T) {
 	w := Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	mv := Moving{At: 1, Tide: 2, Turn: 3, Left: "abc"}
 	for name, f := range map[string]func(){
 		"step":     func() { sink = w.step() },
 		"collect":  func() { sink = w.collect() },
 		"twice":    func() { sink = w.twice() },
 		"rebox":    func() { boxSink = rebox(boxSink) },
 		"stepHand": func() { sink = stepHand(w) },
+		"halt":     func() { stopSink = mv.halt() },
+		"haltHand": func() { stopSink = haltHand(mv) },
 	} {
 		if n := testing.AllocsPerRun(200, f); n != 0 {
 			t.Errorf("%s allocates %v times per call", name, n)
@@ -81,6 +99,9 @@ func TestRecordUpdateAllocsDriver(t *testing.T) {
 	}
 	if d := w.twice(); d != (Walk{At: 1, Tide: 4, Turn: 2, Shells: 4, Left: "abc"}) {
 		t.Errorf("w.twice() = %+v", d)
+	}
+	if s := mv.halt(); s != (Stopped{At: 1, Tide: 2, Shells: 3}) {
+		t.Errorf("mv.halt() = %+v", s)
 	}
 	if r := rebox(Box[int]{V: 7, N: 1}); r != (Box[int]{V: 7, N: 2}) {
 		t.Errorf("rebox = %+v", r)
@@ -96,6 +117,17 @@ func TestRecordUpdateAllocsDriver(t *testing.T) {
 		}
 	})
 	t.Logf("receipt: update %s; hand-written %s", update.String()+" "+update.MemString(), hand.String()+" "+hand.MemString())
+	spread := testing.Benchmark(func(b *testing.B) {
+		for range b.N {
+			stopSink = mv.halt()
+		}
+	})
+	spreadHand := testing.Benchmark(func(b *testing.B) {
+		for range b.N {
+			stopSink = haltHand(mv)
+		}
+	})
+	t.Logf("receipt: spread %s; hand-written %s", spread.String()+" "+spread.MemString(), spreadHand.String()+" "+spreadHand.MemString())
 }
 `
 
@@ -109,7 +141,7 @@ func TestRecordUpdateAllocsDriver(t *testing.T) {
 func TestRecordUpdateAllocs(t *testing.T) {
 	prog := mustLower(t, "update_alloc", updateAllocSource)
 	main := prog.mainGo()
-	for _, fn := range []string{"step", "collect", "twice", "rebox"} {
+	for _, fn := range []string{"step", "collect", "twice", "rebox", "halt"} {
 		body := goFuncBody(t, main, fn)
 		if strings.Contains(body, "new(") || strings.Contains(body, "&") {
 			t.Errorf("the update in %s takes an address or calls new:\n%s", fn, body)
