@@ -181,8 +181,8 @@ func (c *checker) checkExternParams() {
 // code, or "", before its binding is read (externAdapter). The Ergo
 // runtime and Go's unsafe are S108 whatever the signature. A path whose
 // first element has a dot is a module outside Go's standard library (Go's
-// own rule for module paths) and keeps its #202 text until module bindings
-// land (IG7).
+// own rule for module paths) and keeps its #202 text: IG7 binds module
+// packages through import go; a Level 2 adapter of one is a follow-up.
 func externTargetRefusal(f *Func) (string, string) {
 	path, _ := f.Decl.Extern.Split()
 	if path == runtimeModule || strings.HasPrefix(path, runtimeModule+"/") {
