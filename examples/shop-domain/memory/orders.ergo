@@ -13,8 +13,8 @@ type Log { cells sync.Ref[store] }
 // store is what a Log holds.
 type store { streams Map[string, []order.Event], states Map[string, order.State] }
 
-// New is an empty store.
-func New() Log {
+// NewLog is an empty store.
+func NewLog() Log {
 	Log{cells: sync.NewRef[store](store{streams: Map[string, []order.Event]{}, states: Map[string, order.State]{}})}
 }
 

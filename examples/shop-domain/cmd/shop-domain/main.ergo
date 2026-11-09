@@ -161,7 +161,7 @@ func run() fails os.Exit needs io.Stdin | io.Stdout | order.Orders {
 }
 
 func main() fails os.Exit needs Ambient {
-	with context { io.Stdin: io.NewHost(), io.Stdout: io.NewHost(), order.Orders: memory.New() } {
+	with context { io.Stdin: io.NewHost(), io.Stdout: io.NewHost(), order.Orders: memory.NewLog() } {
 		try run()
 	}
 }
@@ -170,7 +170,7 @@ func main() fails os.Exit needs Ambient {
 // "exit CODE: MESSAGE".
 func ran(script string) string {
 	let out = io.NewRecorder()
-	with context { io.Stdin: io.Input{Text: script}, io.Stdout: out, order.Orders: memory.New() } {
+	with context { io.Stdin: io.Input{Text: script}, io.Stdout: out, order.Orders: memory.NewLog() } {
 		run() catch {
 		case os.Exit as e:
 			io.Stdout.Println("exit \(e.Code): \(e.Message)")
