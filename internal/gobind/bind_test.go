@@ -108,8 +108,9 @@ func TestBindMappingProperty(t *testing.T) {
 }
 
 // TestGoStdBindingsMatchToolchain regenerates the embedded bindings of
-// Go's standard library with the host toolchain and compares them, as
-// TestPureErrorFuncs holds its table to GOROOT. Mutant: any edit of a
+// Go's standard library with the host toolchain and compares them; the
+// checker reads their rows in place of the deleted v1.PureErrorFuncs (G4's
+// error rule, IG2). Mutant: any edit of a
 // generated binding, or a mapping change not regenerated.
 func TestGoStdBindingsMatchToolchain(t *testing.T) {
 	v, err := gobind.GoVersion(os.Environ())
