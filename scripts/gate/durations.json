@@ -201,6 +201,10 @@
     "TestWalkReachesWhatTheKernelReaches": 0.07,
     "TestWritableAliasesFailTheSweep": 0.19
   },
+  "ergo.local/prototype/internal/gobind": {
+    "TestBindMappingProperty": 0.18,
+    "TestGoStdBindingsMatchToolchain": 0.92
+  },
   "ergo.local/prototype/internal/lawledger": {
     "TestCompare": 0,
     "TestParse": 0,
@@ -1166,6 +1170,9 @@
     "TestVerifyR7Probes": 0.01,
     "TestVerifyR8EqualTextIdentity": 0
   },
+  "ergo.local/prototype/internal/sketch/machinegraph": {
+    "TestGraphMatchesTheModel": 0.08
+  },
   "ergo.local/prototype/internal/sketch/std": {
     "TestCallsLedgerRun": 0,
     "TestCallsToEachFunctionCheck": 0,
@@ -1930,5 +1937,8 @@
   },
   "ergo.local/prototype/scripts/migrate196": {
     "TestWriteKeepsRowComments": 0
+  },
+  "ergo.local/prototype/scripts/mutants": {
+    "TestRunnerMatchesModel": 10.48
   }
 }

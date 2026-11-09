@@ -1,10 +1,12 @@
 {
   "ergo.local/prototype/cmd/ergo": 13.8,
   "ergo.local/prototype/internal/bindc": 14.2,
+  "ergo.local/prototype/internal/gobind": 2.2,
   "ergo.local/prototype/internal/migrate196": 0.6,
   "ergo.local/prototype/internal/residue": 0.6,
   "ergo.local/prototype/internal/sketch/check": 61.4,
   "ergo.local/prototype/internal/sketch/lower": 93.1,
+  "ergo.local/prototype/internal/sketch/machinegraph": 0.6,
   "ergo.local/prototype/internal/sketch/std": 2.3,
   "ergo.local/prototype/internal/sketch/syntax": 2.5,
   "ergo.local/prototype/internal/sketchfront": 3,
