@@ -17,6 +17,10 @@ func TestErgoRunMachineWork(t *testing.T) {
 	for name, want := range map[string]string{
 		"maps.ergo":   "results 2 x\nfailed none\nfailed down\n",
 		"listen.ergo": "ticks 9\nunavailable\n",
+		// MU5: an entry's work starts two children of one machine with
+		// actor.Child; their Emits come back through the map as the
+		// entry's signals.
+		"children.ergo": "saves 2 edits 3\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			src, err := os.ReadFile(filepath.Join("testdata", "work", name))

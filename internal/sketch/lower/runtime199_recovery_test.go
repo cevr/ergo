@@ -95,7 +95,7 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 		"After -> AfterSpan":       "guarded",
 		"deadlines.NewTimer -> Go": "guarded",
 		// actor.StartMachine's runner task and an entry's timer child (MU3).
-		"MachineStart -> Go":       "guarded",
+		"machineStart -> Go":       "guarded",
 		"Actor[S, E, D].arm -> Go": "guarded",
 		// An entry's work child (MU4).
 		"Actor[S, E, D].startWork -> Go": "guarded",

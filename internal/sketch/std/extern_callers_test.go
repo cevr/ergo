@@ -23,6 +23,7 @@ import (
 // here.
 var notHostExterns = map[string]string{
 	"actor.start":           "starts the program's machine on a task of the program, its timers on the bound Scheduler",
+	"actor.child":           "starts the program's machine as a child of the program's work's entry, its timers on the bound Scheduler",
 	"actor.noTimer":         "returns a constant duration (its file imports the runner's packages, so it is not marked pure)",
 	"actor.exitKind":        "waits for the end of the program's actor and reads its exit",
 	"actor.final":           "reads the Done decision of the program's actor",

@@ -213,6 +213,10 @@ var runtimeBindings = map[string]runtimeBinding{
 	"ActorFailure":   {},
 	"ActorHasLatest": {},
 	"ActorLatest":    {},
+	// MU5: MachineChild starts the child's task as a child of the caller's
+	// task, shielded from its stop (the owner entry stops it), and waits
+	// for nothing but the child's start, as MachineStart does.
+	"MachineChild": {wait: childWait},
 	// std exec (std-align S3c; stdlib.md, exec): Run waits for the program
 	// on the caller's task. Its cancel hook is the stop of that task: the
 	// body kills the program's process group and waits for the reap

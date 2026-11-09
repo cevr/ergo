@@ -171,6 +171,82 @@ func StartMachine[S, E, O, F, R](m Machine[S, E, O, F, R], capacity int, sink fu
 	}, capacity)
 }
 
+// child is start for a child of an entry (MU5; Go body MachineChild): out
+// gets each decision with deliver, which gives a child output to the
+// parent as a signal of the entry that owns the child.
+extern go ergo.local/prototype/runtime/v1.MachineChild func child[S, E, D, W, F, R, P](initial S, step func(s S, e E) D fails F needs R, fire func(at S, s S) D fails F needs R, delay func(s S) duration, workOf func(s S) W, hasWork func(w W) bool, work func(w W, send func(e E)) needs R, kind func(d D) int, next func(s S, d D) S, out func(d D, deliver func(p P)) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
+
+// Child runs m as an actor that the entry of the calling work owns
+// (runtime.md, Machines and actors 14), with an inbox of capacity
+// signals, and returns it; call it in a machine's work, with that work's
+// send. The child runs as StartMachine runs it. Its Emit and Done outputs
+// reach the parent through toParent, as signals of the entry that started
+// the child: one that arrives after that entry ended is dropped, never
+// stepped. When the entry ends, and when the parent ends, its children
+// stop, the last started first, each one with its own children first,
+// before the parent's timer and work stop and before its next entry
+// opens; a Send to a stopped child fails Stopped. Children are kept by
+// identity: two children of one machine are two children. A child's
+// failure ends only the child (ExitOf reads it); a child's defect ends the
+// parent. send names the entry's signal type, so toParent gives the
+// parent's signals; a Child outside a work is a defect.
+func Child[S, E, O, F, R, P](send func(e P), m Machine[S, E, O, F, R], capacity int, toParent func(o O) P) Actor[S, E, Decision[S, O], F] needs R | Scheduler {
+	child(m.Initial, m.Step, func(at S, s S) Decision[S, O] fails F needs R {
+		match m.After(at) {
+		case Some[Timeout[E]] as t:
+			try m.Step(s, t.Value.Signal)
+		case None:
+			Ignore
+		}
+	}, func(s S) duration {
+		match m.After(s) {
+		case Some[Timeout[E]] as t:
+			t.Value.In
+		case None:
+			noTimer()
+		}
+	}, m.Work, func(w Option[func(send func(e E)) needs R]) bool {
+		match w {
+		case Some[func(send func(e E)) needs R]:
+			true
+		case None:
+			false
+		}
+	}, func(w Option[func(send func(e E)) needs R], wsend func(e E)) needs R {
+		match w {
+		case Some[func(send func(e E)) needs R] as wk:
+			wk.Value(wsend)
+		case None:
+		}
+	}, func(d Decision[S, O]) int {
+		match d {
+		case Enter[S]:
+			0
+		case Stay[S]:
+			1
+		case Emit[S, O]:
+			2
+		case Ignore:
+			3
+		case Reject:
+			4
+		case Done[O]:
+			5
+		}
+	}, func(s S, d Decision[S, O]) S { machines.Next(s, d) }, func(d Decision[S, O], deliver func(p P)) needs R {
+		match d {
+		case Emit[S, O] as em:
+			deliver(toParent(em.Output))
+		case Done[O] as dn:
+			deliver(toParent(dn.Output))
+		case Enter[S]:
+		case Stay[S]:
+		case Ignore:
+		case Reject:
+		}
+	}, capacity)
+}
+
 // Observing an actor (MU12; runtime.md, Machines and actors 13). Each of
 // these is a loop over Changes, so it judges the state at its start, then
 // each committed state once, in order, and it releases its subscription
