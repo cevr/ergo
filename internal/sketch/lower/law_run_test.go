@@ -365,6 +365,21 @@ type Box[T] {
 	law Keeps(v T) { true },
 }
 
+type Runner[E] {
+	Run() fails E,
+	law Runs() { true },
+}
+
+// law-exempt: a constraint.
+type Named {
+	Name() string,
+}
+
+type Ranked[T Named] {
+	Rank(v T) int,
+	law Same(v T) { Rank(v) == Rank(v) },
+}
+
 type Fn { f func(int) int }
 
 func Area(_ Fn) int { 1 }
@@ -385,8 +400,10 @@ func main() {}
 	want := []string{
 		"skip law Shape.Positive for Fn: its values have no generator: func(int) int is a function type; a func NewFn() Fn with no rows would build one for each case",
 		"skip law Box.Keeps for Fns: its parameter v has no generator at Box[func(int) int]: func(int) int is a function type",
+		"skip law Runner.Runs: its operation type Runner has the row parameter E, and a run binds only type parameters",
+		"skip law Ranked.Same: its operation type Ranked constrains T by operations, and a run passes no witness",
 		"skip law Calls: its parameter f has no generator: func(int) int is a function type",
-		"PASS (0 tests, 3 skipped)",
+		"PASS (0 tests, 5 skipped)",
 	}
 	if code != 0 || !slices.Equal(lines(stdout), want) {
 		t.Errorf("exit %d, stdout:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, strings.Join(want, "\n"), firstLines(stderr, 8))
