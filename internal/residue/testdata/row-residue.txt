@@ -38,6 +38,7 @@ internal/sketch/lower/std_os_test.go	main needs os.Process, and the host provide
 internal/sketch/check/round11_identity_test.go	func l(fn func() needs Store, gn func() needs Store, hn func() needs Log) {}
 internal/sketch/format/rows_test.go	needs ROW, Put()
 internal/sketch/lower/generic_test.go	func apply[A, E, R](f func(A) A fails E needs R, x A) A fails E needs R {
+internal/sketch/std/actor/actor.ergo	step func(s S, e E) D fails F needs R, fire func(at S, s S) D fails F needs R, delay func(s S) duration, kind func(d D) int, next func(s S, d D) S, out func(d D) needs R, capacity int
 
 # the old spelling, named where it is refused: grammar.md rule 9, its diagnostics entry,
 # the parser comment on the parameter case, this check's own doc comment and its host
