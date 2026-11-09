@@ -99,8 +99,8 @@ func enters(d Decision[Flow, Result]) Option[Flow] {
 }
 
 // fold steps s over the signals as the actor would, with the work's
-// results given as signals; it stops at Done. (machines.Run needs the
-// work's Codes row although it never runs work: finding F1.)
+// results given as signals; it stops at Done. A Reject keeps the state,
+// as the live actor does; machines.Run would fail Rejected there.
 func fold(s Flow, signals []Signal) (Flow, Option[Result]) {
 	let mut at = s
 	for e in signals {

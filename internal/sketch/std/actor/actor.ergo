@@ -114,7 +114,7 @@ extern go ergo.local/prototype/runtime/v1.ActorNoTimer func noTimer() duration
 // and a state whose timer re-enters it would never let time pass. sink gets each Emit's output and Done's output, in order, on
 // the actor's task; Done then ends the actor. A machine with an input
 // starts as machines.Start(m, input).
-func StartMachine[S, E, O, F, R](m Machine[S, E, O, F, R], capacity int, sink func(o O) needs R) Actor[S, E, Decision[S, O], F] needs R | Scheduler {
+func StartMachine[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], capacity int, sink func(o O) needs R) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 	start(m.Initial, m.Step, func(at S, s S) Decision[S, O] fails F needs R {
 		match m.After(at) {
 		case Some[Timeout[E]] as t:
@@ -129,16 +129,16 @@ func StartMachine[S, E, O, F, R](m Machine[S, E, O, F, R], capacity int, sink fu
 		case None:
 			noTimer()
 		}
-	}, m.Work, func(w Option[func(send func(e E)) needs R]) bool {
+	}, m.Work, func(w Option[func(send func(e E)) needs W]) bool {
 		match w {
-		case Some[func(send func(e E)) needs R]:
+		case Some[func(send func(e E)) needs W]:
 			true
 		case None:
 			false
 		}
-	}, func(w Option[func(send func(e E)) needs R], send func(e E)) needs R {
+	}, func(w Option[func(send func(e E)) needs W], send func(e E)) needs W {
 		match w {
-		case Some[func(send func(e E)) needs R] as wk:
+		case Some[func(send func(e E)) needs W] as wk:
 			wk.Value(send)
 		case None:
 		}
@@ -190,7 +190,7 @@ extern go ergo.local/prototype/runtime/v1.MachineChild func child[S, E, D, W, F,
 // failure ends only the child (ExitOf reads it); a child's defect ends the
 // parent. send names the entry's signal type, so toParent gives the
 // parent's signals; a Child outside a work is a defect.
-func Child[S, E, O, F, R, P](send func(e P), m Machine[S, E, O, F, R], capacity int, toParent func(o O) P) Actor[S, E, Decision[S, O], F] needs R | Scheduler {
+func Child[S, E, O, F, R, W, P](send func(e P), m Machine[S, E, O, F, R, W], capacity int, toParent func(o O) P) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 	child(m.Initial, m.Step, func(at S, s S) Decision[S, O] fails F needs R {
 		match m.After(at) {
 		case Some[Timeout[E]] as t:
@@ -205,16 +205,16 @@ func Child[S, E, O, F, R, P](send func(e P), m Machine[S, E, O, F, R], capacity 
 		case None:
 			noTimer()
 		}
-	}, m.Work, func(w Option[func(send func(e E)) needs R]) bool {
+	}, m.Work, func(w Option[func(send func(e E)) needs W]) bool {
 		match w {
-		case Some[func(send func(e E)) needs R]:
+		case Some[func(send func(e E)) needs W]:
 			true
 		case None:
 			false
 		}
-	}, func(w Option[func(send func(e E)) needs R], wsend func(e E)) needs R {
+	}, func(w Option[func(send func(e E)) needs W], wsend func(e E)) needs W {
 		match w {
-		case Some[func(send func(e E)) needs R] as wk:
+		case Some[func(send func(e E)) needs W] as wk:
 			wk.Value(wsend)
 		case None:
 		}

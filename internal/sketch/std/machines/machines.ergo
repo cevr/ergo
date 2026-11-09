@@ -1,8 +1,9 @@
 // Package machines runs a machine as a pure fold over its signals
 // (docs/spec/runtime.md, Machines and actors 2, 8 and 9). A machine
-// declaration's value is a prelude Machine[S, E, O, F, R] (README Gap 46),
+// declaration's value is a prelude Machine[S, E, O, F, R, W] (README Gap 46),
 // so machines.Run(Shell{}, signals) takes any machine: the step's output O, error
-// row F and capability row R come from its step. The fold is ordinary
+// row F and capability row R come from its step, and W from its work. A
+// fold runs no work, so it needs R and never W (fumb-e). The fold is ordinary
 // Ergo code: a loop that calls the step once per signal. RunTimed is the
 // fold over signals at times on a virtual clock, with the states' timers
 // (the machine's after entry); it is the reference of the live runner, the
@@ -84,26 +85,27 @@ func Next[S, O](s S, d Decision[S, O]) S {
 // m.Start(input), computed for this call, and its step and timers are m's
 // (runtime.md, Machines and actors 10). Run(Start(m, input), signals) runs
 // a machine with an input.
-func Start[I, S, E, O, F, R](m InputMachine[I, S, E, O, F, R], input I) Machine[S, E, O, F, R] {
-	Machine[S, E, O, F, R]{Initial: m.Start(input), Step: m.Step, After: m.After, Work: m.Work}
+func Start[I, S, E, O, F, R, W](m InputMachine[I, S, E, O, F, R, W], input I) Machine[S, E, O, F, R, W] {
+	Machine[S, E, O, F, R, W]{Initial: m.Start(input), Step: m.Step, After: m.After, Work: m.Work}
 }
 
 // Initial is m's initial state.
-func Initial[S, E, O, F, R](m Machine[S, E, O, F, R]) S { m.Initial }
+func Initial[S, E, O, F, R, W](m Machine[S, E, O, F, R, W]) S { m.Initial }
 
 // Run steps m from its initial state over signals, in order, one at a
 // time: it ends at the first Done (Finished) or after the last signal
 // (Running), and fails Rejected at the first Reject. Each Emit's output is
 // kept, in order. A failure of the step ends the run with that failure.
-// Run has no clock: m's timers never fire (RunTimed runs them).
-func Run[S, E, O, F, R](m Machine[S, E, O, F, R], signals []E) Outcome[S, O] fails Rejected | F needs R {
+// Run has no clock: m's timers never fire (RunTimed runs them). Run runs no
+// work, so it needs the step's row R and not the work's W.
+func Run[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], signals []E) Outcome[S, O] fails Rejected | F needs R {
 	try From(m, m.Initial, signals)
 }
 
 // From is Run from the state s instead of m's initial state: Run(m, a ++ b)
 // is From(m, s, b) when Run(m, a) is Running with state s, its outputs
 // before From's.
-func From[S, E, O, F, R](m Machine[S, E, O, F, R], s S, signals []E) Outcome[S, O] fails Rejected | F needs R {
+func From[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S, signals []E) Outcome[S, O] fails Rejected | F needs R {
 	let mut at = s
 	let mut out = []O{}
 	for i, e in signals {
@@ -134,7 +136,7 @@ type armed[E] {
 
 // arm adds the timer of the entry epoch, which opened in s at now, to
 // timers: none when m.After(s) is None.
-func arm[S, E, O, F, R](timers []armed[E], m Machine[S, E, O, F, R], s S, now duration, epoch int) []armed[E] {
+func arm[S, E, O, F, R, W](timers []armed[E], m Machine[S, E, O, F, R, W], s S, now duration, epoch int) []armed[E] {
 	match m.After(s) {
 	case Some[Timeout[E]] as t:
 		timers.Append(armed[E]{At: now + t.Value.In, Epoch: epoch, Signal: t.Value.Signal})
@@ -182,7 +184,7 @@ func without[E](timers []armed[E], k int) []armed[E] {
 // timer due by end fires. A Reject of a timer's signal keeps the state,
 // as Ignore: no one asked. The run ends as Run's does, with Rejected's At
 // the index of the rejected signal in trace.
-func RunTimed[S, E, O, F, R](m Machine[S, E, O, F, R], trace []Timed[E], end duration) Outcome[S, O] fails Rejected | F needs R {
+func RunTimed[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], trace []Timed[E], end duration) Outcome[S, O] fails Rejected | F needs R {
 	let mut at = m.Initial
 	let mut out = []O{}
 	let mut now = 0s

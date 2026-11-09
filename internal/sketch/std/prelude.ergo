@@ -133,22 +133,23 @@ type Decision[S, O] = Enter[S] | Stay[S] | Emit[S, O] | Ignore | Reject | Done[O
 type Timeout[E] { In duration, Signal E }
 
 // Machine is a machine as a value: its initial state, its step, with the
-// step's output O, error row F and capability row R, and the timer of each
-// state (README Gap 46). A value of a machine declaration `type X
-// machine[S, E]` converts to Machine[S, E, O, F, R], with O, F and R read
-// from its step's signature and After from its `after` entry (None for
-// every state when it has none) and Work from its `work` entry: the Start
-// of the state's std machines.Work, which the runner calls with the
-// entry's send (None for every state when it has none; R then holds the
-// work's row too). So a function over any machine names them (std
-// machines.Run). A Machine is also an ordinary record: a test may build
+// step's output O, error row F and capability row R, the timer of each
+// state, and its work, whose capability row is W (README Gap 46). A value
+// of a machine declaration `type X machine[S, E]` converts to Machine[S,
+// E, O, F, R, W], with O, F and R read from its step's signature, After
+// from its `after` entry (None for every state when it has none), and
+// Work and W from its `work` entry: the Start of the state's std
+// machines.Work, which the runner calls with the entry's send (None for
+// every state when it has none; W is then empty). W is apart from R, so a
+// fold, which runs no work, needs R only (std machines.Run), and the
+// runner needs both. A Machine is also an ordinary record: a test may build
 // one from parts. The work's type is std machines.Work, not a prelude
 // name: every prelude name is one a program cannot declare.
-type Machine[S, E, O, F, R] {
+type Machine[S, E, O, F, R, W] {
 	Initial S,
 	Step func(s S, e E) Decision[S, O] fails F needs R,
 	After func(s S) Option[Timeout[E]],
-	Work func(s S) Option[func(send func(e E)) needs R],
+	Work func(s S) Option[func(send func(e E)) needs W],
 }
 
 // InputMachine is a machine whose initial state is a function of an input
@@ -156,11 +157,11 @@ type Machine[S, E, O, F, R] {
 // function `func(i I) S` converts to it, as one with an initial value
 // converts to Machine. std machines.Start gives the Machine that starts
 // from Start(input).
-type InputMachine[I, S, E, O, F, R] {
+type InputMachine[I, S, E, O, F, R, W] {
 	Start func(input I) S,
 	Step func(s S, e E) Decision[S, O] fails F needs R,
 	After func(s S) Option[Timeout[E]],
-	Work func(s S) Option[func(send func(e E)) needs R],
+	Work func(s S) Option[func(send func(e E)) needs W],
 }
 
 // Task is a started task: task.Go() { … } yields one
