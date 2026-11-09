@@ -90,14 +90,17 @@ const machineTimerEnd = 100
 
 // machineTimerProgram is a machine whose state Idle re-enters itself, with
 // one more output, each time its timer of In nanoseconds fires; RunTimed
-// runs it with no signal until machineTimerEnd, as the declared machine
-// Loop or as a Machine built from parts.
+// runs it with no signal until machineTimerEnd, on a bound
+// testing.VirtualClock (RunTimed reads the context's one clock), as the
+// declared machine Loop or as a Machine built from parts.
 func machineTimerProgram(in int64, parts bool) string {
 	m := "Loop{}"
 	if parts {
 		m = "Machine[St, Sig, int]{Initial: Idle{n: 0}, Step: step, After: timer}"
 	}
 	return fmt.Sprintf(`import machines
+import testing
+import time
 
 type Idle { n int }
 type Busy {}
@@ -131,15 +134,18 @@ type Loop machine[St, Sig] {
 }
 
 func main() needs Console {
-	let o = machines.RunTimed(%s, []machines.Timed[Sig]{}, duration(int64(%d))) catch {
-	case machines.Rejected:
-		return
-	}
-	match o {
-	case machines.Finished[St, int]:
-		Console.Println("finished")
-	case machines.Running[St, int] as r:
-		Console.Println("running \(len(r.Emitted))")
+	let c = testing.NewVirtualClock(0)
+	with context { Scheduler: c, time.Clock: c } {
+		let o = machines.RunTimed(%s, []machines.Timed[Sig]{}, duration(int64(%d))) catch {
+		case machines.Rejected:
+			return
+		}
+		match o {
+		case machines.Finished[St, int]:
+			Console.Println("finished")
+		case machines.Running[St, int] as r:
+			Console.Println("running \(len(r.Emitted))")
+		}
 	}
 }
 `, in, m, machineTimerEnd)
