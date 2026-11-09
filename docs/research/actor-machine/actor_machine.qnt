@@ -61,6 +61,14 @@
 //  14 skipBeforeStop:   an observer's loop ends at the end with states unread
 //  15 staleSnapshot:    a new observer's first state is one from before its start
 //  16 drainDrops:       Drain drops the last queued signal
+//  17 outputLate:       an Emit's output goes to the sink after its entry
+//                       is shown (the runner before fua-a)
+//
+// fua-a (runner rule 17): an Emit's output goes to the sink with the
+// commit that gives it, so no observer is shown an Emit's state before
+// its output was given (outputBeforeShown). The design gives it in the
+// commit step; mutant 17 owes it until a later giveOut, after the entry
+// opened and was shown.
 //
 // MU12 adds observers and the drain. Each observer of OBS may begin a
 // Changes loop at any point (a WaitFor, a SendAndWait, a Select are such
@@ -123,9 +131,10 @@ module actor_machine {
   // For each observer o of OBS: subAt is the state it was given at its
   // subscription (-1: not subscribed), bufs the states published to it
   // that it has not read, got the states it read, done that its loop
-  // ended (the actor ended and it read every state).
+  // ended (the actor ended and it read every state). fua-a: emits are the
+  // states an Emit wrote, owed those whose output the sink has not got.
   type Obs = { state: int, shown: int, subAt: int -> int, bufs: int -> List[int],
-    got: int -> List[int], done: int -> bool }
+    got: int -> List[int], done: int -> bool, emits: Set[int], owed: Set[int] }
   var ob: Obs
   // MU12: dr is the drain and the end. req: Drain was called (admission
   // closed, queued signals are still stepped). admitted and stepped are
@@ -169,7 +178,7 @@ module actor_machine {
     lastStepped' = SENDERS.mapBy(_ => -1),
     bad' = Set(),
     ob' = { state: 0, shown: 0, subAt: OBS.mapBy(_ => -1), bufs: OBS.mapBy(_ => []),
-      got: OBS.mapBy(_ => []), done: OBS.mapBy(_ => false) },
+      got: OBS.mapBy(_ => []), done: OBS.mapBy(_ => false), emits: Set(), owed: Set() },
     dr' = { req: false, admitted: Set(), stepped: Set(), endBy: "" },
   }
 
@@ -370,9 +379,13 @@ module actor_machine {
         bad' = if (d == "done") badNow.union(Set("doneSeen")) else badNow,
       },
       // Enter, Stay and Emit write the next state. Stay shows it at
-      // once; an entry shows it once its children run (arm).
+      // once; an entry shows it once its children run (arm). An Emit's
+      // output is given here, with its commit (mutant 17: owed until
+      // giveOut, after the entry is shown).
       ob' = if (d == "stay") publish({ ...ob, state: ob.state + 1 }, ob.state + 1)
-        else if (reenter) { ...ob, state: ob.state + 1 }
+        else if (reenter) { ...ob, state: ob.state + 1,
+          emits: if (d == "emit") ob.emits.union(Set(ob.state + 1)) else ob.emits,
+          owed: if (d == "emit" and MUTANT == 17) ob.owed.union(Set(ob.state + 1)) else ob.owed }
         else ob,
       dr' = if (d == "done" and MUTANT != 4) { ...dr, endBy: "done" } else dr,
     },
@@ -527,6 +540,17 @@ module actor_machine {
     answers' = answers, lastStepped' = lastStepped, bad' = bad, ob' = ob,
   }
 
+  // Mutant 17: the sink gets the owed outputs once the entry opened (the
+  // runner before fua-a called it after open's publish).
+  action giveOut = all {
+    ob.owed.size() > 0,
+    not(pending),
+    runner != "ended",
+    ob' = { ...ob, owed: Set() },
+    open' = open, dr' = dr,
+    keepRunner,
+  }
+
   action stutter = all {
     open' = open, ob' = ob, dr' = dr,
     keepRunner,
@@ -556,6 +580,7 @@ module actor_machine {
     any { subscribe(o), observe(o), observerEnds(o) },
     requestDrain,
     drainEnds,
+    giveOut,
     stutter,
   }
 
@@ -578,7 +603,10 @@ module actor_machine {
     oneLiveWorkPerEntry and timerOnlyInItsEntry and workOnlyInItsEntry and
     nothingAfterInterrupt and observersAfterWork and noStepAfterEnd and perSenderOrder and
     askAnsweredOnce and changesInOrderOnce and waitForMatchesReplay and nothingAfterEnd and
-    drainStepsQueued
+    drainStepsQueued and outputBeforeShown
+
+  // fua-a: no state an observer is shown, or may read, owes its output.
+  val outputBeforeShown = ob.owed.forall(i => i > ob.shown)
 
   // MU12 laws over the observers and the drain.
   // ChangesInOrderOnce: each observer reads consecutive written states,
@@ -617,6 +645,9 @@ module actor_machine {
   val noStopOvertakes = not(runner == "ended" and dr.endBy == "stop" and
     OBS.exists(o => not(ob.done.get(o)) and ob.bufs.get(o).length() > 0 and ob.subAt.get(o) >= 0))
   val noDrainEnd = not(dr.endBy == "drain" and dr.admitted.size() >= 2)
+  // fua-a witness: an observer reads a state an Emit wrote.
+  val noEmitSeen = not(OBS.exists(o =>
+    ob.got.get(o).indices().exists(i => ob.emits.contains(ob.got.get(o)[i]))))
 }
 
 module design2 { import actor_machine(MUTANT = 0, SENDERS = Set(0, 1)).* }
@@ -637,3 +668,4 @@ module notifyTwice { import actor_machine(MUTANT = 13, SENDERS = Set(0, 1)).* }
 module skipBeforeStop { import actor_machine(MUTANT = 14, SENDERS = Set(0, 1)).* }
 module staleSnapshot { import actor_machine(MUTANT = 15, SENDERS = Set(0, 1)).* }
 module drainDrops { import actor_machine(MUTANT = 16, SENDERS = Set(0, 1)).* }
+module outputLate { import actor_machine(MUTANT = 17, SENDERS = Set(0, 1)).* }
