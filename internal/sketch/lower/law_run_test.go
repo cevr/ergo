@@ -623,7 +623,11 @@ func main() {}
 // and holds for a steady one. fstest.Memory and the disk keep it in
 // TestFSMemoryAgreesWithHost and TestStdHostLawsHold. Mutants it kills: a
 // first failed read that holds the law vacuously (Flaky passes), and a
-// second failure that is not compared with the first (Shifty passes).
+// second failure that is not compared with the first (Shifty passes). It
+// builds Go because the law runner, its provider builds and its seeded
+// cases exist only in the lowered test binary, and Flaky's state is a
+// sync.Ref that only the runtime runs; no in-process interpreter runs a
+// member law against a provider.
 func TestLawRunReadIsRepeatable(t *testing.T) {
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_files", lawRunFiles)}, true)
 	if exes == nil {
