@@ -79,7 +79,7 @@ internal/sketch/lower/std_fs_test.go	TestFSFilesRuns	existing build at T7: T5 (t
 internal/sketch/lower/std_fs_test.go	TestFSWritesRuns	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_gaps_property_test.go	TestStdGapProperty	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_gaps_property_test.go	TestStdGapRealStd	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
-internal/sketch/lower/std_gaps_test.go	runGapProgram	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
+internal/sketch/lower/std_gaps_test.go	buildGapProgram	existing build at T7 (runGapProgram's, moved here by fu-small fs5): T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_io_lines_test.go	TestInputLinesMatchesModel	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_io_test.go	TestIOLaws	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
 internal/sketch/lower/std_io_test.go	TestIORuns	existing build at T7: T5 (ts-cut-lower) cuts or folds it, or writes its builds Go because line
