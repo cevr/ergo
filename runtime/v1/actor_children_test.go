@@ -171,7 +171,7 @@ func (dr *kdriver) work(t *rt.Task, s knode, _ func(ksig)) {
 	dr.mu.Unlock()
 	for i, sp := range kidsFor(dr.seed, s.id, s.entry, s.depth) {
 		id := childID(s.id, s.entry, i)
-		c := MachineChild(Site(sp.kind), t, dr.sl, knode{id: id, pentry: s.entry, depth: s.depth + 1},
+		c := MachineChild(Site(sp.kind), t, dr.sl, nil, knode{id: id, pentry: s.entry, depth: s.depth + 1},
 			dr.step, nil, func(knode) time.Duration { return noTimer },
 			func(s knode) knode { return s }, func(knode) bool { return true }, dr.work,
 			func(d kdec) int { return d.k }, knext,
@@ -569,7 +569,7 @@ func TestActorStepChildIsADefect(t *testing.T) {
 	next := func(s, _ int) int { return s }
 	var child *Actor[int, int, int]
 	childStep := func(t *rt.Task, s, e int) (int, error) {
-		_ = MachineChild(Site("a step's child"), t, sl, 0,
+		_ = MachineChild(Site("a step's child"), t, sl, nil, 0,
 			func(*rt.Task, int, int) (int, error) { return decideIgnore, nil }, nil, noTimer,
 			noWork[int], hasNoWork, runNoWork[int], kind, next, func(*rt.Task, int, func(int)) {}, 1)
 		return decideStay, nil
@@ -579,7 +579,7 @@ func TestActorStepChildIsADefect(t *testing.T) {
 		func(*rt.Task, int, int) (int, error) { return decideIgnore, nil }, nil, noTimer,
 		func(s int) bool { return s == 0 }, func(w bool) bool { return w },
 		func(wt *rt.Task, _ bool, _ func(int)) {
-			child = MachineChild(Site("child"), wt, sl, 0, childStep, nil, noTimer,
+			child = MachineChild(Site("child"), wt, sl, nil, 0, childStep, nil, noTimer,
 				noWork[int], hasNoWork, runNoWork[int], kind, next, func(*rt.Task, int, func(int)) {}, 1)
 			close(started)
 			<-wt.Done()

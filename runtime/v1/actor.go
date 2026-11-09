@@ -160,6 +160,12 @@ type Actor[S, E, D any] struct {
 	kidsEpoch uint64
 	kidsOpen  bool
 	kidsDone  chan struct{}
+	// The open entry's hosts (rule 16), guarded by kidsMu: the hosts, how
+	// many are not filled yet, and the release of the runner's wait to
+	// publish the entry (nil when it does not wait).
+	hosts     []hostCell
+	hostsLeft int
+	settle    func()
 	// report pushes a child's defect into its parent's inbox (nil for an
 	// actor that is no child); reported is set when it did, so the
 	// parent's stop does not raise it again.
@@ -181,8 +187,12 @@ type Actor[S, E, D any] struct {
 	timer   *rt.Handle[struct{}]
 	working *rt.Handle[struct{}] // the entry's work, nil when it has none
 	feeds   []*feed              // the started sources that may still run (rule 14)
-	epoch   uint64
-	bound   bool // the runner's task is in owners, as nil (runner)
+	// newHosts are the hosts the running step made (rule 16); hostSlot
+	// binds the actor to its runner's task, so NewHost finds it.
+	newHosts []hostCell
+	hostSlot rt.Slot
+	epoch    uint64
+	bound    bool // the runner's task is in owners, as nil (runner)
 }
 
 // The decisions of the prelude Decision, in the order kind gives them.
@@ -257,7 +267,12 @@ func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 // interruption: its owner entry stops it. A call outside a work is a
 // defect (ActorChildDefect); a call that races its entry's exit starts
 // nothing and raises rt.Interrupted, as the work is being interrupted.
-func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, initial S,
+//
+// host is actor.ChildIn's host (rule 16), nil for actor.Child: the child
+// starts only when host is an empty host of the calling work's entry, and
+// fills it; any other host is a defect (ActorHostDefect), with nothing
+// started.
+func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, host *Host[*Actor[S, E, D]], initial S,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
 	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
@@ -267,11 +282,18 @@ func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, initial 
 		panic(&ActorChildDefect{Site: string(span)})
 	}
 	var c *Actor[S, E, D]
-	adopted := owner.adopt(func(report func(*rt.Task, error) bool, deliver func(*rt.Task, P)) func() error {
+	var cell hostCell
+	if host != nil {
+		cell = host
+	}
+	adopted, hostOK := owner.adopt(cell, func(report func(*rt.Task, error) bool, deliver func(*rt.Task, P)) func() error {
 		c = machineStart(span, t, sl, initial, step, fire, delay, workOf, hasWork, work, kind, next,
 			func(ct *rt.Task, d D) { out(ct, d, func(p P) { deliver(ct, p) }) }, capacity, report)
 		return c.halt
-	})
+	}, func() { host.fill(c) })
+	if !hostOK {
+		panic(&ActorHostDefect{Site: string(span)})
+	}
 	if !adopted {
 		panic(rt.Interrupted)
 	}
@@ -356,6 +378,9 @@ func (a *Actor[S, E, D]) runner(at *rt.Task) (struct{}, error) {
 		owners.Store(at, nil)
 		a.bound = true
 	}
+	// The binding NewHost reads (rule 16): its storage is in the Actor, so
+	// it allocates nothing, and it lives as long as the runner's task.
+	at.Bind(&a.hostSlot, hostKey{}, hostRunner(a))
 	return a.loop(at)
 }
 
@@ -441,6 +466,7 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 		d, err = a.step(at, s, env.sig)
 	}
 	if err != nil {
+		a.closeNewHosts()
 		if env.kind == askSignal {
 			a.cur = nil
 			env.reply <- answer[S, D]{err: err}
@@ -449,6 +475,17 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 		return s, true, err
 	}
 	k := a.kind(d)
+	// The step's hosts (rule 16): an Enter's and an Emit's are bound in
+	// open, a Stay's to the current entry; any other decision enters no
+	// state, so they close.
+	if len(a.newHosts) > 0 {
+		switch k {
+		case decideStay:
+			a.bindNewHosts()
+		case decideIgnore, decideReject, decideDone:
+			a.closeNewHosts()
+		}
+	}
 	if k == decideStay {
 		// One lock for the decision and the commit (MU18).
 		s = a.next(s, d)
@@ -504,8 +541,13 @@ func (a *Actor[S, E, D]) open(at *rt.Task, s S) {
 		}
 	}()
 	a.openKids()
+	a.bindNewHosts()
 	a.arm(at, s)
-	a.startWork(at, s)
+	if settled := a.startWork(at, s); settled != nil {
+		// The entry has hosts and a work (rule 16): it is published once
+		// the work filled them, reached its first wait, or ended.
+		<-settled
+	}
 	opened = true
 	a.publish(s)
 }
@@ -517,15 +559,27 @@ func (a *Actor[S, E, D]) open(at *rt.Task, s S) {
 // when the push cannot be made (admission closed, or the work is being
 // stopped), the defect is the work's exit, which stopWork or finish
 // raises.
-func (a *Actor[S, E, D]) startWork(at *rt.Task, s S) {
+//
+// When the entry has hosts that are not filled (rule 16), it returns a
+// channel that is closed once the work filled them, reached its first
+// wait (rt.WhenWaiting), or ended, and nil otherwise.
+func (a *Actor[S, E, D]) startWork(at *rt.Task, s S) <-chan struct{} {
 	run, ok := a.work(s)
 	if !ok {
-		return
+		return nil
 	}
 	epoch := a.epoch
+	var settled chan struct{}
+	var settle func()
 	a.kidsMu.Lock()
 	a.kidsDone = make(chan struct{})
 	done := a.kidsDone
+	if a.hostsLeft > 0 {
+		settled = make(chan struct{})
+		var once sync.Once
+		settle = func() { once.Do(func() { close(settled) }) }
+		a.settle = settle
+	}
 	a.kidsMu.Unlock()
 	owner := &entryRef[S, E, D]{a: a, epoch: epoch, done: done}
 	holder := rt.NewScope(at)
@@ -537,6 +591,16 @@ func (a *Actor[S, E, D]) startWork(at *rt.Task, s S) {
 		defer owners.Delete(wt)
 		// A work that started children ends after their stop (rule 13).
 		defer owner.waitKids()
+		if settle != nil {
+			// The runner publishes the entry at the work's first wait, or
+			// at its end, whichever comes first (rule 16); this defer runs
+			// before waitKids waits.
+			cancel := rt.WhenWaiting(wt, settle)
+			defer func() {
+				cancel()
+				settle()
+			}()
+		}
 		send := func(e E) {
 			// Closed: the actor ended; the work has no one to tell.
 			_ = a.inbox.Push(wt, envelope[S, E, D]{kind: workSignal, sig: e, epoch: epoch})
@@ -556,6 +620,7 @@ func (a *Actor[S, E, D]) startWork(at *rt.Task, s S) {
 		}
 		return struct{}{}, err
 	})
+	return settled
 }
 
 // owners maps the task of a running work to its entry, and the task of a
@@ -583,8 +648,12 @@ type childOwner[P any] interface {
 	// adopt runs start, which starts a child with the entry's report and
 	// deliver and gives its halt, and keeps the child in the entry's
 	// list; false, with nothing started, when the entry no longer takes
-	// children (its exit began).
-	adopt(start func(report func(*rt.Task, error) bool, deliver func(*rt.Task, P)) func() error) bool
+	// children (its exit began). With a host h (rule 16), it starts the
+	// child only when h is an empty host of this entry, and then fills it
+	// (fill) under the same lock, so the entry's end, which closes its
+	// hosts, comes before the check or after the fill; hostOK is false,
+	// with nothing started, when h is not one.
+	adopt(h hostCell, start func(report func(*rt.Task, error) bool, deliver func(*rt.Task, P)) func() error, fill func()) (adopted, hostOK bool)
 }
 
 // entryRef is one entry of an actor, as its work's Child calls see it.
@@ -601,17 +670,24 @@ type kid struct {
 	halt func() error
 }
 
-func (r *entryRef[S, E, D]) adopt(start func(func(*rt.Task, error) bool, func(*rt.Task, E)) func() error) bool {
+func (r *entryRef[S, E, D]) adopt(h hostCell, start func(func(*rt.Task, error) bool, func(*rt.Task, E)) func() error, fill func()) (bool, bool) {
 	a := r.a
 	a.kidsMu.Lock()
 	defer a.kidsMu.Unlock()
 	if !a.kidsOpen || a.kidsEpoch != r.epoch {
-		return false
+		return false, true
+	}
+	if h != nil && !h.fillable(a, r.epoch) {
+		return false, false
 	}
 	halt := start(r.report, r.deliver)
 	a.kids = append(a.kids, &kid{halt: halt})
 	r.adopted.Store(true)
-	return true
+	if h != nil {
+		fill()
+		a.filledHostLocked()
+	}
+	return true, true
 }
 
 // deliver pushes the child output p as a signal of the entry, on the
@@ -657,6 +733,9 @@ func (a *Actor[S, E, D]) stopKids() error {
 	a.kidsMu.Lock()
 	ks, done := a.kids, a.kidsDone
 	a.kids, a.kidsOpen, a.kidsDone = nil, false, nil
+	// The entry ends: its hosts close first (rule 16), so a Get fails
+	// Stopped from here on and no fill comes after.
+	a.closeHostsLocked()
 	a.kidsMu.Unlock()
 	var exit error
 	for i := len(ks) - 1; i >= 0; i-- {
@@ -923,6 +1002,8 @@ func ActorLiveState[S, E, D any](t *rt.Task, a *Actor[S, E, D]) (S, error) {
 // defect joins the exit), and the Changes subscribers end. It waits for nothing a stop can interrupt.
 func (a *Actor[S, E, D]) finish(exit error) {
 	a.inbox.Close()
+	// The hosts a step that raised made (rule 16).
+	a.closeNewHosts()
 	// The children first, last started first (rule 13).
 	if err := a.stopKids(); err != nil {
 		exit = join(exit, err)
