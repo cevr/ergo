@@ -3,14 +3,14 @@
 // virtual-clock run of sched says.
 
 import jobq/jobs
-import jobq/memory
 import jobq/sched
 import queue
+import testing
 
 // pooled is the reports of a pool run of sched.Load(ns) under
 // sched.Shape(c) on the script.
 func pooled(c int, ns []int) []Report fails queue.Closed {
-	with context { jobs.Worker: jobs.Script, Scheduler: memory.Instant } { try Run(sched.Shape(c), sched.Load(ns)) }
+	with context { jobs.Worker: jobs.Script, Scheduler: testing.NewVirtualClock(0) } { try Run(sched.Shape(c), sched.Load(ns)) }
 }
 
 // kind is the outcome o without its time.
@@ -26,7 +26,7 @@ func kind(o jobs.Outcome) string {
 test ThreeJobsTwoWorkers {
 	let c = sched.Config{Workers: 2, Policy: jobs.Policy{Attempts: 3, Base: 100ms, Max: 1s}, Burst: 2, Every: 100ms}
 	let js = []jobs.Job{jobs.Job{ID: 1, Name: "a", Takes: 300ms, Flaky: 0, Fatal: false}, jobs.Job{ID: 2, Name: "b", Takes: 50ms, Flaky: 1, Fatal: false}, jobs.Job{ID: 3, Name: "c", Takes: 50ms, Flaky: 5, Fatal: false}}
-	let rs = try with context { jobs.Worker: jobs.Script, Scheduler: memory.Instant } { Run(c, js) }
+	let rs = try with context { jobs.Worker: jobs.Script, Scheduler: testing.NewVirtualClock(0) } { Run(c, js) }
 	assert len(rs) == 3
 	assert kind(rs[0].Out) == "done after 1"
 	assert kind(rs[1].Out) == "done after 2"

@@ -10,13 +10,13 @@
 import flag
 import io
 import jobq/jobs
-import jobq/memory
 import jobq/pool
 import jobq/sched
 import os
 import queue
 import strconv
 import strings
+import testing
 
 let Workers = flag.Int("workers", 2, "how many jobs run at once")
 let Attempts = flag.Int("attempts", 3, "how many times a job is tried")
@@ -184,7 +184,7 @@ func Reports(js []jobs.Job, rs []pool.Report) []string {
 // sleeps that end at once, or the exit it ends with.
 func session(args []string, input string) string {
 	let out = io.NewRecorder()
-	with context { io.Stdout: out, io.Stdin: io.Input{Text: input}, jobs.Worker: jobs.Script, Scheduler: memory.Instant } { run(args) } catch {
+	with context { io.Stdout: out, io.Stdin: io.Input{Text: input}, jobs.Worker: jobs.Script, Scheduler: testing.NewVirtualClock(0) } { run(args) } catch {
 	case os.Exit as e:
 		return out.Text() + "exit \(e.Code): \(e.Message)"
 	}

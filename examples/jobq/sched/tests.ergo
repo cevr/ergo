@@ -1,5 +1,4 @@
-// The queue's tests: a run worked by hand, and the laws restated as
-// property tests (#162).
+// The queue's tests: a run worked by hand. The laws run under ergo test.
 
 import jobq/jobs
 
@@ -35,53 +34,6 @@ test ARunWorkedByHand {
 	assert got[5] == "200ms start 2 try 2 on 2"
 	assert got[6] == "250ms done 2"
 	assert got[7] == "300ms done 1"
-}
-
-test NoJobLostHolds(c int, ns []int) {
-	let ends = Ends(Ran(c, ns))
-	for i in 1..len(ns)+1 {
-		assert count(ends, i) == 1
-	}
-	assert len(ends) == len(ns)
-}
-
-test AtMostNInFlightHolds(c int, ns []int) {
-	let n = InFlight(Ran(c, ns), Shape(c).Workers)
-	assert n >= 0 && n <= Shape(c).Workers
-}
-
-test StartsKeepTheRateHolds(c int, ns []int) {
-	let s = Shape(c)
-	if s.Every <= 0s {
-		return
-	}
-	let got = Starts(Ran(c, ns))
-	for i, a in got {
-		for j in i..len(got) {
-			assert int64(j-i+1) <= int64(s.Burst)+int64(got[j]-a)/int64(s.Every)+1
-		}
-	}
-}
-
-test RetriesWaitHolds(c int, ns []int) {
-	let mut until = Map[int, duration]{}
-	let mut last = 0s
-	for e in Ran(c, ns) {
-		assert AtOf(e) >= last
-		last = AtOf(e)
-		match e {
-		case Retrying as r:
-			until[r.ID] = r.Until
-		case Started as s:
-			match until.Get(s.ID) {
-			case Some[duration] as u:
-				assert s.At >= u.Value
-			case None:
-			}
-		case Succeeded:
-		case GaveUp:
-		}
-	}
 }
 
 // The laws are not vacuous: a run of ten jobs on two workers retries,

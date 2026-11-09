@@ -113,6 +113,8 @@ func finish(es []Entry, now duration, p jobs.Policy) ([]Entry, []Event) needs jo
 					case Enter[jobs.Phase] as n:
 						out = replaced(out, i, Entry{..e, S: Live{P: n.Next, Worker: 0}})
 						log = log.Append(Retrying{At: now, ID: e.Job.ID, N: r.N, Until: readyOf(n.Next)})
+					case Emit[jobs.Phase, jobs.Outcome]:
+						Unreachable("jobs.Step never emits")
 					case Stay[jobs.Phase]:
 					case Ignore:
 					case Reject:
@@ -170,6 +172,8 @@ func start(es []Entry, now duration, workers int, b limit.Bucket) ([]Entry, limi
 			case Enter[jobs.Phase] as n:
 				out = replaced(out, i, Entry{..e, S: Live{P: n.Next, Worker: w}})
 				log = log.Append(Started{At: now, ID: e.Job.ID, N: tryOf(n.Next), Worker: w})
+			case Emit[jobs.Phase, jobs.Outcome]:
+				Unreachable("jobs.Step never emits")
 			case Stay[jobs.Phase], Ignore, Reject, Done[jobs.Outcome]:
 				break
 			}
