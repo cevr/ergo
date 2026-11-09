@@ -38,10 +38,8 @@ import (
 // on the Decision, with the same interruption point at the end of each
 // iteration.
 //
-// A machine whose state union has a variant that is not a record, or more
-// than 255 variants, holds its state as the union itself (one field s):
-// the decision is still a value. The flat run takes only a step with no
-// error row, no owned parameter and no frame scope; any other run, a
+// The flat run takes only a step with no error row, no owned parameter and
+// no frame scope, of a state union of at most 255 variants; any other run, a
 // machine with an input, and a machine passed as a Machine value keep
 // std's loop. The reference is std's loop: machineLowering "interface",
 // set by a test or by a build with
@@ -62,8 +60,10 @@ var machineLowering string
 // value of the variant), "in" (the step's entry puts every flat state
 // into the first variant), "decide" (a returned Emit is a Stay), "union"
 // (a decision returned as the union is an Ignore), "loop" (the run
-// reports a Reject at the index after it) and "tagswitch" (a match on the
-// flat state switches on a wrong tag). Empty in every build.
+// reports a Reject at the index after it), "tagswitch" (a match on the
+// flat state switches on a wrong tag) and "carry-union" (the loop also
+// carries the state as the union, which allocates per signal). Empty in
+// every build.
 var machineMutant string
 
 // flatRunOn reports whether this build lowers runs flat.
@@ -75,7 +75,7 @@ type flatRun struct {
 	step     *check.Func
 	fd       *funcDecl
 	state    check.Type
-	variants []check.Type // nil: the state is held as the union itself
+	variants []check.Type // the state union's variants, by tag
 	goTypes  []string     // the variants' Go types, by tag
 	out      check.Type   // the step's output O
 	decision check.Type   // Decision[S, O]
@@ -166,22 +166,26 @@ func (l *lowerer) flatRunOf(tn *check.TypeName, x *syntax.CallExpr, c *check.Cal
 	p := &flatRun{tn: tn, step: step, fd: fd, state: m.state, out: decision.TArgs[1], decision: decision,
 		flat: l.pkgName(pkgKey{"machine flat", tn}, "ergoFlat"+tn.Name), stepName: l.pkgName(pkgKey{"machine flat step", tn}, "stepFlat"+tn.Name),
 		run: l.pkgName(pkgKey{"machine flat run", tn}, "ergoRun"+tn.Name)}
-	if n, ok := m.state.(*check.Named); ok {
-		if u, ok := n.Underlying().(*check.Union); ok && len(u.Variants) <= 255 {
-			p.variants = u.Variants
-			for _, v := range u.Variants {
-				vn, ok := v.(*check.Named)
-				if !ok {
-					p.variants = nil
-					break
-				}
-				if _, ok := vn.Underlying().(*check.Struct); !ok {
-					p.variants = nil
-					break
-				}
-			}
+	// A machine's state is a union of records (the checker refuses any
+	// other); a union of more than 255 variants keeps std's loop.
+	n, ok := m.state.(*check.Named)
+	if !ok {
+		return nil
+	}
+	u, ok := n.Underlying().(*check.Union)
+	if !ok || len(u.Variants) > 255 {
+		return nil
+	}
+	for _, v := range u.Variants {
+		vn, ok := v.(*check.Named)
+		if !ok {
+			return nil
+		}
+		if _, ok := vn.Underlying().(*check.Struct); !ok {
+			return nil
 		}
 	}
+	p.variants = u.Variants
 	// The outcome's variants and Rejected, at this call's instance: every
 	// call of tn's run has the same.
 	var finished, running, rejected check.Type
@@ -252,39 +256,33 @@ func (p *flatRun) helpers(tc *typeCtx) string {
 	S, O, F := tc.goType(p.state), tc.goType(p.out), p.flat
 	defect := `panic("ergo: defect: a state of the machine ` + p.tn.Name + ` that is none of its variants")`
 	b.WriteString("// " + F + " is a state of the machine " + p.tn.Name + " as a Go value (machinerun.go).\n")
-	if p.variants == nil {
-		b.WriteString("type " + F + " struct {\n\ts " + S + "\n}\n\n")
-		b.WriteString("func (" + F + ") of(·s· " + S + ") " + F + " { return " + F + "{s: ·s·} }\n\n")
-		b.WriteString("func (·f· " + F + ") state() " + S + " { return ·f·.s }\n\n")
-	} else {
-		b.WriteString("type " + F + " struct {\n\ttag uint8\n")
-		for i, v := range p.variants {
-			p.goTypes = append(p.goTypes, tc.goType(v))
-			b.WriteString("\t" + flatField(i) + " " + tc.goType(v) + "\n")
-		}
-		b.WriteString("}\n\n")
-		b.WriteString("func (" + F + ") of(·s· " + S + ") " + F + " {\n\tswitch ·v· := ·s·.(type) {\n")
-		for i, v := range p.variants {
-			tag, val := strconv.Itoa(i), "·v·"
-			switch machineMutant {
-			case "tag":
-				tag = "0"
-			case "payload":
-				val = tc.goType(v) + "{}"
-			}
-			b.WriteString("\tcase " + tc.goType(v) + ":\n\t\t_ = ·v·\n\t\treturn " + F + "{tag: " + tag + ", " + flatField(i) + ": " + val + "}\n")
-		}
-		b.WriteString("\t}\n\t" + defect + "\n}\n\n")
-		b.WriteString("func (·f· " + F + ") state() " + S + " {\n\tswitch ·f·.tag {\n")
-		for i, v := range p.variants {
-			val := "·f·." + flatField(i)
-			if machineMutant == "out" {
-				val = tc.goType(v) + "{}"
-			}
-			b.WriteString("\tcase " + strconv.Itoa(i) + ":\n\t\treturn " + val + "\n")
-		}
-		b.WriteString("\t}\n\t" + defect + "\n}\n\n")
+	b.WriteString("type " + F + " struct {\n\ttag uint8\n")
+	for i, v := range p.variants {
+		p.goTypes = append(p.goTypes, tc.goType(v))
+		b.WriteString("\t" + flatField(i) + " " + tc.goType(v) + "\n")
 	}
+	b.WriteString("}\n\n")
+	b.WriteString("func (" + F + ") of(·s· " + S + ") " + F + " {\n\tswitch ·v· := ·s·.(type) {\n")
+	for i, v := range p.variants {
+		tag, val := strconv.Itoa(i), "·v·"
+		switch machineMutant {
+		case "tag":
+			tag = "0"
+		case "payload":
+			val = tc.goType(v) + "{}"
+		}
+		b.WriteString("\tcase " + tc.goType(v) + ":\n\t\t_ = ·v·\n\t\treturn " + F + "{tag: " + tag + ", " + flatField(i) + ": " + val + "}\n")
+	}
+	b.WriteString("\t}\n\t" + defect + "\n}\n\n")
+	b.WriteString("func (·f· " + F + ") state() " + S + " {\n\tswitch ·f·.tag {\n")
+	for i, v := range p.variants {
+		val := "·f·." + flatField(i)
+		if machineMutant == "out" {
+			val = tc.goType(v) + "{}"
+		}
+		b.WriteString("\tcase " + strconv.Itoa(i) + ":\n\t\treturn " + val + "\n")
+	}
+	b.WriteString("\t}\n\t" + defect + "\n}\n\n")
 	u, ok := p.decision.(*check.Named).Underlying().(*check.Union)
 	if !ok {
 		ice(p.step.Decl.Name, "the prelude's Decision is not a union")
@@ -356,6 +354,9 @@ func (p *flatRun) runText(tc *typeCtx, outcome, finished, running, rejected chec
 	b.WriteString("\t·task· := " + taskOf("·env·") + "\n" + poll)
 	b.WriteString("\t·at· := " + F + "{}.of(·s·)\n")
 	b.WriteString("\t·out· := []" + O + "{}\n")
+	if machineMutant == "carry-union" {
+		b.WriteString("\tvar ·keep· " + S + "\n")
+	}
 	b.WriteString("\tfor ·i·, ·e· := range ·signals· {\n")
 	b.WriteString("\t\t·k·, ·next·, ·o· := " + step + "·at·, ·e·)\n")
 	b.WriteString("\t\tswitch ·k· {\n")
@@ -364,8 +365,14 @@ func (p *flatRun) runText(tc *typeCtx, outcome, finished, running, rejected chec
 	b.WriteString("\t\tcase 4:\n\t\t\treturn *new(" + tc.goType(outcome) + "), " + tc.goType(rejected) + "{" + fieldOf(rejected, "At") + ": " + at + "}\n")
 	b.WriteString("\t\tcase 5:\n\t\t\treturn " + tc.goType(finished) + "{" + fieldOf(finished, "State") + ": ·at·.state(), " + fieldOf(finished, "Output") + ": ·o·, " + fieldOf(finished, "Emitted") + ": ·out·}, nil\n")
 	b.WriteString("\t\t}\n")
+	if machineMutant == "carry-union" {
+		b.WriteString("\t\t·keep· = ·at·.state()\n")
+	}
 	b.WriteString("\t" + poll)
 	b.WriteString("\t}\n")
+	if machineMutant == "carry-union" {
+		b.WriteString("\t_ = ·keep·\n")
+	}
 	b.WriteString("\treturn " + tc.goType(running) + "{" + fieldOf(running, "State") + ": ·at·.state(), " + fieldOf(running, "Emitted") + ": ·out·}, nil\n")
 	b.WriteString("}\n\n")
 	return b.String()
@@ -379,9 +386,6 @@ func (p *flatRun) runText(tc *typeCtx, outcome, finished, running, rejected chec
 // nothing else with its state has no entry and no box.
 func (fc *funcCtx) flatEntry(p *flatRun, sf, s string) string {
 	fc.flatParam, fc.flatSubj = sf, map[string]bool{}
-	if p.variants == nil {
-		return "\t" + s + " := " + sf + ".s\n\t_ = " + s + "\n"
-	}
 	var b strings.Builder
 	b.WriteString("\tvar " + s + " " + fc.goType(p.state) + "\n")
 	b.WriteString("\tswitch " + sf + ".tag {\n")
@@ -404,7 +408,7 @@ func (fc *funcCtx) flatEntry(p *flatRun, sf, s string) string {
 // box and no type test. ok is false anywhere else, and when a type is none
 // of the state's variants.
 func (fc *funcCtx) flatTags(subject string, types []string) ([]int, bool) {
-	if fc.frame == nil || fc.frame.flat == nil || fc.frame.flat.variants == nil || !fc.flatSubj[subject] {
+	if fc.frame == nil || fc.frame.flat == nil || !fc.flatSubj[subject] {
 		return nil, false
 	}
 	tags := make([]int, len(types))
@@ -491,17 +495,15 @@ func (fc *funcCtx) flatReturn(x syntax.Expr) bool {
 
 // flatOf is the flat form of the state val, the value of x.
 func (p *flatRun) flatOf(fc *funcCtx, x syntax.Expr, val string) string {
-	if p.variants != nil {
-		if fc.flatSubj[val] {
-			return fc.flatParam
+	if fc.flatSubj[val] {
+		return fc.flatParam
+	}
+	if k := slices.Index(p.goTypes, fc.goType(fc.typeOf(x))); k >= 0 {
+		tag := strconv.Itoa(k)
+		if machineMutant == "tag" {
+			tag = "0"
 		}
-		if k := slices.Index(p.goTypes, fc.goType(fc.typeOf(x))); k >= 0 {
-			tag := strconv.Itoa(k)
-			if machineMutant == "tag" {
-				tag = "0"
-			}
-			return p.flat + "{tag: " + tag + ", " + flatField(k) + ": " + val + "}"
-		}
+		return p.flat + "{tag: " + tag + ", " + flatField(k) + ": " + val + "}"
 	}
 	return p.flat + "{}.of(" + fc.convertAt(x, val) + ")"
 }
