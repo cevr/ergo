@@ -1384,7 +1384,15 @@ func (p *parser) parseTypeArgs(x Expr) Expr {
 	saved := p.exprLev
 	p.exprLev = 1
 	for p.tok.tok != RBRACK {
-		ix.Indices = append(ix.Indices, p.parseType(ctxList))
+		a := p.parseType(ctxList)
+		// A row argument, `Job[A | B]`, `Exit[int, A | B]` (types.md,
+		// Generics 1): the operands of | as an expression's index reads them.
+		for p.tok.tok == OR {
+			pos := p.tok.pos
+			p.next()
+			a = &BinaryExpr{X: a, OpPos: pos, Op: OR, Y: p.parseType(ctxList)}
+		}
+		ix.Indices = append(ix.Indices, a)
 		if !p.got(COMMA) {
 			break
 		}

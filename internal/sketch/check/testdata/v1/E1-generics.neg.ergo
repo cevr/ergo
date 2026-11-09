@@ -20,6 +20,6 @@ func Gt[T](a, b T) bool {
 	a > b // want S108
 }
 
-func Kind[E](f func() int fails E, x E) int { // want S108
+func Kind[E](f func() int needs E, x E) int { // want S108
 	0
 }

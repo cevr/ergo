@@ -1146,6 +1146,6 @@ func isUnion(t Type) bool {
 // isRowValue reports the type of a `case err:` binding, an anonymous union
 // of error types (D-C3).
 func isRowValue(t Type) bool {
-	_, ok := t.(*Union)
-	return ok
+	u, ok := t.(*Union)
+	return ok && u.Row != nil
 }

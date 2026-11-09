@@ -90,6 +90,11 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 		}
 		return it
 	case *Union:
+		if t.Row != nil {
+			// A row value's members are a row: a row parameter's binding
+			// (a RowArg) flattens into it, as in substRow (q47).
+			return c.rowValue(c.substRow(t.Row, m))
+		}
 		u := &Union{Variants: make([]Type, len(t.Variants)), Bad: t.Bad}
 		for i, v := range t.Variants {
 			u.Variants[i] = c.subst(v, m)
@@ -230,6 +235,7 @@ const (
 	assignUnion                   // 4: a variant or a row value into its union
 	assignSignature               // 5: a function value into a function type with wider rows
 	assignMachine                 // 6: a machine declaration's value into the prelude Machine
+	assignRowValue                // 7: a row's member or a narrower row value into a row value
 )
 
 // assignment is the result of assignability: the clause that admitted the
@@ -353,6 +359,22 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			}
 		}
 		return assignment{clause: assignOperations, conv: Conversion{Kind: ConvOperations, From: v, To: t, Table: table, Instances: instances}}, ""
+	}
+	if rt, ok := t.(*Union); ok && rt.Row != nil {
+		// Clause 7 (q47): into a row value goes a value of one of its
+		// members, or a row value whose members it all holds, as a failure
+		// of those types goes into the row (rows.md, Error rows 5). Both
+		// sides are a Go error, so it converts nothing.
+		if rv, isRow := v.(*Union); isRow && rv.Row != nil {
+			if !rv.Row.subsetOf(c.types, rt.Row) {
+				return assignment{}, fmt.Sprintf("it may hold an error type that %s does not list", t)
+			}
+			return assignment{clause: assignRowValue}, ""
+		}
+		if !rt.Row.has(c.types, v) {
+			return assignment{}, fmt.Sprintf("%s is not one of its error types", v)
+		}
+		return assignment{clause: assignRowValue}, ""
 	}
 	if u := asUnion(t); u != nil {
 		if _, isNamed := t.(*Named); isNamed {
@@ -737,9 +759,8 @@ func comparableSeen(t Type, seen map[Type]bool) bool {
 		}
 		return true
 	case *Union:
-		if isRowValue(t) {
-			return false
-		}
+		// A row value compares as a union of its members does (q47): an
+		// error row parameter among them has no comparable constraint.
 		// A recursive union reaches itself through its named type.
 		if seen[t] {
 			return true
@@ -800,9 +821,8 @@ func equatableSeen(t Type, seen map[Type]bool) bool {
 		}
 		return true
 	case *Union:
-		if isRowValue(t) {
-			return false
-		}
+		// A row value compares as a union of its members does (q47): an
+		// error row parameter among them has no comparable constraint.
 		if seen[t] {
 			return true
 		}

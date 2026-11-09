@@ -268,6 +268,21 @@ func (c *checker) ungeneratable(t Type) string {
 			return u.String() + " is not a record, a union or a type over a generatable type"
 		case *Interface:
 			return t.String() + " is an operation type"
+		case *Union:
+			// A row value (q47): generated as one of its members, as a
+			// union is as one of its variants.
+			if len(u.Variants) == 0 {
+				return "the empty row has no value"
+			}
+			for _, v := range u.Variants {
+				if tp, ok := v.(*TypeParam); ok {
+					return tp.Name + " is an error row parameter, whose members are not known"
+				}
+				if s := why(v); s != "" {
+					return s
+				}
+			}
+			return ""
 		case *Signature:
 			return t.String() + " is a function type"
 		case *Pointer:

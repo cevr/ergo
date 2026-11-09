@@ -449,6 +449,14 @@ func (l *lowerer) printable(t check.Type, seen map[*check.Named]bool) bool {
 			}
 		}
 		return true
+	case *check.Union:
+		// A row value prints as its member (q47).
+		for _, v := range u.Variants {
+			if !l.printable(v, seen) {
+				return false
+			}
+		}
+		return len(u.Variants) > 0
 	case *check.Named:
 		if seen[u] {
 			return true
@@ -1084,6 +1092,10 @@ func (l *lowerer) genNamed(t check.Type, seen map[check.Type]bool, visit func(*c
 		for _, e := range u.Types {
 			l.genNamed(e, seen, visit)
 		}
+	case *check.Union:
+		for _, v := range u.Variants {
+			l.genNamed(v, seen, visit)
+		}
 	case *check.Named:
 		if seen[u] {
 			return
@@ -1148,9 +1160,54 @@ func (l *lowerer) genExpr(t check.Type, r, d string, scope *namer, site syntax.N
 		return tc.goType(u) + "{" + strings.Join(parts, ", ") + "}"
 	case *check.Named:
 		return l.genFunc(u, site) + "(" + r + ", " + d + ")"
+	case *check.Union:
+		// A row value (q47): a member, drawn as a union's variant is, in a
+		// function literal called at once.
+		inner := newNamer(scope)
+		ir, id := inner.alloc("r"), inner.alloc("d")
+		var body strings.Builder
+		l.genPick(&body, u, u.Variants, ir, id, inner, site)
+		return "func(" + ir + " *" + l.helper("Rand") + ", " + id + " int) error {\n" + body.String() + "}(" + r + ", " + d + ")"
 	}
 	ice(site, "a property parameter of type %s, which has no generator; the checker admits only generatable types", t)
 	return ""
+}
+
+// genPick writes the body that draws one of variants, the variants of the
+// union t or the members of the row value t: at d <= 0 one of least rank,
+// else any, each equally likely.
+func (l *lowerer) genPick(body *strings.Builder, t check.Type, variants []check.Type, r, d string, scope *namer, site syntax.Node) {
+	ranks := check.NewValueRanks()
+	least := -1
+	var small []check.Type
+	for _, v := range variants {
+		switch k := ranks.Rank(v); {
+		case k < 0:
+		case least < 0 || k < least:
+			least, small = k, []check.Type{v}
+		case k == least:
+			small = append(small, v)
+		}
+	}
+	if len(small) == 0 {
+		ice(site, "the union %s has no finite value; the checker admits only generatable types", t)
+	}
+	pick := func(vs []check.Type, depth string) {
+		if len(vs) == 1 {
+			body.WriteString("\t\treturn " + l.genExpr(vs[0], r, depth, scope, site) + "\n")
+			return
+		}
+		body.WriteString("\t\tswitch " + r + ".intn(" + strconv.Itoa(len(vs)) + ") {\n")
+		for i, v := range vs[:len(vs)-1] {
+			body.WriteString("\t\tcase " + strconv.Itoa(i) + ":\n\t\t\treturn " + l.genExpr(v, r, depth, scope, site) + "\n")
+		}
+		body.WriteString("\t\t}\n\t\treturn " + l.genExpr(vs[len(vs)-1], r, depth, scope, site) + "\n")
+	}
+	body.WriteString("\tif " + d + " <= 0 {\n")
+	pick(small, d+"-1")
+	body.WriteString("\t}\n\t{\n")
+	pick(variants, d+"-1")
+	body.WriteString("\t}\n")
 }
 
 // genFunc is the generator function of the named type n, emitted once.
@@ -1179,37 +1236,7 @@ func (l *lowerer) genFunc(n *check.Named, site syntax.Node) string {
 		}
 		body.WriteString("\treturn " + goType + "{" + strings.Join(parts, ", ") + "}\n")
 	case *check.Union:
-		ranks := check.NewValueRanks()
-		least := -1
-		var small []check.Type
-		for _, v := range under.Variants {
-			switch k := ranks.Rank(v); {
-			case k < 0:
-			case least < 0 || k < least:
-				least, small = k, []check.Type{v}
-			case k == least:
-				small = append(small, v)
-			}
-		}
-		if len(small) == 0 {
-			ice(site, "the union %s has no finite value; the checker admits only generatable types", n)
-		}
-		pick := func(vs []check.Type, depth string) {
-			if len(vs) == 1 {
-				body.WriteString("\t\treturn " + l.genExpr(vs[0], r, depth, scope, site) + "\n")
-				return
-			}
-			body.WriteString("\t\tswitch " + r + ".intn(" + strconv.Itoa(len(vs)) + ") {\n")
-			for i, v := range vs[:len(vs)-1] {
-				body.WriteString("\t\tcase " + strconv.Itoa(i) + ":\n\t\t\treturn " + l.genExpr(v, r, depth, scope, site) + "\n")
-			}
-			body.WriteString("\t\t}\n\t\treturn " + l.genExpr(vs[len(vs)-1], r, depth, scope, site) + "\n")
-		}
-		body.WriteString("\tif " + d + " <= 0 {\n")
-		pick(small, d+"-1")
-		body.WriteString("\t}\n\t{\n")
-		pick(under.Variants, d+"-1")
-		body.WriteString("\t}\n")
+		l.genPick(&body, n, under.Variants, r, d, scope, site)
 	default:
 		body.WriteString("\treturn " + goType + "(" + l.genExpr(under, r, d, scope, site) + ")\n")
 	}

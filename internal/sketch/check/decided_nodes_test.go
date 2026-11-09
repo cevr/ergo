@@ -257,7 +257,7 @@ func pass[A, E, R](f func() A fails E needs R) A fails E needs R { return try f(
 func main() {}
 `, nil},
 	{"type parameters", "a bracket parameter of two kinds", `
-func k[E](a E) fails E { return }
+func k[E](a E) needs E { return }
 func main() {}
 `, []string{"S108:2"}},
 	{"ordered constraint", "ordered is checked (stage E1): > is defined on T", `

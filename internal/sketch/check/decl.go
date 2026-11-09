@@ -1118,6 +1118,12 @@ func (c *checker) typExpr(x syntax.Expr, ctx *typeCtx) Type {
 	if tp, ok := t.(*TypeParam); ok && tp.conflict {
 		return invalid
 	}
+	if tp, ok := t.(*TypeParam); ok && tp.Kind == KindErrors {
+		// An error row parameter in a type position names the row's value
+		// type, the type of a `case err:` binding (types.md, Generics 1;
+		// rows.md, Catch 7; q47).
+		return c.rowValue(c.types.row(tp))
+	}
 	if tp, ok := t.(*TypeParam); ok && tp.Kind != KindType {
 		c.errorf(x, CodeType, "%s is %s parameter, not a type", tp.Name, tp.Kind)
 		return invalid
@@ -1379,6 +1385,16 @@ func (c *checker) instantiateExprs(n *Named, args []syntax.Expr, at syntax.Node,
 			targs[i] = ra
 			continue
 		}
+		if b, ok := unparen(a).(*syntax.BinaryExpr); ok && b.Op == syntax.OR {
+			// A row written for a type parameter is the row's value type,
+			// as an error row parameter there is (Generics 1; q47).
+			ra := c.rowArg(a, KindErrors, ctx)
+			if ra == nil {
+				return invalid
+			}
+			targs[i] = c.rowValue(ra.Row)
+			continue
+		}
 		t := c.typExpr(a, ctx)
 		if isInvalid(t) {
 			return invalid
@@ -1470,18 +1486,20 @@ func (c *checker) rowExpr(xs []syntax.Expr, kind Kind, ctx *typeCtx) *Row {
 	return row
 }
 
-// rowArg resolves a written row argument of a generic type or function: one
-// element, as a row of one, or a named row, as the row of its variants. A
-// refused element gives nil, so the instance is invalid, as an invalid type
-// argument makes it.
+// rowArg resolves a written row argument of a generic type or function: its
+// elements, `A | B`, each as a row of one or a named row, as the row of its
+// variants. A refused element gives nil, so the instance is invalid, as an
+// invalid type argument makes it.
 func (c *checker) rowArg(x syntax.Expr, kind Kind, ctx *typeCtx) *RowArg {
-	t := c.rowElem(x, kind, ctx)
-	if t == nil {
-		return nil
-	}
 	row := newRow()
-	for _, e := range rowMembers(t) {
-		row = row.with(c.types, e)
+	for _, leaf := range orLeaves(x) {
+		t := c.rowElem(leaf, kind, ctx)
+		if t == nil {
+			return nil
+		}
+		for _, e := range rowMembers(t) {
+			row = row.with(c.types, e)
+		}
 	}
 	return &RowArg{Row: row}
 }
@@ -1930,10 +1948,14 @@ func (c *checker) kindBracketParams(ft *syntax.FuncType, ctx *typeCtx, unconstra
 			return
 		}
 		if prev, ok := seen[tp]; ok {
-			if prev != k {
+			j, ok := joinKinds(prev, k)
+			if !ok {
 				tp.conflict = true
 				c.errorf(id, CodeType, "%s is used as %s and as %s; a parameter has one kind (types.md, Generics 1)", id.Name, prev, k)
+				return
 			}
+			seen[tp] = j
+			tp.Kind = j
 			return
 		}
 		seen[tp] = k

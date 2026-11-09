@@ -46,14 +46,13 @@ func main() needs Console {
 }
 
 // TestStructuralEqualityRefusals: comparability is still Go's where a Map
-// key, a comparable constraint or a type set reads it, and a function and a
-// row value have no equality.
+// key, a comparable constraint or a type set reads it, and a function has
+// no equality (a row value compares as a union of its members, q47).
 func TestStructuralEqualityRefusals(t *testing.T) {
 	for name, tc := range map[string]struct{ src, want string }{
 		"map-key":    {eqDecls + "func f(m Map[Value, int]) int { len(m) }\n", "map key type Value is not comparable"},
 		"constraint": {eqDecls + "func eq[T comparable](a T, b T) bool { a == b }\nfunc f(a Value) bool { eq(a, a) }\n", "Value is not comparable"},
 		"function":   {"func f(g escaping func() int) bool { g == g }\n", "func() int values cannot be compared with =="},
-		"row-value":  {"type E { N []int }\ntype F {}\nfunc g() int fails E | F { 1 }\nfunc f() int { g() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } } }\n", "(E | F, int) values cannot be compared with =="},
 	} {
 		t.Run(name, func(t *testing.T) {
 			o := lowerSource("refuse"+name, tc.src+"\nfunc main() {}\n", true)

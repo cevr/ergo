@@ -682,6 +682,11 @@ func (c *checker) assignElems(x syntax.Expr, types []Type, declared Type) {
 // escapes: {t} for an error type, the variants for the binding of a catch
 // arm that names several error types (rows.md, Catch 7; M4), else nil.
 func (c *checker) errorValueRow(t Type) *Row {
+	if u, ok := t.(*Union); ok && u.Row != nil {
+		// A row value is a failure of its row, error row parameters
+		// included (rows.md, Error rows 8; q47).
+		return u.Row
+	}
 	if u, ok := t.(*Union); ok {
 		row := newRow()
 		for _, v := range u.Variants {

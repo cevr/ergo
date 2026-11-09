@@ -106,7 +106,7 @@ func F() { _ = Box{S} }`},
 	// D3a: a record field holds no Task, so the field is a function type.
 	{"M6", "bracket-row-in-generic-field", "", `type Box[T, E] { run func() T fails E }
 func Open[T, E](b Box[T, E]) T fails E { return b.run() }`},
-	{"M6", "row-kind-conflict-still-reported", "S108", `func Bad[T, E](t Task[T, E], e E) T { return t.Wait() }`},
+	{"M6", "row-kind-conflict-still-reported", "S108", `func Bad[T, R](f func() T needs R, r R) T needs R { f() }`},
 	{"M7", "generic-recursive-value", "S108", `type Wrap[T] { Value T }
 type U { Field Wrap[U] }
 func F() U { return U{} }`},
