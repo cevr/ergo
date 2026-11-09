@@ -240,6 +240,13 @@ func (v *Virtual) Steps() int {
 	return v.steps
 }
 
+// sleepGap, when set, runs in sleep between the clock's unlock and the
+// select: the window in which the sleeper's own deadline may have fired
+// (it parked last and moved the clock) and a stop may come before it
+// selects. Only rt's tests set it (TestVirtualSleepTieEndsAsSleep); on
+// another host or under load a preemption opens the same window.
+var sleepGap func(*Task)
+
 // sleep is Sleep on an auto clock: the sleeper parks when it is a member
 // of v, and an idle domain wakes it at its deadline. A stop ends the sleep
 // and removes the timer.
@@ -267,6 +274,9 @@ func (v *Virtual) sleep(t *Task, d time.Duration) error {
 		m = nil
 	}
 	v.mu.Unlock()
+	if sleepGap != nil {
+		sleepGap(t)
+	}
 	select {
 	case <-tm.c:
 		m.unpark()

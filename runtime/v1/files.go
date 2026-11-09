@@ -82,11 +82,42 @@ type Body struct {
 	// and calls no unknown code, so the checker's footprint treats the call
 	// as transparent (docs/spec/stdlib.md, Pure bodies).
 	Pure bool
+	// Host reports a body marked //ergo:host: it reaches host state (a
+	// file, a stream, the environment, a process, the clock, the host's
+	// random source), so a std function that calls it holds the host
+	// authority (docs/spec/stdlib.md, Host packages 7). An exported body
+	// that reaches a host member (hostReach) and is not marked is refused.
+	Host bool
 }
 
 // PureMark is the directive line that marks a body pure, in the doc
 // comment of an exported top-level function.
 const PureMark = "//ergo:pure"
+
+// HostMark is the directive line that marks a body that reaches host
+// state, in the doc comment of an exported function or method.
+const HostMark = "//ergo:host"
+
+// HostImports are the Go packages each of whose members reaches host
+// state. hostReach refuses an unmarked body that names one.
+var HostImports = []string{"os", "os/exec", "os/signal", "syscall", "net"}
+
+// HostMembers names, for a Go package outside HostImports, its members
+// that reach host state: time's are PureImportHostMembers' (the clock, its
+// timers, the local zone), and math/rand/v2's are its top-level draws
+// from the host-seeded global source. Every other member computes on its
+// arguments (rand.New over a seeded PCG is a program's stream).
+var HostMembers = map[string][]string{
+	"time": PureImportHostMembers["time"],
+	"math/rand/v2": {"ExpFloat64", "Float32", "Float64", "Int", "Int32", "Int32N", "Int64", "Int64N", "IntN",
+		"N", "NormFloat64", "Perm", "Shuffle", "Uint", "Uint32", "Uint32N", "Uint64", "Uint64N", "UintN"},
+}
+
+// hostMember reports whether member of the Go package path reaches host
+// state.
+func hostMember(path, member string) bool {
+	return slices.Contains(HostImports, path) || slices.Contains(HostMembers[path], member)
+}
 
 // PureImports are the Go packages a file may import when one of its bodies
 // is marked pure: packages that compute on values and reach no host state,
@@ -160,6 +191,20 @@ type goDecl struct {
 	// locals are the file's import paths by the local name it gives them.
 	locals map[string]string
 	values map[string]bool // shared by every goDecl of one parse
+	index  *declIndex      // shared by every goDecl of one parse
+}
+
+// declIndex holds every top-level function and variable of a parsed
+// package, exported or not, by name, with its file's local import names:
+// the graph hostReach walks.
+type declIndex struct {
+	funcs, vars map[string][]reachDecl
+}
+
+// reachDecl is one declaration that hostReach may visit.
+type reachDecl struct {
+	node   ast.Node
+	locals map[string]string
 }
 
 // goDecls are the exported functions, methods and types of a package's
@@ -251,6 +296,7 @@ func parseDecls(fsys fs.FS) (goDecls, error) {
 	}
 	decls := goDecls{}
 	values := map[string]bool{}
+	index := &declIndex{funcs: map[string][]reachDecl{}, vars: map[string][]reachDecl{}}
 	fset := token.NewFileSet()
 	for _, name := range names {
 		if strings.HasSuffix(name, "_test.go") {
@@ -271,7 +317,7 @@ func parseDecls(fsys fs.FS) (goDecls, error) {
 		for _, imp := range f.Imports {
 			p, _ := strconv.Unquote(imp.Path.Value)
 			imports = append(imports, p)
-			local := p[strings.LastIndex(p, "/")+1:]
+			local := importName(p)
 			if imp.Name != nil {
 				local = imp.Name.Name
 			}
@@ -287,7 +333,7 @@ func parseDecls(fsys fs.FS) (goDecls, error) {
 			if gd, ok := d.(*ast.GenDecl); ok && gd.Tok == token.TYPE {
 				for _, s := range gd.Specs {
 					if ts := s.(*ast.TypeSpec); ts.Name.IsExported() {
-						decls[ts.Name.Name] = goDecl{typ: ts, rt: rt, imports: imports, locals: locals, values: values}
+						decls[ts.Name.Name] = goDecl{typ: ts, rt: rt, imports: imports, locals: locals, values: values, index: index}
 					}
 				}
 				continue
@@ -296,6 +342,7 @@ func parseDecls(fsys fs.FS) (goDecls, error) {
 				for _, s := range gd.Specs {
 					for _, n := range s.(*ast.ValueSpec).Names {
 						values[n.Name] = true
+						index.vars[n.Name] = append(index.vars[n.Name], reachDecl{s, locals})
 					}
 				}
 				continue
@@ -306,6 +353,7 @@ func parseDecls(fsys fs.FS) (goDecls, error) {
 			}
 			if fn.Recv == nil {
 				values[fn.Name.Name] = true
+				index.funcs[fn.Name.Name] = append(index.funcs[fn.Name.Name], reachDecl{fn, locals})
 			}
 			if !fn.Name.IsExported() {
 				continue
@@ -314,10 +362,22 @@ func parseDecls(fsys fs.FS) (goDecls, error) {
 			if fn.Recv != nil && len(fn.Recv.List) == 1 {
 				key = recvName(fn.Recv.List[0].Type) + "." + key
 			}
-			decls[key] = goDecl{fn: fn, rt: rt, imports: imports, locals: locals, values: values}
+			decls[key] = goDecl{fn: fn, rt: rt, imports: imports, locals: locals, values: values, index: index}
 		}
 	}
 	return decls, nil
+}
+
+// importName is the name an import of path gives its package with no
+// name of its own: the last element, or the one before a major version
+// element ("rand" for math/rand/v2), as Go's packages declare.
+func importName(path string) string {
+	elems := strings.Split(path, "/")
+	last := elems[len(elems)-1]
+	if len(elems) > 1 && len(last) > 1 && last[0] == 'v' && strings.Trim(last[1:], "0123456789") == "" {
+		return elems[len(elems)-2]
+	}
+	return last
 }
 
 // recvName is the base type name of a receiver: Queue for *Queue[T].
@@ -350,26 +410,84 @@ func (d goDecls) body(name string) (Body, error) {
 	if b.TypeParams, err = d.typeParams(g.fn); err != nil {
 		return Body{}, fmt.Errorf("runtime/v1: %s: %w", name, err)
 	}
-	if pureMarked(g.fn) {
+	b.Host = marked(g.fn, HostMark)
+	if marked(g.fn, PureMark) {
+		if b.Host {
+			return Body{}, fmt.Errorf("runtime/v1: %s is marked both %s and %s", name, PureMark, HostMark)
+		}
 		if why := pureRefusal(g, b); why != "" {
 			return Body{}, fmt.Errorf("runtime/v1: %s is marked %s, but %s", name, PureMark, why)
 		}
 		b.Pure = true
 	}
+	if !b.Host {
+		if via := hostReach(g); via != "" {
+			return Body{}, fmt.Errorf("runtime/v1: %s reaches host state (%s) but is not marked %s", name, via, HostMark)
+		}
+	}
 	return b, nil
 }
 
-// pureMarked reports a function whose doc comment holds the PureMark line.
-func pureMarked(fn *ast.FuncDecl) bool {
+// marked reports a function whose doc comment holds the directive line.
+func marked(fn *ast.FuncDecl, directive string) bool {
 	if fn.Doc == nil {
 		return false
 	}
 	for _, c := range fn.Doc.List {
-		if c.Text == PureMark {
+		if c.Text == directive {
 			return true
 		}
 	}
 	return false
+}
+
+// hostReach names the first host member (hostMember) that the body g
+// reaches, or "". It walks the body and every declaration of the package
+// the body names, at any depth: a top-level function or variable by its
+// name, and a method by its name on any receiver, since the walk has no
+// types (so it may visit more than the call reaches, never less). A
+// selector on an import names a member of that package. Calls into
+// runtime/rt and through a function or interface value are not followed:
+// the declaration is the claim there (a Sleeper's Sleep).
+func hostReach(g goDecl) string {
+	seen := map[ast.Node]bool{}
+	queue := []reachDecl{{g.fn, g.locals}}
+	via := ""
+	for len(queue) > 0 && via == "" {
+		d := queue[0]
+		queue = queue[1:]
+		if seen[d.node] {
+			continue
+		}
+		seen[d.node] = true
+		var visit func(n ast.Node) bool
+		visit = func(n ast.Node) bool {
+			if via != "" {
+				return false
+			}
+			switch x := n.(type) {
+			case *ast.SelectorExpr:
+				if id, ok := x.X.(*ast.Ident); ok {
+					if p, ok := d.locals[id.Name]; ok {
+						if hostMember(p, x.Sel.Name) {
+							via = p + "." + x.Sel.Name
+						}
+						return false
+					}
+				}
+				ast.Inspect(x.X, visit)
+				return false
+			case *ast.Ident:
+				if g.index != nil {
+					queue = append(queue, g.index.funcs[x.Name]...)
+					queue = append(queue, g.index.vars[x.Name]...)
+				}
+			}
+			return true
+		}
+		ast.Inspect(d.node, visit)
+	}
+	return via
 }
 
 // pureRefusal is why the marked body g, of shape b, may not be pure, or "".

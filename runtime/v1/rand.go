@@ -59,11 +59,17 @@ func (s *Stream) Float64() float64 {
 }
 
 // RandHostUint64 is rand.Host's Uint64: Go's global rand.Uint64.
+//
+//ergo:host
 func RandHostUint64() uint64 { return rand.Uint64() }
 
 // RandHostIntN is rand.Host's IntN: Go's global rand.IntN, which panics
 // for an n of zero or less.
+//
+//ergo:host
 func RandHostIntN(n int) int { return rand.IntN(n) }
 
 // RandHostFloat64 is rand.Host's Float64: Go's global rand.Float64.
+//
+//ergo:host
 func RandHostFloat64() float64 { return rand.Float64() }
