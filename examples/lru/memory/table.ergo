@@ -1,35 +1,35 @@
-// Package memory holds an in-memory provider of catalog.Catalog.
+// Package memory holds an in-memory provider of registry.Registry.
 
-import lru/catalog
+import lru/registry
 import strconv
 import strings
 import sync
 
-// Table is a Catalog over a fixed price list. It also counts its lookups
+// Table is a Registry over a fixed port list. It also counts its lookups
 // in a sync.Ref, which every copy shares, so a test sees how many lookups
 // a Memo saved.
-type Table { prices Map[string, int], lookups sync.Ref[int] }
+type Table { ports Map[string, int], lookups sync.Ref[int] }
 
-// BadRow is a line of a price list that is not "SKU CENTS".
+// BadRow is a line of a port list that is not "NAME PORT".
 type BadRow { Line string }
 
-// NewTable is a Table of prices that has looked nothing up. A negative
-// price is not listed, so a Table keeps the Catalog law NotNegative
-// whatever prices it is given (ergo test builds it from generated ones).
-func NewTable(prices Map[string, int]) Table {
+// NewTable is a Table of ports that has looked nothing up. A negative
+// port is not listed, so a Table keeps the Registry law NotNegative
+// whatever ports it is given (ergo test builds it from generated ones).
+func NewTable(ports Map[string, int]) Table {
 	let mut listed = Map[string, int]{}
-	for sku, cents in prices {
-		if cents >= 0 {
-			listed[sku] = cents
+	for name, port in ports {
+		if port >= 0 {
+			listed[name] = port
 		}
 	}
-	Table{prices: listed, lookups: sync.NewRef[int](0)}
+	Table{ports: listed, lookups: sync.NewRef[int](0)}
 }
 
-// Parse is the Table of a price list: one "SKU CENTS" per line; blank
+// Parse is the Table of a port list: one "NAME PORT" per line; blank
 // lines are skipped.
 func Parse(text string) Table fails BadRow {
-	let mut prices = Map[string, int]{}
+	let mut ports = Map[string, int]{}
 	for line in strings.Split(text, "\n") {
 		let fields = strings.Fields(line)
 		if len(fields) == 0 {
@@ -38,28 +38,28 @@ func Parse(text string) Table fails BadRow {
 		if len(fields) != 2 {
 			return BadRow{Line: line}
 		}
-		let cents = strconv.Atoi(fields[1]) catch {
+		let port = strconv.Atoi(fields[1]) catch {
 		case strconv.Malformed, strconv.OutOfRange:
 			return BadRow{Line: line}
 		}
-		if cents < 0 {
+		if port < 0 {
 			return BadRow{Line: line}
 		}
-		prices[fields[0]] = cents
+		ports[fields[0]] = port
 	}
-	NewTable(prices)
+	NewTable(ports)
 }
 
-// Price is the listed price of sku.
-func Price(t Table, sku string) int fails catalog.Unknown {
+// Port is the listed port of name.
+func Port(t Table, name string) int fails registry.Unknown {
 	t.lookups.Update(func(n int) int { n + 1 })
-	match t.prices.Get(sku) {
+	match t.ports.Get(name) {
 	case Some[int] as p:
 		p.Value
 	case None:
-		catalog.Unknown{SKU: sku}
+		registry.Unknown{Name: name}
 	}
 }
 
-// Lookups is how many times Price ran.
+// Lookups is how many times Port ran.
 func Lookups(t Table) int { t.lookups.Get() }

@@ -1,0 +1,51 @@
+// Package registry is the domain of the demo: ports looked up by service
+// name from a slow source, through a Memo so a repeated name is not
+// looked up again.
+
+import lru/memo
+
+// Unknown is a name the registry does not list.
+type Unknown { Name string }
+
+// Registry is the source of ports. A Memo may stand in front of it only
+// because a port does not change between two lookups: the law Stable
+// states that, and every provider must keep it.
+type Registry {
+	Port(name string) int fails Unknown,
+
+	// Stable: two lookups of one name give one answer.
+	law Stable(name string) {
+		let first = Port(name) catch {
+		case Unknown:
+			let _ = Port(name) catch {
+			case Unknown:
+				return true
+			}
+			return false
+		}
+		let second = Port(name) catch {
+		case Unknown:
+			return false
+		}
+		first == second
+	},
+
+	// NotNegative: a port is never below zero.
+	law NotNegative(name string) {
+		let p = Port(name) catch {
+		case Unknown:
+			return true
+		}
+		p >= 0
+	},
+}
+
+// Lookup is the port of name, from the Memo when it remembers one.
+func Lookup(m *memo.Memo[string, int], name string) int fails Unknown needs Registry {
+	try m.Get(name, func(s string) int fails Unknown needs Registry { try Registry.Port(s) })
+}
+
+// Line is the text of one lookup: the name and its port.
+func Line(name string, port int) string {
+	"\(name) :\(port)"
+}

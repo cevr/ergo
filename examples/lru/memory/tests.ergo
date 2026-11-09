@@ -1,32 +1,32 @@
-// ergo test runs the catalog.Catalog laws against Table, built by
-// NewTable from generated prices; these tests check its price list and
+// ergo test runs the registry.Registry laws against Table, built by
+// NewTable from generated ports; these tests check its port list and
 // show what a Memo in front of it saves.
 
-import lru/catalog
+import lru/registry
 import lru/memo
 
-// list is a Table of three SKUs.
+// list is a Table of three names.
 func list() Table {
-	Parse("apple 120\npear 95\n\nfig 7\n") catch {
+	Parse("web 8080\ndb 5432\n\ndns 53\n") catch {
 	case BadRow:
 		NewTable(Map[string, int]{})
 	}
 }
 
 test ParseRefusesABadRow {
-	let at = Parse("apple 120\npear ninety\n") catch {
+	let at = Parse("web 8080\ndb fifty\n") catch {
 	case BadRow as b:
 		NewTable(Map[string, int]{b.Line: 0})
 	}
-	assert at.prices.Get("pear ninety") == Some{0}
+	assert at.ports.Get("db fifty") == Some{0}
 }
 
 test MemoSavesLookups {
 	let t = list()
 	let mut m = try memo.New[string, int](2)
-	with context { catalog.Catalog: t } {
-		for sku in []string{"apple", "apple", "pear", "apple", "fig", "pear"} {
-			let _ = try catalog.Quote(&m, sku)
+	with context { registry.Registry: t } {
+		for name in []string{"web", "web", "db", "web", "dns", "db"} {
+			let _ = try registry.Lookup(&m, name)
 		}
 	}
 	assert t.Lookups() == 4
@@ -36,10 +36,10 @@ test MemoSavesLookups {
 test UnknownIsLookedUpEachTime {
 	let t = list()
 	let mut m = try memo.New[string, int](2)
-	with context { catalog.Catalog: t } {
+	with context { registry.Registry: t } {
 		for _ in 0..3 {
-			let p = catalog.Quote(&m, "kiwi") catch {
-			case catalog.Unknown:
+			let p = registry.Lookup(&m, "ntp") catch {
+			case registry.Unknown:
 				-1
 			}
 			assert p == -1
