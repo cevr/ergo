@@ -117,37 +117,32 @@ func AlertLines(samples []series.Sample, threshold float64) []string {
 	out.Append("alerts \(alerts), muted \(muted)")
 }
 
-// run does what the arguments ask. It is apart from main because a
-// return cannot leave main's with block (G-ex-d-10).
-func run() fails os.Exit needs Console | os.Process | io.Stdin {
-	let cmd = try Parse(os.Process.Args())
-	let text = io.Stdin.ReadAll() catch {
-	case io.ReadFailed as r:
-		return os.Exit{Code: 1, Message: "metrics: \(r.Reason)"}
-	}
-	let samples = series.Parse(text) catch {
-	case series.BadSample as b:
-		return os.Exit{Code: 1, Message: "metrics: line \(b.Line) is not AT VALUE: \(strconv.Quote(b.Text))"}
-	case series.Unordered as u:
-		return os.Exit{Code: 1, Message: "metrics: line \(u.Line): \(u.At) is before \(u.After)"}
-	}
-	let lines = match cmd {
-	case Report as r:
-		ReportLines(samples, r.Width) catch {
-		case series.BadWidth as b:
-			return os.Exit{Code: 2, Message: "metrics: the width must be at least 1, not \(b.Width)"}
-		}
-	case Alert as a:
-		AlertLines(samples, a.Threshold)
-	}
-	for l in lines {
-		Console.Println(l)
-	}
-}
-
+// main does what the arguments ask, on the host's arguments and input.
 func main() fails os.Exit needs Console | Ambient {
 	with context { os.Process: os.NewHost(), io.Stdin: io.NewHost() } {
-		try run()
+		let cmd = try Parse(os.Process.Args())
+		let text = io.Stdin.ReadAll() catch {
+		case io.ReadFailed as r:
+			return os.Exit{Code: 1, Message: "metrics: \(r.Reason)"}
+		}
+		let samples = series.Parse(text) catch {
+		case series.BadSample as b:
+			return os.Exit{Code: 1, Message: "metrics: line \(b.Line) is not AT VALUE: \(strconv.Quote(b.Text))"}
+		case series.Unordered as u:
+			return os.Exit{Code: 1, Message: "metrics: line \(u.Line): \(u.At) is before \(u.After)"}
+		}
+		let lines = match cmd {
+		case Report as r:
+			ReportLines(samples, r.Width) catch {
+			case series.BadWidth as b:
+				return os.Exit{Code: 2, Message: "metrics: the width must be at least 1, not \(b.Width)"}
+			}
+		case Alert as a:
+			AlertLines(samples, a.Threshold)
+		}
+		for l in lines {
+			Console.Println(l)
+		}
 	}
 }
 

@@ -1,5 +1,4 @@
-// The limiter's tests: examples, and the laws restated as property tests
-// (the compiler checks laws and does not run them yet, #162).
+// The limiter's tests: examples. The laws run under ergo test.
 
 import slices
 
@@ -34,11 +33,6 @@ test RateMutesTheThird {
 	assert slices.Equal(got, []string{"alert 0", "resolved 1", "alert 2", "resolved 3", "muted 4", "-", "alert 60001"})
 }
 
-test NeverExceedsRateHolds(seed int, l int, w int) {
-	let p = PolicyOf(l, w)
-	assert WithinRate(AlertTimes(Drive(p, Signals(seed, 80))), p)
-}
-
 // The generated runs spend the rate and mute, so the property is not
 // vacuous.
 test GeneratedRunsMute {
@@ -53,30 +47,4 @@ test GeneratedRunsMute {
 		}
 	}
 	assert muted > 50
-}
-
-test BreachesAreAccountedHolds(seed int, l int, w int) {
-	let signals = Signals(seed, 80)
-	let events = Drive(PolicyOf(l, w), signals)
-	let mut firing = false
-	let mut since = int64(0)
-	for i, e in events {
-		match (signals[i], e) {
-		case (Breach, Alerted as a):
-			assert !firing
-			firing = true
-			since = a.At
-		case (Breach, Muted):
-			assert !firing
-		case (Breach, Nothing):
-			assert firing
-		case (Calm, Resolved as r):
-			assert firing && r.Since == since
-			firing = false
-		case (Calm, Nothing):
-			assert !firing
-		case (_, _):
-			assert false
-		}
-	}
 }

@@ -63,14 +63,10 @@ func Add(w *Sliding, s Sample) {
 		w.sum -= w.samples[w.head].Value
 		w.head += 1
 	}
-	// No slice of a slice (G-ex-f-1): the dead prefix is dropped by a
-	// copy once it is half the slice.
+	// The dead prefix is dropped by a copy once it is half the slice, so
+	// the array of the dead samples is freed.
 	if w.head > 32 && w.head*2 > len(w.samples) {
-		let mut live = slices.WithCapacity[Sample](len(w.samples) - w.head)
-		for i in w.head..len(w.samples) {
-			live = live.Append(w.samples[i])
-		}
-		w.samples = live
+		w.samples = slices.Clone(slices.Slice(w.samples, w.head, len(w.samples)))
 		w.head = 0
 	}
 }

@@ -19,7 +19,7 @@ Samples are `AT VALUE` lines, `AT` in Unix milliseconds, in time order; blank li
 ## Layout
 
 - `series/`: the data. `sample.ergo` (`Sample`, `Parse`, `Stamp` needs `time.Clock`), `window.ergo` (`Tumbling`, `Bucket`, `Sliding` with `Add`, `Count`, `Sum`, `Mean`, and `Percentile`), `laws.ergo` (the window laws and the seeded `Run` they draw from), `tests.ergo`.
-- `alert/`: `limiter.ergo` (`Policy`, `Signal`, `State`, `Step`, the `Limiter` machine, `Event`, `Next`, `Drive`), `laws.ergo`, `tests.ergo`.
+- `alert/`: `limiter.ergo` (`Policy`, `Signal`, `State`, `Step`, `Event`, the `Limiter` machine, whose input is the policy, `Drive`), `laws.ergo`, `tests.ergo`.
 - `cmd/metrics/main.ergo`: the binary. It binds the host's arguments and standard input in `main`'s context and is the only place that chooses them; the alert policy (2 a minute) and the smoothing width (10 s) are its constants.
 
 ## Cases
@@ -28,12 +28,9 @@ Samples are `AT VALUE` lines, `AT` in Unix milliseconds, in time order; blank li
 
 ## Limits found
 
-No new gap; the program hit these, recorded in `gaps-*.md`:
+The program hit these, recorded in `gaps-*.md`:
 
-- G-ex-d-11: a machine has no runner, so `alert.Drive` loops over `Step` itself, and the `Limiter` declaration is not what the program runs.
-- G-ex-a-9 and G-ex-b-12: a step cannot emit an output, so `alert.Next` matches the decision again to tell what each signal did.
-- G-ex-c-16: a machine has no context. The policy, the sent times and the muted count are repeated in both variants of `State`, and the machine's `initial` fixes one policy.
-- G-ex-f-1: there is no slice of a slice, so the sliding window drops its dead prefix by copying the live samples once the prefix is half the slice.
-- G-ex-d-9: a generated slice holds at most three elements, so each law takes a seed and builds its own run of samples or signals.
-- G-ex-d-5: `Bucket` holds a slice and has no `==`, so tests compare its fields one by one.
-- G-ex-d-10: a `return` cannot leave `main`'s `with` block, so `main` calls `run`.
+- G-ex-c-16: a machine has no context. The policy, the sent times and the muted count are repeated in both variants of `State`.
+- G-ex-d-9 (still open after T4): generated slices now grow to 25 elements, but a law needs 80 signals in time order to spend the rate, so each law still takes a seed and builds its own run of samples or signals.
+
+Closed in batch 12: G-ex-d-11 (V2 and V4: `Limiter`'s input is the policy, and `Drive` runs `machines.Start(Limiter{}, p)`'s step from its initial state, with `machines.Next`); G-ex-a-9 and G-ex-b-12 (V5: `Step` emits each alert, mute and resolution, so `alert.Next` is gone; a signal the step ignores is `Nothing`); G-ex-f-1 (S2 `slices.Slice` and `slices.Clone` drop the window's dead prefix); G-ex-d-5 (W3: `Bucket` has `==`); G-ex-d-10 (L3: `main` holds the body of `run`); the property tests that restated the laws (V1 runs them).
