@@ -65,9 +65,8 @@ var corpusDomain = sync.OnceValues(func() ([]string, error) {
 // corpusSplit's domain is read from ../check's test files, which other
 // units edit, so it is not pinned; its parts cover it.
 var corpusSplit = newSplit(split[corpusCandidate]{
-	name:     "TestCheckCorpusBuilds",
-	parts:    corpusParts,
-	unpinned: true,
+	name:  "TestCheckCorpusBuilds",
+	parts: corpusParts,
 	cases: func(yield func(corpusCandidate) bool) {
 		sources, err := corpusDomain()
 		if err != nil {

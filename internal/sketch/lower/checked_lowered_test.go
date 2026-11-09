@@ -522,10 +522,6 @@ type checkedCase struct{ grid, site string }
 var checkedSplit = newSplit(split[checkedCase]{
 	name:  "TestCheckedImpliesLowered",
 	parts: checkedParts,
-	// The pin: the domain of the unsplit test at f79be34b (request.md,
-	// leg 1).
-	count:  41,
-	digest: "f9ae24c771519085d8d9b01de1748625deedaa94233a06c0639be57017f5149b",
 	cases: func(yield func(checkedCase) bool) {
 		for _, site := range pairSites {
 			if !yield(checkedCase{"pairs", site}) {

@@ -226,9 +226,8 @@ func acceptedSources() ([]acceptedSource, error) {
 // acceptedSplit's domain is read from fixture and example files, which
 // other units edit, so it is not pinned; its parts cover it.
 var acceptedSplit = newSplit(split[acceptedSource]{
-	name:     "TestAcceptedNodesLower",
-	parts:    acceptedParts,
-	unpinned: true,
+	name:  "TestAcceptedNodesLower",
+	parts: acceptedParts,
 	cases: func(yield func(acceptedSource) bool) {
 		sources, err := acceptedSources()
 		if err != nil {

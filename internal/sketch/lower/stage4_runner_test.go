@@ -117,7 +117,6 @@ func runnerSeqs() [][]string {
 // may be equal, and a key names one case.
 var testRunnerModel = newSplit(split[runnerSeq]{
 	name: "TestTestRunnerModel", parts: 4,
-	count: 156, digest: "351bd631b132896b7551977363489b09be8bc17cf9629efeaebb92cef33a3bb9",
 	cases: func(yield func(runnerSeq) bool) {
 		for k, seq := range runnerSeqs() {
 			if !yield(runnerSeq{k, seq}) {

@@ -1,8 +1,5 @@
 # The splits that TestSplitsPinNoDomain admits: each pins the count or the
 # digest of its generated domain. A row is `path<TAB>split name<TAB>reason`;
 # a row that admits no pin fails the test. Each row names the unit that
-# removes the pin (test-speed plan, S6); none is added.
-
-internal/sketch/lower/checked_lowered_test.go	TestCheckedImpliesLowered	existing pin at T7: T5 (ts-cut-lower, S6) removes it; the split harness keeps each case once
-internal/sketch/lower/runtime199_i1_test.go	TestRuntime199I1Property	existing pin at T7: T5 (ts-cut-lower, S6) removes it; the split harness keeps each case once
-internal/sketch/lower/stage4_runner_test.go	TestTestRunnerModel	existing pin at T7: T5 (ts-cut-lower, S6) removes it; the split harness keeps each case once
+# removes the pin (test-speed plan, S6); none is added. T4 and T5 removed
+# every pin, so the list is empty.
