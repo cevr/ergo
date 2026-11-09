@@ -1,0 +1,63 @@
+// The console's tests: space, the command reader and a day at the
+// console on a memory store (the law runs in laws.ergo).
+
+import quota/quota
+import quota/memory
+import strconv
+
+// reason is why text does not read, or "ok".
+func reason(text string) string {
+	let _ = ParseAll(text) catch {
+	case BadCommand as b:
+		return "line \(b.Line): \(b.Reason)"
+	}
+	"ok"
+}
+
+// console is the answers to text at a console on a fresh memory store.
+func console(text string) []string fails BadCommand | quota.Unavailable {
+	let cs = try ParseAll(text)
+	with context { quota.Store: memory.NewStore() } { try Serve(cs) }
+}
+
+test WritesGigabytes {
+	assert Gigabytes(0) == "0.00 GB" && Gigabytes(5) == "0.05 GB" && Gigabytes(1250) == "12.50 GB" && Gigabytes(-40) == "-0.40 GB"
+}
+
+test ReadsAmounts {
+	assert try Size("12") == 1200
+	assert try Size("12.5") == 1250
+	assert try Size("0.07") == 7
+	let _ = Size("1.234") catch {
+	case strconv.Malformed as m:
+		assert m.Text == "1.234"
+		return
+	case strconv.OutOfRange:
+		assert false
+		return
+	}
+	assert false
+}
+
+test RefusesBadLines {
+	assert reason("open home\nmove m1 home logs\n") == "line 2: move m1 home logs is not open VOL [OVERCOMMIT], grant KEY VOL SIZE, reclaim KEY VOL SIZE, move KEY FROM TO SIZE, size VOL or volumes"
+	assert reason("grant g1 home -5") == "line 1: -5 is not a size such as 12.50"
+	assert reason("# nothing\n\nopen logs 100 # an overcommit\n") == "ok"
+}
+
+test ADayAtTheConsole {
+	let out = try console("open home\nopen logs 100\ngrant g1 home 50\nmove m1 home logs 20.25\nmove m1 home logs 20.25\nmove m2 logs home 150\nmove m3 home media 1\nmove m1 home logs 3\nreclaim r1 home 30\nsize home\nvolumes\nopen home\n")
+	assert out[0] == "opened home"
+	assert out[1] == "opened logs, overcommit 100.00 GB"
+	assert out[2] == "#1 g1: 50.00 GB from pool to home"
+	assert out[3] == "#2 m1: 20.25 GB from home to logs"
+	assert out[4] == "#2 m1: 20.25 GB from home to logs"
+	assert out[5] == "refused m2: logs has 20.25 GB, 150.00 GB would take it below -100.00 GB"
+	assert out[6] == "refused m3: no volume media"
+	assert out[7] == "refused m1: the key was used for 20.25 GB from home to logs"
+	assert out[8] == "refused r1: home has 29.75 GB, 30.00 GB would take it below 0.00 GB"
+	assert out[9] == "home 29.75 GB"
+	assert out[10] == "pool -50.00 GB, home 29.75 GB, logs 20.25 GB"
+	assert out[11] == "refused: home is open already"
+	assert len(out) == 12
+}

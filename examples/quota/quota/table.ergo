@@ -1,0 +1,165 @@
+// Package quota is a double-entry table of storage quota between
+// volumes. Space moves only by a Move, which takes a size from one volume
+// and gives it to another, so the sizes of all the volumes always add up
+// to zero. Space comes in from outside through the volume Pool, which may
+// go as far below zero as it must. A Move has a key: a second Move with
+// the same key is the first one again, not a second move.
+//
+// Table is the pure quota table, and Store the contract a store keeps;
+// the stores live in the packages memory and file.
+
+import slices
+
+// Pool is the volume that space from outside the volumes comes from and
+// goes to. Every Table has it.
+let Pool = "pool"
+
+// PoolFloor is how far below zero Pool may go.
+let PoolFloor = int64(-1000000000000)
+
+// Move is a request to move Size hundredths from From to To, once for
+// its Key.
+type Move { Key string, From string, To string, Size int64 }
+
+// Record is a move the quota made, and its place in the journal.
+type Record { Key string, From string, To string, Size int64, Seq int }
+
+// The failures of the quota.
+
+// UnknownVolume is a volume the quota has not opened.
+type UnknownVolume { ID string }
+
+// VolumeExists is a volume opened twice.
+type VolumeExists { ID string }
+
+// BadFloor is a lowest size above zero: a volume opens at zero, so
+// it would start below its floor.
+type BadFloor { ID string, Floor int64 }
+
+// BadSize is a move of nothing or less.
+type BadSize { Size int64 }
+
+// SameVolume is a move from a volume to itself.
+type SameVolume { ID string }
+
+// NoSpace is a move that would take From below its floor.
+type NoSpace { ID string, Have int64, Size int64, Floor int64 }
+
+// KeyReused is a key already used by a different move.
+type KeyReused { Key string, Was Record }
+
+// Unavailable is a store that cannot read or keep the quota.
+type Unavailable { Reason string }
+
+// Table is the quota as a value: each volume's floor and size, and
+// the record of each key. Its fields are unexported, so only this package
+// changes it, and only by Open and Apply.
+type Table { floors Map[string, int64], sizes Map[string, int64], records Map[string, Record], count int }
+
+// Empty is a Table with only Pool in it.
+func Empty() Table {
+	Table{floors: Map[string, int64]{Pool: PoolFloor}, sizes: Map[string, int64]{Pool: 0}, records: Map[string, Record]{}, count: 0}
+}
+
+// Open is b with the volume id, at zero, which may go down to floor.
+func Open(b Table, id string, floor int64) Table fails VolumeExists | BadFloor {
+	match b.floors.Get(id) {
+	case Some[int64]:
+		return VolumeExists{ID: id}
+	case None:
+	}
+	if floor > 0 {
+		return BadFloor{ID: id, Floor: floor}
+	}
+	let mut floors = b.floors
+	let mut sizes = b.sizes
+	floors[id] = floor
+	sizes[id] = 0
+	Table{..b, floors: floors, sizes: sizes}
+}
+
+// SizeOf is the size of id in b.
+func SizeOf(b Table, id string) int64 fails UnknownVolume {
+	match b.sizes.Get(id) {
+	case Some[int64] as v:
+		v.Value
+	case None:
+		UnknownVolume{ID: id}
+	}
+}
+
+// floor is the lowest size id may have in b.
+func floor(b Table, id string) int64 fails UnknownVolume {
+	match b.floors.Get(id) {
+	case Some[int64] as v:
+		v.Value
+	case None:
+		UnknownVolume{ID: id}
+	}
+}
+
+// Same reports whether r is the record of t.
+func Same(r Record, t Move) bool {
+	r.Key == t.Key && r.From == t.From && r.To == t.To && r.Size == t.Size
+}
+
+// Apply is b after t, and its record. A key used before gives its first
+// record and the same Table when the move is the same, and KeyReused
+// when it is not. The guards are, in order: the key, the size, the
+// volumes, and the floor of From.
+func Apply(b Table, t Move) (Table, Record) fails KeyReused | BadSize | SameVolume | UnknownVolume | NoSpace {
+	match b.records.Get(t.Key) {
+	case Some[Record] as r:
+		if Same(r.Value, t) {
+			return (b, r.Value)
+		}
+		return KeyReused{Key: t.Key, Was: r.Value}
+	case None:
+	}
+	if t.Size <= 0 {
+		return BadSize{Size: t.Size}
+	}
+	if t.From == t.To {
+		return SameVolume{ID: t.From}
+	}
+	let from = try SizeOf(b, t.From)
+	let to = try SizeOf(b, t.To)
+	let low = try floor(b, t.From)
+	if from-t.Size < low {
+		return NoSpace{ID: t.From, Have: from, Size: t.Size, Floor: low}
+	}
+	let r = Record{Key: t.Key, From: t.From, To: t.To, Size: t.Size, Seq: b.count + 1}
+	let mut sizes = b.sizes
+	let mut records = b.records
+	sizes[t.From] = from - t.Size
+	sizes[t.To] = to + t.Size
+	records[t.Key] = r
+	(Table{..b, sizes: sizes, records: records, count: b.count + 1}, r)
+}
+
+// Total is the sum of every size in b: zero, always (law SizesAddUp).
+func Total(b Table) int64 {
+	let mut sum = int64(0)
+	for v in b.sizes {
+		sum = sum + v
+	}
+	sum
+}
+
+// IDs is the volumes of b, Pool first and then by name.
+func IDs(b Table) []string {
+	let mut names = []string{}
+	for id, _ in b.sizes {
+		if id != Pool {
+			names = names.Append(id)
+		}
+	}
+	let mut out = []string{Pool}
+	for id in slices.Sort(names) {
+		out = out.Append(id)
+	}
+	out
+}
+
+// Count is the number of moves b has made.
+func Count(b Table) int { b.count }

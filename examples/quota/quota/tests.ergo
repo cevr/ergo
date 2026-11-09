@@ -1,0 +1,52 @@
+// The Table's tests: a day worked by hand and each refusal (the laws run
+// in laws.ergo).
+
+// refusal is the name of the failure of t in b, or "posted".
+func refusal(b Table, t Move) string {
+	let _, _ = Apply(b, t) catch {
+	case KeyReused as k:
+		return "key \(k.Key) was \(k.Was.Size) from \(k.Was.From)"
+	case BadSize as a:
+		return "bad size \(a.Size)"
+	case SameVolume as s:
+		return "same volume \(s.ID)"
+	case UnknownVolume as u:
+		return "unknown \(u.ID)"
+	case NoSpace as f:
+		return "\(f.ID) has \(f.Have), needs \(f.Size), floor \(f.Floor)"
+	}
+	"posted"
+}
+
+test ADayWorkedByHand {
+	let b = Posted(Sample(), []Move{Move{Key: "g1", From: Pool, To: "home", Size: 300}, Move{Key: "m1", From: "home", To: "logs", Size: 120}, Move{Key: "m2", From: "logs", To: "media", Size: 500}, Move{Key: "m1", From: "home", To: "logs", Size: 120}})
+	assert try SizeOf(b, "home") == 180
+	assert try SizeOf(b, "logs") == -380
+	assert try SizeOf(b, "media") == 500
+	assert try SizeOf(b, Pool) == -300
+	assert Count(b) == 3 && Total(b) == 0
+	assert IDs(b) == []string{"pool", "home", "logs", "media"}
+}
+
+test RefusalsSayWhy {
+	let b = Posted(Sample(), []Move{Move{Key: "g1", From: Pool, To: "home", Size: 100}})
+	assert refusal(b, Move{Key: "g1", From: Pool, To: "home", Size: 99}) == "key g1 was 100 from pool"
+	assert refusal(b, Move{Key: "x", From: "home", To: "logs", Size: 0}) == "bad size 0"
+	assert refusal(b, Move{Key: "x", From: "home", To: "home", Size: 5}) == "same volume home"
+	assert refusal(b, Move{Key: "x", From: "home", To: "tmp", Size: 5}) == "unknown tmp"
+	assert refusal(b, Move{Key: "x", From: "home", To: "logs", Size: 101}) == "home has 100, needs 101, floor 0"
+	assert refusal(b, Move{Key: "x", From: "logs", To: "media", Size: 501}) == "logs has 0, needs 501, floor -500"
+	assert refusal(b, Move{Key: "g1", From: Pool, To: "home", Size: 100}) == "posted"
+}
+
+test OpenRefuses {
+	let _ = Open(Sample(), "home", 0) catch {
+	case VolumeExists as e:
+		assert e.ID == "home"
+		return
+	case BadFloor:
+		assert false
+		return
+	}
+	assert false
+}

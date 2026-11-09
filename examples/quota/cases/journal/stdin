@@ -1,0 +1,5 @@
+# g1 is in the journal already: sent again, it is not moved twice.
+grant g1 home 12.34
+open logs
+move m1 home logs 2
+volumes

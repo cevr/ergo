@@ -1,0 +1,81 @@
+// ergo test runs the quota.Store laws here, against Store (NewStore).
+// These tests check them again over a store that has had a day of
+// moves, which a new store has not.
+
+import quota/quota
+
+// day is a Store with the volumes of quota.Sample and the moves of
+// quota.Day(ns) posted, the refused ones left out.
+func day(ns []int) quota.Store {
+	let s quota.Store = NewStore()
+	for id in []string{"home", "logs", "media"} {
+		s.Open(id, if id == "logs" { -500 } else { 0 }) catch {
+		case quota.VolumeExists, quota.BadFloor, quota.Unavailable:
+		}
+	}
+	for t in quota.Day(ns) {
+		let _ = s.Post(t) catch {
+		case quota.KeyReused, quota.BadSize, quota.SameVolume, quota.UnknownVolume, quota.NoSpace, quota.Unavailable:
+			continue
+		}
+	}
+	s
+}
+
+// total is the sum of the sizes of s.
+func total(s quota.Store) int64 fails quota.UnknownVolume | quota.Unavailable {
+	let mut sum = int64(0)
+	for id in try s.Volumes() {
+		let b = try s.SizeOf(id)
+		sum = sum + b
+	}
+	sum
+}
+
+test CopiesShareTheBook {
+	let s = NewStore()
+	let copy = s
+	try s.Open("home", 0)
+	let _ = try copy.Post(quota.Move{Key: "d", From: quota.Pool, To: "home", Size: 5})
+	assert try s.SizeOf("home") == 5
+}
+
+test TotalIsKeptHolds(ns []int, m int) {
+	let s = day(ns)
+	let t = quota.Day([]int{m})[0]
+	let before = try total(s)
+	let _ = s.Post(t) catch {
+	case quota.KeyReused, quota.BadSize, quota.SameVolume, quota.UnknownVolume, quota.NoSpace, quota.Unavailable:
+		assert try total(s) == before
+		return
+	}
+	assert try total(s) == before
+}
+
+test PostIsIdempotentHolds(ns []int, m int) {
+	let s = day(ns)
+	let t = quota.Day([]int{m})[0]
+	let first = s.Post(t) catch {
+	case quota.KeyReused, quota.BadSize, quota.SameVolume, quota.UnknownVolume, quota.NoSpace, quota.Unavailable:
+		return
+	}
+	let from = try s.SizeOf(t.From)
+	assert try s.Post(t) == first
+	assert try s.SizeOf(t.From) == from
+}
+
+test FloorHoldsHolds(ns []int, m int) {
+	let s = day(ns)
+	let t = quota.Day([]int{m})[0]
+	s.Open("cache", 0) catch {
+	case quota.VolumeExists, quota.BadFloor, quota.Unavailable:
+		assert false
+		return
+	}
+	let _ = s.Post(quota.Move{..t, From: "cache"}) catch {
+	case quota.KeyReused, quota.BadSize, quota.SameVolume, quota.UnknownVolume, quota.NoSpace, quota.Unavailable:
+		assert try s.SizeOf("cache") == 0
+		return
+	}
+	assert try s.SizeOf("cache") >= 0
+}

@@ -1,4 +1,0 @@
-#1 d1: $12.34 from world to alice
-opened bob
-#2 p1: $2.00 from alice to bob
-world -$12.34, alice $10.34, bob $2.00
