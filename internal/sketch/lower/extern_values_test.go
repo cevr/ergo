@@ -34,6 +34,9 @@ import (
 // every case, so the test builds once.
 var externValuesSeed = flag.Uint64("extern.seed", 0, "run TestExternValuesRun on this seed alone")
 
+// TestExternValuesRun builds Go because it checks what the built program
+// prints and how it exits; no in-process check observes that, and Ergo has
+// no reference interpreter yet (test-speed T8).
 func TestExternValuesRun(t *testing.T) {
 	needsBuild(t)
 	seeds := []uint64{1, 2, 3}

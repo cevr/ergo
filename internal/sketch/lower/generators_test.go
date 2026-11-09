@@ -87,6 +87,11 @@ test SmallStrings(s string) {
 // string grows past 5 bytes. Over the five seeds the integer edges appear
 // (the int64 maximum, the int8 bounds, 255 for uint8). Each FAIL line names
 // the seed and the size, and the size is the case's number over four.
+//
+// It builds Go because it runs the emitted test harness under go test: the
+// harness's verdicts and the values it prints are the output; no in-process
+// check observes that, and Ergo has no reference interpreter yet (test-speed
+// T8).
 func TestGeneratorsReachEveryClass(t *testing.T) {
 	needsBuild(t)
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "generators", generatorProbes)}, true)

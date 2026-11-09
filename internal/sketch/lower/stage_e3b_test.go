@@ -198,6 +198,9 @@ func lawProgram(b ownerBase, f lawFact, top bool) string {
 // name there, and the run binary prints the base's output. The test build
 // reads the law's facts and runs it (#162 law-run-1): every law here holds,
 // so its binary reports the law's run ok and exits 0.
+//
+// It builds Go because the laws run in the built test binary (ergo test),
+// the only place a law runs.
 func TestLawFactsStayOut(t *testing.T) {
 	needsBuild(t)
 	type pair struct {

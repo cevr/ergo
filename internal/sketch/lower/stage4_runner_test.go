@@ -147,6 +147,11 @@ func TestTestRunnerModelPart3(t *testing.T) { testRunnerModel.Part(t, 3) }
 
 // runnerModelCheck builds and runs the test file of each sequence and
 // compares it with the rule.
+//
+// It builds Go because it runs the emitted test harness under go test: the
+// harness's verdicts and the values it prints are the output; no in-process
+// check observes that, and Ergo has no reference interpreter yet (test-speed
+// T8).
 func runnerModelCheck(t *testing.T, seqs [][]string) {
 	t.Helper()
 	var builds []*lowered
@@ -293,6 +298,11 @@ func eqMap[K comparable, V comparable](a Map[K, V], b Map[K, V]) bool {
 // second files must check with no diagnostic. Map keys print sorted.
 // Durations also round-trip from values that reach every unit, h to ns
 // (durationTextRoundTrips).
+//
+// It builds Go because it runs the emitted test harness under go test: the
+// harness's verdicts and the values it prints are the output; no in-process
+// check observes that, and Ergo has no reference interpreter yet (test-speed
+// T8).
 func TestArgumentTextRoundTrips(t *testing.T) {
 	needsBuild(t)
 	const seeds = 12
@@ -410,6 +420,11 @@ func durationUnit(n int64) string {
 // the values must reach every unit, and a test file that binds each text
 // with `let w duration = text` must check and find it equal to the value
 // written in nanoseconds.
+//
+// It builds Go because it runs the emitted test harness under go test: the
+// harness's verdicts and the values it prints are the output; no in-process
+// check observes that, and Ergo has no reference interpreter yet (test-speed
+// T8).
 func durationTextRoundTrips(t *testing.T, prog *lowered) {
 	t.Helper()
 	values := durationValues(rand.New(rand.NewSource(1500)))

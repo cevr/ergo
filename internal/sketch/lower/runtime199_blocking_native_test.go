@@ -254,6 +254,9 @@ func nativeGoTest(t testwait.T, dir string, env []string, args ...string) ([]byt
 }
 
 // nativeBuild compiles the test binary of the module in dir.
+//
+// It builds Go because the blocking property runs the task-aware waits
+// natively, in the built test binary.
 func nativeBuild(t testwait.T, dir string, env []string) ([]byte, string, error) {
 	t.Helper()
 	ctx, cancel := testwait.Context(t, context.Background())

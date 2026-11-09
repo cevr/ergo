@@ -130,6 +130,9 @@ func main() needs Console {
 `, "paired\n"},
 }
 
+// TestErgoRunE4Externs builds Go because it checks what the built program
+// prints and how it exits; no in-process check observes that, and Ergo has
+// no reference interpreter yet (test-speed T8).
 func TestErgoRunE4Externs(t *testing.T) {
 	needsBuild(t)
 	var builds []*lowered

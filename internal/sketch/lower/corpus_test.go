@@ -182,6 +182,10 @@ func TestCorpusCompilesWithGc(t *testing.T) {
 
 // runCorpus lowers the candidates of one part and builds its clean
 // programs.
+//
+// It builds Go because buildAll without a link is the harness's compile
+// check of the corpus: under it go/types checks every program in process
+// (typecheckGo), and gc compiles them once in TestCorpusCompilesWithGc.
 func runCorpus(t *testing.T, cases iter.Seq[corpusCandidate]) {
 	var programs []*lowered
 	rejected, deferred, candidates := 0, map[string]int{}, 0

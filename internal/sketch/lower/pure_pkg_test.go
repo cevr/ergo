@@ -73,6 +73,10 @@ func main() needs Console {
 // package lowers with no environment, and so does that callee; a caller of
 // an impure one, at any depth of the import chain, keeps the environment.
 // The program prints the same either way.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestPurityAcrossPackages(t *testing.T) {
 	needsBuild(t)
 	c := checkPackage(t, "c", []pkgSource{{"/ergo-test/c/c.ergo", purePkgC}}, nil)

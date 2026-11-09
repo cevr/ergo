@@ -37,6 +37,9 @@ import (
 // proves the bodies, the bindings and the failures together.
 var digestSeed = flag.Uint64("digest.seed", 0, "run TestStdDigestRuns on this seed alone")
 
+// TestStdDigestRuns builds Go because it checks what the built program
+// prints and how it exits; no in-process check observes that, and Ergo has
+// no reference interpreter yet (test-speed T8).
 func TestStdDigestRuns(t *testing.T) {
 	needsBuild(t)
 	seeds := []uint64{1, 2}

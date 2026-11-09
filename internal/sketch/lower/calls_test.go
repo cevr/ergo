@@ -13,6 +13,10 @@ import (
 // the frame that panicked, then each call, by Ergo function, callee and
 // .ergo position; no Go frame (#230; runtime.md, Exit causes). The pure
 // call into pick is named as well as the capability call into middle.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestDefectReportNamesErgoCallSites(t *testing.T) {
 	needsBuild(t)
 	src := `func pick(xs []int, i int) int {

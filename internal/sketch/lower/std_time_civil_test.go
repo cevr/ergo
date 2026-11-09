@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // timeCivilProgram reads one case per line and prints one line per case.
@@ -103,6 +105,11 @@ func civilCases(r *rand.Rand, n int) (cases, want []string) {
 // law still holds) and a calendar that is consistent but not Go's. It
 // builds and runs the program because the calendar is Ergo source, which
 // no in-process interpreter runs; one build serves every case.
+//
+// It builds Go because it compares the runs of built programs with a
+// reference (another lowering, a fold, or Go's own package), and the
+// question is behaviour at run time; no in-process check observes that, and
+// Ergo has no reference interpreter yet (test-speed T8).
 func TestTimeCivilMatchesGo(t *testing.T) {
 	needsBuild(t)
 	p := mustLower(t, "timeCivil", timeCivilProgram)
@@ -113,7 +120,7 @@ func TestTimeCivilMatchesGo(t *testing.T) {
 	exe := exes["timeCivil"]
 	probeRan(exe)
 	cases, want := civilCases(rand.New(rand.NewPCG(9, 41)), 20000)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := testwait.Context(t, context.Background())
 	defer cancel()
 	cmd := exec.CommandContext(ctx, exe)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

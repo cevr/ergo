@@ -14,9 +14,9 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
 
 	"ergo.local/prototype/internal/lawledger"
+	"ergo.local/prototype/internal/testwait"
 )
 
 // fsMemoryProgram reads a provider name, "host" or "memory", then one
@@ -454,12 +454,13 @@ func fsLawLine(r *rand.Rand, path, text, fileMode func() string) string {
 
 // runFSProgram runs the built fsMemoryProgram in dir with the provider
 // name and the operation lines on its standard input, in a process group
-// of its own that is killed when it ends or after a minute, under the test
+// of its own that is killed when it ends or at the test's deadline
+// (testwait), under the test
 // kit's memory limit (runProgram, internal/proclimit).
 func runFSProgram(t *testing.T, exe, dir, provider string, ops []string) []string {
 	t.Helper()
 	probeRan(exe)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := testwait.Context(t, context.Background())
 	defer cancel()
 	cmd := exec.CommandContext(ctx, exe)
 	cmd.Dir = dir
@@ -532,6 +533,11 @@ var fsLawStatements = map[string]string{
 // It builds and runs the program because the reference is the host itself
 // (fs.Host's Go bodies on a real directory) and Memory is Ergo source with
 // no interpreter to run it in process; one build serves every sequence.
+//
+// It builds Go because it compares the runs of built programs with a
+// reference (another lowering, a fold, or Go's own package), and the
+// question is behaviour at run time; no in-process check observes that, and
+// Ergo has no reference interpreter yet (test-speed T8).
 func TestFSMemoryAgreesWithHost(t *testing.T) {
 	needsBuild(t)
 	p := mustLower(t, "fsMemory", fsMemoryProgram)

@@ -62,6 +62,10 @@ func reachUnits(t *testing.T) map[string]Unit {
 // keeps every reachShortStride-th program in generation order: each depth
 // generates 21 programs, so a stride of 4 takes other forms and operand
 // orders at each depth.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestContextReachProperty(t *testing.T) {
 	needsBuild(t)
 	units := reachUnits(t)

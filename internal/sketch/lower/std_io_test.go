@@ -34,6 +34,10 @@ func runExeInput(t *testing.T, exe, stdin string, args ...string) (string, strin
 // TestIOStdinRest (S1b round 2, M2): a break out of io.Stdin.Lines leaves
 // the rest of the input for the next read: a header line, then a second
 // Lines loop, then ReadAll, over a pipe.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestIOStdinRest(t *testing.T) {
 	needsBuild(t)
 	const rest = `import io
@@ -113,6 +117,9 @@ func main() needs Console {
 // Recorder and LinesSplitInput on an Input, restated as property tests
 // over generated strings, and the same on texts with and without a final
 // line feed, carriage returns and invalid UTF-8.
+//
+// It builds Go because the laws run in the built test binary (ergo test),
+// the only place a law runs.
 func TestIOLaws(t *testing.T) {
 	needsBuild(t)
 	const probe = `import io

@@ -77,6 +77,10 @@ func inputLinesCases(seed uint64, n int) []string {
 // TestInputLinesMatchesModel: over 2,000 seeded texts, io.Input's Lines
 // gives the lines Go's strings.Split gives (inputLinesModel). The seed is
 // 1, or ERGO_SEED; a failure prints the seed, the text, and both outputs.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestInputLinesMatchesModel(t *testing.T) {
 	needsBuild(t)
 	seed := uint64(1)

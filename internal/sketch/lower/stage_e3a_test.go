@@ -109,6 +109,11 @@ func lines(s string) []string {
 // TestE3Sweep builds the run build and the test build of every program of
 // testdata/e3 and runs both: ergo run prints main's output only, and the
 // test binary prints each test's verdict and exits with the run's status.
+//
+// It builds Go because it runs the emitted test harness under go test: the
+// harness's verdicts and the values it prints are the output; no in-process
+// check observes that, and Ergo has no reference interpreter yet (test-speed
+// T8).
 func TestE3Sweep(t *testing.T) {
 	needsBuild(t)
 	progs := e3Programs(t)
@@ -146,6 +151,11 @@ func TestE3Sweep(t *testing.T) {
 
 // TestPropertySeed: --seed N and --seed=N replay the same cases, another
 // seed draws others, and any other argument is a usage error.
+//
+// It builds Go because it runs the emitted test harness under go test: the
+// harness's verdicts and the values it prints are the output; no in-process
+// check observes that, and Ergo has no reference interpreter yet (test-speed
+// T8).
 func TestPropertySeed(t *testing.T) {
 	needsBuild(t)
 	src := `func clamp(n int) int {

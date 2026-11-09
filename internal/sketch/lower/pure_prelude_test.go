@@ -59,6 +59,9 @@ func lowerPureCollections(t *testing.T, name, src string, pure bool) *lowered {
 	return mustLower(t, name, src)
 }
 
+// TestPurePreludeEmits builds Go because it checks what the built program
+// prints and how it exits; no in-process check observes that, and Ergo has
+// no reference interpreter yet (test-speed T8).
 func TestPurePreludeEmits(t *testing.T) {
 	needsBuild(t)
 	// lookup's match on m.Get(k) keeps its Get call, and so the Get
@@ -190,6 +193,11 @@ func purePreludeProgram(seed uint64, k int) string {
 // task, while the reference's take one. A failing seed prints the Ergo
 // source and both outputs.
 // Replay: go test -run '^TestPurePreludeAgrees$' ./internal/sketch/lower -args -pureprelude.seed=N
+//
+// It builds Go because it compares the runs of built programs with a
+// reference (another lowering, a fold, or Go's own package), and the
+// question is behaviour at run time; no in-process check observes that, and
+// Ergo has no reference interpreter yet (test-speed T8).
 func TestPurePreludeAgrees(t *testing.T) {
 	needsBuild(t)
 	seeds := purePreludeSeeds

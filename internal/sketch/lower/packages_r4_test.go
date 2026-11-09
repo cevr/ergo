@@ -37,6 +37,10 @@ func TestGeneratedOrderIsTotal(t *testing.T) {
 // The round 3 verify's probe (M1): a type generic over a failure row only
 // and its instance in a record's field erase to one Go type, which has one
 // text function, in both builds.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestVerifyR3ErasedRows(t *testing.T) {
 	needsBuild(t)
 	u := checkPackage(t, "main", []pkgSource{{"/probe/rows.ergo", `type Bad {}

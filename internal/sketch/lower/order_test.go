@@ -20,6 +20,10 @@ import (
 // once, untaken branches and the right side of a decided && or || never.
 // Thousands of composed operands across the cases; finite evidence, not a
 // proof over all programs.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestEvaluationOrder(t *testing.T) {
 	needsBuild(t)
 	const programs, cases = 4, 60

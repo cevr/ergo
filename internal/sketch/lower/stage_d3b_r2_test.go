@@ -18,6 +18,10 @@ import (
 // runWithin lowers src, builds it and runs the program until the test's
 // deadline (testwait.End), so a hang or a deadlock fails the test with its
 // output instead of stopping the test binary.
+//
+// It builds Go because its callers ask what the built program prints and how
+// it exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func runWithin(t *testing.T, name, src, want string) {
 	t.Helper()
 	o := mustLower(t, name, src)

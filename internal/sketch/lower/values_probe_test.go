@@ -182,6 +182,9 @@ func main() needs Console {
 // and slice sharing at run time, which no in-process check of the emitted
 // text observes; the generated programs of TestValueRuleAgrees cover the
 // paths in combination.
+//
+// It builds Go because the bug is Go's map and slice sharing at run time
+// (above).
 func TestValueRuleProbes(t *testing.T) {
 	needsBuild(t)
 	var programs []*lowered

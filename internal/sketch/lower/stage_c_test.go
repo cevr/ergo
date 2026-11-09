@@ -11,6 +11,10 @@ import (
 // generated module and runtime, and returns the combined output. A
 // successful check alone missed the former reachable-end panic, so every
 // stage C form has a run test.
+//
+// It builds Go because its callers ask what the built program prints and how
+// it exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func ergoRun(t *testing.T, src string) (string, error) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "main.ergo")

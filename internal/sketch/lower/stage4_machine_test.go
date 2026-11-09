@@ -237,6 +237,10 @@ const greeterSource = "type Greeter {\n\tGreet(name string) string,\n}\n\ntype P
 // program also holds a machine over a generic union, an unused machine,
 // and user functions named Initial and Step, which do not collide with the
 // plan's methods.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestMachinePlanValues(t *testing.T) {
 	needsBuild(t)
 	rng := rand.New(rand.NewSource(57))
@@ -292,6 +296,11 @@ func TestMachinePlanValues(t *testing.T) {
 // goTestEmitted runs the Go test source text beside prog's emitted main.go,
 // in a module with the runtime, with env added to its environment, and
 // fails t when it fails.
+//
+// It builds Go because it runs the emitted test harness under go test: the
+// harness's verdicts and the values it prints are the output; no in-process
+// check observes that, and Ergo has no reference interpreter yet (test-speed
+// T8).
 func goTestEmitted(t *testing.T, prog *lowered, text string, env ...string) {
 	t.Helper()
 	fastTierGuard(t, "a go command")

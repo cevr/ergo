@@ -493,6 +493,9 @@ func expect(t *testing.T, o *lowered, d *contextDAG, exit string, slow map[strin
 	return lines
 }
 
+// TestRuntime199ContextBuildProperty builds Go because it checks what the
+// built program prints and how it exits; no in-process check observes that,
+// and Ergo has no reference interpreter yet (test-speed T8).
 func TestRuntime199ContextBuildProperty(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs generated programs")

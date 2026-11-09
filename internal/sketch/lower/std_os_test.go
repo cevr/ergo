@@ -112,6 +112,10 @@ func main() needs Console | Ambient {
 // output through the same calls. os.Process is an open std protocol
 // (check.SealedStd), so both providers convert to it and it lowers as a
 // declaration of the program.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestOSProcessRuns(t *testing.T) {
 	needsBuild(t)
 	host := mustLower(t, "osHost", osProgram)

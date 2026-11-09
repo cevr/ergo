@@ -1515,6 +1515,9 @@ func i1CheckNoPollBeforeLoop(t *testing.T, o *lowered) {
 	}
 }
 
+// i1Live builds Go because its callers ask what the built program prints and
+// how it exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func i1Live(t *testing.T) {
 	progs := i1LivePrograms()
 	var lowered []*lowered

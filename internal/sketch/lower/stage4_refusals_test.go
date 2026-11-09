@@ -352,6 +352,10 @@ func main() { with W { A.Use() } }
 // TestErrorFieldNamesStayDistinct: an error type's field Error is the Go
 // field Error_ (its Error method keeps the name), so a field the source
 // names Error_ takes Error__; both keep their values and their text.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestErrorFieldNamesStayDistinct(t *testing.T) {
 	needsBuild(t)
 	o := mustLower(t, "error-fields", `type Bad { Error string, Error_ int }

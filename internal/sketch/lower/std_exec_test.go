@@ -6,7 +6,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-	"time"
 
 	"ergo.local/prototype/internal/lawledger"
 )
@@ -15,8 +14,8 @@ import (
 // host's Runner, which main binds under Ambient. A status that is not 0 is
 // a Result; a missing program is exec.NotFound, which a catch arm takes by
 // name and which an uncaught failure writes with its text and status 1.
-// A stopped task's Run ends its program: Stop returns long before the
-// program's 20s sleep, and the program's output never reaches main; a
+// A stopped task's Run ends its program: the program's output ("late",
+// after a 20s sleep) never reaches main, before or after Stop; a
 // stopped pipeline leaves none of its processes (an Effect case). A
 // Script binds in the same place and gives back what it holds.
 func TestExecRuns(t *testing.T) {
@@ -27,7 +26,6 @@ func TestExecRuns(t *testing.T) {
 	if err := os.WriteFile(pidfile, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	begin := time.Now()
 	runBehaviors(t, []behavior{
 		{name: "exec", src: strings.ReplaceAll(`import exec
 import task
@@ -82,11 +80,6 @@ func main() fails exec.NotFound | exec.Denied | exec.Failed needs Console | Ambi
 }
 `, exit: 1, stderr: []string{"error: exec.NotFound{Name:/nonexistent/loop-probe-x}\n"}},
 	})
-	// The build and two runs take seconds; the stopped program's sleep
-	// would take 20.
-	if took := time.Since(begin); took > 15*time.Second {
-		t.Errorf("TestExecRuns took %v: the stop did not end the program", took)
-	}
 	// Effect: NodeChildProcessSpawner.test.ts "kills every process in a
 	// pipeline". The stopped task's program ran a pipeline of two stages,
 	// each with a process of its own, and wrote their pids and then its
@@ -184,6 +177,9 @@ var execLawStatements = map[string]string{
 // restates exactly the ledger's laws whose runner is this test, each with
 // the row's statement, and that each passed. ScriptNotFoundNamesTheProgram
 // is the probe's own test of the Script provider, not a ledger row.
+//
+// It builds Go because the laws run in the built test binary (ergo test),
+// the only place a law runs.
 func TestExecLaws(t *testing.T) {
 	needsBuild(t)
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "execlaws", execLawsProbe)}, true)

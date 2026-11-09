@@ -285,6 +285,9 @@ func lawsPassed(t *testing.T, statements map[string]string, testName func(key st
 // statements is each law's restatement by key (fu-ledger-runner; the
 // runners of S2 and S3 moved onto it at the batch-10 merge). It returns
 // nil when the probe did not build.
+//
+// It builds Go because the laws run in the built test binary (ergo test),
+// the only place a law runs.
 func lawProbe(t *testing.T, name, probe string, statements map[string]string) map[string]lawledger.Law {
 	t.Helper()
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, name, probe)}, true)
@@ -304,6 +307,9 @@ func lawProbe(t *testing.T, name, probe string, statements map[string]string) ma
 // TestStdLawsRun runs the probe's tests; lawledger.Run holds that the
 // probe restates exactly the ledger's laws whose runner is this test, each
 // with the row's statement, and that each passed.
+//
+// It builds Go because the laws run in the built test binary (ergo test),
+// the only place a law runs.
 func TestStdLawsRun(t *testing.T) {
 	needsBuild(t)
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "stdlaws", stdLawsProbe)}, true)

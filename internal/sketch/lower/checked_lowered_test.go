@@ -591,6 +591,10 @@ func TestCheckedImpliesLoweredPart19(t *testing.T) { checkedSplit.Part(t, 19) }
 
 // runChecked checks and lowers the pairs of cases, then builds and runs
 // the program of each case.
+//
+// It builds Go because its callers ask what the built program prints and how
+// it exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func runChecked(t *testing.T, cases iter.Seq[checkedCase]) {
 	var programs []*lowered
 	want := map[string]string{}

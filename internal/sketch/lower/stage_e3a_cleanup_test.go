@@ -121,6 +121,10 @@ func main() needs Console {
 `
 }
 
+// TestCaseOutcomeProperty builds Go because it runs the emitted test harness
+// under go test: the harness's verdicts and the values it prints are the
+// output; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestCaseOutcomeProperty(t *testing.T) {
 	needsBuild(t)
 	type point struct {

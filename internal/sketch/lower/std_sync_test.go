@@ -159,6 +159,10 @@ test RecorderTasks(n int) {
 // process's GOMAXPROCS. RecorderKeepsOrder passes at the base too (the Map
 // Recorder); RecorderTasks ends the base's binary with "fatal error:
 // concurrent map writes" (measured at fd156fbb with GOMAXPROCS=2).
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestIORecorderBehavesAsBefore(t *testing.T) {
 	needsBuild(t)
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "recorder", recorderProbe)}, true)

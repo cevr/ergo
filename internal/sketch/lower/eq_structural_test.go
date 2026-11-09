@@ -230,6 +230,11 @@ func check(i int, a Value, b Value, ka []int, kb []int) string {
 // record and a tuple that hold the pair agree too. A failing line names the
 // seed and the two values.
 // Replay: go test -run '^TestEqualStructuralAgrees$' ./internal/sketch/lower -args -eq.seed=N
+//
+// It builds Go because it compares the runs of built programs with a
+// reference (another lowering, a fold, or Go's own package), and the
+// question is behaviour at run time; no in-process check observes that, and
+// Ergo has no reference interpreter yet (test-speed T8).
 func TestEqualStructuralAgrees(t *testing.T) {
 	needsBuild(t)
 	seeds := eqSeeds

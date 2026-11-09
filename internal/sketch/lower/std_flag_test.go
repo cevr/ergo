@@ -233,6 +233,9 @@ func flagLoop(args []string, interleave bool) string {
 
 // flagProbe builds testdata/flagprobe, runs it on lists, and returns its
 // help text and one outcome per list.
+//
+// It builds Go because the laws run in the built test binary (ergo test),
+// the only place a law runs.
 func flagProbe(t *testing.T, lists [][]string) (string, []string) {
 	t.Helper()
 	src, err := os.ReadFile("testdata/flagprobe/main.ergo")
@@ -335,6 +338,10 @@ func TestFlagMatchesGo(t *testing.T) {
 // of one of the set's flags, ends the program with a defect (status 2 and
 // a runtime report), whether or not the flag was given. The set's own
 // handle reads its value.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestFlagForeignHandle(t *testing.T) {
 	needsBuild(t)
 	const program = `import flag
@@ -626,6 +633,9 @@ var flagLawStatements = map[string]string{
 // --seed 1; lawledger.Run holds that it restates exactly the ledger rows
 // whose runner is this test, each with the row's statement, and that each
 // passed.
+//
+// It builds Go because the laws run in the built test binary (ergo test),
+// the only place a law runs.
 func TestFlagLaws(t *testing.T) {
 	needsBuild(t)
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "flaglaws", flagLawTests)}, true)

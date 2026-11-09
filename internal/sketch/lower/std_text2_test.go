@@ -13,6 +13,10 @@ import (
 // match, with no string test. Its test build restates the laws whose ledger
 // runner is this test (the ones over an Ergo body: Cut and Lines) and runs
 // them with --seed 1.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestStdTextRuns2(t *testing.T) {
 	needsBuild(t)
 	const program = `import strings

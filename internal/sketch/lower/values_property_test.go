@@ -601,6 +601,11 @@ func lowerValueMode(t *testing.T, name, src string, rule bool) *lowered {
 }
 
 // TestValueRuleAgrees is the seeded property (see above).
+//
+// It builds Go because it compares the runs of built programs with a
+// reference (another lowering, a fold, or Go's own package), and the
+// question is behaviour at run time; no in-process check observes that, and
+// Ergo has no reference interpreter yet (test-speed T8).
 func TestValueRuleAgrees(t *testing.T) {
 	needsBuild(t)
 	seeds := []uint64{1, 2, 3, 4, 5, 6}

@@ -13,6 +13,10 @@ import (
 // properties that generalise them.
 
 // buildAndRun builds the programs and checks each one's stdout and exit 0.
+//
+// It builds Go because its callers ask what the built program prints and how
+// it exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func buildAndRun(t *testing.T, programs []*lowered, want map[string]string) {
 	t.Helper()
 	exes := buildAll(t, programs, true)
@@ -46,6 +50,10 @@ func opsLib(n string) string {
 
 // The text of an error type's instances over two packages' Q, whose
 // displays are both Oops[lib.Q]: each instance has its own text function.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestErrorTextInstancesAcrossPackages(t *testing.T) {
 	needsBuild(t)
 	a := checkPackage(t, "x/lib", []pkgSource{{"/probe/x/lib.ergo", opsLib("1")}}, nil)

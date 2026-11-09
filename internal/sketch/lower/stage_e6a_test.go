@@ -313,6 +313,10 @@ func TestInterpolationText(t *testing.T) {
 // runFed lowers src with no entry, adds feed (a Go file of the same
 // package whose init calls the lowered functions) and runs the program. It
 // returns stdout.
+//
+// It builds Go because its callers ask what the built program prints and how
+// it exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func runFed(t *testing.T, name, src, feed string) string {
 	t.Helper()
 	fastTierGuard(t, "a go command")

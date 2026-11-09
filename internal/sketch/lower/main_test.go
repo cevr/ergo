@@ -123,6 +123,9 @@ const probeVariable = "ERGO_TEST_CLI_PROBE"
 
 // TestErgoCLIProbe prints the path ergoCLI returns, when probeVariable is
 // set; otherwise it does nothing.
+//
+// It builds Go because its question is the ergo command itself: that the
+// harness runs the CLI it was given.
 func TestErgoCLIProbe(t *testing.T) {
 	if os.Getenv(probeVariable) == "" {
 		t.Skip("a probe for TestErgoCLIUsesTheGivenBinary")

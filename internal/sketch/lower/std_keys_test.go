@@ -30,6 +30,10 @@ func stdFixture(t *testing.T, path, src string) *check.Package {
 // each arm takes its own failure. Before, the lowering bound a std record
 // by its bare name, so both lowered to v1.NotFound, the fs record's struct,
 // and the catch could not tell them apart.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestStdRecordsKeyedByPackage(t *testing.T) {
 	needsBuild(t)
 	const fixture = `type NotFound { Path string }

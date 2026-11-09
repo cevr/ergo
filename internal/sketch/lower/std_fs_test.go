@@ -205,6 +205,10 @@ func main() needs Console | Ambient {
 // a TMPDIR that does not exist. A write into a read-only directory is
 // Denied, under a missing directory NotFound, over a directory Failed. No
 // temporary file is left.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestFSWritesRuns(t *testing.T) {
 	needsBuild(t)
 	if os.Geteuid() == 0 {

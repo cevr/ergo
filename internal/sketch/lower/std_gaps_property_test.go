@@ -31,6 +31,10 @@ import (
 //
 // With the default seeds, every branch of the generator is reached
 // (gapBranches), so a mutant of either fix is caught by some program.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestStdGapProperty(t *testing.T) {
 	needsBuild(t)
 	seeds := []uint64{}
@@ -390,6 +394,10 @@ func (g *stdGap) lower(t *testing.T) *lowered {
 // exists today (lowering-parse-gap.md); one that this generator cannot
 // drive (a function with parameters or needs, a context with needs) fails
 // here, so the generator is extended with it.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestStdGapRealStd(t *testing.T) {
 	var programs []*lowered
 	want := map[string]string{}

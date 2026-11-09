@@ -130,6 +130,11 @@ func headerCases(seed uint64) []headerCase {
 // function prints what its let-first reference prints. A failing line
 // names the seed, the Ergo source of both functions and both outputs.
 // Replay: go test -run '^TestHeaderLiteralAgrees$' ./internal/sketch/lower -args -header.seed=N
+//
+// It builds Go because it compares the runs of built programs with a
+// reference (another lowering, a fold, or Go's own package), and the
+// question is behaviour at run time; no in-process check observes that, and
+// Ergo has no reference interpreter yet (test-speed T8).
 func TestHeaderLiteralAgrees(t *testing.T) {
 	needsBuild(t)
 	seeds := headerSeeds

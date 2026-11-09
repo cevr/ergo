@@ -43,6 +43,3 @@ scripts/examples/stop_test.go	TestEveryExitPathStopsTheGroup	-timeout 2s is the 
 
 # load can turn these; each is a named follow-up
 scripts/gate/output_oracle_linux_test.go	runOracleHelper	follow-up FU-oracle-hold: hold the file until the scope watch reports a sample, not 300 ms
-internal/sketch/lower/machine_run_test.go	runMachineBounded	arrived at the ts-t2 base after fu-time-limits (batch 12): T5 (ts-cut-lower) bounds it by the test's deadline or cuts it
-internal/sketch/lower/std_fs_memory_test.go	runFSProgram	arrived at the ts-t2 base after fu-time-limits (batch 12): T5 (ts-cut-lower) bounds it by the test's deadline or cuts it
-internal/sketch/lower/std_time_civil_test.go	TestTimeCivilMatchesGo	arrived at the ts-t2 base after fu-time-limits (batch 12): T5 (ts-cut-lower) bounds it by the test's deadline or cuts it
