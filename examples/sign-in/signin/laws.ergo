@@ -220,7 +220,8 @@ func presses(n int, digits []int) []Signal {
 }
 
 // wrongCode is the WrongCode signal as a value: WrongCode is also a
-// failure type, and a failure type's value at a tail fails (finding F3).
+// failure type, and a failure type's value that ends a function fails
+// (rows.md, Tail results 3), so it is bound as a Signal first.
 func wrongCode() Signal {
 	let w Signal = WrongCode
 	w

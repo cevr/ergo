@@ -234,9 +234,10 @@ func (c *checker) yieldExpr(last *syntax.ExprStmt, k *sink, end syntax.Pos) {
 		c.handled(&op)
 	}
 	if k.ret && op.mode == modeValue {
-		if row := c.errorValueRow(op.typ); row != nil {
-			// A failure, as return e is (rows.md, Error rows 4): this path
-			// has no value.
+		// A failure, as return e is (rows.md, Error rows 4): this path has
+		// no value. An ambiguous one is reported and read on as the
+		// value, so no caller sees a failure that was not meant.
+		if row := c.errorValueRow(op.typ); row != nil && !c.ambiguousExit(last.X, op.typ, row) {
 			c.escape(last.X, row)
 			c.tail(last, op.typ)
 			return

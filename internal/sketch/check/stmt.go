@@ -579,7 +579,7 @@ func (c *checker) returnStmt(s *syntax.ReturnStmt) {
 			}
 			return
 		}
-		if row := c.errorValueRow(op.typ); row != nil && op.mode == modeValue {
+		if row := c.errorValueRow(op.typ); row != nil && op.mode == modeValue && !c.ambiguousExit(s.Results[0], op.typ, row) {
 			c.escape(s.Results[0], row)
 			return
 		}
@@ -689,6 +689,45 @@ func (c *checker) errorValueRow(t Type) *Row {
 		return c.types.row(t)
 	}
 	return nil
+}
+
+// ambiguousExit reports, at x, a value of the error type typ that ends a
+// function (a tail or a return) whose one result is a union that has typ
+// as a variant and a variant that is no error type, when the function's
+// row does not declare typ: such a value is a failure (rows.md, Tail
+// results 3), but it reads as the result's variant. The message says what
+// to write for each reading (lane MB F3). A declared row that lists typ
+// chose the failure, so it is quiet. It returns whether it reported.
+func (c *checker) ambiguousExit(x syntax.Expr, typ Type, row *Row) bool {
+	t := c.fn.t
+	if t == nil || !t.isFunc || t.law || len(t.results) != 1 {
+		return false
+	}
+	if t.declErrors != nil && (t.declErrors.unknown(c.types) || row.minus(c.types, t.declErrors).known(c.types).Empty()) {
+		return false
+	}
+	res := t.results[0]
+	if u := asUnion(res); u == nil || c.errorValueRow(u) != nil {
+		return false
+	}
+	if a, _ := c.assignability(typ, res); !a.ok() {
+		return false
+	}
+	c.errorf(x, CodeUndeclared, "%s is an error type, so a value of it that ends %s is a failure (rows.md, Tail results 3), and %s does not declare it; it is also a variant of %s: to return it as a value, write let v %s = %s and end with v; to fail with it, declare it in the error row", c.spelled(typ), t.name, t.name, c.spelled(res), c.spelled(res), exprText(x))
+	return true
+}
+
+// spelled is t as the source of the package being checked names it: a
+// type of the package by its name, an imported one as pkg.Name, any
+// other type as its text.
+func (c *checker) spelled(t Type) string {
+	if n, ok := t.(*Named); ok && n.Orig == nil && n.Obj.Pkg != nil {
+		if n.Obj.Pkg == c.pkg {
+			return n.Obj.Name
+		}
+		return n.Obj.Pkg.Name + "." + n.Obj.Name
+	}
+	return t.String()
 }
 
 // isErrorValue reports whether t is an error type in the body being
