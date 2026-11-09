@@ -248,7 +248,9 @@ test G { try g() }
 // conversion the root writes from an imported record, and a pointer to an
 // imported record, from packages whose paths share their last element
 // (1 to 3 of them), with the same type, function and parameter names in
-// each. Each package k provides k.
+// each. Each package k provides k. Each lib's same-named error type Missing
+// is also the success value of a root function that fails with the
+// previous lib's Missing.
 func TestImportedOperationTypes(t *testing.T) {
 	paths := []string{"x/lib", "y/lib", "z/lib"}
 	aliases := []string{"a", "b", "c"}
@@ -257,6 +259,8 @@ func TestImportedOperationTypes(t *testing.T) {
 func First[T](xs []T, d T) T { d }
 type Bump { Inc() int }
 func Inc(q *Q) int { q.N + 10 }
+type Missing { Why string }
+func Fail(w string) int fails Missing { return Missing{Why: w} }
 `
 	}
 	var programs []*lowered
@@ -275,6 +279,18 @@ func Inc(q *Q) int { q.N + 10 }
 			body += fmt.Sprintf("\tConsole.Println(\"\\(%[1]s.Make().Get()) \\(use%[1]s(%[1]s.Make())) \\(%[1]s.Show(%[1]s.Q{N: %[2]d})) \\(%[1]s.First([]int{}, %[2]d)) \\(bump%[1]s(&q%[1]s))\")\n", x, k+1)
 			header += fmt.Sprintf("func use%[1]s(r %[1]s.Read) int { r.Get() }\nfunc bump%[1]s(b %[1]s.Bump) int { b.Inc() }\n", x)
 			expect += strings.Repeat(fmt.Sprint(k+1)+" ", 4) + fmt.Sprint(k+11) + "\n"
+			if k > 0 {
+				// An error type returned from a function whose result is the
+				// same-named error type of another lib: the success value is
+				// x.Missing, and p.Missing is a failure (K1; batch-12 M1).
+				p := aliases[k-1]
+				header += fmt.Sprintf("func miss%[1]s(n int) %[1]s.Missing fails %[2]s.Missing {\n\tif n > 0 {\n\t\treturn %[2]s.Missing{Why: \"%[2]s\"}\n\t}\n\t%[1]s.Missing{Why: \"%[1]s\"}\n}\n", x, p)
+				for i := range 2 {
+					body += fmt.Sprintf("\tlet m%[1]s%[3]d = miss%[1]s(%[3]d) catch {\n\tcase %[2]s.Missing as e:\n\t\t%[1]s.Missing{Why: \"caught \" + e.Why}\n\t}\n", x, p, i)
+				}
+				body += fmt.Sprintf("\tConsole.Println(m%[1]s0.Why + \" \" + m%[1]s1.Why)\n", x)
+				expect += x + " caught " + p + "\n"
+			}
 		}
 		root := checkPackage(t, "main", []pkgSource{{"/probe/ops.ergo", imports + header + "type lib {}\nfunc main() needs Console {\n" + body + "}\n"}}, imp)
 		root.Imports = units

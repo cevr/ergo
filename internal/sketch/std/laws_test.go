@@ -471,7 +471,7 @@ func TestStdHostLawsHold(t *testing.T) {
 			}
 		}},
 		// With no writer, two reads agree in value and in failure.
-		"fs Files.ReadIsRepeatable": {Statement: `ReadIsRepeatable(path string) { let first = ReadFile(path) catch { case NotFound, Denied, Failed: return true } try ReadFile(path) == first }`, Check: func(t *testing.T) {
+		"fs Files.ReadIsRepeatable": {Statement: `ReadIsRepeatable(path string) { let first = ReadFile(path) catch { case NotFound as e: let _ = ReadFile(path) catch { case NotFound as again: return again == e case Denied, Failed: return false } return false case Denied as e: let _ = ReadFile(path) catch { case Denied as again: return again == e case NotFound, Failed: return false } return false case Failed as e: let _ = ReadFile(path) catch { case Failed as again: return again == e case NotFound, Denied: return false } return false } try ReadFile(path) == first }`, Check: func(t *testing.T) {
 			for _, p := range paths {
 				p = filepath.Join(dir, p)
 				a, errA := v1.FSReadFile(p)

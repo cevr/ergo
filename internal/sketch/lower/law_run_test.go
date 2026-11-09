@@ -558,3 +558,95 @@ func TestLawRunFindsTheBrokenProvider(t *testing.T) {
 		}
 	}
 }
+
+// lawRunFiles provides fs.Files three ways. Flaky's reads of a path
+// alternate NotFound and "x"; Shifty's alternate Denied and NotFound; so
+// neither keeps fs.Files.ReadIsRepeatable. Steady fails the empty path
+// with NotFound every time and reads "x" otherwise, so it keeps it, its
+// failures included (batch-12 M2).
+const lawRunFiles = `import fs
+import sync
+
+type Flaky { reads sync.Ref[int] }
+
+func NewFlaky() Flaky { Flaky{reads: sync.NewRef[int](0)} }
+
+func ReadFile(f Flaky, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	let n = f.reads.Get()
+	f.reads.Set(n + 1)
+	if n % 2 == 0 {
+		return fs.NotFound{Path: path}
+	}
+	"x"
+}
+
+func ReadDir(f Flaky, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+func Stat(f Flaky, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+type Shifty { reads sync.Ref[int] }
+
+func NewShifty() Shifty { Shifty{reads: sync.NewRef[int](0)} }
+
+func ReadFile(s Shifty, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	let n = s.reads.Get()
+	s.reads.Set(n + 1)
+	if n % 2 == 0 {
+		return fs.Denied{Path: path}
+	}
+	fs.NotFound{Path: path}
+}
+
+func ReadDir(s Shifty, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+func Stat(s Shifty, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+type Steady {}
+
+func ReadFile(s Steady, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	if path == "" {
+		return fs.NotFound{Path: path}
+	}
+	"x"
+}
+
+func ReadDir(s Steady, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+func Stat(s Steady, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+func main() {}
+`
+
+// TestLawRunReadIsRepeatable: the std law fs.Files.ReadIsRepeatable
+// compares both reads' outcomes, so it refutes a provider whose reads
+// alternate a failure and a text (Flaky) or two failure kinds (Shifty),
+// and holds for a steady one. fstest.Memory and the disk keep it in
+// TestFSMemoryAgreesWithHost and TestStdHostLawsHold. Mutants it kills: a
+// first failed read that holds the law vacuously (Flaky passes), and a
+// second failure that is not compared with the first (Shifty passes). It
+// builds Go because the law runner, its provider builds and its seeded
+// cases exist only in the lowered test binary, and Flaky's state is a
+// sync.Ref that only the runtime runs; no in-process interpreter runs a
+// member law against a provider.
+func TestLawRunReadIsRepeatable(t *testing.T) {
+	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_files", lawRunFiles)}, true)
+	if exes == nil {
+		return
+	}
+	stdout, stderr, code := runExeArgs(t, exes["lawrun_files"], "--seed", "7")
+	got := lines(stdout)
+	want := []string{
+		"FAIL law fs.Files.ReadIsRepeatable for Flaky (case ",
+		"FAIL law fs.Files.ReadIsRepeatable for Shifty (case ",
+		"ok law fs.Files.ReadIsRepeatable for Steady (",
+		"FAIL (2 of 3 tests)",
+	}
+	if code != 1 || len(got) != len(want) {
+		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
+	}
+	for i, w := range want {
+		if !strings.HasPrefix(got[i], w) || strings.HasPrefix(w, "FAIL law") && !strings.Contains(got[i], "seed 7") {
+			t.Errorf("line %d is %q, want %q …", i+1, got[i], w)
+		}
+	}
+}

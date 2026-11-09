@@ -586,7 +586,7 @@ func (c *checker) returnStmt(s *syntax.ReturnStmt) {
 			}
 			return
 		}
-		if row := c.returnedErrorRow(op.typ); row != nil && op.mode == modeValue {
+		if row := c.returnedErrorRow(s.Results[0], op.typ); row != nil && op.mode == modeValue {
 			c.escape(s.Results[0], row)
 			return
 		}
@@ -705,8 +705,17 @@ func (c *checker) errorValueRow(t Type) *Row {
 // rows.md, Error rows 4). A declared result that is a union whose every
 // member is an error type is a value too: a value whose error types are
 // all members of it is the success value (fs1, under q27). In any other
-// body an error value is a failure.
-func (c *checker) returnedErrorRow(t Type) *Row {
+// body an error value is a failure. It records the decision for x, the
+// returned expression, in Info.ReturnedValues.
+func (c *checker) returnedErrorRow(x syntax.Expr, t Type) *Row {
+	row := c.decideReturnedError(t)
+	if c.errorValueRow(t) != nil {
+		c.pkg.Info.ReturnedValues[x] = row == nil
+	}
+	return row
+}
+
+func (c *checker) decideReturnedError(t Type) *Row {
 	row := c.errorValueRow(t)
 	if row == nil || c.fn == nil || c.fn.t == nil || c.fn.t.law {
 		return row
