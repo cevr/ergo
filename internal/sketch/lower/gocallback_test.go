@@ -226,6 +226,9 @@ func outcome(w string, root string, k int, mode int) string needs Tag | go.Forei
 	restore := SetGoErrorEagerForTest(true)
 	eager := mustLower(t, "callback_eager", text)
 	restore()
+	if strings.Contains(lazy.mainGo(), "Eager") || !strings.Contains(eager.mainGo(), "GoUntunnelEager") {
+		t.Fatalf("the lazy lowering names the eager form, or the reference does not untunnel eagerly")
+	}
 	exes := buildAll(t, []*lowered{lazy, eager}, true)
 	if exes == nil {
 		return
