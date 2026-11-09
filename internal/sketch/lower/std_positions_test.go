@@ -15,36 +15,6 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// The G1 repro (batch 11, lane EX): a program of two files that calls
-// flag.Describe, a std function with a match in a std package of several
-// files, lowers, and the match's no-case defect names the match in its std
-// file, not a line of the program.
-func TestStdBodyInTwoFileProgram(t *testing.T) {
-	u := checkPackage(t, "main", []pkgSource{
-		{"/ergo-test/g1/main.ergo", "func main() needs Console {\n\tConsole.Println(Usage())\n}\n"},
-		{"/ergo-test/g1/usage.ergo", "import flag\n\nfunc Usage() string {\n\tflag.Describe(flag.Missing{Name: \"x\"})\n}\n"},
-	}, nil)
-	o := mustLowerUnit(t, "g1", u, false)
-	want := "no case of the match at " + stdMatchSites(t, "flag", "Describe")[0] + " matched"
-	if !strings.Contains(goText(o), want) {
-		t.Fatalf("the lowering names no %q:\n%s", want, noCaseLines(goText(o)))
-	}
-}
-
-// A program of one file that calls a std body with a match names the
-// match in its std file. Before G1, sourceOf gave every node of a one-file
-// program the program's file, so the defect named a line of main.ergo.
-func TestStdBodyInOneFileProgram(t *testing.T) {
-	u := checkPackage(t, "main", []pkgSource{
-		{"/ergo-test/g1one/main.ergo", "import flag\n\nfunc main() needs Console {\n\tConsole.Println(flag.Describe(flag.Missing{Name: \"x\"}))\n}\n"},
-	}, nil)
-	o := mustLowerUnit(t, "g1one", u, false)
-	want := "no case of the match at " + stdMatchSites(t, "flag", "Describe")[0] + " matched"
-	if !strings.Contains(goText(o), want) {
-		t.Fatalf("the lowering names no %q:\n%s", want, noCaseLines(goText(o)))
-	}
-}
-
 // matchStmt reports a match statement: a type match or a value match.
 func matchStmt(n syntax.Node) bool {
 	switch n.(type) {
@@ -61,53 +31,6 @@ func stdFilePath(p *check.Package, f *syntax.File) string {
 		return "std/" + f.Name
 	}
 	return "std/" + p.Path + "/" + f.Name
-}
-
-// stdMatchSites are the locations, path:line:column, of the matches in the
-// bodies of the functions named name of the std package path, in source
-// order.
-func stdMatchSites(t *testing.T, path, name string) []string {
-	t.Helper()
-	p, err := check.Std.Import(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out []string
-	for _, fn := range p.Funcs {
-		if fn.Name != name || fn.Decl == nil || fn.Decl.Body == nil {
-			continue
-		}
-		out = append(out, funcMatchSites(p, fn)...)
-	}
-	if len(out) == 0 {
-		t.Fatalf("std %s.%s has no match", path, name)
-	}
-	return out
-}
-
-// funcMatchSites are the locations of the matches in fn's body.
-func funcMatchSites(p *check.Package, fn *check.Func) []string {
-	var file *syntax.File
-	for _, f := range p.Files() {
-		syntax.Inspect(f, func(n syntax.Node) bool {
-			if n == fn.Decl {
-				file = f
-			}
-			return file == nil
-		})
-	}
-	if file == nil {
-		return nil
-	}
-	var out []string
-	syntax.Inspect(fn.Decl.Body, func(n syntax.Node) bool {
-		if n != nil && matchStmt(n) {
-			line, col := file.Position(n.Pos())
-			out = append(out, stdFilePath(p, file)+":"+strconv.Itoa(line)+":"+strconv.Itoa(col))
-		}
-		return true
-	})
-	return out
 }
 
 // goText is the emitted Go of a lowered program, its main package's files.

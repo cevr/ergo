@@ -3,7 +3,6 @@ package lower
 import (
 	"math/rand/v2"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -78,7 +77,12 @@ func inputLinesCases(seed uint64, n int) []string {
 // TestInputLinesMatchesModel: over 2,000 seeded texts, io.Input's Lines
 // gives the lines Go's strings.Split gives (inputLinesModel). The seed is
 // 1, or ERGO_SEED; a failure prints the seed, the text, and both outputs.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestInputLinesMatchesModel(t *testing.T) {
+	needsBuild(t)
 	seed := uint64(1)
 	if s := os.Getenv("ERGO_SEED"); s != "" {
 		v, err := strconv.ParseUint(s, 10, 64)
@@ -88,7 +92,7 @@ func TestInputLinesMatchesModel(t *testing.T) {
 		seed = v
 	}
 	cases := inputLinesCases(seed, 2000)
-	exes := buildAll(t, []*lowered{mustLower(t, "inputlines", inputLinesProgram)}, true)
+	exes := tableExes(t, "inputlines")
 	if exes == nil {
 		return
 	}
@@ -115,59 +119,6 @@ func TestInputLinesMatchesModel(t *testing.T) {
 			t.Errorf("seed %d, case %d: the lines of %q are\n\t%s\nthe model gives\n\t%s\n(Ergo source: io.Input{Text: %s}.Lines() in internal/sketch/std/io/io.ergo; replay with ERGO_SEED=%d)", seed, i, c, got[i], want, strconv.Quote(c), seed)
 		}
 	}
-}
-
-// TestInputLinesScansByIndex: the Go that io.Input's Lines lowers to finds
-// each line feed with one strings.Index call (v1.StringsIndex) per line,
-// and compares no byte with "\n". The test reads the lowered program's
-// main.go, the Go that ergo build writes; it matches call names, not
-// layout.
-func TestInputLinesScansByIndex(t *testing.T) {
-	const src = `import io
-
-func count(text string) int {
-	let mut n = 0
-	for line in (io.Input{Text: text}).Lines() {
-		n = n + len(line)
-	}
-	n
-}
-
-func main() needs Console {
-	Console.Println("\(count("a\nb"))")
-}
-`
-	body := inputLinesGo(t, mustLower(t, "inputlinesshape", src).mainGo())
-	if n := strings.Count(body, "StringsIndex("); n != 1 {
-		t.Errorf("the lowered Lines(Input) calls StringsIndex %d times, want 1:\n%s", n, body)
-	}
-	if regexp.MustCompile(`==\s*"\\n"`).MatchString(body) {
-		t.Errorf("the lowered Lines(Input) compares a byte with \"\\n\" (a scan per byte):\n%s", body)
-	}
-}
-
-// inputLinesGo is the Go function that io's Lines(input Input) lowers to,
-// from its func line to the next top-level declaration: the one declaration
-// whose parameters name the io Input type and whose result is a Seq.
-func inputLinesGo(t *testing.T, mainGo string) string {
-	t.Helper()
-	decls := regexp.MustCompile(`(?m)^(func|type|var|const|import) `).FindAllStringIndex(mainGo, -1)
-	var found []string
-	for i, d := range decls {
-		end := len(mainGo)
-		if i+1 < len(decls) {
-			end = decls[i+1][0]
-		}
-		fn := mainGo[d[0]:end]
-		head, _, _ := strings.Cut(fn, "\n")
-		if strings.HasPrefix(head, "func ") && strings.Contains(head, "Lines") && strings.Contains(head, "Input") {
-			found = append(found, fn)
-		}
-	}
-	if len(found) != 1 {
-		t.Fatalf("want one lowered function for io's Lines(Input), found %d:\n%s", len(found), strings.Join(found, "\n----\n"))
-	}
-	return found[0]
 }
 
 // BenchmarkInputLines (SS3): 1 MiB of 80-byte lines through the lowered

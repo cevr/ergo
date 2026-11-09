@@ -524,7 +524,13 @@ func timed(m MT, trace []machines.Timed[Sig], end int) string CLOCKED {
 // of machines (over a Machine record with no timer) miss what it catches:
 // Ignore treated as Reject, the rejected index, Done's state, inference
 // through a machine value, and every timer rule.
+//
+// It builds Go because it compares the runs of built programs with a
+// reference (another lowering, a fold, or Go's own package), and the
+// question is behaviour at run time; no in-process check observes that, and
+// Ergo has no reference interpreter yet (test-speed T8).
 func TestMachineRunAgreesWithFold(t *testing.T) {
+	needsBuild(t)
 	seed := int64(20)
 	if s := os.Getenv("ERGO_MACHINERUN_SEED"); s != "" {
 		n, err := strconv.ParseInt(s, 10, 64)
@@ -749,42 +755,6 @@ func step(s St, e Sig) Decision[St, int] { Ignore }
 	}
 }
 
-// TestMachineStartRefusals: a machine's initial may name a start function
-// of its input (V4): one with no parameters or another result, or with a
-// row, is refused, and an InputMachine is not a Machine. Diagnostic rows:
-// they alone catch a checker that admits such a start, which no program
-// that builds can show.
-func TestMachineStartRefusals(t *testing.T) {
-	head := `type St = A{n int}
-type Sig = Go
-type Go {}
-
-func step(s St, e Sig) Decision[St, int] { Ignore }
-
-type M machine[St, Sig] {
-	initial: start,
-	step:    step,
-}
-
-`
-	for _, c := range []struct{ name, rest, want string }{
-		{"none", "func start() St { A{n: 1} }\n\nfunc main() {}\n",
-			"S108 the start start of machine M must have the type func(…) St: its parameters are the machine's input, and it has no type parameters and no error or capability row (runtime.md, Machines and actors 10)"},
-		{"row", "func start(n int) St {\n\tConsole.Println(\"x\")\n\tA{n: n}\n}\n\nfunc main() {}\n",
-			"S108 cannot use func(int) St needs Console as func(int) St in machine M's start: its capability row {Console} is wider than {}"},
-		{"machine", "func start(n int) St { A{n: n} }\n\nfunc main() {\n\tlet _ Machine[St, Sig, int] = M{}\n}\n",
-			"its initial is a function of an input, so it is an InputMachine[int, …]; machines.Start(value, input) gives a Machine"},
-	} {
-		var got []string
-		for _, d := range lowerSource("machinestart", head+c.rest, true).diags {
-			got = append(got, d.String())
-		}
-		if len(got) != 1 || !strings.Contains(got[0], c.want) {
-			t.Errorf("%s: diagnostics %q, want one with %q", c.name, got, c.want)
-		}
-	}
-}
-
 // machinesLawsProbe restates the laws of std machines as tests of the same
 // name (the Std laws ledger, docs/spec/stdlib.md).
 const machinesLawsProbe = `import machines
@@ -917,6 +887,7 @@ var machinesLawStatements = map[string]string{
 // Std laws 4); it builds and runs because the laws run over the lowered
 // std body, as ergo test runs them.
 func TestStdMachinesLawsRun(t *testing.T) {
+	needsBuild(t)
 	if laws := lawProbe(t, "stdmachines", machinesLawsProbe, machinesLawStatements); laws != nil {
 		lawledger.Run(t, laws)
 	}

@@ -19,6 +19,7 @@ import (
 // catch arm of that type handles (runtime.md, Timeouts 4). It is the F
 // timeout leg of the acceptance, with the LiveScheduler.
 func TestTimeoutAfterLowers(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `import timeout
 
 func quick() int { 42 }
@@ -94,6 +95,7 @@ func early() int needs Scheduler {
 // watchdog fails it), and a deadline that ignores the Scheduler would never
 // ask it for the hour.
 func TestTimeoutDeadlineIsTheProgramScheduler(t *testing.T) {
+	needsBuild(t)
 	prog := lowerSource("deadline", timeoutProgram, false)
 	if len(prog.diags) != 0 || prog.err != nil || prog.panicked != nil || len(prog.refused) != 0 {
 		t.Fatalf("lowering: diags %v, err %v, panic %v, refused %v", prog.diags, prog.err, prog.panicked, prog.refused)

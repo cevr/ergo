@@ -17,6 +17,7 @@ import (
 // stack traces and runtime.Caller read, for a path with spaces, a colon
 // and a non-ASCII letter, also under the build flags of every native build.
 func TestSourceAnchorsReachTheGoBinary(t *testing.T) {
+	needsBuild(t)
 	module := t.TempDir()
 	source := filepath.Join(t.TempDir(), "dír with space", "a:b.ergo")
 	if err := ValidatePath(source); err != nil {

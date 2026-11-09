@@ -202,21 +202,3 @@ func Run[E](_ Job[E]) fails E {}`},
 }
 
 // ---------------------------------------------------------------- N1: invalid union
-
-// TestInvalidUnionCases: a union that lost a variant to a reported error
-// adds no case diagnostic, in any subject position (D3; round-3 N1).
-func TestInvalidUnionCases(t *testing.T) {
-	for _, sw := range []string{
-		"match c {\n\tcase A:\n\t\treturn A\n\t}",
-		"match c {\n\tcase B:\n\t\treturn A\n\t}",
-		"match (c, d) {\n\tcase (A, A):\n\t\treturn A\n\t}",
-		"match (d, c) {\n\tcase (A, A):\n\t\treturn A\n\t}",
-		"match (d, c) {\n\tcase (A, B):\n\t\treturn A\n\t}",
-	} {
-		src := "type A {}\ntype B {}\ntype Choice = Missing\ntype Full = A | B\nfunc F(c Choice, d Full) A {\n\t" + sw + "\n}\n"
-		_, diags := check.CheckSource(check.Decided(src))
-		if len(diags) != 1 || diags[0].Code != "S104" {
-			t.Errorf("%s: want only the unknown-name S104, got %s", sw, describe(diags))
-		}
-	}
-}

@@ -1,0 +1,3235 @@
+-- 02000.ergo --
+func Fn[T](x T) T { return x }
+func Ms%d[%s](r Gt%d[%s], x %s) %s {
+	return x
+}
+
+-- 02001.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Ms%d[%s](r Gt%d[%s], x %s) %s {
+	return x
+}
+
+-- 02002.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Ms%d[%s](r Gt%d[%s], x %s) %s {
+	return x
+}
+
+-- 02003.ergo --
+func (r Gt%d[%s]) Ms%d(x %s) {
+}
+
+-- 02004.ergo --
+func Fn[T any](x T) T { return x }
+func (r Gt%d[%s]) Ms%d(x %s) {
+}
+
+-- 02005.ergo --
+func Fn[T](x T) T { return x }
+func (r Gt%d[%s]) Ms%d(x %s) {
+}
+
+-- 02006.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func (r Gt%d[%s]) Ms%d(x %s) {
+}
+
+-- 02007.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func (r Gt%d[%s]) Ms%d(x %s) {
+}
+
+-- 02008.ergo --
+func Ms%d[%s](r Gt%d[%s], x %s) {
+}
+
+-- 02009.ergo --
+func Fn[T any](x T) T { return x }
+func Ms%d[%s](r Gt%d[%s], x %s) {
+}
+
+-- 02010.ergo --
+func Fn[T](x T) T { return x }
+func Ms%d[%s](r Gt%d[%s], x %s) {
+}
+
+-- 02011.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Ms%d[%s](r Gt%d[%s], x %s) {
+}
+
+-- 02012.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Ms%d[%s](r Gt%d[%s], x %s) {
+}
+
+-- 02013.ergo --
+func Main() {
+-- 02014.ergo --
+func Fn[T any](x T) T { return x }
+func Main() {
+-- 02015.ergo --
+func Fn[T](x T) T { return x }
+func Main() {
+-- 02016.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Main() {
+-- 02017.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Main() {
+-- 02018.ergo --
+func Fn[T](x T) T { return x }
+func Fn[T any](x T) T { return x }
+-- 02019.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Fn[T any](x T) T { return x }
+-- 02020.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Fn[T any](x T) T { return x }
+-- 02021.ergo --
+func Fn[T any](x T) T { return x }
+func Fn[T](x T) T { return x }
+-- 02022.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Fn[T](x T) T { return x }
+-- 02023.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Fn[T](x T) T { return x }
+-- 02024.ergo --
+func Fn[T any](x T) T { return x }
+func Fn[A, B any](a A, b B) B { return b }
+-- 02025.ergo --
+func Fn[T](x T) T { return x }
+func Fn[A, B any](a A, b B) B { return b }
+-- 02026.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Fn[A, B any](a A, b B) B { return b }
+-- 02027.ergo --
+func Fn[T any](x T) T { return x }
+func Fn[A, B](a A, b B) B { return b }
+-- 02028.ergo --
+func Fn[T](x T) T { return x }
+func Fn[A, B](a A, b B) B { return b }
+-- 02029.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Fn[A, B](a A, b B) B { return b }
+-- 02030.ergo --
+func F() int { return Fn[int](1) }
+-- 02031.ergo --
+func Fn[T any](x T) T { return x }
+func F() int { return Fn[int](1) }
+-- 02032.ergo --
+func Fn[T](x T) T { return x }
+func F() int { return Fn[int](1) }
+-- 02033.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func F() int { return Fn[int](1) }
+-- 02034.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func F() int { return Fn[int](1) }
+-- 02035.ergo --
+func F() int { return ((Fn[int]))(1) }
+-- 02036.ergo --
+func Fn[T any](x T) T { return x }
+func F() int { return ((Fn[int]))(1) }
+-- 02037.ergo --
+func Fn[T](x T) T { return x }
+func F() int { return ((Fn[int]))(1) }
+-- 02038.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func F() int { return ((Fn[int]))(1) }
+-- 02039.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func F() int { return ((Fn[int]))(1) }
+-- 02040.ergo --
+func F() int { return Fn(1) }
+-- 02041.ergo --
+func Fn[T any](x T) T { return x }
+func F() int { return Fn(1) }
+-- 02042.ergo --
+func Fn[T](x T) T { return x }
+func F() int { return Fn(1) }
+-- 02043.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func F() int { return Fn(1) }
+-- 02044.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func F() int { return Fn(1) }
+-- 02045.ergo --
+func F() string { return Fn[int, string](1, "a") }
+-- 02046.ergo --
+func Fn[T any](x T) T { return x }
+func F() string { return Fn[int, string](1, "a") }
+-- 02047.ergo --
+func Fn[T](x T) T { return x }
+func F() string { return Fn[int, string](1, "a") }
+-- 02048.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func F() string { return Fn[int, string](1, "a") }
+-- 02049.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func F() string { return Fn[int, string](1, "a") }
+-- 02050.ergo --
+func F() string { return Fn[int](1, "a") }
+-- 02051.ergo --
+func Fn[T any](x T) T { return x }
+func F() string { return Fn[int](1, "a") }
+-- 02052.ergo --
+func Fn[T](x T) T { return x }
+func F() string { return Fn[int](1, "a") }
+-- 02053.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func F() string { return Fn[int](1, "a") }
+-- 02054.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func F() string { return Fn[int](1, "a") }
+-- 02055.ergo --
+func F() func(int) int { return Fn[int] }
+-- 02056.ergo --
+func Fn[T any](x T) T { return x }
+func F() func(int) int { return Fn[int] }
+-- 02057.ergo --
+func Fn[T](x T) T { return x }
+func F() func(int) int { return Fn[int] }
+-- 02058.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func F() func(int) int { return Fn[int] }
+-- 02059.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func F() func(int) int { return Fn[int] }
+-- 02060.ergo --
+func F() int { return (Fn)[int](1) }
+-- 02061.ergo --
+func Fn[T any](x T) T { return x }
+func F() int { return (Fn)[int](1) }
+-- 02062.ergo --
+func Fn[T](x T) T { return x }
+func F() int { return (Fn)[int](1) }
+-- 02063.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func F() int { return (Fn)[int](1) }
+-- 02064.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func F() int { return (Fn)[int](1) }
+-- 02065.ergo --
+func F() int { return (Fn)(1) }
+-- 02066.ergo --
+func Fn[T any](x T) T { return x }
+func F() int { return (Fn)(1) }
+-- 02067.ergo --
+func Fn[T](x T) T { return x }
+func F() int { return (Fn)(1) }
+-- 02068.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func F() int { return (Fn)(1) }
+-- 02069.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func F() int { return (Fn)(1) }
+-- 02070.ergo --
+func F() string { return (Fn2[int])(1, "a") }
+-- 02071.ergo --
+func Fn[T any](x T) T { return x }
+func F() string { return (Fn2[int])(1, "a") }
+-- 02072.ergo --
+func Fn[T](x T) T { return x }
+func F() string { return (Fn2[int])(1, "a") }
+-- 02073.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func F() string { return (Fn2[int])(1, "a") }
+-- 02074.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func F() string { return (Fn2[int])(1, "a") }
+-- 02075.ergo --
+func F() { _ = (Fn) }
+-- 02076.ergo --
+func Fn[T any](x T) T { return x }
+func F() { _ = (Fn) }
+-- 02077.ergo --
+func Fn[T](x T) T { return x }
+func F() { _ = (Fn) }
+-- 02078.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func F() { _ = (Fn) }
+-- 02079.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func F() { _ = (Fn) }
+-- 02080.ergo --
+package p
+
+func Fn[T any](x T) T { return x }
+
+func Fn2[A, B any](a A, b B) B { return b }
+
+-- 02081.ergo --
+func Fn[T any](x T) T { return x }
+package p
+
+func Fn[T any](x T) T { return x }
+
+func Fn2[A, B any](a A, b B) B { return b }
+
+-- 02082.ergo --
+func Fn[T](x T) T { return x }
+package p
+
+func Fn[T any](x T) T { return x }
+
+func Fn2[A, B any](a A, b B) B { return b }
+
+-- 02083.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+package p
+
+func Fn[T any](x T) T { return x }
+
+func Fn2[A, B any](a A, b B) B { return b }
+
+-- 02084.ergo --
+func Fn[A, B](a A, b B) B { return b }
+package p
+
+func Fn[T any](x T) T { return x }
+
+func Fn2[A, B any](a A, b B) B { return b }
+
+-- 02085.ergo --
+func Fn[T](x T) T { return x }
+
+func Fn2[A, B](a A, b B) B { return b }
+
+-- 02086.ergo --
+func Fn[T any](x T) T { return x }
+func Fn[T](x T) T { return x }
+
+func Fn2[A, B](a A, b B) B { return b }
+
+-- 02087.ergo --
+func Fn[T](x T) T { return x }
+func Fn[T](x T) T { return x }
+
+func Fn2[A, B](a A, b B) B { return b }
+
+-- 02088.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Fn[T](x T) T { return x }
+
+func Fn2[A, B](a A, b B) B { return b }
+
+-- 02089.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Fn[T](x T) T { return x }
+
+func Fn2[A, B](a A, b B) B { return b }
+
+-- 02090.ergo --
+type I0[T any] interface{ M(T) T }
+
+-- 02091.ergo --
+func Fn[T any](x T) T { return x }
+type I0[T any] interface{ M(T) T }
+
+-- 02092.ergo --
+func Fn[T](x T) T { return x }
+type I0[T any] interface{ M(T) T }
+
+-- 02093.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+type I0[T any] interface{ M(T) T }
+
+-- 02094.ergo --
+func Fn[A, B](a A, b B) B { return b }
+type I0[T any] interface{ M(T) T }
+
+-- 02095.ergo --
+type I0[T] { M(T) T }
+
+-- 02096.ergo --
+func Fn[T any](x T) T { return x }
+type I0[T] { M(T) T }
+
+-- 02097.ergo --
+func Fn[T](x T) T { return x }
+type I0[T] { M(T) T }
+
+-- 02098.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+type I0[T] { M(T) T }
+
+-- 02099.ergo --
+func Fn[A, B](a A, b B) B { return b }
+type I0[T] { M(T) T }
+
+-- 02100.ergo --
+type W0 interface {
+	M(int) int
+	N()
+}
+
+-- 02101.ergo --
+func Fn[T any](x T) T { return x }
+type W0 interface {
+	M(int) int
+	N()
+}
+
+-- 02102.ergo --
+func Fn[T](x T) T { return x }
+type W0 interface {
+	M(int) int
+	N()
+}
+
+-- 02103.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+type W0 interface {
+	M(int) int
+	N()
+}
+
+-- 02104.ergo --
+func Fn[A, B](a A, b B) B { return b }
+type W0 interface {
+	M(int) int
+	N()
+}
+
+-- 02105.ergo --
+type W0 {
+	M(int) int,
+	N(),
+}
+
+-- 02106.ergo --
+func Fn[T any](x T) T { return x }
+type W0 {
+	M(int) int,
+	N(),
+}
+
+-- 02107.ergo --
+func Fn[T](x T) T { return x }
+type W0 {
+	M(int) int,
+	N(),
+}
+
+-- 02108.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+type W0 {
+	M(int) int,
+	N(),
+}
+
+-- 02109.ergo --
+func Fn[A, B](a A, b B) B { return b }
+type W0 {
+	M(int) int,
+	N(),
+}
+
+-- 02110.ergo --
+type J0 interface{ M(int) int }
+
+-- 02111.ergo --
+func Fn[T any](x T) T { return x }
+type J0 interface{ M(int) int }
+
+-- 02112.ergo --
+func Fn[T](x T) T { return x }
+type J0 interface{ M(int) int }
+
+-- 02113.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+type J0 interface{ M(int) int }
+
+-- 02114.ergo --
+func Fn[A, B](a A, b B) B { return b }
+type J0 interface{ M(int) int }
+
+-- 02115.ergo --
+type J0 { M(int) int }
+
+-- 02116.ergo --
+func Fn[T any](x T) T { return x }
+type J0 { M(int) int }
+
+-- 02117.ergo --
+func Fn[T](x T) T { return x }
+type J0 { M(int) int }
+
+-- 02118.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+type J0 { M(int) int }
+
+-- 02119.ergo --
+func Fn[A, B](a A, b B) B { return b }
+type J0 { M(int) int }
+
+-- 02120.ergo --
+type K0 interface{ M(string) string }
+
+-- 02121.ergo --
+func Fn[T any](x T) T { return x }
+type K0 interface{ M(string) string }
+
+-- 02122.ergo --
+func Fn[T](x T) T { return x }
+type K0 interface{ M(string) string }
+
+-- 02123.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+type K0 interface{ M(string) string }
+
+-- 02124.ergo --
+func Fn[A, B](a A, b B) B { return b }
+type K0 interface{ M(string) string }
+
+-- 02125.ergo --
+type K0 { M(string) string }
+
+-- 02126.ergo --
+func Fn[T any](x T) T { return x }
+type K0 { M(string) string }
+
+-- 02127.ergo --
+func Fn[T](x T) T { return x }
+type K0 { M(string) string }
+
+-- 02128.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+type K0 { M(string) string }
+
+-- 02129.ergo --
+func Fn[A, B](a A, b B) B { return b }
+type K0 { M(string) string }
+
+-- 02130.ergo --
+type A0[T any] interface{ M(T) T }
+
+-- 02131.ergo --
+func Fn[T any](x T) T { return x }
+type A0[T any] interface{ M(T) T }
+
+-- 02132.ergo --
+func Fn[T](x T) T { return x }
+type A0[T any] interface{ M(T) T }
+
+-- 02133.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+type A0[T any] interface{ M(T) T }
+
+-- 02134.ergo --
+func Fn[A, B](a A, b B) B { return b }
+type A0[T any] interface{ M(T) T }
+
+-- 02135.ergo --
+type A0[T] { M(T) T }
+
+-- 02136.ergo --
+func Fn[T any](x T) T { return x }
+type A0[T] { M(T) T }
+
+-- 02137.ergo --
+func Fn[T](x T) T { return x }
+type A0[T] { M(T) T }
+
+-- 02138.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+type A0[T] { M(T) T }
+
+-- 02139.ergo --
+func Fn[A, B](a A, b B) B { return b }
+type A0[T] { M(T) T }
+
+-- 02140.ergo --
+type V0[T any] interface {
+	M(T) T
+	N()
+}
+
+-- 02141.ergo --
+func Fn[T any](x T) T { return x }
+type V0[T any] interface {
+	M(T) T
+	N()
+}
+
+-- 02142.ergo --
+func Fn[T](x T) T { return x }
+type V0[T any] interface {
+	M(T) T
+	N()
+}
+
+-- 02143.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+type V0[T any] interface {
+	M(T) T
+	N()
+}
+
+-- 02144.ergo --
+func Fn[A, B](a A, b B) B { return b }
+type V0[T any] interface {
+	M(T) T
+	N()
+}
+
+-- 02145.ergo --
+type V0[T] {
+	M(T) T,
+	N(),
+}
+
+-- 02146.ergo --
+func Fn[T any](x T) T { return x }
+type V0[T] {
+	M(T) T,
+	N(),
+}
+
+-- 02147.ergo --
+func Fn[T](x T) T { return x }
+type V0[T] {
+	M(T) T,
+	N(),
+}
+
+-- 02148.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+type V0[T] {
+	M(T) T,
+	N(),
+}
+
+-- 02149.ergo --
+func Fn[A, B](a A, b B) B { return b }
+type V0[T] {
+	M(T) T,
+	N(),
+}
+
+-- 02150.ergo --
+type S%d struct{}
+
+-- 02151.ergo --
+func Fn[T any](x T) T { return x }
+type S%d struct{}
+
+-- 02152.ergo --
+func Fn[T](x T) T { return x }
+type S%d struct{}
+
+-- 02153.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+type S%d struct{}
+
+-- 02154.ergo --
+func Fn[A, B](a A, b B) B { return b }
+type S%d struct{}
+
+-- 02155.ergo --
+type S%d {}
+
+-- 02156.ergo --
+func Fn[T any](x T) T { return x }
+type S%d {}
+
+-- 02157.ergo --
+func Fn[T](x T) T { return x }
+type S%d {}
+
+-- 02158.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+type S%d {}
+
+-- 02159.ergo --
+func Fn[A, B](a A, b B) B { return b }
+type S%d {}
+
+-- 02160.ergo --
+func (%s) M(v %s) %s { return v }
+
+-- 02161.ergo --
+func Fn[T any](x T) T { return x }
+func (%s) M(v %s) %s { return v }
+
+-- 02162.ergo --
+func Fn[T](x T) T { return x }
+func (%s) M(v %s) %s { return v }
+
+-- 02163.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func (%s) M(v %s) %s { return v }
+
+-- 02164.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func (%s) M(v %s) %s { return v }
+
+-- 02165.ergo --
+func M(_ %s, v %s) %s { return v }
+
+-- 02166.ergo --
+func Fn[T any](x T) T { return x }
+func M(_ %s, v %s) %s { return v }
+
+-- 02167.ergo --
+func Fn[T](x T) T { return x }
+func M(_ %s, v %s) %s { return v }
+
+-- 02168.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func M(_ %s, v %s) %s { return v }
+
+-- 02169.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func M(_ %s, v %s) %s { return v }
+
+-- 02170.ergo --
+func (%s) N() {}
+
+-- 02171.ergo --
+func Fn[T any](x T) T { return x }
+func (%s) N() {}
+
+-- 02172.ergo --
+func Fn[T](x T) T { return x }
+func (%s) N() {}
+
+-- 02173.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func (%s) N() {}
+
+-- 02174.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func (%s) N() {}
+
+-- 02175.ergo --
+func N(_ %s) {}
+
+-- 02176.ergo --
+func Fn[T any](x T) T { return x }
+func N(_ %s) {}
+
+-- 02177.ergo --
+func Fn[T](x T) T { return x }
+func N(_ %s) {}
+
+-- 02178.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func N(_ %s) {}
+
+-- 02179.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func N(_ %s) {}
+
+-- 02180.ergo --
+func FnA[T any](x A0[T]) A0[T] { return x }
+
+-- 02181.ergo --
+func Fn[T any](x T) T { return x }
+func FnA[T any](x A0[T]) A0[T] { return x }
+
+-- 02182.ergo --
+func Fn[T](x T) T { return x }
+func FnA[T any](x A0[T]) A0[T] { return x }
+
+-- 02183.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func FnA[T any](x A0[T]) A0[T] { return x }
+
+-- 02184.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func FnA[T any](x A0[T]) A0[T] { return x }
+
+-- 02185.ergo --
+func FnA[T](x A0[T]) A0[T] { return x }
+
+-- 02186.ergo --
+func Fn[T any](x T) T { return x }
+func FnA[T](x A0[T]) A0[T] { return x }
+
+-- 02187.ergo --
+func Fn[T](x T) T { return x }
+func FnA[T](x A0[T]) A0[T] { return x }
+
+-- 02188.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func FnA[T](x A0[T]) A0[T] { return x }
+
+-- 02189.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func FnA[T](x A0[T]) A0[T] { return x }
+
+-- 02190.ergo --
+func FnN[T any](x I0[T]) I0[T] { return x }
+
+-- 02191.ergo --
+func Fn[T any](x T) T { return x }
+func FnN[T any](x I0[T]) I0[T] { return x }
+
+-- 02192.ergo --
+func Fn[T](x T) T { return x }
+func FnN[T any](x I0[T]) I0[T] { return x }
+
+-- 02193.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func FnN[T any](x I0[T]) I0[T] { return x }
+
+-- 02194.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func FnN[T any](x I0[T]) I0[T] { return x }
+
+-- 02195.ergo --
+func FnN[T](x I0[T]) I0[T] { return x }
+
+-- 02196.ergo --
+func Fn[T any](x T) T { return x }
+func FnN[T](x I0[T]) I0[T] { return x }
+
+-- 02197.ergo --
+func Fn[T](x T) T { return x }
+func FnN[T](x I0[T]) I0[T] { return x }
+
+-- 02198.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func FnN[T](x I0[T]) I0[T] { return x }
+
+-- 02199.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func FnN[T](x I0[T]) I0[T] { return x }
+
+-- 02200.ergo --
+func FnW[T any](x V0[T]) V0[T] { return x }
+
+-- 02201.ergo --
+func Fn[T any](x T) T { return x }
+func FnW[T any](x V0[T]) V0[T] { return x }
+
+-- 02202.ergo --
+func Fn[T](x T) T { return x }
+func FnW[T any](x V0[T]) V0[T] { return x }
+
+-- 02203.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func FnW[T any](x V0[T]) V0[T] { return x }
+
+-- 02204.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func FnW[T any](x V0[T]) V0[T] { return x }
+
+-- 02205.ergo --
+func FnW[T](x V0[T]) V0[T] { return x }
+
+-- 02206.ergo --
+func Fn[T any](x T) T { return x }
+func FnW[T](x V0[T]) V0[T] { return x }
+
+-- 02207.ergo --
+func Fn[T](x T) T { return x }
+func FnW[T](x V0[T]) V0[T] { return x }
+
+-- 02208.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func FnW[T](x V0[T]) V0[T] { return x }
+
+-- 02209.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func FnW[T](x V0[T]) V0[T] { return x }
+
+-- 02210.ergo --
+func Two[T any](a T, b T) T { return a }
+
+-- 02211.ergo --
+func Fn[T any](x T) T { return x }
+func Two[T any](a T, b T) T { return a }
+
+-- 02212.ergo --
+func Fn[T](x T) T { return x }
+func Two[T any](a T, b T) T { return a }
+
+-- 02213.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Two[T any](a T, b T) T { return a }
+
+-- 02214.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Two[T any](a T, b T) T { return a }
+
+-- 02215.ergo --
+func Two[T](a T, b T) T { return a }
+
+-- 02216.ergo --
+func Fn[T any](x T) T { return x }
+func Two[T](a T, b T) T { return a }
+
+-- 02217.ergo --
+func Fn[T](x T) T { return x }
+func Two[T](a T, b T) T { return a }
+
+-- 02218.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Two[T](a T, b T) T { return a }
+
+-- 02219.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Two[T](a T, b T) T { return a }
+
+-- 02220.ergo --
+func Id[U any](x U) U { return x }
+
+-- 02221.ergo --
+func Fn[T any](x T) T { return x }
+func Id[U any](x U) U { return x }
+
+-- 02222.ergo --
+func Fn[T](x T) T { return x }
+func Id[U any](x U) U { return x }
+
+-- 02223.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Id[U any](x U) U { return x }
+
+-- 02224.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Id[U any](x U) U { return x }
+
+-- 02225.ergo --
+func Id[U](x U) U { return x }
+
+-- 02226.ergo --
+func Fn[T any](x T) T { return x }
+func Id[U](x U) U { return x }
+
+-- 02227.ergo --
+func Fn[T](x T) T { return x }
+func Id[U](x U) U { return x }
+
+-- 02228.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Id[U](x U) U { return x }
+
+-- 02229.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Id[U](x U) U { return x }
+
+-- 02230.ergo --
+func Pair[A, B any](a A, b B) A { return a }
+
+-- 02231.ergo --
+func Fn[T any](x T) T { return x }
+func Pair[A, B any](a A, b B) A { return a }
+
+-- 02232.ergo --
+func Fn[T](x T) T { return x }
+func Pair[A, B any](a A, b B) A { return a }
+
+-- 02233.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Pair[A, B any](a A, b B) A { return a }
+
+-- 02234.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Pair[A, B any](a A, b B) A { return a }
+
+-- 02235.ergo --
+func Pair[A, B](a A, b B) A { return a }
+
+-- 02236.ergo --
+func Fn[T any](x T) T { return x }
+func Pair[A, B](a A, b B) A { return a }
+
+-- 02237.ergo --
+func Fn[T](x T) T { return x }
+func Pair[A, B](a A, b B) A { return a }
+
+-- 02238.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Pair[A, B](a A, b B) A { return a }
+
+-- 02239.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Pair[A, B](a A, b B) A { return a }
+
+-- 02240.ergo --
+func Apply[T any](f func(T) T, x T) T { return x }
+
+-- 02241.ergo --
+func Fn[T any](x T) T { return x }
+func Apply[T any](f func(T) T, x T) T { return x }
+
+-- 02242.ergo --
+func Fn[T](x T) T { return x }
+func Apply[T any](f func(T) T, x T) T { return x }
+
+-- 02243.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Apply[T any](f func(T) T, x T) T { return x }
+
+-- 02244.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Apply[T any](f func(T) T, x T) T { return x }
+
+-- 02245.ergo --
+func Apply[T](f func(T) T, x T) T { return x }
+
+-- 02246.ergo --
+func Fn[T any](x T) T { return x }
+func Apply[T](f func(T) T, x T) T { return x }
+
+-- 02247.ergo --
+func Fn[T](x T) T { return x }
+func Apply[T](f func(T) T, x T) T { return x }
+
+-- 02248.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Apply[T](f func(T) T, x T) T { return x }
+
+-- 02249.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Apply[T](f func(T) T, x T) T { return x }
+
+-- 02250.ergo --
+func Fix(f func(int) int) int { return f(1) }
+
+-- 02251.ergo --
+func Fn[T any](x T) T { return x }
+func Fix(f func(int) int) int { return f(1) }
+
+-- 02252.ergo --
+func Fn[T](x T) T { return x }
+func Fix(f func(int) int) int { return f(1) }
+
+-- 02253.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Fix(f func(int) int) int { return f(1) }
+
+-- 02254.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Fix(f func(int) int) int { return f(1) }
+
+-- 02255.ergo --
+func Rev[T any](x T, f func(T) T) T { return x }
+
+-- 02256.ergo --
+func Fn[T any](x T) T { return x }
+func Rev[T any](x T, f func(T) T) T { return x }
+
+-- 02257.ergo --
+func Fn[T](x T) T { return x }
+func Rev[T any](x T, f func(T) T) T { return x }
+
+-- 02258.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Rev[T any](x T, f func(T) T) T { return x }
+
+-- 02259.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Rev[T any](x T, f func(T) T) T { return x }
+
+-- 02260.ergo --
+func Rev[T](x T, f func(T) T) T { return x }
+
+-- 02261.ergo --
+func Fn[T any](x T) T { return x }
+func Rev[T](x T, f func(T) T) T { return x }
+
+-- 02262.ergo --
+func Fn[T](x T) T { return x }
+func Rev[T](x T, f func(T) T) T { return x }
+
+-- 02263.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Rev[T](x T, f func(T) T) T { return x }
+
+-- 02264.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Rev[T](x T, f func(T) T) T { return x }
+
+-- 02265.ergo --
+func Dep[P I0[T], T any](v T, p P) T { return v }
+
+-- 02266.ergo --
+func Fn[T any](x T) T { return x }
+func Dep[P I0[T], T any](v T, p P) T { return v }
+
+-- 02267.ergo --
+func Fn[T](x T) T { return x }
+func Dep[P I0[T], T any](v T, p P) T { return v }
+
+-- 02268.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Dep[P I0[T], T any](v T, p P) T { return v }
+
+-- 02269.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Dep[P I0[T], T any](v T, p P) T { return v }
+
+-- 02270.ergo --
+func Dep[P I0[T], T](v T, p P) T { return v }
+
+-- 02271.ergo --
+func Fn[T any](x T) T { return x }
+func Dep[P I0[T], T](v T, p P) T { return v }
+
+-- 02272.ergo --
+func Fn[T](x T) T { return x }
+func Dep[P I0[T], T](v T, p P) T { return v }
+
+-- 02273.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Dep[P I0[T], T](v T, p P) T { return v }
+
+-- 02274.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Dep[P I0[T], T](v T, p P) T { return v }
+
+-- 02275.ergo --
+func Main(%s) {
+-- 02276.ergo --
+func Fn[T any](x T) T { return x }
+func Main(%s) {
+-- 02277.ergo --
+func Fn[T](x T) T { return x }
+func Main(%s) {
+-- 02278.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Main(%s) {
+-- 02279.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Main(%s) {
+-- 02280.ergo --
+type C { M() }
+-- 02281.ergo --
+type R%d {}
+-- 02282.ergo --
+func MkR%d() R%d { return R%d }
+-- 02283.ergo --
+func f%d() {
+-- 02284.ergo --
+let f%d = func() {
+-- 02285.ergo --
+func m%d(_ R%d) {
+-- 02286.ergo --
+func P%d() {
+-- 02287.ergo --
+func f[T](x T) { f([]T{x}) }
+-- 02288.ergo --
+type Fault[T] { Value T }
+func Mark() fails Fault[int] { return Fault[int]{1} }
+func f[T](x T) {
+	try f([]T{x})
+	return Fault[T]{x}
+}
+-- 02289.ergo --
+type Fault[T] { Value T }
+func f[T](x T) fails Fault[T] {
+	try f(Map[int, T]{0: x})
+	return Fault[T]{x}
+}
+-- 02290.ergo --
+type Fault[T] { Value T }
+func Mark() fails Fault[int] { return Fault[int]{1} }
+func f[T](x T) {
+	try g([]T{x})
+	return Fault[T]{x}
+}
+func g[T](x T) { try f([]T{x}) }
+-- 02291.ergo --
+func f[T](x T) { g(x) }
+func g[T](x T) { h([]T{x}) }
+func h[T](x T) { f(x) }
+-- 02292.ergo --
+func f[T](x T) {
+	let y []T
+	f[[]T](y)
+}
+-- 02293.ergo --
+type Box[T] { V T }
+func f[T](x T) { f(Box[T]{x}) }
+-- 02294.ergo --
+type L[T] { next []L[[]T] }
+-- 02295.ergo --
+type L[T] { next L[[]T] }
+-- 02296.ergo --
+type A[T] { b []B[[]T] }
+type B[T] { a []A[T] }
+-- 02297.ergo --
+func f[T](x T) { f(x) }
+-- 02298.ergo --
+func f[T](x T) { f([]int{1}) }
+-- 02299.ergo --
+type Fault[T] { Value T }
+func f[T](x T) fails Fault[T] {
+	try f(x)
+	return Fault[T]{x}
+}
+-- 02300.ergo --
+func f[T](x T) { g(x) }
+func g[T](x T) { f(x) }
+-- 02301.ergo --
+type L[T] { next []L[T] }
+-- 02302.ergo --
+type L[T] { next []L[int] }
+-- 02303.ergo --
+type A {}
+type B {}
+type U = A | B
+func F(
+-- 02304.ergo --
+type A {}
+type B {}
+type Choice = A00
+type Full = A | B
+func F(c Choice, d Full) A {
+-- 02305.ergo --
+type List[T, E] { Value T, Tail []List[T, E], Run func() fails E }
+-- 02306.ergo --
+type List[E, T] { Tail []List[E, T], Value T, Run func() fails E }
+-- 02307.ergo --
+type List[E, T] { Value T, Tail []List[E, T], Run func() fails E }
+-- 02308.ergo --
+type Box[T, E] { Next []Other[T, E], Run func() fails E }
+type Other[T, E] { Next []Box[T, E] }
+-- 02309.ergo --
+type Other[T, E] { Next []Box[T, E] }
+type Box[T, E] { Next []Other[T, E], Run func() fails E }
+-- 02310.ergo --
+type A[E] { b []B[E] }
+type B[E] { c []C[E] }
+type C[E] { a []A[E], run func() fails E }
+-- 02311.ergo --
+type Svc { Ping() }
+type Job[R] { next []Job[R], run func() needs R }
+func Run(j Job[Svc]) {}
+-- 02312.ergo --
+type L[E] { next []L[E], run func() fails E, v E }
+-- 02313.ergo --
+type List[T, E] { Tail []List[T, E], Run func() fails E }
+func Head[T, E](l List[T, E]) fails E { return l.Run() }
+-- 02314.ergo --
+type I[T] { M(T) }
+type S {}
+func M(_ S, x int) {}
+type Box[T comparable, V I[T]] { X T, Y V }
+func F() { _ = Box{1, S} }
+-- 02315.ergo --
+type I[T] { M(T) }
+type S {}
+func M(_ S, x int) {}
+type Box[T comparable, V I[T]] { X T, Y V }
+func F() { _ = Box[int, S]{1, S} }
+-- 02316.ergo --
+type I[T] { M(T) }
+type S {}
+func M(_ S, x int) {}
+func Use[T comparable, V I[T]](x T, v V) {}
+func F() { Use(1, S) }
+-- 02317.ergo --
+type I[T] { M(T) }
+type S {}
+func M(_ S, x int) {}
+func Use[T comparable, V I[T]](x T, v V) {}
+func F(n int) { Use(n, S) }
+-- 02318.ergo --
+type I[T] { M(T) }
+type S {}
+func M(_ S, x int) {}
+func Use[T comparable, V I[T]](x T, v V) {}
+func F() { Use[int](1, S) }
+-- 02319.ergo --
+type I[T] { M(T) }
+type S {}
+func M(_ S, x int) {}
+func Use[T comparable, V I[T]](x T, v V) {}
+func F() func(int, S) { return Use[int, S] }
+-- 02320.ergo --
+type I[T] { M(T) }
+type S {}
+func M(_ S, x int) {}
+type Box[T comparable, V I[T]] { X T, Y V }
+func F() { _ = Box{"s", S} }
+-- 02321.ergo --
+type I[T] { M(T) }
+type S {}
+func M(_ S, x int) {}
+func Use[T comparable, V I[T]](x T, v V) {}
+func F() { Use("s", S) }
+-- 02322.ergo --
+type T%d { Next T%d }
+-- 02323.ergo --
+type T%d {}
+-- 02324.ergo --
+type W[T] { V T }
+-- 02325.ergo --
+type T%d { Next W[T%d] }
+-- 02326.ergo --
+type T%d { Back T0 }
+-- 02327.ergo --
+func F() Map[int64, int] { return Map[int64, int]{1: 1, int64(1): 2} }
+-- 02328.ergo --
+func F(xs []int) int { return xs[int64(0)] }
+-- 02329.ergo --
+func F(xs []int) int { return xs[uint8(1)] }
+-- 02330.ergo --
+func F(xs []int) int { return xs[int64(-1)] }
+-- 02331.ergo --
+func F(xs []int) int { return xs[uint64(18446744073709551615)] }
+-- 02332.ergo --
+func F(xs []int) []int { return xs[int32(1):uint(2)] }
+-- 02333.ergo --
+func F() string { return "ab"[3:] }
+-- 02334.ergo --
+func Id[T](x T) T { return x }
+func F() func(int) int { return Id[int] }
+-- 02335.ergo --
+func Id[T](x T) T { return x }
+func F() func(int) int { return (Id[int]) }
+-- 02336.ergo --
+func Id[T](x T) T { return x }
+func Apply(f func(int) int) int { return f(1) }
+func F() int { return Apply(Id[int]) + Apply((Id[int])) }
+-- 02337.ergo --
+func Id[T](x T) T { return x }
+func F() int {
+	let f = Id[int]
+	let g = (Id[string])
+	_ = g
+	return f(1)
+}
+-- 02338.ergo --
+func Pair[A, B](a A, b B) A { return a }
+func F() func(int, string) int {
+	let f func(int, string) int = Pair[int, string]
+	return f
+}
+-- 02339.ergo --
+func F()
+-- 02340.ergo --
+func F() {
+-- 02341.ergo --
+type T{a()int, law L(){true}, law L(){true}}
+law L() { true }
+law L() { true }
+-- 02342.ergo --
+type T{a%d()int%s}
+-- 02343.ergo --
+type T{a()int, law L(){true}, law L(){true}}
+law L() { true }
+law L() { true }
+type T{a%d()int%s}
+-- 02344.ergo --
+func m() int { 1 }
+-- 02345.ergo --
+type T{a()int, law L(){true}, law L(){true}}
+law L() { true }
+law L() { true }
+func m() int { 1 }
+-- 02346.ergo --
+type T{f%d int%s}
+-- 02347.ergo --
+type T{a()int, law L(){true}, law L(){true}}
+law L() { true }
+law L() { true }
+type T{f%d int%s}
+-- 02348.ergo --
+func x() int { 1 }
+-- 02349.ergo --
+type T{a()int, law L(){true}, law L(){true}}
+law L() { true }
+law L() { true }
+func x() int { 1 }
+-- 02350.ergo --
+type T = W%d{}%s
+-- 02351.ergo --
+type T{a()int, law L(){true}, law L(){true}}
+law L() { true }
+law L() { true }
+type T = W%d{}%s
+-- 02352.ergo --
+func V() int { 1 }
+-- 02353.ergo --
+type T{a()int, law L(){true}, law L(){true}}
+law L() { true }
+law L() { true }
+func V() int { 1 }
+-- 02354.ergo --
+type T{a()int, law L(){true}, law L(){true}}
+law L() { true }
+law L() { true }
+type 
+-- 02355.ergo --
+func 
+-- 02356.ergo --
+type T{a()int, law L(){true}, law L(){true}}
+law L() { true }
+law L() { true }
+func 
+-- 02357.ergo --
+type Malformed{}
+type A0000{A00()string}
+-- 02358.ergo --
+type T{a()int, law L(){true}, law L(){true}}
+law L() { true }
+law L() { true }
+type Malformed{}
+type A0000{A00()string}
+-- 02359.ergo --
+type Bad {}
+
+type Command[C, E] { Name string, Build func() C fails E }
+
+func one() int { 1 }
+
+func bad() int fails Bad { Bad }
+-- 02360.ergo --
+
+func run(c Command[int]) int { c.Build() }
+
+func main() needs Console {
+	let cs = []Command[int]{Command[int]{Name: "one", Build: one}}
+	Console.Println("\(run(cs[0]))")
+}
+-- 02361.ergo --
+type Bad {}
+
+type Command[C, E] { Name string, Build func() C fails E }
+
+func one() int { 1 }
+
+func bad() int fails Bad { Bad }
+
+func run(c Command[int]) int { c.Build() }
+
+func main() needs Console {
+	let cs = []Command[int]{Command[int]{Name: "one", Build: one}}
+	Console.Println("\(run(cs[0]))")
+}
+-- 02362.ergo --
+
+func make[C, E](name string, f escaping func() C fails E) Command[C, E] { Command[C, E]{Name: name, Build: f} }
+
+func run() int {
+	let c Command[int] = make("one", one)
+	let back = make(c.Name, c.Build)
+	let again Command[int] = back
+	again.Build()
+}
+-- 02363.ergo --
+type Bad {}
+
+type Command[C, E] { Name string, Build func() C fails E }
+
+func one() int { 1 }
+
+func bad() int fails Bad { Bad }
+
+func make[C, E](name string, f escaping func() C fails E) Command[C, E] { Command[C, E]{Name: name, Build: f} }
+
+func run() int {
+	let c Command[int] = make("one", one)
+	let back = make(c.Name, c.Build)
+	let again Command[int] = back
+	again.Build()
+}
+-- 02364.ergo --
+
+func run(c Command[int, Bad]) int fails Bad { try c.Build() }
+-- 02365.ergo --
+type Bad {}
+
+type Command[C, E] { Name string, Build func() C fails E }
+
+func one() int { 1 }
+
+func bad() int fails Bad { Bad }
+
+func run(c Command[int, Bad]) int fails Bad { try c.Build() }
+-- 02366.ergo --
+type Job[T, R] { Run func() T needs R }
+
+func run(j Job[int]) int { j.Run() }
+-- 02367.ergo --
+type Bad {}
+
+type Command[C, E] { Name string, Build func() C fails E }
+
+func one() int { 1 }
+
+func bad() int fails Bad { Bad }
+type Job[T, R] { Run func() T needs R }
+
+func run(j Job[int]) int { j.Run() }
+-- 02368.ergo --
+
+func main() {
+	let c = Command[int]{Name: "bad", Build: bad} // want S108
+	_ = c
+}
+-- 02369.ergo --
+type Bad {}
+
+type Command[C, E] { Name string, Build func() C fails E }
+
+func one() int { 1 }
+
+func bad() int fails Bad { Bad }
+
+func main() {
+	let c = Command[int]{Name: "bad", Build: bad} // want S108
+	_ = c
+}
+-- 02370.ergo --
+type Pair[A, B] { a A, b B }
+
+func f(p Pair[int]) {} // want S108
+-- 02371.ergo --
+type Bad {}
+
+type Command[C, E] { Name string, Build func() C fails E }
+
+func one() int { 1 }
+
+func bad() int fails Bad { Bad }
+type Pair[A, B] { a A, b B }
+
+func f(p Pair[int]) {} // want S108
+-- 02372.ergo --
+type Mid[A, E, B] { f func(a A) B fails E }
+
+func f(m Mid[int, string]) {} // want S108
+-- 02373.ergo --
+type Bad {}
+
+type Command[C, E] { Name string, Build func() C fails E }
+
+func one() int { 1 }
+
+func bad() int fails Bad { Bad }
+type Mid[A, E, B] { f func(a A) B fails E }
+
+func f(m Mid[int, string]) {} // want S108
+-- 02374.ergo --
+
+func f(c Command[int, Bad, Bad]) {} // want S108
+-- 02375.ergo --
+type Bad {}
+
+type Command[C, E] { Name string, Build func() C fails E }
+
+func one() int { 1 }
+
+func bad() int fails Bad { Bad }
+
+func f(c Command[int, Bad, Bad]) {} // want S108
+-- 02376.ergo --
+type Rows[E] { f func() fails E }
+
+func f(r Rows) {} // want S108
+-- 02377.ergo --
+type Bad {}
+
+type Command[C, E] { Name string, Build func() C fails E }
+
+func one() int { 1 }
+
+func bad() int fails Bad { Bad }
+type Rows[E] { f func() fails E }
+
+func f(r Rows) {} // want S108
+-- 02378.ergo --
+func Use(t 
+-- 02379.ergo --
+type Bad {}
+
+type Command[C, E] { Name string, Build func() C fails E }
+
+func one() int { 1 }
+
+func bad() int fails Bad { Bad }
+func Use(t 
+-- 02380.ergo --
+type Bad {}
+
+type Cap {
+	Use(),
+}
+
+type T[%s] { f %s }
+
+%s { %s }
+-- 02381.ergo --
+type Bad {}
+
+type Command[C, E] { Name string, Build func() C fails E }
+
+func one() int { 1 }
+
+func bad() int fails Bad { Bad }
+type Bad {}
+
+type Cap {
+	Use(),
+}
+
+type T[%s] { f %s }
+
+%s { %s }
+-- 02382.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+-- 02383.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()
+-- 02384.ergo --
+let _ = 1
+-- 02385.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+-- 02386.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+-- 02387.ergo --
+let _ = 1let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+-- 02388.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+-- 02389.ergo --
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		return 2
+	}
+	1
+}
+-- 02390.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		return 2
+	}
+	1
+}
+-- 02391.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		return 2
+	}
+	1
+}
+-- 02392.ergo --
+let _ = 1
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		return 2
+	}
+	1
+}
+-- 02393.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		return 2
+	}
+	1
+}
+-- 02394.ergo --
+
+func f(xs []int) int {
+	let mut n = 0
+	for x in xs {
+		if x > 0 {
+			n += x
+		} else if x == 0 {
+			continue
+		} else {
+			break
+		}
+	}
+	n
+}
+-- 02395.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+
+func f(xs []int) int {
+	let mut n = 0
+	for x in xs {
+		if x > 0 {
+			n += x
+		} else if x == 0 {
+			continue
+		} else {
+			break
+		}
+	}
+	n
+}
+-- 02396.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()
+func f(xs []int) int {
+	let mut n = 0
+	for x in xs {
+		if x > 0 {
+			n += x
+		} else if x == 0 {
+			continue
+		} else {
+			break
+		}
+	}
+	n
+}
+-- 02397.ergo --
+let _ = 1
+func f(xs []int) int {
+	let mut n = 0
+	for x in xs {
+		if x > 0 {
+			n += x
+		} else if x == 0 {
+			continue
+		} else {
+			break
+		}
+	}
+	n
+}
+-- 02398.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+
+func f(xs []int) int {
+	let mut n = 0
+	for x in xs {
+		if x > 0 {
+			n += x
+		} else if x == 0 {
+			continue
+		} else {
+			break
+		}
+	}
+	n
+}
+-- 02399.ergo --
+
+func f(xs []int, b bool) int {
+	for x in xs {
+		match b {
+		case true:
+			if x > 0 {
+				let _ = x
+			} else {
+				break
+			}
+		case false:
+			let _ = 0
+		}
+	}
+	0
+}
+-- 02400.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+
+func f(xs []int, b bool) int {
+	for x in xs {
+		match b {
+		case true:
+			if x > 0 {
+				let _ = x
+			} else {
+				break
+			}
+		case false:
+			let _ = 0
+		}
+	}
+	0
+}
+-- 02401.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()
+func f(xs []int, b bool) int {
+	for x in xs {
+		match b {
+		case true:
+			if x > 0 {
+				let _ = x
+			} else {
+				break
+			}
+		case false:
+			let _ = 0
+		}
+	}
+	0
+}
+-- 02402.ergo --
+let _ = 1
+func f(xs []int, b bool) int {
+	for x in xs {
+		match b {
+		case true:
+			if x > 0 {
+				let _ = x
+			} else {
+				break
+			}
+		case false:
+			let _ = 0
+		}
+	}
+	0
+}
+-- 02403.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+
+func f(xs []int, b bool) int {
+	for x in xs {
+		match b {
+		case true:
+			if x > 0 {
+				let _ = x
+			} else {
+				break
+			}
+		case false:
+			let _ = 0
+		}
+	}
+	0
+}
+-- 02404.ergo --
+
+func f(b bool) int {
+	g() catch {
+	case E:
+		if b {
+			let _ = 1
+		} else {
+			return 2
+		}
+	}
+	1
+}
+-- 02405.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+
+func f(b bool) int {
+	g() catch {
+	case E:
+		if b {
+			let _ = 1
+		} else {
+			return 2
+		}
+	}
+	1
+}
+-- 02406.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()
+func f(b bool) int {
+	g() catch {
+	case E:
+		if b {
+			let _ = 1
+		} else {
+			return 2
+		}
+	}
+	1
+}
+-- 02407.ergo --
+let _ = 1
+func f(b bool) int {
+	g() catch {
+	case E:
+		if b {
+			let _ = 1
+		} else {
+			return 2
+		}
+	}
+	1
+}
+-- 02408.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+
+func f(b bool) int {
+	g() catch {
+	case E:
+		if b {
+			let _ = 1
+		} else {
+			return 2
+		}
+	}
+	1
+}
+-- 02409.ergo --
+
+func f(b bool) int {
+	let fl = func() int {
+		if b {
+			let _ = 1
+		} else {
+			return 3
+		}
+		2
+	}
+	fl()
+}
+-- 02410.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+
+func f(b bool) int {
+	let fl = func() int {
+		if b {
+			let _ = 1
+		} else {
+			return 3
+		}
+		2
+	}
+	fl()
+}
+-- 02411.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()
+func f(b bool) int {
+	let fl = func() int {
+		if b {
+			let _ = 1
+		} else {
+			return 3
+		}
+		2
+	}
+	fl()
+}
+-- 02412.ergo --
+let _ = 1
+func f(b bool) int {
+	let fl = func() int {
+		if b {
+			let _ = 1
+		} else {
+			return 3
+		}
+		2
+	}
+	fl()
+}
+-- 02413.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+
+func f(b bool) int {
+	let fl = func() int {
+		if b {
+			let _ = 1
+		} else {
+			return 3
+		}
+		2
+	}
+	fl()
+}
+-- 02414.ergo --
+
+func f(b bool) int {
+	with W {
+		if b {
+			let _ = 1
+		} else {
+			return 2
+		}
+	}
+	1
+}
+-- 02415.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+
+func f(b bool) int {
+	with W {
+		if b {
+			let _ = 1
+		} else {
+			return 2
+		}
+	}
+	1
+}
+-- 02416.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()
+func f(b bool) int {
+	with W {
+		if b {
+			let _ = 1
+		} else {
+			return 2
+		}
+	}
+	1
+}
+-- 02417.ergo --
+let _ = 1
+func f(b bool) int {
+	with W {
+		if b {
+			let _ = 1
+		} else {
+			return 2
+		}
+	}
+	1
+}
+-- 02418.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+
+func f(b bool) int {
+	with W {
+		if b {
+			let _ = 1
+		} else {
+			return 2
+		}
+	}
+	1
+}
+-- 02419.ergo --
+
+func f(b bool, c bool) int {
+	with W {
+		if b {
+			if c {
+				let _ = 1
+			} else {
+				return 2
+			}
+		}
+	}
+	1
+}
+-- 02420.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+
+func f(b bool, c bool) int {
+	with W {
+		if b {
+			if c {
+				let _ = 1
+			} else {
+				return 2
+			}
+		}
+	}
+	1
+}
+-- 02421.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()
+func f(b bool, c bool) int {
+	with W {
+		if b {
+			if c {
+				let _ = 1
+			} else {
+				return 2
+			}
+		}
+	}
+	1
+}
+-- 02422.ergo --
+let _ = 1
+func f(b bool, c bool) int {
+	with W {
+		if b {
+			if c {
+				let _ = 1
+			} else {
+				return 2
+			}
+		}
+	}
+	1
+}
+-- 02423.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+
+func f(b bool, c bool) int {
+	with W {
+		if b {
+			if c {
+				let _ = 1
+			} else {
+				return 2
+			}
+		}
+	}
+	1
+}
+-- 02424.ergo --
+
+func f(b bool) int {
+	use() {
+		if b {
+			let _ = 1
+		} else {
+			return 2
+		}
+		0
+	}
+}
+-- 02425.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+
+func f(b bool) int {
+	use() {
+		if b {
+			let _ = 1
+		} else {
+			return 2
+		}
+		0
+	}
+}
+-- 02426.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()
+func f(b bool) int {
+	use() {
+		if b {
+			let _ = 1
+		} else {
+			return 2
+		}
+		0
+	}
+}
+-- 02427.ergo --
+let _ = 1
+func f(b bool) int {
+	use() {
+		if b {
+			let _ = 1
+		} else {
+			return 2
+		}
+		0
+	}
+}
+-- 02428.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+
+func f(b bool) int {
+	use() {
+		if b {
+			let _ = 1
+		} else {
+			return 2
+		}
+		0
+	}
+}
+-- 02429.ergo --
+
+func f(xs []int, b bool) int {
+	for x in xs {
+		with W {
+			if b {
+				let _ = x
+			} else {
+				break
+			}
+		}
+	}
+	0
+}
+-- 02430.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+
+func f(xs []int, b bool) int {
+	for x in xs {
+		with W {
+			if b {
+				let _ = x
+			} else {
+				break
+			}
+		}
+	}
+	0
+}
+-- 02431.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()
+func f(xs []int, b bool) int {
+	for x in xs {
+		with W {
+			if b {
+				let _ = x
+			} else {
+				break
+			}
+		}
+	}
+	0
+}
+-- 02432.ergo --
+let _ = 1
+func f(xs []int, b bool) int {
+	for x in xs {
+		with W {
+			if b {
+				let _ = x
+			} else {
+				break
+			}
+		}
+	}
+	0
+}
+-- 02433.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+
+func f(xs []int, b bool) int {
+	for x in xs {
+		with W {
+			if b {
+				let _ = x
+			} else {
+				break
+			}
+		}
+	}
+	0
+}
+-- 02434.ergo --
+
+func f(xs []int, b bool) int {
+	for x in xs {
+		let fl = func() int {
+			if b {
+				let _ = x
+			} else {
+				break
+			}
+			0
+		}
+		let _ = fl()
+	}
+	0
+}
+-- 02435.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+
+func f(xs []int, b bool) int {
+	for x in xs {
+		let fl = func() int {
+			if b {
+				let _ = x
+			} else {
+				break
+			}
+			0
+		}
+		let _ = fl()
+	}
+	0
+}
+-- 02436.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()
+func f(xs []int, b bool) int {
+	for x in xs {
+		let fl = func() int {
+			if b {
+				let _ = x
+			} else {
+				break
+			}
+			0
+		}
+		let _ = fl()
+	}
+	0
+}
+-- 02437.ergo --
+let _ = 1
+func f(xs []int, b bool) int {
+	for x in xs {
+		let fl = func() int {
+			if b {
+				let _ = x
+			} else {
+				break
+			}
+			0
+		}
+		let _ = fl()
+	}
+	0
+}
+-- 02438.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+
+func f(xs []int, b bool) int {
+	for x in xs {
+		let fl = func() int {
+			if b {
+				let _ = x
+			} else {
+				break
+			}
+			0
+		}
+		let _ = fl()
+	}
+	0
+}
+-- 02439.ergo --
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		break
+	}
+	0
+}
+-- 02440.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		break
+	}
+	0
+}
+-- 02441.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		break
+	}
+	0
+}
+-- 02442.ergo --
+let _ = 1
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		break
+	}
+	0
+}
+-- 02443.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		break
+	}
+	0
+}
+-- 02444.ergo --
+
+func f(b bool) int {
+	if b {
+		return 1
+	} else {
+		return 2
+	}
+	let _ = 3
+	4
+}
+-- 02445.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+
+func f(b bool) int {
+	if b {
+		return 1
+	} else {
+		return 2
+	}
+	let _ = 3
+	4
+}
+-- 02446.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()
+func f(b bool) int {
+	if b {
+		return 1
+	} else {
+		return 2
+	}
+	let _ = 3
+	4
+}
+-- 02447.ergo --
+let _ = 1
+func f(b bool) int {
+	if b {
+		return 1
+	} else {
+		return 2
+	}
+	let _ = 3
+	4
+}
+-- 02448.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+
+func f(b bool) int {
+	if b {
+		return 1
+	} else {
+		return 2
+	}
+	let _ = 3
+	4
+}
+-- 02449.ergo --
+
+func f(b bool) int {
+	if b {
+		return 1
+	} else {
+		return 2
+	}
+}
+-- 02450.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+
+func f(b bool) int {
+	if b {
+		return 1
+	} else {
+		return 2
+	}
+}
+-- 02451.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()
+func f(b bool) int {
+	if b {
+		return 1
+	} else {
+		return 2
+	}
+}
+-- 02452.ergo --
+let _ = 1
+func f(b bool) int {
+	if b {
+		return 1
+	} else {
+		return 2
+	}
+}
+-- 02453.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+
+func f(b bool) int {
+	if b {
+		return 1
+	} else {
+		return 2
+	}
+}
+-- 02454.ergo --
+
+func f(n int) int {
+	if n > 2 {
+		return 1
+	} else if n > 1 {
+		return 2
+	} else {
+		return 3
+	}
+}
+-- 02455.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+
+func f(n int) int {
+	if n > 2 {
+		return 1
+	} else if n > 1 {
+		return 2
+	} else {
+		return 3
+	}
+}
+-- 02456.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()
+func f(n int) int {
+	if n > 2 {
+		return 1
+	} else if n > 1 {
+		return 2
+	} else {
+		return 3
+	}
+}
+-- 02457.ergo --
+let _ = 1
+func f(n int) int {
+	if n > 2 {
+		return 1
+	} else if n > 1 {
+		return 2
+	} else {
+		return 3
+	}
+}
+-- 02458.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+
+func f(n int) int {
+	if n > 2 {
+		return 1
+	} else if n > 1 {
+		return 2
+	} else {
+		return 3
+	}
+}
+-- 02459.ergo --
+
+func f(b bool) int {
+	if b {
+		return 1
+	} else {
+		let _ = 2
+	}
+}
+-- 02460.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+
+func f(b bool) int {
+	if b {
+		return 1
+	} else {
+		let _ = 2
+	}
+}
+-- 02461.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()
+func f(b bool) int {
+	if b {
+		return 1
+	} else {
+		let _ = 2
+	}
+}
+-- 02462.ergo --
+let _ = 1
+func f(b bool) int {
+	if b {
+		return 1
+	} else {
+		let _ = 2
+	}
+}
+-- 02463.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+
+func f(b bool) int {
+	if b {
+		return 1
+	} else {
+		let _ = 2
+	}
+}
+-- 02464.ergo --
+
+func f(n int) int {
+	if n > 2 {
+		return 1
+	} else if n > 1 {
+		return 2
+	} else {
+		let _ = 3
+	}
+}
+-- 02465.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+
+func f(n int) int {
+	if n > 2 {
+		return 1
+	} else if n > 1 {
+		return 2
+	} else {
+		let _ = 3
+	}
+}
+-- 02466.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()
+func f(n int) int {
+	if n > 2 {
+		return 1
+	} else if n > 1 {
+		return 2
+	} else {
+		let _ = 3
+	}
+}
+-- 02467.ergo --
+let _ = 1
+func f(n int) int {
+	if n > 2 {
+		return 1
+	} else if n > 1 {
+		return 2
+	} else {
+		let _ = 3
+	}
+}
+-- 02468.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+
+func f(n int) int {
+	if n > 2 {
+		return 1
+	} else if n > 1 {
+		return 2
+	} else {
+		let _ = 3
+	}
+}
+-- 02469.ergo --
+
+func f(b bool) int {
+	let x = 2
+	if b {
+		let _ = 1
+	} else {
+		return x
+	}
+	1
+}
+-- 02470.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+
+func f(b bool) int {
+	let x = 2
+	if b {
+		let _ = 1
+	} else {
+		return x
+	}
+	1
+}
+-- 02471.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()
+func f(b bool) int {
+	let x = 2
+	if b {
+		let _ = 1
+	} else {
+		return x
+	}
+	1
+}
+-- 02472.ergo --
+let _ = 1
+func f(b bool) int {
+	let x = 2
+	if b {
+		let _ = 1
+	} else {
+		return x
+	}
+	1
+}
+-- 02473.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+
+func f(b bool) int {
+	let x = 2
+	if b {
+		let _ = 1
+	} else {
+		return x
+	}
+	1
+}
+-- 02474.ergo --
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let x = 2
+		return 3
+	}
+	1
+}
+-- 02475.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let x = 2
+		return 3
+	}
+	1
+}
+-- 02476.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let x = 2
+		return 3
+	}
+	1
+}
+-- 02477.ergo --
+let _ = 1
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let x = 2
+		return 3
+	}
+	1
+}
+-- 02478.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let x = 2
+		return 3
+	}
+	1
+}
+-- 02479.ergo --
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let y = 2
+		return y
+	}
+	y
+}
+-- 02480.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let y = 2
+		return y
+	}
+	y
+}
+-- 02481.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let y = 2
+		return y
+	}
+	y
+}
+-- 02482.ergo --
+let _ = 1
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let y = 2
+		return y
+	}
+	y
+}
+-- 02483.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let y = 2
+		return y
+	}
+	y
+}
+-- 02484.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+let t = task.Go() { 2 }
+		return t.Wait()
+-- 02485.ergo --
+let _ = 1let t = task.Go() { 2 }
+		return t.Wait()
+-- 02486.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+let t = task.Go() { 2 }
+		return t.Wait()
+-- 02487.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+let _ = 1
+-- 02488.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()let _ = 1
+-- 02489.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+let _ = 1
+-- 02490.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		
+-- 02491.ergo --
+let W = context {}
+type E {}
+func g() fails E { E }
+func use(f func() int) int { f() }
+import task
+
+func f(b bool) int {
+	if b {
+		
+-- 02492.ergo --
+let t = task.Go() { 2 }
+		return t.Wait()import task
+
+func f(b bool) int {
+	if b {
+		
+-- 02493.ergo --
+let _ = 1import task
+
+func f(b bool) int {
+	if b {
+		
+-- 02494.ergo --
+import task
+
+func f(b bool) int {
+	if b {
+		let _ = 1
+	} else {
+		let _ = 1
+	}
+	1
+}
+import task
+
+func f(b bool) int {
+	if b {
+		
+-- 02495.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+-- 02496.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+-- 02497.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+-- 02498.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+-- 02499.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+

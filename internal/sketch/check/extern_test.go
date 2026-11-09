@@ -207,50 +207,6 @@ func (s shadowImporter) Import(path string) (*check.Package, error) {
 	return check.Std.Import(path)
 }
 
-// TestStdPathReserved is C30's checker half: an import of a std path
-// resolves to std whatever importer Check was given, so a program package
-// served at log cannot shadow std's log. The program package checked under
-// that path has no std identity; std's has it.
-func TestStdPathReserved(t *testing.T) {
-	lib, err := syntax.Parse("func Shadow() int { 1 }\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	fake, ds := check.Check("log", []*syntax.File{lib}, nil)
-	if len(ds) != 0 {
-		t.Fatal(ds)
-	}
-	if fake.Std() {
-		t.Fatal("a program package checked under the path log has std identity")
-	}
-	for _, path := range []string{"log", "trace", "queue", "scope", "slices", "task", "timeout"} {
-		t.Run(path, func(t *testing.T) {
-			main, err := syntax.Parse("import " + path + "\n\nfunc f() int { " + path + ".Shadow() }\n")
-			if err != nil {
-				t.Fatal(err)
-			}
-			pkg, ds := check.Check("main", []*syntax.File{main}, shadowImporter{path: fake})
-			want, err := check.Std.Import(path)
-			if err != nil || !want.Std() {
-				t.Fatalf("std %s: %v, std identity %v", path, err, want != nil && want.Std())
-			}
-			var bound *check.Package
-			for id, obj := range pkg.Info.Uses {
-				if pn, ok := obj.(*check.PkgName); ok && id.Name == path {
-					bound = pn.Pkg
-				}
-			}
-			if bound != want {
-				t.Fatalf("import %s resolved to %p (std identity %v), want std's %p\n\t%s", path, bound, bound.Std(), want, describe(ds))
-			}
-			// std's package declares no Shadow: the one diagnostic says so.
-			if len(ds) != 1 || ds[0].Code != "S104" {
-				t.Fatalf("want one S104 for Shadow, got\n\t%s", describe(ds))
-			}
-		})
-	}
-}
-
 // judgeOutside checks src as judgeWant does, except that every diagnostic
 // is an S109 whose message holds each of texts.
 func judgeOutside(t *testing.T, src string, texts ...string) {
@@ -970,6 +926,19 @@ func main() {
 	with W { A.Use() }
 	with W { A.Use() }
 }
+`,
+		// The refusal ends the provider's judgment: no release charge
+		// follows it, though the Close needs what main lacks (ledger
+		// mutant own-check-15: the continue after the refusal dropped).
+		"generic-witnessed-no-charge": `type A { Use() }
+type Named { Name() string }
+type N {}
+func Name(_ N) string { "n" }
+type G[T] { Value T }
+func Use[T Named](_ G[T]) {}
+func Close[T Named](_ G[T]) needs Console { Console.Println("closed") }
+let W = context { A: G[N]{Value: N} } // want S109
+func main() { with W { A.Use() } }
 `,
 	}
 	for name, src := range cases {

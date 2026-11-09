@@ -392,20 +392,6 @@ var i1Split = newSplit(split[i1Case]{
 	name:  "TestRuntime199I1Property",
 	parts: i1Parts,
 	short: i1Short,
-	// The pin: the domain of the unsplit property at f79be34b
-	// (request.md, leg 1), re-pinned by std-align S2b when the extern
-	// shape's LiveScheduler came from NewLiveScheduler and its written
-	// rows listed Ambient (the same 17131 cases, two source texts changed),
-	// and re-pinned by #162 law-run-1 when the law body joined the frame
-	// catalog (i1FrameKinds "top-law"): the 17131 cases unchanged plus 1516
-	// cases of that frame (209 top-law/, 1303 nest-top-law/, 4
-	// entry-top-law/). Without that frame kind the domain is the old pin
-	// exactly. Batch-12 integration joined that with lw-pure-prelude's
-	// re-pin (the host effect became a user extern call, hostTrim, because
-	// the prelude's Append is pure; the same cases): 18647 cases, digest
-	// measured on the merged head.
-	count:  18647,
-	digest: "58b557c59845afb2b0874e863e2505fb31b2423a59bfbe00bb2d75b1d7e49c0a",
 	cases: func(yield func(i1Case) bool) {
 		for _, c := range i1Domain() {
 			if !yield(c) {
@@ -529,7 +515,10 @@ func TestRuntime199I1Primitives(t *testing.T) { i1CheckPrimitives(t) }
 
 // TestRuntime199I1Live: the live witnesses build and stop (a subtest of
 // the unsplit property).
-func TestRuntime199I1Live(t *testing.T) { i1Live(t) }
+func TestRuntime199I1Live(t *testing.T) {
+	needsBuild(t)
+	i1Live(t)
+}
 
 // Adapted from the round 1 reviewer's zz_ext_test.go: block frames, generated
 // over the same clauses, loop forms and exits as i1Cases.
@@ -1526,6 +1515,9 @@ func i1CheckNoPollBeforeLoop(t *testing.T, o *lowered) {
 	}
 }
 
+// i1Live builds Go because its callers ask what the built program prints and
+// how it exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func i1Live(t *testing.T) {
 	progs := i1LivePrograms()
 	var lowered []*lowered

@@ -664,6 +664,7 @@ func TestRuntime199AcquireProperty(t *testing.T) {
 // changed.
 func acquireNative(t *testing.T, o *lowered, cases []acqCase) {
 	t.Helper()
+	fastTierGuard(t, "a go command")
 	dir := t.TempDir()
 	write := func(path string, data []byte) {
 		t.Helper()

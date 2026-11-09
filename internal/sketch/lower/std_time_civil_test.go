@@ -9,9 +9,9 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"ergo.local/prototype/internal/testwait"
-	"time"
 )
 
 // timeCivilProgram reads one case per line and prints one line per case.
@@ -105,9 +105,14 @@ func civilCases(r *rand.Rand, n int) (cases, want []string) {
 // law still holds) and a calendar that is consistent but not Go's. It
 // builds and runs the program because the calendar is Ergo source, which
 // no in-process interpreter runs; one build serves every case.
+//
+// It builds Go because it compares the runs of built programs with a
+// reference (another lowering, a fold, or Go's own package), and the
+// question is behaviour at run time; no in-process check observes that, and
+// Ergo has no reference interpreter yet (test-speed T8).
 func TestTimeCivilMatchesGo(t *testing.T) {
-	p := mustLower(t, "timeCivil", timeCivilProgram)
-	exes := buildAll(t, []*lowered{p}, true)
+	needsBuild(t)
+	exes := tableExes(t, "timeCivil")
 	if exes == nil {
 		t.Fatal("the lowered program does not build")
 	}

@@ -13,7 +13,13 @@ import (
 // operand evaluated once; two strings of more than one line add a line
 // diff; a comparison of two constants, and one whose operand has no
 // literal, print the source text alone, as before.
+//
+// It builds Go because it runs the emitted test harness under go test: the
+// harness's verdicts and the values it prints are the output; no in-process
+// check observes that, and Ergo has no reference interpreter yet (test-speed
+// T8).
 func TestAssertShowsValues(t *testing.T) {
+	needsBuild(t)
 	src := `func double(n int) int { n + n + 1 }
 
 test Doubles {
@@ -115,7 +121,13 @@ type Pair (Name, Celsius)
 // literal the property printer gives the argument, and that literal, read
 // back by `let v T = LIT` in a second program, prints the same literal: the
 // text a failed assert shows parses back to the same value.
+//
+// It builds Go because it runs the emitted test harness under go test: the
+// harness's verdicts and the values it prints are the output; no in-process
+// check observes that, and Ergo has no reference interpreter yet (test-speed
+// T8).
 func TestAssertLiteralsReadBack(t *testing.T) {
+	needsBuild(t)
 	var show strings.Builder
 	show.WriteString(printDecls)
 	for _, k := range printKinds {

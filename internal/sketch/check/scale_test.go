@@ -15,7 +15,8 @@ import (
 
 // TestCheckerScale fails when the checker's cost grows faster than linearly
 // with the size of its input. Each shape below generates a program at sizes
-// n, 2n and 4n whose source grows linearly in n, and the test measures the
+// n, 2n and 4n (check.GrowthSizes: 4n has at most check.GrowthMaxNodes
+// syntax nodes) whose source grows linearly in n, and the test measures the
 // bytes check.CheckSource allocates for it: the least of three runs, less
 // what an empty program allocates. Allocation counts are deterministic,
 // unlike time. A shape fails when the fitted exponent
@@ -43,7 +44,6 @@ import (
 // skip, as the whole test did.
 var checkerScale = check.NewSplit(check.Split[scaleShape]{
 	Name: "TestCheckerScale", Parts: 4,
-	Count: 22, Digest: "be2f0ed5ca8fc7689d1d464e702ed6dfbf29c1905bbe60999f630a71a8520f95",
 	Cases: check.SeqOf(func() []scaleShape { return scaleShapes }),
 	Key:   scaleKey,
 	Run:   runCheckerScale,
@@ -57,14 +57,9 @@ func TestCheckerScalePart3(t *testing.T) { checkerScale.Part(t, 3) }
 // scaleKey is what a shape checks: its fields and its sources at every
 // size it is measured at.
 func scaleKey(s scaleShape) string {
-	k := s.name + "\x00" + s.finding + "\x00" + s.skip + fmt.Sprintf("\x00n=%d diagnostics=%d", s.n, s.diagnostics)
-	for _, size := range []int{s.n, 2 * s.n, 4 * s.n} {
-		k += "\x00" + s.source(size)
-	}
+	k := s.name + "\x00" + s.finding + "\x00" + s.skip + fmt.Sprintf("\x00diagnostics=%d", s.diagnostics) + "\x00" + s.source(3)
 	if s.control != nil {
-		for _, size := range []int{s.n, 4 * s.n} {
-			k += "\x00control\x00" + s.control(size)
-		}
+		k += "\x00control\x00" + s.control(3)
 	}
 	return k
 }
@@ -77,9 +72,14 @@ func runCheckerScale(t *testing.T, shapes iter.Seq[scaleShape]) {
 			if shape.skip != "" {
 				t.Skip(shape.skip)
 			}
+			sizes := []int{shape.maxN / 4, shape.maxN / 2, shape.maxN}
+			if shape.maxN == 0 {
+				sizes = check.GrowthSizes(t, check.GrowthMaxNodes, func(n int) int { return check.SourceNodes(t, shape.source(n)) })
+			}
+			n := sizes[0]
 			var bytes [3]float64
 			var took [3]time.Duration
-			for i, size := range []int{shape.n, 2 * shape.n, 4 * shape.n} {
+			for i, size := range sizes {
 				src := shape.source(size)
 				_, diags := check.CheckSource(src)
 				if len(diags) != shape.diagnostics {
@@ -89,10 +89,11 @@ func runCheckerScale(t *testing.T, shapes iter.Seq[scaleShape]) {
 				bytes[i] = math.Max(float64(b-empty), 1)
 				took[i] = d
 			}
-			exponent := math.Log2(bytes[2]/bytes[0]) / 2
-			timeExponent := math.Log2(float64(took[2])/float64(took[0])) / 2
+			span := math.Log2(float64(sizes[2]) / float64(sizes[0]))
+			exponent := math.Log2(bytes[2]/bytes[0]) / span
+			timeExponent := math.Log2(float64(took[2])/float64(took[0])) / span
 			t.Logf("n=%d: bytes %.0f, %.0f, %.0f (exponent %.2f); time %v, %v, %v (exponent %.2f)",
-				shape.n, bytes[0], bytes[1], bytes[2], exponent, took[0], took[1], took[2], timeExponent)
+				n, bytes[0], bytes[1], bytes[2], exponent, took[0], took[1], took[2], timeExponent)
 			if exponent > maxScaleExponent {
 				t.Errorf("4x the input allocates %.1fx the bytes (exponent %.2f > %.1f): the checker is superlinear on %s (%s)",
 					bytes[2]/bytes[0], exponent, maxScaleExponent, shape.name, shape.finding)
@@ -101,7 +102,7 @@ func runCheckerScale(t *testing.T, shapes iter.Seq[scaleShape]) {
 				return
 			}
 			var ratio [2]float64
-			for i, size := range []int{shape.n, 4 * shape.n} {
+			for i, size := range []int{n, sizes[2]} {
 				if _, diags := check.CheckSource(shape.control(size)); len(diags) != shape.diagnostics {
 					t.Fatalf("control n=%d: want %d diagnostics, got %d:\n%s", size, shape.diagnostics, len(diags), listDiagnostics(diags))
 				}
@@ -164,8 +165,9 @@ type scaleShape struct {
 	name string
 	// finding names the review finding the shape comes from.
 	finding string
-	// n is the smallest size; the test also checks 2n and 4n.
-	n int
+	// maxN, when set, is the largest size (under a parser limit) instead
+	// of GrowthSizes'.
+	maxN int
 	// diagnostics is the number of diagnostics at every size: 0 for a
 	// valid program.
 	diagnostics int
@@ -222,7 +224,6 @@ var scaleShapes = []scaleShape{
 	{
 		name:    "declarations",
 		finding: "checkquad r1 and r2: three passes quadratic in the declarations (13.4 GB); checker-196 r3 M5: the method dependency graph",
-		n:       500,
 		source: func(n int) string {
 			var g gen
 			for i := range n {
@@ -240,7 +241,6 @@ var scaleShapes = []scaleShape{
 	{
 		name:    "providers",
 		finding: "checkquad r2 follow-up: the provider-method matching loop; parse-v1 r6 M1 and r7 M1: same-named receiver-first functions made the body graph quadratic",
-		n:       200,
 		source: func(n int) string {
 			var g gen
 			for i := range n {
@@ -267,7 +267,6 @@ var scaleShapes = []scaleShape{
 	{
 		name:    "wide record",
 		finding: "check-v1 stage-B r1 M2: uncharged work superlinear in pattern width",
-		n:       500,
 		source: func(n int) string {
 			var g gen
 			g.line("type R {")
@@ -304,7 +303,6 @@ var scaleShapes = []scaleShape{
 	{
 		name:    "sparse wide match",
 		finding: "check-v1 stage-B r2 M1: a sparse wide match costs work and memory quadratic in the source before its S103 refusal",
-		n:       100,
 		// main refuses this shape with S103 from about n = 100 on; the
 		// refusal itself must come at linear cost.
 		diagnostics: 1,
@@ -332,7 +330,6 @@ var scaleShapes = []scaleShape{
 	{
 		name:    "long body",
 		finding: "check-v1 r4 M1: bindings held per node, square of the source",
-		n:       1000,
 		source: func(n int) string {
 			var g gen
 			g.line("func f(a int64) int64 {")
@@ -349,9 +346,9 @@ var scaleShapes = []scaleShape{
 	{
 		name:    "deep nesting",
 		finding: "spec item 7: deep nesting of blocks and calls; check-v1 r5 m1: work per level of a deep block nest",
-		// 4n nested ifs around 4n nested calls stays under the parser's
+		// 200 nested ifs around 200 nested calls stays under the parser's
 		// limit of 1000 levels.
-		n: 50,
+		maxN: 200,
 		source: func(n int) string {
 			var g gen
 			g.line("func g(a int64) int64 { return a + 1 }")
@@ -376,7 +373,6 @@ var scaleShapes = []scaleShape{
 		finding: "spec item 7: deep nesting of literals",
 		// 4n nested record literals stays under the parser's limit of 1000
 		// levels.
-		n: 50,
 		source: func(n int) string {
 			var g gen
 			g.line("type L0 { V int64 }")
@@ -396,7 +392,6 @@ var scaleShapes = []scaleShape{
 	{
 		name:    "selector chain",
 		finding: "parser-195 r1 M3: selector chains escape the nesting charge",
-		n:       200,
 		source: func(n int) string {
 			var g gen
 			g.line("type S0 { V int64 }")
@@ -411,7 +406,6 @@ var scaleShapes = []scaleShape{
 	{
 		name:    "binary chain",
 		finding: "parser-195 r1 M3: binary chains escape the nesting charge",
-		n:       200,
 		source: func(n int) string {
 			var g gen
 			g.line("func f(a int64) int64 { return a%s }", strings.Repeat(" + a", n))
@@ -422,7 +416,6 @@ var scaleShapes = []scaleShape{
 	{
 		name:    "int match arms",
 		finding: "pattern_oracle match shape; checker-196 r1 M8: exponential totality",
-		n:       500,
 		source: func(n int) string {
 			var g gen
 			g.line("func f(x int64) int64 {")
@@ -442,7 +435,6 @@ var scaleShapes = []scaleShape{
 	{
 		name:    "union match arms",
 		finding: "checker-196 r4 M4, r5 M2 and r7 M4: variant canonicalization; check-v1 stage-B r1 M2",
-		n:       250,
 		source: func(n int) string {
 			var g gen
 			var vs []string
@@ -468,7 +460,6 @@ var scaleShapes = []scaleShape{
 	{
 		name:    "variable match arms",
 		finding: "checker-196 r8 M3: variable edges restore quadratic index work",
-		n:       250,
 		source: func(n int) string {
 			var g gen
 			var params, variants, args []string
@@ -495,7 +486,6 @@ var scaleShapes = []scaleShape{
 	{
 		name:    "wildcard match arms",
 		finding: "checker-196 r8 M3: wildcard (row) edges restore quadratic index work",
-		n:       250,
 		source: func(n int) string {
 			var g gen
 			var variants []string
@@ -523,7 +513,6 @@ var scaleShapes = []scaleShape{
 	{
 		name:    "callback literals",
 		finding: "parse-v1 r13 M2: callTaint filters a literal's flow again on every call",
-		n:       200,
 		source: func(n int) string {
 			var g gen
 			g.line("type Fault {}")
@@ -556,7 +545,6 @@ var scaleShapes = []scaleShape{
 	{
 		name:        "callback literals, one error",
 		finding:     "parse-v1 r13 M2: a one-error program of 2000 functions took 31 s",
-		n:           200,
 		diagnostics: 1,
 		source: func(n int) string {
 			var g gen
@@ -588,7 +576,6 @@ var scaleShapes = []scaleShape{
 	{
 		name:    "duplicate names",
 		finding: "parse-v1 r6 M1 and r7 M1: a self call on a receiver with no written type got an edge to every function of its name, so the body graph was quadratic",
-		n:       200,
 		source: func(n int) string {
 			var g gen
 			for i := range n {
@@ -611,7 +598,6 @@ var scaleShapes = []scaleShape{
 	{
 		name:    "call chain",
 		finding: "parse-v1 r8 M1: the FIFO settling worklist rechecks a waiting body once per wave, quadratic in an acyclic graph",
-		n:       300,
 		source: func(n int) string {
 			var g gen
 			g.line("type Fault {}")
@@ -637,7 +623,6 @@ var scaleShapes = []scaleShape{
 	{
 		name:    "context chain",
 		finding: "check-v1 r3 M1 and r4 M1: resolving the bindings of n withs over a context chain is quadratic (3.1 GB at 8000); checker-196 r17 M1 and r18 M1: the context embedding chain",
-		n:       200,
 		source: func(n int) string {
 			var g gen
 			g.line("type Store { Label() string }")
@@ -662,7 +647,6 @@ var scaleShapes = []scaleShape{
 	{
 		name:    "long names",
 		finding: "checker-196 r21 m1: each context that reaches a capability hashes its whole name again, so the cost is the name length times the context count; issue #234",
-		n:       200,
 		// Measured on main e36c9471: bytes exponent 1.02, time exponent
 		// 1.92 to 2.00; the time over the control's grows 3.2x to 3.9x
 		// from n to 4n. A linear stand-in (a 40-byte name) grew at most
@@ -678,7 +662,6 @@ var scaleShapes = []scaleShape{
 	{
 		name:    "catch arms",
 		finding: "parse-v1 r14 M1: the duplicate-arm set and covered.with make a catch quadratic in its arm count; issue #233",
-		n:       250,
 		// Measured on main e36c9471: exponent 1.35 at n = 250 and 1.69 at
 		// n = 1000 (20.7 MB, 63.0 MB, 214.0 MB).
 		skip: "#233: catch arm coverage (the duplicate-arm set and covered.with) is quadratic in the arm count (parse-v1 r14 M1)",
@@ -712,7 +695,6 @@ var scaleShapes = []scaleShape{
 	{
 		name:    "generic arity",
 		finding: "checker-196 r6 M5: default-only generic subjects",
-		n:       100,
 		source: func(n int) string {
 			var g gen
 			var params, fields, args, values []string
@@ -737,7 +719,6 @@ var scaleShapes = []scaleShape{
 	{
 		name:    "generic call",
 		finding: "checker-196 r8 M4: the constraint-refusal guard visits every constraint per constant-bound parameter",
-		n:       100,
 		source: func(n int) string {
 			var g gen
 			var params, args, ones []string

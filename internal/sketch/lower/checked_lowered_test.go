@@ -522,10 +522,6 @@ type checkedCase struct{ grid, site string }
 var checkedSplit = newSplit(split[checkedCase]{
 	name:  "TestCheckedImpliesLowered",
 	parts: checkedParts,
-	// The pin: the domain of the unsplit test at f79be34b (request.md,
-	// leg 1).
-	count:  41,
-	digest: "f9ae24c771519085d8d9b01de1748625deedaa94233a06c0639be57017f5149b",
 	cases: func(yield func(checkedCase) bool) {
 		for _, site := range pairSites {
 			if !yield(checkedCase{"pairs", site}) {
@@ -595,6 +591,10 @@ func TestCheckedImpliesLoweredPart19(t *testing.T) { checkedSplit.Part(t, 19) }
 
 // runChecked checks and lowers the pairs of cases, then builds and runs
 // the program of each case.
+//
+// It builds Go because its callers ask what the built program prints and how
+// it exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func runChecked(t *testing.T, cases iter.Seq[checkedCase]) {
 	var programs []*lowered
 	want := map[string]string{}

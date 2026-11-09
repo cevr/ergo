@@ -237,17 +237,6 @@ var contextFootprints = []string{
 	"caps=[] tasks=true opaque=true", "caps=[C0] tasks=true opaque=true",
 }
 
-// TestEmbeddedImportedContextFootprintPureTask (fu-pure-task) is the same
-// property with task's std externs counted as pure (the test seam
-// SetPureStdForTest): the Spawn provider's task.Go takes runs' pure-std
-// path, which no std body reaches yet, in the same-package walk and in the
-// imported provider-by-provider walk. Tasks must survive that path; opaque
-// comes from t.Stop().
-func TestEmbeddedImportedContextFootprintPureTask(t *testing.T) {
-	defer pureTaskSeam(t)()
-	footprintProperty(t, contextFootprints)
-}
-
 // pureTaskSeam opens the seam that counts task's std externs as pure and
 // returns its restore. Every std package is checked first, so none records
 // a footprint under the seam.
@@ -372,47 +361,6 @@ func footprintProperty(t *testing.T, want []string) {
 	for k := range footprintKinds {
 		if !hiddenKinds[k] {
 			t.Errorf("no case hides an entry of a chain with a provider of kind %d", k)
-		}
-	}
-}
-
-// TestForeignEntryProviderKinds (batch-9 C4 r2, the round-1 verifier's
-// probe): an imported context whose entry the importer hides is walked
-// provider by provider. A provider that starts a task keeps Tasks, and a
-// function literal called where it is written keeps the capability it
-// uses: the imported footprint equals the same-package one.
-func TestForeignEntryProviderKinds(t *testing.T) {
-	decls := `import task
-
-type C0 { Get0() int }
-type M0 {}
-func Get0(_ M0) int { 0 }
-type C1 { Get1() int }
-type M1 {}
-func Get1(_ M1) int { 1 }
-type C2 { Get2() int }
-type M2 {}
-func Get2(_ M2) int { 2 }
-func spawn() M1 {
-	let t = task.Go() { 1 }
-	t.Stop()
-	M1
-}
-
-`
-	cases := []struct{ name, w, want string }{
-		{"task", "let W = context { C0: M0, C1: spawn() }\n", "caps=[] tasks=true opaque=true"},
-		{"lit", "let W = context { C0: M0, C2: func() M2 {\n\tlet _ = C0.Get0()\n\tM2\n}() }\n", "caps=[C0] tasks=false opaque=false"},
-	}
-	for _, c := range cases {
-		x := func(q string) string {
-			return "let X = context { replace " + q + "C0: " + q + "M0, " + q + "W }\n"
-		}
-		_, same := footprintOfX(t, "main", decls+c.w+x(""), nil)
-		lib, _ := footprintOfX(t, "lib", decls+c.w, nil)
-		_, imported := footprintOfX(t, "main", "import lib\n\n"+x("lib."), importedFootprintImporter{lib})
-		if same != c.want || imported != c.want {
-			t.Errorf("%s: same package %s, imported %s, want both %s", c.name, same, imported, c.want)
 		}
 	}
 }

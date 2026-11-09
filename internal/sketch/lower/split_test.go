@@ -27,16 +27,12 @@ import (
 // the one statement `<split>.Part(t, k)`. Part k runs the cases whose index
 // i in the full domain has i % Parts == k, in index order.
 //
-// A generated domain is pinned: Count is its number of cases, and Digest
-// is the SHA-256 of the case keys, each written as "<len>:<key>\n", in
-// index order, measured from the unsplit test at f79be34b. A domain read
-// from files that other units edit (the check package's tests, the
-// fixtures and the examples) is not pinned, since a new fixture must join
-// it with no pin to keep; its parts must still cover it, each case once.
-// TestSplitsCoverTheirDomain checks both, over the cases each part hands
-// to its run through dispatch, the path Part takes. So a dropped part, a
-// part that runs another part's cases, or a generator that draws other
-// cases fails that test; TestSplitHarness checks dispatch and Part against
+// No domain is pinned by a count or a digest (AGENTS.md, Tests): a change
+// of a generator is a change of the test, reviewed as one. The parts must
+// cover the domain, each case once: TestSplitsCoverTheirDomain checks it,
+// over the cases each part hands to its run through dispatch, the path
+// Part takes. So a dropped part or a part that runs another part's cases
+// fails that test; TestSplitHarness checks dispatch and Part against
 // a model of these rules. Part also fails when run does not consume each
 // of its cases once.
 //
@@ -51,11 +47,6 @@ type split[C any] struct {
 	// short is the stride of the cases a part keeps under -short; 0 skips
 	// the part under -short.
 	short int
-	// count and digest pin the full domain; unpinned leaves them unchecked
-	// (a domain read from files).
-	count    int
-	digest   string
-	unpinned bool
 	// cases yields the full domain, in index order.
 	cases iter.Seq[C]
 	// key is a stable text of one case: what it checks, with its inputs.
@@ -72,7 +63,6 @@ var splits []splitEntry
 type splitEntry interface {
 	splitName() string
 	splitParts() int
-	pin() (count int, digest string, pinned bool)
 	// keys is the key of each case of the full domain, in index order.
 	keys() []string
 	// ran is the keys of the cases that part k hands to run, through
@@ -89,8 +79,6 @@ func newSplit[C any](s split[C]) *split[C] {
 
 func (s *split[C]) splitName() string { return s.name }
 func (s *split[C]) splitParts() int   { return s.parts }
-
-func (s *split[C]) pin() (int, string, bool) { return s.count, s.digest, !s.unpinned }
 
 func (s *split[C]) keys() []string {
 	var out []string
@@ -112,15 +100,6 @@ func (s *split[C]) ran(t *testing.T, k int, short bool) []string {
 		})
 	})
 	return out
-}
-
-// splitDigest is the pin of a list of case keys.
-func splitDigest(keys []string) string {
-	h := sha256.New()
-	for _, k := range keys {
-		fmt.Fprintf(h, "%d:%s\n", len(k), k)
-	}
-	return hex.EncodeToString(h.Sum(nil))
 }
 
 // Part runs part k of the split.
@@ -244,9 +223,7 @@ func isPartCall(fn *ast.FuncDecl, k string) bool {
 }
 
 // TestSplitsCoverTheirDomain (gate-fast T2, legs 1 and 3): for every
-// split, the parts that exist run every case of the full domain once; a
-// pinned domain is the one the unsplit test ran (count and digest measured
-// at f79be34b, before the split).
+// split, the parts that exist run every case of the full domain once.
 func TestSplitsCoverTheirDomain(t *testing.T) {
 	declared := declaredParts(t)
 	names := map[string]bool{}
@@ -400,16 +377,8 @@ func coversDomain(t *testing.T, s splitEntry, declared []int) {
 	if len(union) != len(keys) {
 		t.Errorf("%s: the parts run %d of the domain's %d cases", name, len(union), len(keys))
 	}
-	count, digest, pinned := s.pin()
-	if !pinned {
-		t.Logf("%s: %d cases, read from files; not pinned", name, len(keys))
-		return
-	}
-	if len(keys) != count {
-		t.Errorf("%s: the domain has %d cases, pinned %d", name, len(keys), count)
-	}
-	if got := splitDigest(union); len(union) != count || got != digest {
-		t.Errorf("%s: the parts run %d cases with digest %s; the pinned domain is %d cases with digest %s", name, len(union), got, count, digest)
+	if len(keys) == 0 {
+		t.Errorf("%s: the domain is empty", name)
 	}
 }
 

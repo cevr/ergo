@@ -32,9 +32,6 @@ var exampleReaders = []string{"cmd/ergo", "internal/sketch/lower", "scripts/exam
 // replays, is TestPackageKeyModel's; this test holds the real table and the
 // real fast steps to it.
 func TestFastTierReachOfAnExampleEdit(t *testing.T) {
-	host := sweepOS
-	t.Cleanup(func() { sweepOS = host })
-	sweepOS = "linux"
 	root := checkoutRoot(t)
 	packages, problem, err := testPackages(root)
 	if err != nil || problem != "" {
@@ -53,10 +50,10 @@ func TestFastTierReachOfAnExampleEdit(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The tests of a package, as the fast tier runs them: its keyed go
-	// test steps, not its closure sweep.
+	// test steps.
 	stepsOf := map[string][]*Step{}
 	for _, step := range steps {
-		if step.Package == nil || step.Sweep != "" {
+		if step.Package == nil {
 			continue
 		}
 		stepsOf[step.Package.Dir] = append(stepsOf[step.Package.Dir], step)
@@ -81,8 +78,8 @@ func TestFastTierReachOfAnExampleEdit(t *testing.T) {
 	for _, file := range files {
 		// A table entry of the whole tree (internal/residue, the guard,
 		// scripts/gate) says nothing of examples/: those packages rerun on
-		// every edit (residue, guard), or are keyed on the inputs the
-		// observer checks (scripts/gate, hostPackageInputs).
+		// every edit (residue, guard), or have no fast step (scripts/gate,
+		// a host package).
 		var readers []string
 		for dir, declared := range table {
 			if slices.Contains(declared, replay.Allowance{Path: ".", Grant: replay.GrantSubtree}) {

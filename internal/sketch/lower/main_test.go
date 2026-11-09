@@ -57,6 +57,7 @@ func TestMain(m *testing.M) {
 		os.Setenv(proclimit.Variable, strconv.FormatUint(proclimit.DefaultLimit, 10))
 	}
 	code := testinputs.Main(m)
+	removeProgramTables()
 	if testCLI.dir != "" {
 		_ = os.RemoveAll(testCLI.dir)
 	}
@@ -72,6 +73,7 @@ const moduleRoot = "../../.."
 // and ergo build write dist/ under the working directory.
 func ergoCLI(t *testing.T) string {
 	t.Helper()
+	fastTierGuard(t, "the ergo CLI")
 	testCLI.once.Do(func() {
 		if testCLI.given != "" {
 			testCLI.path, testCLI.err = givenCLI(testCLI.given)
@@ -122,6 +124,9 @@ const probeVariable = "ERGO_TEST_CLI_PROBE"
 
 // TestErgoCLIProbe prints the path ergoCLI returns, when probeVariable is
 // set; otherwise it does nothing.
+//
+// It builds Go because its question is the ergo command itself: that the
+// harness runs the CLI it was given.
 func TestErgoCLIProbe(t *testing.T) {
 	if os.Getenv(probeVariable) == "" {
 		t.Skip("a probe for TestErgoCLIUsesTheGivenBinary")

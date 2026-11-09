@@ -14,6 +14,14 @@ import (
 // pure package off the list apart: the reviewed list is the one fact.
 // unicode and unicode/utf16 joined the list.
 
+// allowlist is the pure allowlist as G9 decides it (std-1 plan, section 3),
+// with path/filepath from std-align S3a, math/bits from std-text-runes and
+// unicode and unicode/utf16 from G2 (lane G), and crypto/sha256,
+// encoding/base64, encoding/hex and hash/crc32 from G3, written out
+// independently of check.PureGoPackages (moved here from
+// extern_allow_test.go, which T6 cut).
+var allowlist = []string{"crypto/sha256", "encoding/base64", "encoding/hex", "hash/crc32", "math", "math/bits", "path/filepath", "slices", "sort", "strconv", "strings", "unicode", "unicode/utf16", "unicode/utf8"}
+
 // offList is a reviewed sample of Go standard-library packages off the
 // allowlist: pure ones (bytes, regexp) and ones that reach the host or
 // call unknown code (os, net/url).

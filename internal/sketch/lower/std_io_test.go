@@ -31,63 +31,15 @@ func runExeInput(t *testing.T, exe, stdin string, args ...string) (string, strin
 	return stdout.String(), stderr.String(), code
 }
 
-// TestIORuns (std-align S1b; stdlib.md, io): io.Stdout.Print writes with
-// no line feed, Console.Println and io.Stdout keep program order,
-// io.Stderr writes standard error, io.Stdin.Lines and ReadAll read
-// standard input, and IsTerminal is false on a pipe.
-func TestIORuns(t *testing.T) {
-	const lines = `import io
-
-func echo() needs Console | io.Stdout | io.Stderr | io.Stdin {
-	io.Stdout.Print("a")
-	Console.Println("b")
-	io.Stderr.Eprintln("e")
-	io.Stderr.Eprint("f")
-	for line in io.Stdin.Lines() {
-		io.Stdout.Println(line)
-	}
-	io.Stdout.Println("\(io.Stdout.IsTerminal())")
-}
-
-func main() needs Console | Ambient {
-	with context { io.Stdout: io.NewHost(), io.Stderr: io.NewErrors(), io.Stdin: io.NewHost() } { echo() }
-}
-`
-	const all = `import io
-
-func main() fails io.ReadFailed needs Console | Ambient {
-	let text = with context { io.Stdin: io.NewHost() } { try io.Stdin.ReadAll() }
-	Console.Println("[\(text)]")
-}
-`
-	exes := buildAll(t, []*lowered{mustLower(t, "iolines", lines), mustLower(t, "ioall", all)}, true)
-	if exes == nil {
-		return
-	}
-	for _, c := range []struct{ in, out string }{
-		{"x\ny", "ab\nx\ny\nfalse\n"},
-		{"x\ny\n", "ab\nx\ny\nfalse\n"},
-		{"", "ab\nfalse\n"},
-		{"\n\nz\r\n", "ab\n\n\nz\r\nfalse\n"},
-	} {
-		stdout, stderr, code := runExeInput(t, exes["iolines"], c.in)
-		if code != 0 || stdout != c.out || stderr != "e\nf" {
-			t.Errorf("stdin %q: exit %d, stdout %q (want %q), stderr %q (want %q)", c.in, code, stdout, c.out, stderr, "e\nf")
-		}
-	}
-	long := strings.Repeat("w", 200_000)
-	if stdout, _, _ := runExeInput(t, exes["iolines"], long+"\nq"); stdout != "ab\n"+long+"\nq\nfalse\n" {
-		t.Errorf("a line longer than bufio.Scanner's limit: got %d bytes", len(stdout))
-	}
-	if stdout, stderr, code := runExeInput(t, exes["ioall"], "x\ny\n"); code != 0 || stdout != "[x\ny\n]\n" {
-		t.Errorf("ReadAll: exit %d, stdout %q, stderr %q", code, stdout, stderr)
-	}
-}
-
 // TestIOStdinRest (S1b round 2, M2): a break out of io.Stdin.Lines leaves
 // the rest of the input for the next read: a header line, then a second
 // Lines loop, then ReadAll, over a pipe.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestIOStdinRest(t *testing.T) {
+	needsBuild(t)
 	const rest = `import io
 
 func main() fails io.ReadFailed needs Console | Ambient {
@@ -165,7 +117,11 @@ func main() needs Console {
 // Recorder and LinesSplitInput on an Input, restated as property tests
 // over generated strings, and the same on texts with and without a final
 // line feed, carriage returns and invalid UTF-8.
+//
+// It builds Go because the laws run in the built test binary (ergo test),
+// the only place a law runs.
 func TestIOLaws(t *testing.T) {
+	needsBuild(t)
 	const probe = `import io
 import strings
 

@@ -1,7 +1,6 @@
 package check
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -66,77 +65,5 @@ func TestConvergeRefusalNamesItsFile(t *testing.T) {
 	}
 	if len(got) != 2 || got["f0"] != 0 || got["f1"] != 1 {
 		t.Errorf("refusals by file: %v, want f0 in file 0 and f1 in file 1", got)
-	}
-}
-
-// oscillatingRing is a ring of n functions with inferred rows, each calling
-// the next, and a Bang error type. mark is an ordinary function that fails.
-func oscillatingRing(n int) string {
-	var b strings.Builder
-	b.WriteString("type Bang {}\nfunc mark() fails Bang { return Bang }\n")
-	for i := range n {
-		fmt.Fprintf(&b, "func f%d() { try f%d() }\n", i, (i+1)%n)
-	}
-	return decided(b.String())
-}
-
-// distinctRing is a ring of n functions with inferred rows: f_i fails with
-// its own error E_i and calls f_(i+1), so every row ends with all n
-// errors: n·n row changes, the most a monotone solve of a ring makes.
-func distinctRing(n int) string {
-	var b strings.Builder
-	for i := range n {
-		fmt.Fprintf(&b, "type E%d {}\nfunc mark%d() fails E%d { return E%d }\n", i, i, i, i)
-	}
-	for i := range n {
-		fmt.Fprintf(&b, "func f%d() { try mark%d(); try f%d() }\n", i, i, (i+1)%n)
-	}
-	return decided(b.String())
-}
-
-// TestConvergeBoundMonotone: a monotone solve fits the bound. The ring of
-// distinct errors is accepted with every error in every row, in fewer
-// checks than 2·(bodies + edges)·(n + 1).
-func TestConvergeBoundMonotone(t *testing.T) {
-	for _, n := range []int{2, 10, 60} {
-		c, diags := checkFor(distinctRing(n))
-		if c == nil || len(diags) > 0 {
-			t.Fatalf("n=%d: %v", n, diags)
-		}
-		for _, f := range c.funcs {
-			if strings.HasPrefix(f.Name, "f") && len(f.errVar.sol.Elems()) != n {
-				t.Fatalf("n=%d: %s has %d errors, want %d", n, f.Name, len(f.errVar.sol.Elems()), n)
-			}
-		}
-		bound := 2 * (n + n) * (n + 1)
-		t.Logf("n=%d: %d converge checks, bound %d", n, c.convergeChecks, bound)
-		if c.convergeChecks > bound {
-			t.Errorf("n=%d: %d checks past the bound %d", n, c.convergeChecks, bound)
-		}
-	}
-}
-
-// TestConvergeBoundOscillation: a component whose rows oscillate (empty,
-// {Bang}, empty, …) reaches the bound and is refused with the S108 of every
-// inferred function, after exactly the bound's checks: Bang is credited once,
-// so 2·(bodies + edges)·(1 + 1) checks, whatever the oscillation would earn
-// under a growth-based credit (round 14 O1: empty → Bang → empty earned
-// credit each time Bang returned).
-func TestConvergeBoundOscillation(t *testing.T) {
-	for _, n := range []int{1, 2, 5, 40} {
-		c, diags := oscillate(t, oscillatingRing(n))
-		refused := 0
-		for _, d := range diags {
-			if d.Code == CodeType && strings.Contains(d.Message, "cannot infer the error row of") {
-				refused++
-			}
-		}
-		if refused != n {
-			t.Errorf("n=%d: want %d refusals, got %v", n, n, diags)
-		}
-		bodies, edges := n, n
-		if want := 2 * (bodies + edges) * 2; c.convergeChecks != want {
-			t.Errorf("n=%d: converge ran %d checks, want the bound %d", n, c.convergeChecks, want)
-		}
 	}
 }

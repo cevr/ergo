@@ -16,112 +16,6 @@ import (
 // (rows.md, Error rows 4), whether it is a literal, a call's value, a
 // local or a catch binding.
 
-// TestErgoRunErrorValueRepros is synthesis repros a15 and c3.
-func TestErgoRunErrorValueRepros(t *testing.T) {
-	wantRun(t, `type Missing { Key string }
-
-func missing(key string) Missing { Missing{Key: key} }
-
-func a(key string) int fails Missing {
-	if key == "" {
-		return Missing{Key: key}
-	}
-	missing(key)
-}
-
-func b(key string) int fails Missing {
-	if key == "" {
-		return missing(key)
-	}
-	1
-}
-
-func c(key string) int fails Missing {
-	if key == "" {
-		let m = missing(key)
-		return m
-	}
-	1
-}
-
-func main() needs Console {
-	let x = b("") catch {
-	case Missing as m:
-		Console.Println("b missing \(m.Key)")
-		0
-	}
-	Console.Println("\(x)")
-	let y = c("") catch {
-	case Missing:
-		Console.Println("c missing")
-		0
-	}
-	let z = a("k") catch {
-	case Missing as m:
-		Console.Println("a missing \(m.Key)")
-		0
-	}
-	Console.Println("\(y + z)")
-}
-`, "b missing \n0\nc missing\na missing k\n0\n")
-	wantRun(t, `type Failed { Reason string }
-
-func failure(reason string) Failed { Failed{Reason: reason} }
-
-func viaCall() fails Failed { return failure("by a call") }
-
-func main() needs Console {
-	viaCall() catch {
-	case Failed as f:
-		Console.Println(f.Reason)
-	}
-}
-`, "by a call\n")
-}
-
-// TestErrorValueOtherType: only a value of the declared result type is the
-// success value; another error type returned from the same function is a
-// failure.
-func TestErrorValueOtherType(t *testing.T) {
-	wantRun(t, `type Missing { Key string }
-type Other { Why string }
-
-// Need names Missing in a row, so Missing is an error type.
-func Need(k string) int fails Missing {
-	if k == "" {
-		return Missing{Key: k}
-	}
-	1
-}
-
-func Lookup(k string) Missing fails Other {
-	if k == "" {
-		return Other{Why: "empty"}
-	}
-	Missing{Key: k}
-}
-
-func main() needs Console {
-	let m = Lookup("") catch {
-	case Other as o:
-		Console.Println("failed \(o.Why)")
-		Missing{Key: "none"}
-	}
-	Console.Println(m.Key)
-	let n = Lookup("k") catch {
-	case Other:
-		Missing{Key: "none"}
-	}
-	Console.Println(n.Key)
-	let v = Need("") catch {
-	case Missing:
-		0
-	}
-	Console.Println("\(v)")
-}
-`, "failed empty\nnone\nk\n0\n")
-}
-
 // The rule table's axes.
 var (
 	evForms     = []string{"literal", "call", "local", "catch"}
@@ -188,6 +82,7 @@ func evFunc(name, form, position, target string) (src string, ok bool) {
 // failure target fails with it. The table is enumerated whole; the fixed
 // seed only draws the keys, and a failure prints the program.
 func TestErrorValueRuleTable(t *testing.T) {
+	needsBuild(t)
 	r := rand.New(rand.NewSource(27))
 	var funcs, calls strings.Builder
 	var want strings.Builder

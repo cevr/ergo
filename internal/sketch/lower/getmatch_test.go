@@ -32,51 +32,6 @@ func lowerGetMode(t *testing.T, name, src string, commaOk bool) *lowered {
 	return mustLower(t, name, src)
 }
 
-// TestGetMatchEmits: e5's lookup reads m[k] with comma-ok and switches on
-// no type; the reference keeps the type switch on Get's Option; both print
-// the same.
-func TestGetMatchEmits(t *testing.T) {
-	on := lowerGetMode(t, "getok", e5Source, true)
-	off := lowerGetMode(t, "getref", e5Source, false)
-	fn := goFunc(t, on.mainGo(), "lookup")
-	if !strings.Contains(fn, ", ok := m[k]") || strings.Contains(fn, ".(type)") || getCall.MatchString(fn) {
-		t.Errorf("lookup does not read m[k] with comma-ok:\n%s", fn)
-	}
-	if ref := goFunc(t, off.mainGo(), "lookup"); !strings.Contains(ref, ".(type)") || !getCall.MatchString(ref) {
-		t.Errorf("the reference lookup has no type switch on Get(m, k):\n%s", ref)
-	}
-	exes := buildAll(t, []*lowered{on, off}, true)
-	for _, name := range []string{"getok", "getref"} {
-		if out, stderr, code := runExe(t, exes[name]); out != "5 1 1\n" || code != 0 {
-			t.Errorf("%s: got %q, exit %d\n%s", name, out, code, stderr)
-		}
-	}
-}
-
-// TestGetMatchUserGet: a user's own Get on a Map type is a call like any
-// other; only the prelude's Get reads the Map with comma-ok.
-func TestGetMatchUserGet(t *testing.T) {
-	wantRun(t, `type Store Map[string, int]
-
-func Get(s Store, k string) Option[int] {
-	None
-}
-
-func f(s Store, k string) int {
-	match s.Get(k) {
-	case Some[int] as v:
-		v.Value
-	case None:
-		-1
-	}
-}
-
-func main() needs Console {
-	Console.Println("\(f(Store{"a": 1}, "a"))")
-}
-`, "-1\n")
-}
-
 var getMatchSeed = flag.Uint64("getmatch.seed", 0, "run TestGetMatchAgrees on this seed alone")
 
 // The shapes the property draws. A context places the match: as the tail,
@@ -185,7 +140,13 @@ const getFuncs = 12
 // shape and keeps it in the others; the reference keeps it everywhere. A
 // failure prints the seed, the Ergo source and both outputs.
 // Replay: go test -run '^TestGetMatchAgrees$' ./internal/sketch/lower -args -getmatch.seed=N
+//
+// It builds Go because it compares the runs of built programs with a
+// reference (another lowering, a fold, or Go's own package), and the
+// question is behaviour at run time; no in-process check observes that, and
+// Ergo has no reference interpreter yet (test-speed T8).
 func TestGetMatchAgrees(t *testing.T) {
+	needsBuild(t)
 	seeds := []uint64{1, 2, 3, 4}
 	if *getMatchSeed != 0 {
 		seeds = []uint64{*getMatchSeed}

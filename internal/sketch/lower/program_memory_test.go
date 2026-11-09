@@ -19,7 +19,11 @@ import (
 // a kernel property of the process the kit starts, which no in-process
 // check sees. Mutant: runBounded runs the program without proclimit (or
 // with limit 0); the program then prints "uncapped".
+//
+// It builds Go because its question is the kernel memory bound on a running
+// program.
 func TestRunProgramBoundsAGrowingProgram(t *testing.T) {
+	needsBuild(t)
 	if runtime.GOOS != "linux" {
 		t.Skip("only Linux bounds a started program (internal/proclimit)")
 	}

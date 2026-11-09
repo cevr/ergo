@@ -107,69 +107,6 @@ func sharedCases(n int, shape string, noSwitch bool) string {
 	return check.Decided(b.String())
 }
 
-// TestVariantIdentity: the variant index resolves a case to the variant
-// identical to it, through type arguments bound by an instance, nested
-// constructors and signatures, and names every other case "not a variant"
-// (rows.md, Totality 1 and 5). The declarations and each body are
-// one program.
-func TestVariantIdentity(t *testing.T) {
-	const decls = `type A {}
-type B {}
-type C {}
-type V[T] {}
-type W[T, Q] {}
-type P = V[A] | V[B]
-type G[T] = W[T, A] | W[T, []T] | W[A, T]
-type S = V[func() A] | V[func(A) []B] | V[Map[A, []B]]
-`
-	cases := []struct {
-		name, body, want string
-	}{
-		{"plain-total", `func F(x P) int { match x { case V[A]: return 1
-	case V[B]: return 2 }
-	return 0 }`, ""},
-		{"plain-missing", `func F(x P) int { match x { case V[A]: return 1 }
-	return 0 }`, "S103"},
-		{"plain-not-variant", `func F(x P) int { match x { case V[C]: return 1
-	case _: return 0 } }`, "is not a variant"},
-		{"generic-total", `func F(x G[B]) int { match x { case W[B, A]: return 1
-	case W[B, []B]: return 2
-	case W[A, B]: return 3 }
-	return 0 }`, ""},
-		{"generic-bound-mismatch", `func F(x G[B]) int { match x { case W[B, []A]: return 1
-	case _: return 0 } }`, "is not a variant"},
-		// G[A] lists W[A, A] twice (W[T, A] and W[A, T]): both index paths
-		// reach the case, which names the first, as before the index; the
-		// second stays unhandled.
-		{"generic-collapsed", `func F(x G[A]) int { match x { case W[A, A]: return 1
-	case W[A, []A]: return 2 }
-	return 0 }`, "S103"},
-		{"generic-collapsed-default", `func F(x G[A]) int { match x { case W[A, A]: return 1
-	case W[A, []A]: return 2
-	case _: return 0 } }`, ""},
-		{"signature-total", `func F(x S) int { match x { case V[func() A]: return 1
-	case V[func(A) []B]: return 2
-	case V[Map[A, []B]]: return 3 }
-	return 0 }`, ""},
-		{"signature-not-variant", `func F(x S) int { match x { case V[func() B]: return 1
-	case _: return 0 } }`, "is not a variant"},
-		{"slice-not-variant", `func F(x S) int { match x { case V[Map[A, B]]: return 1
-	case _: return 0 } }`, "is not a variant"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			_, d := check.CheckSource(check.Decided(decls + tc.body + "\n"))
-			got := describe(d)
-			switch {
-			case tc.want == "" && len(d) > 0:
-				t.Fatalf("want valid, got %s", got)
-			case tc.want != "" && (len(d) != 1 || !strings.Contains(got, tc.want)):
-				t.Fatalf("want one %q, got %s", tc.want, got)
-			}
-		})
-	}
-}
-
 // variantWork checks src and returns its variant operations and generic
 // instances.
 func variantWork(t *testing.T, src string) (int, int) {

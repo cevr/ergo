@@ -14,6 +14,10 @@ import (
 // properties that generalise them.
 
 // buildAndRun builds the programs and checks each one's stdout and exit 0.
+//
+// It builds Go because its callers ask what the built program prints and how
+// it exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func buildAndRun(t *testing.T, programs []*lowered, want map[string]string) {
 	t.Helper()
 	exes := buildAll(t, programs, true)
@@ -176,56 +180,6 @@ func TestVerifyR1ImportedRefusal(t *testing.T) {
 	}
 }
 
-// M1: a test's failure report names the file of the test, not the first
-// file. Each test, and each assert, sits in its own file, at the same line
-// and column in each, so only the file can tell them apart.
-func TestVerifyR1TestFailureFile(t *testing.T) {
-	root := checkPackage(t, "main", []pkgSource{
-		{"/probe/a.ergo", "func main() {}\n"},
-		{"/probe/b.ergo", "type Bad {}\nfunc bad() fails Bad { Bad }\ntest Later { try bad() }\n"},
-	}, nil)
-	p := mustLowerUnit(t, "testfile", root, true)
-	exes := buildAll(t, []*lowered{p}, true)
-	if exes == nil {
-		t.Fatal("the lowered program does not build")
-	}
-	out, stderr, _ := runExe(t, exes[p.name])
-	if !strings.Contains(out+stderr, "b.ergo:3:") || strings.Contains(out+stderr, "a.ergo:") {
-		t.Fatalf("wrong test failure location: %s%s", out, stderr)
-	}
-}
-
-func TestTestReportsNameTheirFiles(t *testing.T) {
-	files := []pkgSource{{"/probe/reports/main.ergo", "func main() {}\n"}}
-	var want []string
-	for i := 0; i < 3; i++ {
-		name := fmt.Sprintf("f%d", i)
-		files = append(files, pkgSource{"/probe/reports/" + name + ".ergo", fmt.Sprintf(
-			"type Bad%d {}\nfunc bad%d() fails Bad%d { Bad%d }\ntest Escape%d { try bad%d() }\ntest Assert%d { assert %d == 9 }\n", i, i, i, i, i, i, i, i)})
-		want = append(want,
-			fmt.Sprintf("FAIL Escape%d: a failure escaped the test at %s.ergo:3:1", i, name),
-			fmt.Sprintf("FAIL Assert%d: assert failed at %s.ergo:4:", i, name))
-	}
-	// Each permutation of the files' order, the main file first.
-	for _, order := range [][]int{{1, 2, 3}, {3, 1, 2}, {2, 3, 1}} {
-		srcs := []pkgSource{files[0]}
-		for _, i := range order {
-			srcs = append(srcs, files[i])
-		}
-		p := mustLowerUnit(t, "reports", checkPackage(t, "main", srcs, nil), true)
-		exes := buildAll(t, []*lowered{p}, true)
-		if exes == nil {
-			t.Fatal("the lowered program does not build")
-		}
-		out, _, _ := runExe(t, exes[p.name])
-		for _, w := range want {
-			if !strings.Contains(out, w) {
-				t.Errorf("order %v: the report lacks %q:\n%s", order, w, out)
-			}
-		}
-	}
-}
-
 // opsLib is a user package that exports the operation type Read, the
 // record Q with the Get operation of Read, and Make, which converts a Q
 // into a Read.
@@ -233,37 +187,14 @@ func opsLib(n string) string {
 	return "type Read { Get() int }\ntype Q { N int }\nfunc Get(q Q) int { q.N }\nfunc Make() Read { Q{N: " + n + "} }\n"
 }
 
-// M2 and M3: two packages whose paths end alike (x/lib, y/lib), each with
-// the same declarations; the root names a type lib too.
-func TestVerifyR1PackageAdapterNames(t *testing.T) {
-	a := checkPackage(t, "x/lib", []pkgSource{{"/probe/x/lib.ergo", opsLib("1")}}, nil)
-	b := checkPackage(t, "y/lib", []pkgSource{{"/probe/y/lib.ergo", opsLib("2")}}, nil)
-	root := checkPackage(t, "main", []pkgSource{{"/probe/adapters.ergo", `import a x/lib
-import b y/lib
-type lib {}
-func main() needs Console { Console.Println("\(a.Make().Get()) \(b.Make().Get())") }
-`}}, pkgImporter{"x/lib": a.Package, "y/lib": b.Package})
-	root.Imports = []Unit{a, b}
-	p := mustLowerUnit(t, "adapters", root, false)
-	buildAndRun(t, []*lowered{p}, map[string]string{"adapters": "1 2\n"})
-}
-
-func TestVerifyR1AdapterCollision(t *testing.T) {
-	a := checkPackage(t, "x/lib", []pkgSource{{"/probe/x/lib.ergo", opsLib("1")}}, nil)
-	b := checkPackage(t, "y/lib", []pkgSource{{"/probe/y/lib.ergo", opsLib("2")}}, nil)
-	root := checkPackage(t, "main", []pkgSource{{"/probe/adapters.ergo", `import a x/lib
-import b y/lib
-type lib {}
-func main() needs Console { let _ = a.Make(); let _ = b.Make(); Console.Println("ok") }
-`}}, pkgImporter{"x/lib": a.Package, "y/lib": b.Package})
-	root.Imports = []Unit{a, b}
-	p := mustLowerUnit(t, "adaptercollision", root, false)
-	buildAndRun(t, []*lowered{p}, map[string]string{"adaptercollision": "ok\n"})
-}
-
 // The text of an error type's instances over two packages' Q, whose
 // displays are both Oops[lib.Q]: each instance has its own text function.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestErrorTextInstancesAcrossPackages(t *testing.T) {
+	needsBuild(t)
 	a := checkPackage(t, "x/lib", []pkgSource{{"/probe/x/lib.ergo", opsLib("1")}}, nil)
 	b := checkPackage(t, "y/lib", []pkgSource{{"/probe/y/lib.ergo", "type Q { M string }\n"}}, nil)
 	root := checkPackage(t, "main", []pkgSource{{"/probe/text.ergo", `import a x/lib

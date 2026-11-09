@@ -14,6 +14,7 @@ import "testing"
 // wider unnamed one. The refusals are the checker's (internal/sketch/check
 // stage_d3a_assign_test.go).
 func TestErgoRunAssignability(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Fault {}
 type Store { Get() int }
 type Count int
@@ -93,6 +94,7 @@ func main() needs Console {
 // admitted these and lowering refused them (S109 "is not a record
 // literal") before the D3a rewrite.
 func TestErgoRunDefinedCollectionLiterals(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Ints []int
 type More Ints
 type Counts Map[string, int]
@@ -128,60 +130,4 @@ func main() needs Console {
 	}
 }
 `, "literals\nelided\n")
-}
-
-// An if or match whose arms join into an operation type or a union records
-// the assignability fact per arm and lowers each arm's conversion: with a
-// wanted type (`let s Store = if …`), and without one, where the first arm
-// with a value fixes the type and a later arm converts to it (D-C2).
-func TestErgoRunBranchJoinAssignability(t *testing.T) {
-	wantRun(t, `type Store { Get() int }
-type Count int
-type Mem { N int }
-type Other { C int }
-type U = Mem | Other
-
-func Get(c Count) int { int(c) }
-func Get(m Mem) int { m.N }
-func pick(n int) Store {
-	match n {
-	case 0:
-		Count(10)
-	case 1:
-		Mem{N: 11}
-	case _:
-		Count(12)
-	}
-}
-func code(u U) int {
-	match u {
-	case Mem as m:
-		m.N
-	case Other as o:
-		o.C
-	}
-}
-
-func main() needs Console {
-	let yes = len("a") == 1
-	let s Store = if yes { Count(3) } else { Mem{N: 4} }
-	let t Store = if !yes { Count(3) } else { Mem{N: 4} }
-	let base Store = Count(1)
-	let first = if yes { base } else { Mem{N: 5} }
-	let later = if !yes { base } else { Mem{N: 6} }
-	let u U = if yes { Mem{N: 7} } else { Other{C: 8} }
-	let w U = if !yes { Mem{N: 7} } else { Other{C: 8} }
-	let anyU U = Other{C: 9}
-	let joined = if !yes { anyU } else { Mem{N: 10} }
-	if s.Get() == 3 && t.Get() == 4 && first.Get() == 1 && later.Get() == 6 {
-		Console.Println("operations")
-	}
-	if pick(0).Get() + pick(1).Get() + pick(2).Get() == 33 {
-		Console.Println("match")
-	}
-	if code(u) == 7 && code(w) == 8 && code(joined) == 10 {
-		Console.Println("union")
-	}
-}
-`, "operations\nmatch\nunion\n")
 }

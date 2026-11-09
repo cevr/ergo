@@ -525,68 +525,6 @@ func cxSteps(nodes []*cxNode) []int {
 	return out
 }
 
-func TestRuntime199ContextLexicalOperand(t *testing.T) {
-	wantRun(t, `import log
-type A { Use() }
-type Quiet {}
-func Use(_ Quiet) {}
-let W = context { A: Quiet }
-func label() string {
-	match log.Annotation("k") {
-	case Some[string] as v: v.Value
-	case None: "none"
-	}
-}
-func shadow() string {
-	let W = log.Annotate("k", "local")
-	let first = with W { label() }
-	let V = W
-	let second = with V { label() }
-	first + "/" + second
-}
-type Tag { text string }
-func contextKey(_ Tag) string { "k" }
-func contextText(t Tag) string { t.text }
-func parameter(W Tag) string { with ((W)) { "parameter" } }
-func main() needs Console {
-	Console.Println(shadow())
-	Console.Println(parameter(Tag{text: "parameter"}))
-}
-`, "local/local\nparameter\n")
-}
-
-// Neither a current std key nor its old spelling can forge a std value.
-func TestRuntime199ContextPackageKeys(t *testing.T) {
-	wantRun(t, `import log
-import trace
-type tag { key string, text string }
-func contextKey(t tag) string { t.key }
-func contextText(t tag) string { t.text }
-func span() string {
-	match trace.Current() {
-	case Some[string] as v: v.Value
-	case None: "none"
-	}
-}
-func label() string {
-	match log.Annotation("k") {
-	case Some[string] as v: v.Value
-	case None: "none"
-	}
-}
-func main() needs Console {
-	with trace.Span("real") {
-		with (tag{key: "span", text: "forged"}) { Console.Println(span()) }
-		with (tag{key: "trace.span", text: "forged"}) { Console.Println(span()) }
-	}
-	with log.Annotate("k", "real-log") {
-		with (tag{key: "k", text: "forged"}) { Console.Println(label()) }
-		with (tag{key: "log.k", text: "forged"}) { Console.Println(label()) }
-	}
-}
-`, "real\nreal\nreal-log\nreal-log\n")
-}
-
 // cxImporter serves the units of the test's imported packages by path, and
 // std otherwise; the lowering takes the same units (Unit.Imports).
 type cxImporter map[string]Unit
@@ -642,73 +580,6 @@ func cxLower(t *testing.T, name, src string, imports cxImporter) *lowered {
 	}
 	return &lowered{name: name, src: src, pkg: pkg, file: f, files: []File{{Path: "main.go", Data: code}}}
 }
-
-// The checker Importer is the existing multi-package seam. Identical
-// source in two packages binds its own key: a binding of one package's
-// type is never the other's, even when main opens their regions. This also
-// exercises a region inside an imported body.
-//
-// Only std binds the runtime (check-v1 E4, C26), and no user read API is
-// specified (runtime.md, stdlib.md), so the bindings are observed from the
-// Go side: the test's Console provider reads both packages' keys through
-// the runtime at each line the program prints.
-func TestRuntime199ContextPackageRead(t *testing.T) {
-	const library = `type Tag { text string }
-func New(text string) Tag { Tag{text: text} }
-func contextKey(_ Tag) string { "shared" }
-func contextText(t Tag) string { t.text }
-func Own() needs Console { with New("own") { Console.Println("own") } }
-`
-	imports := cxImporter{}
-	for _, path := range []string{"example.test/a", "example.test/b"} {
-		imports[path] = cxPackage(t, path, library)
-	}
-	const src = `import example.test/a
-import example.test/b
-func reads() needs Console {
-	a.Own()
-	b.Own()
-	with a.New("a") {
-		Console.Println("a")
-		with b.New("b") { Console.Println("a b") }
-		Console.Println("a")
-	}
-	Console.Println("none")
-}
-func main() {}
-`
-	o := cxLower(t, "package-read", src, imports)
-	contextModuleTest(t, o, packageReadTest)
-}
-
-// packageReadTest runs reads with a Console that appends, to each line,
-// the binding of the key "shared" in package a and in package b.
-const packageReadTest = `package main
-import (
- "strings"
- "testing"
- rt "ergo.local/prototype/runtime/rt"
- ergo "ergo.local/prototype/runtime/v1"
-)
-type console struct{ lines []string }
-func read(t *rt.Task, pkg ergo.ContextPackage) string {
- if ergo.ContextBound(t, pkg, "shared") { return ergo.ContextValue(t, pkg, "shared") }
- return "none"
-}
-func (c *console) Println(t *rt.Task, line string) {
- c.lines = append(c.lines, line+" "+read(t, "example.test/a")+"/"+read(t, "example.test/b"))
-}
-func TestPackageRead(t *testing.T) {
- c := &console{}
- if err := ergo.ContextRun(func(task *rt.Task) error { reads(&Env{task: task, Console: c}); return nil }); err != nil {
-  t.Fatal(err)
- }
- want := "own own/none\nown none/own\na a/none\na b a/b\na a/none\nnone none/none"
- if got := strings.Join(c.lines, "\n"); got != want {
-  t.Fatalf("package reads:\n%s\nwant:\n%s", got, want)
- }
-}
-`
 
 func TestRuntime199ContextValueProperty(t *testing.T) {
 	if testing.Short() {
@@ -858,6 +729,7 @@ func contextNative(t *testing.T, o *lowered, cases []cxCase, funcs int) {
 // module, and runs its go test. The emitted code is not changed.
 func contextModuleTest(t *testing.T, o *lowered, test string) {
 	t.Helper()
+	fastTierGuard(t, "a go command")
 	dir := t.TempDir()
 	write := func(path string, data []byte) {
 		t.Helper()

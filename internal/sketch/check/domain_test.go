@@ -3,10 +3,8 @@ package check_test
 import (
 	"fmt"
 	"math/rand"
-	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -549,11 +547,10 @@ func columnOrders(n int, rng *rand.Rand) map[string][]int {
 // cycle is never accepted (round-2 M3; D16 as amended in round 3). The
 // bound is the solver's deterministic step count, not the host's clock:
 // every column order of one size takes the same steps (the memo ignores
-// column order), and 31 subjects stay under an eighth of the budget. With
-// ERGO_TIMING=1 the test also holds the wall-clock bound of decision 1,
-// under 50 ms at 31 subjects, best of 3, for a receipt on a quiet host.
+// column order), and 31 subjects stay under an eighth of the budget. The
+// wall-clock bound of decision 1 (under 50 ms at 31 subjects) is a receipt
+// of a quiet host, not a test (test-speed plan T4).
 func TestTotalityPermutations(t *testing.T) {
-	timing := os.Getenv("ERGO_TIMING") == "1"
 	rng := rand.New(rand.NewSource(1964))
 	for _, n := range []int{5, 7, 11, 15, 19, 25, 29, 31} {
 		first := -1
@@ -580,20 +577,6 @@ func TestTotalityPermutations(t *testing.T) {
 				first = steps[0]
 			} else if steps[0] != first {
 				t.Errorf("n=%d %s: %d solver steps, another order took %d: the proof depends on column order", n, name, steps[0], first)
-			}
-			if timing {
-				best := time.Duration(1 << 62)
-				for i := 0; i < 3; i++ {
-					start := time.Now()
-					check.CheckSource(src)
-					if e := time.Since(start); e < best {
-						best = e
-					}
-				}
-				t.Logf("n=%d %s: best %s, %d steps", n, name, best, steps[0])
-				if best > 50*time.Millisecond {
-					t.Errorf("n=%d %s: %s, want under 50ms", n, name, best)
-				}
 			}
 			even := cycleSwitch(n+1, append(append([]int(nil), order...), n))
 			_, ediags := check.CheckSource(even)
@@ -739,13 +722,6 @@ func TestTotalityBudget(t *testing.T) {
 		// One charge may pass the budget by at most one matrix scan.
 		if len(steps) != 1 || len(budgets) != 1 || steps[0] > budgets[0]+60*43/10*61 {
 			t.Errorf("60 subjects, instance %d: solver steps %v, want at most the budget %v and one matrix", k, steps, budgets)
-		}
-		if os.Getenv("ERGO_TIMING") == "1" {
-			start := time.Now()
-			check.CheckSource(src)
-			if e := time.Since(start); e > 2*time.Second {
-				t.Errorf("60 subjects, instance %d: %s, want under 2s", k, e)
-			}
 		}
 		if totalityVerdict(diags) == "refused" {
 			refused++

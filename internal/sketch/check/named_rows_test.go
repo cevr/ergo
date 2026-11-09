@@ -167,38 +167,3 @@ func TestNamedRowCatch(t *testing.T) {
 		t.Errorf("a union outside the row: got %s", describeDiags(diags))
 	}
 }
-
-// TestNamedRowRefusals: a union of another package names a row only when
-// each variant is an error type there, so the prelude's Option is no row
-// (S104); a non-union, non-record type stays S104; std's flag.Failure
-// names flag's seven failures.
-func TestNamedRowRefusals(t *testing.T) {
-	for _, tc := range []struct{ src, want string }{
-		{"func f() fails Option[int] {\n}\n", "S104"},
-		{"type N int\nfunc f() fails N {\n}\n", "S104"},
-		{"type A {}\ntype B {}\ntype U = A | B\nfunc run[E](g func() int fails E) int fails E {\n\ttry g()\n}\nfunc f() int fails U {\n\t1\n}\nfunc G() int fails U {\n\ttry run[U](f)\n}\n", ""},
-		{"import flag\nfunc f(args []string) string fails flag.Failure {\n\tlet v = try flag.Parse(flag.Set{Name: \"t\", Usage: \"\", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, args)\n\t\"\\(len(flag.Rest(v)))\"\n}\n", ""},
-		{"import flag\nfunc f(args []string) string {\n\tlet v = flag.Parse(flag.Set{Name: \"t\", Usage: \"\", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, args) catch {\n\tcase flag.Failure as x:\n\t\treturn flag.Describe(x)\n\t}\n\t\"\\(len(flag.Rest(v)))\"\n}\n", ""},
-	} {
-		_, diags := CheckSource(tc.src)
-		got := describeDiags(diags)
-		if tc.want == "" && len(diags) > 0 || tc.want != "" && !strings.Contains(got, tc.want) {
-			t.Errorf("%q: got %s, want %q", tc.src, got, tc.want)
-		}
-	}
-}
-
-// TestNamedRowMakesErrorTypes: a union named in any row makes its variants
-// error types before any body is checked, so the verdict of a body that
-// returns a variant value does not depend on where the row is written: g,
-// declared first, returns an Oops value, which is a failure (S101 in a
-// function with no row) because h's literal type names Fail.
-func TestNamedRowMakesErrorTypes(t *testing.T) {
-	src := "type Bad {}\ntype Oops { At int }\ntype Fail = Bad | Oops\n" +
-		"func G() int {\n\treturn Oops{At: 1}\n}\n" +
-		"func h() {\n\tlet k = func() int fails Fail { 1 }\n\tlet _ = k\n}\n"
-	_, diags := CheckSource(src)
-	if got := describeDiags(diags); !strings.Contains(got, "S101") {
-		t.Fatalf("want S101 at g's return, got %s", got)
-	}
-}

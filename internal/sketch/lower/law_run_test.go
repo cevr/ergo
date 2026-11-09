@@ -58,8 +58,12 @@ func main() needs Console {
 // TestLawRunB13: the b13 law checks and runs against both providers: it
 // holds for Tally and fails for Stuck, whose report names Stuck, the seed
 // and the case's provider value.
+//
+// It builds Go because the laws run in the built test binary (ergo test),
+// the only place a law runs.
 func TestLawRunB13(t *testing.T) {
-	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_b13", lawRunB13)}, true)
+	needsBuild(t)
+	exes := tableExes(t, "lawrun_b13")
 	if exes == nil {
 		return
 	}
@@ -355,6 +359,7 @@ func TestLawRunLeastPackage(t *testing.T) {
 // TestLawRunSkips: a law that cannot run says why, and the summary counts
 // it as skipped, never as a test (fs4).
 func TestLawRunSkips(t *testing.T) {
+	needsBuild(t)
 	src := `type Shape {
 	Area() int,
 	law Positive() { Area() >= 0 },

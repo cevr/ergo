@@ -1,0 +1,5509 @@
+-- 09000.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f[T, E](t Task[T, E]) func() Task[T, E] {
+	func() Task[T, E] { t }
+}
+-- 09001.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f[T, E](t Task[T, E]) func() Task[T, E] {
+	func() Task[T, E] { t }
+}
+-- 09002.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f[T, E](t Task[T, E]) func() Task[T, E] {
+	func() Task[T, E] { t }
+}
+-- 09003.ergo --
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+-- 09004.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+-- 09005.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+-- 09006.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+-- 09007.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+-- 09008.ergo --
+import task
+func work() int {
+	1
+}
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+-- 09009.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+-- 09010.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+-- 09011.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+-- 09012.ergo --
+type L[T] []L[T]
+func f(x L[int]) int { let local = x; let g = func() int { len(local) }; g() }
+-- 09013.ergo --
+import task
+func work() int {
+	1
+}
+type L[T] []L[T]
+func f(x L[int]) int { let local = x; let g = func() int { len(local) }; g() }
+-- 09014.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type L[T] []L[T]
+func f(x L[int]) int { let local = x; let g = func() int { len(local) }; g() }
+-- 09015.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type L[T] []L[T]
+func f(x L[int]) int { let local = x; let g = func() int { len(local) }; g() }
+-- 09016.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type L[T] []L[T]
+func f(x L[int]) int { let local = x; let g = func() int { len(local) }; g() }
+-- 09017.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type L[T] []L[T]
+func f(x L[int]) int { let local = x; let g = func() int { len(local) }; g() }
+-- 09018.ergo --
+type M[T] Map[string, M[T]]
+func f(x M[int]) int { let local = x; let g = func() int { len(local) }; g() }
+-- 09019.ergo --
+import task
+func work() int {
+	1
+}
+type M[T] Map[string, M[T]]
+func f(x M[int]) int { let local = x; let g = func() int { len(local) }; g() }
+-- 09020.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type M[T] Map[string, M[T]]
+func f(x M[int]) int { let local = x; let g = func() int { len(local) }; g() }
+-- 09021.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type M[T] Map[string, M[T]]
+func f(x M[int]) int { let local = x; let g = func() int { len(local) }; g() }
+-- 09022.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type M[T] Map[string, M[T]]
+func f(x M[int]) int { let local = x; let g = func() int { len(local) }; g() }
+-- 09023.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type M[T] Map[string, M[T]]
+func f(x M[int]) int { let local = x; let g = func() int { len(local) }; g() }
+-- 09024.ergo --
+type P[T] (T, []P[T])
+func f(x P[int]) int { let local = x; let g = func() int { _ = local; 1 }; g() }
+-- 09025.ergo --
+import task
+func work() int {
+	1
+}
+type P[T] (T, []P[T])
+func f(x P[int]) int { let local = x; let g = func() int { _ = local; 1 }; g() }
+-- 09026.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type P[T] (T, []P[T])
+func f(x P[int]) int { let local = x; let g = func() int { _ = local; 1 }; g() }
+-- 09027.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type P[T] (T, []P[T])
+func f(x P[int]) int { let local = x; let g = func() int { _ = local; 1 }; g() }
+-- 09028.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type P[T] (T, []P[T])
+func f(x P[int]) int { let local = x; let g = func() int { _ = local; 1 }; g() }
+-- 09029.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type P[T] (T, []P[T])
+func f(x P[int]) int { let local = x; let g = func() int { _ = local; 1 }; g() }
+-- 09030.ergo --
+type A[T] []B[T]
+type B[T] Map[string, A[T]]
+func f(x A[int]) int { let local = x; let g = func() int { len(local) }; g() }
+-- 09031.ergo --
+import task
+func work() int {
+	1
+}
+type A[T] []B[T]
+type B[T] Map[string, A[T]]
+func f(x A[int]) int { let local = x; let g = func() int { len(local) }; g() }
+-- 09032.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type A[T] []B[T]
+type B[T] Map[string, A[T]]
+func f(x A[int]) int { let local = x; let g = func() int { len(local) }; g() }
+-- 09033.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type A[T] []B[T]
+type B[T] Map[string, A[T]]
+func f(x A[int]) int { let local = x; let g = func() int { len(local) }; g() }
+-- 09034.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type A[T] []B[T]
+type B[T] Map[string, A[T]]
+func f(x A[int]) int { let local = x; let g = func() int { len(local) }; g() }
+-- 09035.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type A[T] []B[T]
+type B[T] Map[string, A[T]]
+func f(x A[int]) int { let local = x; let g = func() int { len(local) }; g() }
+-- 09036.ergo --
+type R { next []R, n int }
+func f(x R) int { let local = x; let g = func() int { local.n }; g() }
+-- 09037.ergo --
+import task
+func work() int {
+	1
+}
+type R { next []R, n int }
+func f(x R) int { let local = x; let g = func() int { local.n }; g() }
+-- 09038.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type R { next []R, n int }
+func f(x R) int { let local = x; let g = func() int { local.n }; g() }
+-- 09039.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type R { next []R, n int }
+func f(x R) int { let local = x; let g = func() int { local.n }; g() }
+-- 09040.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type R { next []R, n int }
+func f(x R) int { let local = x; let g = func() int { local.n }; g() }
+-- 09041.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type R { next []R, n int }
+func f(x R) int { let local = x; let g = func() int { local.n }; g() }
+-- 09042.ergo --
+type U = Leaf{} | Node{ kids []U }
+func f(x U) U { let local = x; let g = func() U { local }; g() }
+-- 09043.ergo --
+import task
+func work() int {
+	1
+}
+type U = Leaf{} | Node{ kids []U }
+func f(x U) U { let local = x; let g = func() U { local }; g() }
+-- 09044.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type U = Leaf{} | Node{ kids []U }
+func f(x U) U { let local = x; let g = func() U { local }; g() }
+-- 09045.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type U = Leaf{} | Node{ kids []U }
+func f(x U) U { let local = x; let g = func() U { local }; g() }
+-- 09046.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type U = Leaf{} | Node{ kids []U }
+func f(x U) U { let local = x; let g = func() U { local }; g() }
+-- 09047.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type U = Leaf{} | Node{ kids []U }
+func f(x U) U { let local = x; let g = func() U { local }; g() }
+-- 09048.ergo --
+type E[T] []E[[]T]
+-- 09049.ergo --
+import task
+func work() int {
+	1
+}
+type E[T] []E[[]T]
+-- 09050.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type E[T] []E[[]T]
+-- 09051.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type E[T] []E[[]T]
+-- 09052.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type E[T] []E[[]T]
+-- 09053.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type E[T] []E[[]T]
+-- 09054.ergo --
+let local = x; let g = func() int { len(local) }; _ = g()
+-- 09055.ergo --
+import task
+func work() int {
+	1
+}
+let local = x; let g = func() int { len(local) }; _ = g()
+-- 09056.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+let local = x; let g = func() int { len(local) }; _ = g()
+-- 09057.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+let local = x; let g = func() int { len(local) }; _ = g()
+-- 09058.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+let local = x; let g = func() int { len(local) }; _ = g()
+-- 09059.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+let local = x; let g = func() int { len(local) }; _ = g()
+-- 09060.ergo --
+type F[T] Map[string, F[(T, T)]]
+-- 09061.ergo --
+import task
+func work() int {
+	1
+}
+type F[T] Map[string, F[(T, T)]]
+-- 09062.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type F[T] Map[string, F[(T, T)]]
+-- 09063.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type F[T] Map[string, F[(T, T)]]
+-- 09064.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type F[T] Map[string, F[(T, T)]]
+-- 09065.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type F[T] Map[string, F[(T, T)]]
+-- 09066.ergo --
+
+func f(x 
+-- 09067.ergo --
+import task
+func work() int {
+	1
+}
+
+func f(x 
+-- 09068.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+
+func f(x 
+-- 09069.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+
+func f(x 
+-- 09070.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+
+func f(x 
+-- 09071.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+
+func f(x 
+-- 09072.ergo --
+import task
+func work() int {
+	1
+}
+type Fault {}
+type Waiter { Wait() int fails Fault }
+-- 09073.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Fault {}
+type Waiter { Wait() int fails Fault }
+-- 09074.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Fault {}
+type Waiter { Wait() int fails Fault }
+-- 09075.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Fault {}
+type Waiter { Wait() int fails Fault }
+-- 09076.ergo --
+type Holder { w Waiter }
+func f(t Task[int, Fault]) Holder { Holder{w: t} }
+-- 09077.ergo --
+import task
+func work() int {
+	1
+}
+type Holder { w Waiter }
+func f(t Task[int, Fault]) Holder { Holder{w: t} }
+-- 09078.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Holder { w Waiter }
+func f(t Task[int, Fault]) Holder { Holder{w: t} }
+-- 09079.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Holder { w Waiter }
+func f(t Task[int, Fault]) Holder { Holder{w: t} }
+-- 09080.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Holder { w Waiter }
+func f(t Task[int, Fault]) Holder { Holder{w: t} }
+-- 09081.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Holder { w Waiter }
+func f(t Task[int, Fault]) Holder { Holder{w: t} }
+-- 09082.ergo --
+func f(t Task[int, Fault]) []Waiter { []Waiter{t} }
+-- 09083.ergo --
+import task
+func work() int {
+	1
+}
+func f(t Task[int, Fault]) []Waiter { []Waiter{t} }
+-- 09084.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f(t Task[int, Fault]) []Waiter { []Waiter{t} }
+-- 09085.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f(t Task[int, Fault]) []Waiter { []Waiter{t} }
+-- 09086.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f(t Task[int, Fault]) []Waiter { []Waiter{t} }
+-- 09087.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f(t Task[int, Fault]) []Waiter { []Waiter{t} }
+-- 09088.ergo --
+func f(t Task[int, Fault]) Map[string, Waiter] { Map[string, Waiter]{"t": t} }
+-- 09089.ergo --
+import task
+func work() int {
+	1
+}
+func f(t Task[int, Fault]) Map[string, Waiter] { Map[string, Waiter]{"t": t} }
+-- 09090.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f(t Task[int, Fault]) Map[string, Waiter] { Map[string, Waiter]{"t": t} }
+-- 09091.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f(t Task[int, Fault]) Map[string, Waiter] { Map[string, Waiter]{"t": t} }
+-- 09092.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f(t Task[int, Fault]) Map[string, Waiter] { Map[string, Waiter]{"t": t} }
+-- 09093.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f(t Task[int, Fault]) Map[string, Waiter] { Map[string, Waiter]{"t": t} }
+-- 09094.ergo --
+func f(t Task[int, Fault]) func() int fails Fault { let w Waiter = t; func() int fails Fault { w.Wait() } }
+-- 09095.ergo --
+import task
+func work() int {
+	1
+}
+func f(t Task[int, Fault]) func() int fails Fault { let w Waiter = t; func() int fails Fault { w.Wait() } }
+-- 09096.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f(t Task[int, Fault]) func() int fails Fault { let w Waiter = t; func() int fails Fault { w.Wait() } }
+-- 09097.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f(t Task[int, Fault]) func() int fails Fault { let w Waiter = t; func() int fails Fault { w.Wait() } }
+-- 09098.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f(t Task[int, Fault]) func() int fails Fault { let w Waiter = t; func() int fails Fault { w.Wait() } }
+-- 09099.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f(t Task[int, Fault]) func() int fails Fault { let w Waiter = t; func() int fails Fault { w.Wait() } }
+-- 09100.ergo --
+func store(w Waiter) []Waiter { []Waiter{w} }
+func f(t Task[int, Fault]) []Waiter { store(t) }
+-- 09101.ergo --
+import task
+func work() int {
+	1
+}
+func store(w Waiter) []Waiter { []Waiter{w} }
+func f(t Task[int, Fault]) []Waiter { store(t) }
+-- 09102.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func store(w Waiter) []Waiter { []Waiter{w} }
+func f(t Task[int, Fault]) []Waiter { store(t) }
+-- 09103.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func store(w Waiter) []Waiter { []Waiter{w} }
+func f(t Task[int, Fault]) []Waiter { store(t) }
+-- 09104.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func store(w Waiter) []Waiter { []Waiter{w} }
+func f(t Task[int, Fault]) []Waiter { store(t) }
+-- 09105.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func store(w Waiter) []Waiter { []Waiter{w} }
+func f(t Task[int, Fault]) []Waiter { store(t) }
+-- 09106.ergo --
+func f(t Task[int, Fault]) Waiter { t }
+-- 09107.ergo --
+import task
+func work() int {
+	1
+}
+func f(t Task[int, Fault]) Waiter { t }
+-- 09108.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f(t Task[int, Fault]) Waiter { t }
+-- 09109.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f(t Task[int, Fault]) Waiter { t }
+-- 09110.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f(t Task[int, Fault]) Waiter { t }
+-- 09111.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f(t Task[int, Fault]) Waiter { t }
+-- 09112.ergo --
+func f(t Task[int, Fault], seed Waiter) Waiter { let mut w Waiter = seed; w = t; w }
+-- 09113.ergo --
+import task
+func work() int {
+	1
+}
+func f(t Task[int, Fault], seed Waiter) Waiter { let mut w Waiter = seed; w = t; w }
+-- 09114.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f(t Task[int, Fault], seed Waiter) Waiter { let mut w Waiter = seed; w = t; w }
+-- 09115.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f(t Task[int, Fault], seed Waiter) Waiter { let mut w Waiter = seed; w = t; w }
+-- 09116.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f(t Task[int, Fault], seed Waiter) Waiter { let mut w Waiter = seed; w = t; w }
+-- 09117.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f(t Task[int, Fault], seed Waiter) Waiter { let mut w Waiter = seed; w = t; w }
+-- 09118.ergo --
+func work() int fails Fault { Fault }
+func f() Waiter { let t = task.Go() { work() }; t }
+-- 09119.ergo --
+import task
+func work() int {
+	1
+}
+func work() int fails Fault { Fault }
+func f() Waiter { let t = task.Go() { work() }; t }
+-- 09120.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func work() int fails Fault { Fault }
+func f() Waiter { let t = task.Go() { work() }; t }
+-- 09121.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func work() int fails Fault { Fault }
+func f() Waiter { let t = task.Go() { work() }; t }
+-- 09122.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func work() int fails Fault { Fault }
+func f() Waiter { let t = task.Go() { work() }; t }
+-- 09123.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func work() int fails Fault { Fault }
+func f() Waiter { let t = task.Go() { work() }; t }
+-- 09124.ergo --
+func f(c bool, t Task[int, Fault], w Waiter) Waiter { if c { t } else { w } }
+-- 09125.ergo --
+import task
+func work() int {
+	1
+}
+func f(c bool, t Task[int, Fault], w Waiter) Waiter { if c { t } else { w } }
+-- 09126.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f(c bool, t Task[int, Fault], w Waiter) Waiter { if c { t } else { w } }
+-- 09127.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f(c bool, t Task[int, Fault], w Waiter) Waiter { if c { t } else { w } }
+-- 09128.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f(c bool, t Task[int, Fault], w Waiter) Waiter { if c { t } else { w } }
+-- 09129.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f(c bool, t Task[int, Fault], w Waiter) Waiter { if c { t } else { w } }
+-- 09130.ergo --
+func f(o Option[int], t Task[int, Fault], w Waiter) Waiter { match o { case Some{_}: t
+ case None: w } }
+-- 09131.ergo --
+import task
+func work() int {
+	1
+}
+func f(o Option[int], t Task[int, Fault], w Waiter) Waiter { match o { case Some{_}: t
+ case None: w } }
+-- 09132.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f(o Option[int], t Task[int, Fault], w Waiter) Waiter { match o { case Some{_}: t
+ case None: w } }
+-- 09133.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f(o Option[int], t Task[int, Fault], w Waiter) Waiter { match o { case Some{_}: t
+ case None: w } }
+-- 09134.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f(o Option[int], t Task[int, Fault], w Waiter) Waiter { match o { case Some{_}: t
+ case None: w } }
+-- 09135.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f(o Option[int], t Task[int, Fault], w Waiter) Waiter { match o { case Some{_}: t
+ case None: w } }
+-- 09136.ergo --
+func f(t Task[int, Fault]) Task[int, Fault] { let own Task[int, Fault] = t; own }
+-- 09137.ergo --
+import task
+func work() int {
+	1
+}
+func f(t Task[int, Fault]) Task[int, Fault] { let own Task[int, Fault] = t; own }
+-- 09138.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f(t Task[int, Fault]) Task[int, Fault] { let own Task[int, Fault] = t; own }
+-- 09139.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f(t Task[int, Fault]) Task[int, Fault] { let own Task[int, Fault] = t; own }
+-- 09140.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f(t Task[int, Fault]) Task[int, Fault] { let own Task[int, Fault] = t; own }
+-- 09141.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f(t Task[int, Fault]) Task[int, Fault] { let own Task[int, Fault] = t; own }
+-- 09142.ergo --
+func f(w Waiter) []Waiter { []Waiter{w} }
+-- 09143.ergo --
+import task
+func work() int {
+	1
+}
+func f(w Waiter) []Waiter { []Waiter{w} }
+-- 09144.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f(w Waiter) []Waiter { []Waiter{w} }
+-- 09145.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f(w Waiter) []Waiter { []Waiter{w} }
+-- 09146.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f(w Waiter) []Waiter { []Waiter{w} }
+-- 09147.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f(w Waiter) []Waiter { []Waiter{w} }
+-- 09148.ergo --
+import task
+func work() int {
+	1
+}
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+-- 09149.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+-- 09150.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+-- 09151.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+-- 09152.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+-- 09153.ergo --
+func f() t.Expired {
+	t.Expired
+}
+-- 09154.ergo --
+func f(xs []int) []int {
+	xs.Append(1)
+}
+-- 09155.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func f(xs []int) []int {
+	xs.Append(1)
+}
+-- 09156.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func f(xs []int) []int {
+	xs.Append(1)
+}
+-- 09157.ergo --
+func f() []string {
+	[]string{}.Append("a")
+}
+-- 09158.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func f() []string {
+	[]string{}.Append("a")
+}
+-- 09159.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func f() []string {
+	[]string{}.Append("a")
+}
+-- 09160.ergo --
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+-- 09161.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+-- 09162.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+-- 09163.ergo --
+func f(xs []int) int {
+	len(xs.Append(1).Append(2))
+}
+-- 09164.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func f(xs []int) int {
+	len(xs.Append(1).Append(2))
+}
+-- 09165.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func f(xs []int) int {
+	len(xs.Append(1).Append(2))
+}
+-- 09166.ergo --
+func f(m Map[string, int]) int {
+	match m.Get("a") {
+	case Some{v}:
+		v
+	case None:
+		0
+	}
+}
+-- 09167.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func f(m Map[string, int]) int {
+	match m.Get("a") {
+	case Some{v}:
+		v
+	case None:
+		0
+	}
+}
+-- 09168.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func f(m Map[string, int]) int {
+	match m.Get("a") {
+	case Some{v}:
+		v
+	case None:
+		0
+	}
+}
+-- 09169.ergo --
+func f[K comparable, V](m Map[K, V], k K) Option[V] {
+	m.Get(k)
+}
+-- 09170.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func f[K comparable, V](m Map[K, V], k K) Option[V] {
+	m.Get(k)
+}
+-- 09171.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func f[K comparable, V](m Map[K, V], k K) Option[V] {
+	m.Get(k)
+}
+-- 09172.ergo --
+func f(m Map[string, int]) Map[string, int] {
+	m.Delete("a")
+}
+-- 09173.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func f(m Map[string, int]) Map[string, int] {
+	m.Delete("a")
+}
+-- 09174.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func f(m Map[string, int]) Map[string, int] {
+	m.Delete("a")
+}
+-- 09175.ergo --
+func f() int {
+	let mut m = Map[string, int]{"a": 1}
+	m = m.Delete("a")
+	len(m)
+}
+-- 09176.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func f() int {
+	let mut m = Map[string, int]{"a": 1}
+	m = m.Delete("a")
+	len(m)
+}
+-- 09177.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func f() int {
+	let mut m = Map[string, int]{"a": 1}
+	m = m.Delete("a")
+	len(m)
+}
+-- 09178.ergo --
+func f(m Map[string, int]) {
+	_ = m.Delete("a")
+}
+-- 09179.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func f(m Map[string, int]) {
+	_ = m.Delete("a")
+}
+-- 09180.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func f(m Map[string, int]) {
+	_ = m.Delete("a")
+}
+-- 09181.ergo --
+func f(xs [][]int) []int {
+	xs[0].Append(1)
+}
+-- 09182.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func f(xs [][]int) []int {
+	xs[0].Append(1)
+}
+-- 09183.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func f(xs [][]int) []int {
+	xs[0].Append(1)
+}
+-- 09184.ergo --
+type Store { N int }
+func Get(s Store, k string) int {
+	s.N + len(k)
+}
+func f(s Store, m Map[string, int]) int {
+	let n = s.Get("a")
+	match m.Get("a") {
+	case Some{v}:
+		v + n
+	case None:
+		n
+	}
+}
+-- 09185.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+type Store { N int }
+func Get(s Store, k string) int {
+	s.N + len(k)
+}
+func f(s Store, m Map[string, int]) int {
+	let n = s.Get("a")
+	match m.Get("a") {
+	case Some{v}:
+		v + n
+	case None:
+		n
+	}
+}
+-- 09186.ergo --
+func f() t.Expired {
+	t.Expired
+}
+type Store { N int }
+func Get(s Store, k string) int {
+	s.N + len(k)
+}
+func f(s Store, m Map[string, int]) int {
+	let n = s.Get("a")
+	match m.Get("a") {
+	case Some{v}:
+		v + n
+	case None:
+		n
+	}
+}
+-- 09187.ergo --
+func Append(a int, b int) int {
+	a + b
+}
+func f() int {
+	Append(1, 2)
+}
+-- 09188.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func Append(a int, b int) int {
+	a + b
+}
+func f() int {
+	Append(1, 2)
+}
+-- 09189.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func Append(a int, b int) int {
+	a + b
+}
+func f() int {
+	Append(1, 2)
+}
+-- 09190.ergo --
+type Pair[A, B] { First A, Second B }
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+func f(p Pair[int, string]) string {
+	p.Swap().First
+}
+-- 09191.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+type Pair[A, B] { First A, Second B }
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+func f(p Pair[int, string]) string {
+	p.Swap().First
+}
+-- 09192.ergo --
+func f() t.Expired {
+	t.Expired
+}
+type Pair[A, B] { First A, Second B }
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+func f(p Pair[int, string]) string {
+	p.Swap().First
+}
+-- 09193.ergo --
+func f(m Map[string, int]) {
+	_ = Get(m, "a")
+}
+-- 09194.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func f(m Map[string, int]) {
+	_ = Get(m, "a")
+}
+-- 09195.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func f(m Map[string, int]) {
+	_ = Get(m, "a")
+}
+-- 09196.ergo --
+func f(xs []int) {
+	_ = Append(xs, 1)
+}
+-- 09197.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func f(xs []int) {
+	_ = Append(xs, 1)
+}
+-- 09198.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func f(xs []int) {
+	_ = Append(xs, 1)
+}
+-- 09199.ergo --
+func f(m Map[string, int]) {
+	_ = Delete(m, "a")
+}
+-- 09200.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func f(m Map[string, int]) {
+	_ = Delete(m, "a")
+}
+-- 09201.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func f(m Map[string, int]) {
+	_ = Delete(m, "a")
+}
+-- 09202.ergo --
+type Ints []int
+func f(xs Ints) {
+	_ = xs.Append(1)
+}
+-- 09203.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+type Ints []int
+func f(xs Ints) {
+	_ = xs.Append(1)
+}
+-- 09204.ergo --
+func f() t.Expired {
+	t.Expired
+}
+type Ints []int
+func f(xs Ints) {
+	_ = xs.Append(1)
+}
+-- 09205.ergo --
+let raw []int = xs; then raw.Append(…)
+-- 09206.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+let raw []int = xs; then raw.Append(…)
+-- 09207.ergo --
+func f() t.Expired {
+	t.Expired
+}
+let raw []int = xs; then raw.Append(…)
+-- 09208.ergo --
+type M Map[string, int]
+func f(m M) {
+	_ = m.Get("a")
+}
+-- 09209.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+type M Map[string, int]
+func f(m M) {
+	_ = m.Get("a")
+}
+-- 09210.ergo --
+func f() t.Expired {
+	t.Expired
+}
+type M Map[string, int]
+func f(m M) {
+	_ = m.Get("a")
+}
+-- 09211.ergo --
+let raw Map[string, int] = m; then raw.Get(…)
+-- 09212.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+let raw Map[string, int] = m; then raw.Get(…)
+-- 09213.ergo --
+func f() t.Expired {
+	t.Expired
+}
+let raw Map[string, int] = m; then raw.Get(…)
+-- 09214.ergo --
+func f(xs []int) {
+	let g = xs.Append
+	_ = g
+}
+-- 09215.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func f(xs []int) {
+	let g = xs.Append
+	_ = g
+}
+-- 09216.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func f(xs []int) {
+	let g = xs.Append
+	_ = g
+}
+-- 09217.ergo --
+func f(xs []int) {
+	_ = xs.Append(1, 2)
+}
+-- 09218.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func f(xs []int) {
+	_ = xs.Append(1, 2)
+}
+-- 09219.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func f(xs []int) {
+	_ = xs.Append(1, 2)
+}
+-- 09220.ergo --
+func f(xs []int) {
+	_ = xs.Append("a")
+}
+-- 09221.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func f(xs []int) {
+	_ = xs.Append("a")
+}
+-- 09222.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func f(xs []int) {
+	_ = xs.Append("a")
+}
+-- 09223.ergo --
+func f(m Map[string, int]) {
+	_ = m.Get(1)
+}
+-- 09224.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func f(m Map[string, int]) {
+	_ = m.Get(1)
+}
+-- 09225.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func f(m Map[string, int]) {
+	_ = m.Get(1)
+}
+-- 09226.ergo --
+func f(xs []int) {
+	_ = xs.Get(0)
+}
+-- 09227.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func f(xs []int) {
+	_ = xs.Get(0)
+}
+-- 09228.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func f(xs []int) {
+	_ = xs.Get(0)
+}
+-- 09229.ergo --
+func f(m Map[string, int]) {
+	_ = m.Append(1)
+}
+-- 09230.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func f(m Map[string, int]) {
+	_ = m.Append(1)
+}
+-- 09231.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func f(m Map[string, int]) {
+	_ = m.Append(1)
+}
+-- 09232.ergo --
+func f(xs *[]int) {
+	_ = xs.Append(1)
+}
+-- 09233.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func f(xs *[]int) {
+	_ = xs.Append(1)
+}
+-- 09234.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func f(xs *[]int) {
+	_ = xs.Append(1)
+}
+-- 09235.ergo --
+func f() t.Expired {
+	t.Expired
+}
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+-- 09236.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func f() t.Expired {
+	t.Expired
+}
+-- 09237.ergo --
+import timeout timeout
+func f() timeout.Expired {
+	timeout.Expired
+}
+-- 09238.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import timeout timeout
+func f() timeout.Expired {
+	timeout.Expired
+}
+-- 09239.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import timeout timeout
+func f() timeout.Expired {
+	timeout.Expired
+}
+-- 09240.ergo --
+import timeout
+func f() timeout.Expired {
+	timeout.Expired
+}
+-- 09241.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import timeout
+func f() timeout.Expired {
+	timeout.Expired
+}
+-- 09242.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import timeout
+func f() timeout.Expired {
+	timeout.Expired
+}
+-- 09243.ergo --
+import t timeout
+func timeout() int {
+	1
+}
+-- 09244.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import t timeout
+func timeout() int {
+	1
+}
+-- 09245.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import t timeout
+func timeout() int {
+	1
+}
+-- 09246.ergo --
+import t timeout
+type timeout { N int }
+-- 09247.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import t timeout
+type timeout { N int }
+-- 09248.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import t timeout
+type timeout { N int }
+-- 09249.ergo --
+import t timeout
+let timeout = 1
+-- 09250.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import t timeout
+let timeout = 1
+-- 09251.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import t timeout
+let timeout = 1
+-- 09252.ergo --
+func g() timeout.Queue[int] {
+	timeout.New[int](1)
+}
+-- 09253.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func g() timeout.Queue[int] {
+	timeout.New[int](1)
+}
+-- 09254.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func g() timeout.Queue[int] {
+	timeout.New[int](1)
+}
+-- 09255.ergo --
+import _ timeout
+func timeout() {}
+-- 09256.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import _ timeout
+func timeout() {}
+-- 09257.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import _ timeout
+func timeout() {}
+-- 09258.ergo --
+import string timeout
+func f() string.Expired {
+	string.Expired
+}
+-- 09259.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import string timeout
+func f() string.Expired {
+	string.Expired
+}
+-- 09260.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import string timeout
+func f() string.Expired {
+	string.Expired
+}
+-- 09261.ergo --
+import m missing/deep
+func f() m.T {
+	m.T{}
+}
+-- 09262.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import m missing/deep
+func f() m.T {
+	m.T{}
+}
+-- 09263.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import m missing/deep
+func f() m.T {
+	m.T{}
+}
+-- 09264.ergo --
+import timeout
+func timeout() {}
+-- 09265.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import timeout
+func timeout() {}
+-- 09266.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import timeout
+func timeout() {}
+-- 09267.ergo --
+import timeout
+type timeout {}
+-- 09268.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import timeout
+type timeout {}
+-- 09269.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import timeout
+type timeout {}
+-- 09270.ergo --
+import timeout
+let timeout = 1
+-- 09271.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import timeout
+let timeout = 1
+-- 09272.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import timeout
+let timeout = 1
+-- 09273.ergo --
+import timeout
+func timeout() {}
+func f() timeout.Expired { timeout.Expired }
+-- 09274.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import timeout
+func timeout() {}
+func f() timeout.Expired { timeout.Expired }
+-- 09275.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import timeout
+func timeout() {}
+func f() timeout.Expired { timeout.Expired }
+-- 09276.ergo --
+import task
+import task timeout
+func f() {
+	let t = task.Go() { 1 }
+	t.Stop()
+	_ = timeout.Expired
+}
+func g() timeout.Expired { timeout.Expired }
+-- 09277.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import task
+import task timeout
+func f() {
+	let t = task.Go() { 1 }
+	t.Stop()
+	_ = timeout.Expired
+}
+func g() timeout.Expired { timeout.Expired }
+-- 09278.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import task
+import task timeout
+func f() {
+	let t = task.Go() { 1 }
+	t.Stop()
+	_ = timeout.Expired
+}
+func g() timeout.Expired { timeout.Expired }
+-- 09279.ergo --
+import t timeout
+import t task
+func timeout() {}
+func f() t.Expired { t.Expired }
+func g() { _ = task.Go }
+-- 09280.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import t timeout
+import t task
+func timeout() {}
+func f() t.Expired { t.Expired }
+func g() { _ = task.Go }
+-- 09281.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import t timeout
+import t task
+func timeout() {}
+func f() t.Expired { t.Expired }
+func g() { _ = task.Go }
+-- 09282.ergo --
+func timeout() {}
+-- 09283.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func timeout() {}
+-- 09284.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func timeout() {}
+-- 09285.ergo --
+import k
+func k(){k}
+-- 09286.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import k
+func k(){k}
+-- 09287.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import k
+func k(){k}
+-- 09288.ergo --
+import k
+let k = 1
+func f(){ _ = k }
+-- 09289.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import k
+let k = 1
+func f(){ _ = k }
+-- 09290.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import k
+let k = 1
+func f(){ _ = k }
+-- 09291.ergo --
+import task
+func task(){ task() }
+-- 09292.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import task
+func task(){ task() }
+-- 09293.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import task
+func task(){ task() }
+-- 09294.ergo --
+import timeout
+func timeout(){}
+func f(){ timeout() }
+-- 09295.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import timeout
+func timeout(){}
+func f(){ timeout() }
+-- 09296.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import timeout
+func timeout(){}
+func f(){ timeout() }
+-- 09297.ergo --
+func k(){}
+func f(){ k() }
+-- 09298.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func k(){}
+func f(){ k() }
+-- 09299.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func k(){}
+func f(){ k() }
+-- 09300.ergo --
+import k timeout
+func timeout() {}
+func k() {}
+func f() k.Expired { k.Expired }
+-- 09301.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import k timeout
+func timeout() {}
+func k() {}
+func f() k.Expired { k.Expired }
+-- 09302.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import k timeout
+func timeout() {}
+func k() {}
+func f() k.Expired { k.Expired }
+-- 09303.ergo --
+import k timeout
+func timeout() {}
+func k() {}
+-- 09304.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import k timeout
+func timeout() {}
+func k() {}
+-- 09305.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import k timeout
+func timeout() {}
+func k() {}
+-- 09306.ergo --
+import k timeout
+func k() {}
+func f() k.Expired { k.Expired }
+-- 09307.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import k timeout
+func k() {}
+func f() k.Expired { k.Expired }
+-- 09308.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import k timeout
+func k() {}
+func f() k.Expired { k.Expired }
+-- 09309.ergo --
+import k timeout
+func timeout() {}
+type k {}
+func f() k.Expired { k.Expired }
+-- 09310.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import k timeout
+func timeout() {}
+type k {}
+func f() k.Expired { k.Expired }
+-- 09311.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import k timeout
+func timeout() {}
+type k {}
+func f() k.Expired { k.Expired }
+-- 09312.ergo --
+import k timeout
+func timeout() {}
+let k = 0
+func f() k.Expired { k.Expired }
+-- 09313.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import k timeout
+func timeout() {}
+let k = 0
+func f() k.Expired { k.Expired }
+-- 09314.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import k timeout
+func timeout() {}
+let k = 0
+func f() k.Expired { k.Expired }
+-- 09315.ergo --
+import k timeout
+func f() k.Expired { k.Expired }
+-- 09316.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+import k timeout
+func f() k.Expired { k.Expired }
+-- 09317.ergo --
+func f() t.Expired {
+	t.Expired
+}
+import k timeout
+func f() k.Expired { k.Expired }
+-- 09318.ergo --
+func timeout() {}
+func k() {}
+-- 09319.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+func timeout() {}
+func k() {}
+-- 09320.ergo --
+func f() t.Expired {
+	t.Expired
+}
+func timeout() {}
+func k() {}
+-- 09321.ergo --
+type Ints []int
+func g(ys []Unknown) Ints {
+	Ints(ys)
+}
+-- 09322.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+type Ints []int
+func g(ys []Unknown) Ints {
+	Ints(ys)
+}
+-- 09323.ergo --
+func f() t.Expired {
+	t.Expired
+}
+type Ints []int
+func g(ys []Unknown) Ints {
+	Ints(ys)
+}
+-- 09324.ergo --
+type Counts Map[string, int]
+func g(m Map[string, Unknown]) Counts {
+	Counts(m)
+}
+-- 09325.ergo --
+type Pair[A, B] { First A, Second B }
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
+	Pair[C, B]{First: f(p.First), Second: p.Second}
+}
+
+func f[T](xs []T, x T) []T {
+	xs.Append(x)
+}
+
+func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
+	let ys = xs.Append(1)
+	let o = m.Get("a")
+	let m2 = m.Delete("a")
+	let q = p.Swap()
+	let r = p.Map2(func(a int) int64 { int64(a) })
+	_ = o
+	_ = q
+	_ = r
+	len(ys) + len(m2)
+}
+type Counts Map[string, int]
+func g(m Map[string, Unknown]) Counts {
+	Counts(m)
+}
+-- 09326.ergo --
+func f() t.Expired {
+	t.Expired
+}
+type Counts Map[string, int]
+func g(m Map[string, Unknown]) Counts {
+	Counts(m)
+}
+-- 09327.ergo --
+import task
+type Fault {}
+func work() int fails Fault { 1 }
+func keep(t Task[int, Fault]) Task[int, Fault] { t }
+func maybe() Option[int] { None }
+func f(g func() Task[int, Fault]) int fails Fault {
+	let k = keep
+	let lit = func() Task[int, Fault] { task.Go() { work() } }
+	try k(lit()).Wait()
+}
+-- 09328.ergo --
+import task
+type Fault {}
+func work() int fails Fault { 1 }
+func keep(t Task[int, Fault]) Task[int, Fault] { t }
+func maybe() Option[int] { None }
+func f(g func() Task[int, Fault]) int fails Fault {
+	let k = keep
+	let lit = func() Task[int, Fault] { task.Go() { work() } }
+	try k(lit()).Wait()
+}
+func 
+-- 09329.ergo --
+func work
+-- 09330.ergo --
+import task
+type Fault {}
+func work() int fails Fault { 1 }
+func keep(t Task[int, Fault]) Task[int, Fault] { t }
+func maybe() Option[int] { None }
+func f(g func() Task[int, Fault]) int fails Fault {
+	let k = keep
+	let lit = func() Task[int, Fault] { task.Go() { work() } }
+	try k(lit()).Wait()
+}
+func work
+-- 09331.ergo --
+func keep
+-- 09332.ergo --
+import task
+type Fault {}
+func work() int fails Fault { 1 }
+func keep(t Task[int, Fault]) Task[int, Fault] { t }
+func maybe() Option[int] { None }
+func f(g func() Task[int, Fault]) int fails Fault {
+	let k = keep
+	let lit = func() Task[int, Fault] { task.Go() { work() } }
+	try k(lit()).Wait()
+}
+func keep
+-- 09333.ergo --
+func maybe
+-- 09334.ergo --
+import task
+type Fault {}
+func work() int fails Fault { 1 }
+func keep(t Task[int, Fault]) Task[int, Fault] { t }
+func maybe() Option[int] { None }
+func f(g func() Task[int, Fault]) int fails Fault {
+	let k = keep
+	let lit = func() Task[int, Fault] { task.Go() { work() } }
+	try k(lit()).Wait()
+}
+func maybe
+-- 09335.ergo --
+import task
+type Fault {}
+func work() int fails Fault { 1 }
+func keep(t Task[int, Fault]) Task[int, Fault] { t }
+func maybe() Option[int] { None }
+func f(g func() Task[int, Fault]) int fails Fault {
+	let k = keep
+	let lit = func() Task[int, Fault] { task.Go() { work() } }
+	try k(lit()).Wait()
+}
+func f
+-- 09336.ergo --
+import queue
+func f(p *queue.Queue[int]) {
+	p.Close()
+}
+-- 09337.ergo --
+import task
+type Fault {}
+func work() int fails Fault { 1 }
+func keep(t Task[int, Fault]) Task[int, Fault] { t }
+func maybe() Option[int] { None }
+func f(g func() Task[int, Fault]) int fails Fault {
+	let k = keep
+	let lit = func() Task[int, Fault] { task.Go() { work() } }
+	try k(lit()).Wait()
+}
+import queue
+func f(p *queue.Queue[int]) {
+	p.Close()
+}
+-- 09338.ergo --
+import queue
+func f(p *queue.Queue[int]) fails queue.Closed {
+	try p.Push(1)
+}
+-- 09339.ergo --
+import task
+type Fault {}
+func work() int fails Fault { 1 }
+func keep(t Task[int, Fault]) Task[int, Fault] { t }
+func maybe() Option[int] { None }
+func f(g func() Task[int, Fault]) int fails Fault {
+	let k = keep
+	let lit = func() Task[int, Fault] { task.Go() { work() } }
+	try k(lit()).Wait()
+}
+import queue
+func f(p *queue.Queue[int]) fails queue.Closed {
+	try p.Push(1)
+}
+-- 09340.ergo --
+type Shape { Area() int }
+func f(p *Shape) int {
+	p.Area()
+}
+-- 09341.ergo --
+import task
+type Fault {}
+func work() int fails Fault { 1 }
+func keep(t Task[int, Fault]) Task[int, Fault] { t }
+func maybe() Option[int] { None }
+func f(g func() Task[int, Fault]) int fails Fault {
+	let k = keep
+	let lit = func() Task[int, Fault] { task.Go() { work() } }
+	try k(lit()).Wait()
+}
+type Shape { Area() int }
+func f(p *Shape) int {
+	p.Area()
+}
+-- 09342.ergo --
+import queue
+func f(q queue.Queue[int]) {
+	q.Close()
+}
+-- 09343.ergo --
+import task
+type Fault {}
+func work() int fails Fault { 1 }
+func keep(t Task[int, Fault]) Task[int, Fault] { t }
+func maybe() Option[int] { None }
+func f(g func() Task[int, Fault]) int fails Fault {
+	let k = keep
+	let lit = func() Task[int, Fault] { task.Go() { work() } }
+	try k(lit()).Wait()
+}
+import queue
+func f(q queue.Queue[int]) {
+	q.Close()
+}
+-- 09344.ergo --
+type P { X int }
+func Get(p P) int { p.X }
+func f(p *P) int {
+	p.X
+}
+-- 09345.ergo --
+import task
+type Fault {}
+func work() int fails Fault { 1 }
+func keep(t Task[int, Fault]) Task[int, Fault] { t }
+func maybe() Option[int] { None }
+func f(g func() Task[int, Fault]) int fails Fault {
+	let k = keep
+	let lit = func() Task[int, Fault] { task.Go() { work() } }
+	try k(lit()).Wait()
+}
+type P { X int }
+func Get(p P) int { p.X }
+func f(p *P) int {
+	p.X
+}
+-- 09346.ergo --
+type A{A A}
+-- 09347.ergo --
+type r{A0000 t }
+-- 09348.ergo --
+type t r
+-- 09349.ergo --
+type Ca { X Cb }
+-- 09350.ergo --
+type Cb { Y Cc }
+-- 09351.ergo --
+type Cc { Z Ca }
+-- 09352.ergo --
+type Da Db
+-- 09353.ergo --
+type Db Dc
+-- 09354.ergo --
+type Dc Da
+-- 09355.ergo --
+type Ra { X Rb }
+-- 09356.ergo --
+type Rb { Y Rc }
+-- 09357.ergo --
+type Rc { Z Rd }
+-- 09358.ergo --
+type Rd { W Ra }
+-- 09359.ergo --
+type Pm Qm
+-- 09360.ergo --
+type Qm { F Rm }
+-- 09361.ergo --
+type Rm Sm
+-- 09362.ergo --
+type Sm { G Pm }
+-- 09363.ergo --
+type Pt Qt
+-- 09364.ergo --
+type Qt (Rt, int)
+-- 09365.ergo --
+type Rt St
+-- 09366.ergo --
+type St { G Pt }
+-- 09367.ergo --
+type Ab { X Ab }
+-- 09368.ergo --
+type A { Y A }
+-- 09369.ergo --
+type A0 { Z A0 }
+-- 09370.ergo --
+type Abc Abc
+-- 09371.ergo --
+type Ab { X A }
+-- 09372.ergo --
+type A { Y Ab }
+-- 09373.ergo --
+type Abc { Z Abc }
+-- 09374.ergo --
+type apple { X Banana }
+-- 09375.ergo --
+type Banana { Y apple }
+-- 09376.ergo --
+type Äpfel { X Zebra }
+-- 09377.ergo --
+type Zebra { Y Äpfel }
+-- 09378.ergo --
+type Éclair { Z Éclair }
+-- 09379.ergo --
+type Gx[T] { V T }
+-- 09380.ergo --
+type X1 { B Gx[X1] }
+-- 09381.ergo --
+type Y1 { B Gx[Y1] }
+-- 09382.ergo --
+type Zed[T] { V T }
+-- 09383.ergo --
+type X2 { B Zed[X2] }
+-- 09384.ergo --
+type Y2 { B Zed[Y2] }
+-- 09385.ergo --
+type Gx[T, U] { A T, B U }
+-- 09386.ergo --
+type X3 { B Gx[X3, Y3] }
+-- 09387.ergo --
+type Y3 { B Gx[Y3, X3] }
+-- 09388.ergo --
+type Finite { B Gx[int] }
+-- 09389.ergo --
+type M1 M2
+-- 09390.ergo --
+type M2 M1
+-- 09391.ergo --
+type N1 { X N2 }
+-- 09392.ergo --
+type N2 N1
+-- 09393.ergo --
+type Loop[T] { Next Loop[T] }
+-- 09394.ergo --
+type A[T] { V T }
+-- 09395.ergo --
+type Z[T] { V A[Z[T]] }
+-- 09396.ergo --
+type A[T] { V B[T] }
+-- 09397.ergo --
+type B[T] { V T }
+-- 09398.ergo --
+type G[T] { Next H[T] }
+-- 09399.ergo --
+type Pair[T, U] { Next Pair[U, T] }
+-- 09400.ergo --
+type A { X B }
+-- 09401.ergo --
+type B { Y A }
+-- 09402.ergo --
+type C { Y A }
+-- 09403.ergo --
+type Bad { B Bad }
+-- 09404.ergo --
+type Zz[T] { V Zz2[T], W Bad }
+-- 09405.ergo --
+type Zz2[T] { V Zz[T] }
+-- 09406.ergo --
+type Aa[T] { V T, N Aa[T] }
+-- 09407.ergo --
+type Zz[T] { V Aa[Zz[T]] }
+-- 09408.ergo --
+type Aa[T] { V T, N Option[Aa[T]] }
+-- 09409.ergo --
+type Agen[T] { V T, W Bad }
+-- 09410.ergo --
+type Zrec[T] { V Agen[Zrec[T]] }
+-- 09411.ergo --
+type A { X W[B] }
+-- 09412.ergo --
+type C { Z W[C] }
+-- 09413.ergo --
+type Agen[T] { V T, W Zrec[int] }
+-- 09414.ergo --
+type Hold { X Aa[int] }
+-- 09415.ergo --
+type H[T] { Next K[T] }
+-- 09416.ergo --
+type K[T] { Next G[T] }
+-- 09417.ergo --
+type G[T] { X H[T, T] }
+-- 09418.ergo --
+type H[A, B] { Y G[A] }
+-- 09419.ergo --
+type S[T] { F Box[S[int]] }
+-- 09420.ergo --
+type P[T] { A T, B P[int] }
+-- 09421.ergo --
+type A (A, int)
+-- 09422.ergo --
+type A (B, int)
+-- 09423.ergo --
+type B A
+-- 09424.ergo --
+type D0[T] { F0 D2[T] }
+-- 09425.ergo --
+type D1[T] { F0 D2[int] }
+-- 09426.ergo --
+type D2[T] { F0 D0[T], F1 D1[int] }
+-- 09427.ergo --
+type D0[T] { F0 Option[D2[T]] }
+-- 09428.ergo --
+type D0 { F0 D2[D0], F1 Option[int] }
+-- 09429.ergo --
+type D1[T, U] { F0 D3[T, U], F1 []D3[T, U] }
+-- 09430.ergo --
+type D2[T] { F0 D3[int, int], F1 Option[D1[int, int]] }
+-- 09431.ergo --
+type D3[T, U] { F0 D1[T, U], F1 D2[int] }
+-- 09432.ergo --
+type D1[T, U] { F0 Option[D3[T, U]], F1 Option[[]D3[T, U]] }
+-- 09433.ergo --
+type D0[T] { F0 D0[T], F1 D0[int] }
+-- 09434.ergo --
+type D0[T] { F0 D0[T], F1 D1[int] }
+-- 09435.ergo --
+type D1[T] { F0 D0[int] }
+-- 09436.ergo --
+type Zebra Alpha
+type Alpha Zebra
+-- 09437.ergo --
+type Alpha Zebra
+type Zebra Alpha
+-- 09438.ergo --
+type Alias Rec
+type Rec { Next []Alias }
+func Next(a Alias) []Alias { a.Next }
+-- 09439.ergo --
+type Rec { Next []Alias }
+type Alias Rec
+func Next(a Alias) []Alias { a.Next }
+-- 09440.ergo --
+type List []List
+type Callback func() Callback
+-- 09441.ergo --
+type Box[T] { V T }
+func Grow[T](x T) { Grow(Box[T]{V: x}) }
+-- 09442.ergo --
+type Valid { Check() bool, }
+type Card { N int }
+type Box[T] { V T }
+func Check(c Card) bool { c.N > 0 }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func Values(c Card) []Valid { []Valid{Box[Card]{V: c}} }
+-- 09443.ergo --
+type Valid { Check() bool, }
+type Card { N int }
+type Box[T] { V T }
+func Check(c Card) bool { c.N > 0 }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func Values(c Card) []Valid { []Valid{Box[Card]{V: c}} }
+type Box[T] { V T }
+func Grow[T](x T) { Grow(Box[T]{V: x}) }
+-- 09444.ergo --
+type Box[T] { V T }
+func Grow[T](x T) { Grow(Box[T]{V: x}) }
+type Valid { Check() bool, }
+type Card { N int }
+type Box[T] { V T }
+func Check(c Card) bool { c.N > 0 }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func Values(c Card) []Valid { []Valid{Box[Card]{V: c}} }
+-- 09445.ergo --
+type Valid { Check() bool, }
+type Plain { N int }
+type Box[T] { V T }
+type Holder { V Valid }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func Take(v Valid) bool { v.Check() }
+-- 09446.ergo --
+func LetSUFFIX() bool { let v Valid = VALUE; v.Check() }
+-- 09447.ergo --
+type Valid { Check() bool, }
+type Plain { N int }
+type Box[T] { V T }
+type Holder { V Valid }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func Take(v Valid) bool { v.Check() }
+func LetSUFFIX() bool { let v Valid = VALUE; v.Check() }
+-- 09448.ergo --
+func ArgSUFFIX() bool { Take(VALUE) }
+-- 09449.ergo --
+type Valid { Check() bool, }
+type Plain { N int }
+type Box[T] { V T }
+type Holder { V Valid }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func Take(v Valid) bool { v.Check() }
+func ArgSUFFIX() bool { Take(VALUE) }
+-- 09450.ergo --
+func FieldSUFFIX() Holder { Holder{V: VALUE} }
+-- 09451.ergo --
+type Valid { Check() bool, }
+type Plain { N int }
+type Box[T] { V T }
+type Holder { V Valid }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func Take(v Valid) bool { v.Check() }
+func FieldSUFFIX() Holder { Holder{V: VALUE} }
+-- 09452.ergo --
+func RetSUFFIX() Valid { VALUE }
+-- 09453.ergo --
+type Valid { Check() bool, }
+type Plain { N int }
+type Box[T] { V T }
+type Holder { V Valid }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func Take(v Valid) bool { v.Check() }
+func RetSUFFIX() Valid { VALUE }
+-- 09454.ergo --
+func MapSUFFIX() Map[string, Valid] { Map[string, Valid]{"k": VALUE} }
+-- 09455.ergo --
+type Valid { Check() bool, }
+type Plain { N int }
+type Box[T] { V T }
+type Holder { V Valid }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func Take(v Valid) bool { v.Check() }
+func MapSUFFIX() Map[string, Valid] { Map[string, Valid]{"k": VALUE} }
+-- 09456.ergo --
+func SliceSUFFIX() []Valid { []Valid{VALUE} }
+-- 09457.ergo --
+type Valid { Check() bool, }
+type Plain { N int }
+type Box[T] { V T }
+type Holder { V Valid }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func Take(v Valid) bool { v.Check() }
+func SliceSUFFIX() []Valid { []Valid{VALUE} }
+-- 09458.ergo --
+type Valid { Check() bool, }
+type Card { N int }
+type Plain { N int }
+type Box[T] { V T }
+func Check(c Card) bool { c.N > 0 }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func All[T Valid](x T) bool { x.Check() }
+func main() needs Console {
+	let v Valid = Box[Plain]{V: Plain{N: 1}}
+	let w = All(Box[Plain]{V: Plain{N: 1}})
+	let vs = []Valid{Box[Box[Plain]]{V: Box[Plain]{V: Plain{N: 1}}}}
+	Console.Println("\(v.Check()) \(w) \(vs[0].Check())")
+}
+-- 09459.ergo --
+type Valid { Check() bool, }
+type Card { N int }
+type Plain { N int }
+type Box[T] { V T }
+type Holder { V Valid }
+type Either = Valid | Card
+func Check(c Card) bool { c.N > 0 }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func Take(v Valid) bool { v.Check() }
+func Ret() Valid { Box[Plain]{V: Plain{N: 1}} }
+func main() needs Console {
+	let a = Take(Box[Plain]{V: Plain{N: 1}})
+	let h = Holder{V: Box[Plain]{V: Plain{N: 2}}}
+	let e Either = Box[Plain]{V: Plain{N: 3}}
+	let m = Map[string, Valid]{"k": Box[Plain]{V: Plain{N: 4}}}
+	Console.Println("\(a) \(h.V.Check()) \(Ret().Check())")
+}
+-- 09460.ergo --
+type Valid { Check() bool, }
+type Card { N int }
+type Plain { N int }
+type Box[T] { V T }
+type Holder { V Valid }
+type Either = Valid | Card
+func Check(c Card) bool { c.N > 0 }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func Take(v Valid) bool { v.Check() }
+func Ret() Valid { Box[Plain]{V: Plain{N: 1}} }
+func main() needs Console {
+	let a = Take(Box[Plain]{V: Plain{N: 1}})
+	let h = Holder{V: Box[Plain]{V: Plain{N: 2}}}
+	let e Either = Box[Plain]{V: Plain{N: 3}}
+	let m = Map[string, Valid]{"k": Box[Plain]{V: Plain{N: 4}}}
+	Console.Println("\(a) \(h.V.Check()) \(Ret().Check())")
+}
+type Valid { Check() bool, }
+type Card { N int }
+type Plain { N int }
+type Box[T] { V T }
+func Check(c Card) bool { c.N > 0 }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func All[T Valid](x T) bool { x.Check() }
+func main() needs Console {
+	let v Valid = Box[Plain]{V: Plain{N: 1}}
+	let w = All(Box[Plain]{V: Plain{N: 1}})
+	let vs = []Valid{Box[Box[Plain]]{V: Box[Plain]{V: Plain{N: 1}}}}
+	Console.Println("\(v.Check()) \(w) \(vs[0].Check())")
+}
+-- 09461.ergo --
+let v Valid = 
+-- 09462.ergo --
+type Valid { Check() bool, }
+type Card { N int }
+type Plain { N int }
+type Box[T] { V T }
+func Check(c Card) bool { c.N > 0 }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func All[T Valid](x T) bool { x.Check() }
+func main() needs Console {
+	let v Valid = Box[Plain]{V: Plain{N: 1}}
+	let w = All(Box[Plain]{V: Plain{N: 1}})
+	let vs = []Valid{Box[Box[Plain]]{V: Box[Plain]{V: Plain{N: 1}}}}
+	Console.Println("\(v.Check()) \(w) \(vs[0].Check())")
+}
+let v Valid = 
+-- 09463.ergo --
+type Valid { Check() bool, }
+type Card { N int }
+type Plain { N int }
+type Box[T] { V T }
+type Holder { V Valid }
+type Either = Valid | Card
+func Check(c Card) bool { c.N > 0 }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func Take(v Valid) bool { v.Check() }
+func Ret() Valid { Box[Plain]{V: Plain{N: 1}} }
+func main() needs Console {
+	let a = Take(Box[Plain]{V: Plain{N: 1}})
+	let h = Holder{V: Box[Plain]{V: Plain{N: 2}}}
+	let e Either = Box[Plain]{V: Plain{N: 3}}
+	let m = Map[string, Valid]{"k": Box[Plain]{V: Plain{N: 4}}}
+	Console.Println("\(a) \(h.V.Check()) \(Ret().Check())")
+}
+let v Valid = 
+-- 09464.ergo --
+let w = 
+-- 09465.ergo --
+type Valid { Check() bool, }
+type Card { N int }
+type Plain { N int }
+type Box[T] { V T }
+func Check(c Card) bool { c.N > 0 }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func All[T Valid](x T) bool { x.Check() }
+func main() needs Console {
+	let v Valid = Box[Plain]{V: Plain{N: 1}}
+	let w = All(Box[Plain]{V: Plain{N: 1}})
+	let vs = []Valid{Box[Box[Plain]]{V: Box[Plain]{V: Plain{N: 1}}}}
+	Console.Println("\(v.Check()) \(w) \(vs[0].Check())")
+}
+let w = 
+-- 09466.ergo --
+type Valid { Check() bool, }
+type Card { N int }
+type Plain { N int }
+type Box[T] { V T }
+type Holder { V Valid }
+type Either = Valid | Card
+func Check(c Card) bool { c.N > 0 }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func Take(v Valid) bool { v.Check() }
+func Ret() Valid { Box[Plain]{V: Plain{N: 1}} }
+func main() needs Console {
+	let a = Take(Box[Plain]{V: Plain{N: 1}})
+	let h = Holder{V: Box[Plain]{V: Plain{N: 2}}}
+	let e Either = Box[Plain]{V: Plain{N: 3}}
+	let m = Map[string, Valid]{"k": Box[Plain]{V: Plain{N: 4}}}
+	Console.Println("\(a) \(h.V.Check()) \(Ret().Check())")
+}
+let w = 
+-- 09467.ergo --
+type Valid { Check() bool, }
+type Card { N int }
+type Plain { N int }
+type Box[T] { V T }
+func Check(c Card) bool { c.N > 0 }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func All[T Valid](x T) bool { x.Check() }
+func main() needs Console {
+	let v Valid = Box[Plain]{V: Plain{N: 1}}
+	let w = All(Box[Plain]{V: Plain{N: 1}})
+	let vs = []Valid{Box[Box[Plain]]{V: Box[Plain]{V: Plain{N: 1}}}}
+	Console.Println("\(v.Check()) \(w) \(vs[0].Check())")
+}
+type Valid { Check() bool, }
+type Card { N int }
+type Plain { N int }
+type Box[T] { V T }
+type Holder { V Valid }
+type Either = Valid | Card
+func Check(c Card) bool { c.N > 0 }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func Take(v Valid) bool { v.Check() }
+func Ret() Valid { Box[Plain]{V: Plain{N: 1}} }
+func main() needs Console {
+	let a = Take(Box[Plain]{V: Plain{N: 1}})
+	let h = Holder{V: Box[Plain]{V: Plain{N: 2}}}
+	let e Either = Box[Plain]{V: Plain{N: 3}}
+	let m = Map[string, Valid]{"k": Box[Plain]{V: Plain{N: 4}}}
+	Console.Println("\(a) \(h.V.Check()) \(Ret().Check())")
+}
+-- 09468.ergo --
+func Ret() Valid { 
+-- 09469.ergo --
+type Valid { Check() bool, }
+type Card { N int }
+type Plain { N int }
+type Box[T] { V T }
+func Check(c Card) bool { c.N > 0 }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func All[T Valid](x T) bool { x.Check() }
+func main() needs Console {
+	let v Valid = Box[Plain]{V: Plain{N: 1}}
+	let w = All(Box[Plain]{V: Plain{N: 1}})
+	let vs = []Valid{Box[Box[Plain]]{V: Box[Plain]{V: Plain{N: 1}}}}
+	Console.Println("\(v.Check()) \(w) \(vs[0].Check())")
+}
+func Ret() Valid { 
+-- 09470.ergo --
+type Valid { Check() bool, }
+type Card { N int }
+type Plain { N int }
+type Box[T] { V T }
+type Holder { V Valid }
+type Either = Valid | Card
+func Check(c Card) bool { c.N > 0 }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func Take(v Valid) bool { v.Check() }
+func Ret() Valid { Box[Plain]{V: Plain{N: 1}} }
+func main() needs Console {
+	let a = Take(Box[Plain]{V: Plain{N: 1}})
+	let h = Holder{V: Box[Plain]{V: Plain{N: 2}}}
+	let e Either = Box[Plain]{V: Plain{N: 3}}
+	let m = Map[string, Valid]{"k": Box[Plain]{V: Plain{N: 4}}}
+	Console.Println("\(a) \(h.V.Check()) \(Ret().Check())")
+}
+func Ret() Valid { 
+-- 09471.ergo --
+let a = Take(
+-- 09472.ergo --
+type Valid { Check() bool, }
+type Card { N int }
+type Plain { N int }
+type Box[T] { V T }
+func Check(c Card) bool { c.N > 0 }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func All[T Valid](x T) bool { x.Check() }
+func main() needs Console {
+	let v Valid = Box[Plain]{V: Plain{N: 1}}
+	let w = All(Box[Plain]{V: Plain{N: 1}})
+	let vs = []Valid{Box[Box[Plain]]{V: Box[Plain]{V: Plain{N: 1}}}}
+	Console.Println("\(v.Check()) \(w) \(vs[0].Check())")
+}
+let a = Take(
+-- 09473.ergo --
+type Valid { Check() bool, }
+type Card { N int }
+type Plain { N int }
+type Box[T] { V T }
+type Holder { V Valid }
+type Either = Valid | Card
+func Check(c Card) bool { c.N > 0 }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func Take(v Valid) bool { v.Check() }
+func Ret() Valid { Box[Plain]{V: Plain{N: 1}} }
+func main() needs Console {
+	let a = Take(Box[Plain]{V: Plain{N: 1}})
+	let h = Holder{V: Box[Plain]{V: Plain{N: 2}}}
+	let e Either = Box[Plain]{V: Plain{N: 3}}
+	let m = Map[string, Valid]{"k": Box[Plain]{V: Plain{N: 4}}}
+	Console.Println("\(a) \(h.V.Check()) \(Ret().Check())")
+}
+let a = Take(
+-- 09474.ergo --
+let e Either = 
+-- 09475.ergo --
+type Valid { Check() bool, }
+type Card { N int }
+type Plain { N int }
+type Box[T] { V T }
+func Check(c Card) bool { c.N > 0 }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func All[T Valid](x T) bool { x.Check() }
+func main() needs Console {
+	let v Valid = Box[Plain]{V: Plain{N: 1}}
+	let w = All(Box[Plain]{V: Plain{N: 1}})
+	let vs = []Valid{Box[Box[Plain]]{V: Box[Plain]{V: Plain{N: 1}}}}
+	Console.Println("\(v.Check()) \(w) \(vs[0].Check())")
+}
+let e Either = 
+-- 09476.ergo --
+type Valid { Check() bool, }
+type Card { N int }
+type Plain { N int }
+type Box[T] { V T }
+type Holder { V Valid }
+type Either = Valid | Card
+func Check(c Card) bool { c.N > 0 }
+func Check[T Valid](b Box[T]) bool { b.V.Check() }
+func Take(v Valid) bool { v.Check() }
+func Ret() Valid { Box[Plain]{V: Plain{N: 1}} }
+func main() needs Console {
+	let a = Take(Box[Plain]{V: Plain{N: 1}})
+	let h = Holder{V: Box[Plain]{V: Plain{N: 2}}}
+	let e Either = Box[Plain]{V: Plain{N: 3}}
+	let m = Map[string, Valid]{"k": Box[Plain]{V: Plain{N: 4}}}
+	Console.Println("\(a) \(h.V.Check()) \(Ret().Check())")
+}
+let e Either = 
+-- 09477.ergo --
+type Valid {
+	Check(n int) bool,
+}
+
+type Card { Number string }
+
+type Box[T] { V T }
+
+func Check(c Card, n int) bool { n > 0 }
+
+func Check[T](b Box[T], n int) bool { true }
+
+func All[T Valid](x T) bool { x.Check(1) }
+
+func F() bool { All(Card{Number: "1"}) && All(Box[string]{V: "s"}) }
+-- 09478.ergo --
+func Each[T](xs []T, f func(T) int) int { f(xs[0]) }
+func MapOf[T, U](xs []T, f func(T) U) []U { []U{f(xs[0])} }
+func Fold[T, A](xs []T, start A, f func(A, T) A) A { f(start, xs[0]) }
+func apply(f func(int) int) int { f(1) }
+func Pick[T](f func(T) int) int { 0 }
+-- 09479.ergo --
+func Each[T](xs []T, f func(T) int) int { f(xs[0]) }
+func MapOf[T, U](xs []T, f func(T) U) []U { []U{f(xs[0])} }
+func Fold[T, A](xs []T, start A, f func(A, T) A) A { f(start, xs[0]) }
+func apply(f func(int) int) int { f(1) }
+func Pick[T](f func(T) int) int { 0 }
+type Valid {
+	Check(n int) bool,
+}
+
+type Card { Number string }
+
+type Box[T] { V T }
+
+func Check(c Card, n int) bool { n > 0 }
+
+func Check[T](b Box[T], n int) bool { true }
+
+func All[T Valid](x T) bool { x.Check(1) }
+
+func F() bool { All(Card{Number: "1"}) && All(Box[string]{V: "s"}) }
+-- 09480.ergo --
+type Valid {
+	Check(n int) bool,
+}
+
+type Card { Number string }
+
+type Box[T] { V T }
+
+func Check(c Card, n int) bool { n > 0 }
+
+func Check[T](b Box[T], n int) bool { true }
+
+func All[T Valid](x T) bool { x.Check(1) }
+
+func F() bool { All(Card{Number: "1"}) && All(Box[string]{V: "s"}) }
+func Each[T](xs []T, f func(T) int) int { f(xs[0]) }
+func MapOf[T, U](xs []T, f func(T) U) []U { []U{f(xs[0])} }
+func Fold[T, A](xs []T, start A, f func(A, T) A) A { f(start, xs[0]) }
+func apply(f func(int) int) int { f(1) }
+func Pick[T](f func(T) int) int { 0 }
+-- 09481.ergo --
+func F(xs []int) int { Each(xs, func(x) { x * 2 }) }
+-- 09482.ergo --
+type Valid {
+	Check(n int) bool,
+}
+
+type Card { Number string }
+
+type Box[T] { V T }
+
+func Check(c Card, n int) bool { n > 0 }
+
+func Check[T](b Box[T], n int) bool { true }
+
+func All[T Valid](x T) bool { x.Check(1) }
+
+func F() bool { All(Card{Number: "1"}) && All(Box[string]{V: "s"}) }
+func F(xs []int) int { Each(xs, func(x) { x * 2 }) }
+-- 09483.ergo --
+func Each[T](xs []T, f func(T) int) int { f(xs[0]) }
+func MapOf[T, U](xs []T, f func(T) U) []U { []U{f(xs[0])} }
+func Fold[T, A](xs []T, start A, f func(A, T) A) A { f(start, xs[0]) }
+func apply(f func(int) int) int { f(1) }
+func Pick[T](f func(T) int) int { 0 }
+func F(xs []int) int { Each(xs, func(x) { x * 2 }) }
+-- 09484.ergo --
+func F(xs []int) int { Fold(xs, 0, func(acc, x) { acc + x }) }
+-- 09485.ergo --
+type Valid {
+	Check(n int) bool,
+}
+
+type Card { Number string }
+
+type Box[T] { V T }
+
+func Check(c Card, n int) bool { n > 0 }
+
+func Check[T](b Box[T], n int) bool { true }
+
+func All[T Valid](x T) bool { x.Check(1) }
+
+func F() bool { All(Card{Number: "1"}) && All(Box[string]{V: "s"}) }
+func F(xs []int) int { Fold(xs, 0, func(acc, x) { acc + x }) }
+-- 09486.ergo --
+func Each[T](xs []T, f func(T) int) int { f(xs[0]) }
+func MapOf[T, U](xs []T, f func(T) U) []U { []U{f(xs[0])} }
+func Fold[T, A](xs []T, start A, f func(A, T) A) A { f(start, xs[0]) }
+func apply(f func(int) int) int { f(1) }
+func Pick[T](f func(T) int) int { 0 }
+func F(xs []int) int { Fold(xs, 0, func(acc, x) { acc + x }) }
+-- 09487.ergo --
+func F(xs []int) int { Each[int](xs, func(x) { x * 2 }) }
+-- 09488.ergo --
+type Valid {
+	Check(n int) bool,
+}
+
+type Card { Number string }
+
+type Box[T] { V T }
+
+func Check(c Card, n int) bool { n > 0 }
+
+func Check[T](b Box[T], n int) bool { true }
+
+func All[T Valid](x T) bool { x.Check(1) }
+
+func F() bool { All(Card{Number: "1"}) && All(Box[string]{V: "s"}) }
+func F(xs []int) int { Each[int](xs, func(x) { x * 2 }) }
+-- 09489.ergo --
+func Each[T](xs []T, f func(T) int) int { f(xs[0]) }
+func MapOf[T, U](xs []T, f func(T) U) []U { []U{f(xs[0])} }
+func Fold[T, A](xs []T, start A, f func(A, T) A) A { f(start, xs[0]) }
+func apply(f func(int) int) int { f(1) }
+func Pick[T](f func(T) int) int { 0 }
+func F(xs []int) int { Each[int](xs, func(x) { x * 2 }) }
+-- 09490.ergo --
+func F() int { apply(func(x) { x + 1 }) }
+-- 09491.ergo --
+type Valid {
+	Check(n int) bool,
+}
+
+type Card { Number string }
+
+type Box[T] { V T }
+
+func Check(c Card, n int) bool { n > 0 }
+
+func Check[T](b Box[T], n int) bool { true }
+
+func All[T Valid](x T) bool { x.Check(1) }
+
+func F() bool { All(Card{Number: "1"}) && All(Box[string]{V: "s"}) }
+func F() int { apply(func(x) { x + 1 }) }
+-- 09492.ergo --
+func Each[T](xs []T, f func(T) int) int { f(xs[0]) }
+func MapOf[T, U](xs []T, f func(T) U) []U { []U{f(xs[0])} }
+func Fold[T, A](xs []T, start A, f func(A, T) A) A { f(start, xs[0]) }
+func apply(f func(int) int) int { f(1) }
+func Pick[T](f func(T) int) int { 0 }
+func F() int { apply(func(x) { x + 1 }) }
+-- 09493.ergo --
+func F() int {
+	let f func(int) int = func(x) { x + 1 }
+	f(2)
+}
+-- 09494.ergo --
+type Valid {
+	Check(n int) bool,
+}
+
+type Card { Number string }
+
+type Box[T] { V T }
+
+func Check(c Card, n int) bool { n > 0 }
+
+func Check[T](b Box[T], n int) bool { true }
+
+func All[T Valid](x T) bool { x.Check(1) }
+
+func F() bool { All(Card{Number: "1"}) && All(Box[string]{V: "s"}) }
+func F() int {
+	let f func(int) int = func(x) { x + 1 }
+	f(2)
+}
+-- 09495.ergo --
+func Each[T](xs []T, f func(T) int) int { f(xs[0]) }
+func MapOf[T, U](xs []T, f func(T) U) []U { []U{f(xs[0])} }
+func Fold[T, A](xs []T, start A, f func(A, T) A) A { f(start, xs[0]) }
+func apply(f func(int) int) int { f(1) }
+func Pick[T](f func(T) int) int { 0 }
+func F() int {
+	let f func(int) int = func(x) { x + 1 }
+	f(2)
+}
+-- 09496.ergo --
+func F(xs []int) []string { MapOf(xs, func(x) { "s" }) }
+-- 09497.ergo --
+type Valid {
+	Check(n int) bool,
+}
+
+type Card { Number string }
+
+type Box[T] { V T }
+
+func Check(c Card, n int) bool { n > 0 }
+
+func Check[T](b Box[T], n int) bool { true }
+
+func All[T Valid](x T) bool { x.Check(1) }
+
+func F() bool { All(Card{Number: "1"}) && All(Box[string]{V: "s"}) }
+func F(xs []int) []string { MapOf(xs, func(x) { "s" }) }
+-- 09498.ergo --
+func Each[T](xs []T, f func(T) int) int { f(xs[0]) }
+func MapOf[T, U](xs []T, f func(T) U) []U { []U{f(xs[0])} }
+func Fold[T, A](xs []T, start A, f func(A, T) A) A { f(start, xs[0]) }
+func apply(f func(int) int) int { f(1) }
+func Pick[T](f func(T) int) int { 0 }
+func F(xs []int) []string { MapOf(xs, func(x) { "s" }) }
+-- 09499.ergo --
+func F(xs []int) int { Each(xs, func(x) { Each(xs, func(y) { x + y }) }) }

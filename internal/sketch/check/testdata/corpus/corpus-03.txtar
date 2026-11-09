@@ -1,0 +1,3797 @@
+-- 01500.ergo --
+let W = context { A: Quiet }let A = context { A: Quiet }
+func f() needs A { with A { A.Use() } }
+-- 01501.ergo --
+let W = context { A: Quiet }
+let A = context { A: Quiet }
+func f() needs A { with A { A.Use() } }
+-- 01502.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+let A = context { A: Quiet }
+func f() needs A { with A { A.Use() } }
+-- 01503.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+let A = context { A: Quiet }
+func f() needs A { with A { A.Use() } }
+-- 01504.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+let A = context { A: Quiet }
+func f() needs A { with A { A.Use() } }
+-- 01505.ergo --
+func f[W](x W) { let g = func() { with W { A.Use() } }; g() }
+-- 01506.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f[W](x W) { let g = func() { with W { A.Use() } }; g() }
+-- 01507.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f[W](x W) { let g = func() { with W { A.Use() } }; g() }
+-- 01508.ergo --
+let W = context { A: Quiet }func f[W](x W) { let g = func() { with W { A.Use() } }; g() }
+-- 01509.ergo --
+let W = context { A: Quiet }
+func f[W](x W) { let g = func() { with W { A.Use() } }; g() }
+-- 01510.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f[W](x W) { let g = func() { with W { A.Use() } }; g() }
+-- 01511.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f[W](x W) { let g = func() { with W { A.Use() } }; g() }
+-- 01512.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f[W](x W) { let g = func() { with W { A.Use() } }; g() }
+-- 01513.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+-- 01514.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+-- 01515.ergo --
+let W = context { A: Quiet }type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+-- 01516.ergo --
+let W = context { A: Quiet }
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+-- 01517.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+-- 01518.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+-- 01519.ergo --
+func f() needs Log { with tag("k", "v") { Log.Say("x") } }
+-- 01520.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f() needs Log { with tag("k", "v") { Log.Say("x") } }
+-- 01521.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f() needs Log { with tag("k", "v") { Log.Say("x") } }
+-- 01522.ergo --
+let W = context { A: Quiet }func f() needs Log { with tag("k", "v") { Log.Say("x") } }
+-- 01523.ergo --
+let W = context { A: Quiet }
+func f() needs Log { with tag("k", "v") { Log.Say("x") } }
+-- 01524.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f() needs Log { with tag("k", "v") { Log.Say("x") } }
+-- 01525.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f() needs Log { with tag("k", "v") { Log.Say("x") } }
+-- 01526.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f() needs Log { with tag("k", "v") { Log.Say("x") } }
+-- 01527.ergo --
+func f() int { let a = tag("k", "v"); with a { 1 } }
+-- 01528.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f() int { let a = tag("k", "v"); with a { 1 } }
+-- 01529.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f() int { let a = tag("k", "v"); with a { 1 } }
+-- 01530.ergo --
+let W = context { A: Quiet }func f() int { let a = tag("k", "v"); with a { 1 } }
+-- 01531.ergo --
+let W = context { A: Quiet }
+func f() int { let a = tag("k", "v"); with a { 1 } }
+-- 01532.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f() int { let a = tag("k", "v"); with a { 1 } }
+-- 01533.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f() int { let a = tag("k", "v"); with a { 1 } }
+-- 01534.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f() int { let a = tag("k", "v"); with a { 1 } }
+-- 01535.ergo --
+func f() int { with tag("k", "outer") { with tag("k", "inner") { 1 } } }
+-- 01536.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f() int { with tag("k", "outer") { with tag("k", "inner") { 1 } } }
+-- 01537.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f() int { with tag("k", "outer") { with tag("k", "inner") { 1 } } }
+-- 01538.ergo --
+let W = context { A: Quiet }func f() int { with tag("k", "outer") { with tag("k", "inner") { 1 } } }
+-- 01539.ergo --
+let W = context { A: Quiet }
+func f() int { with tag("k", "outer") { with tag("k", "inner") { 1 } } }
+-- 01540.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f() int { with tag("k", "outer") { with tag("k", "inner") { 1 } } }
+-- 01541.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f() int { with tag("k", "outer") { with tag("k", "inner") { 1 } } }
+-- 01542.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f() int { with tag("k", "outer") { with tag("k", "inner") { 1 } } }
+-- 01543.ergo --
+type Quiet {}
+func Say(_ Quiet, s string) {}
+let W = context { Log: Quiet }
+func f() { with W { with tag("k", "v") { Log.Say("x") } } }
+-- 01544.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Quiet {}
+func Say(_ Quiet, s string) {}
+let W = context { Log: Quiet }
+func f() { with W { with tag("k", "v") { Log.Say("x") } } }
+-- 01545.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+type Quiet {}
+func Say(_ Quiet, s string) {}
+let W = context { Log: Quiet }
+func f() { with W { with tag("k", "v") { Log.Say("x") } } }
+-- 01546.ergo --
+let W = context { A: Quiet }type Quiet {}
+func Say(_ Quiet, s string) {}
+let W = context { Log: Quiet }
+func f() { with W { with tag("k", "v") { Log.Say("x") } } }
+-- 01547.ergo --
+let W = context { A: Quiet }
+type Quiet {}
+func Say(_ Quiet, s string) {}
+let W = context { Log: Quiet }
+func f() { with W { with tag("k", "v") { Log.Say("x") } } }
+-- 01548.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+type Quiet {}
+func Say(_ Quiet, s string) {}
+let W = context { Log: Quiet }
+func f() { with W { with tag("k", "v") { Log.Say("x") } } }
+-- 01549.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+type Quiet {}
+func Say(_ Quiet, s string) {}
+let W = context { Log: Quiet }
+func f() { with W { with tag("k", "v") { Log.Say("x") } } }
+-- 01550.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+type Quiet {}
+func Say(_ Quiet, s string) {}
+let W = context { Log: Quiet }
+func f() { with W { with tag("k", "v") { Log.Say("x") } } }
+-- 01551.ergo --
+func f() string { with tag("k", "v") { "x" } }
+-- 01552.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f() string { with tag("k", "v") { "x" } }
+-- 01553.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f() string { with tag("k", "v") { "x" } }
+-- 01554.ergo --
+let W = context { A: Quiet }func f() string { with tag("k", "v") { "x" } }
+-- 01555.ergo --
+let W = context { A: Quiet }
+func f() string { with tag("k", "v") { "x" } }
+-- 01556.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f() string { with tag("k", "v") { "x" } }
+-- 01557.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f() string { with tag("k", "v") { "x" } }
+-- 01558.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f() string { with tag("k", "v") { "x" } }
+-- 01559.ergo --
+import log
+import trace
+func f() int { with log.Annotate("region", "eu") { with trace.Span("work") { 1 } } }
+-- 01560.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+import log
+import trace
+func f() int { with log.Annotate("region", "eu") { with trace.Span("work") { 1 } } }
+-- 01561.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+import log
+import trace
+func f() int { with log.Annotate("region", "eu") { with trace.Span("work") { 1 } } }
+-- 01562.ergo --
+let W = context { A: Quiet }import log
+import trace
+func f() int { with log.Annotate("region", "eu") { with trace.Span("work") { 1 } } }
+-- 01563.ergo --
+let W = context { A: Quiet }
+import log
+import trace
+func f() int { with log.Annotate("region", "eu") { with trace.Span("work") { 1 } } }
+-- 01564.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+import log
+import trace
+func f() int { with log.Annotate("region", "eu") { with trace.Span("work") { 1 } } }
+-- 01565.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+import log
+import trace
+func f() int { with log.Annotate("region", "eu") { with trace.Span("work") { 1 } } }
+-- 01566.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+import log
+import trace
+func f() int { with log.Annotate("region", "eu") { with trace.Span("work") { 1 } } }
+-- 01567.ergo --
+type Other { Do() }
+func f() needs Other { with tag("k", "v") { Log.Say("x") } }
+-- 01568.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Other { Do() }
+func f() needs Other { with tag("k", "v") { Log.Say("x") } }
+-- 01569.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+type Other { Do() }
+func f() needs Other { with tag("k", "v") { Log.Say("x") } }
+-- 01570.ergo --
+let W = context { A: Quiet }type Other { Do() }
+func f() needs Other { with tag("k", "v") { Log.Say("x") } }
+-- 01571.ergo --
+let W = context { A: Quiet }
+type Other { Do() }
+func f() needs Other { with tag("k", "v") { Log.Say("x") } }
+-- 01572.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+type Other { Do() }
+func f() needs Other { with tag("k", "v") { Log.Say("x") } }
+-- 01573.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+type Other { Do() }
+func f() needs Other { with tag("k", "v") { Log.Say("x") } }
+-- 01574.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+type Other { Do() }
+func f() needs Other { with tag("k", "v") { Log.Say("x") } }
+-- 01575.ergo --
+type Bad { K string }
+func contextKey(b Bad) string needs Log { Log.Say("k"); b.K }
+func contextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int needs Log { with bad() { 1 } }
+-- 01576.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Bad { K string }
+func contextKey(b Bad) string needs Log { Log.Say("k"); b.K }
+func contextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int needs Log { with bad() { 1 } }
+-- 01577.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+type Bad { K string }
+func contextKey(b Bad) string needs Log { Log.Say("k"); b.K }
+func contextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int needs Log { with bad() { 1 } }
+-- 01578.ergo --
+let W = context { A: Quiet }type Bad { K string }
+func contextKey(b Bad) string needs Log { Log.Say("k"); b.K }
+func contextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int needs Log { with bad() { 1 } }
+-- 01579.ergo --
+let W = context { A: Quiet }
+type Bad { K string }
+func contextKey(b Bad) string needs Log { Log.Say("k"); b.K }
+func contextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int needs Log { with bad() { 1 } }
+-- 01580.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+type Bad { K string }
+func contextKey(b Bad) string needs Log { Log.Say("k"); b.K }
+func contextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int needs Log { with bad() { 1 } }
+-- 01581.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+type Bad { K string }
+func contextKey(b Bad) string needs Log { Log.Say("k"); b.K }
+func contextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int needs Log { with bad() { 1 } }
+-- 01582.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+type Bad { K string }
+func contextKey(b Bad) string needs Log { Log.Say("k"); b.K }
+func contextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int needs Log { with bad() { 1 } }
+-- 01583.ergo --
+type Fault {}
+type Bad { K string }
+func contextKey(b Bad) string { b.K }
+func contextText(b Bad) string fails Fault { if b.K == "" { return Fault }; b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01584.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Fault {}
+type Bad { K string }
+func contextKey(b Bad) string { b.K }
+func contextText(b Bad) string fails Fault { if b.K == "" { return Fault }; b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01585.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+type Fault {}
+type Bad { K string }
+func contextKey(b Bad) string { b.K }
+func contextText(b Bad) string fails Fault { if b.K == "" { return Fault }; b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01586.ergo --
+let W = context { A: Quiet }type Fault {}
+type Bad { K string }
+func contextKey(b Bad) string { b.K }
+func contextText(b Bad) string fails Fault { if b.K == "" { return Fault }; b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01587.ergo --
+let W = context { A: Quiet }
+type Fault {}
+type Bad { K string }
+func contextKey(b Bad) string { b.K }
+func contextText(b Bad) string fails Fault { if b.K == "" { return Fault }; b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01588.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+type Fault {}
+type Bad { K string }
+func contextKey(b Bad) string { b.K }
+func contextText(b Bad) string fails Fault { if b.K == "" { return Fault }; b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01589.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+type Fault {}
+type Bad { K string }
+func contextKey(b Bad) string { b.K }
+func contextText(b Bad) string fails Fault { if b.K == "" { return Fault }; b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01590.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+type Fault {}
+type Bad { K string }
+func contextKey(b Bad) string { b.K }
+func contextText(b Bad) string fails Fault { if b.K == "" { return Fault }; b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01591.ergo --
+type Bad { K string }
+func contextKey(b Bad) int { 1 }
+func contextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01592.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Bad { K string }
+func contextKey(b Bad) int { 1 }
+func contextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01593.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+type Bad { K string }
+func contextKey(b Bad) int { 1 }
+func contextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01594.ergo --
+let W = context { A: Quiet }type Bad { K string }
+func contextKey(b Bad) int { 1 }
+func contextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01595.ergo --
+let W = context { A: Quiet }
+type Bad { K string }
+func contextKey(b Bad) int { 1 }
+func contextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01596.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+type Bad { K string }
+func contextKey(b Bad) int { 1 }
+func contextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01597.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+type Bad { K string }
+func contextKey(b Bad) int { 1 }
+func contextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01598.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+type Bad { K string }
+func contextKey(b Bad) int { 1 }
+func contextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01599.ergo --
+type Bad { K string }
+func contextKey(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01600.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Bad { K string }
+func contextKey(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01601.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+type Bad { K string }
+func contextKey(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01602.ergo --
+let W = context { A: Quiet }type Bad { K string }
+func contextKey(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01603.ergo --
+let W = context { A: Quiet }
+type Bad { K string }
+func contextKey(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01604.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+type Bad { K string }
+func contextKey(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01605.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+type Bad { K string }
+func contextKey(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01606.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+type Bad { K string }
+func contextKey(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01607.ergo --
+type Bad { contextKey string, contextText string }
+func bad() Bad { Bad{contextKey: "k", contextText: "v"} }
+func f() int { with bad() { 1 } }
+-- 01608.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Bad { contextKey string, contextText string }
+func bad() Bad { Bad{contextKey: "k", contextText: "v"} }
+func f() int { with bad() { 1 } }
+-- 01609.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+type Bad { contextKey string, contextText string }
+func bad() Bad { Bad{contextKey: "k", contextText: "v"} }
+func f() int { with bad() { 1 } }
+-- 01610.ergo --
+let W = context { A: Quiet }type Bad { contextKey string, contextText string }
+func bad() Bad { Bad{contextKey: "k", contextText: "v"} }
+func f() int { with bad() { 1 } }
+-- 01611.ergo --
+let W = context { A: Quiet }
+type Bad { contextKey string, contextText string }
+func bad() Bad { Bad{contextKey: "k", contextText: "v"} }
+func f() int { with bad() { 1 } }
+-- 01612.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+type Bad { contextKey string, contextText string }
+func bad() Bad { Bad{contextKey: "k", contextText: "v"} }
+func f() int { with bad() { 1 } }
+-- 01613.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+type Bad { contextKey string, contextText string }
+func bad() Bad { Bad{contextKey: "k", contextText: "v"} }
+func f() int { with bad() { 1 } }
+-- 01614.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+type Bad { contextKey string, contextText string }
+func bad() Bad { Bad{contextKey: "k", contextText: "v"} }
+func f() int { with bad() { 1 } }
+-- 01615.ergo --
+func f() int { with "k" { 1 } }
+-- 01616.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f() int { with "k" { 1 } }
+-- 01617.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f() int { with "k" { 1 } }
+-- 01618.ergo --
+let W = context { A: Quiet }func f() int { with "k" { 1 } }
+-- 01619.ergo --
+let W = context { A: Quiet }
+func f() int { with "k" { 1 } }
+-- 01620.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f() int { with "k" { 1 } }
+-- 01621.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f() int { with "k" { 1 } }
+-- 01622.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f() int { with "k" { 1 } }
+-- 01623.ergo --
+type Keyed { contextKey() string, contextText() string }
+func f(k Keyed) int { with k { 1 } }
+-- 01624.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Keyed { contextKey() string, contextText() string }
+func f(k Keyed) int { with k { 1 } }
+-- 01625.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+type Keyed { contextKey() string, contextText() string }
+func f(k Keyed) int { with k { 1 } }
+-- 01626.ergo --
+let W = context { A: Quiet }type Keyed { contextKey() string, contextText() string }
+func f(k Keyed) int { with k { 1 } }
+-- 01627.ergo --
+let W = context { A: Quiet }
+type Keyed { contextKey() string, contextText() string }
+func f(k Keyed) int { with k { 1 } }
+-- 01628.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+type Keyed { contextKey() string, contextText() string }
+func f(k Keyed) int { with k { 1 } }
+-- 01629.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+type Keyed { contextKey() string, contextText() string }
+func f(k Keyed) int { with k { 1 } }
+-- 01630.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+type Keyed { contextKey() string, contextText() string }
+func f(k Keyed) int { with k { 1 } }
+-- 01631.ergo --
+type Bad { K string }
+func ContextKey(b Bad) string { b.K }
+func ContextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01632.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Bad { K string }
+func ContextKey(b Bad) string { b.K }
+func ContextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01633.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+type Bad { K string }
+func ContextKey(b Bad) string { b.K }
+func ContextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01634.ergo --
+let W = context { A: Quiet }type Bad { K string }
+func ContextKey(b Bad) string { b.K }
+func ContextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01635.ergo --
+let W = context { A: Quiet }
+type Bad { K string }
+func ContextKey(b Bad) string { b.K }
+func ContextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01636.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+type Bad { K string }
+func ContextKey(b Bad) string { b.K }
+func ContextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01637.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+type Bad { K string }
+func ContextKey(b Bad) string { b.K }
+func ContextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01638.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+type Bad { K string }
+func ContextKey(b Bad) string { b.K }
+func ContextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+-- 01639.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+-- 01640.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+-- 01641.ergo --
+let W = context { A: Quiet }type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+-- 01642.ergo --
+let W = context { A: Quiet }
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+-- 01643.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+-- 01644.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+-- 01645.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func untried() int { with tag(key(true), "v") { 1 } }
+-- 01646.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func untried() int { with tag(key(true), "v") { 1 } }
+-- 01647.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func untried() int { with tag(key(true), "v") { 1 } }
+-- 01648.ergo --
+let W = context { A: Quiet }type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func untried() int { with tag(key(true), "v") { 1 } }
+-- 01649.ergo --
+let W = context { A: Quiet }
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func untried() int { with tag(key(true), "v") { 1 } }
+-- 01650.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func untried() int { with tag(key(true), "v") { 1 } }
+-- 01651.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func untried() int { with tag(key(true), "v") { 1 } }
+-- 01652.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func untried() int { with tag(key(true), "v") { 1 } }
+-- 01653.ergo --
+type Opaque { K string }
+func contextKey(o Opaque) string { let f = func() string { o.K }; f() }
+func contextText(o Opaque) string { o.K }
+func mk() Opaque { Opaque{K: "k"} }
+func pure() int { with tag("k", "v") { 1 } }
+func opaque() int { with mk() { 1 } }
+func block() needs Log { with tag("k", "v") { Log.Say("x") } }
+-- 01654.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Opaque { K string }
+func contextKey(o Opaque) string { let f = func() string { o.K }; f() }
+func contextText(o Opaque) string { o.K }
+func mk() Opaque { Opaque{K: "k"} }
+func pure() int { with tag("k", "v") { 1 } }
+func opaque() int { with mk() { 1 } }
+func block() needs Log { with tag("k", "v") { Log.Say("x") } }
+-- 01655.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+type Opaque { K string }
+func contextKey(o Opaque) string { let f = func() string { o.K }; f() }
+func contextText(o Opaque) string { o.K }
+func mk() Opaque { Opaque{K: "k"} }
+func pure() int { with tag("k", "v") { 1 } }
+func opaque() int { with mk() { 1 } }
+func block() needs Log { with tag("k", "v") { Log.Say("x") } }
+-- 01656.ergo --
+let W = context { A: Quiet }type Opaque { K string }
+func contextKey(o Opaque) string { let f = func() string { o.K }; f() }
+func contextText(o Opaque) string { o.K }
+func mk() Opaque { Opaque{K: "k"} }
+func pure() int { with tag("k", "v") { 1 } }
+func opaque() int { with mk() { 1 } }
+func block() needs Log { with tag("k", "v") { Log.Say("x") } }
+-- 01657.ergo --
+let W = context { A: Quiet }
+type Opaque { K string }
+func contextKey(o Opaque) string { let f = func() string { o.K }; f() }
+func contextText(o Opaque) string { o.K }
+func mk() Opaque { Opaque{K: "k"} }
+func pure() int { with tag("k", "v") { 1 } }
+func opaque() int { with mk() { 1 } }
+func block() needs Log { with tag("k", "v") { Log.Say("x") } }
+-- 01658.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+type Opaque { K string }
+func contextKey(o Opaque) string { let f = func() string { o.K }; f() }
+func contextText(o Opaque) string { o.K }
+func mk() Opaque { Opaque{K: "k"} }
+func pure() int { with tag("k", "v") { 1 } }
+func opaque() int { with mk() { 1 } }
+func block() needs Log { with tag("k", "v") { Log.Say("x") } }
+-- 01659.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+type Opaque { K string }
+func contextKey(o Opaque) string { let f = func() string { o.K }; f() }
+func contextText(o Opaque) string { o.K }
+func mk() Opaque { Opaque{K: "k"} }
+func pure() int { with tag("k", "v") { 1 } }
+func opaque() int { with mk() { 1 } }
+func block() needs Log { with tag("k", "v") { Log.Say("x") } }
+-- 01660.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+type Opaque { K string }
+func contextKey(o Opaque) string { let f = func() string { o.K }; f() }
+func contextText(o Opaque) string { o.K }
+func mk() Opaque { Opaque{K: "k"} }
+func pure() int { with tag("k", "v") { 1 } }
+func opaque() int { with mk() { 1 } }
+func block() needs Log { with tag("k", "v") { Log.Say("x") } }
+-- 01661.ergo --
+import log
+import trace
+func annotation() bool { match log.Annotation("k") { case Some[string]: true; case None: false } }
+func current() bool { match trace.Current() { case Some[string]: true; case None: false } }
+func bound() int { with log.Annotate("k", "v") { with trace.Span("s") { 1 } } }
+-- 01662.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+import log
+import trace
+func annotation() bool { match log.Annotation("k") { case Some[string]: true; case None: false } }
+func current() bool { match trace.Current() { case Some[string]: true; case None: false } }
+func bound() int { with log.Annotate("k", "v") { with trace.Span("s") { 1 } } }
+-- 01663.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+import log
+import trace
+func annotation() bool { match log.Annotation("k") { case Some[string]: true; case None: false } }
+func current() bool { match trace.Current() { case Some[string]: true; case None: false } }
+func bound() int { with log.Annotate("k", "v") { with trace.Span("s") { 1 } } }
+-- 01664.ergo --
+let W = context { A: Quiet }import log
+import trace
+func annotation() bool { match log.Annotation("k") { case Some[string]: true; case None: false } }
+func current() bool { match trace.Current() { case Some[string]: true; case None: false } }
+func bound() int { with log.Annotate("k", "v") { with trace.Span("s") { 1 } } }
+-- 01665.ergo --
+let W = context { A: Quiet }
+import log
+import trace
+func annotation() bool { match log.Annotation("k") { case Some[string]: true; case None: false } }
+func current() bool { match trace.Current() { case Some[string]: true; case None: false } }
+func bound() int { with log.Annotate("k", "v") { with trace.Span("s") { 1 } } }
+-- 01666.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+import log
+import trace
+func annotation() bool { match log.Annotation("k") { case Some[string]: true; case None: false } }
+func current() bool { match trace.Current() { case Some[string]: true; case None: false } }
+func bound() int { with log.Annotate("k", "v") { with trace.Span("s") { 1 } } }
+-- 01667.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+import log
+import trace
+func annotation() bool { match log.Annotation("k") { case Some[string]: true; case None: false } }
+func current() bool { match trace.Current() { case Some[string]: true; case None: false } }
+func bound() int { with log.Annotate("k", "v") { with trace.Span("s") { 1 } } }
+-- 01668.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+import log
+import trace
+func annotation() bool { match log.Annotation("k") { case Some[string]: true; case None: false } }
+func current() bool { match trace.Current() { case Some[string]: true; case None: false } }
+func bound() int { with log.Annotate("k", "v") { with trace.Span("s") { 1 } } }
+-- 01669.ergo --
+type A int
+type B int
+func F(a A) B { return B(a) }
+-- 01670.ergo --
+func F(d duration) float64 { return float64(d) }
+-- 01671.ergo --
+func F(d duration) int { return int(d) }
+-- 01672.ergo --
+func F(n int) duration { return duration(n) }
+-- 01673.ergo --
+type Length int
+type Feet Length
+func F(feet Feet) int { return int(feet) }
+-- 01674.ergo --
+func F(n int64) duration { return duration(n) }
+-- 01675.ergo --
+func F(d duration) int64 { return int64(d) }
+-- 01676.ergo --
+type A int
+type B int
+func F(a A) B { return B(int(a)) }
+-- 01677.ergo --
+type Length int
+type Feet Length
+func F(feet Feet) int { return int(Length(feet)) }
+-- 01678.ergo --
+type Length int
+type Feet Length
+func F(n int) Feet { return Feet(Length(n)) }
+-- 01679.ergo --
+type Celsius float64
+func F() Celsius { return Celsius(1) }
+-- 01680.ergo --
+type Pending {}
+type Paid { N int }
+type Payment = Pending | Paid
+func a() Payment {
+	let p Payment
+	return p
+}
+-- 01681.ergo --
+let p of type Payment needs a value
+-- 01682.ergo --
+type Pending {}
+type Paid { N int }
+type Payment = Pending | Paid
+let P Payment
+func a() Payment {
+	return P
+}
+-- 01683.ergo --
+let P of type Payment needs a value
+-- 01684.ergo --
+let Limit = 10
+func b() {
+	Limit = 3
+}
+-- 01685.ergo --
+type Store { Get() string }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func cmp(s Store, m Mem) bool {
+	return s == m
+}
+-- 01686.ergo --
+type Store { Get() string }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func cmp(s Store, m Mem) bool {
+	return m != s
+}
+-- 01687.ergo --
+type Store { Get() string }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+let Base = context { Store: Mem{V: "live"} }
+let W = context {
+	replace Store: Mem{V: "one"},
+	replace Store: Mem{V: "two"},
+	Base,
+}
+-- 01688.ergo --
+type Store { Get() string }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+let Base = context { Store: Mem{V: "live"} }
+let W = context {
+	replace Store: Mem{V: "one"},
+	Store: Mem{V: "two"},
+	Base,
+}
+-- 01689.ergo --
+type Store { Get() string }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+let W = context {
+	Store: Mem{V: "one"},
+	Store: Mem{V: "two"},
+}
+-- 01690.ergo --
+type Store { Get() string }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+let W = context { Store, Store: Mem{V: "x"} }
+-- 01691.ergo --
+func b() {
+	let n = new(int)
+	n
+}
+-- 01692.ergo --
+let mut
+-- 01693.ergo --
+let without value
+-- 01694.ergo --
+let pattern
+-- 01695.ergo --
+let tuple pattern
+-- 01696.ergo --
+type parameters
+-- 01697.ergo --
+type match
+-- 01698.ergo --
+
+import timeout
+func f() timeout.Expired { return timeout.Expired }
+func main() {}
+-- 01699.ergo --
+
+import go strings
+func main() {}
+-- 01700.ergo --
+
+import task
+func main() { let t = task.Go() { 1 }; t.Stop() }
+-- 01701.ergo --
+
+import go task
+type Bang {}
+func a() { task.Go() { b() }; return Bang }
+func b() { return a() }
+func F() fails Bang { return b() }
+func main() {}
+-- 01702.ergo --
+let names a value
+-- 01703.ergo --
+
+func f() int64 {
+	let x int64 = 1
+	let y = x + 1
+	return y
+}
+func main() {}
+-- 01704.ergo --
+let mut is assigned
+-- 01705.ergo --
+
+func f() int64 {
+	let mut x int64 = 1
+	x += 2
+	return x
+}
+func main() {}
+-- 01706.ergo --
+let with a type and no value takes the zero value
+-- 01707.ergo --
+
+func f() int64 {
+	let x int64
+	return x
+}
+func main() {}
+-- 01708.ergo --
+
+type P { X int, Y int }
+func f(p P) int {
+	let P{X: x, Y: y} = p
+	return x + y
+}
+func main() {}
+-- 01709.ergo --
+
+func f() int {
+	let (a, b) = (1, undefinedName)
+	return a + b
+}
+func main() {}
+-- 01710.ergo --
+
+type P { X int, Y int }
+let P{X: a, Y: b} = P{X: 1, Y: "no"}
+func f() int { return a + b }
+func main() {}
+-- 01711.ergo --
+
+let (a, b) = (1, undefinedName)
+func main() {}
+-- 01712.ergo --
+let W = context
+-- 01713.ergo --
+
+type Ticker { Now() int64 }
+type Fixed { t int64 }
+func Now(f Fixed) int64 { return f.t }
+let W = context { Ticker: Fixed{t: 1} }
+func f() int64 { return with W { Ticker.Now() } }
+func main() {}
+-- 01714.ergo --
+
+type Ticker { Now() int64 }
+type Log { Write(s string) }
+type Fixed { t int64 }
+func Now(f Fixed) int64 { return f.t }
+let W = context provides Ticker needs Log { Ticker: Fixed{t: 1} }
+func main() {}
+-- 01715.ergo --
+
+type Ticker { Now() int64 }
+type Fixed { t int64 }
+func Now(f Fixed) int64 { return f.t }
+func f() int64 {
+	let w = context { Ticker: Fixed{t: 1} }
+	return with w { Ticker.Now() }
+}
+func g() int64 { return use(context { Ticker: Fixed{t: 2} }) }
+func use(n int64) int64 { n }
+func main() {}
+-- 01716.ergo --
+
+type Ticker { Now() int64 }
+type Fixed { t int64 }
+func Now(f Fixed) int64 { return f.t }
+func f() int64 { return with context provides Ticker { Ticker: Fixed{t: 1} } { Ticker.Now() } }
+func main() {}
+-- 01717.ergo --
+
+type Ticker { Now() int64 }
+type Timer { Now() int64 }
+type Fixed { t int64 }
+func Now(f Fixed) int64 { return f.t }
+let Base = context { Ticker, Timer: Fixed{t: 1} }
+let W = context { replace Ticker: Fixed{t: 2}, Base }
+func f() int64 { return with W { Ticker.Now() + Timer.Now() } }
+func main() {}
+-- 01718.ergo --
+
+type Log { Write(s string) }
+type Quiet {}
+func Write(q Quiet, s string) {}
+let W = context { Log: Quiet }
+func f() { with W { Log.Write("x") } }
+func main() {}
+-- 01719.ergo --
+
+type Log { Write(s string) }
+type Quiet {}
+func Write(q Quiet, s string) {}
+let W = context { Log: Quiet }
+func f() { with (W) { Log.Write("x") } }
+func main() {}
+-- 01720.ergo --
+
+type Log { Write(s string) }
+type Quiet {}
+func Write(q Quiet, s string) {}
+let A = context { Log: Quiet }
+let B = context { Log: Quiet }
+func f() { with A, B { Log.Write("x") } }
+func main() {}
+-- 01721.ergo --
+
+type P { X int, Y int }
+type E {}
+func f() P { _ = E; return P{X: 1, Y: 2} }
+func main() {}
+-- 01722.ergo --
+
+type Log { Write(s string) }
+func f() needs Log { Log.Write("x") }
+func main() {}
+-- 01723.ergo --
+
+type Monoid {
+	Combine(a int, b int) int,
+	law Assoc(a int, b int, c int) {
+		assert true
+		Combine(Combine(a, b), c) == Combine(a, Combine(b, c))
+	},
+}
+func main() {}
+-- 01724.ergo --
+
+type A {}
+type B {}
+type U = A | B
+func f(u U) int {
+	match u {
+	case A:
+		return 1
+	case B:
+		return 2
+	}
+}
+func main() {}
+-- 01725.ergo --
+
+type U = Paid{ ID string } | Pending{}
+func main() {}
+-- 01726.ergo --
+
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+}
+func main() {}
+-- 01727.ergo --
+
+type Celsius float64
+type Name string
+func f(n int) Name { return Name("\(n)") }
+func g() Celsius { return Celsius(1.5) }
+func main() {}
+-- 01728.ergo --
+
+func pass[A, E, R](f func() A fails E needs R) A fails E needs R { return try f() }
+func main() {}
+-- 01729.ergo --
+
+func k[E](a E) fails E { return }
+func main() {}
+-- 01730.ergo --
+
+func max[T ordered](a T, b T) T {
+	if a > b {
+		return a
+	}
+	return b
+}
+func f() int { return max(1, 2) }
+func main() {}
+-- 01731.ergo --
+
+type Bang {}
+type Log { Write(s string) }
+func f() int fails Bang needs Log {
+	Log.Write("x")
+	return Bang
+}
+func main() {}
+-- 01732.ergo --
+
+func f(g escaping func(int) int) int { return g(1) }
+func main() {}
+-- 01733.ergo --
+
+func pair() (int, string) { return pair() }
+func main() {}
+-- 01734.ergo --
+
+func f() { _ = (1, "a") }
+func main() {}
+-- 01735.ergo --
+
+func f(m Map[string, int64], xs []int64) []int64 {
+	m.Delete("a")
+	return xs.Append(1).Append(2)
+}
+func main() {}
+-- 01736.ergo --
+
+func f(xs []int64) []int64 { return xs.Append("a") }
+func main() {}
+-- 01737.ergo --
+
+func f(m Map[string, int64]) { m.Delete(1) }
+func main() {}
+-- 01738.ergo --
+
+func f(xs []int64) { let g = xs.Append }
+func main() {}
+-- 01739.ergo --
+
+type Door { open bool }
+func knock(d Door, n int) bool { return d.open }
+func f(d Door) bool { return d.knock(1) }
+func main() {}
+-- 01740.ergo --
+
+extern go example.com/door.Fail func fail() int
+func f() int { return fail() }
+func main() {}
+-- 01741.ergo --
+
+test Adds {
+	assert 1 + 1 == 2
+}
+func main() {}
+-- 01742.ergo --
+
+func f() {
+	assert true
+}
+func main() {}
+-- 01743.ergo --
+
+func f(c bool) int {
+	let x = if c { 1 } else { 2 }
+	return x
+}
+func main() {}
+-- 01744.ergo --
+
+func f(n int) int {
+	let x = match n {
+	case 1: 10
+	case _: 20
+	}
+	return x
+}
+func main() {}
+-- 01745.ergo --
+
+func f(n int) int {
+	match n {
+	case 1:
+		return 10
+	case _:
+		return 20
+	}
+}
+func main() {}
+-- 01746.ergo --
+
+type A { X int }
+type B {}
+type U = A | B
+func f(u U) int {
+	match u {
+	case A as a:
+		return a.X
+	case B:
+		return 0
+	}
+}
+func main() {}
+-- 01747.ergo --
+
+type A {}
+type B {}
+type U = A | B
+func g(u U) int { return 1 }
+func f(u U) int {
+	match u {
+	case A:
+		return 0
+	case _ as rest:
+		return g(rest)
+	}
+}
+func main() {}
+-- 01748.ergo --
+
+type A {}
+type B {}
+type U = A | B
+func f(u U) int {
+	match u {
+	case A as a:
+		return 1
+	case B:
+		return 0
+	}
+}
+func main() {}
+-- 01749.ergo --
+
+type A { X int }
+type B {}
+type U = A | B
+func f(u U, v U) int {
+	match (u, v) {
+	case (A as a, A):
+		return a.X
+	case _:
+		return 0
+	}
+}
+func main() {}
+-- 01750.ergo --
+
+type A { X int }
+type B {}
+type U = A | B
+func f(u U) int {
+	match u {
+	case A{X: x}:
+		return x
+	case B:
+		return 0
+	}
+}
+func main() {}
+-- 01751.ergo --
+
+type A {}
+type B {}
+type U = A | B
+func f(u U) int {
+	match u {
+	case A as a, B as b:
+		return 0
+	}
+}
+func main() {}
+-- 01752.ergo --
+
+type NotFound { ID string }
+type Gone {}
+func load() int fails NotFound | Gone { return 1 }
+func f() string {
+	let n = load() catch {
+	case NotFound as e:
+		return e.ID
+	case Gone:
+		return "gone"
+	}
+	return "ok \(n)"
+}
+func main() {}
+-- 01753.ergo --
+
+type Gone {}
+func load() int fails Gone { return 1 }
+func f() int fails Gone {
+	return load() catch {
+	case err:
+		return err
+	}
+}
+func main() {}
+-- 01754.ergo --
+
+func f(xs []int64, m Map[string, int64]) int64 {
+	let mut s int64 = 0
+	for x in xs {
+		s += x
+	}
+	for i, x in xs {
+		s += x + int64(i)
+	}
+	for v in m {
+		s += v
+	}
+	return s
+}
+func main() {}
+-- 01755.ergo --
+
+type P { X int, Y int }
+func f(ps []P) int {
+	let mut s = 0
+	for P{X: x, Y: y} in ps {
+		s += x + y + undefinedA
+	}
+	return s
+}
+func main() {}
+-- 01756.ergo --
+
+func f(xs []int) int {
+	let mut s = 0
+	for (a, b) in xs {
+		s += a + b
+	}
+	return s
+}
+func main() {}
+-- 01757.ergo --
+
+func sum(n int64) int64 {
+	let mut s int64 = 0
+	for i in 0..n {
+		s += i
+	}
+	return s
+}
+func main() {}
+-- 01758.ergo --
+
+func f() {
+	for i in "a".."b" {
+		let _ = i
+	}
+}
+func main() {}
+-- 01759.ergo --
+
+func f() int {
+	let r = 1..2
+	r.End
+}
+func main() {}
+-- 01760.ergo --
+
+func f() int {
+	let mut n = 0
+	for n < 3 {
+		n += 1
+	}
+	for {
+		return n
+	}
+}
+func main() {}
+-- 01761.ergo --
+
+func f() int {
+	let mut n = 1
+	n = 2
+	n *= 3
+	return n
+}
+func main() {}
+-- 01762.ergo --
+
+func f(xs []int) int {
+	let mut s = 0
+	for x in xs {
+		if x < 0 {
+			continue
+		}
+		if x > 9 {
+			break
+		}
+		s += x
+	}
+	return s
+}
+func main() {}
+-- 01763.ergo --
+
+func f() int {
+	let g = func(a int, b int) int { return a + b }
+	return g(1, 2)
+}
+func main() {}
+-- 01764.ergo --
+
+func f() { _ = func(x) {} }
+func main() {}
+-- 01765.ergo --
+
+func label(n int, ok bool) string { return "n = \(n), ok = \(ok), \("s"), \(7)" }
+func main() {}
+-- 01766.ergo --
+
+type Bang {}
+func g() int fails Bang { return 1 }
+func label() string { return "g = \(g())" }
+func main() {}
+-- 01767.ergo --
+
+type Bang {}
+func g() int fails Bang { return 1 }
+func label() string fails Bang { return "g = \(try g())" }
+func main() {}
+-- 01768.ergo --
+
+func f() float64 {
+	let x float64 = 1.5
+	let y = 2.5e-1 + 1.0
+	return x * y * 2.0
+}
+func main() {}
+-- 01769.ergo --
+
+func f() int { return 1.5 }
+func main() {}
+-- 01770.ergo --
+
+type Bang {}
+func g() int fails Bang { return 1 }
+func f() int fails Bang {
+	let n = try g()
+	return n + 1
+}
+func main() {}
+-- 01771.ergo --
+
+type P { X int, Y int }
+func g(p *P) int { return p.X }
+func f(xs []int, m Map[string, int]) int {
+	let mut p = P{X: 1, Y: 2}
+	p.X = -(g(&p) + 1)
+	let q = P{..p, Y: 3}
+	let ys = xs[1:2:3]
+	let zs = xs[:1]
+	let n = ys[0] + len(m) + len(zs)
+	if n > 0 && !(n == 3) {
+		return n
+	} else if n < 0 {
+		return 0
+	}
+	for x in xs {
+		if x > 1 {
+			break
+		}
+		continue
+	}
+	g(&p)
+	return len(ys) + q.Y
+}
+func main() {}
+-- 01772.ergo --
+
+// The timeout module.
+import timeout
+
+// Ticker reads the time.
+type Ticker {
+	// Now is the time.
+	Now() int64,
+}
+
+// Fixed is a clock.
+type Fixed {
+	// t is the time.
+	t int64,
+}
+
+// Now reads f.
+func Now(f Fixed) int64 { return f.t }
+
+// fail is one.
+func fail() int { return 1 }
+
+// W provides Ticker.
+let W = context {
+	// The fixed clock.
+	Ticker: Fixed{t: 1},
+}
+
+// n is one.
+let n = 1
+
+// f reads W.
+func f() int64 { return with W { Ticker.Now() } + int64(n) + int64(fail()) }
+func g() timeout.Expired { return timeout.Expired }
+func main() {}
+-- 01773.ergo --
+
+import t timeout
+func timeout() int { return 1 }
+func f() t.Expired { return t.Expired }
+func main() {}
+-- 01774.ergo --
+
+// Adds holds for every x.
+test Adds(x int) {
+	assert x + 0 == x
+}
+func main() {}
+-- 01775.ergo --
+
+type Box[T] { V T }
+func f(b Box[int]) int { return b.V }
+func main() {}
+-- 01776.ergo --
+
+type Opt[T] = Has[T]{ V T } | Empty{}
+func main() {}
+-- 01777.ergo --
+
+type Ticker { Now() int64 }
+type Log { Write(s string) }
+type Fixed { t int64 }
+func Now(f Fixed) int64 { return f.t }
+func f() int64 needs Log { return with context provides Ticker needs Log { Ticker: Fixed{t: 1} } { Ticker.Now() } }
+func main() {}
+-- 01778.ergo --
+
+type Monoid {
+	Combine(a int, b int) int,
+	// Assoc groups either way.
+	law Assoc(a int, b int, c int) { Combine(Combine(a, b), c) == Combine(a, Combine(b, c)) },
+}
+func main() {}
+-- 01779.ergo --
+
+func add(a int, b int) int { a + b }
+// AddCommutes: the order of the operands does not matter.
+law AddCommutes(a int, b int) {
+	assert true
+	add(a, b) == add(b, a)
+}
+func main() {}
+-- 01780.ergo --
+
+func add(a int, b int) int { a + b }
+type AddLaws {
+	law AddCommutes(a int, b int) { add(a, b) == add(b, a) },
+}
+func main() {}
+-- 01781.ergo --
+
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	// The breaker starts closed.
+	initial: Closed,
+	// step decides each signal.
+	step:    step,
+}
+func main() {}
+-- 01782.ergo --
+
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Emit{Open, "tripped"}
+	case Open:
+		return Done{"open"}
+	}
+}
+func timer(s State) Option[Timeout[Signal]] {
+	match s {
+	case Closed:
+		return None
+	case Open:
+		return Some{Timeout{5s, Trip}}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+	after:   timer,
+}
+func main() {}
+-- 01783.ergo --
+type I { Show() int }
+type Box[T I] { V T }
+func early(x Box[R]) {}
+-- 01784.ergo --
+type R {}
+func Show[T, T](r R) int { 1 }
+-- 01785.ergo --
+type parameter T is declared twice
+-- 01786.ergo --
+type I { M() A }
+-- 01787.ergo --
+type A I
+-- 01788.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+-- 01789.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+-- 01790.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+-- 01791.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+-- 01792.ergo --
+func count(needs []int) int { len(needs) }
+-- 01793.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+func count(needs []int) int { len(needs) }
+-- 01794.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+func count(needs []int) int { len(needs) }
+-- 01795.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+func count(needs []int) int { len(needs) }
+-- 01796.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+func count(needs []int) int { len(needs) }
+-- 01797.ergo --
+func f() int {
+	let needs = 1
+	needs
+}
+-- 01798.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+func f() int {
+	let needs = 1
+	needs
+}
+-- 01799.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+func f() int {
+	let needs = 1
+	needs
+}
+-- 01800.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+func f() int {
+	let needs = 1
+	needs
+}
+-- 01801.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+func f() int {
+	let needs = 1
+	needs
+}
+-- 01802.ergo --
+type Oops {}
+func work(n int) fails Oops needs Console {
+	if n < 0 {
+		return Oops
+	}
+	Console.Println("w")
+}
+func main() needs Console {
+	let _ = with context { } { work(1) } catch {
+	case Oops:
+		return
+	}
+}
+-- 01803.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+type Oops {}
+func work(n int) fails Oops needs Console {
+	if n < 0 {
+		return Oops
+	}
+	Console.Println("w")
+}
+func main() needs Console {
+	let _ = with context { } { work(1) } catch {
+	case Oops:
+		return
+	}
+}
+-- 01804.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+type Oops {}
+func work(n int) fails Oops needs Console {
+	if n < 0 {
+		return Oops
+	}
+	Console.Println("w")
+}
+func main() needs Console {
+	let _ = with context { } { work(1) } catch {
+	case Oops:
+		return
+	}
+}
+-- 01805.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+type Oops {}
+func work(n int) fails Oops needs Console {
+	if n < 0 {
+		return Oops
+	}
+	Console.Println("w")
+}
+func main() needs Console {
+	let _ = with context { } { work(1) } catch {
+	case Oops:
+		return
+	}
+}
+-- 01806.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+type Oops {}
+func work(n int) fails Oops needs Console {
+	if n < 0 {
+		return Oops
+	}
+	Console.Println("w")
+}
+func main() needs Console {
+	let _ = with context { } { work(1) } catch {
+	case Oops:
+		return
+	}
+}
+-- 01807.ergo --
+func apply(f func(d duration), d duration) { f(d) }
+func use() { apply(Nap, 1s) }
+-- 01808.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+func apply(f func(d duration), d duration) { f(d) }
+func use() { apply(Nap, 1s) }
+-- 01809.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+func apply(f func(d duration), d duration) { f(d) }
+func use() { apply(Nap, 1s) }
+-- 01810.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+func apply(f func(d duration), d duration) { f(d) }
+func use() { apply(Nap, 1s) }
+-- 01811.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+func apply(f func(d duration), d duration) { f(d) }
+func use() { apply(Nap, 1s) }
+-- 01812.ergo --
+type Engine { Compile(p string) bool, law L(p string) { Compile(p) == Compile(p) } }
+func Holds(e Engine, p string) bool { e.Compile(p) }
+func All(e Engine) bool { e.Holds("a") }
+-- 01813.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+type Engine { Compile(p string) bool, law L(p string) { Compile(p) == Compile(p) } }
+func Holds(e Engine, p string) bool { e.Compile(p) }
+func All(e Engine) bool { e.Holds("a") }
+-- 01814.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+type Engine { Compile(p string) bool, law L(p string) { Compile(p) == Compile(p) } }
+func Holds(e Engine, p string) bool { e.Compile(p) }
+func All(e Engine) bool { e.Holds("a") }
+-- 01815.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+type Engine { Compile(p string) bool, law L(p string) { Compile(p) == Compile(p) } }
+func Holds(e Engine, p string) bool { e.Compile(p) }
+func All(e Engine) bool { e.Holds("a") }
+-- 01816.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+type Engine { Compile(p string) bool, law L(p string) { Compile(p) == Compile(p) } }
+func Holds(e Engine, p string) bool { e.Compile(p) }
+func All(e Engine) bool { e.Holds("a") }
+-- 01817.ergo --
+type Box[T] { v T }
+func Twice(b *Box[int]) { b.v = b.v * 2 }
+func main() needs Console {
+	let mut b = Box[int]{v: 1}
+	b.Twice()
+	Console.Println("\(b.v)")
+}
+-- 01818.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+type Box[T] { v T }
+func Twice(b *Box[int]) { b.v = b.v * 2 }
+func main() needs Console {
+	let mut b = Box[int]{v: 1}
+	b.Twice()
+	Console.Println("\(b.v)")
+}
+-- 01819.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+type Box[T] { v T }
+func Twice(b *Box[int]) { b.v = b.v * 2 }
+func main() needs Console {
+	let mut b = Box[int]{v: 1}
+	b.Twice()
+	Console.Println("\(b.v)")
+}
+-- 01820.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+type Box[T] { v T }
+func Twice(b *Box[int]) { b.v = b.v * 2 }
+func main() needs Console {
+	let mut b = Box[int]{v: 1}
+	b.Twice()
+	Console.Println("\(b.v)")
+}
+-- 01821.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+type Box[T] { v T }
+func Twice(b *Box[int]) { b.v = b.v * 2 }
+func main() needs Console {
+	let mut b = Box[int]{v: 1}
+	b.Twice()
+	Console.Println("\(b.v)")
+}
+-- 01822.ergo --
+func apply(f func(d duration) fails Late | Lost, d duration) fails Late | Lost { try f(d) }
+func use() fails Late | Lost { try apply(NapOr, 1s) }
+-- 01823.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+func apply(f func(d duration) fails Late | Lost, d duration) fails Late | Lost { try f(d) }
+func use() fails Late | Lost { try apply(NapOr, 1s) }
+-- 01824.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+func apply(f func(d duration) fails Late | Lost, d duration) fails Late | Lost { try f(d) }
+func use() fails Late | Lost { try apply(NapOr, 1s) }
+-- 01825.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+func apply(f func(d duration) fails Late | Lost, d duration) fails Late | Lost { try f(d) }
+func use() fails Late | Lost { try apply(NapOr, 1s) }
+-- 01826.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+func apply(f func(d duration) fails Late | Lost, d duration) fails Late | Lost { try f(d) }
+func use() fails Late | Lost { try apply(NapOr, 1s) }
+-- 01827.ergo --
+type Engine {}
+type Program { n int }
+func Compile(s string) Program { Program{n: 1} }
+func Compile(_ Engine, s string) Program { Program{n: 2} }
+-- 01828.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+type Engine {}
+type Program { n int }
+func Compile(s string) Program { Program{n: 1} }
+func Compile(_ Engine, s string) Program { Program{n: 2} }
+-- 01829.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+type Engine {}
+type Program { n int }
+func Compile(s string) Program { Program{n: 1} }
+func Compile(_ Engine, s string) Program { Program{n: 2} }
+-- 01830.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+type Engine {}
+type Program { n int }
+func Compile(s string) Program { Program{n: 1} }
+func Compile(_ Engine, s string) Program { Program{n: 2} }
+-- 01831.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+type Engine {}
+type Program { n int }
+func Compile(s string) Program { Program{n: 1} }
+func Compile(_ Engine, s string) Program { Program{n: 2} }
+-- 01832.ergo --
+type Item { N int }
+type Store { Item(n int) Item, law ItemKeeps(n int) { Item(n) == Item{N: n} } }
+-- 01833.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+type Item { N int }
+type Store { Item(n int) Item, law ItemKeeps(n int) { Item(n) == Item{N: n} } }
+-- 01834.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+type Item { N int }
+type Store { Item(n int) Item, law ItemKeeps(n int) { Item(n) == Item{N: n} } }
+-- 01835.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+type Item { N int }
+type Store { Item(n int) Item, law ItemKeeps(n int) { Item(n) == Item{N: n} } }
+-- 01836.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+type Item { N int }
+type Store { Item(n int) Item, law ItemKeeps(n int) { Item(n) == Item{N: n} } }
+-- 01837.ergo --
+func f() int {
+	let Task = 1
+	Task
+}
+-- 01838.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+func f() int {
+	let Task = 1
+	Task
+}
+-- 01839.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+func f() int {
+	let Task = 1
+	Task
+}
+-- 01840.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+func f() int {
+	let Task = 1
+	Task
+}
+-- 01841.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+func f() int {
+	let Task = 1
+	Task
+}
+-- 01842.ergo --
+func f() int {
+	let number = 1
+	number
+}
+-- 01843.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+func f() int {
+	let number = 1
+	number
+}
+-- 01844.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+func f() int {
+	let number = 1
+	number
+}
+-- 01845.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+func f() int {
+	let number = 1
+	number
+}
+-- 01846.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+func f() int {
+	let number = 1
+	number
+}
+-- 01847.ergo --
+func late(d duration) duration { d / 4 }
+-- 01848.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+func late(d duration) duration { d / 4 }
+-- 01849.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+func late(d duration) duration { d / 4 }
+-- 01850.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+func late(d duration) duration { d / 4 }
+-- 01851.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+func late(d duration) duration { d / 4 }
+-- 01852.ergo --
+func late(d duration, n int) duration { d * n }
+-- 01853.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+func late(d duration, n int) duration { d * n }
+-- 01854.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+func late(d duration, n int) duration { d * n }
+-- 01855.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+func late(d duration, n int) duration { d * n }
+-- 01856.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+func late(d duration, n int) duration { d * n }
+-- 01857.ergo --
+type Missing { Name string }
+func find(name string) string fails Missing {
+	if name == "" {
+		return Missing{Name: name}
+	}
+	name
+}
+func shown(s string) bool { s != "" }
+func f() bool {
+	shown(find("x")) catch {
+	case Missing:
+		false
+	}
+}
+-- 01858.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+type Missing { Name string }
+func find(name string) string fails Missing {
+	if name == "" {
+		return Missing{Name: name}
+	}
+	name
+}
+func shown(s string) bool { s != "" }
+func f() bool {
+	shown(find("x")) catch {
+	case Missing:
+		false
+	}
+}
+-- 01859.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+type Missing { Name string }
+func find(name string) string fails Missing {
+	if name == "" {
+		return Missing{Name: name}
+	}
+	name
+}
+func shown(s string) bool { s != "" }
+func f() bool {
+	shown(find("x")) catch {
+	case Missing:
+		false
+	}
+}
+-- 01860.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+type Missing { Name string }
+func find(name string) string fails Missing {
+	if name == "" {
+		return Missing{Name: name}
+	}
+	name
+}
+func shown(s string) bool { s != "" }
+func f() bool {
+	shown(find("x")) catch {
+	case Missing:
+		false
+	}
+}
+-- 01861.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+type Missing { Name string }
+func find(name string) string fails Missing {
+	if name == "" {
+		return Missing{Name: name}
+	}
+	name
+}
+func shown(s string) bool { s != "" }
+func f() bool {
+	shown(find("x")) catch {
+	case Missing:
+		false
+	}
+}
+-- 01862.ergo --
+func first(words []string, n int) []string { words[0..n] }
+-- 01863.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+func first(words []string, n int) []string { words[0..n] }
+-- 01864.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+func first(words []string, n int) []string { words[0..n] }
+-- 01865.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+func first(words []string, n int) []string { words[0..n] }
+-- 01866.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+func first(words []string, n int) []string { words[0..n] }
+-- 01867.ergo --
+type Broken { Reason string }
+func get() string fails Broken { Broken{Reason: "x"} }
+func Use() string { get() }
+-- 01868.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+type Broken { Reason string }
+func get() string fails Broken { Broken{Reason: "x"} }
+func Use() string { get() }
+-- 01869.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+type Broken { Reason string }
+func get() string fails Broken { Broken{Reason: "x"} }
+func Use() string { get() }
+-- 01870.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+type Broken { Reason string }
+func get() string fails Broken { Broken{Reason: "x"} }
+func Use() string { get() }
+-- 01871.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+type Broken { Reason string }
+func get() string fails Broken { Broken{Reason: "x"} }
+func Use() string { get() }
+-- 01872.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+-- 01873.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+-- 01874.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+-- 01875.ergo --
+type Missing { Name string }
+func find(name string) string fails Missing {
+	if name == "" {
+		return Missing{Name: name}
+	}
+	name
+}
+func shown(s string) bool { s != "" }
+func main() needs Console {
+	let ok = shown(find("x")) catch {
+	case Missing:
+		false
+	}
+	Console.Println("\(ok)")
+}
+-- 01876.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+type Missing { Name string }
+func find(name string) string fails Missing {
+	if name == "" {
+		return Missing{Name: name}
+	}
+	name
+}
+func shown(s string) bool { s != "" }
+func main() needs Console {
+	let ok = shown(find("x")) catch {
+	case Missing:
+		false
+	}
+	Console.Println("\(ok)")
+}
+-- 01877.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+type Missing { Name string }
+func find(name string) string fails Missing {
+	if name == "" {
+		return Missing{Name: name}
+	}
+	name
+}
+func shown(s string) bool { s != "" }
+func main() needs Console {
+	let ok = shown(find("x")) catch {
+	case Missing:
+		false
+	}
+	Console.Println("\(ok)")
+}
+-- 01878.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+type Missing { Name string }
+func find(name string) string fails Missing {
+	if name == "" {
+		return Missing{Name: name}
+	}
+	name
+}
+func shown(s string) bool { s != "" }
+func main() needs Console {
+	let ok = shown(find("x")) catch {
+	case Missing:
+		false
+	}
+	Console.Println("\(ok)")
+}
+-- 01879.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+type Missing { Name string }
+func find(name string) string fails Missing {
+	if name == "" {
+		return Missing{Name: name}
+	}
+	name
+}
+func shown(s string) bool { s != "" }
+func main() needs Console {
+	let ok = shown(find("x")) catch {
+	case Missing:
+		false
+	}
+	Console.Println("\(ok)")
+}
+-- 01880.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+-- 01881.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+-- 01882.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+-- 01883.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+-- 01884.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+-- 01885.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+-- 01886.ergo --
+func fK() int { REC{N: 1} }
+-- 01887.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+func fK() int { REC{N: 1} }
+-- 01888.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+func fK() int { REC{N: 1} }
+-- 01889.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+func fK() int { REC{N: 1} }
+-- 01890.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+func fK() int { REC{N: 1} }
+-- 01891.ergo --
+func fK() int { FAIL(1) }
+-- 01892.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+func fK() int { FAIL(1) }
+-- 01893.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+func fK() int { FAIL(1) }
+-- 01894.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+func fK() int { FAIL(1) }
+-- 01895.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+func fK() int { FAIL(1) }
+-- 01896.ergo --
+func fK(u UNION) int {
+	match u {
+	case ONE:
+		1
+	}
+}
+-- 01897.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+func fK(u UNION) int {
+	match u {
+	case ONE:
+		1
+	}
+}
+-- 01898.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+func fK(u UNION) int {
+	match u {
+	case ONE:
+		1
+	}
+}
+-- 01899.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+func fK(u UNION) int {
+	match u {
+	case ONE:
+		1
+	}
+}
+-- 01900.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+func fK(u UNION) int {
+	match u {
+	case ONE:
+		1
+	}
+}
+-- 01901.ergo --
+func fK() REC { 1 }
+-- 01902.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+func fK() REC { 1 }
+-- 01903.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+func fK() REC { 1 }
+-- 01904.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+func fK() REC { 1 }
+-- 01905.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+func fK() REC { 1 }
+-- 01906.ergo --
+func fK(r REC) int { r.Missing }
+-- 01907.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+func fK(r REC) int { r.Missing }
+-- 01908.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+func fK(r REC) int { r.Missing }
+-- 01909.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+func fK(r REC) int { r.Missing }
+-- 01910.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+func fK(r REC) int { r.Missing }
+-- 01911.ergo --
+func fK(c bool) int {
+	let x = if c { REC{N: 1} } else { 2 }
+	_ = x
+	0
+}
+-- 01912.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+func fK(c bool) int {
+	let x = if c { REC{N: 1} } else { 2 }
+	_ = x
+	0
+}
+-- 01913.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+func fK(c bool) int {
+	let x = if c { REC{N: 1} } else { 2 }
+	_ = x
+	0
+}
+-- 01914.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+func fK(c bool) int {
+	let x = if c { REC{N: 1} } else { 2 }
+	_ = x
+	0
+}
+-- 01915.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+func fK(c bool) int {
+	let x = if c { REC{N: 1} } else { 2 }
+	_ = x
+	0
+}
+-- 01916.ergo --
+func fK(u UNION) REC { u }
+-- 01917.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+func fK(u UNION) REC { u }
+-- 01918.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+func fK(u UNION) REC { u }
+-- 01919.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+func fK(u UNION) REC { u }
+-- 01920.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+func fK(u UNION) REC { u }
+-- 01921.ergo --
+func fK(r REC) bool { r == ONE }
+-- 01922.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+func fK(r REC) bool { r == ONE }
+-- 01923.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+func fK(r REC) bool { r == ONE }
+-- 01924.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+func fK(r REC) bool { r == ONE }
+-- 01925.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+func fK(r REC) bool { r == ONE }
+-- 01926.ergo --
+func use() int { a.MakeRec().N + a.Fail(1) catch { case a.AErr: 0 } }
+-- 01927.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+func use() int { a.MakeRec().N + a.Fail(1) catch { case a.AErr: 0 } }
+-- 01928.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+func use() int { a.MakeRec().N + a.Fail(1) catch { case a.AErr: 0 } }
+-- 01929.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+func use() int { a.MakeRec().N + a.Fail(1) catch { case a.AErr: 0 } }
+-- 01930.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+func use() int { a.MakeRec().N + a.Fail(1) catch { case a.AErr: 0 } }
+-- 01931.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+-- 01932.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+-- 01933.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+-- 01934.ergo --
+let mut b = a.Box[int]{V: 1}
+	b.Twice()
+	b.V
+-- 01935.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+let mut b = a.Box[int]{V: 1}
+	b.Twice()
+	b.V
+-- 01936.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+let mut b = a.Box[int]{V: 1}
+	b.Twice()
+	b.V
+-- 01937.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+let mut b = a.Box[int]{V: 1}
+	b.Twice()
+	b.V
+-- 01938.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+let mut b = a.Box[int]{V: 1}
+	b.Twice()
+	b.V
+-- 01939.ergo --
+let b = a.Box[int]{V: 1}
+	b.half()
+-- 01940.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+let b = a.Box[int]{V: 1}
+	b.half()
+-- 01941.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+let b = a.Box[int]{V: 1}
+	b.half()
+-- 01942.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+let b = a.Box[int]{V: 1}
+	b.half()
+-- 01943.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+let b = a.Box[int]{V: 1}
+	b.half()
+-- 01944.ergo --
+import a
+func f() int {
+	
+-- 01945.ergo --
+type Late {}
+type Lost {}
+extern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)
+extern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost
+import a
+func f() int {
+	
+-- 01946.ergo --
+type ARec { N int }
+type AErr { Code int }
+type AUnion = AOne{} | ATwo{}
+func MakeRec() ARec { ARec{N: 1} }
+func Fail(n int) int fails AErr { if n < 0 { return AErr{Code: n} } else { n } }
+import a
+func f() int {
+	
+-- 01947.ergo --
+type MRec { N int }
+type MErr { Code int }
+type MUnion = MOne{} | MTwo{}
+func mfail(n int) int fails MErr { if n < 0 { return MErr{Code: n} } else { n } }
+import a
+func f() int {
+	
+-- 01948.ergo --
+type Box[T] { V T }
+func Twice(b *Box[int]) { b.V = b.V * 2 }
+func half(b Box[int]) int { b.V / 2 }
+func Half(b Box[int]) int { half(b) }
+import a
+func f() int {
+	
+-- 01949.ergo --
+func h() int { nope }
+-- 01950.ergo --
+func f%d_%d() int { missing%d }
+-- 01951.ergo --
+func g%d_%d() int { "%s" }
+-- 01952.ergo --
+type Dup {}
+-- 01953.ergo --
+func k%d_%d() int { %s }
+-- 01954.ergo --
+func Fn[T any](x T) T { return x }
+-- 01955.ergo --
+func Fn[T](x T) T { return x }
+-- 01956.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+-- 01957.ergo --
+func Fn[A, B](a A, b B) B { return b }
+-- 01958.ergo --
+type Gt%d[P any] struct{ F %s }
+
+-- 01959.ergo --
+func Fn[T any](x T) T { return x }
+type Gt%d[P any] struct{ F %s }
+
+-- 01960.ergo --
+func Fn[T](x T) T { return x }
+type Gt%d[P any] struct{ F %s }
+
+-- 01961.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+type Gt%d[P any] struct{ F %s }
+
+-- 01962.ergo --
+func Fn[A, B](a A, b B) B { return b }
+type Gt%d[P any] struct{ F %s }
+
+-- 01963.ergo --
+type Gt%d[P] { F %s }
+
+-- 01964.ergo --
+func Fn[T any](x T) T { return x }
+type Gt%d[P] { F %s }
+
+-- 01965.ergo --
+func Fn[T](x T) T { return x }
+type Gt%d[P] { F %s }
+
+-- 01966.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+type Gt%d[P] { F %s }
+
+-- 01967.ergo --
+func Fn[A, B](a A, b B) B { return b }
+type Gt%d[P] { F %s }
+
+-- 01968.ergo --
+type Gi%d[P any] interface{ M(%s) }
+
+-- 01969.ergo --
+func Fn[T any](x T) T { return x }
+type Gi%d[P any] interface{ M(%s) }
+
+-- 01970.ergo --
+func Fn[T](x T) T { return x }
+type Gi%d[P any] interface{ M(%s) }
+
+-- 01971.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+type Gi%d[P any] interface{ M(%s) }
+
+-- 01972.ergo --
+func Fn[A, B](a A, b B) B { return b }
+type Gi%d[P any] interface{ M(%s) }
+
+-- 01973.ergo --
+type Gi%d[P] { M(%s) }
+
+-- 01974.ergo --
+func Fn[T any](x T) T { return x }
+type Gi%d[P] { M(%s) }
+
+-- 01975.ergo --
+func Fn[T](x T) T { return x }
+type Gi%d[P] { M(%s) }
+
+-- 01976.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+type Gi%d[P] { M(%s) }
+
+-- 01977.ergo --
+func Fn[A, B](a A, b B) B { return b }
+type Gi%d[P] { M(%s) }
+
+-- 01978.ergo --
+func Fn%d[%s](%s)%s {
+-- 01979.ergo --
+func Fn[T any](x T) T { return x }
+func Fn%d[%s](%s)%s {
+-- 01980.ergo --
+func Fn[T](x T) T { return x }
+func Fn%d[%s](%s)%s {
+-- 01981.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Fn%d[%s](%s)%s {
+-- 01982.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Fn%d[%s](%s)%s {
+-- 01983.ergo --
+func (r Gt%d[%s]) Mt%d() {
+-- 01984.ergo --
+func Fn[T any](x T) T { return x }
+func (r Gt%d[%s]) Mt%d() {
+-- 01985.ergo --
+func Fn[T](x T) T { return x }
+func (r Gt%d[%s]) Mt%d() {
+-- 01986.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func (r Gt%d[%s]) Mt%d() {
+-- 01987.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func (r Gt%d[%s]) Mt%d() {
+-- 01988.ergo --
+func Mt%d[%s](r Gt%d[%s]) {
+-- 01989.ergo --
+func Fn[T any](x T) T { return x }
+func Mt%d[%s](r Gt%d[%s]) {
+-- 01990.ergo --
+func Fn[T](x T) T { return x }
+func Mt%d[%s](r Gt%d[%s]) {
+-- 01991.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func Mt%d[%s](r Gt%d[%s]) {
+-- 01992.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func Mt%d[%s](r Gt%d[%s]) {
+-- 01993.ergo --
+func (r Gt%d[%s]) Ms%d(x %s) %s {
+	return x
+}
+
+-- 01994.ergo --
+func Fn[T any](x T) T { return x }
+func (r Gt%d[%s]) Ms%d(x %s) %s {
+	return x
+}
+
+-- 01995.ergo --
+func Fn[T](x T) T { return x }
+func (r Gt%d[%s]) Ms%d(x %s) %s {
+	return x
+}
+
+-- 01996.ergo --
+func Fn[A, B any](a A, b B) B { return b }
+func (r Gt%d[%s]) Ms%d(x %s) %s {
+	return x
+}
+
+-- 01997.ergo --
+func Fn[A, B](a A, b B) B { return b }
+func (r Gt%d[%s]) Ms%d(x %s) %s {
+	return x
+}
+
+-- 01998.ergo --
+func Ms%d[%s](r Gt%d[%s], x %s) %s {
+	return x
+}
+
+-- 01999.ergo --
+func Fn[T any](x T) T { return x }
+func Ms%d[%s](r Gt%d[%s], x %s) %s {
+	return x
+}
+

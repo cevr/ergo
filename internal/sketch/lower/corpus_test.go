@@ -7,7 +7,9 @@ import (
 	"go/token"
 	"iter"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,10 +18,11 @@ import (
 )
 
 // A program that checks clean builds (stage C round 3 review M1, the
-// structural guard; round 4 review T1 to T3). The check package's tests
-// hold the checker's corpus inline, as Go strings. This test reads them
-// from ../check/*_test.go with go/parser, so a new check test joins the
-// corpus with no list to keep.
+// structural guard; round 4 review T1 to T3). The checker's corpus is
+// ../check/testdata/corpus (readCheckCorpus): the candidates that the
+// enumeration rule below made from ../check's test files on 2026-11-09,
+// when those files held the corpus inline as Go strings (test-speed T6).
+// The rule still reads this package's own test files (checkCorpus).
 //
 // The enumeration rule (checkCorpus): in each test file, a named string is
 // a const or var whose value is a string literal, or a sum of literals and
@@ -58,16 +61,14 @@ type corpusCandidate struct {
 
 // corpusDomain is the corpus, read once per test process.
 var corpusDomain = sync.OnceValues(func() ([]string, error) {
-	sources, _, _, _, err := readCorpus("../check", maxCandidates)
+	sources, _, _, _, err := readCheckCorpus(maxCandidates)
 	return sources, err
 })
 
-// corpusSplit's domain is read from ../check's test files, which other
-// units edit, so it is not pinned; its parts cover it.
+// corpusSplit's domain is the checker's corpus; its parts cover it.
 var corpusSplit = newSplit(split[corpusCandidate]{
-	name:     "TestCheckCorpusBuilds",
-	parts:    corpusParts,
-	unpinned: true,
+	name:  "TestCheckCorpusBuilds",
+	parts: corpusParts,
 	cases: func(yield func(corpusCandidate) bool) {
 		sources, err := corpusDomain()
 		if err != nil {
@@ -100,11 +101,20 @@ func TestCheckCorpusBuildsPart9(t *testing.T)  { corpusSplit.Part(t, 9) }
 func TestCheckCorpusBuildsPart10(t *testing.T) { corpusSplit.Part(t, 10) }
 func TestCheckCorpusBuildsPart11(t *testing.T) { corpusSplit.Part(t, 11) }
 
-// TestCheckCorpusBuildsDomain: the corpus reader finds the check tests.
+// TestCheckCorpusBuildsDomain: the corpus reader finds the checker's
+// corpus, and every candidate may be a program.
 func TestCheckCorpusBuildsDomain(t *testing.T) {
-	sources, files, total, k := checkCorpus(t, "../check", maxCandidates)
-	if files < 30 || len(sources) < 200 {
-		t.Fatalf("the corpus has %d candidates from %d files; the check tests moved?", len(sources), files)
+	sources, files, total, k, err := readCheckCorpus(maxCandidates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sources) < 200 {
+		t.Fatalf("the corpus has %d candidates from %d files; did %s move?", len(sources), files, checkCorpusDir)
+	}
+	for i, src := range sources {
+		if !looksLikeSource(src) || !strings.HasSuffix(src, "\n") {
+			t.Errorf("candidate %d is not a program:\n%s", i, src)
+		}
 	}
 	if k > 1 {
 		t.Logf("sampled every %dth of %d candidates", k, total)
@@ -112,8 +122,122 @@ func TestCheckCorpusBuildsDomain(t *testing.T) {
 	t.Logf("candidates %d from %d files", len(sources), files)
 }
 
+// corpusGcVariable selects TestCorpusCompilesWithGc (scripts/gate,
+// corpusGcEnvironment).
+const corpusGcVariable = "ERGO_TEST_CORPUS_GC"
+
+// corpusGcProbeVariable stops TestCorpusCompilesWithGc where its work
+// starts, for TestCorpusGcRunsWhenSelected.
+const corpusGcProbeVariable = "ERGO_TEST_CORPUS_GC_PROBE"
+
+// TestCorpusGcRunsWhenSelected: TestCorpusCompilesWithGc reaches its work
+// when corpusGcVariable is 1, and skips when it is unset (test-speed S2b
+// gap: a selection that always skipped would pass every tier, and gc would
+// never see the corpus). It runs this test binary, which is built already,
+// with the probe variable, so no Go is built; the child runs without
+// -short, as the full tier does.
+func TestCorpusGcRunsWhenSelected(t *testing.T) {
+	for _, c := range []struct{ value, want string }{
+		{"1", "--- PASS: TestCorpusCompilesWithGc"},
+		{"", "--- SKIP: TestCorpusCompilesWithGc"},
+	} {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestCorpusCompilesWithGc$", "-test.count=1", "-test.v")
+		cmd.Env = append(os.Environ(), corpusGcVariable+"="+c.value, corpusGcProbeVariable+"=1")
+		out, err := cmd.CombinedOutput()
+		reached := strings.Contains(string(out), "corpus gc: selected")
+		if err != nil || !strings.Contains(string(out), c.want) || reached != (c.value == "1") {
+			t.Errorf("%s=%q: err %v, want %q and the work reached only when selected:\n%s", corpusGcVariable, c.value, err, c.want, firstLines(string(out), 20))
+		}
+	}
+}
+
+// TestCorpusCompilesWithGc is gc's side of typecheckGo (test-speed plan
+// T1): the parts of TestCheckCorpusBuilds and TestAcceptedNodesLower check
+// their compile-only programs with go/types in process; this test compiles
+// every clean corpus program and every accepted-node program without an
+// oracle with gc, in one go command (no vet, no link), so a program that
+// go/types accepts and gc refuses still fails the full tier.
+//
+// It runs only when corpusGcVariable is 1: the gate's full tier sets it on
+// this package's steps, so gc and vet go over the corpus once per full
+// tier, and not in every other run of the package's tests (a bare go test,
+// the closure sweep, each mutant of the ledger). It is 266 of the
+// package's 792 CPU-s (test-speed T5; plan Q2: "gc runs once per full
+// tier on the whole corpus in one command"). The fast tier keeps go/types.
+//
+// It builds Go because its question is gc's verdict.
+func TestCorpusCompilesWithGc(t *testing.T) {
+	needsBuild(t)
+	if os.Getenv(corpusGcVariable) != "1" {
+		t.Skip("gc and vet of the corpus run in the gate's full tier: " + corpusGcVariable + "=1")
+	}
+	if os.Getenv(corpusGcProbeVariable) == "1" {
+		t.Log("corpus gc: selected")
+		return
+	}
+	sources, err := corpusDomain()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var programs []*lowered
+	clean := func(o *lowered) bool {
+		return o.file != nil && len(o.diags) == 0 && o.panicked == nil && o.err == nil && len(o.refused) == 0
+	}
+	for i, src := range sources {
+		if o := lowerSource(fmt.Sprintf("c%d", i), src, false); clean(o) {
+			programs = append(programs, o)
+		}
+	}
+	corpus := len(programs)
+	accepted, err := acceptedSources()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range accepted {
+		if s.want != "" {
+			continue // built, linked and run by TestAcceptedNodesLower
+		}
+		if o := lowerSource(s.name, s.src, false); clean(o) {
+			programs = append(programs, o)
+		}
+	}
+	if corpus < 100 || len(programs) == corpus {
+		t.Fatalf("%d corpus and %d accepted-node programs: a reader lost its domain?", corpus, len(programs)-corpus)
+	}
+	if err := unparsedGo(programs); err != nil {
+		t.Fatal(err)
+	}
+	rejected, output := gcRejects(t, programs)
+	if len(rejected) > 0 {
+		t.Errorf("gc rejects %d programs:\n%s", len(rejected), firstLines(output, 60))
+		for _, p := range programs {
+			if rejected[p.name] {
+				t.Logf("source of %s:\n%s\nGo:\n%s", p.name, p.src, p.mainGo())
+				break
+			}
+		}
+	}
+	t.Logf("compiled %d corpus and %d accepted-node programs with gc", corpus, len(programs)-corpus)
+	if len(rejected) > 0 {
+		return
+	}
+	// go vet runs here once, on the whole corpus, in place of a vet per
+	// test (test-speed plan T2: buildAll links without vet).
+	m := newGoModuleDir(t)
+	for _, p := range programs {
+		m.program(p, p.mainGo())
+	}
+	if out, ok := m.goCommand(vetArgs...); !ok {
+		m.report("vet", out)
+	}
+}
+
 // runCorpus lowers the candidates of one part and builds its clean
 // programs.
+//
+// It builds Go because buildAll without a link is the harness's compile
+// check of the corpus: under it go/types checks every program in process
+// (typecheckGo), and gc compiles them once in TestCorpusCompilesWithGc.
 func runCorpus(t *testing.T, cases iter.Seq[corpusCandidate]) {
 	var programs []*lowered
 	rejected, deferred, candidates := 0, map[string]int{}, 0
@@ -227,6 +351,57 @@ func checkCorpus(t *testing.T, dir string, limit int) (out []string, files, tota
 		t.Fatal(err)
 	}
 	return out, files, total, k
+}
+
+// checkCorpusDir holds the checker's corpus: the candidates that the
+// enumeration rule made from ../check's test files when they held the
+// corpus inline (test-speed T6, 2026-11-09), so cutting check tests no
+// longer shrinks it. Each file is a txtar-style archive: a line
+// "-- NNNNN.ergo --" starts each candidate.
+const checkCorpusDir = "../check/testdata/corpus"
+
+// readCheckCorpus returns the checker's corpus in its stable order, the
+// number of corpus files, the number of candidates, and the stride k:
+// past limit it keeps every k-th candidate, from the first.
+func readCheckCorpus(limit int) (out []string, files, total, k int, err error) {
+	paths, err := filepath.Glob(filepath.Join(checkCorpusDir, "*.txtar"))
+	if err != nil {
+		return nil, 0, 0, 0, err
+	}
+	sort.Strings(paths)
+	var all []string
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return nil, 0, 0, 0, err
+		}
+		all = append(all, splitCorpusArchive(string(data))...)
+	}
+	k = 1
+	if len(all) > limit {
+		k = (len(all) + limit - 1) / limit
+	}
+	for i := 0; i < len(all); i += k {
+		out = append(out, all[i])
+	}
+	return out, len(paths), len(all), k, nil
+}
+
+// corpusHeader matches the line that starts a candidate of a corpus file.
+var corpusHeader = regexp.MustCompile(`(?m)^-- [0-9]+\.ergo --\n`)
+
+// splitCorpusArchive returns the candidates of one corpus file, in order.
+func splitCorpusArchive(data string) []string {
+	bounds := corpusHeader.FindAllStringIndex(data, -1)
+	var out []string
+	for i, b := range bounds {
+		end := len(data)
+		if i+1 < len(bounds) {
+			end = bounds[i+1][0]
+		}
+		out = append(out, data[b[1]:end])
+	}
+	return out
 }
 
 // readCorpus is checkCorpus, with an error.

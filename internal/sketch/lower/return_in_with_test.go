@@ -10,6 +10,7 @@ import (
 // TestErgoRunReturnInWith (L3 acceptance): the d-10 repro returns 3 for
 // []int{-1, 3}, and its provider closes before the function's exit action.
 func TestErgoRunReturnInWith(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `import scope
 
 type Store { Get() int }
@@ -33,53 +34,6 @@ func main() needs Console {
 	Console.Println("\(first([]int{-1, 3}))")
 }
 `, "close 0\nexit\n3\n")
-}
-
-// TestErgoRunReturnInWithSlots: a with that returns stands in operand
-// slots (a call argument, a binary operand, a composite element, an
-// interpolation, an if condition, a match subject); the operands before
-// it are evaluated first, and its provider closes once on both exits.
-func TestErgoRunReturnInWithSlots(t *testing.T) {
-	slots := []string{
-		"integer(WITH)",
-		"1 + WITH",
-		"[]int{tick(), WITH}[1]",
-		"len(\"\\(WITH)\")",
-		"if WITH > 0 { 1 } else { 2 }",
-		"match WITH { case 0: 3; case _: 4 }",
-	}
-	var b strings.Builder
-	b.WriteString(`type C { Use() int }
-type R { N int }
-func Use(r R) int { r.N }
-func Close(r R) needs Console { Console.Println("close \(r.N)") }
-func integer(n int) int { n }
-func tick() int needs Console { Console.Println("tick"); 0 }
-`)
-	var want strings.Builder
-	for i, slot := range slots {
-		with := fmt.Sprintf("with context { C: R{N: %d} } { if k == 0 { return 100 + C.Use() }; C.Use() }", i)
-		fmt.Fprintf(&b, "func s%d(k int) int needs Console {\n\t%s\n}\n", i, strings.ReplaceAll(slot, "WITH", with))
-		for k := range 2 {
-			if strings.Contains(slot, "tick") {
-				want.WriteString("tick\n")
-			}
-			fmt.Fprintf(&want, "close %d\n", i)
-			v := 100 + i
-			if k == 1 {
-				v = map[int]int{0: i, 1: 1 + i, 2: i, 3: len(fmt.Sprint(i)), 4: map[bool]int{true: 1, false: 2}[i > 0], 5: map[bool]int{true: 3, false: 4}[i == 0]}[i]
-			}
-			fmt.Fprintf(&want, "s%d(%d) = %d\n", i, k, v)
-		}
-	}
-	b.WriteString("func main() needs Console {\n")
-	for i := range slots {
-		for k := range 2 {
-			fmt.Fprintf(&b, "\tConsole.Println(\"s%d(%d) = \\(s%d(%d))\")\n", i, k, i, k)
-		}
-	}
-	b.WriteString("}\n")
-	wantRun(t, b.String(), want.String())
 }
 
 // rwReturn is a return point in a with block: the function returns when
@@ -301,6 +255,7 @@ func (f *rwFunc) model(k int) ([]string, int) {
 // exactly once, the innermost first, before the function's exit actions,
 // which run last first. A failing seed prints the Ergo source.
 func TestErgoRunReturnInWithModel(t *testing.T) {
+	needsBuild(t)
 	cover := map[string]bool{}
 	for _, seed := range []uint64{1, 2, 3} {
 		r := rand.New(rand.NewPCG(seed, 0x4c33))

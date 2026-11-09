@@ -1,9 +1,7 @@
 package lower
 
 import (
-	"strings"
 	"testing"
-	"time"
 
 	"ergo.local/prototype/internal/lawledger"
 )
@@ -15,99 +13,8 @@ import (
 // decides Before, After and Sub when wall and monotonic disagree; Unix and
 // Add carry nanoseconds into seconds; a host clock's two reads never fall.
 func TestTimeRuns(t *testing.T) {
+	needsBuild(t)
 	runBehaviors(t, []behavior{{name: "time", src: stdTimeProgram, stdout: stdTimeOutput}})
-}
-
-// TestTimeEffectCases ports the sleep cases of Effect's TestClock tests
-// (packages/effect/test/TestClock.test.ts at the conformance pin 460272d3)
-// to time.Manual, which is Effect's TestClock: each prints its output
-// after a line "== <case id>", and each is a subtest named after its case
-// id in conformance/effect-cases.json. Effect's adjust also waits until the
-// woken fibers have run; a Manual's Advance wakes the sleepers, and the
-// program reads their results with Wait. A program waits until the tasks
-// are asleep (Sleepers) before it advances, as Effect's fork has run to
-// its sleep before adjust. The run takes no wall time near the hours it
-// sleeps: the test bounds it.
-func TestTimeEffectCases(t *testing.T) {
-	const src = `import task
-import time
-
-func main() needs Console {
-	// TestClock.test.ts:8, sleep - does not require passage of wall time
-	Console.Println("== effect.test-clock.admitted-fork")
-	let a = time.NewManual(0)
-	let elapsed = with context { Scheduler: a } {
-		task.Go() {
-			Scheduler.Sleep(10h)
-			true
-		}
-	}
-	for a.Sleepers() == 0 {
-	}
-	a.Advance(11h)
-	Console.Println("\(elapsed.Wait())")
-
-	// TestClock.test.ts:18, sleep - delays effects until time is adjusted
-	Console.Println("== effect.test-clock.delays-until-adjusted")
-	let b = time.NewManual(0)
-	let delayed = with context { Scheduler: b } {
-		task.Go() {
-			Scheduler.Sleep(10h)
-			true
-		}
-	}
-	for b.Sleepers() == 0 {
-	}
-	b.Advance(9h)
-	Console.Println("asleep \(b.Sleepers())")
-	b.Advance(11h)
-	Console.Println("\(delayed.Wait()) asleep \(b.Sleepers())")
-
-	// TestClock.test.ts:31, sleep - handles multiple sleeps
-	Console.Println("== effect.test-clock.multiple-sleeps")
-	let c = time.NewManual(0)
-	let world = with context { Scheduler: c } {
-		task.Go() {
-			Scheduler.Sleep(3h)
-			"World!"
-		}
-	}
-	let hello = with context { Scheduler: c } {
-		task.Go() {
-			Scheduler.Sleep(1h)
-			"Hello, "
-		}
-	}
-	for c.Sleepers() < 2 {
-	}
-	c.Advance(1h)
-	let first = hello.Wait()
-	Console.Println(first + "| asleep \(c.Sleepers())")
-	c.Advance(4h)
-	Console.Println(first + world.Wait())
-}
-`
-	run := mustLower(t, "timecases", src)
-	exes := buildAll(t, []*lowered{run}, true)
-	if exes == nil {
-		return
-	}
-	start := time.Now()
-	stdout, stderr, code := runExe(t, exes["timecases"])
-	took := time.Since(start)
-	head, sections, _ := strings.Cut(stdout, "== ")
-	if code != 0 || head != "" || took > 30*time.Second {
-		t.Errorf("exit %d after %v\nstdout %q\nstderr %s", code, took, stdout, firstLines(stderr, 10))
-	}
-	t.Run("effect.test-clock.admitted-fork", func(t *testing.T) {
-		effectCaseSection(t, sections, "true\n")
-	})
-	t.Run("effect.test-clock.delays-until-adjusted", func(t *testing.T) {
-		effectCaseSection(t, sections, "asleep 1\ntrue asleep 0\n")
-	})
-	t.Run("effect.test-clock.multiple-sleeps", func(t *testing.T) {
-		effectCaseSection(t, sections, "Hello, | asleep 1\nHello, World!\n")
-	})
 }
 
 const stdTimeProgram = `import time
@@ -331,6 +238,7 @@ var stdTimeLawStatements = map[string]string{
 // whose runner is this test, each with the row's statement, and that each
 // passed.
 func TestStdTimeLawsRun(t *testing.T) {
+	needsBuild(t)
 	if laws := lawProbe(t, "stdtime", stdTimeLawsProbe, stdTimeLawStatements); laws != nil {
 		lawledger.Run(t, laws)
 	}

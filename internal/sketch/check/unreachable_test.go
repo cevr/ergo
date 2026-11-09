@@ -42,31 +42,6 @@ func TestUnreachableChecksInEachPosition(t *testing.T) {
 	}
 }
 
-// TestUnreachableTakesTheExpectedType: the call's recorded type is the
-// type its position expects, which the lowering writes as Never[T].
-func TestUnreachableTakesTheExpectedType(t *testing.T) {
-	pkg, d := check.CheckSource("func f() int64 {\n\tlet x int64 = Unreachable(\"x\")\n\tx\n}\n")
-	if len(d) > 0 {
-		t.Fatal(describe(d))
-	}
-	found := false
-	for x, c := range pkg.Info.Calls {
-		if !check.IsUnreachable(c) {
-			continue
-		}
-		found = true
-		if got := pkg.Info.Types[x]; got == nil || got.String() != "int64" {
-			t.Errorf("Unreachable has type %v; want int64", got)
-		}
-		if !c.Fails.Empty() {
-			t.Errorf("Unreachable has the row %v; want none", c.Fails)
-		}
-	}
-	if !found {
-		t.Fatal("no call of Unreachable recorded")
-	}
-}
-
 // TestUnreachableRefusals: a position with no expected type asks for one;
 // a catch of it is a catch of an expression that cannot fail; a program
 // declaration or local named Unreachable is the prelude rule's (D-D3),

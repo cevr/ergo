@@ -3,7 +3,6 @@ package lower
 import (
 	"fmt"
 	"regexp"
-	"strings"
 	"testing"
 )
 
@@ -88,8 +87,14 @@ test SmallStrings(s string) {
 // string grows past 5 bytes. Over the five seeds the integer edges appear
 // (the int64 maximum, the int8 bounds, 255 for uint8). Each FAIL line names
 // the seed and the size, and the size is the case's number over four.
+//
+// It builds Go because it runs the emitted test harness under go test: the
+// harness's verdicts and the values it prints are the output; no in-process
+// check observes that, and Ergo has no reference interpreter yet (test-speed
+// T8).
 func TestGeneratorsReachEveryClass(t *testing.T) {
-	exes := buildAll(t, []*lowered{lowerTestBuild(t, "generators", generatorProbes)}, true)
+	needsBuild(t)
+	exes := tableExes(t, "generators")
 	if exes == nil {
 		return
 	}
@@ -129,34 +134,5 @@ func TestGeneratorsReachEveryClass(t *testing.T) {
 		if edgeSeen[name] < 2 {
 			t.Errorf("%s was refuted under %d of 5 seeds, want at least 2: the integer edges are too rare", name, edgeSeen[name])
 		}
-	}
-}
-
-// TestGeneratorSizeBoundsNesting: nested collections stay small, the bound
-// halving at each level (at most 25 × 12 × 6 ints in a [][][]int); and
-// case 1 (size 0) draws empty collections.
-func TestGeneratorSizeBoundsNesting(t *testing.T) {
-	src := `test Nested(xs [][][]int) {
-	let mut n = 0
-	for a in xs {
-		for b in a {
-			n = n + len(b)
-		}
-	}
-	assert n <= 1800
-}
-
-test FirstIsEmpty(xs []int, m Map[int, int]) {
-	assert len(xs) > 0 || len(m) > 0
-}
-`
-	exes := buildAll(t, []*lowered{lowerTestBuild(t, "nesting", src)}, true)
-	if exes == nil {
-		return
-	}
-	stdout, _, _ := runExe(t, exes["nesting"])
-	got := lines(stdout)
-	if len(got) != 3 || got[0] != "ok Nested (100 cases)" || !strings.HasPrefix(got[1], "FAIL FirstIsEmpty (case 1 of 100, seed 1, size 0: xs = []int{}, m = Map[int, int]{}): ") {
-		t.Fatalf("stdout:\n%s", stdout)
 	}
 }

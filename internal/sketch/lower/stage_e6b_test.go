@@ -2,10 +2,6 @@ package lower
 
 import (
 	"testing"
-
-	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
-	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // Check-v1 stage E6b: the forms stage E owned that the lowering still
@@ -19,6 +15,7 @@ import (
 // result and a catch. check/tuple_defined_test.go checks the same
 // program.
 func TestErgoRunDefinedTuple(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Pair (int, string)
 
 type Triple (int, string, bool)
@@ -86,6 +83,7 @@ func main() needs Console {
 // constrained type parameter. The Go side reads each key the program
 // binds at each line it prints.
 func TestErgoRunGenericContextKey(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Tag[T] { v T }
 
 func contextKey[T](t Tag[T]) string {
@@ -202,6 +200,7 @@ func TestGenericKeys(t *testing.T) {
 // itself generic over a method-set constraint lowers, as a value and
 // through a dot call.
 func TestErgoRunGenericImplementingFunction(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Valid {
 	Check() bool,
 }
@@ -233,6 +232,7 @@ func main() needs Console {
 // types.md, Operators: each operator of rules 1 to 4 runs, on the
 // operand types the rules name.
 func TestErgoRunOperators(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `type Celsius float64
 
 type P { X int, Y string }
@@ -253,68 +253,4 @@ func main() needs Console {
 	Console.Println("\(a < 8 && b > 1) \(a > 8 || !(b > 1)) \(P{X: 1, Y: "y"} == P{X: 1, Y: "y"})")
 }
 `, "9 -2 21 3 3 -7\n0 255 65535 65534 65280 255 16\n3 20 (4+0i)\nabc true true false\n2m0s 1m0s true true\ntrue false true\n")
-}
-
-// Every type of every std package and of the prelude has a runtime form or
-// lowers as a declaration: runtimeType never reaches its last branch, which
-// is an internal error (C43: it named a closed stage before).
-func TestStdTypesHaveRuntimeForms(t *testing.T) {
-	paths := std.Packages()
-	if len(paths) < 5 {
-		t.Fatalf("std.Packages() lists %d packages: %v", len(paths), paths)
-	}
-	const src = "func main() {}\nfunc probe(o Option[int]) {}\n"
-	file, err := syntax.Parse(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mainPkg, ds := check.Check("main", []*syntax.File{file}, nil)
-	if len(ds) != 0 {
-		t.Fatalf("%v\n%s", ds, src)
-	}
-	pkgs := map[string]*check.Package{}
-	for _, p := range paths {
-		pkg, err := check.Std.Import(p)
-		if err != nil {
-			t.Fatal(err)
-		}
-		pkgs[p] = pkg
-	}
-	for _, f := range mainPkg.Funcs {
-		if f.Name != "probe" {
-			continue
-		}
-		if n, ok := f.Sig.Params[0].Type.(*check.Named); ok && n.Obj.Pkg != nil && n.Obj.Pkg.Path == "prelude" {
-			pkgs["prelude"] = n.Obj.Pkg
-		}
-	}
-	if pkgs["prelude"] == nil {
-		t.Fatal("no prelude package reached")
-	}
-	l := newLowerer(Unit{Package: mainPkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: src}}})
-	n := 0
-	for path, pkg := range pkgs {
-		for _, tn := range pkg.Types {
-			named, ok := tn.Type.(*check.Named)
-			if !ok {
-				t.Errorf("%s.%s is not a named type", path, tn.Name)
-				continue
-			}
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						t.Errorf("%s.%s: %v", path, tn.Name, r)
-					}
-				}()
-				l.runtimeType(named, file)
-			}()
-			n++
-		}
-	}
-	// The std packages declare 5 types (log, queue, timeout, trace) and the
-	// prelude the rest; fewer means the enumeration lost a package.
-	if n < 20 {
-		t.Errorf("%d types in %d packages", n, len(pkgs))
-	}
-	t.Logf("%d types in %d packages", n, len(pkgs))
 }

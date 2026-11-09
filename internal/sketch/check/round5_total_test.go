@@ -3,8 +3,6 @@ package check_test
 import (
 	"fmt"
 	"math/rand"
-	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -247,9 +245,6 @@ func vVariant(s string) int {
 	return k
 }
 
-// abVariant reads the saved files' variant names A and B.
-func abVariant(s string) int { return strings.Index("AB", s) }
-
 func permuteRows(rows [][]int, order []int) [][]int {
 	out := make([][]int, len(rows))
 	for i, r := range rows {
@@ -326,35 +321,6 @@ func hornRows(n int, rng *rand.Rand) [][]int {
 		rows[i] = r
 	}
 	return rows
-}
-
-// readSaved reads a saved switch: its case rows over A and B, and whether
-// it has default (`case _:`; the decided formatter writes a space after
-// each comma of a tuple case).
-func readSaved(t *testing.T, name string) (string, [][]int, bool) {
-	data, err := os.ReadFile(filepath.Join("testdata", "totality", name))
-	if err != nil {
-		t.Fatal(err)
-	}
-	src := string(data)
-	var rows [][]int
-	for _, line := range strings.Split(src, "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "case (") {
-			continue
-		}
-		cells := strings.Split(line[len("case ("):strings.Index(line, ")")], ",")
-		r := make([]int, len(cells))
-		for j, c := range cells {
-			c = strings.TrimSpace(c)
-			r[j] = -1
-			if c != "_" {
-				r[j] = abVariant(c)
-			}
-		}
-		rows = append(rows, r)
-	}
-	return src, rows, strings.Contains(src, "\tcase _:")
 }
 
 // ---------------------------------------------------------------- the tests
@@ -448,57 +414,6 @@ func TestTotalitySoundness(t *testing.T) {
 	t.Logf("verdicts: %v", verdicts)
 	if verdicts["total"] == 0 || verdicts["not total"] == 0 {
 		t.Errorf("the matrices miss a verdict: %v", verdicts)
-	}
-}
-
-// TestTotalitySavedPairs: the reviewers' saved pairs, each the other with
-// its columns permuted: the 39-subject, 147-case pair of round 3 and the
-// 112-subject Horn pair with default of round 4. Both orders of each give
-// a sound verdict; a refusal of one order is allowed (D16 as amended in
-// round 5). Every case of the Horn pair has a private witness, so no case
-// may be reported unreachable.
-func TestTotalitySavedPairs(t *testing.T) {
-	for _, name := range []string{"permutation-original.ergo", "permutation-reordered.ergo", "horn-original.ergo", "horn-reordered.ergo"} {
-		src, rows, hasDefault := readSaved(t, name)
-		v := soundSwitch(t, name, src, rows, twos(len(rows[0])), hasDefault, abVariant)
-		if v == "not total" {
-			t.Errorf("%s: a total switch got %s", name, v)
-		}
-		t.Logf("%s: %s", name, v)
-	}
-}
-
-// TestTotalityDeterminism: the same source gives the same totality steps,
-// reachability steps and diagnostics on every check, near the budget too.
-func TestTotalityDeterminism(t *testing.T) {
-	rng := rand.New(rand.NewSource(1027))
-	var srcs []string
-	for _, name := range []string{"permutation-original.ergo", "horn-original.ergo"} {
-		src, _, _ := readSaved(t, name)
-		srcs = append(srcs, src)
-	}
-	for _, n := range []int{8, 40} {
-		var rows [][]int
-		for i := 0; i < n*43/10; i++ {
-			r := wildRow(n)
-			for _, j := range rng.Perm(n)[:3] {
-				r[j] = rng.Intn(2)
-			}
-			rows = append(rows, r)
-		}
-		srcs = append(srcs, matrixSwitch(twos(n), rows, identityOrder(n)))
-	}
-	rows, sizes := cycleRows(false, 10, 7)
-	srcs = append(srcs, matrixSwitch(sizes, rows, identityOrder(len(sizes))))
-	for i, src := range srcs {
-		ts, us, d := check.SolverSteps(src)
-		want := fmt.Sprint(ts, us, describe(d))
-		for range 3 {
-			ts, us, d := check.SolverSteps(src)
-			if got := fmt.Sprint(ts, us, describe(d)); got != want {
-				t.Fatalf("source %d: a second check differs:\n%s\nvs\n%s", i, got, want)
-			}
-		}
 	}
 }
 

@@ -1,0 +1,3685 @@
+-- 06000.ergo --
+
+
+type Job { run func() int }
+
+func run(j Job) string { return "fn" }
+
+func F(j Job) string {
+	let a string = run(j)
+	let b string = j.run()
+	return a + b
+}
+-- 06001.ergo --
+
+
+type Counter { n int }
+
+func inc(c *Counter) { c.n = c.n + 1 }
+
+func make() Counter { return Counter{} }
+
+func F() {
+	let mut c = Counter{}
+	c.inc()
+	let p = &c
+	p.inc()
+	make().inc()
+}
+-- 06002.ergo --
+
+
+type Box[T] { v T }
+
+func get[T](b Box[T]) T { return b.v }
+
+func F() int {
+	let b = Box[int]{v: 1}
+	return b.get()
+}
+
+func G() string {
+	let b = Box[int]{v: 1}
+	return b.get()
+}
+-- 06003.ergo --
+
+
+type Box[T] { v T }
+
+func pair[T, U](b Box[T], u U) U { return u }
+
+func F() string {
+	let b = Box[int]{v: 1}
+	return b.pair("x")
+}
+-- 06004.ergo --
+
+
+func twice(n int) int { return n * 2 }
+
+func F() int {
+	let n = 2
+	return n.twice()
+}
+-- 06005.ergo --
+
+
+type Bang {}
+
+type Door { open bool }
+
+func fail() fails Bang { return Bang }
+
+func knock(d Door) { try fail() }
+
+func F(d Door) fails Bang { try d.knock() }
+
+func G(d Door) { try d.knock() }
+-- 06006.ergo --
+
+
+func H(d Door) { try h(d) }
+
+func h(d Door) { try d.knock() }
+
+func K(d Door) fails Bang { try h(d) }
+
+func knock(d Door) { try fail() }
+
+func fail() fails Bang { return Bang }
+
+type Door { open bool }
+
+type Bang {}
+-- 06007.ergo --
+
+
+type Clock { Now() int }
+
+type Fixed { t int }
+
+func Now(f Fixed) int { return f.t }
+
+let W = context { Clock: Fixed{t: 1} }
+
+func F() int { return with W { Clock.Now() } }
+-- 06008.ergo --
+
+
+type Clock { Now() int }
+
+type Fixed { t int }
+
+func Now(f Fixed) string { return "" }
+
+let W = context { Clock: Fixed{t: 1} }
+
+func F() int { return with W { Clock.Now() } }
+-- 06009.ergo --
+
+
+type Bang {}
+
+type Clock { Now() int }
+
+type Fixed { t int }
+
+func Now(f Fixed) int fails Bang { return f.t }
+
+let W = context { Clock: Fixed{t: 1} }
+
+func F() int { return with W { Clock.Now() } }
+-- 06010.ergo --
+
+
+type Log { Write(s string) }
+
+type Clock { Now() int }
+
+type Fixed { t int }
+
+func Now(f Fixed) int needs Log { return f.t }
+
+let W = context { Clock: Fixed{t: 1} }
+
+func F() int { return with W { Clock.Now() } }
+-- 06011.ergo --
+
+
+type Clock { Now() int }
+
+type Fixed { t int }
+
+let W = context { Clock: Fixed{t: 1} }
+
+func F() int { return with W { Clock.Now() } }
+-- 06012.ergo --
+
+
+type Cat { name string }
+
+type Dog { name string }
+
+func speak(c Cat) string { return "meow" }
+
+func speak(d Dog) string { return "woof" }
+
+func F() string {
+	let c = Cat{name: "a"}
+	let d = Dog{name: "b"}
+	return c.speak() + d.speak()
+}
+-- 06013.ergo --
+
+
+type Cat { name string }
+
+type Dog { name string }
+
+func speak(c Cat) string { return "meow" }
+
+func speak(d Dog) string { return "woof" }
+
+func F() string {
+	let c = Cat{name: "a"}
+	return speak(c)
+}
+-- 06014.ergo --
+
+
+type Cat { name string }
+
+func speak(c Cat) string { return "meow" }
+
+func speak(c Cat) string { return "purr" }
+-- 06015.ergo --
+
+
+type Cat { name string }
+
+func speak(c Cat) string { return "meow" }
+
+func speak(n int) string { return "n" }
+-- 06016.ergo --
+
+
+type Cat { name string }
+
+type speak { n int }
+
+func speak(c Cat) string { return "meow" }
+-- 06017.ergo --
+
+
+type Counter { n int }
+
+func bump(c Counter, by int) int { return c.n + by }
+
+func F() int {
+	let c = Counter{n: 1}
+	let f = c.bump
+	return c.n + f(1)
+}
+-- 06018.ergo --
+
+
+type Counter { n int }
+
+func bump(c Counter, by int) int { return c.n + by }
+
+func F() int {
+	let c = Counter{n: 1}
+	return (c.bump)(1)
+}
+-- 06019.ergo --
+
+
+type Counter { n int }
+
+func bump(c Counter, by int) int { return c.n + by }
+
+func F() int {
+	let f = bump
+	return f(Counter{n: 1}, 2)
+}
+-- 06020.ergo --
+
+
+type Bang { code int }
+
+func Error(b Bang) string { return "bang" }
+
+func F() fails Bang { return Bang{code: 1} }
+-- 06021.ergo --
+type Clock { Now() int }
+-- 06022.ergo --
+type Fixed { t int }
+-- 06023.ergo --
+type Late { t int }
+-- 06024.ergo --
+func Now(f Fixed) int { return with context { Clock: Late{t: 2} } { Clock.Now() } + f.t }
+-- 06025.ergo --
+func Now(l Late) int { return with context { Clock: Fixed{t: 1} } { Clock.Now() } + l.t }
+-- 06026.ergo --
+func Bad(l Late) string { return Now(l) }
+-- 06027.ergo --
+let W = context { Clock: Fixed{t: 1} }
+-- 06028.ergo --
+func F() int { return with W { Clock.Now() } }
+-- 06029.ergo --
+func Fixed.Now
+-- 06030.ergo --
+func Late.Now
+-- 06031.ergo --
+type Job[E] {}
+func Run[E](j Job[E]) fails E {}
+-- 06032.ergo --
+type Job[R] {}
+func Run[R](j Job[R]) needs R {}
+-- 06033.ergo --
+type Job[E] { v E }
+func Run[E](j Job[E]) fails E {}
+-- 06034.ergo --
+type Job[E] {}
+func Run[E](n int, j Job[E]) fails E {}
+-- 06035.ergo --
+type R[P] {}
+func M[P](r R[P], x R[[]P]) {}
+-- 06036.ergo --
+type R[P] {}
+type S[Q] {}
+func M[P](r R[P], x S[[]P]) {}
+func N[Q](s S[Q], x R[Q]) {}
+-- 06037.ergo --
+type R[P] {}
+func F[P, Q](r R[P], x R[[]P], q Q) {}
+-- 06038.ergo --
+type R[P] {}
+func M[P](r R[P], x R[P]) {}
+-- 06039.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+-- 06040.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+-- 06041.ergo --
+type C { Use() }
+func main() {}
+-- 06042.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+type C { Use() }
+func main() {}
+-- 06043.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+type C { Use() }
+func main() {}
+-- 06044.ergo --
+func f0() {
+	C.Use()
+-- 06045.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func f0() {
+	C.Use()
+-- 06046.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func f0() {
+	C.Use()
+-- 06047.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func f%d() { f%d() }
+-- 06048.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func f%d() { f%d() }
+-- 06049.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+-- 06050.ergo --
+func main() {}
+func k0() B { return try load() }
+-- 06051.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func main() {}
+func k0() B { return try load() }
+-- 06052.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func main() {}
+func k0() B { return try load() }
+-- 06053.ergo --
+func k%d() B {
+	let b = k%d() catch {
+	case E:
+		B
+	}
+	try b.m()
+	return b
+}
+-- 06054.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func k%d() B {
+	let b = k%d() catch {
+	case E:
+		B
+	}
+	try b.m()
+	return b
+}
+-- 06055.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func k%d() B {
+	let b = k%d() catch {
+	case E:
+		B
+	}
+	try b.m()
+	return b
+}
+-- 06056.ergo --
+type R {}
+func m(_ R) {}
+func bad() { nope.m() }
+-- 06057.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+type R {}
+func m(_ R) {}
+func bad() { nope.m() }
+-- 06058.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+type R {}
+func m(_ R) {}
+func bad() { nope.m() }
+-- 06059.ergo --
+type R {}
+func m(_ R) {}
+func bad() { f0(); let x = nope; x.m() }
+-- 06060.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+type R {}
+func m(_ R) {}
+func bad() { f0(); let x = nope; x.m() }
+-- 06061.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+type R {}
+func m(_ R) {}
+func bad() { f0(); let x = nope; x.m() }
+-- 06062.ergo --
+func k() {
+	f0()
+	let b = w() catch {
+	case E:
+		B
+	}
+	try b.m()
+}
+-- 06063.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func k() {
+	f0()
+	let b = w() catch {
+	case E:
+		B
+	}
+	try b.m()
+}
+-- 06064.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func k() {
+	f0()
+	let b = w() catch {
+	case E:
+		B
+	}
+	try b.m()
+}
+-- 06065.ergo --
+func h() {
+	f%d()
+-- 06066.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func h() {
+	f%d()
+-- 06067.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func h() {
+	f%d()
+-- 06068.ergo --
+func g() { h() }
+-- 06069.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func g() { h() }
+-- 06070.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func g() { h() }
+-- 06071.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+type R%d {}
+func mk%d() R%d { return R%d }
+func m(_ R%d) {}
+func f%d() {
+	let x = mk%d()
+	x.m()
+}
+-- 06072.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+type R%d {}
+func mk%d() R%d { return R%d }
+func m(_ R%d) {}
+func f%d() {
+	let x = mk%d()
+	x.m()
+}
+-- 06073.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func main() {}
+-- 06074.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func main() {}
+-- 06075.ergo --
+func wide() {
+-- 06076.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func wide() {
+-- 06077.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func wide() {
+-- 06078.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func main() {}
+-- 06079.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+type E {}
+type B {}
+func load() B fails E { return B }
+func main() {}
+-- 06080.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+type E {}
+type B {}
+func load() B fails E { return B }
+func main() {}
+-- 06081.ergo --
+func m%d(b B) B { return try load() }
+-- 06082.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func m%d(b B) B { return try load() }
+-- 06083.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func m%d(b B) B { return try load() }
+-- 06084.ergo --
+func deep() {
+	let c0 = load() catch {
+	case E:
+		B
+	}
+-- 06085.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func deep() {
+	let c0 = load() catch {
+	case E:
+		B
+	}
+-- 06086.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func deep() {
+	let c0 = load() catch {
+	case E:
+		B
+	}
+-- 06087.ergo --
+type E {}
+type G[T] {}
+type H[T] {}
+-- 06088.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+type E {}
+type G[T] {}
+type H[T] {}
+-- 06089.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+type E {}
+type G[T] {}
+type H[T] {}
+-- 06090.ergo --
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+-- 06091.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+-- 06092.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+-- 06093.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func keep[T, F](g H[T], f F) {}
+-- 06094.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func keep[T, F](g H[T], f F) {}
+-- 06095.ergo --
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+-- 06096.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+-- 06097.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+-- 06098.ergo --
+func w() {
+	try load()
+	try walk()
+}
+-- 06099.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func w() {
+	try load()
+	try walk()
+}
+-- 06100.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func w() {
+	try load()
+	try walk()
+}
+-- 06101.ergo --
+func f%d() { try walk() }
+-- 06102.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func f%d() { try walk() }
+-- 06103.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func f%d() { try walk() }
+-- 06104.ergo --
+func outer() {
+	let lit = func() {
+-- 06105.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func outer() {
+	let lit = func() {
+-- 06106.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func outer() {
+	let lit = func() {
+-- 06107.ergo --
+}
+func main() {}
+-- 06108.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+}
+func main() {}
+-- 06109.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+}
+func main() {}
+-- 06110.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+type E {}
+-- 06111.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+type E {}
+-- 06112.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+type T%d {}
+-- 06113.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+type T%d {}
+-- 06114.ergo --
+func e() fails E { return E }
+-- 06115.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func e() fails E { return E }
+-- 06116.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func e() fails E { return E }
+-- 06117.ergo --
+func f() fails E
+-- 06118.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func f() fails E
+-- 06119.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func f() fails E
+-- 06120.ergo --
+func g%d() fails T%d { return T%d }
+-- 06121.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func g%d() fails T%d { return T%d }
+-- 06122.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func g%d() fails T%d { return T%d }
+-- 06123.ergo --
+func f() {
+	try e()
+-- 06124.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func f() {
+	try e()
+-- 06125.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func f() {
+	try e()
+-- 06126.ergo --
+func f() { try e() }
+-- 06127.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func f() { try e() }
+-- 06128.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func f() { try e() }
+-- 06129.ergo --
+func main() {
+	f() catch {
+	case E:
+-- 06130.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+func main() {
+	f() catch {
+	case E:
+-- 06131.ergo --
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+func main() {
+	f() catch {
+	case E:
+-- 06132.ergo --
+type E {}
+type B {}
+func load() B fails E { return B }
+func w() B { return try load() }
+func m(b B) { _ = try load() }
+type G[T] {}
+func m[T](g G[T]) {}
+func load() fails G[int] { return G[int] }
+func w() { try load() }
+func k() {
+	w() catch {
+	case G as g:
+		g.m()
+	}
+}
+func main() {}
+-- 06133.ergo --
+func helper() string { return "" }
+-- 06134.ergo --
+let shared = 1
+-- 06135.ergo --
+type Finished { N int }
+-- 06136.ergo --
+%s
+type R { Value string }
+func F(r R) string { match r { case R{Value: %s}: return %s } }
+-- 06137.ergo --
+func F() { let true = false; _ = true }
+-- 06138.ergo --
+type State = Pending{} | Finished{}
+func F(s State) { let Pending = s; _ = Pending }
+-- 06139.ergo --
+type R { N int }
+func F(r R) { let R = r; _ = R }
+-- 06140.ergo --
+type R { N int }
+func F(r R) { let R = r }
+-- 06141.ergo --
+func helper() int { return 1 }
+func F() { let helper = 1; _ = helper }
+-- 06142.ergo --
+let shared = 1
+func F() { let shared = 1; _ = shared }
+-- 06143.ergo --
+func F() { let len = 1; _ = len }
+-- 06144.ergo --
+import timeout
+func G() fails timeout.Expired {}
+func F() { let timeout = 1; _ = timeout }
+-- 06145.ergo --
+type R { N int }
+func helper() int { return 1 }
+func F(r R) int { let R{N: helper} = r; return helper }
+-- 06146.ergo --
+func F() { let Sleep = 1; _ = Sleep }
+-- 06147.ergo --
+func helper() int { return 1 }
+func F() { let _ as helper = func() {}; helper() }
+-- 06148.ergo --
+type R { N int }
+func F() int { let _ as R = 1; return R }
+-- 06149.ergo --
+func F() int { let n = 1; return n }
+-- 06150.ergo --
+func F() int { let n = 1; if true { let n = 2; return n }; return n }
+-- 06151.ergo --
+type Finished { N int }
+func F() int { let Finished = 3; return Finished + 1 }
+-- 06152.ergo --
+type State = Pending{} | Finished{}
+func F(s State) State { match s { case State as same: return same } }
+-- 06153.ergo --
+type State[T] = Pending{Value T} | Finished{}
+func F(s State[int]) State[int] { match s { case State[int] as same: return same } }
+-- 06154.ergo --
+type State[T] = Pending{Value T} | Finished{}
+func F(s State[int]) State[int] { match s { case State as same: return same } }
+-- 06155.ergo --
+func F(x %s) int { match x { case %s: return 1
+case %s: return 2
+case _: return 0 } }
+-- 06156.ergo --
+func F(x string) int { match x { case "a", "a": return 1
+case _: return 0 } }
+-- 06157.ergo --
+func F(x float32) int { match x { case 0.1: return 1
+case 0.1000000001: return 2
+case _: return 0 } }
+-- 06158.ergo --
+type R { N int }
+type E = Option[int] | R
+-- 06159.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+-- 06160.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+-- 06161.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+-- 06162.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+-- 06163.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+-- 06164.ergo --
+let W = context {}
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+-- 06165.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+-- 06166.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+-- 06167.ergo --
+func f(b bool) { with W { if b { A } else { B } } }
+-- 06168.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) { with W { if b { A } else { B } } }
+-- 06169.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f(b bool) { with W { if b { A } else { B } } }
+-- 06170.ergo --
+let W = context {}
+func f(b bool) { with W { if b { A } else { B } } }
+-- 06171.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f(b bool) { with W { if b { A } else { B } } }
+-- 06172.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f(b bool) { with W { if b { A } else { B } } }
+-- 06173.ergo --
+func f(b bool) int { with W { if b { A } else { B } }; 0 }
+-- 06174.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { with W { if b { A } else { B } }; 0 }
+-- 06175.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f(b bool) int { with W { if b { A } else { B } }; 0 }
+-- 06176.ergo --
+let W = context {}
+func f(b bool) int { with W { if b { A } else { B } }; 0 }
+-- 06177.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f(b bool) int { with W { if b { A } else { B } }; 0 }
+-- 06178.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f(b bool) int { with W { if b { A } else { B } }; 0 }
+-- 06179.ergo --
+func f(n int) { with W { match n { case 0: A; case _: B } } }
+-- 06180.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(n int) { with W { match n { case 0: A; case _: B } } }
+-- 06181.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f(n int) { with W { match n { case 0: A; case _: B } } }
+-- 06182.ergo --
+let W = context {}
+func f(n int) { with W { match n { case 0: A; case _: B } } }
+-- 06183.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f(n int) { with W { match n { case 0: A; case _: B } } }
+-- 06184.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f(n int) { with W { match n { case 0: A; case _: B } } }
+-- 06185.ergo --
+func each(f func()) { f() }
+func f(b bool) { each() { with W { if b { A } else { B } } } }
+-- 06186.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+func f(b bool) { each() { with W { if b { A } else { B } } } }
+-- 06187.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func each(f func()) { f() }
+func f(b bool) { each() { with W { if b { A } else { B } } } }
+-- 06188.ergo --
+let W = context {}
+func each(f func()) { f() }
+func f(b bool) { each() { with W { if b { A } else { B } } } }
+-- 06189.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func each(f func()) { f() }
+func f(b bool) { each() { with W { if b { A } else { B } } } }
+-- 06190.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func each(f func()) { f() }
+func f(b bool) { each() { with W { if b { A } else { B } } } }
+-- 06191.ergo --
+func f(b bool) { with W { if b { g(b) } else { B } } catch { case E: C } }
+-- 06192.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) { with W { if b { g(b) } else { B } } catch { case E: C } }
+-- 06193.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f(b bool) { with W { if b { g(b) } else { B } } catch { case E: C } }
+-- 06194.ergo --
+let W = context {}
+func f(b bool) { with W { if b { g(b) } else { B } } catch { case E: C } }
+-- 06195.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f(b bool) { with W { if b { g(b) } else { B } } catch { case E: C } }
+-- 06196.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f(b bool) { with W { if b { g(b) } else { B } } catch { case E: C } }
+-- 06197.ergo --
+func f(b bool) { g(b) catch { case E: if b { A } else { B } } }
+-- 06198.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) { g(b) catch { case E: if b { A } else { B } } }
+-- 06199.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f(b bool) { g(b) catch { case E: if b { A } else { B } } }
+-- 06200.ergo --
+let W = context {}
+func f(b bool) { g(b) catch { case E: if b { A } else { B } } }
+-- 06201.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f(b bool) { g(b) catch { case E: if b { A } else { B } } }
+-- 06202.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f(b bool) { g(b) catch { case E: if b { A } else { B } } }
+-- 06203.ergo --
+func f(b bool) { g(b) catch { case E: with W { if b { A } else { B } } } }
+-- 06204.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) { g(b) catch { case E: with W { if b { A } else { B } } } }
+-- 06205.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f(b bool) { g(b) catch { case E: with W { if b { A } else { B } } } }
+-- 06206.ergo --
+let W = context {}
+func f(b bool) { g(b) catch { case E: with W { if b { A } else { B } } } }
+-- 06207.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f(b bool) { g(b) catch { case E: with W { if b { A } else { B } } } }
+-- 06208.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f(b bool) { g(b) catch { case E: with W { if b { A } else { B } } } }
+-- 06209.ergo --
+func f(b bool) int { g(b) catch { case E: C }; 0 }
+-- 06210.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { g(b) catch { case E: C }; 0 }
+-- 06211.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f(b bool) int { g(b) catch { case E: C }; 0 }
+-- 06212.ergo --
+let W = context {}
+func f(b bool) int { g(b) catch { case E: C }; 0 }
+-- 06213.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f(b bool) int { g(b) catch { case E: C }; 0 }
+-- 06214.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f(b bool) int { g(b) catch { case E: C }; 0 }
+-- 06215.ergo --
+func each(f func()) { f() }
+func f() { each() { A } }
+-- 06216.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+func f() { each() { A } }
+-- 06217.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func each(f func()) { f() }
+func f() { each() { A } }
+-- 06218.ergo --
+let W = context {}
+func each(f func()) { f() }
+func f() { each() { A } }
+-- 06219.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func each(f func()) { f() }
+func f() { each() { A } }
+-- 06220.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func each(f func()) { f() }
+func f() { each() { A } }
+-- 06221.ergo --
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+-- 06222.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+-- 06223.ergo --
+let W = context {}
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+-- 06224.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+-- 06225.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+-- 06226.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+let W = context {}
+-- 06227.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+let W = context {}
+-- 06228.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+let W = context {}
+-- 06229.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+let W = context {}
+-- 06230.ergo --
+func f(b bool) int {
+	let x = with W {
+		if b { 1 }
+	}
+	x
+}
+-- 06231.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int {
+	let x = with W {
+		if b { 1 }
+	}
+	x
+}
+-- 06232.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f(b bool) int {
+	let x = with W {
+		if b { 1 }
+	}
+	x
+}
+-- 06233.ergo --
+let W = context {}
+func f(b bool) int {
+	let x = with W {
+		if b { 1 }
+	}
+	x
+}
+-- 06234.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f(b bool) int {
+	let x = with W {
+		if b { 1 }
+	}
+	x
+}
+-- 06235.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f(b bool) int {
+	let x = with W {
+		if b { 1 }
+	}
+	x
+}
+-- 06236.ergo --
+func f(b bool) int {
+	1 + with W {
+		if b { 2 }
+	}
+}
+-- 06237.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int {
+	1 + with W {
+		if b { 2 }
+	}
+}
+-- 06238.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f(b bool) int {
+	1 + with W {
+		if b { 2 }
+	}
+}
+-- 06239.ergo --
+let W = context {}
+func f(b bool) int {
+	1 + with W {
+		if b { 2 }
+	}
+}
+-- 06240.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f(b bool) int {
+	1 + with W {
+		if b { 2 }
+	}
+}
+-- 06241.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f(b bool) int {
+	1 + with W {
+		if b { 2 }
+	}
+}
+-- 06242.ergo --
+func id(n int) int { n }
+func f(b bool) int {
+	id(with W {
+		if b { 2 }
+	})
+}
+-- 06243.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func id(n int) int { n }
+func f(b bool) int {
+	id(with W {
+		if b { 2 }
+	})
+}
+-- 06244.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func id(n int) int { n }
+func f(b bool) int {
+	id(with W {
+		if b { 2 }
+	})
+}
+-- 06245.ergo --
+let W = context {}
+func id(n int) int { n }
+func f(b bool) int {
+	id(with W {
+		if b { 2 }
+	})
+}
+-- 06246.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func id(n int) int { n }
+func f(b bool) int {
+	id(with W {
+		if b { 2 }
+	})
+}
+-- 06247.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func id(n int) int { n }
+func f(b bool) int {
+	id(with W {
+		if b { 2 }
+	})
+}
+-- 06248.ergo --
+func f() int {
+	let x = with W {
+	}
+	x
+}
+-- 06249.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f() int {
+	let x = with W {
+	}
+	x
+}
+-- 06250.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f() int {
+	let x = with W {
+	}
+	x
+}
+-- 06251.ergo --
+let W = context {}
+func f() int {
+	let x = with W {
+	}
+	x
+}
+-- 06252.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f() int {
+	let x = with W {
+	}
+	x
+}
+-- 06253.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f() int {
+	let x = with W {
+	}
+	x
+}
+-- 06254.ergo --
+func f(b bool) int {
+	let x = with W {
+		if b { 2 } else {
+			let y = 3
+			_ = y
+		}
+	}
+	x
+}
+-- 06255.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int {
+	let x = with W {
+		if b { 2 } else {
+			let y = 3
+			_ = y
+		}
+	}
+	x
+}
+-- 06256.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f(b bool) int {
+	let x = with W {
+		if b { 2 } else {
+			let y = 3
+			_ = y
+		}
+	}
+	x
+}
+-- 06257.ergo --
+let W = context {}
+func f(b bool) int {
+	let x = with W {
+		if b { 2 } else {
+			let y = 3
+			_ = y
+		}
+	}
+	x
+}
+-- 06258.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f(b bool) int {
+	let x = with W {
+		if b { 2 } else {
+			let y = 3
+			_ = y
+		}
+	}
+	x
+}
+-- 06259.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f(b bool) int {
+	let x = with W {
+		if b { 2 } else {
+			let y = 3
+			_ = y
+		}
+	}
+	x
+}
+-- 06260.ergo --
+func f(b bool) {
+	with W {
+		if b { i() }
+	}
+}
+func i() int { 1 }
+-- 06261.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) {
+	with W {
+		if b { i() }
+	}
+}
+func i() int { 1 }
+-- 06262.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f(b bool) {
+	with W {
+		if b { i() }
+	}
+}
+func i() int { 1 }
+-- 06263.ergo --
+let W = context {}
+func f(b bool) {
+	with W {
+		if b { i() }
+	}
+}
+func i() int { 1 }
+-- 06264.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f(b bool) {
+	with W {
+		if b { i() }
+	}
+}
+func i() int { 1 }
+-- 06265.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f(b bool) {
+	with W {
+		if b { i() }
+	}
+}
+func i() int { 1 }
+-- 06266.ergo --
+func f(b bool) {
+	with W {
+		if b { 1 }
+	}
+}
+-- 06267.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) {
+	with W {
+		if b { 1 }
+	}
+}
+-- 06268.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f(b bool) {
+	with W {
+		if b { 1 }
+	}
+}
+-- 06269.ergo --
+let W = context {}
+func f(b bool) {
+	with W {
+		if b { 1 }
+	}
+}
+-- 06270.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f(b bool) {
+	with W {
+		if b { 1 }
+	}
+}
+-- 06271.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f(b bool) {
+	with W {
+		if b { 1 }
+	}
+}
+-- 06272.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+-- 06273.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+-- 06274.ergo --
+let W = context {}
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+-- 06275.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+-- 06276.ergo --
+func f(b bool, c bool) int { (if c { g(b) } else { 2 }) catch { case E: 3 } }
+-- 06277.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool, c bool) int { (if c { g(b) } else { 2 }) catch { case E: 3 } }
+-- 06278.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f(b bool, c bool) int { (if c { g(b) } else { 2 }) catch { case E: 3 } }
+-- 06279.ergo --
+let W = context {}
+func f(b bool, c bool) int { (if c { g(b) } else { 2 }) catch { case E: 3 } }
+-- 06280.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f(b bool, c bool) int { (if c { g(b) } else { 2 }) catch { case E: 3 } }
+-- 06281.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f(b bool, c bool) int { (if c { g(b) } else { 2 }) catch { case E: 3 } }
+-- 06282.ergo --
+func f(b bool, c bool) int { with W { if c { g(b) } else { 2 } } catch { case E: 3 } }
+-- 06283.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool, c bool) int { with W { if c { g(b) } else { 2 } } catch { case E: 3 } }
+-- 06284.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f(b bool, c bool) int { with W { if c { g(b) } else { 2 } } catch { case E: 3 } }
+-- 06285.ergo --
+let W = context {}
+func f(b bool, c bool) int { with W { if c { g(b) } else { 2 } } catch { case E: 3 } }
+-- 06286.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f(b bool, c bool) int { with W { if c { g(b) } else { 2 } } catch { case E: 3 } }
+-- 06287.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f(b bool, c bool) int { with W { if c { g(b) } else { 2 } } catch { case E: 3 } }
+-- 06288.ergo --
+func f(b bool, n int) int { (match n { case 0: g(b); case _: h(n) }) catch { case E: 4; case F: 5 } }
+-- 06289.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool, n int) int { (match n { case 0: g(b); case _: h(n) }) catch { case E: 4; case F: 5 } }
+-- 06290.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f(b bool, n int) int { (match n { case 0: g(b); case _: h(n) }) catch { case E: 4; case F: 5 } }
+-- 06291.ergo --
+let W = context {}
+func f(b bool, n int) int { (match n { case 0: g(b); case _: h(n) }) catch { case E: 4; case F: 5 } }
+-- 06292.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f(b bool, n int) int { (match n { case 0: g(b); case _: h(n) }) catch { case E: 4; case F: 5 } }
+-- 06293.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f(b bool, n int) int { (match n { case 0: g(b); case _: h(n) }) catch { case E: 4; case F: 5 } }
+-- 06294.ergo --
+func f(b bool, n int) int { (match n { case 0: g(b); case _: h(n) }) catch { case E: 4 } }
+-- 06295.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool, n int) int { (match n { case 0: g(b); case _: h(n) }) catch { case E: 4 } }
+-- 06296.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f(b bool, n int) int { (match n { case 0: g(b); case _: h(n) }) catch { case E: 4 } }
+-- 06297.ergo --
+let W = context {}
+func f(b bool, n int) int { (match n { case 0: g(b); case _: h(n) }) catch { case E: 4 } }
+-- 06298.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f(b bool, n int) int { (match n { case 0: g(b); case _: h(n) }) catch { case E: 4 } }
+-- 06299.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f(b bool, n int) int { (match n { case 0: g(b); case _: h(n) }) catch { case E: 4 } }
+-- 06300.ergo --
+func f(b bool, c bool) int fails E { try 1 + (if c { g(b) } else { 2 }) }
+-- 06301.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool, c bool) int fails E { try 1 + (if c { g(b) } else { 2 }) }
+-- 06302.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f(b bool, c bool) int fails E { try 1 + (if c { g(b) } else { 2 }) }
+-- 06303.ergo --
+let W = context {}
+func f(b bool, c bool) int fails E { try 1 + (if c { g(b) } else { 2 }) }
+-- 06304.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f(b bool, c bool) int fails E { try 1 + (if c { g(b) } else { 2 }) }
+-- 06305.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f(b bool, c bool) int fails E { try 1 + (if c { g(b) } else { 2 }) }
+-- 06306.ergo --
+func f(b bool, c bool) int fails E { (if c { g(b) } else { 2 }) }
+-- 06307.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool, c bool) int fails E { (if c { g(b) } else { 2 }) }
+-- 06308.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f(b bool, c bool) int fails E { (if c { g(b) } else { 2 }) }
+-- 06309.ergo --
+let W = context {}
+func f(b bool, c bool) int fails E { (if c { g(b) } else { 2 }) }
+-- 06310.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f(b bool, c bool) int fails E { (if c { g(b) } else { 2 }) }
+-- 06311.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f(b bool, c bool) int fails E { (if c { g(b) } else { 2 }) }
+-- 06312.ergo --
+func f(b bool, c bool) int { let x = if c { g(b) } else { 2 }; x }
+-- 06313.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool, c bool) int { let x = if c { g(b) } else { 2 }; x }
+-- 06314.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f(b bool, c bool) int { let x = if c { g(b) } else { 2 }; x }
+-- 06315.ergo --
+let W = context {}
+func f(b bool, c bool) int { let x = if c { g(b) } else { 2 }; x }
+-- 06316.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f(b bool, c bool) int { let x = if c { g(b) } else { 2 }; x }
+-- 06317.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f(b bool, c bool) int { let x = if c { g(b) } else { 2 }; x }
+-- 06318.ergo --
+func f(b bool, c bool) int { let x = with W { if c { g(b) } else { 2 } }; x }
+-- 06319.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool, c bool) int { let x = with W { if c { g(b) } else { 2 } }; x }
+-- 06320.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f(b bool, c bool) int { let x = with W { if c { g(b) } else { 2 } }; x }
+-- 06321.ergo --
+let W = context {}
+func f(b bool, c bool) int { let x = with W { if c { g(b) } else { 2 } }; x }
+-- 06322.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f(b bool, c bool) int { let x = with W { if c { g(b) } else { 2 } }; x }
+-- 06323.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f(b bool, c bool) int { let x = with W { if c { g(b) } else { 2 } }; x }
+-- 06324.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+-- 06325.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+-- 06326.ergo --
+let W = context {}
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+-- 06327.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+-- 06328.ergo --
+func f() int { try g() catch { case E: 1 } }
+-- 06329.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f() int { try g() catch { case E: 1 } }
+-- 06330.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f() int { try g() catch { case E: 1 } }
+-- 06331.ergo --
+let W = context {}
+func f() int { try g() catch { case E: 1 } }
+-- 06332.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f() int { try g() catch { case E: 1 } }
+-- 06333.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f() int { try g() catch { case E: 1 } }
+-- 06334.ergo --
+func f() { try g() catch { case E: } }
+-- 06335.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f() { try g() catch { case E: } }
+-- 06336.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f() { try g() catch { case E: } }
+-- 06337.ergo --
+let W = context {}
+func f() { try g() catch { case E: } }
+-- 06338.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f() { try g() catch { case E: } }
+-- 06339.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f() { try g() catch { case E: } }
+-- 06340.ergo --
+func f() int { try two() catch { case E: 1; case _: 2 } }
+-- 06341.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f() int { try two() catch { case E: 1; case _: 2 } }
+-- 06342.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f() int { try two() catch { case E: 1; case _: 2 } }
+-- 06343.ergo --
+let W = context {}
+func f() int { try two() catch { case E: 1; case _: 2 } }
+-- 06344.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f() int { try two() catch { case E: 1; case _: 2 } }
+-- 06345.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f() int { try two() catch { case E: 1; case _: 2 } }
+-- 06346.ergo --
+func f() int fails F { try two() catch { case E: 1 } }
+-- 06347.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f() int fails F { try two() catch { case E: 1 } }
+-- 06348.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f() int fails F { try two() catch { case E: 1 } }
+-- 06349.ergo --
+let W = context {}
+func f() int fails F { try two() catch { case E: 1 } }
+-- 06350.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f() int fails F { try two() catch { case E: 1 } }
+-- 06351.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f() int fails F { try two() catch { case E: 1 } }
+-- 06352.ergo --
+func f() int fails F { try h(k()) catch { case E: 1 } }
+-- 06353.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f() int fails F { try h(k()) catch { case E: 1 } }
+-- 06354.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f() int fails F { try h(k()) catch { case E: 1 } }
+-- 06355.ergo --
+let W = context {}
+func f() int fails F { try h(k()) catch { case E: 1 } }
+-- 06356.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f() int fails F { try h(k()) catch { case E: 1 } }
+-- 06357.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f() int fails F { try h(k()) catch { case E: 1 } }
+-- 06358.ergo --
+type R { B bool }
+func r() int fails R { 1 }
+func f() int fails R { try r() catch { case R{B: true}: 1 } }
+-- 06359.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+type R { B bool }
+func r() int fails R { 1 }
+func f() int fails R { try r() catch { case R{B: true}: 1 } }
+-- 06360.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+type R { B bool }
+func r() int fails R { 1 }
+func f() int fails R { try r() catch { case R{B: true}: 1 } }
+-- 06361.ergo --
+let W = context {}
+type R { B bool }
+func r() int fails R { 1 }
+func f() int fails R { try r() catch { case R{B: true}: 1 } }
+-- 06362.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+type R { B bool }
+func r() int fails R { 1 }
+func f() int fails R { try r() catch { case R{B: true}: 1 } }
+-- 06363.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+type R { B bool }
+func r() int fails R { 1 }
+func f() int fails R { try r() catch { case R{B: true}: 1 } }
+-- 06364.ergo --
+func f() int { try g() catch { case F: 1 } }
+-- 06365.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f() int { try g() catch { case F: 1 } }
+-- 06366.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f() int { try g() catch { case F: 1 } }
+-- 06367.ergo --
+let W = context {}
+func f() int { try g() catch { case F: 1 } }
+-- 06368.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f() int { try g() catch { case F: 1 } }
+-- 06369.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f() int { try g() catch { case F: 1 } }
+-- 06370.ergo --
+func f() int { try g() catch { case E: 1; case E: 2 } }
+-- 06371.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f() int { try g() catch { case E: 1; case E: 2 } }
+-- 06372.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+func f() int { try g() catch { case E: 1; case E: 2 } }
+-- 06373.ergo --
+let W = context {}
+func f() int { try g() catch { case E: 1; case E: 2 } }
+-- 06374.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+func f() int { try g() catch { case E: 1; case E: 2 } }
+-- 06375.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+func f() int { try g() catch { case E: 1; case E: 2 } }
+-- 06376.ergo --
+let total = sum()
+func sum() int { base + extra }
+let extra = twice(base)
+func twice(n int) int { n * 2 }
+let base = 5
+let (q, r) = (total / 3, total % 3)
+func main() {}
+-- 06377.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+let total = sum()
+func sum() int { base + extra }
+let extra = twice(base)
+func twice(n int) int { n * 2 }
+let base = 5
+let (q, r) = (total / 3, total % 3)
+func main() {}
+-- 06378.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+let total = sum()
+func sum() int { base + extra }
+let extra = twice(base)
+func twice(n int) int { n * 2 }
+let base = 5
+let (q, r) = (total / 3, total % 3)
+func main() {}
+-- 06379.ergo --
+let W = context {}
+let total = sum()
+func sum() int { base + extra }
+let extra = twice(base)
+func twice(n int) int { n * 2 }
+let base = 5
+let (q, r) = (total / 3, total % 3)
+func main() {}
+-- 06380.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+let total = sum()
+func sum() int { base + extra }
+let extra = twice(base)
+func twice(n int) int { n * 2 }
+let base = 5
+let (q, r) = (total / 3, total % 3)
+func main() {}
+-- 06381.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+let total = sum()
+func sum() int { base + extra }
+let extra = twice(base)
+func twice(n int) int { n * 2 }
+let base = 5
+let (q, r) = (total / 3, total % 3)
+func main() {}
+-- 06382.ergo --
+let a = 1
+let b = 2
+let c = 3
+func main() {}
+-- 06383.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+let a = 1
+let b = 2
+let c = 3
+func main() {}
+-- 06384.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+let a = 1
+let b = 2
+let c = 3
+func main() {}
+-- 06385.ergo --
+let W = context {}
+let a = 1
+let b = 2
+let c = 3
+func main() {}
+-- 06386.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+let a = 1
+let b = 2
+let c = 3
+func main() {}
+-- 06387.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+let a = 1
+let b = 2
+let c = 3
+func main() {}
+-- 06388.ergo --
+let late = early.Get()
+type Box { N int }
+func Get(b Box) int { b.N + seed }
+let early = Box{N: 1}
+let seed = 2
+func main() {}
+-- 06389.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+let late = early.Get()
+type Box { N int }
+func Get(b Box) int { b.N + seed }
+let early = Box{N: 1}
+let seed = 2
+func main() {}
+-- 06390.ergo --
+let W = context {}
+type E {}
+func g(b bool) int fails E { 1 }
+func i() int { 1 }
+func s() string { "s" }
+func f(b bool) int { 1 + with W { if b { 1 } else { "s" } } }
+let late = early.Get()
+type Box { N int }
+func Get(b Box) int { b.N + seed }
+let early = Box{N: 1}
+let seed = 2
+func main() {}
+-- 06391.ergo --
+let W = context {}
+let late = early.Get()
+type Box { N int }
+func Get(b Box) int { b.N + seed }
+let early = Box{N: 1}
+let seed = 2
+func main() {}
+-- 06392.ergo --
+let W = context {}
+type E {}
+type F {}
+func g(b bool) int fails E { 1 }
+func h(n int) int fails F { n }
+let late = early.Get()
+type Box { N int }
+func Get(b Box) int { b.N + seed }
+let early = Box{N: 1}
+let seed = 2
+func main() {}
+-- 06393.ergo --
+type E {}
+type F {}
+func g() int fails E { 1 }
+func k() int fails F { 2 }
+func h(n int) int fails E { n }
+func two() int fails E | F { 3 }
+let late = early.Get()
+type Box { N int }
+func Get(b Box) int { b.N + seed }
+let early = Box{N: 1}
+let seed = 2
+func main() {}
+-- 06394.ergo --
+import units
+func c(x units.Celsius) units.Celsius { x }
+-- 06395.ergo --
+let W = context {}
+type E {}
+type F {}
+type N[T] int
+func g() int fails E { 1 }
+func two() int fails E | F { 2 }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+-- 06396.ergo --
+type Celsius int
+-- 06397.ergo --
+import units
+func c(x units.Celsius) units.Celsius { x }
+type Celsius int
+-- 06398.ergo --
+let W = context {}
+type E {}
+type F {}
+type N[T] int
+func g() int fails E { 1 }
+func two() int fails E | F { 2 }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+type Celsius int
+-- 06399.ergo --
+let W = context {}
+type E {}
+type F {}
+type N[T] int
+func g() int fails E { 1 }
+func two() int fails E | F { 2 }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+import units
+func c(x units.Celsius) units.Celsius { x }
+-- 06400.ergo --
+let W = context {}
+type E {}
+type F {}
+type N[T] int
+-- 06401.ergo --
+import units
+func c(x units.Celsius) units.Celsius { x }
+let W = context {}
+type E {}
+type F {}
+type N[T] int
+-- 06402.ergo --
+let W = context {}
+type E {}
+type F {}
+type N[T] int
+func g() int fails E { 1 }
+func two() int fails E | F { 2 }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+let W = context {}
+type E {}
+type F {}
+type N[T] int
+-- 06403.ergo --
+func g() int fails E { 1 }
+func two() int fails E | F { 2 }
+-- 06404.ergo --
+import units
+func c(x units.Celsius) units.Celsius { x }
+func g() int fails E { 1 }
+func two() int fails E | F { 2 }
+-- 06405.ergo --
+let W = context {}
+type E {}
+type F {}
+type N[T] int
+func g() int fails E { 1 }
+func two() int fails E | F { 2 }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+func g() int fails E { 1 }
+func two() int fails E | F { 2 }
+-- 06406.ergo --
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+-- 06407.ergo --
+import units
+func c(x units.Celsius) units.Celsius { x }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+-- 06408.ergo --
+let W = context {}
+type E {}
+type F {}
+type N[T] int
+func g() int fails E { 1 }
+func two() int fails E | F { 2 }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+-- 06409.ergo --
+func f(b bool, n int) { X }
+-- 06410.ergo --
+import units
+func c(x units.Celsius) units.Celsius { x }
+func f(b bool, n int) { X }
+-- 06411.ergo --
+let W = context {}
+type E {}
+type F {}
+type N[T] int
+func g() int fails E { 1 }
+func two() int fails E | F { 2 }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+func f(b bool, n int) { X }
+-- 06412.ergo --
+func f(b bool, n int) int { X; 0 }
+-- 06413.ergo --
+import units
+func c(x units.Celsius) units.Celsius { x }
+func f(b bool, n int) int { X; 0 }
+-- 06414.ergo --
+let W = context {}
+type E {}
+type F {}
+type N[T] int
+func g() int fails E { 1 }
+func two() int fails E | F { 2 }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+func f(b bool, n int) int { X; 0 }
+-- 06415.ergo --
+func f(b bool, n int) { if b { X } else { i() } }
+-- 06416.ergo --
+import units
+func c(x units.Celsius) units.Celsius { x }
+func f(b bool, n int) { if b { X } else { i() } }
+-- 06417.ergo --
+let W = context {}
+type E {}
+type F {}
+type N[T] int
+func g() int fails E { 1 }
+func two() int fails E | F { 2 }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+func f(b bool, n int) { if b { X } else { i() } }
+-- 06418.ergo --
+func f(b bool, n int) int { if b { i() } else { X }; 0 }
+-- 06419.ergo --
+import units
+func c(x units.Celsius) units.Celsius { x }
+func f(b bool, n int) int { if b { i() } else { X }; 0 }
+-- 06420.ergo --
+let W = context {}
+type E {}
+type F {}
+type N[T] int
+func g() int fails E { 1 }
+func two() int fails E | F { 2 }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+func f(b bool, n int) int { if b { i() } else { X }; 0 }
+-- 06421.ergo --
+func f(b bool, n int) { match n { case 0: X; case _: i() } }
+-- 06422.ergo --
+import units
+func c(x units.Celsius) units.Celsius { x }
+func f(b bool, n int) { match n { case 0: X; case _: i() } }
+-- 06423.ergo --
+let W = context {}
+type E {}
+type F {}
+type N[T] int
+func g() int fails E { 1 }
+func two() int fails E | F { 2 }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+func f(b bool, n int) { match n { case 0: X; case _: i() } }
+-- 06424.ergo --
+func f(b bool, n int) { with W { X } }
+-- 06425.ergo --
+import units
+func c(x units.Celsius) units.Celsius { x }
+func f(b bool, n int) { with W { X } }
+-- 06426.ergo --
+let W = context {}
+type E {}
+type F {}
+type N[T] int
+func g() int fails E { 1 }
+func two() int fails E | F { 2 }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+func f(b bool, n int) { with W { X } }
+-- 06427.ergo --
+func f(b bool, n int) int { with W { X }; 0 }
+-- 06428.ergo --
+import units
+func c(x units.Celsius) units.Celsius { x }
+func f(b bool, n int) int { with W { X }; 0 }
+-- 06429.ergo --
+let W = context {}
+type E {}
+type F {}
+type N[T] int
+func g() int fails E { 1 }
+func two() int fails E | F { 2 }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+func f(b bool, n int) int { with W { X }; 0 }
+-- 06430.ergo --
+func f(b bool, n int) { each() { X } }
+-- 06431.ergo --
+import units
+func c(x units.Celsius) units.Celsius { x }
+func f(b bool, n int) { each() { X } }
+-- 06432.ergo --
+let W = context {}
+type E {}
+type F {}
+type N[T] int
+func g() int fails E { 1 }
+func two() int fails E | F { 2 }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+func f(b bool, n int) { each() { X } }
+-- 06433.ergo --
+func f(b bool, n int) { g() catch { case E: X } }
+-- 06434.ergo --
+import units
+func c(x units.Celsius) units.Celsius { x }
+func f(b bool, n int) { g() catch { case E: X } }
+-- 06435.ergo --
+let W = context {}
+type E {}
+type F {}
+type N[T] int
+func g() int fails E { 1 }
+func two() int fails E | F { 2 }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+func f(b bool, n int) { g() catch { case E: X } }
+-- 06436.ergo --
+func f(b bool, n int) int { g() catch { case E: X }; 0 }
+-- 06437.ergo --
+import units
+func c(x units.Celsius) units.Celsius { x }
+func f(b bool, n int) int { g() catch { case E: X }; 0 }
+-- 06438.ergo --
+let W = context {}
+type E {}
+type F {}
+type N[T] int
+func g() int fails E { 1 }
+func two() int fails E | F { 2 }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+func f(b bool, n int) int { g() catch { case E: X }; 0 }
+-- 06439.ergo --
+func f(b bool, n int) fails F { try two() catch { case E: X } }
+-- 06440.ergo --
+import units
+func c(x units.Celsius) units.Celsius { x }
+func f(b bool, n int) fails F { try two() catch { case E: X } }
+-- 06441.ergo --
+let W = context {}
+type E {}
+type F {}
+type N[T] int
+func g() int fails E { 1 }
+func two() int fails E | F { 2 }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+func f(b bool, n int) fails F { try two() catch { case E: X } }
+-- 06442.ergo --
+func f(e timeout.Expired) int { timeout.Expired(e); 0 }
+-- 06443.ergo --
+import units
+func c(x units.Celsius) units.Celsius { x }
+func f(e timeout.Expired) int { timeout.Expired(e); 0 }
+-- 06444.ergo --
+let W = context {}
+type E {}
+type F {}
+type N[T] int
+func g() int fails E { 1 }
+func two() int fails E | F { 2 }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+func f(e timeout.Expired) int { timeout.Expired(e); 0 }
+-- 06445.ergo --
+func f(e timeout.Expired) fails timeout.Expired { timeout.Expired(e) }
+-- 06446.ergo --
+import units
+func c(x units.Celsius) units.Celsius { x }
+func f(e timeout.Expired) fails timeout.Expired { timeout.Expired(e) }
+-- 06447.ergo --
+let W = context {}
+type E {}
+type F {}
+type N[T] int
+func g() int fails E { 1 }
+func two() int fails E | F { 2 }
+func i() int { 1 }
+func s() string { "s" }
+func each(f func()) { f() }
+func f(e timeout.Expired) fails timeout.Expired { timeout.Expired(e) }
+-- 06448.ergo --
+type J { M() int }
+type A[T] { M() T }
+type B[T, U] {
+	M() T,
+	K(u U) U,
+}
+
+type S {}
+type P {}
+type G[T] { V T }
+type H[T, U] { V T, W U }
+
+func M(_ S) int { 1 }
+func K(_ S, u string) string { u }
+func M(_ *P) int { 2 }
+func K(_ *P, u string) string { u }
+func M[T](g G[T]) T { g.V }
+func K[T](g G[T], u string) string { u }
+func M[T, U](h H[T, U]) T { h.V }
+func K[T, U](h H[T, U], u U) U { h.W }
+
+func useJ(j J) int { j.M() }
+func useA(a A[int]) int { a.M() }
+func useB(b B[int, string]) string { b.K("k") }
+
+func each(s S, p *P, g G[int], q *G[int], h H[int, string], r *H[int, string]) int {
+	useJ(s) + useA(s) + useJ(p) + useA(p) + useJ(g) + useA(g) + useJ(q) + useA(q) + useJ(h) + useA(h) + useJ(r) + useA(r)
+}
+
+func both(s S, p *P, g G[int], q *G[int], h H[int, string], r *H[int, string]) string {
+	useB(s) + useB(p) + useB(g) + useB(q) + useB(h) + useB(r)
+}
+-- 06449.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+-- 06450.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+-- 06451.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+-- 06452.ergo --
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+-- 06453.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+-- 06454.ergo --
+func e() {(0) catch {case a as e: Order{e}}}
+-- 06455.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e() {(0) catch {case a as e: Order{e}}}
+-- 06456.ergo --
+func e() { g() catch { case a as e: use(e) } }
+-- 06457.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e() { g() catch { case a as e: use(e) } }
+-- 06458.ergo --
+func e() { (0) catch { case a as e: use(e) } }
+-- 06459.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e() { (0) catch { case a as e: use(e) } }
+-- 06460.ergo --
+func e() { gf() catch { case E as e, a: use(e) } }
+-- 06461.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e() { gf() catch { case E as e, a: use(e) } }
+-- 06462.ergo --
+func e() { g() catch { case _ as e: use(e) } }
+-- 06463.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e() { g() catch { case _ as e: use(e) } }
+-- 06464.ergo --
+func e() { (0) catch { case E as e: use(e) } }
+-- 06465.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e() { (0) catch { case E as e: use(e) } }
+-- 06466.ergo --
+func e() { g() catch { case F as e: use(e) } }
+-- 06467.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e() { g() catch { case F as e: use(e) } }
+-- 06468.ergo --
+func e() { g() catch { case Nope as e: use(e) } }
+-- 06469.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e() { g() catch { case Nope as e: use(e) } }
+-- 06470.ergo --
+func e() { g() catch { case E{M: 1} as e: use(e) } }
+-- 06471.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e() { g() catch { case E{M: 1} as e: use(e) } }
+-- 06472.ergo --
+func e() { (0) catch { case E{N: 1} as e: use(e) } }
+-- 06473.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e() { (0) catch { case E{N: 1} as e: use(e) } }
+-- 06474.ergo --
+func e() { g() catch { case E: 1; case E as e: use(e) } }
+-- 06475.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e() { g() catch { case E: 1; case E as e: use(e) } }
+-- 06476.ergo --
+func e() { g() catch { case err: use(err); case E as e: use(e) } }
+-- 06477.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e() { g() catch { case err: use(err); case E as e: use(e) } }
+-- 06478.ergo --
+func e() { g() catch { case E{N: e}: use(e) } }
+-- 06479.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e() { g() catch { case E{N: e}: use(e) } }
+-- 06480.ergo --
+func e() { (0) catch { case E{N: e}: use(e) } }
+-- 06481.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e() { (0) catch { case E{N: e}: use(e) } }
+-- 06482.ergo --
+func err() { g() catch { case err: use(err) } }
+-- 06483.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func err() { g() catch { case err: use(err) } }
+-- 06484.ergo --
+func err() { (0) catch { case err: use(err) } }
+-- 06485.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func err() { (0) catch { case err: use(err) } }
+-- 06486.ergo --
+func e() { let err = 1; g() catch { case err: use(err) } }
+-- 06487.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e() { let err = 1; g() catch { case err: use(err) } }
+-- 06488.ergo --
+func e[err any](x err) { g() catch { case err: use(x) } }
+-- 06489.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e[err any](x err) { g() catch { case err: use(x) } }
+-- 06490.ergo --
+func e() { g() catch { case err: use(err) } }
+-- 06491.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e() { g() catch { case err: use(err) } }
+-- 06492.ergo --
+func e(u U) { g() catch { case E as x: match u { case E as e: use(e); case F: use(x) } } }
+-- 06493.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e(u U) { g() catch { case E as x: match u { case E as e: use(e); case F: use(x) } } }
+-- 06494.ergo --
+func e(u U) { match u { case E as e: use(e); case F: use(0) } }
+-- 06495.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e(u U) { match u { case E as e: use(e); case F: use(0) } }
+-- 06496.ergo --
+func e(u U) { match u { case Nope as e: use(e); case _: use(0) } }
+-- 06497.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e(u U) { match u { case Nope as e: use(e); case _: use(0) } }
+-- 06498.ergo --
+func e(p (U, int)) { match p { case (E{N: n} as e, _): use(e); case _: use(0) } }
+-- 06499.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e(p (U, int)) { match p { case (E{N: n} as e, _): use(e); case _: use(0) } }

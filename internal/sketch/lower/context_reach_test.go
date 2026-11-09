@@ -62,7 +62,12 @@ func reachUnits(t *testing.T) map[string]Unit {
 // keeps every reachShortStride-th program in generation order: each depth
 // generates 21 programs, so a stride of 4 takes other forms and operand
 // orders at each depth.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestContextReachProperty(t *testing.T) {
+	needsBuild(t)
 	units := reachUnits(t)
 	imp := pkgImporter{}
 	for path, u := range units {
@@ -193,32 +198,5 @@ func TestContextReachProperty(t *testing.T) {
 		if code != 0 || stdout != want[p.name] {
 			t.Errorf("%s: exit %d stdout %q, want %q\n%s\nstderr:\n%s", p.name, code, stdout, want[p.name], p.src, stderr)
 		}
-	}
-}
-
-// TestContextLibOwnWithSet (round 1, the verifier's probe): a with of lib's
-// own context inside lib acquires a set that no with of main acquires, so
-// its builder is named only from lib's own with facts (withsOf reads every
-// sourced package's).
-func TestContextLibOwnWithSet(t *testing.T) {
-	lib := checkPackage(t, "lib", []pkgSource{{"/ergo-test/lib/lib.ergo", importedContextLib + `
-func Both() string needs Console {
-	with W {
-		Log.Say("x")
-		Store.Get()
-	}
-}
-`}}, nil)
-	imp := pkgImporter{"lib": lib.Package}
-	main := checkPackage(t, "main", []pkgSource{{"/ergo-test/own/main.ergo", "import lib\n\nfunc main() needs Console {\n\tConsole.Println(with lib.W { lib.Store.Get() })\n\tConsole.Println(lib.Both())\n}\n"}}, imp)
-	main.Imports = []Unit{lib}
-	o := mustLowerUnit(t, "ctx_lib_own_set", main, false)
-	exes := buildAll(t, []*lowered{o}, true)
-	if exes == nil {
-		t.Fatal("the lowered program does not build")
-	}
-	stdout, stderr, code := runExe(t, exes[o.name])
-	if want := "closed 1\nlib 1\nclosed 1\nlib 1\n"; code != 0 || stdout != want {
-		t.Errorf("exit %d stdout %q, want %q\nstderr:\n%s", code, stdout, want, stderr)
 	}
 }

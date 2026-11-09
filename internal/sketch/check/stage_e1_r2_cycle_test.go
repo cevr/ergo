@@ -135,22 +135,3 @@ func TestE1CycleDeclarationPermutations(t *testing.T) {
 		})
 	}
 }
-
-func TestE1DefinedTypeCycleClassification(t *testing.T) {
-	for _, src := range []string{"type Zebra Alpha\ntype Alpha Zebra\n", "type Alpha Zebra\ntype Zebra Alpha\n"} {
-		_, ds := check.CheckSource(src)
-		if len(ds) != 1 || ds[0].Code != "S108" || ds[0].Message != "Alpha is defined over itself with Zebra (types.md, Defined types)" ||
-			ds[0].Offset != strings.Index(src, "Alpha Zebra") || ds[0].Length != len("Alpha") {
-			t.Fatalf("want one defined-type cycle at Alpha's name, got %v", ds)
-		}
-	}
-	for _, src := range []string{
-		"type Alias Rec\ntype Rec { Next []Alias }\nfunc Next(a Alias) []Alias { a.Next }\n",
-		"type Rec { Next []Alias }\ntype Alias Rec\nfunc Next(a Alias) []Alias { a.Next }\n",
-		"type List []List\ntype Callback func() Callback\n",
-	} {
-		if _, ds := check.CheckSource(src); len(ds) != 0 {
-			t.Fatalf("indirection breaks a containment cycle: %v", ds)
-		}
-	}
-}

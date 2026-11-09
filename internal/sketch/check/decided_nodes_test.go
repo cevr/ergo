@@ -1,12 +1,6 @@
 package check_test
 
-import (
-	"fmt"
-	"strings"
-	"testing"
-
-	"ergo.local/prototype/internal/sketch/check"
-)
+import ()
 
 // decidedFamilies is every node and field family the decided parser builds
 // (spec D3; merge round step 3): each has at least one row in
@@ -853,41 +847,4 @@ type Breaker machine[State, Signal] {
 }
 func main() {}
 `, nil},
-}
-
-// TestDecidedNodes: the checker reads the trees the decided parser builds
-// (#196). Each row names its family; every family has a row, and every
-// row's verdict holds: never a panic, never silently accepted, never a
-// cascade beside an S109.
-func TestDecidedNodes(t *testing.T) {
-	covered := map[string]bool{}
-	known := map[string]bool{}
-	for _, f := range decidedFamilies {
-		known[f] = true
-	}
-	for _, tc := range decidedCases {
-		if !known[tc.family] {
-			t.Errorf("row %q names the family %q, which decidedFamilies does not list", tc.name, tc.family)
-		}
-		covered[tc.family] = true
-		t.Run(tc.family+"/"+tc.name, func(t *testing.T) {
-			_, diags := check.CheckSource(tc.src)
-			var got []string
-			for _, d := range diags {
-				got = append(got, fmt.Sprintf("%s:%d", d.Code, d.Line))
-			}
-			if strings.Join(got, " ") != strings.Join(tc.want, " ") {
-				t.Fatalf("got %v, want %v\n%v", got, tc.want, diags)
-			}
-			// The class H walk visits every node of the decided forms too.
-			if p := check.RefWalkProblems(tc.src); len(p) > 0 {
-				t.Fatalf("reference walk: %s", strings.Join(p, "; "))
-			}
-		})
-	}
-	for _, f := range decidedFamilies {
-		if !covered[f] {
-			t.Errorf("the decided family %q has no row", f)
-		}
-	}
 }

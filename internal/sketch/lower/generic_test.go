@@ -1,26 +1,6 @@
 package lower
 
-import (
-	"regexp"
-	"strings"
-	"testing"
-)
-
-// TestGenericInstantiation: generic functions and types lower to Go
-// generics, one declaration each whatever the number of instances (no
-// specialised copies, so instantiation work is finite: Go's GC-shape
-// compilation, types.md Generics 5); recursive and mutually recursive
-// generic calls; several type instances of one function and one type; one
-// higher-order function instantiated with several rows (pure, needing
-// Console, failing), which the uniform function-value shape makes one Go
-// function; same-named 196m functions on distinct records as Go methods,
-// which also satisfy an operation type directly; and source names that
-// collide with generated or Go-reserved names, which the namer separates
-// by identity.
-func TestGenericInstantiation(t *testing.T) {
-	built := runBehaviors(t, genericCases())
-	checkGenericDecls(t, built)
-}
+import ()
 
 // genericCases are TestGenericInstantiation's programs.
 func genericCases() []behavior {
@@ -181,48 +161,4 @@ func main() needs Console {
 `,
 		stdout: "names\n",
 	}}
-}
-
-// checkGenericDecls checks the emitted Go declarations.
-func checkGenericDecls(t *testing.T, built map[string]*lowered) {
-	if o := built["recursion"]; o != nil {
-		goSrc := o.mainGo()
-		for _, decl := range []string{`func count\[`, `func even\[`, `func odd\[`, `type Pair\[`, `type Maybe\[`, `func orElse\[`} {
-			if n := len(regexp.MustCompile(`(?m)^`+decl).FindAllString(goSrc, -1)); n != 1 {
-				t.Errorf("%s is declared %d times in Go, want once (one generic declaration for every instance)", decl, n)
-			}
-		}
-	}
-	if o := built["rows"]; o != nil {
-		if n := strings.Count(o.mainGo(), "func apply["); n != 1 {
-			t.Errorf("apply is declared %d times, want once for its three row instances", n)
-		}
-	}
-	if o := built["samename"]; o != nil {
-		goSrc := o.mainGo()
-		// Each Area is pure, so its Go method takes no environment (pure.go,
-		// D-S5-10).
-		for _, m := range []string{"func (c Circle) Area() int", "func (s Square) Area() int"} {
-			if !strings.Contains(goSrc, m) {
-				t.Errorf("Go lacks the method %q:\n%s", m, goSrc)
-			}
-		}
-		// An operation takes the caller's task first (rows.md, Rows 7), so
-		// each record reaches Shape through an adapter; a pure method needs
-		// no environment of that task, so the adapter discards the task
-		// (stage D3b, D2; D-S5-10).
-		for _, m := range []string{"func (a *opsCircleAsShape) Area(_ *rt.Task) int {\n\treturn (a.v).Area()\n}", "func (a *opsSquareAsShape) Area(_ *rt.Task) int {\n\treturn (a.v).Area()\n}"} {
-			if !strings.Contains(goSrc, m) {
-				t.Errorf("Go lacks the adapter method %q:\n%s", m, goSrc)
-			}
-		}
-	}
-	if o := built["names"]; o != nil {
-		goSrc := o.mainGo()
-		// The field Value keeps its name; the function Value becomes a Go
-		// function, since Go has no field and method of one name.
-		if !strings.Contains(goSrc, "Value int") || strings.Contains(goSrc, ") Value() int") {
-			t.Errorf("the field and the function Value collide:\n%s", goSrc)
-		}
-	}
 }

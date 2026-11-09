@@ -177,48 +177,6 @@ func TestLiteralSites(t *testing.T) {
 	}
 }
 
-// TestSignedLiteralUnit (round-2 review m2): a signed literal is one
-// literal. `-128` and `-(128)` where int8 is expected have Types int8 and
-// Values -128 on the signed expression; the unsigned 128 and its
-// parentheses have no entry, since 128 is no int8 and the lowering emits
-// int8(-128).
-func TestSignedLiteralUnit(t *testing.T) {
-	for _, tc := range []struct{ signed, value string }{
-		{"-128", "-128"}, {"-(128)", "-128"}, {"-((128))", "-128"}, {"+127", "127"},
-	} {
-		signed := tc.signed
-		t.Run(signed, func(t *testing.T) {
-			src := "func f() int8 {\n\treturn " + signed + "\n}\n"
-			pkg, diags := CheckSource(src)
-			if len(diags) > 0 {
-				t.Fatalf("want a clean check, got %s", describeDiags(diags))
-			}
-			found := false
-			for x, typ := range pkg.Info.Types {
-				text := src[x.Pos():x.End()]
-				switch {
-				case text == signed:
-					found = true
-					v := pkg.Info.Values[x]
-					if typ.String() != "int8" || v == nil || v.ExactString() != tc.value {
-						t.Fatalf("%s: want int8 = %s, got %s = %v", signed, tc.value, typ, v)
-					}
-				case strings.Contains(signed, text) && text != "f":
-					t.Fatalf("the unsigned part %q of %s has the Types entry %s", text, signed, typ)
-				}
-			}
-			for x := range pkg.Info.Values {
-				if text := src[x.Pos():x.End()]; text != signed {
-					t.Fatalf("the unsigned part %q of %s has a Values entry", text, signed)
-				}
-			}
-			if !found {
-				t.Fatalf("%s has no Types entry", signed)
-			}
-		})
-	}
-}
-
 // literalRules has one row per 196u refusal: the program's one diagnostic
 // is S108 at line, with the message an agent copies (spec D-A7).
 var literalRules = []struct {

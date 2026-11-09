@@ -1,12 +1,6 @@
 package check
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"os"
-	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -94,71 +88,6 @@ func frameGaps(file *syntax.File, info *Info) []string {
 	return gaps
 }
 
-// frameDeclKinds is each declaration kind's verdict: true when its
-// expressions run outside every function body.
-var frameDeclKinds = map[string]struct {
-	decl syntax.Decl
-	free bool
-}{
-	"ImportDecl":  {&syntax.ImportDecl{}, true},
-	"VarDecl":     {&syntax.VarDecl{}, true},
-	"TypeDecl":    {&syntax.TypeDecl{}, true},
-	"ContextDecl": {&syntax.ContextDecl{}, true},
-	"FuncDecl":    {&syntax.FuncDecl{}, false},
-	"TestDecl":    {&syntax.TestDecl{}, false},
-	"LawDecl":     {&syntax.LawDecl{}, false},
-}
-
-func TestFrameFreeCoversEveryDeclKind(t *testing.T) {
-	paths, err := filepath.Glob("../syntax/*.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var kinds []string
-	for _, p := range paths {
-		if strings.HasSuffix(p, "_test.go") {
-			continue
-		}
-		data, err := os.ReadFile(p)
-		if err != nil {
-			t.Fatal(err)
-		}
-		f, err := parser.ParseFile(token.NewFileSet(), p, data, parser.SkipObjectResolution)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, d := range f.Decls {
-			fd, ok := d.(*ast.FuncDecl)
-			if !ok || fd.Name.Name != "declNode" || fd.Recv == nil || len(fd.Recv.List) != 1 {
-				continue
-			}
-			if star, ok := fd.Recv.List[0].Type.(*ast.StarExpr); ok {
-				if id, ok := star.X.(*ast.Ident); ok {
-					kinds = append(kinds, id.Name)
-				}
-			}
-		}
-	}
-	if len(kinds) < 5 {
-		t.Fatalf("found %d declaration kinds %v; the guard reads the syntax package", len(kinds), kinds)
-	}
-	for _, k := range kinds {
-		want, ok := frameDeclKinds[k]
-		if !ok {
-			t.Errorf("the declaration kind %s has no frame verdict: state whether its expressions run outside a function body", k)
-			continue
-		}
-		if got := frameFree(want.decl); got != want.free {
-			t.Errorf("frameFree(%s) = %v, want %v", k, got, want.free)
-		}
-	}
-	for k := range frameDeclKinds {
-		if !slices.Contains(kinds, k) {
-			t.Errorf("frameDeclKinds lists %s, which is no declaration kind", k)
-		}
-	}
-}
-
 const frameHead = `type Fault {}
 type A { Use() int }
 type Conn { V int }
@@ -236,18 +165,6 @@ func frameMatrix() []frameCase {
 			src := strings.Replace(root.src, "$E", form.expr, 1)
 			line := strings.Count(imports, "\n") + head + 1 + strings.Count(root.src[:strings.Index(root.src, "$E")], "\n") + form.at
 			out = append(out, frameCase{form.name + " in a " + root.name, imports + frameHead + src, line, root.free})
-		}
-	}
-	return out
-}
-
-// FrameMatrixNegatives returns the matrix's refused programs by name, for
-// the file-placement guard (TestDiagnosticsStayInTheirFile).
-func FrameMatrixNegatives() map[string]string {
-	out := map[string]string{}
-	for _, fc := range frameMatrix() {
-		if fc.free {
-			out[fc.name] = fc.src
 		}
 	}
 	return out

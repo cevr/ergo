@@ -27,6 +27,7 @@ import (
 // the program end when a file holds the line they wait for, or when the
 // program that started them is gone, so no wait outlives a hung test.
 func TestExecRuns(t *testing.T) {
+	needsBuild(t)
 	// The started program and the pipeline's processes write their pids
 	// to started and pids, and a program that runs past its sleep writes
 	// to late. Each file exists before the program runs, so the shell's
@@ -198,8 +199,12 @@ var execLawStatements = map[string]string{
 // restates exactly the ledger's laws whose runner is this test, each with
 // the row's statement, and that each passed. ScriptNotFoundNamesTheProgram
 // is the probe's own test of the Script provider, not a ledger row.
+//
+// It builds Go because the laws run in the built test binary (ergo test),
+// the only place a law runs.
 func TestExecLaws(t *testing.T) {
-	exes := buildAll(t, []*lowered{lowerTestBuild(t, "execlaws", execLawsProbe)}, true)
+	needsBuild(t)
+	exes := tableExes(t, "execlaws")
 	if exes == nil {
 		return
 	}

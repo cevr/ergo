@@ -108,7 +108,6 @@ var declared = map[string][]allowance{
 		glob("examples/*/*/*.ergo", "round19 checks every example program"),
 		glob("docs/research/ef-migrate/*.ergo", "round19 checks the migrated examples"),
 		[]allowance{{"docs/spec/diagnostics.md", file, "TestRegistry: the spec's code rows and the code table agree"}},
-		glob("internal/sketch/lower/*.go", "TestTupleAssertionsUnwrap (C45) parses the lowering's sources for type assertions to *Tuple"),
 	),
 	"internal/sketch/lower": declare(
 		[]allowance{
@@ -117,11 +116,6 @@ var declared = map[string][]allowance{
 			{"internal/sketch/testdata", subtree, "the accepted and refusal inventories and TestCorpusProbesRun walk the shared corpus (filepath.WalkDir), lowering each"},
 			{"examples", subtree, "the accepted and refusal inventories walk the example programs (filepath.WalkDir), lowering each"},
 			{"docs/spec/support.md", file, "TestSupportTableIsCurrent compares the support table with the one the family inventory generates"},
-			// TestNoStageERefusal (C43) walks internal/sketch, skipping
-			// testdata, and parses each source: the packages lower builds
-			// on are its inputs already; these are the rest, at the depths
-			// the walk reads them.
-			{"internal/sketch", listing, "TestNoStageERefusal (C43) walks the compiler's code below internal/sketch"},
 			{"docs/spec/stdlib.md", file, "the std law runners pass their laws to lawledger.Run, which reads the Std laws ledger to hold each restatement to its row (fu-ledger-runner)"},
 		},
 	),

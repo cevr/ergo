@@ -1,7 +1,6 @@
 package check_test
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -49,34 +48,5 @@ func TestDeepBoundLinear(t *testing.T) {
 			t.Errorf("n=d %d→%d: variant operations grow from %d to %d, faster than the source", prevN, n, prevOps, ops)
 		}
 		prevN, prevOps = n, ops
-	}
-}
-
-// TestDeepBoundShared: the identity of a deep bound argument is charged
-// once per check, not once per switch or subject: n switches over the same
-// instance cost one deep identity plus a constant each.
-func TestDeepBoundShared(t *testing.T) {
-	one := deepBound(1, 480)
-	ops1, d := check.VariantOps(one)
-	if len(d) > 0 {
-		t.Fatalf("diagnostics %s", describe(d))
-	}
-	// Repeat the function as F0 … F(k-1): k switches over the same field.
-	body := one[strings.Index(one, "func F("):]
-	var b strings.Builder
-	b.WriteString(one[:strings.Index(one, "func F(")])
-	const k = 200
-	for i := range k {
-		b.WriteString(strings.Replace(body, "func F(", fmt.Sprintf("func F%d(", i), 1))
-	}
-	opsK, d := check.VariantOps(b.String())
-	if len(d) > 0 {
-		t.Fatalf("diagnostics %s", describe(d))
-	}
-	t.Logf("one switch: %d variant ops; %d switches: %d", ops1, k, opsK)
-	// The first switch interns the 480-level identity; each later one adds
-	// only its own constant work.
-	if per := (opsK - ops1) / (k - 1); per > 16 {
-		t.Errorf("each further switch costs %d variant operations; the deep identity is not shared", per)
 	}
 }

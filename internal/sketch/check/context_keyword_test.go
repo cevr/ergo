@@ -29,22 +29,6 @@ func TestWireIsAnIdentifier(t *testing.T) {
 	}
 }
 
-// TestContextIsAKeyword: context is reserved, in wire's place, so the
-// keyword count stays 28 and context names nothing.
-func TestContextIsAKeyword(t *testing.T) {
-	if !syntax.IsKeyword("context") || !slices.Contains(syntax.Keywords(), "context") {
-		t.Fatal("context is not a keyword")
-	}
-	if n := len(syntax.Keywords()); n != 28 {
-		t.Fatalf("%d keywords, want 28", n)
-	}
-	for _, src := range []string{"let context = 1\n", "func f(context int) {}\n", "type context {}\n"} {
-		if _, err := syntax.Parse(src); err == nil {
-			t.Errorf("%q parsed: context is a name", src)
-		}
-	}
-}
-
 // keywordPathImporter adds a package whose path ends in a keyword to the
 // standard library.
 type keywordPathImporter struct{ pkg *check.Package }

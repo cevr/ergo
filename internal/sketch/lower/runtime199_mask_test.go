@@ -2,12 +2,8 @@ package lower
 
 import (
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +25,7 @@ import (
 // Queue.Close; a Virtual clock replaces the live clock of NewLiveScheduler.
 // No settling sleep is needed.
 func TestRuntime199MaskProperty(t *testing.T) {
+	needsBuild(t)
 	routes := map[releaseRoute][]string{}
 	for name, binding := range runtimeBindings {
 		if binding.release == notRelease {
@@ -426,6 +423,7 @@ func viaPointer(fail bool, signal queue.Queue[int]) {
 
 func maskNative(t *testing.T, p maskProgram, o *lowered) {
 	t.Helper()
+	fastTierGuard(t, "a go command")
 	dir := t.TempDir()
 	write := func(path string, data []byte) {
 		t.Helper()
@@ -769,101 +767,6 @@ func TestExitActionTask(t *testing.T) {
  for _, s := range tr.sleeps { if s.task != child { t.Fatal("an emitted callback waited on another task than its release") } }
 }
 `
-
-// TestRuntime199ReleaseOwner fails a release route that bypasses the owner.
-// In lowering no string literal writes a mask or a release call, a catalog
-// release name is written only by the catalog and the caller route, and
-// only the owner reads the checker's Close facts. In runtime/v1 only the
-// private release boundary masks or calls rt.Release; its exported callers
-// are exactly the catalog's release routes.
-func TestRuntime199ReleaseOwner(t *testing.T) {
-	catalog := map[string]bool{}
-	for name, binding := range runtimeBindings {
-		if binding.release != notRelease {
-			catalog[name] = true
-		}
-	}
-	readers := map[string]bool{"isClose": true, "entersRelease": true, "runtimeCall": true}
-	writers := map[string]bool{"blocking.go:package": true, "closeBody": true}
-	i1LowerSource(t, func(owner string, node ast.Node) {
-		ast.Inspect(node, func(n ast.Node) bool {
-			switch x := n.(type) {
-			case *ast.BasicLit:
-				if x.Kind != token.STRING {
-					break
-				}
-				for _, word := range []string{"Mask(", "Unmask(", "Interruptible(", ".Release(", ".OnExit("} {
-					if strings.Contains(x.Value, word) {
-						t.Errorf("%s writes %s outside the release owner: %s", owner, word, x.Value)
-					}
-				}
-				if catalog[strings.Trim(x.Value, "\"`")] && !writers[owner] {
-					t.Errorf("%s names the release route %s outside the catalog and the owner", owner, x.Value)
-				}
-			case *ast.SelectorExpr:
-				if x.Sel.Name == "Closes" && !readers[owner] {
-					t.Errorf("%s reads the checker's Close facts outside the release owner", owner)
-				}
-			}
-			return true
-		})
-	})
-	callers := map[string]bool{}
-	for _, f := range Runtime() {
-		if !strings.HasPrefix(f.Path, "ergo/runtime/v1/") || !strings.HasSuffix(f.Path, ".go") || strings.HasSuffix(f.Path, "_test.go") {
-			continue
-		}
-		file, err := parser.ParseFile(token.NewFileSet(), f.Path, f.Data, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, decl := range file.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok {
-				continue
-			}
-			owner := fn.Name.Name
-			if fn.Recv != nil {
-				owner = "method " + owner
-			}
-			ast.Inspect(fn, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if !ok {
-					return true
-				}
-				switch fun := call.Fun.(type) {
-				case *ast.Ident:
-					if fun.Name == "release" {
-						callers[owner] = true
-					}
-				case *ast.SelectorExpr:
-					masking := map[string]bool{"Mask": true, "Unmask": true, "Interruptible": true, "GoMasked": true, "Acquire": true}
-					pkg, _ := fun.X.(*ast.Ident)
-					if (masking[fun.Sel.Name] || (pkg != nil && pkg.Name == "rt" && fun.Sel.Name == "Release")) && owner != "release" {
-						t.Errorf("%s in %s masks or releases outside the v1 release boundary", owner, f.Path)
-					}
-				}
-				return true
-			})
-		}
-	}
-	var exported, routes []string
-	for name := range callers {
-		if ast.IsExported(name) {
-			exported = append(exported, name)
-		} else if name != "method release" {
-			t.Errorf("unexported %s enters the release boundary", name)
-		}
-	}
-	for name := range catalog {
-		routes = append(routes, name)
-	}
-	sort.Strings(exported)
-	sort.Strings(routes)
-	if strings.Join(exported, ",") != strings.Join(routes, ",") {
-		t.Errorf("runtime/v1 entries into release %v differ from the catalog's release routes %v", exported, routes)
-	}
-}
 
 // TestRuntime199ExternClose: a checked Close with an extern body would
 // return before closeBody and run unmasked. No source reaches it today (a

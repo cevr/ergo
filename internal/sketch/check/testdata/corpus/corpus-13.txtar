@@ -1,0 +1,4666 @@
+-- 06500.ergo --
+func e(p (U, int)) { match p { case (E{M: n} as e, _): use(e); case _: use(0) } }
+-- 06501.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e(p (U, int)) { match p { case (E{M: n} as e, _): use(e); case _: use(0) } }
+-- 06502.ergo --
+func e(n int) { match n { case e: use(e) } }
+-- 06503.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e(n int) { match n { case e: use(e) } }
+-- 06504.ergo --
+func e(p (int, int)) { match p { case (e, e): use(e) } }
+-- 06505.ergo --
+type Order { N int }
+type E { N int }
+type F {}
+type U = E | F
+func g() int fails E { 1 }
+func gf() int fails E | F { 1 }
+func use(x any) {}
+func e(p (int, int)) { match p { case (e, e): use(e) } }
+-- 06506.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+-- 06507.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+-- 06508.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+-- 06509.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+-- 06510.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+-- 06511.ergo --
+func F() { let %s = 3; _ = %s }
+-- 06512.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F() { let %s = 3; _ = %s }
+-- 06513.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F() { let %s = 3; _ = %s }
+-- 06514.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F() { let %s = 3; _ = %s }
+-- 06515.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F() { let %s = 3; _ = %s }
+-- 06516.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F() { let %s = 3; _ = %s }
+-- 06517.ergo --
+func F(n int) int { match n { case %s: return %s
+case _: return 0 } }
+-- 06518.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(n int) int { match n { case %s: return %s
+case _: return 0 } }
+-- 06519.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(n int) int { match n { case %s: return %s
+case _: return 0 } }
+-- 06520.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(n int) int { match n { case %s: return %s
+case _: return 0 } }
+-- 06521.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(n int) int { match n { case %s: return %s
+case _: return 0 } }
+-- 06522.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(n int) int { match n { case %s: return %s
+case _: return 0 } }
+-- 06523.ergo --
+func F(n int) { match n { case 0: break
+case _: continue } }
+-- 06524.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(n int) { match n { case 0: break
+case _: continue } }
+-- 06525.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(n int) { match n { case 0: break
+case _: continue } }
+-- 06526.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(n int) { match n { case 0: break
+case _: continue } }
+-- 06527.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(n int) { match n { case 0: break
+case _: continue } }
+-- 06528.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(n int) { match n { case 0: break
+case _: continue } }
+-- 06529.ergo --
+func F(n int) int { let mut out = 0
+for { match n { case 0: out = 1; break
+case _: continue } }
+return out }
+-- 06530.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(n int) int { let mut out = 0
+for { match n { case 0: out = 1; break
+case _: continue } }
+return out }
+-- 06531.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(n int) int { let mut out = 0
+for { match n { case 0: out = 1; break
+case _: continue } }
+return out }
+-- 06532.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(n int) int { let mut out = 0
+for { match n { case 0: out = 1; break
+case _: continue } }
+return out }
+-- 06533.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(n int) int { let mut out = 0
+for { match n { case 0: out = 1; break
+case _: continue } }
+return out }
+-- 06534.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(n int) int { let mut out = 0
+for { match n { case 0: out = 1; break
+case _: continue } }
+return out }
+-- 06535.ergo --
+func F(n int) int { for { match n { case 0: break
+case _: continue } } }
+-- 06536.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(n int) int { for { match n { case 0: break
+case _: continue } } }
+-- 06537.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(n int) int { for { match n { case 0: break
+case _: continue } } }
+-- 06538.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(n int) int { for { match n { case 0: break
+case _: continue } } }
+-- 06539.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(n int) int { for { match n { case 0: break
+case _: continue } } }
+-- 06540.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(n int) int { for { match n { case 0: break
+case _: continue } } }
+-- 06541.ergo --
+func F(n int) int { match n { case 0: for { break }; return 1
+case _: return 2 } }
+-- 06542.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(n int) int { match n { case 0: for { break }; return 1
+case _: return 2 } }
+-- 06543.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(n int) int { match n { case 0: for { break }; return 1
+case _: return 2 } }
+-- 06544.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(n int) int { match n { case 0: for { break }; return 1
+case _: return 2 } }
+-- 06545.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(n int) int { match n { case 0: for { break }; return 1
+case _: return 2 } }
+-- 06546.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(n int) int { match n { case 0: for { break }; return 1
+case _: return 2 } }
+-- 06547.ergo --
+func F(n int) { for { with context {} { match n { case 0: break
+case _: continue } } } }
+-- 06548.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(n int) { for { with context {} { match n { case 0: break
+case _: continue } } } }
+-- 06549.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(n int) { for { with context {} { match n { case 0: break
+case _: continue } } } }
+-- 06550.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(n int) { for { with context {} { match n { case 0: break
+case _: continue } } } }
+-- 06551.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(n int) { for { with context {} { match n { case 0: break
+case _: continue } } } }
+-- 06552.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(n int) { for { with context {} { match n { case 0: break
+case _: continue } } } }
+-- 06553.ergo --
+func Value() int { 42 }
+-- 06554.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func Value() int { 42 }
+-- 06555.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func Value() int { 42 }
+-- 06556.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func Value() int { 42 }
+-- 06557.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func Value() int { 42 }
+-- 06558.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func Value() int { 42 }
+-- 06559.ergo --
+func Small() int8 { -128 }
+-- 06560.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func Small() int8 { -128 }
+-- 06561.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func Small() int8 { -128 }
+-- 06562.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func Small() int8 { -128 }
+-- 06563.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func Small() int8 { -128 }
+-- 06564.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func Small() int8 { -128 }
+-- 06565.ergo --
+func F(n int) int { if n < 0 { return 0 }; n }
+-- 06566.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(n int) int { if n < 0 { return 0 }; n }
+-- 06567.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(n int) int { if n < 0 { return 0 }; n }
+-- 06568.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(n int) int { if n < 0 { return 0 }; n }
+-- 06569.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(n int) int { if n < 0 { return 0 }; n }
+-- 06570.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(n int) int { if n < 0 { return 0 }; n }
+-- 06571.ergo --
+func N() int { 123 }
+func F() { N() }
+-- 06572.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func N() int { 123 }
+func F() { N() }
+-- 06573.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func N() int { 123 }
+func F() { N() }
+-- 06574.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func N() int { 123 }
+func F() { N() }
+-- 06575.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func N() int { 123 }
+func F() { N() }
+-- 06576.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func N() int { 123 }
+func F() { N() }
+-- 06577.ergo --
+func F() int { let f = func() int { 7 }; return f() }
+-- 06578.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F() int { let f = func() int { 7 }; return f() }
+-- 06579.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F() int { let f = func() int { 7 }; return f() }
+-- 06580.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F() int { let f = func() int { 7 }; return f() }
+-- 06581.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F() int { let f = func() int { 7 }; return f() }
+-- 06582.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F() int { let f = func() int { 7 }; return f() }
+-- 06583.ergo --
+type Failed { Code int }
+func F() int fails Failed { Failed{Code: 3} }
+-- 06584.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+type Failed { Code int }
+func F() int fails Failed { Failed{Code: 3} }
+-- 06585.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+type Failed { Code int }
+func F() int fails Failed { Failed{Code: 3} }
+-- 06586.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+type Failed { Code int }
+func F() int fails Failed { Failed{Code: 3} }
+-- 06587.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+type Failed { Code int }
+func F() int fails Failed { Failed{Code: 3} }
+-- 06588.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+type Failed { Code int }
+func F() int fails Failed { Failed{Code: 3} }
+-- 06589.ergo --
+type Failed { Code int }
+func G() int fails Failed { return Failed{Code: 3} }
+func F() int fails Failed { G() }
+-- 06590.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+type Failed { Code int }
+func G() int fails Failed { return Failed{Code: 3} }
+func F() int fails Failed { G() }
+-- 06591.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+type Failed { Code int }
+func G() int fails Failed { return Failed{Code: 3} }
+func F() int fails Failed { G() }
+-- 06592.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+type Failed { Code int }
+func G() int fails Failed { return Failed{Code: 3} }
+func F() int fails Failed { G() }
+-- 06593.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+type Failed { Code int }
+func G() int fails Failed { return Failed{Code: 3} }
+func F() int fails Failed { G() }
+-- 06594.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+type Failed { Code int }
+func G() int fails Failed { return Failed{Code: 3} }
+func F() int fails Failed { G() }
+-- 06595.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+-- 06596.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+-- 06597.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+-- 06598.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+-- 06599.ergo --
+func F(n int) int { if n < 0 { -1 } else if n == 0 { 0 } else { 1 } }
+-- 06600.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(n int) int { if n < 0 { -1 } else if n == 0 { 0 } else { 1 } }
+-- 06601.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(n int) int { if n < 0 { -1 } else if n == 0 { 0 } else { 1 } }
+-- 06602.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(n int) int { if n < 0 { -1 } else if n == 0 { 0 } else { 1 } }
+-- 06603.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(n int) int { if n < 0 { -1 } else if n == 0 { 0 } else { 1 } }
+-- 06604.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(n int) int { if n < 0 { -1 } else if n == 0 { 0 } else { 1 } }
+-- 06605.ergo --
+func F(u U) int {
+	match u {
+	case A:
+		0
+	case B{N: n}:
+		n
+	}
+}
+-- 06606.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(u U) int {
+	match u {
+	case A:
+		0
+	case B{N: n}:
+		n
+	}
+}
+-- 06607.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(u U) int {
+	match u {
+	case A:
+		0
+	case B{N: n}:
+		n
+	}
+}
+-- 06608.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(u U) int {
+	match u {
+	case A:
+		0
+	case B{N: n}:
+		n
+	}
+}
+-- 06609.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(u U) int {
+	match u {
+	case A:
+		0
+	case B{N: n}:
+		n
+	}
+}
+-- 06610.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(u U) int {
+	match u {
+	case A:
+		0
+	case B{N: n}:
+		n
+	}
+}
+-- 06611.ergo --
+func F(c bool, t int64) int64 { let r int64 = if c { 0 } else { 3 }; t * r }
+-- 06612.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(c bool, t int64) int64 { let r int64 = if c { 0 } else { 3 }; t * r }
+-- 06613.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(c bool, t int64) int64 { let r int64 = if c { 0 } else { 3 }; t * r }
+-- 06614.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(c bool, t int64) int64 { let r int64 = if c { 0 } else { 3 }; t * r }
+-- 06615.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(c bool, t int64) int64 { let r int64 = if c { 0 } else { 3 }; t * r }
+-- 06616.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(c bool, t int64) int64 { let r int64 = if c { 0 } else { 3 }; t * r }
+-- 06617.ergo --
+func F(n int) string { let w = if n > 1 { "many" } else { "one" }; w }
+-- 06618.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(n int) string { let w = if n > 1 { "many" } else { "one" }; w }
+-- 06619.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(n int) string { let w = if n > 1 { "many" } else { "one" }; w }
+-- 06620.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(n int) string { let w = if n > 1 { "many" } else { "one" }; w }
+-- 06621.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(n int) string { let w = if n > 1 { "many" } else { "one" }; w }
+-- 06622.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(n int) string { let w = if n > 1 { "many" } else { "one" }; w }
+-- 06623.ergo --
+func F(u U) int {
+	1 + match u {
+	case A:
+		1
+	case _:
+		0
+	}
+}
+-- 06624.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(u U) int {
+	1 + match u {
+	case A:
+		1
+	case _:
+		0
+	}
+}
+-- 06625.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(u U) int {
+	1 + match u {
+	case A:
+		1
+	case _:
+		0
+	}
+}
+-- 06626.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(u U) int {
+	1 + match u {
+	case A:
+		1
+	case _:
+		0
+	}
+}
+-- 06627.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(u U) int {
+	1 + match u {
+	case A:
+		1
+	case _:
+		0
+	}
+}
+-- 06628.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(u U) int {
+	1 + match u {
+	case A:
+		1
+	case _:
+		0
+	}
+}
+-- 06629.ergo --
+func H(n int8) int8 { n }
+func F(c bool) int8 { H(if c { 1 } else { 2 }) }
+-- 06630.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func H(n int8) int8 { n }
+func F(c bool) int8 { H(if c { 1 } else { 2 }) }
+-- 06631.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func H(n int8) int8 { n }
+func F(c bool) int8 { H(if c { 1 } else { 2 }) }
+-- 06632.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func H(n int8) int8 { n }
+func F(c bool) int8 { H(if c { 1 } else { 2 }) }
+-- 06633.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func H(n int8) int8 { n }
+func F(c bool) int8 { H(if c { 1 } else { 2 }) }
+-- 06634.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func H(n int8) int8 { n }
+func F(c bool) int8 { H(if c { 1 } else { 2 }) }
+-- 06635.ergo --
+func F(c bool) U { if c { A } else { B{N: 1} } }
+-- 06636.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(c bool) U { if c { A } else { B{N: 1} } }
+-- 06637.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(c bool) U { if c { A } else { B{N: 1} } }
+-- 06638.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(c bool) U { if c { A } else { B{N: 1} } }
+-- 06639.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(c bool) U { if c { A } else { B{N: 1} } }
+-- 06640.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(c bool) U { if c { A } else { B{N: 1} } }
+-- 06641.ergo --
+func F(c bool) int { let x = if c { return 0 } else { 5 }; x }
+-- 06642.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(c bool) int { let x = if c { return 0 } else { 5 }; x }
+-- 06643.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(c bool) int { let x = if c { return 0 } else { 5 }; x }
+-- 06644.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(c bool) int { let x = if c { return 0 } else { 5 }; x }
+-- 06645.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(c bool) int { let x = if c { return 0 } else { 5 }; x }
+-- 06646.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(c bool) int { let x = if c { return 0 } else { 5 }; x }
+-- 06647.ergo --
+func F(c bool) int {
+	let mut n = 0
+	for {
+		let x = if c { break } else { 1 }
+		n = n + x
+	}
+	n
+}
+-- 06648.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(c bool) int {
+	let mut n = 0
+	for {
+		let x = if c { break } else { 1 }
+		n = n + x
+	}
+	n
+}
+-- 06649.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(c bool) int {
+	let mut n = 0
+	for {
+		let x = if c { break } else { 1 }
+		n = n + x
+	}
+	n
+}
+-- 06650.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(c bool) int {
+	let mut n = 0
+	for {
+		let x = if c { break } else { 1 }
+		n = n + x
+	}
+	n
+}
+-- 06651.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(c bool) int {
+	let mut n = 0
+	for {
+		let x = if c { break } else { 1 }
+		n = n + x
+	}
+	n
+}
+-- 06652.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(c bool) int {
+	let mut n = 0
+	for {
+		let x = if c { break } else { 1 }
+		n = n + x
+	}
+	n
+}
+-- 06653.ergo --
+func F(c bool) fails E { if c { G() } }
+-- 06654.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(c bool) fails E { if c { G() } }
+-- 06655.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(c bool) fails E { if c { G() } }
+-- 06656.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(c bool) fails E { if c { G() } }
+-- 06657.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(c bool) fails E { if c { G() } }
+-- 06658.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(c bool) fails E { if c { G() } }
+-- 06659.ergo --
+func N() int { 1 }
+func S() string { "s" }
+func F(c bool) { if c { N() } else { S() } }
+-- 06660.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func N() int { 1 }
+func S() string { "s" }
+func F(c bool) { if c { N() } else { S() } }
+-- 06661.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func N() int { 1 }
+func S() string { "s" }
+func F(c bool) { if c { N() } else { S() } }
+-- 06662.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func N() int { 1 }
+func S() string { "s" }
+func F(c bool) { if c { N() } else { S() } }
+-- 06663.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func N() int { 1 }
+func S() string { "s" }
+func F(c bool) { if c { N() } else { S() } }
+-- 06664.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func N() int { 1 }
+func S() string { "s" }
+func F(c bool) { if c { N() } else { S() } }
+-- 06665.ergo --
+func N() int { 1 }
+func F(c bool) { if c { 1 } else { N() } }
+-- 06666.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func N() int { 1 }
+func F(c bool) { if c { 1 } else { N() } }
+-- 06667.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func N() int { 1 }
+func F(c bool) { if c { 1 } else { N() } }
+-- 06668.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func N() int { 1 }
+func F(c bool) { if c { 1 } else { N() } }
+-- 06669.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func N() int { 1 }
+func F(c bool) { if c { 1 } else { N() } }
+-- 06670.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func N() int { 1 }
+func F(c bool) { if c { 1 } else { N() } }
+-- 06671.ergo --
+func F(c bool) int {
+	G() catch {
+	case E as e:
+		if c { e.Code } else { 0 }
+	}
+}
+-- 06672.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(c bool) int {
+	G() catch {
+	case E as e:
+		if c { e.Code } else { 0 }
+	}
+}
+-- 06673.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(c bool) int {
+	G() catch {
+	case E as e:
+		if c { e.Code } else { 0 }
+	}
+}
+-- 06674.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(c bool) int {
+	G() catch {
+	case E as e:
+		if c { e.Code } else { 0 }
+	}
+}
+-- 06675.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(c bool) int {
+	G() catch {
+	case E as e:
+		if c { e.Code } else { 0 }
+	}
+}
+-- 06676.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(c bool) int {
+	G() catch {
+	case E as e:
+		if c { e.Code } else { 0 }
+	}
+}
+-- 06677.ergo --
+func F(c bool) int { let r int = if c { 0 }; r }
+-- 06678.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(c bool) int { let r int = if c { 0 }; r }
+-- 06679.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(c bool) int { let r int = if c { 0 }; r }
+-- 06680.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(c bool) int { let r int = if c { 0 }; r }
+-- 06681.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(c bool) int { let r int = if c { 0 }; r }
+-- 06682.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(c bool) int { let r int = if c { 0 }; r }
+-- 06683.ergo --
+func F(c bool) int {
+	if c { 1 }
+}
+-- 06684.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(c bool) int {
+	if c { 1 }
+}
+-- 06685.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(c bool) int {
+	if c { 1 }
+}
+-- 06686.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(c bool) int {
+	if c { 1 }
+}
+-- 06687.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(c bool) int {
+	if c { 1 }
+}
+-- 06688.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(c bool) int {
+	if c { 1 }
+}
+-- 06689.ergo --
+func F(c bool) string { let v = if c { 1 } else { "x" }; v }
+-- 06690.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(c bool) string { let v = if c { 1 } else { "x" }; v }
+-- 06691.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(c bool) string { let v = if c { 1 } else { "x" }; v }
+-- 06692.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(c bool) string { let v = if c { 1 } else { "x" }; v }
+-- 06693.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(c bool) string { let v = if c { 1 } else { "x" }; v }
+-- 06694.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(c bool) string { let v = if c { 1 } else { "x" }; v }
+-- 06695.ergo --
+func F(c bool) { let s = if c { A } else { B{N: 1} }; _ = s }
+-- 06696.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(c bool) { let s = if c { A } else { B{N: 1} }; _ = s }
+-- 06697.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(c bool) { let s = if c { A } else { B{N: 1} }; _ = s }
+-- 06698.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(c bool) { let s = if c { A } else { B{N: 1} }; _ = s }
+-- 06699.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(c bool) { let s = if c { A } else { B{N: 1} }; _ = s }
+-- 06700.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(c bool) { let s = if c { A } else { B{N: 1} }; _ = s }
+-- 06701.ergo --
+func F(c bool) { let s = if c { A } else { E{Code: 1} }; _ = s }
+-- 06702.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(c bool) { let s = if c { A } else { E{Code: 1} }; _ = s }
+-- 06703.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(c bool) { let s = if c { A } else { E{Code: 1} }; _ = s }
+-- 06704.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(c bool) { let s = if c { A } else { E{Code: 1} }; _ = s }
+-- 06705.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(c bool) { let s = if c { A } else { E{Code: 1} }; _ = s }
+-- 06706.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(c bool) { let s = if c { A } else { E{Code: 1} }; _ = s }
+-- 06707.ergo --
+func F(u U) int {
+	match u {
+	case A:
+		let x = 1
+		_ = x
+	case B:
+		2
+	}
+}
+-- 06708.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(u U) int {
+	match u {
+	case A:
+		let x = 1
+		_ = x
+	case B:
+		2
+	}
+}
+-- 06709.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(u U) int {
+	match u {
+	case A:
+		let x = 1
+		_ = x
+	case B:
+		2
+	}
+}
+-- 06710.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(u U) int {
+	match u {
+	case A:
+		let x = 1
+		_ = x
+	case B:
+		2
+	}
+}
+-- 06711.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(u U) int {
+	match u {
+	case A:
+		let x = 1
+		_ = x
+	case B:
+		2
+	}
+}
+-- 06712.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(u U) int {
+	match u {
+	case A:
+		let x = 1
+		_ = x
+	case B:
+		2
+	}
+}
+-- 06713.ergo --
+func F(c bool) int fails E { let x = if c { G() } else { 1 }; x }
+-- 06714.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(c bool) int fails E { let x = if c { G() } else { 1 }; x }
+-- 06715.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(c bool) int fails E { let x = if c { G() } else { 1 }; x }
+-- 06716.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(c bool) int fails E { let x = if c { G() } else { 1 }; x }
+-- 06717.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(c bool) int fails E { let x = if c { G() } else { 1 }; x }
+-- 06718.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(c bool) int fails E { let x = if c { G() } else { 1 }; x }
+-- 06719.ergo --
+func F(c bool) int { let x = if c { return 1 } else { return 2 }; x }
+-- 06720.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F(c bool) int { let x = if c { return 1 } else { return 2 }; x }
+-- 06721.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F(c bool) int { let x = if c { return 1 } else { return 2 }; x }
+-- 06722.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F(c bool) int { let x = if c { return 1 } else { return 2 }; x }
+-- 06723.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F(c bool) int { let x = if c { return 1 } else { return 2 }; x }
+-- 06724.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F(c bool) int { let x = if c { return 1 } else { return 2 }; x }
+-- 06725.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+-- 06726.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+-- 06727.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+-- 06728.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+-- 06729.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+-- 06730.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+-- 06731.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+-- 06732.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+-- 06733.ergo --
+func G() int {
+	F("") catch {
+	case NotFound{ID: id}:
+		len(id)
+	case Declined, Frozen:
+		0
+	}
+}
+-- 06734.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func G() int {
+	F("") catch {
+	case NotFound{ID: id}:
+		len(id)
+	case Declined, Frozen:
+		0
+	}
+}
+-- 06735.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func G() int {
+	F("") catch {
+	case NotFound{ID: id}:
+		len(id)
+	case Declined, Frozen:
+		0
+	}
+}
+-- 06736.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func G() int {
+	F("") catch {
+	case NotFound{ID: id}:
+		len(id)
+	case Declined, Frozen:
+		0
+	}
+}
+-- 06737.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func G() int {
+	F("") catch {
+	case NotFound{ID: id}:
+		len(id)
+	case Declined, Frozen:
+		0
+	}
+}
+-- 06738.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func G() int {
+	F("") catch {
+	case NotFound{ID: id}:
+		len(id)
+	case Declined, Frozen:
+		0
+	}
+}
+-- 06739.ergo --
+func G() int {
+	F("") catch {
+	case NotFound{ID: "x"}:
+		1
+	case Declined, Frozen:
+		0
+	}
+}
+-- 06740.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func G() int {
+	F("") catch {
+	case NotFound{ID: "x"}:
+		1
+	case Declined, Frozen:
+		0
+	}
+}
+-- 06741.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func G() int {
+	F("") catch {
+	case NotFound{ID: "x"}:
+		1
+	case Declined, Frozen:
+		0
+	}
+}
+-- 06742.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func G() int {
+	F("") catch {
+	case NotFound{ID: "x"}:
+		1
+	case Declined, Frozen:
+		0
+	}
+}
+-- 06743.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func G() int {
+	F("") catch {
+	case NotFound{ID: "x"}:
+		1
+	case Declined, Frozen:
+		0
+	}
+}
+-- 06744.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func G() int {
+	F("") catch {
+	case NotFound{ID: "x"}:
+		1
+	case Declined, Frozen:
+		0
+	}
+}
+-- 06745.ergo --
+func G() int {
+	F("") catch {
+	case NotFound{ID: "x"}:
+		1
+	case NotFound:
+		2
+	case _:
+		0
+	}
+}
+-- 06746.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func G() int {
+	F("") catch {
+	case NotFound{ID: "x"}:
+		1
+	case NotFound:
+		2
+	case _:
+		0
+	}
+}
+-- 06747.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func G() int {
+	F("") catch {
+	case NotFound{ID: "x"}:
+		1
+	case NotFound:
+		2
+	case _:
+		0
+	}
+}
+-- 06748.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func G() int {
+	F("") catch {
+	case NotFound{ID: "x"}:
+		1
+	case NotFound:
+		2
+	case _:
+		0
+	}
+}
+-- 06749.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func G() int {
+	F("") catch {
+	case NotFound{ID: "x"}:
+		1
+	case NotFound:
+		2
+	case _:
+		0
+	}
+}
+-- 06750.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func G() int {
+	F("") catch {
+	case NotFound{ID: "x"}:
+		1
+	case NotFound:
+		2
+	case _:
+		0
+	}
+}
+-- 06751.ergo --
+func G() int fails Declined | Frozen {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		return err
+	}
+}
+-- 06752.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func G() int fails Declined | Frozen {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		return err
+	}
+}
+-- 06753.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func G() int fails Declined | Frozen {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		return err
+	}
+}
+-- 06754.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func G() int fails Declined | Frozen {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		return err
+	}
+}
+-- 06755.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func G() int fails Declined | Frozen {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		return err
+	}
+}
+-- 06756.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func G() int fails Declined | Frozen {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		return err
+	}
+}
+-- 06757.ergo --
+func G() int fails Declined {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		return err
+	}
+}
+-- 06758.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func G() int fails Declined {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		return err
+	}
+}
+-- 06759.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func G() int fails Declined {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		return err
+	}
+}
+-- 06760.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func G() int fails Declined {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		return err
+	}
+}
+-- 06761.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func G() int fails Declined {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		return err
+	}
+}
+-- 06762.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func G() int fails Declined {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		return err
+	}
+}
+-- 06763.ergo --
+func G() int {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		let p Pay = err
+		match p {
+		case Declined:
+			1
+		case Frozen:
+			2
+		}
+	}
+}
+-- 06764.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func G() int {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		let p Pay = err
+		match p {
+		case Declined:
+			1
+		case Frozen:
+			2
+		}
+	}
+}
+-- 06765.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func G() int {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		let p Pay = err
+		match p {
+		case Declined:
+			1
+		case Frozen:
+			2
+		}
+	}
+}
+-- 06766.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func G() int {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		let p Pay = err
+		match p {
+		case Declined:
+			1
+		case Frozen:
+			2
+		}
+	}
+}
+-- 06767.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func G() int {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		let p Pay = err
+		match p {
+		case Declined:
+			1
+		case Frozen:
+			2
+		}
+	}
+}
+-- 06768.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func G() int {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		let p Pay = err
+		match p {
+		case Declined:
+			1
+		case Frozen:
+			2
+		}
+	}
+}
+-- 06769.ergo --
+func G() int {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		let s Small = err
+		_ = s
+		1
+	}
+}
+-- 06770.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func G() int {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		let s Small = err
+		_ = s
+		1
+	}
+}
+-- 06771.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func G() int {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		let s Small = err
+		_ = s
+		1
+	}
+}
+-- 06772.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func G() int {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		let s Small = err
+		_ = s
+		1
+	}
+}
+-- 06773.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func G() int {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		let s Small = err
+		_ = s
+		1
+	}
+}
+-- 06774.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func G() int {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		let s Small = err
+		_ = s
+		1
+	}
+}
+-- 06775.ergo --
+func G() int {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		match err {
+		case Declined:
+			1
+		}
+	}
+}
+-- 06776.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func G() int {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		match err {
+		case Declined:
+			1
+		}
+	}
+}
+-- 06777.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func G() int {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		match err {
+		case Declined:
+			1
+		}
+	}
+}
+-- 06778.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func G() int {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		match err {
+		case Declined:
+			1
+		}
+	}
+}
+-- 06779.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func G() int {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		match err {
+		case Declined:
+			1
+		}
+	}
+}
+-- 06780.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func G() int {
+	F("") catch {
+	case NotFound:
+		0
+	case err:
+		match err {
+		case Declined:
+			1
+		}
+	}
+}
+-- 06781.ergo --
+func G() int {
+	F("") catch {
+	case NotFound, Declined, Frozen:
+		0
+	case err:
+		return 1
+	}
+}
+-- 06782.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func G() int {
+	F("") catch {
+	case NotFound, Declined, Frozen:
+		0
+	case err:
+		return 1
+	}
+}
+-- 06783.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func G() int {
+	F("") catch {
+	case NotFound, Declined, Frozen:
+		0
+	case err:
+		return 1
+	}
+}
+-- 06784.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func G() int {
+	F("") catch {
+	case NotFound, Declined, Frozen:
+		0
+	case err:
+		return 1
+	}
+}
+-- 06785.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func G() int {
+	F("") catch {
+	case NotFound, Declined, Frozen:
+		0
+	case err:
+		return 1
+	}
+}
+-- 06786.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func G() int {
+	F("") catch {
+	case NotFound, Declined, Frozen:
+		0
+	case err:
+		return 1
+	}
+}
+-- 06787.ergo --
+func G() int {
+	F("") catch {
+	case NotFound, err:
+		0
+	}
+}
+-- 06788.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func G() int {
+	F("") catch {
+	case NotFound, err:
+		0
+	}
+}
+-- 06789.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func G() int {
+	F("") catch {
+	case NotFound, err:
+		0
+	}
+}
+-- 06790.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func G() int {
+	F("") catch {
+	case NotFound, err:
+		0
+	}
+}
+-- 06791.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func G() int {
+	F("") catch {
+	case NotFound, err:
+		0
+	}
+}
+-- 06792.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func G() int {
+	F("") catch {
+	case NotFound, err:
+		0
+	}
+}
+-- 06793.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+-- 06794.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+-- 06795.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+-- 06796.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+-- 06797.ergo --
+func F() int fails E needs Svc {
+	let f = func() int fails E needs Svc { try G() + Svc.Do() }
+	try f()
+}
+-- 06798.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F() int fails E needs Svc {
+	let f = func() int fails E needs Svc { try G() + Svc.Do() }
+	try f()
+}
+-- 06799.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F() int fails E needs Svc {
+	let f = func() int fails E needs Svc { try G() + Svc.Do() }
+	try f()
+}
+-- 06800.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F() int fails E needs Svc {
+	let f = func() int fails E needs Svc { try G() + Svc.Do() }
+	try f()
+}
+-- 06801.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F() int fails E needs Svc {
+	let f = func() int fails E needs Svc { try G() + Svc.Do() }
+	try f()
+}
+-- 06802.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F() int fails E needs Svc {
+	let f = func() int fails E needs Svc { try G() + Svc.Do() }
+	try f()
+}
+-- 06803.ergo --
+func F() int fails E | X {
+	let f = func() int fails E { H() }
+	try f()
+}
+-- 06804.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F() int fails E | X {
+	let f = func() int fails E { H() }
+	try f()
+}
+-- 06805.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F() int fails E | X {
+	let f = func() int fails E { H() }
+	try f()
+}
+-- 06806.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F() int fails E | X {
+	let f = func() int fails E { H() }
+	try f()
+}
+-- 06807.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F() int fails E | X {
+	let f = func() int fails E { H() }
+	try f()
+}
+-- 06808.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F() int fails E | X {
+	let f = func() int fails E { H() }
+	try f()
+}
+-- 06809.ergo --
+func F() int needs Svc | Other {
+	let f = func() int needs Svc { Other.Go() }
+	f()
+}
+-- 06810.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F() int needs Svc | Other {
+	let f = func() int needs Svc { Other.Go() }
+	f()
+}
+-- 06811.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F() int needs Svc | Other {
+	let f = func() int needs Svc { Other.Go() }
+	f()
+}
+-- 06812.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F() int needs Svc | Other {
+	let f = func() int needs Svc { Other.Go() }
+	f()
+}
+-- 06813.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F() int needs Svc | Other {
+	let f = func() int needs Svc { Other.Go() }
+	f()
+}
+-- 06814.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F() int needs Svc | Other {
+	let f = func() int needs Svc { Other.Go() }
+	f()
+}
+-- 06815.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+-- 06816.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+-- 06817.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+-- 06818.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+-- 06819.ergo --
+func F() int fails E | X { try A() + B() }
+-- 06820.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F() int fails E | X { try A() + B() }
+-- 06821.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F() int fails E | X { try A() + B() }
+-- 06822.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F() int fails E | X { try A() + B() }
+-- 06823.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F() int fails E | X { try A() + B() }
+-- 06824.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F() int fails E | X { try A() + B() }
+-- 06825.ergo --
+func F() int fails E { try Id(A()) * 2 }
+-- 06826.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F() int fails E { try Id(A()) * 2 }
+-- 06827.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F() int fails E { try Id(A()) * 2 }
+-- 06828.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F() int fails E { try Id(A()) * 2 }
+-- 06829.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F() int fails E { try Id(A()) * 2 }
+-- 06830.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F() int fails E { try Id(A()) * 2 }
+-- 06831.ergo --
+func F() int fails E | X { let n = try A() - B(); n }
+-- 06832.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F() int fails E | X { let n = try A() - B(); n }
+-- 06833.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F() int fails E | X { let n = try A() - B(); n }
+-- 06834.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F() int fails E | X { let n = try A() - B(); n }
+-- 06835.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F() int fails E | X { let n = try A() - B(); n }
+-- 06836.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F() int fails E | X { let n = try A() - B(); n }
+-- 06837.ergo --
+func F() int fails E { try A() + B() }
+-- 06838.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F() int fails E { try A() + B() }
+-- 06839.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F() int fails E { try A() + B() }
+-- 06840.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F() int fails E { try A() + B() }
+-- 06841.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F() int fails E { try A() + B() }
+-- 06842.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F() int fails E { try A() + B() }
+-- 06843.ergo --
+func F() int { try Id(1) + 2 }
+-- 06844.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F() int { try Id(1) + 2 }
+-- 06845.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F() int { try Id(1) + 2 }
+-- 06846.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F() int { try Id(1) + 2 }
+-- 06847.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F() int { try Id(1) + 2 }
+-- 06848.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F() int { try Id(1) + 2 }
+-- 06849.ergo --
+func F() int fails E { Id(A()) }
+-- 06850.ergo --
+type E { Code int }
+type A {}
+type B { N int }
+type U = A | B
+func G() int fails E { E{Code: 1} }
+func F() int fails E { Id(A()) }
+-- 06851.ergo --
+type A {}
+type B { N int }
+type U = A | B
+func F(u U) int64 {
+	let x int64 = match u {
+	case A:
+		1
+	case B:
+		return 2
+	}
+	if x > 0 { x } else { 0 }
+}
+func F() int fails E { Id(A()) }
+-- 06852.ergo --
+type NotFound { ID string }
+type Declined { Reason string }
+type Frozen {}
+type Pay = Declined | Frozen
+type Small = Declined
+func F(id string) int fails NotFound | Declined | Frozen { 1 }
+func F() int fails E { Id(A()) }
+-- 06853.ergo --
+type E {}
+type X {}
+type Svc { Do() int }
+type Other { Go() int }
+func G() int fails E { 1 }
+func H() int fails X { 1 }
+func F() int fails E { Id(A()) }
+-- 06854.ergo --
+type E {}
+type X {}
+func A() int fails E { 1 }
+func B() int fails X { 2 }
+func Id(n int) int { n }
+func F() int fails E { Id(A()) }
+-- 06855.ergo --
+type E { N int }
+func g() int fails E { 1 }
+-- 06856.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+-- 06857.ergo --
+func f() int {
+	let %s = 1
+	%s + 1
+}
+-- 06858.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f() int {
+	let %s = 1
+	%s + 1
+}
+-- 06859.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f() int {
+	let %s = 1
+	%s + 1
+}
+-- 06860.ergo --
+func f() int {
+	let mut %s = 1
+	%s = 2
+	%s
+}
+-- 06861.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f() int {
+	let mut %s = 1
+	%s = 2
+	%s
+}
+-- 06862.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f() int {
+	let mut %s = 1
+	%s = 2
+	%s
+}
+-- 06863.ergo --
+func f() int {
+	let (x, %s) = (1, 2)
+	x + %s
+}
+-- 06864.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f() int {
+	let (x, %s) = (1, 2)
+	x + %s
+}
+-- 06865.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f() int {
+	let (x, %s) = (1, 2)
+	x + %s
+}
+-- 06866.ergo --
+func f(xs []int) int {
+	let mut s = 0
+	for %s in xs {
+		s += %s
+	}
+	s
+}
+-- 06867.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f(xs []int) int {
+	let mut s = 0
+	for %s in xs {
+		s += %s
+	}
+	s
+}
+-- 06868.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f(xs []int) int {
+	let mut s = 0
+	for %s in xs {
+		s += %s
+	}
+	s
+}
+-- 06869.ergo --
+type R { N int }
+func f(r R) int {
+	let R = r
+	let s R = R
+	s.N
+}
+-- 06870.ergo --
+type E { N int }
+func g() int fails E { 1 }
+type R { N int }
+func f(r R) int {
+	let R = r
+	let s R = R
+	s.N
+}
+-- 06871.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+type R { N int }
+func f(r R) int {
+	let R = r
+	let s R = R
+	s.N
+}
+-- 06872.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+type E { N int }
+func g() int fails E { 1 }
+-- 06873.ergo --
+func f() int {
+	g() catch {
+	case len:
+		_ = len
+		0
+	}
+}
+-- 06874.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+	case len:
+		_ = len
+		0
+	}
+}
+-- 06875.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f() int {
+	g() catch {
+	case len:
+		_ = len
+		0
+	}
+}
+-- 06876.ergo --
+func f(o Option[int]) int {
+	match o {
+	case Some{Value: len}:
+		len
+	case None:
+		0
+	}
+}
+-- 06877.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f(o Option[int]) int {
+	match o {
+	case Some{Value: len}:
+		len
+	case None:
+		0
+	}
+}
+-- 06878.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f(o Option[int]) int {
+	match o {
+	case Some{Value: len}:
+		len
+	case None:
+		0
+	}
+}
+-- 06879.ergo --
+func f(n int) int {
+	match n {
+	case Sleep:
+		Sleep
+	}
+}
+-- 06880.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f(n int) int {
+	match n {
+	case Sleep:
+		Sleep
+	}
+}
+-- 06881.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f(n int) int {
+	match n {
+	case Sleep:
+		Sleep
+	}
+}
+-- 06882.ergo --
+func f() int {
+	g() catch {
+	case E{N: len}:
+		len
+	}
+}
+-- 06883.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+	case E{N: len}:
+		len
+	}
+}
+-- 06884.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f() int {
+	g() catch {
+	case E{N: len}:
+		len
+	}
+}
+-- 06885.ergo --
+func f(any int) int { any }
+-- 06886.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f(any int) int { any }
+-- 06887.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f(any int) int { any }
+-- 06888.ergo --
+func f(error int) int { error }
+-- 06889.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f(error int) int { error }
+-- 06890.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f(error int) int { error }
+-- 06891.ergo --
+func f(uintptr int) int { uintptr }
+-- 06892.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f(uintptr int) int { uintptr }
+-- 06893.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f(uintptr int) int { uintptr }
+-- 06894.ergo --
+func f(complex64 int) int { complex64 }
+-- 06895.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f(complex64 int) int { complex64 }
+-- 06896.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f(complex64 int) int { complex64 }
+-- 06897.ergo --
+func f(complex128 int) int { complex128 }
+-- 06898.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f(complex128 int) int { complex128 }
+-- 06899.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f(complex128 int) int { complex128 }
+-- 06900.ergo --
+func f(a int) int {
+	let (a, b) = unknownFn()
+	b
+}
+-- 06901.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f(a int) int {
+	let (a, b) = unknownFn()
+	b
+}
+-- 06902.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f(a int) int {
+	let (a, b) = unknownFn()
+	b
+}
+-- 06903.ergo --
+func f(a int) int {
+	let a = unknownFn()
+	1
+}
+-- 06904.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f(a int) int {
+	let a = unknownFn()
+	1
+}
+-- 06905.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f(a int) int {
+	let a = unknownFn()
+	1
+}
+-- 06906.ergo --
+func f() int {
+	let (len, b) = unknownFn()
+	b
+}
+-- 06907.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f() int {
+	let (len, b) = unknownFn()
+	b
+}
+-- 06908.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f() int {
+	let (len, b) = unknownFn()
+	b
+}
+-- 06909.ergo --
+func f() int {
+	let (b, b) = unknownFn()
+	1
+}
+-- 06910.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f() int {
+	let (b, b) = unknownFn()
+	1
+}
+-- 06911.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f() int {
+	let (b, b) = unknownFn()
+	1
+}
+-- 06912.ergo --
+type E { N int }
+func g() int fails E { 1 }
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+-- 06913.ergo --
+func f() {
+	xs()[0] = 5
+}
+-- 06914.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f() {
+	xs()[0] = 5
+}
+-- 06915.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f() {
+	xs()[0] = 5
+}
+-- 06916.ergo --
+func f() {
+	[]int{1, 2}[0] = 3
+}
+-- 06917.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f() {
+	[]int{1, 2}[0] = 3
+}
+-- 06918.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f() {
+	[]int{1, 2}[0] = 3
+}
+-- 06919.ergo --
+func f() {
+	xs()[0] += 1
+}
+-- 06920.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f() {
+	xs()[0] += 1
+}
+-- 06921.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f() {
+	xs()[0] += 1
+}
+-- 06922.ergo --
+func f() {
+	r().N = 5
+}
+-- 06923.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f() {
+	r().N = 5
+}
+-- 06924.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f() {
+	r().N = 5
+}
+-- 06925.ergo --
+func f(xs []int) int {
+	let mut n = 0
+	eachOf(xs, func(x int) { n += x })
+	n
+}
+-- 06926.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f(xs []int) int {
+	let mut n = 0
+	eachOf(xs, func(x int) { n += x })
+	n
+}
+-- 06927.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f(xs []int) int {
+	let mut n = 0
+	eachOf(xs, func(x int) { n += x })
+	n
+}
+-- 06928.ergo --
+func f(xs []int) int {
+	let mut n = 0
+	eachOf(xs) {
+		n += 1
+	}
+	n
+}
+-- 06929.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f(xs []int) int {
+	let mut n = 0
+	eachOf(xs) {
+		n += 1
+	}
+	n
+}
+-- 06930.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f(xs []int) int {
+	let mut n = 0
+	eachOf(xs) {
+		n += 1
+	}
+	n
+}
+-- 06931.ergo --
+func f() int {
+	let mut n = 0
+	let r = 0[func() int {
+		n = 2
+		n
+	}]
+	n
+}
+-- 06932.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f() int {
+	let mut n = 0
+	let r = 0[func() int {
+		n = 2
+		n
+	}]
+	n
+}
+-- 06933.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f() int {
+	let mut n = 0
+	let r = 0[func() int {
+		n = 2
+		n
+	}]
+	n
+}
+-- 06934.ergo --
+func f() int {
+	let mut n = 0
+	let r = zz[func() int {
+		n = 2
+		n
+	}]
+	n
+}
+-- 06935.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f() int {
+	let mut n = 0
+	let r = zz[func() int {
+		n = 2
+		n
+	}]
+	n
+}
+-- 06936.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f() int {
+	let mut n = 0
+	let r = zz[func() int {
+		n = 2
+		n
+	}]
+	n
+}
+-- 06937.ergo --
+func f() int {
+	let mut n = 0
+	let r = Unknown{K: func() { n = 2 }}
+	n
+}
+-- 06938.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f() int {
+	let mut n = 0
+	let r = Unknown{K: func() { n = 2 }}
+	n
+}
+-- 06939.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f() int {
+	let mut n = 0
+	let r = Unknown{K: func() { n = 2 }}
+	n
+}
+-- 06940.ergo --
+type R { N int }
+func bump(r *R) {}
+func f() int {
+	let mut r = R{N: 1}
+	eachOf() { bump(&r) }
+	r.N
+}
+-- 06941.ergo --
+type E { N int }
+func g() int fails E { 1 }
+type R { N int }
+func bump(r *R) {}
+func f() int {
+	let mut r = R{N: 1}
+	eachOf() { bump(&r) }
+	r.N
+}
+-- 06942.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+type R { N int }
+func bump(r *R) {}
+func f() int {
+	let mut r = R{N: 1}
+	eachOf() { bump(&r) }
+	r.N
+}
+-- 06943.ergo --
+type R { N int }
+func f() int {
+	let mut c = R{N: 1}
+	c.Count = 2
+	c.N
+}
+-- 06944.ergo --
+type E { N int }
+func g() int fails E { 1 }
+type R { N int }
+func f() int {
+	let mut c = R{N: 1}
+	c.Count = 2
+	c.N
+}
+-- 06945.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+type R { N int }
+func f() int {
+	let mut c = R{N: 1}
+	c.Count = 2
+	c.N
+}
+-- 06946.ergo --
+func f() int {
+	let mut xs = []int{1}
+	xs["a"] = 2
+	xs[0]
+}
+-- 06947.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func f() int {
+	let mut xs = []int{1}
+	xs["a"] = 2
+	xs[0]
+}
+-- 06948.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func f() int {
+	let mut xs = []int{1}
+	xs["a"] = 2
+	xs[0]
+}
+-- 06949.ergo --
+let g = func() int {
+	let mut k = 1
+	k
+}
+-- 06950.ergo --
+type E { N int }
+func g() int fails E { 1 }
+let g = func() int {
+	let mut k = 1
+	k
+}
+-- 06951.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+let g = func() int {
+	let mut k = 1
+	k
+}
+-- 06952.ergo --
+let g = func() {
+	let z = 1
+}
+-- 06953.ergo --
+type E { N int }
+func g() int fails E { 1 }
+let g = func() {
+	let z = 1
+}
+-- 06954.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+let g = func() {
+	let z = 1
+}
+-- 06955.ergo --
+let g = func() int {
+	let mut k = 1
+	k += 1
+	k
+}
+-- 06956.ergo --
+type E { N int }
+func g() int fails E { 1 }
+let g = func() int {
+	let mut k = 1
+	k += 1
+	k
+}
+-- 06957.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+let g = func() int {
+	let mut k = 1
+	k += 1
+	k
+}
+-- 06958.ergo --
+type E { N int }
+func g() int fails E { 1 }
+type Bang {}
+func mark() fails Bang { return Bang }
+-- 06959.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+type Bang {}
+func mark() fails Bang { return Bang }
+-- 06960.ergo --
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+-- 06961.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+-- 06962.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+-- 06963.ergo --
+func F() fails Bang {
+	let s string = try a(1, 2)
+	let t = a("x")
+	_ = s
+	_ = t
+}
+-- 06964.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func F() fails Bang {
+	let s string = try a(1, 2)
+	let t = a("x")
+	_ = s
+	_ = t
+}
+-- 06965.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func F() fails Bang {
+	let s string = try a(1, 2)
+	let t = a("x")
+	_ = s
+	_ = t
+}
+-- 06966.ergo --
+func G() fails Bang {
+	let u = try a(1) + undefinedName
+	_ = u
+}
+-- 06967.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func G() fails Bang {
+	let u = try a(1) + undefinedName
+	_ = u
+}
+-- 06968.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func G() fails Bang {
+	let u = try a(1) + undefinedName
+	_ = u
+}
+-- 06969.ergo --
+func a() { let m = Map[int, func()]{1: a}; _ = m; try mark() }
+-- 06970.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func a() { let m = Map[int, func()]{1: a}; _ = m; try mark() }
+-- 06971.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func a() { let m = Map[int, func()]{1: a}; _ = m; try mark() }
+-- 06972.ergo --
+func F() fails Bang { try a() }
+func G() { a() catch { case Bang: } }
+func H() fails Bang { return a() }
+-- 06973.ergo --
+type E { N int }
+func g() int fails E { 1 }
+func F() fails Bang { try a() }
+func G() { a() catch { case Bang: } }
+func H() fails Bang { return a() }
+-- 06974.ergo --
+type R { N int }
+func xs() []int { []int{1, 2} }
+func r() R { R{N: 1} }
+func F() fails Bang { try a() }
+func G() { a() catch { case Bang: } }
+func H() fails Bang { return a() }
+-- 06975.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+-- 06976.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+-- 06977.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+type Bang {}
+func mark() fails Bang { return Bang }
+-- 06978.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+type Bang {}
+func mark() fails Bang { return Bang }
+-- 06979.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+-- 06980.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+-- 06981.ergo --
+func keep(cb func() int) int { _ = cb; 1 }
+-- 06982.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func keep(cb func() int) int { _ = cb; 1 }
+-- 06983.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func keep(cb func() int) int { _ = cb; 1 }
+-- 06984.ergo --
+func store(cb func() int) { _ = cb }
+-- 06985.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func store(cb func() int) { _ = cb }
+-- 06986.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func store(cb func() int) { _ = cb }
+-- 06987.ergo --
+func run[E](f func() int fails E) int fails E { try f() }
+-- 06988.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func run[E](f func() int fails E) int fails E { try f() }
+-- 06989.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func run[E](f func() int fails E) int fails E { try f() }
+-- 06990.ergo --
+func F() int { try keep(func() int { a(1) }) }
+-- 06991.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func F() int { try keep(func() int { a(1) }) }
+-- 06992.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func F() int { try keep(func() int { a(1) }) }
+-- 06993.ergo --
+func F() int { keep(func() int { a(1) }) catch { case Bang: 2 } }
+-- 06994.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func F() int { keep(func() int { a(1) }) catch { case Bang: 2 } }
+-- 06995.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func F() int { keep(func() int { a(1) }) catch { case Bang: 2 } }
+-- 06996.ergo --
+func F() { return store(func() int { a(1) }) }
+-- 06997.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }
+func keep(cb func() int) int { _ = cb; 1 }
+func store(cb func() int) { _ = cb }
+func run[E](f func() int fails E) int fails E { try f() }
+func F() { return store(func() int { a(1) }) }
+-- 06998.ergo --
+type R { N int }
+func Bump(r *R) { r.N = 1 }
+func Set[T](r *R, v T) { r.N = 2 }
+func each(cb func()) { cb() }
+func F() { return store(func() int { a(1) }) }
+-- 06999.ergo --
+func F() int { try keep() { a(1) } }

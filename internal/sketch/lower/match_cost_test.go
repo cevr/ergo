@@ -249,6 +249,7 @@ func BenchmarkMatchControl(b *testing.B) {
 
 func TestMatchCostModule(t *testing.T) {
 	interfaceUnions(t) // control.go switches on Signal as a Go interface
+	needsBuild(t)
 	dir := os.Getenv("MATCH_COST_DIR")
 	if dir == "" {
 		dir = t.TempDir()

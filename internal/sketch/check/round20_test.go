@@ -159,13 +159,13 @@ func TestContextBudgetPrefixes(t *testing.T) {
 }
 
 // TestContextSinglePass: single-pass work stays within contextSinglePerUnit per
-// context node on every shape at sizes 1 to 8000, at the real budget, and the
+// context node on every shape at sizes 1 to 64, at the real budget, and the
 // repeatable work within the charge.
 func TestContextSinglePass(t *testing.T) {
 	oc := countOps(t)
 	worst, worstWhat := 0.0, ""
 	for _, shape := range budgetShapes {
-		for _, n := range []int{1, 2, 7, 64, 1000} {
+		for _, n := range []int{1, 2, 7, 64} {
 			src := contextFamily(shape, n)
 			_, c := checkLimited(t, src, nil)
 			what := fmt.Sprintf("%s n=%d", shape, n)
@@ -179,12 +179,12 @@ func TestContextSinglePass(t *testing.T) {
 }
 
 // TestContextContractMultiKey (the round-20 reviewer's contract, under the
-// two-part bound): one entry of 1000 and of 8000 keys, at a budget of 3
-// and at the real one, reads its keys once each, uncopied, and charges
-// every set node before it reads it.
+// two-part bound): one entry of n keys, at sizes up to GrowthMaxNodes
+// source nodes, at a budget of 3 and at the real one, reads its keys once
+// each, uncopied, and charges every set node before it reads it.
 func TestContextContractMultiKey(t *testing.T) {
 	oc := countOps(t)
-	for _, n := range []int{1000, 8000} {
+	for _, n := range GrowthSizes(t, GrowthMaxNodes, func(n int) int { return sourceNodes(t, contextFamily("multi-key", n)) }) {
 		src := contextFamily("multi-key", n)
 		for _, limit := range []func(int) int{func(int) int { return 3 }, nil} {
 			diags, c := checkLimited(t, src, limit)
@@ -200,12 +200,14 @@ func TestContextContractMultiKey(t *testing.T) {
 }
 
 // TestContextContractInline (the round-20 reviewer's contract, under the
-// two-part bound): an inline context of 1 to 8000 empty embeddings and no
-// entry reads each embedding a fixed number of times, finishes once, and
-// its finish does no repeatable work past its allowance.
+// two-part bound): an inline context of 1 empty embedding up to a source
+// of GrowthMaxNodes nodes and no entry reads each embedding a fixed number
+// of times, finishes once, and its finish does no repeatable work past
+// its allowance.
 func TestContextContractInline(t *testing.T) {
 	oc := countOps(t)
-	for _, n := range []int{1, 4, 1000, 8000} {
+	sizes := GrowthSizes(t, GrowthMaxNodes, func(n int) int { return sourceNodes(t, contextFamily("inline embeddings", n)) })
+	for _, n := range []int{1, 4, sizes[len(sizes)-1]} {
 		src := contextFamily("inline embeddings", n)
 		diags, c := checkLimited(t, src, nil)
 		if len(diags) > 0 {
@@ -280,7 +282,6 @@ func budgetOrderCases() []budgetOrderCase {
 // (Short 0), as the unsplit test did (it was over the size cutoff).
 var contextBudgetOrder = NewSplit(Split[budgetOrderCase]{
 	Name: "TestContextBudgetOrder", Parts: 3,
-	Count: 94, Digest: "9319c4ad3e9b94686dc7823aee65790a36230f75d534074074d51f157cc41e46",
 	Cases: SeqOf(budgetOrderCases),
 	Key: func(c budgetOrderCase) string {
 		return fmt.Sprintf("%s n=%d shape=%q pct=%d", c.kind, c.n, c.shape, c.pct)

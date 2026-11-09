@@ -101,6 +101,7 @@ var costStaticPolls = map[string]int{"dispatch": 1, "impure": 2, "pure": 0, "Kee
 var costPoll = regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\.Check\(\)`)
 
 func TestRuntime199CostModule(t *testing.T) {
+	needsBuild(t)
 	dir := os.Getenv("RUNTIME199_COST_DIR")
 	if dir == "" {
 		dir = t.TempDir()

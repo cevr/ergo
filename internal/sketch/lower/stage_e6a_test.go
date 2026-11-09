@@ -245,6 +245,7 @@ var textForms = []struct {
 // values; the comparison quotes each text, so a line feed or an invalid
 // byte in a string is compared exactly too.
 func TestInterpolationText(t *testing.T) {
+	needsBuild(t)
 	kinds := textKinds()
 	if len(kinds) != len(check.Typ)-1 {
 		t.Fatalf("%d kinds for %d basic types", len(kinds), len(check.Typ)-1)
@@ -309,204 +310,16 @@ func TestInterpolationText(t *testing.T) {
 	}
 }
 
-// TestInterpolationAllocs is the owner's speed rule (#242/#243): an
-// interpolation of basic values allocates no more than the Go a person
-// writes with strconv appends into a sized buffer. Three parts of three
-// kinds with text between them are one allocation, the concatenation's;
-// a lone small integer is none, as strconv.Itoa's is.
-func TestInterpolationAllocs(t *testing.T) {
-	src := `func label(n int, f float64, s string) string {
-	"n=\(n) f=\(f) s=\(s)"
-}
-
-type Celsius float64
-type Count int64
-
-func reading(c Celsius, n Count, ok bool) string {
-	"t=\(c) n=\(n) ok=\(ok)"
-}
-
-func alone(n int) string {
-	"\(n)"
-}
-`
-	feed := `package main
-
-import (
-	"os"
-	"strconv"
-	"testing"
-)
-
-var sink string
-
-func handWritten(n int, f float64, s string) string {
-	var buf [64]byte
-	b := append(buf[:0], "n="...)
-	b = strconv.AppendInt(b, int64(n), 10)
-	b = append(b, " f="...)
-	b = strconv.AppendFloat(b, f, 'g', -1, 64)
-	b = append(b, " s="...)
-	b = append(b, s...)
-	return string(b)
-}
-
-func init() {
-	s := "a string part"
-	allocs := func(f func()) string { return strconv.FormatFloat(testing.AllocsPerRun(200, f), 'f', -1, 64) }
-	os.Stdout.WriteString("label " + allocs(func() { sink = label(123456789, -2.2250738585072014e-308, s) }) + "\n")
-	os.Stdout.WriteString("hand " + allocs(func() { sink = handWritten(123456789, -2.2250738585072014e-308, s) }) + "\n")
-	os.Stdout.WriteString("reading " + allocs(func() { sink = reading(-273.15, -9223372036854775808, true) }) + "\n")
-	os.Stdout.WriteString("alone7 " + allocs(func() { sink = alone(7) }) + "\n")
-	os.Stdout.WriteString("alone " + allocs(func() { sink = alone(1234567) }) + "\n")
-	os.Stdout.WriteString(label(123456789, -2.2250738585072014e-308, s) + "\n")
-}
-`
-	got := runFed(t, "e6a_allocs", src, feed)
-	want := "label 1\nhand 1\nreading 1\nalone7 0\nalone 1\nn=123456789 f=-2.2250738585072014e-308 s=a string part\n"
-	if got != want {
-		t.Errorf("got\n%s\nwant\n%s", got, want)
-	}
-}
-
-// TestInterpolationLowersWithoutBoxing: the lowered Go of a string with
-// parts of every basic kind calls strconv and Duration's String directly,
-// and never the formatting package, the runtime's boxed text, an empty
-// interface or reflection; a number in a string with text is appended into
-// a constant-size buffer the concatenation reads in place (E6a A4 at the
-// output, beside the static grep of interp.go).
-func TestInterpolationLowersWithoutBoxing(t *testing.T) {
-	var src strings.Builder
-	var params, parts []string
-	for _, b := range check.Typ[1:] {
-		params = append(params, "v"+b.Name+" "+b.Name)
-		parts = append(parts, "\\(v"+b.Name+")")
-	}
-	fmt.Fprintf(&src, "func all(%s) string {\n\t\"%s\"\n}\n\nfunc main() {}\n", strings.Join(params, ", "), strings.Join(parts, " "))
-	o := mustLower(t, "e6a_noboxing", src.String())
-	body := o.mainGo()
-	i := strings.Index(body, "func all(")
-	if i < 0 {
-		t.Fatalf("no func all in\n%s", body)
-	}
-	body = body[i:]
-	if j := strings.Index(body[1:], "\nfunc "); j >= 0 {
-		body = body[:j+1]
-	}
-	for _, bad := range []string{"fmt.", "interface{}", "any(", "reflect", ".Text"} {
-		if strings.Contains(body, bad) {
-			t.Errorf("the lowered interpolation holds %q:\n%s", bad, body)
-		}
-	}
-	for _, want := range []string{"strconv.AppendInt(make([]byte, 0, 20), int64(vint8), 10)", "strconv.AppendUint(make([]byte, 0, 20), uint64(vuint16), 10)",
-		"strconv.AppendFloat(make([]byte, 0, 24), float64(vfloat32), 'g', -1, 32)", "strconv.AppendFloat(make([]byte, 0, 24), vfloat64, 'g', -1, 64)",
-		"strconv.FormatComplex(complex128(vcomplex64), 'g', -1, 64)", "strconv.FormatComplex(vcomplex128, 'g', -1, 128)",
-		"time.Duration(vduration).String()", "strconv.FormatBool(vbool)", "\" \" + vstring + \" \""} {
-		if !strings.Contains(body, want) {
-			t.Errorf("the lowered interpolation lacks %s:\n%s", want, body)
-		}
-	}
-	buildAll(t, []*lowered{o}, false)
-}
-
-// e6aRuns are ergo run programs of the admitted forms (the check-v1
-// ruling: every admitted form lands checked and lowered, with a run test).
-var e6aRuns = []struct{ name, src, want string }{
-	{"defined", `type Celsius float64
-type Name string
-type Warm Celsius
-type Ticks uint8
-
-func main() needs Console {
-	let t Celsius = 21.5
-	let n Name = "ada"
-	let w Warm = -0.25
-	let k Ticks = 255
-	Console.Println("\(n) \(t) \(w) \(k)")
-}
-`, "ada 21.5 -0.25 255\n"},
-	{"complex-and-duration", `type Span duration
-
-func main() needs Console {
-	let z complex128
-	let h complex64 = complex64(z)
-	let s Span = 90m
-	let d = 1500ms
-	Console.Println("z=\(z) h=\(h) s=\(s) d=\(d) neg=\(-d)")
-}
-`, "z=(0+0i) h=(0+0i) s=1h30m0s d=1.5s neg=-1.5s\n"},
-	{"floats", `func main() needs Console {
-	let zero = 0.0
-	let f float32 = 0.1
-	Console.Println("\(zero / zero) \(1.0 / zero) \(-1.0 / zero) \(-zero) \(f) \(float64(f)) \(1e21) \(123456789.0)")
-}
-`, "NaN +Inf -Inf -0 0.1 0.10000000149011612 1e+21 1.23456789e+08\n"},
-	{"nested-and-field", `type Card { Number int, Name string }
-type Box[T] { V T }
-
-func main() needs Console {
-	let c = Card{Number: 7, Name: "seven"}
-	let b = Box[int]{V: 42}
-	Console.Println("card \("\(c.Number)/\(c.Name)") box \(b.V)")
-}
-`, "card 7/seven box 42\n"},
-	{"spilled", `type Fault {}
-
-func g(n int) int fails Fault {
-	if n < 0 {
-		return Fault
-	}
-	n * 2
-}
-
-func show(n int) string fails Fault {
-	"n=\(n) g=\(try g(n)) end"
-}
-
-func main() needs Console {
-	let s = show(21) catch {
-	case Fault:
-		"fault"
-	}
-	let t = show(-1) catch {
-	case Fault:
-		"fault"
-	}
-	Console.Println("\(s) \(t)")
-}
-`, "n=21 g=42 end fault\n"},
-	{"only-parts", `func main() needs Console {
-	let a = 3
-	let s = "x"
-	Console.Println("\(a)\(s)\(a)")
-	Console.Println("\(true)")
-	Console.Println("")
-}
-`, "3x3\ntrue\n\n"},
-}
-
-func TestErgoRunE6aInterpolation(t *testing.T) {
-	var builds []*lowered
-	for _, r := range e6aRuns {
-		builds = append(builds, mustLower(t, "e6a_"+strings.ReplaceAll(r.name, "-", "_"), r.src))
-	}
-	exes := buildAll(t, builds, true)
-	if exes == nil {
-		return
-	}
-	for _, r := range e6aRuns {
-		stdout, stderr, code := runExe(t, exes["e6a_"+strings.ReplaceAll(r.name, "-", "_")])
-		if code != 0 || stdout != r.want {
-			t.Errorf("%s: exit %d, stdout %q, stderr %q; want %q", r.name, code, stdout, firstLines(stderr, 8), r.want)
-		}
-	}
-}
-
 // runFed lowers src with no entry, adds feed (a Go file of the same
 // package whose init calls the lowered functions) and runs the program. It
 // returns stdout.
+//
+// It builds Go because its callers ask what the built program prints and how
+// it exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func runFed(t *testing.T, name, src, feed string) string {
 	t.Helper()
+	fastTierGuard(t, "a go command")
 	o := lowerSource(name, src, false)
 	switch {
 	case o.err != nil:

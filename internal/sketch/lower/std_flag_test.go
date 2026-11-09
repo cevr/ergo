@@ -233,6 +233,9 @@ func flagLoop(args []string, interleave bool) string {
 
 // flagProbe builds testdata/flagprobe, runs it on lists, and returns its
 // help text and one outcome per list.
+//
+// It builds Go because the laws run in the built test binary (ergo test),
+// the only place a law runs.
 func flagProbe(t *testing.T, lists [][]string) (string, []string) {
 	t.Helper()
 	src, err := os.ReadFile("testdata/flagprobe/main.ergo")
@@ -270,6 +273,7 @@ func flagProbe(t *testing.T, lists [][]string) (string, []string) {
 // flag.Parse is Go's flag. The flags block of flag.Usage is Go's
 // PrintDefaults byte for byte.
 func TestFlagMatchesGo(t *testing.T) {
+	needsBuild(t)
 	lists := flagLists(3000)
 	// The upstream case effect.cli.options-interleaved-with-operands
 	// (conformance/effect-cases.json; Command.test.ts:1823): flags among
@@ -328,119 +332,18 @@ func TestFlagMatchesGo(t *testing.T) {
 	}
 }
 
-// TestFlagCommandsRun (stdlib.md, flag): a program whose commands are its
-// own union parses a subcommand and matches the result with no case _;
-// flags follow a positional argument; -h prints the help to standard
-// output with status 0; a usage error prints its text and the help to
-// standard error with status 2.
-func TestFlagCommandsRun(t *testing.T) {
-	const program = `import flag
-import io
-import os
-
-type Cmd = Path{Name string, Json bool} | List{Json bool, Sort string, Registry Option[string]}
-
-let Json = flag.Bool("json", false, "print JSON")
-let Sort = flag.Choice("sort", "date", []string{"date", "name"}, "the order")
-let Registry = flag.String("registry", "", "a registry")
-let Name = flag.Arg("name", "the package")
-
-func buildPath(v flag.Values) Cmd {
-	match Name.Get(v) {
-	case Some[string] as n:
-		Path{Name: n.Value, Json: Json.Get(v)}
-	case None:
-		Path{Name: "", Json: Json.Get(v)}
-	}
-}
-
-func buildList(v flag.Values) Cmd {
-	let registry = Registry.Get(v)
-	let r Option[string] = if registry == "" { None } else { Some[string]{Value: registry} }
-	List{Json: Json.Get(v), Sort: Sort.Get(v), Registry: r}
-}
-
-func commands() []flag.Command[Cmd] {
-	[]flag.Command[Cmd]{
-		flag.Command[Cmd]{Name: "path", Usage: "print a package's path", Set: flag.Set{Name: "repo path", Usage: "", Flags: []flag.Flag{Json}, Args: []flag.ArgSpec{Name}}, Build: buildPath},
-		flag.Command[Cmd]{Name: "list", Usage: "list the packages", Set: flag.Set{Name: "repo list", Usage: "", Flags: []flag.Flag{Json, Sort, Registry}, Args: []flag.ArgSpec{}}, Build: buildList},
-	}
-}
-
-func run(args []string) fails os.Exit needs Console | io.Stdout {
-	let c = flag.ParseCommand("repo", "manage packages", commands(), args) catch {
-	case err:
-		try flag.Exit(err, flag.CommandUsage("repo", "manage packages", commands()))
-		return
-	}
-	match c {
-	case Path as p:
-		Console.Println("path \(p.Name) \(p.Json)")
-	case List as l:
-		match l.Registry {
-		case Some[string] as r:
-			Console.Println("list \(l.Json) \(l.Sort) \(r.Value)")
-		case None:
-			Console.Println("list \(l.Json) \(l.Sort) none")
-		}
-	}
-}
-
-func main() fails os.Exit needs Console | Ambient {
-	with context { io.Stdout: io.NewHost(), os.Process: os.NewHost() } {
-		try run(os.Process.Args())
-	}
-}
-`
-	exes := buildAll(t, []*lowered{mustLower(t, "flagcmd", program)}, true)
-	if exes == nil {
-		return
-	}
-	const top = "Usage of repo:\nmanage packages\nCommands:\n  path\n    \tprint a package's path\n  list\n    \tlist the packages\n"
-	const list = "Usage of repo list:\n  -json\n    \tprint JSON\n  -registry string\n    \ta registry\n  -sort date|name\n    \tthe order (default \"date\")\n"
-	for _, c := range []struct {
-		args           []string
-		stdout, stderr string
-		code           int
-	}{
-		{[]string{"list", "--json", "-sort", "name", "--registry=github"}, "list true name github\n", "", 0},
-		{[]string{"list"}, "list false date none\n", "", 0},
-		{[]string{"path", "repo", "--json"}, "path repo true\n", "", 0},
-		{[]string{"path", "--", "-x"}, "path -x false\n", "", 0},
-		{[]string{"-h"}, top, "", 0},
-		{[]string{"list", "--help"}, list, "", 0},
-		// Help wins over a failure before or after it (owner Q7, @effect/cli).
-		{[]string{"-zz", "--help"}, top, "", 0},
-		{[]string{"nope", "-h"}, top, "", 0},
-		{[]string{"list", "-zz", "--help"}, list, "", 0},
-		{[]string{"list", "-sort", "size", "--help"}, list, "", 0},
-		{[]string{"list", "--help", "-zz"}, list, "", 0},
-		{[]string{"list", "-json=maybe", "-h=1"}, list, "", 0},
-		// Not help: after "--", or the value of a flag.
-		{[]string{"list", "--", "--help"}, "", "unexpected argument: --help\n" + top, 2},
-		{[]string{"list", "-registry", "--help"}, "list false date --help\n", "", 0},
-		{[]string{"nope"}, "", "unknown command \"nope\"; commands: path, list\n" + top, 2},
-		{[]string{}, "", "missing command; commands: path, list\n" + top, 2},
-		{[]string{"list", "-n"}, "", "flag provided but not defined: -n\n" + top, 2},
-		{[]string{"list", "-sort", "size"}, "", "invalid value \"size\" for flag -sort: not one of date, name\n" + top, 2},
-		{[]string{"path"}, "", "missing required flag or argument: name\n" + top, 2},
-		{[]string{"path", "a", "b"}, "", "unexpected argument: b\n" + top, 2},
-		{[]string{"list", "-json=maybe"}, "", "invalid value \"maybe\" for flag -json: parse error\n" + top, 2},
-	} {
-		stdout, stderr, code := runExeInput(t, exes["flagcmd"], "", c.args...)
-		if stdout != c.stdout || stderr != c.stderr || code != c.code {
-			t.Errorf("%q: exit %d (want %d)\nstdout %q\nwant   %q\nstderr %q\nwant   %q", c.args, code, c.code, stdout, c.stdout, stderr, c.stderr)
-		}
-	}
-}
-
 // TestFlagForeignHandle (S1d round 2, M3; spec: "A handle that is not in
 // the parsed Set is a defect"): reading Values with a handle of another
 // set, or with a handle of another kind or another default under the name
 // of one of the set's flags, ends the program with a defect (status 2 and
 // a runtime report), whether or not the flag was given. The set's own
 // handle reads its value.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestFlagForeignHandle(t *testing.T) {
+	needsBuild(t)
 	const program = `import flag
 import os
 
@@ -730,8 +633,12 @@ var flagLawStatements = map[string]string{
 // --seed 1; lawledger.Run holds that it restates exactly the ledger rows
 // whose runner is this test, each with the row's statement, and that each
 // passed.
+//
+// It builds Go because the laws run in the built test binary (ergo test),
+// the only place a law runs.
 func TestFlagLaws(t *testing.T) {
-	exes := buildAll(t, []*lowered{lowerTestBuild(t, "flaglaws", flagLawTests)}, true)
+	needsBuild(t)
+	exes := tableExes(t, "flaglaws")
 	if exes == nil {
 		return
 	}

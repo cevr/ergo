@@ -21,6 +21,9 @@ import (
 // is a Benchmark in the same file, so both sides run in one kind of
 // process. benchEnv, an *Env over a root task, is declared for the calls
 // that take one (emittedCall).
+//
+// It builds Go because a benchmark's question is the speed of the built
+// program against its Go control.
 func emittedBench(b *testing.B, name, src string, benchGo func(mainGo string) string, benches ...string) {
 	b.Helper()
 	o := lowerSource(name, src, true)

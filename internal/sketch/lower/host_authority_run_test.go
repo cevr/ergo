@@ -37,14 +37,18 @@ func main() needs Console | Ambient {
 // host through the providers it made (exit 0), and the entry provides
 // Console and Ambient only, so a main that needs os.Process or Clock is
 // S109 naming both.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestHostAuthorityRuns(t *testing.T) {
+	needsBuild(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "a.md")
 	if err := os.WriteFile(path, []byte("alpha"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p := mustLower(t, "hostAuthority", hostAuthorityProgram)
-	exes := buildAll(t, []*lowered{p}, true)
+	exes := tableExes(t, "hostAuthority")
 	if exes == nil {
 		t.Fatal("the lowered program does not build")
 	}

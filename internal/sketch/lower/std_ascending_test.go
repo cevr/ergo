@@ -147,7 +147,13 @@ func ascendingCases(seed uint64, n int) []struct {
 // x) is Some(i) exactly when Go's slices.BinarySearch of the sorted xs gives
 // (i, true), i the first index of x. The seed is 1, or ERGO_SEED; a failure
 // prints the seed, the case and both answers.
+//
+// It builds Go because it compares the runs of built programs with a
+// reference (another lowering, a fold, or Go's own package), and the
+// question is behaviour at run time; no in-process check observes that, and
+// Ergo has no reference interpreter yet (test-speed T8).
 func TestStdAscendingMatchesGo(t *testing.T) {
+	needsBuild(t)
 	seed := uint64(1)
 	if s := os.Getenv("ERGO_SEED"); s != "" {
 		v, err := strconv.ParseUint(s, 10, 64)
@@ -157,7 +163,7 @@ func TestStdAscendingMatchesGo(t *testing.T) {
 		seed = v
 	}
 	cases := ascendingCases(seed, 10000)
-	exes := buildAll(t, []*lowered{mustLower(t, "ascending", ascendingProgram)}, true)
+	exes := tableExes(t, "ascending")
 	if exes == nil {
 		return
 	}

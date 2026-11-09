@@ -55,8 +55,10 @@ var stepPrograms = map[string]string{
 // so a changed value cannot replay a pass recorded with another CLI.
 // ERGO_CLOSURE_SWEEP selects what a closure sweep step sweeps (sweepStep):
 // all, or one package directory; it is a selection, not a cache or flag
-// variable, and Step.Env keys it the same way.
-var stepEnvironmentNames = []string{"CGO_ENABLED", "ERGO_REPO_ROOT", "ERGO_TEST_CLI", "ERGO_CLOSURE_SWEEP"}
+// variable, and Step.Env keys it the same way. ERGO_TEST_CORPUS_GC=1
+// selects the lowering's gc and vet of its corpus in the full tier
+// (corpusGcEnvironment); it is a selection too.
+var stepEnvironmentNames = []string{"CGO_ENABLED", "ERGO_REPO_ROOT", "ERGO_TEST_CLI", "ERGO_CLOSURE_SWEEP", "ERGO_TEST_CORPUS_GC"}
 
 // timeoutDuration is the DURATION operand of timeout, written literally.
 var timeoutDuration = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?[smhd]?$`)

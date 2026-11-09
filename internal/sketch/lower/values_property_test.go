@@ -64,7 +64,6 @@ const (
 	kMaps               // []Map[int, int]
 )
 
-var kindType = []string{"Map[int, int]", "[]int", "Box", "[]Map[int, int]"}
 var kindDigest = []string{"dm", "ds", "db", "dms"}
 
 // mval is a model value: m and s for a Map, a slice or a Box, ms for a
@@ -932,7 +931,13 @@ func lowerValueMode(t *testing.T, name, src string, rule bool, mode ...string) *
 }
 
 // TestValueRuleAgrees is the seeded property (see above).
+//
+// It builds Go because it compares the runs of built programs with a
+// reference (another lowering, a fold, or Go's own package), and the
+// question is behaviour at run time; no in-process check observes that, and
+// Ergo has no reference interpreter yet (test-speed T8).
 func TestValueRuleAgrees(t *testing.T) {
+	needsBuild(t)
 	seeds := []uint64{1, 2, 3, 4, 5, 6}
 	if *valueSeed != 0 {
 		seeds = []uint64{*valueSeed}

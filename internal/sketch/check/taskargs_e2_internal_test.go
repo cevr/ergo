@@ -1,11 +1,6 @@
 package check
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -182,75 +177,6 @@ func taskArgGaps(info *Info) []string {
 // checks. The behaviour matrix (TestTaskTypeArgumentMatrix) has a template
 // for each, or the reason none can carry a Task.
 var taskArgSites = []string{"callGeneric", "instantiateExprs", "instantiateValue", "literalType", "selfCall"}
-
-// taskArgExempt are the functions that check a type argument against its
-// constraint without being an instantiation of their own, with the reason
-// its arguments already passed typeArgsAdmitted.
-var taskArgExempt = map[string]string{
-	// The witness of an instance recorded at a site: its arguments are the
-	// site's, and an implementing function's are parts of them.
-	"instanceWitnesses": "the arguments of an instance a site admitted",
-}
-
-func TestTypeArgSitesPassTheTaskRule(t *testing.T) {
-	paths, err := filepath.Glob("*.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	callers := map[string][]string{} // callee → enclosing functions
-	files := 0
-	for _, p := range paths {
-		if strings.HasSuffix(p, "_test.go") {
-			continue
-		}
-		data, err := os.ReadFile(p)
-		if err != nil {
-			t.Fatal(err)
-		}
-		f, err := parser.ParseFile(token.NewFileSet(), p, data, parser.SkipObjectResolution)
-		if err != nil {
-			t.Fatal(err)
-		}
-		files++
-		for _, d := range f.Decls {
-			fd, ok := d.(*ast.FuncDecl)
-			if !ok || fd.Body == nil {
-				continue
-			}
-			ast.Inspect(fd.Body, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if !ok {
-					return true
-				}
-				if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-					switch sel.Sel.Name {
-					case "recordInstantiation", "typeArgsAdmitted", "satisfies":
-						if !slices.Contains(callers[sel.Sel.Name], fd.Name.Name) {
-							callers[sel.Sel.Name] = append(callers[sel.Sel.Name], fd.Name.Name)
-						}
-					}
-				}
-				return true
-			})
-		}
-	}
-	if files < 20 {
-		t.Fatalf("read %d checker files; the guard reads the package directory", files)
-	}
-	if got := callers["recordInstantiation"]; !slices.Equal(got, []string{"typeArgsAdmitted"}) {
-		t.Errorf("recordInstantiation is called from %v; every instantiation passes the Task rule first, so only typeArgsAdmitted calls it", got)
-	}
-	got := slices.Sorted(slices.Values(callers["typeArgsAdmitted"]))
-	if !slices.Equal(got, taskArgSites) {
-		t.Errorf("typeArgsAdmitted is called from %v; taskArgSites lists %v: add the new site to the list and to TestTaskTypeArgumentMatrix", got, taskArgSites)
-	}
-	for _, fn := range callers["satisfies"] {
-		if slices.Contains(taskArgSites, fn) || taskArgExempt[fn] != "" {
-			continue
-		}
-		t.Errorf("%s checks a type argument against its constraint but does not pass it through typeArgsAdmitted", fn)
-	}
-}
 
 // The oracle agrees with holdsTask on the types a program can write and on
 // the instances only the checker builds.

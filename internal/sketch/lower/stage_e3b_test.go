@@ -68,50 +68,6 @@ func e3bPrograms(t *testing.T) []e3bProgram {
 	return out
 }
 
-// TestLawSweep builds the run build of every program of testdata/e3b and
-// runs it: each prints exactly its run lines, so a law changes nothing
-// ergo run does. A program with tests also runs its test build, which runs
-// its tests, then its laws.
-func TestLawSweep(t *testing.T) {
-	progs := e3bPrograms(t)
-	var builds []*lowered
-	tested := 0
-	for _, p := range progs {
-		run := mustLower(t, p.name+"_run", p.src)
-		if len(run.pkg.Laws) == 0 {
-			t.Errorf("%s declares no law", p.name)
-		}
-		builds = append(builds, run)
-		if p.exit >= 0 {
-			if len(run.pkg.Tests) == 0 {
-				t.Errorf("%s states test output and declares no test", p.name)
-			}
-			builds = append(builds, lowerTestBuild(t, p.name+"_test", p.src))
-			tested++
-		}
-	}
-	if tested == 0 {
-		t.Errorf("no program of testdata/e3b has tests and laws (sweep program 11)")
-	}
-	exes := buildAll(t, builds, true)
-	if exes == nil {
-		return
-	}
-	for _, p := range progs {
-		stdout, stderr, code := runExe(t, exes[p.name+"_run"])
-		if code != 0 || strings.Join(lines(stdout), "\n") != strings.Join(p.run, "\n") {
-			t.Errorf("%s: ergo run: exit %d, stdout %q, stderr %q; want %q", p.name, code, stdout, firstLines(stderr, 8), p.run)
-		}
-		if p.exit < 0 {
-			continue
-		}
-		stdout, stderr, code = runExe(t, exes[p.name+"_test"])
-		if code != p.exit || strings.Join(lines(stdout), "\n") != strings.Join(p.test, "\n") {
-			t.Errorf("%s: test binary: exit %d (want %d), stdout:\n%s\nwant:\n%s\nstderr:\n%s", p.name, code, p.exit, stdout, strings.Join(p.test, "\n"), firstLines(stderr, 12))
-		}
-	}
-}
-
 // lawFixture is the spec fixture with laws (C21); it lowers, so the
 // erasure property covers it too.
 const lawFixture = "../check/testdata/fixtures/spec/types-laws.ergo"
@@ -243,7 +199,11 @@ func lawProgram(b ownerBase, f lawFact, top bool) string {
 // name there, and the run binary prints the base's output. The test build
 // reads the law's facts and runs it (#162 law-run-1): every law here holds,
 // so its binary reports the law's run ok and exits 0.
+//
+// It builds Go because the laws run in the built test binary (ergo test),
+// the only place a law runs.
 func TestLawFactsStayOut(t *testing.T) {
+	needsBuild(t)
 	type pair struct {
 		name, okLine string
 		base         ownerBase

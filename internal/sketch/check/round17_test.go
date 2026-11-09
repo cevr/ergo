@@ -92,21 +92,3 @@ func TestClassGMessage(t *testing.T) {
 		}
 	}
 }
-
-// TestKeyedLiterals: generated sources whose only references are literal
-// keys are accepted, in every declaration order, and the walk resolves
-// every key as typing does (round 16 M1).
-func TestKeyedLiterals(t *testing.T) {
-	for seed := range uint64(200) {
-		src := keyedLiterals(seed)
-		if _, diags := CheckSource(src); len(diags) > 0 {
-			t.Fatalf("seed %d: want acceptance, got %v\n%s", seed, diags, src)
-		}
-		if p := RefWalkProblems(src); len(p) > 0 {
-			t.Fatalf("seed %d: reference walk: %v\n%s", seed, p, src)
-		}
-		if p := OrderProblems(src, 3); len(p) > 0 {
-			t.Fatalf("seed %d: declaration order: %s", seed, p[0])
-		}
-	}
-}

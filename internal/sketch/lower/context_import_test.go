@@ -39,7 +39,12 @@ func Peek() string needs Console {
 // Each with builds lib.W's Store provider, a resource, in its own scope
 // and closes it once when its block ends; the replace builds Mine in its
 // place and closes nothing.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestRunImportedContext(t *testing.T) {
+	needsBuild(t)
 	lib := checkPackage(t, "lib", []pkgSource{{"/ergo-test/lib/lib.ergo", importedContextLib}}, nil)
 	imp := pkgImporter{"lib": lib.Package}
 	main := checkPackage(t, "main", []pkgSource{{"/ergo-test/ctx/main.ergo", `import lib
