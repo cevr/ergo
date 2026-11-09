@@ -75,6 +75,10 @@ func TestImportGoRows(t *testing.T) {
 			"2:24:S101 {go.Error} escapes function N, whose error row {} does not list it"},
 		{"test", "import go net/url\nfunc esc(s string) string { url.QueryEscape(s) }\ntest Esc { assert esc(\"a\") == \"a\" }\n",
 			"3:19:S102 this call requires go.Foreign, which is not in the capability row of test Esc and no with provides it"},
+		// go.Foreign's interface is empty, so only this rule keeps a
+		// context (in a test, say) from providing it.
+		{"test-context", "import go net/url\ntype Fake {}\nfunc esc(s string) string { url.QueryEscape(s) }\ntest Esc { with context { go.Foreign: Fake } { assert esc(\"a\") == \"a\" } }\n",
+			"4:39:S106 no context binds go.Foreign: its one provider is the program entry, for a main that lists it (rows.md, Entry 4)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, d := check.CheckSource(tc.src)

@@ -540,6 +540,12 @@ func (c *checker) contextEntry(e *syntax.ContextEntry, made *ContextEntry) ([]Ty
 			c.errorf(e.Value, CodeProvider, "%s", ambientEntryText)
 			continue
 		}
+		if n, ok := cap.(*Named); ok && n.foreign {
+			// go.Foreign is a language protocol, as Ambient: its one
+			// provider is the entry (rows.md, Entry 4; owner q33).
+			c.errorf(e.Value, CodeProvider, "%s", foreignEntryText)
+			continue
+		}
 		// The provider goes into the capability by assignability (types.md,
 		// Assignability), whose conversion holds its operations' functions
 		// (196m); the lowering reads it and never re-derives it.
