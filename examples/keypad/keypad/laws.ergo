@@ -1,0 +1,249 @@
+// The rules of the keypad as laws over its machine and over the shift
+// mode's machine. Machines carry no laws yet (M55), so they stand at top
+// level.
+
+import machines
+import strings
+
+// Tried is Step(p, s), or Reject when the signal is refused: what the
+// board does with a signal, as the run loop decides it.
+func Tried(p Pad, s Signal) Decision[Pad, Output] {
+	Step(p, s) catch {
+	case NoSuchField:
+		Reject
+	case LastField:
+		Reject
+	case Duplicate:
+		Reject
+	case BadSpec:
+		Reject
+	case TooShort:
+		Reject
+	}
+}
+
+// Word names a decision.
+func Word(d Decision[Pad, Output]) string {
+	match d {
+	case Enter[Pad]:
+		"enter"
+	case Stay[Pad]:
+		"stay"
+	case Emit[Pad, Output]:
+		"emit"
+	case Ignore:
+		"ignore"
+	case Reject:
+		"reject"
+	case Done[Output]:
+		"done"
+	}
+}
+
+// After is the board after the signal s.
+func After(p Pad, s Signal) Pad { machines.Next(p, Tried(p, s)) }
+
+// Texts is every field's text, as one string to compare.
+func Texts(p Pad) string {
+	let mut out = []string{}
+	for f in BoardOf(p).Fields {
+		out = out.Append(f.Spec.ID + "=" + Text(f))
+	}
+	strings.Join(out, ";")
+}
+
+// TextOf is the text of the field id of p.
+func TextOf(p Pad, id string) string {
+	let b = BoardOf(p)
+	let at = indexOf(b, id)
+	if at < 0 {
+		return ""
+	}
+	Text(b.Fields[at])
+}
+
+// pick is n modulo the length of xs, as an index.
+func pick(n int, count int) int { ((n % count) + count) % count }
+
+// capOf is a key cap from n: letters of both cases, digits, a space, and
+// letters beyond ASCII.
+func capOf(n int) string {
+	let caps = []string{"a", "q", "z", "A", "0", "7", " ", "é", "ß", "世"}
+	caps[pick(n, len(caps))]
+}
+
+// letterOf is a lower-case letter from n.
+func letterOf(n int) string {
+	let letters = []string{"a", "b", "k", "q", "y", "z", "é"}
+	letters[pick(n, len(letters))]
+}
+
+// ms is n milliseconds.
+func ms(n int) duration { duration(int64(n) * 1000000) }
+
+// focusedOn is the Login board focused on its field at pick(i).
+func focusedOn(i int) Pad {
+	let start = Start()
+	After(start, Focus{ID: Login()[pick(i, len(Login()))].ID})
+}
+
+// pressed is p after the keys, one every 400 ms.
+func pressed(p Pad, keys []Key) Pad {
+	let mut at = p
+	for i, k in keys {
+		at = After(at, Pressed{Key: k, At: ms(400 * i)})
+	}
+	at
+}
+
+// TypeThenBackspace: a key that types a character, then Backspace, gives
+// every field its text back.
+law TypeThenBackspace(focus int, keys []Key, n int) {
+	let p = pressed(focusedOn(focus), keys)
+	let c = Char{Cap: capOf(n)}
+	if !CanPress(BoardOf(p), c) {
+		return true
+	}
+	let typed = After(p, Pressed{Key: c, At: 0s})
+	Texts(After(typed, Pressed{Key: Backspace, At: 0s})) == Texts(p)
+}
+
+// ShiftAppliesOnce: after one Shift, the next letter is upper case and
+// the one after it is not.
+law ShiftAppliesOnce(a int, b int) {
+	let p = pressed(Start(), []Key{Shift, Char{Cap: letterOf(a)}, Char{Cap: letterOf(b)}})
+	TextOf(p, "name") == strings.ToUpper(letterOf(a))+letterOf(b)
+}
+
+// CapsHolds: two Shifts within the window lock Caps: every letter is
+// upper case until the next Shift, which goes back to Lower.
+law CapsHolds(ns []int) {
+	let start = Start()
+	let locked = After(After(start, Pressed{Key: Shift, At: 0s}), Pressed{Key: Shift, At: ms(300)})
+	let mut p = locked
+	let mut want = ""
+	for n in ns {
+		p = After(p, Pressed{Key: Char{Cap: letterOf(n)}, At: ms(400)})
+		want = want + strings.ToUpper(letterOf(n))
+	}
+	let unlocked = After(p, Pressed{Key: Shift, At: ms(500)})
+	TextOf(p, "name") == want && Upper(BoardOf(p).Mode) && !Upper(BoardOf(unlocked).Mode)
+}
+
+// SecondShiftLocksWithinTheWindow: on the shift mode's own machine, a
+// second Shift locks Caps exactly when it comes 0 to CapsWindow after the
+// first; any other gap goes back to Lower.
+law SecondShiftLocksWithinTheWindow(gap int) {
+	let g = ms(gap % 3000)
+	let o = machines.Run(Shifter{}, []Tap{ShiftTap{At: 0s}, ShiftTap{At: g}}) catch {
+	case machines.Rejected:
+		return false
+	}
+	let locked = g >= 0s && g <= CapsWindow
+	match o {
+	case machines.Running[Mode, Mode] as r:
+		match r.State {
+		case Caps:
+			locked
+		case Lower:
+			!locked
+		case ShiftOnce:
+			false
+		}
+	case machines.Finished[Mode, Mode]:
+		false
+	}
+}
+
+// LayoutHolds: whatever keys are pressed, a digits field holds only
+// digits and a letters field only letters. The keys are drawn from capOf,
+// so each field meets keys of every class.
+law LayoutHolds(focus int, caps []int) {
+	let mut keys = []Key{}
+	for n in caps {
+		keys = keys.Append(Char{Cap: capOf(n)})
+	}
+	for f in BoardOf(pressed(focusedOn(focus), keys)).Fields {
+		for c in f.Chars {
+			if !fits(f.Spec.Layout, c) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// fits is the layout rule written apart from Takes, so the law checks
+// Takes against it: a digit is one of ten texts, a letter changes case.
+func fits(l Layout, c string) bool {
+	match l {
+	case Digits:
+		for d in []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"} {
+			if c == d {
+				return true
+			}
+		}
+		false
+	case Letters:
+		strings.ToUpper(c) != strings.ToLower(c)
+	case AnyText:
+		c != ""
+	}
+}
+
+// FocusKept: removing a field that is not focused keeps the focus.
+law FocusKept(i int, j int) {
+	let p = focusedOn(i)
+	let victim = Login()[pick(j, len(Login()))].ID
+	if victim == BoardOf(p).Focus {
+		return true
+	}
+	BoardOf(After(p, Remove{ID: victim})).Focus == BoardOf(p).Focus
+}
+
+// GreyedKeysAreIgnored: CanPress, which greys the keys on the screen, is
+// false exactly for the keys that Step ignores.
+law GreyedKeysAreIgnored(focus int, keys []Key, k Key) {
+	let p = pressed(focusedOn(focus), keys)
+	(Word(Tried(p, Pressed{Key: k, At: 0s})) == "ignore") == !CanPress(BoardOf(p), k)
+}
+
+// ReturnNeedsMin: Return submits the focused field's text when it holds
+// at least Min characters, and is refused as TooShort when it holds fewer.
+law ReturnNeedsMin(focus int, keys []Key) {
+	let b = BoardOf(pressed(focusedOn(focus), keys))
+	let f = Focused(b)
+	let d = Step(b, Pressed{Key: Return, At: 0s}) catch {
+	case TooShort:
+		return len(f.Chars) < f.Spec.Min
+	case NoSuchField:
+		return false
+	case LastField:
+		return false
+	case Duplicate:
+		return false
+	case BadSpec:
+		return false
+	}
+	match d {
+	case Emit[Pad, Output] as e:
+		match e.Output {
+		case Submitted as s:
+			len(f.Chars) >= f.Spec.Min && s.ID == f.Spec.ID && s.Text == Text(f)
+		case Published:
+			false
+		case Closed:
+			false
+		}
+	case Enter[Pad]:
+		false
+	case Stay[Pad]:
+		false
+	case Ignore:
+		false
+	case Reject:
+		false
+	case Done[Output]:
+		false
+	}
+}

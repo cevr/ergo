@@ -1,0 +1,189 @@
+import io
+import keypad/keypad
+import machines
+import strconv
+import strings
+
+// Run reads a script from io.Stdin: its first line is `form NAME`, which
+// opens that form of keypad.Forms; every other line is one signal, sent at
+// the script's clock. Run tells on Console what each signal does, and
+// returns the exit status: 0 when the board closed, 1 when the form could
+// not open. The end of the input closes the board.
+func Run() int needs Console | io.Stdin | keypad.Forms {
+	let mut opened = false
+	let mut p keypad.Pad = keypad.Start()
+	let mut now = 0s
+	let mut i = 0
+	for line in io.Stdin.Lines() {
+		i = i + 1
+		if !opened {
+			let first = open(line) catch {
+			case keypad.NoSuchForm as n:
+				Console.Println("? no form \(n.Name)")
+				return 1
+			case keypad.NoFields:
+				Console.Println("? the form has no field")
+				return 1
+			case keypad.Duplicate as d:
+				Console.Println("? the form has two fields \(d.ID)")
+				return 1
+			case keypad.BadSpec as b:
+				Console.Println("? field \(b.ID): min \(b.Min) and max \(b.Max) do not fit")
+				return 1
+			case BadLine as b:
+				Console.Println("? line 1: \(b.Why)")
+				return 1
+			}
+			opened = true
+			p = first
+			Console.Println("\(strings.TrimSpace(line)): \(Fields(p))")
+			continue
+		}
+		let l = Parse(line) catch {
+		case BadLine as b:
+			Console.Println("? line \(i): \(b.Why): \(b.Text)")
+			continue
+		}
+		let s keypad.Signal = match l {
+		case Press as k:
+			keypad.Pressed{Key: k.Key, At: now}
+		case Other as o:
+			o.Signal
+		case Wait as w:
+			now = now + w.For
+			continue
+		case Blank:
+			continue
+		}
+		let d = turn(p, s)
+		match d {
+		case Done[keypad.Output] as done:
+			tell(done.Output)
+			return 0
+		case Enter[keypad.Pad]:
+		case Stay[keypad.Pad]:
+		case Emit[keypad.Pad, keypad.Output]:
+		case Ignore:
+		case Reject:
+		}
+		p = machines.Next(p, d)
+	}
+	if !opened {
+		Console.Println("? the script names no form")
+		return 1
+	}
+	Console.Println("input ended")
+	tell(keypad.Closed{Fields: keypad.BoardOf(p).Fields})
+	0
+}
+
+// open is the board of the form that the first line names.
+func open(line string) keypad.Pad fails keypad.NoSuchForm | keypad.NoFields | keypad.Duplicate | keypad.BadSpec | BadLine needs keypad.Forms {
+	let words = strings.Fields(line)
+	if len(words) != 2 || words[0] != "form" {
+		return BadLine{Text: line, Why: "the first line is form NAME"}
+	}
+	try keypad.Open(try keypad.Forms.Form(words[1]))
+}
+
+// turn is the decision of s on p, after it tells it on Console. A refusal
+// is told by name and is Reject; a greyed key is told and is Ignore.
+func turn(p keypad.Pad, s keypad.Signal) Decision[keypad.Pad, keypad.Output] needs Console {
+	let d = keypad.Step(p, s) catch {
+	case keypad.NoSuchField as n:
+		Console.Println("? no field \(n.ID)")
+		return Reject
+	case keypad.LastField as l:
+		Console.Println("? \(l.ID) is the last field")
+		return Reject
+	case keypad.Duplicate as d:
+		Console.Println("? field \(d.ID) exists")
+		return Reject
+	case keypad.BadSpec as b:
+		Console.Println("? field \(b.ID): min \(b.Min) and max \(b.Max) do not fit")
+		return Reject
+	case keypad.TooShort as t:
+		Console.Println("? \(t.ID) needs \(t.Need) characters, has \(t.Has)")
+		return Reject
+	}
+	let after = machines.Next(p, d)
+	let next = keypad.BoardOf(after)
+	match d {
+	case Ignore:
+		Console.Println("  greyed: \(Signal(s))")
+	case Reject:
+	case Done[keypad.Output]:
+	case Enter[keypad.Pad]:
+		Console.Println("focus \(next.Focus)")
+	case Stay[keypad.Pad]:
+		Console.Println("\(Signal(s)): \(Fields(after))")
+	case Emit[keypad.Pad, keypad.Output] as e:
+		tell(e.Output)
+	}
+	d
+}
+
+// tell prints an output of the board.
+func tell(o keypad.Output) needs Console {
+	match o {
+	case keypad.Published as p:
+		Console.Println("  \(p.ID) = \(strconv.Quote(p.Text))")
+	case keypad.Submitted as s:
+		Console.Println("submit \(s.ID) \(strconv.Quote(s.Text))")
+	case keypad.Closed as c:
+		let mut parts = []string{}
+		for f in c.Fields {
+			parts = parts.Append("\(f.Spec.ID)=\(strconv.Quote(keypad.Text(f)))")
+		}
+		Console.Println("closed " + strings.Join(parts, " "))
+	}
+}
+
+// Fields is the board's fields and its shift mode, as one line: the
+// focused field is marked with *.
+func Fields(p keypad.Pad) string {
+	let b = keypad.BoardOf(p)
+	let mut parts = []string{}
+	for f in b.Fields {
+		let mark = if f.Spec.ID == b.Focus { "*" } else { "" }
+		parts = parts.Append("\(mark)\(f.Spec.ID)(\(keypad.LayoutName(f.Spec.Layout)))")
+	}
+	strings.Join(parts, " ") + " [" + ModeName(b.Mode) + "]"
+}
+
+// ModeName is the word of a shift mode.
+func ModeName(m keypad.Mode) string {
+	match m {
+	case keypad.Lower:
+		"lower"
+	case keypad.ShiftOnce:
+		"shift"
+	case keypad.Caps:
+		"caps"
+	}
+}
+
+// Signal is a signal as a script line writes it.
+func Signal(s keypad.Signal) string {
+	match s {
+	case keypad.Pressed as p:
+		match p.Key {
+		case keypad.Char as c:
+			if c.Cap == " " { "space" } else { "key " + c.Cap }
+		case keypad.Backspace:
+			"back"
+		case keypad.Shift:
+			"shift"
+		case keypad.Return:
+			"return"
+		}
+	case keypad.Focus as f:
+		"focus " + f.ID
+	case keypad.Add as a:
+		"add " + a.Spec.ID
+	case keypad.Remove as r:
+		"remove " + r.ID
+	case keypad.Close:
+		"close"
+	}
+}

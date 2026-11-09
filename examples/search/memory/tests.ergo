@@ -1,0 +1,59 @@
+// Shelf and Basket keep the search.Catalog and search.Cart laws. ergo test
+// does not run the laws of an operation type of another package against
+// this package's providers yet (G-ma-2), so these tests call the laws'
+// functions. SearchRun is the example's own run.
+
+import machines
+import search/search
+import strings
+
+test ShelfFindIsSubset(n int, k int) {
+	with context { search.Catalog: Shelf } {
+		assert search.FindIsSubset(n, k)
+	}
+}
+
+test ShelfFindIsStable(n int, k int) {
+	with context { search.Catalog: Shelf } {
+		assert search.FindIsStable(n, k)
+	}
+}
+
+test BasketAddAddsOne(have []search.Item, item search.Item) {
+	with context { search.Cart: Basket } {
+		assert search.AddAddsOne(have, item)
+	}
+}
+
+func told(os []search.Output) string {
+	let mut out = []string{}
+	for o in os {
+		out = out.Append(search.Said(o))
+	}
+	strings.Join(out, "; ")
+}
+
+test SearchRun {
+	// Type "pe", wait for its hits, add the second, choose a hit the
+	// screen does not show, and check out.
+	let at = func(ms int, s search.Signal) machines.Timed[search.Signal] {
+		machines.Timed[search.Signal]{At: duration(int64(ms) * 1000000), Signal: s}
+	}
+	let trace = []machines.Timed[search.Signal]{
+		at(0, search.Key{Text: "p"}),
+		at(100, search.Key{Text: "e"}),
+		at(1000, search.Choose{Hit: 2}),
+		at(1200, search.Choose{Hit: 9}),
+		at(1300, search.Checkout),
+	}
+	with context { search.Catalog: Shelf, search.Cart: Basket } {
+		let r = search.Drive(machines.Start(search.Finder{}, []search.Item{}), trace, 2s, search.Typical)
+		let order = match r.Order {
+		case Some[[]search.Item] as o:
+			search.Names(o.Value)
+		case None:
+			"none"
+		}
+		assert told(r.Told) == "shown \"pe\": 3 hits; put Pear in the cart" && order == "Pear"
+	}
+}

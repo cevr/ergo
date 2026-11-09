@@ -1,0 +1,17 @@
+// Shelf keeps the quiz.Sets laws. ergo test does not run the laws of an
+// operation type of another package against this package's providers yet
+// (G-ma-2), so these two tests call the laws' functions.
+
+import quiz/quiz
+
+test ShelfSetsPlay {
+	with context { quiz.Sets: Shelf } {
+		assert quiz.EverySetPlays()
+	}
+}
+
+test ShelfUnlistedIsNoSuchSet(name string) {
+	with context { quiz.Sets: Shelf } {
+		assert quiz.UnlistedIsNoSuchSet(name)
+	}
+}

@@ -1,0 +1,126 @@
+// Package quiz is a guided picker: a set of questions narrows a catalogue
+// of items down to the ones that fit every answer, and the user picks one.
+// The picker is a machine; a question that cannot narrow what is left is
+// skipped by a pure settle step, an eventless transition. It is pure: no
+// function needs a capability.
+
+// Item is a thing to pick, with the tags that answers test.
+type Item { Name string, Tags []string }
+
+// Choice is an answer a question offers: it keeps the items that carry
+// Tag. A Choice with the Tag "" keeps every item ("no preference").
+type Choice { Label string, Tag string }
+
+// Question is a question with its choices.
+type Question { Text string, Choices []Choice }
+
+// Set is a question set and the catalogue it narrows: the input of a quiz.
+type Set { Name string, Questions []Question, Items []Item }
+
+// Answer is a choice given to a question, both by position.
+type Answer { Question int, Choice int }
+
+// Keeps reports whether the choice c keeps the item it.
+func Keeps(c Choice, it Item) bool {
+	if c.Tag == "" {
+		return true
+	}
+	for t in it.Tags {
+		if t == c.Tag {
+			return true
+		}
+	}
+	false
+}
+
+// ChoiceOf is the choice an answer gives in set, or None when the answer
+// names no question or choice of set.
+func ChoiceOf(set Set, a Answer) Option[Choice] {
+	if a.Question < 0 || a.Question >= len(set.Questions) {
+		return None
+	}
+	let q = set.Questions[a.Question]
+	if a.Choice < 0 || a.Choice >= len(q.Choices) {
+		return None
+	}
+	Some[Choice]{Value: q.Choices[a.Choice]}
+}
+
+// Left is the items of set that every answer keeps, in catalogue order.
+// An answer that names no choice of set keeps every item.
+func Left(set Set, answers []Answer) []Item {
+	let mut out = []Item{}
+	for it in set.Items {
+		let mut kept = true
+		for a in answers {
+			match ChoiceOf(set, a) {
+			case Some[Choice] as c:
+				if !Keeps(c.Value, it) {
+					kept = false
+				}
+			case None:
+			}
+		}
+		if kept {
+			out = out.Append(it)
+		}
+	}
+	out
+}
+
+// Kept is how many of the items the choice c keeps.
+func Kept(c Choice, items []Item) int {
+	let mut n = 0
+	for it in items {
+		if Keeps(c, it) {
+			n = n + 1
+		}
+	}
+	n
+}
+
+// Narrows reports whether asking q can change what is left: some choice
+// keeps some of the items, but not all of them.
+func Narrows(q Question, items []Item) bool {
+	for c in q.Choices {
+		let n = Kept(c, items)
+		if n > 0 && n < len(items) {
+			return true
+		}
+	}
+	false
+}
+
+// Plants is the sample set the machine starts with: houseplants by light,
+// water, size and pets.
+func Plants() Set {
+	let light = Question{Text: "How much light does the spot get?", Choices: []Choice{
+		Choice{Label: "little", Tag: "light:low"},
+		Choice{Label: "some", Tag: "light:medium"},
+		Choice{Label: "a lot", Tag: "light:bright"},
+	}}
+	let water = Question{Text: "How often will you water it?", Choices: []Choice{
+		Choice{Label: "rarely", Tag: "water:rarely"},
+		Choice{Label: "weekly", Tag: "water:weekly"},
+		Choice{Label: "often", Tag: "water:often"},
+	}}
+	let size = Question{Text: "How big may it grow?", Choices: []Choice{
+		Choice{Label: "small", Tag: "size:small"},
+		Choice{Label: "large", Tag: "size:large"},
+		Choice{Label: "no preference", Tag: ""},
+	}}
+	let pets = Question{Text: "Do pets live with it?", Choices: []Choice{
+		Choice{Label: "yes", Tag: "pets:safe"},
+		Choice{Label: "no", Tag: ""},
+	}}
+	Set{Name: "plants", Questions: []Question{light, water, size, pets}, Items: []Item{
+		Item{Name: "fern", Tags: []string{"light:low", "water:often", "size:small", "pets:safe"}},
+		Item{Name: "snake plant", Tags: []string{"light:low", "water:rarely", "size:large"}},
+		Item{Name: "cactus", Tags: []string{"light:bright", "water:rarely", "size:small", "pets:safe"}},
+		Item{Name: "fig", Tags: []string{"light:bright", "water:weekly", "size:large"}},
+		Item{Name: "aloe", Tags: []string{"light:bright", "water:rarely", "size:small"}},
+		Item{Name: "pothos", Tags: []string{"light:medium", "water:weekly", "size:small"}},
+		Item{Name: "palm", Tags: []string{"light:medium", "water:weekly", "size:large", "pets:safe"}},
+		Item{Name: "calathea", Tags: []string{"light:medium", "water:weekly", "size:small", "pets:safe"}},
+	}}
+}

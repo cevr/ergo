@@ -1,0 +1,17 @@
+// Fixed keeps the kiosk.Policies laws. ergo test does not run the laws of
+// an operation type of another package against this package's providers
+// yet (G-ma-2), so these two tests call the laws' functions.
+
+import idletimer/kiosk
+
+test FixedPoliciesCheck {
+	with context { kiosk.Policies: Fixed } {
+		assert kiosk.EveryPolicyChecks()
+	}
+}
+
+test FixedUnlistedIsNoSuchKiosk(name string) {
+	with context { kiosk.Policies: Fixed } {
+		assert kiosk.UnlistedIsNoSuchKiosk(name)
+	}
+}

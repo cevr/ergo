@@ -1,0 +1,147 @@
+// Package script plays the quiz from lines on standard input, as a screen
+// would send them, and shows each question or the results.
+
+import io
+import machines
+import quiz/quiz
+import strconv
+import strings
+
+// BadLine is a line the script cannot read.
+type BadLine { Text string }
+
+// Parse reads one line: a choice number, `back`, `pick N` or `restart`.
+// A blank line or a line that starts with # is None.
+func Parse(line string) Option[quiz.Signal] fails BadLine {
+	let text = strings.TrimSpace(line)
+	let words = strings.Fields(text)
+	if len(words) == 0 || strings.HasPrefix(text, "#") {
+		return None
+	}
+	if len(words) == 1 {
+		match words[0] {
+		case "back":
+			return Some[quiz.Signal]{Value: quiz.Back}
+		case "restart":
+			return Some[quiz.Signal]{Value: quiz.Restart}
+		case _:
+			return Some[quiz.Signal]{Value: quiz.Choose{Choice: try intOf(text, words[0])}}
+		}
+	}
+	if len(words) == 2 && words[0] == "pick" {
+		return Some[quiz.Signal]{Value: quiz.Pick{Item: try intOf(text, words[1])}}
+	}
+	BadLine{Text: text}
+}
+
+func intOf(text string, word string) int fails BadLine {
+	strconv.Atoi(word) catch {
+	case strconv.Malformed:
+		return BadLine{Text: text}
+	case strconv.OutOfRange:
+		return BadLine{Text: text}
+	}
+}
+
+// Run reads the script from io.Stdin: its first line is `set NAME`, the
+// set of quiz.Sets to play, the machine's input. It shows each state on
+// Console and returns the exit status: 0 when an item was picked, 1 when
+// the set could not open, 2 when the input ended first.
+func Run() int needs Console | io.Stdin | quiz.Sets {
+	let mut started = false
+	let mut q quiz.Quiz = quiz.Begin(quiz.Plants())
+	let mut i = 0
+	for line in io.Stdin.Lines() {
+		i = i + 1
+		if !started {
+			let words = strings.Fields(line)
+			if len(words) != 2 || words[0] != "set" {
+				Console.Println("? line 1: the first line is set NAME")
+				return 1
+			}
+			let set = quiz.Sets.Set(words[1]) catch {
+			case quiz.NoSuchSet as n:
+				Console.Println("? no set \(n.Name)")
+				return 1
+			}
+			q = machines.Start(quiz.Picker{}, set).Initial
+			started = true
+			Show(q)
+			continue
+		}
+		let parsed = Parse(line) catch {
+		case BadLine as b:
+			Console.Println("? line \(i): cannot read \(b.Text)")
+			continue
+		}
+		let s = match parsed {
+		case Some[quiz.Signal] as v:
+			v.Value
+		case None:
+			continue
+		}
+		let d = turn(q, s)
+		match d {
+		case Done[quiz.Picked] as done:
+			Console.Println("picked \(done.Output.Name) (\(strings.Join(done.Output.Answers, ", ")))")
+			return 0
+		case Enter[quiz.Quiz] as e:
+			Show(e.Next)
+		case Stay[quiz.Quiz]:
+		case Emit[quiz.Quiz, quiz.Picked]:
+		case Ignore:
+		case Reject:
+		}
+		q = machines.Next(q, d)
+	}
+	if !started {
+		Console.Println("? the script names no set")
+		return 1
+	}
+	Console.Println("input ended with no pick")
+	2
+}
+
+// turn is the decision of s on q. A refusal is told by name and is Reject.
+func turn(q quiz.Quiz, s quiz.Signal) Decision[quiz.Quiz, quiz.Picked] needs Console {
+	quiz.Step(q, s) catch {
+	case quiz.NoSuchChoice as n:
+		Console.Println("? no choice \(n.Choice): choose 1 to \(n.Count)")
+		Reject
+	case quiz.NoMatch as m:
+		Console.Println("? \"\(m.Label)\" fits nothing that is left")
+		Reject
+	case quiz.NothingToUndo:
+		Console.Println("? nothing to go back to")
+		Reject
+	case quiz.NoQuestion:
+		Console.Println("? no question is asked: pick a result")
+		Reject
+	case quiz.NotShowing:
+		Console.Println("? answer the question first")
+		Reject
+	case quiz.NoSuchItem as n:
+		Console.Println("? no result \(n.Item): pick 1 to \(n.Count)")
+		Reject
+	}
+}
+
+// Show prints the question that q asks, with each choice and how many
+// items it keeps, or the results.
+func Show(q quiz.Quiz) needs Console {
+	let set = quiz.SetOf(q)
+	let left = quiz.LeftOf(q)
+	match quiz.Settle(q) {
+	case quiz.Asking as a:
+		let question = set.Questions[a.Question]
+		Console.Println("\(question.Text) (\(len(left)) left)")
+		for k, c in question.Choices {
+			Console.Println("  \(k + 1). \(c.Label) [\(quiz.Kept(c, left))]")
+		}
+	case quiz.Showing:
+		Console.Println("results:")
+		for k, it in left {
+			Console.Println("  \(k + 1). \(it.Name)")
+		}
+	}
+}

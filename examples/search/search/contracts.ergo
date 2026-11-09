@@ -1,0 +1,144 @@
+// Package search is search as you type over a catalogue, with a pause
+// before each search, last-query-wins, and adding a hit to a cart. The
+// machine is pure; its timer and its work (a search, an add) are run by
+// Drive, a runner written by hand until Ergo has state-owned work (M45).
+
+import strings
+
+// Item is an item of the catalogue.
+type Item { Name string, Price int }
+
+// IndexDown is a search the catalogue cannot answer.
+type IndexDown { Query string }
+
+// CartFull is an add to a cart that has no room.
+type CartFull { Room int }
+
+// Catalog is the contract of the catalogue the search reads.
+type Catalog {
+	All() []Item,
+	Find(query string) []Item fails IndexDown,
+
+	// Every hit is an item of the catalogue whose name holds the query,
+	// in any case.
+	law FindIsSubset(n int, k int) { FindIsSubset(n, k) },
+
+	// The hits keep the order of the catalogue. (A provider has no state
+	// (M23), so the same query always has the same answer; this is the
+	// stability a law can break.)
+	law FindIsStable(n int, k int) { FindIsStable(n, k) },
+}
+
+// Probe is a query the laws draw from the catalogue: one or two letters
+// of the name of an item, so that it has hits.
+func Probe(all []Item, n int, k int) string {
+	if len(all) == 0 {
+		return "x"
+	}
+	let name = all[pick(n, len(all))].Name
+	if len(name) < 2 {
+		return name
+	}
+	let at = pick(k, len(name)-1)
+	if k%2 == 0 { name[at : at+1] } else { name[at : at+2] }
+}
+
+func pick(n int, count int) int { ((n % count) + count) % count }
+
+// FindIsSubset is the law FindIsSubset of the Catalog in the context, as
+// a function: ergo test does not run a law of an operation type against a
+// provider of another package (G-ma-2), so memory's tests call this.
+func FindIsSubset(n int, k int) bool needs Catalog {
+	let all = Catalog.All()
+	let query = Probe(all, n, k)
+	let hits = Catalog.Find(query) catch {
+	case IndexDown:
+		return true
+	}
+	for h in hits {
+		if !Matches(h, query) || !holds(all, h) {
+			return false
+		}
+	}
+	true
+}
+
+// FindIsStable is the law FindIsStable as a function: each hit comes
+// later in the catalogue than the hit before it.
+func FindIsStable(n int, k int) bool needs Catalog {
+	let all = Catalog.All()
+	let hits = Catalog.Find(Probe(all, n, k)) catch {
+	case IndexDown:
+		return true
+	}
+	let mut from = 0
+	for h in hits {
+		let mut found = -1
+		for i, x in all {
+			if found < 0 && i >= from && x.Name == h.Name {
+				found = i
+			}
+		}
+		if found < 0 {
+			return false
+		}
+		from = found + 1
+	}
+	true
+}
+
+// Cart is the contract of the cart the search adds to. A cart is a value
+// that the machine holds; the contract decides what an add does.
+type Cart {
+	Room() int,
+	Add(have []Item, item Item) []Item fails CartFull,
+
+	// An add puts the item at the end, or is CartFull exactly when the cart
+	// holds Room items or more.
+	law AddAddsOne(have []Item, item Item) { AddAddsOne(have, item) },
+}
+
+// AddAddsOne is the law AddAddsOne of the Cart in the context, as a
+// function (G-ma-2).
+func AddAddsOne(have []Item, item Item) bool needs Cart {
+	let after = Cart.Add(have, item) catch {
+	case CartFull:
+		return len(have) >= Cart.Room()
+	}
+	len(have) < Cart.Room() && len(after) == len(have)+1 && after[len(have)].Name == item.Name && Names(have) == Names(without(after, len(have)))
+}
+
+// Matches reports whether the name of it holds the query, in any case.
+func Matches(it Item, query string) bool {
+	strings.Contains(strings.ToLower(it.Name), strings.ToLower(query))
+}
+
+func holds(items []Item, it Item) bool {
+	for x in items {
+		if x.Name == it.Name && x.Price == it.Price {
+			return true
+		}
+	}
+	false
+}
+
+// Names is the names of items, as one text to compare: Ergo has no == on
+// slices (M29).
+func Names(items []Item) string {
+	let mut out = []string{}
+	for it in items {
+		out = out.Append(it.Name)
+	}
+	strings.Join(out, ", ")
+}
+
+// without is xs without the element at i, in a new slice.
+func without[T](xs []T, i int) []T {
+	let mut out = []T{}
+	for j, x in xs {
+		if j != i {
+			out = out.Append(x)
+		}
+	}
+	out
+}

@@ -1,0 +1,23 @@
+@0 idle
+@0 typing "ea"
+@250 searching "ea"
+@650 ! shown "ea": 4 hits
+@650 showing "ea": Bread, Pear, Peach, Pineapple
+@1000 adding Bread
+@1100 ! put Bread in the cart
+@1100 showing "ea": Bread, Pear, Peach, Pineapple
+@1200 adding Pear
+@1300 ! put Pear in the cart
+@1300 showing "ea": Bread, Pear, Peach, Pineapple
+@1400 adding Peach
+@1500 ! put Peach in the cart
+@1500 showing "ea": Bread, Pear, Peach, Pineapple
+@1600 adding Pineapple
+@1700 problem: the cart is full
+@1800 showing "ea": Bread, Pear, Peach, Pineapple
+@1900 idle
+@2000 typing "watermelonpie"
+@2250 searching "watermelonpie"
+@2650 problem: the index is down
+@2800 showing "watermelonpie": no hits
+@2900 ! order: Bread, Pear, Peach

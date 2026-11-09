@@ -1,0 +1,26 @@
+// search is search as you type over a catalogue, with a pause before each
+// search, last-query-wins, and a cart. It runs a script of timed keys on a
+// virtual clock and shows what the search does. Package search is the
+// machine and its hand runner; package script reads the script and runs
+// it; package memory holds the catalogue and the cart. This binary is the
+// only place that chooses them: Live binds search.Catalog and search.Cart
+// to memory's providers, and io to the host.
+
+import io
+import os
+import search/memory
+import search/script
+import search/search
+
+let Live = context { search.Catalog: memory.Shelf, search.Cart: memory.Basket }
+
+func main() fails os.Exit needs Console | Ambient {
+	let status = with Live {
+		with context { io.Stdin: io.NewHost() } {
+			script.Run()
+		}
+	}
+	if status != 0 {
+		return os.Exit{Code: status, Message: "search: the script did not run"}
+	}
+}

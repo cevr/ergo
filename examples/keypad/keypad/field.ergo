@@ -1,0 +1,59 @@
+// Package keypad is an on-screen keyboard for a form of several fields,
+// as a machine: a key types into the focused field, Shift sets the case
+// of the next letters, and the board publishes each new text and submits
+// a field on Return. It is pure: no function needs a capability.
+
+import strings
+import utf8
+
+// Layout is what a field takes: digits only, letters only, or any key.
+type Layout = Digits{} | Letters{} | AnyText{}
+
+// Spec is a field as a form declares it. Min is the length that Return
+// needs; Max is the most keys the field holds, and 0 is no limit.
+type Spec { ID string, Layout Layout, Min int, Max int }
+
+// Field is a field of the board: its spec and the key caps typed in it,
+// one per key, so Backspace removes one whole character.
+type Field { Spec Spec, Chars []string }
+
+// Text is the text of f.
+func Text(f Field) string { strings.Join(f.Chars, "") }
+
+// IsLetter reports whether c has an upper and a lower case. Ergo has no
+// rune classes yet (M18), so a letter is a text that ToUpper changes or
+// ToLower changes.
+func IsLetter(c string) bool { strings.ToUpper(c) != strings.ToLower(c) }
+
+// Takes reports whether the layout l takes the key cap c, one character.
+func Takes(l Layout, c string) bool {
+	if utf8.RuneCount(c) != 1 {
+		return false
+	}
+	match l {
+	case Digits:
+		strings.Contains("0123456789", c)
+	case Letters:
+		IsLetter(c)
+	case AnyText:
+		true
+	}
+}
+
+// CanType reports whether f takes one more key cap c: its layout takes c
+// and f is not full.
+func CanType(f Field, c string) bool {
+	Takes(f.Spec.Layout, c) && (f.Spec.Max == 0 || len(f.Chars) < f.Spec.Max)
+}
+
+// LayoutName is the word of a layout in the script and the output.
+func LayoutName(l Layout) string {
+	match l {
+	case Digits:
+		"digits"
+	case Letters:
+		"letters"
+	case AnyText:
+		"any"
+	}
+}

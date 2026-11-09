@@ -1,0 +1,66 @@
+// The picker's one test is a run of the machine; ergo test runs the laws
+// of laws.ergo itself (#162).
+
+import machines
+import strings
+
+// trace is the key of each state over the signals from q, and "reject"
+// for each refusal, until a Done, which ends it with the item picked.
+func trace(q Quiz, signals []Signal) string {
+	let mut at = q
+	let mut out = []string{}
+	for s in signals {
+		let d = Tried(at, s)
+		match d {
+		case Done[Picked] as done:
+			out = out.Append("picked " + done.Output.Name)
+			return strings.Join(out, "; ")
+		case Enter[Quiz] as e:
+			out = out.Append(Key(e.Next))
+		case Stay[Quiz]:
+			out = out.Append("stay")
+		case Emit[Quiz, Picked]:
+			out = out.Append("emit")
+		case Ignore:
+			out = out.Append("ignore")
+		case Reject:
+			out = out.Append("reject")
+		}
+		at = machines.Next(at, d)
+	}
+	strings.Join(out, "; ")
+}
+
+test PlantsRun {
+	// "some" light leaves pothos, palm and calathea, which all want water
+	// weekly: the water question cannot narrow them and is skipped. "A lot"
+	// of light leaves cactus, fig and aloe; "often" keeps none of them, so it
+	// is refused; "rarely" leaves cactus and aloe, both small, so the size
+	// question is skipped too.
+	let signals = []Signal{
+		Pick{Item: 1},
+		Choose{Choice: 2},
+		Back,
+		Choose{Choice: 2},
+		Choose{Choice: 1},
+		Restart,
+		Choose{Choice: 3},
+		Choose{Choice: 3},
+		Choose{Choice: 1},
+		Choose{Choice: 1},
+		Pick{Item: 2},
+		Pick{Item: 1},
+	}
+	let start = Begin(Plants())
+	assert Key(start) == "asking 0 []"
+	assert trace(start, signals) == "reject; asking 2 [0.1]; asking 0 []; asking 2 [0.1]; asking 3 [0.1,2.0]; asking 0 []; asking 1 [0.2]; reject; asking 3 [0.2,1.0]; showing [0.2,1.0,3.0]; reject; picked cactus"
+	// The set is the machine's input (V4): machines.Start gives the machine
+	// that begins at Begin(set). The refused signals are left out: a
+	// refusal fails the step, which ends a run.
+	match try machines.Run(machines.Start(Picker{}, Plants()), []Signal{Choose{Choice: 3}, Choose{Choice: 1}, Choose{Choice: 1}, Pick{Item: 1}}) {
+	case machines.Finished[Quiz, Picked] as f:
+		assert f.Output.Name == "cactus" && strings.Join(f.Output.Answers, ",") == "a lot,rarely,yes"
+	case machines.Running[Quiz, Picked]:
+		assert false
+	}
+}

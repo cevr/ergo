@@ -1,0 +1,20 @@
+kiosk lobby
+# a session on the menu waits 60s idle, then prompts for 10s
+@0 open menu
+@20000 touch
+# idle from 20s: the prompt at 80s; a touch at 84s continues
+@84000 touch
+@90000 open home
+# home waits 30s: the prompt at 120s, abandoned at 130s
+@150000 touch
+# five quick corner taps open the admin screen; leave closes it
+@151000 tap
+@151400 tap
+@151800 tap
+@152200 tap
+@152600 tap
+@160000 leave
+@161000 assist on
+# assist doubles the home wait: the prompt at 221s
+@225000 finish
+@230000 end

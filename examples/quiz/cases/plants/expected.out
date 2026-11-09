@@ -1,0 +1,40 @@
+How much light does the spot get? (8 left)
+  1. little [2]
+  2. some [3]
+  3. a lot [3]
+? answer the question first
+How big may it grow? (3 left)
+  1. small [2]
+  2. large [1]
+  3. no preference [3]
+How much light does the spot get? (8 left)
+  1. little [2]
+  2. some [3]
+  3. a lot [3]
+? nothing to go back to
+How big may it grow? (3 left)
+  1. small [2]
+  2. large [1]
+  3. no preference [3]
+Do pets live with it? (2 left)
+  1. yes [1]
+  2. no [2]
+results:
+  1. calathea
+How much light does the spot get? (8 left)
+  1. little [2]
+  2. some [3]
+  3. a lot [3]
+How often will you water it? (3 left)
+  1. rarely [2]
+  2. weekly [1]
+  3. often [0]
+? "often" fits nothing that is left
+? no choice 9: choose 1 to 3
+Do pets live with it? (2 left)
+  1. yes [1]
+  2. no [2]
+results:
+  1. cactus
+? no result 2: pick 1 to 1
+picked cactus (a lot, rarely, yes)

@@ -1,0 +1,258 @@
+import machines
+import strings
+
+// Key is a key of the on-screen keyboard: a character key with its cap,
+// Backspace, Shift and Return.
+type Key = Char{Cap string} | Backspace{} | Shift{} | Return{}
+
+// Signal is what the board reads. A key press carries its time, so the
+// step stays pure and the shift window is a rule on values. The form may
+// gain and lose fields while it is open.
+type Signal = Pressed{Key Key, At duration} | Focus{ID string} | Add{Spec Spec} | Remove{ID string} | Close{}
+
+// Output is what the board tells: the new text of a field after each
+// key that changed it, a field's text on Return, and every field's text
+// when the board closes.
+type Output = Published{ID string, Text string} | Submitted{ID string, Text string} | Closed{Fields []Field}
+
+// Pad is the board's state: one variant, since every state of a keypad
+// holds the same fields (M20: no record state yet). A step that tells
+// something returns Emit{Next, Output}: it moves to Next and gives the
+// output (MQ1: Emit opens a new entry; the board has no timers, so the
+// entry changes nothing here).
+type Pad = Board{Fields []Field, Focus string, Mode Mode}
+
+// The refusals of a signal. Each leaves the board as it is.
+
+// NoSuchField is a Focus or a Remove of an ID the board does not hold.
+type NoSuchField { ID string }
+
+// LastField is a Remove of the only field: a board keeps one field.
+type LastField { ID string }
+
+// Duplicate is an Add of an ID the board holds already.
+type Duplicate { ID string }
+
+// BadSpec is an Add whose lengths do not fit: Min and Max are not
+// negative, and Min is at most a Max that is not 0.
+type BadSpec { ID string, Min int, Max int }
+
+// TooShort is a Return in a field that has fewer than Min characters.
+type TooShort { ID string, Need int, Has int }
+
+// NoFields is a form with no field to open.
+type NoFields {}
+
+// BoardOf is the board of p.
+func BoardOf(p Pad) Board {
+	match p {
+	case Board as b:
+		b
+	}
+}
+
+// Login is the board the machine starts with: a name of letters, a
+// four-digit PIN and a note of any keys.
+func Login() []Spec {
+	[]Spec{
+		Spec{ID: "name", Layout: Letters, Min: 1, Max: 0},
+		Spec{ID: "pin", Layout: Digits, Min: 4, Max: 4},
+		Spec{ID: "note", Layout: AnyText, Min: 0, Max: 0},
+	}
+}
+
+// Start is the machine's initial state: the Login board, focused on its
+// first field.
+func Start() Pad {
+	Open(Login()) catch {
+	case NoFields:
+		Board{Fields: []Field{}, Focus: "", Mode: Lower}
+	case Duplicate:
+		Board{Fields: []Field{}, Focus: "", Mode: Lower}
+	case BadSpec:
+		Board{Fields: []Field{}, Focus: "", Mode: Lower}
+	}
+}
+
+// Open is the board of a form, focused on its first field. A machine
+// takes no input yet (V4), so a program runs the machine with
+// machines.From(Keypad{}, Open(form), signals).
+func Open(specs []Spec) Pad fails NoFields | Duplicate | BadSpec {
+	if len(specs) == 0 {
+		return NoFields
+	}
+	let mut b = Board{Fields: []Field{}, Focus: specs[0].ID, Mode: Lower}
+	for s in specs {
+		try checkSpec(b, s)
+		b = Board{..b, Fields: b.Fields.Append(Field{Spec: s, Chars: []string{}})}
+	}
+	b
+}
+
+func checkSpec(b Board, s Spec) fails Duplicate | BadSpec {
+	if indexOf(b, s.ID) >= 0 {
+		return Duplicate{ID: s.ID}
+	}
+	if s.Min < 0 || s.Max < 0 || (s.Max > 0 && s.Min > s.Max) {
+		return BadSpec{ID: s.ID, Min: s.Min, Max: s.Max}
+	}
+}
+
+// indexOf is the position of the field id in b, or -1.
+func indexOf(b Board, id string) int {
+	for i, f in b.Fields {
+		if f.Spec.ID == id {
+			return i
+		}
+	}
+	-1
+}
+
+// Focused is the focused field of b.
+func Focused(b Board) Field {
+	let at = indexOf(b, b.Focus)
+	if at < 0 {
+		return Field{Spec: Spec{ID: b.Focus, Layout: AnyText, Min: 0, Max: 0}, Chars: []string{}}
+	}
+	b.Fields[at]
+}
+
+// replaced is fields with the field of f's ID replaced by f, in a new
+// slice: a state is a value, so an earlier state keeps its fields.
+func replaced(fields []Field, f Field) []Field {
+	let mut out = []Field{}
+	for g in fields {
+		if g.Spec.ID == f.Spec.ID {
+			out = out.Append(f)
+		} else {
+			out = out.Append(g)
+		}
+	}
+	out
+}
+
+// without is xs without the element at i, in a new slice.
+func without[T](xs []T, i int) []T {
+	let mut out = []T{}
+	for j, x in xs {
+		if j != i {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// appended is xs and then x, in a new slice: Append may share the array
+// of xs (check-v1 Q2), and an earlier state keeps its own.
+func appended[T](xs []T, x T) []T {
+	let mut out = []T{}
+	for y in xs {
+		out = out.Append(y)
+	}
+	out.Append(x)
+}
+
+// Cap is the text a character key types in mode m.
+func Cap(m Mode, cap string) string {
+	if Upper(m) {
+		strings.ToUpper(cap)
+	} else {
+		cap
+	}
+}
+
+// CanPress reports whether the key k does something on b: the keys it
+// does not are the greyed keys of the screen. Ergo has no Can query on a
+// machine yet (M51), so the screen asks this function, and the law
+// GreyedKeysAreIgnored ties it to Step.
+func CanPress(b Board, k Key) bool {
+	let f = Focused(b)
+	match k {
+	case Char as c:
+		CanType(f, Cap(b.Mode, c.Cap))
+	case Backspace:
+		len(f.Chars) > 0
+	case Shift:
+		true
+	case Return:
+		true
+	}
+}
+
+// Step is the board's transition. Typing and Backspace Emit the field's
+// new text; Shift steps the shift mode; Return Emits the submit of the
+// field when it is long enough; Focus enters another field; Add and
+// Remove change the form; Close is Done with every field. A greyed key is
+// Ignore. A refused signal fails, and the board stays as it is.
+func Step(p Pad, s Signal) Decision[Pad, Output] fails NoSuchField | LastField | Duplicate | BadSpec | TooShort {
+	let b = BoardOf(p)
+	match s {
+	case Pressed as k:
+		try press(b, k.Key, k.At)
+	case Focus as f:
+		if indexOf(b, f.ID) < 0 {
+			return NoSuchField{ID: f.ID}
+		}
+		if f.ID == b.Focus {
+			return Ignore
+		}
+		Enter[Pad]{Next: Board{..b, Focus: f.ID}}
+	case Add as a:
+		try checkSpec(b, a.Spec)
+		Stay[Pad]{Next: Board{..b, Fields: appended(b.Fields, Field{Spec: a.Spec, Chars: []string{}})}}
+	case Remove as r:
+		let at = indexOf(b, r.ID)
+		if at < 0 {
+			return NoSuchField{ID: r.ID}
+		}
+		if len(b.Fields) == 1 {
+			return LastField{ID: r.ID}
+		}
+		let rest = without(b.Fields, at)
+		if r.ID != b.Focus {
+			return Stay[Pad]{Next: Board{..b, Fields: rest}}
+		}
+		// The focus moves to the field that took the removed one's place,
+		// or to the one before it when it was the last.
+		let next = if at < len(rest) { rest[at].Spec.ID } else { rest[at-1].Spec.ID }
+		Enter[Pad]{Next: Board{..b, Fields: rest, Focus: next}}
+	case Close:
+		Done[Output]{Output: Closed{Fields: b.Fields}}
+	}
+}
+
+// press is the decision of the key k at the time at on b.
+// Each key checks its own rule here; CanPress states the same rules for
+// the screen, and the law GreyedKeysAreIgnored holds the two together.
+func press(b Board, k Key, at duration) Decision[Pad, Output] fails TooShort {
+	let f = Focused(b)
+	match k {
+	case Char as c:
+		if !CanType(f, Cap(b.Mode, c.Cap)) {
+			return Ignore
+		}
+		let typed = Field{..f, Chars: appended(f.Chars, Cap(b.Mode, c.Cap))}
+		let mode = machines.Next(b.Mode, ShiftStep(b.Mode, Typed))
+		Emit[Pad, Output]{Next: Board{..b, Fields: replaced(b.Fields, typed), Mode: mode}, Output: Published{ID: f.Spec.ID, Text: Text(typed)}}
+	case Backspace:
+		if len(f.Chars) == 0 {
+			return Ignore
+		}
+		let erased = Field{..f, Chars: without(f.Chars, len(f.Chars)-1)}
+		Emit[Pad, Output]{Next: Board{..b, Fields: replaced(b.Fields, erased)}, Output: Published{ID: f.Spec.ID, Text: Text(erased)}}
+	case Shift:
+		Stay[Pad]{Next: Board{..b, Mode: machines.Next(b.Mode, ShiftStep(b.Mode, ShiftTap{At: at}))}}
+	case Return:
+		if len(f.Chars) < f.Spec.Min {
+			return TooShort{ID: f.Spec.ID, Need: f.Spec.Min, Has: len(f.Chars)}
+		}
+		Emit[Pad, Output]{Next: b, Output: Submitted{ID: f.Spec.ID, Text: Text(f)}}
+	}
+}
+
+// Keypad is the on-screen keyboard as a machine: it starts at the Login
+// board and moves by Step, until Close.
+type Keypad machine[Pad, Signal] {
+	initial: Start(),
+	step:    Step,
+}

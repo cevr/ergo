@@ -1,0 +1,52 @@
+// Forms is the contract of a store of forms: the operation type a program
+// supplies in its context (package memory holds fixed ones).
+type Forms {
+	Names() []string,
+	Form(name string) []Spec fails NoSuchForm,
+
+	// Every form a store names opens as a board: it has a field, no two
+	// fields share an ID, and every field's lengths fit.
+	law EveryFormOpens() { EveryFormOpens() },
+
+	// A name the store does not list is NoSuchForm.
+	law UnlistedIsNoSuchForm(name string) { UnlistedIsNoSuchForm(name) },
+}
+
+// NoSuchForm is a form name that a store does not hold.
+type NoSuchForm { Name string }
+
+// EveryFormOpens is the law EveryFormOpens of the Forms in the context, as
+// a function: ergo test does not run a law of an imported operation type
+// against another package's provider yet, so package memory's test calls
+// it.
+func EveryFormOpens() bool needs Forms {
+	for n in Forms.Names() {
+		let specs = Forms.Form(n) catch {
+		case NoSuchForm:
+			return false
+		}
+		let _ = Open(specs) catch {
+		case NoFields:
+			return false
+		case Duplicate:
+			return false
+		case BadSpec:
+			return false
+		}
+	}
+	true
+}
+
+// UnlistedIsNoSuchForm is the law UnlistedIsNoSuchForm as a function.
+func UnlistedIsNoSuchForm(name string) bool needs Forms {
+	for n in Forms.Names() {
+		if n == name {
+			return true
+		}
+	}
+	let _ = Forms.Form(name) catch {
+	case NoSuchForm:
+		return true
+	}
+	false
+}

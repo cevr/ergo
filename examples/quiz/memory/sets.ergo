@@ -1,0 +1,44 @@
+// Package memory holds the in-memory providers of the quiz contracts.
+
+import quiz/quiz
+
+// Shelf is a quiz.Sets of two fixed question sets: plants and teas.
+type Shelf {}
+
+func Names(_ Shelf) []string { []string{"plants", "teas"} }
+
+func Set(_ Shelf, name string) quiz.Set fails quiz.NoSuchSet {
+	match name {
+	case "plants":
+		quiz.Plants()
+	case "teas":
+		teas()
+	case _:
+		quiz.NoSuchSet{Name: name}
+	}
+}
+
+// teas is a set whose first question cannot narrow its items: every tea
+// here is served hot, so the quiz starts at the second question.
+func teas() quiz.Set {
+	let serve = quiz.Question{Text: "Hot or iced?", Choices: []quiz.Choice{
+		quiz.Choice{Label: "hot", Tag: "serve:hot"},
+		quiz.Choice{Label: "either", Tag: ""},
+	}}
+	let caffeine = quiz.Question{Text: "Caffeine?", Choices: []quiz.Choice{
+		quiz.Choice{Label: "yes", Tag: "caffeine"},
+		quiz.Choice{Label: "no", Tag: "no-caffeine"},
+	}}
+	let taste = quiz.Question{Text: "Which taste?", Choices: []quiz.Choice{
+		quiz.Choice{Label: "grassy", Tag: "taste:grassy"},
+		quiz.Choice{Label: "malty", Tag: "taste:malty"},
+		quiz.Choice{Label: "floral", Tag: "taste:floral"},
+	}}
+	quiz.Set{Name: "teas", Questions: []quiz.Question{serve, caffeine, taste}, Items: []quiz.Item{
+		quiz.Item{Name: "sencha", Tags: []string{"serve:hot", "caffeine", "taste:grassy"}},
+		quiz.Item{Name: "assam", Tags: []string{"serve:hot", "caffeine", "taste:malty"}},
+		quiz.Item{Name: "jasmine", Tags: []string{"serve:hot", "caffeine", "taste:floral"}},
+		quiz.Item{Name: "chamomile", Tags: []string{"serve:hot", "no-caffeine", "taste:floral"}},
+		quiz.Item{Name: "rooibos", Tags: []string{"serve:hot", "no-caffeine", "taste:malty"}},
+	}}
+}

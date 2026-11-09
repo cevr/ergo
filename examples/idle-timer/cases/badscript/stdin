@@ -1,0 +1,4 @@
+kiosk lobby
+@0 touch
+@5000 open garden
+@9000 end

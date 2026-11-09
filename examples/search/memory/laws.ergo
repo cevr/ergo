@@ -1,0 +1,29 @@
+// The search machine's laws over the memory providers. The rules are
+// functions of package search (see search/laws.ergo); a law needs no
+// service, so each binds Shelf and Basket in a with.
+
+import search/search
+
+law HitsForLatestQuery(gaps []int) {
+	with context { search.Catalog: Shelf, search.Cart: Basket } {
+		search.HitsForLatestQuery(gaps)
+	}
+}
+
+law AtMostOneSearch(gaps []int) {
+	with context { search.Catalog: Shelf, search.Cart: Basket } {
+		search.AtMostOneSearch(gaps)
+	}
+}
+
+law NoStaleHits(gaps []int) {
+	with context { search.Catalog: Shelf, search.Cart: Basket } {
+		search.NoStaleHits(gaps)
+	}
+}
+
+law DebounceCoalesces(gaps []int) {
+	with context { search.Catalog: Shelf, search.Cart: Basket } {
+		search.DebounceCoalesces(gaps)
+	}
+}

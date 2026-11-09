@@ -1,0 +1,65 @@
+// Sets is the contract of a store of question sets: the operation type a
+// program supplies in its context (package memory holds fixed ones).
+type Sets {
+	Names() []string,
+	Set(name string) Set fails NoSuchSet,
+
+	// Every set a store names can be played: each item has a name no other
+	// item has, each question offers a choice, and its first state leaves
+	// an item.
+	law EverySetPlays() { EverySetPlays() },
+
+	// A name the store does not list is NoSuchSet.
+	law UnlistedIsNoSuchSet(name string) { UnlistedIsNoSuchSet(name) },
+}
+
+// NoSuchSet is a name that a store does not hold.
+type NoSuchSet { Name string }
+
+// EverySetPlays is the law EverySetPlays of the Sets in the context, as a
+// function: ergo test does not run a law of an imported operation type
+// against another package's provider yet (G-ma-2), so package memory's
+// test calls it.
+func EverySetPlays() bool needs Sets {
+	for n in Sets.Names() {
+		let set = Sets.Set(n) catch {
+		case NoSuchSet:
+			return false
+		}
+		if !Plays(set) {
+			return false
+		}
+	}
+	true
+}
+
+// Plays reports whether set can be played.
+func Plays(set Set) bool {
+	for i, a in set.Items {
+		for j, b in set.Items {
+			if i != j && a.Name == b.Name {
+				return false
+			}
+		}
+	}
+	for q in set.Questions {
+		if len(q.Choices) == 0 {
+			return false
+		}
+	}
+	len(LeftOf(Begin(set))) > 0
+}
+
+// UnlistedIsNoSuchSet is the law UnlistedIsNoSuchSet as a function.
+func UnlistedIsNoSuchSet(name string) bool needs Sets {
+	for n in Sets.Names() {
+		if n == name {
+			return true
+		}
+	}
+	let _ = Sets.Set(name) catch {
+	case NoSuchSet:
+		return true
+	}
+	false
+}
