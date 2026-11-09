@@ -196,6 +196,9 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		"Main": true, "Println": true, "End": true,
 		// Unreachable's defect (defect.go): a panic value, no wait.
 		"UnreachableAt": true,
+		// fs2: a machine timer that is not positive (machine.go,
+		// positiveTimers): a panic value, no wait.
+		"MachineTimerNotPositive": true,
 		// G4: a user extern's error turned into go.Error; it neither
 		// waits nor releases.
 		"GoErrorOf": true,
