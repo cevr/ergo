@@ -2,7 +2,7 @@
 
 This file is the v1 specification of Go imports ([#202](https://github.com/cevr/ergo/issues/202)). It replaces the retired [docs/interop.md](../interop.md), which stays as design reference. The plan with its owner answers (q32 to q38, 2026-11-08) is the wf10 import-go plan; the rules below are its §1 and §2. Terms (Go import, Host package, Ambient) are in the [glossary](../../GLOSSARY.md).
 
-Status per section: **Binding files** and **Type mapping** are implemented by `ergo bind go` (`internal/gobind`, IG1), and the bindings of Go's standard library are embedded (`internal/sketch/std/gostd`). The checker reads them from IG2 on; until then `import go P` is S109 and a binding declaration in user source is S109 (#202). The lowering is IG3 and the Level 2 adapters are IG4.
+Status per section: **Binding files** and **Type mapping** are implemented by `ergo bind go` (`internal/gobind`, IG1), and the bindings of Go's standard library are embedded (`internal/sketch/std/gostd`). **Checking** is implemented (IG2): the checker reads the bindings, and a binding declaration in user source stays S109 (only a binding declares one). The lowering is IG3 and the Level 2 adapters are IG4.
 
 ## Two levels, one mechanism
 
@@ -78,5 +78,15 @@ Each call's row comes from the reviewed tables of `runtime/v1`, never from the G
 5. **Platforms.** A binding holds for darwin/arm64 and linux/amd64 with `CGO_ENABLED=0`. A declaration missing on one, or with another Go text or Ergo text there, is refused "platform-specific".
 6. **Go's standard library.** The compiler embeds the bindings of every standard-library package outside `internal` and `vendor` (and outside `builtin`, `unsafe` and the cgo and sanitizer runtimes) at its toolchain `go1.N`, made by `go generate ./internal/sketch/std/gostd`. `TestGoStdBindingsMatchToolchain` regenerates them and compares. The checker reads them as files and runs no Go tool.
 7. **Third-party and local packages** get committed bindings under `<module root>/ergo.bind/<import path>/` and a plain `go.mod`/`go.sum` beside `ergo.mod` (q37; IG7).
+
+8. **Closed.** A declaration that names a refused type, of its package or another, is refused too ("it names the refused type syscall.RawConn"); a struct field or an interface method that names one is a refused member, and the type keeps its other members. A use of a prelude type (`Map`, `Seq`, `Option`) is refused in a package that declares a type of that name, which would hide it (`go/types.Map`). So every binding checks clean; `TestGoStdBindingsCheckClean` resolves every declaration of every embedded binding.
+
+## Checking
+
+1. **Import.** `import go P` reads P's binding: Go's standard library's (embedded; a standard-library path always names it), else the module's own at `ergo.bind/<P>/<last element>.ergo`. A path follows Go's rule (`module.CheckImportPath`, #231): `github.com/0xAX/x` is a path. No binding is S104 at the path, with the `ergo bind go` command. The name the import binds is the Go package name: the last element, or the one before a major-version element (`math/rand/v2` binds `rand`). One program shares one set of Go packages, so a host type has one identity.
+2. **Lazily, per declaration.** The import reads nothing. The first use of a member parses the binding and resolves that member only; a host type's underlying type resolves when it is first read. A program that imports no Go package reads no binding. The checker never runs a Go tool.
+3. **Uses.** A call, a constant, a type, a method (Go's method set) and a read-only field check by the binding's declaration. A method in the method set of `*T` only is called on a `go.Ref[T]` or a borrow, not on a copy (S109). `go.Ref[T]` reaches T's fields and methods; a borrow `*T` is accepted where Go takes `*T`, and is never kept as a `go.Ref` (S108). A Go interface is a host type, not a capability. A declaration the binding refuses is S109 at its use, with the binding's reason.
+4. **Rows.** The binding's rows are the call's: `fails go.Error` when Go's last result is `error`, `needs go.Foreign` outside the reviewed pure list (Purity and authority). A field read through a `go.Ref` or a borrow charges `go.Foreign`. `go.Foreign` is inferred for an unexported function and written by an exported one (S102); only the entry provides it ([rows.md](rows.md), Entry 4), so a test never calls foreign Go.
+5. **A wrong binding.** A binding that does not check (an edited or stale file) is S108 at the import, with the first diagnostic and the command that regenerates it.
 
 *Prior art:* Kotlin/Native's cinterop writes a klib of stubs at build time; Swift caches imported modules; Borgo commits its generated `.brg` files. A committed binding keeps `ergo check` hermetic: it reads files, as `go.sum` is read.
