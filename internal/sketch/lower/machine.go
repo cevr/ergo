@@ -3,6 +3,7 @@ package lower
 import (
 	"go/scanner"
 	"go/token"
+	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -154,10 +155,13 @@ func machinePure(step *check.Func, fd *funcDecl, site syntax.Node) bool {
 
 // machineAfter is the After of a machine value's Machine (ConvMachine): the
 // value of the machine's after function, or, when it has none, a function
-// that gives every state None (no timer).
+// that gives every state None (no timer). A timer the after function arms
+// with an In that is not positive is a defect that names the machine, the
+// state and the duration (fs2; runtime.md, Machines and actors 9), so no
+// runner that calls this After loops at one instant.
 func (fc *funcCtx) machineAfter(conv check.Conversion, site syntax.Node) string {
 	if after := conv.Table["After"]; after != nil {
-		return fc.funcValue(after, after.Sig, site, nil)
+		return fc.positiveTimers(conv, after, site)
 	}
 	var sig *check.Signature
 	if n, ok := conv.To.(*check.Named); ok {
@@ -177,6 +181,34 @@ func (fc *funcCtx) machineAfter(conv check.Conversion, site syntax.Node) string 
 		ind := strings.Repeat("\t", fc.depth+1)
 		return []string{"_ " + fc.goType(sig.Params[0].Type)}, fc.valueResults(sig.Results[0]),
 			ind + "return " + fc.goType(none) + "{}, nil\n"
+	})
+}
+
+// positiveTimers is the after function's value, wrapped so that a Some
+// whose Timeout's In is not positive panics with v1.MachineTimerNotPositive
+// (fs2). Go's time.NewTicker panics on a non-positive period for the same
+// reason: such a timer fires at once, forever.
+func (fc *funcCtx) positiveTimers(conv check.Conversion, after *check.Func, site syntax.Node) string {
+	sig := after.Sig
+	if len(sig.Params) != 1 || len(sig.Results) != 1 {
+		ice(site, "the after function %s is not func(S) Option[Timeout[E]]", after.Name)
+	}
+	machine := "machine"
+	if n, ok := conv.From.(*check.Named); ok {
+		machine = n.Obj.Name
+	}
+	some, _ := optionVariants(sig.Results[0], site)
+	g := fc.funcValue(after, sig, site, nil)
+	gv, s, o, err, t := fc.scope.alloc("after"), fc.scope.alloc("s"), fc.scope.alloc("o"), fc.scope.alloc("err"), fc.scope.alloc("t")
+	return fc.envClosure(callerEnv, "env", site, func(env string) ([]string, string, string) {
+		ind := strings.Repeat("\t", fc.depth+1)
+		body := ind + gv + " := " + g + "\n" +
+			ind + o + ", " + err + " := " + gv + "(" + env + ", " + s + ")\n" +
+			ind + "if " + t + ", ok := " + o + ".(" + fc.goType(some) + "); ok && " + t + ".Value.In <= 0 {\n" +
+			ind + "\tpanic(" + fc.l.rt() + ".MachineTimerNotPositive(" + strconv.Quote(machine) + ", " + s + ", " + t + ".Value.In))\n" +
+			ind + "}\n" +
+			ind + "return " + o + ", " + err + "\n"
+		return []string{s + " " + fc.goType(sig.Params[0].Type)}, fc.valueResults(sig.Results[0]), body
 	})
 }
 

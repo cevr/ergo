@@ -475,11 +475,38 @@ func (fc *funcCtx) ret(s *syntax.ReturnStmt) {
 // returnsErrorType reports a value of the frame's declared result type
 // when that type is an error type: the success value, not a failure, as
 // the checker decides (check returnedErrorRow; K1, rows.md Error rows 4).
-// Identity is the types' text, which names a named type's origin and
-// arguments.
+// A declared union of error types takes any value whose error types are
+// all its members (fs1). Identity is the types' text, which names a named
+// type's origin and arguments.
 func (fc *funcCtx) returnsErrorType(x syntax.Expr) bool {
 	r := fc.frame.result
-	return r != nil && fc.l.isErrorValue(r, fc.l.pkg.OwnerOf(x)) && fc.typeOf(x).String() == r.String()
+	if r == nil {
+		return false
+	}
+	if u, union := underlying(r).(*check.Union); union && !fc.l.isErrorValue(r, fc.l.pkg.OwnerOf(x)) {
+		r = u // a named union, type Fail = Bad | Oops
+	}
+	if !fc.l.isErrorValue(r, fc.l.pkg.OwnerOf(x)) {
+		return false
+	}
+	declared := map[string]bool{}
+	for _, m := range errorMembers(r) {
+		declared[m.String()] = true
+	}
+	for _, m := range errorMembers(fc.typeOf(x)) {
+		if !declared[m.String()] {
+			return false
+		}
+	}
+	return true
+}
+
+// errorMembers is a row value's variants, or t alone.
+func errorMembers(t check.Type) []check.Type {
+	if u, ok := t.(*check.Union); ok {
+		return u.Variants
+	}
+	return []check.Type{t}
 }
 
 // retExpr is shared by explicit return and a checked function-body tail.

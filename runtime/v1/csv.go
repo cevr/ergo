@@ -44,20 +44,36 @@ func CSVReadAll(text string) ([][]string, error) {
 	return rows, nil
 }
 
-// CSVPrefix is the records of text that Go's reader reads before its
-// first error, or every record when there is none. Rows yields them
-// before the error.
-//
-//ergo:pure
-func CSVPrefix(text string) [][]string {
-	r := csv.NewReader(strings.NewReader(text))
-	rows := [][]string{}
+// CSVScan reads text in one pass, as a loop over Go's Reader.Read does,
+// and calls each with every record, in order, until each returns false or
+// the text ends. It returns the error that stopped Go's reader, or a
+// CSVParseError with no Reason when the text ended or each stopped the
+// read: a stop reads no further record (fs3). Rows is a Seq over it. It
+// takes a function, so it is not marked pure (stdlib.md, Pure bodies 2).
+func CSVScan(text string, each func(fields []string) bool) CSVParseError {
+	return csvScan(strings.NewReader(text), each)
+}
+
+// csvScan is CSVScan over r, which a test reads the rest of to see that a
+// stop ends the read.
+func csvScan(r *strings.Reader, each func(fields []string) bool) CSVParseError {
+	rd := csv.NewReader(r)
 	for {
-		rec, err := r.Read()
+		rec, err := rd.Read()
 		if err != nil {
-			return rows
+			if pe, ok := err.(*csv.ParseError); ok {
+				return CSVParseError{Line: pe.Line, Column: pe.Column, Reason: pe.Err.Error(), Message: pe.Error()}
+			}
+			// io.EOF by its text: this file imports no io, so that its
+			// marked bodies stay pure (Pure bodies 2).
+			if err.Error() == "EOF" {
+				return CSVParseError{}
+			}
+			return CSVParseError{Reason: err.Error(), Message: err.Error()}
 		}
-		rows = append(rows, rec)
+		if !each(rec) {
+			return CSVParseError{}
+		}
 	}
 }
 

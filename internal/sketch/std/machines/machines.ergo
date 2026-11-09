@@ -116,15 +116,26 @@ type armed[E] {
 }
 
 // arm adds the timer of the entry epoch, which opened in s at now, to
-// timers: none when m.After(s) is None.
+// timers: none when m.After(s) is None. A timer whose In is not positive
+// is a defect (runtime.md, Machines and actors 9; fs2): it would fire at
+// once, and a state whose timer re-enters it would never let time pass.
+// A declared machine's After raises it first, naming the machine and the
+// state; a Machine built from parts raises it here.
 func arm[S, E, O, F, R](timers []armed[E], m Machine[S, E, O, F, R], s S, now duration, epoch int) []armed[E] {
 	match m.After(s) {
 	case Some[Timeout[E]] as t:
+		if t.Value.In <= 0s {
+			notPositive(now, t.Value.In)
+		}
 		timers.Append(armed[E]{At: now + t.Value.In, Epoch: epoch, Signal: t.Value.Signal})
 	case None:
 		timers
 	}
 }
+
+// notPositive raises the defect of a timer armed at now whose In is not
+// positive (arm).
+extern go ergo.local/prototype/runtime/v1.MachineTimerNotPositiveAt func notPositive(now duration, wait duration)
 
 // due is the index of the earliest timer in timers that fires before the
 // time limit (at or before it when closed), or -1; of two at one time, the

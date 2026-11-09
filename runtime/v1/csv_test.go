@@ -62,6 +62,29 @@ func BenchmarkCSV(b *testing.B) {
 			textSink = CSVFormat(rows)
 		}
 	})
+	// Rows' body (fs3): every record handed to a callback, against Go's
+	// Reader.Read loop over the same text.
+	b.Run("Scan/ergo", func(b *testing.B) {
+		for range b.N {
+			n := 0
+			_ = CSVScan(text, func(fields []string) bool { n += len(fields); return true })
+			scanSink = n
+		}
+	})
+	b.Run("Scan/go", func(b *testing.B) {
+		for range b.N {
+			n := 0
+			rd := csv.NewReader(strings.NewReader(text))
+			for {
+				rec, err := rd.Read()
+				if err != nil {
+					break
+				}
+				n += len(rec)
+			}
+			scanSink = n
+		}
+	})
 	b.Run("Format/go", func(b *testing.B) {
 		for range b.N {
 			var s strings.Builder
@@ -74,8 +97,9 @@ func BenchmarkCSV(b *testing.B) {
 
 // TestStdCSVMatchesGo (U4 std-csv; stdlib.md, csv): on 20,000 seeded
 // texts, CSVReadAll gives Go's ReadAll rows or Go's *csv.ParseError as
-// CSVParseError (Line, Column, Reason, Message), and CSVPrefix the records
-// Go's Read gives before its first error; on 20,000 seeded rows,
+// CSVParseError (Line, Column, Reason, Message), and CSVScan, in one pass,
+// the records Go's Read gives before its first error and then ReadAll's
+// error (no Reason when there is none); on 20,000 seeded rows,
 // CSVFormat writes what Go's csv.Writer writes, except a lone empty field,
 // which is "". It catches what the laws do not: a reader with other
 // options (LazyQuotes, FieldsPerRecord), an error placed by its record's
@@ -107,8 +131,17 @@ func TestStdCSVMatchesGo(t *testing.T) {
 			}
 			prefix = append(prefix, rec)
 		}
-		if p := CSVPrefix(text); !slices.EqualFunc(p, prefix, slices.Equal) {
-			t.Fatalf("CSVPrefix(%q) = %q; Go %q", text, p, prefix)
+		p := [][]string{}
+		serr := CSVScan(text, func(fields []string) bool { p = append(p, fields); return true })
+		if !slices.EqualFunc(p, prefix, slices.Equal) {
+			t.Fatalf("CSVScan(%q) gives %q; Go %q", text, p, prefix)
+		}
+		wantEnd := CSVParseError{}
+		if err != nil {
+			wantEnd = err.(CSVParseError)
+		}
+		if serr != wantEnd {
+			t.Fatalf("CSVScan(%q) ends with %#v; CSVReadAll fails %#v", text, serr, wantEnd)
 		}
 	}
 	if failed < 2000 || failed > 18000 {
@@ -131,6 +164,34 @@ func TestStdCSVMatchesGo(t *testing.T) {
 		w.Flush()
 		if got := CSVFormat(rows); got != b.String() {
 			t.Fatalf("CSVFormat(%q) = %q; Go %q", rows, got, b.String())
+		}
+	}
+}
+
+// scanSink keeps BenchmarkCSV's Scan counts live.
+var scanSink int
+
+// TestCSVScanStopsTheRead (fs3): Rows is lazy. A callback that stops at
+// the first record of a text of 2,000 records leaves most of the text
+// unread, and so does one that stops before a malformed tail. It catches
+// an eager scan (ReadAll, then the callback over its rows), which the laws
+// and TestStdCSVMatchesGo cannot see: its records and its error are the
+// same.
+func TestCSVScanStopsTheRead(t *testing.T) {
+	rows := make([][]string, 2000)
+	for i := range rows {
+		rows[i] = []string{"a", "b, c", "d \"e\""}
+	}
+	text := CSVFormat(rows)
+	for _, tail := range []string{"", "x\"y\n"} {
+		r := strings.NewReader(text + tail)
+		calls := 0
+		end := csvScan(r, func([]string) bool { calls++; return false })
+		if calls != 1 || end != (CSVParseError{}) {
+			t.Fatalf("tail %q: %d calls, end %#v; want 1 call and no error", tail, calls, end)
+		}
+		if r.Len() < len(text)/2 {
+			t.Errorf("tail %q: a stop at the first record left %d of %d bytes unread; the read goes on after a stop", tail, r.Len(), len(text)+len(tail))
 		}
 	}
 }

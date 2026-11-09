@@ -129,3 +129,15 @@ func TimeCount(d time.Duration, unit time.Duration) int {
 	}
 	return int(d / unit)
 }
+
+// MachineTimerNotPositiveAt is the Go body of std machines' timer check
+// (fs2; docs/spec/runtime.md, Machines and actors 9): RunTimed calls it
+// when a Machine built from parts arms a timer whose In is not positive,
+// at the run's time now. Such a Machine names no machine, and its state
+// has no text here, so the defect names the time. A declared machine's
+// After raises MachineTimerNotPositive first, with its names.
+//
+//ergo:pure
+func MachineTimerNotPositiveAt(now time.Duration, in time.Duration) {
+	panic(&MachineTimerDefect{At: now, In: in})
+}
