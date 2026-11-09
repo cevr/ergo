@@ -69,6 +69,8 @@ const (
 	variantEarlyFixture       = "type A { S V[int] }\ntype U[T, S] = | V{X T} | Y{Z S, Q T} | W{}\n"
 	compoundFixture           = "func f() int {\n\tlet mut x = 1\n\tx += 2\n\tx\n}\n"
 	patternFixture            = "type P { A int }\nfunc f(p P) int {\n\tlet P{A: a} = p\n\ta\n}\n"
+	// A package's own Map (L6, q30): Map[K, V] there is its instance.
+	mapShadowFixture = "type Map[K, V] { k K, v V }\nfunc f(m Map[string, int]) int { m.v }\n"
 )
 
 // manifestSites reads the construction sites of the checker's provenance
@@ -82,6 +84,7 @@ func manifestSites(t *testing.T) map[constructionSite]string {
 		"variantEarlyFixture":       variantEarlyFixture,
 		"compoundFixture":           compoundFixture,
 		"patternFixture":            patternFixture,
+		"mapShadowFixture":          mapShadowFixture,
 	}
 	content, err := os.ReadFile(filepath.Join("testdata", "provenance-manifest.txt"))
 	if err != nil {
@@ -112,7 +115,7 @@ func manifestSites(t *testing.T) map[constructionSite]string {
 // fixtures and the remaining shapes of the variant rules.
 func provenanceFixtures() []string {
 	out := []string{
-		variantFixture, variantConstrainedFixture, variantEarlyFixture, compoundFixture, patternFixture,
+		variantFixture, variantConstrainedFixture, variantEarlyFixture, compoundFixture, patternFixture, mapShadowFixture,
 		"type U[T, S] = | V{X T} | W{Y S} | Z{}\n",
 		"type U[T, S number] = | V{X S} | W{}\n",
 		"type U[R, T] = | V{X T} | W{}\ntype A { S V[int] }\n",

@@ -1977,11 +1977,11 @@ func (c *checker) collectSelfFuncs() {
 			if g.owner != nil {
 				key = g.owner
 			}
-			if id, args, _ := selfOwnerName(g.Decl); id != nil && c.dupNames[id.Name] && g.Name != "main" {
+			if name, args, _ := selfOwnerName(g.Decl); name != "" && c.dupNames[name] && g.Name != "main" {
 				// Defensive: selfArgsOK validates receiver arguments without reporting.
 				c.cur = g.file
 				if c.selfArgsOK(g.Decl, args) {
-					key = id.Name
+					key = name
 				}
 			}
 			if key == nil || owners[key] {
@@ -2060,11 +2060,11 @@ func (c *checker) collOwner(f *Func) (collKey, []syntax.Expr, bool) {
 // binds.
 func (c *checker) selfOwner(f *Func) (*Named, []syntax.Expr, bool) {
 	d := f.Decl
-	id, args, ptr := selfOwnerName(d)
-	if id == nil {
+	name, args, ptr := selfOwnerName(d)
+	if name == "" {
 		return nil, nil, false
 	}
-	tn, ok := c.pkg.Scope.names[id.Name].(*TypeName)
+	tn, ok := c.pkg.Scope.names[name].(*TypeName)
 	if !ok {
 		return nil, nil, false
 	}
@@ -2084,16 +2084,14 @@ func (c *checker) selfOwner(f *Func) (*Named, []syntax.Expr, bool) {
 	return n, args, ptr
 }
 
-// mapTypeName is the name `Map[K, V]` writes, for selfOwnerName's callers,
-// which read only its Name.
-var mapTypeName = &syntax.Ident{Name: "Map"}
-
 // selfOwnerName returns the type name d's first parameter writes, T, *T or
-// T[A, B], with the type arguments and whether it is a pointer; nil when
-// the first parameter writes another type or d has none.
-func selfOwnerName(d *syntax.FuncDecl) (*syntax.Ident, []syntax.Expr, bool) {
+// T[A, B], with the type arguments and whether it is a pointer; "" when
+// the first parameter writes another type or d has none. It returns a
+// name, not a node: `Map[K, V]` writes the name Map with no Ident of its
+// own, and the checker makes no node outside made and clone (provenance).
+func selfOwnerName(d *syntax.FuncDecl) (string, []syntax.Expr, bool) {
 	if d.Type == nil || d.Type.Params == nil || len(d.Type.Params.List) == 0 {
-		return nil, nil, false
+		return "", nil, false
 	}
 	rt := d.Type.Params.List[0].Type
 	ptr := false
@@ -2104,14 +2102,14 @@ func selfOwnerName(d *syntax.FuncDecl) (*syntax.Ident, []syntax.Expr, bool) {
 	if m, ok := rt.(*syntax.MapType); ok {
 		// Map[K, V] names a package type only where the package declares
 		// its own Map (L6); the caller looks the name up there.
-		return mapTypeName, []syntax.Expr{m.Key, m.Value}, ptr
+		return "Map", []syntax.Expr{m.Key, m.Value}, ptr
 	}
 	if ix, ok := rt.(*syntax.IndexExpr); ok {
 		rt, args = ix.X, ix.Indices
 	}
 	id, ok := rt.(*syntax.Ident)
 	if !ok {
-		return nil, nil, false
+		return "", nil, false
 	}
 	// A name the function's own bracket list declares is its type
 	// parameter, which shadows a package type of that name (round 6
@@ -2120,12 +2118,12 @@ func selfOwnerName(d *syntax.FuncDecl) (*syntax.Ident, []syntax.Expr, bool) {
 		for _, field := range d.TypeParams.List {
 			for _, name := range field.Names {
 				if name.Name == id.Name {
-					return nil, nil, false
+					return "", nil, false
 				}
 			}
 		}
 	}
-	return id, args, ptr
+	return id.Name, args, ptr
 }
 
 // selfArgsOK reports whether every type argument of a first parameter's

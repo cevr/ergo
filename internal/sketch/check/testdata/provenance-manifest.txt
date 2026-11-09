@@ -40,6 +40,8 @@ entry CheckSource
 
 # Every construction site: a fresh node passed to made, or a clone, with
 # the owner_e2_test.go fixture, a clean program that reaches it.
+site (*checker).mapInstance Ident mapShadowFixture
+site (*checker).mapInstance IndexExpr mapShadowFixture
 site (*checker).declareVariant TypeDecl variantFixture
 site (*checker).declareVariant StructType variantFixture
 site (*checker).variantParams Ident variantFixture
