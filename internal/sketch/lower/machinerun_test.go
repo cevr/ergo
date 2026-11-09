@@ -114,7 +114,12 @@ func (g *flatGen) armBody(v int, ind string, fallible bool) string {
 		return ind + "deciding(a.n + x.v)\n"
 	case k == 5:
 		g.reached["bare"] = true
-		return ind + []string{"Ignore", "Reject"}[g.r.IntN(2)] + "\n"
+		bare := []string{"Ignore", "Reject"}[g.r.IntN(2)]
+		if bare == "Reject" && !fallible {
+			// A Reject in a run the flat loop takes (the mutant "loop").
+			g.reached["flat reject"] = true
+		}
+		return ind + bare + "\n"
 	case k == 6:
 		g.reached["let variant"] = true
 		return ind + "let d = Stay[St]{Next: " + g.next(v) + "}\n" + ind + "d\n"
@@ -279,6 +284,15 @@ func told(o machines.Outcome[St, int]) string {
 		fmt.Fprintf(&b, "%sfor i in 0..%d {\n%s\tConsole.Println(\"\\(run(xs%d[0:i])) | \\(timed(xs%d[0:i]))\")\n%s}\n", ind, n+1, ind, l, l, ind)
 		fmt.Fprintf(&b, "%sConsole.Println(from(%s, xs%d))\n", ind, g.stateLit(g.r.IntN(len(g.states)), fmt.Sprint(g.r.IntN(9)-4)), l)
 	}
+	// Every arm runs: one signal of each variant (both signs of v, for
+	// the arms that branch on it) from each state.
+	for i := range g.states {
+		for j := range g.signals {
+			for _, v := range []string{"1", "-1"} {
+				fmt.Fprintf(&b, "%sConsole.Println(from(%s, []Sig{E%d{v: %s}}))\n", ind, g.stateLit(i, "2"), j, v)
+			}
+		}
+	}
 	if needs {
 		b.WriteString("\t}\n")
 	}
@@ -289,7 +303,7 @@ func told(o machines.Outcome[St, int]) string {
 // flatRunPaths are the paths the fixed seeds must reach.
 var flatRunPaths = []string{
 	"1 variants", "2 variants", "3 variants", "string field", "slice field", "next s", "state read", "next bound", "next call", "next variant",
-	"literal", "emit", "done", "union call", "bare", "let variant", "let union", "return", "if", "fail",
+	"literal", "emit", "done", "union call", "bare", "flat reject", "let variant", "let union", "return", "if", "fail",
 	"simple match", "tree match", "wildcard", "needs", "fails",
 }
 
@@ -387,12 +401,21 @@ func TestMachineFlatRunAgrees(t *testing.T) {
 	if exes == nil {
 		t.Fatalf("the flat run programs do not build (seeds %v)", seeds)
 	}
+	rejected := false
 	for _, c := range cases {
 		flat, flatErr, flatCode := runExe(t, exes[c.name])
 		ref, refErr, refCode := runExe(t, exes[c.name+"ref"])
 		if why := flatRunDiffers(flat, ref, flatCode, refCode); why != "" {
 			t.Errorf("seed %d, %s: %s\nReplay: go test -run '^TestMachineFlatRunAgrees$' ./internal/sketch/lower -args -flatrun.seed=%d\n%s\n--- flat\n%s%s\n--- reference\n%s%s", c.seed, c.name, why, c.seed, c.src, flat, firstLines(flatErr, 8), ref, firstLines(refErr, 8))
 		}
+		if strings.Contains(c.flat.mainGo(), "stepFlatM(") && strings.Contains(flat, "rejected ") {
+			rejected = true
+		}
+	}
+	// The flat loop's Reject (the index it reports) is reached at run
+	// time, not only written: the mutant "loop" needs a run that rejects.
+	if *flatRunSeed == 0 && !rejected {
+		t.Errorf("seeds %v: no flat run rejects a signal", seeds)
 	}
 	t.Logf("seeds %v: %d programs", seeds, len(cases))
 }
@@ -413,7 +436,7 @@ func TestMachineFlatRunMutants(t *testing.T) {
 			saved := machineMutant
 			machineMutant = m
 			defer func() { machineMutant = saved }()
-			cases := flatRunCases(t, []uint64{1, 2}, false)
+			cases := flatRunCases(t, []uint64{1, 2}, true)
 			var builds []*lowered
 			for _, c := range cases {
 				builds = append(builds, c.flat, c.ref)
