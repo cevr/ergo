@@ -64,6 +64,18 @@ import (
 //     work ends the actor whenever it happens, and Stop raises it: it is
 //     pushed as an envelope that is never dropped, or, when admission has
 //     closed, it is the work's exit, which the drain reads.
+//  11. Observers (MU12): each Changes subscription gets the state shown at
+//     its start, then every state published after it, once each, in commit
+//     order, from a buffer of its own; a state is published when it is
+//     committed (a Stay) or once its entry's children run (an entry),
+//     and also when a stop overtakes the entry (open's deferred publish).
+//     A subscription ends after the actor ended and it gave every state
+//     published to it; nothing is published after the end. std actor's
+//     WaitFor, SendAndWait and Select are loops over Changes.
+//  12. Drain and exit (MU12): Drain closes admission, steps every queued
+//     signal, then ends. The exit is one value, written once by finish:
+//     Stop, Drain and every ActorExitKind caller read it. latest is the
+//     decision of the last stepped signal, final the Done that ended it.
 type Actor[S, E, D any] struct {
 	inbox   *Queue[envelope[S, E, D]]
 	task    *rt.Task
@@ -92,6 +104,12 @@ type Actor[S, E, D any] struct {
 	ended bool
 	exit  error // the runner's exit, read after done closes
 	subs  map[*changes[S]]struct{}
+	// latest is the decision of the last signal stepped (rule 12), and
+	// final the Done decision that ended the actor, when one did.
+	latest    D
+	hasLatest bool
+	final     D
+	finished  bool
 
 	// The runner's own fields: only its goroutine reads or writes them.
 	cur     *envelope[S, E, D] // the envelope in a step, nil between steps
@@ -248,6 +266,12 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 		return s, true, err
 	}
 	k := a.kind(d)
+	a.mu.Lock()
+	a.latest, a.hasLatest = d, true
+	if k == decideDone {
+		a.final, a.finished = d, true
+	}
+	a.mu.Unlock()
 	switch k {
 	case decideEnter, decideEmit:
 		a.stopTimer()
@@ -551,6 +575,25 @@ func (a *Actor[S, E, D]) Stop() error {
 	a.task.Interrupt()
 	a.inbox.Close()
 	<-a.done
+	return a.result()
+}
+
+// Drain is a.Drain() (rule 12): it closes admission, so later Sends and
+// Asks fail ActorStopped, and waits, uninterruptibly, until the runner has
+// stepped every signal queued before it, in order (its Asks answered),
+// and then ended as Stop ends it. A Done, a failure or a defect among the
+// queued signals ends the actor there, as it would without Drain. Its
+// result is Stop's: the typed failure that ended the actor, its defect
+// raised. A Stop during a Drain overtakes it: the rest is dropped.
+func (a *Actor[S, E, D]) Drain() error {
+	a.inbox.Close()
+	<-a.done
+	return a.result()
+}
+
+// result is what Stop and Drain return once the runner has ended: the
+// typed failure that ended it, nil, or its defect raised.
+func (a *Actor[S, E, D]) result() error {
 	a.mu.Lock()
 	exit := a.exit
 	a.mu.Unlock()
@@ -564,6 +607,75 @@ func (a *Actor[S, E, D]) Stop() error {
 		raise(d)
 	}
 	return nil
+}
+
+// The kinds of an actor's exit (rule 12), in the order of std actor's
+// Exit variants.
+const (
+	exitFinished = iota // Done ended it
+	exitHalted          // Stop, Drain, or a stop of its parent ended it
+	exitFailed          // a step's typed failure after a Send or a timer
+	exitDefected        // a defect (of a step, a timer or a work)
+)
+
+// ActorExitKind is std actor's exitKind(a) on the caller's task t: it
+// waits until the runner has ended and gives how (exitFinished …
+// exitDefected). Every caller gets the same answer, and so does Stop (one
+// exit, rule 12). A stop of t raises rt.Interrupted.
+func ActorExitKind[S, E, D any](t *rt.Task, a *Actor[S, E, D]) int {
+	a.waitDone(t)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.exit != nil && a.exit != rt.Interrupted {
+		// The order of result: Stop returns the failure, else raises the
+		// defect, also after a Done.
+		if _, ok := rt.Failure(a.exit); ok {
+			return exitFailed
+		}
+		if defectsOnly(a.exit) != nil {
+			return exitDefected
+		}
+	}
+	if a.finished {
+		return exitFinished
+	}
+	return exitHalted
+}
+
+// ActorFinal is std actor's final(a): the Done decision that ended a, read
+// after ActorExitKind gave exitFinished.
+func ActorFinal[S, E, D any](a *Actor[S, E, D]) D {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.final
+}
+
+// ActorFailure is std actor's failure(a): the typed failure that ended a,
+// read after ActorExitKind gave exitFailed.
+func ActorFailure[S, E, D any](a *Actor[S, E, D]) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if f, ok := rt.Failure(a.exit); ok {
+		return f
+	}
+	return nil
+}
+
+// ActorHasLatest is std actor's hasLatest(a): whether a has stepped a
+// signal. Once true it stays true, so ActorLatest after it has a decision.
+func ActorHasLatest[S, E, D any](a *Actor[S, E, D]) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.hasLatest
+}
+
+// ActorLatest is std actor's latest(a): the decision of the last signal a
+// stepped (rule 12; a Reject and an Ignore included, a dropped signal
+// not).
+func ActorLatest[S, E, D any](a *Actor[S, E, D]) D {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.latest
 }
 
 // defectsOnly is err's defects, nil when it has none (an interruption).
