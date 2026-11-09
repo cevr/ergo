@@ -113,7 +113,9 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 // call that cannot fail at this site drops its error, which is nil.
 func (fc *funcCtx) callStmt(x *syntax.CallExpr) string {
 	c := fc.l.info.Calls[x]
+	fc.stmtCall = x // a fused call's value is a name, no statement (update.go)
 	text, _, fallible := fc.callText(x, c)
+	fc.stmtCall = nil
 	if fallible && failsHere(c) {
 		ice(x, "an untried fallible call in a statement")
 	}
@@ -140,6 +142,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 	}
 	switch c.Kind {
 	case check.CallFunc:
+		if text, ok := fc.updateFused(x, c); ok {
+			return text, true, false
+		}
 		fd := fc.l.useFunc(c.Func, x)
 		if userExtern(c.Func) {
 			return fc.hostCall(x, c, args), len(c.Func.Sig.Results) > 0, c.Func.Sig.Fallible

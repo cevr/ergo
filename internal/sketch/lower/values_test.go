@@ -105,7 +105,10 @@ func main() needs Console {
 // maps.Update(m, k, f) in a loop and b.M = put(b.M, n) call the owned
 // bodies with no copy, as hand Go writes m[k] = f(m[k]) (integration r1
 // F2), and the parameter's copy moves to the wrapper, which only an
-// indirect call reaches. It reads the emitted Go only: the copies' meaning
+// indirect call reaches. With a named callback the rebinding is written at
+// its site with the callback called directly (update.go), so no Option
+// escapes; with updateLowering "call" it calls the owned body, uncopied.
+// It reads the emitted Go only: the copies' meaning
 // is TestValueRuleAgrees', which passes with every copy in place, so only
 // the Go text tells this rule from the one that copies everywhere and from
 // the copying lowering "copy" (the mutant "never elide"); the
@@ -124,9 +127,15 @@ func TestValueRuleElides(t *testing.T) {
 	if body := goFunc(t, code, "main_1"); strings.Contains(body, "Clone") {
 		t.Errorf("main copies build's fresh result:\n%s", body)
 	}
-	update := regexp.MustCompile(`(?s)\nfunc UpdateOwned\[.*?\n}\n`).FindString(code)
-	if update == "" || strings.Contains(update, "Clone") || !strings.Contains(goFunc(t, code, "count"), "UpdateOwned[") {
-		t.Errorf("m = maps.Update(m, k, f) copies the Map:\n%s\n%s", update, goFunc(t, code, "count"))
+	// m = maps.Update(m, k, bump) is written at its site with bump called
+	// directly (update.go); called instead, it calls the owned body.
+	if body := goFunc(t, code, "count"); strings.Contains(body, "Update") || !strings.Contains(body, "bump(") {
+		t.Errorf("m = maps.Update(m, k, bump) is not written at its site:\n%s", body)
+	}
+	called := lowerValueMode(t, "velidecall", valueElideSource, true, "update-call").mainGo()
+	update := regexp.MustCompile(`(?s)\nfunc UpdateOwned\[.*?\n}\n`).FindString(called)
+	if update == "" || strings.Contains(update, "Clone") || !strings.Contains(goFunc(t, called, "count"), "UpdateOwned[") || strings.Contains(goFunc(t, called, "count"), "Clone") {
+		t.Errorf("m = maps.Update(m, k, f) copies the Map:\n%s\n%s", update, goFunc(t, called, "count"))
 	}
 	// The copying lowering keeps a copy on the same rebinding.
 	ref := lowerValueMode(t, "velidecopy", valueElideSource, true, "copy").mainGo()
@@ -191,13 +200,15 @@ var valueMutants = flag.Bool("value.mutants", false, "run TestValueRuleMutants")
 // to print something else: each rule has a guard that fails without it.
 // The never-elide mutant is the copying lowering "copy", which every
 // run-based check passes; TestValueRuleElides guards it.
-// It builds nine sets of programs, so it runs only with -value.mutants:
+// The never-fuse mutant is updateLowering "call", which every run-based
+// check passes; TestValueRuleElides guards it too.
+// It builds eleven sets of programs, so it runs only with -value.mutants:
 // go test -run '^TestValueRuleMutants$' ./internal/sketch/lower -args -value.mutants
 func TestValueRuleMutants(t *testing.T) {
 	if !*valueMutants {
 		t.Skip("run with -value.mutants")
 	}
-	for _, m := range []string{"never-copy", "shallow", "elide-live", "elide-escape", "elide-closure", "in-place", "consume-live", "consume-captured", "own-live"} {
+	for _, m := range []string{"never-copy", "shallow", "elide-live", "elide-escape", "elide-closure", "in-place", "consume-live", "consume-captured", "own-live", "update-none", "update-no-write"} {
 		t.Run(m, func(t *testing.T) {
 			saved := valueMutant
 			valueMutant = m
@@ -209,7 +220,7 @@ func TestValueRuleMutants(t *testing.T) {
 				programs = append(programs, mustLower(t, "vm"+p.name, p.src))
 				wants = append(wants, want{"vm" + p.name, p.want, p.src})
 			}
-			for _, seed := range []uint64{1, 2, 3} {
+			for _, seed := range []uint64{1, 2, 3, 4, 5, 6} {
 				src, out := valueProgram(seed, true, map[string]bool{})
 				name := fmt.Sprintf("vm%dshared", seed)
 				programs = append(programs, mustLower(t, name, src))
@@ -237,8 +248,10 @@ func TestValueRuleMutants(t *testing.T) {
 // builds a Map (the copy is elided, so no allocation beyond Go's), a loop
 // that appends (in place), and a real shared write, a parameter written
 // through a let mut copy (one maps.Clone, as hand Go writes it), and
-// m = maps.Update(m, k, f) over 1e5 new keys against hand Go's
-// m[k] = f(m[k]) (owned parameters, V5: no copy, so allocs/op match).
+// m = maps.Update(m, k, f) over 1e5 new keys (Upsert, f sees None) and
+// over 64 keys again and again (Again, f sees Some) against hand Go's
+// v, ok := m[k]; m[k] = f(v, ok) (owned parameters, V5: no copy; the call
+// written at its site, update.go: no Option escapes, so allocs/op match).
 // go test -run '^$' -bench '^BenchmarkValueRule$' -benchmem ./internal/sketch/lower
 func BenchmarkValueRule(b *testing.B) {
 	const src = `import maps
@@ -256,6 +269,14 @@ func Upsert(n int) int {
 	let mut m = Map[int, int]{}
 	for i in 0..n {
 		m = maps.Update(m, i, inc)
+	}
+	len(m)
+}
+
+func Again(n int) int {
+	let mut m = Map[int, int]{}
+	for i in 0..n {
+		m = maps.Update(m, i % 64, inc)
 	}
 	len(m)
 }
@@ -283,7 +304,7 @@ func Bump(m Map[int, int], k int) int {
 }
 
 func main() needs Console {
-	Console.Println("\(Build(3)) \(Collect(3)) \(Bump(Map[int, int]{}, 1)) \(Upsert(3))")
+	Console.Println("\(Build(3)) \(Collect(3)) \(Bump(Map[int, int]{}, 1)) \(Upsert(3)) \(Again(3))")
 }
 `
 	emittedBench(b, "valuebench", src, func(mainGo string) string {
@@ -357,17 +378,40 @@ func BenchmarkUpsertErgo(b *testing.B) {
 }
 
 //go:noinline
-func incGo(v int) int { return v + 1 }
+func incGo(v int, ok bool) int {
+	if ok {
+		return v + 1
+	}
+	return 1
+}
 
 func BenchmarkUpsertGo(b *testing.B) {
 	for range b.N {
 		m := map[int]int{}
 		for i := range 100000 {
-			m[i] = incGo(m[i])
+			v, ok := m[i]
+			m[i] = incGo(v, ok)
+		}
+		sink = len(m)
+	}
+}
+
+func BenchmarkAgainErgo(b *testing.B) {
+	for range b.N {
+		sink = ` + emittedCall(mainGo, "Again", "100000") + `
+	}
+}
+
+func BenchmarkAgainGo(b *testing.B) {
+	for range b.N {
+		m := map[int]int{}
+		for i := range 100000 {
+			v, ok := m[i%64]
+			m[i%64] = incGo(v, ok)
 		}
 		sink = len(m)
 	}
 }
 `
-	}, "BuildErgo", "BuildGo", "CollectErgo", "CollectGo", "BumpErgo", "BumpGo", "UpsertErgo", "UpsertGo")
+	}, "BuildErgo", "BuildGo", "CollectErgo", "CollectGo", "BumpErgo", "BumpGo", "UpsertErgo", "UpsertGo", "AgainErgo", "AgainGo")
 }
