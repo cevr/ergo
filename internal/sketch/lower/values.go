@@ -52,7 +52,17 @@ import (
 //     caller that shares it, not by the callee, and a rebinding p = f(…,
 //     p, …) whose old value nothing else reads hands it over with no copy
 //     (consumable): m = maps.Update(m, k, f) writes m in place, as hand Go
-//     writes m[k] = f(m[k]).
+//     writes m[k] = f(m[k]);
+//   - a Ref owns its value (V6, refown.go): the parameter of a function
+//     literal written at Ref.Update or sync.Modify takes the held value
+//     over, as an unshared local; the cell copies a value that may be
+//     reached from outside before it hands it over.
+//
+// Three facts sharpen the uses: a pure call (or pure std body) whose
+// result reaches no Map or slice type its argument reaches keeps nothing
+// of the argument (mayShare); a part of a returned tuple or literal is a
+// return; and a use in one return of a frame never runs before a use in
+// another, since each ends the frame.
 //
 // Only a slice, a Map, and a record or tuple that holds one can be written
 // through a place, so only they are copied; a union, an Option and a
@@ -89,8 +99,12 @@ var valueLowering string
 // "in-place" (Append and Delete always write their source), and for owned
 // parameters (V5) "consume-live" (an argument that stays live is passed
 // uncopied), "consume-captured" (a rebinding hands over a binding another
-// frame reads) and "own-live" (a parameter read after its bind is owned).
-// Empty in every build.
+// frame reads) and "own-live" (a parameter read after its bind is owned),
+// and for owned Refs (V6) "hand-nonliteral" (a function value takes the
+// held value over), "store-unfresh" (every site is proved fresh),
+// "share-blind" (every pure call keeps nothing) and "return-blind" (two
+// parts of one returned value count as two returns). Empty in every
+// build.
 var valueMutant string
 
 // valueRule reports whether the value rule lowers this build.
@@ -1504,19 +1518,6 @@ func (w *valueWalk) freshIdent(vv *vvar, id *syntax.Ident, _ bool) bool {
 		return true
 	}
 	return vv.init != nil && w.fresh(vv.init)
-}
-
-// isReturn reports whether the use o is the value its frame returns.
-func (w *valueWalk) isReturn(o *vocc) bool {
-	parent, child := w.unparenParent(o.id)
-	switch p := parent.(type) {
-	case *syntax.ReturnStmt:
-		return w.frameOfReturn(p) == o.frame
-	case *syntax.ExprStmt:
-		x, _ := child.(syntax.Expr)
-		return w.frameOfTail(x) == o.frame
-	}
-	return false
 }
 
 // freshResult reports whether every result of f is fresh: an Ergo body
