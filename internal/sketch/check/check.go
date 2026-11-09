@@ -115,6 +115,9 @@ type checker struct {
 	// workSends holds the declaring identifier of each Listen work's send
 	// parameter (workLit): the one value actor.Child accepts (childRule).
 	workSends map[*syntax.Ident]bool
+	// durableCalls are the calls of a durable runner (durable.go), which
+	// checkDurableSteps judges once the footprints are known.
+	durableCalls []durableCall
 	// withSites are the with sites the reporting pass recorded, inner
 	// before outer, for the context ownership pass (withown.go).
 	withSites []withSite
