@@ -71,7 +71,7 @@ A defect is not a failed assert. The runner prints the test's `FAIL` line, `FAIL
 
 ## Laws
 
-`ergo test` runs every law of the package after its tests ([#162](https://github.com/cevr/ergo/issues/162) law-run-1; [types.md](spec/types.md#laws) rule 10). A top-level law runs as a property does, over 100 generated cases. A member law runs once against each provider of its operation type, with a fresh provider value per case, wherever the provider is declared: the laws that a domain package's `Store` declares run in the `memory` package that provides it, when `ergo test` tests that package (the least package that sees the law and the provider runs it; law-xpkg). A law whose parameter is an operation type runs once per provider of that type too. A helper that `needs` the type runs against that provider:
+`ergo test` runs every law of the package after its tests ([#162](https://github.com/cevr/ergo/issues/162) law-run-1; [types.md](spec/types.md#laws) rule 10). A top-level law runs as a property does, over 100 generated cases. A member law runs once against each provider of its operation type, with a fresh provider value per case, wherever the provider is declared: the laws that a domain package's `Store` declares run in the `memory` package that declares its provider, when `ergo test` tests that package (the least package that sees the law and the provider runs it; law-xpkg). A law whose parameter is an operation type runs once per provider of that type too. A helper that `needs` the type runs against that provider:
 
 ```text
 ok law Store.PutCountsOne for Tally (100 cases)
