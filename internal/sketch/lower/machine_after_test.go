@@ -65,7 +65,7 @@ func TestMachineTimerNotPositive(t *testing.T) {
 	for _, p := range progs {
 		stdout, stderr, code, ended := runMachineBounded(t, exes[p.name])
 		if !ended {
-			t.Fatalf("seed %d, In %d: still running after %s, stopped: a timer that is not positive loops\nsource:\n%s", seed, p.in, programBound, p.src)
+			t.Fatalf("seed %d, In %d: still running at the test's deadline, stopped: a timer that is not positive loops\nsource:\n%s", seed, p.in, p.src)
 		}
 		if p.in > 0 {
 			want := fmt.Sprintf("running %d\n", machineTimerEnd/p.in)
