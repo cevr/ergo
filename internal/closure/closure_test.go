@@ -171,7 +171,7 @@ var declared = map[string][]allowance{
 		exactly("the observer's own tests run unobserved (unobservable), so what the end-to-end test's scratch modules read through their link to the package has no identity",
 			"internal/testinputs", "internal/testinputs/guard", "internal/testinputs/testenv",
 			"internal/testinputs/identity.go", "internal/testinputs/identity_linux.go",
-			"internal/testinputs/observe_linux.go", "internal/testinputs/observe_other.go",
+			"internal/testinputs/observe_linux.go", "internal/testinputs/observe_other.go", "internal/testinputs/oom.go",
 			"internal/testinputs/recorder.go", "internal/testinputs/sys_linux_amd64.go",
 			"internal/testinputs/sys_linux_arm64.go", "internal/testinputs/testinputs.go",
 			"internal/testinputs/testenv/testenv.go"),
