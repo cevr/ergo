@@ -32,10 +32,10 @@ Effect's `Terminal` exists to read keys from a person and display output. Ergo t
 
 Choices (simpler/reversible): `Return`, not `Enter`, because `Enter` is a prelude name. Ops are `SetMode`/`Restore` and the size type is `Window`, to avoid clashing with provider function names. Key normalisation is in Go and naming is in Ergo `Decode`.
 
-## Departures and open questions
+## Accepted decisions
 
-- `unsafe` at the ioctl edge: `runtime/v1/term_unix.go` `ioctl` has its invariant in its comment and the pty model as its guard. It has no benchmark, since no safe form exists in Go's standard library (FFI edge, 2026-11-02 rule). Asked async (q1). Assumed accepted.
-- `io.NewStdin` split and migration: asked async (q2). Assumed kept.
+- q1 accepted by the orchestrator in decisions.md: `unsafe` only in `runtime/v1/term_unix.go`'s `ioctl`. A constrained typed pointer is passed to it; the only conversion is inside its syscall expression. `tools/provenance/runtime-unsafe-allow.txt` records the one reviewed file/function, invariant and pty guard. No benchmark: no safe standard-library form exists (host syscall edge, no module dependencies).
+- q2 accepted: keep the separate `io.NewStdin` host provider and migration. No open questions.
 
 ## Known gaps
 
