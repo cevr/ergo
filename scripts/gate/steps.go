@@ -265,6 +265,12 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// reuse one compilation instead of racing to repeat it.
 	add(&Step{Name: fullBuildStep, Argv: []string{"go", "test", "-run", "^$", "./..."}, Class: classHeavy})
 	add(&Step{Name: "go vet", Needs: []string{"go test build"}, Argv: []string{"go", "vet", "./..."}, Class: classFast})
+	// The CLI and the runtime it embeds also build for a 32-bit target,
+	// where int is 32 bits: a constant that overflows it fails here
+	// (batch-14 apply 5, runtime/v1/timetext.go). Its Weight is the step's
+	// measured cold-cache seconds (16.1 s at 4 CPUs, 1-minute load 18,
+	// 2026-11-10).
+	add(&Step{Name: "go vet ./cmd/ergo (GOARCH=386)", Argv: []string{"go", "vet", "./cmd/ergo"}, Env: []string{"GOARCH=386"}, Weight: 16.1, Class: classHeavy})
 	// The analyzer's controls are a go test of another module, uncached,
 	// and its run builds and loads the checker with x/tools: full tier.
 	add(&Step{Name: "provenance analyzer", Argv: provenanceAnalyzer(root), Class: classHeavy})
