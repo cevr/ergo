@@ -1,0 +1,49 @@
+import http
+
+// Endpoint is what a request asks for. The route table is built from it,
+// so a new endpoint has a route by construction.
+type Endpoint = ListJobs{} | SubmitJob{} | ShowJob{} | CancelJob{} | DeleteJob{}
+
+// Endpoints is every endpoint, in route order.
+let Endpoints = []Endpoint{ListJobs, SubmitJob, ShowJob, CancelJob, DeleteJob}
+
+// RouteOf is the route of e.
+func RouteOf(e Endpoint) http.Route {
+	match e {
+	case ListJobs:
+		http.Route{Name: "list", Method: "GET", Path: "/jobs"}
+	case SubmitJob:
+		http.Route{Name: "submit", Method: "POST", Path: "/jobs"}
+	case ShowJob:
+		http.Route{Name: "show", Method: "GET", Path: "/jobs/:id"}
+	case CancelJob:
+		http.Route{Name: "cancel", Method: "POST", Path: "/jobs/:id/cancel"}
+	case DeleteJob:
+		http.Route{Name: "delete", Method: "DELETE", Path: "/jobs/:id"}
+	}
+}
+
+// Routes is the route table, for http.Match.
+func Routes() []http.Route {
+	let mut routes = []http.Route{}
+	for e in Endpoints {
+		routes = routes.Append(RouteOf(e))
+	}
+	routes
+}
+
+// Methods is the methods the routes use.
+let Methods = []string{"GET", "POST", "DELETE"}
+
+// Allowed is the methods of the routes of path, for a 405's Allow header.
+func Allowed(path string) string {
+	let mut allow = ""
+	for m in Methods {
+		match http.Match(Routes(), m, path) {
+		case http.Found:
+			allow = if allow == "" { m } else { allow + ", " + m }
+		case http.NotFound, http.MethodNotAllowed:
+		}
+	}
+	allow
+}

@@ -1,0 +1,108 @@
+// Package memory holds Table, a jobs.Store whose jobs live in a map for
+// the life of the process. ergo test runs the Store laws here, against a
+// Table that NewTable makes.
+
+import jobs/jobs
+import maps
+import slices
+import sync
+import time
+
+// Shelf is a Table's state: the jobs by id, and the last id given.
+type Shelf { Jobs Map[int, jobs.Job], Last int }
+
+// Table is a jobs.Store in memory. Its state is in a sync.Ref, so every
+// copy of a Table is the same store, and each change is one atomic
+// update: requests served at once never lose a change.
+type Table { shelf sync.Ref[Shelf] }
+
+// NewTable is an empty Table.
+func NewTable() Table { Table{shelf: sync.NewRef[Shelf](Shelf{Jobs: Map[int, jobs.Job]{}, Last: 0})} }
+
+// Add keeps a new queued job under the next id.
+func Add(t Table, name string, priority int, at time.Time) jobs.Job {
+	sync.Modify(t.shelf, func(s Shelf) (jobs.Job, Shelf) {
+		let j = jobs.Job{Id: s.Last + 1, Name: name, Priority: priority, Created: at, State: jobs.Queued, Since: at}
+		let mut next = s.Jobs
+		next[j.Id] = j
+		(j, Shelf{Jobs: next, Last: j.Id})
+	})
+}
+
+// Get is the job of id.
+func Get(t Table, id int) jobs.Job fails jobs.NotFound {
+	match t.shelf.Get().Jobs.Get(id) {
+	case Some[jobs.Job] as j:
+		j.Value
+	case None:
+		jobs.NotFound{Id: id}
+	}
+}
+
+// All is every job by ascending id.
+func All(t Table) []jobs.Job {
+	let s = t.shelf.Get()
+	let mut all = []jobs.Job{}
+	for id in slices.Sorted(maps.Keys(s.Jobs)) {
+		match s.Jobs.Get(id) {
+		case Some[jobs.Job] as j:
+			all = all.Append(j.Value)
+		case None:
+		}
+	}
+	all
+}
+
+// Held is what a shelf holds under an id, against the job a change read.
+type Held = Same{} | Other{} | Gone{}
+
+// held is what s holds under old.Id, against old.
+func held(s Shelf, old jobs.Job) Held {
+	match s.Jobs.Get(old.Id) {
+	case Some[jobs.Job] as j:
+		if j.Value == old { Same } else { Other }
+	case None:
+		Gone
+	}
+}
+
+// Swap keeps next under old's id, when old is the job held.
+func Swap(t Table, old jobs.Job, next jobs.Job) fails jobs.NotFound | jobs.Stale {
+	let h = sync.Modify(t.shelf, func(s Shelf) (Held, Shelf) {
+		let h = held(s, old)
+		match h {
+		case Same:
+			let mut js = s.Jobs
+			js[old.Id] = jobs.Job{..next, Id: old.Id}
+			(h, Shelf{..s, Jobs: js})
+		case Other, Gone:
+			(h, s)
+		}
+	})
+	try refused(h, old.Id)
+}
+
+// Remove forgets old, when old is the job held.
+func Remove(t Table, old jobs.Job) fails jobs.NotFound | jobs.Stale {
+	let h = sync.Modify(t.shelf, func(s Shelf) (Held, Shelf) {
+		let h = held(s, old)
+		match h {
+		case Same:
+			(h, Shelf{..s, Jobs: s.Jobs.Delete(old.Id)})
+		case Other, Gone:
+			(h, s)
+		}
+	})
+	try refused(h, old.Id)
+}
+
+// refused fails with h, unless h is Same.
+func refused(h Held, id int) fails jobs.NotFound | jobs.Stale {
+	match h {
+	case Same:
+	case Other:
+		return jobs.Stale{Id: id}
+	case Gone:
+		return jobs.NotFound{Id: id}
+	}
+}

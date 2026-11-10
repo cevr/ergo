@@ -1,0 +1,144 @@
+// Package jobs is the domain of a job queue: a job's lifecycle as a
+// machine, the contract of the store that keeps jobs, and the operations a
+// client asks for. It has no HTTP and no JSON in it. A job moves on the
+// Clock by itself (queued, then running, then done) unless a client
+// cancels it first; the time of each move is the machine's own timer, so
+// a job read at any time is the job the machine gives at that time.
+
+import time
+
+// State is where a job is in its lifecycle.
+type State = Queued{} | Running{} | Done{} | Cancelled{}
+
+// Signal is what moves a job: Start and Finish come from its timer,
+// Cancel from a client.
+type Signal = Start{} | Finish{} | Cancel{}
+
+// QueueFor is how long a job waits before it runs; RunFor how long it
+// runs before it is done.
+let QueueFor = 1s
+let RunFor = 2s
+
+// Job is one job: its id, what the client called it, its priority, when
+// it was submitted, its state and when it entered that state.
+type Job { Id int, Name string, Priority int, Created time.Time, State State, Since time.Time }
+
+// NotFound is an id the store holds no job of.
+type NotFound { Id int }
+
+// Conflict is a signal or a removal the job's state does not allow.
+type Conflict { Id int, State string, Asked string }
+
+// Step is the lifecycle. The match names every pair, so a new state or
+// signal stops the build until its row is written. A job that ended takes
+// no signal.
+func Step(s State, sig Signal) Decision[State, State] {
+	match (s, sig) {
+	case (Queued, Start):
+		Enter[State]{Next: Running}
+	case (Queued, Cancel), (Running, Cancel):
+		Enter[State]{Next: Cancelled}
+	case (Running, Finish):
+		Enter[State]{Next: Done}
+	case (Queued, Finish), (Running, Start):
+		Ignore
+	case (Done, Start), (Done, Finish), (Done, Cancel):
+		Reject
+	case (Cancelled, Start), (Cancelled, Finish), (Cancelled, Cancel):
+		Reject
+	}
+}
+
+// Timer is the timer of each state: a queued job starts after QueueFor,
+// a running one finishes after RunFor. An ended job has none.
+func Timer(s State) Option[Timeout[Signal]] {
+	match s {
+	case Queued:
+		Some[Timeout[Signal]]{Value: Timeout[Signal]{In: QueueFor, Signal: Start}}
+	case Running:
+		Some[Timeout[Signal]]{Value: Timeout[Signal]{In: RunFor, Signal: Finish}}
+	case Done, Cancelled:
+		None
+	}
+}
+
+// Lifecycle is the lifecycle of one job as a machine.
+type Lifecycle machine[State, Signal] {
+	initial: Queued,
+	step:    Step,
+	after:   Timer,
+}
+
+// Settle is j at now: each timer of j's states that is due by now fires,
+// at its own time, so Settle(Settle(j, a), b) is Settle(j, b) for a
+// before b, and a job read late is the job read on time.
+func Settle(j Job, now time.Time) Job {
+	let mut at = j
+	for {
+		match Timer(at.State) {
+		case None:
+			return at
+		case Some[Timeout[Signal]] as t:
+			let due = at.Since.Add(t.Value.In)
+			if now.Before(due) {
+				return at
+			}
+			match Step(at.State, t.Value.Signal) {
+			case Enter[State] as e:
+				at = Job{..at, State: e.Next, Since: due}
+			case _:
+				return at
+			}
+		}
+	}
+}
+
+// Apply is sig on j at now: j settled to now, then stepped. A signal the
+// state does not allow fails Conflict.
+func Apply(j Job, sig Signal, now time.Time) Job fails Conflict {
+	let settled = Settle(j, now)
+	match Step(settled.State, sig) {
+	case Enter[State] as e:
+		Job{..settled, State: e.Next, Since: now}
+	case Reject:
+		Conflict{Id: j.Id, State: Name(settled.State), Asked: SignalName(sig)}
+	case _:
+		settled
+	}
+}
+
+// Ended reports whether s takes no signal.
+func Ended(s State) bool {
+	match s {
+	case Done, Cancelled:
+		true
+	case Queued, Running:
+		false
+	}
+}
+
+// Name is the external name of s.
+func Name(s State) string {
+	match s {
+	case Queued:
+		"queued"
+	case Running:
+		"running"
+	case Done:
+		"done"
+	case Cancelled:
+		"cancelled"
+	}
+}
+
+// SignalName is the external name of sig.
+func SignalName(sig Signal) string {
+	match sig {
+	case Start:
+		"start"
+	case Finish:
+		"finish"
+	case Cancel:
+		"cancel"
+	}
+}

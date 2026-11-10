@@ -1,0 +1,18 @@
+// ergo test runs AgreesWithModel here once per provider of jobs.Store
+// this package sees: memory.Table, built by NewTable. No socket: Handle
+// is called as a function, with a time.Manual for the Clock.
+
+import jobs/memory
+
+// AJobsDay walks one job through every state and a second through a
+// cancel, with every refusal between, against the model: a generated
+// sequence reaches a 409 on a running job only now and then.
+test AJobsDay {
+	let submit = 0
+	let list = 3
+	let show = 4 + 10
+	let cancel = 5 + 10
+	let remove = 6 + 10
+	let wait = 7
+	assert Disagreement(memory.NewTable(), []int{submit, show, remove, wait, show, remove, cancel, list, submit, wait, wait, wait, show, cancel, remove, show, 2, 12, 22, 32, 42, 9, 19, 29, 39, 49, list}) == ""
+}

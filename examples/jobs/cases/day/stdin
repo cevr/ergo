@@ -1,0 +1,19 @@
+POST /jobs {"name":"build","priority":2}
+POST /jobs {"name":"test"}
+GET /jobs/1
++999
+GET /jobs/1
++1
+GET /jobs
+POST /jobs/2/cancel
+POST /jobs/2/cancel
+DELETE /jobs/1
++1999
+GET /jobs/1
++1
+GET /jobs/1
+POST /jobs/1/cancel
+DELETE /jobs/1
+GET /jobs/1
+DELETE /jobs/2
+GET /jobs

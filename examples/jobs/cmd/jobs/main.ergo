@@ -1,0 +1,107 @@
+// jobs is a job queue served over HTTP. It listens on -addr and answers
+// POST /jobs, GET /jobs, GET /jobs/ID, POST /jobs/ID/cancel and
+// DELETE /jobs/ID from a store in memory, on the host's clock; -site DIR
+// also serves the files of DIR at /. With -replay it opens no socket: it
+// answers requests read from standard input, one per line ("METHOD PATH
+// [BODY]"), on a manual clock that "+MS" lines move, and prints each
+// response. This binary is the only place that chooses the providers:
+// the store, the clock, the listener and the site's root.
+
+import flag
+import fs
+import http
+import io
+import jobs/api
+import jobs/jobs
+import jobs/memory
+import os
+import strconv
+import strings
+import time
+
+let addrFlag = flag.String("addr", "127.0.0.1:8080", "the `address` to listen on; port 0 takes a free port")
+let siteFlag = flag.String("site", "", "a `directory` whose files are served at /")
+let replayFlag = flag.Bool("replay", false, "answer requests from standard input on a manual clock, with no socket")
+
+let set = flag.Set{Name: "jobs", Usage: "", Flags: []flag.Flag{addrFlag, siteFlag, replayFlag}, Args: []flag.ArgSpec{}}
+
+let usage = "usage: jobs [-addr ADDR] [-site DIR] [-replay]"
+
+// limits are the server's budgets: a body as long as a draft may be, and
+// Go's default header budget.
+let limits = http.Limits{MaxBodyBytes: api.MaxBody, MaxHeaderBytes: 1 << 20}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewHost() } {
+		let v = flag.Parse(set, os.Process.Args()) catch {
+		case err:
+			try flag.Exit(err, usage)
+			return
+		}
+		let dir = siteFlag.Get(v)
+		if dir == "" {
+			try run(v, api.Handle)
+			return
+		}
+		let root = fs.OpenRoot(dir) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return os.Exit{Code: 1, Message: "jobs: cannot open the site " + dir}
+		}
+		try run(v, func(r http.Request) http.Response needs jobs.Store | time.Clock { api.WithSite(root, r) })
+	}
+}
+
+// run answers with handle, from standard input or on the listener.
+func run(v flag.Values, handle func(http.Request) http.Response needs jobs.Store | time.Clock) fails os.Exit needs Ambient | io.Stdout | io.Stdin {
+	let store = memory.NewTable()
+	if replayFlag.Get(v) {
+		let clock = time.NewManual(0)
+		with context { jobs.Store: store, time.Clock: clock } {
+			try replay(clock, handle)
+		}
+		return
+	}
+	let l = http.Listen(addrFlag.Get(v)) catch {
+	case http.ListenFailed as f:
+		return os.Exit{Code: 1, Message: "jobs: cannot listen on " + f.Addr + ": " + f.Reason}
+	}
+	io.Stdout.Println("jobs: listening on " + l.Addr())
+	with context { jobs.Store: store, time.Clock: time.NewHost() } {
+		http.Serve(l, limits, handle) catch {
+		case http.InvalidLimits:
+			return os.Exit{Code: 2, Message: "jobs: the server's limits are not positive"}
+		}
+	}
+}
+
+// replay answers each line of standard input: "+MS" moves the clock MS
+// milliseconds, "METHOD PATH [BODY]" is a request whose response prints
+// as its status, its headers, one per line, and its body. A HEAD response
+// prints no body, as Serve sends none.
+func replay(clock time.Manual, handle func(http.Request) http.Response needs jobs.Store | time.Clock) fails os.Exit needs io.Stdout | io.Stdin | jobs.Store | time.Clock {
+	for line in io.Stdin.Lines() {
+		if strings.HasPrefix(line, "+") {
+			let ms = strconv.Atoi(line[1:]) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return os.Exit{Code: 2, Message: "jobs: not a wait: " + line}
+			}
+			clock.Advance(duration(int64(ms) * 1000000))
+			io.Stdout.Println(line)
+			continue
+		}
+		let parts = strings.SplitN(line, " ", 3)
+		if len(parts) < 2 {
+			return os.Exit{Code: 2, Message: "jobs: not a request: " + line}
+		}
+		let body = if len(parts) == 3 { parts[2] } else { "" }
+		let r = handle(http.Request{Method: parts[0], Path: parts[1], Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: body}})
+		io.Stdout.Println("> " + line)
+		io.Stdout.Println("\(r.Status)")
+		for h in r.Header {
+			io.Stdout.Println(h.Name + ": " + h.Value)
+		}
+		if parts[0] != "HEAD" && r.Body != "" {
+			io.Stdout.Println(r.Body)
+		}
+	}
+}

@@ -1,0 +1,9 @@
+GET /
+HEAD /
+GET /css/site.css
+GET /missing.css
+GET /../secret.txt
+GET /leak.txt
+POST /index.html
+POST /jobs {"name":"build"}
+GET /jobs
