@@ -1784,8 +1784,8 @@
       "name": "a2-value-tail-moves",
       "origin": "wf10 batch-15 fix-r3 (A2 M1 repeat)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\t\t\tw.region(s, func() { w.expr(s.X, t.mode, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot, failed: t.failed}) })",
-      "to": "\t\t\tw.region(s, func() { w.expr(s.X, mMove, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot, failed: t.failed}) })",
+      "from": "w.expr(s.X, t.mode, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot, failed: t.failed})",
+      "to": "w.expr(s.X, mMove, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot, failed: t.failed})",
       "rule": "resources R16, R42, R43: an arm's value goes where the if or match's value goes: lent, it is lent; dropped, a new value is discarded.",
       "killers": [
         "check:TestOwnershipFlowModel"
