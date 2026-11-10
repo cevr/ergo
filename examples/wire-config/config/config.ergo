@@ -1,0 +1,23 @@
+import json
+import toml
+
+type Config { NodeID int "node_id", Port int "listen_port" }
+
+func Encode(v Config) string {
+	json.Encode(json.Codec[Config]{MaxBytes: 0, MaxDepth: 0}, v)
+}
+
+// SameRecordAcrossFormats catches gw-encode and gw-decode: dropping a field
+// key in either codec direction. Existing examples declare no explicit key.
+law SameRecordAcrossFormats(v Config) {
+	let nc = json.Codec[int]{MaxBytes: 0, MaxDepth: 0}
+	let node = json.Encode(nc, v.NodeID)
+	let port = json.Encode(nc, v.Port)
+	if Encode(v) != "{\"node_id\":"+node+",\"listen_port\":"+port+"}" { return false }
+	let text = "node_id = " + node + "\nlisten_port = " + port + "\n"
+	let back = toml.Decode(json.Codec[Config]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case _:
+		return false
+	}
+	back == v
+}

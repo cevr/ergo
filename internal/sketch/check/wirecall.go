@@ -108,14 +108,18 @@ func RefinedParse(t Type) *Func {
 	return f
 }
 
-// WireFieldName is a field's key on the wire (Q8; types.md, Codecs 2):
-// the field's name with its leading run of capitals lowered, Port as port,
+// WireFieldName is a field's key on the wire (types.md, Codecs 2): its
+// explicit key, otherwise its name with its leading run of capitals lowered, Port as port,
 // Some's Value as value (Effect Schema.Option's encoded form), ID as id,
 // URL as url. A run that a lower-case letter follows keeps its last
 // capital, which starts the next word: HTTPStatus as httpStatus, IOError
 // as ioError. Every key mapper (the codec, the TS projection, ergo gen
 // rpc) calls this one function, so the two ends agree.
-func WireFieldName(name string) string {
+func WireFieldName(field *Field) string {
+	if key := field.Origin().WireKey; key != "" {
+		return key
+	}
+	name := field.Name
 	n := 0
 	for n < len(name) && name[n] >= 'A' && name[n] <= 'Z' {
 		n++

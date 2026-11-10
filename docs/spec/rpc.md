@@ -64,6 +64,16 @@ Content-mapped files are not emitted as JS by TypeScript, so a runtime
 loader is required. Source diagnostics use `ergo`; positions support
 UTF-8 and UTF-16. Renamed wire fields use Alias spans, not Verbatim spans.
 
+Field keys follow [Codecs 2](types.md#codecs), including explicit literals.
+Decoded TS properties keep the default projected names (`NodeID` as `nodeID`);
+Effect 4's `Schema.encodeKeys` maps them to their declared encoded keys
+(`"node_id"`). This is the pinned API's equivalent of Effect 3's `fromKey`.
+When default names collide (`ID` and `Id`) but explicit keys distinguish them,
+the colliding decoded properties keep their source spelling, so neither is
+lost. Tagged variants, failure schemas and imported/instantiated records use
+the same mapping. The seeded mapper/RPC property includes renamed keys,
+non-ASCII and escaped keys, imported fields, and colliding default names.
+
 Supported wire shapes are listed in the tool README. An unsupported
 shape is a projection diagnostic, never an unchecked `any`. Each mapped
 file exports its package's operation types and the exported types they

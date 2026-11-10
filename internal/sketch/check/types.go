@@ -95,6 +95,10 @@ type Field struct {
 	Name string
 	Type Type
 	Pos  syntax.Pos
+	// WireKey is the explicit codec key on the declaring field, or empty
+	// for the default. WireFieldName reads it through Origin, so included
+	// and instantiated fields keep one authoritative declaration.
+	WireKey string
 	// origin is the field of the record declaration that declares this
 	// field: the field itself in its own record, the included record's
 	// field in a record that includes it with `..R` (types.md, Structs 7),

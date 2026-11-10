@@ -52,10 +52,11 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"expanding": {why: "splice state"},
 	},
 	"Field": {
-		"Type":   {sel: "Type"},
-		"Name":   {why: "a name: every field is walked, hidden or not"},
-		"Pos":    {why: "a position"},
-		"origin": {why: "the declaring field: this field's Type is its type here, and the walk reads it"},
+		"WireKey": {why: "literal codec metadata holds no type"},
+		"Type":    {sel: "Type"},
+		"Name":    {why: "a name: every field is walked, hidden or not"},
+		"Pos":     {why: "a position"},
+		"origin":  {why: "the declaring field: this field's Type is its type here, and the walk reads it"},
 	},
 	"Interface": {
 		"Methods": {sel: "Methods"},

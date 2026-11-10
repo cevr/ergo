@@ -116,7 +116,7 @@ TypeParams     = "[" TypeParam { "," TypeParam } "]" .
 TypeParam      = identifier { "," identifier } [ TypeName ] .
 Members        = "{" [ Member { "," Member } [ "," ] ] "}" .
 Member         = FieldDecl | ".." TypeName [ TypeArgs ] | identifier Signature | LawDecl .
-FieldDecl      = identifier { "," identifier } Type .
+FieldDecl      = identifier { "," identifier } Type [ string_lit ] .
 LawDecl        = "law" identifier Params Block .
 UnionType      = [ "|" ] Variant { "|" Variant } .
 Variant        = TypeName [ TypeArgs ] [ Members ] .
@@ -267,6 +267,7 @@ Status: **implemented** in `internal/sketch/syntax`. `syntax.Parse` returns one 
 9. **Context entry keys.** In a context body, a run of type names separated by commas and ended by `:` is the key list of one entry, whatever the layout: `{ A, B: p }` binds both `A` and `B` to `p`, on one line or several. An embedded context therefore never stands just before an entry; write `{ B: p, A }`. Entry order has no meaning. *Prior art:* Go's `case a, b:` is one comma list ended by `:`, with no layout rule.
 10. **Tuples have two or more elements.** `(x,)` is S001 in expressions, types and patterns alike, so `(x)` and `(x,)` never denote different trees.
 11. **`Name (` in a type body is an operation.** `A (int64, string)` and `A(int64, string)` are the same tokens, so layout cannot make one a field and the other an operation: both are the operation `A` with two unnamed parameters. A record with one field of tuple type names the tuple: `type Pair (int64, string)`, then `A Pair`. A field group before a tuple type, `X, Y (int64, int64)`, stays a field group (FieldDecl).
+12. **A field may declare its encoded key.** `NodeID int "node_id"` declares the key on that field. A key on a group of names (`A, B string "x"`) is S001: split the group. The literal is not interpolated. The formatter keeps it after the type. Its meaning is [Codecs 2](types.md#codecs).
 12. **Capability names take no type arguments.** `needs`, `provides` and context entry keys take exactly `TypeName`: `B[T]` there is S001 at the `[`, "a capability name takes no type arguments". With no brackets in a key, rule 9 holds with no exception.
 
 ## Old spellings

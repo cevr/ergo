@@ -818,7 +818,7 @@ func (p *program) wideLit(t *ty, q, w string) (string, string, bool) {
 					}
 					fs = append(fs, g.name+": "+v)
 				}
-				return q + t.name + "{" + strings.Join(fs, ", ") + "}", under(check.WireFieldName(f.name), at), true
+				return q + t.name + "{" + strings.Join(fs, ", ") + "}", under(check.WireFieldName(&check.Field{Name: f.name}), at), true
 			}
 		}
 	case "union":
