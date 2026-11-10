@@ -25,20 +25,11 @@ func (e TOMLMalformed) Error() string {
 // nominal record, ParseX functions, refinements and typed failure rows.
 // There is no host I/O, reflection, or external module dependency.
 // Dates/times are strings; nonfinite floats use json's existing strings.
-func TOMLParse(text string, maxBytes, maxDepth int) (out string, err error) {
-	// Only our syntax failure is recovered. A defect remains a defect.
-	defer func() {
-		if e := recover(); e != nil {
-			if m, ok := e.(TOMLMalformed); ok {
-				err = m
-			} else {
-				panic(e)
-			}
-		}
-	}()
+func TOMLParse(text string, maxBytes, maxDepth int) (string, error) {
 	p := tomlParser{line: 1, maxDepth: maxDepth}
 	if maxBytes > 0 && len(text) > maxBytes {
 		p.fail("document exceeds MaxBytes")
+		return "", p.err
 	}
 	if !utf8.ValidString(text) {
 		for rest := text; rest != ""; {
@@ -52,6 +43,7 @@ func TOMLParse(text string, maxBytes, maxDepth int) (out string, err error) {
 			rest = rest[n:]
 		}
 		p.fail("document is not UTF-8")
+		return "", p.err
 	}
 	p.text = strings.ReplaceAll(text, "\r\n", "\n")
 	if p.maxDepth <= 0 {
@@ -74,6 +66,9 @@ func TOMLParse(text string, maxBytes, maxDepth int) (out string, err error) {
 				p.next()
 			}
 			path = p.keys()
+			if p.err != nil {
+				break
+			}
 			p.key = strings.Join(path, ".")
 			p.expect(']')
 			if array {
@@ -87,6 +82,9 @@ func TOMLParse(text string, maxBytes, maxDepth int) (out string, err error) {
 		if !p.end() && p.peek() != '\n' {
 			p.fail("expected end of line")
 		}
+	}
+	if p.err != nil {
+		return "", p.err
 	}
 	return string(root.json(nil)), nil
 }
@@ -145,10 +143,15 @@ type tomlParser struct {
 	text               string
 	at, line, maxDepth int
 	key                string
+	err                error
 }
 
-func (p *tomlParser) fail(why string) { panic(TOMLMalformed{Line: p.line, Key: p.key, Reason: why}) }
-func (p *tomlParser) end() bool       { return p.at == len(p.text) }
+func (p *tomlParser) fail(why string) {
+	if p.err == nil {
+		p.err = TOMLMalformed{Line: p.line, Key: p.key, Reason: why}
+	}
+}
+func (p *tomlParser) end() bool { return p.err != nil || p.at == len(p.text) }
 func (p *tomlParser) peek() byte {
 	if p.end() {
 		return 0
@@ -158,6 +161,7 @@ func (p *tomlParser) peek() byte {
 func (p *tomlParser) next() byte {
 	if p.end() {
 		p.fail("unexpected end of document")
+		return 0
 	}
 	b := p.text[p.at]
 	p.at++
@@ -169,6 +173,7 @@ func (p *tomlParser) next() byte {
 func (p *tomlParser) expect(b byte) {
 	if p.peek() != b || p.end() {
 		p.fail("expected " + strconv.QuoteRune(rune(b)))
+		return
 	}
 	p.next()
 }
@@ -220,6 +225,7 @@ func (p *tomlParser) keys() []string {
 			}
 			if p.at == start {
 				p.fail("expected key")
+				return nil
 			}
 			keys = append(keys, p.text[start:p.at])
 		}
@@ -237,6 +243,7 @@ func (p *tomlParser) descend(n *tomlNode, keys []string, dotted bool) *tomlNode 
 	for _, k := range keys {
 		if n.inline {
 			p.fail("cannot extend an inline table")
+			return nil
 		}
 		child := n.fields[k]
 		if child == nil {
@@ -245,12 +252,14 @@ func (p *tomlParser) descend(n *tomlNode, keys []string, dotted bool) *tomlNode 
 		}
 		if dotted && (child.header || child.aot) {
 			p.fail("cannot extend a header table by dotted key")
+			return nil
 		}
 		if child.kind == 'a' && child.aot {
 			child = child.items[len(child.items)-1]
 		}
 		if child.kind != 'o' || child.inline {
 			p.fail("key is already a value")
+			return nil
 		}
 		n = child
 	}
@@ -258,10 +267,17 @@ func (p *tomlParser) descend(n *tomlNode, keys []string, dotted bool) *tomlNode 
 }
 
 func (p *tomlParser) table(root *tomlNode, keys []string, array bool) *tomlNode {
+	if p.err != nil {
+		return nil
+	}
 	if len(keys) > p.maxDepth {
 		p.fail("table exceeds MaxDepth")
+		return nil
 	}
 	parent := p.descend(root, keys[:len(keys)-1], false)
+	if p.err != nil {
+		return nil
+	}
 	k := keys[len(keys)-1]
 	child := parent.fields[k]
 	if array {
@@ -271,6 +287,7 @@ func (p *tomlParser) table(root *tomlNode, keys []string, array bool) *tomlNode 
 		}
 		if child.kind != 'a' || !child.aot {
 			p.fail("key is already a value or table")
+			return nil
 		}
 		n := tomlObject(true)
 		child.items = append(child.items, n)
@@ -282,6 +299,7 @@ func (p *tomlParser) table(root *tomlNode, keys []string, array bool) *tomlNode 
 	}
 	if child.kind != 'o' || child.defined || child.inline {
 		p.fail("table already defined")
+		return nil
 	}
 	child.defined = true
 	child.header = true
@@ -291,6 +309,9 @@ func (p *tomlParser) table(root *tomlNode, keys []string, array bool) *tomlNode 
 func (p *tomlParser) assignment(now *tomlNode, path []string, depth int) {
 	prefix := p.key
 	keys := p.keys()
+	if p.err != nil {
+		return
+	}
 	full := append(slices.Clone(path), keys...)
 	p.key = strings.Join(full, ".")
 	if depth > 0 && prefix != "" {
@@ -298,15 +319,23 @@ func (p *tomlParser) assignment(now *tomlNode, path []string, depth int) {
 	}
 	if depth+len(full) > p.maxDepth {
 		p.fail("key exceeds MaxDepth")
+		return
 	}
 	p.expect('=')
+	if p.err != nil {
+		return
+	}
 	for p.peek() == ' ' || p.peek() == '\t' {
 		p.next()
 	}
 	parent := p.descend(now, keys[:len(keys)-1], true)
+	if p.err != nil {
+		return
+	}
 	k := keys[len(keys)-1]
 	if parent.fields[k] != nil {
 		p.fail("key already defined")
+		return
 	}
 	parent.fields[k] = p.value(depth + len(full))
 }
@@ -314,6 +343,7 @@ func (p *tomlParser) assignment(now *tomlNode, path []string, depth int) {
 func (p *tomlParser) value(depth int) *tomlNode {
 	if depth > p.maxDepth {
 		p.fail("value exceeds MaxDepth")
+		return nil
 	}
 	switch p.peek() {
 	case '"', '\'':
@@ -322,7 +352,7 @@ func (p *tomlParser) value(depth int) *tomlNode {
 		p.next()
 		n := &tomlNode{kind: 'a'}
 		p.space(true)
-		for p.peek() != ']' {
+		for !p.end() && p.peek() != ']' {
 			n.items = append(n.items, p.value(depth+1))
 			p.space(true)
 			if p.peek() != ',' {
@@ -339,7 +369,7 @@ func (p *tomlParser) value(depth int) *tomlNode {
 		for p.peek() == ' ' || p.peek() == '\t' {
 			p.next()
 		}
-		for p.peek() != '}' {
+		for !p.end() && p.peek() != '}' {
 			key := p.key
 			p.assignment(n, nil, depth+1)
 			p.key = key
@@ -355,6 +385,7 @@ func (p *tomlParser) value(depth int) *tomlNode {
 			}
 			if p.peek() == '}' {
 				p.fail("trailing comma in inline table")
+				return nil
 			}
 		}
 		p.expect('}')
@@ -431,21 +462,25 @@ func (p *tomlParser) quoted(allowMulti bool) string {
 				}
 				if len(p.text)-p.at < width {
 					p.fail("incomplete Unicode escape")
+					return ""
 				}
 				x := p.text[p.at : p.at+width]
 				for _, c := range x {
 					if !strings.ContainsRune("0123456789abcdefABCDEF", c) {
 						p.fail("invalid Unicode escape")
+						return ""
 					}
 				}
 				v, err := strconv.ParseUint(x, 16, 32)
 				if err != nil || v > utf8.MaxRune || v >= 0xd800 && v <= 0xdfff {
 					p.fail("escape is not a Unicode scalar")
+					return ""
 				}
 				p.at += width
 				b.WriteRune(rune(v))
 			default:
 				p.fail("unknown string escape")
+				return ""
 			}
 			continue
 		}
@@ -454,6 +489,7 @@ func (p *tomlParser) quoted(allowMulti bool) string {
 				p.line--
 			} // the invalid byte is on the line just consumed
 			p.fail("control character in string")
+			return ""
 		}
 		b.WriteByte(c)
 	}
@@ -582,6 +618,7 @@ func (p *tomlParser) atom() *tomlNode {
 		n, err := strconv.ParseInt(strings.ReplaceAll(digits, "_", ""), base, 64)
 		if err != nil {
 			p.fail("integer outside int64 range")
+			return nil
 		}
 		return &tomlNode{kind: 'n', text: strconv.FormatInt(n, 10)}
 	}
@@ -598,6 +635,7 @@ func (p *tomlParser) atom() *tomlNode {
 		f, err := strconv.ParseFloat(plain, 64)
 		if err != nil {
 			p.fail("float outside float64 range")
+			return nil
 		}
 		text := strconv.FormatFloat(f, 'g', -1, 64)
 		if !strings.ContainsAny(text, ".eE") {
@@ -624,6 +662,7 @@ func (p *tomlParser) atom() *tomlNode {
 				off := s[len(s)-5:]
 				if off[:2] > "23" || off[3:] > "59" {
 					p.fail("invalid UTC offset")
+					return nil
 				}
 			}
 		}
@@ -633,6 +672,7 @@ func (p *tomlParser) atom() *tomlNode {
 		v, err := time.ParseInLocation(layout, s, time.UTC)
 		if err != nil {
 			p.fail("invalid date or time")
+			return nil
 		}
 		return &tomlNode{kind: 's', text: v.Format(layout)}
 	}
