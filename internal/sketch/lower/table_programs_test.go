@@ -10,6 +10,7 @@ var (
 	_ = declarePrograms("TestStdMachinesLawsRun", testBuildProgram("stdmachines", machinesLawsProbe))
 	_ = declarePrograms("TestStdCSVLawsRun", testBuildProgram("stdcsv", stdCSVLawsProbe))
 	_ = declarePrograms("TestStdCodecLawsRun", testBuildProgram("stdcodec", stdCodecLawsProbe))
+	_ = declarePrograms("TestStdJSONLawsRun", testBuildProgram("stdjson", stdJSONLawsProbe))
 	_ = declarePrograms("TestQueuePollLaws", testBuildProgram("queuepolllaws", queuePollLawsProbe))
 	_ = declarePrograms("TestStdRandLawsRun", testBuildProgram("stdrand", stdRandLawsProbe))
 	_ = declarePrograms("TestStdSlicesLawsRun", testBuildProgram("stdslices", stdSlicesLawsProbe))

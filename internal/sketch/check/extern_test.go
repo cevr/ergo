@@ -265,6 +265,55 @@ func main() {
 	use(Mine)
 }
 `,
+	// std json (S-json): NewText's extern returns the Text, open's the
+	// Cursor.
+	"json.Text": `import json
+
+type Mine {}
+
+func Bool(_ Mine, b bool)       {}
+func Int(_ Mine, n int64)       {}
+func Uint(_ Mine, n uint64)     {}
+func Float(_ Mine, f float64)   {}
+func String(_ Mine, s string)   {}
+func BeginList(_ Mine, n int)   {}
+func EndList(_ Mine)            {}
+func BeginObject(_ Mine, n int) {}
+func Tag(_ Mine, name string)   {}
+func Key(_ Mine, k string)      {}
+func EndObject(_ Mine)          {}
+func Written(_ Mine) string     { "" }
+
+func use(t json.Text) { t.EndList() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"json.Cursor": `import json
+
+type Mine {}
+
+func Path(_ Mine) string             { "" }
+func Bool(_ Mine) Option[bool]       { None }
+func Int(_ Mine) Option[int64]       { None }
+func Uint(_ Mine) Option[uint64]     { None }
+func Float(_ Mine) Option[float64]   { None }
+func String(_ Mine) Option[string]   { None }
+func BeginList(_ Mine) bool          { false }
+func BeginObject(_ Mine) bool        { false }
+func Tag(_ Mine) Option[string]      { None }
+func More(_ Mine) bool               { false }
+func Key(_ Mine) string              { "" }
+func Skip(_ Mine)                    {}
+func End(_ Mine)                     {}
+
+func use(c json.Cursor) { c.End() }
+
+func main() {
+	use(Mine)
+}
+`,
 	// std sync (sync-ref): NewRef's extern returns the Ref.
 	"sync.Ref": `import sync
 

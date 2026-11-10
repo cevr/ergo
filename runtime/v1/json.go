@@ -3,6 +3,7 @@ package v1
 import (
 	"math"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"ergo.local/prototype/runtime/rt"
@@ -47,25 +48,35 @@ func (t *Text) JSONValue() {
 
 func (t *Text) Bool(task *rt.Task, b bool) {
 	t.JSONValue()
-	if b {
-		t.B = append(t.B, "true"...)
-	} else {
-		t.B = append(t.B, "false"...)
-	}
+	t.B = JSONAppendBool(t.B, b)
 	t.Comma = true
 }
 
 func (t *Text) Int(task *rt.Task, n int64) {
 	t.JSONValue()
-	t.B = strconv.AppendInt(t.B, n, 10)
+	t.B = JSONAppendInt(t.B, n)
 	t.Comma = true
 }
 
 func (t *Text) Uint(task *rt.Task, n uint64) {
 	t.JSONValue()
-	t.B = strconv.AppendUint(t.B, n, 10)
+	t.B = JSONAppendUint(t.B, n)
 	t.Comma = true
 }
+
+// JSONAppendBool appends true or false.
+func JSONAppendBool(b []byte, v bool) []byte {
+	if v {
+		return append(b, "true"...)
+	}
+	return append(b, "false"...)
+}
+
+// JSONAppendInt appends n's exact digits.
+func JSONAppendInt(b []byte, n int64) []byte { return strconv.AppendInt(b, n, 10) }
+
+// JSONAppendUint appends n's exact digits.
+func JSONAppendUint(b []byte, n uint64) []byte { return strconv.AppendUint(b, n, 10) }
 
 func (t *Text) Float(task *rt.Task, f float64) {
 	t.JSONValue()
@@ -159,8 +170,11 @@ const jsonHex = "0123456789abcdef"
 // JSONAppendString appends s quoted: '"', '\\' and the control bytes
 // escaped (\n, \r, \t by name, the others as \u00XX), U+2028 and U+2029
 // as \u2028 and \u2029 (as encoding/json, so JavaScript reads them), and
-// each byte of invalid UTF-8 as U+FFFD, which every JSON peer reads; no
-// HTML escaping (encoding/json v2's default).
+// each byte of invalid UTF-8 as the lone surrogate \udcXX of the byte
+// (Python's surrogateescape, PEP 383), which Cursor reads back as the
+// byte: an Ergo string holds bytes (types.md, Strings 1), so every string
+// round-trips, and a valid UTF-8 string is plain JSON text. No HTML
+// escaping (encoding/json v2's default).
 func JSONAppendString(b []byte, s string) []byte {
 	b = append(b, '"')
 	start := 0
@@ -190,7 +204,8 @@ func JSONAppendString(b []byte, s string) []byte {
 		r, size := utf8.DecodeRuneInString(s[i:])
 		if r == utf8.RuneError && size == 1 {
 			b = append(b, s[start:i]...)
-			b = append(b, `\ufffd`...)
+			c := s[i]
+			b = append(b, '\\', 'u', 'd', 'c', jsonHex[c>>4], jsonHex[c&0xf])
 			i += size
 			start = i
 			continue
@@ -585,19 +600,21 @@ func (c *Cursor) String() (string, bool) {
 	return c.str(), true
 }
 
-// str takes the string at the cursor, its escapes read, each byte of
-// invalid UTF-8 and each lone surrogate as U+FFFD (encoding/json's rule).
+// str takes the string at the cursor, its escapes read: the bytes of the
+// text as they are, valid UTF-8 or not (a string holds bytes), \udc80 to
+// \udcff as the byte JSONAppendString escaped, and any other lone
+// surrogate as U+FFFD (encoding/json's rule).
 func (c *Cursor) str() string {
 	c.i++
 	start := c.i
 	for c.i < len(c.s) {
 		ch := c.s[c.i]
 		if ch == '"' {
-			s := c.s[start:c.i]
+			s := strings.Clone(c.s[start:c.i]) // a decoded string does not pin the text
 			c.i++
 			return s
 		}
-		if ch == '\\' || ch >= utf8.RuneSelf {
+		if ch == '\\' {
 			break
 		}
 		c.i++
@@ -635,20 +652,20 @@ func (c *Cursor) str() string {
 						c.i = save
 					}
 				}
-				if r >= 0xD800 && r < 0xE000 {
-					r = utf8.RuneError
+				switch {
+				case r >= 0xDC80 && r <= 0xDCFF:
+					b = append(b, byte(r-0xDC00)) // surrogateescape: the byte JSONAppendString escaped
+				case r >= 0xD800 && r < 0xE000:
+					b = utf8.AppendRune(b, utf8.RuneError)
+				default:
+					b = utf8.AppendRune(b, r)
 				}
-				b = utf8.AppendRune(b, r)
 			default: // '"', '\\', '/'
 				b = append(b, e)
 			}
-		case ch < utf8.RuneSelf:
+		default:
 			b = append(b, ch)
 			c.i++
-		default:
-			r, size := utf8.DecodeRuneInString(c.s[c.i:])
-			b = utf8.AppendRune(b, r)
-			c.i += size
 		}
 	}
 	return string(b)

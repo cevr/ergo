@@ -16,7 +16,9 @@
 // which JSON has no numbers for, as the strings "NaN", "Infinity" and
 // "-Infinity", which Float reads back (protobuf's JSON mapping). A string
 // escapes '"', '\', the control bytes and U+2028/U+2029, and writes each
-// byte of invalid UTF-8 as U+FFFD, as encoding/json does; no HTML escaping.
+// byte of invalid UTF-8 as the lone surrogate \udcXX of the byte, which
+// Decode reads back as the byte (Python's surrogateescape), so every string
+// round-trips and a valid UTF-8 string is plain JSON text; no HTML escaping.
 // Decode skips keys it does not know, and of two members with one key the
 // last is the value (encoding/json).
 //
