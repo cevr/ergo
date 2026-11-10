@@ -1,0 +1,114 @@
+// Package rpc serves and calls operation types over Effect RPC's HTTP
+// protocol (docs/spec/rpc.md; R1): a TypeScript Effect RpcClient calls an
+// Ergo server, and an Ergo program calls an Effect RpcServer, with typed
+// failures, defects and interruption crossing the wire. `ergo gen rpc`
+// writes the server and the client provider of an operation type over
+// this package; a program rarely calls it by hand.
+//
+// The wire is Effect RPC 4.1.2's (effect/src/rpc/RpcMessage.ts): a POST
+// whose body is json (one envelope or an array) or ndjson (one per line),
+// each Request {"_tag": "Request", "id", "tag", "payload"} answered by an
+// Exit {"_tag": "Exit", "requestId", "exit"} that echoes its id. A value,
+// a payload and a failure are the derived codec's JSON (std json): a
+// record is an object with lowered first letters, a union value and a
+// typed failure are objects with "_tag". An int on this wire holds only
+// what a JavaScript number holds exactly, +-(2^53-1); the generated code
+// refuses a larger one with Unrepresentable, at encode and at decode.
+
+import json
+
+// Failed is a typed failure on the wire: Text is the failure's JSON, a
+// {"_tag": ...} object. A handler fails it to answer a Fail cause, and
+// Call fails it when the peer answered one.
+type Failed { Text string }
+
+// ListenFailed is a Listen that could not bind Addr.
+type ListenFailed { Addr string, Reason string }
+
+// Unrepresentable is an int at Path whose Value a JavaScript number does
+// not hold exactly: beyond +-(2^53-1).
+type Unrepresentable { Path string, Value string }
+
+// Listener is a bound TCP listener, for Serve.
+// law-exempt: only Listen makes a Listener, on the host, so a law cannot draw one; the generated loopback property holds what Serve does with it.
+type Listener {
+	// Addr is the address the listener is bound to, host:port.
+	Addr() string,
+}
+
+// Listen binds addr, host:port, on TCP; port 0 picks a free port, which
+// Addr tells.
+extern go ergo.local/prototype/runtime/v1.RPCListen func Listen(addr string) Listener fails ListenFailed needs Ambient
+
+// Serve serves Effect RPC on l at the path mount (and mount with a
+// trailing slash, where Effect's client posts) until the calling task is
+// stopped. Each Request runs handle(tag, payload) on a task of its own: a
+// value is the Success's value text, a Failed the Fail's error, a defect
+// a Die {name, message}. The client's abort of a request stops its task,
+// and the response ends after the task's releases ran. A stop of the
+// caller closes the listener and stops every call first.
+extern go ergo.local/prototype/runtime/v1.RPCServe func Serve[R](l Listener, mount string, handle func(tag string, payload string) string fails Failed needs R) needs R
+
+// Conn is the URL of an Effect RPC server, for Call.
+type Conn { url string, live hostOnly }
+
+// hostOnly is the zero-size type of Conn's field: only this package
+// builds a Conn, so only code that holds Ambient reaches the host.
+type hostOnly {}
+
+// Dial is the server at url, the URL its mount answers (no request is
+// made until a Call).
+func Dial(url string) Conn needs Ambient { Conn{url: url, live: hostOnly} }
+
+// Call posts one Request for the operation tag with payload, a JSON
+// object's text, and is the Success value's text. A Fail cause fails
+// Failed with the error's text. A Die cause, a transport error and a
+// response that breaks the protocol are defects. A stop of the caller
+// aborts the request.
+func Call(c Conn, tag string, payload string) string fails Failed {
+	try call(c.url, tag, payload)
+}
+
+extern go ergo.local/prototype/runtime/v1.RPCCall func call(url string, tag string, payload string) string fails Failed
+
+// Tagged is object, a JSON object's text, with "_tag": tag as its first
+// member: the wire form of a typed failure and of a request.
+extern go ergo.local/prototype/runtime/v1.RPCTagged func Tagged(tag string, object string) string
+
+// TagOf is the "_tag" member of a JSON object's text, "" when it has none.
+extern go ergo.local/prototype/runtime/v1.RPCTagOf func TagOf(text string) string
+
+// Die raises the defect {name, message}: a server answers a call that
+// raised it with a Die cause of that name and message.
+extern go ergo.local/prototype/runtime/v1.RPCDie func Die[T](name string, message string) T
+
+// Exact fails Unrepresentable when n is outside +-(2^53-1).
+extern go ergo.local/prototype/runtime/v1.RPCExact func Exact(path string, n int64) fails Unrepresentable
+
+// ExactUint fails Unrepresentable when n is above 2^53-1.
+extern go ergo.local/prototype/runtime/v1.RPCExactUint func ExactUint(path string, n uint64) fails Unrepresentable
+
+// Under is u found at path inside the value at prefix.
+func Under(prefix string, u Unrepresentable) Unrepresentable {
+	Unrepresentable{Path: prefix + "." + u.Path, Value: u.Value}
+}
+
+// Refuse raises the defect of an int the wire cannot carry: the generated
+// code calls it where the operation's row cannot name Unrepresentable.
+func Refuse[T](u Unrepresentable) T {
+	Die[T]("Unrepresentable", "the int \(u.Value) at \(u.Path) is beyond +-(2^53-1), which a JavaScript number holds exactly")
+}
+
+// Encode is v's JSON text.
+func Encode[T wire](v T) string {
+	json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, v)
+}
+
+// Decode is the T a peer's text writes; a text that is not one is a
+// defect, as the peer broke the contract.
+func Decode[T wire](what string, text string) T {
+	json.Decode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case _:
+		Die[T]("RpcError", "the \(what) is not the contract's: \(text)")
+	}
+}

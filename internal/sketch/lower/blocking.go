@@ -323,6 +323,18 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Cursor.Key":         {},
 	"Cursor.Skip":        {},
 	"Cursor.End":         {},
+	// std rpc (R1): Serve starts and joins a task per call below the
+	// caller and waits on the caller's stop; Call waits on the network
+	// and on the caller's stop.
+	"RPCListen":     {},
+	"Listener.Addr": {},
+	"RPCServe":      {wait: childWait},
+	"RPCCall":       {wait: callerWait},
+	"RPCTagged":     {},
+	"RPCTagOf":      {},
+	"RPCDie":        {},
+	"RPCExact":      {},
+	"RPCExactUint":  {},
 	// std os (G2; stdlib.md, host packages): bodies that read the host
 	// process and neither wait nor release.
 	"OSArgs":   {},
