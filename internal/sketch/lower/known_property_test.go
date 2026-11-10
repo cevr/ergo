@@ -75,8 +75,8 @@ func via[T](b Box[T]) T {
 	x
 }
 
-func via2[T](b Box[T]) T {
-	let mut x = b.items[1]
+func via2[T](b Box[T], d T) T {
+	let mut x = d
 	if len(b.items) > 0 {
 		x = b.items[0]
 	}
@@ -427,10 +427,13 @@ func (g *knownGen) stmt() {
 	case 22:
 		for _, fn := range []string{"via", "via2", "at2"} {
 			v := g.name("s")
-			if fn == "at2" {
+			switch fn {
+			case "at2":
 				g.line(fmt.Sprintf("let %s = at2(bs, 0)", v))
-			} else {
-				g.line(fmt.Sprintf("let %s = %s(bs)", v, fn))
+			case "via2":
+				g.line(fmt.Sprintf("let %s = via2(bs, []int{7})", v))
+			default:
+				g.line(fmt.Sprintf("let %s = via(bs)", v))
 			}
 			d := kds(g.bs.items[0])
 			g.kept = append(g.kept, keptVal{v, "ds", func() int { return d }})
