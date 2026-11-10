@@ -1,0 +1,23 @@
+{
+  "about": "The closure runner's own child reaper preserves the helper's status, reaps other ended children, and does not wait on running children. The focused killer observes child-exit events before checking ended-child reaping.",
+  "mutants": [
+    {
+      "name": "b15-r8-closure-skips-ended-child",
+      "origin": "wf10 batch-15 fix-r8 item 5",
+      "file": "internal/closure/sandbox_linux_test.go",
+      "from": "if pid == helper {",
+      "to": "if pid != 0 {",
+      "rule": "An ended non-helper child is reaped, not left as a zombie.",
+      "killers": ["internal/closure:TestReapEndedLeavesTheHelperAndRunningChildren"]
+    },
+    {
+      "name": "b15-r8-closure-steals-helper-status",
+      "origin": "wf10 batch-15 fix-r8 item 5",
+      "file": "internal/closure/sandbox_linux_test.go",
+      "from": "if pid == helper {",
+      "to": "if false && pid == helper {",
+      "rule": "The helper's exec.Cmd remains the sole wait owner of its exit status.",
+      "killers": ["internal/closure:TestReapEndedLeavesTheHelperAndRunningChildren"]
+    }
+  ]
+}

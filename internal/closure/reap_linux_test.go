@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"ergo.local/prototype/internal/testwait"
@@ -22,7 +23,9 @@ import (
 // reaper stops reading the end of the helper and SIGTERM. The test calls
 // reapEnded directly in a re-executed process of its own, so that
 // reapEnded sees only the children that the test starts. No timing race
-// is needed: both ended children are zombies before the call.
+// is needed: both child-exit events have arrived before the call. A Linux
+// thread-group leader can already show Z in /proc while sibling threads
+// still run; WNOHANG cannot reap it until those threads have ended too.
 
 // reapStageVariable is "run", "exit" or "stay".
 const (
@@ -87,9 +90,18 @@ func runReapStage(t *testing.T) {
 	if err := other.Start(); err != nil {
 		t.Fatal(err)
 	}
-	if !testwait.Until(t, func() bool { return procState(helper.Process.Pid) == "Z" && procState(other.Process.Pid) == "Z" }) {
-		t.Fatalf("the ended children are not zombies by the test's deadline: helper %s, other %s",
-			procState(helper.Process.Pid), procState(other.Process.Pid))
+	for _, child := range []*exec.Cmd{helper, other} {
+		// Observe the whole process's exit without consuming its status:
+		// /proc Z alone can precede waitability (batch-15 merge r7).
+		fd, ok, err := openProcess(child.Process.Pid)
+		if err != nil || !ok {
+			t.Fatalf("open ended child's exit event: found %t, err %v", ok, err)
+		}
+		exited, err := readableWithin(fd, testwait.Left(t))
+		_ = syscall.Close(fd)
+		if err != nil || !exited {
+			t.Fatalf("child did not complete its exit by the test's deadline: exited %t, err %v", exited, err)
+		}
 	}
 	stay := reapChild(self, "stay")
 	stayIn, err := stay.StdinPipe()
