@@ -2,6 +2,87 @@
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
+      "name": "root-host-joins",
+      "origin": "wf10 G1f",
+      "file": "runtime/v1/host.go",
+      "from": "data, err := root.ReadFile(path)",
+      "to": "data, err := os.ReadFile(filepath.Join(r.dir, path))",
+      "rule": "HostRoot reads through os.Root, so a link or a .. never leads outside the root.",
+      "killers": ["lower:TestFSRootTreeAgreesWithHost"]
+    },
+    {
+      "name": "root-host-escape-failed",
+      "origin": "wf10 G1f",
+      "file": "runtime/v1/host.go",
+      "from": "if errors.As(err, &pe) && pe.Err.Error() == rootErrEscapes {",
+      "to": "if false && errors.As(err, &pe) && pe.Err.Error() == rootErrEscapes {",
+      "rule": "A step out of the root is fs.Escapes, never Failed.",
+      "killers": ["lower:TestFSRootTreeAgreesWithHost"]
+    },
+    {
+      "name": "root-tree-absolute-target",
+      "origin": "wf10 G1f",
+      "file": "internal/sketch/std/fstest/tree.ergo",
+      "from": "if strings.HasPrefix(l.Target, \"/\") {",
+      "to": "if false {",
+      "rule": "A Tree link with an absolute target escapes, as os.Root's does.",
+      "killers": ["lower:TestFSRootTreeAgreesWithHost"]
+    },
+    {
+      "name": "root-tree-dotdot-past-root",
+      "origin": "wf10 G1f",
+      "file": "internal/sketch/std/fstest/tree.ergo",
+      "from": "if count > i {\n\t\t\t\treturn fs.Escapes{Path: path}",
+      "to": "if count > i {\n\t\t\t\treturn fs.NotFound{Path: path}",
+      "rule": "A .. with no element before it is Escapes in the Tree, as on the host.",
+      "killers": ["lower:TestFSRootTreeAgreesWithHost"]
+    },
+    {
+      "name": "files-dotdot-read",
+      "origin": "wf10 G1f",
+      "file": "internal/sketch/std/http/files.ergo",
+      "from": "\t\t\treturn refused",
+      "to": "\t\t\tcontinue",
+      "rule": "Files refuses a .. element before any read.",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
+      "name": "files-prefix-ignored",
+      "origin": "wf10 G1f",
+      "file": "internal/sketch/std/http/files.ergo",
+      "from": "if !strings.HasPrefix(path, prefix) {",
+      "to": "if false {",
+      "rule": "A path without the prefix is not served and reaches no read.",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
+      "name": "files-escape-404",
+      "origin": "wf10 G1f",
+      "file": "internal/sketch/std/http/files.ergo",
+      "from": "case fs.Denied, fs.Escapes:\n\t\t\treturn refusal(403)",
+      "to": "case fs.Denied, fs.Escapes:\n\t\t\treturn refusal(404)",
+      "rule": "A name the root refuses is 403, by the one 403/404 rule.",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
+      "name": "files-empty-content-type",
+      "origin": "wf10 G1f",
+      "file": "internal/sketch/std/http/files.ergo",
+      "from": "if text == \"\" {",
+      "to": "if false {",
+      "rule": "An empty file has no Content-Type.",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
+      "name": "files-extension-case",
+      "origin": "wf10 G1f",
+      "file": "internal/sketch/std/http/files.ergo",
+      "from": "let ext = strings.ToLower(filepath.Ext(name))",
+      "to": "let ext = filepath.Ext(name)",
+      "rule": "ContentType ignores the case of the extension.",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
       "name": "http-serve-row",
       "origin": "wf10 G1",
       "file": "internal/sketch/std/http/http.ergo",
