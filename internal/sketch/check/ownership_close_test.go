@@ -1,6 +1,7 @@
 package check
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -51,5 +52,29 @@ func main() {}
 		if d.Code != CodeType || d.Line != w.line || d.Column != w.col || !strings.Contains(d.Message, w.text) {
 			t.Errorf("diagnostic %d: got %+v, want S108 at %d:%d containing %q", i, d, w.line, w.col, w.text)
 		}
+	}
+}
+
+// TestGenericDropRefused is the text and position row of the refusal
+// that stands in for Gap 42 (#197 L8 B2): a generic body that drops a
+// value of its type parameter cannot release it, so the drop is a copy
+// site and an instance with a resource is S108; with plain data it is
+// admitted.
+//
+// Mutant it catches that nothing else does: a dropped T recorded as no
+// copy site (the resource leaks silently).
+func TestGenericDropRefused(t *testing.T) {
+	base := strings.Count(ofPrelude, "\n")
+	src := ofPrelude + `func drop[T](x T) takes x {}
+
+func main() {
+	drop(1)
+	drop(open(1))
+}
+`
+	_, diags := checkFor(src)
+	want := "drop cannot take a Res: drop copies its T at " + strconv.Itoa(base+1) + ":14 (x is dropped at the end of its scope, and a generic body does not release a value of its type parameter yet (#197 Gap 42))"
+	if len(diags) != 1 || diags[0].Code != CodeType || diags[0].Line != base+5 || diags[0].Column != 2 || !strings.Contains(diags[0].Message, want) {
+		t.Errorf("got %+v, want one S108 at %d:2 containing %q", diags, base+5, want)
 	}
 }

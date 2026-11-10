@@ -67,6 +67,9 @@ type entry struct {
 	action     func()
 	task       owned
 	own        func()
+	// taken is the fields of an owned record taken in place (TakeField):
+	// its generated release skips them (#197 L8 B2; R39, Gap 38).
+	taken uint64
 }
 
 // owned is the side of a Task its owner drains.
@@ -689,6 +692,54 @@ func Owning[T any](h *Owned, v T, rel func(T)) T {
 	o := h.s.own(func() { rel(v) })
 	h.s, h.e = o.s, o.e
 	return v
+}
+
+// OwningParts is Owning for a value whose release is generated from its
+// parts (#197 L8 B2; check.Drop): rel receives the fields the owner took
+// in place (TakeField), which it skips (R39, Gap 38).
+func OwningParts[T any](h *Owned, v T, rel func(T, uint64)) T {
+	var e *entry
+	o := h.s.own(func() { rel(v, e.taken) })
+	e = o.e
+	h.s, h.e = o.s, o.e
+	return v
+}
+
+// TakeField marks field k of h's value taken in place: its owner's
+// release skips it. A value whose entry left the list ignores it.
+func (h *Owned) TakeField(k int) {
+	if h != nil && h.e != nil {
+		h.e.taken |= 1 << k
+	}
+}
+
+// Drop runs the releases of one value's parts, a generated release (#197
+// L8 B2; resources R3, R9, R37): each part runs after an earlier part's
+// defect, every defect is kept, and End raises them together. Each part
+// is a checked Close, which masks its own body.
+type Drop struct {
+	t *rt.Task
+	c rt.Cause
+}
+
+// Drop starts the generated release of a value owned at s.
+func (s *Scope) Drop() *Drop { return &Drop{t: s.s.Task()} }
+
+// Part runs one part's release; a defect joins the value's cause.
+func (d *Drop) Part(rel func()) {
+	defer func() {
+		if p := recover(); p != nil {
+			d.c.Add(capture(d.t, p))
+		}
+	}()
+	rel()
+}
+
+// End raises the defects of the parts, if any.
+func (d *Drop) End() {
+	if err := d.c.Err(); err != nil {
+		raise(err)
+	}
 }
 
 // own adds a release entry to s, or to the frame of the exit action that

@@ -271,6 +271,7 @@ func (fc *funcCtx) exprOf(x syntax.Expr) operand {
 	case *syntax.BasicLit:
 		ice(x, "a literal with no Values entry")
 	case *syntax.SelectorExpr:
+		fc.takeField(x)
 		return operand{val: fc.selector(x)}
 	case *syntax.BinaryExpr:
 		switch x.Op {

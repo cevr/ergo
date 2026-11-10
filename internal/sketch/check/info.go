@@ -263,11 +263,17 @@ type Info struct {
 	// OwnedVars and OwnedTemps are the values the ownership pass gives an
 	// owner (#197 L8 B1): each owned local and taken parameter, and each
 	// temporary a statement owns (R43), with the release the lowering
-	// registers for it, the call of its checked Close. The lowering
-	// registers each in the step that receives the value (R8). Added in L8
-	// B1 (additive).
-	OwnedVars  map[*Var]*Close
-	OwnedTemps map[syntax.Expr]*Close
+	// registers for it: the call of its type's checked Close, or the
+	// generated release of its parts (Drop, L8 B2). The lowering registers
+	// each in the step that receives the value (R8). Added in L8 B1
+	// (additive).
+	OwnedVars  map[*Var]*Drop
+	OwnedTemps map[syntax.Expr]*Drop
+	// FieldTakes is each field taken in place (`b.r.Close()`, R39, Gap
+	// 38): the owned record's local and the field's index. The lowering
+	// marks the field on the record's entry there, and the generated
+	// release skips it. Added in L8 B2 (additive).
+	FieldTakes map[*syntax.SelectorExpr]FieldTake
 	// Handoffs is each use of an owned local or taken parameter that
 	// hands it off (a move or a take), with the owned local it hands off:
 	// the ident's own, or the root of the borrow a Close is called through
@@ -391,8 +397,9 @@ func newInfo() *Info {
 
 		ReturnedValues: map[syntax.Expr]bool{},
 		Releases:       map[syntax.Node][]Release{},
-		OwnedVars:      map[*Var]*Close{},
-		OwnedTemps:     map[syntax.Expr]*Close{},
+		OwnedVars:      map[*Var]*Drop{},
+		OwnedTemps:     map[syntax.Expr]*Drop{},
+		FieldTakes:     map[*syntax.SelectorExpr]FieldTake{},
 		Handoffs:       map[*syntax.Ident]*Var{},
 		Takes:          map[*Func][]int{},
 		Copies:         map[*Func][]CopySite{},
@@ -778,7 +785,15 @@ type Acquisition struct {
 	Entry *ContextEntry
 	Caps  []int
 	Close *Close
+	// Drop is the generated release of a provider whose type holds a
+	// resource in its parts (L8 B2; resources R3, R11): the with releases
+	// it through Drop, which runs Close first; nil when Close alone is the
+	// release, or for a plain provider. Added in L8 B2 (additive).
+	Drop *Drop
 }
+
+// Releases reports an acquisition the with releases.
+func (a *Acquisition) Releases() bool { return a.Close != nil || a.Drop != nil }
 
 // Override is a binding a replace overrode (Context.Overrides): Entry no
 // longer binds Cap, By does. The overridden entry is not built for that

@@ -477,6 +477,7 @@ func (fc *funcCtx) place(x syntax.Expr, later bool) string {
 			// A taking receiver passed by its address: its entry ends here.
 			fc.line("_ = " + fc.handoff(id, fc.ident(id), false))
 		}
+		fc.takeField(x)
 		return "&" + fc.target(x, later)
 	}
 	t := fc.temp("r")

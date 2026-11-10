@@ -1589,6 +1589,83 @@
       "killers": [
         "lower:TestOwnershipRunModel"
       ]
+    },
+    {
+      "name": "L8-B2 fields released in declaration order",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "internal/sketch/check/drop.go",
+      "from": "\t\tfor i := len(u.Fields) - 1; i >= 0; i-- {",
+      "to": "\t\tfor i := 0; i < len(u.Fields); i++ {",
+      "rule": "resources R3: the generated release runs the fields last declared first.",
+      "killers": [
+        "lower:TestDropGlueModel"
+      ]
+    },
+    {
+      "name": "L8-B2 the taken-field mask ignored",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\t\t\tif taken != \"\" && f.Index < 64 {",
+      "to": "\t\t\tif false && taken != \"\" && f.Index < 64 {",
+      "rule": "resources R39, Gap 38: a field taken in place is skipped by the record's release.",
+      "killers": [
+        "lower:TestDropGlueModel"
+      ]
+    },
+    {
+      "name": "L8-B2 a Map value skipped",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\t\t\tb.WriteString(\"for _, \" + e + \" := range \" + x + \" { \" + g.release(d.Elem, e) + \"}; \")",
+      "to": "\t\t\tb.WriteString(\"_ = \" + x + \"; \")",
+      "rule": "resources R37: a Map's release releases every value once.",
+      "killers": [
+        "lower:TestDropGlueModel"
+      ]
+    },
+    {
+      "name": "L8-B2 a slice released from the front",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\"for \" + i + \" := len(\" + x + \") - 1; \" + i + \" >= 0; \" + i + \"-- { \"",
+      "to": "\"for \" + i + \" := 0; \" + i + \" < len(\" + x + \"); \" + i + \"++ { \"",
+      "rule": "resources R37: a slice is released from the back.",
+      "killers": [
+        "lower:TestDropGlueModel"
+      ]
+    },
+    {
+      "name": "L8-B2 the first part's defect stops the rest",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "runtime/v1/task.go",
+      "from": "\t\tif p := recover(); p != nil {\n\t\t\td.c.Add(capture(d.t, p))",
+      "to": "\t\tif p := recover(); p != nil {\n\t\t\tpanic(p)",
+      "rule": "resources R9: each part of a value is released after an earlier part's defect, and every defect is kept.",
+      "killers": [
+        "lower:TestDropGlueModel"
+      ]
+    },
+    {
+      "name": "L8-B2 a type's own Close skipped by its generated release",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\tif d.Close != nil {\n\t\tb.WriteString(g.part(d, x))\n\t}",
+      "to": "\tif d.Close != nil && false {\n\t\tb.WriteString(g.part(d, x))\n\t}",
+      "rule": "resources R3: the generated release runs the type's own Close first, then its fields.",
+      "killers": [
+        "lower:TestDropGlueModel"
+      ]
+    },
+    {
+      "name": "L8-B2 a union's variant not released",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\t\t\tb.WriteString(\"case \" + g.fc.goType(v.Type) + \": \" + g.release(v, y))",
+      "to": "\t\t\tb.WriteString(\"case \" + g.fc.goType(v.Type) + \": _ = \" + y + \"; \")",
+      "rule": "resources Gap 36: a union releases its active variant.",
+      "killers": [
+        "lower:TestDropGlueModel"
+      ]
     }
   ]
 }

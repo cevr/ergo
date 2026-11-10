@@ -124,6 +124,16 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Hand":          {},
 	"Returned":      {},
 	"Owned.Release": {},
+	// Generated release (release.go, B2; resources R3, R37, R39): a value
+	// whose parts hold resources registers through OwningParts, a field
+	// taken in place marks its entry (Owned.TakeField), and its release
+	// runs each part's checked Close through one Drop, which keeps every
+	// part's defect (R9). None waits: each part masks itself.
+	"OwningParts":     {},
+	"Owned.TakeField": {},
+	"Scope.Drop":      {},
+	"Drop.Part":       {},
+	"Drop.End":        {},
 	// The context owner (calls.go, contextWith; runtime.md, G1): a region
 	// opens on the scope of the code at the with and ends at its block's
 	// normal end, or when that scope closes. The reads take the running

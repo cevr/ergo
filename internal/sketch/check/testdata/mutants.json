@@ -1094,14 +1094,14 @@
       ]
     },
     {
-      "name": "L8-B1 a value that needs a generated release admitted",
-      "origin": "wf10 L8 B1 (#197)",
+      "name": "L8-B2 a value with no release admitted",
+      "origin": "wf10 L8 B2 (#197)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\tif cl == nil {\n\t\tw.reportCode(at, CodeOutside,",
-      "to": "\tif cl == nil && false {\n\t\tw.reportCode(at, CodeOutside,",
-      "rule": "resources R3: an aggregate holding a resource has no release until B2 generates it, so it is refused (S109).",
+      "from": "\tif d == nil {\n\t\tw.reportCode(at, CodeOutside,",
+      "to": "\tif d == nil && false {\n\t\tw.reportCode(at, CodeOutside,",
+      "rule": "resources R13, R37: a value holding a queue of resources has no release until B3 drains it, so it is refused (S109).",
       "killers": [
-        "check:TestOwnershipGlueRefused"
+        "check:TestOwnershipFlowModel"
       ]
     },
     {
@@ -1135,6 +1135,17 @@
       "rule": "resources R19, Gap 39: an operation type's Close() takes the value it is called on, as the written Close that implements it does (one rule: closeTakes).",
       "killers": [
         "check:TestCloseFormsTakeOnce"
+      ]
+    },
+    {
+      "name": "L8-B2 a generic body's dropped T is no copy site",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tif t := w.typ(l); w.copies != nil && w.genericOnly(t) {",
+      "to": "\t\tif t := w.typ(l); false && w.copies != nil && w.genericOnly(t) {",
+      "rule": "resources Gap 42: a generic body cannot release a T yet, so its drop refuses an instance with a resource instead of leaking it.",
+      "killers": [
+        "check:TestGenericDropRefused"
       ]
     },
     {
