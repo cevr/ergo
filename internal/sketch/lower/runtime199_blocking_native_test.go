@@ -93,7 +93,14 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 // caller, shielded, and joins nothing: runtime/v1/actor_children_test.go
 // TestActorChildrenAgreeWithTree states that its owner entry stops it,
 // last started first, before the next entry and before the owner ends.
-var childWaitLaws = map[string]bool{"After": true, "TasksTransform": true, "TasksRace": true, "Set.Wait": true, "Set.Stop": true, "MachineSupervise": true, "MachineChild": true}
+// RPCServe and RPCLocal (std rpc, R1 and R3b) run each call on a task
+// below the caller and join it: runtime/v1/rpc_test.go
+// TestRPCAbortStopsTheCall states that a client's abort stops a Serve
+// call and its release runs before the answer ends, and
+// TestRPCLocalStopRunsTheRelease that a stop of a Loopback caller stops
+// the call, runs its release and ends the call with the stop.
+var childWaitLaws = map[string]bool{"After": true, "TasksTransform": true, "TasksRace": true, "Set.Wait": true, "Set.Stop": true, "MachineSupervise": true, "MachineChild": true,
+	"RPCServe": true, "RPCLocal": true}
 
 // actorWaitLaws are the waiting bindings of std actor (MU3): each waits on
 // the actor's own runner (for room in its inbox, an answer, a state, a
@@ -129,8 +136,11 @@ var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Acto
 // stop ends the wait, each line is taken once and in order, the line read
 // after a stop stays for the next read); a masked caller's Done is nil, so
 // its read runs to its end; lower TestStdinStopRuns stops a task that waits
-// in Lines.
-var hostWaitLaws = map[string]bool{"ExecRun": true, "IOReadAll": true, "IOLines": true}
+// in Lines. RPCCall (std rpc, R1) waits for a peer's HTTP answer:
+// runtime/v1/rpc_test.go TestRPCAbortStopsTheCall states that a stop of
+// the caller aborts the request, ends the call with the stop and stops the
+// call on the server.
+var hostWaitLaws = map[string]bool{"ExecRun": true, "IOReadAll": true, "IOLines": true, "RPCCall": true}
 
 // blockingRoutes is the route axis of a binding (runtime.md, I1): the
 // waiting task of a callerWait binding is the task that invokes the call,
