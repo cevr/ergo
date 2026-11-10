@@ -125,7 +125,9 @@ func main() fails exec.NotFound | exec.Denied | exec.Failed needs Console | Ambi
 
 // TestExecStartRuns: std exec's Start (stdlib.md, exec 9 to 12) through the
 // host's Runner and a Script, in a built program: the lines of a ToCaller
-// stream in order, a last line with no line feed, the status; a ToFile sink
+// stream in order, a last line with no line feed, the status; a tee
+// through Chunks that keeps each stream's bytes ("q" and "q\n" differ)
+// and sees each stream's end (CU4c); a ToFile sink
 // emptied or appended to; a follower (tail -f) that the caller leaves with
 // break, whose scope then ends it; a Grace that lets the program's TERM
 // trap run at the release; a sink that cannot be opened; a Script that
@@ -159,6 +161,27 @@ func show(c exec.Command) needs Console | exec.Runner {
 		}
 	}
 	Console.Println("status \(r.Wait())")
+}
+
+func tee(c exec.Command) needs Console | exec.Runner {
+	let r = exec.Runner.Start(c, exec.Streams{Stdout: exec.ToCaller, Stderr: exec.ToCaller}) catch {
+	case exec.NotFound, exec.Denied, exec.Failed:
+		Console.Println("did not start")
+		return
+	}
+	let mut out = ""
+	let mut errs = ""
+	let mut ends = 0
+	for ch in r.Chunks() {
+		if ch.Text == "" {
+			ends = ends + 1
+		} else if ch.Stderr {
+			errs = errs + ch.Text
+		} else {
+			out = out + ch.Text
+		}
+	}
+	Console.Println("tee [" + out + "] [" + errs + "] ends \(ends) status \(r.Wait())")
 }
 
 func toFile(text string, appends bool) needs Console | exec.Runner {
@@ -201,6 +224,8 @@ func run() needs Console | exec.Runner {
 	show(exec.New("sh", []string{"-c", "echo a; echo b; printf c; exit 3"}))
 	show(exec.New("sh", []string{"-c", "echo x >&2"}))
 	show(exec.New("ergo-exec-missing-7f3a", []string{}))
+	tee(exec.New("sh", []string{"-c", "printf 'p\\nq'; printf r >&2; exit 4"}))
+	tee(exec.New("sh", []string{"-c", "printf 'p\\nq\\n'"}))
 	toFile("one\\ntwo\\n", false)
 	toFile("three\\n", true)
 	show(exec.New("cat", []string{"FILE"}))
@@ -228,7 +253,7 @@ func main() needs Console | Ambient {
 		show(exec.New("git", []string{"log"}))
 	}
 }
-`), stdout: "out a\nout b\nout c\nstatus 3\nerr x\nstatus 0\nnot found ergo-exec-missing-7f3a\nwrote 0\nwrote 0\nout one\nout two\nout three\nstatus 0\nfollowed one\nfollowed two\nfollowed three\nleft the follower\nready\nended\nfailed stdout /nonexistent/loop-probe-x/out: no such file or directory\nout a\nout b\nerr e\nstatus 1\nnot found git\n", stderr: []string{"term\n"}},
+`), stdout: "out a\nout b\nout c\nstatus 3\nerr x\nstatus 0\nnot found ergo-exec-missing-7f3a\ntee [p\nq] [r] ends 2 status 4\ntee [p\nq\n] [] ends 2 status 0\nwrote 0\nwrote 0\nout one\nout two\nout three\nstatus 0\nfollowed one\nfollowed two\nfollowed three\nleft the follower\nready\nended\nfailed stdout /nonexistent/loop-probe-x/out: no such file or directory\nout a\nout b\nerr e\nstatus 1\nnot found git\n", stderr: []string{"term\n"}},
 		// CU4b regression: Start owns the process outside the timeout;
 		// Wait borrows it inside, and the catch consumes it with Stop.
 		// The trap's 37 is not a guessed signal status (137 or 143).

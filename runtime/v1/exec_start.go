@@ -1,7 +1,6 @@
 package v1
 
 import (
-	"bufio"
 	"io"
 	"iter"
 	"os"
@@ -22,9 +21,10 @@ import (
 // The lifecycle, which TestRunningMatchesModel holds against a model over
 // a fake process (execProc):
 //
-//   - Running: the program runs. Lines gives the lines of the streams
-//     whose sink is ToCaller, in the order they come; Wait waits for the
-//     program's end.
+//   - Running: the program runs. Chunks gives the bytes of the streams
+//     whose sink is ToCaller as they are read, each stream in its order,
+//     and an empty chunk at each stream's end (exec.ergo's Lines splits
+//     them into lines); Wait waits for the program's end.
 //   - Ending (the release, before the program ended): SIGTERM to the group
 //     when the command's Grace is above 0, then, when the program has not
 //     ended within Grace, SIGKILL to the group; then the wait for the end.
@@ -41,7 +41,16 @@ import (
 
 // ExecLine is exec.Line: one line of a stream whose sink is ToCaller,
 // without its line feed, and whether it came from standard error.
+// exec.ergo's Lines makes them from the chunks.
 type ExecLine struct {
+	Text   string
+	Stderr bool
+}
+
+// ExecChunk is exec.Chunk: the bytes of one read of a stream whose sink is
+// ToCaller, as read, and whether it came from standard error. A chunk
+// with no bytes is the end of its stream.
+type ExecChunk struct {
 	Text   string
 	Stderr bool
 }
@@ -54,10 +63,13 @@ const (
 	execToCaller = 3
 )
 
-// execLineBuffer is how many lines of the ToCaller streams wait for the
+// execChunkBuffer is how many chunks of the ToCaller streams wait for the
 // caller. A full buffer stops the readers, the pipe fills, and the program
 // waits in its write: the caller's reading paces the program.
-const execLineBuffer = 64
+const execChunkBuffer = 64
+
+// execChunkSize is the most bytes one read takes, so one chunk holds.
+const execChunkSize = 32 << 10
 
 // execProc is a started program as Running drives it: the host's process
 // group (hostProc) or a test's fake.
@@ -72,7 +84,7 @@ type execProc interface {
 	reap() int
 }
 
-// Running is exec.Running: a started program and the lines it writes to
+// Running is exec.Running: a started program and the bytes it writes to
 // the caller.
 type Running struct {
 	proc  execProc
@@ -81,11 +93,14 @@ type Running struct {
 	// depends on the clock.
 	after func(time.Duration) <-chan time.Time
 
-	lines chan ExecLine // nil when no stream's sink is ToCaller
-	drop  chan struct{} // closed by finish: the readers drop each line
-	ended chan struct{} // closed when every reader has read its stream to the end
-	pipes []io.Closer   // the read ends of the ToCaller pipes
-	files []*os.File    // the sinks' files, closed after the reap
+	chunks chan ExecChunk // nil when no stream's sink is ToCaller
+	drop   chan struct{}  // closed by finish: the readers drop each chunk
+	ended  chan struct{}  // closed when every reader has read its stream to the end
+	pipes  []io.Closer    // the read ends of the ToCaller pipes
+	files  []*os.File     // the sinks' files, closed after the reap
+
+	mu   sync.Mutex
+	back []ExecChunk // put back by Lines (unread); next gives them first
 
 	once   sync.Once
 	status int
@@ -103,8 +118,8 @@ func newRunning(p execProc, grace time.Duration, out, errs io.ReadCloser, files 
 		if s.rc == nil {
 			continue
 		}
-		if r.lines == nil {
-			r.lines = make(chan ExecLine, execLineBuffer)
+		if r.chunks == nil {
+			r.chunks = make(chan ExecChunk, execChunkBuffer)
 		}
 		r.pipes = append(r.pipes, s.rc)
 		wg.Add(1)
@@ -115,62 +130,167 @@ func newRunning(p execProc, grace time.Duration, out, errs io.ReadCloser, files 
 	}
 	go func() {
 		wg.Wait()
-		if r.lines != nil {
-			close(r.lines)
+		if r.chunks != nil {
+			close(r.chunks)
 		}
 		close(r.ended)
 	}()
 	return r
 }
 
-// read gives each line of rc to the caller until the stream ends, or
-// drops it once finish has begun. A last line with no line feed is a line.
+// read gives the bytes of each read of rc to the caller as one chunk, as
+// soon as it is read, and then an empty chunk for the stream's end; once
+// finish has begun it drops them. It keeps no byte back: a last fragment
+// with no line feed is sent as it was read.
 func (r *Running) read(rc io.Reader, stderr bool) {
-	b := bufio.NewReader(rc)
+	buf := make([]byte, execChunkSize)
 	for {
-		text, err := b.ReadString('\n')
-		if text != "" {
-			l := ExecLine{Text: strings.TrimSuffix(text, "\n"), Stderr: stderr}
-			select {
-			case r.lines <- l:
-			case <-r.drop:
-			}
+		n, err := rc.Read(buf)
+		if n > 0 && !r.send(ExecChunk{Text: string(buf[:n]), Stderr: stderr}) {
+			return
 		}
 		if err != nil {
+			r.send(ExecChunk{Stderr: stderr})
 			return
 		}
 	}
 }
 
-// Lines is r.Lines(): the lines of the ToCaller streams as they come, until
-// both have ended. It waits on the caller's task t: a stop ends the wait
-// with an interruption, and the program goes on until r's release. After
-// Wait or Close it gives no line. A break leaves the rest for the next
-// Lines.
-func (r *Running) Lines(t *rt.Task) iter.Seq[ExecLine] {
-	return func(yield func(ExecLine) bool) {
-		if r.lines == nil {
+// send gives c to the caller, or reports false once finish has begun.
+func (r *Running) send(c ExecChunk) bool {
+	select {
+	case r.chunks <- c:
+		return true
+	case <-r.drop:
+		return false
+	}
+}
+
+// Chunks is r.Chunks(): the chunks of the ToCaller streams as they are
+// read, each stream's in its order, until both have ended. It waits on the
+// caller's task t: a stop ends the wait with an interruption, and the
+// program goes on until r's release. After Wait or Close it gives none. A
+// break leaves the rest for the next Chunks, after what Unread put back.
+func (r *Running) Chunks(t *rt.Task) iter.Seq[ExecChunk] {
+	return func(yield func(ExecChunk) bool) {
+		if r.chunks == nil {
 			return
 		}
 		for {
-			t.Check()
-			select {
-			case <-r.drop:
+			c, ok := r.next(t)
+			if !ok || !yield(c) {
 				return
-			default:
-			}
-			select {
-			case l, ok := <-r.lines:
-				if !ok || !yield(l) {
-					return
-				}
-			case <-r.drop:
-				return
-			case <-t.Done():
-				t.Check()
 			}
 		}
 	}
+}
+
+// Lines is r.Lines(): the lines of the ToCaller streams, each without its
+// line feed, in the order their line feeds are read, until both streams
+// have ended; a last line with no line feed comes at its stream's end. It
+// reads the chunks Chunks gives (one reader, so a caller may mix the two),
+// and on a break or a stop it puts back the bytes it read and did not
+// give, so the next Lines or Chunks starts there. It waits as Chunks does.
+func (r *Running) Lines(t *rt.Task) iter.Seq[ExecLine] {
+	return func(yield func(ExecLine) bool) {
+		if r.chunks == nil {
+			return
+		}
+		var held [2]string // stdout's and stderr's bytes after their last line feed
+		var end []ExecChunk
+		defer func() {
+			var back []ExecChunk
+			for i, h := range held {
+				if h != "" {
+					back = append(back, ExecChunk{Text: h, Stderr: i == 1})
+				}
+			}
+			r.unread(append(back, end...))
+		}()
+		for {
+			c, ok := r.next(t)
+			if !ok {
+				return
+			}
+			s := 0
+			if c.Stderr {
+				s = 1
+			}
+			text := held[s]
+			held[s] = ""
+			if c.Text == "" {
+				// The stream ended: what it held is its last line.
+				if text != "" && !yield(ExecLine{Text: text, Stderr: c.Stderr}) {
+					end = []ExecChunk{c}
+					return
+				}
+				continue
+			}
+			text += c.Text
+			for {
+				i := strings.IndexByte(text, '\n')
+				if i < 0 {
+					break
+				}
+				line := text[:i]
+				text = text[i+1:]
+				if !yield(ExecLine{Text: line, Stderr: c.Stderr}) {
+					held[s] = text
+					return
+				}
+			}
+			held[s] = text
+		}
+	}
+}
+
+// next is the next chunk for the caller on t: one put back first, then one
+// a reader sent. It is false when both streams have ended or finish has
+// begun. A stop of t raises the interruption.
+func (r *Running) next(t *rt.Task) (ExecChunk, bool) {
+	for {
+		t.Check()
+		select {
+		case <-r.drop:
+			return ExecChunk{}, false
+		default:
+		}
+		if c, ok := r.takeBack(); ok {
+			return c, true
+		}
+		select {
+		case c, ok := <-r.chunks:
+			return c, ok
+		case <-r.drop:
+			return ExecChunk{}, false
+		case <-t.Done():
+			t.Check()
+		}
+	}
+}
+
+// takeBack takes the first chunk unread put back, if any.
+func (r *Running) takeBack() (ExecChunk, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.back) == 0 {
+		return ExecChunk{}, false
+	}
+	c := r.back[0]
+	r.back = r.back[1:]
+	return c, true
+}
+
+// unread puts rest back before every chunk not given yet, in its order, so
+// the next Chunks or Lines gives it first. Lines puts back what a break
+// or a stop leaves of the chunks it read.
+func (r *Running) unread(rest []ExecChunk) {
+	if len(rest) == 0 {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.back = append(rest, r.back...)
 }
 
 // Wait is r.Wait(): it waits on the caller's task t for the program's end
@@ -432,32 +552,23 @@ func (replayProc) signal(syscall.Signal)   {}
 func (p replayProc) reap() int             { return p.status }
 
 // ExecReplay is the body of exec.Script's Start: a Running whose program
-// has already ended with status, and whose Lines give out's lines (when
-// outCaller) and then errs' lines (when errCaller). It starts nothing.
-func ExecReplay(out []string, errs []string, status int, outCaller bool, errCaller bool) *Running {
-	var lines []ExecLine
-	if outCaller {
-		for _, l := range out {
-			lines = append(lines, ExecLine{Text: l})
-		}
-	}
-	if errCaller {
-		for _, l := range errs {
-			lines = append(lines, ExecLine{Text: l, Stderr: true})
-		}
-	}
+// has already ended with status, and whose Chunks give chunks, which
+// exec.ergo cuts from the recorded Result (caller: a stream's sink is
+// ToCaller). It starts nothing.
+func ExecReplay(chunks []ExecChunk, status int, caller bool) *Running {
+	chunks = slices.Clone(chunks)
 	r := &Running{proc: replayProc{status: status}, drop: make(chan struct{}), ended: make(chan struct{})}
-	if outCaller || errCaller {
-		r.lines = make(chan ExecLine, len(lines))
-		// The buffer holds every line, so the filler never waits; it runs
+	if caller {
+		r.chunks = make(chan ExecChunk, len(chunks))
+		// The buffer holds every chunk, so the filler never waits; it runs
 		// apart only so that the call itself holds no channel operation
 		// (ExecReplay is a noWait binding).
-		go func(ch chan<- ExecLine) {
-			for _, l := range lines {
-				ch <- l
+		go func(ch chan<- ExecChunk) {
+			for _, c := range chunks {
+				ch <- c
 			}
 			close(ch)
-		}(r.lines)
+		}(r.chunks)
 	}
 	close(r.ended)
 	return r

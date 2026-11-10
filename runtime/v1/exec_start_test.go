@@ -19,7 +19,7 @@ import (
 	"ergo.local/prototype/runtime/rt"
 )
 
-// fakeProc is a program for the lifecycle model: the test writes its lines
+// fakeProc is a program for the lifecycle model: the test writes its bytes
 // and ends it; a signal ends it as the case says (SIGTERM exits termStatus unless
 // the program ignores it; SIGKILL exits 137). It logs every signal and
 // reap, and whether a signal came after the reap.
@@ -32,7 +32,7 @@ type fakeProc struct {
 	termStatus int
 	log        []string
 	reaps      int
-	outW, errW *io.PipeWriter
+	outW, errW *fakeStream
 }
 
 func (p *fakeProc) exited() <-chan struct{} { return p.done }
@@ -78,12 +78,41 @@ func (p *fakeProc) end(status int) {
 	}
 	p.ended, p.status = true, status
 	p.mu.Unlock()
-	for _, w := range []*io.PipeWriter{p.outW, p.errW} {
+	for _, w := range []*fakeStream{p.outW, p.errW} {
 		if w != nil {
-			_ = w.Close()
+			close(w.in)
 		}
 	}
 	close(p.done)
+}
+
+// fakeStream is a stream of a fakeProc as the Running's reader reads it.
+// A write hands the bytes to a Read and then waits until the reader calls
+// Read again, so when write returns the reader has done with the bytes:
+// a reader that delivers as it reads has sent them to the caller.
+type fakeStream struct {
+	in   chan []byte // unbuffered; nil is a handshake, not bytes
+	rest []byte
+}
+
+func (s *fakeStream) Read(b []byte) (int, error) {
+	for len(s.rest) == 0 {
+		next, ok := <-s.in
+		if !ok {
+			return 0, io.EOF
+		}
+		s.rest = next
+	}
+	n := copy(b, s.rest)
+	s.rest = s.rest[n:]
+	return n, nil
+}
+
+func (s *fakeStream) Close() error { return nil }
+
+func (s *fakeStream) write(text string) {
+	s.in <- []byte(text)
+	s.in <- nil
 }
 
 // lifeCase is one generated case: the sinks, the grace, the program's
@@ -93,38 +122,40 @@ type lifeCase struct {
 	grace                bool
 	ignoreTerm           bool
 	termStatus           int      // a TERM trap may choose any exit status
-	steps                []string // "out TEXT", "err TEXT", "read K", "exit N"
-	ending               string   // "wait", "close", "stopped wait"
+	steps                []string // "out TEXT", "err TEXT" ('|' is a line feed), "lines K", "stop-lines K", "chunks", "exit N", "drain lines", "drain chunks"
+	ending               string   // "wait", "close", "stopped wait", "stop", "stopped stop"
 	stoppedRead          bool     // a stopped caller calls Lines before the end
 }
 
 func genLifeCase(r *rand.Rand) lifeCase {
 	c := lifeCase{outCaller: r.IntN(3) > 0, errCaller: r.IntN(3) > 0, grace: r.IntN(2) == 0, ignoreTerm: r.IntN(2) == 0, termStatus: r.IntN(256)}
-	unread, written := 0, 0
+	written := 0
 	for range r.IntN(12) {
-		switch r.IntN(4) {
+		text := strconv.Itoa(written) + []string{"", "|", "|x|", "||"}[r.IntN(4)]
+		switch r.IntN(6) {
 		case 0, 1:
 			if c.outCaller {
-				c.steps = append(c.steps, "out o"+strconv.Itoa(written))
-				unread++
+				c.steps = append(c.steps, "out o"+text)
 				written++
 			}
 		case 2:
 			if c.errCaller {
-				c.steps = append(c.steps, "err e"+strconv.Itoa(written))
-				unread++
+				c.steps = append(c.steps, "err e"+text)
 				written++
 			}
 		case 3:
-			if unread > 0 {
-				k := 1 + r.IntN(unread)
-				c.steps = append(c.steps, "read "+strconv.Itoa(k))
-				unread -= k
-			}
+			c.steps = append(c.steps, "lines "+strconv.Itoa(1+r.IntN(3)))
+		case 4:
+			c.steps = append(c.steps, "stop-lines "+strconv.Itoa(1+r.IntN(2)))
+		case 5:
+			c.steps = append(c.steps, "chunks")
 		}
 	}
 	if r.IntN(2) == 0 {
 		c.steps = append(c.steps, "exit "+strconv.Itoa(r.IntN(4)))
+		if r.IntN(2) == 0 {
+			c.steps = append(c.steps, []string{"drain lines", "drain chunks"}[r.IntN(2)])
+		}
 	}
 	c.ending = []string{"wait", "close", "stopped wait", "stop", "stopped stop"}[r.IntN(5)]
 	c.stoppedRead = r.IntN(3) == 0
@@ -134,36 +165,23 @@ func genLifeCase(r *rand.Rand) lifeCase {
 	return c
 }
 
-// lifeModel is what the case must give: the signals in order, the status,
-// and, for each stream, the lines the caller reads.
+// lifeModel is what the case must give: the signals in order and the
+// status. Each stream's bytes are checked as runLife reads them.
 type lifeModel struct {
 	signals []string
 	status  int
-	out     []string
-	errs    []string
 }
 
 func modelLife(c lifeCase) lifeModel {
 	var m lifeModel
 	exited := false
-	var outQ, errQ []string // written, unread, per stream
 	for _, s := range c.steps {
 		op, arg, _ := strings.Cut(s, " ")
-		switch op {
-		case "out":
-			outQ = append(outQ, arg)
-		case "err":
-			errQ = append(errQ, arg)
-		case "read":
-			// The two streams' readers race, so the model takes the k reads
-			// as any split that keeps each stream's order; runLife checks
-			// each stream's reads are a prefix of what it wrote.
-		case "exit":
+		if op == "exit" {
 			exited = true
 			m.status, _ = strconv.Atoi(arg)
 		}
 	}
-	_, _ = outQ, errQ
 	if !exited {
 		switch {
 		case c.grace && !c.ignoreTerm:
@@ -182,16 +200,94 @@ func modelLife(c lifeCase) lifeModel {
 	return m
 }
 
-// runLife drives a Running over a fake program by the case's steps.
-func runLife(t *testing.T, c lifeCase) (signals []string, status int, out, errs []string, reaps int, after []ExecLine) {
+// lifeStreams is what runLife wrote to each stream and what the caller
+// read of it: the lines, each with its line feed put back, and the chunks,
+// in the order read, and how many end chunks it saw.
+type lifeStreams struct {
+	wrote, read [2]string
+	ends        [2]int
+}
+
+// add records what the caller read of stream s: text, or, for an end
+// chunk, the end.
+func (l *lifeStreams) add(stderr bool, text string, end bool) {
+	s := 0
+	if stderr {
+		s = 1
+	}
+	if end {
+		l.ends[s]++
+		return
+	}
+	l.read[s] += text
+}
+
+// waiting is how many whole lines the caller has not read yet.
+func (l *lifeStreams) waiting() int {
+	n := 0
+	for s := range 2 {
+		n += strings.Count(l.wrote[s][len(l.read[s]):], "\n")
+	}
+	return n
+}
+
+// check reports a stream whose read bytes are not a prefix of what was
+// written (whole: not all of it). A last line with no line feed that
+// Lines gave at the stream's end comes back with one, so both allow it.
+func (l *lifeStreams) check(whole bool) string {
+	for s, name := range []string{"stdout", "stderr"} {
+		wrote, read := l.wrote[s], l.read[s]
+		switch {
+		case !strings.HasSuffix(wrote, "\n") && read == wrote+"\n":
+		case !whole && strings.HasPrefix(wrote, read):
+		case whole && read == wrote:
+		default:
+			return fmt.Sprintf("%s read %q, wrote %q (all read: %v)", name, read, wrote, whole)
+		}
+	}
+	return ""
+}
+
+// queued is how many chunks wait for the caller.
+func (r *Running) queued() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.chunks) + len(r.back)
+}
+
+// unreadBytes moves the chunks that wait in the channel to the end of
+// back, where next gives them in the same order, and returns each
+// stream's bytes not given yet. It is called only while no reader sends.
+func (r *Running) unreadBytes() (unread [2]string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for len(r.chunks) > 0 {
+		r.back = append(r.back, <-r.chunks)
+	}
+	for _, c := range r.back {
+		if c.Stderr {
+			unread[1] += c.Text
+		} else {
+			unread[0] += c.Text
+		}
+	}
+	return unread
+}
+
+// runLife drives a Running over a fake program by the case's steps. Each
+// write returns once the reader has done with it, so a "chunks" step reads
+// what is queued and must find every byte written so far.
+func runLife(t *testing.T, c lifeCase) (signals []string, status int, l lifeStreams, reaps int, after []ExecChunk, failed string) {
 	t.Helper()
 	p := &fakeProc{done: make(chan struct{}), ignoreTerm: c.ignoreTerm, termStatus: c.termStatus}
 	var outR, errR io.ReadCloser
 	if c.outCaller {
-		outR, p.outW = io.Pipe()
+		p.outW = &fakeStream{in: make(chan []byte)}
+		outR = p.outW
 	}
 	if c.errCaller {
-		errR, p.errW = io.Pipe()
+		p.errW = &fakeStream{in: make(chan []byte)}
+		errR = p.errW
 	}
 	grace := time.Duration(0)
 	if c.grace {
@@ -206,48 +302,143 @@ func runLife(t *testing.T, c lifeCase) (signals []string, status int, out, errs 
 		}
 		return never // the fake's streams end with it, so finish never waits on time
 	}
+	fail := func(s string) {
+		if failed == "" {
+			failed = s
+		}
+	}
 	task := rt.Root("running model")
+	lines := func(task *rt.Task, k int, stop bool) {
+		n := 0
+		for line := range r.Lines(task) {
+			l.add(line.Stderr, line.Text+"\n", false)
+			n++
+			if n == k {
+				if !stop {
+					break
+				}
+				task.Interrupt() // the next wait raises it; the bytes held go back
+			}
+		}
+	}
+steps:
 	for _, s := range c.steps {
 		op, arg, _ := strings.Cut(s, " ")
 		switch op {
-		case "out":
-			_, _ = io.WriteString(p.outW, arg+"\n")
-		case "err":
-			_, _ = io.WriteString(p.errW, arg+"\n")
-		case "read":
+		case "out", "err":
+			text := strings.ReplaceAll(arg, "|", "\n")
+			w, i := p.outW, 0
+			if op == "err" {
+				w, i = p.errW, 1
+			}
+			l.wrote[i] += text
+			before := r.queued()
+			w.write(text)
+			if r.queued() != before+1 {
+				// The reader read the bytes and did not pass them on: end
+				// the program so that no later read waits for them.
+				fail(fmt.Sprintf("%s: the reader took %q and queued %d chunks, want 1", s, text, r.queued()-before))
+				p.end(0)
+				break steps
+			}
+		case "lines":
 			k, _ := strconv.Atoi(arg)
-			n := 0
-			for l := range r.Lines(task) {
-				if l.Stderr {
-					errs = append(errs, l.Text)
-				} else {
-					out = append(out, l.Text)
+			if k = min(k, l.waiting()); k > 0 {
+				lines(task, k, false)
+			}
+		case "stop-lines":
+			k, _ := strconv.Atoi(arg)
+			if k = min(k, l.waiting()); k > 0 {
+				stopped := rt.Root("stopped mid-lines")
+				func() {
+					defer func() {
+						if q := recover(); q != rt.Interrupted {
+							t.Errorf("a Lines stopped mid-read raised %v, want rt.Interrupted", q)
+						}
+					}()
+					lines(stopped, k, true)
+				}()
+			}
+		case "chunks":
+			if r.queued() > 0 {
+				for ch := range r.Chunks(task) {
+					l.add(ch.Stderr, ch.Text, ch.Text == "")
+					if r.queued() == 0 {
+						break
+					}
 				}
-				n++
-				if n == k {
-					break
-				}
+			}
+			if bad := l.check(false); bad != "" {
+				fail("chunks: " + bad)
+			} else if l.read != l.wrote {
+				fail(fmt.Sprintf("chunks: the bytes written are not all queued: read %q, wrote %q", l.read, l.wrote))
 			}
 		case "exit":
 			n, _ := strconv.Atoi(arg)
 			p.end(n)
+		case "drain":
+			if arg == "lines" {
+				lines(task, -1, false)
+			} else {
+				for ch := range r.Chunks(task) {
+					l.add(ch.Stderr, ch.Text, ch.Text == "")
+				}
+				for s, caller := range []bool{c.outCaller, c.errCaller} {
+					if want := map[bool]int{true: 1}[caller]; l.ends[s] != want {
+						fail(fmt.Sprintf("drain: stream %d ended %d times, want %d", s, l.ends[s], want))
+					}
+				}
+			}
+			if bad := l.check(true); bad != "" {
+				fail("drain: " + bad)
+			}
+		}
+		if bad := l.check(false); bad != "" {
+			fail(s + ": " + bad)
+		}
+		if op == "exit" || op == "drain" {
+			continue // the readers may still be sending the ends
+		}
+		// Every byte written and not read waits for the caller, in order:
+		// none is lost, held back or added by a reader or by a Lines that
+		// broke or was stopped.
+		unread := r.unreadBytes()
+		for i := range 2 {
+			if want := l.wrote[i][min(len(l.read[i]), len(l.wrote[i])):]; failed == "" && unread[i] != want {
+				fail(fmt.Sprintf("%s: stream %d has %q waiting, want %q", s, i, unread[i], want))
+			}
+		}
+		if failed != "" {
+			p.end(0) // no later read waits for bytes that will not come
+			break
 		}
 	}
-	if c.stoppedRead && r.lines != nil {
-		// A stopped caller's Lines ends with the stop and takes no line;
-		// the reads after it still follow each stream's order.
+	if c.stoppedRead && r.chunks != nil {
+		// A stopped caller's Lines and Chunks end with the stop and take
+		// nothing; the reads after them still follow each stream's order.
 		stopped := rt.Root("stopped reader")
 		stopped.Interrupt()
-		func() {
-			defer func() {
-				if q := recover(); q != rt.Interrupted {
-					t.Errorf("a stopped Lines raised %v, want rt.Interrupted", q)
+		for _, read := range []func(){
+			func() {
+				for line := range r.Lines(stopped) {
+					t.Errorf("a stopped Lines gave %v", line)
 				}
+			},
+			func() {
+				for ch := range r.Chunks(stopped) {
+					t.Errorf("a stopped Chunks gave %v", ch)
+				}
+			},
+		} {
+			func() {
+				defer func() {
+					if q := recover(); q != rt.Interrupted {
+						t.Errorf("a stopped read raised %v, want rt.Interrupted", q)
+					}
+				}()
+				read()
 			}()
-			for l := range r.Lines(stopped) {
-				t.Errorf("a stopped Lines gave %v", l)
-			}
-		}()
+		}
 	}
 	switch c.ending {
 	case "stop", "stopped stop":
@@ -309,12 +500,15 @@ func runLife(t *testing.T, c lifeCase) (signals []string, status int, out, errs 
 		}
 		status = r.Wait(task)
 	}
-	for l := range r.Lines(task) {
-		after = append(after, l)
+	for line := range r.Lines(task) {
+		after = append(after, ExecChunk(line))
+	}
+	for ch := range r.Chunks(task) {
+		after = append(after, ch)
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return slices.Clone(p.log), status, out, errs, p.reaps, after
+	return slices.Clone(p.log), status, l, p.reaps, after, failed
 }
 
 // TestRunningMatchesModel runs 400 generated cases of a Running over a fake
@@ -322,18 +516,30 @@ func runLife(t *testing.T, c lifeCase) (signals []string, status int, out, errs 
 // release sends (SIGTERM, the grace, SIGKILL; SIGKILL at once with no
 // grace; none to a program that ended, but the kill of what is left of its
 // group), the status Wait or Stop gives, one reap before Stop returns and
-// no signal after it, the caller's lines in each stream's order, and no line
-// after Wait or Stop. Stop covers before output, mid-stream and after exit;
-// a pending caller stop cannot interrupt it. TERM traps choose their status.
+// no signal after it, and nothing read after Wait or Stop. Stop covers
+// before output, mid-stream and after exit; a pending caller stop cannot
+// interrupt it. TERM traps choose their status. The bytes (CU4c): the
+// program writes fragments with and without line feeds; the caller mixes
+// Lines (a break, a stop mid-read) and Chunks; what it reads of each stream
+// is always a prefix of what was written, Chunks finds every byte written
+// so far queued as soon as the reader has read it (no wait for a line feed
+// or the end), and a read to the end gives every byte, the last fragment
+// as written, and one end chunk per stream.
 func TestRunningMatchesModel(t *testing.T) {
 	r := rand.New(rand.NewPCG(23, 5))
 	seen := map[string]int{}
 	for i := range 400 {
 		c := genLifeCase(r)
 		want := modelLife(c)
-		signals, status, out, errs, reaps, after := runLife(t, c)
+		signals, status, l, reaps, after, failed := runLife(t, c)
 		where := fmt.Sprintf("seed 23,5 case %d %+v (replay: go test -run '^TestRunningMatchesModel$' ./runtime/v1)", i, c)
 		seen[c.ending+fmt.Sprint(" grace=", c.grace, " ignore=", c.ignoreTerm, " exit=", want.signals[0] == "KILL" && len(want.signals) == 1)]++
+		for _, s := range c.steps {
+			seen[s[:strings.IndexAny(s+" ", " ")]]++
+			if strings.HasPrefix(s, "drain") {
+				seen[s]++
+			}
+		}
 		if strings.Contains(c.ending, "stop") {
 			phase := "before output"
 			for _, s := range c.steps {
@@ -355,27 +561,17 @@ func TestRunningMatchesModel(t *testing.T) {
 		if reaps != 1 {
 			t.Errorf("%s\nreaped %d times, want once", where, reaps)
 		}
-		var wroteOut, wroteErr []string
-		for _, s := range c.steps {
-			op, arg, _ := strings.Cut(s, " ")
-			switch op {
-			case "out":
-				wroteOut = append(wroteOut, arg)
-			case "err":
-				wroteErr = append(wroteErr, arg)
-			}
+		if failed != "" {
+			t.Errorf("%s\n%s", where, failed)
 		}
-		if len(out) > len(wroteOut) || !slices.Equal(out, wroteOut[:len(out)]) {
-			t.Errorf("%s\nstdout lines read %q, not a prefix of %q", where, out, wroteOut)
-		}
-		if len(errs) > len(wroteErr) || !slices.Equal(errs, wroteErr[:len(errs)]) {
-			t.Errorf("%s\nstderr lines read %q, not a prefix of %q", where, errs, wroteErr)
+		if bad := l.check(false); bad != "" {
+			t.Errorf("%s\n%s", where, bad)
 		}
 		if len(after) != 0 {
-			t.Errorf("%s\nLines after the end gave %v", where, after)
+			t.Errorf("%s\nLines or Chunks after the end gave %v", where, after)
 		}
 	}
-	for _, k := range []string{"close grace=true ignore=true exit=false", "close grace=true ignore=false exit=false", "close grace=false ignore=false exit=false", "wait grace=false ignore=false exit=true"} {
+	for _, k := range []string{"close grace=true ignore=true exit=false", "close grace=true ignore=false exit=false", "close grace=false ignore=false exit=false", "wait grace=false ignore=false exit=true", "lines", "stop-lines", "chunks", "drain lines", "drain chunks"} {
 		if seen[k] == 0 {
 			t.Errorf("no case %q: %v", k, seen)
 		}

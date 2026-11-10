@@ -698,6 +698,7 @@ func main() {
 type Mine {}
 
 func Lines(_ Mine) Seq[exec.Line] { Seq[exec.Line](func(yield func(v exec.Line) bool) {}) }
+func Chunks(_ Mine) Seq[exec.Chunk] { Seq[exec.Chunk](func(yield func(v exec.Chunk) bool) {}) }
 func Wait(_ Mine) int { 0 }
 func Stop(m Mine) int takes m { Close(m); 0 }
 func Close(_ Mine) {}

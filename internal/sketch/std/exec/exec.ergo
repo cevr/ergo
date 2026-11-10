@@ -126,8 +126,8 @@ type Discard {}
 // program writes them: the file is the program's own stream.
 type ToFile { Path string, Append bool }
 
-// ToCaller is a sink: the caller reads the program's lines from Lines, as
-// they come.
+// ToCaller is a sink: the caller reads the program's bytes from Chunks,
+// or its lines from Lines, as they come.
 type ToCaller {}
 
 // Sink is where a stream of a started program goes.
@@ -141,6 +141,13 @@ type Streams { Stdout Sink, Stderr Sink }
 // feed, and whether it came from standard error.
 type Line { Text string, Stderr bool }
 
+// Chunk is what one read of a stream whose sink is ToCaller gave: its
+// bytes as the program wrote them (any bytes, line feeds included), and
+// whether it came from standard error. A Chunk with no bytes is the end of
+// its stream. Where a stream is cut into chunks is not a promise: only the
+// bytes of each stream, in their order, are.
+type Chunk { Text string, Stderr bool }
+
 // Running is a started program. It is a resource: the scope that owns it
 // ends the program when it ends (SIGTERM to the program's process group,
 // the command's Grace, then SIGKILL), reaps it and waits until no process
@@ -150,14 +157,25 @@ type Line { Text string, Stderr bool }
 // process (runtime/v1 TestRunningMatchesModel); a real program's streams
 // are TestExecStreams.
 type Running {
-	// Lines gives the lines of the streams whose sink is ToCaller, in the
-	// order they come, until both end. A full buffer of 64 lines makes the
-	// program wait in its write, so the caller's reading paces it. A break
-	// leaves the rest for the next Lines; after Wait it gives none.
-	// seq-exempt: Running is law-exempt (its lines come from a program, which a law cannot generate); TestRunningMatchesModel (runtime/v1) holds a break and the stop of a reader against its model, and lower TestExecStartRuns a break on the host (a follower).
+	// Lines gives the lines of the streams whose sink is ToCaller, each
+	// without its line feed, in the order their line feeds come, until both
+	// end; a last line with no line feed comes at its stream's end. It
+	// reads the chunks Chunks gives, so a caller may mix the two. A break
+	// or a stop leaves the bytes read and not given for the next Lines or
+	// Chunks; after Wait it gives none.
+	// seq-exempt: Running is law-exempt (its lines come from a program, which a law cannot generate); TestRunningMatchesModel (runtime/v1) holds Lines over chunks cut anywhere, a break and the bytes it leaves for Chunks, and the stop of a reader against its model, and lower TestExecStartRuns a break on the host (a follower).
 	Lines() Seq[Line],
+	// Chunks gives the bytes of the streams whose sink is ToCaller as they
+	// are read, with no wait for a line feed, each stream's in its order,
+	// then an empty Chunk at each stream's end, until both end. A full
+	// buffer of 64 chunks makes the program wait in its write, so the
+	// caller's reading paces it. A tee is the caller's loop: write each
+	// Chunk where it goes and keep it. A break leaves the rest for the next
+	// Chunks; after Wait it gives none.
+	// seq-exempt: Running is law-exempt (its bytes come from a program, which a law cannot generate); TestRunningMatchesModel (runtime/v1) holds the bytes of each stream as they come and at the end, a break and the stop of a reader against its model, and lower TestExecStartRuns a tee on the host.
+	Chunks() Seq[Chunk],
 	// Wait waits for the program's end and gives its status, 128 plus the
-	// signal's number for a program a signal ended. It drops the lines not
+	// signal's number for a program a signal ended. It drops the bytes not
 	// read yet. A stop of the caller ends the wait; the program then runs
 	// until the owner's scope ends it.
 	Wait() int,
@@ -233,17 +251,35 @@ func Run(s Script, c Command) Result fails NotFound | Denied | Failed {
 	}
 }
 
-// Start is a Running that replays the Result recorded for c: Lines gives
-// the lines of its Stdout, then those of its Stderr, each when its sink is
-// ToCaller, and Wait its Status. It writes nothing to a file or a stream
-// of this process. It fails NotFound when Results holds no Result for c.
+// Start is a Running that replays the Result recorded for c: Chunks gives
+// its Stdout, then its Stderr, each when its sink is ToCaller (so Lines
+// gives the lines of each), and Wait its Status. It writes nothing to a
+// file or a stream of this process. It fails NotFound when Results holds
+// no Result for c.
 func Start(s Script, c Command, st Streams) Running fails NotFound | Denied | Failed {
 	match s.Results.Get(Key(c)) {
 	case Some[Result] as hit:
-		return replay(Split(hit.Value.Stdout), Split(hit.Value.Stderr), hit.Value.Status, toCaller(st.Stdout), toCaller(st.Stderr))
+		let mut cs = []Chunk{}
+		if toCaller(st.Stdout) {
+			cs = whole(cs, hit.Value.Stdout, false)
+		}
+		if toCaller(st.Stderr) {
+			cs = whole(cs, hit.Value.Stderr, true)
+		}
+		return replay(cs, hit.Value.Status, toCaller(st.Stdout) || toCaller(st.Stderr))
 	case None:
 		return NotFound{Name: c.Name}
 	}
+}
+
+// whole is cs with the stream text as one Chunk, when it is not empty, and
+// then the stream's end.
+func whole(cs []Chunk, text string, stderr bool) []Chunk {
+	let mut out = cs
+	if text != "" {
+		out = out.Append(Chunk{Text: text, Stderr: stderr})
+	}
+	out.Append(Chunk{Text: "", Stderr: stderr})
 }
 
 func toCaller(s Sink) bool {
@@ -255,7 +291,7 @@ func toCaller(s Sink) bool {
 	}
 }
 
-extern go ergo.local/prototype/runtime/v1.ExecReplay func replay(out []string, errs []string, status int, outCaller bool, errCaller bool) Running
+extern go ergo.local/prototype/runtime/v1.ExecReplay func replay(cs []Chunk, status int, caller bool) Running
 
 // ScriptReplaysRecorded: a Script gives back the Result recorded for a
 // command, whatever its status, and two commands whose arguments differ
