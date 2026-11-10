@@ -3,8 +3,11 @@ package rpcgen
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand/v2"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,11 +31,11 @@ const seedVariable = "ERGO_RPC_SEED"
 // generated client, a loopback HTTP server and the generated Handle to the
 // same provider. Every outcome (value, failure variant and payload), the
 // arguments each provider received, in order (its log), and a final
-// defect agree; a final int beyond +-(2^53-1), in the arguments or the
-// value, runs directly and is refused on the wire with the Unrepresentable
-// defect (the int rule). The default seeds 1, 2 and 3 end in a defect, a
-// wide int and neither. A failing seed prints the Ergo source, both
-// outputs and the replay command.
+// defect agree (an odd seed ends in one). Then, for each argument, value
+// and failure of each operation that reaches an int, a call that carries
+// 2^53 or -2^53 there runs alone: directly it ends with its outcome, on
+// the wire in the Unrepresentable defect (the int rule). A failing seed
+// prints the Ergo source, both outputs and the replay command.
 //
 // It builds Go because the wire is runtime behaviour: the HTTP server, the
 // task per call and the client run only in a built program; go/types on
@@ -56,7 +59,7 @@ func TestRpcLoopbackAgrees(t *testing.T) {
 
 func loopback(t *testing.T, seed uint64) {
 	p := newProgram(seed)
-	t.Logf("seed %d: %d contracts, %d calls, ends in a defect %v, a wide int %v", seed, len(p.contracts), len(p.order), p.dies, p.wide)
+	t.Logf("seed %d: %d contracts, %d calls, ends in a defect %v, %d wide calls", seed, len(p.contracts), len(p.order), p.dies, len(p.wides))
 	dir := t.TempDir()
 	files := p.files()
 	for name, src := range files {
@@ -78,29 +81,266 @@ func loopback(t *testing.T, seed uint64) {
 		}
 	}
 	exe := buildProgram(t, seed, dir, files)
+	replay := fmt.Sprintf("replay: %s=%d go test -count=1 -run '^TestRpcLoopbackAgrees$' ./internal/rpcgen", seedVariable, seed)
 	direct := runOnce(t, exe, "direct")
 	srv := startServer(t, exe)
 	viaRPC := runOnce(t, exe, "http://"+srv.addr+"/rpc")
 	srv.stop(t)
 	agree := direct.stdout == viaRPC.stdout && direct.code == viaRPC.code
-	switch {
-	case p.dies:
+	if p.dies {
 		// Both end in the provider's defect.
 		agree = agree && strings.Contains(direct.stderr, p.boom()) && strings.Contains(viaRPC.stderr, p.boom())
-	case p.wide:
-		// The direct run carries the int; the wire refuses it: the
-		// client's output is the direct run's but its last line, and it
-		// ends in the Unrepresentable defect.
-		cut := strings.LastIndex(strings.TrimSuffix(direct.stdout, "\n"), "\n") + 1
-		agree = direct.code == 0 && viaRPC.code == 2 && viaRPC.stdout == direct.stdout[:cut] && strings.Contains(viaRPC.stderr, "Unrepresentable")
 	}
 	if !agree {
-		t.Errorf("seed %d: the call sequence differs through the wire\n%s\n--- direct (exit %d)\n%s%s--- through the client and the server (exit %d)\n%s%s--- server stderr\n%s\nreplay: %s=%d go test -count=1 -run '^TestRpcLoopbackAgrees$' ./internal/rpcgen",
-			seed, sources(files), direct.code, direct.stdout, direct.stderr, viaRPC.code, viaRPC.stdout, viaRPC.stderr, srv.stderr.String(), seedVariable, seed)
+		t.Errorf("seed %d: the call sequence differs through the wire\n%s\n--- direct (exit %d)\n%s%s--- through the client and the server (exit %d)\n%s%s--- server stderr\n%s\n%s",
+			seed, sources(files), direct.code, direct.stdout, direct.stderr, viaRPC.code, viaRPC.stdout, viaRPC.stderr, srv.stderr.String(), replay)
 	}
 	if !strings.Contains(direct.stdout, "is ") && !strings.Contains(direct.stdout, "fails ") {
 		t.Errorf("seed %d: the sequence made no call:\n%s", seed, direct.stdout)
 	}
+	if t.Failed() {
+		return
+	}
+	effectView(t, p, exe, files, replay)
+	// Each wide call runs directly to its outcome; through the wire it
+	// ends in the Unrepresentable defect, with no output.
+	for k, w := range p.wides {
+		key := fmt.Sprintf("w%d", k)
+		direct := runOnce(t, exe, "direct", key)
+		srv := startServer(t, exe, key)
+		viaRPC := runOnce(t, exe, "http://"+srv.addr+"/rpc", key)
+		// A value or a failure is refused by the server itself, for a
+		// client that does not check (Effect's): its answer is a Die.
+		if !strings.HasPrefix(w.where, "argument") {
+			pl := runOnce(t, exe, "payload", key)
+			body := `{"_tag":"Request","id":0,"tag":"` + w.call.op.name + `","payload":` + strings.TrimSpace(pl.stdout) + `,"headers":[]}`
+			resp, err := http.Post("http://"+srv.addr+"/rpc", "application/json", strings.NewReader(body))
+			var answer []byte
+			if err == nil {
+				answer, _ = io.ReadAll(resp.Body)
+				resp.Body.Close()
+			}
+			if err != nil || !bytes.Contains(answer, []byte(`"_tag":"Die","defect":{"name":"Unrepresentable"`)) {
+				t.Errorf("seed %d: the server sends the wide %s of %s (call %s): %s %v\nrequest %s\n%s\n%s", seed, w.where, w.call.op.name, key, answer, err, body, sources(files), replay)
+			}
+		}
+		srv.stop(t)
+		if direct.code != 0 || strings.Count(direct.stdout, "\n") != 1 || viaRPC.code != 2 || viaRPC.stdout != "" || !strings.Contains(viaRPC.stderr, "Unrepresentable") {
+			t.Errorf("seed %d: the wide call %s (an int beyond +-(2^53-1) in its %s of %s) is not refused on the wire\n%s\n--- direct (exit %d)\n%s%s--- through the client and the server (exit %d)\n%s%s--- server stderr\n%s\n%s",
+				seed, key, w.where, w.call.op.name, sources(files), direct.code, direct.stdout, direct.stderr, viaRPC.code, viaRPC.stdout, viaRPC.stderr, srv.stderr.String(), replay)
+		}
+	}
+}
+
+// effectView replays the sequence as a client that reads the wire with
+// Effect's Schemas would: each call's payload, as the generated client
+// encodes it, posted to a fresh server; the payload and the answer must
+// hold Effect's form for their types (records with lowered keys, unions
+// and failures tagged, Option as {"_tag":"Some","value":…} or
+// {"_tag":"None"}, ints exact numbers, unit as null), and each answer is
+// the outcome the sequence planned.
+func effectView(t *testing.T, p *program, exe string, files map[string]string, replay string) {
+	t.Helper()
+	pls := runOnce(t, exe, "payloads")
+	lines := strings.Split(strings.TrimSuffix(pls.stdout, "\n"), "\n")
+	if pls.code != 0 || len(lines) != len(p.order) {
+		t.Fatalf("the payloads: exit %d, %d lines for %d calls\n%s%s", pls.code, len(lines), len(p.order), pls.stdout, pls.stderr)
+	}
+	srv := startServer(t, exe)
+	defer srv.stop(t)
+	for k, cl := range p.order {
+		params := &ty{kind: "record", name: cl.op.name + "Request", fields: cl.op.params}
+		body := `{"_tag":"Request","id":` + strconv.Itoa(k) + `,"tag":"` + cl.op.name + `","payload":` + lines[k] + `,"headers":[]}`
+		answer, err := postJSON("http://"+srv.addr+"/rpc", body)
+		var exits []struct {
+			Tag       string          `json:"_tag"`
+			RequestID json.Number     `json:"requestId"`
+			Exit      json.RawMessage `json:"exit"`
+		}
+		if err == nil {
+			err = json.Unmarshal(answer, &exits)
+		}
+		if err == nil && len(exits) != 1 {
+			err = fmt.Errorf("%d exits", len(exits))
+		}
+		if err == nil {
+			err = checkForm(params, json.RawMessage(lines[k]), "payload", false)
+		}
+		if err == nil {
+			err = cl.checkExit(exits[0].Exit)
+		}
+		if err != nil {
+			t.Fatalf("seed %d: call %d (%s), as Effect's client reads it: %v\nrequest %s\nanswer %s\n%s\n%s", p.seed, k, cl.op.name, err, body, answer, sources(files), replay)
+		}
+	}
+}
+
+func postJSON(url, body string) ([]byte, error) {
+	resp, err := http.Post(url, "application/json", strings.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
+}
+
+// checkExit holds the exit to the call's planned outcome and the form of
+// its value or failure.
+func (cl *call) checkExit(raw json.RawMessage) error {
+	var exit struct {
+		Tag   string          `json:"_tag"`
+		Value json.RawMessage `json:"value"`
+		Cause []struct {
+			Tag    string          `json:"_tag"`
+			Error  json.RawMessage `json:"error"`
+			Defect json.RawMessage `json:"defect"`
+		} `json:"cause"`
+	}
+	if err := json.Unmarshal(raw, &exit); err != nil {
+		return err
+	}
+	switch {
+	case cl.outcome == -1:
+		if exit.Tag != "Success" {
+			return fmt.Errorf("exit %s, want Success", exit.Tag)
+		}
+		if cl.op.result == nil {
+			if string(exit.Value) != "null" {
+				return fmt.Errorf("a unit value is %s, want null", exit.Value)
+			}
+			return nil
+		}
+		return checkForm(cl.op.result, exit.Value, "value", false)
+	case exit.Tag != "Failure" || len(exit.Cause) != 1:
+		return fmt.Errorf("exit %s, want a Failure of one cause", raw)
+	case cl.outcome == -2:
+		if exit.Cause[0].Tag != "Die" || !bytes.Contains(exit.Cause[0].Defect, []byte(`"message":`)) {
+			return fmt.Errorf("cause %s, want a Die with a message", raw)
+		}
+		return nil
+	}
+	f := cl.op.fails[cl.outcome]
+	if exit.Cause[0].Tag != "Fail" {
+		return fmt.Errorf("cause %s, want Fail", raw)
+	}
+	return checkForm(&ty{kind: "union", variants: []*ty{f}}, exit.Cause[0].Error, "failure", true)
+}
+
+// checkForm reports where raw, a JSON value of t, departs from Effect's
+// form. tagged: a record is a tagged one (a union variant or a failure).
+func checkForm(t *ty, raw json.RawMessage, at string, tagged bool) error {
+	d := json.NewDecoder(bytes.NewReader(raw))
+	d.UseNumber()
+	var v any
+	if err := d.Decode(&v); err != nil {
+		return fmt.Errorf("%s: %v", at, err)
+	}
+	return form(t, v, at, tagged)
+}
+
+func form(t *ty, v any, at string, tagged bool) error {
+	bad := func() error { return fmt.Errorf("%s: %v is not a %s in Effect's form", at, v, t.src("")) }
+	switch t.kind {
+	case "int":
+		n, ok := v.(json.Number)
+		if !ok {
+			return bad()
+		}
+		i, err := strconv.ParseInt(string(n), 10, 64)
+		if err != nil || i > 1<<53-1 || i < -(1<<53-1) {
+			return bad()
+		}
+	case "float64":
+		if _, ok := v.(json.Number); !ok {
+			return bad()
+		}
+	case "string":
+		if _, ok := v.(string); !ok {
+			return bad()
+		}
+	case "bool":
+		if _, ok := v.(bool); !ok {
+			return bad()
+		}
+	case "slice":
+		xs, ok := v.([]any)
+		if !ok {
+			return bad()
+		}
+		for i, x := range xs {
+			if err := form(t.elem, x, fmt.Sprintf("%s[%d]", at, i), false); err != nil {
+				return err
+			}
+		}
+	case "map":
+		m, ok := v.(map[string]any)
+		if !ok {
+			return bad()
+		}
+		for k, x := range m {
+			if err := form(t.elem, x, at+"."+k, false); err != nil {
+				return err
+			}
+		}
+	case "option":
+		m, ok := v.(map[string]any)
+		if !ok {
+			return bad()
+		}
+		switch m["_tag"] {
+		case "None":
+			if len(m) != 1 {
+				return bad()
+			}
+		case "Some":
+			if _, has := m["value"]; !has || len(m) != 2 {
+				return bad()
+			}
+			return form(t.elem, m["value"], at+".value", false)
+		default:
+			return bad()
+		}
+	case "union":
+		m, ok := v.(map[string]any)
+		if !ok {
+			return bad()
+		}
+		for _, r := range t.variants {
+			if m["_tag"] == r.name {
+				return form(r, v, at, true)
+			}
+		}
+		return bad()
+	case "record":
+		m, ok := v.(map[string]any)
+		if !ok {
+			return bad()
+		}
+		want := len(t.fields)
+		if tagged {
+			if m["_tag"] != t.name {
+				return bad()
+			}
+			want++
+		}
+		if len(m) != want {
+			return bad()
+		}
+		for _, f := range t.fields {
+			// Effect's key: the name with its first letter lowered.
+			key := strings.ToLower(f.name[:1]) + f.name[1:]
+			x, has := m[key]
+			if !has {
+				return fmt.Errorf("%s: %v lacks the key %q", at, v, key)
+			}
+			if err := form(f.t, x, at+"."+key, false); err != nil {
+				return err
+			}
+		}
+	default:
+		return bad()
+	}
+	return nil
 }
 
 func sources(files map[string]string) string {
@@ -187,9 +427,10 @@ func limit(t *testing.T) uint64 {
 }
 
 // runOnce runs the program to its end under the memory bound.
-func runOnce(t *testing.T, exe string, arg string) outcome {
+func runOnce(t *testing.T, exe string, args ...string) outcome {
 	t.Helper()
-	cmd := exec.Command(exe, arg)
+	arg := strings.Join(args, " ")
+	cmd := exec.Command(exe, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := proclimit.Run(cmd, limit(t))
@@ -212,9 +453,9 @@ type server struct {
 
 // startServer starts the program's server and waits for its first line,
 // "listening ADDR".
-func startServer(t *testing.T, exe string) *server {
+func startServer(t *testing.T, exe string, key ...string) *server {
 	t.Helper()
-	s := &server{cmd: exec.Command(exe, "serve")}
+	s := &server{cmd: exec.Command(exe, append([]string{"serve"}, key...)...)}
 	out, err := s.cmd.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -315,8 +556,9 @@ type program struct {
 	contracts []*contract
 	order     []*call // the calls in the order main makes them
 	dies      bool
-	// wide: the last call carries an int the wire refuses.
-	wide bool
+	// wides are the calls that carry an int the wire refuses; each runs
+	// alone.
+	wides []wideCall
 }
 
 var fieldNames = []string{"Name", "Count", "IsOn", "RetryAfterMs", "Tags", "Weights", "Extra", "Note"}
@@ -328,12 +570,10 @@ func newProgram(seed uint64) *program {
 	for i := 0; i < n; i++ {
 		p.contracts = append(p.contracts, p.contract(i))
 	}
-	// The seed picks how the sequence ends, so any three seeds in a row
-	// reach each ending: seed%3 == 1 a defect, 2 a wide int, 0 neither.
-	// A wide int needs an operation of the last contract that reaches an
-	// int; one is added when none does.
+	// The wide calls need an operation that reaches an int; one is added
+	// to the last contract when none does.
 	last := p.contracts[len(p.contracts)-1]
-	if seed%3 == 2 && p.wideOp(last) == nil {
+	if !p.anyWideOp() {
 		last.ops = append(last.ops, &op{name: fmt.Sprintf("C%dOp%d", last.i, len(last.ops)), params: []field{{name: "count", t: &ty{kind: "int"}}}, result: &ty{kind: "int"}})
 	}
 	// The calls, contract by contract, each operation one to three times.
@@ -355,59 +595,90 @@ func newProgram(seed uint64) *program {
 			}
 		}
 	}
-	// The last call may end the program: its provider raises a defect, or
-	// an int beyond +-(2^53-1) is in its arguments or its value, which the
-	// wire refuses (the direct run carries it).
-	o := last.ops[p.r.IntN(len(last.ops))]
-	if seed%3 == 2 {
-		o = p.wideOp(last)
-	}
-	cl := &call{op: o, n: len(last.calls), outcome: -1}
-	q := fmt.Sprintf("c%d.", last.i)
-	for _, prm := range o.params {
-		cl.args = append(cl.args, p.lit(prm.t, q, 0))
-	}
-	switch seed % 3 {
-	case 1:
-		cl.outcome = -2
-		p.dies = true
-	case 2:
-		for i, prm := range o.params {
-			if s, ok := p.wideLit(prm.t, q); ok && !p.wide {
-				cl.args[i] = s
-				p.wide = true
-			}
-		}
-		if o.result != nil {
-			if s, ok := p.wideLit(o.result, ""); ok && !p.wide {
-				cl.value = s
-				p.wide = true
-			}
-		}
-	}
-	if p.dies || p.wide {
-		if cl.outcome == -1 && o.result != nil && cl.value == "" {
-			cl.value = p.lit(o.result, "", 0)
+	// An odd seed ends the sequence in a defect that the last call's
+	// provider raises.
+	if seed%2 == 1 {
+		o := last.ops[p.r.IntN(len(last.ops))]
+		cl := &call{op: o, n: len(last.calls), outcome: -2}
+		for _, prm := range o.params {
+			cl.args = append(cl.args, p.lit(prm.t, fmt.Sprintf("c%d.", last.i), 0))
 		}
 		last.calls = append(last.calls, cl)
 		p.order = append(p.order, cl)
+		p.dies = true
+	}
+	// The wide calls: for each argument, value and failure of each
+	// operation that reaches an int, a call that carries one beyond
+	// +-(2^53-1) there. Each runs alone, against the Wide provider.
+	for _, c := range p.contracts {
+		q := fmt.Sprintf("c%d.", c.i)
+		for _, o := range c.ops {
+			normal := func() *call {
+				cl := &call{op: o, outcome: -1}
+				for _, prm := range o.params {
+					cl.args = append(cl.args, p.lit(prm.t, q, 0))
+				}
+				if o.result != nil {
+					cl.value = p.lit(o.result, "", 0)
+				}
+				return cl
+			}
+			// The edges, 2^53 and -2^53, alternate.
+			w := func() string { return []string{"9007199254740992", "-9007199254740992"}[len(p.wides)%2] }
+			for i, prm := range o.params {
+				if s, ok := p.wideLit(prm.t, q, w()); ok {
+					cl := normal()
+					cl.args[i] = s
+					p.wides = append(p.wides, wideCall{c: c, call: cl, where: "argument " + prm.name})
+				}
+			}
+			if o.result != nil {
+				if s, ok := p.wideLit(o.result, "", w()); ok {
+					cl := normal()
+					cl.value = s
+					p.wides = append(p.wides, wideCall{c: c, call: cl, where: "value"})
+				}
+			}
+			for i, f := range o.fails {
+				if s, ok := p.wideLit(f, "", w()); ok {
+					cl := normal()
+					cl.outcome, cl.value = i, s
+					p.wides = append(p.wides, wideCall{c: c, call: cl, where: "failure " + f.name})
+				}
+			}
+		}
 	}
 	return p
 }
 
-// wideOp is an operation of c whose parameters or value reach an int.
-func (p *program) wideOp(c *contract) *op {
-	for _, o := range c.ops {
-		for _, prm := range o.params {
-			if reachesInt(prm.t) {
-				return o
+// wideCall is a call that carries an int beyond +-(2^53-1) at where.
+type wideCall struct {
+	c     *contract
+	call  *call
+	where string
+}
+
+// anyWideOp reports an operation, of any contract, whose arguments, value
+// or failures reach an int.
+func (p *program) anyWideOp() bool {
+	for _, c := range p.contracts {
+		for _, o := range c.ops {
+			for _, prm := range o.params {
+				if reachesInt(prm.t) {
+					return true
+				}
+			}
+			if o.result != nil && reachesInt(o.result) {
+				return true
+			}
+			for _, f := range o.fails {
+				if reachesInt(f) {
+					return true
+				}
 			}
 		}
-		if o.result != nil && reachesInt(o.result) {
-			return o
-		}
 	}
-	return nil
+	return false
 }
 
 func reachesInt(t *ty) bool {
@@ -432,27 +703,27 @@ func reachesInt(t *ty) bool {
 	return false
 }
 
-// wideLit is a value of t that holds one int beyond +-(2^53-1), when t
-// reaches an int.
-func (p *program) wideLit(t *ty, q string) (string, bool) {
+// wideLit is a value of t that holds the int w, one beyond +-(2^53-1),
+// when t reaches an int.
+func (p *program) wideLit(t *ty, q, w string) (string, bool) {
 	switch t.kind {
 	case "int":
-		return []string{"9007199254740992", "-9007199254740993", "9223372036854775807"}[p.r.IntN(3)], true
+		return w, true
 	case "slice":
-		if s, ok := p.wideLit(t.elem, q); ok {
+		if s, ok := p.wideLit(t.elem, q, w); ok {
 			return t.src(q) + "{" + s + "}", true
 		}
 	case "map":
-		if s, ok := p.wideLit(t.elem, q); ok {
+		if s, ok := p.wideLit(t.elem, q, w); ok {
 			return t.src(q) + `{"w": ` + s + "}", true
 		}
 	case "option":
-		if s, ok := p.wideLit(t.elem, q); ok {
+		if s, ok := p.wideLit(t.elem, q, w); ok {
 			return "Some[" + t.elem.src(q) + "]{Value: " + s + "}", true
 		}
 	case "record":
 		for i, f := range t.fields {
-			if s, ok := p.wideLit(f.t, q); ok {
+			if s, ok := p.wideLit(f.t, q, w); ok {
 				var fs []string
 				for j, g := range t.fields {
 					v := s
@@ -466,7 +737,7 @@ func (p *program) wideLit(t *ty, q string) (string, bool) {
 		}
 	case "union":
 		for _, v := range t.variants {
-			if s, ok := p.wideLit(v, q); ok {
+			if s, ok := p.wideLit(v, q, w); ok {
 				return s, true
 			}
 		}
@@ -645,10 +916,11 @@ func (p *program) contractSource(c *contract) string {
 	}
 	fmt.Fprintf(&b, "\tC%dLog() []string,\n}\n\n", c.i)
 	b.WriteString(`// Ref is the reference provider: it notes each call's arguments and
-// gives the outcome the sequence planned for its count.
-type Ref { log sync.Ref[[]string], n sync.Ref[int] }
+// gives the outcome the sequence planned for its count; with a wide key
+// ("w3"), the outcome of that wide call.
+type Ref { log sync.Ref[[]string], n sync.Ref[int], wide string }
 
-func NewRef() Ref { Ref{log: sync.NewRef[[]string]([]string{}), n: sync.NewRef[int](0)} }
+func NewRef(wide string) Ref { Ref{log: sync.NewRef[[]string]([]string{}), n: sync.NewRef[int](0), wide: wide} }
 
 func enc[T wire](v T) string { json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, v) }
 
@@ -664,20 +936,40 @@ func note(r Ref, s string) { r.log.Update(func(l []string) []string { l.Append(s
 		for _, prm := range o.params {
 			note += " + \" \" + enc(" + prm.name + ")"
 		}
-		fmt.Fprintf(&b, "\tnote(r, %s)\n\tmatch next(r) {\n", note)
-		for _, cl := range c.calls {
-			if cl.op != o {
-				continue
-			}
-			fmt.Fprintf(&b, "\tcase %d:\n", cl.n)
+		fmt.Fprintf(&b, "\tnote(r, %s)\n", note)
+		outcome := func(cl *call) {
 			switch {
 			case cl.outcome == -2:
 				fmt.Fprintf(&b, "\t\tUnreachable(%q)\n", p.boom())
 			case cl.outcome >= 0:
 				fmt.Fprintf(&b, "\t\treturn %s\n", cl.value)
 			case o.result != nil:
-				fmt.Fprintf(&b, "\t\t%s\n", cl.value)
+				fmt.Fprintf(&b, "\t\treturn %s\n", cl.value)
+			default:
+				b.WriteString("\t\treturn\n")
 			}
+		}
+		var wides []int
+		for k, w := range p.wides {
+			if w.call.op == o {
+				wides = append(wides, k)
+			}
+		}
+		if len(wides) > 0 {
+			b.WriteString("\tmatch r.wide {\n")
+			for _, k := range wides {
+				fmt.Fprintf(&b, "\tcase \"w%d\":\n", k)
+				outcome(p.wides[k].call)
+			}
+			b.WriteString("\tcase _:\n\t}\n")
+		}
+		b.WriteString("\tmatch next(r) {\n")
+		for _, cl := range c.calls {
+			if cl.op != o {
+				continue
+			}
+			fmt.Fprintf(&b, "\tcase %d:\n", cl.n)
+			outcome(cl)
 		}
 		b.WriteString("\tcase _:\n\t\tUnreachable(\"a call the sequence did not plan\")\n\t}\n}\n")
 	}
@@ -734,10 +1026,9 @@ func (p *program) mainSource() string {
 	}
 	needs := strings.Join(caps, " | ")
 	b.WriteString("\nfunc enc[T wire](v T) string { json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, v) }\n")
-	for k, cl := range p.order {
-		c := p.contractOf(cl)
+	callFunc := func(name string, c *contract, cl *call) {
 		q := fmt.Sprintf("c%d.", c.i)
-		fmt.Fprintf(&b, "\nfunc call%d() string needs %sSvc {\n\t", k, q)
+		fmt.Fprintf(&b, "\nfunc %s() string needs %sSvc {\n\t", name, q)
 		invoke := fmt.Sprintf("%sSvc.%s(%s)", q, cl.op.name, strings.Join(cl.args, ", "))
 		if cl.op.result != nil {
 			b.WriteString("let v = ")
@@ -756,9 +1047,15 @@ func (p *program) mainSource() string {
 			fmt.Fprintf(&b, "\n\t\"%s is unit\"\n}\n", cl.op.name)
 		}
 	}
+	for k, cl := range p.order {
+		callFunc(fmt.Sprintf("call%d", k), p.contractOf(cl), cl)
+	}
+	for k, w := range p.wides {
+		callFunc(fmt.Sprintf("wide%d", k), w.c, w.call)
+	}
 	fmt.Fprintf(&b, "\nfunc script() needs Console | %s {\n", needs)
 	last := len(p.order)
-	if p.dies || p.wide {
+	if p.dies {
 		last--
 	}
 	for k := 0; k < last; k++ {
@@ -767,8 +1064,37 @@ func (p *program) mainSource() string {
 	for _, c := range p.contracts {
 		fmt.Fprintf(&b, "\tfor l in c%d.Svc.C%dLog() {\n\t\tConsole.Println(l)\n\t}\n", c.i, c.i)
 	}
-	if p.dies || p.wide {
+	if p.dies {
 		fmt.Fprintf(&b, "\tConsole.Println(call%d())\n", last)
+	}
+	b.WriteString("}\n")
+	fmt.Fprintf(&b, "\nfunc wide(key string) needs Console | %s {\n\tmatch key {\n", needs)
+	for k := range p.wides {
+		fmt.Fprintf(&b, "\tcase \"w%d\":\n\t\tConsole.Println(wide%d())\n", k, k)
+	}
+	b.WriteString("\tcase _:\n\t\tUnreachable(\"no such wide call\")\n\t}\n}\n")
+	// payload is a wide call's Request payload, as a client that does not
+	// check its answers (Effect's) sends it.
+	request := func(c *contract, cl *call) string {
+		var fs []string
+		for i, prm := range cl.op.params {
+			fs = append(fs, FieldName(prm.name)+": "+cl.args[i])
+		}
+		req := fmt.Sprintf("c%drpc.%sRequest", c.i, cl.op.name)
+		if len(fs) > 0 {
+			req += "{" + strings.Join(fs, ", ") + "}"
+		}
+		return req
+	}
+	b.WriteString("\nfunc payload(key string) string {\n\tmatch key {\n")
+	for k, w := range p.wides {
+		fmt.Fprintf(&b, "\tcase \"w%d\":\n\t\trpc.Encode(%s)\n", k, request(w.c, w.call))
+	}
+	b.WriteString("\tcase _:\n\t\tUnreachable(\"no such wide call\")\n\t}\n}\n")
+	// payloads are the sequence's Request payloads, a line each.
+	b.WriteString("\nfunc payloads() needs Console {\n")
+	for _, cl := range p.order {
+		fmt.Fprintf(&b, "\tConsole.Println(rpc.Encode(%s))\n", request(p.contractOf(cl), cl))
 	}
 	b.WriteString("}\n")
 	fmt.Fprintf(&b, "\nfunc handle(tag string, payload string) string fails rpc.Failed needs %s {\n", needs)
@@ -778,31 +1104,39 @@ func (p *program) mainSource() string {
 	b.WriteString("\trpc.Die[string](\"RpcError\", \"no contract has \\(tag)\")\n}\n")
 	var refs, clients []string
 	for _, c := range p.contracts {
-		refs = append(refs, fmt.Sprintf("c%d.Svc: c%d.NewRef()", c.i, c.i))
+		refs = append(refs, fmt.Sprintf("c%d.Svc: c%d.NewRef(key)", c.i, c.i))
 		clients = append(clients, fmt.Sprintf("c%d.Svc: c%drpc.NewClient(conn)", c.i, c.i))
 	}
+	// Modes: serve [KEY]; direct [KEY]; URL [KEY]. A KEY ("w3") runs
+	// that wide call alone; the server's provider gives its outcome.
 	fmt.Fprintf(&b, `
 func main() fails rpc.ListenFailed needs Console | Ambient {
-	let mode = os.NewHost().Args()[0]
+	let args = os.NewHost().Args()
+	let mode = args[0]
+	let key = if len(args) > 1 { args[1] } else { "" }
 	match mode {
 	case "serve":
 		let l = try rpc.Listen("127.0.0.1:0")
 		Console.Println("listening \(l.Addr())")
-		with context { %s } {
+		with context { %[1]s } {
 			rpc.Serve(l, "/rpc", handle)
 		}
+	case "payload":
+		Console.Println(payload(key))
+	case "payloads":
+		payloads()
 	case "direct":
-		with context { %s } {
-			script()
+		with context { %[1]s } {
+			if key == "" { script() } else { wide(key) }
 		}
 	case _:
 		let conn = rpc.Dial(mode)
-		with context { %s } {
-			script()
+		with context { %[2]s } {
+			if key == "" { script() } else { wide(key) }
 		}
 	}
 }
-`, strings.Join(refs, ", "), strings.Join(refs, ", "), strings.Join(clients, ", "))
+`, strings.Join(refs, ", "), strings.Join(clients, ", "))
 	return b.String()
 }
 
