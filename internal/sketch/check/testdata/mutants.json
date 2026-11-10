@@ -977,7 +977,7 @@
       "origin": "wf10 v1-lang-B L11",
       "file": "internal/sketch/check/wire.go",
       "from": "if typeSet(tp) == SetWire {",
-      "to": "if true {",
+      "to": "if typeSet(tp) == SetWire || true {",
       "rule": "types.md, Codecs 1: a type parameter is codable only under codable.",
       "killers": [
         "check:TestFixtures"
