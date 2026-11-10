@@ -158,6 +158,10 @@ func (l *lowerer) wireFields(em wireEvents, tc *typeCtx, b *strings.Builder, td 
 		}
 		b.WriteString(count + " := " + initial + "\n")
 	}
+	// dynamicKey writes the key with a comma when a member came before.
+	dynamicKey := func(key string) string {
+		return "if " + count + " == 0 {\n" + em.key(key, true, task, w) + "} else {\n" + em.key(key, false, task, w) + "}\n"
+	}
 	for i, f := range s.Fields {
 		ft, fv := f.Type, rec+"."+td.fieldName[f.Name]
 		key := check.WireFieldName(f.Name)
@@ -165,7 +169,7 @@ func (l *lowerer) wireFields(em wireEvents, tc *typeCtx, b *strings.Builder, td 
 			// The argument decides at run time: its witness's Field is
 			// set only for json.Optional.
 			b.WriteString("if " + wit + ".Field == nil || !" + wit + ".Field.Absent(" + fv + ") {\n")
-			b.WriteString("if " + count + " == 0 {\n" + em.key(key, true, task, w) + "} else {\n" + em.key(key, false, task, w) + "}\n")
+			b.WriteString(dynamicKey(key))
 			b.WriteString("if " + wit + ".Field != nil {\n" + ftc.wireEncodeWith(em, ft, env, w, fv) + "\n} else {\n" + tc.wireEncodeWith(em, ft, env, w, fv) + "\n}\n")
 			b.WriteString(count + "++\n}\n")
 			continue
@@ -179,7 +183,7 @@ func (l *lowerer) wireFields(em wireEvents, tc *typeCtx, b *strings.Builder, td 
 			ft = field.Type
 		}
 		if dynamic {
-			b.WriteString("if " + count + " == 0 {\n" + em.key(key, true, task, w) + "} else {\n" + em.key(key, false, task, w) + "}\n")
+			b.WriteString(dynamicKey(key))
 		} else {
 			b.WriteString(em.key(key, i == 0 && !tagged, task, w))
 		}
