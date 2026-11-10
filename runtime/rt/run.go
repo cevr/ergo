@@ -30,10 +30,7 @@ func Run[T any](t *Task, body func(*Task) (T, error)) (v T, err error) {
 		t.traceTask(TraceStart, nil)
 	}
 	defer func() {
-		var c Cause
-		c.Add(err)
-		t.settle(&c, recover())
-		if err = c.Err(); err != nil {
+		if err = t.exitOf(err, recover()); err != nil {
 			var zero T
 			v = zero
 		}
@@ -42,4 +39,20 @@ func Run[T any](t *Task, body func(*Task) (T, error)) (v T, err error) {
 		}
 	}()
 	return body(t)
+}
+
+// exitOf is the exit of a task whose body returned err, or panicked with p:
+// it builds the Cause and settles it in its own frame. The traced body-exit
+// then reaches below the body frame through Run's small deferred frame and
+// the tracer's frames only. When the Cause lived in the deferred frame, that
+// frame's size followed the Cause code's: a coverage build grew it by 72
+// bytes and took the traced exit past its stack budget
+// (TestTraceExitStaysOnTheFirstStack).
+//
+//go:noinline
+func (t *Task) exitOf(err error, p any) error {
+	var c Cause
+	c.Add(err)
+	t.settle(&c, p)
+	return c.Err()
 }

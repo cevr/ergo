@@ -48,7 +48,9 @@ func exitDepth() int64 {
 // twice), and the traced spawn benchmark with the real recorder found the
 // cliff between 624 bytes (7 words: 1,339 to 1,741 ns/op, the unpadded
 // range) and 640 bytes (8 words: 2,997 to 3,495 ns/op, the stack copy). The
-// budget is 576 bytes: it fails 48 bytes before the cliff.
+// budget is 576 bytes: it fails 48 bytes before the cliff. Since Run builds
+// the Cause in exitOf's frame, the path measures 464 bytes, the same with
+// and without -cover; Run's own frame, and with it the cliff, did not move.
 const exitDepthBudget = 576
 
 // A traced task's body-exit must stay within a new goroutine's first stack:
