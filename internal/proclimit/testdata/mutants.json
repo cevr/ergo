@@ -24,7 +24,7 @@
       "origin": "wf10 FU-gcoom",
       "file": "internal/proclimit/report.go",
       "from": "strings.HasPrefix(line, \"PC=\") && slices.Contains(strings.Fields(line), \"addr=0x0\")",
-      "to": "strings.HasPrefix(line, \"PC=\") && !slices.Contains(nil, \"\")",
+      "to": "strings.HasPrefix(line, \"PC=\") && slices.Contains([]string{line}, line)",
       "rule": "A span-queue SIGSEGV at an address other than 0 is not the nil ring and stays a crash.",
       "killers": ["internal/proclimit:TestQueueFaultIsNamed"]
     },
