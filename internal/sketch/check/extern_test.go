@@ -296,6 +296,7 @@ func main() {
 type Mine {}
 
 func Path(_ Mine) string             { "" }
+func TakeNull(_ Mine) bool           { false }
 func Bool(_ Mine) bool               { false }
 func Int(_ Mine) int64               { 0 }
 func Uint(_ Mine) uint64             { 0 }
@@ -484,6 +485,7 @@ func pass(m Mine) {
 	// The codec events (L11): a format or a program provides each.
 	"prelude.Writer": `type Mine {}
 
+func Null(_ Mine) {}
 func Bool(_ Mine, b bool) {}
 func Int(_ Mine, n int64) {}
 func Uint(_ Mine, n uint64) {}
@@ -504,6 +506,7 @@ func main() {
 `,
 	"prelude.Reader": `type Mine {}
 
+func TakeNull(_ Mine) bool { false }
 func Path(_ Mine) string { "" }
 func Bool(_ Mine) bool fails WireWrongKind { true }
 func Int(_ Mine) int64 fails WireWrongKind { 0 }

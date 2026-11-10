@@ -100,6 +100,7 @@ func unsatisfied(u Unsatisfied) fails Unsatisfied { u }
 // v2's jsontext.Encoder.
 // law-exempt: Writer has no read operation, so no law over its own operations can observe an event; std codec's Events records them and carries the laws (EventsReplay).
 type Writer {
+	Null(),
 	Bool(b bool),
 	Int(n int64),
 	Uint(n uint64),
@@ -123,6 +124,9 @@ type Writer {
 // for a failure's text.
 // law-exempt: a law over Reader alone has no events to read; std codec's Replay reads the events Events recorded and carries the laws (EventsReplay).
 type Reader {
+	// TakeNull consumes the next value only when it is null; otherwise it
+	// leaves the reader at that value. No path or list index changes on false.
+	TakeNull() bool,
 	Path() string,
 	Bool() bool fails WireWrongKind,
 	Int() int64 fails WireWrongKind,

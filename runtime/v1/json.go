@@ -56,9 +56,8 @@ func JSONAppendTextString(t *Text, s string) {
 	t.B = jsonAppendString(t.B, s, &jsonSafe)
 }
 
-// Null writes null, a value no derived codec writes (a Text's own event,
-// for a hand-written text).
-func (t *Text) Null() {
+// Null writes the null event, including a Nullable's empty state.
+func (t *Text) Null(task *rt.Task) {
 	t.JSONValue()
 	t.B = append(t.B, "null"...)
 	t.Comma = true
@@ -731,6 +730,17 @@ func (c *Cursor) begin(open byte, list bool) bool {
 func (c *Cursor) BeginList() bool { return c.begin('[', true) }
 
 func (c *Cursor) BeginObject() bool { return c.begin('{', false) }
+
+// TakeNull consumes null only. A false probe changes no path or list index.
+func (c *Cursor) TakeNull() bool {
+	c.ws()
+	if c.i >= len(c.s) || c.s[c.i] != 'n' {
+		return false
+	}
+	c.at()
+	c.i += len("null") // JSONOpen already validated this value.
+	return true
+}
 
 // Tag is the string value of the member "_tag" of the object just begun,
 // wherever it stands among the members, or false. The member stays: a

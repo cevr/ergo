@@ -128,6 +128,60 @@
       "killers": ["lower:TestStdHTTPLawsRun"]
     },
     {
+      "name": "g3-omit",
+      "origin": "G3",
+      "file": "internal/sketch/lower/wirefields.go",
+      "from": "optional := jsonWrapper(ft, \"Optional\")",
+      "to": "optional := false",
+      "rule": "Absent fields write no key and Present writes its bare value.",
+      "killers": ["lower:TestJSONFieldsAgree"]
+    },
+    {
+      "name": "g3-null",
+      "origin": "G3",
+      "file": "internal/sketch/lower/wirefields.go",
+      "from": "appendConst(w, \"null\")",
+      "to": "appendConst(w, \"false\")",
+      "rule": "Nullable's empty state writes null, not false.",
+      "killers": ["lower:TestJSONFieldsAgree"]
+    },
+    {
+      "name": "g3-comma",
+      "origin": "G3",
+      "file": "internal/sketch/lower/wirefields.go",
+      "from": "em.key(key, false, task, w)",
+      "to": "em.key(key, true, task, w)",
+      "rule": "Present fields after another field need a comma even when an earlier field was omitted.",
+      "killers": ["lower:TestJSONFieldsAgree"]
+    },
+    {
+      "name": "g3-required",
+      "origin": "G3",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "if jsonWrapper(f.Type, \"Optional\") {",
+      "to": "if jsonWrapper(f.Type, \"Optional\") || jsonWrapper(f.Type, \"Nullable\") {",
+      "rule": "A Nullable field still requires its key; null is not absence.",
+      "killers": ["lower:TestJSONFieldsAgree"]
+    },
+    {
+      "name": "g3-generic-witness",
+      "origin": "G3",
+      "file": "internal/sketch/lower/wirefields.go",
+      "from": "if !jsonWrapper(t, \"Optional\") {",
+      "to": "if true {",
+      "rule": "A json.Optional argument's witness carries the record-field form, so a field typed by a type parameter omits Absent.",
+      "killers": ["lower:TestJSONFieldsAgree"]
+    },
+    {
+      "name": "g3-generic-payload",
+      "origin": "G3",
+      "file": "internal/sketch/lower/wirefields.go",
+      "from": "f.wires[tp] = wit + \".Field\"",
+      "to": "f.wires[tp] = wit",
+      "rule": "A present Optional argument in a type-parameter field writes and reads its bare payload, not the tagged union.",
+      "killers": ["lower:TestJSONFieldsAgree"]
+    },
+    {
       "name": "existing-2-unit-h",
       "origin": "lower-v1/verify-s4a/r2/mutants-r2.json",
       "file": "internal/sketch/lower/tests.go",
