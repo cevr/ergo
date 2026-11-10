@@ -444,8 +444,11 @@ type Missing { Name string }
 // Extra is a positional argument that no spec takes.
 type Extra { Text string }
 
-// UnknownCommand is a first argument that names no command of Known.
-type UnknownCommand { Name string, Known []string }
+// UnknownCommand is a first argument that names no command of Known, or
+// no argument where a command name is needed. Group is the path of group
+// names from the root to the level that looked it up: empty at the root,
+// ["auth"] for `tool auth bogus`.
+type UnknownCommand { Name string, Known []string, Group []string }
 
 // Failure is every failure of Parse and ParseCommand.
 type Failure = Help | Unknown | NeedsValue | Invalid | Missing | Extra | UnknownCommand
@@ -470,10 +473,11 @@ func Describe(f Failure) string {
 	case Extra as e:
 		"unexpected argument: " + e.Text
 	case UnknownCommand as c:
+		let at = if len(c.Group) == 0 { "" } else { " of " + strings.Join(c.Group, " ") }
 		if c.Name == "" {
-			"missing command; commands: " + strings.Join(c.Known, ", ")
+			"missing command" + at + "; commands: " + strings.Join(c.Known, ", ")
 		} else {
-			"unknown command " + strconv.Quote(c.Name) + "; commands: " + strings.Join(c.Known, ", ")
+			"unknown command " + strconv.Quote(c.Name) + at + "; commands: " + strings.Join(c.Known, ", ")
 		}
 	}
 }

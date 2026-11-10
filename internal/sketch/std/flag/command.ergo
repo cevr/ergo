@@ -1,3 +1,5 @@
+import strings
+
 // Command is one subcommand of a program whose commands are the union C
 // (@effect/cli Command.withSubcommands): its name, its usage line, its
 // Set, and Build, which makes the program's C from the parsed Values.
@@ -6,6 +8,10 @@
 // is a row parameter, empty when Build fails only as Parse does. Commands
 // are the children. A group dispatches to a child; only a leaf uses Set
 // and Build. Group makes a group without a dummy Build at the call site.
+// A group's child named "" is the group's own leaf (Cobra's Run on a
+// parent; @effect/cli's handler on a command withSubcommands): it runs
+// when no child name follows the group, so `tool auth` runs it and
+// `tool auth whoami` runs the child. A level holds at most one such leaf.
 type Command[C, E] {
 	Name     string,
 	Usage    string,
@@ -57,33 +63,66 @@ func RootUsage[C, E](root Root[C, E]) string {
 // reads its help. A failure of Build reaches the caller as it is, in E.
 // When the first argument names no command, -h, -help or --help anywhere
 // before "--" fails Help with CommandUsage, as @effect/cli's help wins
-// over a parse error; otherwise a name of no command, or no name, fails
-// UnknownCommand.
+// over a parse error. Otherwise the level's own leaf (a child named "")
+// parses every argument when there is one and no argument follows, the
+// first is a flag or "--", or the leaf takes positional arguments; else a
+// name of no command, or no name, fails UnknownCommand, whose Group is the
+// path of group names below the root.
 func ParseCommand[C, E](name string, usage string, commands []Command[C, E], args []string) C fails E | Help | Unknown | NeedsValue | Invalid | Missing | Extra | UnknownCommand {
-	if len(args) == 0 {
-		return UnknownCommand{Name: "", Known: commandNames(commands)}
-	}
-	let first = args[0]
+	try parseLevel[C, E](name, usage, []string{}, commands, args)
+}
+
+// parseLevel is ParseCommand at one level of the tree: groups is the path
+// of group names from the root to this level.
+func parseLevel[C, E](name string, usage string, groups []string, commands []Command[C, E], args []string) C fails E | Help | Unknown | NeedsValue | Invalid | Missing | Extra | UnknownCommand {
+	let first = if len(args) > 0 { args[0] } else { "" }
 	let mut rest = []string{}
 	for i, a in args {
 		if i > 0 {
 			rest = rest.Append(a)
 		}
 	}
-	for c in commands {
-		if c.Name == first {
-			let path = if name == "" { c.Name } else { name + " " + c.Name }
-			if len(c.Commands) > 0 {
-				return try ParseCommand[C, E](path, c.Usage, c.Commands, rest)
+	if len(args) > 0 {
+		for c in commands {
+			if c.Name != "" && c.Name == first {
+				let path = if name == "" { c.Name } else { name + " " + c.Name }
+				if len(c.Commands) > 0 {
+					return try parseLevel[C, E](path, c.Usage, groups.Append(c.Name), c.Commands, rest)
+				}
+				let v = try Parse(Set{..c.Set, Name: path}, rest)
+				return try c.Build(v)
 			}
-			let v = try Parse(Set{..c.Set, Name: path}, rest)
-			return try c.Build(v)
 		}
 	}
-	if helpAsked(Set{Name: name, Usage: usage, Flags: []Flag{}, Args: []ArgSpec{}}, args) {
-		return Help{Text: CommandUsage(name, usage, commands)}
+	match ownLeaf(commands) {
+	case Some[Command[C, E]] as own:
+		let leaf = own.Value
+		if len(leaf.Commands) > 0 {
+			return Unreachable("flag: a group's own leaf has no children")
+		}
+		if helpAsked(Set{..leaf.Set, Name: name}, args) {
+			return Help{Text: CommandUsage(name, usage, commands)}
+		}
+		if len(args) == 0 || strings.HasPrefix(first, "-") || len(leaf.Set.Args) > 0 {
+			let v = try Parse(Set{..leaf.Set, Name: name}, args)
+			return try leaf.Build(v)
+		}
+	case None:
+		if helpAsked(Set{Name: name, Usage: usage, Flags: []Flag{}, Args: []ArgSpec{}}, args) {
+			return Help{Text: CommandUsage(name, usage, commands)}
+		}
 	}
-	UnknownCommand{Name: first, Known: commandNames(commands)}
+	UnknownCommand{Name: first, Known: commandNames(commands), Group: groups}
+}
+
+// ownLeaf is the child named "" of a level: its own leaf.
+func ownLeaf[C, E](commands []Command[C, E]) Option[Command[C, E]] {
+	for c in commands {
+		if c.Name == "" {
+			return Some[Command[C, E]]{Value: c}
+		}
+	}
+	None
 }
 
 // CommandUsage is the help of a program of commands: "Usage of NAME:",
@@ -95,17 +134,20 @@ func CommandUsage[C, E](name string, usage string, commands []Command[C, E]) str
 		out = out + usage + "\n"
 	}
 	out = out + "Commands:\n"
-	out = out + commandHelp("", commands)
+	out = out + commandHelp(name, "", commands)
 	out
 }
 
 // commandHelp lists complete relative paths, including every descendant.
-func commandHelp[C, E](prefix string, commands []Command[C, E]) string {
+// A level's own leaf is listed at the level's path, or at name, the
+// program's, at the top.
+func commandHelp[C, E](name string, prefix string, commands []Command[C, E]) string {
 	let mut out = ""
 	for c in commands {
-		let path = if prefix == "" { c.Name } else { prefix + " " + c.Name }
-		out = out + "  " + path + "\n    \t" + c.Usage + "\n"
-		out = out + commandHelp[C, E](path, c.Commands)
+		let path = if c.Name == "" { prefix } else if prefix == "" { c.Name } else { prefix + " " + c.Name }
+		let shown = if path == "" { name } else { path }
+		out = out + "  " + shown + "\n    \t" + c.Usage + "\n"
+		out = out + commandHelp[C, E](name, path, c.Commands)
 	}
 	out
 }
@@ -118,11 +160,14 @@ func RenderCommand(path []string, v Values) []string {
 	out
 }
 
-// commandNames is the names of commands, in order.
+// commandNames is the names of commands, in order, without a level's own
+// leaf, which no name selects.
 func commandNames[C, E](commands []Command[C, E]) []string {
 	let mut out = []string{}
 	for c in commands {
-		out = out.Append(c.Name)
+		if c.Name != "" {
+			out = out.Append(c.Name)
+		}
 	}
 	out
 }
