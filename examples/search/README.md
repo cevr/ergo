@@ -32,7 +32,7 @@ The program is a module of packages (`ergo.mod`: `module search`), in the Go lay
 
 - **State-owned work (MU4).** `find` gives `Searching` a `machines.Work` against `Catalog`. The runner starts it after the entry commits and before an observer sees the entry, and interrupts it when the entry ends. `IndexDown` is a failure of `Catalog` and also a `Signal`, so the work needs no failure map; the hits need `OnSuccess`, which makes them `Found`.
 - **Runner-owned timer (`after`).** The pause is `Typing`'s timer. A key re-enters `Typing` with `Enter`, so the pause starts again: the debounce needs no counter.
-- **Observers (MU12).** `Play` reads the actor's `Changes`: every state the actor commits, once each, in order. It starts the read before each signal, so it misses no state the signal causes, also those of the work that answers at once.
+- **Observers (MU12) on a settled clock (fua-b).** A watcher task reads the actor's `Changes`: every state the actor commits, once each, in order, stamped with the clock's time. `time.Advance` returns only when every task of the clock's domain waits again, one instant at a time, so `Play` reads no timer of its own: it moves the clock, asks, settles with `Advance(0s)`, and shows the states and outputs of each instant.
 - **`Emit` (q28).** The result of a search moves to `Showing` and tells `Shown` in one decision. A choice tells `Put`.
 - **Input-initial (V4).** The machine's input is the cart it begins with: `machines.Start(Finder{}, []Item{})`.
 - **Exhaustive `match`.** `Step` names all eight signals, and each arm whose answer depends on the state names all five states. A result in a state that has no work is `Ignore`. The only `case _` arms are over a script word and in a law.
