@@ -565,6 +565,39 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
     an A-B-A chain sends A's fields only to A, and B's only to B. User
     information in a URL is refused, not converted to implicit credentials.
 
+    **The request target** (S-target). The URL is read as the WHATWG URL
+    Standard reads a special (http, https) URL: tabs and newlines are
+    removed, leading and trailing controls and spaces are trimmed, "\" is
+    "/", the dot segments (`.`, `..`, and their `%2e` spellings) are
+    removed, and the path and the query are percent-encoded with the
+    standard's path and special-query sets (a byte of invalid UTF-8 reads
+    as U+FFFD). An escape the URL holds stays as it is, valid or not
+    (`%zz`, `%2F`), and so does every byte outside those sets (`|`, `[`,
+    `'` in a path). The request line carries that path and query as they
+    are; the fragment is not sent. Only the authority (up to the first
+    "/", "\", "?" or "#") goes through Go's `url.Parse` as before, so the
+    origin, its policy, the credentials bound to it and the Host header
+    do not change. A Location is resolved as the standard resolves a
+    relative URL against the request's URL. Two cases are refused as
+    Malformed, never sent changed: a request URL (or a Location of another
+    scheme) whose scheme two slashes do not follow (the standard reads
+    `http:x` as `http://x`; a Location `http:x` under an http URL is
+    relative, as the standard says), and a path that starts
+    with "//" and holds text Go's client cannot write in origin form
+    (Go sends an `Opaque` that starts with "//" in absolute form; Go keeps
+    such a path only through `RawPath`, as valid escaped text). The fixed-
+    origin `Do` keeps its decoded `Path`, which the client escapes. Through
+    an `HTTP_PROXY` for a plain-http URL, Go's client writes the target in
+    origin form; this is a known gap. A 3xx with a `Location` that
+    `url.Parse` refuses is a response, as any redirect is: the exchange
+    uses the transport's `RoundTrip`, not `Client.Do`, which parses
+    Location even when it follows nothing. `TestHTTPFetchSendsTheWebTarget`
+    reads the request line and the Host header at a raw loopback listener
+    for 400 generated URLs and 200 generated redirects, and compares them
+    with targets recorded from a reference parser
+    (`runtime/v1/testdata/webtarget/gen.mjs`: Bun 1.4.4's `URL`, which
+    gives the same text as Node 24's ada).
+
     Follow handles 301, 302, 303, 307 and 308 with a Location, resolving
     relative URLs normally. Each followed redirect consumes one hop; an
     exhausted limit is `RedirectLimit{URL, Limit}`. NoRedirects returns
