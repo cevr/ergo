@@ -1,0 +1,9 @@
+{
+  "about": "scripts/examples mutants of the ts leg (X-rpc1). The example killers run under -tags ts, which needs Bun and a warmed Bun cache: go run ./scripts/examples -tags ts limiter.",
+  "mutants": [
+    { "name": "ts-skip", "file": "scripts/examples/main.go", "from": "\t\t\tr.fail(p.name + \": ts\")\n", "to": "", "rule": "A ts program the leg cannot run fails; it never passes with its cases unrun.", "killers": ["examples:TestTsLegWithoutBunFails"] },
+    { "name": "ts-layout", "file": "scripts/examples/main.go", "from": "if present[\"ts\"] != p.tagged(\"ts\") {", "to": "if false {", "rule": "A ts/ folder and the tag ts go together.", "killers": ["examples:TestTsLayout"] },
+    { "name": "ts-package", "file": "scripts/examples/ts.go", "from": "return dir, os.WriteFile(filepath.Join(dir, \"package.json\"), []byte(tsPackage), 0o644)", "to": "return dir, nil", "rule": "A case's copy has its own package.json, so ergo-ts/bun resolves to the installed package.", "killers": ["example:limiter/gateway"] },
+    { "name": "ts-path", "file": "scripts/examples/ts.go", "from": "path := filepath.Dir(ergo)", "to": "path := \"/nonexistent/loop-probe-x\"", "rule": "The checkout's ergo is first on PATH for the content mapper.", "killers": ["example:limiter/tsc", "example:limiter/tsc-drift"] }
+  ]
+}

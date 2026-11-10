@@ -1,0 +1,17 @@
+GET /fetch/api -> 200: granted, 4 left
+GET /fetch/api?cost=3 -> 200: granted, 1 left
+GET /fetch/api -> 200: granted, 0 left
+GET /fetch/api -> 429 retry-after 1: limited for 200 ms
+GET /level/api -> 200: empty for 200 ms
+POST /advance?ms=150 -> 204
+GET /fetch/api -> 429 retry-after 1: limited for 50 ms
+POST /advance?ms=50 -> 204
+GET /fetch/api -> 200: granted, 0 left
+GET /fetch/search?cost=4 -> 400: a take costs 1 to 3, not 4
+GET /fetch/search?cost=3 -> 200: granted, 0 left
+GET /level/search -> 200: empty for 1000 ms
+GET /fetch/nope -> 404: no bucket nope
+GET /level/nope -> 404: no bucket nope
+POST /advance?ms=5000 -> 204
+GET /level/api -> 200: full
+GET /level/search -> 200: full

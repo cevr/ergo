@@ -1,0 +1,95 @@
+// Package memory holds Memory, a limits.Limiter whose buckets live in a
+// map in memory. Every copy of a Memory is the same limiter: its buckets
+// are in a sync.Ref, so the tasks that serve calls at once see one state,
+// and each take is one atomic step of its key's bucket.
+
+import limiter/bucket
+import limiter/limits
+import machines
+import maps
+import slices
+import sync
+
+// Memory is a limits.Limiter in memory. Its field is unexported: New
+// makes one.
+type Memory { buckets sync.Ref[Map[string, bucket.Bucket]] }
+
+// New is a Memory with a full bucket for each spec, by key.
+func New(specs Map[string, bucket.Spec]) Memory {
+	let mut buckets = Map[string, bucket.Bucket]{}
+	for k in maps.Keys(specs) {
+		buckets[k] = bucket.Open(maps.GetOr(specs, k, bucket.Spec{Capacity: 1, RefillMs: 1}))
+	}
+	Memory{buckets: sync.NewRef[Map[string, bucket.Bucket]](buckets)}
+}
+
+// NewMemory is a Memory of two small buckets; ergo test runs the
+// limits.Limiter laws against it.
+func NewMemory() Memory {
+	let mut specs = Map[string, bucket.Spec]{}
+	specs["fast"] = bucket.Spec{Capacity: 3, RefillMs: 7}
+	specs["slow"] = bucket.Spec{Capacity: 4, RefillMs: 250}
+	New(specs)
+}
+
+// taken is what one atomic take found.
+type taken = Told{T bucket.Told} | Unknown{} | Bad{Capacity int}
+
+// Take steps key's bucket by a spend of cost.
+func Take(m Memory, key string, cost int) limits.Grant fails limits.Limited | limits.UnknownBucket | limits.BadCost {
+	let t = sync.Modify(m.buckets, func(bs Map[string, bucket.Bucket]) (taken, Map[string, bucket.Bucket]) {
+		let b = match bs.Get(key) {
+		case Some[bucket.Bucket] as s:
+			s.Value
+		case None:
+			return (Unknown, bs)
+		}
+		let d = bucket.Step(b, bucket.Spend{Cost: cost})
+		let mut next = bs
+		next[key] = machines.Next(b, d)
+		match d {
+		case Emit[bucket.Bucket, bucket.Told] as e:
+			(Told{T: e.Output}, next)
+		case Enter[bucket.Bucket], Stay[bucket.Bucket], Ignore, Reject, Done[bucket.Told]:
+			(Bad{Capacity: b.Capacity}, bs)
+		}
+	})
+	match t {
+	case Told as told:
+		match told.T {
+		case bucket.Granted as g:
+			limits.Grant{Remaining: g.Remaining}
+		case bucket.Short as s:
+			limits.Limited{RetryAfterMs: s.RetryAfterMs}
+		}
+	case Unknown:
+		limits.UnknownBucket{Key: key}
+	case Bad as b:
+		limits.BadCost{Cost: cost, Capacity: b.Capacity}
+	}
+}
+
+// Peek is key's level, or None for an unknown key.
+func Peek(m Memory, key string) Option[limits.Level] {
+	match m.buckets.Get().Get(key) {
+	case Some[bucket.Bucket] as s:
+		Some[limits.Level]{Value: bucket.LevelOf(s.Value)}
+	case None:
+		None
+	}
+}
+
+// Advance moves every bucket's clock by ms.
+func Advance(m Memory, ms int) {
+	m.buckets.Update(func(bs Map[string, bucket.Bucket]) Map[string, bucket.Bucket] {
+		let mut next = bs
+		for k in maps.Keys(bs) {
+			let b = maps.GetOr(bs, k, bucket.Open(bucket.Spec{Capacity: 1, RefillMs: 1}))
+			next[k] = machines.Next(b, bucket.Step(b, bucket.Elapse{Ms: ms}))
+		}
+		next
+	})
+}
+
+// Buckets is the keys, sorted.
+func Buckets(m Memory) []string { slices.Sorted(maps.Keys(m.buckets.Get())) }

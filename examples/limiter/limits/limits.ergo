@@ -1,0 +1,127 @@
+// Package limits is a rate limiter's contract: a bucket of tokens per key,
+// on a clock the limiter keeps. The TypeScript gateway imports this file
+// through the content mapper, so the operation type below is the one
+// contract both sides read.
+
+// Grant is a take the limiter allowed: Remaining tokens are left.
+type Grant { Remaining int }
+
+// Limited: the bucket has too few tokens now; after RetryAfterMs of the
+// limiter's clock the same take is granted.
+type Limited { RetryAfterMs int }
+
+// UnknownBucket: no bucket has the key.
+type UnknownBucket { Key string }
+
+// BadCost: a take must cost at least one token and at most the bucket's
+// capacity, or no wait would ever grant it.
+type BadCost { Cost int, Capacity int }
+
+// Level is a bucket's state as a client sees it.
+type Level = Full{} | Partial{Tokens int} | Empty{RetryAfterMs int}
+
+// Limiter is the service a gateway calls. Advance moves the limiter's
+// clock: the clock is the limiter's, so a client that waits says how long.
+type Limiter {
+	Take(key string, cost int) Grant fails Limited | UnknownBucket | BadCost,
+	Peek(key string) Option[Level],
+	Advance(ms int),
+	Buckets() []string,
+
+	// NeverOverdraws: a granted take leaves no negative count, from any
+	// state the takes before it left.
+	law NeverOverdraws(pick int, costs []int) { NeverOverdraws(pick, costs) },
+
+	// RetryAfterIsExact: a limited take is still limited one millisecond
+	// before its RetryAfterMs and granted at it.
+	law RetryAfterIsExact(pick int, cost int) { RetryAfterIsExact(pick, cost) },
+
+	// LimitedTakesNothing: a refused take leaves the bucket's level as it was.
+	law LimitedTakesNothing(pick int, cost int) { LimitedTakesNothing(pick, cost) },
+}
+
+// key is one of the limiter's buckets, chosen by pick, or None.
+func key(pick int) Option[string] needs Limiter {
+	let keys = Limiter.Buckets()
+	if len(keys) == 0 {
+		return None
+	}
+	Some[string]{Value: keys[((pick%len(keys))+len(keys))%len(keys)]}
+}
+
+// NeverOverdraws takes each cost from one bucket and checks every grant.
+func NeverOverdraws(pick int, costs []int) bool needs Limiter {
+	let k = match key(pick) {
+	case Some[string] as s:
+		s.Value
+	case None:
+		return true
+	}
+	for c in costs {
+		let g = Limiter.Take(k, 1+((c%4)+4)%4) catch {
+		case Limited, UnknownBucket, BadCost:
+			continue
+		}
+		if g.Remaining < 0 {
+			return false
+		}
+	}
+	true
+}
+
+// RetryAfterIsExact drains a bucket until a take of cost is limited, then
+// waits one millisecond less than it was told, and then the last one.
+func RetryAfterIsExact(pick int, cost int) bool needs Limiter {
+	let k = match key(pick) {
+	case Some[string] as s:
+		s.Value
+	case None:
+		return true
+	}
+	let c = 1 + ((cost%2)+2)%2
+	for _ in 0..64 {
+		Limiter.Take(k, c) catch {
+		case Limited as l:
+			if l.RetryAfterMs < 1 {
+				return false
+			}
+			Limiter.Advance(l.RetryAfterMs - 1)
+			Limiter.Take(k, c) catch {
+			case Limited:
+				Limiter.Advance(1)
+				Limiter.Take(k, c) catch {
+				case Limited, UnknownBucket, BadCost:
+					return false
+				}
+				return true
+			case UnknownBucket, BadCost:
+				return false
+			}
+			return false
+		case UnknownBucket, BadCost:
+			return true
+		}
+	}
+	false
+}
+
+// LimitedTakesNothing compares the level before and after a refused take.
+func LimitedTakesNothing(pick int, cost int) bool needs Limiter {
+	let k = match key(pick) {
+	case Some[string] as s:
+		s.Value
+	case None:
+		return true
+	}
+	let c = 1 + ((cost%3)+3)%3
+	for _ in 0..64 {
+		let before = Limiter.Peek(k)
+		Limiter.Take(k, c) catch {
+		case Limited:
+			return Limiter.Peek(k) == before
+		case UnknownBucket, BadCost:
+			return true
+		}
+	}
+	true
+}

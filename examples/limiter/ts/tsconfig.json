@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "target": "es2022",
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true
+  },
+  "contentMappers": [{ "package": "ergo-ts", "extensions": [".ergo"] }],
+  "include": ["gateway.ts"]
+}

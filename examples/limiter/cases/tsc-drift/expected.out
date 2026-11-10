@@ -1,0 +1,1 @@
+ts/gateway.ts(47,84): error TS2339: Property 'capacity' does not exist on type 'BadCost'.
