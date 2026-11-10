@@ -197,7 +197,7 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 	}
 	for _, run := range pkg.LawRuns {
 		for _, target := range lawTargets(pkg, run) {
-			res := Result{Name: target.name, Site: in.site(lawPkg(run.Law), run.Law.Decl, run.Law.Decl.Pos())}
+			res := Result{Name: target.name, Site: in.site(run.Law.Pkg, run.Law.Decl, run.Law.Decl.Pos())}
 			if stopped != "" || initFail != nil {
 				add(res)
 				continue
@@ -207,15 +207,6 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 	}
 	rep.Steps = in.steps
 	return rep, nil
-}
-
-// lawPkg is the package that declares l: a machine's law records only its
-// machine, whose package declares it.
-func lawPkg(l *check.Law) *check.Package {
-	if l.Pkg == nil && l.Machine != nil {
-		return l.Machine.Pkg
-	}
-	return l.Pkg
 }
 
 func lawName(l *check.Law) string {

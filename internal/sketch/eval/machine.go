@@ -123,7 +123,7 @@ func (in *interp) initMachines(p *check.Package) *initFailure {
 // machineLaw runs the reachability law law (Machine laws, above).
 func (in *interp) machineLaw(law *check.Law, res Result) (out Result) {
 	m := machineOf(law.Machine)
-	fr := in.newFrame(lawPkg(law), law.Decl)
+	fr := in.newFrame(law.Pkg, law.Decl)
 	start := in.steps
 	ms := &MachineSearch{}
 	out = res

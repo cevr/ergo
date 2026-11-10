@@ -334,7 +334,7 @@ func (l *lowerer) lawTitle(law *check.Law) string {
 	case law.Machine != nil:
 		title = law.Machine.Name + "." + law.Name
 	}
-	if law.Pkg != nil && law.Pkg != l.pkg {
+	if law.Pkg != l.pkg {
 		title = law.Pkg.Name + "." + title
 	}
 	return title
@@ -393,7 +393,7 @@ func (l *lowerer) lawDecl(law *check.Law) {
 	// package's Info, as that package's functions are (sources.go); a law
 	// of std, as a std body is: with no line directive (decls.go).
 	defer l.leave(l.enter(d.Name, law.Pkg))
-	sourced := law.Pkg == nil || l.isSourced(law.Pkg)
+	sourced := l.isSourced(law.Pkg)
 	if !sourced {
 		l.info = law.Pkg.Info
 	}

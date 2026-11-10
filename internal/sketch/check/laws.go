@@ -158,7 +158,7 @@ func (c *checker) collectLaws(spec *syntax.InterfaceType, tn *TypeName, fi *file
 func (c *checker) collectMachineLaws(spec *syntax.MachineType, tn *TypeName, fi *fileInfo) {
 	names := map[string]bool{}
 	for _, d := range spec.Laws {
-		law := &Law{Name: d.Name.Name, Decl: d, Machine: tn, file: fi}
+		law := &Law{Name: d.Name.Name, Decl: d, Machine: tn, Pkg: c.pkg, file: fi}
 		c.def(d.Name, law)
 		c.pkg.Laws = append(c.pkg.Laws, law)
 		if names[law.Name] {
