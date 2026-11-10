@@ -44,7 +44,7 @@ func Filled(n int, keys []int) Cache[int, int] {
 // CapacityBound: a cache never holds more entries than its capacity.
 law CapacityBound(n int, keys []int, seed int) {
 	for ks in [][]int{keys, KeysOf(seed)} {
-		let c = Filled(n, ks)
+		let mut c = Filled(n, ks)
 		if c.Len() > c.Capacity() || len(c.Entries()) != c.Len() {
 			return false
 		}
@@ -73,7 +73,8 @@ law GetAfterPut(n int, keys []int, seed int, k int, v int) {
 law MostRecentKept(n int, keys []int, seed int) {
 	for ks in [][]int{keys, KeysOf(seed)} {
 		let want = slices.Transform(Recent(ks, SizeOf(n)), func(k int) Entry[int, int] { Entry[int, int]{Key: k, Value: 2 * k} })
-		if Filled(n, ks).Entries() != want {
+		let mut c = Filled(n, ks)
+		if c.Entries() != want {
 			return false
 		}
 	}
