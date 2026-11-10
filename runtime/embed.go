@@ -31,6 +31,7 @@ import (
 //go:embed v1/sync.go v1/set.go
 //go:embed v1/path.go v1/numbers.go v1/digest.go v1/goerror.go v1/csv.go
 //go:embed v1/exec.go v1/exec_exit_kqueue.go v1/exec_exit_linux.go
+//go:embed explore/explore.go
 var sources embed.FS
 
 // Module is the path of the runtime's Go module, which an emitted module
@@ -49,6 +50,9 @@ type pkg struct {
 // that serve only the compiler (runtime/v1/files.go); a test keeps both
 // lists and the imports equal to the directories.
 var packages = map[string]pkg{
+	"runtime/explore": {
+		files: []string{"explore.go"},
+	},
 	"runtime/rt": {
 		files: []string{"cause.go", "clock.go", "doc.go", "handle.go", "idle.go", "machine.go", "regions.go", "run.go", "scope.go", "task.go", "tasks.go", "timeout.go", "trace.go", "values.go"},
 	},

@@ -1,0 +1,115 @@
+{
+  "about": "The mutant ledger of runtime/explore: edits that runtime/explore's TestSearchAgreesWithReference or the lowering's TestKeyEqualsEquality must kill. scripts/mutants judges only check and lower today (follow-up of wf10 X1); until it has an explore suite, a unit that changes the package applies each edit by hand and runs the killer.",
+  "mutants": [
+    {
+      "name": "x1-explore-map-unsorted",
+      "origin": "wf10/explorer/x1",
+      "file": "runtime/explore/explore.go",
+      "from": "\tslices.SortFunc(entries, func(a, b []byte) int { return compareBytes(a, b) })\n",
+      "to": "",
+      "rule": "Key: a Map writes its entries in the order of their encodings, so Go's map order does not show.",
+      "killers": [
+        "explore:TestSearchAgreesWithReference"
+      ]
+    },
+    {
+      "name": "x1-explore-budget-proved",
+      "origin": "wf10/explorer/x1",
+      "file": "runtime/explore/explore.go",
+      "from": "\t\t\t\t\tr.Checked = depth - 1\n\t\t\t\t\treturn r",
+      "to": "\t\t\t\t\tr.Checked = depth - 1\n\t\t\t\t\tr.Complete = true\n\t\t\t\t\treturn r",
+      "rule": "Search: a search the budget stops is not Complete (never reported proved).",
+      "killers": [
+        "explore:TestSearchAgreesWithReference"
+      ]
+    },
+    {
+      "name": "x1-explore-start-unchecked",
+      "origin": "wf10/explorer/x1",
+      "file": "runtime/explore/explore.go",
+      "from": "\t\tr.States++\n\t\tif target(s) {",
+      "to": "\t\tr.States++\n\t\tif false && target(s) {",
+      "rule": "Search: the starts are checked against the target, the start included.",
+      "killers": [
+        "explore:TestSearchAgreesWithReference"
+      ]
+    },
+    {
+      "name": "x1-explore-revisit-new",
+      "origin": "wf10/explorer/x1",
+      "file": "runtime/explore/explore.go",
+      "from": "\t\t\t\tr.Edges++\n\t\t\t\tif !visit(t) {",
+      "to": "\t\t\t\tr.Edges++\n\t\t\t\tif !visit(t) && e > 0 {",
+      "rule": "Search: a state seen before (an Ignore or Reject edge included) is no new state.",
+      "killers": [
+        "explore:TestSearchAgreesWithReference"
+      ]
+    },
+    {
+      "name": "x1-explore-parent-off",
+      "origin": "wf10/explorer/x1",
+      "file": "runtime/explore/explore.go",
+      "from": "\t\t\t\tr.nodes = append(r.nodes, node{parent: int32(ids[f]), sig: int32(e)})\n\t\t\t\tr.States++",
+      "to": "\t\t\t\tr.nodes = append(r.nodes, node{parent: int32(ids[f]) - 1, sig: int32(e)})\n\t\t\t\tr.States++",
+      "rule": "Result.Run: the run to a node replays to it.",
+      "killers": [
+        "explore:TestSearchAgreesWithReference"
+      ]
+    },
+    {
+      "name": "x1-explore-hash-8-bits",
+      "origin": "wf10/explorer/x1",
+      "file": "runtime/explore/explore.go",
+      "from": "\tbinary.BigEndian.PutUint64(h[8:], lo)\n\treturn h",
+      "to": "\tbinary.BigEndian.PutUint64(h[8:], lo)\n\treturn Hash{15: h[15]}",
+      "rule": "Key.Sum: the visited set holds 128-bit hashes; a narrow hash merges states (a false proved).",
+      "killers": [
+        "explore:TestSearchAgreesWithReference"
+      ]
+    },
+    {
+      "name": "x1-explore-changes-self",
+      "origin": "wf10/explorer/x1",
+      "file": "runtime/explore/explore.go",
+      "from": "if !slices.Equal(here, k.Bytes()) {",
+      "to": "if true || !slices.Equal(here, k.Bytes()) {",
+      "rule": "Changes: a random walk picks only signals that move to another state.",
+      "killers": [
+        "explore:TestSearchAgreesWithReference"
+      ]
+    },
+    {
+      "name": "x1-explore-path-layer-shared",
+      "origin": "wf10/explorer/x1",
+      "file": "runtime/explore/explore.go",
+      "from": "\tfor d := 1; d < len(targets) && len(frontier) > 0; d++ {\n\t\tlayer = map[Hash]struct{}{}\n",
+      "to": "\tfor d := 1; d < len(targets) && len(frontier) > 0; d++ {\n",
+      "rule": "Path: each layer keeps its own visited set.",
+      "killers": [
+        "explore:TestSearchAgreesWithReference"
+      ]
+    },
+    {
+      "name": "x1-explore-checked-depth",
+      "origin": "wf10/explorer/x1",
+      "file": "runtime/explore/explore.go",
+      "from": "\tr.Checked = r.Depth\n\tr.Complete = true\n\treturn r\n}\n\n// Path",
+      "to": "\tr.Checked = r.Depth + 1\n\tr.Complete = true\n\treturn r\n}\n\n// Path",
+      "rule": "Search: Checked is the run length up to which every run was checked.",
+      "killers": [
+        "explore:TestSearchAgreesWithReference"
+      ]
+    },
+    {
+      "name": "x1-key-string-length",
+      "origin": "wf10/explorer/x1",
+      "file": "runtime/explore/explore.go",
+      "from": "\tk.Uint(uint64(len(s)))\n\tk.buf = append(k.buf, s...)",
+      "to": "\tk.buf = append(k.buf, s...)",
+      "rule": "Key.String: a string is written with its length.",
+      "killers": [
+        "lower:TestKeyEqualsEquality"
+      ]
+    }
+  ]
+}
