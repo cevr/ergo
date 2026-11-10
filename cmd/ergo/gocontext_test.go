@@ -11,11 +11,15 @@ import (
 // is context.Context is bound with that parameter hidden, and the call
 // passes the calling task's context, through import go and through a user
 // extern (a Level 2 adapter of runtime/trace.Log). A task blocked in such
-// a call is interrupted by timeout.After: Go's wait ends on ctx.Done(), the task
+// a call is stopped after Go has entered the wait: Go's wait ends on
+// ctx.Done(), the task
 // unwinds at the call (the context.Canceled error Go returns is never
 // seen as a go.Error, and nothing after the call runs), its exit action
 // runs, masked, where a Go call gets a context that cannot be cancelled,
-// and no goroutine is left. Outside a mask the context can be cancelled.
+// and release has completed. Outside a mask the context can be cancelled.
+// A process-wide NumGoroutine delta cannot measure owned work: the child
+// closes its completion channel just before its goroutine returns, and Go
+// may start unrelated runtime goroutines. Observe the release event instead.
 //
 // Mutants it alone catches: the interruption point after the call dropped
 // (the catch arm runs with "go error context canceled"); the mask ignored
@@ -35,27 +39,33 @@ func TestGoContextInterrupts(t *testing.T) {
 
 import (
 	"context"
-	"runtime"
+	"sync/atomic"
 )
+
+var started = make(chan struct{})
+var released atomic.Bool
 
 // Block waits until ctx is cancelled and returns its error.
 func Block(ctx context.Context) error {
-	<-ctx.Done()
+	done := ctx.Done()
+	close(started)
+	<-done
 	return ctx.Err()
 }
 
+func WaitStarted() { <-started }
+func Release() { released.Store(true) }
+func Released() bool { return released.Load() }
+
 // Cancellable reports whether ctx can be cancelled.
 func Cancellable(ctx context.Context) bool { return ctx.Done() != nil }
-
-// Goroutines is runtime.NumGoroutine.
-func Goroutines() int { return runtime.NumGoroutine() }
 `,
 		"app/ergo.mod": "module app\n",
 		"app/go.mod":   "module app\n\ngo 1.27\n\nrequire example.com/hostwait v0.0.0\n\nreplace example.com/hostwait => ../hostwait\n",
 		"app/cmd/app/main.ergo": `import go example.com/hostwait
 import scope
 import strconv
-import timeout
+import task
 
 // A Level 2 adapter of a Go function with a hidden context.
 extern go runtime/trace.Log func traceLog(category string, message string) needs go.Foreign
@@ -64,6 +74,7 @@ func waits() needs Console | go.Foreign {
 	let mut seen = "nothing"
 	scope.OnExit() {
 		Console.Println("released, saw " + seen + ", cancellable " + strconv.FormatBool(hostwait.Cancellable()))
+		hostwait.Release()
 	}
 	hostwait.Block() catch {
 	case go.Error as e:
@@ -73,17 +84,14 @@ func waits() needs Console | go.Foreign {
 	Console.Println("after the wait")
 }
 
-func main() needs Console | Ambient | go.Foreign {
-	let before = hostwait.Goroutines()
-	with context { Scheduler: NewLiveScheduler() } {
-		timeout.After(20ms) { waits() } catch {
-		case timeout.Expired:
-			Console.Println("interrupted")
-		}
-	}
+func main() needs Console | go.Foreign {
+	let pending = task.Go() { waits() }
+	hostwait.WaitStarted()
+	pending.Stop()
+	Console.Println("interrupted")
 	traceLog("ergo", "after")
 	Console.Println("cancellable " + strconv.FormatBool(hostwait.Cancellable()))
-	Console.Println("leaked " + strconv.Itoa(hostwait.Goroutines() - before))
+	Console.Println("release complete " + strconv.FormatBool(hostwait.Released()))
 }
 `,
 	})
@@ -97,7 +105,7 @@ func main() needs Console | Ambient | go.Foreign {
 		return string(stdout)
 	}
 	run("bind", "go", "example.com/hostwait")
-	want := "released, saw nothing, cancellable false\ninterrupted\ncancellable true\nleaked 0\n"
+	want := "released, saw nothing, cancellable false\ninterrupted\ncancellable true\nrelease complete true\n"
 	if got := run("run", "cmd/app"); got != want {
 		t.Errorf("ergo run cmd/app:\n%s\nwant:\n%s", got, want)
 	}

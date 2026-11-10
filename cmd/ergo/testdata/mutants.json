@@ -1,0 +1,23 @@
+{
+  "about": "Host context interruption acceptance mutants. Run the named CLI killer; it builds emitted programs because the contract is a live foreign wait and completed cleanup.",
+  "mutants": [
+    {
+      "name": "b15-r7-go-context-mask-ignored",
+      "origin": "wf10 batch-15 fix-r7",
+      "file": "runtime/rt/gocontext.go",
+      "from": "if t.Masked() {",
+      "to": "if false && t.Masked() {",
+      "rule": "A completed release observes a masked, non-cancellable Go context.",
+      "killers": ["cmd/ergo:TestGoContextInterrupts"]
+    },
+    {
+      "name": "b15-r7-go-context-post-call-unchecked",
+      "origin": "wf10 batch-15 fix-r7",
+      "file": "internal/sketch/lower/gocall.go",
+      "from": "func (fc *funcCtx) afterGoContext(x syntax.Node, ctx bool) {\n\tif ctx {",
+      "to": "func (fc *funcCtx) afterGoContext(x syntax.Node, ctx bool) {\n\tif false && ctx {",
+      "rule": "A stop of a Go wait unwinds before the catch arm can observe context.Canceled as a typed Go error.",
+      "killers": ["cmd/ergo:TestGoContextInterrupts"]
+    }
+  ]
+}
