@@ -1482,9 +1482,64 @@
       "name": "c2-alias-chain-lost",
       "origin": "wf10 batch-15 fix-r2 (C2 M1)",
       "file": "internal/sketch/check/escaping.go",
-      "from": "\t\t\t\tadd = w.aliases[b]",
-      "to": "\t\t\t\tadd = nil",
+      "from": "\t\t\t\t*via = append(*via, v)",
+      "to": "\t\t\t\t_ = v",
       "rule": "types.md Function values 3: a local bound from a local borrow holds the same borrow.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "c2-borrow-root-lost",
+      "origin": "wf10 batch-15 fix-r3 (C2 M1 repeat)",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "\t\t\t\t\t*roots = append(*roots, b)",
+      "to": "\t\t\t\t\t_ = b",
+      "rule": "types.md Function values 3: a &x in the value a local is bound from makes it hold a borrow of x, in any expression form.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "c2-assign-unbound",
+      "origin": "wf10 batch-15 fix-r3 (C2 M1 repeat)",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "\t\t\t\t\t\t\tbind(v, vals...)",
+      "to": "\t\t\t\t\t\t\t_ = vals",
+      "rule": "types.md Function values 3: an assignment re-binds a borrow; the local holds the borrows of every value assigned to it.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "c2-pattern-unbound",
+      "origin": "wf10 batch-15 fix-r3 (C2 M1 repeat)",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "\t\t\treturn n.Values, true",
+      "to": "\t\t\tif n.Pattern != nil {\n\t\t\t\treturn nil, true\n\t\t\t}\n\t\t\treturn n.Values, true",
+      "rule": "types.md Function values 3: a name a let pattern binds holds the borrows of the let's value.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "c2-clause-unbound",
+      "origin": "wf10 batch-15 fix-r3 (C2 M1 repeat)",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "\t\t\t\t\tvals = append(vals, g.X)",
+      "to": "\t\t\t\t\t_ = g",
+      "rule": "types.md Function values 3: a name a match clause's pattern binds holds the borrows of the match subject.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "c2-tuple-holds-none",
+      "origin": "wf10 batch-15 fix-r3 (C2 M1 repeat)",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "\t\t\tif holdsBorrow(e) {",
+      "to": "\t\t\tif false && holdsBorrow(e) {",
+      "rule": "types.md Function values 3: a tuple local with a borrow element holds that borrow.",
       "killers": [
         "lower:TestCaptureRuleModel"
       ]

@@ -1,6 +1,7 @@
 package check
 
 import (
+	"fmt"
 	"slices"
 	"sort"
 
@@ -153,7 +154,7 @@ func (w *escWalk) visit(n syntax.Node) {
 				w.localUses[v] = append(w.localUses[v], mutEvent{id: id, regions: append([]syntax.Node(nil), w.regions...)})
 			case v.mut:
 				w.mutUse(id, v)
-			case isPointer(v.Type):
+			case holdsBorrow(v.Type):
 				w.borrowUse(id, v)
 			}
 			w.aliasUse(id, v)
@@ -512,103 +513,228 @@ func (w *escWalk) aliasUse(id *syntax.Ident, v *Var) {
 	}
 }
 
+// holdsBorrow reports whether a value of type t can hold a borrow: a
+// borrow, or a tuple with an element that can (Borrows 1 keeps borrows
+// out of records, unions, collections and results).
+func holdsBorrow(t Type) bool {
+	switch t := t.(type) {
+	case *Pointer:
+		return true
+	case *Tuple:
+		for _, e := range t.Types {
+			if holdsBorrow(e) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // borrowAliases computes, for the declaration d, the let mut locals each
-// local borrow may point into: a let or an assignment of a borrow `&x.f`,
-// of another local borrow, or of a place through one (`&p.f`) adds the
-// roots of its value, to a fixpoint. It is flow-insensitive: a local that
-// once holds a borrow of x may write x at each of its uses.
+// local that holds a borrow may point into (types.md, Function values 3).
+// It reads the value flow, not the form of the binding: every binding of
+// a local whose type can hold a borrow (a let's names and patterns, an
+// assignment, a match clause's pattern, a for-in's names) takes the
+// borrows of the value it binds from (borrowsIn), to a fixpoint. It is
+// flow-insensitive: a local that once holds a borrow of x may write x at
+// each of its uses. A binding it has no rule for is an internal compiler
+// error, never a silent miss (batch-15 C2 M1 repeat).
 func (w *escWalk) borrowAliases(d syntax.Node) {
 	w.aliases = map[*Var][]*Var{}
 	type edge struct {
-		to  *Var
-		val syntax.Expr
+		to    *Var
+		roots []*Var // let mut locals a borrow in the value points into
+		via   []*Var // locals in the value that hold borrows
 	}
 	var edges []edge
-	local := func(id *syntax.Ident, defs bool) *Var {
-		var obj Object
-		if defs {
-			obj = w.info.Defs[id]
-		} else {
-			obj = w.info.Uses[id]
-		}
+	local := func(obj Object) *Var {
 		v, ok := obj.(*Var)
-		if !ok || v.pkg || !isPointer(v.Type) {
+		if !ok || v.pkg || !holdsBorrow(v.Type) {
 			return nil
 		}
 		return v
 	}
-	syntax.Inspect(d, func(n syntax.Node) bool {
+	bind := func(v *Var, vals ...syntax.Expr) {
+		e := edge{to: v}
+		for _, x := range vals {
+			w.borrowsIn(x, &e.roots, &e.via)
+		}
+		edges = append(edges, e)
+	}
+	var stack []syntax.Node
+	var walk func(n syntax.Node)
+	walk = func(n syntax.Node) {
 		switch n := n.(type) {
-		case *syntax.VarSpec:
-			if n.Pattern == nil && len(n.Names) == len(n.Values) {
-				for i, id := range n.Names {
-					if v := local(id, true); v != nil {
-						edges = append(edges, edge{v, n.Values[i]})
-					}
-				}
-			}
 		case *syntax.AssignStmt:
-			if n.Tok == syntax.ASSIGN && len(n.Lhs) == len(n.Rhs) {
+			if n.Tok == syntax.ASSIGN {
 				for i, l := range n.Lhs {
-					if id, ok := unparen(l).(*syntax.Ident); ok {
-						if v := local(id, false); v != nil {
-							edges = append(edges, edge{v, n.Rhs[i]})
+					vals := n.Rhs
+					if len(n.Lhs) == len(n.Rhs) {
+						vals = n.Rhs[i : i+1]
+					}
+					for _, id := range assignedNames(l) {
+						if v := local(w.info.Uses[id]); v != nil {
+							bind(v, vals...)
 						}
 					}
 				}
 			}
-		}
-		return true
-	})
-	if len(edges) == 0 {
-		return
-	}
-	// base is the local a borrow value is rooted at: &x.f[i] is x, p.f
-	// and *p are p.
-	base := func(x syntax.Expr) *Var {
-		for {
-			switch e := x.(type) {
-			case *syntax.ParenExpr:
-				x = e.X
-			case *syntax.UnaryExpr:
-				if e.Op != syntax.AND {
-					return nil
+		case *syntax.Ident:
+			if v := local(w.info.Defs[n]); v != nil {
+				vals, ok := bindingValues(stack)
+				if !ok {
+					panic(fmt.Sprintf("check: internal compiler error: the capture rule has no rule for the binding of %s (escaping.go, borrowAliases)", n.Name))
 				}
-				x = e.X
-			case *syntax.SelectorExpr:
-				x = e.X
-			case *syntax.IndexExpr:
-				x = e.X
-			case *syntax.StarExpr:
-				x = e.X
-			case *syntax.Ident:
-				v, _ := w.info.Uses[e].(*Var)
-				if v == nil || v.pkg {
-					return nil
+				if len(vals) > 0 {
+					bind(v, vals...)
 				}
-				return v
-			default:
-				return nil
 			}
 		}
+		stack = append(stack, n)
+		syntax.Inspect(n, func(m syntax.Node) bool {
+			if m == n {
+				return true
+			}
+			walk(m)
+			return false
+		})
+		stack = stack[:len(stack)-1]
+	}
+	walk(d)
+	if len(edges) == 0 {
+		return
 	}
 	for changed := true; changed; {
 		changed = false
 		for _, e := range edges {
-			b := base(e.val)
-			if b == nil {
-				continue
-			}
-			add := []*Var{b}
-			if isPointer(b.Type) {
-				add = w.aliases[b]
+			add := slices.Clone(e.roots)
+			for _, b := range e.via {
+				add = append(add, w.aliases[b]...)
 			}
 			for _, r := range add {
-				if r.mut && !slices.Contains(w.aliases[e.to], r) {
+				if !slices.Contains(w.aliases[e.to], r) {
 					w.aliases[e.to] = append(w.aliases[e.to], r)
 					changed = true
 				}
 			}
+		}
+	}
+}
+
+// bindingValues is what the local defined at the top of stack binds from:
+// a let's values, a match subject for a clause's pattern, a for-in's
+// collection; none for a parameter or a caught failure. ok is false for a
+// binding with no rule here.
+func bindingValues(stack []syntax.Node) (vals []syntax.Expr, ok bool) {
+	for i := len(stack) - 1; i >= 0; i-- {
+		switch n := stack[i].(type) {
+		case *syntax.VarSpec:
+			return n.Values, true
+		case *syntax.Field, *syntax.CatchArm:
+			return nil, true
+		case *syntax.RangeStmt:
+			return []syntax.Expr{n.X}, true
+		case *syntax.TypeGuard:
+			return []syntax.Expr{n.X}, true
+		case *syntax.CaseClause:
+			if i == 0 {
+				return nil, false
+			}
+			switch m := stack[i-1].(type) {
+			case *syntax.SwitchStmt:
+				return []syntax.Expr{m.Tag}, true
+			case *syntax.TypeSwitchStmt:
+				for _, g := range m.Subjects {
+					vals = append(vals, g.X)
+				}
+				return vals, true
+			}
+			return nil, false
+		}
+	}
+	return nil, false
+}
+
+// assignedNames is the locals an assignment target rebinds: a name, or
+// the names of a tuple of targets; a field or element target rebinds none.
+func assignedNames(x syntax.Expr) []*syntax.Ident {
+	switch x := unparen(x).(type) {
+	case *syntax.Ident:
+		return []*syntax.Ident{x}
+	case *syntax.TupleExpr:
+		var out []*syntax.Ident
+		for _, e := range x.Elts {
+			out = append(out, assignedNames(e)...)
+		}
+		return out
+	}
+	return nil
+}
+
+// borrowsIn adds the borrows the value x may hold: for each &place in it,
+// the place's root when that is a let mut local (roots), or the local when
+// the root holds a borrow itself (via); and each local in x that holds a
+// borrow (via). It reads every expression form (tuples, if and match
+// values, a catch's arms, parentheses), so how the value is written does
+// not matter. It skips a call's operands and a function literal's body: a
+// call's result holds no borrow (Borrows 1), a with's value is its block's.
+func (w *escWalk) borrowsIn(x syntax.Expr, roots, via *[]*Var) {
+	syntax.Inspect(x, func(n syntax.Node) bool {
+		switch n := n.(type) {
+		case *syntax.FuncLit:
+			return false
+		case *syntax.CallExpr:
+			if n.Trailing != nil {
+				syntax.Inspect(n.Trailing, func(m syntax.Node) bool {
+					if e, ok := m.(syntax.Expr); ok {
+						w.borrowsIn(e, roots, via)
+						return false
+					}
+					return true
+				})
+			}
+			return false
+		case *syntax.UnaryExpr:
+			if n.Op != syntax.AND {
+				return true
+			}
+			if b := w.placeRoot(n.X); b != nil {
+				if holdsBorrow(b.Type) {
+					*via = append(*via, b)
+				} else if b.mut {
+					*roots = append(*roots, b)
+				}
+			}
+			return false
+		case *syntax.Ident:
+			if v, ok := w.info.Uses[n].(*Var); ok && !v.pkg && holdsBorrow(v.Type) {
+				*via = append(*via, v)
+			}
+		}
+		return true
+	})
+}
+
+// placeRoot is the local a place is rooted at: x.f[i], *x and (x) are x.
+func (w *escWalk) placeRoot(x syntax.Expr) *Var {
+	for {
+		switch e := x.(type) {
+		case *syntax.ParenExpr:
+			x = e.X
+		case *syntax.SelectorExpr:
+			x = e.X
+		case *syntax.IndexExpr:
+			x = e.X
+		case *syntax.StarExpr:
+			x = e.X
+		case *syntax.Ident:
+			v, _ := w.info.Uses[e].(*Var)
+			if v == nil || v.pkg {
+				return nil
+			}
+			return v
+		default:
+			return nil
 		}
 	}
 }

@@ -18,8 +18,13 @@ import (
 // loops, ifs, a non-escaping block that its callee runs twice (each), and
 // local frames (let h = func() { … }, only called). At the end it calls
 // every literal, waits for every task and prints the ints. A let may bind
-// a borrow of an int (let pN = &vK), which later statements write through
-// (bump(pN, c)): each such use is a write of vK (batch-15 C2 M1).
+// a borrow of an int, which later statements write through (bump(pN, c)):
+// each such use is a write of every int the borrow may point into
+// (batch-15 C2 M1). The borrow is bound in each binding form (bLet…:
+// &vK, another borrow, a tuple pattern, an if and a match value, a
+// re-binding assignment, a tuple local taken apart by a let pattern or by
+// a match clause), so the checker's fact must come from the value flow,
+// not from one form (batch-15 C2 M1 repeat).
 //
 // The generator keeps the program as a tree and is the reference:
 //
@@ -58,14 +63,33 @@ const (
 	cEach                // each(2) { … }
 	cLocal               // let hN = func() { writes }
 	cCall                // hN()
-	cBorrow              // let pN = &vK, or let pN = pM: a write of vK (the borrow may write it)
-	cBump                // bump(pN, c): a write of vK through the borrow pN
+	cBorrow              // let pN = <a borrow, in one of the binding forms below>: a write of what it borrows
+	cBump                // bump(pN, c): a write of every int pN may point into
 )
+
+// The binding forms of a borrow (a cBorrow's form; batch-15 C2 M1 repeat).
+const (
+	bLet      = iota // let pN = &vK
+	bChain           // let pN = pM
+	bTuple           // let (pN, _) = (&vK, 0)
+	bIf              // let pN = if vA > c { &vK } else { &vJ }
+	bMatch           // let pN = match vA { case 1: &vK  case _: &vJ }, one arm a line
+	bRebind          // let mut pN = &vK, then pN = &vJ
+	bTupleVia        // let pNt = (&vK, 0), then let (pN, _) = pNt: a tuple local that holds a borrow
+	bClause          // let pNt = (&vK, 0), then match pNt { case (pN, _): bump(pN, c) }
+	bForms
+)
+
+var bFormName = []string{"let", "chain", "tuple", "if", "match", "rebind", "tuplevia", "clause"}
 
 type cstmt struct {
 	kind       int
 	v, c       int   // the written or tested int, a constant
 	reads      []int // the ints a capture or task reads
+	form       int   // a borrow's binding form
+	j, a       int   // a borrow's other int (if, match, rebind) and the tested one
+	roots      []int // the ints a borrow may point into: the checker's flow-insensitive fact
+	lines      []int // a borrow's source lines (match: each arm's; rebind: the assignment's)
 	name       string
 	body, els  []*cstmt
 	line, end  int // the source lines of the statement and of its closing brace
@@ -139,16 +163,35 @@ func (g *captureGen) block(depth int, regions []*cstmt, top bool) []*cstmt {
 		case cBorrow:
 			g.n++
 			s.name = fmt.Sprintf("p%d", g.n)
+			s.form = g.r.IntN(bForms)
 			if len(g.borrows) > 0 && g.r.IntN(2) == 0 {
+				s.form = bChain // a chain needs a borrow in scope: draw it as often as the rest
+			}
+			s.j = (s.v + 1 + g.r.IntN(2)) % 3
+			s.a = g.r.IntN(3)
+			switch s.form {
+			case bChain:
+				if len(g.borrows) == 0 {
+					s.form = bLet
+					s.roots = []int{s.v}
+					break
+				}
 				// let pN = pM: a borrow passed on, a use of pM.
 				s.callee = g.borrows[g.r.IntN(len(g.borrows))]
 				s.v = s.callee.v
+				s.roots = slices.Clone(s.callee.roots)
 				if g.bumped == nil {
 					g.bumped = map[*cstmt]bool{}
 				}
 				g.bumped[s.callee] = true
+			case bLet, bTuple, bTupleVia, bClause:
+				s.roots = []int{s.v}
+			default:
+				s.roots = []int{s.v, s.j}
 			}
-			g.borrows = append(g.borrows, s)
+			if s.form != bClause { // a clause's pN is used in the clause alone
+				g.borrows = append(g.borrows, s)
+			}
 		case cBump:
 			if len(g.borrows) == 0 {
 				s.kind = cWrite
@@ -299,10 +342,36 @@ func (g *captureGen) renderIn(list []*cstmt, depth int, regions []*cstmt) {
 		case cCall:
 			s.line = g.emit(depth, "%s()", s.callee.name)
 		case cBorrow:
-			if s.callee != nil {
+			switch s.form {
+			case bChain:
 				s.line = g.emit(depth, "let %s = %s", s.name, s.callee.name)
-			} else {
+			case bLet:
 				s.line = g.emit(depth, "let %s = &v%d", s.name, s.v)
+			case bTuple:
+				s.line = g.emit(depth, "let (%s, _) = (&v%d, 0)", s.name, s.v)
+			case bIf:
+				s.line = g.emit(depth, "let %s = if v%d > %d { &v%d } else { &v%d }", s.name, s.a, s.c, s.v, s.j)
+			case bMatch:
+				s.line = g.emit(depth, "let %s = match v%d {", s.name, s.a)
+				g.emit(depth, "case 1:")
+				k := g.emit(depth+1, "&v%d", s.v)
+				g.emit(depth, "case _:")
+				j := g.emit(depth+1, "&v%d", s.j)
+				g.emit(depth, "}")
+				s.lines = []int{k, j}
+			case bRebind:
+				s.line = g.emit(depth, "let mut %s = &v%d", s.name, s.v)
+				s.lines = []int{g.emit(depth, "%s = &v%d", s.name, s.j)}
+			case bTupleVia:
+				s.line = g.emit(depth, "let %st = (&v%d, 0)", s.name, s.v)
+				s.lines = []int{g.emit(depth, "let (%s, _) = %st", s.name, s.name)}
+			case bClause:
+				s.line = g.emit(depth, "let %st = (&v%d, 0)", s.name, s.v)
+				m := g.emit(depth, "match %st {", s.name)
+				g.emit(depth, "case (%s, _):", s.name)
+				b := g.emit(depth+1, "bump(%s, %d)", s.name, s.c)
+				g.emit(depth, "}")
+				s.lines = []int{m, b}
 			}
 		case cBump:
 			s.line = g.emit(depth, "bump(%s, %d)", s.callee.name, s.c)
@@ -320,11 +389,56 @@ func walkC(list []*cstmt, f func(*cstmt)) {
 	}
 }
 
+// wev is one write of the int v at a line by the statement s.
+type wev struct {
+	s       *cstmt
+	v, line int
+}
+
+// writesOf is the writes of s: a borrow &vK is a write of vK where it is
+// taken, and each use of a local that holds a borrow is a write of every
+// int it may point into (its roots, flow-insensitive: the checker's fact).
+func writesOf(s *cstmt) []wev {
+	var out []wev
+	all := func(b *cstmt, line int) {
+		for _, v := range b.roots {
+			out = append(out, wev{s, v, line})
+		}
+	}
+	switch s.kind {
+	case cWrite:
+		out = append(out, wev{s, s.v, s.line})
+	case cBump:
+		all(s.callee, s.line)
+	case cBorrow:
+		switch s.form {
+		case bChain:
+			all(s.callee, s.line)
+		case bLet, bTuple:
+			out = append(out, wev{s, s.v, s.line})
+		case bIf:
+			out = append(out, wev{s, s.v, s.line}, wev{s, s.j, s.line})
+		case bMatch:
+			out = append(out, wev{s, s.v, s.lines[0]}, wev{s, s.j, s.lines[1]})
+		case bRebind:
+			out = append(out, wev{s, s.v, s.line})
+			all(s, s.lines[0]) // &vJ, and the assignment uses pN
+		case bTupleVia:
+			out = append(out, wev{s, s.v, s.line}, wev{s, s.v, s.lines[0]}) // &vK, then a use of pNt
+		case bClause:
+			// &vK, the subject pNt, and the bump through the clause's pN.
+			out = append(out, wev{s, s.v, s.line}, wev{s, s.v, s.lines[0]}, wev{s, s.v, s.lines[1]})
+		}
+	}
+	return out
+}
+
 // refused is the reference rule: the lines of the refused writes, with
-// the reason of each ("inside", "after", "region", "local", and "alias"
-// for a write through a let-bound borrow).
+// the reason of each ("inside", "after", "region", "local", and
+// "alias-<form>" for a write through a borrow bound in that form).
 func refused(tree []*cstmt) map[int]string {
-	var captures, writes, calls []*cstmt
+	var captures, calls []*cstmt
+	var writes []wev
 	walkC(tree, func(s *cstmt) {
 		switch s.kind {
 		case cCapture, cTask:
@@ -332,9 +446,7 @@ func refused(tree []*cstmt) map[int]string {
 		case cCaptureWrite:
 			captures = append(captures, s)
 		case cWrite, cBorrow, cBump:
-			// A borrow &vK is a write of vK where it is taken, and each
-			// use of the local that holds it is one where it is used.
-			writes = append(writes, s)
+			writes = append(writes, writesOf(s)...)
 		case cCall:
 			calls = append(calls, s)
 		}
@@ -361,11 +473,12 @@ func refused(tree []*cstmt) map[int]string {
 		if e.kind == cCaptureWrite {
 			captured = []int{e.v}
 		}
-		for _, w := range writes {
-			if !slices.Contains(captured, w.v) {
+		for _, wr := range writes {
+			w := wr.s
+			if !slices.Contains(captured, wr.v) {
 				continue
 			}
-			if _, ok := out[w.line]; ok {
+			if _, ok := out[wr.line]; ok {
 				continue
 			}
 			var local *cstmt
@@ -377,15 +490,15 @@ func refused(tree []*cstmt) map[int]string {
 			if local == nil {
 				if why := follows(e, w.seq, w.regions); why != "" {
 					if w.kind == cBump {
-						why = "alias"
+						why = "alias-" + bFormName[w.callee.form]
 					}
-					out[w.line] = why
+					out[wr.line] = why
 				}
 				continue
 			}
 			for _, c := range calls {
 				if c.callee == local && follows(e, c.seq, c.regions) != "" {
-					out[w.line] = "local"
+					out[wr.line] = "local"
 					break
 				}
 			}
@@ -404,12 +517,36 @@ func interpret(tree []*cstmt, byValue bool) string {
 	}
 	fs := []*closure{{}}
 	var tasks []int
+	target := map[*cstmt]int{} // the int each borrow points to when it runs
 	var run func(list []*cstmt)
 	run = func(list []*cstmt) {
 		for _, s := range list {
 			switch s.kind {
-			case cWrite, cBump:
+			case cWrite:
 				vars[s.v] += s.c
+			case cBump:
+				vars[target[s.callee]] += s.c
+			case cBorrow:
+				switch s.form {
+				case bChain:
+					target[s] = target[s.callee]
+				case bLet, bTuple, bTupleVia:
+					target[s] = s.v
+				case bIf:
+					target[s] = s.j
+					if vars[s.a] > s.c {
+						target[s] = s.v
+					}
+				case bMatch:
+					target[s] = s.j
+					if vars[s.a] == 1 {
+						target[s] = s.v
+					}
+				case bRebind:
+					target[s] = s.j
+				case bClause:
+					vars[s.v] += s.c
+				}
 			case cCapture, cCaptureWrite:
 				fs = append(fs, &closure{s: s, snap: slices.Clone(vars)})
 			case cTask:
@@ -479,7 +616,7 @@ func captureSeeds(n int) []uint64 {
 func TestCaptureRuleModel(t *testing.T) {
 	reached := map[string]bool{}
 	admitted := 0
-	for _, seed := range captureSeeds(300) {
+	for _, seed := range captureSeeds(2000) {
 		tree, src := captureProgram(seed)
 		want := refused(tree)
 		o := lowerSource(fmt.Sprintf("cap%d", seed), src, true)
@@ -527,7 +664,16 @@ func TestCaptureRuleModel(t *testing.T) {
 		if admitted == 0 {
 			t.Errorf("no seed writes an admitted program")
 		}
-		for _, why := range []string{"inside", "after", "region", "local", "alias"} {
+		whys := []string{"inside", "after", "region", "local"}
+		for _, f := range bFormName {
+			if f != "clause" {
+				// A clause's bump writes with its own &vK, so it is never
+				// refused alone; the checker's lines must still equal the
+				// reference's on it.
+				whys = append(whys, "alias-"+f)
+			}
+		}
+		for _, why := range whys {
 			if !reached[why] {
 				t.Errorf("no seed refuses a program by %q alone whose runs differ: %v", why, reached)
 			}
