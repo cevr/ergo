@@ -86,6 +86,17 @@ func TestTestCommand(t *testing.T) {
 	if code != 1 || code2 != 1 || !regexp.MustCompile(`(?m)^FAIL Residue \(case \d+ of 100, seed 7, size \d+: value = -?\d+\)`).MatchString(seeded) || seeded != again {
 		t.Fatalf("--seed 7: exit %d %q; --seed=7: exit %d %q", code, seeded, code2, again)
 	}
+	// A refuted law prints the command that reruns it alone (X1b): ergo
+	// test on the source as it was given, --law and the seed. That command
+	// prints the same FAIL line, and runs no test.
+	laws := write("laws.ergo", "law Residue(value int) {\n\tvalue % 7 != 3\n}\n\ntest Other { assert true }\n")
+	stdout, _, code = run("test", laws, "--seed", "7")
+	rerun, _, code2 := run("test", laws, "--law", "Residue", "--seed", "7")
+	refuted, _, _ := strings.Cut(rerun, "\n")
+	want := refuted + "\n\treplay: ergo test " + laws + " --law Residue --seed 7\n"
+	if code != 1 || code2 != 1 || !strings.HasPrefix(refuted, "FAIL law Residue (case ") || !strings.Contains(stdout, "ok Other\n"+want) || rerun != want+"FAIL (1 of 1 tests)\n" {
+		t.Fatalf("a refuted law: exit %d %q; its replay: exit %d %q", code, stdout, code2, rerun)
+	}
 	// Usage errors: exit 2, nothing on stdout, nothing run.
 	for _, c := range []struct {
 		args []string

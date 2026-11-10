@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/sketch/build"
@@ -13,8 +14,10 @@ import (
 )
 
 // testCommand runs a source's tests: `ergo test FILE [--seed N] [--states N]
-// [-work] [--target go]`. --states is the budget of states of each
-// reachability law's search (machine laws; 1,000,000 by default). It is a transport over sketchfront's test build
+// [--law NAME] [--skip-law NAME] [-work] [--target go]`. --states is the
+// budget of states of each reachability law's search (machine laws;
+// 1,000,000 by default). --law runs only the law NAME and no test;
+// --skip-law runs all but that law, with a skip line. It is a transport over sketchfront's test build
 // (build.ModeTest, lower.LowerTests): it checks the source, builds the test
 // binary into a private temporary directory, never the working directory,
 // dist/ or the module, and runs it as a child with --seed, through the
@@ -68,6 +71,15 @@ func testCommand(args []string) error {
 	if opts.states != "" {
 		childArgs = append(childArgs, "--states", opts.states)
 	}
+	if opts.law != "" {
+		childArgs = append(childArgs, "--law", opts.law)
+	}
+	if opts.skipLaw != "" {
+		childArgs = append(childArgs, "--skip-law", opts.skipLaw)
+	}
+	// A failing law prints the command that reruns it; --source gives it
+	// the source as it was given here, a file or a package's folder.
+	childArgs = append(childArgs, "--source", opts.file)
 	// The test binary runs under a memory limit, 2 GiB unless
 	// ERGO_PROGRAM_MEMORY sets another, and its stderr passes through a
 	// watcher, so a test that grows without bound stops early and `ergo`
@@ -88,6 +100,12 @@ func testCommand(args []string) error {
 func validSeed(s string) bool {
 	_, err := strconv.ParseUint(s, 10, 64)
 	return err == nil
+}
+
+// validLaw reports whether s may name a law for --law or --skip-law: empty
+// (not given), or a word that is not an option and holds no space.
+func validLaw(s string) bool {
+	return !strings.HasPrefix(s, "-") && !strings.ContainsAny(s, " \t\n")
 }
 
 // validStates reports whether s is a budget the test binary reads: a

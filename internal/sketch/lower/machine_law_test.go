@@ -513,6 +513,11 @@ func TestMachineLawTables(t *testing.T) {
 	if !ok {
 		t.Errorf("seed %d: exit %d\nstdout:\n%s\nwant:\n%s\nstderr:\n%s\nsource:\n%s", seed, code, stdout, strings.Join(want, "\n"), firstLines(stderr, 8), src.String())
 	}
+	// Each refuted law, a searched never law, a listed law and a law of
+	// generated cases, reruns alone by its replay command (X1b).
+	if checkReplays(t, exes["machinelaw_tables"], stdout) == 0 {
+		t.Errorf("seed %d: no refuted law printed a replay command", seed)
+	}
 }
 
 // machineLawRuns is a machine whose states carry a payload, so its graph
@@ -594,6 +599,10 @@ type Road machine[Lane, Nudge] {
 	law NeverGone never reaches Gone,
 }
 
+law Small(n int) {
+	n < 9
+}
+
 func main() {}
 `
 
@@ -601,7 +610,9 @@ func main() {}
 // cannot be listed fails with the seed and the run that refutes it; a
 // witness proves a reaches law; a law that reads a payload is tested,
 // never proved. Past the budget of states (--states) a law is not proved,
-// and its generated runs pick only signals that change the state (X1). It builds Go because the laws run in the built test
+// and its generated runs pick only signals that change the state (X1).
+// Each refuted law's replay command reruns it alone; --skip-law and an
+// unknown --law (X1b). It builds Go because the laws run in the built test
 // binary (ergo test), the only place a law runs.
 func TestMachineLawRuns(t *testing.T) {
 	needsBuild(t)
@@ -611,7 +622,7 @@ func TestMachineLawRuns(t *testing.T) {
 	}
 	stdout, stderr, code := runExeArgs(t, exes["machinelaw_runs"], "--seed", "7", "--states", "5")
 	got := verdicts(stdout)
-	if code != 1 || len(got) != 6 {
+	if code != 1 || len(got) != 7 {
 		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
 	}
 	if !strings.HasPrefix(got[0], "FAIL law Meter.NeverHigh (run ") || !strings.Contains(got[0], ", seed 7, size ") ||
@@ -634,7 +645,64 @@ func TestMachineLawRuns(t *testing.T) {
 	if got[4] != "ok law Road.NeverGone (no counterexample in runs of at most 4 signals; 5 states; 100 runs; not proved)" {
 		t.Errorf("line 5 is %q", got[4])
 	}
-	if got[5] != "FAIL (2 of 5 tests)" {
-		t.Errorf("the summary is %q", got[5])
+	if !strings.HasPrefix(got[5], "FAIL law Small (case ") || got[6] != "FAIL (3 of 6 tests)" {
+		t.Errorf("the last lines are %q", got[5:])
 	}
+	// A refuted law's replay command (X1b) carries the seed and the budget
+	// of its generated run, and runs that law alone to the same FAIL line.
+	exe := exes["machinelaw_runs"]
+	if n := checkReplays(t, exe, stdout); n != 3 {
+		t.Errorf("%d replays, want one under each of the 3 FAIL lines", n)
+	}
+	// --skip-law leaves one law out with its skip line; --law of no law
+	// fails, so a misspelt name never passes by running nothing.
+	stdout, stderr, code = runExeArgs(t, exe, "--seed", "7", "--states", "5", "--skip-law", "Meter.NeverHigh")
+	got = verdicts(stdout)
+	if code != 1 || len(got) != 7 || got[0] != "skip law Meter.NeverHigh: --skip-law" || got[6] != "FAIL (2 of 5 tests, 1 skipped)" {
+		t.Errorf("--skip-law: exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
+	}
+	stdout, stderr, code = runExeArgs(t, exe, "--law", "Meter.Nope")
+	if code != 1 || stdout != "FAIL no law Meter.Nope in this package (--law)\n" {
+		t.Errorf("--law of no law: exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
+	}
+}
+
+// checkReplays reruns, on the test binary exe, the replay command under
+// each refuted law of stdout, and fails unless the rerun runs that law
+// alone (each of its bindings) and prints its FAIL line again. It returns
+// the number of replays.
+func checkReplays(t *testing.T, exe, stdout string) int {
+	t.Helper()
+	const prefix = "\treplay: ergo test main.ergo --law "
+	ls := lines(stdout)
+	n := 0
+	for i, line := range ls {
+		if !strings.HasPrefix(line, "FAIL law ") {
+			continue
+		}
+		j := i + 1
+		for j < len(ls) && strings.HasPrefix(ls[j], "\t") && !strings.HasPrefix(ls[j], "\treplay: ") {
+			j++
+		}
+		if j == len(ls) || !strings.HasPrefix(ls[j], prefix) {
+			t.Errorf("%q has no replay line that names main.ergo and the law", line)
+			continue
+		}
+		n++
+		args := append([]string{"--law"}, strings.Fields(strings.TrimPrefix(ls[j], prefix))...)
+		out, stderr, code := runExeArgs(t, exe, args...)
+		got := verdicts(out)
+		ok := code == 1 && len(got) >= 2 && strings.HasPrefix(got[len(got)-1], "FAIL (")
+		again := false
+		for _, v := range got[:max(len(got)-1, 0)] {
+			// The law's other bindings (law T for P) run beside it.
+			_, rest, _ := strings.Cut(v, " ")
+			ok = ok && (rest == "law "+args[1] || strings.HasPrefix(rest, "law "+args[1]+" "))
+			again = again || v == line
+		}
+		if !ok || !again {
+			t.Errorf("%s reruns as exit %d, stdout:\n%s\nwant %q again, and law %s alone\nstderr:\n%s", strings.TrimSpace(ls[j]), code, out, line, args[1], firstLines(stderr, 8))
+		}
+	}
+	return n
 }

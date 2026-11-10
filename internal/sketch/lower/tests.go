@@ -105,6 +105,7 @@ var testHelpers = []struct{ key, base string }{
 	{"Graph", "ergoGraph"}, {"Node", "ergoNode"}, {"Explore", "ergoExplore"}, {"Signals", "ergoSignals"}, {"Block", "ergoBlock"},
 	{"ExploreAll", "ergoExploreAll"}, {"ExploreRuns", "ergoExploreRuns"}, {"Trace", "ergoTrace"}, {"Refute", "ergoRefute"},
 	{"States", "ergoStates"}, {"explore", "explore"},
+	{"Flag", "ergoFlag"}, {"Source", "ergoSource"}, {"Replay", "ergoReplay"},
 }
 
 // helper is the Go name of the harness entity key.
@@ -659,27 +660,17 @@ func (l *lowerer) testRunner() string {
 	b.WriteString("// " + l.helper("Tests") + " runs every test in source order (196l).\n")
 	b.WriteString(l.testRunnerHead(env, seed))
 	tests := l.runTests()
-	runs, skips := 0, 0
-	for _, r := range l.runLaws() {
-		if r.Law.Unrun != "" {
-			skips++
-			continue
-		}
-		for _, b := range r.Bindings {
-			if bindingUnrun(b) == "" {
-				runs++
-			} else {
-				skips++
-			}
-		}
-	}
-	// A skip is never silent (fs4): each prints its skip line, and the
-	// summary counts them.
-	skipped := ""
-	if skips > 0 {
-		skipped = ", " + strconv.Itoa(skips) + " skipped"
-	}
-	b.WriteString("\t" + failed + ", " + total + " := 0, " + strconv.Itoa(len(tests)+runs) + "\n")
+	// --law NAME runs only the law of that title (lawTitle), and no test;
+	// --skip-law NAME runs every test and law but that one, and prints its
+	// skip line. The total and the skips count what runs.
+	pick, picked, skip, matched, skips := scope.alloc("pick"), scope.alloc("picked"), scope.alloc("skip"), scope.alloc("matched"), scope.alloc("skips")
+	flag := l.helper("Flag")
+	b.WriteString("\t" + pick + ", " + picked + " := " + flag + "(\"law\")\n")
+	b.WriteString("\t" + skip + ", _ := " + flag + "(\"skip-law\")\n")
+	b.WriteString("\t" + failed + ", " + total + ", " + skips + ", " + matched + " := 0, 0, 0, false\n")
+	b.WriteString("\t_ = " + skip + "\n")
+	b.WriteString("\tif !" + picked + " {\n")
+	b.WriteString("\t" + total + " += " + strconv.Itoa(len(tests)) + "\n")
 	for _, t := range tests {
 		// The case runner takes the test's name, and its declaration's
 		// site, which a typed failure that escapes the body names.
@@ -731,13 +722,32 @@ func (l *lowerer) testRunner() string {
 		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", t.Name, testCases)) + ")\n")
 		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n\t}\n")
 	}
+	b.WriteString("\t}\n")
 	for _, law := range l.runLaws() {
+		title := strconv.Quote(l.lawTitle(law.Law))
+		runs, skipped := lawCounts(law)
+		b.WriteString("\tif !" + picked + " || " + pick + " == " + title + " {\n")
+		b.WriteString("\t" + matched + " = true\n")
+		b.WriteString("\tif " + skip + " == " + title + " {\n")
+		b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip law "+l.lawTitle(law.Law)+": --skip-law") + ")\n")
+		b.WriteString("\t" + skips + "++\n")
+		b.WriteString("\t} else {\n")
+		b.WriteString("\t" + total + ", " + skips + " = " + total + " + " + strconv.Itoa(runs) + ", " + skips + " + " + strconv.Itoa(skipped) + "\n")
 		l.lawRuns(&b, law, scope, env, seed, failed)
+		b.WriteString("\t}\n\t}\n")
 	}
+	// A skip is never silent (fs4): each prints its skip line, and the
+	// summary counts them.
+	conv, shown := l.helper("strconv"), scope.alloc("shown")
+	b.WriteString("\tif " + picked + " && !" + matched + " {\n")
+	b.WriteString("\t\t" + fmtPkg + ".Println(\"FAIL no law \" + " + pick + " + \" in this package (--law)\")\n")
+	b.WriteString("\t\treturn " + fmtPkg + ".Errorf(\"no law %s\", " + pick + ")\n\t}\n")
+	b.WriteString("\t" + shown + " := \"\"\n")
+	b.WriteString("\tif " + skips + " > 0 {\n\t\t" + shown + " = \", \" + " + conv + ".Itoa(" + skips + ") + \" skipped\"\n\t}\n")
 	b.WriteString("\tif " + failed + " > 0 {\n")
-	b.WriteString("\t\t" + fmtPkg + ".Printf(\"FAIL (%d of %d tests" + skipped + ")\\n\", " + failed + ", " + total + ")\n")
+	b.WriteString("\t\t" + fmtPkg + ".Printf(\"FAIL (%d of %d tests%s)\\n\", " + failed + ", " + total + ", " + shown + ")\n")
 	b.WriteString("\t\treturn " + fmtPkg + ".Errorf(\"%d of %d tests failed\", " + failed + ", " + total + ")\n\t}\n")
-	b.WriteString("\t" + fmtPkg + ".Printf(\"PASS (%d tests" + skipped + ")\\n\", " + total + ")\n")
+	b.WriteString("\t" + fmtPkg + ".Printf(\"PASS (%d tests%s)\\n\", " + total + ", " + shown + ")\n")
 	b.WriteString("\treturn nil\n}\n\n")
 	return b.String()
 }
@@ -878,8 +888,36 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 		b.WriteString("\t\t\t" + ok + " = " + run + "(" + taskOf(env) + ", " + name + ", func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " })\n")
 		b.WriteString("\t\t}\n")
 		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", tg.label, testCases)) + ")\n")
-		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n\t}\n")
+		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n")
+		b.WriteString("\t\t\t" + l.replayLine(law, strconv.Quote("--seed ")+" + "+conv+".FormatUint("+seed+", 10)") + "\n\t\t}\n\t}\n")
 	}
+}
+
+// replayLine is the Go statement that prints the command that reruns the
+// law alone, with flags, a Go string expression: the seed of its generated
+// cases, or none when its values were listed.
+func (l *lowerer) replayLine(law *check.Law, flags string) string {
+	file := l.siteText(law.Decl)
+	if i := strings.Index(file, ":"); i >= 0 {
+		file = file[:i]
+	}
+	return l.helper("fmt") + ".Println(" + l.helper("Replay") + "(" + strconv.Quote(file) + ", " + strconv.Quote(l.lawTitle(law)) + ", " + flags + "))"
+}
+
+// lawCounts are the runs of the law that count in the runner's total, and
+// the runs it skips: one per binding of its slots.
+func lawCounts(r check.LawRun) (runs, skips int) {
+	if r.Law.Unrun != "" {
+		return 0, 1
+	}
+	for _, b := range r.Bindings {
+		if bindingUnrun(b) == "" {
+			runs++
+		} else {
+			skips++
+		}
+	}
+	return runs, skips
 }
 
 // harness is the test build's fixed Go: the assert, the case runner, the
@@ -1257,34 +1295,70 @@ func $LitEntries[K comparable, V any](typ string, m map[K]V, key func(K) string,
 	return typ + "{" + $strings.Join(parts, ", ") + "}"
 }
 
-// $Seed reads --seed N or --seed=N, N a decimal uint64, the seed of every
-// property; 1 by default. It skips --states N, which $States reads; any
-// other argument is a usage error (exit 2).
-func $Seed() uint64 {
-	seed := uint64(1)
+// $Flag is the value of the test binary's flag --name, given as --name V
+// or --name=V, and whether it is given; given twice, the last value
+// counts. The flags are --seed, --states, --law, --skip-law and --source;
+// any other argument, or a flag with no value, is a usage error (exit 2).
+func $Flag(name string) (string, bool) {
+	value, given := "", false
 	args := $os.Args[1:]
 	for i := 0; i < len(args); i++ {
-		v, a := "", args[i]
-		switch {
-		case a == "--seed" && i+1 < len(args):
-			i++
-			v = args[i]
-		case len(a) > len("--seed=") && a[:len("--seed=")] == "--seed=":
-			v = a[len("--seed="):]
-		case a == "--states" && i+1 < len(args):
-			i++
-			continue
-		case len(a) > len("--states=") && a[:len("--states=")] == "--states=":
-			continue
-		}
-		n, err := $strconv.ParseUint(v, 10, 64)
-		if err != nil {
-			$fmt.Fprintln($os.Stderr, "usage: [--seed N], not "+a)
+		key, v, joined := $strings.Cut(args[i], "=")
+		switch key {
+		case "--seed", "--states", "--law", "--skip-law", "--source":
+		default:
+			$fmt.Fprintln($os.Stderr, "usage: [--seed N] [--states N] [--law NAME] [--skip-law NAME] [--source PATH], not "+args[i])
 			$os.Exit(2)
 		}
-		seed = n
+		if !joined {
+			if i+1 == len(args) {
+				$fmt.Fprintln($os.Stderr, "usage: "+key+" requires a value")
+				$os.Exit(2)
+			}
+			i++
+			v = args[i]
+		}
+		if key == "--"+name {
+			value, given = v, true
+		}
 	}
-	return seed
+	return value, given
+}
+
+// $Seed reads --seed N, N a decimal uint64, the seed of every property;
+// 1 by default.
+func $Seed() uint64 {
+	v, given := $Flag("seed")
+	if !given {
+		return 1
+	}
+	n, err := $strconv.ParseUint(v, 10, 64)
+	if err != nil {
+		$fmt.Fprintln($os.Stderr, "usage: [--seed N], N a decimal number, not "+v)
+		$os.Exit(2)
+	}
+	return n
+}
+
+// $Source is the source as ergo test was given it (--source), the file or
+// the folder a replay command names; file, the law's own file, when the
+// test binary runs by itself.
+func $Source(file string) string {
+	if v, given := $Flag("source"); given {
+		return v
+	}
+	return file
+}
+
+// $Replay is the line that reruns one law: ergo test on the source, only
+// the law (--law), with the flags of the case (a seed or a budget), none
+// for a law whose values were listed.
+func $Replay(file, law, flags string) string {
+	line := "\treplay: ergo test " + $Source(file) + " --law " + law
+	if flags != "" {
+		line += " " + flags
+	}
+	return line
 }
 
 `

@@ -1586,6 +1586,117 @@
         "file": "internal/sketch/lower/tests.go",
         "text": "Replace(harnessGo + harnessReachGo)"
       }
+    },
+    {
+      "name": "x1b-law-ignored",
+      "origin": "wf10/explorer/x1b",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\t\tb.WriteString(\"\\tif !\" + picked + \" || \" + pick + \" == \" + title + \" {\\n\")",
+      "to": "\t\tb.WriteString(\"\\tif true {\\n\")",
+      "rule": "testRunner: --law NAME runs only the law of that title.",
+      "killers": [
+        "lower:TestMachineLawRuns"
+      ]
+    },
+    {
+      "name": "x1b-law-runs-tests",
+      "origin": "wf10/explorer/x1b",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\tb.WriteString(\"\\tif !\" + picked + \" {\\n\")",
+      "to": "\tb.WriteString(\"\\tif true {\\n\")",
+      "rule": "testRunner: --law NAME runs no test.",
+      "killers": [
+        "lower:TestMachineLawTables"
+      ]
+    },
+    {
+      "name": "x1b-replay-drops-flags",
+      "origin": "wf10/explorer/x1b",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\tif flags != \"\" {\n\t\tline += \" \" + flags",
+      "to": "\tif false {\n\t\tline += \" \" + flags",
+      "rule": "$Replay: the replay command carries the case's seed or the search's budget.",
+      "killers": [
+        "lower:TestMachineLawRuns",
+        "lower:TestMachineLawTables"
+      ],
+      "anchor": {
+        "file": "internal/sketch/lower/tests.go",
+        "text": "Replace(harnessGo + harnessReachGo)"
+      }
+    },
+    {
+      "name": "x1b-cases-no-replay",
+      "origin": "wf10/explorer/x1b",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\t\tb.WriteString(\"\\t\\t\\t\" + l.replayLine(law, strconv.Quote(\"--seed \")+\" + \"+conv+\".FormatUint(\"+seed+\", 10)\") + \"\\n\\t\\t}\\n\\t}\\n\")",
+      "to": "\t\tb.WriteString(\"\\t\\t}\\n\\t}\\n\")",
+      "rule": "lawRuns: a law refuted on a generated case prints its replay command with its seed.",
+      "killers": [
+        "lower:TestMachineLawRuns"
+      ]
+    },
+    {
+      "name": "x1b-listed-no-replay",
+      "origin": "wf10/explorer/x1b",
+      "file": "internal/sketch/lower/lawcases.go",
+      "from": "failed, l.replayLine(law, `\"\"`), func(",
+      "to": "failed, \"\", func(",
+      "rule": "listedRuns: a law refuted on a listed value prints its replay command.",
+      "killers": [
+        "lower:TestMachineLawTables"
+      ]
+    },
+    {
+      "name": "x1b-reach-no-replay",
+      "origin": "wf10/explorer/x1b",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "\" states)\\n\"+$Replay(g.file, $strings.TrimPrefix(name, \"law \"), \"--states \"+itoa(budget)))",
+      "to": "\" states)\")",
+      "rule": "$ExploreAll: a reaches law that no run of the whole graph reaches prints its replay command.",
+      "killers": [
+        "lower:TestMachineLawTables"
+      ],
+      "anchor": {
+        "file": "internal/sketch/lower/tests.go",
+        "text": "Replace(harnessGo + harnessReachGo)"
+      }
+    },
+    {
+      "name": "x1b-skip-ignored",
+      "origin": "wf10/explorer/x1b",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\t\tb.WriteString(\"\\tif \" + skip + \" == \" + title + \" {\\n\")",
+      "to": "\t\tb.WriteString(\"\\tif false && \" + skip + \" == \" + title + \" {\\n\")",
+      "rule": "testRunner: --skip-law NAME leaves that law out, with its skip line.",
+      "killers": [
+        "lower:TestMachineLawRuns"
+      ]
+    },
+    {
+      "name": "x1b-unknown-law-passes",
+      "origin": "wf10/explorer/x1b",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\tb.WriteString(\"\\tif \" + picked + \" && !\" + matched + \" {\\n\")",
+      "to": "\tb.WriteString(\"\\tif false && \" + picked + \" && !\" + matched + \" {\\n\")",
+      "rule": "testRunner: a --law that names no law fails.",
+      "killers": [
+        "lower:TestMachineLawRuns"
+      ]
+    },
+    {
+      "name": "x1b-source-ignored",
+      "origin": "wf10/explorer/x1b",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\tif v, given := $Flag(\"source\"); given {",
+      "to": "\tif v, given := $Flag(\"source\"); given && false {",
+      "rule": "$Source: the replay command names the source as ergo test was given it (--source).",
+      "killers": [],
+      "gap": "killed by cmd/ergo TestTestCommand (the CLI passes --source), which is no suite of scripts/mutants",
+      "anchor": {
+        "file": "internal/sketch/lower/tests.go",
+        "text": "Replace(harnessGo + harnessReachGo)"
+      }
     }
   ]
 }
