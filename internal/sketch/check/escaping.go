@@ -114,6 +114,7 @@ type escWalk struct {
 	collecting bool
 	litVar     map[*syntax.FuncLit]*Var
 	litUses    map[*Var][]litUse
+	localUses  map[*Var][]mutEvent
 }
 
 // litUse is a use of a local bound to a function literal: whether its
@@ -143,6 +144,8 @@ func (w *escWalk) visit(n syntax.Node) {
 			// A local of an invalid type has its own diagnostic (D3).
 			switch {
 			case v.Type == nil || isInvalid(v.Type):
+			case w.localUses != nil && w.localUses[v] != nil:
+				w.localUses[v] = append(w.localUses[v], mutEvent{id: id, regions: append([]syntax.Node(nil), w.regions...)})
 			case v.mut:
 				w.mutUse(id, v)
 			case isPointer(v.Type):
@@ -504,7 +507,7 @@ func (w *escWalk) finishCaptures() {
 				case indexOf(wr.regions, e) >= 0:
 					reported[wr.id] = true
 					w.c.errorf(wr.id, CodeType, captureWriteText, v.Name, v.Name)
-				case wr.id.Pos() >= e.End() || commonPrefix(ce.regions[:at], wr.regions) > w.declDepth[v]:
+				case w.follows(wr, e, ce.regions[:at], w.declDepth[v]):
 					reported[wr.id] = true
 					line, col := w.c.cur.syntax.Position(e.Pos())
 					w.c.errorf(wr.id, CodeType, writeAfterText, v.Name, line, col, v.Name, renamed(v.Name), v.Name)
@@ -513,6 +516,28 @@ func (w *escWalk) finishCaptures() {
 		}
 	}
 	w.events, w.order = nil, nil
+}
+
+// follows reports whether the write ev may run after the escaping frame e
+// captured its local, whose declaration is depth regions deep; before are
+// the regions around e. A write in a local frame (localFrames) runs where
+// the frame is called, so it follows when one of those calls does.
+// Otherwise it follows when it starts after e, or a loop or frame inside
+// the local's scope holds both and may run the write again.
+func (w *escWalk) follows(ev mutEvent, e syntax.Node, before []syntax.Node, depth int) bool {
+	for k := len(ev.regions) - 1; k >= depth; k-- {
+		lit, ok := ev.regions[k].(*syntax.FuncLit)
+		if !ok || !w.info.LocalFrames[lit] {
+			continue
+		}
+		for _, u := range w.localUses[w.litVar[lit]] {
+			if w.follows(u, e, before, depth) {
+				return true
+			}
+		}
+		return false
+	}
+	return ev.id.Pos() >= e.End() || commonPrefix(before, ev.regions) > depth
 }
 
 func indexOf(xs []syntax.Node, n syntax.Node) int {
@@ -577,6 +602,7 @@ func (w *escWalk) letLiteral(s *syntax.VarSpec) {
 func (w *escWalk) localFrames(d syntax.Node) {
 	w.collecting = true
 	w.litVar, w.litUses = map[*syntax.FuncLit]*Var{}, map[*Var][]litUse{}
+	w.localUses = map[*Var][]mutEvent{}
 	w.visit(d)
 	w.collecting = false
 	lits := make([]*syntax.FuncLit, 0, len(w.litVar))
@@ -587,6 +613,7 @@ func (w *escWalk) localFrames(d syntax.Node) {
 	for _, lit := range lits {
 		if w.runsInPlace(w.litVar[lit]) {
 			w.info.LocalFrames[lit] = true
+			w.localUses[w.litVar[lit]] = []mutEvent{}
 		}
 	}
 }
