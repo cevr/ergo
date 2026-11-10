@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -83,8 +86,34 @@ func TestTestCommand(t *testing.T) {
 	replay := write("replay.ergo", "test Residue(value int) { assert value % 7 != 3 }\n")
 	seeded, _, code := run("test", replay, "--seed", "7")
 	again, _, code2 := run("test", replay, "--seed=7")
-	if code != 1 || code2 != 1 || !regexp.MustCompile(`(?m)^FAIL Residue \(case \d+ of 100, seed 7, size \d+: value = -?\d+\)`).MatchString(seeded) || seeded != again {
+	if code != 1 || code2 != 1 || !regexp.MustCompile(`(?m)^FAIL Residue \(case \d+ of 100, seed 7, size \d+: value = -?\d+[;)]`).MatchString(seeded) || seeded != again {
 		t.Fatalf("--seed 7: exit %d %q; --seed=7: exit %d %q", code, seeded, code2, again)
+	}
+	// The FAIL line names the command that replays the case (L10).
+	if !strings.Contains(seeded, "; replay: ergo test "+replay+" --seed 7): ") {
+		t.Fatalf("--seed 7 prints no replay command: %q", seeded)
+	}
+	testReceipt(t, write, run)
+	// Each replay of a shrink builds its own world (fstest.NewMemory, the
+	// builder of fs.Files and fs.Writes): the property fails only on a
+	// fresh file system, so it shrinks only if no replay sees an earlier
+	// replay's file.
+	fresh := write("fresh.ergo", "import fs\nimport fstest\n\ntype Disk { files fs.Files, w fs.Writes }\n\n"+
+		"test FreshWorld(d Disk, n int) {\n\tlet names = try d.files.ReadDir(\".\")\n\ttry d.w.WriteFile(\"a.txt\", \"x\")\n\tassert n < 1000 || len(names) > 0\n}\n\n"+
+		"test Uses {\n\tlet _ = fstest.NewMemory()\n}\n")
+	if stdout, stderr, code := run("test", fresh); code != 1 || !strings.Contains(stdout, "; shrunk from: d = ") {
+		t.Fatalf("a property over a built world did not shrink: exit %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	// A refuted law prints the command that reruns it alone (X1b): ergo
+	// test on the source as it was given, --law and the seed. That command
+	// prints the same FAIL line, and runs no test.
+	laws := write("replaylaw.ergo", "law Residue(value int) {\n\tvalue % 7 != 3\n}\n\ntest Other { assert true }\n")
+	stdout, _, code = run("test", laws, "--seed", "7")
+	rerun, _, code2 := run("test", laws, "--law", "Residue", "--seed", "7")
+	refuted, _, _ := strings.Cut(rerun, "\n")
+	want := refuted + "\n\treplay: ergo test " + laws + " --law Residue --seed 7\n"
+	if code != 1 || code2 != 1 || !strings.HasPrefix(refuted, "FAIL law Residue (case ") || !strings.Contains(stdout, "ok Other\n"+want) || rerun != want+"FAIL (1 of 1 tests)\n" {
+		t.Fatalf("a refuted law: exit %d %q; its replay: exit %d %q", code, stdout, code2, rerun)
 	}
 	// Usage errors: exit 2, nothing on stdout, nothing run.
 	for _, c := range []struct {
@@ -120,6 +149,70 @@ func TestTestCommand(t *testing.T) {
 	stdout, stderr, code = run("test", "--json", invalid)
 	if code != 1 || !strings.Contains(stdout, `"S108"`) || strings.Contains(stdout, "PASS") || stderr != "check failed\n" {
 		t.Fatalf("an invalid file with --json: exit %d stdout %q stderr %q", code, stdout, stderr)
+	}
+}
+
+// testReceipt: `ergo test FILE --receipt PATH` writes the law receipt, a
+// JSON object whose fields are exactly the schema's (runtime.md Tests 8):
+// a listed law that holds is proved and a drawn one tested, each with its
+// case count, and a refuted law carries its shrunk counterexample, which
+// holds a quoted string here, so the receipt's escaping is read back too. run checks that nothing else is
+// written.
+func testReceipt(t *testing.T, write func(name, text string) string, run func(args ...string) (string, string, int)) {
+	t.Helper()
+	// A machine's reachability law is a law run too, so the receipt has
+	// its entry: proved, with the search's report.
+	laws := write("laws.ergo", "law Twice(b bool) { !!b == b }\n\nlaw Holds(n int) { n == n }\n\nlaw Short(s string) { len(s) < 2 }\n\n"+
+		"type Light = Red{} | Green{}\n\ntype Tick = Flip{}\n\n"+
+		"func flip(l Light, _ Tick) Decision[Light, int] {\n\tmatch l {\n\tcase Red:\n\t\tEnter[Light]{Next: Green}\n\tcase Green:\n\t\tEnter[Light]{Next: Red}\n\t}\n}\n\n"+
+		"type Lamp machine[Light, Tick] {\n\tinitial: Red,\n\tstep:    flip,\n\n\tlaw Lit reaches Green,\n}\n")
+	path := filepath.Join(t.TempDir(), "receipt.json")
+	stdout, stderr, code := run("test", laws, "--receipt", path)
+	data, err := os.ReadFile(path)
+	if code != 1 || err != nil {
+		t.Fatalf("--receipt: exit %d stdout %q stderr %q, read: %v", code, stdout, stderr, err)
+	}
+	type lawRun struct {
+		Run            string `json:"run"`
+		Status         string `json:"status"`
+		Cases          int    `json:"cases"`
+		Counterexample string `json:"counterexample"`
+		Why            string `json:"why"`
+		Search         string `json:"search"`
+	}
+	var got struct {
+		Schema   int      `json:"schema"`
+		Source   string   `json:"source"`
+		Revision string   `json:"revision"`
+		Seed     uint64   `json:"seed"`
+		Target   string   `json:"target"`
+		Laws     []lawRun `json:"laws"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&got); err != nil {
+		t.Fatalf("the receipt does not read back: %v\n%s", err, data)
+	}
+	if len(got.Laws) != 4 {
+		t.Fatalf("receipt %s: want 4 law runs\nstdout %q", data, stdout)
+	}
+	// The machine's law runs in its machine's place in the report; the
+	// top-level laws keep their order.
+	var lit lawRun
+	for i, l := range got.Laws {
+		if l.Run == "law Lamp.Lit" {
+			lit = l
+			got.Laws = append(got.Laws[:i:i], got.Laws[i+1:]...)
+			break
+		}
+	}
+	short := regexp.MustCompile(`^case (\d+) of 100, seed 1, size \d+: s = "[^"]{2}"$`).FindStringSubmatch(got.Laws[len(got.Laws)-1].Counterexample)
+	if got.Schema != 1 || got.Source != laws || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(got.Revision) || got.Seed != 1 || got.Target != "go" ||
+		len(got.Laws) != 3 || got.Laws[0] != (lawRun{Run: "law Twice", Status: "proved", Cases: 2}) || got.Laws[1] != (lawRun{Run: "law Holds", Status: "tested", Cases: 100}) ||
+		got.Laws[2].Run != "law Short" || got.Laws[2].Status != "refuted" || short == nil || strconv.Itoa(got.Laws[2].Cases) != short[1] ||
+		!regexp.MustCompile(regexp.QuoteMeta("FAIL law Short ("+got.Laws[2].Counterexample)+`[;)]`).MatchString(stdout) ||
+		lit.Status != "proved" || !strings.HasPrefix(lit.Search, "proved by the run ") || !strings.Contains(stdout, "ok law Lamp.Lit ("+lit.Search+")") {
+		t.Fatalf("receipt %s\nstdout %q", data, stdout)
 	}
 }
 

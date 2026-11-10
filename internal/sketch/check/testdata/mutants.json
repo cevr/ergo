@@ -1,6 +1,21 @@
 {
   "about": "The mutant ledger of internal/sketch/check: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants check; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
+    {"name":"po1-whole-pattern-expands-type-dag","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"if !split {","to":"if false && !split {","rule":"A whole pattern does not traverse the tree expansion of a shared type DAG; counted work follows the written split.","killers":["check:TestOwnershipFlowWorkIsLinear"]},
+    {"name":"po1-pattern-value-flow-skipped","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"w.expr(x, mMove, hand{at: x, how: \"let pattern moves it\"})","to":"if _, isIf := unparen(x).(*syntax.IfStmt); !isIf { w.expr(x, mMove, hand{at: x, how: \"let pattern moves it\"}) }","rule":"A destructuring let walks the paths of its value-position if before acquiring its bindings.","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"po1-generic-pattern-refuses-data","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"if w.genericOnly(t) {","to":"if false && w.genericOnly(t) {","rule":"Generic pattern copy sites reject only resource instances, not plain-data instantiations.","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"po1-match-moves-at-header","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"delete(w.info.Handoffs, id) // transfer belongs to this arm, not the header","to":"_ = id // mutant: transfer also runs in non-consuming arms","rule":"The subject hand-off belongs to the selected consuming arm, not header evaluation.","killers":["lower:TestDropGlueModel"]},
+    {"name":"po1-pattern-wildcard","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"w.patternRefuse(t, at, \"this pattern leaves %s without an owner; bind every resource part to exactly one name (resources R39, R42)\", t)","to":"_ = t","rule":"A consuming wildcard cannot discard a resource part.","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"po1-lent-pattern-loan-lost","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"loans[i].internal, loans[i].root = false, root","to":"continue","rule":"A callable pattern binding of a lent aggregate cannot escape its root's lifetime.","killers":["check:TestStructuredLendModel"]},
+    {"name":"po1-let-binding-ownerless","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"w.acquireParts(parts, ownLocal{}, loans, spec.Pattern)","to":"_ = parts; _ = loans","rule":"A let pattern gives every bound resource an owner.","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"po1-pattern-missing-part","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"if fp == nil && w.tracked(f.Type) {","to":"if false && fp == nil && w.tracked(f.Type) {","rule":"A consuming record pattern cannot omit a resource part.","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"po1-pattern-overlap","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"if p.Kind == PatAs && len(w.resourceParts(w.patternParts(p.Elems[0], t, nil))) > 0 {","to":"if false && p.Kind == PatAs && len(w.resourceParts(w.patternParts(p.Elems[0], t, nil))) > 0 {","rule":"Whole and part resource owners cannot overlap.","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"po1-pattern-own-close","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"if d != nil && d.Close != nil {","to":"if false && d != nil && d.Close != nil {","rule":"A record's custom release remains with its whole owner.","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"po1-match-loses-lender","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"local.lent, local.from = true, exprText(subject)","to":"local.lent, local.from = false, exprText(subject)","rule":"A pattern of a lent subject does not acquire release authority.","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"po1-match-temp-ends-at-header","origin":"batch-16a PO1","file":"internal/sketch/check/ownership.go","from":"w.expr(g.X, mLend, hand{})","to":"w.region(g, func() { w.expr(g.X, mLend, hand{}) })","rule":"A temporary subject lives through its selected arm.","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"po1-pattern-loan-erased","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"loans = mergeLoans(loans, w.patternTypeLoans(w.info.Types[x], parts))","to":"_ = loans","rule":"Splitting a constructor result preserves its internal lends.","killers":["check:TestStructuredLendModel"]},
+    {"name":"po1-pattern-keeper-order","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"if !w.releasesBefore(w.lending.points[p.v], loan.end) {","to":"if false && !w.releasesBefore(w.lending.points[p.v], loan.end) {","rule":"A split cannot reverse the release order of keeper and lender.","killers":["check:TestStructuredLendModel"]},
+    {"name":"po1-temp-binding-extends-lend","origin":"batch-16a PO1","file":"internal/sketch/check/lend.go","from":"if end := w.vars[i].lendEnd; end != nil {","to":"if end := w.vars[i].lendEnd; false && end != nil {","rule":"A borrowed pattern binding keeps its temporary root's release point.","killers":["check:TestStructuredLendModel"]},
     {
       "name": "a2-try-keeps-catch-result-target",
       "origin": "batch-15 round-5 A2 production-edge review",
@@ -113,8 +128,8 @@
       "name": "a2-loan-join-lost",
       "origin": "batch-15 round-4 A2 origin invariant",
       "file": "internal/sketch/check/ownership.go",
-      "from": "a[i].loans = liveLoans(x.loans, y.loans)",
-      "to": "a[i].loans = nil",
+      "from": "a[i].callLoans = liveLoans(x.callLoans, y.callLoans)",
+      "to": "a[i].callLoans = nil",
       "rule": "A result loan on one path remains live at its later consuming call.",
       "killers": ["check:TestOwnershipFlowModel"]
     },
@@ -268,17 +283,6 @@
       "rule": "runs: runs adds a run of the function f to n: an edge to its node when it is a function of the package, the footprint its package recorded when it is imported, and opaque when its body is unknown.",
       "killers": [
         "check:TestFootprintsPurePreludeOff"
-      ]
-    },
-    {
-      "name": "own-check-0-and-or-withown.go:513",
-      "origin": "test-speed plan, own sample (gen.ts 20 11)",
-      "file": "internal/sketch/check/withown.go",
-      "from": "\t\t\tif t := info.Tails[s]; t != nil && !failure(t) {",
-      "to": "\t\t\tif t := info.Tails[s]; t != nil || !failure(t) {",
-      "rule": "providerResults: providerResults collects explicit value returns in this frame and its implicit result tails.",
-      "killers": [
-        "check:TestContextOwnershipFreshFallibleConstructors"
       ]
     },
     {
@@ -1377,8 +1381,8 @@
       "name": "L8-A1 a conversion to a crossing operation type admitted",
       "origin": "wf10 L8 A1 (#197)",
       "file": "internal/sketch/check/typeops.go",
-      "from": "if !c.providing && c.holdsResource(v) && !c.holdsResource(t) {",
-      "to": "if false && !c.providing && c.holdsResource(v) && !c.holdsResource(t) {",
+      "from": "if !c.providing && !c.hostLendArg(t) && c.holdsResource(v) && !c.holdsResource(t) {",
+      "to": "if false && !c.providing && !c.hostLendArg(t) && c.holdsResource(v) && !c.holdsResource(t) {",
       "rule": "resources R22: a resource converted to an operation type with no Close is S108.",
       "killers": [
         "check:TestResourceTypeModel"
@@ -1476,8 +1480,8 @@
       "name": "L8-A2 a written takes call does not move",
       "origin": "wf10 L8 A2 (#197)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\t\tfor _, i := range sig.Takes {\n\t\t\ttaken[i] = true\n\t\t}\n\t\tselfTaken = sig.TakesSelf",
-      "to": "\t\tselfTaken = sig.TakesSelf",
+      "from": "\t\t}\n\t}\n\tfor _, i := range takes {\n\t\ttaken[i] = true\n\t}",
+      "to": "\t\t}\n\t}\n\tfor range takes {\n\t}",
       "rule": "resources R19: a call of a function whose takes clause names a parameter hands the argument off.",
       "killers": [
         "check:TestOwnershipFlowModel"
@@ -1498,8 +1502,8 @@
       "name": "L8-A2 a hand-off inside a trailing block admitted",
       "origin": "wf10 L8 A2 (#197)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\tcase l.depth != w.depth:\n\t\tw.report(",
-      "to": "\tcase l.depth != w.depth && false:\n\t\tw.report(",
+      "from": "\tcase l.depth != w.depth:\n\t\tw.refuse(i, x, fmt.Sprintf(\"%s hands off",
+      "to": "\tcase l.depth != w.depth && false:\n\t\tw.refuse(i, x, fmt.Sprintf(\"%s hands off",
       "rule": "resources R4, R30: a block (scope.OnExit, a function literal) cannot hand off a value its enclosing function owns.",
       "killers": [
         "check:TestOwnershipFlowModel"
@@ -1832,8 +1836,469 @@
       "to": "return ownState{reached: len(s.slots) > 0, slots: append([]ownSlot(nil), s.slots...)}",
       "rule": "The old nil encoding: a copied state with no live slot read as unreachable. A loop, match or catch arm reached with nothing live yet is still checked and planned (resources R4, R5, R20).",
       "killers": [
+        "check:TestOwnershipFlowModel",
+        "lower:TestOwnershipRunModel"
+      ]
+    },
+    {
+      "name": "L8-A3 inference misses a take two calls deep",
+      "origin": "wf10 L8 A3 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\ttakes = takesOf(call.Func)",
+      "to": "\t\ttakes = call.Func.Sig.Takes",
+      "rule": "plan 1.1: an argument for a parameter the callee takes, written or inferred, is handed off.",
+      "killers": [
+        "check:TestTakesInferenceModel"
+      ]
+    },
+    {
+      "name": "L8-A3 mutual recursion stops after one round",
+      "origin": "wf10 L8 A3 (#197)",
+      "file": "internal/sketch/check/takes.go",
+      "from": "\t\t\tif !changed || !cyclic {\n\t\t\t\tbreak\n\t\t\t}",
+      "to": "\t\t\tif !changed || !cyclic || cyclic {\n\t\t\t\tbreak\n\t\t\t}",
+      "rule": "plan 1.1: the takes fixpoint runs per component until nothing changes (Lean 4).",
+      "killers": [
+        "check:TestTakesInferenceModel"
+      ]
+    },
+    {
+      "name": "L8-A3 an exported function that takes without the clause admitted",
+      "origin": "wf10 L8 A3 (#197)",
+      "file": "internal/sketch/check/takes.go",
+      "from": "!writesTakes(f) && !isExported(f.Name) && f.Name != \"main\"",
+      "to": "!writesTakes(f) && f.Name != \"main\"",
+      "rule": "plan 1.1: an exported function writes its takes clause; a body that takes more is S108.",
+      "killers": [
+        "check:TestTakesInferenceModel"
+      ]
+    },
+    {
+      "name": "L8-A3 function types equal without the clause",
+      "origin": "wf10 L8 A3 (#197)",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "\tif c.takesEffect(vs, nil) != c.takesEffect(ts, nil) {",
+      "to": "\tif false {",
+      "rule": "Gap 39: the takes clause is part of a function type.",
+      "killers": [
+        "check:TestTakesInferenceModel"
+      ]
+    },
+    {
+      "name": "L8-A3 a call through a function value does not move",
+      "origin": "wf10 L8 A3 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\ttakes, selfTaken = sig.Takes, sig.TakesSelf",
+      "to": "\t\tselfTaken = sig.TakesSelf",
+      "rule": "Gap 39, R19: a call through a function value whose type takes r hands r off.",
+      "killers": [
+        "check:TestTakesInferenceModel"
+      ]
+    },
+    {
+      "name": "L8-A3 a copy site not propagated through a generic callee",
+      "origin": "wf10 L8 A3 (#197)",
+      "file": "internal/sketch/check/takes.go",
+      "from": "\t\t\tw.copySite(t, x, what, s.Key)\n",
+      "to": "\t\t\t_ = what\n",
+      "rule": "plan 1.3: a call that binds a copying callee's type parameter to the caller's is the caller's copy site.",
+      "killers": [
+        "check:TestTakesInferenceModel"
+      ]
+    },
+    {
+      "name": "L8-A3 a copy site reported at a call with plain data",
+      "origin": "wf10 L8 A3 (#197)",
+      "file": "internal/sketch/check/takes.go",
+      "from": "\t\twhere := \"\"\n\t\tif s.Where != \"\" {\n\t\t\twhere = \" at \" + s.Where\n\t\t}\n\t\tswitch {\n\t\tcase w.c.holdsResource(t):",
+      "to": "\t\twhere := \"\"\n\t\tif s.Where != \"\" {\n\t\t\twhere = \" at \" + s.Where\n\t\t}\n\t\tswitch {\n\t\tcase w.c.mayHoldResource(t) || !isInvalid(t):",
+      "rule": "plan 1.3, q56: a crossing type argument is checked as today (dup(1) stays legal).",
+      "killers": [
+        "check:TestTakesInferenceModel"
+      ]
+    },
+    {
+      "name": "L8-A3 a bodiless generic outside the table treated as moving",
+      "origin": "wf10 L8 A3 (#197)",
+      "file": "internal/sketch/check/takes.go",
+      "from": "\t\tif path, name := f.Decl.Extern.Split(); path == runtimeModule+\"/v1\" && v1.MovesOnly(name) {",
+      "to": "\t\tif path, name := f.Decl.Extern.Split(); path != \"\" || name != \"\" || v1.MovesOnly(name) {",
+      "rule": "plan 1.3, D-B: a generic extern copies its type parameters unless runtime/v1 lists it.",
+      "killers": [
+        "check:TestTakesInferenceModel"
+      ]
+    },
+    {
+      "name": "L8-A3 a function with an inferred clause admitted as a value",
+      "origin": "wf10 L8 A3 (#197)",
+      "file": "internal/sketch/check/takes.go",
+      "from": "\tif !held {\n\t\treturn\n\t}",
+      "to": "\tif held || !held {\n\t\treturn\n\t}",
+      "rule": "Gap 39: a function used as a value writes a takes clause that takes something.",
+      "killers": [
+        "check:TestTakesInferenceModel"
+      ]
+    },
+    {
+      "name": "L8-A3 a type parameter used as a map key is no copy site",
+      "origin": "wf10 L8 A3 (#197)",
+      "file": "internal/sketch/check/takes.go",
+      "from": "\tc.mapKeyCopies()\n",
+      "to": "\n",
+      "rule": "resources R40: a generic that keys a map by its T cannot take a resource; the call is S112.",
+      "killers": [
+        "check:TestTakesInferenceModel"
+      ]
+    },
+    {
+      "name": "L8-A3 a map-key copy site reported as S108, not S112",
+      "origin": "wf10 L8 A3 (#197)",
+      "file": "internal/sketch/check/takes.go",
+      "from": "\t\t\tif s.Key {\n\t\t\t\tw.reportCode(x, \"S112\"",
+      "to": "\t\t\tif false {\n\t\t\t\tw.reportCode(x, \"S112\"",
+      "rule": "resources R40: the instantiation of a map key at a resource is S112 (diagnostics.md).",
+      "killers": [
+        "check:TestTakesInferenceModel"
+      ]
+    },
+    {
+      "name": "L8-A4 a field take does not mark the field",
+      "origin": "wf10 L8 A4 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tw.st.slots[i].fields |= 1 << k\n",
+      "to": "\t\t_ = k\n",
+      "rule": "resources R39, Gap 38: a field taken in place is not used or taken again, and the record's release skips it.",
+      "killers": [
         "check:TestOwnershipFlowModel"
       ]
+    },
+    {
+      "name": "L8-A4 a take through an index admitted",
+      "origin": "wf10 L8 A4 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\tw.placeMove(x, \"an element\", ",
+      "to": "\t\t\t_ = fmt.Sprint(x, \"an element\", ",
+      "rule": "resources R35: an element is lent by its index; a take or a move by index is S108.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A4 match on an owned subject leaves it owned",
+      "origin": "wf10 L8 A4 (#197)",
+      "file": "internal/sketch/check/ownpattern.go",
+      "from": "w.move(si, id, hand{at: subject, how: \"the match pattern moves it\"})",
+      "to": "\t\t\t\t_ = id",
+      "rule": "Gap 36: an arm that binds a resource moves the owned subject into the binding.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A4 a conversion copies",
+      "origin": "wf10 L8 A4 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tif w.converts(a, pt) && !hostCallee {",
+      "to": "\t\tif false && w.converts(a, pt) && !hostCallee {",
+      "rule": "resources R23: a conversion to an operation type with Close moves the resource.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A4 a local provider not moved into the with",
+      "origin": "wf10 L8 A4 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\t\tw.expr(p, mMove, hand{at: p, how: \"the with owns it\", provider: true})",
+      "to": "\t\t\t\tw.expr(p, mLend, hand{})",
+      "rule": "resources R11: a local resource provider moves into the with that builds it.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A4 a Values() element lent instead of owned",
+      "origin": "wf10 L8 A4 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\t\towned = true\n",
+      "to": "\t\t\t\towned = false\n",
+      "rule": "Q7: a for-in over a queue's Values() owns each element.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A4 a package let provider admitted",
+      "origin": "wf10 L8 A4 (#197)",
+      "file": "internal/sketch/check/withown.go",
+      "from": "if name := packageRoot(info, a.Entry.Provider); name != \"\" && ",
+      "to": "if name := packageRoot(info, a.Entry.Provider); name == \"-\" && ",
+      "rule": "resources R11: a package let has no owner to hand to the with (S108).",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A4 a lent literal keeps its parts",
+      "origin": "wf10 L8 A4 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\tw.parts(x, hand{at: x, how: \"it moves into the literal\"})\n\t\tdefault:",
+      "to": "\t\t\tlend(x.Base)\n\t\t\tlend(x.Elts...)\n\t\tdefault:",
+      "rule": "resources R14: a composite literal moves its parts, also one lent where it is made.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-B1 a hand-off not recorded",
+      "origin": "wf10 L8 B1 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tw.info.Handoffs[x] = l.v",
+      "to": "",
+      "rule": "resources R15, R19: the lowering ends the owner's entry at each hand-off the checker records.",
+      "killers": [
+        "lower:TestOwnershipRunModel"
+      ]
+    },
+    {
+      "name": "L8-B1 a Close through a borrow takes nothing",
+      "origin": "wf10 L8 B1 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tw.borrow[p] = root",
+      "to": "",
+      "rule": "resources R19: `let p = &h; p.Close()` takes h; h is released once.",
+      "killers": [
+        "lower:TestRuntime199MaskProperty"
+      ]
+    },
+    {
+      "name": "L8-B1 a Close function value lends its argument",
+      "origin": "wf10 L8 B1 (#197)",
+      "file": "internal/sketch/check/close.go",
+      "from": "\t\tsig.Takes = []int{0}",
+      "to": "",
+      "rule": "resources R19: `let f = Close; f(c)` takes c, as `Close(c)` does.",
+      "killers": [
+        "lower:TestRuntime199MaskProperty"
+      ]
+    },
+    {
+      "name": "L8-B2 a value with no release admitted",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tif d == nil {\n\t\tw.reportCode(at, CodeType,",
+      "to": "\tif d == nil && false {\n\t\tw.reportCode(at, CodeType,",
+      "rule": "resources R1, R13: a value whose type keeps resources with no Close has no release, so it is refused, not leaked.",
+      "killers": [
+        "check:TestNoReleaseRefused"
+      ]
+    },
+    {
+      "name": "L8-B2 a method value of Close admitted",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\tw.reportCode(x, CodeType, \"%s is a method value of Close",
+      "to": "\t\t\t_ = w.reportCode; _ = fmt.Sprintf(\"%s is a method value of Close",
+      "rule": "resources R19, R33: a function value owns no resource; `let f = r.Close` is refused, so r is released once.",
+      "killers": [
+        "check:TestCloseFormsTakeOnce"
+      ]
+    },
+    {
+      "name": "L8-B2 an operation type's Close takes nothing",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "internal/sketch/check/close.go",
+      "from": "\t\tsig.TakesSelf = true",
+      "to": "",
+      "rule": "resources R19, Gap 39: an operation type's Close() takes the value it is called on, as the written Close that implements it does (one rule: closeTakes).",
+      "killers": [
+        "check:TestCloseFormsTakeOnce"
+      ]
+    },
+    {
+      "name": "L8-B2 a generic body's dropped T is no copy site",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tif t := w.typ(l); w.copies != nil && w.genericOnly(t) {",
+      "to": "\t\tif t := w.typ(l); false && w.copies != nil && w.genericOnly(t) {",
+      "rule": "resources Gap 42: a generic body cannot release a T yet, so its drop refuses an instance with a resource instead of leaking it.",
+      "killers": [
+        "check:TestGenericDropRefused"
+      ]
+    },
+    {
+      "name": "L8-B2 a Close through &h takes nothing",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tif x.Op != syntax.AND {\n\t\t\treturn nil, 0, false",
+      "to": "\t\tif x.Op != syntax.AND || true {\n\t\t\treturn nil, 0, false",
+      "rule": "resources R19: `(&h).Close()` takes h; h is released once, not again at its scope end.",
+      "killers": [
+        "check:TestCloseFormsTakeOnce"
+      ]
+    },
+    {
+      "name": "L8-B3t-capture-keeps-sender",
+      "origin": "L8 B3t R12",
+      "file": "internal/sketch/check/lend.go",
+      "from": "w.move(i, id, hand{at: key, how: \"it is captured by a moving task (resources R12)\"})",
+      "to": "w.use(i, id)",
+      "rule": "A moving task capture hands the sender's resource off (R12).",
+      "killers": ["check:TestTaskCaptureOwnership"]
+    },
+    {
+      "name": "L8-B3t-repeated-capture-may-take",
+      "origin": "L8 B3t R12 R30",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.acquire(ownLocal{v: v, lent: captures.Repeated})",
+      "to": "w.acquire(ownLocal{v: v})",
+      "rule": "A repeated member body lends from its one root owner; it cannot take on every restart.",
+      "killers": ["check:TestTaskCaptureOwnership"]
+    },
+    {
+      "name": "L8-B3t running finds nothing",
+      "origin": "wf10 L8 B3t (#197)",
+      "file": "internal/sketch/check/running.go",
+      "from": "\t\t\treturn d.Type\n",
+      "to": "\t\t\treturn nil\n",
+      "rule": "runtime.md Tasks 3: an owning with's value holds no Task or Set (S108).",
+      "killers": [
+        "check:TestWithValueHoldsNoRunningTask"
+      ]
+    },
+    {
+      "name": "L8-B3t running skips a record's fields",
+      "origin": "wf10 L8 B3t (#197)",
+      "file": "internal/sketch/check/running.go",
+      "from": "\t\t\tif r := walk(f.Drop); r != nil {",
+      "to": "\t\t\tif r := walk(nil); r != nil && f.Drop != nil {",
+      "rule": "runtime.md Tasks 3: a Task in a part of an owning with's value is refused too.",
+      "killers": [
+        "check:TestWithValueHoldsNoRunningTask"
+      ]
+    },
+    {
+      "name": "L8-B3t a method value of a resource's operation admitted",
+      "origin": "wf10 L8 B3t (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "if op := w.resourceMethod(x); op != nil {",
+      "to": "if op := w.resourceMethod(x); op != nil && op == nil {",
+      "rule": "resources R33: a function value owns no resource and holds no lend of one (t.Wait, t.Stop as values).",
+      "killers": [
+        "lower:TestCheckedImpliesLoweredPart8"
+      ]
+    },
+    {
+      "name": "b16a-array-holds-no-resource",
+      "origin": "wf10 batch-16a integration (B3t x L1 arrays)",
+      "file": "internal/sketch/check/resource.go",
+      "from": "\tcase *Array:\n\t\tedge(t.Elem)\n\tcase *Map:",
+      "to": "\tcase *Map:",
+      "rule": "resources R1, R35: a fixed array holds a resource when its element does (the walk B3t deleted knew it for Task); an element is not taken out by index.",
+      "killers": [
+        "check:TestArrayOwnership"
+      ]
+    },
+    {
+      "name": "b16a-array-element-take-admitted",
+      "origin": "wf10 batch-16a integration (B3t x L1 arrays)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tcase *Slice, *Array, *Map:\n",
+      "to": "\t\tcase *Slice, *Map:\n",
+      "rule": "resources R35: an element of a fixed array is lent by the index; it is not handed off.",
+      "killers": [
+        "check:TestArrayOwnership"
+      ]
+    },
+    {
+      "name": "L8-C1-trailing-callback-erases-loan",
+      "origin": "L8 C1 R31 R33",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "} else if w.literalEscapes(x.Trailing) {",
+      "to": "} else if false && w.literalEscapes(x.Trailing) {",
+      "rule": "A trailing callback has the same escape and capture rules as an explicit literal.",
+      "killers": ["check:TestStructuredLendModel"]
+    },
+    {
+      "name": "L8-C1-index-borrow-moves-container",
+      "origin": "L8 C1 R27 R35",
+      "file": "internal/sketch/check/lend.go",
+      "from": "moving && !w.borrowedPlaceUse(id)",
+      "to": "moving",
+      "rule": "An index borrow cannot escape into an earlier keeper by moving its entire container implicitly.",
+      "killers": ["check:TestStructuredLendModel"]
+    },
+    {
+      "name": "L8-C1-diagnostic-at-take",
+      "origin": "L8 C1 R28 diagnostic span",
+      "file": "internal/sketch/check/lend.go",
+      "from": "w.refuse(i, at, \"a resource is taken while lent\"",
+      "to": "w.refuse(i, w.vars[i].v.id, \"a resource is taken while lent\"",
+      "rule": "The early-take diagnostic points at the take, not the root declaration.",
+      "killers": ["check:TestV1Fixtures"]
+    },
+    {
+      "name": "L8-C1-named-callback-loses-keeper",
+      "origin": "L8 C1 R31",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.keepArgumentLoans(x)",
+      "to": "// named callback loan omitted",
+      "rule": "A named callback carries its existing loans into the Set that keeps it.",
+      "killers": ["check:TestStructuredLendModel"]
+    },
+    {
+      "name": "L8-C1-callable-field-erases-loan",
+      "origin": "L8 C1 R31 R33",
+      "file": "internal/sketch/check/lend.go",
+      "from": "return w.selectedLoans(x.X, w.fieldIndex(x))",
+      "to": "return nil",
+      "rule": "Selecting a callable field does not erase its root lifetime.",
+      "killers": ["check:TestStructuredLendModel"]
+    },
+    {
+      "name": "L8-C1-keeper-order",
+      "origin": "L8 C1 R27 R31",
+      "file": "internal/sketch/check/lend.go",
+      "from": "return keeper.order > root.order",
+      "to": "return true",
+      "rule": "A keeper must release before the resource root.",
+      "killers": ["check:TestStructuredLendModel"]
+    },
+    {
+      "name": "L8-C1-incoming-return-bound",
+      "origin": "L8 C1 R27",
+      "file": "internal/sketch/check/lend.go",
+      "from": "return lendPoint{scope: w.lendFrame, order: -1, v: v}",
+      "to": "return lendPoint{}",
+      "rule": "An incoming borrow lasts until this frame returns, not until an invented local release.",
+      "killers": ["check:TestStructuredLendModel"]
+    },
+    {
+      "name": "L8-C1-field-release-order",
+      "origin": "L8 C1 R29",
+      "file": "internal/sketch/check/lend.go",
+      "from": "return k > root.path[i]",
+      "to": "return true",
+      "rule": "A literal's fields release in reverse declaration order, not evaluation order.",
+      "killers": ["check:TestStructuredLendModel"]
+    },
+    {
+      "name": "L8-C1-root-inheritance",
+      "origin": "L8 C1 R27 R35",
+      "file": "internal/sketch/check/lend.go",
+      "from": "v = w.vars[i].root",
+      "to": "return nil, 0, false",
+      "rule": "An iteration binding keeps its container's root owner.",
+      "killers": ["check:TestStructuredLendModel"]
+    },
+    {
+      "name": "L8-C1-take-while-lent",
+      "origin": "L8 C1 R28 R32",
+      "file": "internal/sketch/check/lend.go",
+      "from": "if blocks {",
+      "to": "if false && blocks {",
+      "rule": "A root cannot be taken while its keeper may still run.",
+      "killers": ["check:TestStructuredLendModel"]
     }
   ]
 }

@@ -60,6 +60,11 @@ type Named struct {
 	under   Type
 	def     Type             // origin only: the type a defined type `type N T` is defined over
 	methods map[string]*Func // origin only, keyed: method sets are linear (#122)
+	// opFuncs, on an operation type's origin only, are the package
+	// functions whose first parameter is the operation type: x.f(…)
+	// reaches them after its operations (types.md, Methods 1; G-ex-e-2).
+	// They are no methods: they give the type no operation.
+	opFuncs map[string]*Func
 	mlist   []*Func
 	state   int // 0 unresolved, 1 resolving, 2 resolved
 	foreign bool

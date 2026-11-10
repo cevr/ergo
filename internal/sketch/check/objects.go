@@ -74,6 +74,11 @@ type Func struct {
 	// binds.
 	owner    *Named
 	selfArgs []syntax.Expr
+	// opOwner is set in owner's place when the first parameter's type is
+	// an operation type declared in this package, with no operation of
+	// the function's name (G-ex-e-2): x.f(…) reaches the function, which
+	// gives the type no operation and lowers as a plain call.
+	opOwner *Named
 	// same holds the later package functions of the same name (196m rule
 	// 3), on the one the package scope holds; overloaded marks every
 	// function of a valid group, which is called only as x.f(…).
@@ -283,6 +288,10 @@ func (n *Named) method(name string) *Func {
 	}
 	return o.methods[name]
 }
+
+// opFunc is the package function on the operation type n named name, or
+// nil (G-ex-e-2).
+func (n *Named) opFunc(name string) *Func { return n.origin().opFuncs[name] }
 
 func (n *Named) addMethod(f *Func) bool {
 	if n.methods == nil {

@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -62,11 +63,14 @@ func isClose(f *check.Func) bool {
 //     spills it), which no operation of the block sees.
 func (fc *funcCtx) providerRelease(a *check.Acquisition, outer, val string, site syntax.Node) string {
 	cl := a.Close
+	if cl.HostClose() {
+		return fc.hostRelease(cl, outer, val, site)
+	}
 	if cl.Func == nil {
 		if cl.Op == nil {
 			ice(site, "a provider's Close with neither a function nor an operation")
 		}
-		text, _, _ := fc.opCall(cl.Receiver, cl.Op, nil, []string{val}, outer, "", nil, nil, site)
+		text, _, _ := fc.opCall(cl.Receiver, cl.Op, nil, []string{val}, outer, nil, nil, site)
 		return text
 	}
 	if !isClose(cl.Func) || len(cl.Func.Sig.Params) != 1 {
@@ -98,6 +102,21 @@ func (fc *funcCtx) providerRelease(a *check.Acquisition, outer, val string, site
 		targs = fc.typeArgs(cl.Func.Sig, closeTypeArgs(cl, site), site)
 	}
 	return fd.name + targs + "(" + outer + ", " + recv + ")"
+}
+
+// hostRelease is the release of a Go value (IG9; q61): Go's Close, called
+// on val inside the release boundary (v1.Release, the callerRelease
+// route), as a checked Close's body runs. A Close() error's non-nil error
+// is a defect naming site, the acquisition (v1.CloseFailed). Go code has
+// no checkpoint, so the mask only keeps a stop pending past it.
+func (fc *funcCtx) hostRelease(cl *check.Close, outer, val string, site syntax.Node) string {
+	call := "(" + val + ").Close()"
+	if cl.HostFallible() {
+		src, line, column := fc.l.locate(site, site.Pos())
+		at := strconv.Quote(src + ":" + strconv.Itoa(line) + ":" + strconv.Itoa(column))
+		call = fc.runtimeCall("CloseFailed", fc.ownBinding("CloseFailed", site), "", "", []string{at, call}, "", nil, nil, site)
+	}
+	return fc.runtimeCall("Release", fc.ownBinding("Release", site), "", "", []string{"func() { " + call + " }"}, outer, nil, nil, site)
 }
 
 // closeTypeArgs are the type arguments of a generic Close's call: each of
@@ -165,12 +184,17 @@ func closeTypeArgs(cl *check.Close, site syntax.Node) []check.Type {
 // The environment is captured from outside the with, where its release
 // needs were charged. A plain provider has no release.
 func (fc *funcCtx) providerCloser(a *check.Acquisition, outer, val string, site syntax.Node) string {
-	if a.Close == nil {
+	if !a.Releases() {
 		return "nil"
 	}
 	saved := fc.env
 	fc.env = outer
 	callback := fc.envClosure(capturedEnv, "", site, func(env string) ([]string, string, string) {
+		if a.Drop != nil {
+			// A provider whose parts hold resources: its generated
+			// release (B2), its own Close first.
+			return nil, "", strings.Repeat("\t", fc.depth+1) + fc.glue(a.Drop, val, "", env, site) + "\n"
+		}
 		return nil, "", strings.Repeat("\t", fc.depth+1) + fc.providerRelease(a, env, val, site) + "\n"
 	})
 	fc.env = saved
@@ -323,4 +347,566 @@ func (fc *funcCtx) closeBody(f *check.Func, site syntax.Node, emit func()) {
 	fc.out, fc.depth = outer, depth
 	block := "func() {\n" + inner + strings.Repeat("\t", depth) + "}"
 	fc.line(fc.runtimeCall(name, body, "", "", []string{block}, fc.envExpr(site), nil, nil, site))
+}
+
+// Owned values (#197 L8 B1; resources R5-R10, R21, R41, R43). The checker
+// gives each owned local, taken parameter and temporary its release
+// (Info.OwnedVars, Info.OwnedTemps), marks each hand-off (Info.Handoffs)
+// and records the release plan (Info.Releases). The lowering registers
+// each value on its frame's one list in the step that receives it
+// (v1.Owning, R8); a hand-off removes the entry (v1.Hand), a return keeps
+// it until the frame's exit is known (v1.Returned); a scope that ends
+// inside the frame releases what the plan names there (Owned.Release),
+// and the frame's End releases the rest on every edge that leaves the
+// function, each release after an earlier defect, every defect kept (R9).
+// The entry's presence is the drop flag (R21). This is the plain
+// lowering; P-L8 adds the static fast path and keeps this one selectable.
+
+// ownBinding is the v1 body of an ownership binding.
+func (fc *funcCtx) ownBinding(name string, site syntax.Node) v1.Body {
+	body, err := v1.BodyOf(name)
+	if err != nil {
+		ice(site, "the ownership binding %s has no runtime/v1 body: %v", name, err)
+	}
+	return body
+}
+
+// ownRelease is the Go release of an owned value of type t: a function of
+// the value that calls its checked Close, which masks its own body, or,
+// when d is generated (d.Glue()), a function of the value and the fields
+// its owner took in place that releases each part (glue).
+func (fc *funcCtx) ownRelease(d *check.Drop, t check.Type, site syntax.Node) string {
+	v := fc.temp("owned")
+	if d.Glue() {
+		taken := fc.temp("taken")
+		return "func(" + v + " " + fc.goType(t) + ", " + taken + " uint64) { " + fc.glue(d, v, taken, fc.envExpr(site), site) + " }"
+	}
+	text := fc.providerRelease(&check.Acquisition{Close: d.Close}, fc.envExpr(site), v, site)
+	return "func(" + v + " " + fc.goType(t) + ") { " + text + " }"
+}
+
+// Generated release (#197 L8 B2; resources R3, R37, R39, Gap 36): the
+// checker's Drop graph of the value's type, written as one Go function
+// literal at the registration. Each part's checked Close runs through one
+// v1.Drop, after an earlier part's defect, every defect kept (R9); a type
+// reached from its parts more than once, or from itself, has a local
+// function of its own. This is the plain lowering; P-L8 adds the static
+// form.
+
+// glue is the statements that release v, a value of d's type, skipping
+// the top record's fields set in taken.
+func (fc *funcCtx) glue(d *check.Drop, v, taken, env string, site syntax.Node) string {
+	return fc.glueOn(d, v, taken, env, fc.runtimeCall("Scope.Drop", fc.ownBinding("Scope.Drop", site), "", fc.frameScope(site), nil, "", nil, nil, site), site)
+}
+
+// glueOn is glue with the Go text of its v1.Drop, for a release outside a
+// frame (resultRelease).
+func (fc *funcCtx) glueOn(d *check.Drop, v, taken, env, dropText string, site syntax.Node) string {
+	g := &glueGen{fc: fc, site: site, env: env, names: map[*check.Drop]string{}}
+	g.drop = fc.temp("drop")
+	top := g.parts(d, v, taken)
+	var b strings.Builder
+	b.WriteString(g.drop + " := " + dropText + "; ")
+	for _, n := range g.order {
+		b.WriteString("var " + g.names[n] + " func(" + fc.goType(n.Type) + "); ")
+	}
+	for _, n := range g.order {
+		b.WriteString(g.defs[n])
+	}
+	b.WriteString(top)
+	b.WriteString(fc.runtimeCall("Drop.End", fc.ownBinding("Drop.End", site), "", g.drop, nil, "", nil, nil, site))
+	return b.String()
+}
+
+type glueGen struct {
+	fc    *funcCtx
+	site  syntax.Node
+	env   string
+	drop  string
+	names map[*check.Drop]string
+	defs  map[*check.Drop]string
+	order []*check.Drop
+}
+
+// release is the statements that release x, a value of d's type: one
+// part, the call of its checked Close, or the call of d's local function.
+func (g *glueGen) release(d *check.Drop, x string) string {
+	if !d.Glue() {
+		return g.part(d, x)
+	}
+	name, ok := g.names[d]
+	if !ok {
+		name = g.fc.temp("release")
+		g.names[d] = name
+		if g.defs == nil {
+			g.defs = map[*check.Drop]string{}
+		}
+		g.order = append(g.order, d)
+		y := g.fc.temp("v")
+		g.defs[d] = name + " = func(" + y + " " + g.fc.goType(d.Type) + ") { " + g.parts(d, y, "") + "}; "
+	}
+	return name + "(" + x + "); "
+}
+
+// part is one part's release: the checked Close of d's type on x.
+func (g *glueGen) part(d *check.Drop, x string) string {
+	call := g.fc.providerRelease(&check.Acquisition{Close: d.Close}, g.env, x, g.site)
+	return g.fc.runtimeCall("Drop.Part", g.fc.ownBinding("Drop.Part", g.site), "", g.drop, []string{"func() { " + call + " }"}, "", nil, nil, g.site) + "; "
+}
+
+// parts is the statements that release x part by part (R3): the type's
+// own Close, then its fields last first, skipping those set in taken
+// (the top value only), its elements last first or each Map value, or
+// its active variant.
+func (g *glueGen) parts(d *check.Drop, x, taken string) string {
+	var b strings.Builder
+	if d.Close != nil {
+		b.WriteString(g.part(d, x))
+	}
+	if len(d.Fields) > 0 {
+		names := g.fieldNames(d.Type)
+		for _, f := range d.Fields {
+			sel := x + "." + names(f)
+			if taken != "" && f.Index < 64 {
+				b.WriteString("if " + taken + "&(1<<" + strconv.Itoa(f.Index) + ") == 0 { " + g.release(f.Drop, sel) + "}; ")
+				continue
+			}
+			b.WriteString(g.release(f.Drop, sel))
+		}
+	}
+	if d.Elem != nil {
+		e := g.fc.temp("e")
+		switch underOf(d.Type).(type) {
+		case *check.Slice, *check.Array:
+			i := g.fc.temp("i")
+			b.WriteString("for " + i + " := len(" + x + ") - 1; " + i + " >= 0; " + i + "-- { " + e + " := " + x + "[" + i + "]; " + g.release(d.Elem, e) + "}; ")
+		case *check.Map:
+			b.WriteString("for _, " + e + " := range " + x + " { " + g.release(d.Elem, e) + "}; ")
+		default:
+			ice(g.site, "a generated release of %s, which has elements but is no slice, array or Map", d.Type)
+		}
+	}
+	if d.Drain != nil {
+		// A std queue of resources (Q7, R13): Drain ends admission and
+		// gives the values left, oldest first; they are released last
+		// entered first.
+		xs, i, e := g.fc.temp("left"), g.fc.temp("i"), g.fc.temp("e")
+		n, _ := d.Type.(*check.Named)
+		if n == nil {
+			ice(g.site, "a drain of %s, which is no named operation type", d.Type)
+		}
+		name := n.Obj.Name + ".Drain"
+		drain := g.fc.runtimeCall(name, g.fc.ownBinding(name, g.site), "", x, nil, "", nil, nil, g.site)
+		b.WriteString(xs + " := " + drain + "; for " + i + " := len(" + xs + ") - 1; " + i + " >= 0; " + i + "-- { " + e + " := " + xs + "[" + i + "]; " + g.release(d.Drain, e) + "}; ")
+	}
+	if len(d.Variants) > 0 {
+		if fu := g.fc.l.flatUnionOf(d.Type); fu != nil {
+			flatBail(g.site, fu)
+		}
+		y := g.fc.temp("v")
+		b.WriteString("switch " + y + " := any(" + x + ").(type) { ")
+		for _, v := range d.Variants {
+			b.WriteString("case " + g.fc.goType(v.Type) + ": " + g.release(v, y))
+		}
+		b.WriteString("}; ")
+	}
+	return b.String()
+}
+
+// fieldNames maps a part of a record or tuple of type t to its Go field.
+func (g *glueGen) fieldNames(t check.Type) func(check.DropField) string {
+	if _, ok := underOf(t).(*check.Tuple); ok {
+		return func(f check.DropField) string { return tupleField(f.Index) }
+	}
+	n, ok := t.(*check.Named)
+	for ok {
+		td := g.fc.l.typeDecl(n.Obj, g.site)
+		if td.kind != kindDefined {
+			return func(f check.DropField) string {
+				name, ok := td.fieldName[f.Name]
+				if !ok {
+					ice(g.site, "the record %s has no Go field for %s", t, f.Name)
+				}
+				return name
+			}
+		}
+		n, ok = n.Defined().(*check.Named)
+	}
+	ice(g.site, "a generated release of the fields of %s, which is no record", t)
+	return nil
+}
+
+// underOf is t's underlying type.
+func underOf(t check.Type) check.Type {
+	if n, ok := t.(*check.Named); ok {
+		return n.Underlying()
+	}
+	return t
+}
+
+// own registers val, a value of type t that key's owner owns, and returns
+// the Go expression that yields it: the step that receives the value.
+func (fc *funcCtx) own(key any, d *check.Drop, t check.Type, val string, site syntax.Node) string {
+	if fc.frame != nil && fc.frame.static != nil {
+		return fc.staticOwn(key, d, t, val, site)
+	}
+	if fc.l.owned == nil {
+		fc.l.owned = map[any]string{}
+	}
+	h := fc.temp("own")
+	fc.l.owned[key] = h
+	fc.line(h + " := " + fc.runtimeCall("Scope.Owner", fc.ownBinding("Scope.Owner", site), "", fc.frameScope(site), nil, "", nil, nil, site))
+	return fc.owning(h, val, d, t, site)
+}
+
+// owning is the registration of val in the entry h (v1.Owning, or
+// v1.OwningParts for a generated release).
+func (fc *funcCtx) owning(h, val string, d *check.Drop, t check.Type, site syntax.Node) string {
+	name := "Owning"
+	if d.Glue() {
+		name = "OwningParts"
+	}
+	return fc.runtimeCall(name, fc.ownBinding(name, site), "", "", []string{h, val, fc.ownRelease(d, t, site)}, "", nil, nil, site)
+}
+
+// takeField marks the field a call takes in place on its owned record's
+// entry (Info.FieldTakes; R39, Gap 38), before the call: the record's
+// release skips it from here on.
+func (fc *funcCtx) takeField(x syntax.Expr) {
+	sel, ok := unparen(x).(*syntax.SelectorExpr)
+	if !ok {
+		return
+	}
+	ft, ok := fc.l.info.FieldTakes[sel]
+	if !ok {
+		return
+	}
+	h := fc.l.owned[ft.Var]
+	if h == "" {
+		return
+	}
+	fc.line(fc.runtimeCall("Owned.TakeField", fc.ownBinding("Owned.TakeField", sel), "", h, []string{strconv.Itoa(ft.Index)}, "", nil, nil, sel))
+}
+
+// ownVar registers the local or parameter v, already bound to its Go
+// variable, when the checker gives it an owner.
+func (fc *funcCtx) ownVar(v *check.Var, site syntax.Node) {
+	d := fc.l.info.OwnedVars[v]
+	if d == nil {
+		return
+	}
+	fc.line(fc.own(v, d, v.Type, fc.locals[v], site))
+}
+
+// ownTemp registers the value of x, a temporary its statement owns (R43),
+// in the operand o: on success only, when x may fail.
+func (fc *funcCtx) ownTemp(x syntax.Expr, o operand) operand {
+	d := fc.l.info.OwnedTemps[x]
+	if d == nil || o.val == "" {
+		return o
+	}
+	if o.err == "" {
+		o.val = fc.own(x, d, fc.typeOf(x), o.val, x)
+		return o
+	}
+	val := fc.temp("t")
+	fc.line(val + " := " + o.val)
+	reg := fc.own(x, d, fc.typeOf(x), val, x)
+	fc.line("if " + o.err + " == nil {")
+	fc.line("\t" + reg)
+	fc.line("}")
+	o.val = val
+	return o
+}
+
+// holdTaken finds the owned locals that x, a call of a bodiless std
+// operation that takes them (queue Push, D-C), hands off: their entries
+// stay on the frame until the call returns (handoff skips them), so a
+// Push that fails releases its value and a stopped one leaves it to the
+// frame's End (Q7, plan 1.4). It returns their Go entries.
+func (fc *funcCtx) holdTaken(x *syntax.CallExpr, c *check.Call) []string {
+	var takes []int
+	args := x.Args
+	switch {
+	case c.Kind == check.CallOp && c.Op != nil && c.Op.Sig != nil && fc.stdOp(c):
+		takes = c.Op.Sig.Takes
+	case c.Kind == check.CallFunc && c.Func != nil && c.Func.Pkg != nil && c.Func.Pkg.Std() && c.Func.Decl != nil && c.Func.Decl.Extern != nil:
+		takes = c.Func.Sig.Takes
+		if c.Recv != nil {
+			args = append([]syntax.Expr{c.Recv}, args...)
+		}
+	default:
+		return nil
+	}
+	var held []string
+	for _, i := range takes {
+		if i >= len(args) {
+			continue
+		}
+		id, ok := unparen(args[i]).(*syntax.Ident)
+		if !ok || fc.l.info.Handoffs[id] == nil {
+			continue
+		}
+		h := fc.l.owned[fc.l.info.Handoffs[id]]
+		if h == "" {
+			continue
+		}
+		if fc.held == nil {
+			fc.held = map[*syntax.Ident]bool{}
+		}
+		fc.held[id] = true
+		held = append(held, h)
+	}
+	return held
+}
+
+// stdOp reports a call of a std operation type's operation, whose body is
+// runtime/v1's.
+func (fc *funcCtx) stdOp(c *check.Call) bool {
+	if c.Recv == nil {
+		return false
+	}
+	n, ok := fc.typeOf(c.Recv).(*check.Named)
+	return ok && n.Obj != nil && n.Obj.Pkg.Std()
+}
+
+// settleTaken writes the call text and settles the held entries: on
+// success the values left with the call (v1.Hand), on a failure each is
+// released now, in the call's own step (D-C).
+func (fc *funcCtx) settleTaken(held []string, text string, failsHere bool, site syntax.Node) operand {
+	e := fc.temp("err")
+	fc.line(e + " := " + text)
+	fc.line("if " + e + " == nil {")
+	for _, h := range held {
+		fc.line("\t" + fc.runtimeCall("Hand", fc.ownBinding("Hand", site), "[struct{}]", "", []string{h, "struct{}{}"}, "", nil, nil, site))
+	}
+	fc.line("} else {")
+	for _, h := range held {
+		fc.line("\t" + fc.runtimeCall("Owned.Release", fc.ownBinding("Owned.Release", site), "", h, nil, "", nil, nil, site))
+	}
+	fc.line("}")
+	if !failsHere {
+		fc.line("_ = " + e)
+		return operand{}
+	}
+	return operand{err: e}
+}
+
+// handoff is the Go value of id, a use of an owned value: as it is, or, at
+// a hand-off, with its entry removed (v1.Hand), or kept until the frame's
+// exit is known when the frame returns it (v1.Returned).
+func (fc *funcCtx) handoff(id *syntax.Ident, val string, returned bool) string {
+	v := fc.l.info.Handoffs[id]
+	if fc.held[id] {
+		return val // settled after the call (holdTaken)
+	}
+	if v == nil {
+		return val
+	}
+	h := fc.l.owned[v]
+	if h == "" {
+		return val // a value of a type parameter: released by its instance (B2)
+	}
+	if st := fc.staticState(); st != nil {
+		if _, ok := st.bit[v]; ok {
+			return fc.staticHand(v, val, returned, id)
+		}
+	}
+	name := "Hand"
+	if returned {
+		name = "Returned"
+	}
+	return fc.runtimeCall(name, fc.ownBinding(name, id), "", "", []string{h, val}, "", nil, nil, id)
+}
+
+// releaseAt writes the releases the plan records at key, a place that
+// ends inside the frame: last acquired first. A value whose entry left
+// the list (a hand-off on this path) is skipped by its entry (R21).
+func (fc *funcCtx) releaseAt(key syntax.Node) {
+	for _, r := range fc.l.info.Releases[key] {
+		var h string
+		if r.Var != nil {
+			h = fc.l.owned[r.Var]
+		} else {
+			h = fc.l.owned[r.Temp]
+		}
+		if h == "" {
+			continue // a value of a type parameter (B2)
+		}
+		if st := fc.staticState(); st != nil {
+			key := any(r.Temp)
+			if r.Var != nil {
+				key = r.Var
+			}
+			if _, ok := st.bit[key]; ok {
+				fc.staticRelease(key)
+				continue
+			}
+		}
+		fc.line(fc.runtimeCall("Owned.Release", fc.ownBinding("Owned.Release", key), "", h, nil, "", nil, nil, key))
+	}
+}
+
+// reassignOwned writes x = val, x an owned local (R41): the new value is
+// registered first, then the old one is released where the plan says it
+// is still owned, then x takes the new value and its entry. So a defect
+// in the old value's release leaves the new one owned. It reports false
+// for any other target.
+func (fc *funcCtx) reassignOwned(lhs syntax.Expr, target, val string) bool {
+	id, ok := unparen(lhs).(*syntax.Ident)
+	if !ok {
+		return false
+	}
+	v, _ := fc.l.info.Uses[id].(*check.Var)
+	cl := fc.l.info.OwnedVars[v]
+	h := fc.l.owned[v]
+	if cl == nil || h == "" {
+		return false
+	}
+	t := fc.temp("t")
+	fc.line(t + " := " + val)
+	next := fc.temp("own")
+	fc.line(next + " := " + fc.runtimeCall("Scope.Owner", fc.ownBinding("Scope.Owner", id), "", fc.frameScope(id), nil, "", nil, nil, id))
+	fc.line(fc.owning(next, t, cl, v.Type, id))
+	fc.releaseAt(id)
+	fc.line(target + " = " + t)
+	fc.line(h + " = " + next)
+	return true
+}
+
+// scoped writes a scope's statements through write and, when they can
+// end normally, the releases of the scope's end (Info.Releases[key]).
+func (fc *funcCtx) scoped(key syntax.Node, write func() bool) bool {
+	if cl, ok := key.(*syntax.CaseClause); ok {
+		fc.patternOwners(cl)
+	}
+	t := write()
+	if !t {
+		fc.releaseAt(key)
+	}
+	return t
+}
+
+// patternOwners runs only after the selected pattern's tests and Go
+// bindings. Removing the whole subject at header evaluation would also
+// remove it in non-consuming arms. Registration precedes any arm code.
+func (fc *funcCtx) patternOwners(cl *syntax.CaseClause) {
+	plan := fc.l.info.PatternOwners[cl]
+	for _, source := range plan.Sources {
+		var key any = source.Temp
+		if source.Var != nil {
+			key = source.Var
+		}
+		h := fc.l.owned[key]
+		if h == "" {
+			continue
+		}
+		if st := fc.staticState(); st != nil {
+			if _, ok := st.bit[key]; ok {
+				fc.line("_ = " + fc.staticHand(key, "0", false, cl))
+				continue
+			}
+		}
+		fc.line("_ = " + fc.runtimeCall("Hand", fc.ownBinding("Hand", cl), "", "", []string{h, "0"}, "", nil, nil, cl))
+	}
+	for _, v := range plan.Bindings {
+		fc.ownVar(v, cl)
+	}
+}
+
+// bodyOwns reports a body that owns a value: a frame scope holds its
+// entries.
+func (l *lowerer) bodyOwns(list []syntax.Stmt) bool {
+	found := false
+	for _, s := range list {
+		syntax.Inspect(s, func(n syntax.Node) bool {
+			switch n := n.(type) {
+			case *syntax.FuncLit:
+				return false
+			case *syntax.CallExpr:
+				if c := l.info.Calls[n]; n.Trailing != nil && (c == nil || c.Kind != check.CallWith) {
+					syntax.Inspect(n.Fun, func(m syntax.Node) bool { found = found || l.ownsNode(m); return !found })
+					for _, a := range n.Args {
+						syntax.Inspect(a, func(m syntax.Node) bool { found = found || l.ownsNode(m); return !found })
+					}
+					found = found || l.ownsNode(n)
+					return false
+				}
+			}
+			found = found || l.ownsNode(n)
+			return !found
+		})
+		if found {
+			return true
+		}
+	}
+	return false
+}
+
+// ownsNode reports a binding or temporary with an owner.
+func (l *lowerer) ownsNode(n syntax.Node) bool {
+	switch n := n.(type) {
+	case *syntax.Ident:
+		v, ok := l.info.Defs[n].(*check.Var)
+		return ok && l.info.OwnedVars[v] != nil
+	case syntax.Expr:
+		return l.info.OwnedTemps[n] != nil
+	}
+	return false
+}
+
+// ownsValues reports a declaration that owns a value anywhere in it, its
+// parameters and nested literals included: its frames release through a
+// frame scope on their task, so it is no pure function (pure.go).
+func ownsValues(info *check.Info, d *syntax.FuncDecl) bool {
+	found := false
+	syntax.Inspect(d, func(n syntax.Node) bool {
+		switch n := n.(type) {
+		case *syntax.Ident:
+			if v, ok := info.Defs[n].(*check.Var); ok && info.OwnedVars[v] != nil {
+				found = true
+			}
+		case syntax.Expr:
+			if info.OwnedTemps[n] != nil {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
+}
+
+// ownsParams reports a signature with a taken parameter that has an owner.
+func (l *lowerer) ownsParams(params []*check.Var) bool {
+	for _, v := range params {
+		if l.info.OwnedVars[v] != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// resultRelease is the hidden v1.Releaser of a std call (L8 B4, Gap 47):
+// the release of the call's result, which the runtime body runs when it
+// drops a successful result, or nil when the checker recorded none (the
+// result holds no resource). It runs on the releasing task: a copy of the
+// environment with that task, as a std callback's (childEnv).
+func (fc *funcCtx) resultRelease(x *syntax.CallExpr, site syntax.Node) string {
+	d := fc.l.info.ResultDrops[x]
+	if d == nil {
+		return "nil"
+	}
+	return fc.envClosure(childEnv, "e", site, func(env string) ([]string, string, string) {
+		// env is &copy; a release that passes the task selects through it.
+		env = "(" + env + ")"
+		v := fc.scope.alloc("v")
+		var text string
+		if d.Glue() {
+			drop := fc.runtimeCall("NewDrop", fc.ownBinding("NewDrop", site), "", "", nil, env, nil, nil, site)
+			text = fc.glueOn(d, v, "", env, drop, site)
+		} else {
+			text = fc.providerRelease(&check.Acquisition{Close: d.Close}, env, v, site)
+		}
+		return []string{v + " " + fc.goType(d.Type)}, "", strings.Repeat("\t", fc.depth+1) + text + "\n"
+	})
 }

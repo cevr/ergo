@@ -49,6 +49,6 @@ go run ./scripts/examples mdhtml
 
 Each gap has its repro in the run dir's `examples-wave/gaps-ex-a.md`.
 
-- **G-exup-2 (new).** `machines.Next(Idle, d)` with `d` a `Decision[Mode, []Block]` is S108 ("does not match Decision[S, O]"): inference takes `S` from the variant `Idle`, not the union `Mode` that `d` names, so `moved` writes `machines.Next[Mode, []Block](Idle, d)`.
+- **G-exup-2**: closed in L9. Inference takes the union `Mode` that `d` names, so `moved` writes `machines.Next(Idle, d)`.
 
 Closed in batch 12: **G-ex-a-9** (V5: a step `Emit`s the blocks it closes, so no `Mode` carries the closed blocks and no step copies them; `Read` runs the machine with `machines.Run`, V2); **G-ex-a-10** (S2 `slices.Concat`, `slices.Slice`; with the value rule, `plus`, `appended` and `continued` are gone); **G-ex-a-3** here (`Read` has no end match to fill in: its impossible outcomes are `Unreachable`, K5); **G-ex-a-7 and G-ex-a-8** (T1: `ergo run DIR -- ARGS` passes the flags); the property tests that restated the laws (V1 runs them; the steering moved into the laws, and T4's strings reach the markup characters the old tests added by hand); the hand `fs.Files` of `cmd/mdhtml`'s tests (U1 `fstest.NewMemory`).

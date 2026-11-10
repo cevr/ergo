@@ -26,7 +26,7 @@ func TestRootStopWinsOverSuccess(t *testing.T) {
 	})
 	t.Run("empty scope", func(t *testing.T) {
 		root := Root("main")
-		v, err := Scoped(root, func(*Scope) (int, error) {
+		v, err := Scoped(root, nil, func(*Scope) (int, error) {
 			root.Interrupt()
 			return 42, nil
 		})
@@ -53,7 +53,7 @@ func TestRootStopWinsOverSuccess(t *testing.T) {
 func TestStopDuringReleaseIsObservedAtScopeEnd(t *testing.T) {
 	root := Root("main")
 	var stoppedInRelease bool
-	_, err := Scoped(root, func(s *Scope) (int, error) {
+	_, err := Scoped(root, nil, func(s *Scope) (int, error) {
 		s.Defer(func() {
 			root.Interrupt()
 			stoppedInRelease = root.Stopped()
@@ -91,7 +91,7 @@ func TestFinishedAncestryRetentionIsBounded(t *testing.T) {
 		if n == 0 {
 			return task, nil
 		}
-		return Scoped(task, func(s *Scope) (*Task, error) {
+		return Scoped(task, nil, func(s *Scope) (*Task, error) {
 			h := Go(s, "nested", func(child *Task) (*Task, error) { return build(child, n-1) })
 			mu.Lock()
 			handles = append(handles, weak.Make(h.Task()))

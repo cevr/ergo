@@ -89,7 +89,7 @@ func TestTracedReleasesMatchUntraced(t *testing.T) {
 	}{
 		{"normal: an exit action and an unconsumed task", func(t *rt.Task, s *Scope) error {
 			OnExit(s, func() {})
-			Go(s, "child at r.ergo:2:3", func(ct *rt.Task) (int, error) { sleepUntilStopped(ct); return 0, nil })
+			ownedGo(s, "child at r.ergo:2:3", func(ct *rt.Task) (int, error) { sleepUntilStopped(ct); return 0, nil })
 			return nil
 		}, 2, 0},
 		{"failing: an exit action panics", func(t *rt.Task, s *Scope) error {
@@ -99,12 +99,12 @@ func TestTracedReleasesMatchUntraced(t *testing.T) {
 		{"nested: an exit action with its own action and task", func(t *rt.Task, s *Scope) error {
 			OnExit(s, func() {
 				OnExit(s, func() { panic("inner broke") })
-				Go(s, "inner child at r.ergo:5:5", func(ct *rt.Task) (int, error) { sleepUntilStopped(ct); return 0, nil })
+				ownedGo(s, "inner child at r.ergo:5:5", func(ct *rt.Task) (int, error) { sleepUntilStopped(ct); return 0, nil })
 			})
 			return nil
 		}, 3, 1},
 		{"a drained task's defect", func(t *rt.Task, s *Scope) error {
-			c := Go(s, "child at r.ergo:7:3", func(ct *rt.Task) (int, error) { return explode(), nil })
+			c := ownedGo(s, "child at r.ergo:7:3", func(ct *rt.Task) (int, error) { return explode(), nil })
 			_ = c
 			return nil
 		}, 1, 0},

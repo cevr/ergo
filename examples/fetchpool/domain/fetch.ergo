@@ -1,0 +1,114 @@
+// Package domain states the download contracts. Connections are owned
+// resources; a fetch only lends one while it reads.
+import machines
+
+type Offline { ID int }
+type ReadFailed { Reason string }
+
+type Conn {
+	Number() int,
+	Read() string fails ReadFailed,
+	Close(),
+
+	law ReadIsRepeatable() {
+		let first = Read() catch {
+		case ReadFailed:
+			return true
+		}
+		let second = Read() catch {
+		case ReadFailed:
+			return false
+		}
+		first == second
+	},
+}
+
+type Fetcher {
+	Open(id int) Conn fails Offline,
+
+	// Opening a connection never changes which download it names.
+	law KeepsNumber(id int) {
+		let c = Open(id) catch {
+		case Offline:
+			return true
+		}
+		c.Number() == id
+	},
+}
+
+// A limiter is a resource shared by structured lends, not a global
+// registry. Its owner outlives all the workers that borrow it.
+type Limiter {
+	Admit() bool,
+	Remaining() int,
+	Close(),
+
+	law AdmissionSpendsOne() {
+		let before = Remaining()
+		let admitted = Admit()
+		if before > 0 { admitted && Remaining() == before-1 } else { !admitted && Remaining() == before }
+	},
+}
+
+type State = Queued{ID int} | Fetching{ID int} | Done{ID int, Body string} | Failed{ID int, Reason string}
+type Signal = Start{} | Loaded{Body string} | Rejected{Reason string}
+
+func Step(s State, sig Signal) Decision[State, int] {
+	match (s, sig) {
+	case (Queued as q, Start):
+		Enter[State]{Next: Fetching{ID: q.ID}}
+	case (Fetching as f, Loaded as l):
+		Enter[State]{Next: Done{ID: f.ID, Body: l.Body}}
+	case (Fetching as f, Rejected as r):
+		Enter[State]{Next: Failed{ID: f.ID, Reason: r.Reason}}
+	case (Queued, Loaded), (Queued, Rejected), (Fetching, Start), (Done, _), (Failed, _):
+		Reject
+	}
+}
+
+type Download machine[State, Signal] {
+	initial: Queued{ID: 0},
+	step:    Step,
+}
+
+func Fetch(c Conn) State {
+	let id = c.Number()
+	let queued State = Queued{ID: id}
+	let active = machines.Next(queued, Step(queued, Start))
+	let body = c.Read() catch {
+	case ReadFailed as f:
+		return machines.Next(active, Step(active, Rejected{Reason: f.Reason}))
+	}
+	machines.Next(active, Step(active, Loaded{Body: body}))
+}
+
+func Number(s State) int {
+	match s {
+	case Queued as q:
+		q.ID
+	case Fetching as f:
+		f.ID
+	case Done as d:
+		d.ID
+	case Failed as f:
+		f.ID
+	}
+}
+
+func Render(s State) string {
+	match s {
+	case Queued as q:
+		"queued \(q.ID)"
+	case Fetching as f:
+		"fetching \(f.ID)"
+	case Done as d:
+		"done \(d.ID): \(d.Body)"
+	case Failed as f:
+		"failed \(f.ID): \(f.Reason)"
+	}
+}
+
+law StartKeepsNumber(id int) {
+	let q State = Queued{ID: id}
+	Number(machines.Next(q, Step(q, Start))) == id
+}

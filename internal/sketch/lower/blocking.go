@@ -73,23 +73,37 @@ func (b runtimeBinding) takesCaller() bool {
 }
 
 var runtimeBindings = map[string]runtimeBinding{
-	"Sleep":        {wait: callerWait, hostTarget: runtimeModule + "/runtime/rt.Sleep", provider: "LiveScheduler"},
-	"Task.Wait":    {wait: handleWait},
-	"Task.Stop":    {wait: drainWait},
+	"Sleep":     {wait: callerWait, hostTarget: runtimeModule + "/runtime/rt.Sleep", provider: "LiveScheduler"},
+	"Task.Wait": {wait: handleWait},
+	"Task.Stop": {wait: drainWait},
+	// A Task's and a Set's release (B3t): Stop, masked on the caller.
+	"Task.Close":   {release: callerRelease},
+	"Set.Close":    {release: callerRelease},
 	"Queue.Push":   {wait: callerWait},
 	"Queue.Pop":    {wait: callerWait},
 	"Queue.Values": {wait: callerWait},
 	"Queue.End":    {},
 	"Queue.Poll":   {},
 	"Queue.Len":    {},
-	"Go":           {},
+	// The release of a queue of resources (release.go, B3; Q7): ends
+	// admission and gives the values left; never waits.
+	"Queue.Drain": {},
+	// The rest of the release of a Task whose value holds a resource
+	// (release.go, B3t; Q5): the value no Wait delivered; never waits.
+	"Task.Drain": {},
+	"Go":         {},
 	// timeout.After joins its body and deadline children, whichever ends
 	// first, as their parent (runtime.md, Timeouts).
-	"After":        {wait: childWait},
-	"OnExit":       {release: frameRelease},
-	"Release":      {release: callerRelease},
+	"After":   {wait: childWait},
+	"OnExit":  {release: frameRelease},
+	"Release": {release: callerRelease},
+	// The end of a Go value's release (IG9): its Close's error is a
+	// defect. It runs inside Release, never waits and masks nothing.
+	"CloseFailed":  {},
 	"New":          {},
 	"WithCapacity": {},
+	"SlicesTake":   {},
+	"MapTake":      {},
 	// tasks.Transform joins its children, whichever ends first, as their
 	// parent (stdlib.md, Tasks; rt.MapSpan).
 	"TasksTransform": {wait: childWait},
@@ -98,11 +112,12 @@ var runtimeBindings = map[string]runtimeBinding{
 	// tasks.Set (runtime.md, G4): NewSet registers on the frame, as Go
 	// does; tasks.Go starts a member below the caller; Wait joins the
 	// members as their parent, and Stop stops and joins them, uninterruptibly.
-	"TasksNewSet": {},
-	"TasksGo":     {wait: parentTask},
-	"Set.Wait":    {wait: childWait},
-	"Set.Stop":    {wait: childWait},
-	"Set.Len":     {},
+	"TasksNewSet":  {},
+	"TasksGo":      {wait: parentTask},
+	"TasksGoOwned": {wait: parentTask},
+	"Set.Wait":     {wait: childWait},
+	"Set.Stop":     {wait: childWait},
+	"Set.Len":      {},
 	// The with lifetime owner's scope (with, withClose; resources.md, Context
 	// ownership). None waits, and none is a release route: the release a
 	// with registers is the call of a checked Close, which masks itself
@@ -112,6 +127,41 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Scope.OpenWith":    {},
 	"Scope.WithAcquire": {},
 	"Scope.EndWith":     {},
+	// Owned values (release.go, B1; resources R5-R10, R21). None waits and
+	// none is a release route: an owned value's release is the call of its
+	// checked Close, which masks itself (callerRelease). Scope.Owner makes the
+	// entry of the code's scope and Owning registers it
+	// in the step that receives the value (R8); Hand and Returned end or
+	// defer the entry at a hand-off; Owned.Release releases at a scope end
+	// inside the frame.
+	"Scope.Owner":   {},
+	"Owning":        {},
+	"Hand":          {},
+	"Returned":      {},
+	"Owned.Release": {},
+	// Generated release (release.go, B2; resources R3, R37, R39): a value
+	// whose parts hold resources registers through OwningParts, a field
+	// taken in place marks its entry (Owned.TakeField), and its release
+	// runs each part's checked Close through one Drop, which keeps every
+	// part's defect (R9). None waits: each part masks itself.
+	// The static release (static.go, P-L8): a frame's owned values in
+	// slots and bits; StaticBegin takes the task its releases run on, and
+	// each Part is a checked Close, which masks itself. None waits.
+	"OwnStatic":       {},
+	"HandStatic":      {},
+	"ReturnStatic":    {},
+	"StaticBegin":     {task: true},
+	"Static.Part":     {},
+	"Static.Failed":   {},
+	"Static.End":      {},
+	"OwningParts":     {},
+	"Owned.TakeField": {},
+	"Scope.Drop":      {},
+	// A std body's release of a result it drops (Releaser; Gap 47) runs
+	// on the releasing task, which NewDrop receives as its hidden task.
+	"NewDrop":   {task: true},
+	"Drop.Part": {},
+	"Drop.End":  {},
 	// The context owner (calls.go, contextWith; runtime.md, G1): a region
 	// opens on the scope of the code at the with and ends at its block's
 	// normal end, or when that scope closes. The reads take the running

@@ -221,14 +221,19 @@ type lowerer struct {
 	src      string       // its admitted path, which //line directives name
 	cur      int          // its index in srcs
 
-	srcs     []srcFile                // every source file in canonical order (canon.srcs)
-	tpSrc    map[*check.TypeParam]int // each type parameter's source file (paramFile)
-	nodeIDs  map[syntax.Node]int      // node identities for keys (nodeID)
-	libs     []*check.Package         // the libraries the program reaches (libraries)
-	libsDone bool
-	goPkgs   []*check.Package        // the Go packages the program reaches (import go; libraryPackages)
-	stdSrc   map[syntax.Node]stdFile // each node of a reached std package's files (locate)
-	initPkgs []*check.Package        // the sourced libraries in initialization order
+	srcs    []srcFile                // every source file in canonical order (canon.srcs)
+	tpSrc   map[*check.TypeParam]int // each type parameter's source file (paramFile)
+	nodeIDs map[syntax.Node]int      // node identities for keys (nodeID)
+	// owned is the Go name of each owned value's entry (release.go, B1):
+	// keyed by its *check.Var or its temporary's syntax.Expr.
+	owned map[any]string
+	// Root registration callbacks for repeated moving task bodies (R12).
+	captureRoots map[syntax.Node]string
+	libs         []*check.Package // the libraries the program reaches (libraries)
+	libsDone     bool
+	goPkgs       []*check.Package        // the Go packages the program reaches (import go; libraryPackages)
+	stdSrc       map[syntax.Node]stdFile // each node of a reached std package's files (locate)
+	initPkgs     []*check.Package        // the sourced libraries in initialization order
 
 	names    *namer // the Go package scope
 	pkgNames map[pkgKey]string

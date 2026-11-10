@@ -217,14 +217,14 @@ func virtualRun(prog [][]vop) map[vkey]vstamp {
 	defer s.End(nil)
 	tasks := make([]*Task[struct{}], len(prog))
 	for i, ops := range prog {
-		tasks[i] = Go(&s, Site(fmt.Sprint("task ", i)), func(ct *rt.Task) (struct{}, error) {
+		tasks[i] = ownedGo(&s, Site(fmt.Sprint("task ", i)), func(ct *rt.Task) (struct{}, error) {
 			for k, o := range ops {
 				switch o.kind {
 				case vSleep:
 					line.Wait(ct, time.Duration(o.d)*time.Second)
 					stamp(i, k, false)
 				case vAfter:
-					_, err := After("after", ct, lineSleeper{line}, time.Duration(o.d)*time.Second, func(bt *rt.Task) (int, error) {
+					_, err := After("after", ct, lineSleeper{line}, nil, time.Duration(o.d)*time.Second, func(bt *rt.Task) (int, error) {
 						line.Wait(bt, time.Duration(o.e)*time.Second)
 						return 0, nil
 					})
@@ -246,7 +246,7 @@ func virtualRun(prog [][]vop) map[vkey]vstamp {
 					stamp(i, k, false)
 				case vStop:
 					ls := NewScope(ct)
-					h := Go(&ls, "sleeper", func(st *rt.Task) (struct{}, error) {
+					h := ownedGo(&ls, "sleeper", func(st *rt.Task) (struct{}, error) {
 						defer stamp(i, k, false)
 						line.Wait(st, 100*time.Second)
 						return struct{}{}, nil
@@ -316,7 +316,7 @@ func TestTestingLaws(t *testing.T) {
 				count := 1 + r.IntN(50)
 				q := New[int](count)
 				s := NewScope(root)
-				h := Go(&s, "pusher", func(ct *rt.Task) (int64, error) {
+				h := ownedGo(&s, "pusher", func(ct *rt.Task) (int64, error) {
 					for i := range count {
 						if err := q.Push(ct, i); err != nil {
 							return 0, err

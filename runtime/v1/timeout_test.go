@@ -69,7 +69,7 @@ func TestAfterDeadlineFromScheduler(t *testing.T) {
 			s.v.Advance(time.Hour)
 		}()
 		err := runMain(func(root *rt.Task) error {
-			got, gotErr = After(Site("test calls timeout.After"), root, s, time.Hour, func(ct *rt.Task) (int, error) {
+			got, gotErr = After(Site("test calls timeout.After"), root, s, nil, time.Hour, func(ct *rt.Task) (int, error) {
 				defer func() { bodyStopped.Store(ct.Stopped()) }()
 				sleepUntilStopped(ct)
 				return 7, nil
@@ -123,7 +123,7 @@ func TestAfterBodyFirst(t *testing.T) {
 					// The body ends only after the deadline child has
 					// registered its sleep, so After must stop and drain a
 					// live deadline, not one that never started (S4c r1 M1).
-					got, gotErr = After(Site("test"), root, s, time.Hour, func(c *rt.Task) (int, error) {
+					got, gotErr = After(Site("test"), root, s, nil, time.Hour, func(c *rt.Task) (int, error) {
 						s.v.AwaitTimers(1)
 						return tc.body(c)
 					})
@@ -161,7 +161,7 @@ func TestAfterDefects(t *testing.T) {
 		var err error
 		within(t, "After with a body defect", func() {
 			err = runMain(func(root *rt.Task) error {
-				_, _ = After(Site("test"), root, s, time.Hour, func(*rt.Task) (int, error) { return explode(), nil })
+				_, _ = After(Site("test"), root, s, nil, time.Hour, func(*rt.Task) (int, error) { return explode(), nil })
 				t.Error("After returned after a defect in its body")
 				return nil
 			})
@@ -179,7 +179,7 @@ func TestAfterDefects(t *testing.T) {
 		var err error
 		within(t, "After with a Scheduler defect", func() {
 			err = runMain(func(root *rt.Task) error {
-				_, _ = After(Site("test"), root, panicSleeper{}, time.Hour, func(ct *rt.Task) (int, error) {
+				_, _ = After(Site("test"), root, panicSleeper{}, nil, time.Hour, func(ct *rt.Task) (int, error) {
 					defer func() { bodyStopped.Store(ct.Stopped()) }()
 					sleepUntilStopped(ct)
 					return 7, nil
@@ -227,7 +227,7 @@ func TestAfterMaskedCaller(t *testing.T) {
 		err := runMain(func(root *rt.Task) error {
 			m := root.Mask()
 			defer m.Unmask()
-			got, gotErr = After(Site("test"), root, s, time.Hour, func(ct *rt.Task) (int, error) {
+			got, gotErr = After(Site("test"), root, s, nil, time.Hour, func(ct *rt.Task) (int, error) {
 				sleepUntilStopped(ct)
 				return 7, nil
 			})
@@ -261,7 +261,7 @@ func TestAfterParentStopped(t *testing.T) {
 			root.Interrupt()
 		}()
 		err = runOn(root, func(root *rt.Task) error {
-			_, _ = After(Site("test"), root, s, time.Hour, func(ct *rt.Task) (int, error) {
+			_, _ = After(Site("test"), root, s, nil, time.Hour, func(ct *rt.Task) (int, error) {
 				defer func() { bodyStopped.Store(ct.Stopped()) }()
 				close(started)
 				sleepUntilStopped(ct)

@@ -67,10 +67,10 @@ func TestStopPropagatesToDescendants(t *testing.T) {
 				return 0, Interrupted
 			}
 			top := Go(&s, "top", func(task *Task) (int, error) {
-				return Scoped(task, func(s *Scope) (int, error) {
+				return Scoped(task, nil, func(s *Scope) (int, error) {
 					for range fan {
 						Go(s, "mid", func(task *Task) (int, error) {
-							return Scoped(task, func(s *Scope) (int, error) {
+							return Scoped(task, nil, func(s *Scope) (int, error) {
 								for range fan {
 									Go(s, "leaf", observe)
 								}
@@ -230,7 +230,7 @@ func TestMaskDefersStopUntilUnmask(t *testing.T) {
 	// Release always runs masked, even when the scope ends by a stop.
 	var releaseMasked, releaseSawStop bool
 	release := Go(&s, "release", func(task *Task) (int, error) {
-		return Scoped(task, func(s *Scope) (int, error) {
+		return Scoped(task, nil, func(s *Scope) (int, error) {
 			s.Defer(func() { releaseMasked, releaseSawStop = task.Masked(), task.Stopped() })
 			return blockUntilStopped(task)
 		})

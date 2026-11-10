@@ -129,9 +129,11 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Resource** (checked; release designed): A value whose type has a checked `Close()`, an operation type with a `Close()` operation or with an operation that takes a resource, or a record, union, tuple, slice, `Map` or `Option` that holds one (resources R1, R34). A task is owned by its frame; an actor handle is a shared handle, not a resource. Its owner scope releases it. See [resources](docs/spec/resources.md).
 
+**Copy site** (checked): A place where a generic body copies a value of its type parameter `T` (uses it after a hand-off, or hands off a lent `T`). The package records it; a call that binds `T` to a resource is refused there, and plain data is admitted. See [resources](docs/spec/resources.md) R44.
+
 **Crossing type** (checked): A type that holds no resource, so the ownership rules mean nothing for its values: they copy freely. Plain data and shared handles cross; a generic type crosses with its arguments (`Stack[int]` crosses, `Stack[File]` does not). The term is OxCaml's mode crossing. See [resources](docs/spec/resources.md) R1.
 
-**Takes clause** (checked syntax): `takes p` after a signature's rows: the call hands the parameter `p` off, and the caller cannot use it after the call. A bare `takes` on an operation names the value the operation is called on. See [grammar](docs/spec/grammar.md) Declarations 13.
+**Takes clause** (checked): `takes p` after a signature's rows: the call hands the parameter `p` off, and the caller cannot use it after the call. Written on exported signatures, inferred on unexported functions, and part of a function type. A bare `takes` on an operation names the value the operation is called on. See [grammar](docs/spec/grammar.md) Declarations 13.
 
 **Owner scope** (designed): The block that owns a resource: the block that acquired it, or the scope it moved to. A loop body is its own owner scope for each iteration.
 
@@ -147,7 +149,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Generated Close** (designed): The `Close` the compiler gives a struct with resource fields. It closes those fields in reverse declaration order.
 
-**Task** (designed in source; the task tree is implemented in prototype): A unit of concurrent work started by `go`, of type `Task[T, E]`. It is a resource; `Wait` returns its result and `Stop` interrupts it and waits for it.
+**Task** (implemented in prototype): A unit of concurrent work started by `task.Go`, of type `Task[T, E]`. It is a resource (it declares `Close()`): one owner, moved by a hand-off, taken by `Wait`, which returns its result; `Stop` interrupts it and waits for it; its owner's end releases it when nothing took it.
 
 **Task tree** (implemented in prototype): The parent and child relation of tasks. Stopping a task stops every task below it.
 
@@ -225,7 +227,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Evidence kind** ([#170](https://github.com/cevr/ergo/issues/170)): A nominal wrapper type, such as `SortedBy[S, compare]`, whose values carry the proof that a law-backed check has run on the carrier. Only the checking function mints it.
 
-**Law receipt** ([#170](https://github.com/cevr/ergo/issues/170)): The recorded outcome of running a law suite for one revision, seed and target: the status of each law, its case count and any counterexample. The build reads only the canonical receipt.
+**Law receipt** (implemented in part, L10; [#170](https://github.com/cevr/ergo/issues/170)): The recorded outcome of running a law suite for one revision, seed and target: the status of each law (proved, tested, refuted or skipped), its case count and any counterexample, shrunk. `ergo test DIR --receipt FILE` writes one as JSON ([runtime](docs/spec/runtime.md#tests), Tests 8). A tested law, which held for drawn cases, is not a proved one, which held for every value. The build reads only the canonical receipt; no build reads one yet.
 
 **Proof tier** (designed in outline; owner direction 2026-11-02, [#162](https://github.com/cevr/ergo/issues/162)): The check-time stage that sends only decidable facts, such as index ranges, length relations, integer bounds and unreachable arms, to an SMT solver within a fixed time budget, reports "proved" only when the solver discharges the obligation and "unknown" on a timeout, and lowers a proved fact as a removed check, while everything outside it stays tested, never proved.
 

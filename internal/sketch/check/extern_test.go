@@ -308,6 +308,7 @@ type Mine {}
 
 func Wait(_ Mine) fails tasks.Closed {}
 func Stop(_ Mine) {}
+func Close(_ Mine) {}
 func Len(_ Mine) int { 0 }
 
 func use(s tasks.Set[tasks.Closed]) { _ = s.Len() }
@@ -415,8 +416,9 @@ func main() {
 	"prelude.Task": `type Fault {}
 type Mine {}
 
-func Wait(_ Mine) int fails Fault { 0 }
+func Wait(m Mine) int fails Fault takes m { 0 }
 func Stop(_ Mine) {}
+func Close(_ Mine) {}
 
 func use(t Task[int, Fault]) { t.Stop() }
 
@@ -774,8 +776,9 @@ func pass(m Mine) {
 		"task": `type Fault {}
 type Mine {}
 
-func Wait(_ Mine) int fails Fault { 0 }
+func Wait(m Mine) int fails Fault takes m { 0 }
 func Stop(_ Mine) {}
+func Close(_ Mine) {}
 
 func use(t Task[int, Fault]) { t.Stop() }
 

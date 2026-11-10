@@ -16,7 +16,7 @@ import (
 func within(t *testing.T, body func(task *rt.Task, s *rt.Scope) error) {
 	t.Helper()
 	_, err := rt.Run(rt.Root(t.Name()), func(task *rt.Task) (struct{}, error) {
-		return rt.Scoped(task, func(s *rt.Scope) (struct{}, error) {
+		return rt.Scoped(task, nil, func(s *rt.Scope) (struct{}, error) {
 			return struct{}{}, body(task, s)
 		})
 	})
@@ -321,7 +321,7 @@ func TestOwnerScopeStopsTheActorAndReleasesItsState(t *testing.T) {
 	var released atomic.Int32
 	var addr Address[probe]
 	within(t, func(task *rt.Task, s *rt.Scope) error {
-		_, err := rt.Scoped(task, func(inner *rt.Scope) (struct{}, error) {
+		_, err := rt.Scoped(task, nil, func(inner *rt.Scope) (struct{}, error) {
 			a := Start(inner, "scoped", state{&released}, 4, func(ht *rt.Task, st state, m probe) (Next[state], error) {
 				defer m.Close()
 				m.reply.Send(ht, 0)

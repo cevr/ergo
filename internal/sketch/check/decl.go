@@ -91,14 +91,15 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.checkContextCycles,
 		c.checkErrorMethods,
 		c.checkUnusedImports,
-		c.checkTaskUses,
 		c.finishInfo,
 		c.closeFacts,
 		// After closeFacts: every Close and failure row is final.
 		c.checkResourceTypes,
-		// After the resource types: who owns each resource (ownership.go).
-		c.checkOwnership,
+		// After the resource types: what each with builds (withown.go),
+		// then who owns each resource (ownership.go), which moves a local
+		// provider into the with that builds it (R11).
 		c.withOwnership,
+		c.checkOwnership,
 		// Laws under a context read the acquisitions (lawcontexts.go).
 		c.planLawContexts,
 		c.checkFrames,
@@ -938,9 +939,6 @@ func (c *checker) structType(spec *syntax.StructType, ctx *typeCtx) *Struct {
 	seen := map[string]bool{}
 	for _, field := range spec.Fields.List {
 		t := c.typExpr(field.Type, ctx)
-		if c.taskRefused(field.Type, t) {
-			t = invalid
-		}
 		if field.Include {
 			if n := c.includeTarget(field, t); n != nil {
 				s.includes = append(s.includes, &include{member: field, at: len(s.Fields), target: n})
@@ -981,6 +979,9 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx) *Inter
 			mctx.params, mctx.decl = ctx.params, ctx.decl
 		}
 		sig := c.signature(ft, mctx)
+		if c.pkg.host == nil {
+			closeOpTakes(name.Name, sig)
+		}
 		if ft.Needs != nil && c.pkg.host == nil {
 			// A Go interface's method runs Go code: its binding charges
 			// go.Foreign at the call (docs/spec/interop.md).
@@ -1224,9 +1225,6 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		return c.instantiateExprs(n, x.Indices, x, ctx)
 	case *syntax.ArrayType:
 		elem := c.typExpr(x.Elt, ctx)
-		if c.taskRefused(x.Elt, elem) {
-			return invalid
-		}
 		if x.Len != "" {
 			return c.arrayType(x, elem)
 		}
@@ -1238,9 +1236,6 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		}
 		k := c.typExpr(x.Key, ctx)
 		v := c.typExpr(x.Value, ctx)
-		if c.taskRefused(x.Key, k) || c.taskRefused(x.Value, v) {
-			return invalid
-		}
 		if !isInvalid(k) && !comparable(k) {
 			c.errorf(x.Key, CodeType, "map key type %s is not comparable", k)
 			return invalid
@@ -1255,9 +1250,6 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		inner := *ctx
 		inner.param = false
 		elem := c.typExpr(x.X, &inner)
-		if c.taskRefused(x.X, elem) {
-			return invalid
-		}
 		return &Pointer{Elem: elem}
 	case *syntax.FuncType:
 		// `escaping` marks a function type that may outlive the call it
@@ -1293,7 +1285,7 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		tup := &Tuple{Types: make([]Type, len(x.Elts))}
 		for i, e := range x.Elts {
 			tup.Types[i] = c.typExpr(e, &inner)
-			if isInvalid(tup.Types[i]) || c.taskRefused(e, tup.Types[i]) {
+			if isInvalid(tup.Types[i]) {
 				return invalid
 			}
 		}
@@ -1558,9 +1550,7 @@ func (c *checker) instantiateExprs(n *Named, args []syntax.Expr, at syntax.Node,
 		}
 		targs[i] = t
 	}
-	if !c.typeArgsAdmitted(n.Obj.Name, n.TParams, targs, at) {
-		return invalid
-	}
+	c.recordInstantiation(n.Obj.Name, n.TParams, targs, at)
 	inst := c.instantiate(n, targs)
 	if len(args) > 0 && !c.scriptWritten(inst, args[0]) {
 		return invalid
@@ -2071,6 +2061,7 @@ func (c *checker) funcSig(f *Func) *Signature {
 	sig.TParams = tparams
 	f.Sig = sig
 	f.state = 2
+	closeTakes(f)
 	if d.Body == nil {
 		// A bodiless (extern) function's parameters are declared here; a
 		// body's are declared when it is checked.
@@ -2167,6 +2158,9 @@ func (c *checker) collectSelfFuncs() {
 			// Defensive: selfOwner reads the receiver spelling without reporting.
 			c.cur = f.file
 			f.owner, f.selfArgs, f.Ptr = c.selfOwner(f)
+			if f.owner != nil && asInterface(f.owner) != nil {
+				f.opOwner, f.owner = f.owner, nil
+			}
 		}
 	}
 	for _, f := range c.pkg.Funcs {
@@ -2188,6 +2182,9 @@ func (c *checker) collectSelfFuncs() {
 			var key any
 			if g.owner != nil {
 				key = g.owner
+			}
+			if g.opOwner != nil {
+				key = g.opOwner
 			}
 			if name, args, _ := selfOwnerName(g.Decl); name != "" && c.dupNames[name] && g.Name != "main" {
 				// Defensive: selfArgsOK validates receiver arguments without reporting.
@@ -2221,12 +2218,18 @@ func (c *checker) collectSelfFuncs() {
 			} else {
 				c.errorf(g.Decl.Name, CodeType, "%s is already declared in this package; functions share a name only when each one's first parameter is a distinct named type declared in this package (types.md, Methods 3)", g.Name)
 			}
-			g.owner, g.selfArgs, g.Ptr = nil, nil, false
+			g.owner, g.opOwner, g.selfArgs, g.Ptr = nil, nil, nil, false
 		}
 	}
 	for _, f := range c.funcs {
 		if f.owner != nil {
 			f.owner.addMethod(f)
+		}
+		if n := f.opOwner; n != nil {
+			if n.opFuncs == nil {
+				n.opFuncs = map[string]*Func{}
+			}
+			n.opFuncs[f.Name] = f
 		}
 	}
 	if c.pkg.Path == std.PreludePath {
@@ -2299,7 +2302,10 @@ func (c *checker) selfOwner(f *Func) (*Named, []syntax.Expr, bool) {
 	if n == nil || n.Obj.Pkg != c.pkg || n.method(f.Name) != nil {
 		return nil, nil, false
 	}
-	if _, isIface := n.underlying().(*Interface); isIface {
+	if it, isIface := n.underlying().(*Interface); isIface && (ptr || it.method(f.Name) != nil) {
+		// An operation of the name wins, as a field does; a pointer to an
+		// operation type is S108 (Borrows 5). The caller moves an
+		// operation type's function to opOwner (G-ex-e-2).
 		return nil, nil, false
 	}
 	// A field of the same name does not stop f: x.f selects the field

@@ -214,7 +214,7 @@ func (c *checker) mayBeIdentical(a, b Type) bool {
 	if !ok || !ok2 || len(as.TParams) > 0 || len(bs.TParams) > 0 || as.NonEscaping != bs.NonEscaping {
 		return false
 	}
-	return c.sameShape(as, bs) && c.mayBeEqualRow(as.Errors, bs.Errors) && c.mayBeEqualRow(as.Uses, bs.Uses)
+	return c.sameShape(as, bs) && c.takesEffect(as, nil) == c.takesEffect(bs, nil) && c.mayBeEqualRow(as.Errors, bs.Errors) && c.mayBeEqualRow(as.Uses, bs.Uses)
 }
 
 // mayBeEqualRow reports whether two rows are equal for some content of their
@@ -351,10 +351,7 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		// Only a value that implements the operation type can reach
 		// the ownership guard. A missing operation is the more specific
 		// failure (cmd/compile assignOp's diagnostic order).
-		if c.holdsTask(v) && !c.holdsTask(t) {
-			return assignment{}, taskEscapeText
-		}
-		if !c.providing && c.holdsResource(v) && !c.holdsResource(t) {
+		if !c.providing && !c.hostLendArg(t) && c.holdsResource(v) && !c.holdsResource(t) {
 			// R22: the operation value would never be released.
 			return assignment{}, resourceIntoCrossingText(v, t)
 		}
@@ -430,6 +427,10 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 	}
 	if !c.sameShape(vs, ts) {
 		return assignment{}, "the parameters or results differ"
+	}
+	if c.takesEffect(vs, nil) != c.takesEffect(ts, nil) {
+		// Gap 39: a caller of t gives up exactly what t's clause names.
+		return assignment{}, fmt.Sprintf("its takes clause (%s) is not %s's (%s) (resources R19, Gap 39)", takesText(vs), t, takesText(ts))
 	}
 	// An unknown source row is checked by its known part, and an unknown
 	// destination row accepts any row, as an invalid type does both ways
@@ -683,6 +684,18 @@ func shapeOf(sig *Signature) *Signature {
 func dropSelf(sig *Signature) *Signature {
 	out := *sig
 	out.Params = sig.Params[1:]
+	if len(sig.Takes) > 0 {
+		// The first parameter is the value the call is on: a takes of it
+		// is the bare takes of an operation.
+		out.Takes = nil
+		for _, i := range sig.Takes {
+			if i == 0 {
+				out.TakesSelf = true
+			} else {
+				out.Takes = append(out.Takes, i-1)
+			}
+		}
+	}
 	return &out
 }
 
@@ -762,6 +775,9 @@ func (c *checker) implements(v Type, it *Interface) string {
 		}
 		if got.Fallible != m.Sig.Fallible {
 			return fmt.Sprintf("%s.%s differs in fallibility from the interface's method", v, m.Name)
+		}
+		if c.takesEffect(got, v) != c.takesEffect(m.Sig, v) {
+			return fmt.Sprintf("%s.%s %s, but the interface's method %s (resources R19, Gap 39)", v, m.Name, takesText(got), takesText(m.Sig))
 		}
 	}
 	return ""

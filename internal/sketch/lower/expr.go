@@ -257,7 +257,7 @@ func (fc *funcCtx) expr(x syntax.Expr) operand {
 		o.val = fc.cloneValue(fc.typeOf(x), o.val, x)
 	}
 	o.val = fc.guardHeader(o.val)
-	return o
+	return fc.ownTemp(x, o) // a temporary its statement owns (R43)
 }
 
 func (fc *funcCtx) exprOf(x syntax.Expr) operand {
@@ -274,10 +274,11 @@ func (fc *funcCtx) exprOf(x syntax.Expr) operand {
 	case *syntax.ParenExpr:
 		return fc.expr(x.X)
 	case *syntax.Ident:
-		return operand{val: fc.ident(x)}
+		return operand{val: fc.handoff(x, fc.ident(x), x == fc.returned)}
 	case *syntax.BasicLit:
 		ice(x, "a literal with no Values entry")
 	case *syntax.SelectorExpr:
+		fc.takeField(x)
 		return operand{val: fc.selector(x)}
 	case *syntax.BinaryExpr:
 		switch x.Op {
@@ -414,7 +415,7 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 						}
 						// Typed as the binding says: Go's untyped constant
 						// would take its default type (math.MaxInt64 as int).
-						return fc.goType(o.Type) + "(" + goName + ")"
+						return "(" + fc.goType(o.Type) + ")(" + goName + ")"
 					}
 					if o.Name == x.Sel.Name {
 						// An imported package's let, lowered with the
@@ -562,6 +563,12 @@ func (fc *funcCtx) rangeValue(x *syntax.BinaryExpr) string {
 // unary lowers -x, +x, !x, ^x and &x.
 func (fc *funcCtx) unary(x *syntax.UnaryExpr) string {
 	op := x.Op.String()
+	if id, ok := unparen(x.X).(*syntax.Ident); ok && op == "&" && fc.l.info.Handoffs[id] != nil {
+		// A Close through the address of an owned local takes it: its
+		// entry ends here, as at a by-address receiver (place).
+		fc.line("_ = " + fc.handoff(id, fc.ident(id), false))
+		return "(&" + fc.ident(id) + ")"
+	}
 	switch op {
 	case "-", "+", "!", "^", "&":
 		return "(" + op + fc.value(x.X) + ")"
@@ -1035,6 +1042,11 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 // value when the catch has one. It reports whether the arm's Go form
 // terminates (the match tree, M1b, reads it).
 func (fc *funcCtx) arm(a *syntax.CatchArm, result string) bool {
+	return fc.scoped(a, func() bool { return fc.armBody(a, result) })
+}
+
+// armBody writes a catch arm's statements; arm ends its scope.
+func (fc *funcCtx) armBody(a *syntax.CatchArm, result string) bool {
 	list := a.Body
 	if len(list) == 0 {
 		return false
@@ -1071,7 +1083,9 @@ func (fc *funcCtx) funcLit(ft *syntax.FuncType, list []syntax.Stmt, n syntax.Nod
 	}
 	// An escaping literal takes its copies of captured values first
 	// (values.go, snapshot).
-	return fc.snapshot(n, func() string { return fc.funcLitClosure(ft, list, n, sig) })
+	return fc.snapshot(n, func() string {
+		return fc.taskSnapshot(n, func() string { return fc.funcLitClosure(ft, list, n, sig) })
+	})
 }
 
 // funcLitClosure is funcLit's Go function literal.
@@ -1080,12 +1094,6 @@ func (fc *funcCtx) funcLitClosure(ft *syntax.FuncType, list []syntax.Stmt, n syn
 	return fc.envClosure(callerEnv, "env", n, func(env string) (parts []string, results, body string) {
 		inner.env = env
 		inner.frame = newFrame(nil, true, framePolls(fc.l.info, n))
-		if sig.ResultIsTask() {
-			// A literal that returns a Task receives its caller's frame scope
-			// as its destination (stage D3b, Rule 2).
-			inner.frame.dest = fc.scope.alloc("dest")
-			parts = append(parts, inner.frame.dest+" *"+fc.l.rt()+".Scope")
-		}
 		var params []*check.Var
 		if ft != nil && ft.Params != nil {
 			for _, field := range ft.Params.List {
@@ -1113,7 +1121,9 @@ func (fc *funcCtx) funcLitClosure(ft *syntax.FuncType, list []syntax.Stmt, n syn
 		inner.frame.unit = result == nil
 		inner.depth = fc.depth + 1
 		results = fc.valueResults(result)
-		if fc.l.bodyNeedsFrame(list) {
+		capture := fc.l.info.TaskCaptures[n]
+		ownsCaptures := capture != nil && !capture.Repeated
+		if fc.l.bodyNeedsFrame(list) || fc.l.ownsParams(params) || ownsCaptures {
 			// The literal is a frame of its own (stage D3b, Rule 2).
 			errName := fc.scope.alloc("err")
 			named := result
@@ -1122,7 +1132,16 @@ func (fc *funcCtx) funcLitClosure(ft *syntax.FuncType, list []syntax.Stmt, n syn
 			}
 			results = fc.namedResults(named, errName)
 			inner.site = n
+			inner.frame.plain = !fc.l.bodyNeedsScope(list)
 			inner.openFrame(errName)
+			for _, v := range params {
+				inner.ownVar(v, n) // a taken parameter, before the entry poll (R8)
+			}
+			if ownsCaptures {
+				for _, v := range capture.Vars {
+					inner.ownVar(v, n)
+				}
+			}
 		}
 		inner.entryPoll(fc.l.info, n)
 		// A trailing block yields its last statement (Info.Tails); a function
@@ -1153,7 +1172,7 @@ func (fc *funcCtx) retTail(x syntax.Expr) {
 		fc.line(fc.errReturn("nil"))
 		return
 	}
-	fc.line("return " + fc.moved(fc.assigned(x)) + ", nil")
+	fc.line("return " + fc.assigned(x) + ", nil")
 }
 
 // simpleCatch reports a catch a Go type switch on the error lowers: arms of

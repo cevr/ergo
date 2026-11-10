@@ -2,6 +2,33 @@
   "about": "The mutant ledger of runtime/v1: edits of the runtime's source (runtime/v1 and the runtime/rt clock it parks on) that some runtime/v1 test must kill. Run it with go run ./scripts/mutants ./runtime/v1; the runner judges it by runtime/v1's own tests (docs/tooling.md, \"Mutant ledger\"). Seeded in batch 14 from the mutants batch 13 killed by hand (fua-b round 2 and its verifier, /home/exedev/.cache/baton/wf10/batch-13/verify/verdicts-2.md).",
   "mutants": [
     {
+      "name": "l10b-shrink-no-adjacent",
+      "origin": "wf10/L10b round 1",
+      "file": "runtime/v1/shrink.go",
+      "from": "for best[i] > 0 && tries < budget {",
+      "to": "for false && best[i] > 0 && tries < budget {",
+      "rule": "After the binary search, adjacent decrements reach a local minimum.",
+      "killers": ["runtime/v1:TestShrinkTapeKeepsTheFailure"]
+    },
+    {
+      "name": "l10b-shrink-linear-search",
+      "origin": "wf10/L10b round 1",
+      "file": "runtime/v1/shrink.go",
+      "from": "mid := lo + (best[i]-lo)/2",
+      "to": "mid := best[i] - 2",
+      "rule": "Monotone integer shrinking reaches the boundary with logarithmically bounded replay work.",
+      "killers": ["runtime/v1:TestShrinkTapeKeepsTheFailure"]
+    },
+    {
+      "name": "l10b-shrink-no-fixpoint",
+      "origin": "wf10/L10b round 1",
+      "file": "runtime/v1/shrink.go",
+      "from": "for improved := true; improved && tries < budget; {",
+      "to": "for improved, pass := true, 0; improved && pass == 0 && tries < budget; pass++ {",
+      "rule": "Changing a later component can unlock an earlier component; revisit to a fixpoint.",
+      "killers": ["runtime/v1:TestShrinkTapeKeepsTheFailure"]
+    },
+    {
       "name": "b13-stop-unparked",
       "origin": "wf10/batch-13 fua-b round 2 (B1), verifier r2",
       "file": "runtime/v1/actor.go",

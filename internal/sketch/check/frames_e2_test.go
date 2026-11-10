@@ -27,8 +27,8 @@ func frameGaps(file *syntax.File, info *Info) []string {
 	var gaps []string
 	needs := func(x *syntax.CallExpr) string {
 		if call := info.Calls[x]; call != nil {
-			if call.TaskResult {
-				return "a call whose result holds a Task"
+			if call.StartsTask {
+				return "a call that starts a task"
 			}
 			if call.Kind == CallFunc && call.Func != nil && call.Func.Pkg != nil &&
 				call.Func.Pkg.Path == "scope" && call.Func.Name == "OnExit" {

@@ -31,17 +31,18 @@ func TestBodiesFollowTheHiddenConvention(t *testing.T) {
 		"Queue.Pop":    {TypeParams: anyT, Hidden: []Hidden{CallerTask}, Results: []string{"T", "error"}},
 		"Queue.Values": {TypeParams: anyT, Hidden: []Hidden{CallerTask}, Results: []string{"iter.Seq[T]"}},
 		"Queue.End":    {TypeParams: anyT},
-		// The prelude's Task operations, and the move a return makes into
-		// the caller's frame, the hidden destination.
+		// The prelude's Task operations; Close, the release, masks on the
+		// caller's task (#197 L8 B3t).
 		"Task.Wait":    {TypeParams: anyT, Results: []string{"T", "error"}},
 		"Task.Stop":    {TypeParams: anyT},
-		"Task.Move":    {TypeParams: anyT, Hidden: []Hidden{Frame}, Results: []string{"*Task[T]"}},
+		"Task.Close":   {TypeParams: anyT, Hidden: []Hidden{CallerTask}},
 		"ContextBound": {Hidden: []Hidden{CallerTask, ReadingPackage}, Params: []Param{{Type: "string"}}, Results: []string{"bool"}},
 		"ContextValue": {Hidden: []Hidden{CallerTask, ReadingPackage}, Params: []Param{{Type: "string"}}, Results: []string{"string"}},
 		// timeout.After: the site names the body's task, the caller's task
 		// is its parent, and the caller's Scheduler gives the deadline; the
-		// block receives the child's task.
-		"After": {TypeParams: []TypeParam{{Name: "A", Constraint: "any"}}, Hidden: []Hidden{CallSite, CallerTask, CallerScheduler}, Params: []Param{{Type: "time.Duration"}, {Type: "func(*rt.Task) (A, error)", Func: &Body{Hidden: []Hidden{CallerTask}, Results: []string{"A", "error"}}}}, Results: []string{"A", "error"}},
+		// block receives the child's task; the result release frees a value
+		// the deadline dropped (Gap 47).
+		"After": {TypeParams: []TypeParam{{Name: "A", Constraint: "any"}}, Hidden: []Hidden{CallSite, CallerTask, CallerScheduler, ResultRelease}, Params: []Param{{Type: "time.Duration"}, {Type: "func(*rt.Task) (A, error)", Func: &Body{Hidden: []Hidden{CallerTask}, Results: []string{"A", "error"}}}}, Results: []string{"A", "error"}},
 	}
 	for name, w := range want {
 		got, err := BodyOf(name)

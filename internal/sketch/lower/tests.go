@@ -54,7 +54,9 @@ import (
 // gleeunit run test functions the build of the program never contains.
 // QuickCheck and Hypothesis derive a sized generator from the type and
 // print the seed and the failing arguments; Elixir's StreamData and Gleam's
-// qcheck shrink as well, which this first runner does not.
+// qcheck shrink as well. This runner shrinks as Hypothesis and Go's rapid
+// do (L10): on the recorded draws, not per type, so every generated type
+// shrinks with no shrinker of its own ($Prop, v1.ShrinkTape).
 
 // testCases is the number of cases a property runs.
 const testCases = testplan.Cases
@@ -109,9 +111,12 @@ var testHelpers = []struct{ key, base string }{
 	{"LitFloat", "ergoLitFloat"}, {"LitComplex", "ergoLitComplex"},
 	{"LitDuration", "ergoLitDuration"}, {"LitEntries", "ergoLitEntries"},
 	{"Seed", "ergoSeed"}, {"Tests", "ergoTests"},
+	{"Try", "ergoTry"}, {"Prop", "ergoProp"}, {"Receipt", "ergoReceipt"},
+	{"Record", "ergoRecord"}, {"RecordSearch", "ergoRecordSearch"}, {"WriteReceipt", "ergoWriteReceipt"}, {"JSON", "ergoJSON"},
 	{"Graph", "ergoGraph"}, {"Node", "ergoNode"}, {"Explore", "ergoExplore"}, {"Signals", "ergoSignals"}, {"Block", "ergoBlock"},
 	{"ExploreAll", "ergoExploreAll"}, {"ExploreRuns", "ergoExploreRuns"}, {"Trace", "ergoTrace"}, {"Refute", "ergoRefute"},
 	{"States", "ergoStates"}, {"explore", "explore"}, {"testgen", "testgen"},
+	{"Flag", "ergoFlag"}, {"Source", "ergoSource"}, {"Replay", "ergoReplay"},
 }
 
 // helper is the Go name of the harness entity key.
@@ -719,34 +724,17 @@ func (l *lowerer) testRunner() string {
 	b.WriteString("// " + l.helper("Tests") + " runs every test in source order (196l).\n")
 	b.WriteString(l.testRunnerHead(env, seed))
 	tests := l.runTests()
-	runs, skips := 0, 0
-	for _, r := range l.runLaws() {
-		if r.Law.Unrun != "" {
-			skips++
-			continue
-		}
-		for _, b := range r.Bindings {
-			if bindingUnrun(b) == "" {
-				runs++
-			} else {
-				skips++
-			}
-		}
-		for _, lc := range r.Contexts {
-			if lc.Unrun == "" {
-				runs++
-			} else {
-				skips++
-			}
-		}
-	}
-	// A skip is never silent (fs4): each prints its skip line, and the
-	// summary counts them.
-	skipped := ""
-	if skips > 0 {
-		skipped = ", " + strconv.Itoa(skips) + " skipped"
-	}
-	b.WriteString("\t" + failed + ", " + total + " := 0, " + strconv.Itoa(len(tests)+runs) + "\n")
+	// --law NAME runs only the law of that title (lawTitle), and no test;
+	// --skip-law NAME runs every test and law but that one, and prints its
+	// skip line. The total and the skips count what runs.
+	pick, picked, skip, matched, skips := scope.alloc("pick"), scope.alloc("picked"), scope.alloc("skip"), scope.alloc("matched"), scope.alloc("skips")
+	flag := l.helper("Flag")
+	b.WriteString("\t" + pick + ", " + picked + " := " + flag + "(\"law\")\n")
+	b.WriteString("\t" + skip + ", _ := " + flag + "(\"skip-law\")\n")
+	b.WriteString("\t" + failed + ", " + total + ", " + skips + ", " + matched + " := 0, 0, 0, false\n")
+	b.WriteString("\t_ = " + skip + "\n")
+	b.WriteString("\tif !" + picked + " {\n")
+	b.WriteString("\t" + total + " += " + strconv.Itoa(len(tests)) + "\n")
 	for _, t := range tests {
 		// The case runner takes the test's name, and its declaration's
 		// site, which a typed failure that escapes the body names.
@@ -773,6 +761,7 @@ func (l *lowerer) testRunner() string {
 		// The case's size grows with its number (QuickCheck's sized):
 		// case i draws collections of up to i/4 elements at the top.
 		b.WriteString("\t\t\t" + r + ".start(" + i + ")\n")
+		b.WriteString("\t\t\t" + ok + " = " + l.helper("Prop") + "(" + taskOf(env) + ", " + name + ", " + r + ", func() (func() string, func() error) {\n")
 		args := []string{env}
 		conv := l.helper("strconv")
 		// The case's report: its number, the seed, the size and each
@@ -793,18 +782,40 @@ func (l *lowerer) testRunner() string {
 			}
 			shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(v.Type, a, t.Decl))
 		}
-		b.WriteString("\t\t\t" + ok + " = " + run + "(" + taskOf(env) + ", " + name + ", func() string { return " + strings.Join(shown, " + ") + " }, func() error { return " + l.testFunc(t) + "(" + strings.Join(args, ", ") + ") })\n")
+		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() error { return " + l.testFunc(t) + "(" + strings.Join(args, ", ") + ") }\n\t\t\t})\n")
 		b.WriteString("\t\t}\n")
 		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", t.Name, testCases)) + ")\n")
 		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n\t}\n")
 	}
+	b.WriteString("\t}\n")
 	for _, law := range l.runLaws() {
+		title := strconv.Quote(l.lawTitle(law.Law))
+		runs, skipped := lawCounts(law)
+		b.WriteString("\tif !" + picked + " || " + pick + " == " + title + " {\n")
+		b.WriteString("\t" + matched + " = true\n")
+		b.WriteString("\tif " + skip + " == " + title + " {\n")
+		b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip law "+l.lawTitle(law.Law)+": --skip-law") + ")\n")
+		b.WriteString("\t" + skips + "++\n")
+		b.WriteString("\t" + l.helper("Record") + "(" + strconv.Quote("law "+l.lawTitle(law.Law)) + ", nil, \"--skip-law\")\n")
+		b.WriteString("\t} else {\n")
+		b.WriteString("\t" + total + ", " + skips + " = " + total + " + " + strconv.Itoa(runs) + ", " + skips + " + " + strconv.Itoa(skipped) + "\n")
 		l.lawRuns(&b, law, scope, env, seed, failed)
+		b.WriteString("\t}\n\t}\n")
 	}
+	werr := scope.alloc("err")
+	b.WriteString("\tif " + werr + " := " + l.helper("WriteReceipt") + "(" + seed + "); " + werr + " != nil {\n\t\treturn " + werr + "\n\t}\n")
+	// A skip is never silent (fs4): each prints its skip line, and the
+	// summary counts them.
+	conv, shown := l.helper("strconv"), scope.alloc("shown")
+	b.WriteString("\tif " + picked + " && !" + matched + " {\n")
+	b.WriteString("\t\t" + fmtPkg + ".Println(\"FAIL no law \" + " + pick + " + \" in this package (--law)\")\n")
+	b.WriteString("\t\treturn " + fmtPkg + ".Errorf(\"no law %s\", " + pick + ")\n\t}\n")
+	b.WriteString("\t" + shown + " := \"\"\n")
+	b.WriteString("\tif " + skips + " > 0 {\n\t\t" + shown + " = \", \" + " + conv + ".Itoa(" + skips + ") + \" skipped\"\n\t}\n")
 	b.WriteString("\tif " + failed + " > 0 {\n")
-	b.WriteString("\t\t" + fmtPkg + ".Printf(\"FAIL (%d of %d tests" + skipped + ")\\n\", " + failed + ", " + total + ")\n")
+	b.WriteString("\t\t" + fmtPkg + ".Printf(\"FAIL (%d of %d tests%s)\\n\", " + failed + ", " + total + ", " + shown + ")\n")
 	b.WriteString("\t\treturn " + fmtPkg + ".Errorf(\"%d of %d tests failed\", " + failed + ", " + total + ")\n\t}\n")
-	b.WriteString("\t" + fmtPkg + ".Printf(\"PASS (%d tests" + skipped + ")\\n\", " + total + ")\n")
+	b.WriteString("\t" + fmtPkg + ".Printf(\"PASS (%d tests%s)\\n\", " + total + ", " + shown + ")\n")
 	b.WriteString("\treturn nil\n}\n\n")
 	return b.String()
 }
@@ -851,10 +862,11 @@ func lawSlotParam(law *check.Law, i int) bool {
 // assert fails it as a test's case does.
 func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env, seed, failed string) {
 	law := lr.Law
-	fmtPkg, run, conv := l.helper("fmt"), l.helper("Case"), l.helper("strconv")
+	fmtPkg, conv := l.helper("fmt"), l.helper("strconv")
 	title := l.lawTitle(law)
 	if law.Unrun != "" {
 		b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip law "+title+": "+law.Unrun) + ")\n")
+		b.WriteString("\t" + l.helper("Record") + "(" + strconv.Quote("law "+title) + ", nil, " + strconv.Quote(law.Unrun) + ")\n")
 		return
 	}
 	// A machine's reachability law has no operation-type slot, so no
@@ -885,6 +897,7 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 		label := l.bindingLabel(law, bd)
 		if why := bindingUnrun(bd); why != "" {
 			b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip "+label+": "+why) + ")\n")
+			b.WriteString("\t" + l.helper("Record") + "(" + strconv.Quote(label) + ", nil, " + strconv.Quote(why) + ")\n")
 			continue
 		}
 		targets = append(targets, target{label: label, b: bd})
@@ -906,6 +919,7 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 		b.WriteString("\t\t" + ok + " := true\n")
 		b.WriteString("\t\tfor " + i + " := 1; " + ok + " && " + i + " <= " + strconv.Itoa(testCases) + "; " + i + "++ {\n")
 		b.WriteString("\t\t\t" + r + ".start(" + i + ")\n")
+		b.WriteString("\t\t\t" + ok + " = " + l.helper("Prop") + "(" + taskOf(env) + ", " + name + ", " + r + ", func() (func() string, func() error) {\n")
 		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(testCases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)", strconv.Quote(", size "), conv + ".Itoa(" + i + " / 4)"}
 		sep := ": "
 		var bind []string
@@ -990,11 +1004,48 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 		}
 		body := e + " := *" + env + "; " + strings.Join(append(bind, ""), "; ") +
 			held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
-		b.WriteString("\t\t\t" + ok + " = " + run + "(" + taskOf(env) + ", " + name + ", func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " })\n")
+		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " }\n\t\t\t})\n")
 		b.WriteString("\t\t}\n")
 		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", tg.label, testCases)) + ")\n")
-		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n\t}\n")
+		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n")
+		b.WriteString("\t\t\t" + l.replayLine(law, strconv.Quote("--seed ")+" + "+conv+".FormatUint("+seed+", 10)") + "\n\t\t}\n")
+		b.WriteString("\t\t" + l.helper("Record") + "(" + strconv.Quote(tg.label) + ", " + r + ", \"\")\n\t}\n")
 	}
+}
+
+// replayLine is the Go statement that prints the command that reruns the
+// law alone, with flags, a Go string expression: the seed of its generated
+// cases, or none when its values were listed.
+func (l *lowerer) replayLine(law *check.Law, flags string) string {
+	file := l.siteText(law.Decl)
+	if i := strings.Index(file, ":"); i >= 0 {
+		file = file[:i]
+	}
+	return l.helper("fmt") + ".Println(" + l.helper("Replay") + "(" + strconv.Quote(file) + ", " + strconv.Quote(l.lawTitle(law)) + ", " + flags + "))"
+}
+
+// lawCounts are the runs of the law that count in the runner's total, and
+// the runs it skips: one per binding of its slots, and one per context it
+// runs under.
+func lawCounts(r check.LawRun) (runs, skips int) {
+	if r.Law.Unrun != "" {
+		return 0, 1
+	}
+	for _, b := range r.Bindings {
+		if bindingUnrun(b) == "" {
+			runs++
+		} else {
+			skips++
+		}
+	}
+	for _, lc := range r.Contexts {
+		if lc.Unrun == "" {
+			runs++
+		} else {
+			skips++
+		}
+	}
+	return runs, skips
 }
 
 // harness is the test build's fixed Go: the assert, the case runner, the
@@ -1097,28 +1148,193 @@ func $AssertDiff(a, b string) string {
 // included, prints a FAIL line and is raised again whole ($Runtime.Raise),
 // so the runtime reports every reason with its Ergo frames and the run
 // stops.
-func $Case(t *$Task.Task, name, at string, args func() string, body func() error) (ok bool) {
+func $Case(t *$Task.Task, name, at string, args func() string, body func() error) bool {
+	msg, kind, exit := $Try(t, at, body)
+	switch kind {
+	case 0:
+		return true
+	case 3:
+		$fmt.Println("FAIL " + name + $Where(args) + ": a defect, which stops the run")
+		$Runtime.Raise(exit)
+	}
+	$fmt.Println("FAIL " + name + $Where(args) + ": " + msg)
+	return false
+}
+
+// $Try runs one case's body on the task t and says how it ended, printing
+// nothing: kind 0 when it held, 1 for a failed assert or a refuted law
+// (msg is the assert's text), 2 for a typed failure that escaped the body
+// declared at at, 3 for any other exit (a defect), which exit holds.
+func $Try(t *$Task.Task, at string, body func() error) (msg string, kind int, exit error) {
 	done := false
 	defer func() {
 		if done {
 			return
 		}
-		exit := $Runtime.Capture(t, recover())
+		exit = $Runtime.Capture(t, recover())
 		if a, failed := $Asserted(exit); failed {
-			$fmt.Println("FAIL " + name + $Where(args) + ": " + a.String())
-			ok = false
+			msg, kind, exit = a.String(), 1, nil
 			return
 		}
-		$fmt.Println("FAIL " + name + $Where(args) + ": a defect, which stops the run")
-		$Runtime.Raise(exit)
+		kind = 3
 	}()
 	err := body()
 	done = true
 	if err != nil {
-		$fmt.Println("FAIL " + name + $Where(args) + ": a failure escaped the test at " + at + ": " + err.Error())
-		return false
+		return "a failure escaped the test at " + at + ": " + err.Error(), 2, nil
 	}
-	return true
+	return "", 0, nil
+}
+
+// $Prop runs one drawn case of the property or law name, declared at at:
+// draw draws the case's arguments from r and returns its report text and
+// its body. A case that fails (kind 1 or 2) is shrunk ($Runtime.ShrinkTape,
+// at most 500 replays): its draws are replayed from smaller tapes, quietly,
+// while it fails the same way, and the FAIL line shows the smallest case,
+// then the drawn one and the replay command. A defect is never shrunk: it
+// stops the run as $Case says.
+func $Prop(t *$Task.Task, name, at string, r *$Rand, draw func() (func() string, func() error)) bool {
+	r.stream.Record()
+	r.cases++
+	var args func() string
+	msg, kind, exit := $Try(t, at, func() error {
+		var body func() error
+		args, body = draw()
+		return body()
+	})
+	switch kind {
+	case 0:
+		return true
+	case 3:
+		$fmt.Println("FAIL " + name + $Where(args) + ": a defect, which stops the run")
+		$Runtime.Raise(exit)
+	}
+	drawn := r.stream.Tape()
+	replay := func(c []uint64) (func() string, string, int) {
+		r.stream.Replay(c)
+		var shown func() string
+		m, k, _ := $Try(t, at, func() error {
+			var body func() error
+			shown, body = draw()
+			return body()
+		})
+		return shown, m, k
+	}
+	best, _ := $Runtime.ShrinkTape(drawn, func(c []uint64) bool {
+		_, _, k := replay(c)
+		return k == kind
+	}, 500)
+	shown, smsg, skind := args, msg, kind
+	steps := len(best) != len(drawn)
+	for i := 0; !steps && i < len(best); i++ {
+		steps = best[i] != drawn[i]
+	}
+	if steps {
+		shown, smsg, skind = replay(best)
+		if skind != kind { // not deterministic: report the drawn case
+			shown, smsg, steps = args, msg, false
+		}
+	}
+	r.stream.EndReplay()
+	r.failure = shown()
+	// One line, as an unshrunk FAIL line: the smallest case, the drawn
+	// arguments when they differ, and the replay command when ergo test
+	// named the source. A law's replay is a line of its own, which reruns
+	// the law alone ($Replay, X1b).
+	text := r.failure
+	if drawn := args(); steps && drawn != text {
+		if i := $strings.Index(drawn, ": "); i >= 0 {
+			drawn = drawn[i+2:]
+		}
+		text += "; shrunk from: " + drawn
+	}
+	if $Receipt.source != "" && !$strings.HasPrefix(name, "law ") {
+		text += "; replay: ergo test " + $Receipt.source + " --seed " + $strconv.FormatUint(r.seed, 10)
+	}
+	$fmt.Println("FAIL " + name + " (" + text + "): " + smsg)
+	return false
+}
+
+// $Receipt is the run's law receipt (L10): --receipt names its file, and
+// --source and --revision, which ergo test passes, name what ran. laws
+// holds one JSON object per law run, in report order.
+var $Receipt struct {
+	path, source, revision string
+	laws                   []string
+}
+
+// $Record adds the law run label to the receipt: proved (a listed run that
+// held for every value), tested, refuted with its counterexample (shrunk
+// when drawn), or skipped with why (r nil).
+func $Record(label string, r *$Rand, why string) {
+	rec := "{\"run\": " + $JSON(label)
+	switch {
+	case r == nil:
+		rec += ", \"status\": \"skipped\", \"why\": " + $JSON(why)
+	case r.failure != "":
+		rec += ", \"status\": \"refuted\", \"cases\": " + $strconv.Itoa(r.cases) + ", \"counterexample\": " + $JSON(r.failure)
+	case r.proved:
+		rec += ", \"status\": \"proved\", \"cases\": " + $strconv.Itoa(r.cases)
+	default:
+		rec += ", \"status\": \"tested\", \"cases\": " + $strconv.Itoa(r.cases)
+	}
+	$Receipt.laws = append($Receipt.laws, rec+"}")
+}
+
+// $RecordSearch adds a reachability law's run label to the receipt (L10,
+// Machine laws): refuted with the counterexample when it failed, else
+// proved when the search proved it, else tested; search is the search's
+// report, as its ok line shows it.
+func $RecordSearch(label string, held bool, search, where string) {
+	rec := "{\"run\": " + $JSON(label)
+	switch {
+	case !held:
+		rec += ", \"status\": \"refuted\", \"counterexample\": " + $JSON(where)
+	case $strings.HasPrefix(search, "proved"):
+		rec += ", \"status\": \"proved\", \"search\": " + $JSON(search)
+	default:
+		rec += ", \"status\": \"tested\", \"search\": " + $JSON(search)
+	}
+	$Receipt.laws = append($Receipt.laws, rec+"}")
+}
+
+// $WriteReceipt writes the receipt when --receipt asked for one: schema 1,
+// the source, its revision, the seed, the target and the law runs. A
+// drawn law that holds is tested, not proved; only a listed run, which
+// takes every value, is proved.
+func $WriteReceipt(seed uint64) error {
+	if $Receipt.path == "" {
+		return nil
+	}
+	laws := ""
+	if len($Receipt.laws) > 0 {
+		laws = "\n    " + $strings.Join($Receipt.laws, ",\n    ") + "\n  "
+	}
+	text := "{\n  \"schema\": 1,\n  \"source\": " + $JSON($Receipt.source) + ",\n  \"revision\": " + $JSON($Receipt.revision) +
+		",\n  \"seed\": " + $strconv.FormatUint(seed, 10) + ",\n  \"target\": \"go\",\n  \"laws\": [" + laws + "]\n}\n"
+	return $os.WriteFile($Receipt.path, []byte(text), 0o644)
+}
+
+// $JSON is s as a JSON string: quotes, backslashes and control bytes
+// escaped, and a byte that is not UTF-8 written as U+FFFD.
+func $JSON(s string) string {
+	var b $strings.Builder
+	b.WriteByte('"')
+	for _, c := range s {
+		switch {
+		case c == '"' || c == '\\':
+			b.WriteByte('\\')
+			b.WriteRune(c)
+		case c < 0x20:
+			b.WriteString("\\u00")
+			b.WriteByte("0123456789abcdef"[c>>4])
+			b.WriteByte("0123456789abcdef"[c&15])
+		default:
+			b.WriteRune(c)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 // $Asserted is the first failed assert of exit, when every reason of exit is
@@ -1166,10 +1382,21 @@ func $Where(args func() string) string {
 // generator calls runs in (check/tests.go rule 3): it has no rows, so it
 // reads only the task. world is the case's values of the builders with no
 // parameters (check/builders.go rule 4), by builder.
+//
+// Every draw goes through next, which records it on the case's tape. A
+// shrink ($Prop) replays a case from an edited tape (replay; past its end
+// a draw is 0), and each generator maps a zero draw to its simplest value:
+// 0, 0.0, false, an empty string, slice or Map, a union's first variant.
+// failure and cases are the run's report, which $Record reads, and
+// proved, set by a listed run.
 type $Rand struct {
-	stream *$testgen.Stream
-	size int // compatibility with the context runner's case boundary
-	env   any
+	stream  *$testgen.Stream
+	seed    uint64
+	size    int // compatibility with the context runner's case boundary
+	env     any
+	cases   int
+	failure string
+	proved  bool
 }
 
 // start begins case i of a run: its size is i/4, and its world is empty,
@@ -1188,9 +1415,11 @@ func (r *$Rand) built(key string, build func() any) any {
 // $NewRand is the generator of the test name under seed: each property
 // draws its own stream, so adding a test changes no other test's cases.
 func $NewRand(seed uint64, name string) *$Rand {
-	return &$Rand{stream: $testgen.New(seed, name)}
+	return &$Rand{stream: $testgen.New(seed, name), seed: seed}
 }
 
+// next is a draw of any 64 bits; intn records its draw reduced below n, so
+// a shrink lowering a recorded draw lowers the value it gives.
 func (r *$Rand) next() uint64 {
 	return r.stream.Next()
 }
@@ -1199,9 +1428,16 @@ func (r *$Rand) intn(n int) int { return r.stream.Intn(n) }
 
 func (r *$Rand) bool() bool { return r.stream.Bool() }
 
-// The stream owns the seed mixer and every primitive distribution.
+// The stream owns the seed mixer, every primitive distribution and the
+// case's tape.
 func (r *$Rand) i64() int64 {
 	return r.stream.I64()
+}
+
+// integer is i64 narrowed to bits (0: int), recorded on the tape as sign
+// and magnitude so a shrink moves toward zero (testgen.Stream.Integer).
+func (r *$Rand) integer(bits uint, signed bool) uint64 {
+	return r.stream.Integer(bits, signed)
 }
 
 // f64 is always finite: a small half-integer half the time.
@@ -1211,7 +1447,7 @@ func (r *$Rand) f64() float64 {
 
 // str is a string biased to short ones: half the time 0..5 units, else
 // 0..size. Each unit is drawn from a class a codec treats apart, so every
-// class appears in a run: half the time a rune of $Runes, else a quote, a
+// class appears in a run: half the time a rune of a fixed set, else a quote, a
 // backslash, a control byte (0x00..0x1F), DEL, a byte that is not UTF-8
 // (a lone continuation byte 0x80..0xBF, or 0xFE or 0xFF), an astral rune
 // (U+10000..U+10FFFF), another BMP rune (no surrogate) or printable ASCII.
@@ -1324,34 +1560,75 @@ func $LitEntries[K comparable, V any](typ string, m map[K]V, key func(K) string,
 	return typ + "{" + $strings.Join(parts, ", ") + "}"
 }
 
-// $Seed reads --seed N or --seed=N, N a decimal uint64, the seed of every
-// property; 1 by default. It skips --states N, which $States reads; any
-// other argument is a usage error (exit 2).
-func $Seed() uint64 {
-	seed := uint64(1)
+// $Flag is the value of the test binary's flag --name, given as --name V
+// or --name=V, and whether it is given; given twice, the last value
+// counts. The flags are --seed, --states, --law, --skip-law, --source,
+// --receipt and --revision; any other argument, or a flag with no value,
+// is a usage error (exit 2).
+func $Flag(name string) (string, bool) {
+	value, given := "", false
 	args := $os.Args[1:]
 	for i := 0; i < len(args); i++ {
-		v, a := "", args[i]
-		switch {
-		case a == "--seed" && i+1 < len(args):
-			i++
-			v = args[i]
-		case len(a) > len("--seed=") && a[:len("--seed=")] == "--seed=":
-			v = a[len("--seed="):]
-		case a == "--states" && i+1 < len(args):
-			i++
-			continue
-		case len(a) > len("--states=") && a[:len("--states=")] == "--states=":
-			continue
-		}
-		n, err := $strconv.ParseUint(v, 10, 64)
-		if err != nil {
-			$fmt.Fprintln($os.Stderr, "usage: [--seed N], not "+a)
+		key, v, joined := $strings.Cut(args[i], "=")
+		switch key {
+		case "--seed", "--states", "--law", "--skip-law", "--source", "--receipt", "--revision":
+		default:
+			$fmt.Fprintln($os.Stderr, "usage: [--seed N] [--states N] [--law NAME] [--skip-law NAME] [--source PATH] [--receipt FILE] [--revision R], not "+args[i])
 			$os.Exit(2)
 		}
-		seed = n
+		if !joined {
+			if i+1 == len(args) {
+				$fmt.Fprintln($os.Stderr, "usage: "+key+" requires a value")
+				$os.Exit(2)
+			}
+			i++
+			v = args[i]
+		}
+		if key == "--"+name {
+			value, given = v, true
+		}
 	}
-	return seed
+	return value, given
+}
+
+// $Seed reads --seed N, N a decimal uint64, the seed of every property;
+// 1 by default. --receipt FILE, --source PATH and --revision R fill
+// $Receipt (L10).
+func $Seed() uint64 {
+	$Receipt.path, _ = $Flag("receipt")
+	$Receipt.source, _ = $Flag("source")
+	$Receipt.revision, _ = $Flag("revision")
+	v, given := $Flag("seed")
+	if !given {
+		return 1
+	}
+	n, err := $strconv.ParseUint(v, 10, 64)
+	if err != nil {
+		$fmt.Fprintln($os.Stderr, "usage: [--seed N], N a decimal number, not "+v)
+		$os.Exit(2)
+	}
+	return n
+}
+
+// $Source is the source as ergo test was given it (--source), the file or
+// the folder a replay command names; file, the law's own file, when the
+// test binary runs by itself.
+func $Source(file string) string {
+	if v, given := $Flag("source"); given {
+		return v
+	}
+	return file
+}
+
+// $Replay is the line that reruns one law: ergo test on the source, only
+// the law (--law), with the flags of the case (a seed or a budget), none
+// for a law whose values were listed.
+func $Replay(file, law, flags string) string {
+	line := "\treplay: ergo test " + $Source(file) + " --law " + law
+	if flags != "" {
+		line += " " + flags
+	}
+	return line
 }
 
 `
@@ -1442,7 +1719,7 @@ func (l *lowerer) genExpr(t check.Type, r, d string, scope *namer, site syntax.N
 		case u.Kind == check.String:
 			return r + ".str()"
 		case u.Kind == check.Duration:
-			return tc.goType(u) + "(" + r + ".i64())"
+			return tc.goType(u) + "(" + r + ".integer(64, true))"
 		case u.Kind == check.Float32 || u.Kind == check.Float64:
 			return u.Name + "(" + r + ".f64())"
 		case u.Kind == check.Complex64:
@@ -1450,7 +1727,14 @@ func (l *lowerer) genExpr(t check.Type, r, d string, scope *namer, site syntax.N
 		case u.Kind == check.Complex128:
 			return "complex(" + r + ".f64(), " + r + ".f64())"
 		case u.Kind >= check.Int && u.Kind <= check.Uintptr:
-			return u.Name + "(" + r + ".i64())"
+			bits := "0" // int, uint and uintptr have the host's width.
+			for _, width := range []string{"8", "16", "32", "64"} {
+				if strings.HasSuffix(u.Name, width) {
+					bits = width
+				}
+			}
+			signed := !strings.HasPrefix(u.Name, "u")
+			return u.Name + "(" + r + ".integer(" + bits + ", " + strconv.FormatBool(signed) + "))"
 		}
 	case *check.Slice:
 		return l.helper("GenSlice") + "(" + r + ", " + d + ", " + elem(u.Elem) + ")"

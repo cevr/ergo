@@ -21,13 +21,12 @@ import (
 //
 // Rules, each one held by TestSetModel against a reference model:
 //
-//  1. Owner. The frame whose call made the Set owns it, as a frame owns
-//     a Task (Tasks rule 8): the frame's end stops and drains it, last
-//     registered first with the frame's other entries, and a return moves
-//     it to the caller (Move). Only the owner task calls Go, Wait, Stop and
-//     Len. The checker keeps a Set in its frame by the Task rule
-//     (check/taskescape.go), so no block or other task reaches it; Go,
-//     Wait and Stop still check the caller, and another task is a defect.
+//  1. Owner. A Set is a resource (#197 L8 B3t; resources R1): it has one
+//     owner, as any owned value, and its owner's end releases it (Close,
+//     which is Stop), last registered first with the owner's other
+//     entries; a return or a move into a field or a container moves it.
+//     Only the task that made it calls Go, Wait, Stop, Close and Len: Go,
+//     Wait, Stop and Close check the caller, and another task is a defect.
 //  2. Members. Go starts the body as a child of the owner task, which a
 //     stop of the owner stops. A member that has ended is dropped: Len
 //     counts only the members still running, and the Set keeps no handle
@@ -63,8 +62,6 @@ import (
 // Kotlin's coroutineScope keep every child inside a lexical scope.
 type Set struct {
 	owner *rt.Task // the task that made it
-	frame *Scope   // the frame that drains it, nil once drained
-	reg   *entry   // its entry in frame's list
 	kind  int      // setFailFast, setLogFailures or setRestart
 	limit int      // restarts per Go under setRestart
 
@@ -78,7 +75,8 @@ type Set struct {
 	// raised yet.
 	failure error
 	defects rt.Cause
-	drained bool
+	// released reports that Close ran: the Set's owner released it.
+	released bool
 }
 
 // member is one started body of a Set.
@@ -113,8 +111,9 @@ type TasksClosed struct{}
 // Error is the failure's text.
 func (TasksClosed) Error() string { return "tasks.Closed" }
 
-// TasksNewSet is the body of tasks.NewSet: s is the hidden frame, which
-// owns the new Set. kind is the policy (FailFast 0, LogFailures 1,
+// TasksNewSet is the body of tasks.NewSet: s is the hidden frame of the
+// code that makes it; the lowering registers the Set as that code's owned
+// value in the step that receives it (Owning, R8). kind is the policy (FailFast 0, LogFailures 1,
 // Restart 2) and limit Restart's limit; a negative limit is a defect.
 func TasksNewSet(s *Scope, kind, limit int) *Set {
 	s = s.current()
@@ -124,33 +123,7 @@ func TasksNewSet(s *Scope, kind, limit int) *Set {
 	if limit < 0 {
 		panic(fmt.Sprintf("tasks.Restart: a negative limit %d", limit))
 	}
-	set := &Set{owner: s.s.Task(), frame: s, kind: kind, limit: limit}
-	set.reg = &entry{task: set}
-	s.push(set.reg)
-	return set
-}
-
-// Move transfers the Set to the frame to, as Task.Move does: the return
-// of a Set. A move into another task's frame or a frame that has returned
-// is a defect; Move on a drained Set does nothing.
-func (set *Set) Move(to *Scope) *Set {
-	if set.frame == nil {
-		return set
-	}
-	if to == nil {
-		panic("tasks: Move with no destination frame: a function that returns a Set receives its caller's frame")
-	}
-	to = to.current()
-	switch {
-	case to.s.Task() != set.owner:
-		panic("tasks: a Set moves into another task (law R9)")
-	case to.ended:
-		panic("tasks: a Set moves into a frame that has returned (law R9)")
-	}
-	set.frame.remove(set.reg)
-	to.push(set.reg)
-	set.frame = to
-	return set
+	return &Set{owner: s.s.Task(), kind: kind, limit: limit}
 }
 
 // own panics unless t is the owner task (rule 1).
@@ -163,6 +136,18 @@ func (set *Set) own(t *rt.Task, op string) {
 // TasksGo is the body of tasks.Go: it starts body as a member of set
 // (rules 2 and 6). span is the member's site in a defect chain (G2).
 func TasksGo(span Site, t *rt.Task, set *Set, body func(*rt.Task) error) error {
+	return tasksGo(span, t, set, nil, body)
+}
+
+// TasksGoOwned is TasksGo with resources moved into the member's root.
+// prepare runs once, even under Restart, and returns the scope that owns
+// the captures. Each run of body only lends them (resources R12, R30).
+// On failed admission prepare never runs; the sender releases the values.
+func TasksGoOwned(span Site, t *rt.Task, set *Set, prepare func(*rt.Task) *Scope, body func(*rt.Task) error) error {
+	return tasksGo(span, t, set, prepare, body)
+}
+
+func tasksGo(span Site, t *rt.Task, set *Set, prepare func(*rt.Task) *Scope, body func(*rt.Task) error) error {
 	set.own(t, "Go")
 	set.reap()
 	set.mu.Lock()
@@ -179,13 +164,20 @@ func TasksGo(span Site, t *rt.Task, set *Set, body func(*rt.Task) error) error {
 	m.h = rt.Go(&holder, string(span), func(ct *rt.Task) (struct{}, error) {
 		var exit error
 		defer func() { set.end(m, exit) }()
-		for {
-			m.runs++
-			_, exit = guarded(ct, func(t *rt.Task) (struct{}, error) { return struct{}{}, body(t) })
-			if !set.restarts(ct, m, exit) {
-				return struct{}{}, nil
+		_, exit = guarded(ct, func(ct *rt.Task) (_ struct{}, err error) {
+			if prepare != nil {
+				root := prepare(ct)
+				defer root.End(&err)
 			}
-		}
+			for {
+				m.runs++
+				_, err = guarded(ct, func(t *rt.Task) (struct{}, error) { return struct{}{}, body(t) })
+				if !set.restarts(ct, m, err) {
+					return struct{}{}, err
+				}
+			}
+		})
+		return struct{}{}, nil
 	})
 	return nil
 }
@@ -288,8 +280,8 @@ func (set *Set) Len() int {
 // Wait waits until no member runs (rule 4).
 func (set *Set) Wait(t *rt.Task) error {
 	set.own(t, "Wait")
-	if set.drained {
-		panic("tasks.Set: Wait on a set its owner drained when it ended; a returned Set moves to its caller (Move)")
+	if set.released {
+		panic("tasks.Set: Wait on a set its owner released")
 	}
 	for {
 		set.reap()
@@ -339,6 +331,23 @@ func (set *Set) Stop(t *rt.Task) {
 	}
 }
 
+// Close is tasks.Set's Close(), the release of a Set its owner holds
+// (#197 L8 B3t): masked on t, the owner task, it is Stop: admission closes,
+// every member is stopped and joined, typed failures are dropped and the
+// defects not raised yet are raised for the releasing scope.
+func (set *Set) Close(t *rt.Task) {
+	set.own(t, "Close")
+	if set.released {
+		return
+	}
+	set.released = true
+	Release(t, func() {
+		if err := set.stop(); err != nil {
+			raise(err)
+		}
+	})
+}
+
 // stop closes admission, stops and joins every member, and returns the
 // defects not raised yet.
 func (set *Set) stop() error {
@@ -361,12 +370,6 @@ func (set *Set) stop() error {
 	err := set.defects.Err()
 	set.defects = rt.Cause{}
 	return err
-}
-
-// drain is the owner frame's release (rule 5).
-func (set *Set) drain() error {
-	set.frame, set.reg, set.drained = nil, nil, true
-	return set.stop()
 }
 
 // hasDefect reports whether err holds a defect.

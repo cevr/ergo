@@ -46,7 +46,7 @@ func TestTraceUnwindClosesCalls(t *testing.T) {
 				if !inRelease {
 					return body(t0)
 				}
-				return rt.Scoped(t0, func(s *rt.Scope) (struct{}, error) {
+				return rt.Scoped(t0, nil, func(s *rt.Scope) (struct{}, error) {
 					s.Defer(func() { _, _ = body(t0) })
 					return struct{}{}, nil
 				})
@@ -87,7 +87,7 @@ func TestTraceReleaseUnwindKeepsOuterCall(t *testing.T) {
 	var outer, inner uint64
 	_, _ = rt.Run(root, func(t0 *rt.Task) (struct{}, error) {
 		outer = t0.TraceCall("app.Outer.Op", "app.sketch:2:1")
-		_, err := rt.Scoped(t0, func(s *rt.Scope) (struct{}, error) {
+		_, err := rt.Scoped(t0, nil, func(s *rt.Scope) (struct{}, error) {
 			s.Defer(func() {
 				inner = t0.TraceCall("app.Cap.Close", "app.sketch:3:1")
 				panic("cleanup defect")
@@ -118,7 +118,7 @@ func TestTraceScopeUnwindKeepsOuterCall(t *testing.T) {
 	var outer, inner uint64
 	_, _ = rt.Run(root, func(t0 *rt.Task) (struct{}, error) {
 		outer = t0.TraceCall("app.Outer.Op", "app.sketch:2:1")
-		_, err := rt.Scoped(t0, func(s *rt.Scope) (struct{}, error) {
+		_, err := rt.Scoped(t0, nil, func(s *rt.Scope) (struct{}, error) {
 			inner = t0.TraceCall("app.Cap.Op", "app.sketch:3:1")
 			panic("provider defect")
 		})
@@ -163,7 +163,7 @@ func TestTraceCompoundExitLinksEachReason(t *testing.T) {
 			name: "failure-and-cleanup-defect",
 			body: func(t0 *rt.Task, recs func() []rttrace.Record) (error, func() uint64) {
 				var bad func() uint64
-				_, err := rt.Scoped(t0, func(s *rt.Scope) (struct{}, error) {
+				_, err := rt.Scoped(t0, nil, func(s *rt.Scope) (struct{}, error) {
 					s.Defer(func() { panic("cleanup defect") })
 					var e error
 					e, bad = failedCall(t0, recs)
@@ -176,7 +176,7 @@ func TestTraceCompoundExitLinksEachReason(t *testing.T) {
 		{
 			name: "two-cleanup-defects",
 			body: func(t0 *rt.Task, recs func() []rttrace.Record) (error, func() uint64) {
-				_, err := rt.Scoped(t0, func(s *rt.Scope) (struct{}, error) {
+				_, err := rt.Scoped(t0, nil, func(s *rt.Scope) (struct{}, error) {
 					s.Defer(func() { panic("first registered") })
 					s.Defer(func() { panic(42) })
 					return struct{}{}, nil
@@ -189,7 +189,7 @@ func TestTraceCompoundExitLinksEachReason(t *testing.T) {
 			name: "failure-two-cleanup-defects",
 			body: func(t0 *rt.Task, recs func() []rttrace.Record) (error, func() uint64) {
 				var bad func() uint64
-				_, err := rt.Scoped(t0, func(s *rt.Scope) (struct{}, error) {
+				_, err := rt.Scoped(t0, nil, func(s *rt.Scope) (struct{}, error) {
 					s.Defer(func() { panic("first registered") })
 					s.Defer(func() { panic("second registered") })
 					var e error
@@ -204,7 +204,7 @@ func TestTraceCompoundExitLinksEachReason(t *testing.T) {
 			name: "failure-and-interruption",
 			body: func(t0 *rt.Task, recs func() []rttrace.Record) (error, func() uint64) {
 				var bad func() uint64
-				_, err := rt.Scoped(t0, func(s *rt.Scope) (struct{}, error) {
+				_, err := rt.Scoped(t0, nil, func(s *rt.Scope) (struct{}, error) {
 					t0.Interrupt()
 					var e error
 					e, bad = failedCall(t0, recs)

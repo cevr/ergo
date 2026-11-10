@@ -1,6 +1,6 @@
 # Testing
 
-`ergo test FILE [--seed N]` builds the tests of one `.ergo` file and runs them. A test is a top-level declaration of the file, beside its functions. The rules are in [grammar.md](spec/grammar.md#declarations) (declarations 11) and [runtime.md](spec/runtime.md); this page shows how to use them.
+`ergo test FILE|DIR [--seed N] [--states N] [--law NAME] [--skip-law NAME] [--receipt FILE]` builds the tests of one `.ergo` file and runs them. A test is a top-level declaration of the file, beside its functions. The rules are in [grammar.md](spec/grammar.md#declarations) (declarations 11) and [runtime.md](spec/runtime.md); this page shows how to use them.
 
 ## Tests
 
@@ -51,11 +51,13 @@ PASS (4 tests)
 A property prints its case count, `ok DoubleIsEven (100 cases)`, or `ok FlipTwice (proved: all 2 cases)` for `test FlipTwice(b bool)`; a listed case that fails prints `FAIL FlipTwice (case 2 of 2, every value: b = true): …`. A failed assert prints its position and its text, and a failed comparison also prints its two operands as Ergo literals (`left`, `right`; a line diff for two multi-line strings). A refuted property also prints the case number, the seed, the size (the case number over four, which bounds generated collections and strings; [runtime](spec/runtime.md#tests), Tests 6) and each argument as an Ergo literal of its type, so the case can be pasted into a test:
 
 ```text
-FAIL DoubleIsSmall (case 3 of 100, seed 1, size 0: n = -6039945012424161084): assert failed at tests.ergo:12:2: double(n) < 10: left 6366854048861229448, right 10
+FAIL DoubleIsSmall (case 1 of 100, seed 1, size 0: n = 5; shrunk from: n = 3393137394070531532; replay: ergo test tests.ergo --seed 1): assert failed at tests.ergo:12:2: double(n) < 10: left 10, right 10
 FAIL (1 of 3 tests)
 ```
 
-`--seed N` (a decimal `uint64`, default 1) selects the cases, so a failure reproduces with the same seed.
+The runner shrinks a failing case before it reports it: it replays the case with simpler draws while it still fails the same way, and prints the smallest case it found, then the drawn arguments after `shrunk from:` and the command that runs the cases again. Every type a property can draw shrinks: numbers toward 0, strings, slices and Maps toward empty, a union toward its first variant. A defect is not shrunk. `--seed N` (a decimal `uint64`, default 1) selects the cases, so a failure reproduces with the same seed.
+
+Integers shrink by their value, not by the generator's choice of small values or edges: the runner records a sign and magnitude after narrowing to the integer's width. It searches toward zero, then checks adjacent values, and revisits every component of a composite value until no pass improves it. Thus a monotone integer predicate such as `n < 5` shrinks to its boundary, `5`, when the replay budget is enough. The budget is 500 replays per failed case; reaching that limit can leave a non-minimal case. Arbitrary predicates have no global-minimum guarantee.
 
 ## Exit status
 
@@ -78,11 +80,18 @@ A defect is not a failed assert. The runner prints the test's `FAIL` line, `FAIL
 ```text
 ok law Flags.Merge (proved: all 8 cases)
 ok law Store.PutCountsOne for Tally (100 cases)
-FAIL law Store.PutCountsOne for Stuck (case 1 of 100, seed 7, size 0: provider = Stuck{at: 3}, n = -9): law refuted at main.ergo:4:2: the law is false
+FAIL law Store.PutCountsOne for Stuck (case 1 of 100, seed 7, size 0: provider = Stuck{at: 0}, n = 0; shrunk from: provider = Stuck{at: 3}, n = -9): law refuted at main.ergo:4:2: the law is false
+	replay: ergo test main.ergo --law Store.PutCountsOne --seed 7
 skip law Box.Keeps: its parameter v has no generator: T is not a generatable type
 ```
 
-A law that cannot run prints a `skip` line with the reason, and the summary counts it: `PASS (2 tests, 1 skipped)`. A provider whose state is a std handle, such as a `sync.Ref`, has no generator; declare its constructor `func NewTally() Tally` (no rows) and each case builds the provider with it; a provider with a constructor is always built by it. The package of an operation type with no provider of its own prints `law Store.PutCountsOne runs where Store has a provider: none is in this package or its imports`. In `examples/`, a skip line that the program's `expected-skips` file does not list fails the gate. A law of a generic operation type is checked and not run yet. So a program need not restate a law as a property test. `ergo run` and `ergo build` contain no Go from a law. The [support table](spec/support.md) lists what each build lowers.
+A refuted law's replay is a line of its own, which reruns that law alone (`--law`, X1b); a test's replay stays in its `FAIL` line.
+
+A law that cannot run prints a `skip` line with the reason, and the summary counts it: `PASS (2 tests, 1 skipped)`. A provider whose state is a std handle, such as a `sync.Ref`, has no generator; declare its constructor `func NewTally() Tally` (no rows) and each case builds the provider with it; a provider with a constructor is always built by it. The package of an operation type with no provider of its own prints `law Store.PutCountsOne runs where Store has a provider: none is in this package or its imports`. In `examples/`, a skip line that the program's `expected-skips` file does not list fails the gate. A law of a generic operation type is checked and not run yet. So a program need not restate a law as a property test.
+
+`ergo test DIR --receipt FILE` writes the run's law receipt to FILE: a JSON object with the schema version, the source, its revision, the seed, the target and one entry per law run, `proved` (a listed run, every value), `tested` with its case count, `refuted` with its counterexample, or `skipped` with the reason; a machine's reachability law has the search's report in place of a case count ([runtime](spec/runtime.md#tests), Tests 8). A drawn law that holds is tested, not proved. Without `--receipt` nothing is written.
+
+`ergo run` and `ergo build` contain no Go from a law. The [support table](spec/support.md) lists what each build lowers.
 
 ## Example programs
 

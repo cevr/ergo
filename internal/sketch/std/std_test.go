@@ -22,8 +22,8 @@ const v1Path = "ergo.local/prototype/runtime/v1"
 // that no Ergo operation binds, each with the reason. A body that binds no
 // declaration and is not listed here fails TestEachExternHasItsGoBody.
 var unbound = map[string]string{
-	// The return of a Task (Tasks rule 8): only the lowering calls it.
-	"Task.Move": "lowering only",
+	// None since #197 L8 B3t: a returned Task is an owned value, and no
+	// Move body is left.
 }
 
 // TestEachModuleChecks checks each v1 package with the checker that
@@ -426,6 +426,20 @@ func matchSig(t *testing.T, where string, sig *check.Signature, body v1.Body) {
 		}
 	}
 	want := len(sig.Results)
+	if len(sig.Results) == 1 && !sig.Fallible {
+		if tuple, ok := sig.Results[0].(*check.Tuple); ok {
+			if len(body.Results) != len(tuple.Types) {
+				t.Errorf("%s: tuple has %d parts, Go body has %v", where, len(tuple.Types), body.Results)
+				return
+			}
+			for i, r := range tuple.Types {
+				if g, ok := goType(r); !ok || g != body.Results[i] {
+					t.Errorf("%s: tuple part %d lowers to %q, Go body returns %s", where, i, g, body.Results[i])
+				}
+			}
+			return
+		}
+	}
 	if sig.Fallible {
 		want++
 	}

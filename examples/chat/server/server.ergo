@@ -8,6 +8,7 @@
 import chat/room
 import queue
 import task
+import tasks
 import time
 
 // Conn is a client's connection, line by line. It is a resource (it has
@@ -80,18 +81,25 @@ func Serve(accept queue.Queue[Conn], log queue.Queue[string]) room.State fails q
 	try hub.Wait()
 }
 
-// serveAll takes the next connection from accept, runs its client task,
-// serves the rest, and waits for it. A slice cannot hold tasks
-// (G-ex-b-17), so each frame owns one task and its connection; the
-// connection is released when the frame ends, after its task.
+// serveAll moves each accepted connection into a Set member's root. The
+// handler lends the connection for its run; the root releases it before
+// the Set's Wait returns. A failure stops and drains the other members.
 func serveAll(accept queue.Queue[Conn], i int, inbox queue.Queue[Envelope]) fails queue.Closed {
-	let c = accept.Pop() catch {
-	case queue.Closed:
-		return
+	let clients = tasks.NewSet[queue.Closed](tasks.FailFast)
+	let mut next = i
+	for {
+		let c = accept.Pop() catch {
+		case queue.Closed:
+			break
+		}
+		let id = next
+		next = next + 1
+		tasks.Go(clients) { try client(c, id, inbox) } catch {
+		case tasks.Closed:
+			break // Wait below gives the failure that closed admission.
+		}
 	}
-	let t = task.Go() { try client(c, i, inbox) }
-	try serveAll(accept, i+1, inbox)
-	try t.Wait()
+	try clients.Wait()
 }
 
 // client reads a name, then lines, from c and sends them to the room. A

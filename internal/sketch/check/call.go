@@ -263,12 +263,20 @@ func (c *checker) callSig(x *syntax.CallExpr, sig *Signature, fun operand) opera
 		return bad(x)
 	}
 	refused := false
+	fn := fun.fn
+	if fn == nil {
+		fn, _ = fun.obj.(*Func)
+	}
+	savedHost := c.hostCall
+	// A Go function's arguments are lent for the call (IG9, hostres.go).
+	c.hostCall = fn != nil && fn.Pkg.Host()
 	for i, a := range args.exprs {
 		pt := paramType(sig, i)
 		if !c.argument(a, pt, x) {
 			refused = true
 		}
 	}
+	c.hostCall = savedHost
 	if refused {
 		return bad(x)
 	}
@@ -768,9 +776,7 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 	if fun.fn != nil {
 		name = fun.fn.Name
 	}
-	if !c.typeArgsAdmitted(name, sig.TParams, targs, x) {
-		return bad(x)
-	}
+	c.recordInstantiation(name, sig.TParams, targs, x)
 	if fun.fn != nil {
 		if len(fun.self) > 0 {
 			targs = fullTypeArgs(fun.fn, fun.self, in.m)
@@ -866,6 +872,11 @@ func (c *checker) funcLit(x *syntax.FuncLit, expected *Signature, in *inferer) o
 		if !resultFree {
 			sig.Results = append([]Type(nil), expected.Results...)
 		}
+	}
+	if x.Type.Takes == nil && expected != nil && len(expected.Params) == len(sig.Params) {
+		// A literal writes no takes clause where its function type gives
+		// one (L8 A3, Gap 39): its body is checked against that clause.
+		sig.Takes, sig.TakesSelf = append([]int(nil), expected.Takes...), expected.TakesSelf
 	}
 	writtenErr := false
 	if x.Type.Results != nil {

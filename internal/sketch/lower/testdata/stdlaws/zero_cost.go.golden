@@ -215,9 +215,11 @@ func run(env *Env) (err error) {
 	/*line /ergo-test/main.ergo:12:22*/})
 //line /ergo-test/main.ergo:12:2
 	var t_1 *ergo.Task[int] = v_2
+	/*line /ergo-test/main.ergo:12:2*/own := (&fs).Owner()
+	/*line /ergo-test/main.ergo:12:2*/ergo.Owning(own, t_1, func(owned *ergo.Task[int]) { (owned).Close(env.task) })
 //line /ergo-test/main.ergo:13:2
 //line /ergo-test/main.ergo:13:14
-	v_3, err_3 := (t_1).Wait()
+	v_3, err_3 := (ergo.Hand(own, t_1)).Wait()
 //line /ergo-test/main.ergo:13:2
 	if err_3 != nil {
 		/*line /ergo-test/main.ergo:13:2*/return err_3
@@ -235,7 +237,7 @@ func run(env *Env) (err error) {
 	/*line /ergo-test/main.ergo:14:19*/})
 //line /ergo-test/main.ergo:15:2
 //line /ergo-test/main.ergo:15:14
-	v_5, err_4 := ergo.After[int](ergo.Site("run calls timeout.After at /ergo-test/main.ergo:15:14"), env.task, env.Scheduler, time.Duration(3600000000000), func(t_2 *rt.Task) (int, error) {
+	v_5, err_4 := ergo.After[int](ergo.Site("run calls timeout.After at /ergo-test/main.ergo:15:14"), env.task, env.Scheduler, nil, time.Duration(3600000000000), func(t_2 *rt.Task) (int, error) {
 		/*line /ergo-test/main.ergo:15:14*/e_1 := *env
 		/*line /ergo-test/main.ergo:15:14*/e_1.task = t_2
 		/*line /ergo-test/main.ergo:15:14*/return func(env_3 *Env) (int, error) {

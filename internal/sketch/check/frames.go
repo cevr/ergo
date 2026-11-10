@@ -17,8 +17,9 @@ import "ergo.local/prototype/internal/sketch/syntax"
 // inspectFrame's walk: a function literal's body, a trailing block other
 // than a with's and a law in a type declaration are frames of their own) is
 //
-//  1. a call whose result holds a Task (Call.TaskResult: task.Go, a
-//     function, a function value or an operation that returns a Task),
+//  1. a call whose result holds a running task (Call.StartsTask: task.Go,
+//     tasks.NewSet, a function, a function value or an operation that
+//     returns a Task),
 //  2. scope.OnExit, which registers its block on the frame,
 //  3. a with that owns a provider with a Close, whose scope opens on the
 //     frame, or
@@ -52,7 +53,7 @@ func frameFree(d syntax.Decl) bool {
 }
 
 // checkFrames reports every call of the invariant above outside a function
-// body. It runs once Info's calls carry TaskResult (finishInfo) and every
+// body. It runs once Info's calls carry StartsTask (finishInfo) and every
 // with its acquisitions (withOwnership). Each file is selected before its
 // declarations are inspected, so a diagnostic names the file it stands in.
 func (c *checker) checkFrames() {
@@ -96,8 +97,8 @@ func (c *checker) diagnosedIn(f *fileInfo, x syntax.Node) bool {
 // not.
 func frameNeed(info *Info, x *syntax.CallExpr) string {
 	if call := info.Calls[x]; call != nil {
-		if call.TaskResult {
-			return "a call whose result holds a Task"
+		if call.StartsTask {
+			return "a call that starts a task"
 		}
 		if isOnExit(call) {
 			return "scope.OnExit"

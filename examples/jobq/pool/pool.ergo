@@ -70,16 +70,24 @@ func work(w int, js queue.Queue[jobs.Job], tokens queue.Queue[token], out queue.
 	}
 }
 
-// crew starts workers from w to n, each a task, and waits for all of
-// them. A Task cannot live in a slice in v1 (runtime.md, Tasks 3), so a
-// crew of n is n nested frames, each owning one task (gaps G-ex-b-17).
+// crew starts workers from w to n in one owned slice and waits in reverse
+// start order. Take moves each task out before Wait consumes it; an early
+// failure releases the slice and drains the workers still in it.
 func crew(w int, n int, js queue.Queue[jobs.Job], tokens queue.Queue[token], out queue.Queue[Report], p jobs.Policy) fails queue.Closed needs jobs.Worker | Scheduler {
-	if w > n {
-		return
+	let mut running = []Task[bool, queue.Closed]{}
+	for worker in w..n+1 {
+		let t = task.Go() {
+			try work(worker, js, tokens, out, p)
+			true
+		}
+		running = running.Append(t)
 	}
-	let t = task.Go() { work(w, js, tokens, out, p) }
-	try crew(w+1, n, js, tokens, out, p)
-	try t.Wait()
+	for len(running) > 0 {
+		let last = len(running) - 1
+		let t, rest = slices.Take(running, last)
+		running = rest
+		let _ = try t.Wait()
+	}
 }
 
 // Run runs js under c and is the report of each job, by ID.

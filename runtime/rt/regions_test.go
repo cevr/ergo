@@ -27,7 +27,7 @@ func TestReleaseShieldAcrossRestoreAndAcquire(t *testing.T) {
 			var completed atomic.Bool
 			h := GoMasked(&outer, "masked owner", func(task *Task, restore Mask) (int, error) {
 				work := func() (int, error) {
-					return Scoped(task, func(s *Scope) (int, error) {
+					return Scoped(task, nil, func(s *Scope) (int, error) {
 						s.Defer(func() {
 							local := NewScope(task)
 							defer local.End(nil)
@@ -52,7 +52,7 @@ func TestReleaseShieldAcrossRestoreAndAcquire(t *testing.T) {
 				if nesting == "plain restored body" {
 					restore.Interruptible(func() { _, err = work() })
 				} else {
-					_, err = Scoped(task, func(s *Scope) (int, error) {
+					_, err = Scoped(task, nil, func(s *Scope) (int, error) {
 						return Acquire(s, func() (int, error) {
 							if nesting == "restore inside acquire" {
 								var exit error
@@ -191,7 +191,7 @@ func TestRestoreReturnsEnclosingShield(t *testing.T) {
 // Every region pops on a panic: Acquire's open and a restore.
 func TestRegionsPopOnPanic(t *testing.T) {
 	root := Root("main")
-	_, err := Scoped(root, func(s *Scope) (int, error) {
+	_, err := Scoped(root, nil, func(s *Scope) (int, error) {
 		return Acquire(s, func() (int, error) { panic("open defect") }, func(int) { t.Error("released a failed acquisition") })
 	})
 	if err == nil || root.Masked() {

@@ -1,0 +1,52 @@
+// Package memory supplies deterministic downloads and a recording release
+// sink. A missing endpoint and a failed source read are typed failures.
+import fetchpool/domain
+import sync
+
+type Recording { Log sync.Ref[[]string] }
+type Script {}
+type connection { id int, log sync.Ref[[]string] }
+type Limit { left sync.Ref[int], log sync.Ref[[]string] }
+
+func Open(s Recording, id int) domain.Conn fails domain.Offline {
+	if id < 0 {
+		return domain.Offline{ID: id}
+	}
+	connection{id: id, log: s.Log}
+}
+
+// Script lets the runner exercise Fetcher's law without a generated
+// synchronized reference. Recording uses the same connection body.
+func Open(s Script, id int) domain.Conn fails domain.Offline {
+	let recording = Recording{Log: sync.NewRef[[]string]([]string{})}
+	recording.Open(id)
+}
+
+func Number(c connection) int { c.id }
+
+func Read(c connection) string fails domain.ReadFailed {
+	if c.id == 2 {
+		return domain.ReadFailed{Reason: "source ended"}
+	}
+	"data-\(c.id)"
+}
+
+func Close(c connection) {
+	c.log.Update(func(lines []string) []string { lines.Append("close \(c.id)") })
+}
+
+func NewLimit(n int, log sync.Ref[[]string]) Limit {
+	Limit{left: sync.NewRef[int](n), log: log}
+}
+
+func Admit(l Limit) bool {
+	sync.Modify(l.left, func(n int) (bool, int) {
+		if n > 0 { (true, n - 1) } else { (false, n) }
+	})
+}
+
+func Remaining(l Limit) int { l.left.Get() }
+
+func Close(l Limit) {
+	l.log.Update(func(lines []string) []string { lines.Append("limit closed") })
+}

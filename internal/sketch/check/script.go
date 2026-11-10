@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // Scripts (stdlib.md, Testing 7 to 12; #237 stage 5, unit L5b). The std
@@ -49,6 +50,21 @@ func ScriptOf(t Type) *Named {
 	return s.(*Named)
 }
 
+// returnsRunning reports an operation whose one result is a running task,
+// a Task or a tasks.Set: a std type whose Close stops running code
+// (v1.StopsRunning, the table running.go reads).
+func returnsRunning(sig *Signature) bool {
+	if len(sig.Results) != 1 {
+		return false
+	}
+	n, ok := sig.Results[0].(*Named)
+	if !ok {
+		return false
+	}
+	o := n.origin().Obj
+	return o != nil && o.Pkg != nil && o.Pkg.Std() && v1.StopsRunning(o.Name+".Close")
+}
+
 // scriptWhy is why the type argument s makes no Script, or "" when it
 // makes one (rule 1).
 func scriptWhy(s Type) string {
@@ -63,7 +79,7 @@ func scriptWhy(s Type) string {
 		return fmt.Sprintf("%s is a sealed std type, which only the runtime provides", s)
 	}
 	for _, m := range asInterface(s).Methods {
-		if m.Sig.ResultIsTask() {
+		if returnsRunning(m.Sig) {
 			return fmt.Sprintf("its operation %s returns a Task, which a Script cannot answer", m.Name)
 		}
 		for _, p := range m.Sig.Params {

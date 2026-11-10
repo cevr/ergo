@@ -20,7 +20,7 @@ The program is a module of packages (`ergo.mod`: `module chat`), in the Go layou
 - **Tasks and a queue.** `Serve` runs `1 + n` tasks: the room's and one per client. Every client sends to one inbox queue; only the room's task touches the room's state, so the state needs no lock. A task's failure row is in its type (`Task[room.State, queue.Closed]`), and the server waits for every task before it ends.
 - **Typed failures over the room's rules.** A join under a member's name fails `NameTaken`; a say from a stranger `NotMember`; anything after `/shut` `RoomClosed`. The room's task catches each by name and answers the sender alone.
 - **Laws.** `JoinAppendsOrRefuses`, `SayNeedsMember`, `LeaveUndoesJoin`, `ClosedRefusesAll` over the room, and `HangupIsFinal` over every connection, each restated as a property test.
-- **Ownership (#197).** A `Conn` has `Close`, so it is a resource with one owner: the `serveAll` frame that pops it from the accept queue owns it, lends it to its client task, and its scope releases it after that task ends (the checker proves the ownership now; the release itself is lowered by L8 B1). No code closes a connection by hand. The room keeps only `Peer`s, which have no `Close` and copy freely; `Peer.Hangup` lends, so the law can read the connection after it.
+- **Ownership (#197).** A `Conn` has `Close`, so it is a resource with one owner. `serveAll` moves each accepted connection into a `tasks.Set` member's root. The handler lends it for the run, and the root releases it before the Set's `Wait` returns. No code closes a connection by hand. The room keeps only `Peer`s, which have no `Close` and copy freely; `Peer.Hangup` lends, so the law can read the connection after it.
 - **Virtual time.** The clock is a `time.Manual`: `+75` moves it by 75 seconds, and the next message is stamped `00:01:15`. No test sleeps.
 - **A found bug.** A connection is an operation type's value, which has no `==`, so the first version could not tell a client whose join was refused from the member whose name it asked for: such a client could speak as that member. The server now numbers its clients and refuses "you are not ada" (`RefusalsGoToTheSender`).
 
@@ -42,7 +42,7 @@ New gap (in `gaps-ex-e.md` of the run):
 Gaps that other lanes found, met here too:
 
 - No network in std (G-ex-c-7): the connections are in memory, and the binary replays a script instead of listening on a port.
-- No task group (G-ex-b-17): `serveAll` starts one task per frame and recurses for the rest.
+- `serveAll` uses one fail-fast task Set, which drains all clients before the room's inbox ends.
 - A virtual clock that advances when every task waits is now std `testing.VirtualClock` (G-ex-b-5 closed). The replay keeps `time.Manual`, because the script's `+SECONDS` lines say when time moves; an idle timeout is still not built.
 - No actor runner and no supervision (#57, #101): the room's task is a loop over `Decide` and `Evolve`. `Room`'s `Step` now emits its events (G-ex-a-9 closed), but a machine has no clock, so it stamps a say at time zero and the server, which stamps each say with its clock, does not use it.
 - A machine's state is a union (G-ex-c-16): `State` has two variants where `Shutdown` would do as a flag.

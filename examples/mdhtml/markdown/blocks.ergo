@@ -119,7 +119,7 @@ func moved(closed []Block, line Line) Decision[Mode, []Block] {
 	case Emit[Mode, []Block] as e:
 		Emit[Mode, []Block]{Next: e.Next, Output: slices.Concat(closed, e.Output)}
 	case Enter[Mode], Stay[Mode], Ignore, Reject, Done[[]Block]:
-		Emit[Mode, []Block]{Next: machines.Next[Mode, []Block](Idle, d), Output: closed}
+		Emit[Mode, []Block]{Next: machines.Next(Idle, d), Output: closed}
 	}
 }
 

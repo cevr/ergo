@@ -199,7 +199,7 @@ func TestPollerEnds(t *testing.T) {
 	run := func(root *rt.Task) error {
 		return frame(root, func(s *Scope) error {
 			q = New[int](16)
-			producer := Go(s, "producer at poller.ergo:52:17", func(pt *rt.Task) (struct{}, error) {
+			producer := ownedGo(s, "producer at poller.ergo:52:17", func(pt *rt.Task) (struct{}, error) {
 				frameNoRow(pt, func(ps *Scope) {
 					OnExit(ps, func() { q.End() })
 					for i := 0; ; i++ {

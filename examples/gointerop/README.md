@@ -34,4 +34,4 @@ A Go version imports `crypto/sha256`, `encoding/hex` and `bufio`, and maps `strc
 - G-ex-f-10 (narrowed): still no `import go`, no `[]byte`, no callback of a named function type, and a failure row at an extern is `go.Error` only. Closed: SHA-256 and hex are std, extern functions are values, `fails go.Error`.
 - G-exup-1 (closed in batch 13): the `checksum.Hasher` laws run against `sha256.Hasher` in `cmd/gointerop`, the least package that sees both, so the tests that restated them are gone.
 
-Closed since ex-f: G-ex-f-11 (`math/bits` and `encoding/hex` are std), G-ex-f-12 (`fstest.Memory`), G-ex-d-5 (`Command` has `==`), G-ex-d-10 (`main` returns from its `with`). Also hit before: G-ex-b-18 (a package-level `Map` makes a "pure" hash nondeterministic, which a mutant uses).
+Closed since ex-f: G-ex-f-11 (`math/bits` and `encoding/hex` are std), G-ex-f-12 (`fstest.Memory`), G-ex-d-5 (`Command` has `==`), G-ex-d-10 (`main` returns from its `with`). Also hit before: G-ex-b-18 (a package-level `Map` made a "pure" hash nondeterministic; closed by q26, rechecked in L9).

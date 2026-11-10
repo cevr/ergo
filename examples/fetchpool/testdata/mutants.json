@@ -1,0 +1,61 @@
+{
+  "about": "fetchpool's application mutants; each is judged by the example's laws, generated test and CLI case, not by a compiler test.",
+  "mutants": [
+    {
+      "name": "X-L8 read changes on a repeated lend", "origin": "X-L8 Conn contract",
+      "file": "examples/fetchpool/memory/fetch.ergo",
+      "from": "\"data-\\(c.id)\"", "to": "sync.Modify(c.log, func(xs []string) (string, []string) { (\"data-\\(c.id + len(xs))\", xs.Append(\"read\")) })",
+      "rule": "Conn.ReadIsRepeatable requires successful repeated reads to agree.",
+      "anchor": {"tests": ["examples:fetchpool"]}, "killers": ["examples:fetchpool"]
+    },
+    {
+      "name": "X-L8 admission spends no permit", "origin": "X-L8 Limiter contract",
+      "file": "examples/fetchpool/memory/fetch.ergo",
+      "from": "(true, n - 1)", "to": "(true, n)",
+      "rule": "Limiter.AdmissionSpendsOne checks the finite admission counter directly.",
+      "anchor": {"tests": ["examples:fetchpool"]}, "killers": ["examples:fetchpool"]
+    },
+    {
+      "name": "X-L8 dialer skips an input", "origin": "X-L8 composed download pipeline",
+      "file": "examples/fetchpool/pool/pool.ergo",
+      "from": "for id in ids {", "to": "for id in ids { if id == 0 { continue }",
+      "rule": "EveryConnectionClosesOnce accounts for every successful acquisition and every requested result.",
+      "anchor": {"tests": ["examples:fetchpool"]}, "killers": ["examples:fetchpool"]
+    },
+    {
+      "name": "X-L8 worker never fetches", "origin": "X-L8 composed download pipeline",
+      "file": "examples/fetchpool/pool/pool.ergo",
+      "from": "try reports.Push(domain.Fetch(c))", "to": "try reports.Push(domain.Queued{ID: c.Number()})",
+      "rule": "EveryConnectionClosesOnce requires a terminal report, not merely a drained connection.",
+      "anchor": {"tests": ["examples:fetchpool"]}, "killers": ["examples:fetchpool"]
+    },
+    {
+      "name": "X-L8 limiter grants an extra download", "origin": "X-L8 composition root",
+      "file": "examples/fetchpool/memory/fetch.ergo",
+      "from": "left: sync.NewRef[int](n)", "to": "left: sync.NewRef[int](n + 1)",
+      "rule": "EveryConnectionClosesOnce compares processed results to the configured admission budget.",
+      "anchor": {"tests": ["examples:fetchpool"]}, "killers": ["examples:fetchpool"]
+    },
+    {
+      "name": "X-L8 read failure becomes success", "origin": "X-L8 typed failure mapping",
+      "file": "examples/fetchpool/memory/fetch.ergo",
+      "from": "if c.id == 2 {", "to": "if c.id == -2 {",
+      "rule": "EveryConnectionClosesOnce checks the read-failure report along with successful and offline downloads.",
+      "anchor": {"tests": ["examples:fetchpool"]}, "killers": ["examples:fetchpool"]
+    },
+    {
+      "name": "X-L8 machine start changes identity", "origin": "X-L8 download machine",
+      "file": "examples/fetchpool/domain/fetch.ergo",
+      "from": "Fetching{ID: q.ID}", "to": "Fetching{ID: q.ID + 1}",
+      "rule": "StartKeepsNumber holds the transition to its generated download identity.",
+      "anchor": {"tests": ["examples:fetchpool"]}, "killers": ["examples:fetchpool"]
+    },
+    {
+      "name": "X-L8 provider returns wrong connection", "origin": "X-L8 Fetcher contract",
+      "file": "examples/fetchpool/memory/fetch.ergo",
+      "from": "func Number(c connection) int { c.id }", "to": "func Number(c connection) int { c.id + 1 }",
+      "rule": "Fetcher.KeepsNumber observes the provider through the domain's connection contract.",
+      "anchor": {"tests": ["examples:fetchpool"]}, "killers": ["examples:fetchpool"]
+    }
+  ]
+}

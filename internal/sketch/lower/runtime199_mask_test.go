@@ -24,11 +24,21 @@ import (
 // Test-only seams sit at the private v1 release boundary, at Sleep and at
 // Queue.End; a Virtual clock replaces the live clock of NewLiveScheduler.
 // No settling sleep is needed.
+// taskReleaseLaws are the caller-release bindings of a running task's
+// release (#197 L8 B3t): Close masks on the caller and stops and drains the
+// task, as Stop does. They release no checked Close body, so this property
+// does not drive them; the runtime/v1 tests named here are their mask, stop
+// and drain laws.
+var taskReleaseLaws = map[string]string{
+	"Task.Close": "runtime/v1 TestUnconsumedFailureDropped, TestAbandonedChild, TestTaskReturn",
+	"Set.Close":  "runtime/v1 TestSetModel",
+}
+
 func TestRuntime199MaskProperty(t *testing.T) {
 	needsBuild(t)
 	routes := map[releaseRoute][]string{}
 	for name, binding := range runtimeBindings {
-		if binding.release == notRelease {
+		if binding.release == notRelease || taskReleaseLaws[name] != "" {
 			continue
 		}
 		if _, err := v1.BodyOf(name); err != nil {
@@ -93,9 +103,10 @@ func closeDispatch(t *testing.T) map[string]bool {
 			// R24; check TestContextOwnershipRefusals), and the with's release
 			// is a plain call of the checked Close (providerRelease).
 		case check.CallFuncValue:
-			// The value is a checked Close reference: a declared function
-			// or an operation method value.
-			paths["value"], paths["methodValue"] = true, true
+			// The value is a checked Close function: an operation's method
+			// value of Close is refused (resources R33: a function value owns
+			// no resource; check TestCloseMethodValueRefused).
+			paths["value"] = true
 		case check.CallConversion, check.CallLen, check.CallWith, check.CallPrelude, check.CallGoError, check.CallEncode, check.CallDecode:
 			// A conversion, len, go.Is and go.As, encode and decode (L11)
 			// and a with block call no Close; a prelude dot call is a
@@ -211,6 +222,9 @@ import task
 
 type Fault {}
 type Conn { Fail bool }
+// Mark is Conn without a Close: it crosses (resources R1), so the twin
+// owns nothing and enters no release.
+type Mark { Fail bool }
 
 func Close(c Conn) needs Scheduler {
 	Scheduler.Sleep(1h)
@@ -220,7 +234,7 @@ func Close(c Conn) needs Scheduler {
 	}
 }
 
-func Finish(c Conn) needs Scheduler {
+func Finish(c Mark) needs Scheduler {
 	Scheduler.Sleep(1h)
 	if c.Fail {
 		let xs = []int{}
@@ -238,7 +252,7 @@ func viaDot(fail bool, signal queue.Queue[int]) {
 
 func twinFinish(fail bool, signal queue.Queue[int]) {
 	with context { Scheduler: NewLiveScheduler() } {
-		let c = Conn{Fail: fail}
+		let c = Mark{Fail: fail}
 		signal.End()
 		c.Finish()
 	}
@@ -320,13 +334,6 @@ func viaOp(fail bool, signal queue.Queue[int]) {
 	r.Close()
 }
 
-func viaMethodValue(fail bool, signal queue.Queue[int]) {
-	let r Releaser = Plain{Fail: fail, Live: NewLiveScheduler()}
-	let f = r.Close
-	signal.End()
-	f()
-}
-
 func twinOperand(fail bool, signal queue.Queue[int]) {
 	with context { Scheduler: NewLiveScheduler() } {
 		let o = Other{Fail: fail}
@@ -338,7 +345,6 @@ func twinOperand(fail bool, signal queue.Queue[int]) {
 		paths: []maskPath{
 			{"dot", "viaDot", time.Hour},
 			{"op", "viaOp", 2 * time.Hour},
-			{"methodValue", "viaMethodValue", 2 * time.Hour},
 		},
 		twins:  []string{"twinFinish", "twinOperand"},
 		frames: true,
@@ -753,11 +759,9 @@ func TestExitActions(t *testing.T) {
 func TestExitActionTask(t *testing.T) {
  if !frames { t.Skip("exit actions run in the operations program") }
  parent := rt.Root("parent")
- dest := ergo.NewScope(parent)
  tr, got := observe(t, parent, plan{}, func() error {
-  h := launch(&Env{task: parent}, &dest)
+  h := launch(&Env{task: parent})
   _, err := h.Wait()
-  dest.End(nil)
   return err
  })
  if got != "" { t.Fatalf("exit %q", got) }

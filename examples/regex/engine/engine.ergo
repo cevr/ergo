@@ -70,7 +70,12 @@ func Selecting(pattern syntax.Node, m Mode) syntax.Node {
 // Grep is the lines that pattern selects in mode m, in order, compiled
 // once by the Engine in the context.
 func Grep(pattern syntax.Node, m Mode, lines Seq[string]) Seq[string] needs Engine {
-	let matcher = Engine.Compile(Selecting(pattern, m))
+	Engine.Compile(Selecting(pattern, m)).Filter(lines)
+}
+
+// Filter is the lines that matcher matches, in order. It is a function on
+// the operation type Matcher, so any matcher calls it as m.Filter(lines).
+func Filter(matcher Matcher, lines Seq[string]) Seq[string] {
 	Seq[string](func(yield func(v string) bool) {
 		for line in lines {
 			if matcher.Matches(line) && !yield(line) {

@@ -799,6 +799,20 @@ func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) st
 		return func(fc *funcCtx, params []string) string {
 			return fc.optionReturn(s.Results[0], "\t", params[0]+"["+params[1]+"]", fc.site)
 		}
+	case f.Name == "Take" && len(s.TParams) == 2 && isMapOf(s.Params[0].Type, s.TParams[0], s.TParams[1]) && s.Params[1].Type == s.TParams[0]:
+		tuple, ok := s.Results[0].(*check.Tuple)
+		if !ok || len(tuple.Types) != 2 || !isPreludeType(tuple.Types[0], "Option") || !isMapOf(tuple.Types[1], s.TParams[0], s.TParams[1]) {
+			return nil
+		}
+		return func(fc *funcCtx, params []string) string {
+			v, found, rest, option := fc.temp("value"), fc.temp("found"), fc.temp("rest"), fc.temp("option")
+			some, none := optionVariants(tuple.Types[0], fc.site)
+			call := fc.runtimeCall("MapTake", fc.ownBinding("MapTake", fc.site), "", "", params, "", nil, nil, fc.site)
+			return "\t" + v + ", " + found + ", " + rest + " := " + call + "\n" +
+				"\tvar " + option + " " + fc.goType(tuple.Types[0]) + " = " + fc.goType(none) + "{}\n" +
+				"\tif " + found + " { " + option + " = " + fc.goType(some) + "{" + v + "} }\n" +
+				"\treturn " + fc.goType(tuple) + "{" + option + ", " + rest + "}\n"
+		}
 	}
 	return nil
 }
@@ -1036,18 +1050,6 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
 	if fd.extern == "" && f.Decl.Body != nil {
 		fc.frame.polls = framePolls(f.Pkg.Info, f.Decl)
 	}
-	if f.Pkg.Info.TaskResults[f] && fd.extern == "" {
-		// A function whose result holds a Task receives its caller's frame
-		// scope as the destination its return moves the Task to (stage D3b,
-		// Rule 2). Since stage E2 (C13) a result holds a Task only by being
-		// one: the checker refuses a Task held otherwise (S108).
-		if !f.Sig.ResultIsTask() {
-			ice(site, "the function %s, whose result holds a Task, does not return one", f.Name)
-		}
-		fc.frame.dest = scope.alloc("dest")
-		parts = append(parts, fc.frame.dest+" *"+l.rt()+".Scope")
-		args = append(args, fc.frame.dest)
-	}
 	// A type parameter a method set constrains takes its operations as a
 	// witness, after the environment and the destination (witness.go).
 	for _, tp := range witnessParams(f.Sig) {
@@ -1107,7 +1109,11 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
 	// A function that starts a task, registers an exit action or receives a
 	// Task by return opens its frame scope first (stage D3b, Rule 2).
 	frameErr := ""
-	needsFrame := l.bodyNeedsFrame(f.Decl.Body.List)
+	needsFrame := l.bodyNeedsFrame(f.Decl.Body.List) || l.ownsParams(params)
+	fc.frame.plain = needsFrame && !l.bodyNeedsScope(f.Decl.Body.List)
+	if fc.frame.plain && flat == nil && l.staticPlan(params, f.Decl.Body.List) {
+		fc.frame.static = &staticFrame{}
+	}
 	results := ""
 	switch {
 	case needsFrame && fd.fallible:
@@ -1142,10 +1148,18 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
 		if needsFrame {
 			fc.site = site
 			fc.openFrame(frameErr)
+			for _, v := range params {
+				fc.ownVar(v, site) // a taken parameter, before the entry poll (R8)
+			}
 		}
 		fc.entryPoll(f.Pkg.Info, f.Decl)
 		fc.body(f.Decl.Body.List)
 	})
+	if fc.frame.static != nil {
+		body := fc.closeStatic(fc.out.String(), frameErr, site)
+		fc.out.Reset()
+		fc.out.WriteString(body)
+	}
 	if flat != nil {
 		body := fc.out.String()
 		if namesIdent(body, paramNames[0]) {

@@ -130,7 +130,7 @@ func (fc *funcCtx) getArmsLower(some, none getArm, v, okName string, d dest) boo
 				fc.line("_ = " + name)
 			}
 		}
-		return fc.yieldList(a.clause.Body, d)
+		return fc.scoped(a.clause, func() bool { return fc.yieldList(a.clause.Body, d) })
 	}
 	if some.clause == none.clause {
 		// One arm takes both variants (a wildcard or a type test of the

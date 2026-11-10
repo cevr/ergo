@@ -298,7 +298,7 @@ func TestRowValueFieldsAgree(t *testing.T) {
 		t.Fatalf("the row value programs do not build (seeds %v)", seeds)
 	}
 	reached := map[string]bool{}
-	refuted := regexp.MustCompile(`^FAIL Never(\d+) \(case \d+ of 100, seed \d+, size \d+: b = (.*)\): assert failed`)
+	refuted := regexp.MustCompile(`^FAIL Never(\d+) \(case \d+ of 100, seed \d+, size \d+: b = (.*?)(?:; shrunk from: .*)?\): assert failed`)
 	for k, seed := range seeds {
 		s := shapes[seed]
 		replay := fmt.Sprintf("Replay: go test -run '^TestRowValueFieldsAgree$' ./internal/sketch/lower -args -rv.seed=%d", seed)

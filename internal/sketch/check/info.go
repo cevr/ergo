@@ -118,9 +118,6 @@ type Package struct {
 	// name (D-D6, D-D8), which x.f(…) reaches from a value of exactly an
 	// unnamed slice or Map type; nil in every other package.
 	collFuncs map[collKey]*Func
-	// providerFresh is the freshness fact the context ownership pass computed
-	// during Check, kept so its tests read the fact that decided.
-	providerFresh providerFreshness
 	// testBuilds are, in a test package (fstest), the builders it declares
 	// for each operation type of the package it tests (builders.go rule
 	// 2). Only the package's own check writes it.
@@ -240,12 +237,6 @@ type Info struct {
 	// and otherwise in declaration order. The lowering runs them in this
 	// order inside the program's root task (stage C round 2 review m1).
 	InitOrder []*Initializer
-	// TaskResults is every function of the package whose result type
-	// holds a Task (check-v1 stage D3a, Task escape): a Task leaves its
-	// function only by return, so the lowering can pass the caller's
-	// scope to such a function as a hidden destination. Added in stage
-	// D3a (additive).
-	TaskResults map[*Func]bool
 	// Footprints is every frame's footprint (rows.md, Footprints; #199
 	// stage 1): each function with a body (*syntax.FuncDecl), function
 	// literal (*syntax.FuncLit), trailing block of a call other than with
@@ -281,6 +272,63 @@ type Info struct {
 	// leaves; the assigned *syntax.Ident of an assignment for the old value
 	// (R41). A missing key releases nothing. Added in L8 A2 (additive).
 	Releases map[syntax.Node][]Release
+	// OwnedVars and OwnedTemps are the values the ownership pass gives an
+	// owner (#197 L8 B1): each owned local and taken parameter, and each
+	// temporary a statement owns (R43), with the release the lowering
+	// registers for it: the call of its type's checked Close, or the
+	// generated release of its parts (Drop, L8 B2). The lowering registers
+	// each in the step that receives the value (R8). Added in L8 B1
+	// (additive).
+	OwnedVars  map[*Var]*Drop
+	OwnedTemps map[syntax.Expr]*Drop
+	// TaskCaptures records the resource captures handed to the root of a
+	// started task (R12). A repeated callback only lends them: the root
+	// owns and releases them once, outside all runs of the callback.
+	TaskCaptures map[syntax.Node]*TaskCapture
+	// ResultDrops is the release of the result of a std call whose runtime
+	// body takes the hidden ResultRelease (v1.Releaser): a boundary that
+	// drops a successful result releases it (Gap 47, L8 B4). A call whose
+	// result holds no resource has none; the lowering passes nil.
+	ResultDrops map[*syntax.CallExpr]*Drop
+	// FieldTakes is each field taken in place (`b.r.Close()`, R39, Gap
+	// 38): the owned record's local and the field's index. The lowering
+	// marks the field on the record's entry there, and the generated
+	// release skips it. Added in L8 B2 (additive).
+	FieldTakes map[*syntax.SelectorExpr]FieldTake
+	// Handoffs is each use of an owned local or taken parameter that
+	// hands it off (a move or a take), with the owned local it hands off:
+	// the ident's own, or the root of the borrow a Close is called through
+	// (`let p = &h; p.Close()`). The lowering removes that local's entry
+	// there. Added in L8 B1 (additive).
+	Handoffs map[*syntax.Ident]*Var
+	// PatternOwners transfers sources only on entry to the selected match
+	// arm, then registers its disjoint bindings in written order (R39).
+	PatternOwners map[*syntax.CaseClause]PatternOwners
+	// Takes is the inferred takes clause of each unexported function with
+	// a body and no written clause (#197 L8 A3; takes.go): the indexes into
+	// its signature's Params that it takes, ascending. A written clause is
+	// in Signature.Takes; a function that takes nothing has no key. Added
+	// in L8 A3 (additive).
+	Takes map[*Func][]int
+	// Copies is each generic function's copy sites (#197 L8 A3; plan 1.3;
+	// takes.go): per type parameter of its signature, the first place its
+	// body copies a value of that type (a second use after a hand-off, or a
+	// call of a function that copies it). A call that binds such a type
+	// parameter to a resource is S108. Added in L8 A3 (additive).
+	Copies map[*Func][]CopySite
+}
+
+// CopySite is one place a generic body copies a value of its type
+// parameter TParam (an index into the signature's TParams).
+type CopySite struct {
+	TParam int
+	At     syntax.Node
+	// Where is At as file:line:col; empty for a declaration with no body.
+	Where string
+	// What says how it copies, for the diagnostic: "x is used twice".
+	What string
+	// Key marks a map key (resources R40: S112 at the instantiation).
+	Key bool
 }
 
 // Release is one value a place releases: an owned local or taken
@@ -291,6 +339,18 @@ type Release struct {
 	Var  *Var
 	Temp syntax.Expr
 	Flag bool
+	// Fields are the record's fields taken in place on every path (a bit
+	// per field index; R39, Gap 38): the generated Close skips them.
+	// MaybeFields are those taken on some paths only: each has a drop
+	// flag. Added in L8 A4 (additive).
+	Fields, MaybeFields uint64
+}
+
+// PatternOwners is the ownership step after pattern tests and bindings,
+// before the selected arm runs. A failed production reaches no such step.
+type PatternOwners struct {
+	Sources  []Release
+	Bindings []*Var
 }
 
 // Instance is one instantiation of a generic function.
@@ -365,12 +425,20 @@ func newInfo() *Info {
 		Loops:         map[*syntax.RangeStmt]*Loop{},
 		Withs:         map[*syntax.CallExpr]*With{},
 		ContextValues: map[syntax.Expr]*With{},
-		TaskResults:   map[*Func]bool{},
 		Footprints:    map[syntax.Node]Footprint{},
 		Instances:     map[syntax.Expr]*Instance{},
 
 		ReturnedValues: map[syntax.Expr]bool{},
 		Releases:       map[syntax.Node][]Release{},
+		OwnedVars:      map[*Var]*Drop{},
+		OwnedTemps:     map[syntax.Expr]*Drop{},
+		TaskCaptures:   map[syntax.Node]*TaskCapture{},
+		ResultDrops:    map[*syntax.CallExpr]*Drop{},
+		FieldTakes:     map[*syntax.SelectorExpr]FieldTake{},
+		Handoffs:       map[*syntax.Ident]*Var{},
+		PatternOwners:  map[*syntax.CaseClause]PatternOwners{},
+		Takes:          map[*Func][]int{},
+		Copies:         map[*Func][]CopySite{},
 	}
 }
 
@@ -581,15 +649,12 @@ type Call struct {
 	// site, after substitution. A with's Fails is the row its block's
 	// tails pass through (rows.md, With 6).
 	Fails, Needs *Row
-	// TaskResult reports that the call's result holds a Task (CallFunc,
-	// CallFuncValue, including a call of a function literal's value, CallOp,
-	// CallProviderOp and CallLawOp): the caller needs a frame scope and
-	// passes it as the callee's hidden destination (stdlib.md, Hidden
-	// arguments). Derived from the same holdsTask as TaskResults; since
-	// stage E2 (C13) a result holds a Task only by being one. Added in
-	// check-v1 stage D3b (additive); the operation kinds in stage E2 (C15),
-	// CallLawOp in E3b (a law is checked as if it ran).
-	TaskResult bool
+	// StartsTask reports a call whose result holds a running task the
+	// caller then owns, a Task or a tasks.Set (running.go; #197 L8 B3t):
+	// task.Go, tasks.NewSet, or a function, function value or operation
+	// that returns one. The caller needs a frame scope (frames.go), and
+	// its footprint starts a task.
+	StartsTask bool
 	// Site is the prelude's CallSite when the call leaves out its callee's
 	// final CallSite parameter, and the lowering passes the call's own
 	// position after the written arguments (types.md, Call sites); nil
@@ -772,7 +837,15 @@ type Acquisition struct {
 	Entry *ContextEntry
 	Caps  []int
 	Close *Close
+	// Drop is the generated release of a provider whose type holds a
+	// resource in its parts (L8 B2; resources R3, R11): the with releases
+	// it through Drop, which runs Close first; nil when Close alone is the
+	// release, or for a plain provider. Added in L8 B2 (additive).
+	Drop *Drop
 }
+
+// Releases reports an acquisition the with releases.
+func (a *Acquisition) Releases() bool { return a.Close != nil || a.Drop != nil }
 
 // Override is a binding a replace overrode (Context.Overrides): Entry no
 // longer binds Cap, By does. The overridden entry is not built for that
@@ -1096,8 +1169,11 @@ func (c *checker) finishInfo() {
 	for x, call := range c.pkg.Info.Calls {
 		switch call.Kind {
 		case CallFunc, CallFuncValue, CallOp, CallProviderOp, CallLawOp:
-			if t, ok := c.pkg.Info.Types[x]; ok && t != nil {
-				call.TaskResult = c.holdsTask(t)
+			call.StartsTask = c.running(c.pkg.Info.Types[x]) != nil
+		}
+		if call.Kind == CallFunc && releasesResult(call.Func) {
+			if d, bad := c.dropOf(c.pkg.Info.Types[x]); d != nil && bad == "" {
+				c.pkg.Info.ResultDrops[x] = d
 			}
 		}
 		if call.Fails != nil {
@@ -1116,11 +1192,6 @@ func (c *checker) finishInfo() {
 	}
 	for p, name := range c.asNames {
 		p.Var, _ = c.pkg.Info.Defs[name].(*Var)
-	}
-	for _, f := range c.funcs {
-		if f.Sig != nil && c.resultsHoldTask(f.Sig) {
-			c.pkg.Info.TaskResults[f] = true
-		}
 	}
 	// A function's type keeps its row variables (inference writes the
 	// solution beside them); Info holds the solved rows (invariant 2).

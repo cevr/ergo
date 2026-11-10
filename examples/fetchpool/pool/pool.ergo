@@ -1,0 +1,59 @@
+// Package pool transfers each connection through one owned queue. The
+// dialer owns it until Push, a worker owns Pop's result, and the queue
+// owns the unread tail. No hand-written cleanup registry is needed.
+import fetchpool/domain
+import queue
+import slices
+import task
+import tasks
+
+func dial(ids []int, pending queue.Queue[domain.Conn], reports queue.Queue[domain.State]) fails queue.Closed needs domain.Fetcher {
+	for id in ids {
+		let c = domain.Fetcher.Open(id) catch {
+		case domain.Offline as f:
+			try reports.Push(domain.Failed{ID: f.ID, Reason: "offline"})
+			continue
+		}
+		try pending.Push(c)
+	}
+	pending.End()
+}
+
+func work(pending queue.Queue[domain.Conn], reports queue.Queue[domain.State], limiter domain.Limiter) fails queue.Closed {
+	for {
+		if !limiter.Admit() {
+			return
+		}
+		let c = pending.Pop() catch {
+		case queue.Closed:
+			return
+		}
+		try reports.Push(domain.Fetch(c))
+	} // c is released at this iteration's end, including a failed read.
+}
+
+// Run lends limiter to its worker Set. The incoming lend lasts until
+// Run returns, and the Set drains before that boundary. The producer
+// fills a bounded queue first, so a short budget leaves an exact tail
+// whose release order can be checked without scheduling assumptions.
+func Run(ids []int, workers int, limiter domain.Limiter) []domain.State fails queue.Closed | tasks.Closed needs domain.Fetcher {
+	let pending = queue.New[domain.Conn](len(ids))
+	let reports = queue.New[domain.State](len(ids))
+	let producer = task.Go() {
+		try dial(ids, pending, reports)
+		true
+	}
+	let _ = try producer.Wait()
+	let crew = tasks.NewSet[queue.Closed](tasks.FailFast)
+	let n = if workers < 1 { 1 } else { workers }
+	for _ in 0..n {
+		try tasks.Go(crew) { try work(pending, reports, limiter) }
+	}
+	try crew.Wait()
+	reports.End()
+	let mut out = []domain.State{}
+	for report in reports.Values() {
+		out = out.Append(report)
+	}
+	slices.SortFunc(out, func(a domain.State, b domain.State) int { domain.Number(a) - domain.Number(b) })
+}

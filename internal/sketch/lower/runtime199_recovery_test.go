@@ -99,7 +99,7 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 		// tasks.Race's children, one per block.
 		"TasksRace -> RaceSpan": "guarded",
 		// tasks.Set's members, one per Go (runtime/v1 set.go).
-		"TasksGo -> Go": "guarded",
+		"tasksGo -> Go": "guarded",
 		// actor.StartMachine's runner task and an entry's timer child (MU3).
 		"machineStart -> Go": "guarded",
 		// A child actor's runner (MU5), shielded: its owner entry stops it.

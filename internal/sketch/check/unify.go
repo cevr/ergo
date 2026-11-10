@@ -172,6 +172,15 @@ func (in *inferer) nify(x, y Type, mode unifyMode, depth int) bool {
 		if b == NoValue || y == NoValue {
 			return b == y
 		}
+		// A parameter bound to a variant takes the variant's union when a
+		// later argument names the union (G-exup-2): the variant is
+		// assignable to it, and every argument is assigned to the
+		// instance afterwards. The union first then the variant already
+		// matches by the union rule below, so the order never decides.
+		if mode&unifyExact == 0 && in.unionOf(y, b, depth) {
+			in.m[px] = y
+			return true
+		}
 		if !in.nify(b, y, mode, depth) {
 			return false
 		}
@@ -337,6 +346,17 @@ func (in *inferer) nify(x, y Type, mode unifyMode, depth int) bool {
 		return ok && in.nify(x.State, ym.State, emode, depth) && in.nify(x.Signal, ym.Signal, emode, depth)
 	}
 	return in.c.identical(x, y)
+}
+
+// unionOf reports whether u is a named union and v one of its variants
+// (a different named type), so a binding v widens to u.
+func (in *inferer) unionOf(u, v Type, depth int) bool {
+	un, ok := u.(*Named)
+	vn, _ := v.(*Named)
+	if !ok || vn == nil || asUnion(un) == nil || vn.origin() == un.origin() {
+		return false
+	}
+	return in.nify(u, v, 0, depth)
 }
 
 // nifySig unifies two signatures: parameters and results in mode, and

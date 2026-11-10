@@ -14,8 +14,10 @@ import (
 )
 
 // testCommand runs a source's tests: `ergo test FILE [--seed N] [--states N]
-// [-work] [--target go]`. --states is the budget of states of each
-// reachability law's search (machine laws; 1,000,000 by default). It is a transport over sketchfront's test build
+// [--law NAME] [--skip-law NAME] [--receipt FILE] [-work] [--target go]`. --states is the
+// budget of states of each reachability law's search (machine laws;
+// 1,000,000 by default). --law runs only the law NAME and no test;
+// --skip-law runs all but that law, with a skip line. It is a transport over sketchfront's test build
 // (build.ModeTest, lower.LowerTests): it checks the source, builds the test
 // binary into a private temporary directory, never the working directory,
 // dist/ or the module, and runs it as a child with --seed, through the
@@ -62,12 +64,28 @@ func testCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	var childArgs []string
+	// The binary names the source, as it was given here (a file or a
+	// package's folder), in a refuted case's or law's replay line (X1b),
+	// and a receipt names the source and its revision (L10).
+	childArgs := []string{"--source", opts.file, "--revision", l.result.Revision}
 	if opts.seed != "" {
 		childArgs = append(childArgs, "--seed", opts.seed)
 	}
 	if opts.states != "" {
 		childArgs = append(childArgs, "--states", opts.states)
+	}
+	if opts.receipt != "" {
+		path, err := filepath.Abs(opts.receipt)
+		if err != nil {
+			return err
+		}
+		childArgs = append(childArgs, "--receipt", path)
+	}
+	if opts.law != "" {
+		childArgs = append(childArgs, "--law", opts.law)
+	}
+	if opts.skipLaw != "" {
+		childArgs = append(childArgs, "--skip-law", opts.skipLaw)
 	}
 	// The test binary runs under a memory limit, 2 GiB unless
 	// ERGO_PROGRAM_MEMORY sets another, and its stderr passes through a
@@ -108,6 +126,12 @@ func testProgramCommand(binary string, args []string, limit uint64) *exec.Cmd {
 func validSeed(s string) bool {
 	_, err := strconv.ParseUint(s, 10, 64)
 	return err == nil
+}
+
+// validLaw reports whether s may name a law for --law or --skip-law: empty
+// (not given), or a word that is not an option and holds no space.
+func validLaw(s string) bool {
+	return !strings.HasPrefix(s, "-") && !strings.ContainsAny(s, " \t\n")
 }
 
 // validStates reports whether s is a budget the test binary reads: a

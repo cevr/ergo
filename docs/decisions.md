@@ -4,6 +4,8 @@ This file is the dated log of the owner's decisions for Ergo, newest first. A de
 
 ## Owner direction, 2026-11-10
 
+- **Law selection and receipts are explicit (2026-11-10, X1b q1 and L10 q2).** The owner chose `--skip-law` with a documented opt-in for the expensive explorer law, and opt-in `--receipt FILE` JSON for law receipts. `--law NAME` selects the law for a replay or an explicit run; skipping does not report a proof. A receipt records the actual tested, proved, refuted or skipped verdict, with the source revision and seed. The CLI forwards selection, exploration and receipt flags to one runner. Rules: [runtime.md, Tests](spec/runtime.md#tests), [testing.md](testing.md). Principles: truthful evidence and explicit costs. This entry records the choices, not a verbatim quotation.
+
 - **The queue's half-close is `End()`; the release method stays `Close()` (2026-11-10, q53).** Asked in #197 lane A: A1 built the half-close of `queue.Queue` as `CloseSend`, on an assumption, beside the release method of a resource. The owner first ruled on the release method ("i think close is fine"), then on the half-close ("i like end"). Decided:
   - A resource's release method is `Close()`, as Go's `io.Closer` names it; it is not renamed `Release()`.
   - The queue's half-close is `End()`, as Node's `writable.end()`: no more values go in, and the values already in the queue still come out. The laws are `EndIsIdempotent`, `PushAfterEndFails` and `EndKeepsValues`. A2 renamed `CloseSend` to `End` everywhere (std, runtime, lowering, tests, examples, docs, CHANGELOG) in its own commit (6cb3b076).

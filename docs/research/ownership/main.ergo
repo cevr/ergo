@@ -1,0 +1,337 @@
+// The task and queue part of the #197 ownership design as an Ergo
+// machine, checked by the explorer (owner q78: a protocol design is an
+// Ergo model, not a Quint one). It ports the task and queue actions of
+// wf10's ownership.qnt: R12 (a capture moves into its task), Q7 (a
+// failed Push releases its value; a queue's drain releases what is
+// left), R5 and Tasks 8 (a drain waits for its task to end) and Q5 (a
+// drained task's unread result is released), and Gap 47 (a stop that wins at
+// the task's boundary keeps its result for the drain).
+//
+// Run it with `ergo test docs/research/ownership/main.ergo`. Design's
+// Safe law is proved by a breadth-first search over every reachable
+// state; each mutant machine's Breaks law is proved by the shortest run
+// that reaches Broken. The model is a small scope, not the whole
+// language: the program below, every interleaving of its actions.
+//
+//	let b = open()                   // B, lent to the task
+//	let a = open()                   // A, moved into the task (R12)
+//	let q = queue.New[Res](1)
+//	let t = task.Go() { use(a); use(b); open() }   // its result is C
+//	... in any order: q.Push(open()) (D), q.End(), q.Pop(), t.Wait()
+//	// scope end: release main's own, drain t, drain q, A, B (LIFO)
+//
+// A stopped task still ends with its result here; the stop-wins drop of
+// a body's result is B4's (Gap 47).
+
+// Owner codes of C and D: not made yet, held by the queue (D) or by the
+// task's unread result (C), held by main's frame, or gone.
+let Unborn = 0
+let Held = 1
+let Main = 2
+let Gone = 3
+
+// The child task: not started, running, ended with its result unread,
+// joined (waited or drained).
+let NotStarted = 0
+let Running = 1
+let Ended = 2
+let Joined = 3
+
+// Main's frame: Stage 0 runs the program; EndMain enters 1, and each
+// Release takes one LIFO step: 1 main's own values (C, D), 2 drain the
+// task, 3 drain the queue, 4 release A, 5 release B, 6 done.
+let Finished = 6
+
+// Indexes of Rel, the release count of each resource.
+let A = 0
+let B = 1
+let C = 2
+let D = 3
+
+type World {
+	Child     int,
+	MainA     bool,
+	ChildA    bool,
+	QueueOpen bool,
+	C         int,
+	D         int,
+	Stage     int,
+	Rel       []int,
+	UsedAfter bool,
+}
+
+type St = Live{W World} | Broken{Why string}
+
+type Act = Spawn{} | ChildUse{} | ChildEnd{} | PushD{} | EndQueue{} | PopD{} | WaitChild{} | EndMain{} | Release{}
+
+// The mutants, each a rule of the design broken in one place.
+let Design = 0
+let SenderKeepsCapture = 1 // R12: the move into the task keeps the sender's entry
+let FailedPushLoses = 2    // Q7: a Push that fails Closed loses its value
+let DrainNoWait = 3        // R5: a drain does not wait for the task to end
+let QueueDrainSkips = 4    // Q7: the queue's drain skips the values left
+let DrainDropsResult = 5   // Q5: a drained task's unread result is dropped
+let StopWinsDrops = 6      // Gap 47: stop wins and the boundary drops the result
+
+func released(rel []int, i int) []int {
+	let mut out = []int{}
+	for j, n in rel {
+		if j == i {
+			out = out.Append(n + 1)
+		} else {
+			out = out.Append(n)
+		}
+	}
+	out
+}
+
+func first() St {
+	Live{W: World{
+		Child:     NotStarted,
+		MainA:     true,
+		ChildA:    false,
+		QueueOpen: true,
+		C:         Unborn,
+		D:         Unborn,
+		Stage:     0,
+		Rel:       []int{0, 0, 0, 0},
+		UsedAfter: false,
+	}}
+}
+
+// broken names the invariant w breaks, or "".
+func broken(w World) string {
+	for n in w.Rel {
+		if n > 1 {
+			return "AtMostOnce"
+		}
+	}
+	if w.UsedAfter {
+		return "NoUseAfterRelease"
+	}
+	if w.Stage == Finished && w.Child != Running {
+		let made = []bool{true, true, w.C != Unborn, w.D != Unborn}
+		for i, m in made {
+			if m && w.Rel[i] == 0 {
+				return "AllReleasedAtEnd"
+			}
+		}
+	}
+	""
+}
+
+// child is an action of the task: it runs beside main, also while main's
+// frame ends.
+func child(m int, w World, a Act) Option[World] {
+	match a {
+	case ChildUse:
+		if w.Child != Running {
+			return None
+		}
+		if w.Rel[A] > 0 || w.Rel[B] > 0 {
+			return Some[World]{Value: World{..w, UsedAfter: true}}
+		}
+		None
+	case ChildEnd:
+		if w.Child != Running {
+			return None
+		}
+		// The task's root releases its captures, then holds its result.
+		// Main's end has stopped the task when Stage > 0: stop wins at the
+		// boundary, and the result is still held for the drain (Gap 47).
+		let rel = if w.ChildA { released(w.Rel, A) } else { w.Rel }
+		let c = if m == StopWinsDrops && w.Stage > 0 { Gone } else { Held }
+		Some[World]{Value: World{..w, Child: Ended, ChildA: false, C: c, Rel: rel}}
+	case _:
+		None
+	}
+}
+
+// program is an action of main's running body.
+func program(m int, w World, a Act) Option[World] {
+	if w.Stage != 0 {
+		return None
+	}
+	match a {
+	case Spawn:
+		if w.Child != NotStarted {
+			return None
+		}
+		Some[World]{Value: World{..w, Child: Running, ChildA: true, MainA: m == SenderKeepsCapture}}
+	case PushD:
+		if w.D != Unborn {
+			return None
+		}
+		if w.QueueOpen {
+			return Some[World]{Value: World{..w, D: Held}}
+		}
+		if m == FailedPushLoses {
+			return Some[World]{Value: World{..w, D: Gone}}
+		}
+		Some[World]{Value: World{..w, D: Gone, Rel: released(w.Rel, D)}}
+	case EndQueue:
+		if !w.QueueOpen {
+			return None
+		}
+		Some[World]{Value: World{..w, QueueOpen: false}}
+	case PopD:
+		if w.D != Held {
+			return None
+		}
+		Some[World]{Value: World{..w, D: Main}}
+	case WaitChild:
+		if w.Child != Ended {
+			return None
+		}
+		Some[World]{Value: World{..w, Child: Joined, C: Main}}
+	case EndMain:
+		Some[World]{Value: World{..w, Stage: 1}}
+	case _:
+		None
+	}
+}
+
+// release is one LIFO step of main's frame end.
+func release(m int, w World) Option[World] {
+	let s = w.Stage
+	if s == 0 || s == Finished {
+		return None
+	}
+	if s == 1 {
+		let mut rel = w.Rel
+		let mut c = w.C
+		let mut d = w.D
+		if c == Main {
+			rel = released(rel, C)
+			c = Gone
+		}
+		if d == Main {
+			rel = released(rel, D)
+			d = Gone
+		}
+		return Some[World]{Value: World{..w, Stage: 2, C: c, D: d, Rel: rel}}
+	}
+	if s == 2 {
+		if w.Child == Running {
+			if m != DrainNoWait {
+				return None // the drain waits: the task's actions run first
+			}
+			return Some[World]{Value: World{..w, Stage: 3}}
+		}
+		if w.Child == Ended {
+			if m == DrainDropsResult || w.C != Held { // the drain releases only a result the task holds
+				return Some[World]{Value: World{..w, Stage: 3, Child: Joined, C: Gone}}
+			}
+			return Some[World]{Value: World{..w, Stage: 3, Child: Joined, C: Gone, Rel: released(w.Rel, C)}}
+		}
+		return Some[World]{Value: World{..w, Stage: 3}}
+	}
+	if s == 3 {
+		if w.D == Held {
+			if m == QueueDrainSkips {
+				return Some[World]{Value: World{..w, Stage: 4, D: Gone}}
+			}
+			return Some[World]{Value: World{..w, Stage: 4, D: Gone, Rel: released(w.Rel, D)}}
+		}
+		return Some[World]{Value: World{..w, Stage: 4}}
+	}
+	if s == 4 {
+		if w.MainA {
+			return Some[World]{Value: World{..w, Stage: 5, MainA: false, Rel: released(w.Rel, A)}}
+		}
+		return Some[World]{Value: World{..w, Stage: 5}}
+	}
+	Some[World]{Value: World{..w, Stage: Finished, Rel: released(w.Rel, B)}}
+}
+
+func next(m int, w World, a Act) Option[World] {
+	match a {
+	case Release:
+		release(m, w)
+	case ChildUse:
+		child(m, w, a)
+	case ChildEnd:
+		child(m, w, a)
+	case _:
+		program(m, w, a)
+	}
+}
+
+func stepWith(m int, s St, a Act) Decision[St, string] {
+	match s {
+	case Broken:
+		Ignore
+	case Live as l:
+		match next(m, l.W, a) {
+		case None:
+			Ignore
+		case Some[World] as n:
+			let why = broken(n.Value)
+			if why != "" {
+				Enter[St]{Next: Broken{Why: why}}
+			} else {
+				Enter[St]{Next: Live{W: n.Value}}
+			}
+		}
+	}
+}
+
+func stepDesign(s St, a Act) Decision[St, string]             { stepWith(Design, s, a) }
+func stepSenderKeepsCapture(s St, a Act) Decision[St, string] { stepWith(SenderKeepsCapture, s, a) }
+func stepFailedPushLoses(s St, a Act) Decision[St, string]    { stepWith(FailedPushLoses, s, a) }
+func stepDrainNoWait(s St, a Act) Decision[St, string]        { stepWith(DrainNoWait, s, a) }
+func stepQueueDrainSkips(s St, a Act) Decision[St, string]    { stepWith(QueueDrainSkips, s, a) }
+func stepDrainDropsResult(s St, a Act) Decision[St, string]   { stepWith(DrainDropsResult, s, a) }
+func stepStopWinsDrops(s St, a Act) Decision[St, string]      { stepWith(StopWinsDrops, s, a) }
+
+// Ownership is the design: no run breaks an invariant.
+type Ownership machine[St, Act] {
+	initial: first(),
+	step:    stepDesign,
+
+	law Safe never reaches Broken,
+}
+
+type SenderKeepsCaptureModel machine[St, Act] {
+	initial: first(),
+	step:    stepSenderKeepsCapture,
+
+	law Breaks reaches Broken,
+}
+
+type FailedPushLosesModel machine[St, Act] {
+	initial: first(),
+	step:    stepFailedPushLoses,
+
+	law Breaks reaches Broken,
+}
+
+type DrainNoWaitModel machine[St, Act] {
+	initial: first(),
+	step:    stepDrainNoWait,
+
+	law Breaks reaches Broken,
+}
+
+type QueueDrainSkipsModel machine[St, Act] {
+	initial: first(),
+	step:    stepQueueDrainSkips,
+
+	law Breaks reaches Broken,
+}
+
+type DrainDropsResultModel machine[St, Act] {
+	initial: first(),
+	step:    stepDrainDropsResult,
+
+	law Breaks reaches Broken,
+}
+
+type StopWinsDropsModel machine[St, Act] {
+	initial: first(),
+	step:    stepStopWinsDrops,
+
+	law Breaks reaches Broken,
+}
+
+func main() {}

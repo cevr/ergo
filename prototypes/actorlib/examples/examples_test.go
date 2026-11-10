@@ -13,7 +13,7 @@ import (
 func within(t *testing.T, body func(task *rt.Task, s *rt.Scope) error) {
 	t.Helper()
 	_, err := rt.Run(rt.Root(t.Name()), func(task *rt.Task) (struct{}, error) {
-		return rt.Scoped(task, func(s *rt.Scope) (struct{}, error) {
+		return rt.Scoped(task, nil, func(s *rt.Scope) (struct{}, error) {
 			return struct{}{}, body(task, s)
 		})
 	})

@@ -328,9 +328,6 @@ func (c *checker) externAdapter(f *Func) (string, string) {
 		if msg != "" {
 			return fmt.Sprintf("extern go %s: %s", target, msg), CodeType
 		}
-		if inst == nil {
-			return "", "" // typeArgsAdmitted reported the Task rule
-		}
 		level1 = inst
 	}
 	for i, p := range w.Params {
@@ -388,9 +385,10 @@ func (c *checker) externResults(g, w *Signature, target string) (GoAdapter, stri
 }
 
 // externInstance instantiates the generic Level 1 signature g at the types
-// the written parameters of the extern f give its type parameters. The
-// instance passes the Task rule (typeArgsAdmitted), which reports its own
-// diagnostic: then the result is nil with no text.
+// the written parameters of the extern f give its type parameters. A Go
+// generic function may copy a value of its type parameter, so a type
+// argument that holds a resource is refused, as for a generic extern that
+// runtime/v1 does not list as moving (resources R44; #197 L8 A3, B3t).
 func (c *checker) externInstance(f *Func, g *Signature) (*Signature, string) {
 	m := map[*TypeParam]Type{}
 	for i := range g.Params {
@@ -412,10 +410,10 @@ func (c *checker) externInstance(f *Func, g *Signature) (*Signature, string) {
 		if why := c.satisfies(t, c.subst(tp.Constraint, m)); why != "" {
 			return nil, fmt.Sprintf("its type parameter %s cannot be %s: %s", tp.Name, t, why)
 		}
+		if c.holdsResource(t) {
+			return nil, fmt.Sprintf("its type parameter %s cannot be %s: %s holds a resource, and Go may copy a value of its type parameter (resources R44)", tp.Name, t, t)
+		}
 		targs[i] = t
-	}
-	if !c.typeArgsAdmitted(f.Decl.Extern.Target.Value, g.TParams, targs, f.Decl) {
-		return nil, ""
 	}
 	return c.subst(g, m).(*Signature), ""
 }

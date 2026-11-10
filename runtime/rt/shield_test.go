@@ -45,7 +45,7 @@ func TestStopDuringReleaseKeepsHelper(t *testing.T) {
 			}
 			completed := false
 			_, err := Run(root, func(task *Task) (int, error) {
-				return Scoped(task, func(s *Scope) (int, error) {
+				return Scoped(task, nil, func(s *Scope) (int, error) {
 					s.Defer(func() {
 						if timing == "stop before helper start" {
 							root.Interrupt()
@@ -89,7 +89,7 @@ func TestShieldedHelperStopsDirectly(t *testing.T) {
 	inRelease := func(t *testing.T, release func(task *Task)) {
 		root := Root("main")
 		within(t, "the release", func() {
-			_, _ = Scoped(root, func(s *Scope) (int, error) {
+			_, _ = Scoped(root, nil, func(s *Scope) (int, error) {
 				s.Defer(func() {
 					root.Interrupt() // ambient stop: must not be what ends the helper
 					release(root)

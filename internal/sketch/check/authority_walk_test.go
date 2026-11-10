@@ -37,6 +37,7 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"TParams":      {why: "an origin's parameters: an instance binds them in TArgs and its body, and an origin's body names them"},
 		"def":          {why: "the defined-over type; under is its body"},
 		"methods":      {why: "196m functions are the package's Funcs, which the guard asks one by one"},
+		"opFuncs":      {why: "functions on an operation type (G-ex-e-2) are the package's Funcs, which the guard asks one by one"},
 		"mlist":        {why: "196m functions are the package's Funcs, which the guard asks one by one"},
 		"state":        {why: "resolution state"},
 		"foreign":      {why: "go.Foreign: a host value with no Ergo parts"},

@@ -46,4 +46,4 @@ Gaps that other lanes found, met here too:
 - A prelude name cannot be a local (G-ex-c-11): the line counter cannot be named `number`, the name of the numeric constraint.
 - A value of an error type in a `catch` arm is not a failure; the arm must `return` it (G-ex-c-3).
 - A property test cannot choose its generator (G-ex-d-4): the `Solver` laws take seeds and build puzzles with `Puzzle`, `BlanksOf` and `Broken`, since a generated `Grid` holds any number of cells. Closed in batch 13: G-exup-1 (`ergo test` runs the `Solver` laws in `naive` and `propagate`, so `checks.ergo` and the tests that restated the laws are gone).
-- A package-level `Map` is global mutable state that a pure function can write (G-ex-b-18): the mutant `sd-determ` breaks the `Deterministic` law that way, and the checker accepts it.
+- G-ex-b-18 (closed by owner q26, rechecked in L9): a write to a copy of a package-level `Map` no longer reaches it, so the mutant `sd-determ` no longer breaks `Deterministic` that way.

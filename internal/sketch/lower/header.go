@@ -18,7 +18,14 @@ import "ergo.local/prototype/internal/sketch/syntax"
 func (fc *funcCtx) headerValue(x syntax.Expr) string {
 	fc.header++
 	defer func() { fc.header-- }()
-	return fc.value(x)
+	v := fc.value(x)
+	if len(fc.l.info.Releases[x]) > 0 {
+		// The header's temporaries end before its statement's body runs
+		// (R43): the value first, then their releases.
+		v = fc.spill(v)
+		fc.releaseAt(x)
+	}
+	return v
 }
 
 // guardHeader puts val in parentheses when a header is being lowered and

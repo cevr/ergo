@@ -36,7 +36,7 @@ func TestAfterProviderPanicDrainsChild(t *testing.T) {
 	started := make(chan struct{})
 	var childDrained atomic.Bool
 	drainedBeforeRelease := false
-	_, err := Scoped(root, func(s *Scope) (int, error) {
+	_, err := Scoped(root, nil, func(s *Scope) (int, error) {
 		s.Defer(func() { drainedBeforeRelease = childDrained.Load() })
 		return After(root, panicOnC{started}, time.Hour, func(child *Task) (int, error) {
 			close(started)
@@ -57,7 +57,7 @@ func TestAfterProviderPanicDrainsChild(t *testing.T) {
 // Reviewer probe (round 1, M1): a body defect and a defect in Timer.Stop are
 // both kept, body first.
 func TestAfterProviderPanicKeepsEveryDefect(t *testing.T) {
-	_, err := Scoped(Root("main"), func(s *Scope) (int, error) {
+	_, err := Scoped(Root("main"), nil, func(s *Scope) (int, error) {
 		return After(s.Task(), panicOnStop{}, time.Hour, func(*Task) (int, error) {
 			panic("body defect")
 		})
