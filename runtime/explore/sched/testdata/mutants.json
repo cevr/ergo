@@ -92,7 +92,7 @@
     {
       "name": "x6-pool-keeps-abandoned",
       "origin": "wf10/explorer/x6",
-      "file": "runtime/explore/sched/wire.go",
+      "file": "runtime/explore/sched/worker.go",
       "from": "\t\tp.Abandoned++\n\t\tp.Close()\n",
       "to": "\t\tp.Abandoned++\n",
       "rule": "A run that left a task ends its worker.",
@@ -103,7 +103,7 @@
     {
       "name": "x6-pool-worker-per-run",
       "origin": "wf10/explorer/x6",
-      "file": "runtime/explore/sched/wire.go",
+      "file": "runtime/explore/sched/worker.go",
       "from": "\t\tp.Abandoned++\n\t\tp.Close()\n\t}\n",
       "to": "\t\tp.Abandoned++\n\t}\n\tp.Close()\n",
       "rule": "A worker whose runs ended clean is reused: at most one worker more than the abandoned runs.",

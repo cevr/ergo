@@ -32,7 +32,7 @@ import (
 //go:embed v1/path.go v1/numbers.go v1/digest.go v1/goerror.go v1/csv.go
 //go:embed v1/exec.go v1/exec_exit_kqueue.go v1/exec_exit_linux.go
 //go:embed v1/moves.go v1/static.go
-//go:embed explore/sched/dfs.go explore/sched/pct.go explore/sched/sched.go explore/sched/token.go explore/sched/wire.go
+//go:embed explore/sched/dfs.go explore/sched/pct.go explore/sched/sched.go explore/sched/token.go explore/sched/worker.go
 var sources embed.FS
 
 // Module is the path of the runtime's Go module, which an emitted module
@@ -61,7 +61,7 @@ var packages = map[string]pkg{
 	// The schedule explorer's strategies and worker transport: the
 	// explored build's runtime/v1 imports it (explore_on.go).
 	"runtime/explore/sched": {
-		files: []string{"dfs.go", "pct.go", "sched.go", "token.go", "wire.go"},
+		files: []string{"dfs.go", "pct.go", "sched.go", "token.go", "worker.go"},
 	},
 	"runtime/rt/rttrace": {
 		files:   []string{"encode.go", "jsonl.go", "rttrace.go"},

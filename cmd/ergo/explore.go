@@ -15,7 +15,7 @@ import (
 // The search modes of `ergo test --explore MODE` (runtime.md, Explored
 // schedules; stdlib.md, Testing): the test binary is built once with the
 // ergoexplore tag, and its schedules run in worker processes of it
-// (runtime/explore/sched, wire.go).
+// (runtime/explore/sched, worker.go).
 var exploreModes = []string{"dfs", "pct", "random"}
 
 // exploreOptions are --explore's mode and its bounds.

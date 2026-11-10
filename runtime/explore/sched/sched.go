@@ -3,7 +3,7 @@
 // partial-order reduction (DFS), PCT, a random walk and replay. A strategy
 // is a Picker: at each scheduling point of a run it picks the next task
 // among the enabled ones. An Executor runs one schedule; the explored test
-// binary is one (a worker process, wire.go), and the package's tests use a
+// binary is one (a worker process, worker.go), and the package's tests use a
 // value executor in process.
 //
 // The package knows the runtime's operations by their words (rt.OpKind's
