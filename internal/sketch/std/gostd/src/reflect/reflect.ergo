@@ -418,7 +418,7 @@ extern go reflect.Value.Int func (v Value) Int() int64 needs go.Foreign
 // ergo:refused Value.Interface: result 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (Value).InterfaceData() [2]uintptr
-// ergo:refused Value.InterfaceData: result 1: Ergo has no fixed arrays; a Go array [2]uintptr maps to no Ergo type
+// ergo:refused Value.InterfaceData: result 1: Ergo has no uintptr
 
 // ergo:go func (Value).IsNil() bool
 extern go reflect.Value.IsNil func (v Value) IsNil() bool needs go.Foreign

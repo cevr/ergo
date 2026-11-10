@@ -127,7 +127,7 @@ extern go runtime.MemProfileRecord type MemProfileRecord {
 }
 
 // ergo:go Stack0 [32]uintptr
-// ergo:refused MemProfileRecord.Stack0: Ergo has no fixed arrays; a Go array [32]uintptr maps to no Ergo type
+// ergo:refused MemProfileRecord.Stack0: Ergo has no uintptr
 
 // ergo:go func (*MemProfileRecord).InUseBytes() int64
 extern go runtime.MemProfileRecord.InUseBytes func (r *MemProfileRecord) InUseBytes() int64 needs go.Foreign
@@ -164,6 +164,8 @@ extern go runtime.MemStats type MemStats {
 	NextGC        uint64,
 	LastGC        uint64,
 	PauseTotalNs  uint64,
+	PauseNs       [256]uint64,
+	PauseEnd      [256]uint64,
 	NumGC         uint32,
 	NumForcedGC   uint32,
 	GCCPUFraction float64,
@@ -171,14 +173,8 @@ extern go runtime.MemStats type MemStats {
 	DebugGC       bool,
 }
 
-// ergo:go PauseNs [256]uint64
-// ergo:refused MemStats.PauseNs: Ergo has no fixed arrays; a Go array [256]uint64 maps to no Ergo type
-
-// ergo:go PauseEnd [256]uint64
-// ergo:refused MemStats.PauseEnd: Ergo has no fixed arrays; a Go array [256]uint64 maps to no Ergo type
-
 // ergo:go BySize [61]struct{Size uint32; Mallocs uint64; Frees uint64}
-// ergo:refused MemStats.BySize: Ergo has no fixed arrays; a Go array [61]struct{Size uint32; Mallocs uint64; Frees uint64} maps to no Ergo type
+// ergo:refused MemStats.BySize: an unnamed struct type
 
 // ergo:go func MutexProfile(p []BlockProfileRecord) (n int, ok bool)
 extern go runtime.MutexProfile func MutexProfile(p []BlockProfileRecord) (int, bool) needs go.Foreign
@@ -241,7 +237,7 @@ extern go runtime.Stack func Stack(buf []byte, all bool) int needs go.Foreign
 extern go runtime.StackRecord type StackRecord {}
 
 // ergo:go Stack0 [32]uintptr
-// ergo:refused StackRecord.Stack0: Ergo has no fixed arrays; a Go array [32]uintptr maps to no Ergo type
+// ergo:refused StackRecord.Stack0: Ergo has no uintptr
 
 // ergo:go func (*StackRecord).Stack() []uintptr
 // ergo:refused StackRecord.Stack: result 1: Ergo has no uintptr

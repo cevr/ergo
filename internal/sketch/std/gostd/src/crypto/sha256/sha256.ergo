@@ -19,7 +19,7 @@ extern go crypto/sha256.Size let Size int
 extern go crypto/sha256.Size224 let Size224 int
 
 // ergo:go func Sum224(data []byte) [28]byte
-// ergo:refused Sum224: result 1: Ergo has no fixed arrays; a Go array [28]byte maps to no Ergo type
+extern go crypto/sha256.Sum224 func Sum224(data []byte) [28]byte
 
 // ergo:go func Sum256(data []byte) [32]byte
-// ergo:refused Sum256: result 1: Ergo has no fixed arrays; a Go array [32]byte maps to no Ergo type
+extern go crypto/sha256.Sum256 func Sum256(data []byte) [32]byte

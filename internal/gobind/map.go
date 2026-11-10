@@ -17,6 +17,7 @@ import (
 	"go/types"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -524,7 +525,17 @@ func (m *sigMapper) typ(t types.Type, at pos, cb bool) (string, error) {
 		m.prelude("Map")
 		return "Map[" + k + ", " + v + "]", nil
 	case *types.Array:
-		return "", refuse("Ergo has no fixed arrays; a Go array %s maps to no Ergo type", types.TypeString(t, nil))
+		// [N]T is Ergo's [N]T (types.md, Arrays; L1). Go copies an array
+		// whole, so it shares nothing with Go unless an element holds a
+		// slice or a Map, which v1 does not copy at the boundary.
+		if goHoldsShared(t.Elem()) {
+			return "", refuse("an array whose elements hold a slice or a Map shares them with Go; v1 binds an array that Go copies whole")
+		}
+		e, err := m.typ(t.Elem(), atInner, cb)
+		if err != nil {
+			return "", err
+		}
+		return "[" + strconv.FormatInt(t.Len(), 10) + "]" + e, nil
 	case *types.Chan:
 		return "", refuse("Ergo has no channels (196c); wrap the Go channel in a Go function of your module, or use std queue")
 	case *types.Interface:
@@ -596,6 +607,19 @@ func (m *sigMapper) callback(sig *types.Signature) (string, error) {
 		}
 	}
 	return s, nil
+}
+
+// goHoldsShared reports a Go type whose value shares memory when copied: a
+// slice or a Map, a type defined over one, or an array of such. A struct
+// is a host type, which crosses as it is.
+func goHoldsShared(t types.Type) bool {
+	switch u := types.Unalias(t).Underlying().(type) {
+	case *types.Slice, *types.Map:
+		return true
+	case *types.Array:
+		return goHoldsShared(u.Elem())
+	}
+	return false
 }
 
 func basic(t *types.Basic) (string, error) {
@@ -724,7 +748,7 @@ func typeRefusal(obj *types.TypeName) string {
 		if !exported {
 			return "an interface with no exported method"
 		}
-	case *types.Slice, *types.Map:
+	case *types.Slice, *types.Map, *types.Array:
 		m := &sigMapper{mapper: &mapper{pkg: obj.Pkg(), q: func(p *types.Package) string { return p.Name() }}}
 		if _, err := m.typ(u, atInner, false); err != nil {
 			return err.Error()
@@ -733,8 +757,6 @@ func typeRefusal(obj *types.TypeName) string {
 		return "a Go function type maps to no Ergo host type in v1"
 	case *types.Chan:
 		return "Ergo has no channels (196c)"
-	case *types.Array:
-		return "Ergo has no fixed arrays"
 	case *types.Pointer:
 		return "a defined pointer type"
 	default:

@@ -574,7 +574,7 @@ extern go debug/dwarf.Data.AddTypes func (d *Data) AddTypes(name string, types [
 extern go debug/dwarf.Data.LineReader func (d *Data) LineReader(cu *Entry) go.Ref[LineReader] fails go.Error needs go.Foreign
 
 // ergo:go func (*Data).Ranges(e *Entry) ([][2]uint64, error)
-// ergo:refused Data.Ranges: result 1: Ergo has no fixed arrays; a Go array [2]uint64 maps to no Ergo type
+extern go debug/dwarf.Data.Ranges func (d *Data) Ranges(e *Entry) [][2]uint64 fails go.Error needs go.Foreign
 
 // ergo:go func (*Data).Reader() *Reader
 extern go debug/dwarf.Data.Reader func (d *Data) Reader() Option[go.Ref[Reader]] needs go.Foreign

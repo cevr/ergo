@@ -1396,7 +1396,7 @@ extern go syscall.GetsockoptIPv6MTUInfo func GetsockoptIPv6MTUInfo(fd int, level
 extern go syscall.GetsockoptIPv6Mreq func GetsockoptIPv6Mreq(fd int, level int, opt int) go.Ref[IPv6Mreq] fails go.Error needs go.Foreign
 
 // ergo:go func GetsockoptInet4Addr(fd int, level int, opt int) (value [4]byte, err error)
-// ergo:refused GetsockoptInet4Addr: result 1: Ergo has no fixed arrays; a Go array [4]byte maps to no Ergo type
+extern go syscall.GetsockoptInet4Addr func GetsockoptInet4Addr(fd int, level int, opt int) [4]byte fails go.Error needs go.Foreign
 
 // ergo:go func GetsockoptInt(fd int, level int, opt int) (value int, err error)
 extern go syscall.GetsockoptInt func GetsockoptInt(fd int, level int, opt int) int fails go.Error needs go.Foreign
@@ -1750,13 +1750,10 @@ extern go syscall.IN_CLASSC_NSHIFT let IN_CLASSC_NSHIFT int
 extern go syscall.IN_LOOPBACKNET let IN_LOOPBACKNET int
 
 // ergo:go type IPMreq struct
-extern go syscall.IPMreq type IPMreq {}
-
-// ergo:go Multiaddr [4]byte
-// ergo:refused IPMreq.Multiaddr: Ergo has no fixed arrays; a Go array [4]byte maps to no Ergo type
-
-// ergo:go Interface [4]byte
-// ergo:refused IPMreq.Interface: Ergo has no fixed arrays; a Go array [4]byte maps to no Ergo type
+extern go syscall.IPMreq type IPMreq {
+	Multiaddr [4]byte,
+	Interface [4]byte,
+}
 
 // ergo:go const IPPROTO_3PC untyped int
 // ergo:refused IPPROTO_3PC: platform-specific: Go does not declare it on linux/amd64
@@ -2446,11 +2443,9 @@ extern go syscall.IPv6MTUInfo type IPv6MTUInfo {
 
 // ergo:go type IPv6Mreq struct
 extern go syscall.IPv6Mreq type IPv6Mreq {
+	Multiaddr [16]byte,
 	Interface uint32,
 }
-
-// ergo:go Multiaddr [16]byte
-// ergo:refused IPv6Mreq.Multiaddr: Ergo has no fixed arrays; a Go array [16]byte maps to no Ergo type
 
 // ergo:go const ISIG untyped int
 extern go syscall.ISIG let ISIG int
@@ -2493,11 +2488,9 @@ extern go syscall.ImplementsGetwd let ImplementsGetwd bool
 
 // ergo:go type Inet6Pktinfo struct
 extern go syscall.Inet6Pktinfo type Inet6Pktinfo {
+	Addr    [16]byte,
 	Ifindex uint32,
 }
-
-// ergo:go Addr [16]byte
-// ergo:refused Inet6Pktinfo.Addr: Ergo has no fixed arrays; a Go array [16]byte maps to no Ergo type
 
 // ergo:go type InterfaceAddrMessage struct
 // ergo:refused InterfaceAddrMessage: platform-specific: Go does not declare it on linux/amd64
@@ -5184,7 +5177,7 @@ extern go syscall.SetsockoptIPMreq func SetsockoptIPMreq(fd int, level int, opt 
 extern go syscall.SetsockoptIPv6Mreq func SetsockoptIPv6Mreq(fd int, level int, opt int, mreq *IPv6Mreq) fails go.Error needs go.Foreign
 
 // ergo:go func SetsockoptInet4Addr(fd int, level int, opt int, value [4]byte) (err error)
-// ergo:refused SetsockoptInet4Addr: parameter 4: Ergo has no fixed arrays; a Go array [4]byte maps to no Ergo type
+extern go syscall.SetsockoptInet4Addr func SetsockoptInet4Addr(fd int, level int, opt int, value [4]byte) fails go.Error needs go.Foreign
 
 // ergo:go func SetsockoptInt(fd int, level int, opt int, value int) (err error)
 extern go syscall.SetsockoptInt func SetsockoptInt(fd int, level int, opt int, value int) fails go.Error needs go.Foreign
@@ -5306,19 +5299,15 @@ extern go syscall.SizeofSockaddrUnix let SizeofSockaddrUnix int
 // ergo:go type SockaddrInet4 struct
 extern go syscall.SockaddrInet4 type SockaddrInet4 {
 	Port int,
+	Addr [4]byte,
 }
-
-// ergo:go Addr [4]byte
-// ergo:refused SockaddrInet4.Addr: Ergo has no fixed arrays; a Go array [4]byte maps to no Ergo type
 
 // ergo:go type SockaddrInet6 struct
 extern go syscall.SockaddrInet6 type SockaddrInet6 {
 	Port   int,
 	ZoneId uint32,
+	Addr   [16]byte,
 }
-
-// ergo:go Addr [16]byte
-// ergo:refused SockaddrInet6.Addr: Ergo has no fixed arrays; a Go array [16]byte maps to no Ergo type
 
 // ergo:go type SockaddrUnix struct
 extern go syscall.SockaddrUnix type SockaddrUnix {
@@ -5340,7 +5329,7 @@ extern go syscall.SocketControlMessage type SocketControlMessage {
 // ergo:refused SocketDisableIPv6: a Go variable is host state; call a function
 
 // ergo:go func Socketpair(domain int, typ int, proto int) (fd [2]int, err error)
-// ergo:refused Socketpair: result 1: Ergo has no fixed arrays; a Go array [2]int maps to no Ergo type
+extern go syscall.Socketpair func Socketpair(domain int, typ int, proto int) [2]int fails go.Error needs go.Foreign
 
 // ergo:go func StartProcess(argv0 string, argv []string, attr *ProcAttr) (pid int, handle uintptr, err error)
 // ergo:refused StartProcess: result 2: Ergo has no uintptr

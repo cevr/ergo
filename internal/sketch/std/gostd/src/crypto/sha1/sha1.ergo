@@ -13,4 +13,4 @@ extern go crypto/sha1.New func New() hash.Hash needs go.Foreign
 extern go crypto/sha1.Size let Size int
 
 // ergo:go func Sum(data []byte) [20]byte
-// ergo:refused Sum: result 1: Ergo has no fixed arrays; a Go array [20]byte maps to no Ergo type
+extern go crypto/sha1.Sum func Sum(data []byte) [20]byte needs go.Foreign

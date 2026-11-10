@@ -219,7 +219,7 @@ let pair (int, string) = (q, "x")
 
 ## Arrays
 
-Status: **implemented**: checked by `internal/sketch/check` and lowered by `internal/sketch/lower` (196y, unit L1; decisions.md 2026-11-02 (c)). Go `[N]T` in `import go` bindings is the gobind unit's (IG1), which is not on this base yet.
+Status: **implemented**: checked by `internal/sketch/check` and lowered by `internal/sketch/lower` (196y, unit L1; decisions.md 2026-11-02 (c)). A Go `[N]T` in an `import go` binding is this `[N]T` when its elements hold no slice or `Map` (batch 14; [interop](interop.md#type-mapping)).
 
 ```go
 type Grid { cells [81]int }

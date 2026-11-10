@@ -14,10 +14,10 @@ extern go net/netip.Addr.AppendText func (ip Addr) AppendText(b []byte) []byte f
 extern go net/netip.Addr.AppendTo func (ip Addr) AppendTo(b []byte) []byte needs go.Foreign
 
 // ergo:go func (Addr).As16() (a16 [16]byte)
-// ergo:refused Addr.As16: result 1: Ergo has no fixed arrays; a Go array [16]byte maps to no Ergo type
+extern go net/netip.Addr.As16 func (ip Addr) As16() [16]byte needs go.Foreign
 
 // ergo:go func (Addr).As4() (a4 [4]byte)
-// ergo:refused Addr.As4: result 1: Ergo has no fixed arrays; a Go array [4]byte maps to no Ergo type
+extern go net/netip.Addr.As4 func (ip Addr) As4() [4]byte needs go.Foreign
 
 // ergo:go func (Addr).AsSlice() []byte
 extern go net/netip.Addr.AsSlice func (ip Addr) AsSlice() []byte needs go.Foreign
@@ -104,10 +104,10 @@ extern go net/netip.Addr.WithZone func (ip Addr) WithZone(zone string) Addr need
 extern go net/netip.Addr.Zone func (ip Addr) Zone() string needs go.Foreign
 
 // ergo:go func AddrFrom16(addr [16]byte) Addr
-// ergo:refused AddrFrom16: parameter 1: Ergo has no fixed arrays; a Go array [16]byte maps to no Ergo type
+extern go net/netip.AddrFrom16 func AddrFrom16(addr [16]byte) Addr needs go.Foreign
 
 // ergo:go func AddrFrom4(addr [4]byte) Addr
-// ergo:refused AddrFrom4: parameter 1: Ergo has no fixed arrays; a Go array [4]byte maps to no Ergo type
+extern go net/netip.AddrFrom4 func AddrFrom4(addr [4]byte) Addr needs go.Foreign
 
 // ergo:go func AddrFromSlice(slice []byte) (ip Addr, ok bool)
 extern go net/netip.AddrFromSlice func AddrFromSlice(slice []byte) (Addr, bool) needs go.Foreign

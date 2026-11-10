@@ -41,7 +41,7 @@ A declaration that does not map is listed in the binding with its reason, so the
 | named type defined over a basic type | the host type, nominal | `extern go io/fs.FileMode type FileMode uint32` |
 | `[]T` | `[]T` | value rule (types.md Values): copied at the call unless fresh or dead (Lowering 2-3) |
 | `map[K]V` | `Map[K, V]` | as `[]T` |
-| `[N]T` | none | refused: Ergo has no fixed arrays ([grammar.md](grammar.md), Old spellings) |
+| `[N]T` | `[N]T` ([types.md](types.md#arrays)) | Go copies an array whole, so it crosses with no copy; an array whose elements hold a slice or a Map (`[2][]int`) is refused: v1 copies no element at the boundary (batch-14) |
 | `*S`, `S` a named non-interface type, as a parameter | `*S` | a borrow (types.md Borrows); a `go.Ref[S]` is accepted too (q38) |
 | `*S` as the one result beside a last `error` | `go.Ref[S]` | a nil result with a nil error is a defect "Go returned nil without an error" (IG3) |
 | `*S` as another result or a field | `Option[go.Ref[S]]` | nil is `None` |
@@ -55,7 +55,8 @@ A declaration that does not map is listed in the binding with its reason, so the
 | `func` result, field or element; a function inside a callback | none | refused |
 | `chan T` | none | refused: "Ergo has no channels (196c); wrap the Go channel in a Go function of your module, or use std queue" |
 | several results without `error`, `(T, bool)` included | a tuple | `(T, bool)` stays a tuple: `strings.CutPrefix` returns a meaningful value when the flag is false |
-| named type defined over a function, a channel, an array or a pointer | none | refused |
+| named type defined over an array | `extern go P.T type T [N]E` | as `[N]T` |
+| named type defined over a function, a channel or a pointer | none | refused |
 
 A Go pointer is never Ergo's `*T` outside a parameter: `*T` is a borrow everywhere, Go types included, and a stored or returned Go pointer is the distinct handle type `go.Ref[T]`, opaque and never nil (owner q32 and q38: "consistency is important").
 
