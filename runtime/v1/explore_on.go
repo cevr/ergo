@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -64,7 +67,11 @@ func exploreDefect(res explored) string {
 	case res.Deadlock != nil:
 		var waits []string
 		for _, p := range res.Deadlock {
-			waits = append(waits, fmt.Sprintf("task %s waits to %v", p.Task, p.Kind))
+			wait := fmt.Sprintf("task %s waits to %v", p.Task, p.Kind)
+			if name, ok := res.Handles[p.Handle]; ok {
+				wait += " on " + name
+			}
+			waits = append(waits, wait)
 		}
 		return fmt.Sprintf("explore: no task can run after %d steps (a deadlock): %s", res.Picks, strings.Join(waits, "; "))
 	}
@@ -91,7 +98,7 @@ func workerServe(in io.Reader, out io.Writer, body func(*rt.Task) error) error {
 // with every task ended (a deadlock, a stop, an escape) is abandoned: its
 // worker serves no more runs.
 func outcomeOf(res explored) sched.Outcome {
-	o := sched.Outcome{Failure: exploreDefect(res)}
+	o := sched.Outcome{Failure: exploreDefect(res), Handles: res.Handles}
 	if o.Failure == "" && res.Exit != nil {
 		o.Failure = res.Exit.Error()
 	}
@@ -208,6 +215,73 @@ func ExploreReplay(schedule []string) {
 	replayMu.Lock()
 	defer replayMu.Unlock()
 	replayPending = &replayWindow{rel: append([]string(nil), schedule...)}
+}
+
+// nameHandle names on, a handle just made, in the active explored run's
+// report (rt.NameHandle): prefix, then the Ergo call that made it at its
+// source position, "queue.New at main.ergo:12:10". The call is the first
+// frame of the stack at a position of the program's source (a line
+// directive names a file of the source map, RegisterCalls); among the
+// calls of the source map on that line, the one whose callee is in
+// callees (an entry that ends in "." is a prefix), else the line's only
+// call, else the line alone. A handle made at no source position
+// keeps its number.
+func nameHandle(callees []string, prefix string, on any) {
+	if name := sourceName(callees); name != "" {
+		rt.NameHandle(on, prefix+name)
+	}
+}
+
+// sourceName is the Ergo call of the nearest source frame of the caller,
+// with its position, or "".
+func sourceName(callees []string) string {
+	files := map[string]bool{}
+	for _, d := range decls {
+		files[d.File] = true
+	}
+	for _, c := range calls {
+		files[c.File] = true
+	}
+	var pcs [64]uintptr
+	frames := runtime.CallersFrames(pcs[:runtime.Callers(3, pcs[:])])
+	for {
+		f, more := frames.Next()
+		if files[f.File] {
+			var on []int
+			for i, c := range calls {
+				if c.File == f.File && c.Line == f.Line {
+					on = append(on, i)
+				}
+			}
+			// The file relative to the folder that holds every file of
+			// the source map: its name in a one-file program, its package
+			// path in a program of packages.
+			root := filepath.Dir(f.File)
+			for other := range files {
+				for root != filepath.Dir(root) && !strings.HasPrefix(other, root+string(filepath.Separator)) {
+					root = filepath.Dir(root)
+				}
+			}
+			file := filepath.Base(f.File)
+			if rel, err := filepath.Rel(root, f.File); err == nil {
+				file = filepath.ToSlash(rel)
+			}
+			wanted := func(callee string) bool {
+				return slices.ContainsFunc(callees, func(c string) bool {
+					return c == callee || (strings.HasSuffix(c, ".") && strings.HasPrefix(callee, c))
+				})
+			}
+			for _, i := range on {
+				if wanted(calls[i].Callee) || len(on) == 1 {
+					return fmt.Sprintf("%s at %s:%d:%d", calls[i].Callee, file, f.Line, calls[i].Column)
+				}
+			}
+			return fmt.Sprintf("%s:%d", file, f.Line)
+		}
+		if !more {
+			return ""
+		}
+	}
 }
 
 // outputSize is the bytes written to standard output so far, when it is a

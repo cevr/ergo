@@ -33,6 +33,10 @@ func Unblock(t *Task) {}
 // `if rt.Exploring`.
 func Await(t *Task, ready func() bool) {}
 
+// NameHandle names on, a handle the program just made, in an explored
+// run's report; the live build has none.
+func NameHandle(on any, name string) {}
+
 // schedSpawn registers child, just started by parent.
 func schedSpawn(parent, child *Task) {}
 

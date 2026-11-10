@@ -94,7 +94,11 @@ func New[T any](capacity int) *Queue[T] {
 	if capacity < 0 {
 		panic(fmt.Sprintf("queue.New: negative capacity %d", capacity))
 	}
-	return &Queue[T]{capacity: capacity}
+	q := &Queue[T]{capacity: capacity}
+	if rt.Exploring {
+		nameHandle([]string{"queue.New"}, "", q)
+	}
+	return q
 }
 
 // Push is q.Push(v) on the caller's task t: nil when v entered the queue,

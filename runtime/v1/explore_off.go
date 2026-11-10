@@ -12,3 +12,7 @@ func exploreMain(body func(*rt.Task) error) error { return nil }
 // no controlled scheduler, so the schedule is not followed and the test
 // runs under Go's: it does nothing.
 func ExploreReplay(schedule []string) {}
+
+// nameHandle names a handle in an explored run's report (explore_on.go);
+// the live build calls it only inside `if rt.Exploring`.
+func nameHandle(callees []string, prefix string, on any) {}
