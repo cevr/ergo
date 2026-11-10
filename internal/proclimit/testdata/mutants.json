@@ -1,0 +1,59 @@
+{
+  "about": "How a bounded program's stderr is read as its memory limit. Go 1.27 can stop a program at its limit with SIGSEGV in the collector's span queue (golang/go#82667); only that fault, never another segmentation fault, is the limit.",
+  "mutants": [
+    {
+      "name": "gcoom-fault-unread",
+      "origin": "wf10 FU-gcoom",
+      "file": "internal/proclimit/report.go",
+      "from": "s.cause = QueueFault",
+      "to": "s.cause = NoCause",
+      "rule": "A span-queue SIGSEGV at address 0 under a limit is the limit, not an unexplained crash.",
+      "killers": ["internal/proclimit:TestQueueFaultIsNamed"]
+    },
+    {
+      "name": "gcoom-any-frame",
+      "origin": "wf10 FU-gcoom",
+      "file": "internal/proclimit/report.go",
+      "from": "if strings.HasPrefix(line, faultFrame) {",
+      "to": "if true {",
+      "rule": "A fatal SIGSEGV in any frame but the span queue stays a crash.",
+      "killers": ["internal/proclimit:TestQueueFaultIsNamed"]
+    },
+    {
+      "name": "gcoom-any-address",
+      "origin": "wf10 FU-gcoom",
+      "file": "internal/proclimit/report.go",
+      "from": "strings.HasPrefix(line, \"PC=\") && slices.Contains(strings.Fields(line), \"addr=0x0\")",
+      "to": "strings.HasPrefix(line, \"PC=\") && !slices.Contains(nil, \"\")",
+      "rule": "A span-queue SIGSEGV at an address other than 0 is not the nil ring and stays a crash.",
+      "killers": ["internal/proclimit:TestQueueFaultIsNamed"]
+    },
+    {
+      "name": "gcoom-split-line",
+      "origin": "wf10 FU-gcoom",
+      "file": "internal/proclimit/report.go",
+      "from": "if room := lineKeep - len(s.line); room > 0 {\n\t\t\ts.line = append(s.line, ",
+      "to": "if room := lineKeep; room > 0 {\n\t\t\ts.line = append(s.line[:0], ",
+      "rule": "The Watcher reads a report line that arrives in several writes.",
+      "killers": ["internal/proclimit:TestQueueFaultIsNamed"]
+    },
+    {
+      "name": "gcoom-watcher-drops-fault",
+      "origin": "wf10 FU-gcoom",
+      "file": "internal/proclimit/watch.go",
+      "from": "case QueueFault:\n\t\treturn []byte(queueFaultReport)",
+      "to": "case QueueFault:\n\t\treturn nil",
+      "rule": "What a Watcher hands to Check keeps the span-queue fault.",
+      "killers": ["internal/proclimit:TestQueueFaultIsNamed"]
+    },
+    {
+      "name": "gcoom-issue-unnamed",
+      "origin": "wf10 FU-gcoom",
+      "file": "internal/proclimit/proclimit.go",
+      "from": "if e.Cause == QueueFault {",
+      "to": "if false {",
+      "rule": "The limit error of a span-queue fault names the Go runtime bug, so a reader does not take it for a clean out-of-memory report.",
+      "killers": ["internal/proclimit:TestQueueFaultIsNamed"]
+    }
+  ]
+}

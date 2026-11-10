@@ -1,7 +1,6 @@
 package proclimit
 
 import (
-	"bytes"
 	"io"
 	"os/exec"
 	"sync"
@@ -9,13 +8,13 @@ import (
 )
 
 // Watcher passes a program's stderr on and notes whether the Go runtime
-// reported that it ran out of memory. The report's first line comes before
-// a stack dump of any length, so Watcher looks at every byte.
+// reported that the kernel refused it memory (CauseOf). The report's first
+// lines come before a stack dump of any length, so Watcher looks at every
+// byte.
 type Watcher struct {
-	mu    sync.Mutex
-	next  io.Writer
-	carry []byte // the last len(OutOfMemory)-1 bytes, for a report split across writes
-	seen  bool
+	mu   sync.Mutex
+	next io.Writer
+	scan scanner
 }
 
 // Watch makes cmd's stderr pass through a Watcher, which Check reads. Call
@@ -44,12 +43,7 @@ func Watch(cmd *exec.Cmd) *Watcher {
 
 func (w *Watcher) Write(p []byte) (int, error) {
 	w.mu.Lock()
-	if !w.seen {
-		joined := append(w.carry, p...)
-		w.seen = bytes.Contains(joined, []byte(OutOfMemory))
-		keep := min(len(joined), len(OutOfMemory)-1)
-		w.carry = append(w.carry[:0:0], joined[len(joined)-keep:]...)
-	}
+	w.scan.write(p)
 	w.mu.Unlock()
 	return w.next.Write(p)
 }
@@ -64,13 +58,16 @@ func same(a, b io.Writer) (equal bool) {
 	return a == b
 }
 
-// Stderr returns what Check needs of the program's stderr: the report when
-// the Go runtime made one, else nothing.
+// Stderr returns what Check needs of the program's stderr: the shortest
+// report of the cause the Watcher saw, else nothing.
 func (w *Watcher) Stderr() []byte {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.seen {
+	switch w.scan.cause {
+	case RuntimeReport:
 		return []byte(OutOfMemory)
+	case QueueFault:
+		return []byte(queueFaultReport)
 	}
 	return nil
 }
