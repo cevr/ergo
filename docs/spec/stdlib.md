@@ -513,7 +513,8 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `utf8` | `RuneCountAtMostLen` | `RuneCountAtMostLen(s string) { RuneCount(s) <= len(s) && RuneCount(s) >= 0 }` | `TestStdTextLaws` | tested |
 | `utf8` | `RuneCountOfConcat` | `RuneCountOfConcat(a string, b string) { RuneCount(a+b) <= RuneCount(a)+RuneCount(b) }` | `TestStdTextLaws` | tested |
 | `wire` | `EncodeNests` | `EncodeNests(v fleet) { let e = NewEvents() encode(v, e) let mut open = 0 let mut ok = true for ev in Recorded(e) { open = open + depth(ev) if open < 0 { ok = false } } ok && open == 0 }` | `TestStdWireLawsRun` | tested |
-| `wire` | `EventsReplay` | `EventsReplay(v fleet) { let back = roundTrip(v) catch { case _: return false } back == v }` | `TestStdWireLawsRun` | tested |
+| `wire` | `EventsReplay` | `EventsReplay(v fleet) { let back = RoundTrip(v) catch { case _: return false } back == v }` | `TestStdWireLawsRun` | tested |
+| `wire` | `GenericReplay` | `GenericReplay(vs []state) { let (back, first) = many(vs) catch { case _: return false } let want Option[state] = if len(vs) > 0 { Some{Value: vs[0]} } else { None } back == vs && first == want }` | `TestStdWireLawsRun` | tested |
 | `wire` | `MissingFieldFails` | `MissingFieldFails() { let empty = []Event{BeginObjectEvent{N: 0}, EndObjectEvent} let _ = decode[up](NewReplay(empty)) catch { case WireMissingField: return true case _: return false } false }` | `TestStdWireLawsRun` | tested |
 | `wire` | `UnknownTagFails` | `UnknownTagFails(name string) { if name == "up" { return true } if name == "down" { return true } let evs = []Event{BeginObjectEvent{N: 0}, TagEvent{Name: name}, EndObjectEvent} let _ = decode[state](NewReplay(evs)) catch { case WireUnknownTag: return true case _: return false } false }` | `TestStdWireLawsRun` | tested |
 

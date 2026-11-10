@@ -16,7 +16,39 @@ const (
 	WireMissingName = "WireMissingField"
 	WireTagName     = "WireUnknownTag"
 	wireMethodName  = "Wire"
+	// WiredName is the predeclared row former wired[T] (owner q80).
+	WiredName = "wired"
 )
+
+// wiredElem resolves the row element wired[X] at x (owner q80): the row of
+// decode[X], each codable type parameter X reaches standing as wired[T].
+// It reports false when x is not a use of the predeclared wired.
+func (c *checker) wiredElem(x syntax.Expr, kind Kind, ctx *typeCtx) (Type, bool) {
+	ix, ok := x.(*syntax.IndexExpr)
+	if !ok {
+		return nil, false
+	}
+	id, ok := ix.X.(*syntax.Ident)
+	if !ok {
+		return nil, false
+	}
+	if b, _ := c.lookup(id.Name).(*Builtin); b == nil || b.Name != WiredName {
+		return nil, false
+	}
+	if kind != KindErrors || len(ix.Indices) != 1 {
+		c.errorf(x, CodeType, "%s[T] takes one codable type and stands in a fails row: fails %s[T] (types.md, Codecs 2)", WiredName, WiredName)
+		return nil, true
+	}
+	t := c.typExpr(ix.Indices[0], ctx)
+	if isInvalid(t) {
+		return nil, true
+	}
+	if r := c.wireReason(t); r != "" {
+		c.errorf(ix.Indices[0], CodeType, "%s takes a %s type: %s", WiredName, SetWire, r)
+		return nil, true
+	}
+	return &RowArg{Row: c.wireRow(t)}, true
+}
 
 // WirePair is the by-name wire form of a type X (types.md, Codecs 1): its
 // package declares ParseX(b B) X and Wire(x X) B for a codable B, so X
@@ -146,19 +178,9 @@ func (c *checker) decodeCall(x *syntax.CallExpr, t Type) operand {
 }
 
 // codableOperand reports whether what (encode or decode) takes t, else
-// S108 at n. A type parameter waits for generic codecs: its walk is not
-// known until the instance, and its row has no spelling yet (Q7).
+// S108 at n. A type parameter is codable under the codable constraint;
+// its part of the row is wired[T] (wireRow).
 func (c *checker) codableOperand(n syntax.Node, t Type, what string) bool {
-	var tp *TypeParam
-	c.wireEach(t, func(t Type) {
-		if p, ok := t.(*TypeParam); ok && tp == nil {
-			tp = p
-		}
-	})
-	if tp != nil {
-		c.errorf(n, CodeType, "%s of a type that holds the type parameter %s is not supported yet: write the concrete type (L11, generic codecs wait for the row former, Q7)", what, tp.Name)
-		return false
-	}
 	if r := c.wireReason(t); r != "" {
 		c.errorf(n, CodeType, "%s takes a %s type: %s", what, SetWire, r)
 		return false
@@ -238,11 +260,16 @@ func (c *checker) firstInferredParse(t Type) *Func {
 // any value read, WireMissingField when T reaches a record with fields or
 // a union (whose tag may be missing), WireUnknownTag when it reaches a
 // union, Unsatisfied when it reaches a refined type, and the row of each
-// by-name ParseX it reaches.
+// by-name ParseX it reaches. A codable type parameter T it reaches adds
+// wired[T], which an instance replaces by its argument's wire row.
 func (c *checker) wireRow(t Type) *Row {
 	row := newRow().with(c.types, preludeType(WireKindName))
 	add := func(name string) { row = row.with(c.types, preludeType(name)) }
 	c.wireEach(t, func(t Type) {
+		if tp, ok := t.(*TypeParam); ok {
+			row = row.with(c.types, &Wired{T: tp})
+			return
+		}
 		if RefinementOf(t) != nil {
 			add("Unsatisfied")
 			return

@@ -35,6 +35,93 @@ import (
 // form (std json writing bytes directly) is the measured fast path that
 // waits for S-json.
 
+// Generic codecs (owner q80). A type parameter under codable takes its
+// codec as a witness (witness.go): a struct of the encode and decode
+// functions of its argument, of wireCodecType's shape. A codec function of
+// a type that holds type parameters is a Go generic function that takes
+// one such witness per parameter after the environment, so Go infers the
+// type arguments from the witnesses, and a type parameter's events are a
+// call of its witness. Prior art: Haskell's and Rust's trait dictionaries,
+// Go's own GC-shape dictionaries; Roc's Encoding ability passes the same.
+
+// wireCodecType is the Go type of the codec witness of self: two function
+// fields of the uniform shape (funcType), Enc of (Writer, self) and Dec of
+// (Reader) with a self result.
+func (tc *typeCtx) wireCodecType(self check.Type) string {
+	enc, dec := wireCodecSigs(self)
+	return "struct{ Enc " + tc.funcType(enc) + "; Dec " + tc.funcType(dec) + " }"
+}
+
+// wireCodecSigs are the signatures of a codec witness's Enc and Dec.
+func wireCodecSigs(self check.Type) (enc, dec *check.Signature) {
+	w := check.PreludeType(check.WireWriterName)
+	r := check.PreludeType(check.WireReaderName)
+	enc = &check.Signature{Params: []*check.Var{{Name: "w", Type: w}, {Name: "v", Type: self}}}
+	dec = &check.Signature{Params: []*check.Var{{Name: "r", Type: r}}, Results: []check.Type{self}}
+	return enc, dec
+}
+
+// instArg is the type argument inst binds to f's type parameter tp.
+func instArg(f *check.Func, inst *check.Instance, tp *check.TypeParam, site syntax.Node) check.Type {
+	for i, p := range f.Sig.TParams {
+		if p == tp && i < len(inst.TypeArgs) {
+			return inst.TypeArgs[i]
+		}
+	}
+	ice(site, "the instance of %s has no argument for %s", f.Name, tp.Name)
+	return nil
+}
+
+// wireWitness is the codec witness of t at a call: the caller's own
+// witness when t is the caller's type parameter, else a literal whose
+// functions write and read t as encode and decode do.
+func (fc *funcCtx) wireWitness(t check.Type, site syntax.Node) string {
+	tc := fc.wireCtx(site)
+	if tp, ok := t.(*check.TypeParam); ok {
+		return tc.wireOf(tp)
+	}
+	gt := tc.goType(t)
+	encSig, decSig := wireCodecSigs(t)
+	enc := fc.envClosure(callerEnv, "e", site, func(e string) ([]string, string, string) {
+		w, v := fc.scope.alloc("w"), fc.scope.alloc("v")
+		params := []string{w + " " + tc.goType(encSig.Params[0].Type), v + " " + gt}
+		return params, tc.valueResults(nil), tc.wireEncode(t, e, w, v) + "\nreturn struct{}{}, nil\n"
+	})
+	dec := fc.envClosure(callerEnv, "e", site, func(e string) ([]string, string, string) {
+		r, x := fc.scope.alloc("r"), fc.scope.alloc("x")
+		params := []string{r + " " + tc.goType(decSig.Params[0].Type)}
+		return params, tc.valueResults(t), tc.wireDecode(t, e, r, x, "*new("+gt+")", fc.scope) + "return " + x + ", nil\n"
+	})
+	return tc.wireCodecType(t) + "{Enc: " + enc + ", Dec: " + dec + "}"
+}
+
+// wireCtx is fc's type context with its codec witnesses, for a codec call.
+func (fc *funcCtx) wireCtx(site syntax.Node) *typeCtx {
+	tc := fc.typeCtx
+	tc.wires = fc.witness
+	tc.site = site
+	return &tc
+}
+
+// wireOf is the codec witness in scope for tp.
+func (tc *typeCtx) wireOf(tp *check.TypeParam) string {
+	w, ok := tc.wires[tp]
+	if !ok {
+		ice(tc.site, "the codable type parameter %s has no codec witness here", tp.Name)
+	}
+	return w
+}
+
+// wireWits are the witnesses a call of t's codec function passes, one for
+// each type parameter t holds, in freeTypeParams order.
+func (tc *typeCtx) wireWits(t check.Type) string {
+	s := ""
+	for _, tp := range freeTypeParams(t) {
+		s += ", " + tc.wireOf(tp)
+	}
+	return s
+}
+
 // wireKey is the package-scope key of t's codec function in direction dir
 // ("encode" or "decode").
 func (l *lowerer) wireKey(dir string, t check.Type) pkgKey {
@@ -92,6 +179,9 @@ func (l *lowerer) reserveWires(pkgs []*check.Package, reserve func(key pkgKey, b
 	walked := map[string]bool{}
 	var walk func(dir string, info *check.Info, t check.Type)
 	walk = func(dir string, info *check.Info, t check.Type) {
+		if _, ok := t.(*check.TypeParam); ok {
+			return // its witness writes and reads it
+		}
 		key := l.wireKey(dir, t)
 		if walked[key.kind+" "+key.obj.(string)] {
 			return
@@ -140,6 +230,19 @@ func (l *lowerer) reserveWires(pkgs []*check.Package, reserve func(key pkgKey, b
 				walk("decode", p.Info, c.Type)
 			}
 		}
+		// A generic function's codable argument: its witness calls the
+		// argument's codec functions (wireWitness).
+		for x, inst := range p.Info.Instances {
+			if inst == nil || inst.Func == nil || !l.readsFact(p, x) {
+				continue
+			}
+			for i, tp := range inst.Func.Sig.TParams {
+				if isCodable(tp) && i < len(inst.TypeArgs) {
+					walk("encode", p.Info, inst.TypeArgs[i])
+					walk("decode", p.Info, inst.TypeArgs[i])
+				}
+			}
+		}
 	}
 }
 
@@ -150,14 +253,19 @@ func (fc *funcCtx) wireCall(x *syntax.CallExpr, c *check.Call) operand {
 	}
 	vals := fc.callArgs(x.Args, x)
 	env := fc.envExpr(x)
-	tc := &fc.typeCtx
+	tc := fc.wireCtx(x)
 	if c.Kind == check.CallEncode {
 		fc.line(tc.wireEncode(c.Type, env, vals[1], vals[0]))
 		return operand{}
 	}
-	name := fc.l.wireFunc("decode", c.Type, x)
+	call := ""
+	if tp, ok := c.Type.(*check.TypeParam); ok {
+		call = tc.wireOf(tp) + ".Dec(" + env + ", " + vals[0] + ")"
+	} else {
+		call = fc.l.wireFunc("decode", c.Type, x) + "(" + env + tc.wireWits(c.Type) + ", " + vals[0] + ")"
+	}
 	v, e := fc.temp("v"), fc.temp("err")
-	fc.line(v + ", " + e + " := " + name + "(" + env + ", " + vals[0] + ")")
+	fc.line(v + ", " + e + " := " + call)
 	if !failsHere(c) {
 		fc.line("_ = " + e)
 		return operand{val: v}
@@ -184,7 +292,10 @@ func (tc *typeCtx) wireEncode(t check.Type, env, w, v string) string {
 		}
 		return w + ".Int(" + task + ", int64(" + v + "))"
 	}
-	return l.wireFunc("encode", t, tc.site) + "(" + env + ", " + w + ", " + v + ")"
+	if tp, ok := t.(*check.TypeParam); ok {
+		return tc.wireOf(tp) + ".Enc(" + env + ", " + w + ", " + v + ")"
+	}
+	return l.wireFunc("encode", t, tc.site) + "(" + env + tc.wireWits(t) + ", " + w + ", " + v + ")"
 }
 
 // wireDecode is the Go statements that read a value of type t from r into
@@ -220,8 +331,13 @@ func (tc *typeCtx) wireDecode(t check.Type, env, r, into, zero string, scope *na
 		return s.String()
 	}
 	err := scope.alloc("err")
-	name := l.wireFunc("decode", t, tc.site)
-	return into + ", " + err + " := " + name + "(" + env + ", " + r + ")\nif " + err + " != nil {\nreturn " + zero + ", " + err + "\n}\n"
+	call := ""
+	if tp, ok := t.(*check.TypeParam); ok {
+		call = tc.wireOf(tp) + ".Dec(" + env + ", " + r + ")"
+	} else {
+		call = l.wireFunc("decode", t, tc.site) + "(" + env + tc.wireWits(t) + ", " + r + ")"
+	}
+	return into + ", " + err + " := " + call + "\nif " + err + " != nil {\nreturn " + zero + ", " + err + "\n}\n"
 }
 
 // intRange is the bounds of a signed integer kind narrower than 64 bits.
@@ -293,24 +409,33 @@ func (l *lowerer) wireFunc(dir string, t check.Type, site syntax.Node) string {
 		}
 	}
 	scope := newNamer(l.names)
-	tc := &typeCtx{l: l, site: site}
+	// A type that holds type parameters has a generic function, which
+	// takes each parameter's codec witness after the environment.
+	free := freeTypeParams(t)
+	tlist, tnames := l.typeParams(free, scope, site)
+	tc := &typeCtx{l: l, params: tnames, site: site, wires: map[*check.TypeParam]string{}}
 	goType := tc.goType(t)
 	env := scope.alloc("env")
 	envType := "*" + l.pkgName(pkgKey{"env", nil}, "Env")
+	lead := env + " " + envType
+	for _, tp := range free {
+		tc.wires[tp] = scope.alloc("w" + tp.Name)
+		lead += ", " + tc.wires[tp] + " " + tc.wireCodecType(tp)
+	}
 	task := taskOf(env)
 	var body strings.Builder
 	if dir == "encode" {
 		w, v := scope.alloc("w"), scope.alloc("v")
 		writer := tc.goType(check.PreludeType(check.WireWriterName))
 		l.wireEncodeBody(tc, &body, t, env, task, w, v, scope)
-		l.gen.WriteString("func " + name + "(" + env + " " + envType + ", " + w + " " + writer + ", " + v + " " + goType + ") {\n" + body.String() + "}\n\n")
+		l.gen.WriteString("func " + name + tlist + "(" + lead + ", " + w + " " + writer + ", " + v + " " + goType + ") {\n" + body.String() + "}\n\n")
 		return name
 	}
 	r := scope.alloc("r")
 	reader := tc.goType(check.PreludeType(check.WireReaderName))
 	zero := "*new(" + goType + ")"
 	l.wireDecodeBody(tc, &body, t, env, task, r, zero, scope)
-	l.gen.WriteString("func " + name + "(" + env + " " + envType + ", " + r + " " + reader + ") (" + goType + ", error) {\n" + body.String() + "}\n\n")
+	l.gen.WriteString("func " + name + tlist + "(" + lead + ", " + r + " " + reader + ") (" + goType + ", error) {\n" + body.String() + "}\n\n")
 	return name
 }
 

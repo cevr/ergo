@@ -1206,6 +1206,11 @@ func (c *checker) builtin(x *syntax.CallExpr, b *Builtin, targ Type) operand {
 	case "decode":
 		return c.decodeCall(x, targ)
 	}
+	if b.Name == WiredName {
+		c.errorf(x, CodeType, "%s[T] is a row, not a function: write it in a fails row (types.md, Codecs 2)", WiredName)
+		c.silentArgs(x)
+		return bad(x)
+	}
 	if b.Name != "len" {
 		c.errorf(x, CodeType, "unknown built-in %s", b.Name)
 		return bad(x)

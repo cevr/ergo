@@ -423,6 +423,8 @@ func (m *mentioner) walk(t Type) {
 		m.walk(u.Constraint)
 	case *RowArg:
 		m.row(u.Row)
+	case *Wired:
+		m.walk(u.T)
 	case *RowVar:
 		// An unexported function's inferred row, as its solution.
 		m.row(u.Solution())

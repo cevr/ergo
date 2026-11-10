@@ -1698,6 +1698,9 @@ func (c *checker) namedRow(x syntax.Expr, t Type) (vs []Type, isRow bool) {
 }
 
 func (c *checker) rowElem(x syntax.Expr, kind Kind, ctx *typeCtx) Type {
+	if t, ok := c.wiredElem(x, kind, ctx); ok {
+		return t
+	}
 	var t Type
 	switch x := x.(type) {
 	case *syntax.Ident:

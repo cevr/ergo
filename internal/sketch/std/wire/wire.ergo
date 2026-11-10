@@ -57,6 +57,14 @@ func Tag(e Events, name string)   { record(e, TagEvent{Name: name}) }
 func Key(e Events, k string)      { record(e, KeyEvent{K: k}) }
 func EndObject(e Events)          { record(e, EndObjectEvent) }
 
+// RoundTrip is v through Events and back: decode[T] of a Replay of the
+// events encode(v) wrote. Its row is wired[T], the row of decode[T].
+func RoundTrip[T codable](v T) T fails wired[T] {
+	let e = NewEvents()
+	encode(v, e)
+	decode[T](NewReplay(Recorded(e)))
+}
+
 // Replay reads back a list of events.
 type Replay { events []Event, at sync.Ref[int] }
 

@@ -32,19 +32,32 @@ func depth(e wire.Event) int {
 	}
 }
 
-func roundTrip(v fleet) fleet fails WireWrongKind | WireMissingField | WireUnknownTag {
-	let e = wire.NewEvents()
-	encode(v, e)
-	decode[fleet](wire.NewReplay(wire.Recorded(e)))
-}
-
 test WireEventsReplay(v fleet) {
-	let back = roundTrip(v) catch {
+	let back = wire.RoundTrip(v) catch {
 	case _:
 		assert false
 		v
 	}
 	assert back == v
+}
+
+func many[T codable](vs []T) ([]T, Option[T]) fails wired[Option[T]] {
+	let e = wire.NewEvents()
+	encode(vs, e)
+	let first Option[T] = if len(vs) > 0 { Some{Value: vs[0]} } else { None }
+	encode(first, e)
+	let r = wire.NewReplay(wire.Recorded(e))
+	(try decode[[]T](r), try decode[Option[T]](r))
+}
+
+test WireGenericReplay(vs []state) {
+	let (back, first) = many(vs) catch {
+	case _:
+		assert false
+		return
+	}
+	let want Option[state] = if len(vs) > 0 { Some{Value: vs[0]} } else { None }
+	assert back == vs && first == want
 }
 
 test WireEncodeNests(v fleet) {
@@ -152,7 +165,8 @@ test WireByNamePair(names []string) {
 // stdWireLawStatements is each restated law's ledger statement.
 var stdWireLawStatements = map[string]string{
 	"wire EncodeNests":       "EncodeNests(v fleet) { let e = NewEvents() encode(v, e) let mut open = 0 let mut ok = true for ev in Recorded(e) { open = open + depth(ev) if open < 0 { ok = false } } ok && open == 0 }",
-	"wire EventsReplay":      "EventsReplay(v fleet) { let back = roundTrip(v) catch { case _: return false } back == v }",
+	"wire EventsReplay":      "EventsReplay(v fleet) { let back = RoundTrip(v) catch { case _: return false } back == v }",
+	"wire GenericReplay":     "GenericReplay(vs []state) { let (back, first) = many(vs) catch { case _: return false } let want Option[state] = if len(vs) > 0 { Some{Value: vs[0]} } else { None } back == vs && first == want }",
 	"wire MissingFieldFails": "MissingFieldFails() { let empty = []Event{BeginObjectEvent{N: 0}, EndObjectEvent} let _ = decode[up](NewReplay(empty)) catch { case WireMissingField: return true case _: return false } false }",
 	"wire UnknownTagFails":   `UnknownTagFails(name string) { if name == "up" { return true } if name == "down" { return true } let evs = []Event{BeginObjectEvent{N: 0}, TagEvent{Name: name}, EndObjectEvent} let _ = decode[state](NewReplay(evs)) catch { case WireUnknownTag: return true case _: return false } false }`,
 }

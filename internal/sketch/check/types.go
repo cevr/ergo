@@ -320,6 +320,12 @@ func (v *RowVar) Solution() *Row {
 // E in Task[T, E] or a row inferred for E or R.
 type RowArg struct{ Row *Row }
 
+// Wired is the row element wired[T] for a codable type parameter T: the
+// failures of decode[T], which only T's type argument decides (types.md,
+// Codecs 2; owner q80). Substitution replaces it by the argument's wire
+// row (typeops.go subst), so an instance's row is concrete.
+type Wired struct{ T *TypeParam }
+
 // Tuple is the value of a call with several results.
 type Tuple struct{ Types []Type }
 
@@ -342,6 +348,7 @@ func (*Pointer) aType()     {}
 func (*Signature) aType()   {}
 func (*TypeParam) aType()   {}
 func (*RowArg) aType()      {}
+func (*Wired) aType()       {}
 func (*Tuple) aType()       {}
 func (*noValue) aType()     {}
 func (*RowVar) aType()      {}
@@ -449,6 +456,7 @@ func (v *RowVar) String() string {
 	return "the inferred row of " + v.root().Fn.Name
 }
 func (t *RowArg) String() string { return t.Row.String() }
+func (t *Wired) String() string  { return "wired[" + t.T.Name + "]" }
 func (t *Tuple) String() string {
 	parts := make([]string, len(t.Types))
 	for i, x := range t.Types {
@@ -709,6 +717,8 @@ func typeString(t Type) string {
 		return "$" + t.Name
 	case *RowArg:
 		return "{" + t.Row.list("|") + "}"
+	case *Wired:
+		return "wired[$" + t.T.Name + "]"
 	case *Slice:
 		return "[]" + typeString(t.Elem)
 	case *Map:

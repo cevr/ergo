@@ -51,6 +51,28 @@ func refused(h Hook, s Sealed, w Writer, r Reader) {
 	_ = decode(r) // want S108
 }
 
-func generic[T codable](v T, w Writer) {
-	encode(v, w) // want S108
+// wired[X] is the row of decode[X]; a codable type parameter T stands in
+// it as wired[T], which an instance replaces by its argument's row.
+func generic[T codable](r Reader) []T fails wired[[]T] {
+	decode[[]T](r)
+}
+
+func optional[T codable](r Reader) Option[T] fails wired[T] {
+	decode[Option[T]](r) // want S101
+}
+
+func uses(r Reader) []State fails wired[State] {
+	generic[State](r)
+}
+
+func usesNarrow(r Reader) []State fails WireWrongKind {
+	generic[State](r) // want S101
+}
+
+func badWired(r Reader) int fails wired[Hook] { // want S108
+	0
+}
+
+func notACall() {
+	_ = wired(1) // want S108
 }

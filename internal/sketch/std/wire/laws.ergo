@@ -13,21 +13,37 @@ type widths { A int8, B int16, C int32, D int64, E uint8, F uint16, G uint32, H 
 
 type fleet { Name string, States []state, Spare Option[up], Meta Map[string, int], Sizes widths }
 
-// roundTrip is v through Events and back.
-func roundTrip(v fleet) fleet fails WireWrongKind | WireMissingField | WireUnknownTag {
-	let e = NewEvents()
-	encode(v, e)
-	decode[fleet](NewReplay(Recorded(e)))
-}
-
 // EventsReplay: what encode writes on Events, decode reads back from a
-// Replay of those events as the same value.
+// Replay of those events as the same value. RoundTrip is generic, so the
+// law runs the codec through its witness too.
 law EventsReplay(v fleet) {
-	let back = roundTrip(v) catch {
+	let back = RoundTrip(v) catch {
 	case _:
 		return false
 	}
 	back == v
+}
+
+// many is vs through Events and back as one list, so the codec of []T and
+// Option[T] runs inside a generic function, on T's witness.
+func many[T codable](vs []T) ([]T, Option[T]) fails wired[Option[T]] {
+	let e = NewEvents()
+	encode(vs, e)
+	let first Option[T] = if len(vs) > 0 { Some{Value: vs[0]} } else { None }
+	encode(first, e)
+	let r = NewReplay(Recorded(e))
+	(try decode[[]T](r), try decode[Option[T]](r))
+}
+
+// GenericReplay: a list of union values and its first value, encoded and
+// decoded inside a generic function, read back as they were.
+law GenericReplay(vs []state) {
+	let (back, first) = many(vs) catch {
+	case _:
+		return false
+	}
+	let want Option[state] = if len(vs) > 0 { Some{Value: vs[0]} } else { None }
+	back == vs && first == want
 }
 
 // EncodeNests: the events of one value open and close as many times, and
