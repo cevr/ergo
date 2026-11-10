@@ -72,6 +72,7 @@ func TestQueueFaultIsNamed(t *testing.T) {
 	}{
 		{"span-queue fault", queueFault, "issue"},
 		{"runtime out of memory", oom, "limit"},
+		{"runtime mapping refused", "fatal error: runtime: cannot allocate memory\n", "limit"},
 		{"nil dereference", nilDereference, ""},
 		{"fault in another frame", strings.ReplaceAll(queueFault, "runtime.(*spanQueue)", "runtime.(*mheap)"), ""},
 		{"fault at another address", strings.Replace(queueFault, "addr=0x0", "addr=0x8", 1), ""},

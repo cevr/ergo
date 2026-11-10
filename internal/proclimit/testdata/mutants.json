@@ -2,6 +2,15 @@
   "about": "How a bounded program's stderr is read as its memory limit. Go 1.27 can stop a program at its limit with SIGSEGV in the collector's span queue (golang/go#82667); only that fault, never another segmentation fault, is the limit.",
   "mutants": [
     {
+      "name": "gcoom-mapping-report-unread",
+      "origin": "wf10 FU-gcoom r2",
+      "file": "internal/proclimit/report.go",
+      "from": " || bytes.Contains(joined, []byte(mappingRefused))",
+      "to": "",
+      "rule": "The shared classifier keeps the mutant runner's refused-mapping report, including across writes.",
+      "killers": ["internal/proclimit:TestQueueFaultIsNamed"]
+    },
+    {
       "name": "gcoom-fault-unread",
       "origin": "wf10 FU-gcoom",
       "file": "internal/proclimit/report.go",

@@ -348,6 +348,9 @@ func (e *engine) exec(ctx context.Context, dir string, argv, env []string, deadl
 	cmd.Env = env
 	cmd.Stdout = out
 	cmd.Stderr = out
+	// Read every byte before tail truncates the display. The shared writer
+	// keeps stdout and stderr ordered, as they were before the watcher.
+	watch := proclimit.Watch(cmd)
 	// A process the child leaves behind may hold the output pipe: Wait
 	// gives up on it a second after the child exits, and the group stop
 	// below ends it.
@@ -384,15 +387,7 @@ func (e *engine) exec(ctx context.Context, dir string, argv, env []string, deadl
 	exited = true
 	mu.Unlock()
 	o := outcome{seconds: time.Since(start).Seconds(), tail: out.String()}
-	switch {
-	case err == nil || errors.Is(err, exec.ErrWaitDelay):
-	case timedOut:
-		o.reason = "deadline"
-	case e.cfg.Memory != 0 && out.memory():
-		o.reason = "memory"
-	default:
-		o.reason = "fail"
-	}
+	o.reason = childReason(err, timedOut, e.cfg.Memory, watch.Stderr())
 	if ctx.Err() != nil && o.reason != "" {
 		o.reason = "interrupted"
 	}
@@ -401,41 +396,33 @@ func (e *engine) exec(ctx context.Context, dir string, argv, env []string, deadl
 
 // tail keeps the first and the last bytes a child wrote: a crash names its
 // cause first, a failing test last.
-// It also notes whether the Go runtime said that the kernel refused it
-// memory, which under RLIMIT_DATA is the limit: "fatal error: runtime: out
-// of memory", or "cannot allocate memory" when the refused mapping is the
-// runtime's own (measured: a 1 GiB allocation under a 512 MiB limit, from
-// the memory profiler's bucket table).
 type tail struct {
 	mu      sync.Mutex
 	head    []byte
 	buf     []byte
 	dropped bool
-	carry   []byte
-	oom     bool
 }
 
 const tailSize = 16 << 10
 
-var memoryReports = [][]byte{[]byte(proclimit.OutOfMemory), []byte("cannot allocate memory")}
-
-func (t *tail) memory() bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.oom
+// childReason classifies a completed command. Success and the deadline take
+// precedence over a memory report; a report without a cap stays a failure.
+func childReason(err error, timedOut bool, memory uint64, report []byte) string {
+	switch {
+	case err == nil || errors.Is(err, exec.ErrWaitDelay):
+		return ""
+	case timedOut:
+		return "deadline"
+	case memory != 0 && proclimit.CauseOf(report) != proclimit.NoCause:
+		return "memory"
+	}
+	return "fail"
 }
 
 func (t *tail) Write(p []byte) (int, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	n := len(p)
-	if !t.oom {
-		joined := append(t.carry, p...)
-		for _, r := range memoryReports {
-			t.oom = t.oom || bytes.Contains(joined, r)
-		}
-		t.carry = append(t.carry[:0:0], joined[max(0, len(joined)-32):]...)
-	}
 	if room := tailSize/4 - len(t.head); room > 0 {
 		k := min(room, len(p))
 		t.head = append(t.head, p[:k]...)

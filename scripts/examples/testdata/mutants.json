@@ -1,0 +1,14 @@
+{
+  "about": "The example runner shares the capped-child classifier with proclimit.",
+  "mutants": [
+    {
+      "name": "gcoom-examples-text-only",
+      "origin": "wf10 FU-gcoom r2",
+      "file": "scripts/examples/main.go",
+      "from": "proclimit.CauseOf(o.stderr) != proclimit.NoCause",
+      "to": "bytes.Contains(o.stderr, []byte(proclimit.OutOfMemory))",
+      "rule": "A capped example's span-queue allocation fault is memory, not a crash.",
+      "killers": ["scripts/examples:TestCappedFaultIsMemory"]
+    }
+  ]
+}

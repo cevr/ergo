@@ -14,7 +14,8 @@ const (
 	// NoCause: the program's stderr holds no report of refused memory.
 	NoCause Cause = iota
 	// RuntimeReport: the Go runtime's own report, "fatal error: runtime: out
-	// of memory" or another fatal error that contains OutOfMemory.
+	// of memory", another fatal error that contains OutOfMemory, or
+	// "cannot allocate memory" for a refused runtime mapping.
 	RuntimeReport
 	// QueueFault: Go 1.27's collector stored through a nil span-queue ring
 	// and the program stopped with SIGSEGV at address 0 (RuntimeIssue).
@@ -65,6 +66,10 @@ const (
 	// lineKeep is how much of a line the scanner keeps: more than each of
 	// the prefixes and the PC line it reads.
 	lineKeep = 256
+	// mappingRefused is the runtime's report for some refused mappings
+	// (measured: a 1 GiB allocation under a 512 MiB limit, from the memory
+	// profiler's bucket table). Keep this rule here, not in each runner.
+	mappingRefused = "cannot allocate memory"
 )
 
 // queueFaultReport is the shortest stderr that CauseOf reads as a
@@ -73,7 +78,7 @@ const queueFaultReport = signalLine + "\nPC=0x0 addr=0x0\n\n" + faultFrame + "\n
 
 // scanner reads stderr as it arrives, in writes of any size.
 type scanner struct {
-	carry []byte // the last len(OutOfMemory)-1 bytes, for a report split across writes
+	carry []byte // the last reportKeep bytes, for a report split across writes
 	line  []byte // the start of the current line, at most lineKeep bytes
 	state int    // 0: before the signal line; 1: after it; 2: after the PC line
 	cause Cause
@@ -84,11 +89,12 @@ func (s *scanner) write(p []byte) {
 		return
 	}
 	joined := append(s.carry, p...)
-	if bytes.Contains(joined, []byte(OutOfMemory)) {
+	if bytes.Contains(joined, []byte(OutOfMemory)) || bytes.Contains(joined, []byte(mappingRefused)) {
 		s.cause = RuntimeReport
 		return
 	}
-	keep := min(len(joined), len(OutOfMemory)-1)
+	const reportKeep = max(len(OutOfMemory), len(mappingRefused)) - 1
+	keep := min(len(joined), reportKeep)
 	s.carry = append(s.carry[:0:0], joined[len(joined)-keep:]...)
 	for len(p) > 0 && s.cause == NoCause {
 		end := bytes.IndexByte(p, '\n')

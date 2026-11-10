@@ -937,7 +937,7 @@ type outcome struct {
 	timedOut bool
 	elapsed  time.Duration
 	// limited is a command that failed under a memory limit and whose stderr
-	// holds the Go runtime's out-of-memory report.
+	// holds a memory cause read by proclimit.CauseOf.
 	limited bool
 }
 
@@ -1073,6 +1073,12 @@ wait:
 	if o.status < 0 {
 		o.signal = signalName(command.ProcessState)
 	}
-	o.limited = memory > 0 && o.status > 0 && bytes.Contains(o.stderr, []byte(proclimit.OutOfMemory))
+	o.classifyLimit(memory)
 	return o, nil
+}
+
+// classifyLimit reads the completed command's memory report, if it failed
+// under a cap. A failed command includes one stopped by a signal.
+func (o *outcome) classifyLimit(memory uint64) {
+	o.limited = memory > 0 && o.status != 0 && proclimit.CauseOf(o.stderr) != proclimit.NoCause
 }
