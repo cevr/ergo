@@ -333,3 +333,7 @@ PRIOR_ART.md	serves a contract's wire projection to `tsc`
 examples/limiter/limits/limitsrpc/client.ergo	*
 examples/limiter/limits/limitsrpc/server.ergo	*
 examples/limiter/limits/limitsrpc/wire.ergo	*
+examples/limiter/loopback/loopback.ergo	*
+examples/limiter/README.md	is the same limiter through the wire
+examples/limiter/README.md	the laws that hold for the provider hold through the wire.
+docs/spec/stdlib.md	a contract's laws run through the wire
