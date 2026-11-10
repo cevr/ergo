@@ -1,4 +1,5 @@
 import strconv
+import strings
 
 // doc draws the JSON text the law decodes: nesting, long numbers,
 // exponents and strings of any text. spell writes it with or without
@@ -12,10 +13,9 @@ type docArr { Items []doc }
 type docObj { Keys []string, Vals []doc }
 type doc = docNull | docBool | docInt | docDigits | docStr | docArr | docObj
 
-func magnitude(n int) string {
-	if n < 0 { return strconv.Itoa(0 - n) }
-	strconv.Itoa(n)
-}
+// magnitude is n's digits without a sign; the least int has no positive
+// twin, so the sign is cut from the text, not from the number.
+func magnitude(n int) string { strings.TrimPrefix(strconv.Itoa(n), "-") }
 
 // digits spells a number with a fraction, an exponent and, when Long, more
 // digits than any machine number holds.

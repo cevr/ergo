@@ -1976,6 +1976,22 @@
       "killers": [
         "lower:TestStdJSONLawsRun"
       ]
+    },
+    {
+      "name": "json-value-least-frac",
+      "origin": "wf10 J2",
+      "file": "internal/sketch/lower/json_value_test.go",
+      "from": "func magnitude(n int) string { strings.TrimPrefix(strconv.Itoa(n), \"-\") }",
+      "to": "func magnitude(n int) string {\n\tif n < 0 { return strconv.Itoa(0 - n) }\n\tstrings.TrimPrefix(strconv.Itoa(n), \"-\")\n}",
+      "rule": "The ValueRoundTrips generator spells only valid numbers: a fraction drawn as the least int is spelled without its sign, not by negating the number (std json value_laws.ergo states the same helper).",
+      "killers": [
+        "lower:TestJSONValueAgrees"
+      ],
+      "anchor": {
+        "tests": [
+          "lower:TestJSONValueAgrees"
+        ]
+      }
     }
   ]
 }
