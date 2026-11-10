@@ -55,20 +55,28 @@ type Text {
 // NewText is a Text with nothing written.
 extern go ergo.local/prototype/runtime/v1.NewJSONText func NewText() Text
 
+// take is an empty Text from a pool; give is its text, and puts it back,
+// so nothing may use it after (Encode only).
+extern go ergo.local/prototype/runtime/v1.JSONTake func take() Text
+extern go ergo.local/prototype/runtime/v1.JSONGive func give(t Text) string
+
 // Cursor reads a validated text for Reader: each read takes the next value
-// of the innermost open list or object, or None when it is not of the
+// of the innermost open list or object; Wrong says when it was not of the
 // kind asked for.
 // law-exempt: only open makes a Cursor, from a text, so a law cannot draw one; the package law RoundTrips holds its reads through Reader and decode.
 type Cursor {
 	Path() string,
-	Bool() Option[bool],
-	Int() Option[int64],
-	Uint() Option[uint64],
-	Float() Option[float64],
-	String() Option[string],
+	Bool() bool,
+	Int() int64,
+	Uint() uint64,
+	Float() float64,
+	String() string,
 	BeginList() bool,
 	BeginObject() bool,
-	Tag() Option[string],
+	Tag() string,
+	// Wrong reports that the last read met a value of another kind, or
+	// for Tag an object with no "_tag".
+	Wrong() bool,
 	More() bool,
 	Key() string,
 	Skip(),
@@ -93,48 +101,43 @@ func Open(text string, maxBytes int, maxDepth int) Reader fails Malformed {
 func Path(r Reader) string { r.c.Path() }
 
 func Bool(r Reader) bool fails WireWrongKind {
-	match r.c.Bool() {
-	case Some[bool] as b:
-		b.Value
-	case None:
-		WireWrongKind{Path: r.c.Path(), Want: "a boolean"}
+	let v = r.c.Bool()
+	if r.c.Wrong() {
+		return WireWrongKind{Path: r.c.Path(), Want: "a boolean"}
 	}
+	v
 }
 
 func Int(r Reader) int64 fails WireWrongKind {
-	match r.c.Int() {
-	case Some[int64] as n:
-		n.Value
-	case None:
-		WireWrongKind{Path: r.c.Path(), Want: "an integer"}
+	let v = r.c.Int()
+	if r.c.Wrong() {
+		return WireWrongKind{Path: r.c.Path(), Want: "an integer"}
 	}
+	v
 }
 
 func Uint(r Reader) uint64 fails WireWrongKind {
-	match r.c.Uint() {
-	case Some[uint64] as n:
-		n.Value
-	case None:
-		WireWrongKind{Path: r.c.Path(), Want: "an unsigned integer"}
+	let v = r.c.Uint()
+	if r.c.Wrong() {
+		return WireWrongKind{Path: r.c.Path(), Want: "an unsigned integer"}
 	}
+	v
 }
 
 func Float(r Reader) float64 fails WireWrongKind {
-	match r.c.Float() {
-	case Some[float64] as f:
-		f.Value
-	case None:
-		WireWrongKind{Path: r.c.Path(), Want: "a number"}
+	let v = r.c.Float()
+	if r.c.Wrong() {
+		return WireWrongKind{Path: r.c.Path(), Want: "a number"}
 	}
+	v
 }
 
 func String(r Reader) string fails WireWrongKind {
-	match r.c.String() {
-	case Some[string] as s:
-		s.Value
-	case None:
-		WireWrongKind{Path: r.c.Path(), Want: "a string"}
+	let v = r.c.String()
+	if r.c.Wrong() {
+		return WireWrongKind{Path: r.c.Path(), Want: "a string"}
 	}
+	v
 }
 
 func BeginList(r Reader) fails WireWrongKind {
@@ -151,12 +154,11 @@ func BeginObject(r Reader) fails WireWrongKind {
 
 // Tag is the "_tag" member of the object just begun, wherever it stands.
 func Tag(r Reader) string fails WireMissingField {
-	match r.c.Tag() {
-	case Some[string] as t:
-		t.Value
-	case None:
-		WireMissingField{Path: r.c.Path(), Field: "_tag"}
+	let v = r.c.Tag()
+	if r.c.Wrong() {
+		return WireMissingField{Path: r.c.Path(), Field: "_tag"}
 	}
+	v
 }
 
 func More(r Reader) bool { r.c.More() }
@@ -174,10 +176,12 @@ func End(r Reader) { r.c.End() }
 type Codec[T wire] { MaxBytes int, MaxDepth int }
 
 // Encode is v's JSON text.
+// (Its Text is a pooled buffer, take and give, as encoding/json keeps its
+// encodeState: no other code sees it.)
 func Encode[T wire](c Codec[T], v T) string {
-	let t = NewText()
+	let t = take()
 	encode(v, t)
-	t.Written()
+	give(t)
 }
 
 // Decode is the T that text writes: Malformed when the text breaks

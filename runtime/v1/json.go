@@ -4,6 +4,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"ergo.local/prototype/runtime/rt"
@@ -457,6 +458,7 @@ type Cursor struct {
 	i      int
 	frames []jsonFrame
 	root   bool // the root value has been read or begun
+	wrong  bool // the last read met a value of another kind
 }
 
 // jsonFrame is an open list or object: for a list, how many elements were
@@ -524,7 +526,7 @@ func (c *Cursor) word(w string) bool {
 	return false
 }
 
-func (c *Cursor) Bool() (bool, bool) {
+func (c *Cursor) readBool() (bool, bool) {
 	c.at()
 	if c.word("true") {
 		return true, true
@@ -549,7 +551,7 @@ func (c *Cursor) number() (string, bool) {
 	return c.s[start:c.i], c.i > start
 }
 
-func (c *Cursor) Int() (int64, bool) {
+func (c *Cursor) readInt() (int64, bool) {
 	c.at()
 	text, ok := c.number()
 	if !ok {
@@ -559,7 +561,7 @@ func (c *Cursor) Int() (int64, bool) {
 	return n, err == nil
 }
 
-func (c *Cursor) Uint() (uint64, bool) {
+func (c *Cursor) readUint() (uint64, bool) {
 	c.at()
 	text, ok := c.number()
 	if !ok {
@@ -571,7 +573,7 @@ func (c *Cursor) Uint() (uint64, bool) {
 
 // Float reads a number, or the strings "NaN", "Infinity" and "-Infinity"
 // that JSONAppendFloat writes.
-func (c *Cursor) Float() (float64, bool) {
+func (c *Cursor) readFloat() (float64, bool) {
 	c.at()
 	if c.i < len(c.s) && c.s[c.i] == '"' {
 		switch {
@@ -592,7 +594,7 @@ func (c *Cursor) Float() (float64, bool) {
 	return f, err == nil
 }
 
-func (c *Cursor) String() (string, bool) {
+func (c *Cursor) readString() (string, bool) {
 	c.at()
 	if c.i >= len(c.s) || c.s[c.i] != '"' {
 		return "", false
@@ -697,7 +699,7 @@ func (c *Cursor) BeginObject() bool { return c.begin('{', false) }
 // Tag is the string value of the member "_tag" of the object just begun,
 // wherever it stands among the members, or false. The member stays: a
 // record's decode skips it as a key it does not know.
-func (c *Cursor) Tag() (string, bool) {
+func (c *Cursor) readTag() (string, bool) {
 	save := c.i
 	defer func() { c.i = save }()
 	for {
@@ -815,4 +817,69 @@ func (c *Cursor) End() {
 	if n := len(c.frames); n > 0 {
 		c.frames = c.frames[:n-1]
 	}
+}
+
+// The reads of std json's Cursor give the value and set Wrong, which says
+// that the read met a value of another kind (or, for Tag, an object with
+// no "_tag"), so the Reader's Ergo code builds its failure with no Option
+// box per read.
+
+// Wrong reports that the last value read was not of the kind asked for.
+func (c *Cursor) Wrong() bool { return c.wrong }
+
+func (c *Cursor) Bool() bool {
+	v, ok := c.readBool()
+	c.wrong = !ok
+	return v
+}
+
+func (c *Cursor) Int() int64 {
+	v, ok := c.readInt()
+	c.wrong = !ok
+	return v
+}
+
+func (c *Cursor) Uint() uint64 {
+	v, ok := c.readUint()
+	c.wrong = !ok
+	return v
+}
+
+func (c *Cursor) Float() float64 {
+	v, ok := c.readFloat()
+	c.wrong = !ok
+	return v
+}
+
+func (c *Cursor) String() string {
+	v, ok := c.readString()
+	c.wrong = !ok
+	return v
+}
+
+func (c *Cursor) Tag() string {
+	v, ok := c.readTag()
+	c.wrong = !ok
+	return v
+}
+
+// jsonPool keeps the buffers of the Texts Codec.Encode writes (JSONTake,
+// JSONGive), as encoding/json keeps its encodeState: a text's buffer
+// grows once and is used again.
+var jsonPool = sync.Pool{New: func() any { return &Text{B: make([]byte, 0, 1024)} }}
+
+// JSONTake is an empty Text from the pool, for std json's Encode only:
+// JSONGive takes it back.
+func JSONTake() *Text { return jsonPool.Get().(*Text) }
+
+// JSONGive is the text t wrote, and puts t back in the pool; nothing may
+// use t after. A buffer that grew past 64 KiB is dropped, so the pool
+// holds no large buffer.
+func JSONGive(t *Text) string {
+	s := string(t.B)
+	if cap(t.B) <= 64<<10 {
+		t.B, t.Comma = t.B[:0], false
+		jsonPool.Put(t)
+	}
+	return s
 }

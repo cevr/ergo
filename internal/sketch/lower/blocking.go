@@ -293,6 +293,9 @@ var runtimeBindings = map[string]runtimeBinding{
 	// body waits or releases.
 	"NewJSONText":        {},
 	"JSONOpen":           {},
+	"JSONTake":           {},
+	"JSONGive":           {},
+	"Cursor.Wrong":       {},
 	"Text.Bool":          {task: true},
 	"Text.Int":           {task: true},
 	"Text.Uint":          {task: true},

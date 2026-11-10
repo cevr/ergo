@@ -295,14 +295,15 @@ func main() {
 type Mine {}
 
 func Path(_ Mine) string             { "" }
-func Bool(_ Mine) Option[bool]       { None }
-func Int(_ Mine) Option[int64]       { None }
-func Uint(_ Mine) Option[uint64]     { None }
-func Float(_ Mine) Option[float64]   { None }
-func String(_ Mine) Option[string]   { None }
+func Bool(_ Mine) bool               { false }
+func Int(_ Mine) int64               { 0 }
+func Uint(_ Mine) uint64             { 0 }
+func Float(_ Mine) float64           { 0.0 }
+func String(_ Mine) string           { "" }
 func BeginList(_ Mine) bool          { false }
 func BeginObject(_ Mine) bool        { false }
-func Tag(_ Mine) Option[string]      { None }
+func Tag(_ Mine) string              { "" }
+func Wrong(_ Mine) bool              { false }
 func More(_ Mine) bool               { false }
 func Key(_ Mine) string              { "" }
 func Skip(_ Mine)                    {}
