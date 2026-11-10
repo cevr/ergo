@@ -18,7 +18,7 @@ import (
 // capability lacks taken as a provider (script-implements-any), an
 // operation that takes a borrow admitted (c4-script-borrow-admitted), and
 // one that takes a resource admitted (c4-script-resource-admitted), or
-// never decided (c4-script-site-unrecorded). What a
+// never checked (c4-script-kept-unchecked). What a
 // Script records and answers is the testing laws' (TestStdLawsRun).
 func TestScriptDiagnostics(t *testing.T) {
 	const head = "import testing\n\ntype Count { Len() int }\ntype Each { Each(f func(n int)) }\ntype Spawn { Start() Task[int] }\ntype More { Len() int, Cap() int }\ntype Box { n int }\n"

@@ -18,9 +18,10 @@ import (
 //     parameter, a sealed std type, an operation that returns a Task is
 //     S108 at the type argument (scriptWhy). The record of calls keeps
 //     each argument past the call, so an operation that takes a function,
-//     a borrow (scriptWhy) or a value that holds a resource (scriptKept, in
-//     the late pass) is S108 there too: one rule for every parameter a call
-//     only lends (#197 L8 C4; q39).
+//     a borrow (scriptWhy) or a value that holds a resource (scriptKept) is
+//     S108 there too: one rule for every parameter a call only lends (#197
+//     L8 C4; q39). A generic record's Script field names a concrete
+//     capability (Capabilities 7), so an instantiation adds no Script.
 //  2. Fields. The instance's record has one field per operation of S, in
 //     S's order and named like it, of type testing.Op[A, F]: A is the
 //     operation's arguments (the one parameter's type, a tuple of several,
@@ -102,7 +103,8 @@ func scriptWhy(s Type) string {
 // would keep a resource past the call, or "" (rule 1): an operation's
 // argument that holds a resource is lent for the call, or taken by the
 // answer, so a recorded copy would be a second owner (resources.md,
-// Lending). It reads the late facts, every Close known (checkResourceTypes).
+// Lending). A type resolves on demand and a Close is a declared function,
+// so a Close declared after the Script is known at the type argument.
 func (c *checker) scriptKept(s Type) string {
 	for _, m := range asInterface(s).Methods {
 		for _, p := range m.Sig.Params {
@@ -125,13 +127,9 @@ func (c *checker) scriptWritten(inst *Named, at syntax.Node) bool {
 		c.errorf(at, CodeType, "testing.Script[%s]: %s (stdlib.md, Testing 7)", s, why)
 		return false
 	}
-	if c.scriptsSeen == nil {
-		c.scriptsSeen = map[syntax.Node]bool{}
-	}
-	if !c.scriptsSeen[at] {
-		// A resource argument is decided once every Close is known.
-		c.scriptsSeen[at] = true
-		c.scriptSites = append(c.scriptSites, resourceSite{file: c.cur, at: at, t: s})
+	if why := c.scriptKept(s); why != "" {
+		c.errorf(at, CodeType, "testing.Script[%s]: %s (stdlib.md, Testing 7)", s, why)
+		return false
 	}
 	return true
 }

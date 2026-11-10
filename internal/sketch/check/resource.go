@@ -287,8 +287,7 @@ func (c *checker) zeroHoldsResource(t Type) bool {
 }
 
 // resourceSite is a place A1's late pass decides once every Close is known:
-// a written map key type or a parameter a written takes clause names (and,
-// in scriptSites, the written capability of a testing.Script).
+// a written map key type or a parameter a written takes clause names.
 type resourceSite struct {
 	file *fileInfo
 	at   syntax.Node
@@ -356,18 +355,11 @@ func (c *checker) mapKeySite(x syntax.Expr, k Type) {
 
 // checkResourceTypes decides the recorded sites once every signature and
 // body is checked: a resource map key is S112 (R40); a taken parameter
-// whose type crosses is S110; a Script whose capability takes a resource is
-// S108 (scriptKept). A key type that names a type parameter is decided at
-// the instantiation (A3).
+// whose type crosses is S110. A key type that names a type parameter is
+// decided at the instantiation (A3).
 func (c *checker) checkResourceTypes() {
 	saved := c.cur
 	defer func() { c.cur = saved }()
-	for _, s := range c.scriptSites {
-		c.cur = s.file
-		if why := c.scriptKept(s.t); why != "" {
-			c.errorf(s.at, CodeType, "testing.Script[%s]: %s (stdlib.md, Testing 7)", s.t, why)
-		}
-	}
 	for _, s := range c.resourceSites {
 		if s.t == nil || isInvalid(s.t) {
 			continue
