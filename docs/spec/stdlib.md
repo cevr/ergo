@@ -20,7 +20,7 @@ The standard library is the "Effect for Go" track, [#206](https://github.com/cev
 | Schema and codecs | [#49](https://github.com/cevr/ergo/issues/49) | Schema, Arbitrary | `ParseX`/`Wire` by name, `json.Codec` | library + coherence rule |
 | Sync and STM | [#208](https://github.com/cevr/ergo/issues/208) | Ref, SynchronizedRef, Deferred, Semaphore, Latch, TxRef, TxQueue, TxSemaphore | `sync.Ref`, `sync.Atomically() { }`, `sync.Tx` | kernel + library |
 | Batching, caching and pools | [#68](https://github.com/cevr/ergo/issues/68) | Request, RequestResolver, Cache, ScopedCache, Pool, KeyedPool, RcRef, RcMap, ScopedRef | `batch.Resolve` in `context` | library |
-| Config | [#67](https://github.com/cevr/ergo/issues/67) | Config, ConfigProvider, Redacted | `config`, `Redacted[T]` | library |
+| Config | [#67](https://github.com/cevr/ergo/issues/67) | Config, ConfigProvider, Redacted | [`config`](#config): `Load`, `Redacted[T]` | library |
 | Observability | [#69](https://github.com/cevr/ergo/issues/69) | Tracer, Logger, Metric, LogLevel, References | `with trace.Span(…)`, `log`, `metric` | library on kernel G1/G2 ([#200](https://github.com/cevr/ergo/issues/200)) |
 | Clock, random and testing | [#209](https://github.com/cevr/ergo/issues/209) | Clock, Random, Console, TestClock, TestServices, TestContext, `it.effect` | prelude capabilities, `testing.VirtualClock` in `context` | kernel seams + library |
 | HTTP | [#51](https://github.com/cevr/ergo/issues/51) | HttpClient, HttpServer, HttpRouter, HttpApi | `func(http.Request) http.Response`, total `catch` | library + host |
@@ -596,8 +596,14 @@ instead of runtime tags, Effect instructions and middleware composition.
 
 `toml.Decode(c json.Codec[T], text string) T fails toml.Malformed | wired[T]`
 reads TOML 1.0 through the same derived codec as `json`. `toml.Open(text,
-maxBytes, maxDepth)` returns a `json.Reader` for `decode[T]`. No encoding
-API is provided (CU7).
+maxBytes, maxDepth)` returns a `json.Reader` for `decode[T]`.
+`toml.Encode[T wire](v T) string fails toml.Unrepresentable` writes v as a
+TOML document (S-config): it encodes v with the derived JSON codec, then
+`runtime/v1.TOMLFromJSON` writes that tree as TOML, so one encoder per type
+serves both formats. The top value must be a record; a text or a key that
+is not UTF-8 and a null (TOML has none) fail `Unrepresentable{Key,
+Reason}`. Law `EncodeRoundTrips`: `Decode` reads back what `Encode`
+writes.
 
 1. The whole document is validated before a value is decoded. Syntax and
    limit failures are `Malformed{Line, Key, Reason}`: a 1-based source line,
@@ -634,6 +640,131 @@ selection at `96fd0884`, with upstream license and byte-exact data in
 `runtime/v1/testdata/toml-test`. `TestTOMLDecode` runs the generated-record
 law through the public derived decoder; `TestTOMLFailuresNameLineAndKey`
 checks the diagnostic source location. These are tests, not proofs.
+
+## config
+
+Std `config` (S-config) reads a program's configuration, typed, from
+layered sources, and holds its secrets. The configuration is the
+program's own record, read by its derived codec ([types.md,
+Codecs](types.md#codecs)):
+
+```ergo
+type Settings { Limit int, Tag string, Remote string }
+
+let spec = config.Spec{Prefix: "BOOKMARKS", Flags: config.FromFlags(v),
+	Files: []config.File{config.File{Path: dirs.Config + "/config.toml", Format: config.TOML}},
+	Defaults: config.DefaultsOf(Settings{Limit: 10, Tag: "", Remote: "https://bookmarks.example/api"})}
+let s = try config.Load[Settings](spec)
+```
+
+1. **The capability.** `Config` is an operation type: `Lookup(name)
+   Option[string]`, `Environ(prefix) []Variable` (sorted by name) and
+   `ReadFile(path) Option[string] fails Unreadable` (`None` when nothing is
+   there: a configuration file is optional). `config.NewHost()` (needs
+   `Ambient`) holds an `os.Host` and an `fs.Host` and reads through their
+   functions, so each host body has one Ergo owner; `config.NewMemory(env,
+   files)` is the provider for tests. `Load`, `LoadSecret` and `UserDirs`
+   say `needs Config`, and `main` binds `context { config.Config:
+   config.NewHost() }`. Laws: `Config.EnvironAgreesWithLookup`,
+   `Config.ReadIsRepeatable`.
+2. **Layers.** `Load[T wire](s Spec) T fails Unreadable | Malformed |
+   wired[T] needs Config` reads, highest first: the flags the command line
+   gave (`FromFlags(v)` takes only flags that were typed, never a flag's
+   default: `flag.GivenFlags`), the variables `Prefix_KEY` (none when the
+   prefix is empty), each file of `Files` in order (a missing file is
+   skipped), and `Defaults` (`DefaultsOf(value)`; `NoDefaults()`). The
+   default is stated once, as a value of the record. Two objects merge key
+   by key; any other value of a higher layer replaces the lower one whole,
+   so a list is never concatenated. Law `HigherLayerWins`.
+3. **Names.** A key is the field's wire name; a nested key joins names
+   with ".". `FlagName("server.port")` is `server.port`, `FlagName("apiToken")`
+   `api-token`; `EnvName("NOTES", "apiToken")` is `NOTES_API_TOKEN` and
+   `EnvName("NOTES", "server.port")` `NOTES_SERVER__PORT`. `FlagKey` and
+   `EnvKey` invert them (law `NamesInvert`). A key no field has is skipped,
+   as the codec skips unknown fields, so one prefix serves several records.
+4. **Texts.** A flag and a variable are text, read as the kind the field
+   asks for: an int by `strconv.ParseInt(text, 0, 64)` as std `flag`
+   reads one, a float by `ParseFloat`, a bool by `ParseBool`; a list field
+   splits each text at ","; a union field reads a variant with no field by
+   its name. A file's values are read as TOML or JSON give them (law
+   `RoundTripsThroughFiles`: a record written by `json.Encode` or
+   `toml.Encode` loads back as itself).
+5. **Failures.** A key no layer has fails `WireMissingField`
+   (`MissingKey(m)` is its dotted key; `Looked(spec, key)` lists the
+   sources Load tried, and `Describe(source)` writes one: `flag --api-token`,
+   `env NOTES_API_TOKEN`, `file c.toml`, `default`). A value of the wrong
+   kind fails `WireWrongKind` whose `Path` names the key and the source,
+   `limit (env BOOKMARKS_LIMIT)`, never the value. A file's syntax fails
+   `Malformed{Path, Line, Key, Reason}`; a file that is there and cannot be
+   read fails `Unreadable{Path, Reason}`. No failure holds a configured
+   text, so a secret's failure cannot show the secret.
+6. **Secrets.** `Redacted[T]` is a sealed operation type with one
+   operation, `Reveal() T`; `NewRedacted(v)` is its only maker, and
+   `LoadSecret[T](spec) Redacted[T]` reads a T and holds it. By
+   construction, not at run time:
+   - interpolation of a Redacted is refused (S108: an operation type has
+     no text form);
+   - encoding a value whose type reaches a Redacted, with `json.Encode`,
+     `toml.Encode` or any derived codec, is refused at check time (S108:
+     an operation type has no wire form, [types.md, Codecs](types.md#codecs)
+     1). A program that must send a secret calls `Reveal` where a reader
+     sees it;
+   - a failure report writes the field as `<Redacted>`, the
+     type's name ([types.md, Methods](types.md#methods) 6), and a law's
+     counterexample writes the builder's call `config.NewRedacted[T](…)`;
+   - the Go body (`runtime/v1/redacted.go`) keeps the value **behind a
+     pointer field, never inline in the struct**, so Go's `fmt`, which
+     prints a value it cannot call a method on field by field, can print
+     only an address; its `String`, `GoString`, `Format`, `MarshalJSON`,
+     `MarshalText` and `LogValue` write `<redacted>`. Go code reached by a
+     foreign call writes no byte of the secret.
+   Law `RevealIsTheValue`. A configuration record holds no Redacted (it
+   would have no codec); read the secret with its own record and
+   `LoadSecret`, and never from a flag, which the process list shows.
+7. **Directories.** `UserDirs(app) Dirs fails NoHome needs Config` is the
+   app's `Config`, `Cache` and `State` directories by the XDG Base
+   Directory rules on Linux and macOS alike: `$XDG_CONFIG_HOME/app`, else
+   `$HOME/.config/app`, and so on; a variable that is unset, empty or not
+   absolute is ignored. Go's `os.UserConfigDir` gives `~/Library/Application
+   Support` on macOS; command-line programs there (git, gh, fish) read
+   `~/.config`, and so does this.
+
+**Effect intent.** `Config` and `ConfigProvider` describe the
+configuration a program needs, read it from the environment, files and the
+command line with defaults, and fail with the key and the reason;
+`Redacted` keeps a token out of logs and encoded output. Not taken: the
+`Config.string`/`Config.integer` builder per key, `Config.withDefault` and
+`Config.nested` combinators (W1, W3, W7: the record, its codec and one
+`Spec` say it), `ConfigProvider` as a `Layer` (W4, W13: the `Config`
+capability and `context`), `ConfigError` trees with `_tag` (W5, W6: the
+row and `catch`), and `Redacted`'s run-time `toString`/`toJSON` and its
+module-level `WeakMap` (W19: the type has no text and no wire form, so the
+checker refuses it).
+
+**Prior art.** Go's `flag`, `os.Getenv` and `encoding/json` leave the
+layering to the program; viper and koanf merge maps of `any` and decode
+with `mapstructure` at run time. Rust's `figment` merges providers into one
+`serde` value and names the source of a bad value, as `WireWrongKind`'s
+path does; `secrecy::SecretBox` has no `Display`. Gleam has no std
+configuration (`envoy` reads one variable; `glenvy` loads `.env` files);
+Elixir's `Config` scripts evaluate keyword lists at boot and
+`System.fetch_env!` raises; ReScript reads `process.env` through bindings.
+None of these refuses a secret at compile time: each lowers to an ordinary
+library call on the host. Ergo lowers `Load` to one key tree of the layers
+and the shared Reader derivation, and `Redacted` to a Go pointer type.
+
+**Laws and runners.** lower `TestStdConfigLawsRun` restates the six
+laws of `config` as Ergo property tests (`Config`'s over a generated
+`Memory`) and runs them with `--seed 1`; `TestTOMLDecode` runs
+`toml.EncodeRoundTrips`. lower `TestRedactedRefusedAtCheck` holds, over
+generated types that hold a Redacted behind records, unions and slices,
+that `json.Encode`, `toml.Encode` and interpolation are refused and the
+same type with a string is accepted; lower `TestRedactedNeverPrints`, over
+a generated program, that no failure report holds a secret and each
+counterexample writes the builder; runtime/v1 `TestRedactedNeverRenders`,
+over generated Go values, that no `fmt` verb, `fmt.Errorf` chain,
+`encoding/json` or `log/slog` handler writes any byte of the secret.
+`examples/bookmarks` reads its settings and its token this way.
 
 ## Std laws
 
@@ -930,7 +1061,7 @@ The std takes the behaviour and the guarantees of Effect's modules, not an Effec
 - **W16** `Order` and `Equivalence` values passed by hand: the `ordered` and `comparable` constraints ([types.md, Generics](types.md#generics)).
 - **W17** a command typed by inference from an object of flag values (`Flag`, `Command.make`): a declared type with a derived parser (S5a; not built).
 - **W18** `Random` and `Clock` as references with a default: prelude and `time` capabilities bound by `context`.
-- **W19** `Redacted` with a runtime `toString`: a record that interpolation refuses (#67; not built).
+- **W19** `Redacted` with a runtime `toString`: `config.Redacted[T]`, a sealed operation type that interpolation and every codec refuse at check time ([config](#config) 6).
 - **W20** `Effect.timeout` that forks a fiber per call: `timeout.After(d) { … }`, an ordinary function whose row adds `Expired` ([runtime.md, Timeouts](runtime.md#timeouts)).
 
 The table has one row per std package, the prelude included. The Effect module is a file of `packages/effect/src` at pin `460272d3`, the pin of `conformance/effect-cases.json`. The last column is the package's lowering against hand-written Go: a benchmark the repository declares, as `<package dir>.Benchmark<Name>`, with its last recorded result and where the result is kept; or `pending:` and the file that holds the command; or `none:` and the reason. A result is a measurement on a shared host unless the cell says otherwise; a speed claim needs a quiet-host run (common rule). `TestStdStrengthsTable` finds the packages from `std.Packages()` and the prelude, never from a written list, and fails for a package with no row, a row for no package, an empty cell, a workaround id outside W1 to W20, an Ergo construct with no spec link, and a benchmark that the named package's tests do not declare. It checks names, not truth: a reviewer reads each row against the package source.
@@ -943,6 +1074,7 @@ The table has one row per std package, the prelude included. The Effect module i
 | `base64` | `Encoding.ts` | W3, W5, W6, W14 | the alphabet as the union `Encoding`, matched by `Encode` and `Decode`, where Effect has `encodeBase64` and `encodeBase64Url`; `Malformed` in the row, where Effect's `decodeBase64` returns an `Either` ([Encodings and digests](#encodings-and-digests) 2; [types.md, Unions](types.md#unions); [rows.md, Catch](rows.md#catch)) | `runtime/v1.BenchmarkDigest` (`Base64StdEncode` against Go's `EncodeToString`): pending in `wf10/batch-12/G/bench-pending.md` (expected equal but the string-to-bytes copy) |
 | `bits` | `Number.ts` | W3, W14 | pure data-first functions over the unsigned kinds, with laws ([math and bits](#math-and-bits); [Pure bodies](#pure-bodies)) | `runtime/v1.BenchmarkBitsRotate` against Go's `bits.RotateLeft32`: pending in `wf10/batch-12/S/bench-pending.md` (expected equal: the body inlines to Go's call, one instruction) |
 | `cmp` | `Order.ts` | W3, W16 | the `ordered` constraint ([types.md, Generics](types.md#generics)) | none: `Compare` and `Less` restate Go's `cmp.Compare` and `cmp.Less` over `runtime/v1`'s `ordered`; `TestStdCmpMatchesGo` holds the meaning; no benchmark yet |
+| `config` | `Config.ts`, `ConfigProvider.ts`, `Redacted.ts` | W1, W3, W4, W5, W6, W7, W13, W19 | the program's own record read by its derived codec from layers fixed in one `Spec`; the operation type `Config` with laws, bound by `context` (`NewHost`, `NewMemory`); `WireMissingField`, `WireWrongKind`, `Malformed` and `Unreadable` in the row; the sealed operation type `Redacted[T]`, which has no text and no wire form, so the checker refuses it ([config](#config)) | none: a program loads its configuration once at start; `Load` builds a key tree of the layers and decodes it with the shared Reader derivation, one pass more than a hand Go `json.Unmarshal` of one file, and no speed claim is made |
 | `crc32` | none: Effect has no checksum module | W14 | pure functions over byte strings, with the chain laws of `Update` ([Encodings and digests](#encodings-and-digests) 4; [Pure bodies](#pure-bodies)) | `runtime/v1.BenchmarkDigest` (`Crc32Checksum` against Go's `ChecksumIEEE`): pending in `wf10/batch-12/G/bench-pending.md` (expected equal but the string-to-bytes copy) |
 | `csv` | none (Effect has no CSV module) | W5, W6, W14 | `ParseError` in the row of `ReadAll`, and the union `Row` (`Parsed \| Malformed`) for a stream that cannot fail, matched exhaustively ([csv](#csv) 2) | `runtime/v1.BenchmarkCSV` (`ReadAll` and `Format` against Go's reader and writer, and `Scan`, the body of `Rows`, against a `Reader.Read` loop (fs3), 2,000 rows): the bodies are Go's reader and writer, with the same allocations; quiet run pending in `wf10/batch-12/U/bench-pending.md` |
 | `exec` | `process/ChildProcess.ts` | W4, W5, W14 | the operation type `Runner` with laws, `NotFound \| Denied \| Failed` in the row, `context` binds `Host` or `Script` ([rows.md, Capability rows](rows.md#capability-rows); [rows.md, Catch](rows.md#catch)) | `runtime/v1.BenchmarkExecRunTrue`: 566 µs against `exec.CommandContext` 823 µs, ±30 to 40 %, load 18 to 29 (run dir `wf10/batch-10/s3/s3c/bench.log`); quiet rerun pending in `wf10/batch-10/s3/bench-pending.md`; `internal/sketch/lower.BenchmarkExecKey`: `Key` of 10 arguments makes 2 allocations, as Go's `strings.Join` does, where the old loop made 10 (count 1, load 21; timing pending in `wf10/batch-11/ss-a/bench-pending.md`) |
