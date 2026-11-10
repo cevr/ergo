@@ -143,6 +143,11 @@ type funcCtx struct {
 	// (plainCatch): the call leaves Go's error as it is, since only its
 	// nil test is read (goErrorOf).
 	rawErr syntax.Expr
+	// plain marks the callback parameters of a known variant, whose Go
+	// type is the plain func(…) R, and plainLits the pure literals a call
+	// passes to one (known.go).
+	plain     map[*check.Var]bool
+	plainLits map[*syntax.FuncLit]bool
 }
 
 func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {

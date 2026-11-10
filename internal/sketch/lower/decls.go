@@ -88,6 +88,9 @@ type funcDecl struct {
 	// ok is the Go name of the comma-ok variant of a maps.Update callback
 	// once it is queued (update.go, okVariant).
 	ok string
+	// known is the Go name of the known-callback variant once it is
+	// queued (known.go, knownName).
+	known string
 }
 
 // declareNames gives every package-level declaration of the user package its
@@ -907,12 +910,14 @@ func (l *lowerer) emitFunc(fd *funcDecl) {
 // emitFuncBody writes fd's Go declaration, or, when variant is set, its
 // comma-ok variant fd.ok: the same body with its Option parameter taken as
 // a value and a flag (update.go, okShape).
-func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) { l.emitBody(fd, variant, nil) }
+func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) { l.emitBody(fd, variant, nil, false) }
 
 // emitBody writes what emitFuncBody writes, or, with flat, the flat step of
 // a machine's flat run (machinerun.go): fd's body under flat's step name,
-// its state parameter flat and its decision returned as a value.
-func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
+// its state parameter flat and its decision returned as a value; with
+// known, fd's known-callback variant (known.go): its callback parameters
+// plain and no entry poll.
+func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun, known bool) {
 	l.bodies++
 	f := fd.fn
 	b := &l.user
@@ -989,12 +994,25 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
 	// own and keeps f's name for a wrapper that copies them (values.go, V5).
 	bodyName, wrapHead, wrapParams := fd.name, "", ""
 	var typeArgs, args []string
-	owned := !variant && fd.method == nil && fd.extern == "" && len(l.ownedParams(f)) > 0
+	owned := !variant && !known && fd.method == nil && fd.extern == "" && len(l.ownedParams(f)) > 0
 	if owned {
 		bodyName = l.pkgName(ownedKey(f), f.Name+"Owned")
 	}
 	if variant {
 		bodyName = fd.ok
+	}
+	methodName := fd.name
+	if known {
+		if variant || flat != nil || fd.extern != "" {
+			ice(site, "the known variant of %s is not a plain body", f.Name)
+		}
+		bodyName, methodName = fd.known, fd.known
+		fc.plain = map[*check.Var]bool{}
+		for _, i := range callbackParams(f) {
+			if params[i] != nil {
+				fc.plain[params[i]] = true
+			}
+		}
 	}
 	flatParam := ""
 	if flat != nil {
@@ -1019,7 +1037,7 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
 			recv = "*" + recv
 		}
 		paramNames[0] = name(0)
-		head.WriteString("func (" + paramNames[0] + " " + recv + ") " + fd.name + "(")
+		head.WriteString("func (" + paramNames[0] + " " + recv + ") " + methodName + "(")
 	} else {
 		list, tps := l.typeParams(own, scope, site)
 		fc.params = tps
@@ -1087,7 +1105,11 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
 			parts = append(parts, flatParam+" "+flat.flat)
 			continue
 		}
-		parts = append(parts, paramNames[i]+" "+fc.goType(p.Type))
+		if s, ok := p.Type.(*check.Signature); ok && known {
+			parts = append(parts, paramNames[i]+" "+fc.plainFuncType(s))
+		} else {
+			parts = append(parts, paramNames[i]+" "+fc.goType(p.Type))
+		}
 		args = append(args, paramNames[i])
 	}
 	head.WriteString(strings.Join(parts, ", ") + ")")
@@ -1150,7 +1172,16 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
 			fc.site = site
 			fc.openFrame(frameErr)
 		}
-		fc.entryPoll(f.Pkg.Info, f.Decl)
+		switch {
+		case known:
+			// A known variant has no entry poll: its callbacks are known
+			// pure literals, which cannot re-enter it (known.go).
+		case flat == nil && !variant && frameFootprint(f.Pkg.Info, f.Decl).EntryPoll && l.knownClosed(f):
+			// Nor has a closed frame: no unknown code runs in it.
+			l.stats.ClosedEntries++
+		default:
+			fc.entryPoll(f.Pkg.Info, f.Decl)
+		}
 		fc.body(f.Decl.Body.List)
 	})
 	if flat != nil {
@@ -1161,7 +1192,7 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
 		b.WriteString(directive + head.String() + " {\n" + body + "}\n\n")
 		return
 	}
-	if !variant {
+	if !variant && !known {
 		fd.lowered, fd.readsEnv = true, fc.env != "" && namesIdent(fc.out.String(), fc.env)
 	}
 	b.WriteString(directive + head.String() + " {\n" + fc.out.String() + "}\n\n")

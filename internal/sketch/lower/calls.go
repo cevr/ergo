@@ -207,6 +207,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			_, isPtr := fc.typeOf(c.Recv).(*check.Pointer)
 			addr = !isPtr
 		}
+		// A call whose callbacks are all known goes to the known variant
+		// (known.go), its literals lowered plain.
+		known := fc.knownSite(x, c)
 		// An argument for a parameter func(…) T whose T a block with no
 		// value binds needs no adapter: a function value with no result
 		// and the instance's func(…) struct{} are one Go shape (C11).
@@ -218,7 +221,11 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			if len(vals) == 0 {
 				ice(x, "a method call with no receiver")
 			}
-			head, rest = "("+vals[0]+")."+fd.name, vals[1:]
+			name := fd.name
+			if known {
+				name = fc.l.knownName(c.Func, fd)
+			}
+			head, rest = "("+vals[0]+")."+name, vals[1:]
 		} else {
 			// Info names every type argument of a generic call: written,
 			// inferred, bound by a dot call's receiver (D-D8) or by an
@@ -228,6 +235,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 				// The body that takes its owned arguments as they are
 				// passed: this call passes them unshared (values.go, V5).
 				name = fc.l.pkgName(ownedKey(c.Func), c.Func.Name+"Owned")
+			}
+			if known {
+				name = fc.l.knownName(c.Func, fd)
 			}
 			head, rest = name+fc.typeArgs(c.Func.Sig, c.TypeArgs, x), vals
 		}
@@ -309,6 +319,13 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			ice(x.Fun, "a called value that is not a function")
 		}
 		vals := fc.callArgs(append([]syntax.Expr{x.Fun}, args...), x)
+		if id, ok := unparen(x.Fun).(*syntax.Ident); ok {
+			if v, ok := fc.l.info.Uses[id].(*check.Var); ok && fc.plain[v] {
+				// A known variant's callback (known.go): a direct Go call,
+				// with no environment and no error.
+				return vals[0] + "(" + strings.Join(vals[1:], ", ") + ")", len(sig.Results) > 0, false
+			}
+		}
 		// The uniform shape returns a Go value even with no result: struct{}
 		// (typeCtx.funcType), which call discards.
 		return vals[0] + "(" + strings.Join(append(fc.taskDestArgs(x, c, sig), vals[1:]...), ", ") + ")", true, true

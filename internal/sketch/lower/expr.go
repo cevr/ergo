@@ -305,6 +305,9 @@ func (fc *funcCtx) exprOf(x syntax.Expr) operand {
 	case *syntax.CatchExpr:
 		return fc.catch(x, false)
 	case *syntax.FuncLit:
+		if fc.plainLits[x] {
+			return operand{val: fc.plainLit(x)} // known.go
+		}
 		return operand{val: fc.funcLit(x.Type, x.Body.List, x)}
 	case *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
 		return fc.branchExpr(x)
