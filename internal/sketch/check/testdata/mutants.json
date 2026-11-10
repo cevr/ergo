@@ -2035,17 +2035,6 @@
       ]
     },
     {
-      "name": "L8-B1 a value that needs a generated release admitted",
-      "origin": "wf10 L8 B1 (#197)",
-      "file": "internal/sketch/check/ownership.go",
-      "from": "\tif cl == nil {\n\t\tw.reportCode(at, CodeOutside,",
-      "to": "\tif cl == nil && false {\n\t\tw.reportCode(at, CodeOutside,",
-      "rule": "resources R3: an aggregate holding a resource has no release until B2 generates it, so it is refused (S109).",
-      "killers": [
-        "check:TestOwnershipGlueRefused"
-      ]
-    },
-    {
       "name": "L8-B1 a hand-off not recorded",
       "origin": "wf10 L8 B1 (#197)",
       "file": "internal/sketch/check/ownership.go",
@@ -2054,17 +2043,6 @@
       "rule": "resources R15, R19: the lowering ends the owner's entry at each hand-off the checker records.",
       "killers": [
         "lower:TestOwnershipRunModel"
-      ]
-    },
-    {
-      "name": "L8-B1 a method value of Close lends its receiver",
-      "origin": "wf10 L8 B1 (#197)",
-      "file": "internal/sketch/check/ownership.go",
-      "from": "\t\t\tw.expr(x.X, mMove, hand{at: x,",
-      "to": "\t\t\tw.expr(x.X, mLend, hand{at: x,",
-      "rule": "resources R19: `let f = r.Close` takes r; the call of f is its one release.",
-      "killers": [
-        "lower:TestRuntime199MaskProperty"
       ]
     },
     {
@@ -2087,6 +2065,61 @@
       "rule": "resources R19: `let f = Close; f(c)` takes c, as `Close(c)` does.",
       "killers": [
         "lower:TestRuntime199MaskProperty"
+      ]
+    },
+    {
+      "name": "L8-B2 a value with no release admitted",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tif d == nil {\n\t\tw.reportCode(at, CodeType,",
+      "to": "\tif d == nil && false {\n\t\tw.reportCode(at, CodeType,",
+      "rule": "resources R1, R13: a value whose type keeps resources with no Close has no release, so it is refused, not leaked.",
+      "killers": [
+        "check:TestNoReleaseRefused"
+      ]
+    },
+    {
+      "name": "L8-B2 a method value of Close admitted",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\tw.reportCode(x, CodeType, \"%s is a method value of Close",
+      "to": "\t\t\t_ = w.reportCode; _ = fmt.Sprintf(\"%s is a method value of Close",
+      "rule": "resources R19, R33: a function value owns no resource; `let f = r.Close` is refused, so r is released once.",
+      "killers": [
+        "check:TestCloseFormsTakeOnce"
+      ]
+    },
+    {
+      "name": "L8-B2 an operation type's Close takes nothing",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "internal/sketch/check/close.go",
+      "from": "\t\tsig.TakesSelf = true",
+      "to": "",
+      "rule": "resources R19, Gap 39: an operation type's Close() takes the value it is called on, as the written Close that implements it does (one rule: closeTakes).",
+      "killers": [
+        "check:TestCloseFormsTakeOnce"
+      ]
+    },
+    {
+      "name": "L8-B2 a generic body's dropped T is no copy site",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tif t := w.typ(l); w.copies != nil && w.genericOnly(t) {",
+      "to": "\t\tif t := w.typ(l); false && w.copies != nil && w.genericOnly(t) {",
+      "rule": "resources Gap 42: a generic body cannot release a T yet, so its drop refuses an instance with a resource instead of leaking it.",
+      "killers": [
+        "check:TestGenericDropRefused"
+      ]
+    },
+    {
+      "name": "L8-B2 a Close through &h takes nothing",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tif x.Op != syntax.AND {\n\t\t\treturn nil, 0, false",
+      "to": "\t\tif x.Op != syntax.AND || true {\n\t\t\treturn nil, 0, false",
+      "rule": "resources R19: `(&h).Close()` takes h; h is released once, not again at its scope end.",
+      "killers": [
+        "check:TestCloseFormsTakeOnce"
       ]
     }
   ]

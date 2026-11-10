@@ -59,8 +59,15 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 	if goExternCall(c) {
 		return fc.goExtern(x, c) // gocall.go, Level 2 adapters
 	}
+	held := fc.holdTaken(x, c)
 	text, result, fallible := fc.callText(x, c)
 	defer fc.identify(x, c)()
+	if len(held) > 0 {
+		if !fallible || result {
+			ice(x, "a bodiless call that takes an owned value and is not a fallible call with no result")
+		}
+		return fc.settleTaken(held, text, failsHere(c), x)
+	}
 	if hostCalled(c) {
 		v := ""
 		if result {
@@ -966,7 +973,7 @@ func (fc *funcCtx) scopeCall(name, recv string, vals []string, site syntax.Node)
 // Close (With.Acquired, the checker's ownership fact).
 func ownsResources(w *check.With) bool {
 	for _, a := range w.Acquired {
-		if a.Close != nil {
+		if a.Releases() {
 			return true
 		}
 	}
@@ -1164,7 +1171,7 @@ func (fc *funcCtx) buildProvider(a *check.Acquisition, target, outer, ws string,
 func (fc *funcCtx) publishProvider(a *check.Acquisition, target string) string {
 	e := a.Entry
 	val := fc.value(e.Provider)
-	if len(a.Caps) > 1 || a.Close != nil {
+	if len(a.Caps) > 1 || a.Releases() {
 		val = fc.spill(val)
 	}
 	for _, i := range a.Caps {

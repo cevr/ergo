@@ -131,7 +131,7 @@ func (c *checker) withOwnership() {
 				c.errorf(s.x, CodeOutside, "this context's provider ownership cannot be proved without its defining package's facts; further resource ownership is #197's (resources.md, Context ownership)")
 				continue
 			}
-			if a.Close == nil {
+			if !a.Releases() {
 				continue
 			}
 			owning = true
@@ -262,6 +262,9 @@ func (c *checker) acquire(w *Context, reached []*ContextEntry, owners map[*Conte
 		}
 		if info := providerInfo(owners[e]); info != nil {
 			a.Close = c.providerClose(info.Types[e.Provider])
+			if d, _ := c.dropOf(info.Types[e.Provider]); d.Glue() {
+				a.Drop = d
+			}
 		}
 		list = append(list, a)
 	}
@@ -435,7 +438,7 @@ func (c *checker) ownedBlock(x *syntax.CallExpr, w *With, taskHeld map[*syntax.C
 	// an exit action; a provider built from a resource does not.
 	closed := map[*ContextEntry]bool{}
 	for _, a := range w.Acquired {
-		closed[a.Entry] = a.Close != nil
+		closed[a.Entry] = a.Releases()
 		for _, cap := range a.Entry.Uses {
 			closed[a.Entry] = closed[a.Entry] || closed[w.Contexts[0].Provider(cap)]
 		}

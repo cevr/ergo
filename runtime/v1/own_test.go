@@ -201,6 +201,78 @@ func renderExit(v int, err error) string {
 	return strings.Join(parts, "; ")
 }
 
+// benchTrio is a record of three resources, as B2's generated release
+// sees it.
+type benchTrio struct{ a, b, c benchRes }
+
+// BenchmarkReleaseParts is the plain generated release (B2) of a record
+// of three resources and of a slice of eight, in the shape the lowering
+// writes (OwningParts, one Drop, a Part per Close), against hand Go's
+// deferred Closes in reverse order. P-L8's static path targets hand's
+// numbers.
+func BenchmarkReleaseParts(b *testing.B) {
+	var n int
+	root := rt.Root("main")
+	b.Run("record/owned", func(b *testing.B) {
+		for range b.N {
+			frameNoRow(root, func(s *Scope) {
+				h := s.Owner()
+				OwningParts(h, benchTrio{benchRes{&n}, benchRes{&n}, benchRes{&n}}, func(v benchTrio, taken uint64) {
+					d := s.Drop()
+					if taken&4 == 0 {
+						d.Part(func() { v.c.Close() })
+					}
+					if taken&2 == 0 {
+						d.Part(func() { v.b.Close() })
+					}
+					if taken&1 == 0 {
+						d.Part(func() { v.a.Close() })
+					}
+					d.End()
+				})
+			})
+		}
+	})
+	b.Run("record/hand", func(b *testing.B) {
+		for range b.N {
+			func() {
+				v := benchTrio{benchRes{&n}, benchRes{&n}, benchRes{&n}}
+				defer v.a.Close()
+				defer v.b.Close()
+				defer v.c.Close()
+			}()
+		}
+	})
+	b.Run("slice/owned", func(b *testing.B) {
+		for range b.N {
+			frameNoRow(root, func(s *Scope) {
+				h := s.Owner()
+				OwningParts(h, make([]benchRes, 8), func(v []benchRes, _ uint64) {
+					d := s.Drop()
+					for i := len(v) - 1; i >= 0; i-- {
+						e := v[i]
+						d.Part(func() { e.n = &n; e.Close() })
+					}
+					d.End()
+				})
+			})
+		}
+	})
+	b.Run("slice/hand", func(b *testing.B) {
+		for range b.N {
+			func() {
+				v := make([]benchRes, 8)
+				defer func() {
+					for i := len(v) - 1; i >= 0; i-- {
+						v[i].n = &n
+						v[i].Close()
+					}
+				}()
+			}()
+		}
+	})
+}
+
 // benchRes is a resource whose release counts.
 type benchRes struct{ n *int }
 

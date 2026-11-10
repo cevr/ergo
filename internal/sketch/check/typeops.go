@@ -780,7 +780,7 @@ func (c *checker) implements(v Type, it *Interface) string {
 			return fmt.Sprintf("%s.%s differs in fallibility from the interface's method", v, m.Name)
 		}
 		if c.takesEffect(got, v) != c.takesEffect(m.Sig, v) {
-			return fmt.Sprintf("%s.%s takes %s, but the interface's method takes %s (resources R19, Gap 39)", v, m.Name, takesText(got), takesText(m.Sig))
+			return fmt.Sprintf("%s.%s %s, but the interface's method %s (resources R19, Gap 39)", v, m.Name, takesText(got), takesText(m.Sig))
 		}
 	}
 	return ""

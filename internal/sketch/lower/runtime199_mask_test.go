@@ -93,9 +93,10 @@ func closeDispatch(t *testing.T) map[string]bool {
 			// R24; check TestContextOwnershipRefusals), and the with's release
 			// is a plain call of the checked Close (providerRelease).
 		case check.CallFuncValue:
-			// The value is a checked Close reference: a declared function
-			// or an operation method value.
-			paths["value"], paths["methodValue"] = true, true
+			// The value is a checked Close function: an operation's method
+			// value of Close is refused (resources R33: a function value owns
+			// no resource; check TestCloseMethodValueRefused).
+			paths["value"] = true
 		case check.CallConversion, check.CallLen, check.CallWith, check.CallPrelude, check.CallGoError, check.CallEncode, check.CallDecode:
 			// A conversion, len, go.Is and go.As, encode and decode (L11)
 			// and a with block call no Close; a prelude dot call is a
@@ -323,13 +324,6 @@ func viaOp(fail bool, signal queue.Queue[int]) {
 	r.Close()
 }
 
-func viaMethodValue(fail bool, signal queue.Queue[int]) {
-	let r Releaser = Plain{Fail: fail, Live: NewLiveScheduler()}
-	let f = r.Close
-	signal.End()
-	f()
-}
-
 func twinOperand(fail bool, signal queue.Queue[int]) {
 	with context { Scheduler: NewLiveScheduler() } {
 		let o = Other{Fail: fail}
@@ -341,7 +335,6 @@ func twinOperand(fail bool, signal queue.Queue[int]) {
 		paths: []maskPath{
 			{"dot", "viaDot", time.Hour},
 			{"op", "viaOp", 2 * time.Hour},
-			{"methodValue", "viaMethodValue", 2 * time.Hour},
 		},
 		twins:  []string{"twinFinish", "twinOperand"},
 		frames: true,

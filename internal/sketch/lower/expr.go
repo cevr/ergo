@@ -278,6 +278,7 @@ func (fc *funcCtx) exprOf(x syntax.Expr) operand {
 	case *syntax.BasicLit:
 		ice(x, "a literal with no Values entry")
 	case *syntax.SelectorExpr:
+		fc.takeField(x)
 		return operand{val: fc.selector(x)}
 	case *syntax.BinaryExpr:
 		switch x.Op {
@@ -562,6 +563,12 @@ func (fc *funcCtx) rangeValue(x *syntax.BinaryExpr) string {
 // unary lowers -x, +x, !x, ^x and &x.
 func (fc *funcCtx) unary(x *syntax.UnaryExpr) string {
 	op := x.Op.String()
+	if id, ok := unparen(x.X).(*syntax.Ident); ok && op == "&" && fc.l.info.Handoffs[id] != nil {
+		// A Close through the address of an owned local takes it: its
+		// entry ends here, as at a by-address receiver (place).
+		fc.line("_ = " + fc.handoff(id, fc.ident(id), false))
+		return "(&" + fc.ident(id) + ")"
+	}
 	switch op {
 	case "-", "+", "!", "^", "&":
 		return "(" + op + fc.value(x.X) + ")"

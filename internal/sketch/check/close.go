@@ -13,12 +13,15 @@ type Close struct {
 
 // closeTakes writes in the signature of a Close of the R1 shape that it
 // takes its receiver (R19), so a call through its function value moves the
-// argument as a direct call does (`let f = Close; f(c)`; Gap 39 makes the
-// clause part of a function type's identity in A3). closeFacts admits or
-// refuses the Close itself.
+// argument as a direct call does (`let f = Close; f(c)`), and its takes is
+// part of its type as any written clause is (Gap 39). One rule for both
+// forms: a written Close takes its receiver parameter, an operation type's
+// `Close()` takes the value it is called on (closeOpTakes), so an
+// implementation matches its operation type. closeFacts admits or refuses
+// the Close itself.
 func closeTakes(f *Func) {
 	sig := f.Sig
-	if f.owner == nil || f.Name != "Close" || len(sig.Params) != 1 || len(sig.Results) != 0 || sig.Takes != nil {
+	if f.owner == nil || f.Name != "Close" || len(sig.Params) != 1 || len(sig.Results) != 0 || sig.Fallible || sig.Takes != nil {
 		return
 	}
 	recv := sig.Params[0].Type
@@ -27,6 +30,15 @@ func closeTakes(f *Func) {
 	}
 	if n, ok := recv.(*Named); ok && ownTypeParam(n, f) == nil {
 		sig.Takes = []int{0}
+	}
+}
+
+// closeOpTakes is closeTakes for an operation of an operation type: a
+// `Close()` with no parameters, results or error row takes the value it is
+// called on (a bare takes), as the written Close that implements it does.
+func closeOpTakes(name string, sig *Signature) {
+	if name == "Close" && len(sig.Params) == 0 && len(sig.Results) == 0 && !sig.Fallible && sig.Takes == nil {
+		sig.TakesSelf = true
 	}
 }
 

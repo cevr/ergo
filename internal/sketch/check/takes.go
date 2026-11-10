@@ -94,7 +94,7 @@ func (c *checker) takesEffect(sig *Signature, recv Type) string {
 // takesText is the clause as written, for a message.
 func takesText(sig *Signature) string {
 	if len(sig.Takes) == 0 && !sig.TakesSelf {
-		return "nothing"
+		return "takes nothing"
 	}
 	var names []string
 	if sig.TakesSelf {

@@ -466,7 +466,9 @@ func result(t *testing.T, done <-chan error) error {
 
 // TestQueueModel compares the queue with a model on random sequences of
 // operations from one goroutine: Push, Pop, Poll, Close, and Len before each
-// step. The model is a FIFO list, a capacity and a closed flag. An operation
+// step. The model is a FIFO list, a capacity and a closed flag; at the end
+// the queue is emptied by Values after End, or by Drain (the release of a
+// queue of resources, #197 L8 B3), which must also end admission. An operation
 // that would wait is skipped: the interleavings test covers waits. Poll is
 // never skipped, since it never waits.
 func TestQueueModel(t *testing.T) {
@@ -524,10 +526,19 @@ func TestQueueModel(t *testing.T) {
 				}
 			}
 		}
-		q.End()
 		var rest []int
-		for v := range q.Values(bg) {
-			rest = append(rest, v)
+		if seed%2 == 0 {
+			// The release of a queue of resources (#197 L8 B3, Q7): Drain
+			// ends admission and gives every value left, oldest first.
+			rest = q.Drain()
+			if !closed(t, q.Push(bg, next)) {
+				t.Fatalf("seed %d: Push after Drain did not fail with queue.Closed: the drain left admission open", seed)
+			}
+		} else {
+			q.End()
+			for v := range q.Values(bg) {
+				rest = append(rest, v)
+			}
 		}
 		if fmt.Sprint(rest) != fmt.Sprint(append([]int{}, model...)) && !(len(rest) == 0 && len(model) == 0) {
 			t.Fatalf("seed %d: drained %v; want %v", seed, rest, model)

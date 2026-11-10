@@ -983,6 +983,9 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx) *Inter
 			mctx.params, mctx.decl = ctx.params, ctx.decl
 		}
 		sig := c.signature(ft, mctx)
+		if c.pkg.host == nil {
+			closeOpTakes(name.Name, sig)
+		}
 		if ft.Needs != nil && c.pkg.host == nil {
 			// A Go interface's method runs Go code: its binding charges
 			// go.Foreign at the call (docs/spec/interop.md).
