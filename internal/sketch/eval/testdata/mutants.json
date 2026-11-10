@@ -274,8 +274,8 @@
       "name": "copy-fuel-ignored",
       "origin": "wf10/l7-eval/EV2",
       "file": "internal/sketch/eval/coll.go",
-      "from": "\tif ab := in.charge(fr, at, int64(s.n)+1); ab != nil {",
-      "to": "\tif ab := in.charge(fr, at, 0); ab != nil {",
+      "from": "\tif ab := in.build(fr, at, int64(s.n)+1, int64(s.n), 0); ab != nil {",
+      "to": "\tif ab := in.build(fr, at, 0, int64(s.n), 0); ab != nil {",
       "rule": "Bulk copying consumes element work before allocation (plan section 5).",
       "killers": ["internal/sketch/eval:TestEvalMetersCollectionsAndCalls"]
     },
