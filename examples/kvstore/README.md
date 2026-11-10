@@ -51,5 +51,5 @@ Closed in batch 12: G-ex-c-4 (`fs.Writes` now appends, renames and removes: a pu
 
 - **G-ex-c-5: a member law cannot share its check.** `ergo test` runs `Store`'s laws in `memory` against `memory.Table` and the `fs.Writes` laws against `memory.Full` (`NewFull`; G-exup-1 closed in batch 13), but skips `Store`'s laws for `file.Log`, which holds an `fs.Files` and has no constructor without rows (`expected-skips`). A member law cannot call a function that needs its own type, so each law is also a `…Holds` function in `kv/checks.ergo`, which each provider's tests call.
 - **G-ex-c-6: `flag.Choice` reads a string.** The match on the store needs `case _` for `file`.
-- **G-ex-c-1: diagnostics name a type of a package folder as `main.T`.**
+- **G-ex-c-1** (closed by batch-12 K4, rechecked in L9): diagnostics name a package's own types as its source writes them (measured: the repro prints `{Broken} escapes function Use`; `TestDiagnosticTypeNamesResolve` holds the rule).
 - Syntax friction, no gap: `try` stands only at the start of an expression, so `a && try f()` is written `a && (try f())`, and a `catch` ends its expression, so `try f() catch { … } == v` is written through a helper (`kv.Lookup`).
