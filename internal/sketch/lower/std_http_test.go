@@ -71,6 +71,7 @@ import http
 import strings
 import time
 import strconv
+import sync
 
 func segment(step int) string {
 	let segments = []string{"..", ".", "", "a.txt", "sub", "out", "in", "%2e%2e", "...", "..a", "b.txt"}
@@ -172,6 +173,40 @@ test HttpBuiltPathMatches(a string, b string) {
 	}
 }
 
+test HttpStreamIsItsWrites(status int, parts []string) {
+	let header = []http.Field{http.Field{Name: "Content-Type", Value: "text/plain"}}
+	let response = with context { http.Streaming: http.NewRecorder() } {
+		http.Stream(status, header, func(w http.BodyWriter) fails http.WriteFailed {
+			for p in parts {
+				try w.Write(p)
+			}
+		})
+	}
+	let mut want = ""
+	for p in parts {
+		want = want + p
+	}
+	assert response == http.Response{Status: status, Header: header, Body: want}
+}
+
+test HttpWriteAfterStreamFails(text string) {
+	let kept = sync.NewRef[[]http.BodyWriter]([]http.BodyWriter{})
+	let response = with context { http.Streaming: http.NewRecorder() } {
+		http.Stream(200, []http.Field{}, func(w http.BodyWriter) fails http.WriteFailed {
+			kept.Set([]http.BodyWriter{w})
+		})
+	}
+	assert len(kept.Get()) == 1
+	for w in kept.Get() {
+		w.Write(text) catch {
+		case http.WriteFailed:
+			assert response.Body == ""
+			return
+		}
+	}
+	assert false
+}
+
 test RouterRefusalsAndHead(id string) {
 	let path = "/jobs/j" + strings.ReplaceAll(id, "/", "_")
 	let routes = []http.Route{http.Route{Name: "get", Method: "GET", Path: "/jobs/:id"}, http.Route{Name: "head", Method: "HEAD", Path: "/jobs/:id"}}
@@ -218,9 +253,13 @@ func TestStdHTTPLawsRun(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("HTTP laws: exit %d\n%s\n%s", code, stdout, stderr)
 	}
-	statements := map[string]string{"http BuiltPathMatches": httpBuiltPathStatement, "http FilesAsksBeneath": httpFilesStatement}
+	statements := map[string]string{"http BuiltPathMatches": httpBuiltPathStatement, "http FilesAsksBeneath": httpFilesStatement, "http StreamIsItsWrites": httpStreamStatement, "http WriteAfterStreamFails": httpLateWriteStatement}
 	lawLabel := func(key string) string { return "Http" + strings.TrimPrefix(key, "http ") }
 	lawledger.Run(t, lawsPassed(t, statements, lawLabel, stdHTTPLawsProbe, stdout, "RouterRefusalsAndHead", "HandlerUnderManual", "FilesAnswersByTheRule"))
 }
 
 const httpFilesStatement = `FilesAsksBeneath(steps []int, prefixed bool) { let mut rest = "" let mut dotdot = false for i, s in steps { let e = fileSegment(s) dotdot = dotdot || e == ".." rest = if i == 0 { e } else { rest + "/" + e } } let path = if prefixed { "/static/" + rest } else { "/" + rest } let method = if len(steps)%2 == 0 { "GET" } else { "HEAD" } let root = filesProbe{paths: sync.NewRef[[]string]([]string{})} let response = Files(root, "/static/", Request{Method: method, Path: path, Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}) let asked = root.paths.Get() if len(asked) > 1 || (dotdot || !prefixed) && len(asked) != 0 { return false } for p in asked { if strings.HasPrefix(p, "/") { return false } for e in strings.Split(p, "/") { if e == "" || e == "." || e == ".." { return false } } } response.Status == 200 || response.Status == 403 || response.Status == 404 }`
+
+const httpStreamStatement = `StreamIsItsWrites(status int, parts []string) { let header = []Field{Field{Name: "Content-Type", Value: "text/plain"}} let response = with context { Streaming: NewRecorder() } { Stream(status, header, func(w BodyWriter) fails WriteFailed { for p in parts { try w.Write(p) } }) } let mut want = "" for p in parts { want = want + p } response == Response{Status: status, Header: header, Body: want} }`
+
+const httpLateWriteStatement = `WriteAfterStreamFails(text string) { let kept = sync.NewRef[[]BodyWriter]([]BodyWriter{}) let response = with context { Streaming: NewRecorder() } { Stream(200, []Field{}, func(w BodyWriter) fails WriteFailed { kept.Set([]BodyWriter{w}) }) } for w in kept.Get() { w.Write(text) catch { case WriteFailed: return response.Body == "" } } false }`

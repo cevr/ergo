@@ -2,6 +2,17 @@
   "about": "The mutant ledger of internal/sketch/check: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants check; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
+      "name": "seal-callback-params",
+      "origin": "wf10 Rm",
+      "file": "internal/sketch/check/extern.go",
+      "from": "if ft, ok := p.Type.(*syntax.FuncType); ok && ft.Params != nil {",
+      "to": "if ft, ok := p.Type.(*syntax.FuncType); false && ok && ft.Params != nil {",
+      "rule": "A std operation type the host hands a program through an extern's callback (http.Exchange) is sealed: the runtime's Go type, never a program interface.",
+      "killers": [
+        "lower:TestHTTPHandlerRows"
+      ]
+    },
+    {
       "name": "existing-0-B1 rowText prints commas",
       "origin": "196n/mutants-b.json",
       "file": "internal/sketch/check/typeops.go",

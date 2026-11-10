@@ -77,7 +77,7 @@ The lowering supplies these values from the caller's frame and the checked decla
 
 1. A basic type is its Go type (`int` is `int`), a type parameter keeps its name, and `[]T` is a Go slice.
 2. A row parameter (`E`, `R` in `task.Go[T, E, R]`) has no Go type parameter: rows are erased (rows.md), so the body is `Go[T any]`, and `Task[T, E]` is `*Task[T]`. The type parameters left after erasure are the Go ones, with the same names in order and the same constraint (none or `any` is `any`, `comparable` is `comparable`, `ordered` is `runtime/v1`'s `ordered`, whose terms are Go's `cmp.Ordered`'s and the lowering's generated set's), so the checker admits a type argument exactly when the Go call compiles: `slices.WithCapacity[[]int](3)` is valid on both sides, and so is `slices.Sort` of a slice of a type parameter `T ordered`. An operation takes the type parameters of its type (`Queue[T]`, `Task[T, E]`). An error row is the last Go result `error`; a capability row is captured by the lowered block, never passed.
-3. An operations type that a std extern returns (`queue.Queue[T]`, the prelude's `Task[T, E]`) is the runtime type that the extern's body returns, `*v1.Queue[T]` or `*v1.Task[T]`; the lowering emits no interface for it. A returned Task needs the concrete `*v1.Task[T]` to `Move`, and `Close`, `Wait` and `Stop` take no task, so one emitted shape would need an adapter per type. These are the sealed std protocols (`check.SealedStd`): a value of the program converted to such a type is refused with S109 naming [#206](https://github.com/cevr/ergo/issues/206) ("… it is a sealed std protocol; a program value implements it in #206"). An operations type of std that no std extern returns (the prelude's `Console`, `os.Process`) is open: a program value implements it, as for a Go interface ([os](#os) 5); a type defined over one and a pointer to one are S108 (types.md, Defined types 1 and Operation types).
+3. An operations type that a std extern returns (`queue.Queue[T]`, the prelude's `Task[T, E]`), or that a parameter of a function an extern calls names (`http.Exchange`, which `http.Serve`'s transport hands each request), is the runtime type that the extern's body returns or passes, `*v1.Queue[T]`, `*v1.Task[T]` or `*v1.Exchange`; the lowering emits no interface for it. A returned Task needs the concrete `*v1.Task[T]` to `Move`, and `Close`, `Wait` and `Stop` take no task, so one emitted shape would need an adapter per type. These are the sealed std protocols (`check.SealedStd`): a value of the program converted to such a type is refused with S109 naming [#206](https://github.com/cevr/ergo/issues/206) ("… it is a sealed std protocol; a program value implements it in #206"). An operations type of std that no std extern returns (the prelude's `Console`, `os.Process`) is open: a program value implements it, as for a Go interface ([os](#os) 5); a type defined over one and a pointer to one are S108 (types.md, Defined types 1 and Operation types).
 4. A record type declared in a std package, which is not an operations type, is the exported `runtime/v1` struct that its row of the **binding table** names, with the same fields: `queue.Closed` is `v1.Closed`. The lowering never generates a struct for it, because `Push` and `Pop` return `v1.Closed{}`, and a `catch` arm `case queue.Closed:` must match that value. An error type's Go text is its Ergo name: `v1.Closed{}.Error()` is `queue.Closed`. The table (`v1.StdRecord(pkg, name)`, runtime/v1/files.go; std-align S3b) keys a row by the record's package and name, never by the name alone, so two packages may each declare a `NotFound` and bind two Go types; the Go names are unique because the table says so, not by a naming habit. A std record with no row, such as `strings.Halves`, is a declaration of the program. `TestStdRecordTable` holds each row to an exported record of its package and a struct with its fields, no struct to two rows, and every `runtime/v1` struct with an `Error` method to a row, so a `catch` arm can name each failure a body returns; lower `TestStdRecordsKeyedByPackage` lowers two std packages that each declare `NotFound` and catches each in its own arm. Extern bodies need no table: an extern names its Go body in its target (`v1.StringsSplit`), and Go needs that name to be unique in `runtime/v1`, so a body name carries its package (`Strings`, `Filepath`, `FS`).
 5. The prelude's `Option[T]` as the result of an operation of a std type is Go's comma-ok `(T, bool)`: `queue.Queue[T]`'s `Poll() Option[T]` is `Poll() (T, bool)` (std-align S3d). `Option` is a union the program emits, so no `runtime/v1` body can name it; the lowering calls the method and adapts its results in place to `Some{Value: v}` when the bool is true and to `None{}` when it is false, through the helper that also lowers the prelude's `Get` (`optionReturn`), so a later change of `Option`'s Go form changes both. The `None` path allocates nothing (`TestQueuePollNoneAllocatesNothing`). A `(T, bool)` body for any other Ergo result is an internal compiler error. *Prior art:* Go's `v, ok := m[k]` and `v, ok := <-ch`; ReScript lowers `None` to JavaScript's `undefined` and `Some(v)` to `v` with no box, which Go has no general form of; Gleam lowers its `Option` as an ordinary custom type (on Erlang the atom `none` and the tuple `{some, V}`), and its Erlang externals return that form themselves.
 
@@ -316,14 +316,17 @@ A std extern whose `runtime/v1` Go body is marked pure is transparent in footpri
 
 ## http
 
-G1's buffered HTTP server uses Go `net/http`. Streaming bodies, TLS and
-HTTP/2 configuration are outside this core.
+G1's buffered HTTP server uses Go `net/http`; a response body may also be
+streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
 
 1. `Listen(addr) Listener fails ListenFailed needs Ambient` binds TCP;
    port zero is valid, and `l.Addr()` reports the bound address. The
    transport has no HTTP policy. `l.Close()` releases an unused listener.
-2. `Serve[R](l, limits Limits, handle func(Request) Response needs R)`
-   has `fails InvalidLimits needs R`. `Limits{MaxBodyBytes, MaxHeaderBytes}`
+   Every server protocol shares it: `rpc.Serve` takes an `http.Listener`.
+2. `Serve[R](l, limits Limits, handle func(Request) Response needs R | Streaming)`
+   has `fails InvalidLimits needs R`. Serve binds the request's `Streaming`
+   provider around each invocation, so a handler that does not stream is a
+   function of a narrower row and passes unchanged. `Limits{MaxBodyBytes, MaxHeaderBytes}`
    is required. Both values must be positive; a refusal leaves the listener
    open. The header budget has Go `http.Server.MaxHeaderBytes` semantics,
    including its request-line accounting.
@@ -371,6 +374,33 @@ HTTP/2 configuration are outside this core.
    prefix. The probe of `TestStdHTTPLawsRun` restates it and checks Files
    against a reference of the rule over a Tree with links out, in and
    looping (`FilesAnswersByTheRule`).
+9. **Streamed bodies** (Rm; orchestrator option 1, 2026-11-10).
+   `Stream[R](status, header, write func(w BodyWriter) fails WriteFailed needs R) Response needs R | Streaming`
+   answers with status and header at once, then the parts `write` sends
+   with `w.Write(text)`; each Write is flushed before it returns. Streaming
+   is a capability, not a second Response form: a body that runs
+   after the handler returns would need the handler's row inside the
+   Response type (`Response[R]`), which a pure handler such as Files could
+   not name. The rules: status and header are fixed before `write` starts;
+   the BodyWriter closes when `write` returns, and a later Write fails
+   `WriteFailed{Reason}` (one rule for a writer kept past its stream, under
+   Serve and under a Recorder); a client that goes away stops the request
+   task, so `write` ends at its next Write with the stop
+   (`TestHTTPStreamHangUpStopsTheWriter`); a WriteFailed of `write` ends the
+   stream; a second Stream in one request is a defect. After a stream, Serve
+   sends nothing more: the response is the stream. An absent Content-Type
+   is not sniffed, as for an empty buffered body. Under Serve the result's
+   Body is empty; `NewRecorder()` is the test provider, under which Stream's
+   result is the buffered response the stream sent, so a streaming handler
+   is tested as a function (laws `StreamIsItsWrites`,
+   `WriteAfterStreamFails`). Serve's provider writes through `Exchange`,
+   the host's response side of one request, which only the transport makes
+   (`TestHTTPStreamFlushesEachPart`). Effect's
+   `HttpServerResponse.stream` takes a Stream value and a content type;
+   Go's `http.Flusher` leaves the order of header, writes and end to the
+   handler. Plug's `send_chunked`/`chunk` and Mist's `chunked` keep the
+   connection in the handler's hands; here the request task owns it, so its
+   stop is the hang-up.
 
 Prior art for Files (source inspected, not measured): Wisp's `serve_static`
 (main branch) drops every ".." substring from the decoded path, joins it to
@@ -425,6 +455,8 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | --- | --- | --- | --- | --- |
 | `http` | `BuiltPathMatches` | `BuiltPathMatches(a string, b string) { if a == "" \|\| b == "" \|\| strings.Contains(a, "/") \|\| strings.Contains(b, "/") { return true } let route = Route{Name: "pair", Method: "GET", Path: "/:a/:b"} match Match([]Route{route}, "GET", "/"+a+"/"+b) { case Found as f: f.Route == route && f.Params.Get("a") == Some{a} && f.Params.Get("b") == Some{b} case NotFound, MethodNotAllowed: false } }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `FilesAsksBeneath` | `FilesAsksBeneath(steps []int, prefixed bool) { let mut rest = "" let mut dotdot = false for i, s in steps { let e = fileSegment(s) dotdot = dotdot \|\| e == ".." rest = if i == 0 { e } else { rest + "/" + e } } let path = if prefixed { "/static/" + rest } else { "/" + rest } let method = if len(steps)%2 == 0 { "GET" } else { "HEAD" } let root = filesProbe{paths: sync.NewRef[[]string]([]string{})} let response = Files(root, "/static/", Request{Method: method, Path: path, Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}) let asked = root.paths.Get() if len(asked) > 1 \|\| (dotdot \|\| !prefixed) && len(asked) != 0 { return false } for p in asked { if strings.HasPrefix(p, "/") { return false } for e in strings.Split(p, "/") { if e == "" \|\| e == "." \|\| e == ".." { return false } } } response.Status == 200 \|\| response.Status == 403 \|\| response.Status == 404 }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `StreamIsItsWrites` | `StreamIsItsWrites(status int, parts []string) { let header = []Field{Field{Name: "Content-Type", Value: "text/plain"}} let response = with context { Streaming: NewRecorder() } { Stream(status, header, func(w BodyWriter) fails WriteFailed { for p in parts { try w.Write(p) } }) } let mut want = "" for p in parts { want = want + p } response == Response{Status: status, Header: header, Body: want} }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `WriteAfterStreamFails` | `WriteAfterStreamFails(text string) { let kept = sync.NewRef[[]BodyWriter]([]BodyWriter{}) let response = with context { Streaming: NewRecorder() } { Stream(200, []Field{}, func(w BodyWriter) fails WriteFailed { kept.Set([]BodyWriter{w}) }) } for w in kept.Get() { w.Write(text) catch { case WriteFailed: return response.Body == "" } } false }` | `TestStdHTTPLawsRun` | tested |
 | `actor` | `Actor.ChangesStops` | `ChangesStops(k int) { if k < 1 { return true } Stop() catch { case _: } let mut calls = 0 let s = Changes() s(func(v S) bool { calls = calls + 1 calls < k }) calls == 1 }` | `TestStdActorLawsRun` | tested |
 | `actor` | `Actor.StopIsFinal` | `StopIsFinal(e E) { Stop() catch { case _: } Send(e) catch { case Stopped: return true } false }` | `TestStdActorLawsRun` | tested |
 | `actor` | `CanIsTheStep` | `CanIsTheStep(signals []int, e int) { with context { Scheduler: time.NewManual(0) } { can(signals, e) } }` | `TestStdActorLawsRun` | tested |

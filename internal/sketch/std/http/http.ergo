@@ -3,8 +3,11 @@
 // service requirements; here rows and child tasks supply those guarantees,
 // without service tags, Effect values or middleware builders. Go net/http
 // owns HTTP parsing and connections. Match is independent of the server.
+// A handler that needs to send its body in parts uses Stream, through the
+// Streaming capability Serve binds per request.
 
 import strings
+import sync
 
 type ListenFailed { Addr string, Reason string }
 type InvalidLimits { MaxBodyBytes int, MaxHeaderBytes int }
@@ -52,8 +55,11 @@ func Query(fields []Field, name string) Option[string] {
 // listener and drains every child, including releases, before it ends.
 // InvalidLimits leaves l open so the caller may retry or Close it.
 // Body refusals reach handle as values; the program chooses their status.
-func Serve[R](l Listener, limits Limits, handle func(Request) Response needs R) fails InvalidLimits needs R {
-	return serve(l, limits, func(method string, path string, query []Field, header []Field, text string, tooLarge bool, readError string) Response needs R {
+// Each invocation runs with its request's Streaming provider bound, so a
+// handler may answer with Stream; a handler that does not stays a
+// function of a narrower row.
+func Serve[R](l Listener, limits Limits, handle func(Request) Response needs R | Streaming) fails InvalidLimits needs R {
+	return serve(l, limits, func(x Exchange, method string, path string, query []Field, header []Field, text string, tooLarge bool, readError string) Response needs R {
 		let body Body = if tooLarge {
 			BodyTooLarge{Limit: limits.MaxBodyBytes}
 		} else if readError != "" {
@@ -61,9 +67,98 @@ func Serve[R](l Listener, limits Limits, handle func(Request) Response needs R) 
 		} else {
 			Buffered{Text: text}
 		}
-		handle(Request{Method: method, Path: path, Query: query, Header: header, Body: body})
+		with context { Streaming: live{x: x} } {
+			handle(Request{Method: method, Path: path, Query: query, Header: header, Body: body})
+		}
 	})
 }
 
 // The transport's scalar arguments become a closed body value above.
-extern go ergo.local/prototype/runtime/v1.HTTPServe func serve[R](l Listener, limits Limits, handle func(string, string, []Field, []Field, string, bool, string) Response needs R) fails InvalidLimits needs R
+extern go ergo.local/prototype/runtime/v1.HTTPServe func serve[R](l Listener, limits Limits, handle func(Exchange, string, string, []Field, []Field, string, bool, string) Response needs R) fails InvalidLimits needs R
+
+// WriteFailed is a streamed write that did not reach the client: the
+// connection refused it (the client went away), or its stream had ended.
+type WriteFailed { Reason string }
+
+// BodyWriter writes the parts of a streamed body. Only this package makes
+// one; it is valid while the function Stream ran it with is running.
+type BodyWriter { put func(text string) fails WriteFailed }
+
+// Write sends text as the next part of the body. The live provider
+// flushes it to the client before Write returns.
+func Write(w BodyWriter, text string) fails WriteFailed { try w.put(text) }
+
+// Streaming is the response side of the request a handler answers: Serve
+// binds one per request, and NewRecorder makes one for a test. Its
+// operations are this package's; a program streams through Stream.
+// law-exempt: its rules are Stream's, held by StreamIsItsWrites and WriteAfterStreamFails over a Recorder and by the runtime/v1 stream tests over Serve's provider.
+type Streaming {
+	open(status int, header []Field) BodyWriter,
+	close() string,
+}
+
+// Stream answers the request with status and header, then a body that
+// write sends in parts (Effect HttpServerResponse.stream; Go's Flusher).
+// status and header are sent before write starts, so they cannot depend
+// on what it writes. Each Write is flushed. The BodyWriter closes when
+// write returns: a later Write fails WriteFailed. A WriteFailed of write
+// ends the stream; a client that goes away also stops the request task,
+// so write ends at its next Write. A second Stream in one request is a
+// defect. Under Serve the result's Body is empty, and Serve sends nothing
+// more; under a Recorder it is every part written, in order.
+func Stream[R](status int, header []Field, write func(w BodyWriter) fails WriteFailed needs R) Response needs R | Streaming {
+	let w = Streaming.open(status, header)
+	write(w) catch {
+	case WriteFailed:
+	}
+	Response{Status: status, Header: header, Body: Streaming.close()}
+}
+
+// Exchange is the response side of one served request on the host. Only
+// Serve has one.
+// law-exempt: only the transport makes one; the runtime/v1 stream tests hold its writes, its end and its hang-up.
+type Exchange {
+	Begin(status int, header []Field),
+	Write(text string) fails WriteFailed,
+	End(),
+}
+
+// live is Serve's Streaming provider for one request.
+type live { x Exchange }
+
+func open(l live, status int, header []Field) BodyWriter {
+	l.x.Begin(status, header)
+	BodyWriter{put: func(text string) fails WriteFailed { try l.x.Write(text) }}
+}
+
+func close(l live) string {
+	l.x.End()
+	""
+}
+
+// Recorder is a Streaming provider for a test: Stream under it returns
+// the parts written as a buffered Response, so a streaming handler is
+// tested as a function, as a buffered one is.
+type Recorder { text sync.Ref[string], state sync.Ref[int] }
+
+// NewRecorder is a Recorder that has not started.
+func NewRecorder() Recorder { Recorder{text: sync.NewRef[string](""), state: sync.NewRef[int](0)} }
+
+// The Recorder's states: 0 not started, 1 streaming, 2 ended.
+func open(r Recorder, status int, header []Field) BodyWriter {
+	if r.state.Get() != 0 {
+		Unreachable("http.Stream: the response has already started")
+	}
+	r.state.Set(1)
+	BodyWriter{put: func(text string) fails WriteFailed {
+		if r.state.Get() != 1 {
+			return WriteFailed{Reason: "the stream has ended"}
+		}
+		r.text.Update(func(s string) string { s + text })
+	}}
+}
+
+func close(r Recorder) string {
+	r.state.Set(2)
+	r.text.Get()
+}

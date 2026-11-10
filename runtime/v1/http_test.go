@@ -20,7 +20,7 @@ import (
 
 // httpHandler is the trusted transport callback; the std wrapper makes
 // its seven scalar arguments into a public Request with a closed Body.
-type httpHandler = func(*rt.Task, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse
+type httpHandler = func(*rt.Task, *Exchange, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse
 
 func startHTTP(t *testing.T, handle httpHandler) (*Listener, *Task[struct{}]) {
 	t.Helper()
@@ -91,7 +91,7 @@ func TestHTTPServerMatchesModel(t *testing.T) {
 		if trial%2 == 0 {
 			limits = HTTPLimits{16, bad}
 		}
-		err = HTTPServe("invalid", rt.Root("invalid"), l, limits, func(_ *rt.Task, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
+		err = HTTPServe("invalid", rt.Root("invalid"), l, limits, func(_ *rt.Task, _ *Exchange, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
 			t.Error("invalid limits called handler")
 			return HTTPResponse{Status: 200}
 		})
@@ -109,7 +109,7 @@ func TestHTTPServerMatchesModel(t *testing.T) {
 		t.Run(strconv.FormatUint(seed, 10), func(t *testing.T) {
 			var mu sync.Mutex
 			store := map[string]string{}
-			l, server := startHTTP(t, func(_ *rt.Task, method, path string, query, header []HTTPField, body string, tooLarge bool, readError string) (response HTTPResponse) {
+			l, server := startHTTP(t, func(_ *rt.Task, _ *Exchange, method, path string, query, header []HTTPField, body string, tooLarge bool, readError string) (response HTTPResponse) {
 				defer func() {
 					var queryText, echo string
 					for _, field := range query {
@@ -243,7 +243,7 @@ func TestHTTPConcurrentRequestsAndStop(t *testing.T) {
 	var count, releaseCount atomic.Int64
 	started, released := make(chan struct{}, n), make(chan struct{}, n)
 	cleanup := make(chan struct{})
-	l, server := startHTTP(t, func(ct *rt.Task, method, path string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
+	l, server := startHTTP(t, func(ct *rt.Task, _ *Exchange, method, path string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
 		if path == "/count" {
 			return HTTPResponse{Status: 200, Body: strconv.FormatInt(count.Add(1), 10)}
 		}
@@ -308,7 +308,7 @@ func TestHTTPConcurrentRequestsAndStop(t *testing.T) {
 // without ending the server; a defect then ends Serve with its cause.
 func TestHTTPDisconnectAndDefects(t *testing.T) {
 	started, ended := make(chan struct{}), make(chan struct{})
-	l, server := startHTTP(t, func(ct *rt.Task, _, path string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
+	l, server := startHTTP(t, func(ct *rt.Task, _ *Exchange, _, path string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
 		s := NewScope(ct)
 		defer s.End(nil)
 		if path == "/defect" {

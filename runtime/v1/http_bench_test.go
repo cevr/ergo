@@ -34,7 +34,7 @@ func BenchmarkHTTPServer(b *testing.B) {
 				if mode == "ergo" {
 					s := NewScope(rt.Root("HTTP benchmark"))
 					h := Go(&s, "Serve", func(ct *rt.Task) (struct{}, error) {
-						return struct{}{}, HTTPServe("request", ct, &Listener{ln: ln}, HTTPLimits{4096, 4096}, func(_ *rt.Task, _, _ string, _, _ []HTTPField, body string, tooLarge bool, readError string) HTTPResponse {
+						return struct{}{}, HTTPServe("request", ct, &Listener{ln: ln}, HTTPLimits{4096, 4096}, func(_ *rt.Task, _ *Exchange, _, _ string, _, _ []HTTPField, body string, tooLarge bool, readError string) HTTPResponse {
 							if tooLarge || readError != "" {
 								return HTTPResponse{Status: 400}
 							}

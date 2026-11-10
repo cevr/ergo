@@ -193,6 +193,12 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Listener.Addr":  {},
 	"Listener.Close": {},
 	"HTTPServe":      {wait: childWait},
+	// A streamed response (Rm): Begin and End take the exchange's lock
+	// for one step; Write checks the caller's stop, then waits on the
+	// network write and its flush, which a hang-up or Serve's stop ends.
+	"Exchange.Begin": {},
+	"Exchange.Write": {wait: callerWait},
+	"Exchange.End":   {},
 	// std machines (fs2): the defect of a timer that is not positive.
 	"MachineTimerNotPositiveAt": {},
 	// std-duration: pure bodies of duration text and arithmetic.

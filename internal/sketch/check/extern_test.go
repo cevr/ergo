@@ -663,6 +663,81 @@ func main() {
 	// The prelude's Ambient (host-authority H1): its one operation is
 	// unexported, so no program type implements it (sealedBy), though no
 	// std extern names it (unexportedStd).
+	// std http (G1, Rm): Listen's extern returns the Listener; Serve's
+	// transport hands each request's Exchange to the handler adapter.
+	"http.Listener": `import http
+
+type Mine {}
+
+func Addr(_ Mine) string { "" }
+func Close(_ Mine) {}
+func bound(_ Mine) {}
+
+func use(l http.Listener) { _ = l.Addr() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"http.Exchange": `import http
+
+type Mine {}
+
+func Begin(_ Mine, status int, header []http.Field) {}
+func Write(_ Mine, text string) fails http.WriteFailed {}
+func End(_ Mine) {}
+
+func use(x http.Exchange) { x.End() }
+
+func main() {
+	use(Mine)
+}
+`,
+	// Streaming is open but its operations are http's own: Serve's live
+	// provider and NewRecorder are its only providers.
+	"http.Streaming": `import http
+
+type Mine {}
+
+func open(_ Mine, status int, header []http.Field) http.BodyWriter { Unreachable("mine") }
+func close(_ Mine) string { "" }
+
+func use(_ http.Streaming) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	// std fs (G1f): OpenRoot's extern returns the HostRoot; Root is open.
+	"fs.HostRoot": `import fs
+
+type Mine {}
+
+func ReadFile(_ Mine, path string) string fails fs.NotFound | fs.Denied | fs.Escapes | fs.Failed { "" }
+func ReadDir(_ Mine, path string) []string fails fs.NotFound | fs.Denied | fs.Escapes | fs.Failed { []string{} }
+func Stat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Escapes | fs.Failed { fs.Info{Name: "", Size: 0, Dir: false, Perm: 0} }
+func hostRooted(_ Mine) {}
+
+func use(r fs.HostRoot) { _ = r }
+
+func main() {
+	use(Mine)
+}
+`,
+	"fs.Root": `import fs
+
+type Mine {}
+
+func ReadFile(_ Mine, path string) string fails fs.NotFound | fs.Denied | fs.Escapes | fs.Failed { "" }
+func ReadDir(_ Mine, path string) []string fails fs.NotFound | fs.Denied | fs.Escapes | fs.Failed { []string{} }
+func Stat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Escapes | fs.Failed { fs.Info{Name: "", Size: 0, Dir: false, Perm: 0} }
+
+func use(r fs.Root) { _ = r }
+
+func main() {
+	use(Mine)
+}
+`,
 	"prelude.Ambient": `type Mine {}
 
 func ambient(_ Mine) {}
@@ -680,6 +755,9 @@ func main() {
 // text, not by SealedStd's S109.
 var unexportedStd = map[string]string{
 	"prelude.Ambient": "ambient is an unexported operation of prelude.Ambient, so only a type of package prelude implements it",
+	"http.Listener":   "bound is an unexported operation of http.Listener, so only a type of package http implements it",
+	"http.Streaming":  "open is an unexported operation of http.Streaming, so only a type of package http implements it",
+	"fs.HostRoot":     "hostRooted is an unexported operation of fs.HostRoot, so only a type of package fs implements it",
 }
 
 // openStd is the std operation types a program provides: no std extern's
@@ -701,6 +779,8 @@ var openStd = map[string]bool{
 	"exec.Runner":       true,
 	"journal.Journal":   true,
 	"journal.Codec":     true,
+	"fs.Root":           true,
+	"http.Streaming":    true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type

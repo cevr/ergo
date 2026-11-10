@@ -2,6 +2,24 @@
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
+      "name": "stream-recorder-order",
+      "origin": "wf10 Rm",
+      "file": "internal/sketch/std/http/http.ergo",
+      "from": "r.text.Update(func(s string) string { s + text })",
+      "to": "r.text.Update(func(s string) string { text + s })",
+      "rule": "A streamed body is its parts in the order they were written.",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
+      "name": "stream-recorder-late",
+      "origin": "wf10 Rm",
+      "file": "internal/sketch/std/http/http.ergo",
+      "from": "\t\tif r.state.Get() != 1 {",
+      "to": "\t\tif false {",
+      "rule": "A BodyWriter kept past its Stream fails WriteFailed (one rule with Serve's provider).",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
       "name": "http-imports-fstest",
       "origin": "wf10 G1f r2",
       "file": "internal/sketch/std/http/laws.ergo",

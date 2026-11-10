@@ -47,6 +47,81 @@ type HTTPResponse struct {
 	Body   string
 }
 
+// HTTPWriteFailed is http.WriteFailed: a streamed write the connection
+// refused, or a write after its stream ended.
+type HTTPWriteFailed struct{ Reason string }
+
+func (e HTTPWriteFailed) Error() string { return "http.WriteFailed: " + e.Reason }
+
+// Exchange is the response side of one served request: std http's live
+// Streaming provider writes a streamed body through it. Its request task
+// owns it: Serve's transport goroutine waits for that task's end before it
+// touches the ResponseWriter again, and mu orders the task's writes with
+// that end, so a writer kept past its stream reaches a closed Exchange.
+type Exchange struct {
+	mu      sync.Mutex
+	w       http.ResponseWriter
+	started bool // Begin committed the status and the header
+	ended   bool // End ran, or the request task ended
+}
+
+// Begin commits status and header and flushes them, so the client sees
+// the response start before the first part. A second Begin is a defect:
+// a response starts once.
+func (x *Exchange) Begin(status int, header []HTTPField) {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if x.started || x.ended {
+		panic("http.Stream: the response has already started")
+	}
+	x.started = true
+	h := x.w.Header()
+	for _, f := range header {
+		h.Add(f.Name, f.Value)
+	}
+	if h.Get("Content-Type") == "" {
+		// One rule with the buffered form: no content type is sniffed.
+		h["Content-Type"] = nil
+	}
+	x.w.WriteHeader(status)
+	_ = http.NewResponseController(x.w).Flush()
+}
+
+// Write sends text as the next part of the body and flushes it. A stop of
+// t ends the write with the stop; a write after End, or one the
+// connection refuses, fails WriteFailed.
+func (x *Exchange) Write(t *rt.Task, text string) error {
+	t.Check()
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if x.ended || !x.started {
+		return HTTPWriteFailed{Reason: "the stream has ended"}
+	}
+	if _, err := io.WriteString(x.w, text); err != nil {
+		return HTTPWriteFailed{Reason: err.Error()}
+	}
+	if err := http.NewResponseController(x.w).Flush(); err != nil {
+		return HTTPWriteFailed{Reason: err.Error()}
+	}
+	return nil
+}
+
+// End closes the stream: every later Write fails.
+func (x *Exchange) End() {
+	x.mu.Lock()
+	x.ended = true
+	x.mu.Unlock()
+}
+
+// finish closes x for good once the request task ended and reports
+// whether the response started, so the transport writes no second one.
+func (x *Exchange) finish() bool {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	x.ended = true
+	return x.started
+}
+
 // HTTPListen binds TCP. Port zero selects an available port, reported by
 // Addr. The caller either hands the transport to Serve or closes it.
 //
@@ -63,6 +138,7 @@ func HTTPListen(addr string) (*Listener, error) {
 // owns h; done publishes its completed exit, including all frame releases.
 type httpCall struct {
 	in        httpIncoming
+	x         *Exchange
 	response  HTTPResponse
 	err       error
 	done      chan struct{}
@@ -107,9 +183,12 @@ type httpServer struct {
 // RPC. A disconnect stops that request alone. End means completed child
 // cleanup, closed connections and joined transport workers, not merely a
 // cancellation signal. Defects remain defects and reach the serving task.
+// Each handler call gets its request's Exchange, through which std http's
+// Stream sends a streamed body; once the call's task ends the Exchange is
+// closed, and a started stream is the whole response.
 //
 //ergo:host
-func HTTPServe(site Site, t *rt.Task, l *Listener, limits HTTPLimits, handle func(*rt.Task, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse) error {
+func HTTPServe(site Site, t *rt.Task, l *Listener, limits HTTPLimits, handle func(*rt.Task, *Exchange, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse) error {
 	if limits.MaxBodyBytes <= 0 || limits.MaxHeaderBytes <= 0 {
 		return HTTPInvalidLimits{limits.MaxBodyBytes, limits.MaxHeaderBytes}
 	}
@@ -160,7 +239,7 @@ func HTTPServe(site Site, t *rt.Task, l *Listener, limits HTTPLimits, handle fun
 					c.start(ct)
 					ct.Check()
 					v := c.in
-					c.response = handle(ct, v.Method, v.Path, v.Query, v.Header, v.Body, v.TooLarge, v.ReadError)
+					c.response = handle(ct, c.x, v.Method, v.Path, v.Query, v.Header, v.Body, v.TooLarge, v.ReadError)
 					return struct{}{}, nil
 				})
 			})
@@ -212,7 +291,7 @@ func (s *httpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else {
 		in.Body = string(body)
 	}
-	c := &httpCall{in: in, done: make(chan struct{})}
+	c := &httpCall{in: in, x: &Exchange{w: w}, done: make(chan struct{})}
 	gone := r.Context().Done()
 	if in.ReadError != "" {
 		// net/http cancels the request context on an input EOF, even
@@ -234,8 +313,15 @@ func (s *httpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c.cancel()
 		<-c.done
 	}
+	// The request task has ended: a writer it kept now fails, and a
+	// streamed response is complete (or, after a stop or a defect,
+	// aborted with the connection, so the client sees a cut body).
+	streamed := c.x.finish()
 	if c.err != nil {
 		panic(http.ErrAbortHandler)
+	}
+	if streamed {
+		return
 	}
 	for _, f := range c.response.Header {
 		w.Header().Add(f.Name, f.Value)

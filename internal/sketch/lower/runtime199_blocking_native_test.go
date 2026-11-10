@@ -101,6 +101,7 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 // the call, runs its release and ends the call with the stop.
 var childWaitLaws = map[string]bool{"After": true, "TasksTransform": true, "TasksRace": true, "Set.Wait": true, "Set.Stop": true, "MachineSupervise": true, "MachineChild": true,
 	"RPCServe": true, "RPCLocal": true, "HTTPServe": true}
+
 // HTTPServe's stop and drain laws are TestHTTPConcurrentRequestsAndStop
 // and TestHTTPDisconnectAndDefects in runtime/v1/http_test.go.
 
@@ -141,8 +142,13 @@ var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Acto
 // in Lines. RPCCall (std rpc, R1) waits for a peer's HTTP answer:
 // runtime/v1/rpc_test.go TestRPCAbortStopsTheCall states that a stop of
 // the caller aborts the request, ends the call with the stop and stops the
-// call on the server.
-var hostWaitLaws = map[string]bool{"ExecRun": true, "IOReadAll": true, "IOLines": true, "RPCCall": true}
+// call on the server. Exchange.Write (std http's streamed body, Rm) waits
+// for the client to take a part: runtime/v1/http_stream_test.go
+// TestHTTPStreamHangUpStopsTheWriter states that a hang-up stops the
+// request task and the next Write ends with that stop, and
+// TestHTTPStreamFlushesEachPart that a Write returns once its part is
+// flushed.
+var hostWaitLaws = map[string]bool{"ExecRun": true, "IOReadAll": true, "IOLines": true, "RPCCall": true, "Exchange.Write": true}
 
 // blockingRoutes is the route axis of a binding (runtime.md, I1): the
 // waiting task of a callerWait binding is the task that invokes the call,

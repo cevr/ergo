@@ -238,6 +238,7 @@ var stdRecords = map[string]string{
 	"http.Limits":          "HTTPLimits",
 	"http.Field":           "HTTPField",
 	"http.Response":        "HTTPResponse",
+	"http.WriteFailed":     "HTTPWriteFailed",
 	"json.Malformed":       "JSONMalformed",
 	"io.ReadFailed":        "ReadFailed",
 	"os.Exit":              "Exit",
