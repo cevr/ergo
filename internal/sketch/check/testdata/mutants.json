@@ -1,6 +1,21 @@
 {
   "about": "The mutant ledger of internal/sketch/check: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants check; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
+    {"name":"po1-whole-pattern-expands-type-dag","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"if !split {","to":"if false && !split {","rule":"A whole pattern does not traverse the tree expansion of a shared type DAG; counted work follows the written split.","killers":["check:TestOwnershipFlowWorkIsLinear"]},
+    {"name":"po1-pattern-value-flow-skipped","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"w.expr(x, mMove, hand{at: x, how: \"let pattern moves it\"})","to":"if _, isIf := unparen(x).(*syntax.IfStmt); !isIf { w.expr(x, mMove, hand{at: x, how: \"let pattern moves it\"}) }","rule":"A destructuring let walks the paths of its value-position if before acquiring its bindings.","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"po1-generic-pattern-refuses-data","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"if w.genericOnly(t) {","to":"if false && w.genericOnly(t) {","rule":"Generic pattern copy sites reject only resource instances, not plain-data instantiations.","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"po1-match-moves-at-header","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"delete(w.info.Handoffs, id) // transfer belongs to this arm, not the header","to":"_ = id // mutant: transfer also runs in non-consuming arms","rule":"The subject hand-off belongs to the selected consuming arm, not header evaluation.","killers":["lower:TestDropGlueModel"]},
+    {"name":"po1-pattern-wildcard","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"w.patternRefuse(t, at, \"this pattern leaves %s without an owner; bind every resource part to exactly one name (resources R39, R42)\", t)","to":"_ = t","rule":"A consuming wildcard cannot discard a resource part.","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"po1-lent-pattern-loan-lost","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"loans[i].internal, loans[i].root = false, root","to":"continue","rule":"A callable pattern binding of a lent aggregate cannot escape its root's lifetime.","killers":["check:TestStructuredLendModel"]},
+    {"name":"po1-let-binding-ownerless","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"w.acquireParts(parts, ownLocal{}, loans, spec.Pattern)","to":"_ = parts; _ = loans","rule":"A let pattern gives every bound resource an owner.","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"po1-pattern-missing-part","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"if fp == nil && w.tracked(f.Type) {","to":"if false && fp == nil && w.tracked(f.Type) {","rule":"A consuming record pattern cannot omit a resource part.","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"po1-pattern-overlap","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"if p.Kind == PatAs && len(w.resourceParts(w.patternParts(p.Elems[0], t, nil))) > 0 {","to":"if false && p.Kind == PatAs && len(w.resourceParts(w.patternParts(p.Elems[0], t, nil))) > 0 {","rule":"Whole and part resource owners cannot overlap.","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"po1-pattern-own-close","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"if d != nil && d.Close != nil {","to":"if false && d != nil && d.Close != nil {","rule":"A record's custom release remains with its whole owner.","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"po1-match-loses-lender","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"local.lent, local.from = true, exprText(subject)","to":"local.lent, local.from = false, exprText(subject)","rule":"A pattern of a lent subject does not acquire release authority.","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"po1-match-temp-ends-at-header","origin":"batch-16a PO1","file":"internal/sketch/check/ownership.go","from":"w.expr(g.X, mLend, hand{})","to":"w.region(g, func() { w.expr(g.X, mLend, hand{}) })","rule":"A temporary subject lives through its selected arm.","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"po1-pattern-loan-erased","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"loans = mergeLoans(loans, w.patternTypeLoans(w.info.Types[x], parts))","to":"_ = loans","rule":"Splitting a constructor result preserves its internal lends.","killers":["check:TestStructuredLendModel"]},
+    {"name":"po1-pattern-keeper-order","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"if !w.releasesBefore(w.lending.points[p.v], loan.end) {","to":"if false && !w.releasesBefore(w.lending.points[p.v], loan.end) {","rule":"A split cannot reverse the release order of keeper and lender.","killers":["check:TestStructuredLendModel"]},
+    {"name":"po1-temp-binding-extends-lend","origin":"batch-16a PO1","file":"internal/sketch/check/lend.go","from":"if end := w.vars[i].lendEnd; end != nil {","to":"if end := w.vars[i].lendEnd; false && end != nil {","rule":"A borrowed pattern binding keeps its temporary root's release point.","killers":["check:TestStructuredLendModel"]},
     {
       "name": "a2-try-keeps-catch-result-target",
       "origin": "batch-15 round-5 A2 production-edge review",
@@ -1971,8 +1986,8 @@
     {
       "name": "L8-A4 match on an owned subject leaves it owned",
       "origin": "wf10 L8 A4 (#197)",
-      "file": "internal/sketch/check/ownership.go",
-      "from": "\t\t\t\tw.move(si, id, hand{at: id, how: fmt.Sprintf(\"the match moves it into %s\", binds[0].Name)})",
+      "file": "internal/sketch/check/ownpattern.go",
+      "from": "w.move(si, id, hand{at: subject, how: \"the match pattern moves it\"})",
       "to": "\t\t\t\t_ = id",
       "rule": "Gap 36: an arm that binds a resource moves the owned subject into the binding.",
       "killers": [

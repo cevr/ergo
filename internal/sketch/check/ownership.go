@@ -129,6 +129,7 @@ type ownLocal struct {
 	// (R35) or a match subject that is lent (Gap 36).
 	from     string
 	root     *Var
+	lendEnd  *lendPoint // a binding lent from a subject temporary
 	loanOnly bool
 }
 
@@ -683,14 +684,14 @@ func (w *ownWalk) stmt(s syntax.Stmt) {
 		}
 		w.clauses(s.Clauses)
 	case *syntax.TypeSwitchStmt:
-		for _, g := range s.Subjects {
-			w.region(g, func() { w.expr(g.X, mLend, hand{}) })
-		}
-		var subj syntax.Expr
-		if len(s.Subjects) == 1 {
-			subj = s.Subjects[0].X
-		}
-		w.matchClauses(s.Clauses, subj)
+		w.region(s, func() {
+			var subjects []syntax.Expr
+			for _, g := range s.Subjects {
+				w.expr(g.X, mLend, hand{})
+				subjects = append(subjects, g.X)
+			}
+			w.patternClauses(s, subjects)
+		})
 	case *syntax.ForStmt:
 		w.loop(s, s.Cond, s.Body, nil)
 	case *syntax.RangeStmt:
@@ -711,61 +712,6 @@ func (w *ownWalk) clauses(cs []*syntax.CaseClause) {
 	for _, cl := range cs {
 		w.st = w.copyState(entry)
 		w.block(cl, cl.Body)
-		out = w.join(out, w.st, n)
-	}
-	w.st = out
-}
-
-// matchClauses checks a match's arms (Gap 36). An arm that binds a value
-// holding a resource, on an owned local subject, moves the subject into
-// the binding: the arm's scope owns the variant. On a lent subject (a
-// parameter not taken, a field, a call) the binding is lent from it. An
-// arm that binds nothing leaves the subject with its owner.
-func (w *ownWalk) matchClauses(cs []*syntax.CaseClause, subj syntax.Expr) {
-	if len(cs) == 0 {
-		return
-	}
-	n := len(w.vars)
-	entry := w.copyState(w.st)
-	var out ownState
-	id, si, owned := w.rootSlot(subj)
-	from := ""
-	if subj != nil {
-		from = exprText(subj)
-	}
-	for _, cl := range cs {
-		w.st = w.copyState(entry)
-		var binds []*Var
-		for _, e := range cl.List {
-			syntax.Inspect(e, func(x syntax.Node) bool {
-				if b, ok := x.(*syntax.Ident); ok {
-					if v, ok := w.info.Defs[b].(*Var); ok && w.tracked(v.Type) {
-						binds = append(binds, v)
-					}
-				}
-				return true
-			})
-		}
-		w.open(cl)
-		if len(binds) > 0 {
-			l := ownLocal{}
-			switch {
-			case owned && !w.vars[si].lent && w.vars[si].depth == w.depth:
-				w.move(si, id, hand{at: id, how: fmt.Sprintf("the match moves it into %s", binds[0].Name)})
-			case owned:
-				// Lent from a lent local: a hand-off of the binding is
-				// one of the subject (inferred, or refused as its own).
-				l = ownLocal{lent: true, param: w.vars[si].param, from: from, root: w.vars[si].v}
-			default:
-				l = ownLocal{lent: true, from: from}
-			}
-			for _, v := range binds {
-				l.v = v
-				w.acquire(l)
-			}
-		}
-		w.stmts(cl.Body, false)
-		w.close()
 		out = w.join(out, w.st, n)
 	}
 	w.st = out
@@ -896,6 +842,10 @@ func (w *ownWalk) loop(n syntax.Node, cond syntax.Expr, body *syntax.BlockStmt, 
 
 // letSpec binds a let's names; the values move into them.
 func (w *ownWalk) letSpec(s syntax.Stmt, spec *syntax.VarSpec) {
+	if spec.Pattern != nil {
+		w.letOwners(spec)
+		return
+	}
 	var bound []*Var
 	loans := map[*Var][]resourceLoan{}
 	w.region(spec, func() {

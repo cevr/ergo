@@ -925,6 +925,10 @@ func (fc *funcCtx) leaveSwitch() {
 // switch. The checker proved it total (Info contract 3), so it has no
 // default arm unless it writes case _.
 func (fc *funcCtx) typeMatch(s *syntax.TypeSwitchStmt, d dest) bool {
+	return fc.scoped(s, func() bool { return fc.typeMatchBody(s, d) })
+}
+
+func (fc *funcCtx) typeMatchBody(s *syntax.TypeSwitchStmt, d dest) bool {
 	m := fc.l.info.Matches[s]
 	if m == nil {
 		ice(s, "a match with no Matches entry")

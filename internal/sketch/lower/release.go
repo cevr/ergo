@@ -777,11 +777,41 @@ func (fc *funcCtx) reassignOwned(lhs syntax.Expr, target, val string) bool {
 // scoped writes a scope's statements through write and, when they can
 // end normally, the releases of the scope's end (Info.Releases[key]).
 func (fc *funcCtx) scoped(key syntax.Node, write func() bool) bool {
+	if cl, ok := key.(*syntax.CaseClause); ok {
+		fc.patternOwners(cl)
+	}
 	t := write()
 	if !t {
 		fc.releaseAt(key)
 	}
 	return t
+}
+
+// patternOwners runs only after the selected pattern's tests and Go
+// bindings. Removing the whole subject at header evaluation would also
+// remove it in non-consuming arms. Registration precedes any arm code.
+func (fc *funcCtx) patternOwners(cl *syntax.CaseClause) {
+	plan := fc.l.info.PatternOwners[cl]
+	for _, source := range plan.Sources {
+		var key any = source.Temp
+		if source.Var != nil {
+			key = source.Var
+		}
+		h := fc.l.owned[key]
+		if h == "" {
+			continue
+		}
+		if st := fc.staticState(); st != nil {
+			if _, ok := st.bit[key]; ok {
+				fc.line("_ = " + fc.staticHand(key, "0", false, cl))
+				continue
+			}
+		}
+		fc.line("_ = " + fc.runtimeCall("Hand", fc.ownBinding("Hand", cl), "", "", []string{h, "0"}, "", nil, nil, cl))
+	}
+	for _, v := range plan.Bindings {
+		fc.ownVar(v, cl)
+	}
 }
 
 // bodyOwns reports a body that owns a value: a frame scope holds its

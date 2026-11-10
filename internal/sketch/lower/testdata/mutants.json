@@ -1,6 +1,9 @@
 {
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
+    {"name":"po1-lower-binding-unregistered","origin":"batch-16a PO1","file":"internal/sketch/lower/release.go","from":"for _, v := range plan.Bindings {","to":"for _, v := range plan.Bindings[:0] {","rule":"A selected arm registers each owned binding before running its body.","killers":["lower:TestDropGlueModel"]},
+    {"name":"po1-lower-subject-kept","origin":"batch-16a PO1","file":"internal/sketch/lower/release.go","from":"for _, source := range plan.Sources {","to":"for _, source := range plan.Sources[:0] {","rule":"A consuming arm removes its subject's old release entry.","killers":["lower:TestDropGlueModel"]},
+    {"name":"po1-match-scope-unreleased","origin":"batch-16a PO1","file":"internal/sketch/lower/body.go","from":"return fc.scoped(s, func() bool { return fc.typeMatchBody(s, d) })","to":"return fc.typeMatchBody(s, d)","rule":"A temporary subject not consumed by the selected arm releases at match end, before the next statement.","killers":["lower:TestDropGlueModel"]},
     {
       "name": "l10b-law-context-keeps-world",
       "origin": "wf10/L10b round 1; db043a7d missing guard",

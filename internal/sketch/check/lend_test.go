@@ -28,6 +28,7 @@ func TestStructuredLendModel(t *testing.T) {
 		checkLendRoots(t, seed, r)
 		checkKeptFunctions(t, seed, r)
 		checkContainerKeeper(t, seed, r)
+		checkPatternLends(t, seed, r)
 		incoming, container, nested := r.Intn(2) == 0, r.Intn(2) == 0, r.Intn(2) == 0
 		set, earlier := r.Intn(2) == 0, r.Intn(2) == 0
 		event := r.Intn(5) // lend, early release, drain/release, escape keeper, move keeper locally

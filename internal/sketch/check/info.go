@@ -301,6 +301,9 @@ type Info struct {
 	// (`let p = &h; p.Close()`). The lowering removes that local's entry
 	// there. Added in L8 B1 (additive).
 	Handoffs map[*syntax.Ident]*Var
+	// PatternOwners transfers sources only on entry to the selected match
+	// arm, then registers its disjoint bindings in written order (R39).
+	PatternOwners map[*syntax.CaseClause]PatternOwners
 	// Takes is the inferred takes clause of each unexported function with
 	// a body and no written clause (#197 L8 A3; takes.go): the indexes into
 	// its signature's Params that it takes, ascending. A written clause is
@@ -341,6 +344,13 @@ type Release struct {
 	// MaybeFields are those taken on some paths only: each has a drop
 	// flag. Added in L8 A4 (additive).
 	Fields, MaybeFields uint64
+}
+
+// PatternOwners is the ownership step after pattern tests and bindings,
+// before the selected arm runs. A failed production reaches no such step.
+type PatternOwners struct {
+	Sources  []Release
+	Bindings []*Var
 }
 
 // Instance is one instantiation of a generic function.
@@ -426,6 +436,7 @@ func newInfo() *Info {
 		ResultDrops:    map[*syntax.CallExpr]*Drop{},
 		FieldTakes:     map[*syntax.SelectorExpr]FieldTake{},
 		Handoffs:       map[*syntax.Ident]*Var{},
+		PatternOwners:  map[*syntax.CaseClause]PatternOwners{},
 		Takes:          map[*Func][]int{},
 		Copies:         map[*Func][]CopySite{},
 	}

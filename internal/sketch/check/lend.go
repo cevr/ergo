@@ -124,6 +124,9 @@ func (w *ownWalk) placeRoot(x syntax.Expr) (*Var, int, bool) {
 }
 
 func (w *ownWalk) point(v *Var, i int) lendPoint {
+	if end := w.vars[i].lendEnd; end != nil {
+		return *end
+	}
 	p := w.lending.points[v]
 	if w.vars[i].lent || w.vars[i].depth != w.depth {
 		return lendPoint{scope: w.lendFrame, order: -1, v: v}

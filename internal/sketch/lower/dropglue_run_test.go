@@ -54,13 +54,35 @@ func TestDropGlueModel(t *testing.T) {
 		cases = append(cases, c)
 		programs = append(programs, mustLower(t, fmt.Sprintf("dropglue_%d", seed), c.src))
 	}
+	// Pattern ownership is checked under both release selectors. The
+	// independent model names each leaf's one owner and its release point;
+	// a missing arm registration or an unremoved subject changes the trace.
+	previous := releaseLowering
+	t.Cleanup(func() { releaseLowering = previous })
+	var patternNames []string
+	for _, selector := range []string{"", "scope"} {
+		releaseLowering = selector
+		for seed := first; seed < first+seeds; seed++ {
+			c := genPatternDrop(seed)
+			name := fmt.Sprintf("pattern_%s_%d", selector, seed)
+			patternNames = append(patternNames, name)
+			cases = append(cases, c)
+			programs = append(programs, mustLower(t, name, c.src))
+		}
+	}
+	releaseLowering = previous
 	exes := buildAll(t, programs, true)
 	if exes == nil {
 		return
 	}
 	for i, c := range cases {
 		seed := first + i
-		cmd := exec.Command(exes[fmt.Sprintf("dropglue_%d", seed)])
+		name := fmt.Sprintf("dropglue_%d", seed)
+		if i >= seeds {
+			name = patternNames[i-seeds]
+			seed = first + (i-seeds)%seeds
+		}
+		cmd := exec.Command(exes[name])
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 		err := runProgram(t, cmd)

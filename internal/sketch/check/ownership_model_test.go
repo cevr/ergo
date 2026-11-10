@@ -58,6 +58,7 @@ func TestOwnershipFlowModel(t *testing.T) {
 		}
 	}
 	for _, seed := range seeds {
+		ofPatternOwners(t, seed)
 		ofYieldProjections(t, seed)
 		ofYieldLifetimes(t, seed)
 		g := &ofGen{r: rand.New(rand.NewPCG(seed, 0x197a2))}
@@ -516,6 +517,24 @@ func TestOwnershipFlowWorkIsLinear(t *testing.T) {
 		t.Fatalf("nested-loop work grows faster than linear: %d at depth 8, %d at depth 16", n8, n16)
 	}
 	t.Logf("nested-loop work %d, %d at depth 8, 16", n8, n16)
+	// A whole pattern binds a shared type DAG once. It does not expand
+	// the tree of all fields when no pattern splits those fields (PO1).
+	patternWork := func(depth int) int {
+		src := "type T0 {}\nfunc Close(x T0) {}\n"
+		for i := 1; i <= depth; i++ {
+			src += fmt.Sprintf("type T%d { A T%d, B T%d }\n", i, i-1, i-1)
+		}
+		src += fmt.Sprintf("func lend(x T%d) {}\nfunc Probe(p T%d) { match p { case T%d as whole: lend(whole) } }\n", depth, depth, depth)
+		c, ds := checkFor(src)
+		if len(ds) > 0 {
+			t.Fatalf("pattern DAG: %v", ds)
+		}
+		return c.ownSteps
+	}
+	p4, p8 := patternWork(4), patternWork(8)
+	if p8 > 2*p4 {
+		t.Fatalf("whole-pattern work expands its type DAG: %d at depth 4, %d at depth 8", p4, p8)
+	}
 }
 
 // TestOwnershipMessages fixes the text of each flow diagnostic (rows for
