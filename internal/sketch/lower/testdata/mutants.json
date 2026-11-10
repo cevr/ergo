@@ -1569,6 +1569,105 @@
       "killers": [
         "lower:TestMainImportsOnlyTheRuntimeLeavesItCalls"
       ]
+    },
+    {
+      "name": "bs5-edge-uses",
+      "origin": "wf10 binsize BS5",
+      "file": "internal/sketch/lower/reach.go",
+      "from": "r.object(info.Uses[n])",
+      "to": "_ = info.Uses[n]",
+      "rule": "binsize plan 3 (a): a name a reached declaration uses is reached.",
+      "killers": [
+        "lower:TestReachLowersNoUnreachableDeclaration"
+      ]
+    },
+    {
+      "name": "bs5-edge-selector",
+      "origin": "wf10 binsize BS5",
+      "file": "internal/sketch/lower/reach.go",
+      "from": "if objectName(o) == n.Sel.Name {",
+      "to": "if false && objectName(o) == n.Sel.Name {",
+      "rule": "binsize plan 3 (a): pkg.Name in a reached declaration reaches the imported package's declaration (an imported let is lowered).",
+      "killers": [
+        "lower:TestReachLowersNoUnreachableDeclaration"
+      ]
+    },
+    {
+      "name": "bs5-edge-withs",
+      "origin": "wf10 binsize BS5",
+      "file": "internal/sketch/lower/reach.go",
+      "from": "r.object(ctx)",
+      "to": "_ = ctx",
+      "rule": "binsize plan 3 (a): a context bound by a reached with is reached, with its providers.",
+      "killers": [
+        "lower:TestReachLowersNoUnreachableDeclaration"
+      ]
+    },
+    {
+      "name": "bs5-edge-firsts",
+      "origin": "wf10 binsize BS5",
+      "file": "internal/sketch/lower/reach.go",
+      "from": "for _, f := range r.firstsOf(tn.Pkg)[tn] {",
+      "to": "for _, f := range r.firstsOf(tn.Pkg)[nil] {",
+      "rule": "binsize plan 3 (a): a reached type reaches its dot calls, Go methods and the operations it provides.",
+      "killers": [
+        "lower:TestReachLowersNoUnreachableDeclaration"
+      ]
+    },
+    {
+      "name": "bs5-firsts-pointer",
+      "origin": "wf10 binsize BS5",
+      "file": "internal/sketch/lower/reach.go",
+      "from": "if ptr, ok := t.(*check.Pointer); ok {",
+      "to": "if ptr, ok := t.(*check.Pointer); ok && false {",
+      "rule": "binsize plan 3 (a): a function whose first parameter is *T is reached with T.",
+      "killers": [
+        "lower:TestReachLowersNoUnreachableDeclaration"
+      ]
+    },
+    {
+      "name": "bs5-main-root",
+      "origin": "wf10 binsize BS5",
+      "file": "internal/sketch/lower/reach.go",
+      "from": "r.object(main)",
+      "to": "_ = main",
+      "rule": "binsize plan 3 (a): main is the entry of the run build.",
+      "killers": [
+        "lower:TestReachLowersNoUnreachableDeclaration"
+      ]
+    },
+    {
+      "name": "bs5-root-all",
+      "origin": "wf10 binsize BS5",
+      "file": "internal/sketch/lower/module.go",
+      "from": "if l.declReached(d) {",
+      "to": "if true || l.declReached(d) {",
+      "rule": "binsize plan 3 (a): a root declaration that main does not reach is not lowered.",
+      "killers": [
+        "lower:TestReachLowersNoUnreachableDeclaration"
+      ]
+    },
+    {
+      "name": "bs5-lib-lets-all",
+      "origin": "wf10 binsize BS5",
+      "file": "internal/sketch/lower/module.go",
+      "from": "if !l.declReached(d) {",
+      "to": "if false && !l.declReached(d) {",
+      "rule": "binsize plan 3 (a), owner question 1: an imported package's let that nothing reached reads is not lowered and does not run.",
+      "killers": [
+        "lower:TestReachLowersNoUnreachableDeclaration"
+      ]
+    },
+    {
+      "name": "bs5-edge-types",
+      "origin": "wf10 binsize BS5",
+      "file": "internal/sketch/lower/reach.go",
+      "from": "r.typ(t)",
+      "to": "_ = t",
+      "rule": "binsize plan 3 (a): the type of an expression in a reached declaration is reached (a package type that shadows a prelude name).",
+      "killers": [
+        "lower:TestReachLowersNoUnreachableDeclaration"
+      ]
     }
   ]
 }

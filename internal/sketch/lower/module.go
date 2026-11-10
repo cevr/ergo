@@ -315,6 +315,10 @@ type lowerer struct {
 	// program's types name (text.go, instancesOf), computed once.
 	instances map[*check.TypeName][]check.Type
 
+	// reached is the reachable set of declarations (reach.go), nil when
+	// every declaration is lowered.
+	reached map[syntax.Decl]bool
+
 	// noEntry lowers a package with an empty Go main instead of a call of
 	// its main: the corpus test lowers library-shaped fixtures this way.
 	noEntry bool
@@ -469,14 +473,22 @@ func (l *lowerer) program() ([]byte, error) {
 		return nil, err
 	}
 	l.nameAll()
+	l.computeReach()
 	main := l.mainFunc()
-	l.eachDecl(l.pkg, l.decl)
+	l.eachDecl(l.pkg, func(d syntax.Decl) {
+		if l.declReached(d) {
+			l.decl(d)
+		}
+	})
 	// Every initializer of every sourced package is lowered here, before
 	// the entry decides whether it calls ergoInit: a library's lets, and
 	// its machines' initial values (F13). A library's other declarations
 	// are lowered where they are used.
 	for _, p := range l.sourcedLibs() {
 		l.eachDecl(p, func(d syntax.Decl) {
+			if !l.declReached(d) {
+				return
+			}
 			switch d := d.(type) {
 			case *syntax.VarDecl:
 				l.packageLet(d)
