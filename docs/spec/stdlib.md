@@ -394,8 +394,15 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
    stops all live children and joins their releases and transport workers.
    A handler defect ends Serve and keeps the defect cause; it is not an
    undeclared typed failure or an invented application status.
-7. `Match(routes, method, path)` returns `Found{Route, Params}`, `NotFound`
-   or `MethodNotAllowed`. Routes are `Route{Name, Method, Path}`. Literal
+7. `Match[T](routes, method, path)` returns `Found[T]{Route, Params}`, `NotFound`
+   or `MethodNotAllowed{Allow}`. Routes are `Route[T]{Value, Method, Path}`:
+   `Value` is what the route stands for (an endpoint value), so a program
+   reads the endpoint of a Found route as `f.Route.Value`, with no lookup
+   and no impossible fallback (H2). `Allow` is the methods of the routes
+   that take the path, each once, in route order, with HEAD after GET
+   when GET serves it, so a 405's `Allow` header is `strings.Join(m.Allow, ", ")`
+   (RFC 9110 15.5.6); the law `AllowIsWhatMatches` holds that a method is
+   in Allow exactly when Match finds a route for it. Literal
    segments match exactly; `:name` captures one non-empty segment. Order
    breaks ties. An explicit HEAD route precedes the GET fallback. There
    is no automatic trailing-slash redirect. `BuiltPathMatches` is the
@@ -541,7 +548,8 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 
 | Package | Law | Statement | Runner | State |
 | --- | --- | --- | --- | --- |
-| `http` | `BuiltPathMatches` | `BuiltPathMatches(a string, b string) { if a == "" \|\| b == "" \|\| strings.Contains(a, "/") \|\| strings.Contains(b, "/") { return true } let route = Route{Name: "pair", Method: "GET", Path: "/:a/:b"} match Match([]Route{route}, "GET", "/"+a+"/"+b) { case Found as f: f.Route == route && f.Params.Get("a") == Some{a} && f.Params.Get("b") == Some{b} case NotFound, MethodNotAllowed: false } }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `BuiltPathMatches` | `BuiltPathMatches(a string, b string) { if a == "" \|\| b == "" \|\| strings.Contains(a, "/") \|\| strings.Contains(b, "/") { return true } let route = Route{Value: "pair", Method: "GET", Path: "/:a/:b"} match Match([]Route[string]{route}, "GET", "/"+a+"/"+b) { case Found as f: f.Route == route && f.Params.Get("a") == Some{a} && f.Params.Get("b") == Some{b} case NotFound, MethodNotAllowed: false } }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `AllowIsWhatMatches` | `AllowIsWhatMatches(picks []int, asked int) { let methods = []string{"GET", "HEAD", "POST", "PUT", "DELETE"} let pick = func(i int) string { methods[if i < 0 { -(i % len(methods)) } else { i % len(methods) }] } let mut routes = []Route[int]{} for i, p in picks { routes = routes.Append(Route{Value: i, Method: pick(p), Path: "/r/:id"}) } match Match(routes, pick(asked), "/r/7") { case Found, NotFound: true case MethodNotAllowed as m: for i, a in m.Allow { if slices.Contains(m.Allow[i+1:], a) { return false } } for name in methods { let found = match Match(routes, name, "/r/7") { case Found: true case NotFound, MethodNotAllowed: false } if found != slices.Contains(m.Allow, name) { return false } } true } }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `FilesAsksBeneath` | `FilesAsksBeneath(steps []int, prefixed bool) { let mut rest = "" let mut dotdot = false for i, s in steps { let e = fileSegment(s) dotdot = dotdot \|\| e == ".." rest = if i == 0 { e } else { rest + "/" + e } } let path = if prefixed { "/static/" + rest } else { "/" + rest } let method = if len(steps)%2 == 0 { "GET" } else { "HEAD" } let root = filesProbe{paths: sync.NewRef[[]string]([]string{})} let response = Files(root, "/static/", Request{Method: method, Path: path, Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}) let asked = root.paths.Get() if len(asked) > 1 \|\| (dotdot \|\| !prefixed) && len(asked) != 0 { return false } for p in asked { if strings.HasPrefix(p, "/") { return false } for e in strings.Split(p, "/") { if e == "" \|\| e == "." \|\| e == ".." { return false } } } response.Status == 200 \|\| response.Status == 403 \|\| response.Status == 404 }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `StreamIsItsWrites` | `StreamIsItsWrites(status int, parts []string) { let header = []Field{Field{Name: "Content-Type", Value: "text/plain"}} let response = with context { Streaming: NewRecorder() } { Stream(status, header, func(w BodyWriter) fails WriteFailed { for p in parts { try w.Write(p) } }) } let mut want = "" for p in parts { want = want + p } response == Response{Status: status, Header: header, Body: want} }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `WriteAfterStreamFails` | `WriteAfterStreamFails(text string) { let kept = sync.NewRef[[]BodyWriter]([]BodyWriter{}) let response = with context { Streaming: NewRecorder() } { Stream(200, []Field{}, func(w BodyWriter) fails WriteFailed { kept.Set([]BodyWriter{w}) }) } for w in kept.Get() { w.Write(text) catch { case WriteFailed: return response.Body == "" } } false }` | `TestStdHTTPLawsRun` | tested |

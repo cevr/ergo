@@ -10,7 +10,7 @@ Content-Type: application/json
 {"error":"no route GET /tasks"}
 > PUT /jobs
 405
-Allow: GET, POST
+Allow: GET, HEAD, POST
 Content-Length: 39
 Content-Type: application/json
 {"error":"PUT is not allowed on /jobs"}

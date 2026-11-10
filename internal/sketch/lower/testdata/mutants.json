@@ -137,6 +137,24 @@
       "killers": ["lower:TestStdHTTPLawsRun"]
     },
     {
+      "name": "http-allow-head",
+      "origin": "wf10 H2",
+      "file": "internal/sketch/std/http/router.ergo",
+      "from": "if m == \"GET\" { withHead = withHead.Append(\"HEAD\") }",
+      "to": "if m == \"NEVER\" { withHead = withHead.Append(\"HEAD\") }",
+      "rule": "A 405's Allow names HEAD when a GET route serves it.",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
+      "name": "http-allow-once",
+      "origin": "wf10 H2",
+      "file": "internal/sketch/std/http/router.ergo",
+      "from": "if !slices.Contains(allow, route.Method) { allow = allow.Append(route.Method) }",
+      "to": "allow = allow.Append(route.Method)",
+      "rule": "A 405's Allow names each method once.",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
       "name": "http-header-case",
       "origin": "wf10 G1",
       "file": "internal/sketch/std/http/http.ergo",

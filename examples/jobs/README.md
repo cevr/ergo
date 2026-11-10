@@ -23,7 +23,7 @@ The program is a module of packages (`ergo.mod`: `module jobs`), in the Go layou
 | --- | --- |
 | `jobs/` | The domain package, with no HTTP and no JSON. `job.ergo`: `State`, `Signal`, `Job`, the failures `NotFound` and `Conflict`, `Step`, `Timer`, the machine `Lifecycle`, `Settle` and `Apply`. `store.ergo`: the contract `Store` with five laws, and the failure `Stale`. `queue.ergo`: `Submit`, `Find`, `List`, `CancelJob` and `Remove`, over the `Store` and the `time.Clock` in the context. `laws.ergo`: the lifecycle laws. |
 | `memory/` | `Table`, a `jobs.Store` in a `sync.Ref`. `ergo test` runs the `Store` laws here. |
-| `api/` | The HTTP layer: `routes.ergo` (`Endpoint`, the route table for `http.Match`), `body.ergo` (the JSON records `Draft`, `View`, `Listing`, `Problem`), `handle.ergo` (`Handle`, the one catch from failure to status, and `WithSite`), `laws.ergo` (the model law), `tests.ergo` (imports `memory`, so the law runs against `memory.Table`). |
+| `api/` | The HTTP layer: `routes.ergo` (`Endpoint`, the route table for `http.Match`, each route carrying its endpoint), `body.ergo` (the JSON records `Draft`, `View`, `Listing`, `Problem`), `handle.ergo` (`Handle`, the one catch from failure to status, and `WithSite`), `laws.ergo` (the model law), `tests.ergo` (imports `memory`, so the law runs against `memory.Table`). |
 | `cmd/jobs/` | The binary. It binds `jobs.Store` to a `memory.Table`, `time.Clock` to the host's clock (or, under `-replay`, a manual one and `http.Net` to a client of its own listener), the listener to `-addr` and the site's root to `-site`. It is the only place that chooses them. |
 
 ## What it shows
@@ -62,6 +62,6 @@ go run ./scripts/examples jobs
 ## Gaps
 
 - **G-jobs-1: a failure of another package's value type.** `http.NotFound`, `http.MethodNotAllowed`, `http.BodyTooLarge` and `http.BodyReadFailed` are values in package `http` (variants of `MatchResult` and `Body`). A function of this package that returns one of them as a failure is accepted by the checker, and its run is a defect (`panic: MethodNotAllowed{}`) instead of the typed failure. The api keeps its own failures (`NoRoute`, `WrongMethod`, `TooLarge`, `Unreadable`) until the compiler either lowers such a failure or refuses it.
-- **G-jobs-2: a route carries a name, not a value.** `http.Route.Name` is a string, so finding the endpoint of a `Found` route is a lookup (`endpointOf`) with a fallback that cannot happen. A route that carries a typed value (`Route[T]`) would make it a field read.
-- **G-jobs-3: `MethodNotAllowed` carries no methods.** `Allowed` matches the path once per method to build the `Allow` header that RFC 9110 requires with a `405`.
+- **G-jobs-2: a route carries a name, not a value.** Closed by H2: `http.Route[Endpoint]` carries its endpoint, so `answer` matches `f.Route.Value`.
+- **G-jobs-3: `MethodNotAllowed` carries no methods.** Closed by H2: `MethodNotAllowed.Allow` is the methods, with HEAD after GET, joined once for the `Allow` header.
 - **G-jobs-4: no HTTP client in std.** Closed by H1: the cases send their requests with `http.Do` over a port-0 listener.

@@ -180,7 +180,7 @@ func Expect(model Model, r http.Request) (Answer, Model) {
 			let created = Answer{..plain(201, ViewText(viewOf(id, e, model.Now))), Location: Some{"/jobs/\(id)"}}
 			return (created, Model{..model, Entries: entries, Last: id})
 		case _:
-			return (Answer{..refusal(405, r.Method+" is not allowed on /jobs"), Allow: Some{"GET, POST"}}, model)
+			return (Answer{..refusal(405, r.Method+" is not allowed on /jobs"), Allow: Some{"GET, HEAD, POST"}}, model)
 		}
 	}
 	if len(parts) < 3 || parts[1] != "jobs" || len(parts) > 4 || (len(parts) == 4 && parts[3] != "cancel") {
@@ -189,7 +189,7 @@ func Expect(model Model, r http.Request) (Answer, Model) {
 	let cancel = len(parts) == 4
 	let allowed = if cancel { r.Method == "POST" } else { r.Method == "GET" || r.Method == "HEAD" || r.Method == "DELETE" }
 	if !allowed {
-		let allow = if cancel { "POST" } else { "GET, DELETE" }
+		let allow = if cancel { "POST" } else { "GET, HEAD, DELETE" }
 		return (Answer{..refusal(405, r.Method+" is not allowed on "+r.Path), Allow: Some{allow}}, model)
 	}
 	let text = parts[2]
