@@ -96,6 +96,7 @@ type ownFrameSave struct {
 	first   int
 	name    string
 	nested  string
+	tail    ownTail
 }
 
 type ownDiag struct {
@@ -119,6 +120,8 @@ type ownWalk struct {
 	catches      []*ownCatch
 	loopMemo     map[syntax.Node]*ownLoopMemo
 	diags        []ownDiag
+	// tail is where the value of the block being walked goes (ownTail).
+	tail ownTail
 }
 
 // checkOwnership runs the flow pass over every body of the package.
@@ -329,7 +332,8 @@ func (w *ownWalk) close() {
 // nested frame starts from the enclosing state (its captures are lent)
 // and leaves it unchanged.
 func (w *ownWalk) frame(body *syntax.BlockStmt, sig *Signature, params []*Var, name, nested string, lendAll bool) {
-	saved := ownFrameSave{loops: w.loops, catches: w.catches, first: w.first, name: w.name, nested: w.nested}
+	saved := ownFrameSave{loops: w.loops, catches: w.catches, first: w.first, name: w.name, nested: w.nested, tail: w.tail}
+	w.tail = frameTail
 	outer := w.copyState(w.st)
 	nvars := len(w.vars)
 	w.loops, w.catches = nil, nil
@@ -358,7 +362,7 @@ func (w *ownWalk) frame(body *syntax.BlockStmt, sig *Signature, params []*Var, n
 	w.vars = w.vars[:nvars]
 	w.st = outer
 	w.depth--
-	w.loops, w.catches, w.first, w.name, w.nested = saved.loops, saved.catches, saved.first, saved.name, saved.nested
+	w.loops, w.catches, w.first, w.name, w.nested, w.tail = saved.loops, saved.catches, saved.first, saved.name, saved.nested, saved.tail
 }
 
 // block checks a scope's statements; key is the scope.
@@ -393,7 +397,8 @@ func (w *ownWalk) stmt(s syntax.Stmt) {
 		}
 	case *syntax.ExprStmt:
 		if _, tail := w.info.Tails[s]; tail {
-			w.region(s, func() { w.expr(s.X, mMove, hand{at: s.X, how: "it is the block's value"}) })
+			t := w.tail
+			w.region(s, func() { w.expr(s.X, t.mode, hand{at: s.X, how: t.how}) })
 			return
 		}
 		w.region(s, func() { w.expr(s.X, mDiscard, hand{}) })
@@ -644,6 +649,10 @@ const (
 	mLend    ownMode = iota // the value is lent: read, or passed to a lending parameter
 	mMove                   // the value moves to a new owner
 	mDiscard                // the value is dropped
+	// mHold: the value becomes another node's: a name is lent, a new value
+	// is owned by w.tail.slot (a lent if or match, branchValue) or, with no
+	// slot, by the with that builds a context.
+	mHold
 )
 
 // hand names a hand-off for the diagnostics: where it is and what it does.
@@ -700,13 +709,83 @@ func (w *ownWalk) move(i int, x *syntax.Ident, h hand) {
 	w.st[i] = ownSlot{st: ownMoved, at: h.at, how: h.how}
 }
 
-// expr evaluates x in mode.
+// expr evaluates x in mode. Its type switch names every kind of
+// expression and has no default (TestMintFormNamesEveryKind reads it): an
+// expression with statement children (a block, a case clause, a catch
+// arm, a function body) walks them with the flow, and a new kind is an
+// internal compiler error until it has a rule here (batch-15 A2 M1: the
+// arms of an if or match used as a value were skipped).
 func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
-	if x == nil {
+	if x == nil || w.c.typeNodes[x] {
 		return
 	}
 	w.step(1)
+	lend := func(xs ...syntax.Expr) {
+		for _, e := range xs {
+			w.expr(e, mLend, hand{})
+		}
+	}
 	switch x := x.(type) {
+	case *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+		w.branchValue(x, mode, h)
+		return
+	case *syntax.ContextLit:
+		// Its providers are built and owned by the with that discharges it
+		// (Context ownership as built): a name is lent, a new value is no
+		// temporary of the statement.
+		if x.Body != nil {
+			saved := w.tail
+			w.tail = ownTail{mode: mHold, slot: -1}
+			for _, e := range x.Body.Entries {
+				w.expr(e.Value, mHold, hand{})
+			}
+			w.tail = saved
+		}
+		return
+	case *syntax.BasicLit, *syntax.ArrayType, *syntax.MapType, *syntax.FuncType, *syntax.StructType,
+		*syntax.InterfaceType, *syntax.ErrorRow, *syntax.MachineType, *syntax.VariantSpec, *syntax.AsPattern:
+		// A literal, a type or a pattern: no value of a local is used.
+		return
+	case *syntax.KeyValueExpr:
+		lend(x.Key, x.Value)
+		return
+	case *syntax.SelectorExpr:
+		lend(x.X)
+		return
+	case *syntax.IndexExpr:
+		lend(x.X)
+		lend(x.Indices...)
+		return
+	case *syntax.SliceExpr:
+		lend(x.X, x.Low, x.High, x.Max)
+		return
+	case *syntax.TypeGuard:
+		lend(x.X)
+		return
+	case *syntax.StarExpr:
+		lend(x.X)
+		return
+	case *syntax.UnaryExpr:
+		lend(x.X)
+		return
+	case *syntax.BinaryExpr:
+		if x.Op == syntax.LAND || x.Op == syntax.LOR {
+			w.shortCircuit(x)
+			return
+		}
+		lend(x.X, x.Y)
+		return
+	case *syntax.TupleExpr:
+		lend(x.Elts...)
+		return
+	case *syntax.InterpolatedString:
+		lend(x.Exprs...)
+		return
+	case *syntax.CompositeLit:
+		lend(x.Base)
+		lend(x.Elts...)
+		w.produced(x, mode)
+		return
 	case *syntax.Ident:
 		v, _ := w.info.Uses[x].(*Var)
 		i, ok := w.slot[v]
@@ -730,9 +809,10 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		w.catch(x, mode, h)
 		return
 	case *syntax.CallExpr:
-		if w.call(x, mode, h) {
-			return
+		if !w.call(x, mode, h) {
+			w.produced(x, mode)
 		}
+		return
 	case *syntax.FuncLit:
 		var sig *Signature
 		if s, ok := w.info.Literals[x]; ok {
@@ -744,33 +824,15 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		}
 		w.frame(x.Body, sig, w.paramVars(params), w.name, "this function literal", false)
 		return
-	default:
-		if b, ok := x.(*syntax.BinaryExpr); ok && (b.Op == syntax.LAND || b.Op == syntax.LOR) {
-			w.shortCircuit(b)
-			return
-		}
-		syntax.Inspect(x, func(n syntax.Node) bool {
-			if n == syntax.Node(x) {
-				return true
-			}
-			if e, ok := n.(syntax.Expr); ok && !w.c.typeNodes[e] {
-				w.expr(e, mLend, hand{})
-			}
-			return false
-		})
 	}
-	w.produced(x, mode)
+	panic(fmt.Sprintf("check: internal compiler error: the ownership flow has no rule for a %T (ownWalk.expr)", x))
 }
 
 // produced owns or refuses a new value x of a resource type: a call's
 // result or a literal. A lent one is a temporary of the statement (R43);
-// a dropped one is discarded (R42); a moved one has its new owner.
+// a dropped one is discarded (R42); a moved one has its new owner; a held
+// one is the value of the lent if or match whose slot is w.tail.slot.
 func (w *ownWalk) produced(x syntax.Expr, mode ownMode) {
-	switch x.(type) {
-	case *syntax.CallExpr, *syntax.CompositeLit:
-	default:
-		return
-	}
 	t := w.info.Types[x]
 	if !w.tracked(t) || w.st == nil {
 		return
@@ -780,7 +842,49 @@ func (w *ownWalk) produced(x syntax.Expr, mode ownMode) {
 		w.acquire(ownLocal{temp: x})
 	case mDiscard:
 		w.report(x, "the %s this produces is discarded, and a resource has one owner; bind it with let, so its scope releases it, or hand it off (resources R42)", t)
+	case mHold:
+		if i := w.tail.slot; i >= 0 && i < len(w.st) {
+			w.st[i] = ownSlot{st: ownOwned}
+		}
 	}
+}
+
+// ownTail is where a block's value goes: the mode its tail expression is
+// evaluated in, the hand-off it names, and, for mHold, the slot of the
+// temporary that owns a new value (-1: an owner outside the flow).
+type ownTail struct {
+	mode ownMode
+	how  string
+	slot int
+}
+
+// frameTail is a function body's: its value is returned.
+var frameTail = ownTail{mode: mMove, how: "it is the block's value", slot: -1}
+
+// branchValue walks an if or match used as a value (resources R21): the
+// statement walk, each arm's tail evaluated where the value goes. Moved
+// (a let, a taken argument), each arm's value moves; dropped, each is
+// discarded. Lent (an argument of a lending parameter, an operand), a
+// name is lent where it is, and a value an arm makes is a temporary of
+// the statement owned on the paths that made it: one slot, acquired here
+// as handed off and owned by each arm that makes the value, so where the
+// arms meet it is released under a flag unless every arm made it. Prior
+// art: Rust lowers if and match in every position to MIR control flow
+// before move checking, so a move in an arm is a conditional move.
+func (w *ownWalk) branchValue(x syntax.Expr, mode ownMode, h hand) {
+	saved := w.tail
+	t := ownTail{mode: mode, how: h.how, slot: -1}
+	switch {
+	case mode == mHold:
+		t.slot = saved.slot
+	case mode == mLend && w.tracked(w.info.Types[x]) && w.st != nil:
+		t.mode = mHold
+		t.slot = w.acquire(ownLocal{temp: x})
+		w.st[t.slot] = ownSlot{st: ownMoved, at: x, how: "no arm made it"}
+	}
+	w.tail = t
+	w.stmt(x.(syntax.Stmt))
+	w.tail = saved
 }
 
 // shortCircuit walks `a && b` or `a || b`: a runs on every path, b only on
@@ -860,7 +964,11 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 			w.expr(a, mLend, hand{})
 		}
 		if x.Trailing != nil {
+			// The block's value is the with's, which produced owns.
+			saved := w.tail
+			w.tail = frameTail
 			w.block(x.Trailing, x.Trailing.List)
+			w.tail = saved
 		}
 		return false
 	}

@@ -20,9 +20,12 @@ import (
 // a lend and a take of one value in one call, a temporary, a discarded
 // resource (as a statement and bound to _), if/else, match, for with break
 // and continue, return, the failure edge of a try, a take in either
-// operand of && or || (the right one runs on some paths only), and a trailing block
-// (a frame of its own) that uses or hands off the enclosing locals; with a
-// lent and a taken parameter. A reference abstract interpreter in the
+// operand of && or || (the right one runs on some paths only), an if or
+// match used as a value (a let value, an operand of &&, a lent and a
+// taken argument, a dropped value; arms with statements of their own and a
+// tail that takes, names or makes a value, or nests another), and a
+// trailing block (a frame of its own) that uses or hands off the
+// enclosing locals; with a lent and a taken parameter. A reference abstract interpreter in the
 // test, written from resources R4-R21 and R41-R43, computes the verdict
 // (S108 positions) and the release plan (what each scope end, statement,
 // assignment and exit edge releases, with drop flags); both must equal the
@@ -38,7 +41,9 @@ import (
 // one call admitted; a lent parameter handed off; a local held only for
 // its release reported S110; the right operand of && or || walked as a
 // path every run takes (batch-15 A2 M1: the value leaked when it did not
-// run).
+// run); the arms of a value if or match skipped, an arm's value moved
+// wherever the value goes, and the temporary of a lent one owned on every
+// path or on none (batch-15 A2 M1 repeat).
 func TestOwnershipFlowModel(t *testing.T) {
 	seeds := make([]uint64, 0, 400)
 	if s := os.Getenv("ERGO_SEED"); s != "" {
@@ -198,6 +203,28 @@ const (
 	ofTry
 	ofShort
 	ofRun
+	ofValue // an if or match used as a value (batch-15 A2 M1)
+	ofTail  // the last line of a value arm: where the arm's value comes from
+)
+
+// Where an ofValue's if or match stands (form) and what its arms yield.
+const (
+	vLetBool = iota // let _ = IF, arms of bool type
+	vShort          // let _ = cond(n) && (IF): an operand that may not run
+	vLend           // lend(IF): a lent Res, a temporary of the statement
+	vKeep           // keep(IF): a taken Res, each arm's value moves
+	vLetRes         // let rN = IF: the value moves into rN
+	vDiscard        // let _ = IF of Res: each arm's new value is discarded
+	vForms
+)
+
+// The tail of a value arm (an ofTail's tk).
+const (
+	tCond   = iota // cond(n)
+	tTake          // take(y) > 0: hands y off
+	tName          // y: moved, lent or dropped as the value is
+	tOpen          // open(k): a new value, owned where the value goes
+	tNested        // a nested if or match (body[0], an ofValue), bool only
 )
 
 type ofStmt struct {
@@ -207,9 +234,13 @@ type ofStmt struct {
 	op        string // ofShort: && or ||
 	left      bool   // ofShort: the take is the left operand, which always runs
 	temp      bool   // ofShort: the right operand lends a temporary instead
+	form      int    // ofValue: vLetBool…
+	match     bool   // ofValue: a match instead of an if
+	tk        int    // ofTail: tCond…
 	body, els []*ofStmt
 	// Filled by ofPrint: the statement's line, the else line, and columns.
 	line, elseLine int
+	armLine        int // ofValue match: the first clause's line
 	col, col2      int // y's column (both: the lent y); the taken y in both
 }
 
@@ -268,10 +299,56 @@ func (g *ofGen) fresh() string {
 	return fmt.Sprintf("r%d", g.n)
 }
 
+// value is an if or match used as a value, at form; a bool one may nest
+// another in an arm's tail.
+func (g *ofGen) value(form, depth, nest int, inLoop bool) *ofStmt {
+	s := &ofStmt{kind: ofValue, form: form, match: g.r.IntN(2) == 0}
+	s.body = g.arm(form, depth, nest, inLoop)
+	s.els = g.arm(form, depth, nest, inLoop)
+	return s
+}
+
+// arm is a value arm: up to two statements, then its tail.
+func (g *ofGen) arm(form, depth, nest int, inLoop bool) []*ofStmt {
+	mark := len(g.vars)
+	defer func() { g.vars = g.vars[:mark] }()
+	var out []*ofStmt
+	for range g.r.IntN(3) {
+		out = append(out, g.stmt(depth, nest+1, inLoop))
+	}
+	t := &ofStmt{kind: ofTail}
+	if form == vLetBool || form == vShort {
+		t.tk = []int{tCond, tTake, tNested}[g.r.IntN(3)]
+		if t.tk == tNested && nest >= 2 {
+			t.tk = tTake
+		}
+	} else {
+		t.tk = []int{tName, tOpen}[g.r.IntN(2)]
+	}
+	switch t.tk {
+	case tTake, tName:
+		t.y = g.pick()
+	case tNested:
+		t.body = []*ofStmt{g.value(vLetBool, depth, nest+1, inLoop)}
+	}
+	return append(out, t)
+}
+
 func (g *ofGen) stmt(depth, nest int, inLoop bool) *ofStmt {
 	for {
-		k := g.r.IntN(ofRun + 1)
+		k := g.r.IntN(ofValue + 1)
 		switch k {
+		case ofValue:
+			if nest >= 3 {
+				continue
+			}
+			form := g.r.IntN(vForms)
+			s := g.value(form, depth, nest, inLoop)
+			if form == vLetRes {
+				s.x = g.fresh()
+				g.vars = append(g.vars, ofVar{name: s.x, depth: depth})
+			}
+			return s
 		case ofBreak, ofContinue, ofReturn:
 			continue // only as an if body's last statement
 		case ofIf, ofMatch, ofLoop, ofRun:
@@ -375,6 +452,7 @@ func ofPrint(body []*ofStmt) (string, int) {
 	}
 	col := func(depth int, prefix string) int { return depth + len(prefix) + 1 }
 	k := 0
+	var value func(s *ofStmt, depth int, prefix, suffix string)
 	var walk func(list []*ofStmt, depth int)
 	walk = func(list []*ofStmt, depth int) {
 		for _, s := range list {
@@ -469,8 +547,63 @@ func ofPrint(body []*ofStmt) (string, int) {
 				emit(depth, "run() {")
 				walk(s.body, depth+1)
 				emit(depth, "}")
+			case ofValue:
+				prefix, suffix := "", ""
+				switch s.form {
+				case vLetBool, vDiscard:
+					prefix = "let _ = "
+				case vShort:
+					prefix, suffix = "let _ = cond(n) && (", ")"
+				case vLend:
+					prefix, suffix = "lend(", ")"
+				case vKeep:
+					prefix, suffix = "keep(", ")"
+				case vLetRes:
+					prefix = "let " + s.x + " = "
+				}
+				value(s, depth, prefix, suffix)
+			case ofTail:
+				switch s.tk {
+				case tCond:
+					emit(depth, "cond(n)")
+				case tTake:
+					s.col = col(depth, "take(")
+					emit(depth, "take("+s.y+") > 0")
+				case tName:
+					s.col = col(depth, "")
+					emit(depth, s.y)
+				case tOpen:
+					k++
+					s.col = col(depth, "")
+					emit(depth, fmt.Sprintf("open(%d)", k))
+				case tNested:
+					value(s.body[0], depth, "", "")
+				}
 			}
 		}
+	}
+	// value writes an if or match whose value goes where prefix and
+	// suffix put it; line is the statement's (and the then block's or
+	// the first clause's), elseLine the other arm's.
+	value = func(s *ofStmt, depth int, prefix, suffix string) {
+		s.line = line
+		if !s.match {
+			emit(depth, prefix+"if cond(n) {")
+			walk(s.body, depth+1)
+			s.elseLine = line
+			emit(depth, "} else {")
+			walk(s.els, depth+1)
+			emit(depth, "}"+suffix)
+			return
+		}
+		emit(depth, prefix+"match n {")
+		s.armLine = line
+		emit(depth, "case 0:")
+		walk(s.body, depth+1)
+		s.elseLine = line
+		emit(depth, "case _:")
+		walk(s.els, depth+1)
+		emit(depth, "}"+suffix)
 	}
 	emit(0, "func body(n int, p Res, q Res) fails Bad takes q {")
 	walk(body, 1)
@@ -508,7 +641,17 @@ type rfRun struct {
 	diags  map[string]bool
 	rel    map[string]string
 	movers map[string]bool // slots moved in the current both call
+	// The value arms being run: where their value goes, and for a lent
+	// Res the slot of the statement's temporary that owns a new value.
+	vmode, vslot int
 }
+
+// Where a value arm's value goes (rfRun.vmode).
+const (
+	rvMove = iota
+	rvLend
+	rvDiscard
+)
 
 func ofReference(body []*ofStmt) ([]string, []string) {
 	r := &rfRun{diags: map[string]bool{}, rel: map[string]string{}, depth: 1}
@@ -745,6 +888,59 @@ func (r *rfRun) stmt(s *ofStmt) {
 		if !s.left {
 			r.st = rfJoin(r.st, saved, len(r.st))
 		}
+	case ofValue:
+		switch s.form {
+		case vLetBool:
+			r.arms(s, rvDiscard, -1)
+		case vShort:
+			// The operand runs on some paths only: an if with no else.
+			saved := rfCopy(r.st)
+			r.arms(s, rvLend, -1)
+			if saved != nil {
+				r.st = rfJoin(r.st, saved, len(saved))
+			}
+		case vLend:
+			// The value is a temporary of the statement, owned on the
+			// paths whose arm made it.
+			if r.st == nil {
+				r.arms(s, rvLend, -1)
+				return
+			}
+			i := len(r.st)
+			r.st = append(r.st, rfSlot{name: "tmp", st: rfMoved, depth: r.depth})
+			r.arms(s, rvLend, i)
+			r.record(fmt.Sprintf("stmt@%d", s.line), r.releases(i))
+			if r.st != nil {
+				r.st = r.st[:i]
+			}
+		case vKeep:
+			r.arms(s, rvMove, -1)
+		case vLetRes:
+			r.arms(s, rvMove, -1)
+			r.acquire(s.x)
+		case vDiscard:
+			r.arms(s, rvDiscard, -1)
+		}
+	case ofTail:
+		switch s.tk {
+		case tTake:
+			r.move(s.y, s.line, s.col)
+		case tName:
+			if r.vmode == rvMove {
+				r.move(s.y, s.line, s.col)
+			} else {
+				r.use(s.y, s.line, s.col)
+			}
+		case tOpen:
+			switch {
+			case r.vmode == rvDiscard:
+				r.diag(s.line, s.col)
+			case r.vslot >= 0 && r.st != nil:
+				r.st[r.vslot].st = rfOwned
+			}
+		case tNested:
+			r.stmt(s.body[0])
+		}
 	case ofRun:
 		saved := rfCopy(r.st)
 		loops, first := r.loops, r.first
@@ -755,6 +951,25 @@ func (r *rfRun) stmt(s *ofStmt) {
 		r.loops, r.first = loops, first
 		r.st = saved
 	}
+}
+
+// arms runs the two arms of a value if or match whose value goes to mode
+// (slot: the temporary that owns a new lent value, or -1), and joins them.
+func (r *rfRun) arms(s *ofStmt, mode, slot int) {
+	vmode, vslot := r.vmode, r.vslot
+	r.vmode, r.vslot = mode, slot
+	kind, first := "block", s.line
+	if s.match {
+		kind, first = "case", s.armLine
+	}
+	n := len(r.st)
+	saved := rfCopy(r.st)
+	r.block(s.body, kind, first, 0)
+	a := r.st
+	r.st = rfCopy(saved)
+	r.block(s.els, kind, s.elseLine, 0)
+	r.st = rfJoin(a, r.st, n)
+	r.vmode, r.vslot = vmode, vslot
 }
 
 // loop runs the body to its plain fixpoint quietly, then once more.

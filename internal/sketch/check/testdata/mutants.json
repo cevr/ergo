@@ -1488,6 +1488,61 @@
       "killers": [
         "lower:TestCaptureRuleModel"
       ]
+    },
+    {
+      "name": "a2-value-arms-skipped",
+      "origin": "wf10 batch-15 fix-r3 (A2 M1 repeat)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tw.branchValue(x, mode, h)\n\t\treturn",
+      "to": "\t\t_ = h\n\t\treturn",
+      "rule": "resources R21: an if or match used as a value is walked as the statement is; a hand-off in an arm is a hand-off on that path.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "a2-value-tail-moves",
+      "origin": "wf10 batch-15 fix-r3 (A2 M1 repeat)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\tw.region(s, func() { w.expr(s.X, t.mode, hand{at: s.X, how: t.how}) })",
+      "to": "\t\t\tw.region(s, func() { w.expr(s.X, mMove, hand{at: s.X, how: t.how}) })",
+      "rule": "resources R16, R42, R43: an arm's value goes where the if or match's value goes: lent, it is lent; dropped, a new value is discarded.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "a2-value-temp-unflagged",
+      "origin": "wf10 batch-15 fix-r3 (A2 M1 repeat)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tw.st[t.slot] = ownSlot{st: ownMoved, at: x, how: \"no arm made it\"}",
+      "to": "\t\t_ = x",
+      "rule": "resources R21, R43: a lent if or match's new value is a temporary on the paths whose arm made it; released under a flag unless every arm made it.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "a2-value-temp-unowned",
+      "origin": "wf10 batch-15 fix-r3 (A2 M1 repeat)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\tw.st[i] = ownSlot{st: ownOwned}",
+      "to": "\t\t\t_ = i",
+      "rule": "resources R43: a new value an arm of a lent if or match makes is owned by the statement and released at its end.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "a2-expr-kind-unnamed",
+      "origin": "wf10 batch-15 fix-r3 (A2 M1 repeat)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tcase *syntax.TypeGuard:\n\t\tlend(x.X)\n\t\treturn\n",
+      "to": "",
+      "rule": "The ownership flow names every kind of expression (no default): a new kind, which may hold a block, has no silent skip.",
+      "killers": [
+        "check:TestMintFormNamesEveryKind"
+      ]
     }
   ]
 }
