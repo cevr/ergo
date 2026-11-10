@@ -241,7 +241,15 @@ func (l *lowerer) machineGraph(td *typeDecl, tc *typeCtx, state, signal string) 
 	var b strings.Builder
 	b.WriteString(rt + ".MachineGraph{\n\tArms: []" + rt + ".MachineArm{\n")
 	for _, a := range g.Arms {
-		fmt.Fprintf(&b, "\t\t{Site: %s, States: %s, Signals: %s, Partial: %t},\n", strconv.Quote(a.Site.String()), list(a.States, stateOf), list(a.Signals, signalOf), a.Partial)
+		// A case of several tuple patterns is one runtime arm per
+		// pattern, at one site, which the runner names once.
+		alts := a.Alts
+		if alts == nil {
+			alts = []machinegraph.Alt{{States: a.States, Signals: a.Signals, Partial: a.Partial}}
+		}
+		for _, x := range alts {
+			fmt.Fprintf(&b, "\t\t{Site: %s, States: %s, Signals: %s, Partial: %t},\n", strconv.Quote(a.Site.String()), list(x.States, stateOf), list(x.Signals, signalOf), x.Partial)
+		}
 	}
 	b.WriteString("\t},\n\tTimers: []" + rt + ".MachineTimer{\n")
 	keys := make([]string, 0, len(g.Timers))

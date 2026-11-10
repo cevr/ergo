@@ -123,10 +123,15 @@ func typeID[T any]() unsafe.Pointer {
 	return (*[2]unsafe.Pointer)(unsafe.Pointer(&p))[0]
 }
 
-// variant is the variant name of v: g's Variant, else its Go type's name.
+// variant is the variant name of v: g's Variant, else the name v gives
+// itself (a flat union's, whose Go type is the union's), else its Go
+// type's name.
 func variant(g *MachineGraph, v any) string {
 	if g != nil && g.Variant != nil {
 		return g.Variant(v)
+	}
+	if n, ok := v.(interface{ ErgoVariant() string }); ok {
+		return n.ErgoVariant()
 	}
 	if v == nil {
 		return ""
@@ -141,13 +146,18 @@ func (g *MachineGraph) arm(state, signal string) string {
 	if g == nil {
 		return ""
 	}
-	site := ""
+	site, last := "", ""
 	for _, a := range g.Arms {
 		if takes(a.States, state) && takes(a.Signals, signal) {
-			if site != "" {
-				site += " or "
+			// The patterns of one case are arms at one site: the site
+			// is named once.
+			if a.Site != last {
+				if site != "" {
+					site += " or "
+				}
+				site += a.Site
+				last = a.Site
 			}
-			site += a.Site
 			if !a.Partial {
 				break
 			}

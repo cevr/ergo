@@ -69,12 +69,24 @@ type Edge struct {
 // it takes (nil for any), whether a pattern of it tests more than the
 // variant (a field or a literal, so a pair it takes may still pass to a
 // later arm), and its edges.
+// A case of several tuple patterns has the variants of all of them, and
+// Alts holds each pattern's: the arm takes a pair one of them takes, not
+// every pair of its States and Signals (Takes).
 type Arm struct {
 	Site    Site
 	States  []string
 	Signals []string
 	Partial bool
 	Edges   []Edge
+	Alts    []Alt `json:",omitempty"`
+}
+
+// Alt is one pattern of an arm: the state and signal variants it takes
+// (nil for any), and whether it tests more than the variants.
+type Alt struct {
+	States  []string
+	Signals []string
+	Partial bool
 }
 
 // Timer is the timer of a state's entry: the signal variant it gives
@@ -178,10 +190,19 @@ func under(t check.Type) check.Type {
 	return t
 }
 
-// Name is the variant name of t: its declared name, or its text.
+// Name is the variant name of t: its declared name with its type
+// arguments as the source spells them (Box[Int]), so two instances of one
+// generic record in one union have names apart, or its text.
 func Name(t check.Type) string {
 	if n, ok := t.(*check.Named); ok && n.Obj != nil {
-		return n.Obj.Name
+		if len(n.TArgs) == 0 {
+			return n.Obj.Name
+		}
+		args := make([]string, len(n.TArgs))
+		for i, a := range n.TArgs {
+			args[i] = a.String()
+		}
+		return n.Obj.Name + "[" + strings.Join(args, ", ") + "]"
 	}
 	return t.String()
 }
@@ -310,8 +331,19 @@ func (r *reader) arms(step *check.Func) []Arm {
 				}
 			}
 		}
-		out = append(out, Arm{Site: r.at(decl, cl.Pos()), States: states, Signals: signals, Partial: partial,
-			Edges: r.edgesOfBlock(cl.Body, decl)})
+		a := Arm{Site: r.at(decl, cl.Pos()), States: states, Signals: signals, Partial: partial,
+			Edges: r.edgesOfBlock(cl.Body, decl)}
+		if len(roles) > 1 && len(cl.List) > 1 {
+			// A case of several tuple patterns takes the pairs each one
+			// takes, not the product of their states and their signals:
+			// (A, X), (B, Y) does not take (A, Y).
+			for _, item := range cl.List {
+				one := &syntax.CaseClause{Case: cl.Case, List: []syntax.Expr{item}}
+				st, sg, part := r.clauseVariants(one, roles)
+				a.Alts = append(a.Alts, Alt{States: st, Signals: sg, Partial: part})
+			}
+		}
+		out = append(out, a)
 	}
 	return out
 }
@@ -676,11 +708,26 @@ func dedupe(es []Edge) []Edge {
 // first arm, and Reachable lists each arm that may.
 func (g *Graph) ArmOf(state, signal string) (Arm, bool) {
 	for _, a := range g.Arms {
-		if takes(a.States, state) && takes(a.Signals, signal) {
+		if taken, _ := a.Takes(state, signal); taken {
 			return a, true
 		}
 	}
 	return Arm{}, false
+}
+
+// Takes reports whether a takes the pair (state, signal), and whether only
+// maybe: each pattern of a that takes it is partial.
+func (a Arm) Takes(state, signal string) (taken, partial bool) {
+	if a.Alts == nil {
+		return takes(a.States, state) && takes(a.Signals, signal), a.Partial
+	}
+	partial = true
+	for _, alt := range a.Alts {
+		if takes(alt.States, state) && takes(alt.Signals, signal) {
+			taken, partial = true, partial && alt.Partial
+		}
+	}
+	return taken, taken && partial
 }
 
 func takes(vs []string, v string) bool { return vs == nil || slices.Contains(vs, v) }
@@ -762,9 +809,9 @@ func (g *Graph) Reachable() []Pair {
 func (g *Graph) arms(state, signal string) []Arm {
 	var out []Arm
 	for _, a := range g.Arms {
-		if takes(a.States, state) && takes(a.Signals, signal) {
+		if taken, partial := a.Takes(state, signal); taken {
 			out = append(out, a)
-			if !a.Partial {
+			if !partial {
 				break
 			}
 		}
