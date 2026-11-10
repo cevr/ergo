@@ -268,9 +268,10 @@ func (l *lowerer) importAs(path string) (string, bool) {
 // slice, Map, tuple and row type writes: a record its fields in declaration
 // order, a union its variant's index and the variant, a slice its length
 // and elements, a Map its entries in the order of their encodings, a float
-// its bits with one zero and one NaN. So two states have one key exactly
-// when Ergo's structural `==` (types.md, Operators 1) holds between them,
-// NaN aside (`==` never holds for NaN; the key has one NaN). A type that
+// its bits. So two states have one key exactly when they are identical:
+// Ergo's structural `==` (types.md, Operators 1) with each float compared
+// by its bits, so 0 and -0 are apart and a NaN is one state (batch-15 X1
+// M1: a merge of states a step can tell apart is a false proof). A type that
 // holds a function, an operation type's value, a Go type or a runtime
 // handle has no key: its law runs over generated runs and says why.
 

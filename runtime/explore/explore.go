@@ -29,8 +29,9 @@ import (
 type Hash [16]byte
 
 // Key is the canonical encoding of an Ergo value, written by the lowered
-// key function of its type: equal values have equal bytes, and unequal
-// values unequal bytes. A record writes its fields in declaration order; a
+// key function of its type: identical values have equal bytes, and values
+// that a step can tell apart unequal bytes (a float by its bits, so 0 and
+// -0 are apart though 0 == -0). A record writes its fields in declaration order; a
 // union writes its variant's index, then the variant; a slice its length,
 // then its elements; a Map its length, then its entries in the order of
 // their encodings, so the order of Go's map iteration does not show.
@@ -63,14 +64,11 @@ func (k *Key) String(s string) {
 	k.buf = append(k.buf, s...)
 }
 
-// Float writes v by its bits, with one zero (0 == -0) and one NaN.
+// Float writes v by its bits, as they are: -0 apart from 0, though 0 ==
+// -0, since a step can tell them apart ("\(x)" shows -0, 1/x is -Inf), and
+// each NaN by its payload, which math.Float64bits shows. A key merges two
+// states only when no step can tell them apart (batch-15 X1 M1).
 func (k *Key) Float(v float64) {
-	switch {
-	case v == 0:
-		v = 0
-	case math.IsNaN(v):
-		v = math.NaN()
-	}
 	k.buf = binary.LittleEndian.AppendUint64(k.buf, math.Float64bits(v))
 }
 

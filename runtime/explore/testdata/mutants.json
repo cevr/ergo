@@ -110,6 +110,17 @@
       "killers": [
         "lower:TestKeyEqualsEquality"
       ]
+    },
+    {
+      "name": "x1-key-float-one-zero",
+      "origin": "wf10 batch-15 fix-r2 (X1 M1)",
+      "file": "runtime/explore/explore.go",
+      "from": "func (k *Key) Float(v float64) {\n\tk.buf =",
+      "to": "func (k *Key) Float(v float64) {\n\tif v == 0 {\n\t\tv = 0\n\t}\n\tk.buf =",
+      "rule": "Key.Float: a float is written by its bits, so 0 and -0, which a step tells apart, are two states (types.md Laws 13).",
+      "killers": [
+        "lower:TestKeyEqualsEquality"
+      ]
     }
   ]
 }
