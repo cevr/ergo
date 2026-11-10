@@ -50,9 +50,45 @@ test RefinedConfigKeepsItsRow(n int) {
 	}
 	assert false
 }
+
+type opened {}
+type shut { Reason string }
+type mode = opened | shut
+type shelf { Label string, Ratio float64, Mode mode, Inner sample, Items []sample, Notes Map[string, string] }
+
+func utf8Texts(v shelf) bool {
+	let mut ok = utf8.ValidString(v.Label) && utf8.ValidString(v.Inner.Name)
+	match v.Mode {
+	case shut as s:
+		ok = ok && utf8.ValidString(s.Reason)
+	case opened:
+	}
+	for x in v.Items {
+		ok = ok && utf8.ValidString(x.Name)
+	}
+	for k, t in v.Notes {
+		ok = ok && utf8.ValidString(k) && utf8.ValidString(t)
+	}
+	ok
+}
+
+test EncodeRoundTrips(v shelf) {
+	let text = toml.Encode(v) catch {
+	case toml.Unrepresentable:
+		assert !utf8Texts(v)
+		return
+	}
+	let back = toml.Decode(json.Codec[shelf]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case _:
+		assert false
+		return
+	}
+	assert back == v
+}
 `
 
 var tomlLawStatements = map[string]string{
+	"toml EncodeRoundTrips":     `EncodeRoundTrips(v shelf) { let text = Encode(v) catch { case Unrepresentable: return !utf8Texts(v) } let back = Decode(json.Codec[shelf]{MaxBytes: 0, MaxDepth: 0}, text) catch { case _: return false } back == v }`,
 	"toml ReadsGeneratedRecord": `ReadsGeneratedRecord(name string, count int64, active bool, steps []int64) { if !utf8.ValidString(name) { return true } let sc = json.Codec[string]{MaxBytes: 0, MaxDepth: 0} let nc = json.Codec[int64]{MaxBytes: 0, MaxDepth: 0} let bc = json.Codec[bool]{MaxBytes: 0, MaxDepth: 0} let lc = json.Codec[[]int64]{MaxBytes: 0, MaxDepth: 0} let quoted = strings.ReplaceAll(json.Encode(sc, name), "\x7f", "\\u007f") let text = "name = " + quoted + "\ncount = " + json.Encode(nc, count) + "\nactive = " + json.Encode(bc, active) + "\nsteps = " + json.Encode(lc, steps) + "\n" let back = Decode(json.Codec[sample]{MaxBytes: 0, MaxDepth: 0}, text) catch { case _: return false } back == sample{Name: name, Count: count, Active: active, Steps: steps} }`,
 }
 

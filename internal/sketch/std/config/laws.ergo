@@ -119,5 +119,5 @@ law NamesInvert(picks []int) {
 		return true
 	}
 	let key = strings.Join(parts, ".")
-	flagKey(FlagName(key)) == key && envKey(strings.TrimPrefix(EnvName("P", key), "P_")) == key
+	FlagKey(FlagName(key)) == key && EnvKey("P", EnvName("P", key)) == key
 }

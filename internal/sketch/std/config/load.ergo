@@ -157,3 +157,12 @@ func FlagName(key string) string { flagName(key) }
 // EnvName is the variable that sets key under prefix: "NOTES_API_TOKEN"
 // for "apiToken", "NOTES_SERVER__PORT" for "server.port".
 func EnvName(prefix string, key string) string { envName(prefix, key) }
+
+// FlagKey is the key that the flag name sets: FlagName's inverse (law
+// NamesInvert), "server.port" for "server.port", "apiToken" for
+// "api-token".
+func FlagKey(name string) string { flagKey(name) }
+
+// EnvKey is the key that the variable name sets under prefix: EnvName's
+// inverse (law NamesInvert), "server.port" for "NOTES_SERVER__PORT".
+func EnvKey(prefix string, name string) string { envKey(strings.TrimPrefix(name, prefix + "_")) }
