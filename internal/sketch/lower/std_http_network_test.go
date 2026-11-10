@@ -11,9 +11,29 @@ import (
 	"testing"
 )
 
-const httpNetworkProbe = `import http
+const httpNetworkProbe = `import fs
+import http
 import os
 import strconv
+import sync
+
+// body is the response body as args[5] asks for it: buffered by Fetch,
+// given to a put by FetchInto, or written to out.txt below the root
+// args[6] by FetchFile and read back.
+func body(request http.URLRequest, args []string) string fails http.RequestFailed | http.OriginRefused | http.RedirectLimit | http.SinkFailed | fs.NotFound | fs.Denied | fs.Failed | fs.Escapes needs http.Network | Ambient {
+	if args[5] == "into" {
+		let got = sync.NewRef[string]("")
+		let _ = try http.FetchInto(request, func(part string) fails http.SinkFailed { got.Update(func(s string) string { s + part }) })
+		return got.Get()
+	}
+	if args[5] == "file" {
+		let root = try fs.OpenRoot(args[6])
+		let _ = try http.FetchFile(root, "out.txt", request)
+		return try root.ReadFile("out.txt")
+	}
+	let result = try http.Fetch(request)
+	result.Body
+}
 
 func main() fails http.InvalidClient needs Ambient | Console {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
@@ -23,12 +43,13 @@ func main() fails http.InvalidClient needs Ambient | Console {
 	let a = try http.ForOrigin(args[0], http.Field{Name: "X-Mark-A", Value: "mark-A"})
 	let b = try http.ForOrigin(args[1], http.Field{Name: "X-Mark-B", Value: "mark-B"})
 	let request = http.URLRequest{URL: args[0] + "/0/" + args[4], Method: "GET", Header: []http.Field{}, Credentials: []http.Credential{a, b}, Body: ""}
-	let result = with context { http.Network: net } { http.Fetch(request) } catch {
+	let text = with context { http.Network: net } { body(request, args) } catch {
 	case http.OriginRefused as o: Console.Println("origin " + o.Origin); return
 	case http.RedirectLimit as l: Console.Println("limit " + strconv.Itoa(l.Limit)); return
 	case http.RequestFailed: Console.Println("request failed"); return
+	case http.SinkFailed, fs.NotFound, fs.Denied, fs.Failed, fs.Escapes: Console.Println("sink failed"); return
 	}
-	Console.Println("ok " + result.Body)
+	Console.Println("ok " + text)
 }
 `
 
@@ -37,6 +58,8 @@ func main() fails http.InvalidClient needs Ambient | Console {
 // source context delegation or the error identities emitted at the boundary.
 // It builds Go because those conversions and typed catches execute only in
 // a built program; go/types would accept a catch of the wrong error identity.
+// Its sink modes (CU6) kill cu6-into-hops-lost and cu6-file-parts-dropped:
+// the runtime property calls the Go bodies, not the std provider over them.
 func TestHTTPNetworkRuns(t *testing.T) {
 	needsBuild(t)
 	exes := buildAll(t, []*lowered{mustLower(t, "httpnetwork", httpNetworkProbe)}, true)
@@ -92,9 +115,11 @@ func TestHTTPNetworkRuns(t *testing.T) {
 		case length > hops:
 			want = fmt.Sprintf("limit %d\n", hops)
 		}
-		out, errout, code := runExeArgs(t, exes["httpnetwork"], origins[0], origins[1], mode, strconv.Itoa(hops), strconv.Itoa(length))
+		sink := []string{"fetch", "into", "file"}[r.IntN(3)]
+		dir := t.TempDir()
+		out, errout, code := runExeArgs(t, exes["httpnetwork"], origins[0], origins[1], mode, strconv.Itoa(hops), strconv.Itoa(length), sink, dir)
 		if code != 0 || out != want {
-			t.Fatalf("seed %d, mode %s length %d hops %d\nErgo exit %d: %q\nmodel: %q\nstderr: %s\nreplay: ERGO_HTTP_NETWORK_SOURCE_SEED=%d go test -run '^TestHTTPNetworkRuns$' ./internal/sketch/lower\n%s", seed, mode, length, hops, code, out, want, errout, seed, httpNetworkProbe)
+			t.Fatalf("seed %d, mode %s length %d hops %d sink %s\nErgo exit %d: %q\nmodel: %q\nstderr: %s\nreplay: ERGO_HTTP_NETWORK_SOURCE_SEED=%d go test -run '^TestHTTPNetworkRuns$' ./internal/sketch/lower\n%s", seed, mode, length, hops, sink, code, out, want, errout, seed, httpNetworkProbe)
 		}
 	}
 }

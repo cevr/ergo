@@ -559,6 +559,62 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
     Ergo's explicitly marked credentials use the stricter exact origin,
     including the port, not Go's host-only trust rule.
 
+12. **A body that goes to a sink (CU6).** `Network` has a second
+    operation, `SendURLInto(r URLRequest, put func(part string) fails SinkFailed)
+    Response fails RequestFailed | OriginRefused | RedirectLimit | SinkFailed`.
+    It applies the policy, credentials and hops of `SendURL`, then gives
+    the final response's body to `put` while it arrives, one part at a
+    time (at most 32 KiB), in order, on the caller's task. The returned
+    `Response` has the status and header and an empty Body. The body of a
+    redirect that is followed is not read. `FetchInto(r, put)` calls the
+    operation through the caller's context. `FetchFile(root fs.HostRoot,
+    path string, r URLRequest)` writes the body to a new file beside `path`
+    below `root` and renames it over `path` only after the whole body
+    arrived: a failure, a body over its budget or a stop removes the new
+    file and leaves `path` as it was. A failed write is `SinkFailed`; a
+    path that leaves the root is `fs.Escapes`.
+
+    The sink is borrowed and the body is consumed inside the call: `put`
+    and `root` stay the caller's, and no part of the exchange outlives the
+    call. On every exit (the end, a failure, a failure of `put`, a stop)
+    the request is cancelled and its reader joined before the call
+    returns, so the connection is let go. A reader goroutine hands the
+    parts over an unbuffered channel, so at most two parts are in memory
+    whatever the size of the body. `Limits.MaxBodyBytes` still bounds the
+    bytes a sink is given: a declared Content-Length over it fails
+    `TooLarge` before any part; a body that grows over it fails `TooLarge`
+    before the part that crosses it. A sink that wants a stop before the
+    end returns `SinkFailed` from `put`.
+
+    A returned `Seq` of parts was not taken: it would hold the connection
+    after the call, which is an owned resource return (#197). When #197
+    lands, a scoped `Seq` form can return a resource that the caller's
+    scope releases; this form stays.
+
+    `TestHTTPFetchIntoMatchesModel` generates body sizes around the part
+    border, the peer's write sizes, declared and undeclared lengths, a
+    redirect with a body of its own, budgets one under, at and over the
+    size, and the two sinks; the sink must hold the bytes sent, each put
+    must leave a prefix, and an over-budget body must fail `TooLarge`,
+    give no part when its length was declared, and leave the directory as
+    it was. `TestHTTPFetchIntoStops` stops a caller mid-body and waits for
+    the peer's hang-up and the call's end; no file is left.
+    `TestHTTPNetworkRuns` runs the source API through all three forms.
+    `examples/download` saves with `--out`.
+
+    Effect `HttpClientResponse.stream` supplies the intent: a body larger
+    than memory, read as it arrives. Its `Stream` needs the response's
+    `Scope` to hold the connection; here the body is consumed inside the
+    call, so no scope or stream value is needed, and the failure of a
+    sink is in the row. Elixir Req's `into:` takes a function, a
+    collectable (`File.stream!`, used only for a 200) or `:self` (an async
+    body that outlives the call); `FetchInto` is the function form and
+    `FetchFile` the collectable form, for every status, with the new-file
+    rename that a collectable does not give. Gleam httpc is buffered only.
+    Go's control is `io.Copy` from `resp.Body` into the file and a rename,
+    which is what the runtime does on the same transport. No speed claim
+    is made.
+
 Prior art for Files (source inspected, not measured): Wisp's `serve_static`
 (main branch) drops every ".." substring from the decoded path, joins it to
 the directory and reads through `simplifile`, so the guard is lexical and a

@@ -730,6 +730,35 @@ func main() {
 	use(Mine)
 }
 `,
+	// Network (CU5) is open: a test binds its own transport (CU6 adds
+	// SendURLInto).
+	"http.Network": `import http
+
+type Mine {}
+
+func SendURL(_ Mine, r http.URLRequest) http.Response fails http.RequestFailed | http.OriginRefused | http.RedirectLimit { http.Response{Status: 200, Header: []http.Field{}, Body: ""} }
+func SendURLInto(_ Mine, r http.URLRequest, put func(part string) fails http.SinkFailed) http.Response fails http.RequestFailed | http.OriginRefused | http.RedirectLimit | http.SinkFailed { http.Response{Status: 200, Header: []http.Field{}, Body: ""} }
+
+func use(_ http.Network) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	// FetchFile's new file (CU6): only its extern makes one.
+	"http.BodyFile": `import http
+
+type Mine {}
+
+func Put(_ Mine, part string) fails http.SinkFailed {}
+func partOnly(_ Mine) {}
+
+func use(_ http.BodyFile) {}
+
+func main() {
+	use(Mine)
+}
+`,
 	// std fs (G1f): OpenRoot's extern returns the HostRoot; Root is open.
 	"fs.HostRoot": `import fs
 
@@ -780,6 +809,7 @@ var unexportedStd = map[string]string{
 	"http.Listener":   "bound is an unexported operation of http.Listener, so only a type of package http implements it",
 	"http.Streaming":  "open is an unexported operation of http.Streaming, so only a type of package http implements it",
 	"fs.HostRoot":     "hostRooted is an unexported operation of fs.HostRoot, so only a type of package fs implements it",
+	"http.BodyFile":   "partOnly is an unexported operation of http.BodyFile, so only a type of package http implements it",
 }
 
 // openStd is the std operation types a program provides: no std extern's
@@ -804,6 +834,7 @@ var openStd = map[string]bool{
 	"fs.Root":           true,
 	"http.Streaming":    true,
 	"http.Net":          true,
+	"http.Network":      true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type

@@ -8,6 +8,12 @@ the domain workflow can then accept a URL discovered at run time without
 Ambient in its row. `--allow` may repeat. `--any` is an explicit open policy.
 An origin outside the set is a typed denial, before any request to it.
 
+`--out <path>` saves the body to a file below the working directory as it
+arrives (`http.FetchFile`): the memory it takes is one part, whatever the
+size of the body, and the file appears only when the whole body arrived.
+main opens the working directory as an `fs.Root` and owns it; the network
+provider only borrows it.
+
 The recorded cases make no outbound request. The runtime's two-peer model
 and the source-boundary property exercise successful and refused redirects,
 origin-bound credentials and completed cancellation. A real download is

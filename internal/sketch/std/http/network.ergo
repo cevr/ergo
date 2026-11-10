@@ -1,5 +1,7 @@
 // A Network delegates host authority once, then accepts runtime URLs under
 // its policy. The fixed-origin Net/Client contract remains unchanged.
+
+import fs
 type OriginPolicy = AnyOrigin{} | Origins{Values []string}
 type RedirectPolicy = NoRedirects{} | Follow{MaxHops int}
 type OriginRefused { Origin string }
@@ -17,12 +19,51 @@ func ForOrigin(origin string, field Field) Credential fails InvalidClient {
 // public Header: the transport adds it only at its own origin, at every hop.
 type URLRequest { URL string, Method string, Header []Field, Credentials []Credential, Body string }
 
-// law-exempt: policy, credential confinement and hop limits are checked by the two-peer model TestHTTPNetworkMatchesModel; interruption by TestHTTPNetworkStops.
-type Network { SendURL(r URLRequest) Response fails RequestFailed | OriginRefused | RedirectLimit }
+// SinkFailed is a sink that refused a part of a body: the fetch stops
+// there, lets its connection go, and fails with it.
+type SinkFailed { Reason string }
+
+// law-exempt: policy, credential confinement and hop limits are checked by the two-peer model TestHTTPNetworkMatchesModel; interruption by TestHTTPNetworkStops; SendURLInto's parts by TestHTTPFetchIntoMatchesModel.
+type Network {
+	SendURL(r URLRequest) Response fails RequestFailed | OriginRefused | RedirectLimit,
+	// SendURLInto is SendURL, but the final response's body goes to put
+	// while it arrives, a part at a time and in order, and the returned
+	// Response has an empty Body. put is the caller's and is used only
+	// during the call. Limits.MaxBodyBytes bounds the bytes put is given:
+	// a body over it fails TooLarge, before any part when its length is
+	// declared. A failure of put, or a stop, ends the call after the
+	// connection was let go.
+	SendURLInto(r URLRequest, put func(part string) fails SinkFailed) Response fails RequestFailed | OriginRefused | RedirectLimit | SinkFailed,
+}
 
 func Fetch(r URLRequest) Response fails RequestFailed | OriginRefused | RedirectLimit needs Network {
 	try Network.SendURL(r)
 }
+
+// FetchInto sends r through the bound Network and gives the body to put
+// as it arrives (Elixir Req's into:, Go's io.Copy from resp.Body). The
+// body is consumed inside the call: no part stays to read after it.
+func FetchInto(r URLRequest, put func(part string) fails SinkFailed) Response fails RequestFailed | OriginRefused | RedirectLimit | SinkFailed needs Network {
+	try Network.SendURLInto(r, put)
+}
+
+// FetchFile sends r through the bound Network and writes the body to the
+// file at path below root, which stays the caller's. The body goes to a
+// new file beside path, which replaces path only when the whole body has
+// arrived: a failure, a body over its budget or a stop leaves no new file
+// and path as it was.
+func FetchFile(root fs.HostRoot, path string, r URLRequest) Response fails RequestFailed | OriginRefused | RedirectLimit | SinkFailed | fs.NotFound | fs.Denied | fs.Failed | fs.Escapes needs Network {
+	try intoFile(root, path, func(file BodyFile) Response fails RequestFailed | OriginRefused | RedirectLimit | SinkFailed needs Network {
+		try Network.SendURLInto(r, func(part string) fails SinkFailed { try file.Put(part) })
+	})
+}
+
+// BodyFile is the new file of one FetchFile: only intoFile makes one, and
+// it is valid only while the fetch it was given to runs.
+// law-exempt: only intoFile makes one; TestHTTPFetchIntoMatchesModel and TestHTTPFetchIntoStops hold its file.
+type BodyFile { Put(part string) fails SinkFailed, partOnly() }
+
+extern go ergo.local/prototype/runtime/v1.HTTPIntoFile func intoFile[F, R](root fs.HostRoot, path string, fetch func(file BodyFile) Response fails F needs R) Response fails F | fs.NotFound | fs.Denied | fs.Failed | fs.Escapes needs R
 
 // Remote is a provider of Network. Only NewNet delegates Ambient to it.
 type Remote { origins []string, anyOrigin bool, limits Limits, hops int }
@@ -65,5 +106,20 @@ func SendURL(n Remote, r URLRequest) Response fails RequestFailed | OriginRefuse
 		return RequestFailed{Cause: causeOf(f.Kind, f.Reason, f.Limit)}
 	}
 }
+
+func SendURLInto(n Remote, r URLRequest, put func(part string) fails SinkFailed) Response fails RequestFailed | OriginRefused | RedirectLimit | SinkFailed {
+	let mut owners = []string{}
+	let mut fields = []Field{}
+	for c in r.Credentials {
+		owners = owners.Append(c.origin)
+		fields = fields.Append(c.field)
+	}
+	try fetchInto(n.origins, n.anyOrigin, n.limits, n.hops, r.Method, r.URL, r.Header, owners, fields, r.Body, put) catch {
+	case SendFailed as f:
+		return RequestFailed{Cause: causeOf(f.Kind, f.Reason, f.Limit)}
+	}
+}
+
+extern go ergo.local/prototype/runtime/v1.HTTPFetchInto func fetchInto(origins []string, anyOrigin bool, limits Limits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string, put func(part string) fails SinkFailed) Response fails SendFailed | OriginRefused | RedirectLimit | SinkFailed
 
 extern go ergo.local/prototype/runtime/v1.HTTPFetch func fetch(origins []string, anyOrigin bool, limits Limits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string) Response fails SendFailed | OriginRefused | RedirectLimit

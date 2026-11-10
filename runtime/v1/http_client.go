@@ -184,14 +184,7 @@ func httpDoURL(t *rt.Task, u *url.URL, limits HTTPLimits, method string, header 
 func httpExchange(c *http.Client, req *http.Request, limits HTTPLimits) httpDone {
 	resp, err := c.Do(req)
 	if err != nil {
-		switch {
-		case errors.Is(err, syscall.ECONNREFUSED):
-			return httpDone{err: httpFailed(httpRefused, err.Error())}
-		// net/http does not export this error; its text is stable.
-		case strings.Contains(err.Error(), "server response headers exceeded"):
-			return httpDone{err: HTTPSendFailed{Kind: httpTooLarge, Reason: "the response is over its MaxHeaderBytes budget", Limit: limits.MaxHeaderBytes}}
-		}
-		return httpDone{err: httpFailed(httpTransport, err.Error())}
+		return httpDone{err: httpDoErr(err, limits)}
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(limits.MaxBodyBytes)+1))
@@ -199,7 +192,145 @@ func httpExchange(c *http.Client, req *http.Request, limits HTTPLimits) httpDone
 		return httpDone{err: httpFailed(httpTransport, err.Error())}
 	}
 	if len(body) > limits.MaxBodyBytes {
-		return httpDone{err: HTTPSendFailed{Kind: httpTooLarge, Reason: "the response is over its MaxBodyBytes budget", Limit: limits.MaxBodyBytes}}
+		return httpDone{err: httpBodyTooLarge(limits)}
 	}
 	return httpDone{res: HTTPResponse{Status: resp.StatusCode, Header: httpFields(resp.Header), Body: string(body)}}
+}
+
+// httpDoErr is the failure of a Go client Do that returned no response.
+func httpDoErr(err error, limits HTTPLimits) error {
+	switch {
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return httpFailed(httpRefused, err.Error())
+	// net/http does not export this error; its text is stable.
+	case strings.Contains(err.Error(), "server response headers exceeded"):
+		return HTTPSendFailed{Kind: httpTooLarge, Reason: "the response is over its MaxHeaderBytes budget", Limit: limits.MaxHeaderBytes}
+	}
+	return httpFailed(httpTransport, err.Error())
+}
+
+func httpBodyTooLarge(limits HTTPLimits) error {
+	return HTTPSendFailed{Kind: httpTooLarge, Reason: "the response is over its MaxBodyBytes budget", Limit: limits.MaxBodyBytes}
+}
+
+// httpPartBytes is the most bytes one part of a streamed body holds.
+const httpPartBytes = 32 << 10
+
+// httpEvent is one step of a streamed exchange: the head, a part of the
+// body, the end of the body, or the failure that ends it.
+type httpEvent struct {
+	head *HTTPResponse
+	// length is the head's declared body length, -1 when it has none.
+	length int64
+	part   string
+	end    bool
+	err    error
+}
+
+// httpStreamURL is httpDoURL for a body that goes to put. A goroutine
+// reads the body and hands each part to the caller's task over an
+// unbuffered channel, so at most two parts are in memory, and put runs on
+// the caller's task, in order. When follow(head) holds the body is not
+// read: the response is a redirect the caller follows. A Content-Length
+// over the budget fails TooLarge before any part; a body that grows over
+// it fails TooLarge before the part that crosses it. On every exit (the
+// end, a failure, a failure of put, a stop of t) the request is cancelled
+// and the goroutine joined before the call returns, so the connection is
+// let go. The returned response has an empty Body.
+func httpStreamURL(t *rt.Task, u *url.URL, limits HTTPLimits, method string, header []HTTPField, body string, follow func(HTTPResponse) bool, put func(*rt.Task, string) error) (HTTPResponse, error) {
+	t.Check()
+	ctx, cancel := context.WithCancel(context.Background())
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), strings.NewReader(body))
+	if err != nil {
+		cancel()
+		return HTTPResponse{}, httpFailed(httpMalformed, err.Error())
+	}
+	if body == "" {
+		req.Body, req.ContentLength = http.NoBody, 0
+	}
+	for _, f := range header {
+		req.Header.Add(f.Name, f.Value)
+	}
+	events := make(chan httpEvent)
+	go httpStreamRead(ctx, httpClientFor(limits.MaxHeaderBytes), req, limits, events)
+	// The join: cancel, then take every event until the reader closes the
+	// channel. It runs on every exit, a panic of put or of a stop included.
+	defer func() {
+		cancel()
+		for range events {
+		}
+	}()
+	var head HTTPResponse
+	for {
+		var e httpEvent
+		select {
+		case e = <-events:
+		case <-t.Done():
+			panic(rt.Interrupted)
+		}
+		switch {
+		case e.err != nil:
+			return HTTPResponse{}, e.err
+		case e.head != nil:
+			head = *e.head
+			if follow(head) {
+				return head, nil
+			}
+			if e.length > int64(limits.MaxBodyBytes) {
+				return HTTPResponse{}, httpBodyTooLarge(limits)
+			}
+		case e.end:
+			return head, nil
+		default:
+			if err := put(t, e.part); err != nil {
+				return HTTPResponse{}, err
+			}
+		}
+	}
+}
+
+// httpStreamRead is the reader of httpStreamURL. It closes events when it
+// ends; a cancel of ctx ends every send and the read under way.
+func httpStreamRead(ctx context.Context, c *http.Client, req *http.Request, limits HTTPLimits, events chan<- httpEvent) {
+	defer close(events)
+	send := func(e httpEvent) bool {
+		select {
+		case events <- e:
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		send(httpEvent{err: httpDoErr(err, limits)})
+		return
+	}
+	defer resp.Body.Close()
+	if !send(httpEvent{head: &HTTPResponse{Status: resp.StatusCode, Header: httpFields(resp.Header)}, length: resp.ContentLength}) {
+		return
+	}
+	buf := make([]byte, httpPartBytes)
+	total := 0
+	for {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			total += n
+			if total > limits.MaxBodyBytes {
+				send(httpEvent{err: httpBodyTooLarge(limits)})
+				return
+			}
+			if !send(httpEvent{part: string(buf[:n])}) {
+				return
+			}
+		}
+		switch {
+		case err == io.EOF:
+			send(httpEvent{end: true})
+			return
+		case err != nil:
+			send(httpEvent{err: httpFailed(httpTransport, err.Error())})
+			return
+		}
+	}
 }

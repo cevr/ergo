@@ -4,6 +4,10 @@ type Failed { Reason string }
 // Downloader is what the workflow needs; it does not choose a host.
 type Downloader {
 	Read(url string) string fails Denied | Failed,
+	// Save writes the body at url to the file path as it arrives. The
+	// file appears only when the whole body has arrived: a denial or a
+	// failure leaves no new file.
+	Save(url string, path string) fails Denied | Failed,
 	law EmptyURLIsRejected() {
 		Read("") catch {
 		case Denied, Failed:
@@ -20,4 +24,15 @@ func Run(url string) string needs Downloader {
 	case Failed as f:
 		return "download failed: " + f.Reason
 	}
+}
+
+// Store saves url to path and says what happened.
+func Store(url string, path string) string needs Downloader {
+	Downloader.Save(url, path) catch {
+	case Denied as d:
+		return "refused origin " + d.Origin
+	case Failed as f:
+		return "download failed: " + f.Reason
+	}
+	"saved " + path
 }

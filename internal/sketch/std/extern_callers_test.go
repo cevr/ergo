@@ -82,6 +82,18 @@ func heldTypes(pkgs []*check.Package, outside *check.Package) []*check.TypeName 
 				}
 			}
 		}
+		// A type that no other package builds and that an extern whose
+		// written row lists Ambient returns (fs.OpenRoot's HostRoot) is
+		// held too: a value of it was made under Ambient, so a function
+		// that takes one has the authority (CU6, http.FetchFile).
+		for _, f := range p.Funcs {
+			if f.Decl == nil || f.Decl.Extern == nil || f.Sig == nil || len(f.Sig.Results) != 1 || !rowHasAmbient(f.Sig.Uses) {
+				continue
+			}
+			if n, ok := f.Sig.Results[0].(*check.Named); ok && !check.Buildable(n, outside) && !slices.Contains(held, n.Obj) {
+				held = append(held, n.Obj)
+			}
+		}
 	}
 	return held
 }
@@ -252,7 +264,7 @@ func TestStdExternCallersHoldAuthority(t *testing.T) {
 	slices.Sort(hosts)
 	want := []string{"exec.hostRun", "fs.OpenRoot", "fs.hostAppendFile", "fs.hostChmod", "fs.hostMkdirAll", "fs.hostMkdirAllMode",
 		"fs.hostReadDir", "fs.hostReadFile", "fs.hostRemove", "fs.hostRename", "fs.hostStat", "fs.hostWriteFile", "fs.hostWriteFileMode",
-		"http.Listen", "http.fetch", "http.send", "http.serve",
+		"http.Listen", "http.fetch", "http.fetchInto", "http.intoFile", "http.send", "http.serve",
 		"io.hostEprint", "io.hostIsTerminal", "io.hostLines", "io.hostPrint", "io.hostReadAll",
 		"os.hostArgs", "os.hostGetenv", "os.hostHasEnv", "prelude.Sleep",
 		"rand.hostFloat64", "rand.hostIntN", "rand.hostUint64", "rpc.call", "time.hostNow"}

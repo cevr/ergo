@@ -1,28 +1,55 @@
 import download/domain
+import fs
 import http
 import strconv
 
-type Remote { net http.Remote }
-func New(net http.Remote) Remote { Remote{net: net} }
+// Remote is the Downloader over the host network. Save writes below root,
+// which main opened and still owns: Remote only borrows it.
+type Remote { net http.Remote, root fs.HostRoot }
+func New(net http.Remote, root fs.HostRoot) Remote { Remote{net: net, root: root} }
+
+func request(url string) http.URLRequest {
+	http.URLRequest{URL: url, Method: "GET", Header: []http.Field{}, Credentials: []http.Credential{}, Body: ""}
+}
 
 func Read(d Remote, url string) string fails domain.Denied | domain.Failed {
-	let response = d.net.SendURL(http.URLRequest{URL: url, Method: "GET", Header: []http.Field{}, Credentials: []http.Credential{}, Body: ""}) catch {
+	let response = d.net.SendURL(request(url)) catch {
 	case http.OriginRefused as o:
 		return domain.Denied{Origin: o.Origin}
 	case http.RedirectLimit as l:
 		return domain.Failed{Reason: "redirect limit " + strconv.Itoa(l.Limit)}
 	case http.RequestFailed as f:
-		let reason = match f.Cause {
-		case http.Refused as c:
-			c.Reason
-		case http.Transport as c:
-			c.Reason
-		case http.Malformed as c:
-			c.Reason
-		case http.TooLarge as c:
-			"response limit " + strconv.Itoa(c.Limit)
-		}
-		return domain.Failed{Reason: reason}
+		return domain.Failed{Reason: reason(f.Cause)}
 	}
 	response.Body
+}
+
+// Save streams the body into the file: the memory it takes is one part,
+// whatever the size of the body; the response budget still bounds it.
+func Save(d Remote, url string, path string) fails domain.Denied | domain.Failed {
+	let _ = with context { http.Network: d.net } { http.FetchFile(d.root, path, request(url)) } catch {
+	case http.OriginRefused as o:
+		return domain.Denied{Origin: o.Origin}
+	case http.RedirectLimit as l:
+		return domain.Failed{Reason: "redirect limit " + strconv.Itoa(l.Limit)}
+	case http.RequestFailed as f:
+		return domain.Failed{Reason: reason(f.Cause)}
+	case http.SinkFailed as s:
+		return domain.Failed{Reason: "write failed: " + s.Reason}
+	case fs.NotFound, fs.Denied, fs.Failed, fs.Escapes:
+		return domain.Failed{Reason: "cannot write " + path}
+	}
+}
+
+func reason(c http.Cause) string {
+	match c {
+	case http.Refused as r:
+		r.Reason
+	case http.Transport as t:
+		t.Reason
+	case http.Malformed as m:
+		m.Reason
+	case http.TooLarge as l:
+		"response limit " + strconv.Itoa(l.Limit)
+	}
 }

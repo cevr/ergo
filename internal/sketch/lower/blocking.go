@@ -198,6 +198,11 @@ var runtimeBindings = map[string]runtimeBinding{
 	"HTTPDo":           {wait: callerWait},
 	"HTTPCheckNetwork": {},
 	"HTTPFetch":        {wait: callerWait},
+	// FetchInto shares the exchange and runs put on the caller's task;
+	// IntoFile runs its fetch on the caller's task and waits on nothing.
+	"HTTPFetchInto": {wait: callerWait},
+	"HTTPIntoFile":  {task: true},
+	"BodyFile.Put":  {task: true},
 	// A streamed response (Rm): Begin and End take the exchange's lock
 	// for one step; Write checks the caller's stop, then waits on the
 	// network write and its flush, which a hang-up or Serve's stop ends.
