@@ -9,16 +9,12 @@ import time
 // BadId is a path id that is not a job id: not a whole number above 0.
 type BadId { Text string }
 
-// NoRoute is a request no route takes; WrongMethod one whose path a route
-// takes with other methods, Allow. TooLarge and Unreadable are a body
-// over the limit and one that could not be read. (http.Match and
-// http.Body give these as values; the api keeps its own failures, as the
-// lowering of a failure whose type another package uses only as a value
-// is the gap in the request.)
-type NoRoute {}
+// WrongMethod is a request whose path a route takes with other methods,
+// Allow. http.Match and http.Body give a request no route takes, a body
+// over the limit and one that could not be read as values (http.NotFound,
+// http.BodyTooLarge, http.BodyReadFailed); the api's rows name them, so
+// here they are failures of their own types.
 type WrongMethod { Allow string }
-type TooLarge { Limit int }
-type Unreadable { Reason string }
 
 // Handle answers r from the Store and the Clock in the context. answer
 // fails with every refusal by its type; this one catch gives each its
@@ -33,14 +29,14 @@ type Unreadable { Reason string }
 //	422 JSON of the wrong shape, or an empty name
 func Handle(r http.Request) http.Response needs jobs.Store | time.Clock {
 	answer(r) catch {
-	case NoRoute:
+	case http.NotFound:
 		Refuse(404, "no route "+r.Method+" "+r.Path)
 	case WrongMethod as w:
 		let p = Refuse(405, r.Method+" is not allowed on "+r.Path)
 		http.Response{..p, Header: p.Header.Append(http.Field{Name: "Allow", Value: w.Allow})}
-	case TooLarge as b:
+	case http.BodyTooLarge as b:
 		Refuse(413, "the body is over \(b.Limit) bytes")
-	case Unreadable as f:
+	case http.BodyReadFailed as f:
 		Refuse(400, "the body could not be read: "+f.Reason)
 	case json.Malformed as m:
 		Refuse(400, "the body is not JSON: \(m.Reason) at byte \(m.Offset)")
@@ -56,10 +52,10 @@ func Handle(r http.Request) http.Response needs jobs.Store | time.Clock {
 }
 
 // answer is the response to r, or the refusal that stops it.
-func answer(r http.Request) http.Response fails NoRoute | WrongMethod | TooLarge | Unreadable | json.Malformed | BadBody | BadId | jobs.NotFound | jobs.Conflict needs jobs.Store | time.Clock {
+func answer(r http.Request) http.Response fails http.NotFound | WrongMethod | http.BodyTooLarge | http.BodyReadFailed | json.Malformed | BadBody | BadId | jobs.NotFound | jobs.Conflict needs jobs.Store | time.Clock {
 	match http.Match(Routes(), r.Method, r.Path) {
-	case http.NotFound:
-		return NoRoute
+	case http.NotFound as n:
+		return n
 	case http.MethodNotAllowed:
 		return WrongMethod{Allow: Allowed(r.Path)}
 	case http.Found as f:
@@ -88,13 +84,13 @@ func answer(r http.Request) http.Response fails NoRoute | WrongMethod | TooLarge
 
 // endpointOf is the endpoint whose route f found. Routes is built from
 // Endpoints, so one always is; a route of no endpoint is no route.
-func endpointOf(f http.Found) Endpoint fails NoRoute {
+func endpointOf(f http.Found) Endpoint fails http.NotFound {
 	for e in Endpoints {
 		if RouteOf(e) == f.Route {
 			return e
 		}
 	}
-	NoRoute
+	http.NotFound
 }
 
 // idOf is the job id of f's path.
@@ -117,14 +113,14 @@ func idOf(f http.Found) int fails BadId {
 
 // textOf is a buffered body's text; a body over the limit or one that
 // could not be read is its refusal.
-func textOf(b http.Body) string fails TooLarge | Unreadable {
+func textOf(b http.Body) string fails http.BodyTooLarge | http.BodyReadFailed {
 	match b {
 	case http.Buffered as t:
 		t.Text
 	case http.BodyTooLarge as l:
-		TooLarge{Limit: l.Limit}
+		l
 	case http.BodyReadFailed as f:
-		Unreadable{Reason: f.Reason}
+		f
 	}
 }
 

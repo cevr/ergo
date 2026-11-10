@@ -1886,6 +1886,49 @@
       "killers": [
         "lower:TestStdJSONLawsRun"
       ]
+    },
+    {
+      "name": "d1-body-reads-root-view",
+      "origin": "wf10 defects D1",
+      "file": "internal/sketch/lower/owners.go",
+      "from": "\tif l.info == l.pkg.Info {\n\t\treturn l.pkg",
+      "to": "\tif true || l.info == l.pkg.Info {\n\t\treturn l.pkg",
+      "rule": "types.md, Error types 1: a return in a library body reads that package's error types, not the root's.",
+      "killers": [
+        "examples:jobs"
+      ]
+    },
+    {
+      "name": "d1-body-reads-every-view",
+      "origin": "wf10 defects D1",
+      "file": "internal/sketch/lower/types.go",
+      "from": "\treturn ok && errorTypeIn(p, n, o)",
+      "to": "\treturn ok && l.errorType(n)",
+      "rule": "types.md, Error types 1: a row of one package does not make another package's tail value a failure (http.Match returns http.NotFound as a value).",
+      "killers": [
+        "examples:jobs"
+      ]
+    },
+    {
+      "name": "d1-shape-reads-root-only",
+      "origin": "wf10 defects D1",
+      "file": "internal/sketch/lower/owners.go",
+      "from": "\tfor _, p := range l.libraries() {\n\t\tif errorTypeIn(p, named, l.viewOf(p)) {",
+      "to": "\tfor _, p := range l.libraries()[:0] {\n\t\tif errorTypeIn(p, named, l.viewOf(p)) {",
+      "rule": "A type that a library's row names gets its Error method: the packages share one Go package.",
+      "killers": [
+        "examples:jobs"
+      ]
+    },
+    {
+      "name": "d1-defined-error-over-root-only",
+      "origin": "wf10 defects D1",
+      "file": "internal/sketch/lower/decls.go",
+      "from": "range append([]*check.Package{l.pkg}, l.libraries()...) {",
+      "to": "range []*check.Package{l.pkg, named.Obj.Pkg} {",
+      "rule": "A record's fields avoid the Error method of an error type that any lowered package defines over it.",
+      "killers": [],
+      "gap": "uncovered: needs a record with a field named Error under a defined error type of another library (wf10 defects D1); no program has one"
     }
   ]
 }

@@ -61,7 +61,7 @@ go run ./scripts/examples jobs
 
 ## Gaps
 
-- **G-jobs-1: a failure of another package's value type.** `http.NotFound`, `http.MethodNotAllowed`, `http.BodyTooLarge` and `http.BodyReadFailed` are values in package `http` (variants of `MatchResult` and `Body`). A function of this package that returns one of them as a failure is accepted by the checker, and its run is a defect (`panic: MethodNotAllowed{}`) instead of the typed failure. The api keeps its own failures (`NoRoute`, `WrongMethod`, `TooLarge`, `Unreadable`) until the compiler either lowers such a failure or refuses it.
+- **G-jobs-1 (closed): a failure of another package's value type.** `http.NotFound`, `http.BodyTooLarge` and `http.BodyReadFailed` are values in package `http` (variants of `MatchResult` and `Body`). The api's rows name them, so in the api they are failures of their own types (types.md, Error types 1), while `http.Match` still returns them as values. Before the fix, the lowering read one package's view for every body, and such a run was a defect (`panic: MethodNotAllowed{}`).
 - **G-jobs-2: a route carries a name, not a value.** `http.Route.Name` is a string, so finding the endpoint of a `Found` route is a lookup (`endpointOf`) with a fallback that cannot happen. A route that carries a typed value (`Route[T]`) would make it a field read.
 - **G-jobs-3: `MethodNotAllowed` carries no methods.** `Allowed` matches the path once per method to build the `Allow` header that RFC 9110 requires with a `405`.
 - **G-jobs-4: no HTTP client in std.** The cases use `-replay`; the socket path is checked by std `http`'s own tests and by hand (Run it). Brief G9 adds a client.

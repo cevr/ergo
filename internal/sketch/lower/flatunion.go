@@ -234,7 +234,7 @@ func (l *lowerer) flatShape(n *check.Named) *flatUnion {
 	if !ok || len(u.Variants) == 0 || len(u.Variants) > 255 {
 		return nil
 	}
-	if l.errorType(n, l.buildView()) {
+	if l.errorType(n) {
 		return nil
 	}
 	fu := &flatUnion{tn: n.Obj}
@@ -243,7 +243,7 @@ func (l *lowerer) flatShape(n *check.Named) *flatUnion {
 	size, align, fields := 1, 1, 1
 	for _, v := range u.Variants {
 		vn, ok := v.(*check.Named)
-		if !ok || vn.Orig != nil || len(vn.TParams) > 0 || l.errorType(vn, l.buildView()) {
+		if !ok || vn.Orig != nil || len(vn.TParams) > 0 || l.errorType(vn) {
 			return nil
 		}
 		st, ok := vn.Underlying().(*check.Struct)

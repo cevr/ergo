@@ -500,7 +500,8 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 	// Whether the value is a failure is decided by the returning body's
 	// own view (owners.go): a type only a test's row names is a value in
 	// a production body, in the test build too.
-	if !fc.fallibleExpr(x) && fc.l.isErrorValue(fc.typeOf(x), fc.l.pkg.OwnerOf(x)) && !fc.returnsErrorType(x) {
+	p := fc.l.bodyPkg()
+	if !fc.fallibleExpr(x) && fc.l.isErrorValue(fc.typeOf(x), p, p.OwnerOf(x)) && !fc.returnsErrorType(x) {
 		fc.fail(fc.value(x))
 		return
 	}

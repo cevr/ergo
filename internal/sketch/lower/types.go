@@ -97,7 +97,7 @@ func (tc *typeCtx) goType(t check.Type) string {
 		// its error types.
 		// The value type of an error row (q47) is one too, the empty row's
 		// included: a field of it never holds a value.
-		if t.Row != nil || tc.l.isErrorValue(t, tc.l.buildView()) {
+		if t.Row != nil || tc.l.isErrorValue(t, tc.l.bodyPkg(), tc.l.viewOf(tc.l.bodyPkg())) {
 			return "error"
 		}
 		ice(tc.site, "the anonymous union %s is not a row value; the checker builds no other", t)
@@ -683,11 +683,11 @@ func isInteger(t check.Type) bool {
 	return ok && b.Kind >= check.Int && b.Kind <= check.Uintptr
 }
 
-// isErrorValue reports a value of an error type in a body of owner o:
-// returning it is a failure (types.md, Error types 2). The checker's error
-// types of the type's package, and of this package, that o sees decide it
-// (errorType).
-func (l *lowerer) isErrorValue(t check.Type, o check.FactOwner) bool {
+// isErrorValue reports a value of an error type in a body of package p and
+// owner o: returning it is a failure (types.md, Error types 2). The
+// checker's error types of the type's package, and of p, that o sees
+// decide it (errorTypeIn).
+func (l *lowerer) isErrorValue(t check.Type, p *check.Package, o check.FactOwner) bool {
 	if u, row := t.(*check.Union); row {
 		// A row value (D-C3): every variant is an error type.
 		for _, v := range u.Variants {
@@ -696,12 +696,12 @@ func (l *lowerer) isErrorValue(t check.Type, o check.FactOwner) bool {
 				// the row it is bound to (types.md, Generics 1; q47).
 				continue
 			}
-			if !l.isErrorValue(v, o) {
+			if !l.isErrorValue(v, p, o) {
 				return false
 			}
 		}
 		return len(u.Variants) > 0
 	}
 	n, ok := t.(*check.Named)
-	return ok && l.errorType(n, o)
+	return ok && errorTypeIn(p, n, o)
 }
