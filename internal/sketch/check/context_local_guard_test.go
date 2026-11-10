@@ -118,6 +118,7 @@ var contextPlaceRows = map[string]externPlaceRow{
 	"Field.Names":              {guardBinder, "func f(@w int) int { w }\n"},
 	"FuncDecl.Name":            {guardBinder, "func @w() {}\n"},
 	"ImportSpec.Name":          {guardBinder, "import go @w strings\n"},
+	"TakesClause.Names":        {guardBinder, "func f(w int) takes @w {}\n"},
 	"ImportSpec.Path":          {guardBinder, "import @w\n"},
 	"InterpolatedString.Texts": {guardBinder, "func main() {\n\t$W\n\t_ = \"@w \\(1)\"\n}\n"},
 	"LawDecl.Name":             {guardBinder, "type C {\n\tGet() int,\n\n\tlaw @w(v int) {\n\t\tGet() == v\n\t},\n}\n"},

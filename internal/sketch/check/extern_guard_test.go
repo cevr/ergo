@@ -132,6 +132,7 @@ var externPlaceRows = map[string]externPlaceRow{
 	"Field.Names":              {guardBinder, "func f(@Upper int) int { Upper }\n"},
 	"FuncDecl.Name":            {guardBinder, "extern go strings.ToUpper func @Upper(s string) string\n"},
 	"ImportSpec.Name":          {guardBinder, "import go @Upper strings\n"},
+	"TakesClause.Names":        {guardBinder, "func f(Upper int) takes @Upper {}\n"},
 	"ImportSpec.Path":          {guardBinder, "import @Upper\n"},
 	"InterpolatedString.Texts": {guardBinder, "func main() {\n\t_ = \"@Upper \\(1)\"\n}\n"},
 	"LawDecl.Name":             {guardBinder, "type C {\n\tGet() int,\n\n\tlaw @Upper(v int) {\n\t\tGet() == v\n\t},\n}\n"},

@@ -76,7 +76,7 @@ func Parse(text string) []jobs.Job fails BadJob {
 		if len(w) < 2 || len(w) > 4 {
 			return bad
 		}
-		let takes = strconv.Atoi(w[1]) catch {
+		let cost = strconv.Atoi(w[1]) catch {
 		case strconv.Malformed, strconv.OutOfRange:
 			return bad
 		}
@@ -89,10 +89,10 @@ func Parse(text string) []jobs.Job fails BadJob {
 			0
 		}
 		let fatal = len(w) == 4
-		if takes < 0 || flaky < 0 || (fatal && w[3] != "fatal") {
+		if cost < 0 || flaky < 0 || (fatal && w[3] != "fatal") {
 			return bad
 		}
-		out = out.Append(jobs.Job{ID: len(out) + 1, Name: w[0], Takes: ms(takes), Flaky: flaky, Fatal: fatal})
+		out = out.Append(jobs.Job{ID: len(out) + 1, Name: w[0], Takes: ms(cost), Flaky: flaky, Fatal: fatal})
 	}
 	out
 }

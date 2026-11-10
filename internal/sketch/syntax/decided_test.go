@@ -532,7 +532,8 @@ func TestPreviewDecidedBlocksCanonical(t *testing.T) {
 
 // TestGrammarStatesTheSketch: the syntactic productions of
 // docs/spec/grammar.md are the 62 of the preview's decided sketch plus
-// PatternCore (D1), so the specification and the sketch cannot drift.
+// PatternCore (D1) and TakesClause (#197, after the preview), so the
+// specification and the sketch cannot drift.
 func TestGrammarStatesTheSketch(t *testing.T) {
 	data, err := os.ReadFile("../../../docs/spec/grammar.md")
 	if err != nil {
@@ -549,7 +550,7 @@ func TestGrammarStatesTheSketch(t *testing.T) {
 			spec[m[1]] = true
 		}
 	}
-	sketch := append(sketchProductions(t), "PatternCore")
+	sketch := append(sketchProductions(t), "PatternCore", "TakesClause")
 	for _, name := range sketch {
 		if !spec[name] {
 			t.Errorf("grammar.md has no production %s", name)

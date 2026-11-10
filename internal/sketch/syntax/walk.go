@@ -98,6 +98,8 @@ func Inspect(n Node, f func(Node) bool) {
 		walk(n.Type)
 	case *FieldList:
 		fields(n)
+	case *TakesClause:
+		// The names refer to the signature's parameters: not visited.
 	case *NeedsClause:
 		exprs(n.Names)
 	case *ProvidesClause:
@@ -147,7 +149,7 @@ func Inspect(n Node, f func(Node) bool) {
 	case *MapType:
 		walk(n.Key, n.Value)
 	case *FuncType:
-		walk(n.Params, n.Results, n.Needs)
+		walk(n.Params, n.Results, n.Needs, n.Takes)
 	case *StructType:
 		walk(n.Fields)
 	case *InterfaceType:
@@ -215,6 +217,8 @@ func isNilNode(n Node) bool {
 	case *BasicLit:
 		return n == nil
 	case *FieldList:
+		return n == nil
+	case *TakesClause:
 		return n == nil
 	case *NeedsClause:
 		return n == nil

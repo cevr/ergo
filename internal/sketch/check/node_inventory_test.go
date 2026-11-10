@@ -153,7 +153,7 @@ var nodeTable = map[string]nodeEntry{
 	"SwitchStmt": {"value match", ""}, "CaseClause": {"value match", ""},
 	"TypeSwitchStmt": {"type match", ""}, "TypeGuard": {"type match", ""}, "AsPattern": {"as pattern", ""},
 	"CatchExpr": {"catch arm", ""}, "CatchArm": {"catch arm", ""}, "TryExpr": {"fails and needs", ""},
-	"ErrorRow": {"fails and needs", ""}, "NeedsClause": {"fails and needs", ""},
+	"ErrorRow": {"fails and needs", ""}, "NeedsClause": {"fails and needs", ""}, "TakesClause": {"fails and needs", ""},
 	"TypeDecl": {"record type", ""}, "StructType": {"record type", ""}, "InterfaceType": {"operation type", ""},
 	"MapType": {"Map type", ""}, "FuncLit": {"function literal", ""}, "ExternSpec": {"extern", ""},
 	"InterpolatedString": {"interpolation", ""},

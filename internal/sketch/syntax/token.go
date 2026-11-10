@@ -13,7 +13,7 @@ func (p Pos) IsValid() bool { return p >= 0 }
 // Token is the kind of a lexical token.
 type Token int
 
-// The tokens. Keywords are the 27 of the decided grammar
+// The tokens. Keywords are the 28 of the decided grammar
 // (docs/spec/grammar.md, Keywords) plus `as` (#196, ninth round). The 15 Go
 // keywords Ergo does not use are reserved: they lex as their own tokens, so
 // no name can use them and the parser names the Ergo form for each
@@ -122,6 +122,7 @@ const (
 	ASSERT
 	EXTERN
 	WITH
+	TAKES
 	AS
 	keywordEnd
 
@@ -177,7 +178,7 @@ var tokens = [...]string{
 	TRY: "try", CATCH: "catch", NEEDS: "needs", PROVIDES: "provides", CONTEXT: "context",
 	MACHINE: "machine", LET: "let", MUT: "mut", IN: "in", MATCH: "match",
 	ESCAPING: "escaping", FAILS: "fails", TEST: "test", LAW: "law", ASSERT: "assert",
-	EXTERN: "extern", WITH: "with", AS: "as",
+	EXTERN: "extern", WITH: "with", TAKES: "takes", AS: "as",
 
 	CHAN: "chan", CONST: "const", DEFAULT: "default", DEFER: "defer", FALLTHROUGH: "fallthrough",
 	GO: "go", GOTO: "goto", INTERFACE: "interface", MAP: "map", PACKAGE: "package",
@@ -193,7 +194,7 @@ func (t Token) String() string {
 	return "token(?)"
 }
 
-// IsKeyword reports whether t is one of the language's keywords: the 27 of
+// IsKeyword reports whether t is one of the language's keywords: the 28 of
 // the decided grammar and `as`.
 func (t Token) IsKeyword() bool { return keywordBeg < t && t < keywordEnd }
 
@@ -223,7 +224,7 @@ func IsKeyword(name string) bool {
 	return ok
 }
 
-// Keywords lists the keywords in token order: the 27 of the decided
+// Keywords lists the keywords in token order: the 28 of the decided
 // grammar, then `as`.
 func Keywords() []string {
 	var out []string

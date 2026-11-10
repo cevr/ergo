@@ -129,11 +129,12 @@ var lawNoBinder = map[string]string{
 	"ContextDecl.Name": lawPackage, "FuncDecl.Name": lawPackage, "ImportSpec.Name": lawPackage,
 	"TypeDecl.Name": lawPackage, "TestDecl.Name": lawPackage, "VariantSpec.Name": lawPackage,
 	"MachineEntry.Value": lawPackage, "MachineType.Initial": lawPackage, "MachineType.Step": lawPackage, "MachineType.After": lawPackage, "MachineType.Work": lawPackage,
-	"LawDecl.Name":     "a law's name is in no scope (laws.go rule 1); one named like an operation is TestLawRules'",
-	"KeyValueExpr.Key": "a record pattern's or literal's key " + lawMember,
-	"SelectorExpr.Sel": "a selector " + lawMember,
-	"SliceExpr.Max":    "a three-index slice " + lawNotParse,
-	"SwitchStmt.Tag":   "never set: a match on a value is a TypeSwitchStmt whose subject is a TypeGuard (escaping_e2_test.go)",
+	"LawDecl.Name":      "a law's name is in no scope (laws.go rule 1); one named like an operation is TestLawRules'",
+	"TakesClause.Names": "a takes clause names parameters of its own signature; it binds nothing (#197)",
+	"KeyValueExpr.Key":  "a record pattern's or literal's key " + lawMember,
+	"SelectorExpr.Sel":  "a selector " + lawMember,
+	"SliceExpr.Max":     "a three-index slice " + lawNotParse,
+	"SwitchStmt.Tag":    "never set: a match on a value is a TypeSwitchStmt whose subject is a TypeGuard (escaping_e2_test.go)",
 }
 
 // lawScopeDomain reads the fields a name can stand in: every field of type

@@ -302,7 +302,7 @@ func (p *printer) fieldList(l *syntax.FieldList, open, close string) {
 	}, l.Closing, close)
 }
 
-// signature prints `(params) [Result] [fails …] [needs …]`.
+// signature prints `(params) [Result] [fails …] [needs …] [takes …]`.
 func (p *printer) signature(t *syntax.FuncType) {
 	p.fieldList(t.Params, "(", ")")
 	if r := t.Results; r != nil {
@@ -314,6 +314,14 @@ func (p *printer) signature(t *syntax.FuncType) {
 	if t.Needs != nil {
 		p.space()
 		p.needs(t.Needs)
+	}
+	if t.Takes != nil {
+		p.space()
+		p.token(t.Takes.Takes, "takes")
+		if len(t.Takes.Names) > 0 {
+			p.space()
+			p.identList(t.Takes.Names, true)
+		}
 	}
 }
 

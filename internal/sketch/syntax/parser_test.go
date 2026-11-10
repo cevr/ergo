@@ -101,8 +101,8 @@ func TestUsesIsAnIdentifier(t *testing.T) {
 // a parameter, a field or a type; a contextual word is.
 func TestKeywordsAreNotNames(t *testing.T) {
 	words := append(Keywords(), Reserved()...)
-	if n := len(Keywords()); n != 28 {
-		t.Fatalf("%d keywords, want the 27 decided ones and as", n)
+	if n := len(Keywords()); n != 29 {
+		t.Fatalf("%d keywords, want the 28 decided ones and as", n)
 	}
 	if n := len(Reserved()); n != 15 {
 		t.Fatalf("%d reserved words, want 15", n)
