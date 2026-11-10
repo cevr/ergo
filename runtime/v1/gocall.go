@@ -39,7 +39,14 @@ func Call[T any](ctx context.Context, span string, body func(*rt.Task) (T, error
 		stop := context.AfterFunc(ctx, t.Interrupt)
 		defer stop()
 	}
-	v, err := rt.Run(t, func(t *rt.Task) (T, error) { return guarded(t, body) })
+	// runOn is the root task's run under the defect owner (guarded), as
+	// main's: v is written by the body before runOn returns.
+	var v T
+	err := runOn(t, func(t *rt.Task) error {
+		var err error
+		v, err = body(t)
+		return err
+	})
 	if err != nil && rt.OnlyInterruption(err) && ctx.Err() != nil {
 		return v, ctx.Err()
 	}

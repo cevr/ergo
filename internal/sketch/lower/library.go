@@ -172,14 +172,8 @@ func (l *lowerer) exports(b *strings.Builder) {
 	ctx := l.pkgName(pkgKey{"import", "context"}, "context")
 	l.libImports = append(l.libImports, ctx+` "context"`)
 	host := l.pkgName(pkgKey{"host", "Console"}, "hostConsole")
-	inits := l.hasInits()
-	once := l.pkgName(pkgKey{"once", nil}, "ergoInitOnce")
-	if inits {
-		sync := l.pkgName(pkgKey{"import", "sync"}, "sync")
-		l.libImports = append(l.libImports, sync+` "sync"`)
-		b.WriteString("// " + once + " runs the package-level lets once, in the task of the first call.\nvar " + once + " " + sync + ".Once\n\n")
-	}
-	provided := map[string]bool{}
+	runInits := l.initOnce(b)
+	var provided []string
 	for _, e := range l.exportsOf() {
 		f := e.fn
 		if e.reason != "" {
@@ -206,42 +200,34 @@ func (l *lowerer) exports(b *strings.Builder) {
 			resultGo = tc.goType(result)
 			results = "(" + resultGo + ", error)"
 		}
-		task, env := locals.alloc("t"), locals.alloc("env")
-		fields := []string{envTask + ": " + task}
-		for _, cap := range rowElems(f.Sig.Uses) {
-			n := cap.(*check.Named)
-			if check.IsGoForeign(n) {
-				continue
-			}
-			provided[n.Obj.Name] = true
-			fields = append(fields, l.envField(n.Obj)+": "+host+"{}")
-		}
+		var fields []string
+		fields, provided = l.hostFields(f.Sig.Uses, host, provided, func(cap check.Type) {
+			ice(f.Decl.Name, "the exported function %s needs %s, which exportReason admits", f.Name, cap)
+		})
 		b.WriteString("// " + f.Name + " calls the Ergo function " + f.Name + " for a Go caller (IG11): on the\n// calling goroutine, as a root task that ctx cancels (v1.Call).\n")
 		b.WriteString("func " + f.Name + "(" + strings.Join(params, ", ") + ") " + results + " {\n")
-		call := fd.name + "(" + strings.Join(append(fd.envLead(env), args...), ", ") + ")"
 		v := "v"
 		if result == nil {
 			v = "_"
 		}
-		b.WriteString("\t" + v + ", err := " + rt + ".Call(" + ctxParam + ", " + strconv.Quote(f.Name) + ", func(" + task + " *" + l.taskPkg() + ".Task) (" + resultGo + ", error) {\n")
-		b.WriteString("\t\t" + env + " := &" + l.env() + "{" + strings.Join(fields, ", ") + "}\n")
-		if fd.pure {
-			b.WriteString("\t\t_ = " + env + "\n")
-		}
-		if inits {
-			b.WriteString("\t\t" + once + ".Do(func() { " + l.pkgName(pkgKey{"init", nil}, "ergoInit") + "(" + env + ") })\n")
-		}
-		switch {
-		case result == nil && fd.fallible:
-			b.WriteString("\t\treturn struct{}{}, " + call + "\n")
-		case result == nil:
-			b.WriteString("\t\t" + call + "\n\t\treturn struct{}{}, nil\n")
-		case fd.fallible:
-			b.WriteString("\t\treturn " + call + "\n")
-		default:
-			b.WriteString("\t\treturn " + call + ", nil\n")
-		}
-		b.WriteString("\t})\n")
+		body := l.rootTask(locals, "("+resultGo+", error)", fields, func(env string) string {
+			call := fd.name + "(" + strings.Join(append(fd.envLead(env), args...), ", ") + ")"
+			s := ""
+			if fd.pure {
+				s += "\t\t_ = " + env + "\n"
+			}
+			s += runInits(env)
+			switch {
+			case result == nil && fd.fallible:
+				return s + "\t\treturn struct{}{}, " + call + "\n"
+			case result == nil:
+				return s + "\t\t" + call + "\n\t\treturn struct{}{}, nil\n"
+			case fd.fallible:
+				return s + "\t\treturn " + call + "\n"
+			}
+			return s + "\t\treturn " + call + ", nil\n"
+		})
+		b.WriteString("\t" + v + ", err := " + rt + ".Call(" + ctxParam + ", " + strconv.Quote(f.Name) + ", " + body + ")\n")
 		if result == nil {
 			b.WriteString("\treturn err\n}\n\n")
 			continue
@@ -252,14 +238,23 @@ func (l *lowerer) exports(b *strings.Builder) {
 		}
 		b.WriteString("\treturn v, err\n}\n\n")
 	}
-	var methods []string
-	if provided["Console"] {
-		methods = append(methods, "func ("+host+") "+memberName("Println")+"(_ *"+l.taskPkg()+".Task, line string) { "+rt+".Console{}.Println(line) }\n\n")
+	b.WriteString(l.hostDecl(host, provided, "the exported functions take"))
+}
+
+// initOnce declares the sync.Once that runs a library's package-level lets
+// once, in the task of the first call, and returns the statement that runs
+// them given the root Env's name ("" when the package has none). It is
+// apart from exports, which emits runtime calls: Once.Do is sync's, not a
+// runtime binding (TestRuntime199BlockingOwner).
+func (l *lowerer) initOnce(b *strings.Builder) func(env string) string {
+	once := l.pkgName(pkgKey{"once", nil}, "ergoInitOnce")
+	if !l.hasInits() {
+		return func(string) string { return "" }
 	}
-	if provided["Ambient"] {
-		methods = append(methods, "func ("+host+") "+memberName("ambient")+"(_ *"+l.taskPkg()+".Task) {}\n\n")
-	}
-	if len(methods) > 0 {
-		b.WriteString("// " + host + " is the host's provider of the capabilities the exported functions take.\ntype " + host + " struct{}\n\n" + strings.Join(methods, ""))
+	sync := l.pkgName(pkgKey{"import", "sync"}, "sync")
+	l.libImports = append(l.libImports, sync+` "sync"`)
+	b.WriteString("// " + once + " runs the package-level lets once, in the task of the first call.\nvar " + once + " " + sync + ".Once\n\n")
+	return func(env string) string {
+		return "\t\t" + once + ".Do(func() { " + l.pkgName(pkgKey{"init", nil}, "ergoInit") + "(" + env + ") })\n"
 	}
 }

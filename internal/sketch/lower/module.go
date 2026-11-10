@@ -604,63 +604,93 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 	}
 	rt := l.rt()
 	locals := newNamer(l.names) // main's locals reference only the names above
-	task, env := locals.alloc("t"), locals.alloc("env")
-	fields := []string{envTask + ": " + task}
-	// The host's provider of each capability the entry binds is one
-	// adapter type with one method per capability (rows.md, Capability
-	// rows 4): Console's Println and Ambient's ambient.
-	var methods []string
 	name := l.pkgName(pkgKey{"host", "Console"}, "hostConsole")
-	for _, cap := range rowElems(main.Sig.Uses) {
-		n, ok := cap.(*check.Named)
-		var prelude string
-		if ok && n.Obj.Pkg != nil && n.Obj.Pkg.Path == "prelude" {
-			prelude = n.Obj.Name
-		}
-		if ok && check.IsGoForeign(n) {
-			// go.Foreign (import go) has no operation, so no code reads it
-			// from the environment: the checker's row is the authority
-			// (rows.md, Entry 4), and the environment holds nothing for it.
-			continue
-		}
-		switch prelude {
-		case "Console":
-			// The runtime's Console prints a line; the capability's
-			// operation takes the task first (rows.md, Rows 7).
-			hl := newNamer(l.names)
-			line := hl.alloc("line")
-			methods = append(methods, "func ("+name+") "+memberName("Println")+"(_ *"+l.taskPkg()+".Task, "+line+" string) { "+rt+".Console{}.Println("+line+") }\n\n")
-		case "Ambient":
-			// Ambient is the authority to choose the host (stdlib.md, Host
-			// packages). Its one operation is unexported and never called:
-			// the method only makes the adapter a value of Ambient.
-			methods = append(methods, "func ("+name+") "+memberName("ambient")+"(_ *"+l.taskPkg()+".Task) {}\n\n")
-		default:
-			entryError(main.Decl.Name, "main needs %s, and the host provides only Console and Ambient; bind it with a with block inside main", cap)
-		}
-		fields = append(fields, l.envField(n.Obj)+": "+name+"{}")
-	}
-	var host string
-	if len(methods) > 0 {
-		host = "// " + name + " is the host's provider of the capabilities the entry binds.\ntype " + name + " struct{}\n\n" + strings.Join(methods, "")
-	}
+	fields, provided := l.hostFields(main.Sig.Uses, name, nil, func(cap check.Type) {
+		entryError(main.Decl.Name, "main needs %s, and the host provides only Console and Ambient; bind it with a with block inside main", cap)
+	})
 	b.WriteString("func main() {\n")
 	// main runs as the root task under v1.Main, which reports its exit:
 	// a typed failure, a defect with its Ergo call sites (#230), or an
 	// interruption (runtime.md, Exit causes). The environment holds that
 	// task (stage D3b, Rule 1).
-	b.WriteString("\t" + rt + ".Main(func(" + task + " *" + l.taskPkg() + ".Task) error {\n")
-	b.WriteString("\t\t" + env + " := &" + l.env() + "{" + strings.Join(fields, ", ") + "}\n")
-	if l.hasInits() {
-		// The package-level lets run first, in the root task (review m1).
-		b.WriteString("\t\t" + l.pkgName(pkgKey{"init", nil}, "ergoInit") + "(" + env + ")\n")
+	b.WriteString("\t" + rt + ".Main(" + l.rootTask(locals, "error", fields, func(env string) string {
+		var s string
+		if l.hasInits() {
+			// The package-level lets run first, in the root task (review m1).
+			s = "\t\t" + l.pkgName(pkgKey{"init", nil}, "ergoInit") + "(" + env + ")\n"
+		}
+		if fd.fallible {
+			return s + "\t\treturn " + fd.name + "(" + env + ")\n"
+		}
+		return s + "\t\t" + fd.name + "(" + env + ")\n\t\treturn nil\n"
+	}) + ")\n}\n\n" + l.hostDecl(name, provided, "the entry binds"))
+}
+
+// rootTask is the Go closure a root task runs (main's, the test build's,
+// an exported function's): it takes the task, builds the root Env, which
+// holds the task and the host's providers (fields), and runs body, which
+// writes the statements that follow given the Env's name. It is the one
+// writer of a root Env (stage D3b, Rule 1).
+func (l *lowerer) rootTask(locals *namer, results string, fields []string, body func(env string) string) string {
+	task, env := locals.alloc("t"), locals.alloc("env")
+	all := append([]string{envTask + ": " + task}, fields...)
+	return "func(" + task + " *" + l.taskPkg() + ".Task) " + results + " {\n" +
+		"\t\t" + env + " := &" + l.env() + "{" + strings.Join(all, ", ") + "}\n" +
+		body(env) + "\t}"
+}
+
+// hostFields are the root Env's fields that hold the host's provider, the
+// type name, of each capability of uses, and provided adds, in order, each
+// capability the host provides that it did not hold. The host's provider of
+// each capability an entry binds is one adapter type with one method per
+// capability (rows.md, Capability rows 4): Console's Println and Ambient's
+// ambient. go.Foreign (import go) has no operation, so no code reads it
+// from the environment: the checker's row is the authority (rows.md, Entry
+// 4), and the environment holds nothing for it. refuse is called with each
+// other capability.
+func (l *lowerer) hostFields(uses *check.Row, name string, provided []string, refuse func(check.Type)) ([]string, []string) {
+	var fields []string
+	for _, cap := range rowElems(uses) {
+		n, ok := cap.(*check.Named)
+		if ok && check.IsGoForeign(n) {
+			continue
+		}
+		if !ok || n.Obj.Pkg == nil || n.Obj.Pkg.Path != "prelude" || n.Obj.Name != "Console" && n.Obj.Name != "Ambient" {
+			refuse(cap)
+			continue
+		}
+		if !slices.Contains(provided, n.Obj.Name) {
+			provided = append(provided, n.Obj.Name)
+		}
+		fields = append(fields, l.envField(n.Obj)+": "+name+"{}")
 	}
-	if fd.fallible {
-		b.WriteString("\t\treturn " + fd.name + "(" + env + ")\n")
-	} else {
-		b.WriteString("\t\t" + fd.name + "(" + env + ")\n\t\treturn nil\n")
+	return fields, provided
+}
+
+// hostDecl declares the host's provider name with a method per capability
+// of provided, or is "" when provided is empty. of says whose capabilities
+// they are.
+func (l *lowerer) hostDecl(name string, provided []string, of string) string {
+	if len(provided) == 0 {
+		return ""
 	}
-	b.WriteString("\t})\n}\n\n" + host)
+	methods := ""
+	for _, c := range provided {
+		switch c {
+		case "Console":
+			// The runtime's Console prints a line; the capability's
+			// operation takes the task first (rows.md, Rows 7).
+			hl := newNamer(l.names)
+			line := hl.alloc("line")
+			methods += "func (" + name + ") " + memberName("Println") + "(_ *" + l.taskPkg() + ".Task, " + line + " string) { " + l.rt() + ".Console{}.Println(" + line + ") }\n\n"
+		case "Ambient":
+			// Ambient is the authority to choose the host (stdlib.md, Host
+			// packages). Its one operation is unexported and never called:
+			// the method only makes the adapter a value of Ambient.
+			methods += "func (" + name + ") " + memberName("ambient") + "(_ *" + l.taskPkg() + ".Task) {}\n\n"
+		}
+	}
+	return "// " + name + " is the host's provider of the capabilities " + of + ".\ntype " + name + " struct{}\n\n" + methods
 }
 
 // readVars is the set of variables some expression of the files that this

@@ -36,6 +36,8 @@ var unitEntries = map[string][]string{
 	"lower.go":  {"Validate", "validateFiles"},
 	"module.go": {"Lower", "lowerPackage", "newLowerer", "newBuildLowerer"},
 	"tests.go":  {"LowerTests"},
+	// IG11: the library build's entry, as LowerTests is the test build's.
+	"library.go": {"LowerLibrary"},
 }
 
 // mentions reports whether t is u or is built from u.
