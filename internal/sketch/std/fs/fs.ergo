@@ -221,6 +221,73 @@ type Writes {
 	},
 }
 
+// Escapes is the failure of a Root path that leaves the root: an absolute
+// path, a ".." past the root, or a symbolic link whose target is absolute
+// or leads past the root, even when a later element comes back in.
+type Escapes { Path string }
+
+// Root reads one directory tree and nothing outside it. A path is
+// relative to the root, its elements separated by "/". Each operation
+// resolves the path element by element from the root, as Go's os.Root
+// does: a symbolic link inside the root is followed, its target spliced
+// in where the link was; ".." removes the element before it; and any
+// step that would leave the root is Escapes, whatever the step after it.
+// The check and the read are one host operation (openat below the root's
+// descriptor), so a link changed between them cannot lead out. The empty
+// path is Failed "empty path". A chain of more than eight links is Failed
+// "too many levels of symbolic links".
+type Root {
+	ReadFile(path string) string fails NotFound | Denied | Failed | Escapes,
+	// ReadDir is the names of the entries of the directory path, sorted.
+	ReadDir(path string) []string fails NotFound | Denied | Failed | Escapes,
+	// Stat describes the file at path, after symbolic links. Its Name is
+	// the last element of path as it was given (filepath.Base).
+	Stat(path string) Info fails NotFound | Denied | Failed | Escapes,
+
+	// LeavingEscapes: a path that starts with ".." or "/" leaves the root
+	// before any lookup, so every operation on it fails Escapes, whatever
+	// the tree holds. A provider that answers NotFound there has looked
+	// outside.
+	law LeavingEscapes(path string) {
+		let _ = ReadFile("../" + path) catch {
+		case Escapes:
+			let _ = ReadFile("/" + path) catch {
+			case Escapes:
+				let _ = Stat("../" + path) catch {
+				case Escapes:
+					return true
+				case NotFound, Denied, Failed:
+					return false
+				}
+				return false
+			case NotFound, Denied, Failed:
+				return false
+			}
+			return false
+		case NotFound, Denied, Failed:
+			return false
+		}
+		false
+	},
+}
+
+// HostRoot is the host's Root provider: a directory of the host disk,
+// named when it was opened. Only OpenRoot makes one (the runtime's type).
+// It keeps no file open: each operation opens the directory, resolves
+// below it with Go's os.Root and closes it again.
+// law-exempt: the host's Root; Root's law runs on it in the host agreement property.
+type HostRoot {
+	ReadFile(path string) string fails NotFound | Denied | Failed | Escapes,
+	ReadDir(path string) []string fails NotFound | Denied | Failed | Escapes,
+	Stat(path string) Info fails NotFound | Denied | Failed | Escapes,
+	hostRooted(),
+}
+
+// OpenRoot is the Root of the host directory dir. It fails when dir is
+// not a directory the process may open. It needs Ambient: only code whose
+// row holds the authority to choose the host makes one.
+extern go ergo.local/prototype/runtime/v1.FSOpenRoot func OpenRoot(dir string) HostRoot fails NotFound | Denied | Failed needs Ambient
+
 // Host is the host's Files and Writes provider. Its field gives this
 // package the construction authority (types.md, Zero values 6): no other
 // package writes fs.Host{}, its zero value or a record update of it.

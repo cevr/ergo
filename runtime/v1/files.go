@@ -229,6 +229,7 @@ var stdRecords = map[string]string{
 	"filepath.Parts":       "Parts",
 	"fs.Denied":            "Denied",
 	"fs.Failed":            "Failed",
+	"fs.Escapes":           "Escapes",
 	"fs.Info":              "Info",
 	"fs.NotFound":          "NotFound",
 	"hex.Malformed":        "HexMalformed",
