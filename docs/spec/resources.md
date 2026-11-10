@@ -1,6 +1,6 @@
 # Resources and automatic release
 
-Status: **designed, not yet implemented**, except the providers a `with` builds, which it acquires, owns and releases ([Context ownership as built](#context-ownership-as-built); #199), and the masks of a written `Close` and of `scope.OnExit` (R9). Local, aggregate and moved resources, and generated `Close`, are [#197](https://github.com/cevr/ergo/issues/197). This file follows the owner's direction of 2026-10-26 ("How can we make it simpler so that defers are automatic … Kind of like acquire release"), adopted in the body of [#65](https://github.com/cevr/ergo/issues/65). It replaces the earlier rules that made a resource linear with a checked `defer` and registered constructor resources with `build.Scope` (README Gap 13). Definitions of resource, owner scope, move, lend and consume are in the [glossary](../../GLOSSARY.md).
+Status: **designed, not yet implemented**, except the checked rules marked below (L8 A1: resource types; L8 A2: the ownership flow of locals, parameters and temporaries, R4-R21 and R41-R43), and except the providers a `with` builds, which it acquires, owns and releases ([Context ownership as built](#context-ownership-as-built); #199), and the masks of a written `Close` and of `scope.OnExit` (R9). Local, aggregate and moved resources, and generated `Close`, are [#197](https://github.com/cevr/ergo/issues/197). This file follows the owner's direction of 2026-10-26 ("How can we make it simpler so that defers are automatic … Kind of like acquire release"), adopted in the body of [#65](https://github.com/cevr/ergo/issues/65). It replaces the earlier rules that made a resource linear with a checked `defer` and registered constructor resources with `build.Scope` (README Gap 13). Definitions of resource, owner scope, move, lend and consume are in the [glossary](../../GLOSSARY.md).
 
 The guarantee is Effect's `acquireRelease`: if an acquisition succeeds, its release runs, once, on every exit. The spelling is Go's: no `defer` to write and none to forget.
 
@@ -20,8 +20,8 @@ func copyFile(src, dst string) fails NotFound | WriteFailed needs FS {
 
 ## Owner scope
 
-1. **R4.** Every resource value has exactly one owner scope: the block that acquired it, or the scope it moved to.
-2. **R5. Release at scope end.** When an owner scope ends, it closes each resource it still owns, in reverse acquisition order. This holds on every exit: normal completion, `return`, an escaping failure, a defect and interruption.
+1. **R4.** Every resource value has exactly one owner scope: the block that acquired it, or the scope it moved to. Status: **checked** (L8 A2, `check/ownership.go`, `TestOwnershipFlowModel`); a block or function literal cannot hand off a value its enclosing function owns.
+2. **R5. Release at scope end.** When an owner scope ends, it closes each resource it still owns, in reverse acquisition order. This holds on every exit: normal completion, `return`, an escaping failure, a defect and interruption. Status: the checker records the release plan (`Info.Releases`: what each scope end, statement end, assignment and exit edge releases, last acquired first, with a drop flag; L8 A2); the release is lowered by L8 B1.
 3. **R6. Loop iterations.** The body of a loop is its own owner scope. A resource acquired in an iteration is closed at the end of that iteration, not at function exit.
 
    ```go
@@ -42,12 +42,12 @@ func copyFile(src, dst string) fails NotFound | WriteFailed needs FS {
 
 A move transfers ownership. After a move, the source binding is unusable, and using it is an error.
 
-1. **R10. Return.** `return r` moves `r` to the caller, which becomes its owner scope.
+1. **R10. Return.** `return r` moves `r` to the caller, which becomes its owner scope. Status: **checked** (L8 A2, `check/ownership.go`, `TestOwnershipFlowModel`).
 2. **R11. Provider field.** A resource stored in a field of a provider that `context` builds moves into the provider. The provider is a resource (R1), and the `with` block that built it closes it when the block ends.
 3. **R12. `go`.** A `go` task that captures a resource lends it when the structured-lend rule (R27) holds, and moves it into the task otherwise. A moved resource is closed by the task's scope when the task ends.
 4. **R13. Channel send.** In v0 a channel whose element type is a resource is an error, so no resource moves by a send ([Channels](#channels); README Gap 30).
 5. **R14. Aggregate construction (README Gap 15).** Building a struct value with a resource field moves the resource into the struct. The struct is a resource and has the same owner scope as the binding that receives it. Building a slice, array or map with resource elements moves them into the container ([Containers](#containers)).
-6. **R15. Assignment.** `let q = r` moves `r` to `q`. There are no copies of a resource, so two releases of one acquisition cannot be scheduled. *Prior art:* Rust moves by default; Swift `~Copyable` types are moved and `consume`d.
+6. **R15. Assignment.** `let q = r` moves `r` to `q`. So does `x = r` (L8 A2). There are no copies of a resource, so two releases of one acquisition cannot be scheduled. *Prior art:* Rust moves by default; Swift `~Copyable` types are moved and `consume`d. Status: **checked** (L8 A2).
 
 ## Structured lend
 
@@ -161,7 +161,7 @@ func goodTask() {
 ## Lending
 
 1. **R16.** Passing a resource as an argument lends it. The caller keeps ownership, and the resource is usable again after the call.
-2. **R17.** A lent resource must not be stored, returned, sent or captured by an escaping closure or by `go` inside the callee, except by a structured lend (R27, R31) to a task or owner that the callee releases before it returns. Each of these is an error. A call that lends `r` while `r` is consumed in the same call is an error.
+2. **R17.** A lent resource must not be stored, returned, sent or captured by an escaping closure or by `go` inside the callee, except by a structured lend (R27, R31) to a task or owner that the callee releases before it returns. Each of these is an error. A call that lends `r` while `r` is consumed in the same call is an error. Status: **checked** (L8 A2) for a parameter the signature does not take, handed off by return, `let`, assignment or a taking call, and for a lend and a take in one call; a lent value stored in a composite literal or container is L8 A4, a capture by an escaping closure or a task L8 C1, and the takes clause of an unexported function is inferred by L8 A3 (until then a parameter is taken only when its clause is written). R16 is **checked** with it.
 3. **R18.** Lending needs no lifetime annotations, because a lent value cannot escape the call. *Prior art:* Swift non-escaping borrowed parameters; Rust borrows, whose lifetimes Ergo drops because a lend never escapes.
 4. A lend of a `Task` lets the callee read it but not `Wait` or `Stop` it.
 
@@ -221,9 +221,12 @@ func keys() Map[Key, string] {
 
 ## Early release
 
-1. **R19. Consume.** Calling `r.Close()` consumes `r`. So do `task.Wait()`, `task.Stop()` and an actor's `Stop()`. After a consume, nothing runs for `r` at scope end.
-2. **R20.** Using a consumed resource is an error. Consuming it twice is an error.
-3. **R21. Paths.** At each point where an owner scope ends, the checker knows for each resource whether it is owned, moved or consumed. A resource moved or consumed on one path and not on another is closed at scope end only on the paths where it is still owned.
+1. **R19. Consume.** Calling `r.Close()` consumes `r` (R1). So does a call of a function or operation whose `takes` clause names it (`t.Wait()`, `q.Push(r)`, [grammar](grammar.md) Declarations 13). `Stop()` lends (q54 assumption), and an actor is a shared handle (Q6). After a consume, nothing runs for `r` at scope end. Status: **checked** for a written clause (L8 A2); an inferred clause is L8 A3.
+2. **R20.** Using a consumed resource is an error. Consuming it twice is an error. Status: **checked** (L8 A2).
+3. **R21. Paths.** At each point where an owner scope ends, the checker knows for each resource whether it is owned, moved or consumed. A resource moved or consumed on one path and not on another is closed at scope end only on the paths where it is still owned. Using it after the paths meet is an error. Status: **checked** (L8 A2): a loop body runs to its fixpoint, so a second iteration sees what the first handed off; the release plan marks such a value with a drop flag.
+4. **R41. Assignment releases the old value.** `r = open(2)` releases the value `r` held, where it still owns one, then owns the new one (D5). Status: **checked** (L8 A2, recorded at the assigned name); lowered by L8 B1.
+5. **R42. A discarded resource.** A call or literal whose resource value no one owns, as a statement (`open()`) or bound to `_` (`let _ = open()`), is an error (D4). A `let` local held only for its release is no unused local (S110). Status: **checked** (L8 A2).
+6. **R43. Temporaries.** A resource value lent where it is made, `lend(open())`, is owned by its statement and released at the statement's end, also on a failure edge inside the statement (D6). Status: **checked** (L8 A2, recorded in the release plan); lowered by L8 B1.
 
 ## Conversions
 

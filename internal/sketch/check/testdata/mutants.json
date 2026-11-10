@@ -960,6 +960,138 @@
       "killers": [
         "check:TestResourceTypeModel"
       ]
+    },
+    {
+      "name": "L8-A2 a join of owned and moved is owned",
+      "origin": "wf10 L8 A2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tcase x.st == ownOwned:\n\t\t\ta[i] = ownSlot{st: ownMaybe, at: y.at, how: y.how}",
+      "to": "\t\tcase x.st == ownOwned:\n\t\t\ta[i] = x",
+      "rule": "resources R21: a value handed off on one path only is handed off on some paths (maybe), not owned.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A2 the loop body visited once",
+      "origin": "wf10 L8 A2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tif entry == nil || sameState(next, entry) {",
+      "to": "\t\tif true {",
+      "rule": "resources R6, R15: a later iteration sees what an earlier one handed off (the loop's fixpoint).",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A2 return does not move",
+      "origin": "wf10 L8 A2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.expr(r, mMove, hand{at: r, how: \"it is returned\"})",
+      "to": "w.expr(r, mLend, hand{at: r, how: \"it is returned\"})",
+      "rule": "resources R10: return moves the value to the caller.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A2 assignment does not release the old value",
+      "origin": "wf10 L8 A2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\trs = []Release{{Var: v, Flag: st == ownMaybe}}",
+      "to": "\t\t\trs = nil",
+      "rule": "resources R41 (D5): an assignment releases the old value where it is still owned.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A2 a temporary has no owner",
+      "origin": "wf10 L8 A2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tw.acquire(ownLocal{temp: x})",
+      "to": "\t\t_ = x",
+      "rule": "resources R43 (D6): a temporary is owned by its statement and released at its end.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A2 a written takes call does not move",
+      "origin": "wf10 L8 A2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tfor _, i := range sig.Takes {\n\t\t\ttaken[i] = true\n\t\t}\n\t\tselfTaken = sig.TakesSelf",
+      "to": "\t\tselfTaken = sig.TakesSelf",
+      "rule": "resources R19: a call of a function whose takes clause names a parameter hands the argument off.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A2 a lend counts as a move",
+      "origin": "wf10 L8 A2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tif mode == mMove {\n\t\t\tw.move(i, x, h)",
+      "to": "\t\tif mode != mDiscard {\n\t\t\tw.move(i, x, h)",
+      "rule": "resources R16: an argument is lent by default; the caller still owns it.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A2 a hand-off inside a trailing block admitted",
+      "origin": "wf10 L8 A2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tcase l.depth != w.depth:\n\t\tw.report(",
+      "to": "\tcase l.depth != w.depth && false:\n\t\tw.report(",
+      "rule": "resources R4, R30: a block (scope.OnExit, a function literal) cannot hand off a value its enclosing function owns.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A2 a lend and a take of one value in one call admitted",
+      "origin": "wf10 L8 A2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\t\t\tif w.st != nil && w.st[i].st == ownOwned {",
+      "to": "\t\t\t\t\tif false {",
+      "rule": "resources R17: no lend and take of one value in one call.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A2 a lent parameter handed off",
+      "origin": "wf10 L8 A2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tcase l.lent:\n\t\tfn := w.name",
+      "to": "\tcase l.lent && false:\n\t\tfn := w.name",
+      "rule": "resources R10, R17: a parameter the signature does not take is lent; the function cannot hand it off.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A2 a local held only for its release reported S110",
+      "origin": "wf10 L8 A2 (#197)",
+      "file": "internal/sketch/check/rows.go",
+      "from": "\t\tif v.let && v.Type != nil && c.holdsResource(v.Type) {",
+      "to": "\t\tif false {",
+      "rule": "D4: a local held only for its release at scope end is not an unused local.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A2 a loop's entry state not kept between visits",
+      "origin": "wf10 L8 A2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tif c := w.loopEntry[n]; c != nil && entry != nil {",
+      "to": "\tif c := w.loopEntry[n]; false && c != nil && entry != nil {",
+      "rule": "compile speed (plan 7): nested loops cost about linear work, never 2^depth.",
+      "killers": [
+        "check:TestOwnershipFlowWorkIsLinear"
+      ]
     }
   ]
 }

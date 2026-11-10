@@ -252,6 +252,27 @@ type Info struct {
 	// decides it by type identity; the lowering reads it and never
 	// compares types again (batch-12 M1: two packages named errs).
 	ReturnedValues map[syntax.Expr]bool
+	// Releases is the release plan of the ownership pass (#197 L8 A2;
+	// resources R5, R10, R21, R41, R43; ownership.go): what is still owned,
+	// in release order (last acquired first), where control leaves a place.
+	// Keys: a scope (*syntax.BlockStmt, *syntax.CaseClause,
+	// *syntax.CatchArm) at its normal end; a statement, or the header
+	// expression of an if, match or for, for the temporaries it owns; an
+	// exit edge (*syntax.ReturnStmt, *syntax.BranchStmt, the failure edge
+	// of a *syntax.TryExpr that leaves the function) for everything it
+	// leaves; the assigned *syntax.Ident of an assignment for the old value
+	// (R41). A missing key releases nothing. Added in L8 A2 (additive).
+	Releases map[syntax.Node][]Release
+}
+
+// Release is one value a place releases: an owned local or taken
+// parameter (Var), or a temporary the statement owns (Temp). Flag marks a
+// value owned on some paths only: the release runs when the value was not
+// handed off (a drop flag, resources R21).
+type Release struct {
+	Var  *Var
+	Temp syntax.Expr
+	Flag bool
 }
 
 // Instance is one instantiation of a generic function.
@@ -328,6 +349,7 @@ func newInfo() *Info {
 		Instances:     map[syntax.Expr]*Instance{},
 
 		ReturnedValues: map[syntax.Expr]bool{},
+		Releases:       map[syntax.Node][]Release{},
 	}
 }
 

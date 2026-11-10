@@ -1129,6 +1129,10 @@ func (c *checker) reportUnused(fc *funcCtx) {
 		if v.group != nil {
 			continue
 		}
+		if v.let && v.Type != nil && c.holdsResource(v.Type) {
+			// A resource held only for its release at scope end (D4).
+			continue
+		}
 		c.errorf(v.id, CodeUnused, "%s is declared and not used", v.Name)
 	}
 }

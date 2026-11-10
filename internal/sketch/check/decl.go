@@ -95,6 +95,8 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.closeFacts,
 		// After closeFacts: every Close and failure row is final.
 		c.checkResourceTypes,
+		// After the resource types: who owns each resource (ownership.go).
+		c.checkOwnership,
 		c.withOwnership,
 		c.checkFrames,
 		c.checkEscapes,

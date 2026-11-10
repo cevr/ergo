@@ -182,6 +182,9 @@ type checker struct {
 	// type id; resSteps counts the walk's visits (resource.go).
 	resMemo  [2]map[int32]bool
 	resSteps int
+	// ownSteps counts the ownership pass's work: nodes visited and state
+	// slots copied or joined (ownership.go), for the growth guard.
+	ownSteps int
 	// providing is set while a provider is checked against its capability
 	// (providerAssignability): R22 does not apply there.
 	providing bool
