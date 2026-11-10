@@ -1,0 +1,600 @@
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/?","trail":"","target":"/?"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"\\<%zz%2e.'/[?%2e%2Eb.","trail":"","target":"/%3C%zz%2e.'/[?%2e%2Eb."}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"/\n+é%41%zz?%2Fc.txt\t# ||","trail":"","target":"/+%C3%A9%41%zz?%2Fc.txt"}
+{"lead":" ","scheme":"HtTp","sep":"//","rest":"/$😀@","trail":"","target":"/$%F0%9F%98%80@"}
+{"lead":"","scheme":"http","sep":"\\\\","rest":"\\+\ud800<>`","trail":"","target":"/+%EF%BF%BD%3C%3E%60"}
+{"lead":"","scheme":"http","sep":"//","rest":"/%zz%2F+'\\\n|/?'?^..%41>","trail":" ","target":"/%zz%2F+'/|/?%27?^..%41%3E"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"/<.%2e/\n!\\?$\n&#?","trail":" ","target":"/%3C.%2e/!/?$&"}
+{"lead":" ","scheme":"HtTp","sep":"//","rest":"/>","trail":"\n","target":"/%3E"}
+{"lead":"","scheme":"http","sep":"\\\\","rest":"/%2F:[>#","trail":"","target":"/%2F:[%3E"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"/\"+\\?%2F>c.txt€","trail":"","target":"/%22+/?%2F%3Ec.txt%E2%82%AC"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"\\a]?[.}/^..","trail":"","target":"/a]%7F?[.}/^.."}
+{"lead":"","scheme":"http","sep":"//","rest":"/a.%2e^?a%zz{+:","trail":"","target":"/a.%2e%5E?a%zz{+:"}
+{"lead":"","scheme":"http","sep":"//","rest":"/:;%^%2e%2Ec.txt`?","trail":" ","target":"/:;%%5E%2e%2Ec.txt%60?"}
+{"lead":"","scheme":"http","sep":"//","rest":"/c.txt<","trail":"","target":"/c.txt%3C"}
+{"lead":"","scheme":"http","sep":"//","rest":"//a<??..%2e%2E{!\ud800##","trail":"","target":"//a%3C??..%2e%2E{!%EF%BF%BD"}
+{"lead":"","scheme":"http","sep":"//","rest":"\\b€%41^# #","trail":" ","target":"/b%E2%82%AC%41%5E"}
+{"lead":"","scheme":"http","sep":"//","rest":"/%/$^.%2e\"?%2e.<%2F\u0001.!","trail":"\n","target":"/%/$%5E.%2e%22?%2e.%3C%2F%01.!"}
+{"lead":"","scheme":"http","sep":"/\\","rest":"\\~$.%2e<\ud800é?%2E}c.txt$😀","trail":"","target":"/~$.%2e%3C%EF%BF%BD%C3%A9?%2E}c.txt$%F0%9F%98%80"}
+{"lead":"\t","scheme":"http","sep":"/\\","rest":"/\u0001%2F'\u0001%41","trail":"","target":"/%01%2F'%01%41"}
+{"lead":"","scheme":"http","sep":"\\\\","rest":"/<$?","trail":" ","target":"/%3C$?"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"//","rest":"/%2e@:😀.%2e","trail":"","target":"/%2e%7F@:%F0%9F%98%80.%2e"}
+{"lead":"","scheme":"HtTp","sep":"/\\","rest":"/.😀\"\ud800:%2F%zz/","trail":"","target":"/.%F0%9F%98%80%22%EF%BF%BD:%2F%zz/"}
+{"lead":"\u0001 ","scheme":"HtTp","sep":"\\\\","rest":"\\%2F","trail":"","target":"/%2F"}
+{"lead":"","scheme":"HtTp","sep":"/\\","rest":"/ %41'\"%41%é?^\ud800'","trail":"\n","target":"/%20%41'%22%41%%C3%A9?^%EF%BF%BD%27"}
+{"lead":" ","scheme":"HTTP","sep":"/\\","rest":"/'&>=..%2e.[?&.%2e=]","trail":" ","target":"/'%7F&%3E=..%2e.[?&.%2e%7F=]"}
+{"lead":"","scheme":"HTTP","sep":"\\\\","rest":"/?\n#|? ","trail":"","target":"/?"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"//","rest":"/a%2Fc.txt\u0001..","trail":"","target":"/a%2Fc.txt%01.."}
+{"lead":"\u0001 ","scheme":"HtTp","sep":"/\\","rest":"/é|b%zz\u0001é@?%2e%2E{../","trail":"","target":"/%C3%A9|b%zz%01%C3%A9@?%2e%2E{../"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"//%2e%2E..&//","trail":"","target":"//%2e%2E..&//"}
+{"lead":"","scheme":"http","sep":"//","rest":"\\:.{~`/}^??\u0001#x?x","trail":"","target":"/:.%7B~%60/%7D%5E??%01"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"\\c.txt%2e.%2E? ~","trail":"","target":"/c.txt%2e.%2E?%20~"}
+{"lead":"","scheme":"HtTp","sep":"\\\\","rest":"/%2e%2E","trail":"\n","target":"/"}
+{"lead":" ","scheme":"HtTp","sep":"\\\\","rest":"/+#?","trail":"","target":"/+"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"\\%2e.%","trail":"","target":"/%2e.%"}
+{"lead":"","scheme":"http","sep":"//","rest":"/ [..%2E?~%2e.\n%2e.\t#?","trail":"\n","target":"/%20[..%2E?~%2e.%2e."}
+{"lead":" ","scheme":"HtTp","sep":"//","rest":"/é[a.%2e","trail":"","target":"/%C3%A9[a.%2e"}
+{"lead":"\t","scheme":"http","sep":"//","rest":"/%2e#?x#","trail":"","target":"/"}
+{"lead":"\u0001 ","scheme":"http","sep":"/\\","rest":"/😀a <:","trail":"\n","target":"/%F0%9F%98%80a%20%3C:"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/😀?\ud800\"!^\n","trail":"","target":"/%F0%9F%98%80?%EF%BF%BD%22!^"}
+{"lead":"","scheme":"http","sep":"/\\","rest":"/./+;>\"%2e%2e?%zz&é|[!#","trail":" ","target":"/+;%3E%22%2e%2e?%zz&%C3%A9|[!"}
+{"lead":"","scheme":"HtTp","sep":"/\\","rest":"/%2e.&[%2e+=","trail":"","target":"/%2e.&[%2e+="}
+{"lead":"\t","scheme":"HtTp","sep":"//","rest":"/%2F\n\nb|>/%zz","trail":"","target":"/%2Fb|%3E/%zz"}
+{"lead":"","scheme":"http","sep":"\\\\","rest":"/:.|/ /$","trail":"","target":"/:.|/%20/$"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"\\%2e%2E!/","trail":"","target":"/%2e%2E!%7F/"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/\n!@`","trail":" ","target":"/!@%60"}
+{"lead":"","scheme":"http","sep":"\\\\","rest":"/%2E?&..?\"€","trail":"","target":"/?&..?%22%E2%82%AC"}
+{"lead":"","scheme":"http","sep":"\\\\","rest":"/c.txt\"%41€'","trail":" ","target":"/c.txt%22%41%E2%82%AC'"}
+{"lead":"","scheme":"HTTP","sep":"/\\","rest":"\\%41","trail":"","target":"/%41"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"/|@€>~ ","trail":"\n","target":"/|@%E2%82%AC%3E~"}
+{"lead":"","scheme":"HtTp","sep":"/\\","rest":"/\u0001>?\\] \n","trail":"\n","target":"/%7F%01%7F%3E?\\]"}
+{"lead":"","scheme":"http","sep":"/\\","rest":"/~<\u0001%2F%2e.","trail":" ","target":"/~%3C%01%2F%2e."}
+{"lead":"","scheme":"http","sep":"/\\","rest":"/😀{!}#xxx","trail":"","target":"/%F0%9F%98%80%7B!%7D"}
+{"lead":"","scheme":"http","sep":"//","rest":"/'.%2e\n\\","trail":"","target":"/'.%2e/"}
+{"lead":"\t","scheme":"HtTp","sep":"\\\\","rest":"/!\ud800<@€c.txt/?\u0001\n}%2E","trail":"","target":"/!%EF%BF%BD%3C@%E2%82%AC%7Fc.txt/?%01}%2E"}
+{"lead":"","scheme":"HTTP","sep":"/\\","rest":"/%2E'é.%2e{{%😀#x?x","trail":" \u0001","target":"/%2E'%C3%A9.%2e%7B%7B%%F0%9F%98%80"}
+{"lead":"\t","scheme":"HTTP","sep":"//","rest":"/\t%\ud800%2e%2Eé;?😀%2F$<[#","trail":"","target":"/%%EF%BF%BD%2e%2E%C3%A9;?%F0%9F%98%80%2F$%3C["}
+{"lead":"","scheme":"http","sep":"\\\\","rest":"/\u0001%2e%2E[+%2e.<%2E..?\u0001b%zz&.","trail":"\n","target":"/%01%2e%2E[+%2e.%3C%2E..?%01b%zz&."}
+{"lead":" ","scheme":"HtTp","sep":"\\\\","rest":"/{%2F%2F;%2e%2E{{#","trail":"","target":"/%7B%2F%2F;%2e%2E%7B%7B"}
+{"lead":" ","scheme":"http","sep":"//","rest":"\\?;","trail":"","target":"/?;"}
+{"lead":"\u0001 ","scheme":"HtTp","sep":"//","rest":"/|%2e%2E€+\t#?? ","trail":" \u0001","target":"/|%2e%2E%E2%82%AC%7F+"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/%41[~\t%2e^","trail":"","target":"/%41[~%2e%5E"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/?","trail":"","target":"/?"}
+{"lead":"\u0001 ","scheme":"HtTp","sep":"\\\\","rest":"//?%2E<!`[","trail":"","target":"//%7F?%2E%3C!`["}
+{"lead":"","scheme":"HtTp","sep":"\\\\","rest":"/';\u0001:>c.txt","trail":" \u0001","target":"/';%01:%3Ec.txt"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/é","trail":" ","target":"/%C3%A9"}
+{"lead":"","scheme":"HTTP","sep":"\\\\","rest":"/a}^\\\u0001+# |","trail":"","target":"/a%7D%5E/%01+"}
+{"lead":"\t","scheme":"http","sep":"/\\","rest":"/%2F[?.\\$;","trail":" ","target":"/%2F[?.\\$;"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"\\%2e:%2e.;/a+?/=..%2E","trail":" ","target":"/%2e:%2e.;/a+?/=..%2E"}
+{"lead":"\t","scheme":"HtTp","sep":"/\\","rest":"/\"%2e.\"{./{#  ","trail":"\n","target":"/%22%2e.%22%7B./%7B"}
+{"lead":" ","scheme":"http","sep":"//","rest":"/%2F%2e...=bb","trail":"","target":"/%2F%2e...=bb"}
+{"lead":"","scheme":"http","sep":"\\\\","rest":"\\€\"\ud800%41:/%41","trail":"","target":"/%E2%82%AC%22%EF%BF%BD%41:/%41"}
+{"lead":"","scheme":"http","sep":"//","rest":"/é=\n\".@?@😀#|","trail":" \u0001","target":"/%C3%A9%7F=%22.@?@%F0%9F%98%80"}
+{"lead":"","scheme":"http","sep":"//","rest":"/?\n>/\ud800\n\ud800","trail":"","target":"/?%3E/%EF%BF%BD%EF%BF%BD"}
+{"lead":"","scheme":"http","sep":"//","rest":"/]\\.>","trail":"","target":"/]/.%3E"}
+{"lead":"\u0001 ","scheme":"HtTp","sep":"//","rest":"/é[b%2e%2Eé%2e%2E[","trail":"","target":"/%C3%A9[b%2e%2E%C3%A9%2e%2E["}
+{"lead":"","scheme":"http","sep":"//","rest":"/","trail":" ","target":"/"}
+{"lead":"","scheme":"http","sep":"//","rest":"/[:\ud800\t#?#","trail":" ","target":"/[:%7F%EF%BF%BD"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"?\"~\ud800\n","trail":" \u0001","target":"/?%7F%22~%EF%BF%BD"}
+{"lead":" ","scheme":"HtTp","sep":"\\\\","rest":"/:'..c.txt\ud800;+","trail":"\n","target":"/:'..c.txt%EF%BF%BD;+"}
+{"lead":"","scheme":"http","sep":"\\\\","rest":"/%zz/é€:~..%2E?%.%2e>%zz^]","trail":"","target":"/%zz/%C3%A9%E2%82%AC:~..%2E?%.%2e%3E%zz^]"}
+{"lead":"\u0001 ","scheme":"HtTp","sep":"/\\","rest":"/#","trail":"","target":"/"}
+{"lead":"","scheme":"http","sep":"/\\","rest":"\\\t`\ud800{}\\%41`?.a%2F%2E>%2e%2E","trail":" \u0001","target":"/%60%EF%BF%BD%7B%7D/%41%60?.a%2F%2E%3E%2e%2E"}
+{"lead":"","scheme":"HTTP","sep":"/\\","rest":"/\\&\t{😀é\n=","trail":"","target":"//&%7B%F0%9F%98%80%C3%A9="}
+{"lead":"\t","scheme":"http","sep":"//","rest":"/\"","trail":"","target":"/%22"}
+{"lead":" ","scheme":"http","sep":"//","rest":"/%","trail":"\n","target":"/%"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"/=.}","trail":"","target":"/=.%7D"}
+{"lead":"\t","scheme":"HtTp","sep":"\\\\","rest":"/!>%2e.b[?[\";$","trail":"\n","target":"/!%3E%2e.b[?[%22;$"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/`.%2e%2E.%2e<\t","trail":"","target":"/%60.%2e%2E.%2e%3C"}
+{"lead":"","scheme":"HTTP","sep":"\\\\","rest":"/<\"[} %2e%2E","trail":"","target":"/%7F%3C%22[%7D%20%2e%2E"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"/\ud800;b^€%|?a@b%2F","trail":"","target":"/%EF%BF%BD;b%5E%E2%82%AC%|?a@b%2F%7F"}
+{"lead":"\t","scheme":"http","sep":"/\\","rest":"/~b#","trail":"","target":"/~b"}
+{"lead":"\u0001 ","scheme":"http","sep":"/\\","rest":"/","trail":" ","target":"/"}
+{"lead":"\t","scheme":"HtTp","sep":"//","rest":"/\ud800}|\t\"%é&","trail":"","target":"/%EF%BF%BD%7D|%22%%C3%A9&"}
+{"lead":" ","scheme":"HtTp","sep":"\\\\","rest":"/..%2e\ud800}?&:","trail":"\n","target":"/..%2e%EF%BF%BD%7D?&:"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/%2e%41~%2e%2E?`]\t..%%2e.","trail":"","target":"/%2e%41~%2e%2E?`]..%%2e."}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"\\[^é%41%2e.?\"","trail":" \u0001","target":"/[%5E%C3%A9%41%2e.?%22"}
+{"lead":"\t","scheme":"http","sep":"/\\","rest":"/é%2F%$=<?c.txt..%zzc.txt.%2e&","trail":" \u0001","target":"/%C3%A9%2F%$=%3C?c.txt..%zzc.txt.%2e&"}
+{"lead":"\t","scheme":"http","sep":"//","rest":"\\..\n!","trail":"","target":"/..!"}
+{"lead":" ","scheme":"HTTP","sep":"//","rest":"/<%2e","trail":"","target":"/%3C%2e"}
+{"lead":"\t","scheme":"HtTp","sep":"//","rest":"\\\n%:'!\\+\\?}😀é","trail":" \u0001","target":"/%:'!/+/?}%F0%9F%98%80%C3%A9"}
+{"lead":"\t","scheme":"http","sep":"/\\","rest":"/$'","trail":"","target":"/$'"}
+{"lead":"\u0001 ","scheme":"http","sep":"\\\\","rest":"/ >=é+","trail":"\n","target":"/%20%3E=%C3%A9+"}
+{"lead":"","scheme":"http","sep":"//","rest":"/~%41b%?=..","trail":"","target":"/~%41b%?%7F=.."}
+{"lead":"\t","scheme":"HtTp","sep":"//","rest":"/>\t","trail":"","target":"/%3E"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/%^b\t?😀%2e..","trail":"","target":"/%%5Eb?%F0%9F%98%80%2e.."}
+{"lead":"","scheme":"http","sep":"\\\\","rest":"/=%2Eb","trail":" ","target":"/=%2Eb"}
+{"lead":"","scheme":"http","sep":"//","rest":"/;%2e.'$\ud800a>?}\u0001/ ","trail":" ","target":"/;%2e.'$%EF%BF%BDa%3E?}%01/"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"/?\ud800 @","trail":"","target":"/?%EF%BF%BD%20@"}
+{"lead":"","scheme":"HtTp","sep":"\\\\","rest":"/\n?<?:..'","trail":"","target":"/?%3C?:..%27"}
+{"lead":"\t","scheme":"http","sep":"//","rest":"/\ud800%2F?%2e%2E.%2e.[#","trail":"","target":"/%EF%BF%BD%2F?%2e%2E.%2e.["}
+{"lead":" ","scheme":"http","sep":"/\\","rest":"/%2e","trail":"","target":"/"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"\\\\+","trail":"","target":"//+"}
+{"lead":"\u0001 ","scheme":"http","sep":"\\\\","rest":"\\%2E[?%41a","trail":" ","target":"/%2E[?%41a"}
+{"lead":"","scheme":"http","sep":"/\\","rest":"\\<;|é?","trail":"","target":"/%3C;|%C3%A9?"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"//","rest":"/##","trail":"","target":"/"}
+{"lead":" ","scheme":"http","sep":"//","rest":"/","trail":" ","target":"/"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/\"+?/","trail":"\n","target":"/%7F%22+%7F?/"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"\\&/?%2e;!=","trail":"\n","target":"/&/?%2e;!="}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/}@\\€'%2F#","trail":"","target":"/%7D@/%E2%82%AC'%2F"}
+{"lead":"","scheme":"http","sep":"/\\","rest":"/\"/# ","trail":"","target":"/%22/"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"/\\","rest":"\\][😀`;/^","trail":" ","target":"/][%F0%9F%98%80%60;/%5E"}
+{"lead":" ","scheme":"http","sep":"\\\\","rest":"/.\n\\=>=","trail":" ","target":"/=%3E="}
+{"lead":"","scheme":"http","sep":"//","rest":"//a%2F~a+a<?é]\\:%","trail":" ","target":"//a%2F~a+a%3C?%C3%A9]\\:%"}
+{"lead":"\t","scheme":"HTTP","sep":"\\\\","rest":"/%2E%2e.>'?%zz#","trail":"\n","target":"/%2E%2e.%3E'?%zz"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"\\\\","rest":"/.%2e%2E][b","trail":"\n","target":"/.%2e%2E][b"}
+{"lead":"","scheme":"http","sep":"//","rest":"\\a#?##","trail":"","target":"/a"}
+{"lead":"","scheme":"http","sep":"//","rest":"/%2e%2E=b.:","trail":"\n","target":"/%2e%2E=b.:"}
+{"lead":"\t","scheme":"http","sep":"/\\","rest":"/","trail":" ","target":"/"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"/c.txt%2e%2Eé","trail":"","target":"/c.txt%2e%2E%C3%A9"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/c.txt%2e.?\\.%2e%","trail":" \u0001","target":"/c.txt%2e.?\\.%2e%"}
+{"lead":"","scheme":"http","sep":"\\\\","rest":"/=$\"%2F\t.# ","trail":" \u0001","target":"/=$%22%2F."}
+{"lead":"\u0001 ","scheme":"HtTp","sep":"//","rest":"\\","trail":" \u0001","target":"/"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/%zz@c.txté;%2eb##x","trail":"","target":"/%zz@c.txt%C3%A9;%2eb"}
+{"lead":"","scheme":"http","sep":"//","rest":"/%2F\n?\\.'\u0001<","trail":"\n","target":"/%2F?\\%7F.%27%01%3C"}
+{"lead":" ","scheme":"http","sep":"\\\\","rest":"/+@=%2F","trail":"","target":"/+@=%2F"}
+{"lead":"\t","scheme":"HtTp","sep":"//","rest":"?\"","trail":"\n","target":"/?%22"}
+{"lead":"","scheme":"HTTP","sep":"\\\\","rest":"/;~é","trail":" ","target":"/;~%C3%A9"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"//","rest":"/%..:\ud800`.%2e😀","trail":"\n","target":"/%..:%EF%BF%BD%60.%2e%F0%9F%98%80"}
+{"lead":"\u0001 ","scheme":"HtTp","sep":"\\\\","rest":"/`/{/!.%2e?+%41=&]","trail":" \u0001","target":"/%60/%7B/!.%2e?+%41=&]"}
+{"lead":"","scheme":"HtTp","sep":"\\\\","rest":"\\%2e.&\\%2e;>?..][##?#","trail":" ","target":"/%2e.&/%2e;%3E?..]["}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"//","rest":"/>|.%2e\n&+?😀%41` +/","trail":" \u0001","target":"/%3E|.%2e&+?%F0%9F%98%80%41`%20+/"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/\"@%2e%2E.%2e>%2e%2E`/","trail":"","target":"/%22@%2e%2E.%2e%3E%2e%2E%60/"}
+{"lead":"","scheme":"http","sep":"//","rest":"\\^ %2E`?~","trail":" ","target":"/%5E%20%2E%60?~"}
+{"lead":" ","scheme":"HtTp","sep":"//","rest":"\\.%2e%2e%2E~{&","trail":" \u0001","target":"/.%2e%2e%2E~%7B&"}
+{"lead":"","scheme":"HtTp","sep":"/\\","rest":"\\]b%zz+}?/","trail":" \u0001","target":"/]b%zz+%7D?/"}
+{"lead":"","scheme":"http","sep":"//","rest":"/}@.~]}é?%2F\u0001\"\t\u0001?#","trail":"\n","target":"/%7D@.~]%7D%C3%A9?%2F%01%22%01?"}
+{"lead":" ","scheme":"http","sep":"\\\\","rest":"/\u0001'!~% ?\\]/#?","trail":" \u0001","target":"/%7F%01'!~%%20%7F?\\]/"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"\\%2E%2E?<éb😀#","trail":"","target":"/?%3C%C3%A9b%F0%9F%98%80"}
+{"lead":"","scheme":"http","sep":"//","rest":"/","trail":"\n","target":"/"}
+{"lead":"\t","scheme":"http","sep":"/\\","rest":"\\!>.%2eb%2e%2F","trail":"","target":"/!%3E.%2eb%2e%2F"}
+{"lead":"","scheme":"http","sep":"//","rest":"\\|?;''.%2e%2e.?# ?#","trail":" \u0001","target":"/|?;%27%27.%2e%2e.?"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/?","trail":"","target":"/?"}
+{"lead":" ","scheme":"HtTp","sep":"//","rest":"/]..=]?..]a# ","trail":"","target":"/]..=]?..]a"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"\\€]\"^😀^","trail":" ","target":"/%E2%82%AC]%7F%22%5E%F0%9F%98%80%5E"}
+{"lead":"\u0001 ","scheme":"HtTp","sep":"//","rest":"\\\n","trail":"","target":"/"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"/^\ud800;b.%2e|;?@{","trail":"","target":"/%5E%EF%BF%BD;b.%2e|;?@{"}
+{"lead":" ","scheme":"http","sep":"/\\","rest":"/?{&","trail":"\n","target":"/?%7F{&"}
+{"lead":"\t","scheme":"http","sep":"//","rest":"/%2e%2E!;`{\t?{\nb%2e..%2e","trail":"","target":"/%2e%2E!;%60%7B?{b%2e..%2e"}
+{"lead":"\t","scheme":"http","sep":"//","rest":"\\%2e.%41~|%2e=?","trail":"","target":"/%2e.%41~|%2e=?"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/a:=%zz]","trail":"\n","target":"/%7Fa:=%zz]"}
+{"lead":"","scheme":"HtTp","sep":"\\\\","rest":"/","trail":"","target":"/"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/%zz``=}","trail":" ","target":"/%zz%60%60=%7D"}
+{"lead":"","scheme":"http","sep":"//","rest":"/?~:\n","trail":" ","target":"/?~:"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"/\\","rest":"/@{#?|","trail":"\n","target":"/@%7B"}
+{"lead":"\t","scheme":"HtTp","sep":"/\\","rest":"\\..%2F\t.%2e'#|x?","trail":"\n","target":"/..%2F.%2e'"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/@/?~.%2e\u0001","trail":"","target":"/@/?~.%2e"}
+{"lead":" ","scheme":"http","sep":"//","rest":"/","trail":"","target":"/"}
+{"lead":"\t","scheme":"HTTP","sep":"//","rest":"\\~$[?\u0001}b~%2e%2E","trail":"","target":"/~$[?%01}b~%7F%2e%2E"}
+{"lead":" ","scheme":"HTTP","sep":"//","rest":"/..%zz/>%2e.>?/</\u0001/","trail":" \u0001","target":"/..%zz/%3E%2e.%3E?/%3C/%7F%01/"}
+{"lead":"","scheme":"http","sep":"//","rest":"/a%2e.%2e%2E%zz%{|{# |","trail":" ","target":"/a%2e.%2e%2E%zz%%7B|%7B"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"//","rest":"/%2E{\n'a😀>+","trail":"","target":"/%2E%7B'a%F0%9F%98%80%3E+"}
+{"lead":"\u0001 ","scheme":"HtTp","sep":"//","rest":"\\b=","trail":"","target":"/b="}
+{"lead":"","scheme":"http","sep":"//","rest":"/\n\\\ud800\"%2e%2E%2e.$?","trail":"\n","target":"/%7F/%EF%BF%BD%22%2e%2E%2e.$?"}
+{"lead":"\t","scheme":"HTTP","sep":"\\\\","rest":"\\%2E^`?$~^..>","trail":"\n","target":"/%2E%5E%60?$~%7F^..%3E"}
+{"lead":"","scheme":"HTTP","sep":"/\\","rest":"/%41","trail":"\n","target":"/%41"}
+{"lead":"","scheme":"http","sep":"//","rest":"/?\ud800😀%2E","trail":"\n","target":"/?%EF%BF%BD%F0%9F%98%80%2E"}
+{"lead":" ","scheme":"HTTP","sep":"\\\\","rest":"/%41","trail":"","target":"/%41"}
+{"lead":" ","scheme":"HTTP","sep":"\\\\","rest":"/\"","trail":" \u0001","target":"/%22"}
+{"lead":"\t","scheme":"HtTp","sep":"/\\","rest":"/$%zz!c.txt\u0001","trail":" ","target":"/$%zz!c.txt%01%7F"}
+{"lead":" ","scheme":"HTTP","sep":"//","rest":"\\:$@+~//?\\é%2e.&]","trail":"","target":"/:$@+~//?\\%C3%A9%2e.&]%7F"}
+{"lead":"","scheme":"http","sep":"//","rest":"/+%%2F\n|??$='%2F","trail":"","target":"/+%%2F|??$=%27%2F"}
+{"lead":" ","scheme":"http","sep":"/\\","rest":"//\n' %2e%2E{a","trail":"","target":"//'%20%2e%2E%7Ba"}
+{"lead":"","scheme":"HTTP","sep":"\\\\","rest":"/`.%2e:#","trail":" \u0001","target":"/%60.%2e%7F:"}
+{"lead":" ","scheme":"HTTP","sep":"/\\","rest":"/%zz\u0001.=?+\ud800//","trail":" ","target":"/%zz%01.=?+%EF%BF%BD//%7F"}
+{"lead":" ","scheme":"HTTP","sep":"\\\\","rest":"/€|%zza`%2e{😀","trail":"","target":"/%E2%82%AC|%zza%60%2e%7B%F0%9F%98%80"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"\\€%2F`","trail":"","target":"/%E2%82%AC%2F%60"}
+{"lead":"","scheme":"http","sep":"//","rest":"/.😀é\ud800$<?%zz`😀\\é","trail":"","target":"/.%F0%9F%98%80%C3%A9%EF%BF%BD$%3C?%zz`%F0%9F%98%80\\%C3%A9"}
+{"lead":"\t","scheme":"http","sep":"/\\","rest":"/;\n","trail":"","target":"/;"}
+{"lead":"","scheme":"http","sep":"//","rest":"\\%2e\".","trail":"\n","target":"/%2e%22."}
+{"lead":"\t","scheme":"http","sep":"\\\\","rest":"/<#? ","trail":"","target":"/%3C"}
+{"lead":"","scheme":"HTTP","sep":"\\\\","rest":"","trail":"\n","target":"/"}
+{"lead":"","scheme":"http","sep":"//","rest":"/a<\"'&\"","trail":"","target":"/a%3C%22'&%22"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"\\\\","rest":"/=/:/\\","trail":"","target":"/=/://"}
+{"lead":"","scheme":"http","sep":"//","rest":"/@\"%41%2E...","trail":"","target":"/@%22%41%2E..."}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/\t","trail":" ","target":"/"}
+{"lead":"\t","scheme":"HTTP","sep":"/\\","rest":"/%\t%2eb\\<%41`?[\\","trail":"","target":"/%%2eb/%3C%41%60?[\\"}
+{"lead":" ","scheme":"HtTp","sep":"//","rest":"\\=","trail":" ","target":"/="}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/+..%zz ","trail":"\n","target":"/+..%zz"}
+{"lead":"\t","scheme":"http","sep":"//","rest":"/>\\","trail":"","target":"/%3E/"}
+{"lead":"","scheme":"http","sep":"\\\\","rest":"/%é~{=/#","trail":" ","target":"/%%C3%A9~%7B=/"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/","trail":" ","target":"/"}
+{"lead":"\t","scheme":"HtTp","sep":"//","rest":"/","trail":"\n","target":"/"}
+{"lead":"\u0001 ","scheme":"http","sep":"\\\\","rest":"/é~/\\%2E\t?[\u0001\\#x","trail":"","target":"/%C3%A9~//?[%01\\"}
+{"lead":" ","scheme":"HTTP","sep":"//","rest":"/^%2E%41'?&\t","trail":"","target":"/%5E%2E%41'?&"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/%2e%2E]c.txt/\\#xx ","trail":" \u0001","target":"/%2e%2E]c.txt//"}
+{"lead":"","scheme":"HtTp","sep":"/\\","rest":"/</\\ `&é>?%2F~.%2e{\nc.txt","trail":"","target":"/%3C//%20%60&%C3%A9%3E?%2F~.%2e{c.txt"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"/~\"=","trail":" ","target":"/~%22="}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"//","rest":"/%zz## ?","trail":"","target":"/%zz"}
+{"lead":"","scheme":"HTTP","sep":"/\\","rest":"/%! \ud800\\a\n","trail":"","target":"/%!%20%EF%BF%BD%7F/a"}
+{"lead":"\t","scheme":"HTTP","sep":"\\\\","rest":"/../}/%}@","trail":"\n","target":"/%7D/%%7D@"}
+{"lead":"\u0001 ","scheme":"http","sep":"/\\","rest":"\\%2F~$\n€/ ","trail":" \u0001","target":"/%2F~$%E2%82%AC/"}
+{"lead":"","scheme":"http","sep":"//","rest":"/`= [%","trail":" \u0001","target":"/%60=%20[%"}
+{"lead":"","scheme":"http","sep":"//","rest":"/","trail":" ","target":"/"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"\\%2F\ud800%41$/\n&😀?","trail":" \u0001","target":"/%2F%EF%BF%BD%41$/&%F0%9F%98%80?"}
+{"lead":"","scheme":"http","sep":"//","rest":"/\ud800}/?\n{[&\ud800","trail":"\n","target":"/%EF%BF%BD%7D/?{[&%EF%BF%BD"}
+{"lead":"","scheme":"http","sep":"//","rest":"/#?#","trail":" ","target":"/"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/%2e%2E[{?\ud800\ud800","trail":"\n","target":"/%2e%2E[%7B?%EF%BF%BD%EF%BF%BD"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"\\b\n%2e.>/#x?","trail":" \u0001","target":"/b%2e.%3E/"}
+{"lead":"\u0001 ","scheme":"HtTp","sep":"\\\\","rest":"\\\u0001@","trail":"","target":"/%01@"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"\\\\","rest":"/a?","trail":"","target":"/a?"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"//","rest":"/%2e.'%41?%2e%2E=%2e`+?","trail":" ","target":"/%2e.'%41?%2e%2E=%2e`+?"}
+{"lead":"\t","scheme":"http","sep":"//","rest":"/[","trail":" ","target":"/["}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/;a}\t","trail":" \u0001","target":"/;a%7F%7D"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"\\|?$[?&.%2e","trail":" \u0001","target":"/|?$[?&.%2e"}
+{"lead":"\u0001 ","scheme":"http","sep":"/\\","rest":"/\t|","trail":" \u0001","target":"/|"}
+{"lead":"","scheme":"http","sep":"//","rest":"/=%2e|?[!/","trail":" ","target":"/=%2e|?[!/"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"/\\","rest":"/~","trail":" ","target":"/~"}
+{"lead":"","scheme":"http","sep":"\\\\","rest":"\\[ :€?}!","trail":"","target":"/[%20:%E2%82%AC?}!"}
+{"lead":"\u0001 ","scheme":"http","sep":"/\\","rest":"\\` ","trail":"","target":"/%60"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"/%\t %2e.@\t😀","trail":"\n","target":"/%%20%2e.@%F0%9F%98%80"}
+{"lead":"","scheme":"http","sep":"//","rest":"\\\t","trail":" ","target":"/"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"/%2F~~%2E%2F","trail":"","target":"/%2F~~%2E%2F%7F"}
+{"lead":"","scheme":"http","sep":"//","rest":"##","trail":"","target":"/"}
+{"lead":"","scheme":"http","sep":"//","rest":"/a!%2F.%2e>?=/`","trail":"","target":"/a!%2F.%2e%3E?=/`"}
+{"lead":" ","scheme":"HtTp","sep":"/\\","rest":"//b`[/\u0001c.txt","trail":"","target":"//b%60[/%01c.txt"}
+{"lead":"","scheme":"http","sep":"//","rest":"//:c.txt","trail":"","target":"//:c.txt"}
+{"lead":" ","scheme":"HTTP","sep":"//","rest":"/!:^$=b\\?##|","trail":" \u0001","target":"/!:%5E$=b/?"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/😀c.txt%[","trail":"","target":"/%F0%9F%98%80c.txt%["}
+{"lead":"","scheme":"http","sep":"//","rest":"/;;`a}+?'\ud800'%zz# ","trail":"","target":"/;;%60a%7D+?%27%EF%BF%BD%27%zz"}
+{"lead":"","scheme":"http","sep":"//","rest":"/#x ","trail":"","target":"/%7F"}
+{"lead":"\t","scheme":"http","sep":"\\\\","rest":"/?<\\/&","trail":"","target":"/%7F?%3C\\/&"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"\\/😀` ?c.txt","trail":"","target":"//%F0%9F%98%80%60%20?c.txt"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/%2F &\n%?+|\ud800\"%2e","trail":"","target":"/%2F%20&%?+|%EF%BF%BD%22%2e"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"\\\\","rest":"/|%2F;\t\\.é\u0001?~b>","trail":" ","target":"/|%2F;/.%C3%A9%01?~b%3E"}
+{"lead":"","scheme":"http","sep":"\\\\","rest":"","trail":"","target":"/"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/>","trail":"","target":"/%3E"}
+{"lead":"","scheme":"http","sep":"/\\","rest":"/<\\\\] [?@/\t&","trail":" ","target":"/%3C//]%20[?@/&"}
+{"lead":"","scheme":"http","sep":"//","rest":"/^😀]%41/","trail":"","target":"/%5E%F0%9F%98%80]%41/"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/%2E%2F!+??é😀.%2e\ud800","trail":"\n","target":"/%2E%2F!+??%C3%A9%F0%9F%98%80.%2e%EF%BF%BD"}
+{"lead":"","scheme":"http","sep":"/\\","rest":"\\:?>%2E[%41=|","trail":"","target":"/:?%3E%2E[%41=|"}
+{"lead":"","scheme":"http","sep":"\\\\","rest":"/'?]..%\":","trail":"\n","target":"/'?]..%%22:"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"//","rest":"/","trail":" ","target":"/"}
+{"lead":"","scheme":"http","sep":"//","rest":"/?\t","trail":" ","target":"/?"}
+{"lead":"","scheme":"http","sep":"\\\\","rest":"/\ud800=€c.txt/\t","trail":" \u0001","target":"/%EF%BF%BD=%E2%82%ACc.txt/"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"\\>^\"%2F😀%&>","trail":"","target":"/%3E%5E%22%2F%F0%9F%98%80%&%3E"}
+{"lead":"","scheme":"http","sep":"/\\","rest":"/\"]%2e.~?&","trail":" \u0001","target":"/%22]%2e.~?&"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"/%2e.%2e.b%2e.&`%2e.","trail":"\n","target":"/%2e.%2e.b%2e.&%60%2e."}
+{"lead":" ","scheme":"HTTP","sep":"\\\\","rest":"/`'","trail":"","target":"/%60'"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/","trail":"\n","target":"/"}
+{"lead":"\u0001 ","scheme":"HtTp","sep":"//","rest":"/\u0001%2e.?`b/$","trail":"","target":"/%01%2e.?`b/$"}
+{"lead":" ","scheme":"http","sep":"//","rest":"\\]%2ea \"\t","trail":" \u0001","target":"/]%2ea%20%22"}
+{"lead":"\t","scheme":"HTTP","sep":"\\\\","rest":"\\\ud800..%2F%2e.@/c.txt#x? ","trail":"","target":"/%EF%BF%BD..%2F%2e.@/c.txt"}
+{"lead":"","scheme":"http","sep":"//","rest":"/","trail":"","target":"/"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/bé@%2e%2Eb","trail":"\n","target":"/b%C3%A9@%2e%2E%7Fb"}
+{"lead":"","scheme":"HtTp","sep":"/\\","rest":"/c.txt;..'/\ud800","trail":"","target":"/c.txt;..'/%EF%BF%BD"}
+{"lead":" ","scheme":"HTTP","sep":"\\\\","rest":"//\\..+é","trail":"","target":"///..+%C3%A9"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"//","rest":"/'\t%41%2F>","trail":" \u0001","target":"/'%41%2F%3E"}
+{"lead":"","scheme":"http","sep":"/\\","rest":"/b%zz~%2F#|  ","trail":"","target":"/b%zz~%2F"}
+{"lead":"","scheme":"http","sep":"\\\\","rest":"/?€","trail":" \u0001","target":"/?%E2%82%AC"}
+{"lead":"","scheme":"HtTp","sep":"\\\\","rest":"/}é]%41||$\t?^\n%2F","trail":" ","target":"/%7D%C3%A9]%41||$?^%2F"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"/.. :%2F$","trail":" \u0001","target":"/..%20:%2F$"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"//","rest":"/>\t/ba%2e%2E.%2e^?","trail":"","target":"/%3E/ba%2e%2E.%2e%5E?"}
+{"lead":"","scheme":"http","sep":"/\\","rest":"/%%2E?/=&</","trail":"\n","target":"/%%2E?/=&%3C/"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"//%zz<%2e`","trail":"","target":"//%zz%3C%2e%60"}
+{"lead":"\t","scheme":"HTTP","sep":"//","rest":"/%2e%2ec.txt?","trail":"","target":"/%2e%2ec.txt?"}
+{"lead":"","scheme":"http","sep":"/\\","rest":"/\t?","trail":"","target":"/?"}
+{"lead":" ","scheme":"http","sep":"\\\\","rest":"\\/","trail":"\n","target":"//"}
+{"lead":"\t","scheme":"http","sep":"//","rest":"\\`","trail":"\n","target":"/%60"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"/=^`[\ud800%2e/\ud800?","trail":" \u0001","target":"/=%5E%60[%EF%BF%BD%2e/%EF%BF%BD?"}
+{"lead":"\t","scheme":"http","sep":"//","rest":"\\%2e  [b\u0001?=^:!#  ","trail":" \u0001","target":"/%2e%20%20[b%01?=^:!"}
+{"lead":"\u0001 ","scheme":"http","sep":"\\\\","rest":"\\;\\?.\u0001&~","trail":" \u0001","target":"/;/?.%01&~"}
+{"lead":"","scheme":"http","sep":"/\\","rest":"/.\"|#?#x","trail":" \u0001","target":"/.%22|"}
+{"lead":"\t","scheme":"http","sep":"//","rest":"/\n>a}}\u0001","trail":"\n","target":"/%3Ea%7D%7D"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"\\>%2E","trail":"","target":"/%3E%2E"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"//\t$]b","trail":"","target":"//$]b"}
+{"lead":"","scheme":"http","sep":"//","rest":"/..\"","trail":"\n","target":"/..%22"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/^%41\u0001;\ud800?[😀[]# x","trail":"","target":"/%5E%41%01;%EF%BF%BD?[%F0%9F%98%80[]"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/\ud800?@%2e./#","trail":" \u0001","target":"/%EF%BF%BD?@%2e./"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"\\.%2e??é]\ud800=😀","trail":" \u0001","target":"/??%C3%A9]%EF%BF%BD=%F0%9F%98%80"}
+{"lead":" ","scheme":"HtTp","sep":"//","rest":"/\n%2e.%2e%2E/@b/%2E","trail":"","target":"/%2e.%2e%2E/@b/"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"\\#x?","trail":" ","target":"/"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/\n\ud800%2e%2E@?a.%2e","trail":"","target":"/%EF%BF%BD%2e%2E@?a.%2e"}
+{"lead":"","scheme":"http","sep":"/\\","rest":"/€@<?\na];[\u0001","trail":" ","target":"/%E2%82%AC@%3C?a];["}
+{"lead":" ","scheme":"http","sep":"//","rest":"/..😀+","trail":" ","target":"/..%F0%9F%98%80+"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/\ud800\n/é","trail":" \u0001","target":"/%EF%BF%BD/%C3%A9"}
+{"lead":"","scheme":"http","sep":"//","rest":"/##?#","trail":"","target":"/"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/😀€+ @?|~%2e%2E%2e%2E'$#| x","trail":" ","target":"/%F0%9F%98%80%E2%82%AC+%20@?|~%2e%2E%2e%2E%27$"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"\\}","trail":" ","target":"/%7D"}
+{"lead":"","scheme":"http","sep":"//","rest":"\\😀+%2F?é%2F@","trail":"","target":"/%F0%9F%98%80+%2F?%C3%A9%2F@"}
+{"lead":"\t","scheme":"http","sep":"\\\\","rest":"/a%2F&","trail":"\n","target":"/a%2F&"}
+{"lead":"\t","scheme":"HtTp","sep":"/\\","rest":"/\u0001\\%2e%2E|\"'%","trail":"","target":"/%01/%2e%2E|%22'%"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"/..é[?b","trail":"","target":"/..%C3%A9[?b"}
+{"lead":"","scheme":"http","sep":"//","rest":"/'//é😀","trail":"","target":"/'//%C3%A9%F0%9F%98%80"}
+{"lead":"","scheme":"http","sep":"//","rest":"/%41/%2E`%41? .%2e\t","trail":"","target":"/%41/%2E%60%41?%20.%2e%7F"}
+{"lead":"","scheme":"http","sep":"\\\\","rest":"/=#x||","trail":"","target":"/="}
+{"lead":"\t","scheme":"http","sep":"//","rest":"/%2e%2E+<|^=`}","trail":" ","target":"/%2e%2E+%3C|%5E=%60%7D"}
+{"lead":"","scheme":"http","sep":"/\\","rest":"\\<%2e%2E}.€%zz%2e%2E?$\"|[%2e.","trail":"","target":"/%3C%2e%2E%7D.%E2%82%AC%zz%2e%2E?$%22|[%7F%2e."}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"\\ \ud800a..^!\\.%2e?\u0001{\u0001","trail":"","target":"/?%01{"}
+{"lead":"","scheme":"HTTP","sep":"/\\","rest":"\\`/é\u0001","trail":" ","target":"/%60/%C3%A9"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/$&?😀%2F\"","trail":" ","target":"/$&?%F0%9F%98%80%2F%22"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/[%%zza.^?~%2e%2E%2e/€","trail":"","target":"/[%%zza.%5E?~%2e%2E%2e/%E2%82%AC"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"\\\\","rest":"/","trail":"","target":"/"}
+{"lead":" ","scheme":"HtTp","sep":"//","rest":"//@%41?\"\n>","trail":"\n","target":"//@%41?%22%3E%7F"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"//","rest":"/`%2e%2E","trail":"","target":"/%60%2e%2E"}
+{"lead":"","scheme":"http","sep":"//","rest":"\\%!","trail":" ","target":"/%!"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/b<?=\":","trail":"\n","target":"/b%3C?=%22:"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"/|'","trail":" \u0001","target":"/|'"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"\\%zz/\"%zz?/=%2F/=","trail":"","target":"/%zz/%22%zz?/=%2F/="}
+{"lead":" ","scheme":"HTTP","sep":"//","rest":"/\\?!#?|x","trail":"\n","target":"//?!"}
+{"lead":"","scheme":"http","sep":"//","rest":"\\;@;[\ud800/? \\\u0001#x?x","trail":"","target":"/;@;[%EF%BF%BD/?%20\\%01"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/#x","trail":"","target":"/"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"/\ud800+😀","trail":"\n","target":"/%EF%BF%BD+%F0%9F%98%80"}
+{"lead":"\t","scheme":"http","sep":"//","rest":"/\t%2eé///{{","trail":" \u0001","target":"/%2e%C3%A9///%7B%7B"}
+{"lead":"\t","scheme":"http","sep":"//","rest":"/!é%2e.[^%2e%2E#x#","trail":" \u0001","target":"/!%C3%A9%2e.[%5E%2e%2E"}
+{"lead":"\u0001 ","scheme":"HtTp","sep":"//","rest":"/%2E\t|%2e%2E@%2E\"#x","trail":"","target":"/%2E|%2e%2E@%2E%22"}
+{"lead":"","scheme":"http","sep":"//","rest":"\\\t\ud800>%2E/%","trail":"","target":"/%EF%BF%BD%3E%2E/%"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"/\\","rest":"\\+?$#x","trail":"","target":"/+?$"}
+{"lead":"\t","scheme":"http","sep":"/\\","rest":"/%2e.=é%2e%2E?[=","trail":"","target":"/%2e.=%C3%A9%2e%2E?[="}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"\\]#? ","trail":" \u0001","target":"/]"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/++?]}\"","trail":"","target":"/++?]}%22"}
+{"lead":" ","scheme":"HtTp","sep":"/\\","rest":"/a/.%2e\né'?#x ","trail":" \u0001","target":"/a/.%2e%C3%A9'?"}
+{"lead":"\t","scheme":"HtTp","sep":"//","rest":"/;?'[ .%2e..@#x?|","trail":" ","target":"/;?%27[%20.%2e..@"}
+{"lead":"","scheme":"http","sep":"//","rest":"/c.txt\\%2E\u0001^>`|?\ud800../}","trail":" ","target":"/c.txt/%2E%01%5E%3E%60|?%EF%BF%BD../}"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/ %2e%2E","trail":" ","target":"/%20%2e%2E"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/;😀","trail":" \u0001","target":"/;%F0%9F%98%80"}
+{"lead":"\u0001 ","scheme":"HtTp","sep":"//","rest":"/& {?#? ?","trail":" \u0001","target":"/&%20%7B?"}
+{"lead":"","scheme":"HTTP","sep":"/\\","rest":"\\+|..#","trail":"","target":"/+|.."}
+{"lead":"","scheme":"http","sep":"\\\\","rest":"?#x# ","trail":"","target":"/?"}
+{"lead":"","scheme":"HTTP","sep":"\\\\","rest":"/","trail":"","target":"/"}
+{"lead":"","scheme":"http","sep":"//","rest":"/%2F/%€;?#","trail":"","target":"/%2F/%%E2%82%AC;?"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"/\\","rest":"/..}??/!<#|x","trail":"","target":"/..%7D%7F??/!%3C"}
+{"lead":" ","scheme":"HTTP","sep":"\\\\","rest":"/^]{%2F/a😀","trail":"","target":"/%5E]%7B%2F/a%F0%9F%98%80"}
+{"lead":"\t","scheme":"http","sep":"//","rest":"\\\ud800:';\\\ud800","trail":"","target":"/%EF%BF%BD%7F:';/%EF%BF%BD"}
+{"lead":"\u0001 ","scheme":"HtTp","sep":"/\\","rest":"/%2e\u0001%\u0001?€'","trail":"","target":"/%2e%01%%01?%7F%E2%82%AC%27"}
+{"lead":"","scheme":"HTTP","sep":"\\\\","rest":"/;a/b!%2E%zz?;","trail":" \u0001","target":"/;a/b!%2E%zz?;"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/.%2e./}%2F]?\ud800< b","trail":"","target":"/.%2e./%7D%2F]?%EF%BF%BD%3C%20b"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"/=@\u0001?","trail":" \u0001","target":"/=@%01?"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/&/%?;## ","trail":" ","target":"/&/%?;"}
+{"lead":" ","scheme":"http","sep":"//","rest":"/%2E😀\n\n","trail":"","target":"/%2E%F0%9F%98%80"}
+{"lead":" ","scheme":"http","sep":"//","rest":"/%2e.","trail":"\n","target":"/"}
+{"lead":"","scheme":"HTTP","sep":"\\\\","rest":"\\]&'😀!? \ud800","trail":" \u0001","target":"/]%7F&'%F0%9F%98%80!?%20%EF%BF%BD"}
+{"lead":"\u0001 ","scheme":"HtTp","sep":"//","rest":"/{}&[+~","trail":"","target":"/%7B%7D&[+~"}
+{"lead":"","scheme":"http","sep":"//","rest":"/ab'?b\n]'.#","trail":" ","target":"/ab'?b]%27."}
+{"lead":"\t","scheme":"HtTp","sep":"//","rest":"\\.%2e\\\u0001@; &b## ","trail":" ","target":"/%01@;%20&b"}
+{"lead":"","scheme":"http","sep":"//","rest":"/é","trail":" ","target":"/%7F%C3%A9"}
+{"lead":"","scheme":"http","sep":"//","rest":"/\ud800&b:&#","trail":"","target":"/%7F%EF%BF%BD&b:&"}
+{"lead":"","scheme":"HtTp","sep":"/\\","rest":"/'","trail":" \u0001","target":"/%7F'"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"//","trail":" \u0001","target":"//"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/%2e/€\t& #?","trail":" \u0001","target":"/%E2%82%AC&%20"}
+{"lead":"","scheme":"http","sep":"//","rest":"/\t/?\"$/","trail":" ","target":"//?%22$/"}
+{"lead":" ","scheme":"HtTp","sep":"/\\","rest":"/\ud800|%2F<a'/?!","trail":"\n","target":"/%EF%BF%BD|%2F%3Ca'/?!"}
+{"lead":" ","scheme":"HtTp","sep":"/\\","rest":"/>=~","trail":"\n","target":"/%3E=~"}
+{"lead":"\u0001 ","scheme":"http","sep":"\\\\","rest":"/%\\%2E\ud800\ud800?\u0001%41'||.","trail":"","target":"/%/%2E%EF%BF%BD%EF%BF%BD?%01%41%27||."}
+{"lead":"","scheme":"http","sep":"//","rest":"/}>%2Fc.txt/\ud800","trail":"","target":"/%7D%3E%2Fc.txt/%EF%BF%BD"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/c.txtb","trail":"","target":"/c.txtb"}
+{"lead":" ","scheme":"http","sep":"//","rest":"/a\n#","trail":"","target":"/a"}
+{"lead":"","scheme":"http","sep":"//","rest":"/ %2e.%2e","trail":" ","target":"/%20%2e.%2e"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"\\\\","rest":"\\\u0001","trail":"\n","target":"/"}
+{"lead":"","scheme":"http","sep":"//","rest":"/%2F€=/<\\/# ","trail":"","target":"/%2F%E2%82%AC=/%3C//"}
+{"lead":" ","scheme":"HtTp","sep":"/\\","rest":"\\\u0001%2e.@\"~","trail":"","target":"/%01%2e.@%22~"}
+{"lead":"","scheme":"HTTP","sep":"\\\\","rest":"\\/^><ac.txt%2e%2E# ","trail":"","target":"//%5E%3E%3Cac.txt%2e%2E"}
+{"lead":" ","scheme":"HtTp","sep":"//","rest":"\\\u0001😀\u0001:","trail":"","target":"/%01%F0%9F%98%80%01:"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"/\\","rest":"/@.[{?|!","trail":"","target":"/@.[%7B?|!%7F%7F"}
+{"lead":"\t","scheme":"HtTp","sep":"//","rest":"/|\ud800%2e%2e.:é%41?","trail":"\n","target":"/|%EF%BF%BD%2e%7F%2e.:%C3%A9%41?"}
+{"lead":" ","scheme":"HTTP","sep":"//","rest":"\\/\"/?$b","trail":"","target":"//%22/?$b"}
+{"lead":"","scheme":"http","sep":"/\\","rest":"\\!/.%2e?~😀\ud800%","trail":"","target":"/?~%F0%9F%98%80%EF%BF%BD%"}
+{"lead":"","scheme":"http","sep":"/\\","rest":"/?é","trail":" ","target":"/?%C3%A9"}
+{"lead":" ","scheme":"HTTP","sep":"//","rest":"/`%zz\u0001","trail":" \u0001","target":"/%60%zz"}
+{"lead":"\t","scheme":"HTTP","sep":"//","rest":"/c.txt%zz`<#","trail":" \u0001","target":"/c.txt%zz%60%3C"}
+{"lead":"","scheme":"http","sep":"\\\\","rest":"/b;/&\":@","trail":" \u0001","target":"/b;/&%22:@"}
+{"lead":"","scheme":"HTTP","sep":"\\\\","rest":"/..\ud800\t>","trail":"\n","target":"/..%EF%BF%BD%3E"}
+{"lead":"","scheme":"http","sep":"//","rest":"/","trail":"","target":"/%7F"}
+{"lead":"","scheme":"http","sep":"\\\\","rest":"/€/!^</!","trail":"\n","target":"/%E2%82%AC/!%5E%3C/!"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"/+';b% %zz\ud800#","trail":"","target":"/+';b%%20%zz%EF%BF%BD"}
+{"lead":"\t","scheme":"http","sep":"//","rest":"\\...%2e\ud800😀","trail":"","target":"/...%2e%EF%BF%BD%F0%9F%98%80"}
+{"lead":"\t","scheme":"http","sep":"/\\","rest":"\\b!$=}{","trail":" ","target":"/b!$=%7D%7B"}
+{"lead":"","scheme":"http","sep":"//","rest":"\\","trail":"","target":"/"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"/","trail":"","target":"/"}
+{"lead":"\t","scheme":"HtTp","sep":"//","rest":"/c.txt>\t\\]%#?x","trail":"\n","target":"/c.txt%3E/]%"}
+{"lead":"\u0001 ","scheme":"HtTp","sep":"//","rest":"/\n<`|/;😀?%2F\n{&%","trail":"","target":"/%3C%60|/;%F0%9F%98%80?%2F{&%"}
+{"lead":" ","scheme":"http","sep":"//","rest":"/]?\"&}","trail":" ","target":"/]?%22&}"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"//","rest":"/\ud800é%zz|~%2e.}\\","trail":"","target":"/%EF%BF%BD%C3%A9%zz|~%2e.%7D/"}
+{"lead":"","scheme":"http","sep":"\\\\","rest":"\\.$","trail":"\n","target":"/.$"}
+{"lead":"\t","scheme":"HTTP","sep":"//","rest":"\\😀~^%2E","trail":" ","target":"/%F0%9F%98%80~%5E%2E"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"/b<=>?/c.txt %2e%2E","trail":" \u0001","target":"/b%3C=%3E?/c.txt%20%2e%2E"}
+{"lead":"\u0001 ","scheme":"http","sep":"//","rest":"/","trail":"","target":"/"}
+{"lead":"\t","scheme":"HTTP","sep":"//","rest":"/$;:;}\t","trail":" ","target":"/$;:;%7D"}
+{"lead":"","scheme":"HtTp","sep":"//","rest":"/~\n/^^%zz%2e%2E\ud800##| ","trail":"","target":"/~/%5E%5E%zz%2e%2E%EF%BF%BD"}
+{"lead":"\u0001 ","scheme":"HTTP","sep":"//","rest":"//^/..&`","trail":"\n","target":"//%5E/..&%60"}
+{"lead":"","scheme":"HTTP","sep":"//","rest":"\\.%41`]{...?","trail":"","target":"/%7F.%41%60]%7B...?"}
+{"base":"/^b%zz","location":"x","target":"/x"}
+{"base":"/b%zz|%zz","location":"#b=;^","target":"/b%zz|%zz"}
+{"base":"/^aba/?q","location":"http:","target":"/%5Eaba/?q"}
+{"base":"/%zz?q","location":"\\b'/^","target":"/b'/%5E"}
+{"base":"/|%zz/","location":"/%2e@","target":"/%2e@"}
+{"base":"/|/","location":"/`@~","target":"/%60@~"}
+{"base":"/^a%zz","location":"?&","target":"/%5Ea%zz?&"}
+{"base":"//^/?q","location":"\\]","target":"/]"}
+{"base":"/?q","location":"/]~%2e\\","target":"/]~%2e/"}
+{"base":"/","location":"http:","target":"/"}
+{"base":"/%zz?q","location":"/a.|]a","target":"/a.|]a"}
+{"base":"/^%zz","location":"\\","target":"/"}
+{"base":"/|^/bb","location":"/a'}é+","target":"/a'%7D%C3%A9+"}
+{"base":"/a?q","location":"#}%zz@&","target":"/a?q"}
+{"base":"/^/||a","location":"/&.&`&]","target":"/&.&%60&]"}
+{"base":"/%zz%zza|","location":"http:é","target":"/%C3%A9"}
+{"base":"/%zza?q","location":"]^}==}","target":"/]%5E%7D==%7D"}
+{"base":"/b","location":"`%zz%2e[..","target":"/%60%zz%2e[.."}
+{"base":"/||","location":"\\...%zz","target":"/...%zz"}
+{"base":"/^%zz^%zz","location":"+@","target":"/+@"}
+{"base":"/^bb^%zz","location":"?%2e\\..^","target":"/%5Ebb%5E%zz?%2e\\..^"}
+{"base":"/^|","location":"b}.=","target":"/b%7D.="}
+{"base":"/%zz///","location":"?|`/]``","target":"/%zz///?|`/]``"}
+{"base":"/b","location":"http:@]&%zz.a","target":"/@]&%zz.a"}
+{"base":"/","location":"/%2e%2e","target":"/"}
+{"base":"/^%zz|/","location":"=%zz`}","target":"/%5E%zz|/=%zz%60%7D"}
+{"base":"/^^^^","location":"/","target":"/"}
+{"base":"/|b/%zz?q","location":"x","target":"/|b/x"}
+{"base":"/%zz?q","location":"/|.","target":"/|."}
+{"base":"/^/^aa","location":"#é'..|%2e","target":"/%5E/%5Eaa"}
+{"base":"/a/%zz","location":"http:&","target":"/a/&"}
+{"base":"/b%zza/?q","location":"#&.}]`/","target":"/b%zza/?q"}
+{"base":"/","location":"/b'","target":"/b'"}
+{"base":"/","location":"#=[}@]","target":"/"}
+{"base":"/|","location":"http:'b%zzéb","target":"/'b%zz%C3%A9b"}
+{"base":"//","location":"\\%2F%2e\\]","target":"/%2F%2e/]"}
+{"base":"/^^/?q","location":"/%zz|","target":"/%zz|"}
+{"base":"/|aa?q","location":"#&","target":"/|aa?q"}
+{"base":"/^b|^?q","location":"é=|","target":"/%C3%A9=|"}
+{"base":"/%zz|","location":"#%2F.","target":"/%zz|"}
+{"base":"/^/^","location":"x","target":"/%5E/x"}
+{"base":"/^","location":"#=%zz'~]{","target":"/%5E"}
+{"base":"//","location":"/&","target":"/&"}
+{"base":"/|%zz%zz","location":";~;%zz@..","target":"/;~;%zz@.."}
+{"base":"/^/^ab","location":"http:..|}}=","target":"/%5E/..|%7D%7D="}
+{"base":"/bb","location":"/é","target":"/%C3%A9"}
+{"base":"/b%zz|","location":"http:é%zz+}|+","target":"/%C3%A9%zz+%7D|+"}
+{"base":"/^//b^?q","location":"/","target":"/"}
+{"base":"/","location":"\\`^@","target":"/%60%5E@"}
+{"base":"/|?q","location":"\\'%2e%2e\\","target":"/'%2e%2e/"}
+{"base":"/|","location":"#b","target":"/|"}
+{"base":"/b|^?q","location":"#`","target":"/b|%5E?q"}
+{"base":"/%zz%zz%zz/?q","location":"/{[","target":"/%7B["}
+{"base":"/","location":"/~é","target":"/~%C3%A9"}
+{"base":"/%zzb","location":".]","target":"/.]"}
+{"base":"/^%zza%zz|","location":"é'@éb","target":"/%C3%A9'@%C3%A9b"}
+{"base":"/|?q","location":"/'a","target":"/'a"}
+{"base":"/","location":"\\}..{.","target":"/%7D..%7B."}
+{"base":"/|^?q","location":"\\`","target":"/%60"}
+{"base":"/","location":"/.%2e../%2e+","target":"/.%2e../%2e+"}
+{"base":"/b|?q","location":"?","target":"/b|?"}
+{"base":"/|a^?q","location":"#+/","target":"/|a%5E?q"}
+{"base":"/aab?q","location":"/","target":"/"}
+{"base":"/a^^%zz^?q","location":"?%2e^é\\{}","target":"/a%5E%5E%zz%5E?%2e^%C3%A9\\{}"}
+{"base":"/^","location":"http:","target":"/%5E"}
+{"base":"//b","location":"a","target":"//a"}
+{"base":"//^?q","location":"\\'a;~{","target":"/'a;~%7B"}
+{"base":"/^|/b","location":"@^@b}é","target":"/%5E|/@%5E@b%7D%C3%A9"}
+{"base":"/a","location":"?=|","target":"/a?=|"}
+{"base":"/^/","location":"?@+@","target":"/%5E/?@+@"}
+{"base":"/^%zzb/","location":"\\b=ab~+","target":"/b=ab~+"}
+{"base":"//b?q","location":"\\{='^","target":"/%7B='%5E"}
+{"base":"/","location":"?@","target":"/?@"}
+{"base":"//%zza","location":"?/\\|+%zz","target":"//%zza?/\\|+%zz"}
+{"base":"/?q","location":"http:`[","target":"/%60["}
+{"base":"/|%zz/ab","location":"%zz","target":"/|%zz/%zz"}
+{"base":"/|","location":"#","target":"/|"}
+{"base":"/a/%zz?q","location":"/a}%2F%zz/","target":"/a%7D%2F%zz/"}
+{"base":"/%zz?q","location":"http:}","target":"/%7D"}
+{"base":"/b%zza","location":"?","target":"/b%zza?"}
+{"base":"/%zz?q","location":"#{é","target":"/%zz?q"}
+{"base":"/|","location":"?","target":"/|?"}
+{"base":"/^//a","location":"#","target":"/%5E//a"}
+{"base":"//|^","location":"#&%2e^=","target":"//|%5E"}
+{"base":"/a","location":"#%zz|;=..","target":"/a"}
+{"base":"/%zz||/","location":"?^`b%2e","target":"/%zz||/?^`b%2e"}
+{"base":"/|b%zz","location":"%2F","target":"/%2F"}
+{"base":"//%zz|?q","location":"x","target":"//x"}
+{"base":"//?q","location":"#baaé","target":"//?q"}
+{"base":"/^b%zz%zz/","location":"/}{","target":"/%7D%7B"}
+{"base":"/?q","location":"?","target":"/?"}
+{"base":"/^?q","location":"/aéa%zz","target":"/a%C3%A9a%zz"}
+{"base":"/%zzb%zz|a","location":"\\;+@}","target":"/;+@%7D"}
+{"base":"/b%zz%zz%zz^","location":"b~=+`~","target":"/b~=+%60~"}
+{"base":"/","location":"x","target":"/x"}
+{"base":"//","location":"#`","target":"//"}
+{"base":"/|","location":"/.+","target":"/.+"}
+{"base":"/^?q","location":"'{","target":"/'%7B"}
+{"base":"//bb","location":"/~[|","target":"/~[|"}
+{"base":"//%zz^a|","location":"/'","target":"/'"}
+{"base":"/^%zz/","location":"/%zz'","target":"/%zz'"}
+{"base":"/|/?q","location":"&[","target":"/|/&["}
+{"base":"/?q","location":"/;@","target":"/;@"}
+{"base":"/|^?q","location":"\\=.{","target":"/=.%7B"}
+{"base":"//a/","location":"x","target":"//a/x"}
+{"base":"/a|a","location":"\\[^'%zz}}","target":"/[%5E'%zz%7D%7D"}
+{"base":"/","location":"/a%2F","target":"/a%2F"}
+{"base":"/","location":"http:b~","target":"/b~"}
+{"base":"/?q","location":".&%2e%zz;","target":"/.&%2e%zz;"}
+{"base":"/","location":"http:{\\%zz","target":"/%7B/%zz"}
+{"base":"/^|","location":"/ba;/","target":"/ba;/"}
+{"base":"/%zzb/a","location":"?%2e|","target":"/%zzb/a?%2e|"}
+{"base":"/bb/%zza","location":"#","target":"/bb/%zza"}
+{"base":"//","location":"/}..&&","target":"/%7D..&&"}
+{"base":"//","location":"%2e[`a\\..","target":"//"}
+{"base":"/^^|/a","location":"/%2e|/..","target":"/"}
+{"base":"/","location":"#","target":"/"}
+{"base":"/|","location":"http:","target":"/|"}
+{"base":"/%zzb/%zz","location":";|&|..|","target":"/%zzb/;|&|..|"}
+{"base":"/a//^|","location":"/","target":"/"}
+{"base":"//%zz|%zzb","location":"http:&","target":"//&"}
+{"base":"/|","location":"..%2F","target":"/..%2F"}
+{"base":"/a/b^","location":"#","target":"/a/b%5E"}
+{"base":"/","location":"/]==é&/","target":"/]==%C3%A9&/"}
+{"base":"/|b/?q","location":"#`~\\","target":"/|b/?q"}
+{"base":"/?q","location":"\\%zz]","target":"/%zz]"}
+{"base":"/","location":"%2F{a","target":"/%2F%7Ba"}
+{"base":"/^b^/b","location":"?[^","target":"/%5Eb%5E/b?[^"}
+{"base":"/^//|/","location":"#^'%zz+","target":"/%5E//|/"}
+{"base":"/^","location":".%2e..","target":"/.%2e.."}
+{"base":"/|^a","location":"?}|[/","target":"/|%5Ea?}|[/"}
+{"base":"//||/^","location":"/%2e{ba%zz","target":"/%2e%7Bba%zz"}
+{"base":"/|a","location":"http:","target":"/|a"}
+{"base":"/%zz/^%zzb?q","location":"?+@","target":"/%zz/%5E%zzb?+@"}
+{"base":"/aaa?q","location":"http:`[\\=","target":"/%60[/="}
+{"base":"/","location":"http:%zz^&","target":"/%zz%5E&"}
+{"base":"/%zz?q","location":"#%2e&}","target":"/%zz?q"}
+{"base":"/^/?q","location":"\\@\\%zzé.%zz","target":"/@/%zz%C3%A9.%zz"}
+{"base":"//b^","location":"http:^a[","target":"//%5Ea["}
+{"base":"/^","location":"#@{'.]","target":"/%5E"}
+{"base":"/","location":"\\&%2F&","target":"/&%2F&"}
+{"base":"/","location":"/+.%zz~[","target":"/+.%zz~["}
+{"base":"/^?q","location":"\\&b.b[","target":"/&b.b["}
+{"base":"/^//%zz","location":"http:","target":"/%5E//%zz"}
+{"base":"/","location":"/]a","target":"/]a"}
+{"base":"/^%zza%zz","location":"?/%2e]","target":"/%5E%zza%zz?/%2e]"}
+{"base":"/a|","location":"/`{{","target":"/%60%7B%7B"}
+{"base":"/b","location":"/b","target":"/b"}
+{"base":"/ab","location":"?..|]...a","target":"/ab?..|]...a"}
+{"base":"/ab/%zz?q","location":"\\@[`;","target":"/@[%60;"}
+{"base":"/|","location":"é[`||","target":"/%C3%A9[%60||"}
+{"base":"//^^","location":"\\{]}","target":"/%7B]%7D"}
+{"base":"/b","location":"#","target":"/b"}
+{"base":"//?q","location":"\\%zz%2F^","target":"/%zz%2F%5E"}
+{"base":"//b","location":"&;'{b^","target":"//&;'%7Bb%5E"}
+{"base":"/|baaa","location":"/","target":"/"}
+{"base":"////ab?q","location":"\\","target":"/"}
+{"base":"/","location":"\\","target":"/"}
+{"base":"//?q","location":"#@a@","target":"//?q"}
+{"base":"//","location":"http:'[}a","target":"//'[%7Da"}
+{"base":"/^?q","location":"/%2eé","target":"/%2e%C3%A9"}
+{"base":"//","location":"\\~;.'\\`","target":"/~;.'/%60"}
+{"base":"///","location":"/%2F.é=","target":"/%2F.%C3%A9="}
+{"base":"/","location":"/%2F;/=|","target":"/%2F;/=|"}
+{"base":"//%zz","location":"/é\\a","target":"/%C3%A9/a"}
+{"base":"//^b/a?q","location":"http:&.é/","target":"//%5Eb/&.%C3%A9/"}
+{"base":"//^","location":"http:'b%2e%2e","target":"//'b%2e%2e"}
+{"base":"/","location":"{/%2e'","target":"/%7B/%2e'"}
+{"base":"/","location":"/'%2e","target":"/'%2e"}
+{"base":"/^?q","location":"/%2Fa","target":"/%2Fa"}
+{"base":"/b","location":"http:[%2e;@@;","target":"/[%2e;@@;"}
+{"base":"/^%zz%zz","location":"}","target":"/%7D"}
+{"base":"/|b","location":"#%2F","target":"/|b"}
+{"base":"/","location":"{","target":"/%7B"}
+{"base":"//","location":"http:+","target":"//+"}
+{"base":"/^|","location":"\\'\\]^","target":"/'/]%5E"}
+{"base":"/|/a|?q","location":"/é+a`","target":"/%C3%A9+a%60"}
+{"base":"//|b|/","location":"http:..[][","target":"//|b|/..[]["}
+{"base":"///","location":"?{%zz]","target":"///?{%zz]"}
+{"base":"/|?q","location":"/","target":"/"}
+{"base":"/ba?q","location":"http:=..\\{}`","target":"/=../%7B%7D%60"}
+{"base":"///?q","location":"\\=/~","target":"/=/~"}
+{"base":"/^|||^","location":";é]","target":"/;%C3%A9]"}
+{"base":"/%zz|%zz","location":"'.`=","target":"/'.%60="}
+{"base":"/|%zz^^","location":"x","target":"/x"}
+{"base":"/?q","location":"\\=..%2Fa@@","target":"/=..%2Fa@@"}
+{"base":"/","location":"http:a%zz&","target":"/a%zz&"}
+{"base":"/%zz|^|","location":"http:|=..'`","target":"/|=..'%60"}
+{"base":"//%zz||?q","location":"http:","target":"//%zz||?q"}
+{"base":"/%zza%zzb","location":"?~","target":"/%zza%zzb?~"}
+{"base":"/","location":"/[%2e","target":"/[%2e"}
+{"base":"/|aa^?q","location":"/@^","target":"/@%5E"}
+{"base":"/","location":"a\\]~","target":"/a/]~"}
+{"base":"/","location":"#}a","target":"/"}
+{"base":"//|%zz%zz","location":"'..a;..","target":"//'..a;.."}
+{"base":"/a?q","location":"+%2F%zz","target":"/+%2F%zz"}
+{"base":"/","location":"#+%2e..[/..","target":"/"}
+{"base":"/aa?q","location":"http:%2F%2e]","target":"/%2F%2e]"}
+{"base":"//a","location":"#]","target":"//a"}
+{"base":"/bab%zz","location":"http:","target":"/bab%zz"}
