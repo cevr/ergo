@@ -821,8 +821,12 @@ type Breaker machine[State, Signal] {
 	law Opens reaches Open,
 	law Stays never reaches Open,
 	law Trips path [Closed, Open],
+	law Shut always shut,
+	law Trips2 sometimes open,
 	law Steps(s State, e Signal) { true },
 }
+func shut(s State) bool { s == Closed }
+func open(s State) bool { s == Open }
 func main() {}
 `, nil},
 	{"machine", "a machine type with an after entry", `
