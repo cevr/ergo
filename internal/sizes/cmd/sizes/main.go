@@ -42,6 +42,8 @@ var fixtures = []struct{ name, dir string }{
 	{"relay", "examples/relay/cmd/relay"},
 	{"kvstore", "examples/kvstore/cmd/kvstore"},
 	{"deploys", "examples/deploys/cmd/deploys"},
+	// pairing runs a machine as an actor, so its graph is linked (BS7).
+	{"pairing", "examples/pairing/cmd/pairing"},
 }
 
 // controlDir is the Go hello control.
