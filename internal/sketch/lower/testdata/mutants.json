@@ -2,6 +2,24 @@
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
+      "name": "L8-B3t-capture-keeps-sender-entry",
+      "origin": "L8 B3t R12",
+      "file": "internal/sketch/lower/taskcapture.go",
+      "from": "fc.handCaptures(owners, x)",
+      "to": "// mutant: sender keeps the captures",
+      "rule": "After successful task admission, only the child root owns the captures.",
+      "killers": ["lower:TestTaskOwnershipRunModel"]
+    },
+    {
+      "name": "L8-B3t-capture-root-not-registered",
+      "origin": "L8 B3t R12",
+      "file": "internal/sketch/lower/taskcapture.go",
+      "from": "inner.ownVar(v, n)",
+      "to": "_ = v // mutant: root loses the captured resource",
+      "rule": "The member's root registers and releases its captures once across all restarts.",
+      "killers": ["lower:TestTaskOwnershipRunModel"]
+    },
+    {
       "name": "existing-2-unit-h",
       "origin": "lower-v1/verify-s4a/r2/mutants-r2.json",
       "file": "internal/sketch/lower/tests.go",

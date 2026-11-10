@@ -121,7 +121,11 @@ func i1NestingFrames() []struct {
 }
 
 func TestRuntime199FrameClassCoverage(t *testing.T) {
-	wantSites := map[string]int{}
+	// This native callback is an owner, not a source frame: it only
+	// registers the moving captures, with no user code or interruption
+	// point. TestTaskOwnershipRunModel checks its lifetime across retries;
+	// the per-run source body remains the literal frame class below.
+	wantSites := map[string]int{"taskCaptureRoot": 1}
 	seenNames := map[string]bool{}
 	for _, f := range i1FrameKinds {
 		if seenNames[f.name] || f.program == nil || len(f.sites) == 0 {

@@ -53,8 +53,12 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 		return fc.goCall(x, c) // gocall.go
 	}
 	held := fc.holdTaken(x, c)
+	captures := fc.captureOwners(x)
 	text, result, fallible := fc.callText(x, c)
 	defer fc.identify(x, c)()
+	if len(captures) > 0 {
+		return fc.captureCall(x, c, captures, text, result, fallible)
+	}
 	if len(held) > 0 {
 		if !fallible || result {
 			ice(x, "a bodiless call that takes an owned value and is not a fallible call with no result")

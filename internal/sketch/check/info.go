@@ -263,6 +263,10 @@ type Info struct {
 	// (additive).
 	OwnedVars  map[*Var]*Drop
 	OwnedTemps map[syntax.Expr]*Drop
+	// TaskCaptures records the resource captures handed to the root of a
+	// started task (R12). A repeated callback only lends them: the root
+	// owns and releases them once, outside all runs of the callback.
+	TaskCaptures map[syntax.Node]*TaskCapture
 	// FieldTakes is each field taken in place (`b.r.Close()`, R39, Gap
 	// 38): the owned record's local and the field's index. The lowering
 	// marks the field on the record's entry there, and the generated
@@ -392,6 +396,7 @@ func newInfo() *Info {
 		Releases:       map[syntax.Node][]Release{},
 		OwnedVars:      map[*Var]*Drop{},
 		OwnedTemps:     map[syntax.Expr]*Drop{},
+		TaskCaptures:   map[syntax.Node]*TaskCapture{},
 		FieldTakes:     map[*syntax.SelectorExpr]FieldTake{},
 		Handoffs:       map[*syntax.Ident]*Var{},
 		Takes:          map[*Func][]int{},

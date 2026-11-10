@@ -465,6 +465,10 @@ func (w *ownWalk) close() {
 // any other is lent. A nested frame starts from the enclosing state (its
 // captures are lent) and leaves it unchanged.
 func (w *ownWalk) frame(body *syntax.BlockStmt, takes []int, params []*Var, name, nested string, lendAll bool) {
+	w.frameCaptured(body, takes, params, name, nested, lendAll, nil)
+}
+
+func (w *ownWalk) frameCaptured(body *syntax.BlockStmt, takes []int, params []*Var, name, nested string, lendAll bool, captures *TaskCapture) {
 	saved := ownFrameSave{loops: w.loops, catches: w.catches, first: w.first, name: w.name, nested: w.nested}
 	outer := w.copyState(w.st)
 	nvars := len(w.vars)
@@ -481,6 +485,13 @@ func (w *ownWalk) frame(body *syntax.BlockStmt, takes []int, params []*Var, name
 		w.st = make([]ownSlot, len(w.vars))
 	}
 	w.open(body)
+	oldSlots := map[*Var]int{}
+	if captures != nil {
+		for _, v := range captures.Vars {
+			oldSlots[v] = w.slot[v]
+			w.acquire(ownLocal{v: v, lent: captures.Repeated})
+		}
+	}
 	taken := map[int]bool{}
 	for _, i := range takes {
 		taken[i] = true
@@ -496,6 +507,9 @@ func (w *ownWalk) frame(body *syntax.BlockStmt, takes []int, params []*Var, name
 	}
 	w.stmts(body.List, true)
 	w.close()
+	for v, i := range oldSlots {
+		w.slot[v] = i
+	}
 	w.vars = w.vars[:nvars]
 	w.st = outer
 	w.depth--
@@ -1524,6 +1538,20 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 		w.expr(x.Fun, mLend, hand{})
 	}
 	for i, a := range x.Args {
+		if p, repeated, moving := movingBody(call); moving && i+off == p {
+			if lit, ok := unparen(a).(*syntax.FuncLit); ok {
+				var params *syntax.FieldList
+				if lit.Type != nil {
+					params = lit.Type.Params
+				}
+				var takes []int
+				if s := w.info.Literals[lit]; s != nil {
+					takes = s.Takes
+				}
+				w.taskFrame(lit, lit.Body, w.paramVars(params), takes, repeated)
+				continue
+			}
+		}
 		operand(a, taken[i+off], closes, pname(i+off), ptype(i+off))
 	}
 	if w.st != nil {
@@ -1540,7 +1568,11 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 		if s, ok := w.info.Literals[x.Trailing]; ok {
 			takes = s.Takes
 		}
-		w.frame(x.Trailing, takes, nil, w.name, fmt.Sprintf("the block passed to %s", calleeText(x)), false)
+		if p, repeated, moving := movingBody(call); moving && p == len(x.Args)+off {
+			w.taskFrame(x.Trailing, x.Trailing, nil, takes, repeated)
+		} else {
+			w.frame(x.Trailing, takes, nil, w.name, fmt.Sprintf("the block passed to %s", calleeText(x)), false)
+		}
 	}
 	return false
 }

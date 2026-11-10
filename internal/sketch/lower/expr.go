@@ -1033,7 +1033,9 @@ func (fc *funcCtx) funcLit(ft *syntax.FuncType, list []syntax.Stmt, n syntax.Nod
 	}
 	// An escaping literal takes its copies of captured values first
 	// (values.go, snapshot).
-	return fc.snapshot(n, func() string { return fc.funcLitClosure(ft, list, n, sig) })
+	return fc.snapshot(n, func() string {
+		return fc.taskSnapshot(n, func() string { return fc.funcLitClosure(ft, list, n, sig) })
+	})
 }
 
 // funcLitClosure is funcLit's Go function literal.
@@ -1069,7 +1071,9 @@ func (fc *funcCtx) funcLitClosure(ft *syntax.FuncType, list []syntax.Stmt, n syn
 		inner.frame.unit = result == nil
 		inner.depth = fc.depth + 1
 		results = fc.valueResults(result)
-		if fc.l.bodyNeedsFrame(list) || fc.l.ownsParams(params) {
+		capture := fc.l.info.TaskCaptures[n]
+		ownsCaptures := capture != nil && !capture.Repeated
+		if fc.l.bodyNeedsFrame(list) || fc.l.ownsParams(params) || ownsCaptures {
 			// The literal is a frame of its own (stage D3b, Rule 2).
 			errName := fc.scope.alloc("err")
 			named := result
@@ -1082,6 +1086,11 @@ func (fc *funcCtx) funcLitClosure(ft *syntax.FuncType, list []syntax.Stmt, n syn
 			inner.openFrame(errName)
 			for _, v := range params {
 				inner.ownVar(v, n) // a taken parameter, before the entry poll (R8)
+			}
+			if ownsCaptures {
+				for _, v := range capture.Vars {
+					inner.ownVar(v, n)
+				}
 			}
 		}
 		inner.entryPoll(fc.l.info, n)

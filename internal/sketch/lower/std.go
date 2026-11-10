@@ -251,6 +251,21 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 		}
 	}
 	fc.bindDeferred(body, vals)
+	if root := fc.movingRootArg(x); root != "" {
+		// A Set's restartable callback lends its captures from one root
+		// scope, outside all retries. The ordinary non-capturing binding
+		// stays unchanged and pays for no root callback.
+		if name != "TasksGo" || len(vals) != 2 {
+			ice(x, "a repeated moving root on %s", name)
+		}
+		name = "TasksGoOwned"
+		var err error
+		body, err = v1.BodyOf(name)
+		if err != nil {
+			ice(x, "%s: %v", name, err)
+		}
+		vals = []string{vals[0], root, vals[1]}
+	}
 	// A body with no hidden argument whose call is made here reads no
 	// environment: a pure function calls it with none bound (pure.go).
 	env := ""

@@ -104,11 +104,12 @@ var runtimeBindings = map[string]runtimeBinding{
 	// tasks.Set (runtime.md, G4): NewSet registers on the frame, as Go
 	// does; tasks.Go starts a member below the caller; Wait joins the
 	// members as their parent, and Stop stops and joins them, uninterruptibly.
-	"TasksNewSet": {},
-	"TasksGo":     {wait: parentTask},
-	"Set.Wait":    {wait: childWait},
-	"Set.Stop":    {wait: childWait},
-	"Set.Len":     {},
+	"TasksNewSet":  {},
+	"TasksGo":      {wait: parentTask},
+	"TasksGoOwned": {wait: parentTask},
+	"Set.Wait":     {wait: childWait},
+	"Set.Stop":     {wait: childWait},
+	"Set.Len":      {},
 	// The with lifetime owner's scope (with, withClose; resources.md, Context
 	// ownership). None waits, and none is a release route: the release a
 	// with registers is the call of a checked Close, which masks itself

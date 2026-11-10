@@ -136,6 +136,18 @@ func (set *Set) own(t *rt.Task, op string) {
 // TasksGo is the body of tasks.Go: it starts body as a member of set
 // (rules 2 and 6). span is the member's site in a defect chain (G2).
 func TasksGo(span Site, t *rt.Task, set *Set, body func(*rt.Task) error) error {
+	return tasksGo(span, t, set, nil, body)
+}
+
+// TasksGoOwned is TasksGo with resources moved into the member's root.
+// prepare runs once, even under Restart, and returns the scope that owns
+// the captures. Each run of body only lends them (resources R12, R30).
+// On failed admission prepare never runs; the sender releases the values.
+func TasksGoOwned(span Site, t *rt.Task, set *Set, prepare func(*rt.Task) *Scope, body func(*rt.Task) error) error {
+	return tasksGo(span, t, set, prepare, body)
+}
+
+func tasksGo(span Site, t *rt.Task, set *Set, prepare func(*rt.Task) *Scope, body func(*rt.Task) error) error {
 	set.own(t, "Go")
 	set.reap()
 	set.mu.Lock()
@@ -152,13 +164,20 @@ func TasksGo(span Site, t *rt.Task, set *Set, body func(*rt.Task) error) error {
 	m.h = rt.Go(&holder, string(span), func(ct *rt.Task) (struct{}, error) {
 		var exit error
 		defer func() { set.end(m, exit) }()
-		for {
-			m.runs++
-			_, exit = guarded(ct, func(t *rt.Task) (struct{}, error) { return struct{}{}, body(t) })
-			if !set.restarts(ct, m, exit) {
-				return struct{}{}, nil
+		_, exit = guarded(ct, func(ct *rt.Task) (_ struct{}, err error) {
+			if prepare != nil {
+				root := prepare(ct)
+				defer root.End(&err)
 			}
-		}
+			for {
+				m.runs++
+				_, err = guarded(ct, func(t *rt.Task) (struct{}, error) { return struct{}{}, body(t) })
+				if !set.restarts(ct, m, err) {
+					return struct{}{}, err
+				}
+			}
+		})
+		return struct{}{}, nil
 	})
 	return nil
 }

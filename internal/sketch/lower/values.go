@@ -1811,6 +1811,21 @@ func (fc *funcCtx) snapshot(n syntax.Node, build func() string) string {
 		return build()
 	}
 	vars := fc.l.vals.snap[n]
+	if capture := fc.l.info.TaskCaptures[n]; capture != nil {
+		// Resource captures move by R12; the value rule must not clone
+		// their containers. taskSnapshot binds their one moved value.
+		moved := map[*check.Var]bool{}
+		for _, v := range capture.Vars {
+			moved[v] = true
+		}
+		var plain []*check.Var
+		for _, v := range vars {
+			if !moved[v] {
+				plain = append(plain, v)
+			}
+		}
+		vars = plain
+	}
 	saved := make([]string, len(vars))
 	for i, v := range vars {
 		saved[i] = fc.locals[v]

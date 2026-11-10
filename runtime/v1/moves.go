@@ -41,3 +41,17 @@ var running = map[string]bool{
 // StopsRunning reports whether the release name stops running code
 // (running).
 func StopsRunning(name string) bool { return running[name] }
+
+// MovingBody names the callback whose captures move to a child task's
+// root lifetime (R12). Repeated is true when the callback can run again:
+// it only lends those captures, as any repeated nested frame does. This
+// is a reviewed body fact, not a check on an Ergo library name.
+func MovingBody(name string) (param int, repeated, ok bool) {
+	switch name {
+	case "Go":
+		return 0, false, true
+	case "TasksGo":
+		return 1, true, true
+	}
+	return 0, false, false
+}
