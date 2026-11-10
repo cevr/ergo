@@ -49,8 +49,8 @@ type emitter struct {
 }
 
 // Project reads the compiler's checked package, never reparsing a signature.
-// Every mapped file exposes its package's exported wire types and operation
-// types. Reachable imported types are embedded under private schema names,
+// Every mapped file exposes its package's operation types and the exported
+// types they reach, under their Ergo names. Reachable imported types are embedded under private schema names,
 // so their Ergo import paths need no TypeScript path translation.
 func Project(pkg *check.Package, file *syntax.File, source string, options Options) (Output, error) {
 	if options.Encoding == "" {
@@ -98,18 +98,9 @@ func Project(pkg *check.Package, file *syntax.File, source string, options Optio
 		}
 	}
 	g.s("import { Schema as $Schema } from \"effect\";\nimport { Rpc as $Rpc, RpcGroup as $RpcGroup } from \"effect/rpc\";\n")
-	for _, obj := range pkg.Types {
-		if !public(obj.Name) {
-			continue
-		}
-		n, ok := obj.Type.(*check.Named)
-		if !ok || len(n.TParams) > 0 {
-			continue
-		}
-		if _, ok := n.Underlying().(*check.Interface); !ok {
-			g.declare(n)
-		}
-	}
+	// Only the wire is projected: the types the operation types reach.
+	// Other exported types (machines, records no operation carries) are
+	// not part of the wire and stay out of the mapped file.
 	for _, c := range contracts {
 		ops, _ := rpcgen.Ops(pkg, c.Name)
 		for _, op := range ops {

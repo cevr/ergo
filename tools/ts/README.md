@@ -47,7 +47,10 @@ float forms, recursive schemas, refinement predicates, by-name codec pairs,
 and open/generic operation contracts are diagnostics, not `any`.
 
 No source body runs in TypeScript. Laws stay in Ergo. Each mapped file
-exposes its package; imported wire types are included under private names.
+exposes its package's operation types and the exported types they reach;
+other exported types (machines, records no operation carries) are not on
+the wire and are left out. Imported wire types are included under
+private names.
 There is no runtime projection cache. For TypeScript incremental builds,
 bump the package version when changing the mapper, or use `tsc --build
 --force`: TypeScript keys mapped output by mapper package/version/options.

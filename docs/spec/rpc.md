@@ -57,7 +57,9 @@ UTF-8 and UTF-16. Renamed wire fields use Alias spans, not Verbatim spans.
 
 Supported wire shapes are listed in the tool README. An unsupported
 shape is a projection diagnostic, never an unchecked `any`. Each mapped
-file exports its package's wire declarations; reachable imported types
+file exports its package's operation types and the exported types they
+reach; other exported types (machines, records no operation carries) are
+not part of the wire and are not projected. Reachable imported types
 use private schema names. Cross-file watch registration is not provided
 yet: restart TypeScript watch after changing another Ergo file in the
 package or an imported package. Runtime loads do not cache the projection.

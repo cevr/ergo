@@ -56,6 +56,37 @@ func sliceUnits(s string, start, length int, enc string) string {
 	return b.String()
 }
 
+// TestProjectionIsTheWire catches r3b-reach (project every exported type,
+// not the ones the operation types reach). Smallest repro of the R3' bug: a
+// package that also exports a machine (or a float record no operation uses)
+// failed its whole mapped file. No other test mixes a contract with
+// exported types that are not on its wire.
+func TestProjectionIsTheWire(t *testing.T) {
+	const src = "type Spend { Cost int }\ntype Grant { Left int }\n" +
+		"type Tank machine[Grant, Spend] { initial: Grant{Left: 1}, step: step }\n" +
+		"func step(s Grant, e Spend) Decision[Grant, Grant] { return Ignore }\n" +
+		"type Gauge { Ratio float64 }\n" +
+		"type API { Take(s Spend) Grant }\n"
+	a := sketchfront.Check(src)
+	if len(a.Diagnostics) != 0 {
+		t.Fatal(a.Diagnostics)
+	}
+	o, err := Project(a.Root().Package, a.Root().Files[0].Syntax, src, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"export const Spend", "export const Grant", "export class API"} {
+		if !strings.Contains(o.Text, want) {
+			t.Fatalf("missing %q:\n%s", want, o.Text)
+		}
+	}
+	for _, not := range []string{"Tank", "Gauge"} {
+		if strings.Contains(o.Text, not) {
+			t.Fatalf("%s is not on the wire but was projected:\n%s", not, o.Text)
+		}
+	}
+}
+
 // TestProjectionRefusesUnsupported catches r3-refusal (discard a projection
 // error and publish incomplete schemas). No Go codec test checks admission
 // to the narrower TypeScript wire profile. This row pins the diagnostic text.
