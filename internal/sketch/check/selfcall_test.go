@@ -93,6 +93,48 @@ func F() int {
 	return c.bump(2) + bump(c, 3)
 }
 `},
+		// G-ex-e-2: a function on an operation type, reached after its
+		// operations; an operation of the name wins, and the function is
+		// then reached by a plain call.
+		{name: "operation type", src: `
+
+type Engine { Compile(p string) int }
+
+type Store[T] { Get(k string) T }
+
+func twice(e Engine, p string) int { return e.Compile(p) * 2 }
+
+func Compile(e Engine, p string) string { return "fn" }
+
+func both[T](s Store[T], k string) T { return s.Get(k) }
+
+func F(e Engine, s Store[int]) int {
+	let _ string = e.Compile("x")
+	return e.twice("ab") + s.both("k")
+}
+`, want: []selfWant{{"S108", "cannot use int as string", 14}}},
+		{name: "operation type's own operation is no group member", src: `
+
+type Engine { Compile(p string) int }
+
+type Fast {}
+
+func Compile(_ Fast, p string) int { return 1 }
+
+func Compile(e Engine, p string) string { return "fn" }
+`, want: []selfWant{{"S108", "Compile is already declared in this package", 9}}},
+		{name: "operation type in a group", src: `
+
+type Engine { Run() int }
+
+type Fast {}
+
+func Compile(_ Fast, p string) int { return 1 }
+
+func Compile(e Engine, p string) int { return e.Run() }
+
+func F(e Engine, f Fast) int { return e.Compile("a") + f.Compile("b") }
+`},
 		{name: "remaining arguments are checked", src: `
 
 type Counter { n int }

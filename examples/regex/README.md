@@ -40,7 +40,6 @@ go run ./scripts/examples regex
 New gaps (in `gaps-ex-e.md` of the run):
 
 - **G-ex-e-1**: `nfa`'s package function is `Build`, not `Compile`, because `Engine`'s `Compile` provider takes the name.
-- **G-ex-e-2**: a function whose first parameter is the operation type `Engine` is not callable as `e.f(…)`; the checks are called `f(e, …)`.
 - **G-ex-e-3**: no exit with a status and no message, so "no line matches" is written to standard error, which grep does not do.
 - **G-ex-e-6**: measured on a loaded host before batch 12, `regex -c` is 17x to 24x slower than Go's regexp: each step of the value-state machine allocates.
 
@@ -48,6 +47,7 @@ Gaps that other lanes found, met here too:
 
 - A byte has no conversion to text (G-ex-d-1): `ByteText` slices a 256-byte table, and the parse failures carry the source text of the operator or range.
 - A property test cannot choose its generator (G-ex-d-4): the laws take an `int` seed and build trees with `Sample`.
+- Closed in L9: G-ex-e-2. A function on an operation type is a dot call: `Grep` calls `Engine.Compile(…).Filter(lines)`, and `Filter` is a function on `Matcher`.
 - Closed in batch 13: G-exup-1. `ergo test` runs `Engine`'s and `Matcher`'s laws in the providers' packages, so `checks.ergo` and the tests that restated the laws are gone; `nfa.NewCompiled` builds each `Compiled` the `Matcher` law runs against.
 - A machine's state is a union (G-ex-c-16; measured: a record is S108 "a machine's state type must be a union"): `Scan` is a union of one variant.
 

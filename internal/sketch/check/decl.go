@@ -1988,6 +1988,9 @@ func (c *checker) collectSelfFuncs() {
 			// Defensive: selfOwner reads the receiver spelling without reporting.
 			c.cur = f.file
 			f.owner, f.selfArgs, f.Ptr = c.selfOwner(f)
+			if f.owner != nil && asInterface(f.owner) != nil {
+				f.opOwner, f.owner = f.owner, nil
+			}
 		}
 	}
 	for _, f := range c.pkg.Funcs {
@@ -2009,6 +2012,9 @@ func (c *checker) collectSelfFuncs() {
 			var key any
 			if g.owner != nil {
 				key = g.owner
+			}
+			if g.opOwner != nil {
+				key = g.opOwner
 			}
 			if name, args, _ := selfOwnerName(g.Decl); name != "" && c.dupNames[name] && g.Name != "main" {
 				// Defensive: selfArgsOK validates receiver arguments without reporting.
@@ -2039,12 +2045,18 @@ func (c *checker) collectSelfFuncs() {
 			} else {
 				c.errorf(g.Decl.Name, CodeType, "%s is already declared in this package; functions share a name only when each one's first parameter is a distinct named type declared in this package (types.md, Methods 3)", g.Name)
 			}
-			g.owner, g.selfArgs, g.Ptr = nil, nil, false
+			g.owner, g.opOwner, g.selfArgs, g.Ptr = nil, nil, nil, false
 		}
 	}
 	for _, f := range c.funcs {
 		if f.owner != nil {
 			f.owner.addMethod(f)
+		}
+		if n := f.opOwner; n != nil {
+			if n.opFuncs == nil {
+				n.opFuncs = map[string]*Func{}
+			}
+			n.opFuncs[f.Name] = f
 		}
 	}
 	if c.pkg.Path == std.PreludePath {
@@ -2108,7 +2120,10 @@ func (c *checker) selfOwner(f *Func) (*Named, []syntax.Expr, bool) {
 	if n == nil || n.Obj.Pkg != c.pkg || n.method(f.Name) != nil {
 		return nil, nil, false
 	}
-	if _, isIface := n.underlying().(*Interface); isIface {
+	if it, isIface := n.underlying().(*Interface); isIface && (ptr || it.method(f.Name) != nil) {
+		// An operation of the name wins, as a field does; a pointer to an
+		// operation type is S108 (Borrows 5). The caller moves an
+		// operation type's function to opOwner (G-ex-e-2).
 		return nil, nil, false
 	}
 	// A field of the same name does not stop f: x.f selects the field
