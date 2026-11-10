@@ -41,9 +41,7 @@ const seedVariable = "ERGO_RPC_SEED"
 // task per call and the client run only in a built program; go/types on
 // the lowered Go says only that it compiles.
 func TestRpcLoopbackAgrees(t *testing.T) {
-	if testing.Short() {
-		t.Skip("full tier: builds Go")
-	}
+	needsBuild(t)
 	seeds := []uint64{1, 2, 3}
 	if s := os.Getenv(seedVariable); s != "" {
 		n, err := strconv.ParseUint(s, 10, 64)
@@ -54,6 +52,15 @@ func TestRpcLoopbackAgrees(t *testing.T) {
 	}
 	for _, seed := range seeds {
 		t.Run(fmt.Sprint(seed), func(t *testing.T) { loopback(t, seed) })
+	}
+}
+
+// needsBuild marks a test that builds or runs a Go program: the fast tier
+// (-short) skips it, the full tier runs it, as lower's needsBuild does.
+func needsBuild(t testing.TB) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("full tier: builds Go")
 	}
 }
 
