@@ -17,8 +17,8 @@ import (
 )
 
 // The children of a machine's entries (actor.go rule 13; runtime.md,
-// Machines and actors 14) against a reference tree, the Quint model
-// docs/research/actor-machine/children.qnt run on the real runner. Every
+// Machines and actors 14) against a reference tree, the design model
+// models/children (once the Quint model children.qnt) run on the real runner. Every
 // actor of a case runs one machine: each entry's work starts the children
 // a seeded plan gives that entry (down to depth 3, two kinds, so two
 // children of one kind are common), reports that it started them, and
