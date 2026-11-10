@@ -65,21 +65,21 @@ func validate(w *report, s Schema, v stdjson.Value, path string) {
 	case IsNumber as num:
 		match v {
 		case stdjson.Num as n:
-			if num.Integer && !isInteger(stdjson.Wire(n)) {
-				add(w, NotInteger{Path: path, Got: stdjson.Wire(n)})
+			if num.Integer && !isInteger(json.Spelling(n)) {
+				add(w, NotInteger{Path: path, Got: json.Spelling(n)})
 			}
-			let f = valueOf(stdjson.Wire(n))
+			let f = valueOf(json.Spelling(n))
 			match num.Min {
 			case Some[float64] as min:
 				if f < min.Value {
-					add(w, BelowMinimum{Path: path, Min: min.Value, Got: stdjson.Wire(n)})
+					add(w, BelowMinimum{Path: path, Min: min.Value, Got: json.Spelling(n)})
 				}
 			case None:
 			}
 			match num.Max {
 			case Some[float64] as max:
 				if f > max.Value {
-					add(w, AboveMaximum{Path: path, Max: max.Value, Got: stdjson.Wire(n)})
+					add(w, AboveMaximum{Path: path, Max: max.Value, Got: json.Spelling(n)})
 				}
 			case None:
 			}

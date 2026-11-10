@@ -313,6 +313,7 @@ internal/sketch/lower/json_value_test.go	*
 internal/sketch/lower/wirevalue.go	*
 internal/sketch/std/json/value.ergo	*
 internal/sketch/std/json/num.ergo	*
+examples/jsonv/json/print.ergo	func Spelling(n json.Num) string { json.Wire(n) }
 docs/spec/stdlib.md	`IntNumber` and `Num.Wire()` are the only ways in and out, so a `Num` is
 docs/spec/stdlib.md	a wire type, alone or as a record field, and a program reads it with an
 internal/sketch/lower/testdata/mutants.json	"from": "f.wires[tp] = wit + \".Field\"",

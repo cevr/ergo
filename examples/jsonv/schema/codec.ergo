@@ -150,7 +150,7 @@ func count(o stdjson.Object, key string, path string) int fails BadSchema {
 	case Some[stdjson.Value] as v:
 		match v.Value {
 		case stdjson.Num as n:
-			let c = strconv.Atoi(stdjson.Wire(n)) catch {
+			let c = strconv.Atoi(json.Spelling(n)) catch {
 			case strconv.Malformed, strconv.OutOfRange:
 				return BadSchema{Path: Member(path, key), Reason: "want a whole number"}
 			}
@@ -172,7 +172,7 @@ func bound(o stdjson.Object, key string, path string) Option[float64] fails BadS
 	case Some[stdjson.Value] as v:
 		match v.Value {
 		case stdjson.Num as n:
-			Some[float64]{Value: valueOf(stdjson.Wire(n))}
+			Some[float64]{Value: valueOf(json.Spelling(n))}
 		case _:
 			BadSchema{Path: Member(path, key), Reason: "want a number"}
 		}
