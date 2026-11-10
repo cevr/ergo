@@ -149,8 +149,11 @@ func rootRefusal(path, name string) string {
 }
 
 // Platforms are the GOOS/GOARCH pairs a binding holds for: a declaration
-// that differs between them is refused (interop.md).
-var Platforms = []Platform{{"darwin", "arm64"}, {"linux", "amd64"}}
+// that differs between them is refused (interop.md). They are also Ergo's
+// target list: `ergo build` links for each of them and refuses any other
+// (EF110), so a program that checks against the bindings links on every
+// platform it may be built for.
+var Platforms = []Platform{{"darwin", "amd64"}, {"darwin", "arm64"}, {"linux", "amd64"}, {"linux", "arm64"}}
 
 // Bind writes the binding file of each Go package that patterns name, by
 // import path, loading them on every platform of Platforms. A package
