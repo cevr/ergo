@@ -640,7 +640,6 @@
     "TestPreludeUnionIsNotARecordVariant": 0,
     "TestPropertyParamAuthority": 0,
     "TestPropertyParamDomain": 0.01,
-    "TestPropertyParamStd": 0,
     "TestPureGoPackages": 0,
     "TestQualifiedContextEmbed": 0,
     "TestRangeValues": 0,

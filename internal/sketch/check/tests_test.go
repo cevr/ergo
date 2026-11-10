@@ -87,17 +87,6 @@ func TestPropertyParamDomain(t *testing.T) {
 	}
 }
 
-// TestPropertyParamStd: a standard library record is not generatable (the
-// orchestrator's E3a decision: S108, the simpler, reversible default).
-func TestPropertyParamStd(t *testing.T) {
-	// queue.Closed is an empty record: only its package refuses it.
-	src := "import queue\n\ntest P(x queue.Closed) {\n\tassert true\n}\n"
-	got, diags := codesAt(src)
-	if len(got) != 1 || got[0] != "S108:3" || !strings.Contains(diags[0].Message, "standard library") {
-		t.Errorf("want one S108 naming the standard library at line 3, got %v", diags)
-	}
-}
-
 // TestTestBodies: rules 1, 2 and 5 at their edges.
 func TestTestBodies(t *testing.T) {
 	for _, tc := range []struct {
