@@ -280,7 +280,10 @@ Std `csv` (std-csv U4) is Go's `encoding/csv` with its defaults, over a text: a 
 key is required. `Optional[Nullable[T]]` keeps all three states. `Option`
 is unchanged. These are ordinary closed unions (exhaustive `match`), with
 a codec representation selected in lowering, not a checker exception or
-field annotation. `Optional` outside a record field keeps its tagged form;
+field annotation. The field's type after instantiation selects the form: a
+field typed `T` in `Box[T]` omits its key when `T` is `json.Optional[int]`,
+also inside a generic function, where the codec witness of `T` carries the
+field form. `Optional` outside a record field keeps its tagged form;
 there is no absent root or array element. Failure rows remain conservative
 structural rows, including the union's possible shape failures.
 

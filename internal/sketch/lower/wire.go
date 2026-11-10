@@ -48,8 +48,22 @@ import (
 // fields of the uniform shape (funcType), Enc of (Writer, self) and Dec of
 // (Reader) with a self result.
 func (tc *typeCtx) wireCodecType(self check.Type) string {
+	return "struct{ " + tc.wireCodecFuncs(self) + "; Field *" + tc.wireFieldType(self) + " }"
+}
+
+// wireCodecFuncs are the Enc, Dec and JSON fields of a codec witness.
+func (tc *typeCtx) wireCodecFuncs(self check.Type) string {
 	enc, dec := wireCodecSigs(self)
-	return "struct{ Enc " + tc.funcType(enc) + "; Dec " + tc.funcType(dec) + "; JSON " + tc.wireJSONType(self) + " }"
+	return "Enc " + tc.funcType(enc) + "; Dec " + tc.funcType(dec) + "; JSON " + tc.wireJSONType(self)
+}
+
+// wireFieldType is the Go type of a witness's Field: the record-field form
+// of a json.Optional argument (wirefields.go), nil for every other type.
+// Its Enc, Dec and JSON write and read Present's bare payload, Absent
+// reports the empty state and Empty is the value of an absent key.
+func (tc *typeCtx) wireFieldType(self check.Type) string {
+	gt := tc.goType(self)
+	return "struct{ " + tc.wireCodecFuncs(self) + "; Absent func(" + gt + ") bool; Empty " + gt + " }"
 }
 
 // wireJSONType is the Go type of a codec witness's JSON field: the fast
@@ -104,7 +118,7 @@ func (fc *funcCtx) wireWitness(t check.Type, site syntax.Node) string {
 		e, b, v := fc.scope.alloc("e"), fc.scope.alloc("b"), fc.scope.alloc("v")
 		fast = "func(" + e + " *" + fc.l.pkgName(pkgKey{"env", nil}, "Env") + ", " + b + " *" + fc.l.rt() + ".Text, " + v + " " + gt + ") {\n" + tc.wireEncodeWith(jsonEvents{}, t, e, b, v) + "\n}"
 	}
-	return tc.wireCodecType(t) + "{Enc: " + enc + ", Dec: " + dec + ", JSON: " + fast + "}"
+	return tc.wireCodecType(t) + "{Enc: " + enc + ", Dec: " + dec + ", JSON: " + fast + ", Field: " + fc.wireFieldWitness(tc, t, site) + "}"
 }
 
 // wireCtx is fc's type context with its codec witnesses, for a codec call.
@@ -600,6 +614,14 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 			fv := scope.alloc("f")
 			b.WriteString("case " + strconv.Quote(check.WireFieldName(f.Name)) + ":\n")
 			ft := f.Type
+			if wit, ftc, ok := tc.paramField(ft); ok {
+				x, y := scope.alloc("f"), scope.alloc("f")
+				b.WriteString("var " + fv + " " + tc.goType(ft) + "\n")
+				b.WriteString("if " + wit + ".Field != nil {\n" + ftc.wireDecode(ft, env, r, x, zero, scope) + fv + " = " + x + "\n} else {\n")
+				b.WriteString(tc.wireDecode(ft, env, r, y, zero, scope) + fv + " = " + y + "\n}\n")
+				b.WriteString(out + "." + td.fieldName[f.Name] + " = " + fv + "\n" + seen[i] + " = true\n")
+				continue
+			}
 			optional := jsonWrapper(ft, "Optional")
 			var present check.Type
 			var field *check.Field
@@ -615,12 +637,17 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 		}
 		b.WriteString("default:\n" + r + ".Skip(" + task + ")\n}\n}\n" + r + ".End(" + task + ")\n")
 		for i, f := range s.Fields {
+			missing := "return " + zero + ", " + tc.wireFailure(check.WireMissingName, r+".Path("+task+")", strconv.Quote(check.WireFieldName(f.Name))) + "\n"
+			if wit, _, ok := tc.paramField(f.Type); ok {
+				b.WriteString("if !" + seen[i] + " {\nif " + wit + ".Field == nil {\n" + missing + "}\n" + out + "." + td.fieldName[f.Name] + " = " + wit + ".Field.Empty\n}\n")
+				continue
+			}
 			if jsonWrapper(f.Type, "Optional") {
 				empty, _, _ := wrapperParts(f.Type)
 				b.WriteString("if !" + seen[i] + " {\n" + out + "." + td.fieldName[f.Name] + " = " + tc.goType(empty) + "{}\n}\n")
 				continue
 			}
-			b.WriteString("if !" + seen[i] + " {\nreturn " + zero + ", " + tc.wireFailure(check.WireMissingName, r+".Path("+task+")", strconv.Quote(check.WireFieldName(f.Name))) + "\n}\n")
+			b.WriteString("if !" + seen[i] + " {\n" + missing + "}\n")
 		}
 	}
 	begin := func(what string) {

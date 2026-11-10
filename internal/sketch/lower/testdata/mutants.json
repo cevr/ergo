@@ -36,6 +36,24 @@
       "to": "if jsonWrapper(f.Type, \"Optional\") || jsonWrapper(f.Type, \"Nullable\") {",
       "rule": "A Nullable field still requires its key; null is not absence.",
       "killers": ["lower:TestJSONFieldsAgree"]
+    },
+    {
+      "name": "g3-generic-witness",
+      "origin": "G3",
+      "file": "internal/sketch/lower/wirefields.go",
+      "from": "if !jsonWrapper(t, \"Optional\") {",
+      "to": "if true {",
+      "rule": "A json.Optional argument's witness carries the record-field form, so a field typed by a type parameter omits Absent.",
+      "killers": ["lower:TestJSONFieldsAgree"]
+    },
+    {
+      "name": "g3-generic-payload",
+      "origin": "G3",
+      "file": "internal/sketch/lower/wirefields.go",
+      "from": "f.wires[tp] = wit + \".Field\"",
+      "to": "f.wires[tp] = wit",
+      "rule": "A present Optional argument in a type-parameter field writes and reads its bare payload, not the tagged union.",
+      "killers": ["lower:TestJSONFieldsAgree"]
     }
     ,
     {

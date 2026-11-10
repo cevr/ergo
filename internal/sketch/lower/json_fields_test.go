@@ -13,6 +13,7 @@ import (
 const jsonFieldsProbe = `import json
 
 type fields { A json.Optional[int], B int, C json.Nullable[string], D json.Optional[json.Nullable[int]], E json.Optional[string], F Option[int] }
+type boxed[T, U] { A T, B int, C json.Nullable[string], D U, E json.Optional[string], F Option[int] }
 type nullableField { Value json.Nullable[int] }
 type optionalField { Value json.Optional[int] }
 type nestedField { Value json.Optional[json.Nullable[int]] }
@@ -90,6 +91,26 @@ test JsonFieldsAgree(i input) {
 	let w Writer = t
 	encode(v, w)
 	assert t.Written() == want
+	// A field typed by a type parameter takes the form of its argument.
+	// Inside a generic function the record's codec takes T's witness.
+	let g = boxed[json.Optional[int], json.Optional[json.Nullable[int]]]{A: v.A, B: v.B, C: v.C, D: v.D, E: v.E, F: v.F}
+	assert encodeVia(g) == want
+	assert writeVia(g) == want
+	assert decodeVia(want, g) == Some{Value: g}
+}
+
+func encodeVia[T wire, U wire](g boxed[T, U]) string { json.Encode(c[boxed[T, U]](), g) }
+
+func writeVia[T wire, U wire](g boxed[T, U]) string {
+	let t = json.NewText()
+	let w Writer = t
+	encode(g, w)
+	t.Written()
+}
+
+func decodeVia[T wire, U wire](text string, like boxed[T, U]) Option[boxed[T, U]] {
+	let v = json.Decode(c[boxed[T, U]](), text) catch { case _: return None }
+	Some{Value: v}
 }
 
 test JsonOptionalRoundTrips(v Option[int]) {
