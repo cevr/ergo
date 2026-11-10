@@ -42,9 +42,13 @@ Supported: exported operation types with named parameters, records, closed
 unions, Option, slices, string-key Maps, tuples, strings, booleans and
 integers. Unit results use Schema.Void. Tags and field keys follow the
 derived codec. Fail rows become tagged error schemas. Integers use
-Schema.Int; the RPC boundary enforces the safe-number range. Non-finite
-float forms, recursive schemas, refinement predicates, by-name codec pairs,
-and open/generic operation contracts are diagnostics, not `any`.
+Schema.Int; the RPC boundary enforces the safe-number range. A float64 is
+`Schema.Number`, whose JSON codec is std json's float form: a finite JSON
+number, or the strings `"NaN"`, `"Infinity"` and `"-Infinity"`. Both
+refuse other strings and numbers beyond the float64 range. A JavaScript
+`-0` is written as `0`. A float32 (Go rounds it on decode), recursive
+schemas, refinement predicates, by-name codec pairs, and open/generic
+operation contracts are diagnostics, not `any`.
 
 Std `json.Optional[T]` in a record field is `Schema.optionalKey(T)`:
 an absent value has no key. `json.Nullable[T]` is `Schema.NullOr(T)`:

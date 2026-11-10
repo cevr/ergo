@@ -226,8 +226,12 @@ func (g *emitter) schema(t check.Type) string {
 			return "$Schema.Boolean"
 		case check.Int, check.Int8, check.Int16, check.Int32, check.Int64, check.Uint, check.Uint8, check.Uint16, check.Uint32, check.Uint64, check.Uintptr, check.Duration:
 			return "$Schema.Int"
-		case check.Float32, check.Float64:
-			return g.fail(t, "non-finite JSON float form needs an explicit schema")
+		case check.Float64:
+			// Effect's Number JSON codec is std json's float form: a finite
+			// JSON number, or "NaN", "Infinity" or "-Infinity".
+			return "$Schema.Number"
+		case check.Float32:
+			return g.fail(t, "a float32 rounds when decoded; a JavaScript number has no float32 form")
 		}
 	case *check.Slice:
 		return "$Schema.Array(" + g.schema(u.Elem) + ")"

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"math"
 	"math/rand/v2"
 	"os"
 	"os/exec"
@@ -39,6 +40,8 @@ import (
 // E2 kills e2-roots: old mapper fixtures import only records reached by API.
 // E6 kills e6-value and e6-json: no old fixture carries a json.Value, and
 // only a real Effect schema can show which host values it refuses.
+// E7 kills e7-finite, e7-int and e7-json: no old fixture carries a float,
+// and the float verdicts compare std json's and Effect's admission rules.
 func TestTsProjectionAgrees(t *testing.T) {
 	if os.Getenv("ERGO_TS_TEST") != "1" {
 		t.Skip("select the TS leg with ERGO_TS_TEST=1 (requires pinned offline dependencies)")
@@ -94,7 +97,7 @@ func TestTsProjectionAgrees(t *testing.T) {
 		}
 		put(t, dir, name, string(b))
 	}
-	contract, provider, main := tsProgram(seed)
+	contract, provider, main, floatTexts := tsProgram(seed)
 	put(t, dir, "ergo.mod", "module bridge\n")
 	put(t, dir, "domain/contract.ergo", contract)
 	put(t, dir, "shared/types.ergo", "type Label { Text string }\n")
@@ -124,6 +127,14 @@ func TestTsProjectionAgrees(t *testing.T) {
 		want = append(want, json.RawMessage(line))
 	}
 	want = append(want, values...)
+	// std json's verdict on each float text; the TS client judges the same
+	// texts with the mapped schema last.
+	put(t, dir, "floats.json", floatTexts)
+	verdicts := runCheck(t, command(exe, "floats"))
+	direct = append(direct, verdicts...)
+	for _, line := range strings.Split(strings.TrimSpace(string(verdicts)), "\n") {
+		want = append(want, json.RawMessage(line))
+	}
 	t.Run("tsc", func(t *testing.T) {
 		runCheck(t, command("bun", "node_modules/typescript/bin/tsc", "--runExternalCode", "--pretty", "false", "-p", "."))
 		for _, m := range []struct{ name, from, to, position string }{
@@ -282,7 +293,7 @@ func runCheck(t *testing.T, cmd *exec.Cmd) []byte {
 // tsProgram generates a shape and a sequence of values. Its seed changes the
 // number of extra record fields and values, and all branches of the closed
 // union and Option occur in every sequence. The direct provider is the oracle.
-func tsProgram(seed uint64) (string, string, string) {
+func tsProgram(seed uint64) (string, string, string, string) {
 	r := rand.New(rand.NewPCG(seed, seed^0x5453))
 	var fields, extras strings.Builder
 	for i := 0; i < 1+r.IntN(4); i++ {
@@ -309,8 +320,23 @@ type View { Ended json.Nullable[string] }
 type Box[T] { Value T }
 type Snapshot { Body json.Optional[json.Value] }
 type Snapshots { Get() Snapshot }
+type Reading { Value float64 }
+type Readings { Read() Reading }
 `
-	contract = strings.Replace(contract, "Label shared.Label", "Draft Draft, View View, Nested json.Optional[json.Nullable[int]], Raw []json.Optional[int], Box Box[json.Optional[int]], Snap Snapshot, Label shared.Label", 1)
+	contract = strings.Replace(contract, "Label shared.Label", "Draft Draft, View View, Nested json.Optional[json.Nullable[int]], Raw []json.Optional[int], Box Box[json.Optional[int]], Snap Snapshot, Reading Reading, Samples []float64, Label shared.Label", 1)
+	// Every sequence carries zero, fractions, exponent forms and the three
+	// non-finite values; each Reading is a seeded finite float64.
+	samples := "[]float64{0.0, 0.5, -2.25, 3.0, fl(\"1e21\"), fl(\"1e-7\"), fl(\"-1.5e300\"), fl(\"5e-324\"), math.NaN(), math.Inf(1), math.Inf(-1)}"
+	// Texts both codecs judge: finite spellings, the codec's three strings,
+	// and texts std json refuses (other strings, out of range, non-numbers).
+	floats := []string{"0", "-1.5", "1E5", "2.5e-3", "1e308", "5e-324", `"NaN"`, `"Infinity"`, `"-Infinity"`, `"nan"`, `"inf"`, `"1.5"`, `""`, "1e400", "-1e400", "null", "true", "[1]"}
+	for range 6 {
+		f := math.Ldexp(r.Float64()*2-1, r.IntN(2000)-1000)
+		floats = append(floats, strconv.FormatFloat(f, "eEfg"[r.IntN(4)], -1, 64))
+	}
+	for i, f := range floats {
+		floats[i] = `{"value":` + f + `}`
+	}
 	provider := `import bridge/domain
 type Memory {}
 func Take(_ Memory, key string, cost int) domain.Reply fails domain.Limited | domain.Unknown {
@@ -348,7 +374,7 @@ func Echo(_ Memory, value domain.Bundle) domain.Bundle { value }
 		if i%3 == 2 {
 			nested = fmt.Sprintf("json.Present[json.Nullable[int]]{Value: json.NonNull[int]{Value: %d}}", r.IntN(100))
 		}
-		fmt.Fprintf(&vals, "domain.Bundle{Count: %d, Name: \"café 🧭 \\xff\", Ready: %t, Maybe: %s, Levels: []domain.Level{domain.Full, domain.Partial{Tokens: %d}, domain.Empty{RetryAfterMs: 17}}, Labels: labels, Draft: domain.Draft{Name: \"a\", Priority: %s}, View: domain.View{Ended: %s}, Nested: %s, Raw: []json.Optional[int]{json.Absent, json.Present[int]{Value: 7}}, Box: domain.Box[json.Optional[int]]{Value: %s}, Snap: domain.Snapshot{Body: %s}, Label: shared.Label{Text: \"tag\"}%s},\n", int64(r.Uint64()%100000)-50000, i%2 == 0, maybe, r.IntN(100), priority, ended, nested, priority, body, extras.String())
+		fmt.Fprintf(&vals, "domain.Bundle{Count: %d, Name: \"café 🧭 \\xff\", Ready: %t, Maybe: %s, Levels: []domain.Level{domain.Full, domain.Partial{Tokens: %d}, domain.Empty{RetryAfterMs: 17}}, Labels: labels, Draft: domain.Draft{Name: \"a\", Priority: %s}, View: domain.View{Ended: %s}, Nested: %s, Raw: []json.Optional[int]{json.Absent, json.Present[int]{Value: 7}}, Box: domain.Box[json.Optional[int]]{Value: %s}, Snap: domain.Snapshot{Body: %s}, Reading: domain.Reading{Value: fl(%q)}, Samples: %s, Label: shared.Label{Text: \"tag\"}%s},\n", int64(r.Uint64()%100000)-50000, i%2 == 0, maybe, r.IntN(100), priority, ended, nested, priority, body, strconv.FormatFloat(math.Ldexp(r.Float64()*2-1, r.IntN(200)-100), 'g', -1, 64), samples, extras.String())
 	}
 	main := `import bridge/domain
 import bridge/domain/domainrpc
@@ -356,10 +382,19 @@ import bridge/memory
 import bridge/shared
 import http
 import json
+import math
 import os
 import rpc
+import strconv
 func enc[T wire](v T) string { json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, v) }
 func num(text string) json.Num { json.ParseNum(text) catch { case json.Malformed: Unreachable("generated number spelling") } }
+func fl(text string) float64 { strconv.ParseFloat(text) catch { case _: Unreachable("generated float spelling") } }
+// verdict is std json's judgement of a Reading text, re-encoded.
+func verdict(text string) string {
+ let r = json.Decode(json.Codec[domain.Reading]{MaxBytes: 0, MaxDepth: 0}, text) catch { case _: return "\"refused\"" }
+ enc(r)
+}
+func floats() []string { []string{` + floatLits(floats) + `} }
 func values() []domain.Bundle {
  let mut labels = Map[string, string]{}
  labels["x"] = "one"
@@ -376,6 +411,10 @@ func main() fails http.ListenFailed | http.InvalidLimits needs Console | Ambient
   return
  }
  if os.Args(host)[0] == "codec" { Console.Println(enc(values())); return }
+ if os.Args(host)[0] == "floats" {
+  for text in floats() { Console.Println(verdict(text)) }
+  return
+ }
  with context { domain.API: memory.Memory } {
   let reply = domain.API.Take("a", 3) catch { case domain.Limited: domain.Reply{Remaining: -1}; case domain.Unknown: domain.Reply{Remaining: -2} }
   Console.Println(enc(reply))
@@ -387,7 +426,19 @@ func main() fails http.ListenFailed | http.InvalidLimits needs Console | Ambient
  }
 }
 `
-	return contract, provider, main
+	texts, err := json.Marshal(floats)
+	if err != nil {
+		panic(err)
+	}
+	return contract, provider, main, string(texts)
+}
+
+func floatLits(texts []string) string {
+	var quoted []string
+	for _, s := range texts {
+		quoted = append(quoted, strconv.Quote(s))
+	}
+	return strings.Join(quoted, ", ")
 }
 
 // jsonValue is an Ergo json.Value of the given kind (null, boolean, number,

@@ -90,13 +90,13 @@ func TestProjectionIsTheWire(t *testing.T) {
 // error and publish incomplete schemas). No Go codec test checks admission
 // to the narrower TypeScript wire profile. This row pins the diagnostic text.
 func TestProjectionRefusesUnsupported(t *testing.T) {
-	const src = "type Value { F float64 }\ntype API { Read() Value }\n"
+	const src = "type Value { F float32 }\ntype API { Read() Value }\n"
 	a := sketchfront.Check(src)
 	if len(a.Diagnostics) != 0 {
 		t.Fatal(a.Diagnostics)
 	}
 	_, err := Project(a.Root().Package, a.Root().Files[0].Syntax, src, Options{})
-	if err == nil || !strings.Contains(err.Error(), "non-finite JSON float form needs an explicit schema") {
+	if err == nil || !strings.Contains(err.Error(), "a JavaScript number has no float32 form") {
 		t.Fatalf("projection error: %v", err)
 	}
 }

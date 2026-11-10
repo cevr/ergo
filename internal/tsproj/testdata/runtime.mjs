@@ -1,7 +1,7 @@
 import { Cause, Effect, Exit, Layer, Option, Schema } from "effect"
 import { FetchHttpClient } from "effect/http"
 import { RpcClient, RpcSerialization } from "effect/rpc"
-import { API, Bundle, Draft, Snapshot, View } from "./domain/contract.ergo"
+import { API, Bundle, Draft, Reading, Snapshot, View } from "./domain/contract.ergo"
 import { readFileSync } from "node:fs"
 import { Point, Status, Écho } from "./plain/point.ergo"
 
@@ -81,3 +81,11 @@ const layer = RpcClient.layerProtocolHttp({ url }).pipe(
   Layer.provide(FetchHttpClient.layer),
 )
 await Effect.runPromise(program.pipe(Effect.scoped, Effect.provide(layer)))
+// The mapped float schema judges each text as std json did (the Go side
+// prints the same verdicts): a finite number, or the codec's three strings.
+const reading = Schema.toCodecJson(Reading)
+for (const text of JSON.parse(readFileSync("floats.json", "utf8"))) {
+  let verdict = "refused"
+  try { verdict = Schema.encodeSync(reading)(Schema.decodeUnknownSync(reading)(JSON.parse(text))) } catch {}
+  console.log(JSON.stringify(verdict))
+}
