@@ -134,8 +134,8 @@ func TestTestCommand(t *testing.T) {
 			t.Fatalf("ergo %v: exit %d stdout %q stderr %q; want exit 2 and %q", c.args, code, stdout, stderr, c.want)
 		}
 	}
-	for _, command := range []string{"build", "run", "check"} {
-		if _, stderr, code := run(command, "--seed", "1", replay); code == 0 || !strings.Contains(stderr, "--seed is only supported by test") {
+	for _, command := range []string{"build", "run"} {
+		if _, stderr, code := run(command, "--seed", "1", replay); code == 0 || !strings.Contains(stderr, "--seed is only supported by check and test") {
 			t.Fatalf("ergo %s --seed: exit %d stderr %q", command, code, stderr)
 		}
 	}

@@ -359,6 +359,33 @@
       "to": "itoa(r.States)+\" edges",
       "rule": "A whole search's report names the states, edges and depth the test build names for the same law ($ExploreAll).",
       "killers": ["internal/sketch/lower:TestMachineLawTables"]
+    },
+    {
+      "name": "eval-bytes-unmetered",
+      "origin": "wf10/l7-eval/EV5",
+      "file": "internal/sketch/eval/interp.go",
+      "from": "if n < 0 || in.bytes > in.budget.Bytes-n {",
+      "to": "if n < 0 {",
+      "rule": "Every value allocation is charged to the byte budget before it is made; a run that cannot pay is incomplete.",
+      "killers": ["internal/sketchfront:TestCheckEvalRunnerModel"]
+    },
+    {
+      "name": "report-incomplete-as-passed",
+      "origin": "wf10/l7-eval/EV5",
+      "file": "internal/report/report.go",
+      "from": "\"incomplete\": 3, \"not run\": 3,",
+      "to": "\"incomplete\": 1, \"not run\": 1,",
+      "rule": "An evaluation with an incomplete or not-run obligation never sums up as passed.",
+      "killers": ["internal/sketchfront:TestCheckEvalRunnerModel"]
+    },
+    {
+      "name": "eval-stale-source-identity",
+      "origin": "wf10/l7-eval/EV5",
+      "file": "internal/sketchfront/evaluate.go",
+      "from": "Revision:   report.Revision(a.Text()),",
+      "to": "Revision:   report.Revision(a.source),",
+      "rule": "The evaluation names the revision of the text it ran on, a package folder's too.",
+      "killers": ["cmd/ergo:TestCheckEvaluatesWithoutBuild"]
     }
   ]
 }
