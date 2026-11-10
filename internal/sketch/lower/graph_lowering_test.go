@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -193,9 +194,14 @@ type graphProgram struct {
 }
 
 // armGives reports whether one of the arms of actor k that arm names
-// ("f:3", or "f:3 or f:5") gives the decision kind.
+// ("f:3", or "f:3 or f:5") gives the decision kind. A site named twice
+// (the patterns of one case are one arm) gives none.
 func (p graphProgram) armGives(k int, arm, kind string) bool {
-	for _, site := range strings.Split(arm, " or ") {
+	sites := strings.Split(arm, " or ")
+	if len(slices.Compact(slices.Sorted(slices.Values(sites)))) != len(sites) {
+		return false
+	}
+	for _, site := range sites {
 		i := strings.LastIndexByte(site, ':')
 		line, err := strconv.Atoi(site[i+1:])
 		if err == nil && p.arms[k][line] == kind {
@@ -369,9 +375,9 @@ func genGraphProgram(r *rand.Rand, first int) (string, graphProgram) {
 		}
 		for range r.Intn(5) + 1 {
 			var alts []string
-			for range r.Intn(2) + 1 {
-				i, j := r.Intn(len(states)+1)-1, r.Intn(len(signals)+1)-1
-				ip, jp := r.Intn(3) == 0, r.Intn(3) == 0
+			// alt adds a pattern to the case when it takes a cell no
+			// pattern took.
+			alt := func(i, j int, ip, jp bool) bool {
 				var ps [][2]int
 				fresh := false
 				for _, x := range cells(states, i, ip) {
@@ -381,12 +387,22 @@ func genGraphProgram(r *rand.Rand, first int) (string, graphProgram) {
 					}
 				}
 				if !fresh {
-					continue
+					return false
 				}
 				for _, p := range ps {
 					covered[p] = true
 				}
 				alts = append(alts, "("+pat(states, i, ip)+", "+pat(signals, j, jp)+")")
+				return true
+			}
+			for range r.Intn(2) + 1 {
+				i, j := r.Intn(len(states)+1)-1, r.Intn(len(signals)+1)-1
+				ip, jp := r.Intn(3) == 0, r.Intn(3) == 0
+				if alt(i, j, ip, jp) && (ip || jp) && r.Intn(2) == 0 {
+					// The whole pattern after its partial one, in one
+					// case: a pair the partial one passes on stays in it.
+					alt(i, j, false, false)
+				}
 			}
 			if len(alts) > 0 {
 				arm(strings.Join(alts, ", "))
