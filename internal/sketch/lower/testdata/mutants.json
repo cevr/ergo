@@ -1906,6 +1906,7 @@
     },
     {
       "name": "P-L8 OwnStatic sets no bit",
+      "anchor": {"tests": ["lower:TestStaticReleaseAgrees"]},
       "origin": "wf10 P-L8 (#197)",
       "file": "runtime/v1/static.go",
       "from": "\t*slot = v\n\t*live |= bit",
@@ -1917,6 +1918,7 @@
     },
     {
       "name": "P-L8 HandStatic keeps the bit",
+      "anchor": {"tests": ["lower:TestStaticReleaseAgrees"]},
       "origin": "wf10 P-L8 (#197)",
       "file": "runtime/v1/static.go",
       "from": "func HandStatic[T any](live *uint64, bit uint64, v T) T {\n\t*live &^= bit",
@@ -1928,6 +1930,7 @@
     },
     {
       "name": "P-L8 ReturnStatic keeps no kept bit",
+      "anchor": {"tests": ["lower:TestStaticReleaseAgrees"]},
       "origin": "wf10 P-L8 (#197)",
       "file": "runtime/v1/static.go",
       "from": "\t*live &^= bit\n\t*kept |= bit",
@@ -1939,6 +1942,7 @@
     },
     {
       "name": "P-L8 StaticBegin drops the frame's panic",
+      "anchor": {"tests": ["lower:TestStaticReleaseAgrees"]},
       "origin": "wf10 P-L8 (#197)",
       "file": "runtime/v1/static.go",
       "from": "\tif p != nil {\n\t\ts.e = join(s.e, capture(t, p))",
@@ -1950,6 +1954,7 @@
     },
     {
       "name": "P-L8 a release defect stops the rest",
+      "anchor": {"tests": ["lower:TestStaticReleaseAgrees"]},
       "origin": "wf10 P-L8 (#197)",
       "file": "runtime/v1/static.go",
       "from": "func (s *Static) Part(rel func()) {\n\tdefer func() {",
@@ -1961,6 +1966,7 @@
     },
     {
       "name": "P-L8 Failed never fails",
+      "anchor": {"tests": ["lower:TestStaticReleaseAgrees"]},
       "origin": "wf10 P-L8 (#197)",
       "file": "runtime/v1/static.go",
       "from": "\treturn s.e != nil\n}",
@@ -1972,6 +1978,7 @@
     },
     {
       "name": "P-L8 End drops the release defects",
+      "anchor": {"tests": ["lower:TestStaticReleaseAgrees"]},
       "origin": "wf10 P-L8 (#197)",
       "file": "runtime/v1/static.go",
       "from": "\te := s.e\n\tif len(s.exits.Reasons) > 0 {",
@@ -1983,6 +1990,7 @@
     },
     {
       "name": "P-L8 a scope end keeps the bit",
+      "anchor": {"tests": ["lower:TestStaticReleaseAgrees"]},
       "origin": "wf10 P-L8 (#197)",
       "file": "internal/sketch/lower/static.go",
       "from": "\tfc.line(\"\\t\" + st.live + \" &^= \" + b)",
@@ -1994,6 +2002,7 @@
     },
     {
       "name": "P-L8 the frame releases first acquired first",
+      "anchor": {"tests": ["lower:TestStaticReleaseAgrees"]},
       "origin": "wf10 P-L8 (#197)",
       "file": "internal/sketch/lower/static.go",
       "from": "\tfor k := len(st.slots) - 1; k >= 0; k-- {\n\t\tpart(st.live, k)",
@@ -2005,6 +2014,7 @@
     },
     {
       "name": "P-L8 no release at a scope end inside the frame",
+      "anchor": {"tests": ["lower:TestStaticReleaseAgrees"]},
       "origin": "wf10 P-L8 (#197)",
       "file": "internal/sketch/lower/release.go",
       "from": "\t\t\t\tfc.staticRelease(key)\n\t\t\t\tcontinue",

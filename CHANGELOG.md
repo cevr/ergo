@@ -4,6 +4,10 @@ Entries describe user-visible changes and are true at the commit that carries th
 
 ## Unreleased
 
+### Lowering
+
+- Static resource frames can use stack slots and one cleanup defer instead of the owner list (P-L8, #197). Nested scopes still release at their own ends; dynamic plans keep the reference list lowering. Cleanup and failure guarantees are unchanged. Performance measurements are pending a quiet host.
+
 ### Breaking changes
 
 - A Go value whose type has `Close()` or `Close() error` is a resource (IG9, #196 item 15l; [interop](docs/spec/interop.md#resources)): `let f = try os.Open(p)` is released at its scope's end on every exit, a use after `try f.Close()` is S108, a `Close` error at an automatic release is a defect naming the acquisition (q61), a Go package variable is borrowed and never released (q62), and an argument of a Go function is lent for the call.
