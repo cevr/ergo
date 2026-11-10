@@ -5,8 +5,8 @@
       "name": "gcoom-mutants-text-only",
       "origin": "wf10 FU-gcoom r2",
       "file": "scripts/mutants/runner.go",
-      "from": "proclimit.CauseOf(report) != proclimit.NoCause",
-      "to": "bytes.Contains(report, []byte(proclimit.OutOfMemory))",
+      "from": "case memory != 0 && proclimit.CauseOf(report) != proclimit.NoCause:\n\t\treturn \"memory\"",
+      "to": "case memory != 0 && bytes.Contains(report, []byte(proclimit.OutOfMemory)):\n\t\treturn \"memory\"",
       "rule": "A capped mutant child's span-queue allocation fault has reason memory.",
       "killers": ["scripts/mutants:TestCappedFaultIsMemory"]
     }
