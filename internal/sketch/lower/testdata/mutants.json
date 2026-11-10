@@ -126,7 +126,7 @@
         "lower:TestArgumentTextRoundTrips"
       ],
       "anchor": {
-        "text": "Replace(harnessGo)"
+        "text": "Replace(harnessGo + harnessReachGo)"
       }
     },
     {
@@ -140,7 +140,7 @@
         "lower:TestArgumentTextRoundTrips"
       ],
       "anchor": {
-        "text": "Replace(harnessGo)"
+        "text": "Replace(harnessGo + harnessReachGo)"
       }
     },
     {
@@ -154,7 +154,7 @@
         "lower:TestArgumentTextRoundTrips"
       ],
       "anchor": {
-        "text": "Replace(harnessGo)"
+        "text": "Replace(harnessGo + harnessReachGo)"
       }
     },
     {
@@ -168,7 +168,7 @@
         "lower:TestArgumentTextRoundTrips"
       ],
       "anchor": {
-        "text": "Replace(harnessGo)"
+        "text": "Replace(harnessGo + harnessReachGo)"
       }
     },
     {
@@ -182,7 +182,7 @@
         "lower:TestArgumentTextRoundTrips"
       ],
       "anchor": {
-        "text": "Replace(harnessGo)"
+        "text": "Replace(harnessGo + harnessReachGo)"
       }
     },
     {
@@ -196,7 +196,7 @@
         "lower:TestAssertLiteralsReadBack"
       ],
       "anchor": {
-        "text": "Replace(harnessGo)"
+        "text": "Replace(harnessGo + harnessReachGo)"
       }
     },
     {
@@ -210,7 +210,7 @@
         "lower:TestArgumentTextRoundTrips"
       ],
       "anchor": {
-        "text": "Replace(harnessGo)"
+        "text": "Replace(harnessGo + harnessReachGo)"
       }
     },
     {
@@ -224,7 +224,7 @@
         "lower:TestArgumentTextRoundTrips"
       ],
       "anchor": {
-        "text": "Replace(harnessGo)"
+        "text": "Replace(harnessGo + harnessReachGo)"
       }
     },
     {
@@ -241,7 +241,7 @@
         "lower:TestLowerPackages"
       ],
       "anchor": {
-        "text": "Replace(harnessGo)"
+        "text": "Replace(harnessGo + harnessReachGo)"
       }
     },
     {
@@ -255,7 +255,7 @@
         "lower:TestArgumentTextRoundTrips"
       ],
       "anchor": {
-        "text": "Replace(harnessGo)"
+        "text": "Replace(harnessGo + harnessReachGo)"
       }
     },
     {
@@ -282,7 +282,7 @@
         "lower:TestTestRunnerModelPart1"
       ],
       "anchor": {
-        "text": "Replace(harnessGo)"
+        "text": "Replace(harnessGo + harnessReachGo)"
       }
     },
     {
@@ -296,7 +296,7 @@
         "lower:TestArgumentTextRoundTrips"
       ],
       "anchor": {
-        "text": "Replace(harnessGo)"
+        "text": "Replace(harnessGo + harnessReachGo)"
       }
     },
     {
@@ -333,7 +333,7 @@
         "lower:TestArgumentTextRoundTrips"
       ],
       "anchor": {
-        "text": "Replace(harnessGo)"
+        "text": "Replace(harnessGo + harnessReachGo)"
       }
     },
     {
@@ -347,7 +347,7 @@
         "lower:TestAssertShowsValues"
       ],
       "anchor": {
-        "text": "Replace(harnessGo)"
+        "text": "Replace(harnessGo + harnessReachGo)"
       }
     },
     {
@@ -361,7 +361,7 @@
         "lower:TestGeneratorsReachEveryClass"
       ],
       "anchor": {
-        "text": "Replace(harnessGo)"
+        "text": "Replace(harnessGo + harnessReachGo)"
       }
     },
     {
@@ -374,7 +374,7 @@
       "killers": [],
       "gap": "survived: no test kills it (runner, 2026-11-09)",
       "anchor": {
-        "text": "Replace(harnessGo)"
+        "text": "Replace(harnessGo + harnessReachGo)"
       }
     },
     {
@@ -436,8 +436,8 @@
       "name": "existing-26-verify-impure-step-nil-env",
       "origin": "lower-v1/verify-s4b/mutants-verify.json",
       "file": "internal/sketch/lower/machine.go",
-      "from": "\"(\" + env + \", \" + s + \", \" + e + \")\\n}\\n\\n\")",
-      "to": "\"(nil, \" + s + \", \" + e + \")\\n}\\n\\n\")",
+      "from": "\\treturn \" + call([]string{env}) + \"\\n}\\n\\n\")",
+      "to": "\\treturn \" + call([]string{\"nil\"}) + \"\\n}\\n\\n\")",
       "rule": "machinePlan: machinePlan writes the plan of the machine td and records its initial value for the initializer.",
       "killers": [
         "lower:TestMachinePlanValues"
@@ -607,7 +607,7 @@
         "lower:TestArgumentTextRoundTrips"
       ],
       "anchor": {
-        "text": "Replace(harnessGo)"
+        "text": "Replace(harnessGo + harnessReachGo)"
       }
     },
     {
@@ -621,7 +621,7 @@
         "lower:TestArgumentTextRoundTrips"
       ],
       "anchor": {
-        "text": "Replace(harnessGo)"
+        "text": "Replace(harnessGo + harnessReachGo)"
       }
     },
     {
@@ -635,7 +635,7 @@
         "lower:TestArgumentTextRoundTrips"
       ],
       "anchor": {
-        "text": "Replace(harnessGo)"
+        "text": "Replace(harnessGo + harnessReachGo)"
       }
     },
     {
@@ -649,7 +649,7 @@
         "lower:TestArgumentTextRoundTrips"
       ],
       "anchor": {
-        "text": "Replace(harnessGo)"
+        "text": "Replace(harnessGo + harnessReachGo)"
       }
     },
     {
@@ -663,7 +663,7 @@
         "lower:TestArgumentTextRoundTrips"
       ],
       "anchor": {
-        "text": "Replace(harnessGo)"
+        "text": "Replace(harnessGo + harnessReachGo)"
       }
     },
     {
@@ -677,7 +677,7 @@
         "lower:TestArgumentTextRoundTrips"
       ],
       "anchor": {
-        "text": "Replace(harnessGo)"
+        "text": "Replace(harnessGo + harnessReachGo)"
       }
     },
     {
@@ -1284,9 +1284,9 @@
       "name": "t5-9-eq-ne-canon.go:281",
       "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 1)",
       "file": "internal/sketch/lower/canon.go",
-      "from": "\t\tif p.Type.Obj.Decl == nil {",
-      "to": "\t\tif p.Type.Obj.Decl != nil {",
-      "rule": "lawProviders: lawProviders are law's providers in canonical order: by the source file and offset of each provider's declaration name.",
+      "from": "\tif p.Type.Obj.Decl == nil {\n\t\treturn nil\n\t}\n\treturn p.Type.Obj.Decl.Name",
+      "to": "\tif p.Type.Obj.Decl != nil {\n\t\treturn nil\n\t}\n\treturn p.Type.Obj.Decl.Name",
+      "rule": "providerName: providerName is the declaration name of a law provider's type, nil when it has none (lawProviders' canonical order).",
       "killers": [],
       "gap": "survives at the T5 base too (cb1f7522): no kept or deleted test kills it (T5 base.log); a gap of the suite, not a loss of the cut"
     },
@@ -1305,8 +1305,8 @@
       "name": "t5-11-negate-if-expr.go:388",
       "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 1)",
       "file": "internal/sketch/lower/expr.go",
-      "from": "\t\t\t\tcase *check.Var:\n\t\t\t\t\tif o.Name == x.Sel.Name {\n\t\t\t\t\t\t// An imported package's let, lowered with the",
-      "to": "\t\t\t\tcase *check.Var:\n\t\t\t\t\tif !(o.Name == x.Sel.Name) {\n\t\t\t\t\t\t// An imported package's let, lowered with the",
+      "from": "\t\t\t\t\tif o.Name == x.Sel.Name {\n\t\t\t\t\t\t// An imported package's let, lowered with the",
+      "to": "\t\t\t\t\tif !(o.Name == x.Sel.Name) {\n\t\t\t\t\t\t// An imported package's let, lowered with the",
       "rule": "selector: selector lowers x.f: a record's field, or a package's declaration.",
       "killers": [
         "lower:TestLowerPackages"
@@ -1486,9 +1486,9 @@
       "name": "t5-28-eq-ne-values.go:1142",
       "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
       "file": "internal/sketch/lower/values.go",
-      "from": "\t\treturn w.frameOfReturn(p) == o.frame",
-      "to": "\t\treturn w.frameOfReturn(p) != o.frame",
-      "rule": "isReturn: isReturn reports whether the use o is the value its frame returns.",
+      "from": "if o.frame.node != nil && w.frameOfReturn(p) == o.frame {",
+      "to": "if o.frame.node != nil && w.frameOfReturn(p) != o.frame {",
+      "rule": "occurrence kind: a return statement's value is the value its frame returns (occReturn).",
       "killers": [],
       "gap": "survives at the T5 base too (cb1f7522): no kept or deleted test kills it (T5 base.log); a gap of the suite, not a loss of the cut"
     },
@@ -1787,6 +1787,248 @@
       "rule": "plan 1.4, D-C: a Push that fails releases its value at once.",
       "killers": [
         "lower:TestDropGlueModel"
+      ]
+    },
+    {
+      "name": "b14-generic-listed-own-types",
+      "origin": "wf10/batch-14 integration (L4 x MU6b)",
+      "file": "internal/sketch/lower/lawcases.go",
+      "from": "\t\tif generic {\n\t\t\tt = bd[0].Params[i]\n\t\t}",
+      "to": "\t\tif false {\n\t\t\tt = bd[0].Params[i]\n\t\t}",
+      "rule": "types.md Laws 10: a law of a generic operation type runs at the provider's instance by the one rule; values that can be listed are listed and the run is proved.",
+      "killers": [
+        "lower:TestLawRunGenericListed"
+      ]
+    },
+    {
+      "name": "l11-l1",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "b.WriteString(\"if !\" + seen[i] + \" {\\nreturn \"",
+      "to": "b.WriteString(\"if false && !\" + seen[i] + \" {\\nreturn \"",
+      "rule": "types.md, Codecs 3: a field the object lacks fails WireMissingField.",
+      "killers": [
+        "lower:TestStdWireLawsRun"
+      ]
+    },
+    {
+      "name": "l11-l2",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "b.WriteString(\"}\\nreturn \" + zero + \", \" + tc.wireFailure(check.WireTagName",
+      "to": "b.WriteString(\"}\\nreturn \" + zero + \", \" + tc.wireFailure(check.WireMissingName",
+      "rule": "types.md, Codecs 3: a tag no variant has fails WireUnknownTag.",
+      "killers": [
+        "lower:TestStdWireLawsRun"
+      ]
+    },
+    {
+      "name": "l11-l3",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\t\t\tb.WriteString(w + \".Tag(\" + task + \", \" + strconv.Quote(vn.Obj.Name) + \")\\n\")",
+      "to": "\t\t\t_ = vn",
+      "rule": "types.md, Codecs 2: a union value writes its variant's Tag first.",
+      "killers": [
+        "lower:TestStdWireLawsRun"
+      ]
+    },
+    {
+      "name": "l11-l4",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\tif parse := check.RefinedParse(t); parse != nil {",
+      "to": "\tif parse := check.RefinedParse(t); parse != nil {\n\t\traw := scope.alloc(\"raw\")\n\t\tb.WriteString(tc.wireDecode(parse.Sig.Params[0].Type, env, r, raw, zero, scope) + \"return \" + tc.goType(t) + \"(\" + raw + \"), nil\\n\")\n\t\treturn\n\t}\n\tif parse := check.RefinedParse(t); parse != nil {",
+      "rule": "types.md, Codecs 1: a refined value decodes through its ParseN.",
+      "killers": [
+        "lower:TestStdWireLawsRun"
+      ]
+    },
+    {
+      "name": "l11-l5",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wirecall.go",
+      "from": "\treturn string(name[0]-'A'+'a') + name[1:]",
+      "to": "\treturn name",
+      "rule": "types.md, Codecs 2: a field's key is its name with the first letter lowered (Effect's Schema.Option value).",
+      "killers": [
+        "examples:deploys"
+      ]
+    },
+    {
+      "name": "l11-l6",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\tif p := l.info.WirePairOf(t); p != nil {\n\t\tparsed(p.Base, p.Parse)",
+      "to": "\tif p := l.info.WirePairOf(t); p != nil && false {\n\t\tparsed(p.Base, p.Parse)",
+      "rule": "types.md, Codecs 1: a by-name pair decodes through ParseX.",
+      "killers": [
+        "lower:TestStdWireLawsRun"
+      ]
+    },
+    {
+      "name": "l11b-l1",
+      "origin": "wf10 v1-lang-B L11b",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\t\t\t\tif isCodable(tp) && i < len(inst.TypeArgs) {",
+      "to": "\t\t\t\tif false && isCodable(tp) && i < len(inst.TypeArgs) {",
+      "rule": "types.md, Codecs 6: a codable argument's codec functions are named in the naming pass.",
+      "killers": [
+        "lower:TestStdWireLawsRun"
+      ]
+    },
+    {
+      "name": "l11b-l2",
+      "origin": "wf10 v1-lang-B L11b",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\t\ts += \", \" + tc.wireOf(tp)",
+      "to": "\t\t_ = tp",
+      "rule": "types.md, Codecs 6: a generic codec function takes each type parameter's witness.",
+      "killers": [
+        "lower:TestStdWireLawsRun"
+      ]
+    },
+    {
+      "name": "l11b-l3",
+      "origin": "wf10 v1-lang-B L11b",
+      "file": "internal/sketch/lower/witness.go",
+      "from": "it != nil && (len(it.Methods) > 0 || it.Set == check.SetWire)",
+      "to": "it != nil && len(it.Methods) > 0",
+      "rule": "types.md, Codecs 6: a codable type parameter takes its codec as a witness.",
+      "killers": [
+        "lower:TestStdWireLawsRun"
+      ]
+    },
+    {
+      "name": "x1-key-drops-field",
+      "origin": "wf10/explorer/x1",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "\t\t\t\tline(l.keyStmt(f.Type, k, v+\".\"+field, site))",
+      "to": "\t\t\t\tif f.Name != \"F1\" {\n\t\t\t\t\tline(l.keyStmt(f.Type, k, v+\".\"+field, site))\n\t\t\t\t}",
+      "rule": "State keys: a record's key writes every field.",
+      "killers": [
+        "lower:TestKeyEqualsEquality"
+      ]
+    },
+    {
+      "name": "x1-key-variant-tag",
+      "origin": "wf10/explorer/x1",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "line(\"\\t\" + k + \".Tag(\" + strconv.Itoa(i) + \")\")",
+      "to": "line(\"\\t\" + k + \".Tag(0*\" + strconv.Itoa(i) + \")\")",
+      "rule": "State keys: a union's key writes its variant.",
+      "killers": [
+        "lower:TestKeyEqualsEquality"
+      ]
+    },
+    {
+      "name": "x1-key-slice-length",
+      "origin": "wf10/explorer/x1",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "\t\tline(k + \".Tag(len(\" + v + \"))\")\n",
+      "to": "",
+      "rule": "State keys: a slice's key writes its length.",
+      "killers": [
+        "lower:TestKeyEqualsEquality"
+      ]
+    },
+    {
+      "name": "x1-key-map-value",
+      "origin": "wf10/explorer/x1",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "\t\tline(\"\\t\" + l.keyStmt(u.Elem, k2, b, site))\n",
+      "to": "\t\tline(\"\\t_ = \" + b)\n",
+      "rule": "State keys: a Map's key writes each entry's value.",
+      "killers": [
+        "lower:TestKeyEqualsEquality"
+      ]
+    },
+    {
+      "name": "x1-harness-runs-ignore-walk",
+      "origin": "wf10/explorer/x1",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "\t\t\t\te = g.signals[moves[r.intn(len(moves))]]",
+      "to": "\t\t\t\te = g.signals[r.intn(len(g.signals))]",
+      "rule": "$ExploreRuns: with a key and listed signals, a generated run picks among the signals that change the state.",
+      "killers": [
+        "lower:TestMachineLawRuns"
+      ],
+      "anchor": {
+        "file": "internal/sketch/lower/tests.go",
+        "text": "Replace(harnessGo + harnessReachGo)"
+      }
+    },
+    {
+      "name": "x1-harness-budget-proved",
+      "origin": "wf10/explorer/x1",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "\tif kind == \"reaches\" {\n\t\treturn \"no run of at most \"",
+      "to": "\tif true {\n\t\treturn \"proved: \", true\n\t}\n\tif kind == \"reaches\" {\n\t\treturn \"no run of at most \"",
+      "rule": "$ExploreAll: a search the budget stops passes as not proved.",
+      "killers": [
+        "lower:TestMachineLawRuns"
+      ],
+      "anchor": {
+        "file": "internal/sketch/lower/tests.go",
+        "text": "Replace(harnessGo + harnessReachGo)"
+      }
+    },
+    {
+      "name": "c2-capture-by-reference",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/lower/closures.go",
+      "from": "if captureLowering == \"reference\" || len(vars) == 0 {",
+      "to": "if true || len(vars) == 0 {",
+      "rule": "Function values 3: an escaping frame's let mut captures lower by value (the local stays on the stack).",
+      "killers": [
+        "lower:TestCaptureLoweringAgrees"
+      ]
+    },
+    {
+      "name": "ig11-init-failure-forgotten",
+      "origin": "wf10 batch-15 fix-r2 (IG11 M1)",
+      "file": "internal/sketch/lower/library.go",
+      "from": "b.WriteString(\"\\tif p := \" + failed + \"; p != nil {",
+      "to": "b.WriteString(\"\\tif p := \" + failed + \"; false && p != nil {",
+      "rule": "interop.md Go calls Ergo 2: when the package-level lets end in a defect, every later call fails with it.",
+      "killers": [
+        "lower:TestGoCallsErgo"
+      ],
+      "anchor": {
+        "text": "runInits := l.initOnce(b)"
+      }
+    },
+    {
+      "name": "l11-basic-decode-unnamed",
+      "origin": "wf10 batch-15 fix-r2 (L11 M1)",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\t\t\tif dir == \"decode\" {",
+      "to": "\t\t\tif false {",
+      "rule": "types.md Codecs 1-2: decode[T] takes every codable T, a basic one at the top too.",
+      "killers": [
+        "lower:TestStdWireLawsRun"
+      ]
+    },
+    {
+      "name": "l11-basic-decode-no-inline-body",
+      "origin": "wf10 batch-15 fix-r2 (L11 M1)",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\tif l.wireInline(t) {\n\t\t// decode[T] of a basic T",
+      "to": "\tif false {\n\t\t// decode[T] of a basic T",
+      "rule": "types.md Codecs 1-2: decode[T] of a basic T reads one event.",
+      "killers": [
+        "lower:TestStdWireLawsRun"
+      ]
+    },
+    {
+      "name": "l11-basic-encode-no-temp",
+      "origin": "wf10 batch-15 fix-r2 (L11 M1)",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\t\tif fc.l.wireInline(c.Type) {",
+      "to": "\t\tif false {",
+      "rule": "types.md Codecs 1-2: encode(v, w) of a basic v writes one event on any Writer.",
+      "killers": [
+        "lower:TestStdWireLawsRun"
       ]
     }
   ]

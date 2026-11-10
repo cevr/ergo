@@ -88,6 +88,7 @@ const (
 	vFresh         // a type identical only to itself: a union, a machine
 	vVar           // a row variable (class F)
 	vRowValue      // a row value: its row's set (q47)
+	vWired         // wired[T]: the decode row of a codable type parameter
 )
 
 // maxSize saturates node counts: a type that shares subterms can have a
@@ -284,12 +285,16 @@ func shape(t Type) (kind byte, ref any, n int64, s string, kids []Type) {
 		return vParam, t, 0, "", nil
 	case *Slice:
 		return vSlice, nil, 0, "", []Type{t.Elem}
+	case *Array:
+		return vArray, nil, t.Len, "", []Type{t.Elem}
 	case *Map:
 		return vMap, nil, 0, "", []Type{t.Key, t.Elem}
 	case *Pointer:
 		return vPointer, nil, 0, "", []Type{t.Elem}
 	case *Tuple:
 		return vTuple, nil, int64(len(t.Types)), "", t.Types
+	case *Wired:
+		return vWired, nil, 0, "", []Type{t.T}
 	case *Signature:
 		kids := make([]Type, 0, len(t.Params)+len(t.Results)+2)
 		for _, p := range t.Params {

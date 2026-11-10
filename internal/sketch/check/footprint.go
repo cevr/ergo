@@ -407,6 +407,12 @@ func (fp *footprinter) with(n *fpNode, w *With) {
 		fp.runs(n, cb.Text, false)
 		return
 	}
+	if w.Installs != nil {
+		// A with of a Context value calls the value, which writes its
+		// providers into the environment copy (contextvalues.go).
+		n.opaque = true
+		return
+	}
 	if len(w.Contexts) == 0 {
 		return
 	}
@@ -509,6 +515,16 @@ func (fp *footprinter) walk(n *fpNode, root syntax.Node) {
 		case *syntax.CallExpr:
 			c := fp.info.Calls[x]
 			fp.call(n, x, c)
+		case syntax.Expr:
+			// A conversion to a Context value builds its providers here
+			// and reads the environment, which a pure frame has not
+			// (contextvalues.go): opaque, as a context read is.
+			if w := fp.info.ContextValues[x]; w != nil {
+				n.opaque = true
+				if !fp.foreign {
+					fp.build(n, w)
+				}
+			}
 		}
 		return true
 	})
@@ -521,7 +537,7 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 		return
 	}
 	switch c.Kind {
-	case CallConversion, CallLen, CallPrelude:
+	case CallConversion, CallLen, CallPrelude, CallGoError:
 		// These calls add no footprint of their own. CallPrelude is
 		// retained compatibility metadata, never produced by the checker.
 	case CallProviderOp:
@@ -549,8 +565,9 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 			return
 		}
 		n.opaque = true
-	case CallOp, CallLawOp:
-		// A law's operation has no body until #162 picks an implementation.
+	case CallOp, CallLawOp, CallEncode, CallDecode:
+		// A law's operation has no body until #162 picks an implementation;
+		// encode and decode call the operations of a Writer or Reader value.
 		n.opaque = true
 	case CallWith:
 		// The block's calls are walked in this frame; the with also runs
@@ -649,7 +666,7 @@ func pureGo(f *Func) bool {
 // (lower, pureStdBody).
 func PureStd(f *Func) bool { return pureStd(f) }
 
-// pureCollections, when "off", counts the prelude's Append, Get and Delete
+// pureCollections, when "off", counts the prelude's Append, Get, Delete and Put
 // as opaque calls again, as before lw-pure-prelude: the reference lowering,
 // in which a function that calls them takes the environment and polls its
 // task. A whole build selects it with
@@ -657,13 +674,13 @@ func PureStd(f *Func) bool { return pureStd(f) }
 // and a test with SetPureCollectionsForTest.
 var pureCollections string
 
-// preludeCollection reports the prelude's Append, Get or Delete.
+// preludeCollection reports the prelude's Append, Get, Delete or Put.
 func preludeCollection(f *Func) bool {
 	if f.Pkg == nil || f.Pkg.Path != std.PreludePath {
 		return false
 	}
 	switch f.Name {
-	case "Append", "Get", "Delete":
+	case "Append", "Get", "Delete", "Put":
 		return true
 	}
 	return false

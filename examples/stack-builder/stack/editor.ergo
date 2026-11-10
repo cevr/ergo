@@ -1,0 +1,133 @@
+// Package stack is a stack builder: a hub that browses a library, searches
+// it, and opens a part editor as a child actor. A composite's editor opens a
+// nested editor of the same machine for each of its slots, so editors
+// nest as deep as the library does, and each unit is built inside its
+// parent's unit.
+
+import actor
+import machines
+
+// Part is a library part. A composite has slots, each a choice among parts.
+type Part { Name string, Size int, Slots []Slot }
+
+type Slot { Name string, Choices []Part }
+
+// Unit is a part as planned: its unit size, its count, and the units
+// of its slots.
+type Unit { Part string, Size int, Count int, Subs []Unit }
+
+// Edit is an editor's state. Picking waits for the choice of the next
+// slot; Nested hosts the editor of that choice: Sub is its host, which
+// the entry's work fills, so a screen reaches the editor through it.
+type Edit =
+	| Choosing{Part Part, Count int, Subs []Unit}
+	| Picking{Part Part, Count int, Subs []Unit}
+	| Nested{Part Part, Count int, Subs []Unit, Choice Part, Sub actor.Host[EditActor]}
+
+type EditSignal =
+	| More{}
+	| Less{}
+	| Choose{Index int}
+	| Add{}
+	| Back{}
+	| SubAdded{L Unit}
+	| SubBack{}
+
+// EditOut is how an editor ends: the unit it built, or back with nothing.
+type EditOut = Added{L Unit} | WentBack{}
+
+// EditActor is an editor's address. A union whose only variant is an
+// existing type is that type, an alias: the address is actor.Child's result
+// itself, with no wrapper to build or unwrap.
+type EditActor = actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]
+
+type Editor machine[Edit, EditSignal] { initial: editing, step: editStep, work: editWork }
+
+func editing(it Part) Edit { settle(Choosing{Part: it, Count: 1, Subs: []Unit{}}) }
+
+// settle is the eventless step: a composite with a slot left picks it first.
+func settle(e Edit) Edit {
+	match e {
+	case Choosing as c:
+		if len(c.Subs) < len(c.Part.Slots) {
+			Picking{Part: c.Part, Count: c.Count, Subs: c.Subs}
+		} else {
+			e
+		}
+	case Picking:
+		e
+	case Nested:
+		e
+	}
+}
+
+// UnitOf is the unit of a part with its subs: the unit size is the
+// part's and its subs'.
+func UnitOf(it Part, count int, subs []Unit) Unit {
+	let mut size = it.Size
+	for p in subs {
+		size = size + p.Size*p.Count
+	}
+	Unit{Part: it.Name, Size: size, Count: count, Subs: subs}
+}
+
+func editStep(s Edit, e EditSignal) Decision[Edit, EditOut] {
+	match (s, e) {
+	case (Choosing as c, More):
+		Stay[Edit]{Next: Choosing{..c, Count: c.Count + 1}}
+	case (Choosing as c, Less):
+		if c.Count > 1 {
+			Stay[Edit]{Next: Choosing{..c, Count: c.Count - 1}}
+		} else {
+			Reject
+		}
+	case (Choosing as c, Add):
+		Done[EditOut]{Output: Added{L: UnitOf(c.Part, c.Count, c.Subs)}}
+	case (Choosing, Back):
+		Done[EditOut]{Output: WentBack}
+	case (Choosing, _):
+		Ignore
+	case (Picking as p, Choose as ch):
+		let choices = p.Part.Slots[len(p.Subs)].Choices
+		if ch.Index >= 0 && ch.Index < len(choices) {
+			Enter[Edit]{Next: Nested{Part: p.Part, Count: p.Count, Subs: p.Subs, Choice: choices[ch.Index], Sub: actor.NewHost[EditActor]()}}
+		} else {
+			Reject
+		}
+	case (Picking, Back):
+		Done[EditOut]{Output: WentBack}
+	case (Picking, _):
+		Ignore
+	case (Nested as n, SubAdded as a):
+		Enter[Edit]{Next: settle(Choosing{Part: n.Part, Count: n.Count, Subs: n.Subs.Append(a.L)})}
+	case (Nested as n, SubBack):
+		Enter[Edit]{Next: Picking{Part: n.Part, Count: n.Count, Subs: n.Subs}}
+	case (Nested, _):
+		Ignore
+	}
+}
+
+// toSub is a nested editor's end as a signal of its parent editor.
+func toSub(o EditOut) EditSignal {
+	match o {
+	case Added as a:
+		SubAdded{L: a.L}
+	case WentBack:
+		SubBack
+	}
+}
+
+// editWork: Nested hosts the editor of its choice, a child of the entry,
+// in the state's host.
+func editWork(s Edit) Option[machines.Work[EditSignal, Scheduler]] {
+	match s {
+	case Nested as n:
+		Some{machines.Work{Listen: func(send func(e EditSignal)) needs Scheduler {
+			let _ = actor.ChildIn(send, n.Sub, machines.Start(Editor{}, n.Choice), 4, toSub)
+		}}}
+	case Choosing:
+		None
+	case Picking:
+		None
+	}
+}

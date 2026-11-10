@@ -3,4 +3,4 @@ let Invoices = context{Invoice:0, // want S106 S108
 e}
 let App = context{Invoices} // want S108
 let e = context{App} // want S108
-extern go strings.A func A()
+extern go strings.A func A() // want S104

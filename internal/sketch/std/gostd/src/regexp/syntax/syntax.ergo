@@ -273,6 +273,7 @@ extern go regexp/syntax.Regexp type Regexp {
 	Op    Op,
 	Flags Flags,
 	Rune  []rune,
+	Rune0 [2]rune,
 	Min   int,
 	Max   int,
 	Cap   int,
@@ -283,10 +284,7 @@ extern go regexp/syntax.Regexp type Regexp {
 // ergo:refused Regexp.Sub: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go Sub0 [1]*syntax.Regexp
-// ergo:refused Regexp.Sub0: Ergo has no fixed arrays; a Go array [1]*regexp/syntax.Regexp maps to no Ergo type
-
-// ergo:go Rune0 [2]rune
-// ergo:refused Regexp.Rune0: Ergo has no fixed arrays; a Go array [2]rune maps to no Ergo type
+// ergo:refused Regexp.Sub0: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*Regexp).CapNames() []string
 extern go regexp/syntax.Regexp.CapNames func (re *Regexp) CapNames() []string needs go.Foreign

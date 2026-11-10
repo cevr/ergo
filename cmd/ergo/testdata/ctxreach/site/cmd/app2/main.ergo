@@ -1,0 +1,8 @@
+import site/mem
+import site/p
+
+let Live = context { mem.Serving }
+
+func main() needs Console {
+	Console.Println(with Live { p.Use() })
+}

@@ -1,0 +1,38 @@
+{
+  "about": "The mutant ledger of internal/sketch/syntax: edits of the parser's derived forms that the package's tests must kill. Run it with go run ./scripts/mutants ./internal/sketch/syntax; a unit that cannot afford the coverage pass applies each edit by hand and runs the killer. Seeded by wf10 batch-15 fix-r2 (L11b M1).",
+  "mutants": [
+    {
+      "name": "l11b-s1",
+      "origin": "wf10 v1-lang-B L11b",
+      "file": "internal/sketch/syntax/pair.go",
+      "from": "\td := types[name]\n\tif d == nil ||",
+      "to": "\td := types[name]\n\tif true || d == nil ||",
+      "rule": "types.md Codecs 7: the round-trip law of an open X draws x itself.",
+      "killers": [
+        "internal/sketch/syntax:TestPairLawDraws"
+      ]
+    },
+    {
+      "name": "l11b-inline-variant-closed",
+      "origin": "wf10 batch-15 fix-r2 (L11b M1)",
+      "file": "internal/sketch/syntax/pair.go",
+      "from": "\t\t\t\tif v.TypeArgs != nil || !openFields(v.Fields) {",
+      "to": "\t\t\t\tif true {",
+      "rule": "types.md Codecs 7: a union of inline records of exported fields is open, so its law draws x.",
+      "killers": [
+        "internal/sketch/syntax:TestPairLawDraws"
+      ]
+    },
+    {
+      "name": "l11b-unexported-field-open",
+      "origin": "wf10 batch-15 fix-r2 (L11b M1)",
+      "file": "internal/sketch/syntax/pair.go",
+      "from": "\t\t\tif !isExportedName(n.Name) {\n\t\t\t\treturn false",
+      "to": "\t\t\tif !isExportedName(n.Name) && false {\n\t\t\t\treturn false",
+      "rule": "types.md Codecs 7: a record with an unexported field is built only by its package; its law draws b through ParseX.",
+      "killers": [
+        "internal/sketch/syntax:TestPairLawDraws"
+      ]
+    }
+  ]
+}

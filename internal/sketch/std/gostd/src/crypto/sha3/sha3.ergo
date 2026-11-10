@@ -82,16 +82,16 @@ extern go crypto/sha3.SHAKE.UnmarshalBinary func (s *SHAKE) UnmarshalBinary(data
 extern go crypto/sha3.SHAKE.Write func (s *SHAKE) Write(p []byte) int fails go.Error needs go.Foreign
 
 // ergo:go func Sum224(data []byte) [28]byte
-// ergo:refused Sum224: result 1: Ergo has no fixed arrays; a Go array [28]byte maps to no Ergo type
+extern go crypto/sha3.Sum224 func Sum224(data []byte) [28]byte needs go.Foreign
 
 // ergo:go func Sum256(data []byte) [32]byte
-// ergo:refused Sum256: result 1: Ergo has no fixed arrays; a Go array [32]byte maps to no Ergo type
+extern go crypto/sha3.Sum256 func Sum256(data []byte) [32]byte needs go.Foreign
 
 // ergo:go func Sum384(data []byte) [48]byte
-// ergo:refused Sum384: result 1: Ergo has no fixed arrays; a Go array [48]byte maps to no Ergo type
+extern go crypto/sha3.Sum384 func Sum384(data []byte) [48]byte needs go.Foreign
 
 // ergo:go func Sum512(data []byte) [64]byte
-// ergo:refused Sum512: result 1: Ergo has no fixed arrays; a Go array [64]byte maps to no Ergo type
+extern go crypto/sha3.Sum512 func Sum512(data []byte) [64]byte needs go.Foreign
 
 // ergo:go func SumSHAKE128(data []byte, length int) []byte
 extern go crypto/sha3.SumSHAKE128 func SumSHAKE128(data []byte, length int) []byte needs go.Foreign

@@ -1,0 +1,503 @@
+// The package host is the design model of an actor's hosts, std
+// actor.Host[A] (runtime.md, Machines and actors 16; runtime/v1
+// actor_host.go), checked by `ergo test models/host`. It replaced the
+// Quint model host.qnt of docs/research/actor-machine (mu-host; deleted):
+// the same actions and invariants, decided by a breadth-first search of
+// every state in a small scope instead of random traces (wf10 explorer X4).
+//
+// A step makes empty hosts and puts them in the state it enters; the
+// runner binds each one to that entry. The entry's work fills a host with
+// a child (actor.ChildIn); a host is filled once, only by the work of the
+// entry it is bound to, and never after that entry ended. The runner
+// publishes the entry only once its work has filled the entry's hosts, or
+// has reached its first wait, or has ended. A reader takes a host from a
+// published state and calls Get: the child when the host is filled,
+// Stopped once its entry ended, and otherwise it waits. A state may carry
+// an old host into a new entry (the program copies the field); that host
+// stays bound to its old entry, so it is closed.
+//
+// Each action of the Quint model is a signal; an action that is not
+// enabled is Ignore. The invariants are checked after each step: a step
+// that breaks one enters Broken with its name.
+//
+//   - FillBeforePublish: once the current entry is published, each of its
+//     hosts is filled, or its work has waited or ended;
+//   - NoFillAfterEnd: no host is filled after its entry ended, or by the
+//     work of another entry;
+//   - GetSeesItsEntry: a Get gives only a child of the entry the host was
+//     bound to when the reader took it.
+//
+// The scope is the Quint model's: 4 hosts, entries 0 to 4, at most 2 new
+// hosts an entry and 4 readers. It is the claim: "proved" means proved in
+// this scope. A new host is the lowest host not made yet: the hosts not
+// made are equal in every field, so the choice of one of them is a
+// symmetry, and the search takes one representative. For the same reason
+// the readers' views are an ordered set: a second reader of one host taken
+// in one entry reads what the first reads (Quint keeps a list of 4 with
+// repeats; every set of at most 4 views is reached either way).
+//
+// Mutants, each a machine whose law Breaks must hold (a shortest run that
+// breaks the invariant named; as in the Quint check, each mutant machine
+// checks only the invariant it targets):
+//   - PublishEarly: the runner publishes as soon as the entry is committed
+//     (FillBeforePublish);
+//   - FillAfterEnd: ChildIn fills any empty host the state holds, with no
+//     entry check (NoFillAfterEnd);
+//   - GetNewer: a carried host is bound again to the new entry, so the new
+//     work fills it and an old reader's Get gives a child of a newer entry
+//     (GetSeesItsEntry).
+//
+// Witnesses, each a machine whose law Reached must hold, so the invariants
+// are not vacuous: a Get gives a child; a Get fails Stopped; an entry is
+// published with an empty host because its work waited first; a state
+// carries a host into a new entry.
+//
+// Workarounds of today's Ergo: a variant with no fields is written `H0{}`;
+// there is no slice update expression, so setInt and setBool copy a slice.
+
+type Host = H0{} | H1{} | H2{} | H3{}
+
+// Slot is a reader: the index of a taken host in Views.
+type Slot = V0{} | V1{} | V2{} | V3{}
+
+// Fresh is the number of new hosts the step makes (Quint: fresh.size() <= 2).
+type Fresh = NoFresh{} | OneFresh{} | TwoFresh{}
+
+// Carry is the set of hosts the new state carries from the current one.
+type Carry { C0 bool, C1 bool, C2 bool, C3 bool }
+
+type Phase = Waited{} | Ended{}
+
+// View is a reader's taken host and the entry it was bound to then.
+type View { H int, Owner int }
+
+// World is the Quint model's state. Each slice has one element per host.
+// Phase is 0 while the work runs (before its first wait), 1 once it waited
+// and 2 once it ended. HostEntry is the entry a host is bound to, -1 before
+// it is made. InState is the hosts the current state holds.
+type World {
+	Epoch     int,
+	Published int,
+	Phase     int,
+	HostEntry []int,
+	Filled    []bool,
+	ChildOf   []int,
+	Closed    []bool,
+	InState   []bool,
+	Views     []View,
+	LateFill  bool,
+	BadGet    bool,
+}
+
+// St is the model's state: the world, a broken invariant, or a witness
+// reached (only the witness machines enter Seen).
+type St = Live{W World} | Broken{Why string} | Seen{What string}
+
+// Act is the actions of the Quint model.
+type Act = NewEntry{Fresh Fresh, Carry Carry} | Fill{H Host} | Work{To Phase} | Publish{} | Take{H Host} | Read{I Slot}
+
+// The scope.
+let Hosts = 4
+let MaxEntry = 4
+let MaxViews = 4
+
+let Running = 0
+let HasWaited = 1
+let HasEnded = 2
+
+// The mutants and the design, as the argument of next.
+let NoMutant = 0
+let PublishEarlyMutant = 1
+let FillAfterEndMutant = 2
+let GetNewerMutant = 3
+
+// The invariants, as the argument of broken (Every checks them all).
+let Every = 0
+let FillBeforePublish = 1
+let NoFillAfterEnd = 2
+let GetSeesItsEntry = 3
+
+func hostIx(h Host) int {
+	match h {
+	case H0:
+		0
+	case H1:
+		1
+	case H2:
+		2
+	case H3:
+		3
+	}
+}
+
+func slotIx(v Slot) int {
+	match v {
+	case V0:
+		0
+	case V1:
+		1
+	case V2:
+		2
+	case V3:
+		3
+	}
+}
+
+func freshN(f Fresh) int {
+	match f {
+	case NoFresh:
+		0
+	case OneFresh:
+		1
+	case TwoFresh:
+		2
+	}
+}
+
+func carried(c Carry) []bool {
+	[]bool{c.C0, c.C1, c.C2, c.C3}
+}
+
+func setInt(xs []int, i int, v int) []int {
+	let mut out = []int{}
+	for j, x in xs {
+		if j == i {
+			out = out.Append(v)
+		} else {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func setBool(xs []bool, i int, v bool) []bool {
+	let mut out = []bool{}
+	for j, x in xs {
+		if j == i {
+			out = out.Append(v)
+		} else {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// before orders views by host, then by entry.
+func before(a View, b View) bool {
+	a.H < b.H || (a.H == b.H && a.Owner < b.Owner)
+}
+
+// insertView puts v into the ordered set vs.
+func insertView(vs []View, v View) []View {
+	let mut out = []View{}
+	let mut put = false
+	for x in vs {
+		if !put && before(v, x) {
+			out = out.Append(v)
+			put = true
+		}
+		out = out.Append(x)
+	}
+	if !put {
+		out = out.Append(v)
+	}
+	out
+}
+
+// first is the start: entry 0 with no host, published, its work ended.
+func first() St {
+	Live{W: World{
+		Epoch:     0,
+		Published: 0,
+		Phase:     HasEnded,
+		HostEntry: []int{-1, -1, -1, -1},
+		Filled:    []bool{false, false, false, false},
+		ChildOf:   []int{-1, -1, -1, -1},
+		Closed:    []bool{false, false, false, false},
+		InState:   []bool{false, false, false, false},
+		Views:     []View{},
+		LateFill:  false,
+		BadGet:    false,
+	}}
+}
+
+// entryFilled reports whether every host of the current entry that the
+// state holds is filled.
+func entryFilled(w World) bool {
+	for h in 0..Hosts {
+		if w.InState[h] && w.HostEntry[h] == w.Epoch && !w.Filled[h] {
+			return false
+		}
+	}
+	true
+}
+
+// broken is the name of the first invariant w breaks among those only
+// selects (Every: all of them), or "".
+func broken(w World, only int) string {
+	if (only == Every || only == FillBeforePublish) && w.Published == w.Epoch && !entryFilled(w) && w.Phase == Running {
+		return "FillBeforePublish"
+	}
+	if (only == Every || only == NoFillAfterEnd) && w.LateFill {
+		return "NoFillAfterEnd"
+	}
+	if (only == Every || only == GetSeesItsEntry) && w.BadGet {
+		return "GetSeesItsEntry"
+	}
+	""
+}
+
+// next is w after the action a under the mutant m (NoMutant is the design),
+// or None when a is not enabled.
+func next(m int, w World, a Act) Option[World] {
+	match a {
+	case NewEntry as en:
+		// The step enters a new entry with n new hosts and the carried
+		// ones. The old entry ends: its hosts close. The runner takes no
+		// signal before it published the entry it is in.
+		if w.Published != w.Epoch || w.Epoch >= MaxEntry {
+			return None
+		}
+		let carry = carried(en.Carry)
+		let mut fresh = []bool{false, false, false, false}
+		let mut want = freshN(en.Fresh)
+		for h in 0..Hosts {
+			if carry[h] && !w.InState[h] {
+				return None
+			}
+			if want > 0 && w.HostEntry[h] == -1 {
+				fresh = setBool(fresh, h, true)
+				want = want - 1
+			}
+		}
+		if want > 0 {
+			return None
+		}
+		let e = w.Epoch + 1
+		let mut hostEntry = []int{}
+		let mut closed = []bool{}
+		let mut filled = []bool{}
+		let mut inState = []bool{}
+		for h in 0..Hosts {
+			// GetNewer: a carried host is bound again to the new entry.
+			let rebound = m == GetNewerMutant && carry[h]
+			hostEntry = hostEntry.Append(if fresh[h] || rebound { e } else { w.HostEntry[h] })
+			closed = closed.Append(if rebound { false } else { if w.HostEntry[h] == w.Epoch { true } else { w.Closed[h] } })
+			filled = filled.Append(if rebound { false } else { w.Filled[h] })
+			inState = inState.Append(fresh[h] || carry[h])
+		}
+		Some[World]{Value: World{..w,
+			Epoch:     e,
+			Phase:     Running,
+			HostEntry: hostEntry,
+			Closed:    closed,
+			Filled:    filled,
+			InState:   inState,
+		}}
+	case Fill as f:
+		// The current entry's work fills h with a child (ChildIn).
+		// FillAfterEnd: no entry check.
+		let h = hostIx(f.H)
+		if w.Phase == HasEnded || !w.InState[h] || w.Filled[h] {
+			return None
+		}
+		let own = w.HostEntry[h] == w.Epoch && !w.Closed[h]
+		if m != FillAfterEndMutant && !own {
+			return None
+		}
+		Some[World]{Value: World{..w,
+			Filled:   setBool(w.Filled, h, true),
+			ChildOf:  setInt(w.ChildOf, h, w.Epoch),
+			LateFill: w.LateFill || !own,
+		}}
+	case Work as k:
+		// The work reaches its first wait, or ends.
+		match k.To {
+		case Waited:
+			if w.Phase != Running {
+				return None
+			}
+			Some[World]{Value: World{..w, Phase: HasWaited}}
+		case Ended:
+			if w.Phase == HasEnded {
+				return None
+			}
+			Some[World]{Value: World{..w, Phase: HasEnded}}
+		}
+	case Publish:
+		// The runner shows the entry to observers. PublishEarly: at once.
+		if w.Published >= w.Epoch {
+			return None
+		}
+		if m != PublishEarlyMutant && !entryFilled(w) && w.Phase == Running {
+			return None
+		}
+		Some[World]{Value: World{..w, Published: w.Epoch}}
+	case Take as t:
+		// A reader reads the published state and keeps one of its hosts.
+		let h = hostIx(t.H)
+		if w.Published != w.Epoch || !w.InState[h] {
+			return None
+		}
+		let v = View{H: h, Owner: w.HostEntry[h]}
+		for x in w.Views {
+			if x == v {
+				// A second reader of the same view reads what the first
+				// reads, so the views are a set (a symmetry).
+				return Some[World]{Value: w}
+			}
+		}
+		if len(w.Views) >= MaxViews {
+			return None
+		}
+		Some[World]{Value: World{..w, Views: insertView(w.Views, v)}}
+	case Read as r:
+		// A reader's Get returns: Stopped on a closed host, the child on a
+		// filled one; on an empty open host it waits (not enabled).
+		let i = slotIx(r.I)
+		if i >= len(w.Views) {
+			return None
+		}
+		let v = w.Views[i]
+		if w.Closed[v.H] {
+			return Some[World]{Value: w}
+		}
+		if !w.Filled[v.H] {
+			return None
+		}
+		Some[World]{Value: World{..w, BadGet: w.BadGet || w.ChildOf[v.H] != v.Owner}}
+	}
+}
+
+// stepWith is the step of the model under the mutant m, which checks the
+// invariants only selects.
+func stepWith(m int, only int, s St, a Act) Decision[St, string] {
+	match s {
+	case Live as l:
+		match next(m, l.W, a) {
+		case None:
+			Ignore
+		case Some[World] as n:
+			let why = broken(n.Value, only)
+			if why != "" {
+				Enter[St]{Next: Broken{Why: why}}
+			} else {
+				Enter[St]{Next: Live{W: n.Value}}
+			}
+		}
+	case _:
+		Ignore
+	}
+}
+
+func stepDesign(s St, a Act) Decision[St, string]       { stepWith(NoMutant, Every, s, a) }
+func stepPublishEarly(s St, a Act) Decision[St, string] { stepWith(PublishEarlyMutant, FillBeforePublish, s, a) }
+func stepFillAfterEnd(s St, a Act) Decision[St, string] { stepWith(FillAfterEndMutant, NoFillAfterEnd, s, a) }
+func stepGetNewer(s St, a Act) Decision[St, string]     { stepWith(GetNewerMutant, GetSeesItsEntry, s, a) }
+
+// The design keeps every invariant in the scope.
+type Design machine[St, Act] {
+	initial: first(),
+	step:    stepDesign,
+
+	law Safe never reaches Broken,
+}
+
+type PublishEarly machine[St, Act] {
+	initial: first(),
+	step:    stepPublishEarly,
+
+	law Breaks reaches Broken,
+}
+
+type FillAfterEnd machine[St, Act] {
+	initial: first(),
+	step:    stepFillAfterEnd,
+
+	law Breaks reaches Broken,
+}
+
+type GetNewer machine[St, Act] {
+	initial: first(),
+	step:    stepGetNewer,
+
+	law Breaks reaches Broken,
+}
+
+// The witnesses. Each is the design's step that enters Seen when the
+// witness holds for an action (Quint's counters childGets, stoppedGets,
+// waitPublishes and carried).
+let ChildGetWitness = 1
+let StoppedGetWitness = 2
+let WaitPublishWitness = 3
+let CarryWitness = 4
+
+// witnessed reports whether the witness k holds when the enabled action a
+// is taken in w.
+func witnessed(k int, w World, a Act) bool {
+	match a {
+	case Read as r:
+		let v = w.Views[slotIx(r.I)]
+		if k == ChildGetWitness {
+			return !w.Closed[v.H] && w.Filled[v.H]
+		}
+		k == StoppedGetWitness && w.Closed[v.H]
+	case Publish:
+		k == WaitPublishWitness && !entryFilled(w)
+	case NewEntry as en:
+		k == CarryWitness && (en.Carry.C0 || en.Carry.C1 || en.Carry.C2 || en.Carry.C3)
+	case _:
+		false
+	}
+}
+
+func stepWitness(k int, s St, a Act) Decision[St, string] {
+	match s {
+	case Live as l:
+		match next(NoMutant, l.W, a) {
+		case None:
+			Ignore
+		case Some[World] as n:
+			if witnessed(k, l.W, a) {
+				Enter[St]{Next: Seen{What: "witness"}}
+			} else {
+				Enter[St]{Next: Live{W: n.Value}}
+			}
+		}
+	case _:
+		Ignore
+	}
+}
+
+func stepChildGet(s St, a Act) Decision[St, string]    { stepWitness(ChildGetWitness, s, a) }
+func stepStoppedGet(s St, a Act) Decision[St, string]  { stepWitness(StoppedGetWitness, s, a) }
+func stepWaitPublish(s St, a Act) Decision[St, string] { stepWitness(WaitPublishWitness, s, a) }
+func stepCarry(s St, a Act) Decision[St, string]       { stepWitness(CarryWitness, s, a) }
+
+type ChildGet machine[St, Act] {
+	initial: first(),
+	step:    stepChildGet,
+
+	law Reached reaches Seen,
+}
+
+type StoppedGet machine[St, Act] {
+	initial: first(),
+	step:    stepStoppedGet,
+
+	law Reached reaches Seen,
+}
+
+type WaitPublish machine[St, Act] {
+	initial: first(),
+	step:    stepWaitPublish,
+
+	law Reached reaches Seen,
+}
+
+type Carries machine[St, Act] {
+	initial: first(),
+	step:    stepCarry,
+
+	law Reached reaches Seen,
+}

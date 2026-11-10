@@ -368,6 +368,20 @@ func main() {
 	use(Mine)
 }
 `,
+	// std testing (L5b): newOp's extern returns the Op of a Script.
+	"testing.Op": `import testing
+
+type Mine {}
+
+func Answer(_ Mine, f escaping func() int) {}
+func Calls(_ Mine) []testing.NoArgs { []testing.NoArgs{} }
+
+func use(o testing.Op[testing.NoArgs, func() int]) { _ = o.Calls() }
+
+func main() {
+	use(Mine)
+}
+`,
 	// std time (S2b): NewManual's extern returns the Timeline.
 	"time.Timeline": `import time
 
@@ -430,6 +444,49 @@ func use(s Scheduler) { s.Sleep(1ms) }
 
 func pass(m Mine) {
 	use(m)
+}
+`,
+	// The codec events (L11): a format or a program provides each.
+	"prelude.Writer": `type Mine {}
+
+func Bool(_ Mine, b bool) {}
+func Int(_ Mine, n int64) {}
+func Uint(_ Mine, n uint64) {}
+func Float(_ Mine, f float64) {}
+func String(_ Mine, s string) {}
+func BeginList(_ Mine, n int) {}
+func EndList(_ Mine) {}
+func BeginObject(_ Mine, n int) {}
+func Tag(_ Mine, name string) {}
+func Key(_ Mine, k string) {}
+func EndObject(_ Mine) {}
+
+func use(w Writer) { w.Bool(true) }
+
+func main() {
+	use(Mine)
+}
+`,
+	"prelude.Reader": `type Mine {}
+
+func Path(_ Mine) string { "" }
+func Bool(_ Mine) bool fails WireWrongKind { true }
+func Int(_ Mine) int64 fails WireWrongKind { 0 }
+func Uint(_ Mine) uint64 fails WireWrongKind { 0 }
+func Float(_ Mine) float64 fails WireWrongKind { 0.0 }
+func String(_ Mine) string fails WireWrongKind { "" }
+func BeginList(_ Mine) fails WireWrongKind {}
+func BeginObject(_ Mine) fails WireWrongKind {}
+func Tag(_ Mine) string fails WireMissingField { "" }
+func More(_ Mine) bool { false }
+func Key(_ Mine) string { "" }
+func Skip(_ Mine) {}
+func End(_ Mine) {}
+
+func use(r Reader) { _ = r.More() }
+
+func main() {
+	use(Mine)
 }
 `,
 	// std time (S2b): the prelude's Clock moved here, with Now() time.Time.
@@ -598,6 +655,8 @@ var openStd = map[string]bool{
 	"prelude.Scheduler": true,
 	"time.Clock":        true,
 	"prelude.Random":    true,
+	"prelude.Writer":    true,
+	"prelude.Reader":    true,
 	"os.Process":        true,
 	"fs.Files":          true,
 	"fs.Writes":         true,
@@ -948,7 +1007,7 @@ func main() { with W { A.Use() } }
 		t.Run(name, func(t *testing.T) { judgeOutside(t, src, "#197") })
 	}
 	t.Run("user-extern-close", func(t *testing.T) {
-		judgeOutside(t, "type R {}\nextern go strings.F func Close(r R) // want S109\n", "#202")
+		judgeOutside(t, "type R {}\nextern go example.com/x.F func Close(r R) // want S109\n", "#202")
 	})
 	t.Run("no-std-extern-close", func(t *testing.T) {
 		prog, ds := check.CheckSource("func f(c Console) { c.Println(\"x\") }\n")

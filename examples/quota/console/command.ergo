@@ -1,0 +1,94 @@
+// Package console is the quota console: it reads an operator's commands,
+// one per line, and carries each out on a quota.Store, saying what
+// became of it. It knows no store; the program binds one.
+
+import strconv
+import strings
+
+// Command is one line an operator writes.
+type Command = OpenCmd{ID string, Floor int64} | Grant{Key string, ID string, Size int64} | Reclaim{Key string, ID string, Size int64} | MoveCmd{Key string, From string, To string, Size int64} | SizeCmd{ID string} | List{}
+
+// BadCommand is a line that does not read.
+type BadCommand { Line int, Reason string }
+
+// Gigabytes is the text of hundredths of a GB: "12.05 GB", "-0.40 GB".
+func Gigabytes(hundredths int64) string {
+	let sign = if hundredths < 0 { "-" } else { "" }
+	let c = if hundredths < 0 { -hundredths } else { hundredths }
+	let rest = c % 100
+	let pad = if rest < 10 { "0" } else { "" }
+	"\(sign)\(c / 100).\(pad)\(rest) GB"
+}
+
+// Size reads a size in GB with at most two places after the
+// point, as "12", "12.5" or "12.05", in hundredths. The std has no decimal
+// type, so the program reads its own.
+func Size(text string) int64 fails strconv.Malformed | strconv.OutOfRange {
+	let whole, part = match strings.Cut(text, ".") {
+	case Some[strings.Halves] as h:
+		(h.Value.Before, h.Value.After)
+	case None:
+		(text, "")
+	}
+	if whole == "" || len(part) > 2 || strings.HasPrefix(whole, "-") || strings.HasPrefix(whole, "+") || strings.HasPrefix(part, "-") || strings.HasPrefix(part, "+") {
+		return strconv.Malformed{Text: text}
+	}
+	let w = try strconv.ParseInt(whole, 10, 64)
+	let p = if part == "" { int64(0) } else { try strconv.ParseInt(part, 10, 64) }
+	let hundredths = if len(part) == 1 { p * 10 } else { p }
+	if w > 90000000000000000 {
+		return strconv.OutOfRange{Text: text}
+	}
+	w*100 + hundredths
+}
+
+// Parse is the command of a line, numbered n for its failure.
+func Parse(n int, line string) Command fails BadCommand {
+	let w = strings.Fields(line)
+	let verb = if len(w) > 0 { w[0] } else { "" }
+	match (verb, len(w)) {
+	case ("open", 2):
+		OpenCmd{ID: w[1], Floor: 0}
+	case ("open", 3):
+		OpenCmd{ID: w[1], Floor: -(try parseSize(n, w[2]))}
+	case ("grant", 4):
+		Grant{Key: w[1], ID: w[2], Size: try parseSize(n, w[3])}
+	case ("reclaim", 4):
+		Reclaim{Key: w[1], ID: w[2], Size: try parseSize(n, w[3])}
+	case ("move", 5):
+		MoveCmd{Key: w[1], From: w[2], To: w[3], Size: try parseSize(n, w[4])}
+	case ("size", 2):
+		SizeCmd{ID: w[1]}
+	case ("volumes", 1):
+		List
+	case _:
+		BadCommand{Line: n, Reason: "\(strings.TrimSpace(line)) is not open VOL [OVERCOMMIT], grant KEY VOL SIZE, reclaim KEY VOL SIZE, move KEY FROM TO SIZE, size VOL or volumes"}
+	}
+}
+
+// parseSize is the size w on line n.
+func parseSize(n int, w string) int64 fails BadCommand {
+	Size(w) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return BadCommand{Line: n, Reason: "\(w) is not a size such as 12.50"}
+	}
+}
+
+// ParseAll is the commands of text, one per line; a blank line and a
+// line from # on are skipped.
+func ParseAll(text string) []Command fails BadCommand {
+	let mut out = []Command{}
+	for i, raw in strings.Split(text, "\n") {
+		let line = match strings.Cut(raw, "#") {
+		case Some[strings.Halves] as h:
+			h.Value.Before
+		case None:
+			raw
+		}
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		out = out.Append(try Parse(i+1, line))
+	}
+	out
+}

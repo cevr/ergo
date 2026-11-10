@@ -45,12 +45,19 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 			ice(x, "len with %d arguments", len(x.Args))
 		}
 		return operand{val: "len(" + fc.value(x.Args[0]) + ")"}
+	case check.CallGoError:
+		return fc.goErrorCall(x, c) // gocall.go
+	case check.CallEncode, check.CallDecode:
+		return fc.wireCall(x, c)
 	}
 	if check.IsUnreachable(c) {
 		return fc.unreachableValue(x)
 	}
 	if goImportCall(c, fc.typeOf) {
 		return fc.goCall(x, c) // gocall.go
+	}
+	if goExternCall(c) {
+		return fc.goExtern(x, c) // gocall.go, Level 2 adapters
 	}
 	held := fc.holdTaken(x, c)
 	captures := fc.captureOwners(x)
@@ -130,10 +137,25 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 // call that cannot fail at this site drops its error, which is nil.
 func (fc *funcCtx) callStmt(x *syntax.CallExpr) string {
 	c := fc.l.info.Calls[x]
-	if goImportCall(c, fc.typeOf) {
-		// A Go call writes its own statements (goCall); a discarded
-		// value is used once so Go accepts it.
-		if op := fc.goCall(x, c); op.err != "" {
+	if goImportCall(c, fc.typeOf) || goExternCall(c) {
+		// A Go call writes its own statements (goCall, goExtern); a
+		// discarded value is used once so Go accepts it.
+		op := operand{}
+		if goExternCall(c) {
+			op = fc.goExtern(x, c)
+		} else {
+			op = fc.goCall(x, c)
+		}
+		if op.err != "" {
+			ice(x, "an untried fallible call in a statement")
+		} else if op.val != "" {
+			return "_ = " + op.val
+		}
+		return ""
+	}
+	if c.Kind == check.CallEncode || c.Kind == check.CallDecode {
+		// A codec call writes its own statements (wire.go).
+		if op := fc.wireCall(x, c); op.err != "" {
 			ice(x, "an untried fallible call in a statement")
 		} else if op.val != "" {
 			return "_ = " + op.val
@@ -276,10 +298,15 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		}
 		vals := fc.callArgs(args, x)
 		env := fc.envExpr(x)
+		if recv := fc.l.tests.lawOwnOf(c); recv != "" {
+			// A law of a generic operation type calls the provider it
+			// takes (lawDecl), as a call on a value of the type does.
+			return fc.opCall(cap, c.Op, fc.typeOf(x), append([]string{recv}, vals...), env, x, c, x)
+		}
 		// A capability's operation takes the running task first (rows.md,
 		// Rows 7).
 		vals = append([]string{taskOf(env)}, vals...)
-		return env + "." + fc.l.envField(cap.Obj) + "." + memberName(c.Op.Name) + "(" + strings.Join(vals, ", ") + ")", len(c.Op.Sig.Results) > 0, len(rowElems(c.Op.Sig.Errors)) > 0
+		return env + "." + fc.l.envField(cap) + "." + memberName(c.Op.Name) + "(" + strings.Join(vals, ", ") + ")", len(c.Op.Sig.Results) > 0, len(rowElems(c.Op.Sig.Errors)) > 0
 	case check.CallFuncValue:
 		// A value of a declared function type (Seq[T]) calls through its
 		// underlying signature.
@@ -411,11 +438,11 @@ func (fc *funcCtx) hostValue(f *check.Func, sig *check.Signature, site syntax.No
 			e := fc.scope.alloc("err")
 			body += ind + "var " + e + " error\n"
 			if len(sig.Results) == 0 {
-				return params, fc.valueResults(nil), body + ind + e + " = " + text + "\n" + ind + "return struct{}{}, " + fc.l.rt() + ".GoErrorOf(" + e + ")\n"
+				return params, fc.valueResults(nil), body + ind + e + " = " + text + "\n" + ind + "return struct{}{}, " + fc.l.goErrorOf() + "(" + e + ")\n"
 			}
 			r := fc.scope.alloc("r")
 			body += ind + "var " + r + " " + fc.goType(sig.Results[0]) + "\n" + ind + r + ", " + e + " = " + text + "\n"
-			return params, fc.valueResults(sig.Results[0]), body + ind + "return " + r + ", " + fc.l.rt() + ".GoErrorOf(" + e + ")\n"
+			return params, fc.valueResults(sig.Results[0]), body + ind + "return " + r + ", " + fc.l.goErrorOf() + "(" + e + ")\n"
 		}
 		if len(sig.Results) == 0 {
 			return params, fc.valueResults(nil), body + ind + text + "\n" + ind + "return struct{}{}, nil\n"
@@ -501,7 +528,7 @@ func (fc *funcCtx) hostStmt(x *syntax.CallExpr, c *check.Call, v, text string) s
 // check, then the call, its result bound to v at the Ergo result's Go type
 // and its error to e, typed error, so a target whose results differ is go
 // build's error at the call's line. A non-nil error becomes
-// go.Error{Text: err.Error()} (v1.GoErrorOf). The partial value a Go
+// the go.Error that keeps it (v1.GoErrorOf, IG5). The partial value a Go
 // function returns with an error (strconv's limit on a range error) is
 // dropped: the caller reads v only when e is nil, as an Ergo failure has
 // no value.
@@ -514,7 +541,7 @@ func (fc *funcCtx) hostFallible(x *syntax.CallExpr, c *check.Call, v, e, text st
 		fc.line("var " + v + " " + fc.goType(c.Func.Sig.Results[0]))
 		fc.line(v + ", " + e + " = " + text)
 	}
-	fc.line(e + " = " + fc.l.rt() + ".GoErrorOf(" + e + ")")
+	fc.goErrorOf(x, e)
 }
 
 // hostPkg is the name in main.go of the Go package path that a user
@@ -526,8 +553,8 @@ func (l *lowerer) hostPkg(path string, site syntax.Node) string {
 	if path == "time" {
 		return l.timePkg()
 	}
-	if first, _, _ := strings.Cut(path, "/"); first == "" || strings.Contains(first, ".") {
-		ice(site, "a user extern whose target package %q is outside Go's standard library, which the checker refuses (#202)", path)
+	if first, _, _ := strings.Cut(path, "/"); (first == "" || strings.Contains(first, ".")) && !l.goModule.covers(path) {
+		ice(site, "the Go package %q is outside Go's standard library and in no module of the go.mod beside ergo.mod; the loader refuses it (IG7)", path)
 	}
 	if path == "unsafe" {
 		// Go's unsafe holds the qualified built-ins, whose calls the
@@ -622,7 +649,19 @@ func (fc *funcCtx) callArgsAddr(list []syntax.Expr, call *syntax.CallExpr, addr 
 			out[i] = fc.spill(out[i])
 		}
 	}
+	if c := fc.l.info.Calls[call]; c != nil && c.Site != nil {
+		out = append(out, fc.siteValue(call, c.Site))
+	}
 	return out
+}
+
+// siteValue is the CallSite the call x passes for the final parameter it
+// leaves out (types.md, Call sites): where x starts, as a defect names it.
+// A constant, so it runs after the written operands with no spill.
+func (fc *funcCtx) siteValue(x *syntax.CallExpr, site *check.Named) string {
+	file, line, column := fc.l.locate(x, x.Pos())
+	td := fc.l.typeDecl(site.Obj, x)
+	return fmt.Sprintf("%s{%s: %q, %s: %d, %s: %d}", fc.goType(site), td.fieldName["File"], file, td.fieldName["Line"], line, td.fieldName["Column"], column)
 }
 
 // typeArgs writes a generic call's type-kinded arguments, from the call's
@@ -748,6 +787,8 @@ func walkType(t check.Type, visit func(t check.Type, result bool) bool) bool {
 			}
 		case *check.Slice:
 			return walk(t.Elem, false)
+		case *check.Array:
+			return walk(t.Elem, false)
 		case *check.Map:
 			return walk(t.Key, false) || walk(t.Elem, false)
 		case *check.Pointer:
@@ -829,6 +870,10 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 	}
 	if w.Value != nil {
 		fc.contextWith(arg, w.Value, inner) // the context owner (context.go)
+		return
+	}
+	if w.Installs != nil {
+		fc.installWith(arg, inner) // a Context value (contextvalues.go)
 		return
 	}
 	if len(w.Contexts) == 0 {
@@ -1119,7 +1164,7 @@ func (fc *funcCtx) publishProvider(a *check.Acquisition, target string) string {
 		if i < len(e.Conversions) {
 			conv = e.Conversions[i]
 		}
-		fc.line(target + "." + fc.l.envField(cap.Obj) + " = " + fc.convert(conv, val, e.Provider))
+		fc.line(target + "." + fc.l.envField(cap) + " = " + fc.convert(conv, val, e.Provider))
 	}
 	return val
 }
@@ -1164,6 +1209,9 @@ func (l *lowerer) unsourced(w *check.Context) bool {
 // methods call the witness (witness.go).
 func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Node) string {
 	l := fc.l
+	if check.ScriptOf(conv.From) != nil {
+		return fc.scriptOperations(conv, val, site) // a Script's derived methods (script.go)
+	}
 	// A *T source (types.md, Methods 5) holds the pointer: a table function
 	// on T reads *v, one on *T takes v (stage C round 4 review T1).
 	key, base, ok := l.adapterName(conv)
@@ -1367,6 +1415,8 @@ func mentionsTypeParam(t check.Type) bool {
 			}
 		}
 	case *check.Slice:
+		return mentionsTypeParam(t.Elem)
+	case *check.Array:
 		return mentionsTypeParam(t.Elem)
 	case *check.Map:
 		return mentionsTypeParam(t.Key) || mentionsTypeParam(t.Elem)

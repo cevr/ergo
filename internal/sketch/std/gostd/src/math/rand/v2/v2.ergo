@@ -14,7 +14,7 @@ extern go math/rand/v2.ChaCha8.MarshalBinary func (c *ChaCha8) MarshalBinary() [
 extern go math/rand/v2.ChaCha8.Read func (c *ChaCha8) Read(p []byte) int fails go.Error needs go.Foreign
 
 // ergo:go func (*ChaCha8).Seed(seed [32]byte)
-// ergo:refused ChaCha8.Seed: parameter 1: Ergo has no fixed arrays; a Go array [32]byte maps to no Ergo type
+extern go math/rand/v2.ChaCha8.Seed func (c *ChaCha8) Seed(seed [32]byte) needs go.Foreign
 
 // ergo:go func (*ChaCha8).Uint64() uint64
 extern go math/rand/v2.ChaCha8.Uint64 func (c *ChaCha8) Uint64() uint64 needs go.Foreign
@@ -56,7 +56,7 @@ extern go math/rand/v2.IntN func IntN(n int) int needs go.Foreign
 extern go math/rand/v2.New func New(src Source) Option[go.Ref[Rand]] needs go.Foreign
 
 // ergo:go func NewChaCha8(seed [32]byte) *ChaCha8
-// ergo:refused NewChaCha8: parameter 1: Ergo has no fixed arrays; a Go array [32]byte maps to no Ergo type
+extern go math/rand/v2.NewChaCha8 func NewChaCha8(seed [32]byte) Option[go.Ref[ChaCha8]] needs go.Foreign
 
 // ergo:go func NewPCG(seed1 uint64, seed2 uint64) *PCG
 extern go math/rand/v2.NewPCG func NewPCG(seed1 uint64, seed2 uint64) Option[go.Ref[PCG]] needs go.Foreign
@@ -149,7 +149,7 @@ extern go math/rand/v2.Rand.Uint64N func (r *Rand) Uint64N(n uint64) uint64 need
 extern go math/rand/v2.Rand.UintN func (r *Rand) UintN(n uint) uint needs go.Foreign
 
 // ergo:go func Shuffle(n int, swap func(i int, j int))
-extern go math/rand/v2.Shuffle func Shuffle(n int, swap func(int, int)) needs go.Foreign
+extern go math/rand/v2.Shuffle func Shuffle[CR](n int, swap func(int, int) needs CR) needs CR | go.Foreign
 
 // ergo:go type Source interface
 extern go math/rand/v2.Source type Source {

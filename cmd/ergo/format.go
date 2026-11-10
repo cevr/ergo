@@ -255,7 +255,9 @@ func expandFormatFolders(opts *fmtOptions) error {
 			}
 			name := entry.Name()
 			if entry.IsDir() {
-				if path != operand && (strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata") {
+				// ergo.bind holds generated bindings (IG7), already in
+				// ergo fmt's form and rewritten only by ergo bind go.
+				if path != operand && (strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata" || name == "ergo.bind") {
 					return filepath.SkipDir
 				}
 				return nil

@@ -1,4 +1,4 @@
 // want: S001 2 []T
-func f(xs [3]int64) {
+func f(xs [...]int64) {
 	use(xs)
 }

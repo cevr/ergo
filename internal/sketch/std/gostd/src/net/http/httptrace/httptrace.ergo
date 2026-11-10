@@ -56,7 +56,8 @@ extern go net/http/httptrace.ClientTrace type ClientTrace {}
 // ergo:refused ClientTrace.WroteRequest: a Go function as a result, a field or an element
 
 // ergo:go func ContextClientTrace(ctx context.Context) *ClientTrace
-extern go net/http/httptrace.ContextClientTrace func ContextClientTrace(ctx gocontext.Context) Option[go.Ref[ClientTrace]] needs go.Foreign
+// ergo:context
+extern go net/http/httptrace.ContextClientTrace func ContextClientTrace() Option[go.Ref[ClientTrace]] needs go.Foreign
 
 // ergo:go type DNSDoneInfo struct
 extern go net/http/httptrace.DNSDoneInfo type DNSDoneInfo {
@@ -79,7 +80,8 @@ extern go net/http/httptrace.GotConnInfo type GotConnInfo {
 }
 
 // ergo:go func WithClientTrace(ctx context.Context, trace *ClientTrace) context.Context
-extern go net/http/httptrace.WithClientTrace func WithClientTrace(ctx gocontext.Context, trace *ClientTrace) gocontext.Context needs go.Foreign
+// ergo:context
+extern go net/http/httptrace.WithClientTrace func WithClientTrace(trace *ClientTrace) gocontext.Context needs go.Foreign
 
 // ergo:go type WroteRequestInfo struct
 extern go net/http/httptrace.WroteRequestInfo type WroteRequestInfo {

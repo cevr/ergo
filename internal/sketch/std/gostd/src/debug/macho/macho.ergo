@@ -551,6 +551,8 @@ extern go debug/macho.Section.ReadAt func (r Section) ReadAt(p []byte, off int64
 
 // ergo:go type Section32 struct
 extern go debug/macho.Section32 type Section32 {
+	Name     [16]byte,
+	Seg      [16]byte,
 	Addr     uint32,
 	Size     uint32,
 	Offset   uint32,
@@ -562,14 +564,10 @@ extern go debug/macho.Section32 type Section32 {
 	Reserve2 uint32,
 }
 
-// ergo:go Name [16]byte
-// ergo:refused Section32.Name: Ergo has no fixed arrays; a Go array [16]byte maps to no Ergo type
-
-// ergo:go Seg [16]byte
-// ergo:refused Section32.Seg: Ergo has no fixed arrays; a Go array [16]byte maps to no Ergo type
-
 // ergo:go type Section64 struct
 extern go debug/macho.Section64 type Section64 {
+	Name     [16]byte,
+	Seg      [16]byte,
 	Addr     uint64,
 	Size     uint64,
 	Offset   uint32,
@@ -581,12 +579,6 @@ extern go debug/macho.Section64 type Section64 {
 	Reserve2 uint32,
 	Reserve3 uint32,
 }
-
-// ergo:go Name [16]byte
-// ergo:refused Section64.Name: Ergo has no fixed arrays; a Go array [16]byte maps to no Ergo type
-
-// ergo:go Seg [16]byte
-// ergo:refused Section64.Seg: Ergo has no fixed arrays; a Go array [16]byte maps to no Ergo type
 
 // ergo:go type SectionHeader struct
 extern go debug/macho.SectionHeader type SectionHeader {
@@ -624,6 +616,7 @@ extern go debug/macho.Segment.ReadAt func (r Segment) ReadAt(p []byte, off int64
 extern go debug/macho.Segment32 type Segment32 {
 	Cmd     LoadCmd,
 	Len     uint32,
+	Name    [16]byte,
 	Addr    uint32,
 	Memsz   uint32,
 	Offset  uint32,
@@ -634,13 +627,11 @@ extern go debug/macho.Segment32 type Segment32 {
 	Flag    uint32,
 }
 
-// ergo:go Name [16]byte
-// ergo:refused Segment32.Name: Ergo has no fixed arrays; a Go array [16]byte maps to no Ergo type
-
 // ergo:go type Segment64 struct
 extern go debug/macho.Segment64 type Segment64 {
 	Cmd     LoadCmd,
 	Len     uint32,
+	Name    [16]byte,
 	Addr    uint64,
 	Memsz   uint64,
 	Offset  uint64,
@@ -650,9 +641,6 @@ extern go debug/macho.Segment64 type Segment64 {
 	Nsect   uint32,
 	Flag    uint32,
 }
-
-// ergo:go Name [16]byte
-// ergo:refused Segment64.Name: Ergo has no fixed arrays; a Go array [16]byte maps to no Ergo type
 
 // ergo:go type SegmentHeader struct
 extern go debug/macho.SegmentHeader type SegmentHeader {

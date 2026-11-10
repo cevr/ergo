@@ -14,7 +14,7 @@ import (
 )
 
 // A supervised actor (actor.go rule 16; the model
-// docs/research/actor-machine/supervise.qnt) against a sequential
+// models/supervise) against a sequential
 // reference: generated batches of Sends, Asks and State reads with
 // defects injected at random steps, Done, typed failures, Stops and
 // Drains, and fresh states that fail at random restarts. Each batch is

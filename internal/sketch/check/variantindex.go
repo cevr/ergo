@@ -76,6 +76,7 @@ const (
 	vStruct
 	vIface
 	vRow
+	vArray // n is the length (196y)
 )
 
 // lookupSteps is a switch's step counter for resolving its cases: every
@@ -406,6 +407,8 @@ func hasParam(t Type, steps *int) bool {
 	case *RowArg:
 		return rowHasParam(t.Row, steps)
 	case *Slice:
+		return hasParam(t.Elem, steps)
+	case *Array:
 		return hasParam(t.Elem, steps)
 	case *Map:
 		return hasParam(t.Key, steps) || hasParam(t.Elem, steps)

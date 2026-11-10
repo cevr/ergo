@@ -125,6 +125,8 @@ type checker struct {
 	// withSites are the with sites the reporting pass recorded, inner
 	// before outer, for the context ownership pass (withown.go).
 	withSites []withSite
+	// contextValueSites are the conversions to Context[R] (contextvalues.go).
+	contextValueSites []contextValueSite
 	// contextOwners is the one index from an entry to the context that declares
 	// it, shared by the ownership and footprint passes (withown.go).
 	contextOwners contextOwners
@@ -362,6 +364,12 @@ type checker struct {
 	pkgPatterns map[*syntax.VarSpec]*pkgPattern
 	// mapInstances holds `Map[K, V]` read as the package's own Map (L6).
 	mapInstances map[*syntax.MapType]*syntax.IndexExpr
+	// refining is set while checkRefinements reports; refusedWheres are
+	// the spans of the refused wheres of each file, inside which a later
+	// pass reports nothing: the derived declarations repeat the where
+	// (refine.go).
+	refining      bool
+	refusedWheres map[*fileInfo][][2]syntax.Pos
 
 	fn *funcCtx // the body being checked
 }
@@ -464,6 +472,13 @@ func (c *checker) errorIn(at syntax.Node, pos, end syntax.Pos, code, format stri
 // errorIn are its only callers, so every report has passed the owner check.
 func (c *checker) report(pos, end syntax.Pos, code, format string, args ...any) {
 	d := Diagnostic{Code: code, Message: fmt.Sprintf(format, args...)}
+	if !c.refining && c.cur != nil {
+		for _, s := range c.refusedWheres[c.cur] {
+			if pos >= s[0] && pos <= s[1] {
+				return // the derived declarations of a refused where (refine.go)
+			}
+		}
+	}
 	if c.cur != nil {
 		f := c.cur.syntax
 		d.File = c.cur.index
@@ -565,7 +580,7 @@ func universe() *Scope {
 		basic("byte", Uint8)
 		basic("rune", Int32)
 		// The predeclared constraints (D-E1): each names a type set.
-		for _, set := range []TypeSet{SetComparable, SetOrdered, SetNumber} {
+		for _, set := range []TypeSet{SetWire, SetComparable, SetOrdered, SetNumber} {
 			s.insert(set.String(), &TypeName{Name: set.String(), Pkg: u, Type: &Interface{Set: set}, id: newID()})
 		}
 		errName := &TypeName{Name: "error", Pkg: u, id: newID()}
@@ -574,13 +589,13 @@ func universe() *Scope {
 		s.insert("error", errName)
 		s.insert("true", &Const{Name: "true", Type: Typ[Bool], Val: true})
 		s.insert("false", &Const{Name: "false", Type: Typ[Bool], Val: false})
-		for _, name := range []string{"len", "with"} {
+		for _, name := range []string{"len", "with", "encode", "decode", WiredName} {
 			s.insert(name, &Builtin{Name: name})
 		}
 		// go.Foreign (a capability) and go.Error (an error type) are
 		// predeclared for extern go bindings (grammar.md, Declarations 3).
-		// go.Error { Text string } is the failure of a user extern whose Go
-		// target returns an error: Text is the error's Error() (G4, O14).
+		// go.Error { Text string } is the failure of a Go call whose last
+		// result is an error; it keeps Go's error (IG5, goerror.go).
 		goPkg := &Package{Path: "go", Name: "go", Scope: newScope(nil), qualify: true}
 		foreign := &TypeName{Name: "Foreign", Pkg: goPkg, id: newID()}
 		foreign.Type = &Named{Obj: foreign, under: &Interface{}, state: 2, foreign: true}
@@ -588,6 +603,9 @@ func universe() *Scope {
 		goErr.Type = &Named{Obj: goErr, under: &Struct{Fields: []*Field{{Name: "Text", Type: Typ[String]}}}, state: 2}
 		goPkg.Scope.insert("Foreign", foreign)
 		goPkg.Scope.insert("Error", goErr)
+		// go.Is and go.As read a go.Error's native chain (IG5, goerror.go).
+		goPkg.Scope.insert("Is", &Builtin{Name: "go.Is"})
+		goPkg.Scope.insert("As", &Builtin{Name: "go.As"})
 		// go.Ref[T] is a Go pointer that is stored, returned or held in a
 		// collection: an opaque handle, never nil (owner q32, q38;
 		// docs/spec/interop.md). Ergo's own *T stays a borrow.

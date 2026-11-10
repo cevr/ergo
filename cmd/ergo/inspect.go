@@ -34,7 +34,7 @@ a new take or copying parameter breaks callers that pass a resource.
 Exit status: 0 on success, 1 on a source error, 2 on invalid arguments.
 `
 
-// inspectCommand runs checked machine and public API queries.
+// inspectCommand dispatches checked machine, public API and Go reach queries.
 func inspectCommand(args []string) error {
 	if len(args) > 0 && args[0] == "api" {
 		if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
@@ -44,7 +44,7 @@ func inspectCommand(args []string) error {
 		return inspectAPICommand(args[1:])
 	}
 	if len(args) == 0 || args[0] != "machine" {
-		return exitStatusError{code: 1, message: fmt.Sprintf("ergo inspect: only inspect machine and inspect api run; the other queries are removed in v1; %s (%s)", toolingReason, ticketTooling)}
+		return inspectGoCommand(args)
 	}
 	if rest := args[1:]; len(rest) == 1 && (rest[0] == "--help" || rest[0] == "-h") {
 		_, err := os.Stdout.WriteString(inspectMachineHelp)

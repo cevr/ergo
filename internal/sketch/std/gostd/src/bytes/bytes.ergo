@@ -92,7 +92,7 @@ extern go bytes.Contains func Contains(b []byte, subslice []byte) bool needs go.
 extern go bytes.ContainsAny func ContainsAny(b []byte, chars string) bool needs go.Foreign
 
 // ergo:go func ContainsFunc(b []byte, f func(rune) bool) bool
-extern go bytes.ContainsFunc func ContainsFunc(b []byte, f func(rune) bool) bool needs go.Foreign
+extern go bytes.ContainsFunc func ContainsFunc[CR](b []byte, f func(rune) bool needs CR) bool needs CR | go.Foreign
 
 // ergo:go func ContainsRune(b []byte, r rune) bool
 extern go bytes.ContainsRune func ContainsRune(b []byte, r rune) bool needs go.Foreign
@@ -125,10 +125,10 @@ extern go bytes.ErrTooLarge let ErrTooLarge go.Error
 extern go bytes.Fields func Fields(s []byte) [][]byte needs go.Foreign
 
 // ergo:go func FieldsFunc(s []byte, f func(rune) bool) [][]byte
-extern go bytes.FieldsFunc func FieldsFunc(s []byte, f func(rune) bool) [][]byte needs go.Foreign
+extern go bytes.FieldsFunc func FieldsFunc[CR](s []byte, f func(rune) bool needs CR) [][]byte needs CR | go.Foreign
 
 // ergo:go func FieldsFuncSeq(s []byte, f func(rune) bool) iter.Seq[[]byte]
-extern go bytes.FieldsFuncSeq func FieldsFuncSeq(s []byte, f func(rune) bool) Seq[[]byte] needs go.Foreign
+extern go bytes.FieldsFuncSeq func FieldsFuncSeq(s []byte, f escaping func(rune) bool) Seq[[]byte] needs go.Foreign
 
 // ergo:go func FieldsSeq(s []byte) iter.Seq[[]byte]
 extern go bytes.FieldsSeq func FieldsSeq(s []byte) Seq[[]byte] needs go.Foreign
@@ -149,7 +149,7 @@ extern go bytes.IndexAny func IndexAny(s []byte, chars string) int needs go.Fore
 extern go bytes.IndexByte func IndexByte(b []byte, c byte) int needs go.Foreign
 
 // ergo:go func IndexFunc(s []byte, f func(r rune) bool) int
-extern go bytes.IndexFunc func IndexFunc(s []byte, f func(rune) bool) int needs go.Foreign
+extern go bytes.IndexFunc func IndexFunc[CR](s []byte, f func(rune) bool needs CR) int needs CR | go.Foreign
 
 // ergo:go func IndexRune(s []byte, r rune) int
 extern go bytes.IndexRune func IndexRune(s []byte, r rune) int needs go.Foreign
@@ -167,13 +167,13 @@ extern go bytes.LastIndexAny func LastIndexAny(s []byte, chars string) int needs
 extern go bytes.LastIndexByte func LastIndexByte(s []byte, c byte) int needs go.Foreign
 
 // ergo:go func LastIndexFunc(s []byte, f func(r rune) bool) int
-extern go bytes.LastIndexFunc func LastIndexFunc(s []byte, f func(rune) bool) int needs go.Foreign
+extern go bytes.LastIndexFunc func LastIndexFunc[CR](s []byte, f func(rune) bool needs CR) int needs CR | go.Foreign
 
 // ergo:go func Lines(s []byte) iter.Seq[[]byte]
 extern go bytes.Lines func Lines(s []byte) Seq[[]byte] needs go.Foreign
 
 // ergo:go func Map(mapping func(r rune) rune, s []byte) []byte
-extern go bytes.Map func Map(mapping func(rune) rune, s []byte) []byte needs go.Foreign
+extern go bytes.Map func Map[CR](mapping func(rune) rune needs CR, s []byte) []byte needs CR | go.Foreign
 
 // ergo:go const MinRead untyped int
 extern go bytes.MinRead let MinRead int
@@ -281,13 +281,13 @@ extern go bytes.ToValidUTF8 func ToValidUTF8(s []byte, replacement []byte) []byt
 extern go bytes.Trim func Trim(s []byte, cutset string) []byte needs go.Foreign
 
 // ergo:go func TrimFunc(s []byte, f func(r rune) bool) []byte
-extern go bytes.TrimFunc func TrimFunc(s []byte, f func(rune) bool) []byte needs go.Foreign
+extern go bytes.TrimFunc func TrimFunc[CR](s []byte, f func(rune) bool needs CR) []byte needs CR | go.Foreign
 
 // ergo:go func TrimLeft(s []byte, cutset string) []byte
 extern go bytes.TrimLeft func TrimLeft(s []byte, cutset string) []byte needs go.Foreign
 
 // ergo:go func TrimLeftFunc(s []byte, f func(r rune) bool) []byte
-extern go bytes.TrimLeftFunc func TrimLeftFunc(s []byte, f func(rune) bool) []byte needs go.Foreign
+extern go bytes.TrimLeftFunc func TrimLeftFunc[CR](s []byte, f func(rune) bool needs CR) []byte needs CR | go.Foreign
 
 // ergo:go func TrimPrefix(s []byte, prefix []byte) []byte
 extern go bytes.TrimPrefix func TrimPrefix(s []byte, prefix []byte) []byte needs go.Foreign
@@ -296,7 +296,7 @@ extern go bytes.TrimPrefix func TrimPrefix(s []byte, prefix []byte) []byte needs
 extern go bytes.TrimRight func TrimRight(s []byte, cutset string) []byte needs go.Foreign
 
 // ergo:go func TrimRightFunc(s []byte, f func(r rune) bool) []byte
-extern go bytes.TrimRightFunc func TrimRightFunc(s []byte, f func(rune) bool) []byte needs go.Foreign
+extern go bytes.TrimRightFunc func TrimRightFunc[CR](s []byte, f func(rune) bool needs CR) []byte needs CR | go.Foreign
 
 // ergo:go func TrimSpace(s []byte) []byte
 extern go bytes.TrimSpace func TrimSpace(s []byte) []byte needs go.Foreign

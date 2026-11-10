@@ -8,14 +8,14 @@ extern go go/build/constraint.AndExpr type AndExpr {
 }
 
 // ergo:go func (*AndExpr).Eval(ok func(tag string) bool) bool
-extern go go/build/constraint.AndExpr.Eval func (x *AndExpr) Eval(ok func(string) bool) bool needs go.Foreign
+extern go go/build/constraint.AndExpr.Eval func (x *AndExpr) Eval(ok escaping func(string) bool) bool needs go.Foreign
 
 // ergo:go func (*AndExpr).String() string
 extern go go/build/constraint.AndExpr.String func (x *AndExpr) String() string needs go.Foreign
 
 // ergo:go type Expr interface
 extern go go/build/constraint.Expr type Expr {
-	Eval(ok func(string) bool) bool needs go.Foreign,
+	Eval(ok escaping func(string) bool) bool needs go.Foreign,
 	String() string needs go.Foreign,
 }
 
@@ -34,7 +34,7 @@ extern go go/build/constraint.NotExpr type NotExpr {
 }
 
 // ergo:go func (*NotExpr).Eval(ok func(tag string) bool) bool
-extern go go/build/constraint.NotExpr.Eval func (x *NotExpr) Eval(ok func(string) bool) bool needs go.Foreign
+extern go go/build/constraint.NotExpr.Eval func (x *NotExpr) Eval(ok escaping func(string) bool) bool needs go.Foreign
 
 // ergo:go func (*NotExpr).String() string
 extern go go/build/constraint.NotExpr.String func (x *NotExpr) String() string needs go.Foreign
@@ -46,7 +46,7 @@ extern go go/build/constraint.OrExpr type OrExpr {
 }
 
 // ergo:go func (*OrExpr).Eval(ok func(tag string) bool) bool
-extern go go/build/constraint.OrExpr.Eval func (x *OrExpr) Eval(ok func(string) bool) bool needs go.Foreign
+extern go go/build/constraint.OrExpr.Eval func (x *OrExpr) Eval(ok escaping func(string) bool) bool needs go.Foreign
 
 // ergo:go func (*OrExpr).String() string
 extern go go/build/constraint.OrExpr.String func (x *OrExpr) String() string needs go.Foreign
@@ -72,7 +72,7 @@ extern go go/build/constraint.TagExpr type TagExpr {
 }
 
 // ergo:go func (*TagExpr).Eval(ok func(tag string) bool) bool
-extern go go/build/constraint.TagExpr.Eval func (x *TagExpr) Eval(ok func(string) bool) bool needs go.Foreign
+extern go go/build/constraint.TagExpr.Eval func (x *TagExpr) Eval(ok escaping func(string) bool) bool needs go.Foreign
 
 // ergo:go func (*TagExpr).String() string
 extern go go/build/constraint.TagExpr.String func (x *TagExpr) String() string needs go.Foreign

@@ -1,0 +1,215 @@
+// The hub's and the editor's rules as laws over their steps (machine
+// laws, MU6, are not on this base). Children stopping with their entry,
+// nested ones first, is the runner's rule (MU5); the cases run it.
+
+import actor
+
+func small(n int) int {
+	let c = n % 3
+	if c < 0 { -c } else { c }
+}
+
+// fixture is a library of two pages with a composite of two slots.
+func fixture() Library {
+	let a = Part{Name: "a", Size: 100, Slots: []Slot{}}
+	let b = Part{Name: "b", Size: 200, Slots: []Slot{}}
+	let composite = Part{Name: "ab", Size: 50, Slots: []Slot{Slot{Name: "x", Choices: []Part{a, b}}, Slot{Name: "y", Choices: []Part{b, a}}}}
+	Library{Pages: [][]Part{[]Part{a, b, composite}, []Part{composite, a}}}
+}
+
+func lineOf(n int) Unit { Unit{Part: "l\(small(n))", Size: small(n)*100 + 1, Count: small(n) + 1, Subs: []Unit{}} }
+
+// screenAt is a hub screen picked by n.
+func screenAt(n int, text string) Screen {
+	let k = small(n)
+	match k {
+	case 0:
+		Browsing{Page: small(n) % 2}
+	case 1:
+		Searching{Query: text, Page: 1}
+	case _:
+		Editing{Part: fixture().Pages[0][2], From: if n%2 == 0 { FromList{Page: 1} } else { FromSearch{Query: text, Page: 0} }, Editor: actor.NewHost[EditActor]()}
+	}
+}
+
+func basketOf(ns []int) []Unit {
+	let mut out = []Unit{}
+	for n in ns {
+		out = out.Append(lineOf(n))
+	}
+	out
+}
+
+func screenAfter(d Decision[Hub, Plan]) Option[Screen] {
+	match d {
+	case Enter[Hub] as x:
+		Some{x.Next.Screen}
+	case Stay[Hub] as x:
+		Some{x.Next.Screen}
+	case _:
+		None
+	}
+}
+
+func basketAfter(d Decision[Hub, Plan]) []Unit {
+	match d {
+	case Enter[Hub] as x:
+		x.Next.Units
+	case Stay[Hub] as x:
+		x.Next.Units
+	case _:
+		[]Unit{}
+	}
+}
+
+func sameScreen(a Screen, b Screen) bool {
+	match (a, b) {
+	case (Browsing as x, Browsing as y):
+		x.Page == y.Page
+	case (Searching as x, Searching as y):
+		x.Query == y.Query && x.Page == y.Page
+	case (_, _):
+		false
+	}
+}
+
+// HistoryRestores: an editor opened from a page or a search, and left
+// with Back or with an added unit, returns the hub to that page or search.
+law HistoryRestores(page int, i int, query string, fromSearch bool, add bool) {
+	let m = fixture()
+	let from Screen = if fromSearch { Searching{Query: query, Page: small(page) % 2} } else { Browsing{Page: small(page) % 2} }
+	let h = Hub{Library: m, Units: []Unit{}, Screen: from}
+	let parts = match from {
+	case Searching as q:
+		Find(m, q.Query)
+	case _:
+		m.Pages[small(page)%2]
+	}
+	match screenAfter(Step(h, Open{Index: small(i)})) {
+	case Some[Screen] as s:
+		let ending HubSignal = if add { UnitAdded{L: lineOf(i)} } else { EditorBack }
+		match screenAfter(Step(Hub{..h, Screen: s.Value}, ending)) {
+		case Some[Screen] as after:
+			sameScreen(after.Value, from)
+		case None:
+			false
+		}
+	case None:
+		small(i) >= len(parts)
+	}
+}
+
+// BackChangesNothing: an editor that ends with Back leaves the plan as
+// it was; one that adds a unit adds exactly that unit.
+law BackChangesNothing(ns []int, n int, text string, add bool) {
+	let plan = basketOf(ns)
+	let h = Hub{Library: fixture(), Units: plan, Screen: Editing{Part: fixture().Pages[0][0], From: FromList{Page: 0}, Editor: actor.NewHost[EditActor]()}}
+	if add {
+		let after = basketAfter(Step(h, UnitAdded{L: lineOf(n)}))
+		len(after) == len(plan)+1 && Total(after) == Total(plan)+Total([]Unit{lineOf(n)})
+	} else {
+		let after = basketAfter(Step(h, EditorBack))
+		len(after) == len(plan) && Total(after) == Total(plan)
+	}
+}
+
+// NestedPartsInsideParent: a composite's unit holds one sub-unit per slot, each
+// the unit its nested editor gave, and its size is the part's and its
+// subs'.
+law NestedPartsInsideParent(picks []int, count int) {
+	let composite = fixture().Pages[0][2]
+	let mut s = editing(composite)
+	let mut subs = []Unit{}
+	for k, slot in composite.Slots {
+		let c = if k < len(picks) { small(picks[k]) % len(slot.Choices) } else { 0 }
+		match editStep(s, Choose{Index: c}) {
+		case Enter[Edit] as x:
+			s = x.Next
+		case _:
+			return false
+		}
+		let sub = UnitOf(slot.Choices[c], 1+small(k+count), []Unit{})
+		subs = subs.Append(sub)
+		match editStep(s, SubAdded{L: sub}) {
+		case Enter[Edit] as x:
+			s = x.Next
+		case _:
+			return false
+		}
+	}
+	for _ in 0..small(count) {
+		match editStep(s, More) {
+		case Stay[Edit] as x:
+			s = x.Next
+		case _:
+			return false
+		}
+	}
+	match editStep(s, Add) {
+	case Done[EditOut] as d:
+		match d.Output {
+		case Added as a:
+			len(a.L.Subs) == len(composite.Slots) && a.L.Size == composite.Size+Total(subs) && a.L.Count == small(count)+1
+		case WentBack:
+			false
+		}
+	case _:
+		false
+	}
+}
+
+// CountStaysPositive: Less at a quantity of one is refused.
+law CountStaysPositive(n int) {
+	let s = Choosing{Part: fixture().Pages[0][0], Count: 1, Subs: []Unit{}}
+	match editStep(s, Less) {
+	case Reject:
+		true
+	case _:
+		false
+	}
+}
+
+// EditorOpensOnlyFromAList: no hub signal on any screen leaves the hub in
+// an Editing screen it did not open from Browsing or Searching.
+law EditorOpensOnlyFromAList(n int, m int, text string) {
+	let s = screenAt(n, text)
+	let h = Hub{Library: fixture(), Units: []Unit{}, Screen: s}
+	let e HubSignal = match small(m) + small(m/3)*3 {
+	case 0:
+		Open{Index: 0}
+	case 1:
+		Close
+	case 2:
+		Next
+	case 3:
+		Search
+	case 4:
+		Type{Text: text}
+	case 5:
+		Deploy
+	case 6:
+		EditorBack
+	case 7:
+		UnitAdded{L: lineOf(m)}
+	case _:
+		Prev
+	}
+	match (s, screenAfter(Step(h, e))) {
+	case (Editing, _):
+		true
+	case (_, Some[Screen] as next):
+		match next.Value {
+		case Editing:
+			match e {
+			case Open:
+				true
+			case _:
+				false
+			}
+		case _:
+			true
+		}
+	case (_, None):
+		true
+	}
+}

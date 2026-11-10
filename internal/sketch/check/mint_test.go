@@ -21,7 +21,11 @@ import (
 // kind of expression exactly once, minter.decl's names each kind of
 // declaration exactly once, and neither has a default case. So a new kind
 // of expression, which may build a value, is red here until mintForm
-// decides whether it does.
+// decides whether it does. The ownership flow's ownWalk.expr is held to
+// the same rule (batch-15 A2 M1): a new kind of expression, which may hold
+// a block, is red here until the flow walks it. Mutant it kills that no
+// other test does: a2-expr-kind-unnamed (a case dropped from
+// ownWalk.expr).
 func TestMintFormNamesEveryKind(t *testing.T) {
 	fset := token.NewFileSet()
 	kinds := map[string][]string{} // marker method -> kinds
@@ -47,62 +51,73 @@ func TestMintFormNamesEveryKind(t *testing.T) {
 	if len(kinds["exprNode"]) < 25 || len(kinds["declNode"]) < 5 {
 		t.Fatalf("found expression kinds %v and declaration kinds %v: the scan is broken", kinds["exprNode"], kinds["declNode"])
 	}
-	mint := parseGo(t, fset, "mint.go")
-	switches := map[string][]string{}
-	for _, d := range mint.Decls {
-		fn, ok := d.(*ast.FuncDecl)
-		if !ok {
-			continue
-		}
-		var key string
-		switch {
-		case fn.Recv == nil && fn.Name.Name == "mintForm":
-			key = "exprNode"
-		case fn.Recv != nil && recvName(fn) == "minter" && fn.Name.Name == "decl":
-			key = "declNode"
-		default:
-			continue
-		}
-		n := 0
-		ast.Inspect(fn.Body, func(x ast.Node) bool {
-			sw, ok := x.(*ast.TypeSwitchStmt)
-			if !ok {
-				return true
+	// Each total switch: its file, receiver and function, and the kinds it
+	// names. ownWalk.expr is the ownership flow's (batch-15 A2 M1: a kind
+	// it skipped hid the arms of an if or match used as a value).
+	totals := []struct{ file, recv, fn, key string }{
+		{"mint.go", "", "mintForm", "exprNode"},
+		{"mint.go", "minter", "decl", "declNode"},
+		{"ownership.go", "ownWalk", "expr", "exprNode"},
+	}
+	switches := map[string][]string{} // function -> kinds named
+	for _, tot := range totals {
+		for _, d := range parseGo(t, fset, tot.file).Decls {
+			fn, ok := d.(*ast.FuncDecl)
+			if !ok || fn.Name.Name != tot.fn || (fn.Recv == nil) != (tot.recv == "") || fn.Recv != nil && recvName(fn) != tot.recv {
+				continue
 			}
-			n++
-			for _, s := range sw.Body.List {
-				cc := s.(*ast.CaseClause)
-				if cc.List == nil {
-					t.Errorf("%s's type switch has a default case: every kind is named, so a new one is red", fn.Name.Name)
-				}
-				for _, e := range cc.List {
-					sel, ok := e.(*ast.StarExpr)
-					var name string
-					if ok {
-						if s, ok := sel.X.(*ast.SelectorExpr); ok {
-							name = s.Sel.Name
-						}
-					}
-					if name == "" {
-						t.Errorf("%s's case at %s is not *syntax.Kind", fn.Name.Name, fset.Position(e.Pos()))
-						continue
-					}
-					switches[key] = append(switches[key], name)
-				}
-			}
-			return false
-		})
-		if n != 1 {
-			t.Errorf("%s has %d type switches, want 1", fn.Name.Name, n)
+			key := tot.recv + "." + tot.fn
+			switches[key] = append(switches[key], totalSwitch(t, fset, fn)...)
 		}
 	}
-	for _, key := range []string{"exprNode", "declNode"} {
-		want := slices.Sorted(slices.Values(kinds[key]))
+	for _, tot := range totals {
+		key := tot.recv + "." + tot.fn
+		want := slices.Sorted(slices.Values(kinds[tot.key]))
 		got := slices.Sorted(slices.Values(switches[key]))
 		if !slices.Equal(got, want) {
-			t.Errorf("the switch over the %s kinds names %v, the kinds are %v: name each kind once", key, got, want)
+			t.Errorf("%s's switch over the %s kinds names %v, the kinds are %v: name each kind once", key, tot.key, got, want)
 		}
 	}
+}
+
+// totalSwitch is the kinds the one type switch of fn names; a default case
+// or a second switch is an error.
+func totalSwitch(t *testing.T, fset *token.FileSet, fn *ast.FuncDecl) []string {
+	t.Helper()
+	var names []string
+	n := 0
+	ast.Inspect(fn.Body, func(x ast.Node) bool {
+		sw, ok := x.(*ast.TypeSwitchStmt)
+		if !ok {
+			return true
+		}
+		n++
+		for _, s := range sw.Body.List {
+			cc := s.(*ast.CaseClause)
+			if cc.List == nil {
+				t.Errorf("%s's type switch has a default case: every kind is named, so a new one is red", fn.Name.Name)
+			}
+			for _, e := range cc.List {
+				sel, ok := e.(*ast.StarExpr)
+				var name string
+				if ok {
+					if s, ok := sel.X.(*ast.SelectorExpr); ok {
+						name = s.Sel.Name
+					}
+				}
+				if name == "" {
+					t.Errorf("%s's case at %s is not *syntax.Kind", fn.Name.Name, fset.Position(e.Pos()))
+					continue
+				}
+				names = append(names, name)
+			}
+		}
+		return false
+	})
+	if n != 1 {
+		t.Errorf("%s has %d type switches, want 1", fn.Name.Name, n)
+	}
+	return names
 }
 
 func parseGo(t *testing.T, fset *token.FileSet, path string) *ast.File {

@@ -1,0 +1,17 @@
+// pairing is a device pairing screen driven by a script on standard
+// input. This binary is the only place that chooses the providers: the
+// in-memory device directory, a manual clock for the screen's timers, and
+// the host's standard input.
+
+import io
+import time
+import pairing/memory
+import pairing/screen
+import pairing/pair
+
+func main() needs Console | Ambient {
+	let clock = time.NewManual(0)
+	with context { io.Stdin: io.NewHost(), Scheduler: clock, pair.Devices: memory.Devices } {
+		screen.Run(clock)
+	}
+}

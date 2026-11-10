@@ -102,7 +102,10 @@ type fileOptions struct {
 	strict, json, work bool
 	// seed is test's --seed, a decimal uint64; empty when not given.
 	seed string
-	file string
+	// states is test's --states, the budget of a reachability law's
+	// search, a positive decimal; empty when not given.
+	states string
+	file   string
 	// args are run's program arguments: every word after the source, as
 	// go run passes them, less one "--" right after the source.
 	args []string
@@ -110,7 +113,7 @@ type fileOptions struct {
 
 // parseFileOptions reads the options of command. --strict and --json belong
 // to diagnostics, -o to build, -work to build and test, and --seed N (or
-// --seed=N) to test; any other option is unknown. A target other than Go is
+// --seed=N) and --states N to test; any other option is unknown. A target other than Go is
 // the EF110 refusal. For run, the options stand before the source, and the
 // words after it are the program's arguments (`ergo run FILE|DIR [--]
 // ARGS...`, as `go run`).
@@ -118,6 +121,7 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 	opts := fileOptions{target: report.Target, command: command}
 	var positional []string
 	seeded := false
+	budgeted := false
 	for i := 0; i < len(args); i++ {
 		if command == "run" && len(positional) == 1 {
 			opts.args = args[i:]
@@ -130,8 +134,12 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 			opts.seed, seeded = value, true
 			continue
 		}
+		if value, ok := strings.CutPrefix(args[i], "--states="); ok {
+			opts.states, budgeted = value, true
+			continue
+		}
 		switch args[i] {
-		case "--target", "-o", "--seed":
+		case "--target", "-o", "--seed", "--states":
 			if i+1 == len(args) {
 				return opts, fmt.Errorf("%s requires a value", args[i])
 			}
@@ -140,6 +148,8 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 				opts.target = args[i+1]
 			case "-o":
 				opts.output = args[i+1]
+			case "--states":
+				opts.states, budgeted = args[i+1], true
 			default:
 				opts.seed, seeded = args[i+1], true
 			}
@@ -175,6 +185,10 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--seed is only supported by test")
 	case seeded && !validSeed(opts.seed):
 		return opts, fmt.Errorf("--seed takes a decimal number from 0 to 18446744073709551615, not %q", opts.seed)
+	case budgeted && command != "test":
+		return opts, fmt.Errorf("--states is only supported by test")
+	case budgeted && !validStates(opts.states):
+		return opts, fmt.Errorf("--states takes a positive decimal number of states, not %q", opts.states)
 	case len(positional) != 1:
 		return opts, fmt.Errorf("incorrect arguments for %s", command)
 	}
@@ -311,6 +325,36 @@ func checkCommand(args []string) error {
 		return fmt.Errorf("check failed")
 	}
 	return nil
+}
+
+const inspectHelp = "usage: ergo inspect FILE|DIR [--target go]\n\n" +
+	"Prints, as JSON, what the program reaches of Go (docs/tooling.md, inspect):\n" +
+	"each Go import with its binding's provenance and the declarations the\n" +
+	"binding refuses, with their reasons; for each function, the Go symbols its\n" +
+	"code reaches and the uninterruptible host waits among them; for each Go\n" +
+	"symbol, its Go declaration, Ergo signature, tier (pure or foreign),\n" +
+	"provenance and wait (none, interruptible, uninterruptible). It runs no Go\n" +
+	"tool.\n\n" +
+	"Exit codes: 0 printed; 1 the source does not check.\n\n" +
+	inspectMachineHelp
+
+// inspectGoCommand prints, as JSON, what the program reaches of Go
+// (sketchfront.InspectGo; docs/tooling.md, inspect); exit 1 when the
+// source does not check.
+func inspectGoCommand(args []string) error {
+	opts, err := parseFileOptions("inspect", args)
+	if err != nil {
+		return err
+	}
+	l, err := load(opts.file, opts.target)
+	if err != nil {
+		return err
+	}
+	pkgs := l.analysis.Checked()
+	if !l.result.Checked || pkgs == nil {
+		return refuseUnchecked(l, opts)
+	}
+	return printJSON(sketchfront.InspectGo(pkgs))
 }
 
 // diagnosticsCommand prints the diagnostic report as text or JSON; exit 1

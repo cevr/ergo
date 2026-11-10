@@ -1,0 +1,221 @@
+// Package console drives the write as an actor from a script of lines and
+// prints what its screen shows.
+//
+// Commands: add NAME SIZE, place SHARE..., cancel, touch, wait (60 s pass on
+// the write's clock). A share is disk:DEVICE:SIZE or tape:LABEL:SIZE.
+
+import actor
+import io
+import machines
+import strconv
+import strings
+import time
+import shards/shards
+
+// Command is a line of the script.
+type Command = Send{S shards.Signal} | Wait{} | Unknown{Line string}
+
+func numeral(s string) Option[int] {
+	let n = strconv.Atoi(s) catch {
+	case strconv.Malformed:
+		return None
+	case strconv.OutOfRange:
+		return None
+	}
+	Some{n}
+}
+
+// share reads disk:DEVICE:SIZE or tape:LABEL:SIZE.
+func share(word string) Option[shards.Share] {
+	let parts = strings.Split(word, ":")
+	if len(parts) != 3 {
+		return None
+	}
+	match numeral(parts[2]) {
+	case Some[int] as n:
+		match parts[0] {
+		case "disk":
+			Some[shards.Share]{shards.Disk{Device: parts[1], Size: n.Value}}
+		case "tape":
+			Some[shards.Share]{shards.Tape{Label: parts[1], Size: n.Value}}
+		case _:
+			None
+		}
+	case None:
+		None
+	}
+}
+
+// Parse reads a line.
+func Parse(line string) Command {
+	let words = strings.Fields(line)
+	if len(words) == 0 {
+		return Unknown{Line: line}
+	}
+	match words[0] {
+	case "add":
+		if len(words) != 3 {
+			return Unknown{Line: line}
+		}
+		match numeral(words[2]) {
+		case Some[int] as n:
+			Send{S: shards.Add{Name: words[1], Size: n.Value}}
+		case None:
+			Unknown{Line: line}
+		}
+	case "place":
+		let mut shares = []shards.Share{}
+		for i in 1..len(words) {
+			match share(words[i]) {
+			case Some[shards.Share] as t:
+				shares = shares.Append(t.Value)
+			case None:
+				return Unknown{Line: line}
+			}
+		}
+		Send{S: shards.Place{Shares: shares}}
+	case "cancel":
+		Send{S: shards.Cancel}
+	case "touch":
+		Send{S: shards.Touch}
+	case "wait":
+		Wait
+	case _:
+		Unknown{Line: line}
+	}
+}
+
+// Fixed is hundredths as d.cc.
+func Fixed(n int) string {
+	let c = n % 100
+	"\(n / 100).\(if c < 10 { "0" } else { "" })\(c)"
+}
+
+func refs(rs []shards.Ref) string {
+	let mut ids = []string{}
+	for r in rs {
+		ids = ids.Append(r.ID)
+	}
+	strings.Join(ids, ", ")
+}
+
+// Show is what the write's screen shows.
+func Show(s shards.Job) string {
+	match s {
+	case shards.Staging as b:
+		let note = if b.Note == "" { "" } else { " (\(b.Note))" }
+		"staging: \(len(b.Parts)) parts, \(Fixed(shards.Total(b.Parts)))\(note)"
+	case shards.Writing as p:
+		"writing \(Fixed(shards.Total(p.Parts))) to \(len(p.Shares)) shares"
+	case shards.RollingBack as v:
+		"erasing \(refs(v.Refs))"
+	case shards.Summary as r:
+		"summary: \(Fixed(shards.Total(r.Parts))) written to \(refs(r.Refs))"
+	}
+}
+
+// Told is the line for a result.
+func Told(r shards.Result) string {
+	match r {
+	case shards.Stored as s:
+		"stored: \(Fixed(s.Total)) (\(refs(s.Refs)))"
+	case shards.Cancelled:
+		"cancelled"
+	}
+}
+
+// Ending is the line for the write's exit.
+// Its Failed arm stays for a write whose step fails: this one never does.
+func Ending[F](e actor.Exit[shards.Job, shards.Result, F]) string {
+	match e {
+	case actor.Failed[F]:
+		"failed"
+	case actor.Finished[shards.Job, shards.Result] as f:
+		Told(f.Output)
+	case actor.Halted[shards.Job] as h:
+		"left at: \(Show(h.State))"
+	case actor.Defected:
+		"defect"
+	}
+}
+
+// busy reports whether the write runs work: a write or a erase.
+func busy(s shards.Job) bool {
+	match s {
+	case shards.Writing:
+		true
+	case shards.RollingBack:
+		true
+	case shards.Staging:
+		false
+	case shards.Summary:
+		false
+	}
+}
+
+func onSummary(s shards.Job) bool {
+	match s {
+	case shards.Summary:
+		true
+	case _:
+		false
+	}
+}
+
+// Run plays the script on standard input against a write that covers
+// through the Targets in the context, on clock.
+func Run(clock time.Manual) needs Console | io.Stdin | shards.Targets | Scheduler {
+	let a = actor.StartMachine(machines.Start(shards.Shards{}, []shards.Part{}), 8, func(r shards.Result) {})
+	Console.Println("screen: \(Show(a.State()))")
+	let mut ended = false
+	for line in io.Stdin.Lines() {
+		Console.Println("> \(line)")
+		if ended {
+			Console.Println("(the write has ended)")
+			continue
+		}
+		let mut waited = false
+		match Parse(line) {
+		case Unknown as u:
+			Console.Println("? unknown command: \(u.Line)")
+			continue
+		case Wait:
+			// The summary's timer sleeps from its commit on, so the clock
+			// moves it at once.
+			clock.Advance(60s)
+			waited = true
+		case Send as cmd:
+			let d = a.Ask(cmd.S) catch {
+			case actor.Stopped:
+				ended = true
+				Reject
+			}
+			match d {
+			case Reject:
+				Console.Println("(refused)")
+			case Ignore:
+				Console.Println("(ignored)")
+			case Done[shards.Result] as r:
+				Console.Println(Told(r.Output))
+				ended = true
+			case _:
+			}
+		}
+		if ended {
+			continue
+		}
+		// Wait until the write is idle again: the write runner and its
+		// writes have answered, an erase is done, a waited summary shown.
+		let s = actor.WaitFor(a, func(s shards.Job) bool { !busy(s) && !(waited && onSummary(s)) }) catch {
+		case actor.Stopped:
+			Console.Println(Ending(actor.ExitOf(a)))
+			ended = true
+			continue
+		}
+		Console.Println("screen: \(Show(s))")
+	}
+	a.Stop()
+	if !ended {
+		Console.Println(Ending(actor.ExitOf(a)))
+	}
+}

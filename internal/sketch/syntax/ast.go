@@ -152,6 +152,11 @@ type TypeDecl struct {
 	Name       *Ident
 	TypeParams *FieldList // brackets; nil without a list
 	Spec       Expr
+	// WherePos and Where are the refinement `where P` of a defined type
+	// (types.md, Refinements), or NoPos and nil. The parser derives the
+	// type's parse function and law from it (refine.go).
+	WherePos Pos
+	Where    Expr
 }
 
 // FuncDecl is a function, or with Extern set and Body nil, the Go binding
@@ -168,6 +173,10 @@ type FuncDecl struct {
 	TypeParams *FieldList
 	Type       *FuncType
 	Body       *BlockStmt
+	// Derived is the refined type whose `where` the parser derived this
+	// function from (ParseX; refine.go), or nil for a written one. The
+	// formatter does not print it.
+	Derived *TypeDecl
 }
 
 // ContextDecl is `context Name [provides A | B] [needs C | D] { entries }`.
@@ -227,7 +236,12 @@ func (d *TypeDecl) Pos() Pos {
 	}
 	return d.Type
 }
-func (d *TypeDecl) End() Pos { return d.Spec.End() }
+func (d *TypeDecl) End() Pos {
+	if d.Where != nil {
+		return d.Where.End()
+	}
+	return d.Spec.End()
+}
 func (d *FuncDecl) Pos() Pos {
 	if d.Extern != nil {
 		return d.Extern.Pos()
@@ -318,6 +332,10 @@ type Field struct {
 	Any     Pos
 	Include bool
 	Dots    Pos
+	// WherePos and Where are a law parameter's `where P` (types.md,
+	// Refinements), or NoPos and nil.
+	WherePos Pos
+	Where    Expr
 }
 
 func (f *Field) Pos() Pos {
@@ -332,6 +350,9 @@ func (f *Field) Pos() Pos {
 func (f *Field) End() Pos {
 	if f.Any > 0 {
 		return f.Any + Pos(len("any"))
+	}
+	if f.Where != nil {
+		return f.Where.End()
 	}
 	if f.Type == nil {
 		return f.Names[len(f.Names)-1].End()
@@ -490,6 +511,11 @@ type (
 		Args     []Expr
 		Rparen   Pos
 		Trailing *BlockStmt
+		// TrailingFunc is true when the last of Args is a function
+		// literal written after the `)` (grammar.md, Expressions 9):
+		// it is an argument like any other, and the formatter writes
+		// it back after the call.
+		TrailingFunc bool
 	}
 
 	// StarExpr is `*x`: a pointer type or an indirection.
@@ -539,9 +565,14 @@ type (
 		Body     *ContextBody
 	}
 
-	// ArrayType is the slice type `[]T`.
+	// ArrayType is the slice type `[]T`, or the fixed array type `[N]T`
+	// when Len is set: the text of an integer literal at LenPos (196y).
+	// The length is a literal, never an expression, so it holds no name
+	// and no use.
 	ArrayType struct {
 		Lbrack Pos
+		Len    string
+		LenPos Pos
 		Elt    Expr
 	}
 
@@ -678,6 +709,9 @@ func (x *CallExpr) Pos() Pos     { return x.Fun.Pos() }
 func (x *CallExpr) End() Pos {
 	if x.Trailing != nil {
 		return x.Trailing.End()
+	}
+	if x.TrailingFunc {
+		return x.Args[len(x.Args)-1].End()
 	}
 	return x.Rparen + 1
 }

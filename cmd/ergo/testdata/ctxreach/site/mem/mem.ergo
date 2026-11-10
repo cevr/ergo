@@ -1,0 +1,7 @@
+import site/p
+
+type G {}
+
+func N(_ G) string { "mem" }
+
+let Serving = context { p.S: G }

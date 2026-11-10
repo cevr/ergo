@@ -41,11 +41,12 @@ type File struct {
 
 // Runtime returns the runtime files every emitted module holds, besides
 // go.mod and main.go: the runtime module's go.mod and the source of
-// runtime/v1 and of runtime/rt, which it imports. The lowered main runs
+// runtime/v1 and of runtime/rt, which it imports, and of runtime/explore,
+// which a test build's reachability laws call (machinelaws.go). The lowered main runs
 // under v1.Main, whose defect report names Ergo call sites (#230).
 func Runtime() []File {
 	files := []File{{Path: runtimeDir + "/go.mod", Data: []byte("module " + runtimeModule + "\n\ngo " + goVersion + "\n")}}
-	src, err := runtimefiles.Files("runtime/v1")
+	src, err := runtimefiles.Files("runtime/v1", "runtime/explore")
 	if err != nil {
 		panic("lower: the runtime source is not embedded: " + err.Error())
 	}
@@ -55,8 +56,65 @@ func Runtime() []File {
 	return files
 }
 
-// goMod is the emitted module's go.mod.
-const goMod = "module " + programModule + "\n\ngo " + goVersion + "\n\nrequire " + runtimeModule + " v0.0.0\n\nreplace " + runtimeModule + " => ./" + runtimeDir + "\n"
+// GoModule is what the emitted module needs from the go.mod and go.sum
+// beside ergo.mod (IG7, owner q37; docs/spec/interop.md, Go modules): the
+// Go modules a program's import go packages come from.
+type GoModule struct {
+	// Require are go.mod's require lines, "path version", in its order.
+	Require []string
+	// Replace are its replace lines, "old [version] => new [version]",
+	// a local directory made absolute, since the emitted module lives
+	// elsewhere.
+	Replace []string
+	// Sum is go.sum's text, copied as it is.
+	Sum string
+	// Modules are the module paths a Go import of the program may name
+	// outside Go's standard library: each required module, and the module
+	// of go.mod itself, which Require and Replace then hold.
+	Modules []string
+}
+
+// covers reports whether a Go import path is a package of one of m's
+// modules.
+func (m GoModule) covers(path string) bool {
+	for _, mod := range m.Modules {
+		if path == mod || strings.HasPrefix(path, mod+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// goModFile is the emitted module's go.mod: the runtime's requirement and
+// replacement (the ergo directory), then the program's Go requirements.
+func goModFile(m GoModule) []byte { return goModFileAt(programModule, m) }
+
+// goModFileAt is goModFile for the module path module.
+func goModFileAt(module string, m GoModule) []byte {
+	var b strings.Builder
+	b.WriteString("module " + module + "\n\ngo " + goVersion + "\n\nrequire " + runtimeModule + " v0.0.0\n")
+	for _, r := range m.Require {
+		b.WriteString("\nrequire " + r + "\n")
+	}
+	b.WriteString("\nreplace " + runtimeModule + " => ./" + runtimeDir + "\n")
+	for _, r := range m.Replace {
+		b.WriteString("\nreplace " + r + "\n")
+	}
+	return []byte(b.String())
+}
+
+// goMod is the go.mod of a program with no Go requirements.
+var goMod = string(goModFile(GoModule{}))
+
+// moduleFiles are the emitted module's files: go.mod, go.sum when the
+// program has one, and main.go.
+func moduleFiles(m GoModule, code []byte) []File {
+	files := []File{{Path: "go.mod", Data: goModFile(m)}}
+	if m.Sum != "" {
+		files = append(files, File{Path: "go.sum", Data: []byte(m.Sum)})
+	}
+	return append(files, File{Path: "main.go", Data: code})
+}
 
 // Refusal is a checked program that this lowering cannot lower yet: a form
 // whose checker stage has not landed, or an extern with no Go body. It is
@@ -110,7 +168,7 @@ func Lower(u Unit) ([]File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []File{{Path: "go.mod", Data: []byte(goMod)}, {Path: "main.go", Data: code}}, nil
+	return moduleFiles(u.Go, code), nil
 }
 
 // lowerPackage lowers the unit's package once: program runs the naming
@@ -155,11 +213,13 @@ type lowerer struct {
 	// canon is the checked unit in canonical form (canon.go): the only
 	// place the lowering reads the unit's and the checker's lists from.
 	canon *canonical
-	pkg   *check.Package
-	info  *check.Info
-	file  *syntax.File // the current source file (sources.go)
-	src   string       // its admitted path, which //line directives name
-	cur   int          // its index in srcs
+	// goModule is the root unit's Go requirements (hostPkg).
+	goModule GoModule
+	pkg      *check.Package
+	info     *check.Info
+	file     *syntax.File // the current source file (sources.go)
+	src      string       // its admitted path, which //line directives name
+	cur      int          // its index in srcs
 
 	srcs    []srcFile                // every source file in canonical order (canon.srcs)
 	tpSrc   map[*check.TypeParam]int // each type parameter's source file (paramFile)
@@ -188,9 +248,11 @@ type lowerer struct {
 	vars     map[*check.Var]string // package-level lets
 	contexts map[contextSet]string
 	adapters map[string]string        // operation-table adapters by source and target Go types
+	scripts  map[string]bool          // Script structs emitted, by instance key (script.go)
 	texts    map[pkgKey]bool          // generated text functions emitted
 	defaults map[pkgKey]bool          // generated default functions emitted (types.go, Defaults)
 	equals   map[pkgKey]bool          // generated equality functions emitted (equal.go)
+	wires    map[pkgKey]bool          // generated codec functions emitted (wire.go)
 	clones   map[pkgKey]bool          // generated copy functions emitted (values.go)
 	vals     *valueFacts              // the value rule's decisions (values.go)
 	sets     map[check.TypeSet]string // generated constraint interfaces emitted (decls.go, constraint)
@@ -201,8 +263,8 @@ type lowerer struct {
 	methods     map[*check.Package]map[*check.TypeName][]*check.Func
 
 	envName   string
-	envFields map[*check.TypeName]string
-	envOrder  []*check.TypeName
+	envFields map[string]string // by typeKey
+	envOrder  []envCap
 
 	rtName, timeName, taskName string
 	// hostImports are the Go packages a lowered call of a user extern
@@ -249,6 +311,10 @@ type lowerer struct {
 	// noEntry lowers a package with an empty Go main instead of a call of
 	// its main: the corpus test lowers library-shaped fixtures this way.
 	noEntry bool
+	// lib, when set, lowers a Go library package of that name instead of a
+	// program (library.go, IG11); libImports are its own imports.
+	lib        string
+	libImports []string
 	// matchTest is the match tree's test hook (matchtree.go): it can force
 	// the flat lowering, the reference the match-tree property compares
 	// with, and it counts the column kinds the trees split on. Only a test
@@ -285,14 +351,16 @@ func newLowerer(u Unit) *lowerer { return newBuildLowerer(u, nil) }
 // newBuildLowerer is the lowerer of u for the run build (tests nil) or the
 // test build, which decides the facts it reads (owners.go).
 func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
-	return lowererOf(canonicalize(u), u.Package, tests)
+	return lowererOf(canonicalize(u), u.Package, u.Go, tests)
 }
 
-// lowererOf is the lowerer of the canonical unit c of the package pkg.
-func lowererOf(c *canonical, pkg *check.Package, tests *testLowering) *lowerer {
+// lowererOf is the lowerer of the canonical unit c of the package pkg, whose
+// root unit requires the Go modules goModule.
+func lowererOf(c *canonical, pkg *check.Package, goModule GoModule, tests *testLowering) *lowerer {
 	l := &lowerer{
 		tests:     tests,
 		canon:     c,
+		goModule:  goModule,
 		pkg:       pkg,
 		info:      pkg.Info,
 		file:      c.srcs[0].file,
@@ -305,6 +373,7 @@ func lowererOf(c *canonical, pkg *check.Package, tests *testLowering) *lowerer {
 		vars:      map[*check.Var]string{},
 		contexts:  map[contextSet]string{},
 		adapters:  map[string]string{},
+		scripts:   map[string]bool{},
 		texts:     map[pkgKey]bool{},
 		defaults:  map[pkgKey]bool{},
 		equals:    map[pkgKey]bool{},
@@ -312,7 +381,7 @@ func lowererOf(c *canonical, pkg *check.Package, tests *testLowering) *lowerer {
 		holds:     map[*check.Named]holdState{},
 		typeKeys:  map[check.Type]string{},
 		methods:   map[*check.Package]map[*check.TypeName][]*check.Func{},
-		envFields: map[*check.TypeName]string{},
+		envFields: map[string]string{},
 	}
 	l.reads = l.readVars()
 	return l
@@ -424,6 +493,8 @@ func (l *lowerer) program() ([]byte, error) {
 	switch {
 	case l.tests != nil:
 		l.guard(func() { l.testEntry(&entry) })
+	case l.lib != "":
+		l.guard(func() { l.exports(&entry) })
 	case l.noEntry:
 		entry.WriteString("func main() {}\n\n")
 	case main == nil:
@@ -452,7 +523,7 @@ func (l *lowerer) program() ([]byte, error) {
 	table := l.callTable() // before the imports: it may name the runtime package
 	inits := l.initFunc()
 	var out strings.Builder
-	out.WriteString("// Code generated by ergo from " + path.Base(strings.ReplaceAll(l.srcs[0].path, "\\", "/")) + ". DO NOT EDIT.\n\npackage main\n\n")
+	out.WriteString("// Code generated by ergo from " + path.Base(strings.ReplaceAll(l.srcs[0].path, "\\", "/")) + ". DO NOT EDIT.\n\npackage " + l.goPackage() + "\n\n")
 	var imports []string
 	if l.rtName != "" {
 		imports = append(imports, l.rtName+" "+`"`+runtimeImport+`"`)
@@ -467,6 +538,7 @@ func (l *lowerer) program() ([]byte, error) {
 		imports = append(imports, l.pkgNames[pkgKey{"import", path}]+" "+strconv.Quote(path))
 	}
 	imports = append(imports, l.testImports()...)
+	imports = append(imports, l.libImports...)
 	if len(imports) > 0 {
 		out.WriteString("import (\n\t" + strings.Join(imports, "\n\t") + "\n)\n\n")
 	}
@@ -586,64 +658,94 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 	}
 	rt := l.rt()
 	locals := newNamer(l.names) // main's locals reference only the names above
-	task, env := locals.alloc("t"), locals.alloc("env")
-	fields := []string{envTask + ": " + task}
-	// The host's provider of each capability the entry binds is one
-	// adapter type with one method per capability (rows.md, Capability
-	// rows 4): Console's Println and Ambient's ambient.
-	var methods []string
 	name := l.pkgName(pkgKey{"host", "Console"}, "hostConsole")
-	for _, cap := range rowElems(main.Sig.Uses) {
-		n, ok := cap.(*check.Named)
-		var prelude string
-		if ok && n.Obj.Pkg != nil && n.Obj.Pkg.Path == "prelude" {
-			prelude = n.Obj.Name
-		}
-		if ok && check.IsGoForeign(n) {
-			// go.Foreign (import go) has no operation, so no code reads it
-			// from the environment: the checker's row is the authority
-			// (rows.md, Entry 4), and the environment holds nothing for it.
-			continue
-		}
-		switch prelude {
-		case "Console":
-			// The runtime's Console prints a line; the capability's
-			// operation takes the task first (rows.md, Rows 7).
-			hl := newNamer(l.names)
-			line := hl.alloc("line")
-			methods = append(methods, "func ("+name+") "+memberName("Println")+"(_ *"+l.taskPkg()+".Task, "+line+" string) { "+rt+".Console{}.Println("+line+") }\n\n")
-		case "Ambient":
-			// Ambient is the authority to choose the host (stdlib.md, Host
-			// packages). Its one operation is unexported and never called:
-			// the method only makes the adapter a value of Ambient.
-			methods = append(methods, "func ("+name+") "+memberName("ambient")+"(_ *"+l.taskPkg()+".Task) {}\n\n")
-		default:
-			entryError(main.Decl.Name, "main needs %s, and the host provides only Console and Ambient; bind it with a with block inside main", cap)
-		}
-		fields = append(fields, l.envField(n.Obj)+": "+name+"{}")
-	}
-	var host string
-	if len(methods) > 0 {
-		host = "// " + name + " is the host's provider of the capabilities the entry binds.\ntype " + name + " struct{}\n\n" + strings.Join(methods, "")
-	}
+	fields, provided := l.hostFields(main.Sig.Uses, name, nil, func(cap check.Type) {
+		entryError(main.Decl.Name, "main needs %s, and the host provides only Console and Ambient; bind it with a with block inside main", cap)
+	})
 	b.WriteString("func main() {\n")
 	// main runs as the root task under v1.Main, which reports its exit:
 	// a typed failure, a defect with its Ergo call sites (#230), or an
 	// interruption (runtime.md, Exit causes). The environment holds that
 	// task (stage D3b, Rule 1).
-	b.WriteString("\t" + rt + ".Main(func(" + task + " *" + l.taskPkg() + ".Task) error {\n")
-	b.WriteString("\t\t" + env + " := &" + l.env() + "{" + strings.Join(fields, ", ") + "}\n")
-	if l.hasInits() {
-		// The package-level lets run first, in the root task (review m1).
-		l.entryInits = true
-		b.WriteString("\t\t" + l.pkgName(pkgKey{"init", nil}, "ergoInit") + "(" + env + ")\n")
+	b.WriteString("\t" + rt + ".Main(" + l.rootTask(locals, "error", fields, func(env string) string {
+		var s string
+		if l.hasInits() {
+			// The package-level lets run first, in the root task (review m1).
+			l.entryInits = true
+			s = "\t\t" + l.pkgName(pkgKey{"init", nil}, "ergoInit") + "(" + env + ")\n"
+		}
+		if fd.fallible {
+			return s + "\t\treturn " + fd.name + "(" + env + ")\n"
+		}
+		return s + "\t\t" + fd.name + "(" + env + ")\n\t\treturn nil\n"
+	}) + ")\n}\n\n" + l.hostDecl(name, provided, "the entry binds"))
+}
+
+// rootTask is the Go closure a root task runs (main's, the test build's,
+// an exported function's): it takes the task, builds the root Env, which
+// holds the task and the host's providers (fields), and runs body, which
+// writes the statements that follow given the Env's name. It is the one
+// writer of a root Env (stage D3b, Rule 1).
+func (l *lowerer) rootTask(locals *namer, results string, fields []string, body func(env string) string) string {
+	task, env := locals.alloc("t"), locals.alloc("env")
+	all := append([]string{envTask + ": " + task}, fields...)
+	return "func(" + task + " *" + l.taskPkg() + ".Task) " + results + " {\n" +
+		"\t\t" + env + " := &" + l.env() + "{" + strings.Join(all, ", ") + "}\n" +
+		body(env) + "\t}"
+}
+
+// hostFields are the root Env's fields that hold the host's provider, the
+// type name, of each capability of uses, and provided adds, in order, each
+// capability the host provides that it did not hold. The host's provider of
+// each capability an entry binds is one adapter type with one method per
+// capability (rows.md, Capability rows 4): Console's Println and Ambient's
+// ambient. go.Foreign (import go) has no operation, so no code reads it
+// from the environment: the checker's row is the authority (rows.md, Entry
+// 4), and the environment holds nothing for it. unprovided is called with each
+// other capability.
+func (l *lowerer) hostFields(uses *check.Row, name string, provided []string, unprovided func(check.Type)) ([]string, []string) {
+	var fields []string
+	for _, cap := range rowElems(uses) {
+		n, ok := cap.(*check.Named)
+		if ok && check.IsGoForeign(n) {
+			continue
+		}
+		if !ok || n.Obj.Pkg == nil || n.Obj.Pkg.Path != "prelude" || n.Obj.Name != "Console" && n.Obj.Name != "Ambient" {
+			unprovided(cap)
+			continue
+		}
+		if !slices.Contains(provided, n.Obj.Name) {
+			provided = append(provided, n.Obj.Name)
+		}
+		fields = append(fields, l.envField(n)+": "+name+"{}")
 	}
-	if fd.fallible {
-		b.WriteString("\t\treturn " + fd.name + "(" + env + ")\n")
-	} else {
-		b.WriteString("\t\t" + fd.name + "(" + env + ")\n\t\treturn nil\n")
+	return fields, provided
+}
+
+// hostDecl declares the host's provider name with a method per capability
+// of provided, or is "" when provided is empty. of says whose capabilities
+// they are.
+func (l *lowerer) hostDecl(name string, provided []string, of string) string {
+	if len(provided) == 0 {
+		return ""
 	}
-	b.WriteString("\t})\n}\n\n" + host)
+	methods := ""
+	for _, c := range provided {
+		switch c {
+		case "Console":
+			// The runtime's Console prints a line; the capability's
+			// operation takes the task first (rows.md, Rows 7).
+			hl := newNamer(l.names)
+			line := hl.alloc("line")
+			methods += "func (" + name + ") " + memberName("Println") + "(_ *" + l.taskPkg() + ".Task, " + line + " string) { " + l.rt() + ".Console{}.Println(" + line + ") }\n\n"
+		case "Ambient":
+			// Ambient is the authority to choose the host (stdlib.md, Host
+			// packages). Its one operation is unexported and never called:
+			// the method only makes the adapter a value of Ambient.
+			methods += "func (" + name + ") " + memberName("ambient") + "(_ *" + l.taskPkg() + ".Task) {}\n\n"
+		}
+	}
+	return "// " + name + " is the host's provider of the capabilities " + of + ".\ntype " + name + " struct{}\n\n" + methods
 }
 
 // readVars is the set of variables some expression of the files that this

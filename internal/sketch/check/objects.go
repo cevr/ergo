@@ -40,6 +40,8 @@ type TypeName struct {
 	// package declares (builders.go rules 1 and 2), planned with ctor.
 	newOp    *Builder
 	provides []*Builder
+	// Refine is the refinement of a refined defined type (refine.go), or nil.
+	Refine *Refinement
 }
 
 // Constructor is the function a generator builds the type's values with
@@ -79,6 +81,9 @@ type Func struct {
 	overloaded bool
 	// size is the declaration's syntax nodes (bodySize), once known.
 	size int
+	// goExtern is a user extern's admitted adapter of its Go target's
+	// binding (extern.go, Level 2), once checkExterns admits it.
+	goExtern *GoExtern
 }
 
 // Var is a variable: a parameter, a local or a package-level let.

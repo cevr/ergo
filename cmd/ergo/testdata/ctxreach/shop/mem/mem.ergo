@@ -1,7 +1,0 @@
-import shop/p
-
-type G {}
-
-func N(_ G) string { "mem" }
-
-let Paying = context { p.S: G }

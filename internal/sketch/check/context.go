@@ -36,12 +36,12 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 		c.pushFrame(t, x, frames[0])
 	}
 	for _, a := range x.Args {
-		binds, known, context, value := c.withArg(a)
+		binds, known, context, value, installs := c.withArg(a)
 		// unknown: discharge everything, so no cascade. A context binding
 		// discharges nothing: its block's row is the enclosing one's. A
 		// push past the with budget leaves the frame unknown too
 		// (withbudget.go).
-		f := &withFrame{binds: binds, unknown: !known, context: context, value: value, outer: t.scope}
+		f := &withFrame{binds: binds, unknown: !known, context: context, value: value, installs: installs, outer: t.scope}
 		c.pushFrame(t, a, f)
 		frames = append(frames, f)
 	}
@@ -90,9 +90,12 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 type withFrame struct {
 	context *Context        // the resolved named, local or inline context
 	value   *ContextBinding // the context binding, for a with of a context value
-	with    *With           // the operand's With fact, once recorded
-	binds   *capSet
-	unknown bool
+	// installs is the Context[R] type of a with of a Context value
+	// (contextvalues.go): binds is R.
+	installs *Named
+	with     *With // the operand's With fact, once recorded
+	binds    *capSet
+	unknown  bool
 	// outer is the target's with scope around the frame, read by the
 	// release charge (chargeRelease); depth is the frame's place in the
 	// scope, 1 for the outermost (withScope).
@@ -188,11 +191,11 @@ func (c *checker) withNamedContext(name string, s operandScope) *Context {
 // withArg resolves with's argument to the capabilities it binds, or, for
 // a value whose type satisfies the context-binding protocol, to its
 // context binding (contextvalue.go).
-func (c *checker) withArg(arg syntax.Expr) (*capSet, bool, *Context, *ContextBinding) {
+func (c *checker) withArg(arg syntax.Expr) (*capSet, bool, *Context, *ContextBinding, *Named) {
 	switch a := unparen(arg).(type) {
 	case *syntax.ContextLit:
 		binds, known, context := c.contextLit(a)
-		return binds, known, context, nil
+		return binds, known, context, nil, nil
 	case *syntax.Ident:
 		s := c.operandScope(a.Name)
 		w := c.withNamedContext(a.Name, s)
@@ -209,7 +212,7 @@ func (c *checker) withArg(arg syntax.Expr) (*capSet, bool, *Context, *ContextBin
 				what = "an operation of " + c.fn.law.Owner.Name
 			}
 			c.errorf(a, CodeType, "%s names %s here, which hides the package context %s and is not a with operand: a with operand resolves lexically first (runtime.md, G1); rename the context or the local", a.Name, what, a.Name)
-			return nil, false, nil, nil
+			return nil, false, nil, nil, nil
 		}
 		if w == nil {
 			switch o := c.lookup(a.Name).(type) {
@@ -218,40 +221,38 @@ func (c *checker) withArg(arg syntax.Expr) (*capSet, bool, *Context, *ContextBin
 				// providers' summary is charged here (rows.md, Context 9).
 				c.recordUse(a, o)
 				c.chargeLocal(a, o)
-				return o.binds, !o.unknown, o, nil
+				return o.binds, !o.unknown, o, nil, nil
 			case *Var:
 				// A local holding a context value binds it. An invalid value
 				// is reported already, and nothing cascades (D3).
-				cb, known := c.contextArg(arg, "")
-				return nil, known, nil, cb
+				return c.valueOperand(arg)
 			}
 			c.errorf(a, CodeUnknown, "unknown context %s", a.Name)
-			return nil, false, nil, nil
+			return nil, false, nil, nil, nil
 		}
 		if c.fn != nil && c.fn.reach != nil {
 			c.fn.reach.contexts = append(c.fn.reach.contexts, w)
 		}
 		binds := c.contextBinds(w)
-		return binds, !w.unknown, w, nil
+		return binds, !w.unknown, w, nil, nil
 	case *syntax.SelectorExpr:
 		if id, ok := a.X.(*syntax.Ident); ok {
 			if pn, ok := c.lookup(id.Name).(*PkgName); ok {
 				pn.used = true
 				if pn.broken {
-					return nil, false, nil, nil
+					return nil, false, nil, nil, nil
 				}
 				if w := pn.Pkg.Contexts[a.Sel.Name]; w != nil && isExported(a.Sel.Name) {
 					// Its package's pass summarised it; a set keyed by
 					// capability names needs no conversion.
-					return w.binds, !w.unknown, w, nil
+					return w.binds, !w.unknown, w, nil, nil
 				}
 				c.errorf(a.Sel, CodeUnknown, "%s.%s is not an exported context of package %s", id.Name, a.Sel.Name, pn.Pkg.Path)
-				return nil, false, nil, nil
+				return nil, false, nil, nil, nil
 			}
 		}
 	}
-	cb, known := c.contextArg(arg, "")
-	return nil, known, nil, cb
+	return c.valueOperand(arg)
 }
 
 // contextLit checks an inline context's entries and returns what it binds; known

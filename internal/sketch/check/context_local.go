@@ -34,18 +34,19 @@ import "ergo.local/prototype/internal/sketch/syntax"
 
 // The S108 messages of a context outside its places (rows.md, Context 9).
 const (
-	contextValueText   = "a context is used only by with or embedded in a context: with w { … } or context { w, … }"
+	contextValueText   = "a context is used only by with, embedded in a context, or where a Context[R] is expected: with w { … }, context { w, … } or let v Context[R] = w"
 	contextRebindText  = "a context is bound once by let; it is not reassigned"
-	contextTypeText    = "a context has no type to write; bind it with let x = context { … }"
-	contextOutsideText = "a context literal stands only after let x = or as a with operand"
+	contextOutsideText = "a context literal stands only after let x =, as a with operand, or where a Context[R] is expected"
 )
 
 // localContextLit is the literal a local let binds as a local context, or
-// nil: one name other than _, no pattern and one value that is a context
-// literal. The context pass and typing both read it, so the two agree on
-// which lets bind a local context.
+// nil: one name other than _, no pattern, no written type and one value
+// that is a context literal. The context pass and typing both read it, so
+// the two agree on which lets bind a local context. A let with a written
+// type is an ordinary let: `let w Context[R] = context { … }` makes a
+// context value (contextvalues.go), and any other type refuses the literal.
 func localContextLit(spec *syntax.VarSpec) *syntax.ContextLit {
-	if spec == nil || spec.Pattern != nil || len(spec.Names) != 1 || len(spec.Values) != 1 || spec.Names[0].Name == "_" {
+	if spec == nil || spec.Pattern != nil || spec.Type != nil || len(spec.Names) != 1 || len(spec.Values) != 1 || spec.Names[0].Name == "_" {
 		return nil
 	}
 	lit, _ := unparen(spec.Values[0]).(*syntax.ContextLit)
@@ -171,9 +172,6 @@ func (c *checker) localContextLet(d *syntax.VarDecl, spec *syntax.VarSpec, lit *
 	}
 	if d.Mut.IsValid() {
 		c.errorIn(d, d.Mut, d.Mut+3, CodeType, "%s", contextRebindText)
-	}
-	if spec.Type != nil {
-		c.errorf(spec.Type, CodeType, "%s", contextTypeText)
 	}
 	// The providers charge a target of their own, with inferred rows and no
 	// with around them: what they need and what escapes them is the

@@ -99,7 +99,7 @@ func (w *resWalk) visit(t Type) (bool, int) {
 		if t.foreign || t.Obj != nil && t.Obj.Pkg != nil && t.Obj.Pkg.Host() {
 			return false, noLow
 		}
-	case *Slice, *Map, *Tuple, *Struct, *Union, *Interface:
+	case *Slice, *Array, *Map, *Tuple, *Struct, *Union, *Interface:
 	default:
 		// A basic type, a borrow, a row and a function type cross.
 		return false, noLow
@@ -192,6 +192,8 @@ func (w *resWalk) visit(t Type) (bool, int) {
 			}
 		}
 	case *Slice:
+		edge(t.Elem)
+	case *Array:
 		edge(t.Elem)
 	case *Map:
 		edge(t.Key)

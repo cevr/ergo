@@ -360,7 +360,9 @@ func TestLawRunLeastPackage(t *testing.T) {
 }
 
 // TestLawRunSkips: a law that cannot run says why, and the summary counts
-// it as skipped, never as a test (fs4).
+// it as skipped, never as a test (fs4); so does a run under a context
+// whose build acquires a provider with a Close (L5; mutant
+// lawctx-close-runs).
 func TestLawRunSkips(t *testing.T) {
 	needsBuild(t)
 	src := `type Shape {
@@ -373,11 +375,40 @@ type Box[T] {
 	law Keeps(v T) { true },
 }
 
+type Runner[E] {
+	Run() fails E,
+	law Runs() { true },
+}
+
+// law-exempt: a constraint.
+type Named {
+	Name() string,
+}
+
+type Ranked[T Named] {
+	Rank(v T) int,
+	law Same(v T) { Rank(v) == Rank(v) },
+}
+
 type Fn { f func(int) int }
 
 func Area(_ Fn) int { 1 }
 
+type Fns {}
+
+func Put(_ Fns, v func(int) int) {}
+
 law Calls(f func(int) int) { f(1) == f(1) }
+
+type Res { n int }
+
+func Area(_ Res) int { 1 }
+
+func Close(_ Res) {}
+
+func openRes() Res { Res{n: 1} }
+
+let Held = context { Shape: openRes() }
 
 func main() {}
 `
@@ -388,9 +419,13 @@ func main() {}
 	stdout, stderr, code := runExe(t, exes["lawrun_skips"])
 	want := []string{
 		"skip law Shape.Positive for Fn: its values have no generator: func(int) int is a function type; a func NewFn() Fn with no rows would build one for each case",
-		"skip law Box.Keeps: its parameter v has no generator: T is not a generatable type",
+		"ok law Shape.Positive for Res (100 cases)",
+		"skip law Shape.Positive under Held: its build acquires a provider with a Close, which a law case does not release",
+		"skip law Box.Keeps for Fns: its parameter v has no generator at Box[func(int) int]: func(int) int is a function type",
+		"skip law Runner.Runs: its operation type Runner has the row parameter E, and a run binds only type parameters",
+		"skip law Ranked.Same: its operation type Ranked constrains T by operations, and a run passes no witness",
 		"skip law Calls: its parameter f has no generator: func(int) int is a function type",
-		"PASS (0 tests, 3 skipped)",
+		"PASS (1 tests, 6 skipped)",
 	}
 	if code != 0 || !slices.Equal(lines(stdout), want) {
 		t.Errorf("exit %d, stdout:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, strings.Join(want, "\n"), firstLines(stderr, 8))
@@ -540,6 +575,42 @@ func main() {}
 	}
 }
 
+// TestLawRunGenericListed is the repro of a batch-14 merge bug: a law of a
+// generic operation type (L4) whose values can be listed at the provider's
+// instance runs by the one rule (Laws 10, MU6b), proved or refuted at its
+// first case, and its listed case passes the provider and the instance's
+// type arguments as the drawn run does. It builds Go because the subject
+// is the run's report. Mutant: listedRuns reads the law's own parameter
+// types (T), so the run draws 100 cases and is never proved.
+func TestLawRunGenericListed(t *testing.T) {
+	needsBuild(t)
+	src := `type Flip[T comparable] {
+	Not(v T) T,
+	law Moves(v T) { Not(v) != v },
+}
+
+type Turn {}
+
+func Not(_ Turn, v bool) bool { !v }
+
+type Stuck {}
+
+func Not(_ Stuck, v bool) bool { v }
+
+func main() {}
+`
+	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_generic_listed", src)}, true)
+	if exes == nil {
+		return
+	}
+	stdout, stderr, code := runExe(t, exes["lawrun_generic_listed"])
+	got := lines(stdout)
+	if code != 1 || len(got) != 3 || got[0] != "ok law Flip.Moves for Turn (proved: all 2 cases)" ||
+		!strings.HasPrefix(got[1], "FAIL law Flip.Moves for Stuck (case 1 of 2, every value: provider = Stuck, v = false)") {
+		t.Errorf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
+	}
+}
+
 // TestLawRunNoParams: a top-level law with no parameters draws nothing and
 // runs its one case, so a run that holds is proved (Laws 10); a false one
 // fails the run.
@@ -567,10 +638,13 @@ func main() {}
 // is broken: it breaks the law for n above a threshold, so it fails at some
 // case. Half the laws reach the operation through a helper that needs the
 // type (the b13 binding); each program also has a top-level law, true or
-// false. want are the lines the test binary prints, in order, and exit its
+// false. Half the providers are also bound by a named context, under
+// which the law runs too (L5), and fails exactly when the provider is the
+// broken one. want are the lines the test binary prints, in order, and exit its
 // status.
 type lawRunProgram struct {
 	name, src string
+	generic   bool // Op[T], run at each provider's instance
 	want      []string
 	exit      int
 }
@@ -583,13 +657,26 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 	if helper {
 		call = "viaHelper(n)"
 	}
-	fmt.Fprintf(&b, "type Op {\n\tF(n int) int,\n\tlaw Linear(n int) { %s == n * %d + %d },\n}\n\n", call, k, c)
+	// A generic Op[T] (L4) runs its law at each provider's instance: a
+	// provider's F fixes T, to int or int64. Its law calls F bare: a
+	// helper would need Op[T], which is no capability. A literal does not
+	// take a type parameter's type, so the law states affinity without
+	// one: f(2n) = 2f(n) - f(0), which the broken provider's step at its
+	// threshold breaks for n past it (threshold >= 0) or below it (< 0).
+	generic := !helper && r.Intn(2) == 0
+	if generic {
+		b.WriteString("type Op[T number] {\n\tF(n T) T,\n\tlaw Linear(n T) { F(n + n) == F(n) + F(n) - F(n - n) },\n}\n\n")
+	} else {
+		fmt.Fprintf(&b, "type Op {\n\tF(n int) int,\n\tlaw Linear(n int) { %s == n * %d + %d },\n}\n\n", call, k, c)
+	}
 	if helper {
 		b.WriteString("func viaHelper(n int) int needs Op { Op.F(n) }\n\n")
 	}
 	providers := r.Intn(3) + 1
 	broken := r.Intn(providers + 1) // == providers: none is broken
 	var want []string
+	var ctxs strings.Builder
+	var under []string
 	failed := 0
 	for p := 0; p < providers; p++ {
 		name := fmt.Sprintf("P%d", p)
@@ -597,14 +684,36 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 		if p == broken {
 			body = fmt.Sprintf("if n > %d { n * %d + %d } else { n * %d + %d }", r.Intn(20)-10, k, c+1, k, c)
 		}
-		fmt.Fprintf(&b, "type %s { tag int }\n\nfunc F(_ %s, n int) int { %s }\n\n", name, name, body)
+		elem := "int"
+		if generic && r.Intn(2) == 0 {
+			elem = "int64"
+		}
+		fmt.Fprintf(&b, "type %s { tag int }\n\nfunc F(_ %s, n %s) %s { %s }\n\n", name, name, elem, elem, body)
 		line := "ok law Op.Linear for " + name + " (100 cases)"
 		if p == broken {
 			line = "FAIL law Op.Linear for " + name + " (case "
 			failed++
 		}
 		want = append(want, line)
+		if r.Intn(2) == 0 {
+			// A named context that binds the provider: the law also runs
+			// under it (L5), after the provider runs.
+			key := "Op"
+			if generic {
+				key = "Op[" + elem + "]"
+			}
+			fmt.Fprintf(&ctxs, "let C%d = context { %s: %s{tag: 1} }\n\n", p, key, name)
+			line := "ok law Op.Linear under C" + fmt.Sprint(p) + " (100 cases)"
+			if p == broken {
+				line = "FAIL law Op.Linear under C" + fmt.Sprint(p) + " (case "
+				failed++
+			}
+			under = append(under, line)
+		}
 	}
+	b.WriteString(ctxs.String())
+	want = append(want, under...)
+	providers += len(under)
 	top := r.Intn(2) == 0
 	if top {
 		b.WriteString("law Top(a int, b int) { a + b == b + a }\n\n")
@@ -623,7 +732,7 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 	} else {
 		want = append(want, fmt.Sprintf("PASS (%d tests)", total))
 	}
-	return lawRunProgram{name: fmt.Sprintf("lawrun_gen_%02d", i), src: b.String(), want: want, exit: exit}
+	return lawRunProgram{name: fmt.Sprintf("lawrun_gen_%02d", i), src: b.String(), want: want, exit: exit, generic: generic}
 }
 
 // TestLawRunFindsTheBrokenProvider is the property: over generated
@@ -645,21 +754,27 @@ func TestLawRunFindsTheBrokenProvider(t *testing.T) {
 	var progs []lawRunProgram
 	var builds []*lowered
 	brokenAt := map[int]bool{}
-	for i := 0; i < 16; i++ {
+	genericBroken := false
+	for i := 0; i < 32; i++ {
 		p := genLawRunProgram(r, i)
 		progs = append(progs, p)
 		builds = append(builds, lowerTestBuild(t, p.name, p.src))
 		for k, w := range p.want {
 			if strings.HasPrefix(w, "FAIL law Op.") {
 				brokenAt[k] = true
+				genericBroken = genericBroken || p.generic
 			}
 		}
 	}
-	// The generator reaches a broken provider in every position.
+	// The generator reaches a broken provider in every position, and a
+	// broken provider of a generic Op[T].
 	for k := 0; k < 3; k++ {
 		if !brokenAt[k] {
 			t.Fatalf("seed %d: no program has a broken provider at position %d", seed, k+1)
 		}
+	}
+	if !genericBroken {
+		t.Fatalf("seed %d: no program has a broken provider of a generic Op", seed)
 	}
 	exes := buildAll(t, builds, true)
 	if exes == nil {

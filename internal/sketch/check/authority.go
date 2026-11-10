@@ -131,6 +131,8 @@ func Constructible(t Type, from *Package) bool {
 			}
 		case *Slice:
 			return ok(u.Elem)
+		case *Array:
+			return ok(u.Elem)
 		case *Map:
 			return ok(u.Key) && ok(u.Elem)
 		case *Union:
@@ -387,6 +389,8 @@ func (m *mentioner) walk(t Type) {
 		m.walk(u.Elem)
 	case *Slice:
 		m.walk(u.Elem)
+	case *Array:
+		m.walk(u.Elem)
 	case *Map:
 		m.walk(u.Key)
 		m.walk(u.Elem)
@@ -423,6 +427,8 @@ func (m *mentioner) walk(t Type) {
 		m.walk(u.Constraint)
 	case *RowArg:
 		m.row(u.Row)
+	case *Wired:
+		m.walk(u.T)
 	case *RowVar:
 		// An unexported function's inferred row, as its solution.
 		m.row(u.Solution())

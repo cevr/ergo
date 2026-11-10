@@ -32,7 +32,7 @@ func Describe(p Problem) string {
 	case WrongType as w:
 		"\(w.Key) must be \(w.Want), not \(w.Got)"
 	case OutOfRange as o:
-		"\(o.Key) = \(o.N) is not in \(o.Min)..\(o.Max)"
+		"\(o.Key) = \(o.N) is not a \(o.Type), where \(o.Where)"
 	case UnknownKey as u:
 		if u.Table == "" { "unknown key \(u.Key)" } else { "unknown key \(u.Key) in [\(u.Table)]" }
 	case UnknownTable as u:

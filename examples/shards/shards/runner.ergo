@@ -1,0 +1,71 @@
+import actor
+import machines
+
+// The write runner is the Writing phase's child. Its work starts one
+// Write child per share, so the writes run at once; each answer comes
+// back as a signal of the runner's entry. It waits for every answer, so a
+// write that was taken is never lost when another is lost, and ends
+// with the outcome in share order.
+type Run = Running{Shares []Share, Answers []Answer}
+
+type RunSignal = Answered{A Answer}
+
+// Outcome is the runner's end: every share taken, or some lost, with
+// the writes that were taken (the write erases them).
+type Outcome = AllTaken{Refs []Ref} | SomeLost{Refs []Ref, Why string}
+
+type Runner machine[Run, RunSignal] { initial: running, step: runStep, work: runWork }
+
+// running is the runner's start: the shares to write, none answered.
+func running(shares []Share) Run { Running{Shares: shares, Answers: []Answer{}} }
+
+func runStep(s Run, e RunSignal) Decision[Run, Outcome] {
+	match (s, e) {
+	case (Running as r, Answered as a):
+		let answers = r.Answers.Append(a.A)
+		if len(answers) < len(r.Shares) {
+			Stay[Run]{Next: Running{..r, Answers: answers}}
+		} else {
+			Done[Outcome]{Output: OutcomeOf(answers)}
+		}
+	}
+}
+
+// runWork starts a write per share. The children belong to the entry:
+// when the runner ends, or the write leaves Writing, they stop first.
+func runWork(s Run) Option[machines.Work[RunSignal, Targets | Scheduler]] {
+	match s {
+	case Running as r:
+		Some{machines.Work{Listen: func(send func(e RunSignal)) needs Targets | Scheduler {
+			for i in 0..len(r.Shares) {
+				actor.Child(send, machines.Start(Writer{}, (i, r.Shares[i])), 1, func(a Answer) RunSignal { Answered{A: a} })
+			}
+		}}}
+	}
+}
+
+// OutcomeOf is the outcome of the answers, in share order whatever order
+// they came in.
+func OutcomeOf(answers []Answer) Outcome {
+	let mut refs = []Ref{}
+	let mut why = ""
+	for i in 0..len(answers) {
+		for a in answers {
+			match a {
+			case Taken as t:
+				if t.Index == i {
+					refs = refs.Append(t.R)
+				}
+			case Lost as d:
+				if d.Index == i && why == "" {
+					why = d.Why
+				}
+			}
+		}
+	}
+	if why == "" {
+		AllTaken{Refs: refs}
+	} else {
+		SomeLost{Refs: refs, Why: why}
+	}
+}

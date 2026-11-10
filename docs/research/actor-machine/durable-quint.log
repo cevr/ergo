@@ -1,9 +1,0 @@
-design safe: [ok] (want [ok])
-design noSnapRecovery: [violation] (want [violation])
-design noDrop: [violation] (want [violation])
-design noCrashAfterSave: [violation] (want [violation])
-design noAnswer: [violation] (want [violation])
-saveAfterAnswer AnsweredIsJournaled: [violation] (want [violation])
-saveAtSend LiveIsTheFold: [violation] (want [violation])
-staleSnapshot LiveIsTheFold: [violation] (want [violation])
-MODEL_STATUS=0

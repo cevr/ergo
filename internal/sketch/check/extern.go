@@ -93,7 +93,9 @@ func externValue(f *Func) bool {
 		return false
 	}
 	if !f.Pkg.Std() {
-		return true
+		// IG4: an extern outside the C26 domain (a Level 2 adapter, a
+		// host type) is call-only, as an import go function is.
+		return f.goExtern == nil || f.goExtern.Basic
 	}
 	if f.Pkg.Path == std.PreludePath {
 		return false
@@ -151,12 +153,8 @@ func (c *checker) checkExterns() {
 			c.errorf(f.Decl, code, "%s", msg)
 			continue
 		}
-		if part := c.externOutsideDomain(f); part != "" {
-			c.errorf(f.Decl, CodeOutside, "%s of the extern %s is #202's (Go imports); it is not checked yet: a user extern takes and returns predeclared basic types only, and callbacks over them, with no type parameter, no needs row and no fails row but go.Error", part, f.Name)
-			continue
-		}
-		if msg := externErrorRefusal(f); msg != "" {
-			c.errorf(f.Decl, CodeType, "%s", msg)
+		if msg, code := c.externAdapter(f); msg != "" {
+			c.errorf(f.Decl, code, "%s", msg)
 		}
 	}
 }
@@ -180,16 +178,11 @@ func (c *checker) checkExternParams() {
 }
 
 // externTargetRefusal is the refusal of a user extern's Go target, with its
-// code, or "". The target is in the domain when its import path is in the
-// pure allowlist (G9): a package of Go's standard library that does not
-// reach the host. A missing function there is go build's error (D-E5).
-// The Ergo runtime and Go's unsafe are S108 whatever the signature. A path
-// whose first element has a dot is a module outside Go's standard library
-// (Go's own rule for module paths) and keeps its #202 text; any other path
-// outside the allowlist, and a member of v1.PureImportsExcept, may reach
-// the host and is S109 (hostText), which names import go, the route that
-// charges go.Foreign (IG2). The reviewed list is the one fact: no table
-// says a package is pure but not listed (IG2 deleted v1.PureUnlisted).
+// code, or "", before its binding is read (externAdapter). The Ergo
+// runtime and Go's unsafe are S108 whatever the signature. A path whose
+// first element has a dot is a module outside Go's standard library (Go's
+// own rule for module paths) and keeps its #202 text: IG7 binds module
+// packages through import go; a Level 2 adapter of one is a follow-up.
 func externTargetRefusal(f *Func) (string, string) {
 	path, _ := f.Decl.Extern.Split()
 	if path == runtimeModule || strings.HasPrefix(path, runtimeModule+"/") {
@@ -201,15 +194,6 @@ func externTargetRefusal(f *Func) (string, string) {
 	first, _, _ := strings.Cut(path, "/")
 	if strings.Contains(first, ".") {
 		return fmt.Sprintf("the Go package %s of the extern %s is #202's (Go imports); it is not checked yet: a user extern binds a function of Go's standard library only", path, f.Name), CodeOutside
-	}
-	if !PureGoPackage(path) {
-		return hostText(path, f.Decl.Extern.Target.Value), CodeOutside
-	}
-	// A member of an allowed package that reaches the host (filepath.Abs
-	// reads the working directory) has the same refusal as its package
-	// would; the list's one owner is v1.PureImportsExcept.
-	if _, name := f.Decl.Extern.Split(); slices.Contains(v1.PureImportsExcept[path], name) {
-		return hostText(path, f.Decl.Extern.Target.Value), CodeOutside
 	}
 	return "", ""
 }
@@ -244,52 +228,308 @@ func PureGoPackage(path string) bool {
 	return slices.Contains(v1.PureImports, path)
 }
 
-// hostText is the S109 of a user extern whose Go target is outside the
-// pure allowlist (G9): an unreviewed function may reach the host, so it is
-// called through import go, which charges go.Foreign (IG2).
-func hostText(path, target string) string {
-	return fmt.Sprintf("extern go %s is not on the reviewed pure list, so it may reach the host; call it through import go %s, which charges go.Foreign (a user extern binds only the pure Go packages %s)", target, path, strings.Join(PureGoPackages(), ", "))
+// ---------------------------------------------------------------- Level 2 adapters (IG4)
+
+// GoAdapter is how a user extern's written signature adapts the Level 1
+// signature that its Go target's binding gives (docs/spec/interop.md,
+// Level 2 adapters; #9). The checker verifies the relation from the
+// binding and runs no Go tool.
+type GoAdapter int
+
+const (
+	// AdaptSame: the written signature is the Level 1 one; only the names
+	// differ.
+	AdaptSame GoAdapter = iota + 1
+	// AdaptNonNil: Level 1's Option[T] result (a Go pointer or interface
+	// that may be nil) is written T; a nil result is a defect.
+	AdaptNonNil
+	// AdaptOption: Level 1's (T, bool) result is written Option[T]: Some
+	// when Go's bool is true.
+	AdaptOption
+	// AdaptPartial: Level 1's results R… with fails go.Error are written
+	// (R…, Option[go.Error]) with no fails row, so the value Go returns
+	// beside an error (io.Reader.Read's n) is kept.
+	AdaptPartial
+)
+
+// GoExtern is an admitted user extern: its adapter; whether its Go target
+// is variadic (the lowering spreads the last argument); and whether it is
+// in the C26 domain (AdaptSame over basic types and G1's callbacks), where
+// it lowers as a direct call that go build also checks (lower hostCall)
+// and may be a function value. Any other user extern is call-only and
+// lowers by the binding's boundary rules (lower, goExternCall).
+type GoExtern struct {
+	Adapter  GoAdapter
+	Variadic bool
+	// Context: the Go target takes a context.Context first, which the
+	// call passes (IG10); such an extern is never Basic.
+	Context bool
+	Basic   bool
+	// Binding is the Go target's declaration in its binding (Level 1),
+	// which ergo inspect reports (IG8).
+	Binding *Func
 }
 
-// externOutsideDomain names the first part of f's signature outside the
-// C26 domain, or "": a type parameter, a parameter that is neither a
-// predeclared basic type nor a callback (externCallback, G1), a result
-// that is not basic, more than one result, a fails row other than go.Error
-// (G4) or a needs row.
-// Basic types lower to the identical Go type, so only a callback needs an
-// adapter.
-func (c *checker) externOutsideDomain(f *Func) string {
-	d, sig := f.Decl, f.Sig
-	if len(sig.TParams) > 0 {
-		return "the type parameter " + sig.TParams[0].Name
+// GoExternOf is the admitted adapter of the user extern f, or nil.
+func GoExternOf(f *Func) *GoExtern {
+	if f == nil {
+		return nil
 	}
-	for i, p := range sig.Params {
-		if !externBasic(p.Type) && !c.externCallback(p.Type) {
-			name := p.Name
-			if name == "" || name == "_" {
-				name = fmt.Sprint(i + 1)
-			}
-			return fmt.Sprintf("the parameter %s of type %s", name, p.Type)
+	return f.goExtern
+}
+
+// externAdapter admits the user extern f when its written signature is an
+// adapter of its Go target's Level 1 signature, read from the target's
+// binding (IG4), and records it (f.goExtern); else it returns the refusal
+// and its code. The relation:
+//
+//   - the target is a function the binding imports: a refused one is S109
+//     with the binding's reason, as at a use of import go;
+//   - as many parameters as Level 1's, each of the identical type; names
+//     are free. A callback stays in G1's domain (externCallback) until IG6;
+//   - the needs row is the binding's: needs go.Foreign for the foreign
+//     tier, none for the reviewed pure tier;
+//   - the results and the fails row are one GoAdapter.
+//
+// A generic Go target is called at the types the written parameters give:
+// its type parameters bind from the parameters, as Go infers them at the
+// call, each satisfies its constraint, and Level 1 is instantiated with
+// them. A written type parameter is refused.
+func (c *checker) externAdapter(f *Func) (string, string) {
+	target := f.Decl.Extern.Target.Value
+	path, name := f.Decl.Extern.Split()
+	pkg, ok := c.goBindings().Package(path)
+	if !ok {
+		return fmt.Sprintf("extern go %s: no binding for Go package %q; run ergo bind go %s (docs/spec/interop.md)", target, path, path), CodeUnknown
+	}
+	o, found := pkg.member(name)
+	bf, isFunc := o.(*Func)
+	switch {
+	case !found:
+		if why := hostOf(pkg).refusal(name); why != "" {
+			return fmt.Sprintf("extern go %s is not imported from Go: %s (the binding of %s refuses it)", target, why, path), CodeOutside
+		}
+		return fmt.Sprintf("extern go %s: Go package %s has no exported function %s", target, path, name), CodeUnknown
+	case !isFunc || bf.Sig == nil:
+		return fmt.Sprintf("extern go %s names a Go type, constant or variable; a user extern binds a function", target), CodeType
+	}
+	w, level1 := f.Sig, bf.Sig
+	if sigHasInvalid(w) {
+		return "", "" // the signature's own diagnostic stands
+	}
+	if len(w.TParams) > 0 {
+		return fmt.Sprintf("the extern %s has the type parameter %s; a user extern writes the types it calls its Go target at, and Go infers the type arguments", f.Name, w.TParams[0].Name), CodeType
+	}
+	if len(level1.Params) != len(w.Params) {
+		return fmt.Sprintf("extern go %s takes %d parameters (Level 1: %s); the extern writes %d", target, len(level1.Params), level1, len(w.Params)), CodeType
+	}
+	if len(level1.TParams) > 0 {
+		inst, msg := c.externInstance(f, level1)
+		if msg != "" {
+			return fmt.Sprintf("extern go %s: %s", target, msg), CodeType
+		}
+		level1 = inst
+	}
+	for i, p := range w.Params {
+		if !c.identical(level1.Params[i].Type, p.Type) {
+			return fmt.Sprintf("extern go %s: the parameter %s is %s; Go's is %s (Level 1: %s)", target, paramName(p, i), p.Type, level1.Params[i].Type, level1), CodeType
+		}
+		if _, ok := p.Type.(*Signature); ok && !c.externCallback(p.Type) {
+			return fmt.Sprintf("the callback parameter %s of the extern %s is #202's (Go imports; IG6): a user extern takes callbacks over basic types with no rows", paramName(p, i), f.Name), CodeOutside
 		}
 	}
+	foreign := goForeignRow(level1.Uses)
+	wrote := c.types.resolve(w.Uses)
 	switch {
-	case len(sig.Results) > 1:
-		return "the result " + (&Tuple{Types: sig.Results}).String()
-	case len(sig.Results) == 1 && !externBasic(sig.Results[0]):
-		return fmt.Sprintf("the result of type %s", sig.Results[0])
+	case foreign && !goForeignRow(wrote):
+		return fmt.Sprintf("extern go %s runs Go that is not on the reviewed pure list; declare needs go.Foreign (only main provides it) (docs/spec/interop.md)", target), CodeType
+	case !foreign && !wrote.Empty():
+		return fmt.Sprintf("extern go %s is on the reviewed pure list and needs nothing; write no needs row", target), CodeType
 	}
-	if errs := c.types.resolve(sig.Errors); sig.Fallible && !externGoErrorRow(errs) || !sig.Fallible && !errs.Empty() {
-		return "the fails row"
+	adapter, msg := c.externResults(level1, w, target)
+	if msg != "" {
+		return msg, CodeType
 	}
-	if d.Type.Needs != nil || !c.types.resolve(sig.Uses).Empty() {
-		return "the needs row"
+	f.goExtern = &GoExtern{Adapter: adapter, Variadic: GoVariadic(bf), Context: GoContext(bf), Basic: adapter == AdaptSame && !GoContext(bf) && c.externBasicSig(w), Binding: bf}
+	return "", ""
+}
+
+// externResults is the adapter of the written results and fails row of w
+// to Level 1's (g), or the refusal.
+func (c *checker) externResults(g, w *Signature, target string) (GoAdapter, string) {
+	if w.Fallible && !externGoErrorRow(c.types.resolve(w.Errors)) {
+		return 0, fmt.Sprintf("extern go %s: the fails row of a user extern is go.Error, the error its Go target returns", target)
 	}
-	return ""
+	gv, wv := resultList(g), resultList(w)
+	same := c.identicalList(gv, wv)
+	switch {
+	case same && g.Fallible == w.Fallible:
+		return AdaptSame, ""
+	case g.Fallible == w.Fallible && len(gv) == 1 && len(wv) == 1 && optionElem(gv[0]) != nil && c.identical(optionElem(gv[0]), wv[0]):
+		return AdaptNonNil, ""
+	case g.Fallible == w.Fallible && len(gv) == 2 && isBasicKind(gv[1], Bool) && len(wv) == 1 && optionElem(wv[0]) != nil && c.identical(optionElem(wv[0]), gv[0]):
+		return AdaptOption, ""
+	case g.Fallible && !w.Fallible && len(wv) == len(gv)+1 && c.identicalList(gv, wv[:len(gv)]) && isOptionGoError(wv[len(gv)]):
+		for _, t := range gv {
+			if refElem(t) != nil {
+				return 0, fmt.Sprintf("extern go %s: a Go pointer returned beside an error may be nil, and a go.Ref never is; keep fails go.Error", target)
+			}
+		}
+		return AdaptPartial, ""
+	case same && g.Fallible:
+		return 0, fmt.Sprintf("extern go %s returns an error; declare it in the row: fails go.Error, or keep the value Go returns beside it with the result (…, Option[go.Error])", target)
+	case same && w.Fallible:
+		return 0, fmt.Sprintf("extern go %s returns no error; a user extern fails go.Error only when its Go function's last result is error", target)
+	}
+	return 0, fmt.Sprintf("extern go %s: the signature %s is no adapter of Go's Level 1 signature %s (docs/spec/interop.md, Level 2 adapters)", target, w, g)
+}
+
+// externInstance instantiates the generic Level 1 signature g at the types
+// the written parameters of the extern f give its type parameters. A Go
+// generic function may copy a value of its type parameter, so a type
+// argument that holds a resource is refused, as for a generic extern that
+// runtime/v1 does not list as moving (resources R44; #197 L8 A3, B3t).
+func (c *checker) externInstance(f *Func, g *Signature) (*Signature, string) {
+	m := map[*TypeParam]Type{}
+	for i := range g.Params {
+		bindTypeParams(g.Params[i].Type, f.Sig.Params[i].Type, m)
+	}
+	targs := make([]Type, len(g.TParams))
+	for i, tp := range g.TParams {
+		t, ok := m[tp]
+		if !ok && tp.Kind != KindType {
+			// IG6: a row parameter of a binding (a sync callback's CE,
+			// CR) is Ergo's alone, and a user extern's callback has no
+			// rows (S109): it is empty.
+			t, ok = &RowArg{Row: newRow()}, true
+			m[tp] = t
+		}
+		if !ok {
+			return nil, fmt.Sprintf("Go cannot infer its type parameter %s from the parameters", tp.Name)
+		}
+		if why := c.satisfies(t, c.subst(tp.Constraint, m)); why != "" {
+			return nil, fmt.Sprintf("its type parameter %s cannot be %s: %s", tp.Name, t, why)
+		}
+		if c.holdsResource(t) {
+			return nil, fmt.Sprintf("its type parameter %s cannot be %s: %s holds a resource, and Go may copy a value of its type parameter (resources R44)", tp.Name, t, t)
+		}
+		targs[i] = t
+	}
+	return c.subst(g, m).(*Signature), ""
+}
+
+// bindTypeParams binds, in m, each type parameter that g holds to the type
+// at the same place in w, the first binding winning (Go's inference from
+// typed arguments); identity is checked after substitution.
+func bindTypeParams(g, w Type, m map[*TypeParam]Type) {
+	switch g := g.(type) {
+	case *TypeParam:
+		if _, ok := m[g]; !ok {
+			m[g] = w
+		}
+	case *Named:
+		if wn, ok := w.(*Named); ok && wn.origin() == g.origin() && len(wn.TArgs) == len(g.TArgs) {
+			for i := range g.TArgs {
+				bindTypeParams(g.TArgs[i], wn.TArgs[i], m)
+			}
+		}
+	case *Slice:
+		if ws, ok := w.(*Slice); ok {
+			bindTypeParams(g.Elem, ws.Elem, m)
+		}
+	case *Map:
+		if wm, ok := w.(*Map); ok {
+			bindTypeParams(g.Key, wm.Key, m)
+			bindTypeParams(g.Elem, wm.Elem, m)
+		}
+	case *Pointer:
+		if wp, ok := w.(*Pointer); ok {
+			bindTypeParams(g.Elem, wp.Elem, m)
+		}
+	case *Signature:
+		if ws, ok := w.(*Signature); ok && len(ws.Params) == len(g.Params) && len(ws.Results) == len(g.Results) {
+			for i := range g.Params {
+				bindTypeParams(g.Params[i].Type, ws.Params[i].Type, m)
+			}
+			for i := range g.Results {
+				bindTypeParams(g.Results[i], ws.Results[i], m)
+			}
+		}
+	}
+}
+
+// externBasicSig reports a signature in the C26 domain: basic parameters
+// or G1's callbacks, and at most one basic result.
+func (c *checker) externBasicSig(w *Signature) bool {
+	for _, p := range w.Params {
+		if !externBasic(p.Type) && !c.externCallback(p.Type) {
+			return false
+		}
+	}
+	return len(w.Results) == 0 || len(w.Results) == 1 && externBasic(w.Results[0])
+}
+
+// resultList is a signature's results, a tuple result spread.
+func resultList(s *Signature) []Type {
+	if len(s.Results) == 1 {
+		if t, ok := s.Results[0].(*Tuple); ok {
+			return t.Types
+		}
+	}
+	return s.Results
+}
+
+func (c *checker) identicalList(a, b []Type) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !c.identical(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// optionElem is T for the prelude's Option[T], else nil.
+func optionElem(t Type) Type {
+	n, ok := t.(*Named)
+	if !ok || len(n.TArgs) != 1 || n.origin() != preludeType("Option") {
+		return nil
+	}
+	return n.TArgs[0]
+}
+
+func isOptionGoError(t Type) bool {
+	n, ok := optionElem(t).(*Named)
+	return ok && IsGoError(n)
+}
+
+func isBasicKind(t Type, k BasicKind) bool {
+	b, ok := t.(*Basic)
+	return ok && b.Kind == k
+}
+
+// goForeignRow reports the needs row go.Foreign, exactly.
+func goForeignRow(r *Row) bool {
+	elems := r.Elems()
+	if len(elems) != 1 {
+		return false
+	}
+	n, ok := elems[0].(*Named)
+	return ok && IsGoForeign(n)
+}
+
+func paramName(p *Var, i int) string {
+	if p.Name == "" || p.Name == "_" {
+		return fmt.Sprint(i + 1)
+	}
+	return p.Name
 }
 
 // externGoErrorRow reports the one fails row a user extern may write (G4,
 // decision O14): exactly go.Error. Its Go target's last result is error,
-// and the lowering turns a non-nil error into go.Error{Text: err.Error()}.
+// and the lowering turns a non-nil error into the go.Error that keeps it (IG5).
 func externGoErrorRow(errs *Row) bool {
 	elems := errs.Elems()
 	if len(elems) != 1 {
@@ -308,26 +548,6 @@ func IsGoError(n *Named) bool {
 // unreviewed Go (import go), which only the entry provides.
 func IsGoForeign(n *Named) bool {
 	return n != nil && n.Obj != nil && n.Obj.Pkg == universeOnce.goPkg && n.Obj.Name == "Foreign"
-}
-
-// externErrorRefusal is the refusal of a user extern whose fails row does
-// not match its Go target (G4), or "": a target whose last result is error
-// must declare fails go.Error, and a target with no error result must not.
-// The checker does not read Go's sources (D-E5): it reads the target's
-// embedded binding, whose row is fails go.Error exactly when Go's last
-// result is error (IG1; TestGoStdBindingsMatchToolchain holds the bindings
-// to the toolchain). A name the binding lacks returns no error; a name Go
-// lacks is go build's error.
-func externErrorRefusal(f *Func) string {
-	path, name := f.Decl.Extern.Split()
-	returnsError := stdGoReturnsError(path, name)
-	switch {
-	case returnsError && !f.Sig.Fallible:
-		return fmt.Sprintf("extern go %s returns an error; declare it in the row: fails go.Error", f.Decl.Extern.Target.Value)
-	case !returnsError && f.Sig.Fallible:
-		return fmt.Sprintf("extern go %s returns no error; a user extern fails go.Error only when its Go function's last result is error", f.Decl.Extern.Target.Value)
-	}
-	return ""
 }
 
 // externCallback reports a parameter type a user extern may take besides a

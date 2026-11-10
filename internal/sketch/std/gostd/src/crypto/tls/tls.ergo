@@ -120,6 +120,7 @@ extern go crypto/tls.Config type Config {
 	CipherSuites                   []uint16,
 	PreferServerCipherSuites       bool,
 	SessionTicketsDisabled         bool,
+	SessionTicketKey               [32]byte,
 	ClientSessionCache             ClientSessionCache,
 	MinVersion                     uint16,
 	MaxVersion                     uint16,
@@ -152,9 +153,6 @@ extern go crypto/tls.Config type Config {
 // ergo:go VerifyConnection func(tls.ConnectionState) error
 // ergo:refused Config.VerifyConnection: a Go function as a result, a field or an element
 
-// ergo:go SessionTicketKey [32]byte
-// ergo:refused Config.SessionTicketKey: Ergo has no fixed arrays; a Go array [32]byte maps to no Ergo type
-
 // ergo:go UnwrapSession func(identity []byte, cs tls.ConnectionState) (*tls.SessionState, error)
 // ergo:refused Config.UnwrapSession: a Go function as a result, a field or an element
 
@@ -180,7 +178,7 @@ extern go crypto/tls.Config.DecryptTicket func (c *Config) DecryptTicket(identit
 extern go crypto/tls.Config.EncryptTicket func (c *Config) EncryptTicket(cs ConnectionState, ss *SessionState) []byte fails go.Error needs go.Foreign
 
 // ergo:go func (*Config).SetSessionTicketKeys(keys [][32]byte)
-// ergo:refused Config.SetSessionTicketKeys: parameter 1: Ergo has no fixed arrays; a Go array [32]byte maps to no Ergo type
+extern go crypto/tls.Config.SetSessionTicketKeys func (c *Config) SetSessionTicketKeys(keys [][32]byte) needs go.Foreign
 
 // ergo:go type Conn struct
 extern go crypto/tls.Conn type Conn {}
@@ -198,7 +196,8 @@ extern go crypto/tls.Conn.ConnectionState func (c *Conn) ConnectionState() Conne
 extern go crypto/tls.Conn.Handshake func (c *Conn) Handshake() fails go.Error needs go.Foreign
 
 // ergo:go func (*Conn).HandshakeContext(ctx context.Context) error
-extern go crypto/tls.Conn.HandshakeContext func (c *Conn) HandshakeContext(ctx gocontext.Context) fails go.Error needs go.Foreign
+// ergo:context
+extern go crypto/tls.Conn.HandshakeContext func (c *Conn) HandshakeContext() fails go.Error needs go.Foreign
 
 // ergo:go func (*Conn).LocalAddr() net.Addr
 extern go crypto/tls.Conn.LocalAddr func (c *Conn) LocalAddr() net.Addr needs go.Foreign
@@ -288,7 +287,8 @@ extern go crypto/tls.Dialer type Dialer {
 extern go crypto/tls.Dialer.Dial func (d *Dialer) Dial(network string, addr string) net.Conn fails go.Error needs go.Foreign
 
 // ergo:go func (*Dialer).DialContext(ctx context.Context, network string, addr string) (net.Conn, error)
-extern go crypto/tls.Dialer.DialContext func (d *Dialer) DialContext(ctx gocontext.Context, network string, addr string) net.Conn fails go.Error needs go.Foreign
+// ergo:context
+extern go crypto/tls.Dialer.DialContext func (d *Dialer) DialContext(network string, addr string) net.Conn fails go.Error needs go.Foreign
 
 // ergo:go const ECDSAWithP256AndSHA256 SignatureScheme
 extern go crypto/tls.ECDSAWithP256AndSHA256 let ECDSAWithP256AndSHA256 SignatureScheme
@@ -409,7 +409,8 @@ extern go crypto/tls.QUICConn.SendSessionTicket func (q *QUICConn) SendSessionTi
 extern go crypto/tls.QUICConn.SetTransportParameters func (q *QUICConn) SetTransportParameters(params []byte) needs go.Foreign
 
 // ergo:go func (*QUICConn).Start(ctx context.Context) error
-extern go crypto/tls.QUICConn.Start func (q *QUICConn) Start(ctx gocontext.Context) fails go.Error needs go.Foreign
+// ergo:context
+extern go crypto/tls.QUICConn.Start func (q *QUICConn) Start() fails go.Error needs go.Foreign
 
 // ergo:go func (*QUICConn).StoreSession(session *SessionState) error
 extern go crypto/tls.QUICConn.StoreSession func (q *QUICConn) StoreSession(session *SessionState) fails go.Error needs go.Foreign
@@ -489,12 +490,10 @@ extern go crypto/tls.QUICWriteData let QUICWriteData QUICEventKind
 
 // ergo:go type RecordHeaderError struct
 extern go crypto/tls.RecordHeaderError type RecordHeaderError {
-	Msg  string,
-	Conn net.Conn,
+	Msg          string,
+	RecordHeader [5]byte,
+	Conn         net.Conn,
 }
-
-// ergo:go RecordHeader [5]byte
-// ergo:refused RecordHeaderError.RecordHeader: Ergo has no fixed arrays; a Go array [5]byte maps to no Ergo type
 
 // ergo:go func (RecordHeaderError).Error() string
 extern go crypto/tls.RecordHeaderError.Error func (e RecordHeaderError) Error() string needs go.Foreign

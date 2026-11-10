@@ -1,9 +1,9 @@
 @0 idle
 @0 typing "b"
 @250 searching "b"
-@250 showing "b": Banana, Bread, Cabbage
+@250 showing "b": Banana.md, Bread.md, Cabbage.md
 @250 ! shown "b": 3 hits
 @250 typing "br"
 @500 searching "br"
-@500 showing "br": Bread
+@500 showing "br": Bread.md
 @500 ! shown "br": 1 hit

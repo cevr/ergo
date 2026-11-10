@@ -8,11 +8,6 @@
 # an absence window: the test asserts that an event has not come yet; a slow
 # host only makes it pass more often (it weakens the check, it never fails a
 # correct run)
-runtime/ergo/http_transport_test.go	TestHTTPTransportPublishesOnlyAfterRequestCleanup	absence window: no response bytes before the cleanup ends
-runtime/ergo/http_transport_test.go	TestHTTPTransportShutdownCancelsActiveWorkAndReports503AfterCleanup	absence window: no response and no server end before the cleanup
-runtime/ergo/layers_test.go	TestLayerBuildCancellationReleasesPendingWaitersAndJoinsProducer	absence window: the build does not return before its producer joins
-runtime/ergo/scheduler_test.go	TestTestSchedulerWaitsForHeldManagedTurnBeforeAdvancing	absence window: Adjust does not commit while a fiber holds its turn
-runtime/ergo/scheduler_test.go	TestCancelledSleepUnregistersItsTimer	absence window: no registration within the barrier's 1 ms context; an expired context would race the stale timer's registration in the select
 runtime/v1/queue_stop_test.go	TestQueueWaitsEndOnAStop	absence window: a masked Push does not end on the stop
 scripts/examples/main_test.go	grows	absence window: a stopped ticker writes no tick; a running one ticks every 50 ms
 scripts/gate/budget_scope_linux_test.go	TestStopStepCgroupWaitsForKernelPopulationZero	absence window: the stop does not return while cgroup.events says populated 1

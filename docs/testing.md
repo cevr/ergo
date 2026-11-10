@@ -22,11 +22,11 @@ test DoubleIsEven(n int) {
 }
 ```
 
-A test can use a context, so it swaps providers with no mock framework. The README's opening program ([examples/checkout](../examples/checkout/cmd/checkout/main.ergo)) tests the same `Checkout` with a provider that pays and one that declines:
+A test can use a context, so it swaps providers with no mock framework. The README's opening program ([examples/lookup](../examples/lookup/cmd/lookup/main.ergo)) tests the same `Lookup` with a provider that answers and one that answers nothing:
 
 ```go
-test DeclineIsHandled {
-	assert with Declining { payments.Purchase(100) } == "declined"
+test NotFoundIsHandled {
+	assert with Missing { hosts.Address("example.org") } == "unknown"
 }
 ```
 
@@ -35,15 +35,17 @@ A test declares no `needs` row (S102): the services it uses come from a `with`.
 ## Running
 
 ```sh
-./bin/ergo test examples/checkout/cmd/checkout
+./bin/ergo test examples/lookup/cmd/lookup
 ```
 
 The runner prints one line per test, in source order, then a summary:
 
 ```text
-ok ChargeSucceeds
-ok DeclineIsHandled
-PASS (2 tests)
+ok ResolveAnswers
+ok NotFoundIsHandled
+ok law hosts.Resolver.Answered under Memory (100 cases)
+ok law hosts.Resolver.Answered under Missing (100 cases)
+PASS (4 tests)
 ```
 
 A property prints its case count, `ok DoubleIsEven (100 cases)`, or `ok FlipTwice (proved: all 2 cases)` for `test FlipTwice(b bool)`; a listed case that fails prints `FAIL FlipTwice (case 2 of 2, every value: b = true): …`. A failed assert prints its position and its text, and a failed comparison also prints its two operands as Ergo literals (`left`, `right`; a line diff for two multi-line strings). A refuted property also prints the case number, the seed, the size (the case number over four, which bounds generated collections and strings; [runtime](spec/runtime.md#tests), Tests 6) and each argument as an Ergo literal of its type, so the case can be pasted into a test:

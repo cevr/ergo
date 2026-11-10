@@ -28,6 +28,7 @@ type slotPool struct {
 type waiter struct {
 	ready  chan struct{}
 	weight float64
+	slots  int
 }
 
 // unrecordedWeight is the expected seconds of a step with no weight: a
@@ -52,9 +53,16 @@ func (p *slotPool) acquire(first bool) { p.acquireWeighted(first, 0) }
 // the writers' queue, and weight (expected seconds, 0 unknown) orders it in
 // its queue.
 func (p *slotPool) acquireWeighted(first bool, weight float64) {
+	p.acquireN(first, weight, 1)
+}
+
+// acquireN reserves slots together: a memory-heavy step takes the whole
+// pool. Later small steps cannot pass a waiting large reservation, or a
+// steady stream of small steps could starve it forever.
+func (p *slotPool) acquireN(first bool, weight float64, slots int) {
 	p.mu.Lock()
-	if p.free > 0 {
-		p.free--
+	if p.free >= slots && len(p.queues[0])+len(p.queues[1]) == 0 {
+		p.free -= slots
 		p.mu.Unlock()
 		return
 	}
@@ -66,24 +74,39 @@ func (p *slotPool) acquireWeighted(first bool, weight float64) {
 		weight = unrecordedWeight
 	}
 	ready := make(chan struct{})
-	p.queues[queue] = append(p.queues[queue], waiter{ready, weight})
+	p.queues[queue] = append(p.queues[queue], waiter{ready, weight, slots})
+	p.dispatch()
 	p.mu.Unlock()
 	<-ready
 }
 
 // release gives the caller's slot to the next waiting step, or frees it.
 func (p *slotPool) release() {
+	p.releaseN(1)
+}
+
+func (p *slotPool) releaseN(slots int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.free += slots
+	p.dispatch()
+}
+
+// dispatch admits the next highest-priority reservation only when all of
+// its slots fit. Called with p.mu held.
+func (p *slotPool) dispatch() {
 	for i, queue := range p.queues {
-		if len(queue) > 0 {
+		for len(queue) > 0 {
 			next := heaviest(queue)
+			if queue[next].slots > p.free {
+				return
+			}
+			p.free -= queue[next].slots
 			close(queue[next].ready)
-			p.queues[i] = append(queue[:next:next], queue[next+1:]...)
-			return
+			queue = append(queue[:next:next], queue[next+1:]...)
+			p.queues[i] = queue
 		}
 	}
-	p.free++
 }
 
 // heaviest is the index of the waiter with the most weight, the first of

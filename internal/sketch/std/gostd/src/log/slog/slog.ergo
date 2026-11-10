@@ -110,10 +110,12 @@ extern go log/slog.IntValue func IntValue(v int) Value needs go.Foreign
 extern go log/slog.JSONHandler type JSONHandler {}
 
 // ergo:go func (*JSONHandler).Enabled(_ context.Context, level Level) bool
-extern go log/slog.JSONHandler.Enabled func (h *JSONHandler) Enabled(p0 gocontext.Context, level Level) bool needs go.Foreign
+// ergo:context
+extern go log/slog.JSONHandler.Enabled func (h *JSONHandler) Enabled(level Level) bool needs go.Foreign
 
 // ergo:go func (*JSONHandler).Handle(_ context.Context, r Record) error
-extern go log/slog.JSONHandler.Handle func (h *JSONHandler) Handle(p0 gocontext.Context, r Record) fails go.Error needs go.Foreign
+// ergo:context
+extern go log/slog.JSONHandler.Handle func (h *JSONHandler) Handle(r Record) fails go.Error needs go.Foreign
 
 // ergo:go func (*JSONHandler).WithAttrs(attrs []Attr) Handler
 extern go log/slog.JSONHandler.WithAttrs func (h *JSONHandler) WithAttrs(attrs []Attr) Handler needs go.Foreign
@@ -226,8 +228,9 @@ extern go log/slog.Leveler type Leveler {
 // ergo:refused Log: parameter 4: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func LogAttrs(ctx context.Context, level Level, msg string, attrs ...Attr)
+// ergo:context
 // ergo:variadic
-extern go log/slog.LogAttrs func LogAttrs(ctx gocontext.Context, level Level, msg string, attrs []Attr) needs go.Foreign
+extern go log/slog.LogAttrs func LogAttrs(level Level, msg string, attrs []Attr) needs go.Foreign
 
 // ergo:go type LogValuer interface
 extern go log/slog.LogValuer type LogValuer {
@@ -244,7 +247,8 @@ extern go log/slog.Logger type Logger {}
 // ergo:refused Logger.DebugContext: parameter 3: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*Logger).Enabled(ctx context.Context, level Level) bool
-extern go log/slog.Logger.Enabled func (l *Logger) Enabled(ctx gocontext.Context, level Level) bool needs go.Foreign
+// ergo:context
+extern go log/slog.Logger.Enabled func (l *Logger) Enabled(level Level) bool needs go.Foreign
 
 // ergo:go func (*Logger).Error(msg string, args ...any)
 // ergo:refused Logger.Error: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
@@ -265,8 +269,9 @@ extern go log/slog.Logger.Handler func (l *Logger) Handler() Handler needs go.Fo
 // ergo:refused Logger.Log: parameter 4: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*Logger).LogAttrs(ctx context.Context, level Level, msg string, attrs ...Attr)
+// ergo:context
 // ergo:variadic
-extern go log/slog.Logger.LogAttrs func (l *Logger) LogAttrs(ctx gocontext.Context, level Level, msg string, attrs []Attr) needs go.Foreign
+extern go log/slog.Logger.LogAttrs func (l *Logger) LogAttrs(level Level, msg string, attrs []Attr) needs go.Foreign
 
 // ergo:go func (*Logger).Warn(msg string, args ...any)
 // ergo:refused Logger.Warn: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
@@ -287,10 +292,12 @@ extern go log/slog.MessageKey let MessageKey string
 extern go log/slog.MultiHandler type MultiHandler {}
 
 // ergo:go func (*MultiHandler).Enabled(ctx context.Context, l Level) bool
-extern go log/slog.MultiHandler.Enabled func (h *MultiHandler) Enabled(ctx gocontext.Context, l Level) bool needs go.Foreign
+// ergo:context
+extern go log/slog.MultiHandler.Enabled func (h *MultiHandler) Enabled(l Level) bool needs go.Foreign
 
 // ergo:go func (*MultiHandler).Handle(ctx context.Context, r Record) error
-extern go log/slog.MultiHandler.Handle func (h *MultiHandler) Handle(ctx gocontext.Context, r Record) fails go.Error needs go.Foreign
+// ergo:context
+extern go log/slog.MultiHandler.Handle func (h *MultiHandler) Handle(r Record) fails go.Error needs go.Foreign
 
 // ergo:go func (*MultiHandler).WithAttrs(attrs []Attr) Handler
 extern go log/slog.MultiHandler.WithAttrs func (h *MultiHandler) WithAttrs(attrs []Attr) Handler needs go.Foreign
@@ -372,10 +379,12 @@ extern go log/slog.StringValue func StringValue(value string) Value needs go.For
 extern go log/slog.TextHandler type TextHandler {}
 
 // ergo:go func (*TextHandler).Enabled(_ context.Context, level Level) bool
-extern go log/slog.TextHandler.Enabled func (h *TextHandler) Enabled(p0 gocontext.Context, level Level) bool needs go.Foreign
+// ergo:context
+extern go log/slog.TextHandler.Enabled func (h *TextHandler) Enabled(level Level) bool needs go.Foreign
 
 // ergo:go func (*TextHandler).Handle(_ context.Context, r Record) error
-extern go log/slog.TextHandler.Handle func (h *TextHandler) Handle(p0 gocontext.Context, r Record) fails go.Error needs go.Foreign
+// ergo:context
+extern go log/slog.TextHandler.Handle func (h *TextHandler) Handle(r Record) fails go.Error needs go.Foreign
 
 // ergo:go func (*TextHandler).WithAttrs(attrs []Attr) Handler
 extern go log/slog.TextHandler.WithAttrs func (h *TextHandler) WithAttrs(attrs []Attr) Handler needs go.Foreign

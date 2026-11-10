@@ -196,6 +196,8 @@ func pendingDefinition(t Type) bool {
 			}
 		case *Slice:
 			return pending(t.Elem)
+		case *Array:
+			return pending(t.Elem)
 		case *Map:
 			return pending(t.Key) || pending(t.Elem)
 		case *Pointer:
@@ -275,7 +277,7 @@ func (c *checker) completeDefinedTypes() {
 // base, when a defined type may not be over it, and is "" when it may.
 func baseNoun(u Type) string {
 	switch u.(type) {
-	case *Basic, *Slice, *Map, *Signature, *Tuple, *Struct:
+	case *Basic, *Slice, *Array, *Map, *Signature, *Tuple, *Struct:
 		return ""
 	case *Interface:
 		return "an operation type"

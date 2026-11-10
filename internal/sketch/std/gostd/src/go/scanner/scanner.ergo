@@ -37,7 +37,7 @@ extern go go/scanner.Scanner type Scanner {
 extern go go/scanner.Scanner.End func (s *Scanner) End() token.Pos needs go.Foreign
 
 // ergo:go func (*Scanner).Init(file *token.File, src []byte, err ErrorHandler, mode Mode)
-// ergo:refused Scanner.Init: parameter 3: type ErrorHandler is refused: a Go function type maps to no Ergo host type in v1
+extern go go/scanner.Scanner.Init func (s *Scanner) Init(file *token.File, src []byte, err escaping func(token.Position, string), mode Mode) needs go.Foreign
 
 // ergo:go func (*Scanner).Scan() (pos token.Pos, tok token.Token, lit string)
 extern go go/scanner.Scanner.Scan func (s *Scanner) Scan() (token.Pos, token.Token, string) needs go.Foreign

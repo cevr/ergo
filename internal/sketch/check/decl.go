@@ -55,6 +55,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 		// expands instances (round-2 M1, M5).
 		c.checkInstantiationCycles,
 		c.completeDefinedTypes,
+		c.checkRefinements,
 		c.collectSelfFuncs,
 		func() {
 			for _, f := range c.funcs {
@@ -99,6 +100,8 @@ func (c *checker) run(files []*syntax.File) *Package {
 		// provider into the with that builds it (R11).
 		c.withOwnership,
 		c.checkOwnership,
+		// Laws under a context read the acquisitions (lawcontexts.go).
+		c.planLawContexts,
 		c.checkFrames,
 		c.checkEscapes,
 		c.footprints,
@@ -1222,6 +1225,9 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		return c.instantiateExprs(n, x.Indices, x, ctx)
 	case *syntax.ArrayType:
 		elem := c.typExpr(x.Elt, ctx)
+		if x.Len != "" {
+			return c.arrayType(x, elem)
+		}
 		return &Slice{Elem: elem}
 	case *syntax.MapType:
 		if tn := c.declaredMap(); tn != nil {
@@ -1546,6 +1552,9 @@ func (c *checker) instantiateExprs(n *Named, args []syntax.Expr, at syntax.Node,
 	}
 	c.recordInstantiation(n.Obj.Name, n.TParams, targs, at)
 	inst := c.instantiate(n, targs)
+	if len(args) > 0 && !c.scriptWritten(inst, args[0]) {
+		return invalid
+	}
 	for i, tp := range n.TParams {
 		if tp.Kind == KindType && tp.Constraint != nil && n.state == 2 {
 			cons := c.subst(tp.Constraint, paramMap(n.TParams, targs))
@@ -1596,6 +1605,10 @@ func (c *checker) instantiate(orig *Named, targs []Type) *Named {
 func (n *Named) instanceUnder(inst *Named) Type {
 	if n.under == nil || inst.ctx == nil {
 		return invalid
+	}
+	if _, ok := scriptArg(inst); ok {
+		// A Script's record is derived from its capability (script.go).
+		return inst.ctx.scriptUnder(inst)
 	}
 	m := map[*TypeParam]Type{}
 	for i, tp := range n.TParams {
@@ -1692,6 +1705,9 @@ func (c *checker) namedRow(x syntax.Expr, t Type) (vs []Type, isRow bool) {
 }
 
 func (c *checker) rowElem(x syntax.Expr, kind Kind, ctx *typeCtx) Type {
+	if t, ok := c.wiredElem(x, kind, ctx); ok {
+		return t
+	}
 	var t Type
 	switch x := x.(type) {
 	case *syntax.Ident:
@@ -1752,6 +1768,16 @@ func (c *checker) rowElem(x syntax.Expr, kind Kind, ctx *typeCtx) Type {
 		// may be resolved first from a test.
 		c.addErrorType(t.(*Named), c.pkg.OwnerOf(x), x)
 	case KindUses:
+		if n, ok := t.(*Named); ok && len(n.origin().TParams) > 0 && !isCapability(t) {
+			if _, ops := n.Underlying().(*Interface); ops {
+				if n.Orig == nil {
+					c.errorf(x, CodeType, "generic capability %s needs type arguments: write %s[…]", n, n)
+				} else {
+					c.errorf(x, CodeType, "a capability's type arguments are concrete types, and %s names a type parameter", n)
+				}
+				return nil
+			}
+		}
 		if !isCapability(t) {
 			c.errorf(x, CodeUnknown, "%s is not a capability: a capability is a named interface with methods (rows.md, Capability rows 3)", t)
 			return nil
@@ -2177,7 +2203,10 @@ func (c *checker) collectSelfFuncs() {
 		}
 		for _, g := range f.same {
 			c.cur = g.file
-			if g.Name == "main" {
+			if d := derivedOf(f, g); d != nil {
+				// One is a refinement's parse function (refine.go).
+				c.errorf(g.Decl.Name, CodeType, "%s is already declared in this package: the where of %s derives it (types.md, Refinements 4)", g.Name, d.Name.Name)
+			} else if g.Name == "main" {
 				// main is never a member (types.md, Methods 3).
 				c.errorf(g.Decl.Name, CodeType, "%s is already declared in this package", g.Name)
 			} else {
@@ -2219,6 +2248,9 @@ func (c *checker) collOwner(f *Func) (collKey, []syntax.Expr, bool) {
 	key := collKey{name: f.Name}
 	switch t := d.Type.Params.List[0].Type.(type) {
 	case *syntax.ArrayType:
+		if t.Len != "" {
+			return collKey{}, nil, false // the prelude's are on slices
+		}
 		args = []syntax.Expr{t.Elt}
 	case *syntax.MapType:
 		args, key.isMap = []syntax.Expr{t.Key, t.Value}, true

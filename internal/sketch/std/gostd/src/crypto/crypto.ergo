@@ -83,7 +83,7 @@ extern go crypto.MessageSigner type MessageSigner {
 extern go crypto.RIPEMD160 let RIPEMD160 Hash
 
 // ergo:go func RegisterHash(h Hash, f func() hash.Hash)
-extern go crypto.RegisterHash func RegisterHash(h Hash, f func() hash.Hash) needs go.Foreign
+extern go crypto.RegisterHash func RegisterHash(h Hash, f escaping func() hash.Hash) needs go.Foreign
 
 // ergo:go const SHA1 Hash
 extern go crypto.SHA1 let SHA1 Hash

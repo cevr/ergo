@@ -52,6 +52,9 @@ var i1CallRules = map[check.CallKind][]i1CallRule{
 	check.CallLen: {
 		{name: "len", behavior: "pure", src: "func subject(n int) int { len([]int{n}) }", graph: "len", generated: &i1Graph{name: "len", decls: i1Fib("left(n int)", "len([]int{left(n - 1)})", "len([]int{left(n - 2)})"), call: "left(%d)", frames: []string{"left"}}},
 	},
+	check.CallGoError: {
+		{name: "go-is", behavior: "pure", src: "func subject(n int) int { len([]bool{go.Is(go.Error{}, go.Error{})}) + n }", graph: "go-is", generated: &i1Graph{name: "go-is", decls: i1Fib("left(n int)", `len([]bool{go.Is(go.Error{Text: "\(left(n - 1))"}, go.Error{})})`, `len([]bool{go.Is(go.Error{Text: "\(left(n - 2))"}, go.Error{})})`), call: "left(%d)", frames: []string{"left"}}},
+	},
 	check.CallWith: {
 		{name: "pure-with", behavior: "transparent-pure", src: "func subject(n int) int { with Local { n } }", graph: "with-body"},
 		{name: "capability-with", behavior: "transparent-capability", src: "func subject(n int) int { with Local { Probe.Tick(); n } }", graph: "with-body"},

@@ -2,25 +2,40 @@
 // ergo:bind uuid go1.27 darwin/arm64 linux/amd64
 
 // ergo:go func Max() UUID
-// ergo:refused Max: result 1: type UUID is refused: Ergo has no fixed arrays
+extern go uuid.Max func Max() UUID needs go.Foreign
 
 // ergo:go func MustParse(s string) UUID
-// ergo:refused MustParse: result 1: type UUID is refused: Ergo has no fixed arrays
+extern go uuid.MustParse func MustParse(s string) UUID needs go.Foreign
 
 // ergo:go func New() UUID
-// ergo:refused New: result 1: type UUID is refused: Ergo has no fixed arrays
+extern go uuid.New func New() UUID needs go.Foreign
 
 // ergo:go func NewV4() UUID
-// ergo:refused NewV4: result 1: type UUID is refused: Ergo has no fixed arrays
+extern go uuid.NewV4 func NewV4() UUID needs go.Foreign
 
 // ergo:go func NewV7() UUID
-// ergo:refused NewV7: result 1: type UUID is refused: Ergo has no fixed arrays
+extern go uuid.NewV7 func NewV7() UUID needs go.Foreign
 
 // ergo:go func Nil() UUID
-// ergo:refused Nil: result 1: type UUID is refused: Ergo has no fixed arrays
+extern go uuid.Nil func Nil() UUID needs go.Foreign
 
 // ergo:go func Parse(s string) (UUID, error)
-// ergo:refused Parse: result 1: type UUID is refused: Ergo has no fixed arrays
+extern go uuid.Parse func Parse(s string) UUID fails go.Error needs go.Foreign
 
 // ergo:go type UUID [16]byte
-// ergo:refused UUID: Ergo has no fixed arrays
+extern go uuid.UUID type UUID [16]byte
+
+// ergo:go func (UUID).AppendText(b []byte) ([]byte, error)
+extern go uuid.UUID.AppendText func (u UUID) AppendText(b []byte) []byte fails go.Error needs go.Foreign
+
+// ergo:go func (UUID).Compare(v UUID) int
+extern go uuid.UUID.Compare func (u UUID) Compare(v UUID) int needs go.Foreign
+
+// ergo:go func (UUID).MarshalText() ([]byte, error)
+extern go uuid.UUID.MarshalText func (u UUID) MarshalText() []byte fails go.Error needs go.Foreign
+
+// ergo:go func (UUID).String() string
+extern go uuid.UUID.String func (u UUID) String() string needs go.Foreign
+
+// ergo:go func (*UUID).UnmarshalText(b []byte) error
+extern go uuid.UUID.UnmarshalText func (u *UUID) UnmarshalText(b []byte) fails go.Error needs go.Foreign

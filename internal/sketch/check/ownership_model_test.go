@@ -19,9 +19,13 @@ import (
 // new value or a local), Close, a call of a function with a written takes,
 // a lend and a take of one value in one call, a temporary, a discarded
 // resource (as a statement and bound to _), if/else, match, for with break
-// and continue, return, the failure edge of a try, and a trailing block
-// (a frame of its own) that uses or hands off the enclosing locals; with a
-// lent and a taken parameter. A reference abstract interpreter in the
+// and continue, return, the failure edge of a try, a take in either
+// operand of && or || (the right one runs on some paths only), an if or
+// match used as a value (a let value, an operand of &&, a lent and a
+// taken argument, a dropped value; arms with statements of their own and a
+// tail that takes, names or makes a value, or nests another), and a
+// trailing block (a frame of its own) that uses or hands off the
+// enclosing locals; with a lent and a taken parameter. A reference abstract interpreter in the
 // test, written from resources R4-R21 and R41-R43, computes the verdict
 // (S108 positions) and the release plan (what each scope end, statement,
 // assignment and exit edge releases, with drop flags); both must equal the
@@ -35,7 +39,11 @@ import (
 // takes call does not move; a lend counts as a move; a hand-off inside a
 // trailing block admitted (the scope.OnExit rule); a lend and a take in
 // one call admitted; a lent parameter handed off; a local held only for
-// its release reported S110.
+// its release reported S110; the right operand of && or || walked as a
+// path every run takes (batch-15 A2 M1: the value leaked when it did not
+// run); the arms of a value if or match skipped, an arm's value moved
+// wherever the value goes, and the temporary of a lent one owned on every
+// path or on none (batch-15 A2 M1 repeat).
 func TestOwnershipFlowModel(t *testing.T) {
 	seeds := make([]uint64, 0, 400)
 	if s := os.Getenv("ERGO_SEED"); s != "" {
@@ -50,10 +58,12 @@ func TestOwnershipFlowModel(t *testing.T) {
 		}
 	}
 	for _, seed := range seeds {
+		ofYieldProjections(t, seed)
+		ofYieldLifetimes(t, seed)
 		g := &ofGen{r: rand.New(rand.NewPCG(seed, 0x197a2))}
 		body := g.program(12)
-		src, first := ofPrint(body)
-		wantD, wantR := ofReference(body)
+		src, first := ofPrint(body, g.bare)
+		wantD, wantR := ofReference(body, g.bare)
 		c, diags := checkFor(src)
 		var gotD []string
 		for _, d := range diags {
@@ -72,6 +82,400 @@ func TestOwnershipFlowModel(t *testing.T) {
 			}
 			t.Fatalf("seed %d (replay: ERGO_SEED=%d go test -run TestOwnershipFlowModel ./internal/sketch/check)\nsource:\n%s\nchecker diagnostics: %v\nmodel diagnostics:   %v\n%s\nchecker releases: %v\nmodel releases:   %v",
 				seed, seed, ofNumbered(src), gotD, wantD, strings.Join(full, "\n"), gotR, wantR)
+		}
+	}
+}
+
+// ofYieldProjections varies the result's root owner, not just the tail's
+// spelling. A part of a block-local owner cannot be released safely by
+// closing the part alone, so it must be refused; an enclosing root stays
+// lent. This kills a2-yield-projection-root-ignored.
+func ofYieldProjections(t *testing.T, seed uint64) {
+	t.Helper()
+	rng := rand.New(rand.NewPCG(seed, 0x197a205))
+	for origin := range 5 {
+		arm := []string{
+			"let b = pair()\nb.R",
+			"pair().R",
+			"outer.R",
+			"let b = pair()\n(with context {} { b }).R",
+			"(if cond(n) { outer } else { outer }).R",
+		}[origin]
+		var x string
+		switch rng.IntN(5) {
+		case 0:
+			x = "if cond(n) {\n" + arm + "\n} else { open(0) }"
+		case 1:
+			x = "match n {\ncase 0:\n" + arm + "\ncase _: open(0)\n}"
+		case 2:
+			x = "match (n, n) {\ncase (_, _):\n" + arm + "\n}"
+		case 3:
+			x = "with context {} {\n" + arm + "\n}"
+		case 4:
+			x = "tryOpen(n) catch {\ncase Bad:\n" + arm + "\n}"
+		}
+		src := ofPrelude + "type Pair { R Res }\nfunc pair() Pair { Pair{R: open(1)} }\nfunc tryOpen(n int) Res fails Bad { if n > 0 { return Bad }; open(n) }\nfunc body(n int, outer Pair) { lend(" + x + ") }\nfunc main() {}\n"
+		_, ds := checkFor(src)
+		want := origin == 0 || origin == 1 || origin == 3
+		if (len(ds) > 0) != want {
+			t.Fatalf("projection seed %d origin %d: diagnostics %v, want refusal %v\nReplay: ERGO_SEED=%d go test -run '^TestOwnershipFlowModel$' ./internal/sketch/check\n%s", seed, origin, ds, want, seed, src)
+		}
+		for _, d := range ds {
+			if d.Code != "S108" || !strings.Contains(d.Message, "owner ends before its consumer") {
+				t.Fatalf("projection seed %d: unexpected %v\n%s", seed, ds, src)
+			}
+		}
+	}
+}
+
+// ofYieldLifetimes executes the release plan, not the abstract lattice's
+// prediction of that plan. Tokens retain their acquisition identity across
+// result expressions. A consumer must use a live token, and every acquisition
+// must be released once. This kills a2-yield-local-not-transferred: the old
+// model agreed with the early arm release (batch-15 r3 M1).
+func ofYieldLifetimes(t *testing.T, seed uint64) {
+	t.Helper()
+	rng := rand.New(rand.NewPCG(seed, 0x197a204))
+	next := 0
+	consumer := rng.IntN(10) // lend, take, bind, short circuit, sibling and fallible operands
+	var value func(int) string
+	value = func(depth int) string {
+		if depth == 0 {
+			if rng.IntN(3) == 0 {
+				return "try tryOpen(n)"
+			}
+			if (consumer == 0 || consumer == 3) && rng.IntN(3) == 0 {
+				return "outer"
+			}
+			if rng.IntN(2) == 0 {
+				return "open(2)"
+			}
+			next++
+			name := fmt.Sprintf("local%d", next)
+			return "with context {} {\nlet " + name + " = open(2)\nlend(" + name + ")\n" + name + "\n}"
+		}
+		arm := func() string {
+			next++
+			name := fmt.Sprintf("local%d", next)
+			if rng.IntN(2) == 0 {
+				tail := name
+				if rng.IntN(2) == 0 {
+					tail = "with context {} { " + name + " }"
+				}
+				return "let " + name + " = open(2)\nlend(" + name + ")\n" + tail
+			}
+			return value(depth - 1)
+		}
+		switch rng.IntN(8) {
+		case 0:
+			return "if cond(n) {\n" + arm() + "\n} else {\n" + arm() + "\n}"
+		case 1:
+			return "match n {\ncase 0:\n" + arm() + "\ncase _:\n" + arm() + "\n}"
+		case 2:
+			return "match (n, n) {\ncase (_, _):\n" + arm() + "\n}"
+		case 3:
+			return "with context {} {\n" + arm() + "\n}"
+		case 5:
+			return "try tryBoth(n) catch {\ncase Bad:\n" + arm() + "\n}"
+		case 6:
+			return "tryHold(try tryOpen(n), n) catch {\ncase Bad:\n" + arm() + "\n}"
+		case 7:
+			return "try tryHold(tryOpen(n), n) catch {\ncase Bad:\n" + arm() + "\n}"
+		default:
+			target := "tryOpen(n)"
+			if rng.IntN(2) == 0 {
+				target = "tryHold(open(4), n)"
+			}
+			switch rng.IntN(3) {
+			case 1:
+				target = "with context {} { " + target + " }"
+			case 2:
+				target = "with context {} { if cond(n) { try tryOpen(n) } else { " + target + " } }"
+			}
+			return target + " catch {\ncase Bad:\n" + arm() + "\n}"
+		}
+	}
+	x := value(1 + rng.IntN(3))
+	stmt := "lend(" + x + ")"
+	switch consumer {
+	case 1:
+		stmt = "keep(" + x + ")"
+	case 2:
+		stmt = "let result = " + x + "\nlend(result)"
+	case 3:
+		stmt = "let _ = cond(n) && held(" + x + ")"
+	case 4:
+		stmt = "both(" + x + ", try fail(n))"
+	case 5:
+		stmt = "both(try tryOpen(n), take(" + x + "))"
+	case 6:
+		stmt = "lend(try tryHold(" + x + ", fail(n)))"
+	case 7:
+		stmt = "keep(try tryHold(open(4), fail(n)))"
+	case 8:
+		stmt = "lend(try tryHold(tryOpen(n), fail(n)))"
+	case 9:
+		stmt = "both(try tryHold(tryOpen(n), fail(n)), take(" + x + "))"
+	}
+	src := ofPrelude + "type Worse {}\nfunc tryBoth(n int) Res fails Bad | Worse { if n > 0 { return Bad }; if n < 0 { return Worse }; open(n) }\nfunc tryOpen(n int) Res fails Bad { if n > 0 { return Bad }; open(n) }\nfunc tryHold(r Res, n int) Res fails Bad { if n > 0 { return Bad }; open(n) }\nfunc body(n int) fails Bad | Worse {\nlet outer = open(1)\n" + stmt + "\nlend(outer)\n}\nfunc main() {}\n"
+	c, ds := checkFor(src)
+	if len(ds) != 0 {
+		t.Fatalf("yield seed %d: %v\n%s", seed, ds, src)
+	}
+	var body *syntax.BlockStmt
+	for _, d := range c.pkg.Files()[0].Decls {
+		if f, ok := d.(*syntax.FuncDecl); ok && f.Name.Name == "body" {
+			body = f.Body
+		}
+	}
+	// Each choice consumes one bit: branch, short-circuit, producing-call
+	// success/failure, or handled/unhandled partial-catch alternative.
+	for path := range 1 << 8 {
+		type token struct{ id, releases int }
+		var tokens []*token
+		vars := map[*Var]*token{}
+		temps := map[syntax.Expr]*token{}
+		active := map[syntax.Expr]bool{}
+		var failure syntax.Node
+		abort := new(int) // only this interpreter's failed try unwinds execution
+		var events []string
+		bits := path
+		choose := func() bool { b := bits&1 != 0; bits >>= 1; return b }
+		fail := func(msg string) {
+			t.Fatalf("yield seed %d path %d: %s\nevents %v\nReplay: ERGO_SEED=%d go test -run '^TestOwnershipFlowModel$' ./internal/sketch/check\n%s", seed, path, msg, events, seed, src)
+		}
+		use := func(v *token) {
+			if v != nil {
+				events = append(events, "use")
+				if v.releases != 0 {
+					fail("use after release")
+				}
+			}
+		}
+		acquire := func(x syntax.Expr) *token {
+			v := &token{id: len(tokens) + 1}
+			tokens = append(tokens, v)
+			temps[x] = v
+			active[x] = true
+			events = append(events, "acquire")
+			return v
+		}
+		release := func(n syntax.Node) {
+			last := len(tokens) + 1
+			for _, r := range c.pkg.Info.Releases[n] {
+				v := vars[r.Var]
+				if r.Var != nil && r.Flag && v == nil {
+					continue
+				}
+				if r.Temp != nil {
+					v = temps[r.Temp]
+					if r.Flag && !active[r.Temp] {
+						continue
+					}
+				}
+				if v == nil {
+					fail(fmt.Sprintf("release without acquisition at %T", n))
+				}
+				if v.id > last {
+					fail("releases at one owner end are not in reverse acquisition order")
+				}
+				last = v.id
+				events = append(events, fmt.Sprintf("release at %T", n))
+				v.releases++
+				if v.releases != 1 {
+					fail("double release")
+				}
+			}
+		}
+		var expr func(syntax.Expr) *token
+		var block func(syntax.Node, []syntax.Stmt) *token
+		// evalResult associates the selected token with the expression's
+		// result place before its arm closes. An enclosing name is lent:
+		// it has an owner before evaluation starts. A new/local result has
+		// no such owner and belongs to the consumer's temporary instead.
+		result := func(x syntax.Expr, key syntax.Node, list []syntax.Stmt) *token {
+			before := len(tokens)
+			var v *token
+			for i, s := range list {
+				if i == len(list)-1 {
+					var tail syntax.Expr
+					if es, ok := s.(*syntax.ExprStmt); ok {
+						tail = es.X
+					} else if e, ok := s.(syntax.Expr); ok {
+						tail = e
+					}
+					if tail != nil {
+						v = expr(tail)
+						temps[x] = v
+						active[x] = slices.Contains(tokens[before:], v)
+						release(s)
+						continue
+					}
+				}
+				block(nil, []syntax.Stmt{s})
+			}
+			release(key)
+			return v
+		}
+		expr = func(x syntax.Expr) *token {
+			switch x := x.(type) {
+			case *syntax.Ident:
+				v, _ := c.pkg.Info.Uses[x].(*Var)
+				out := vars[v]
+				use(out)
+				return out
+			case *syntax.ParenExpr:
+				return expr(x.X)
+			case *syntax.TryExpr:
+				saved := failure
+				failure = x
+				v := expr(x.X)
+				failure = saved
+				return v
+			case *syntax.CallExpr:
+				k := c.pkg.Info.Calls[x]
+				if k != nil && k.Kind == CallWith {
+					return result(x, x.Trailing, x.Trailing.List)
+				}
+				name := calleeText(x)
+				if name == "open" || name == "tryOpen" || name == "tryHold" || name == "tryBoth" {
+					var args []*token
+					for _, a := range x.Args {
+						args = append(args, expr(a))
+					}
+					for _, v := range args {
+						use(v)
+					}
+					if name != "open" && failure != nil && choose() {
+						release(failure)
+						panic(abort)
+					}
+					return acquire(x)
+				}
+				for _, a := range x.Args {
+					v := expr(a)
+					use(v)
+					if (name == "keep" || name == "take") && v != nil {
+						v.releases++
+						events = append(events, "take/release")
+					}
+				}
+				if name == "fail" && failure != nil && choose() {
+					release(failure)
+					panic(abort)
+				}
+			case *syntax.IfStmt:
+				if choose() {
+					return result(x, x.Body, x.Body.List)
+				}
+				b := x.Else.(*syntax.BlockStmt)
+				return result(x, b, b.List)
+			case *syntax.SwitchStmt:
+				i := 0
+				if len(x.Clauses) > 1 && choose() {
+					i = 1
+				}
+				cl := x.Clauses[i]
+				return result(x, cl, cl.Body)
+			case *syntax.TypeSwitchStmt:
+				cl := x.Clauses[0]
+				return result(x, cl, cl.Body)
+			case *syntax.CatchExpr:
+				target := x.X
+				wrappers := []syntax.Expr{x}
+				var ends []syntax.Node
+				if with, ok := target.(*syntax.CallExpr); ok && c.pkg.Info.Calls[with].Kind == CallWith {
+					wrappers = append(wrappers, with)
+					tail := with.Trailing.List[0]
+					if branch, ok := tail.(*syntax.IfStmt); ok {
+						wrappers = append(wrappers, branch)
+						b := branch.Body
+						if choose() {
+							b = branch.Else.(*syntax.BlockStmt)
+						}
+						tail = b.List[0]
+						ends = append(ends, tail, b, branch)
+					} else {
+						ends = append(ends, tail)
+					}
+					target = tail.(*syntax.ExprStmt).X
+					ends = append(ends, with.Trailing)
+				}
+				finish := func(v *token) {
+					for _, e := range wrappers {
+						temps[e], active[e] = v, v != nil
+					}
+					for _, end := range ends {
+						release(end)
+					}
+				}
+				if _, tried := target.(*syntax.TryExpr); tried {
+					v := expr(target)
+					finish(v)
+					return v
+				}
+				call := target.(*syntax.CallExpr)
+				// Operands run before the caught call. Their tried failures
+				// escape the function, not into this catch (rows.md Catch 5).
+				var args []*token
+				for _, a := range call.Args {
+					args = append(args, expr(a))
+				}
+				for _, v := range args {
+					use(v)
+				}
+				if choose() {
+					finish(nil)
+					if calleeText(call) == "tryBoth" && choose() {
+						release(failure)
+						panic(abort)
+					}
+					a := x.Arms[0]
+					return result(x, a, a.Body)
+				}
+				v := acquire(call) // this path chose the caught call's success
+				finish(v)
+				return v
+			case *syntax.BinaryExpr:
+				expr(x.X)
+				if choose() {
+					expr(x.Y)
+				}
+			}
+			return nil
+		}
+		block = func(key syntax.Node, list []syntax.Stmt) *token {
+			for _, s := range list {
+				switch s := s.(type) {
+				case *syntax.DeclStmt:
+					for _, spec := range s.Decl.Specs {
+						v := expr(spec.Values[0])
+						release(spec)
+						obj, _ := c.pkg.Info.Defs[spec.Names[0]].(*Var)
+						vars[obj] = v
+					}
+				case *syntax.ExprStmt:
+					expr(s.X)
+					release(s)
+				}
+			}
+			if key != nil {
+				release(key)
+			}
+			return nil
+		}
+		func() {
+			defer func() {
+				if p := recover(); p != nil && p != abort {
+					panic(p)
+				}
+			}()
+			block(body, body.List)
+		}()
+		for _, v := range tokens {
+			if v.releases != 1 {
+				fail("acquired token not released exactly once")
+			}
 		}
 	}
 }
@@ -158,11 +562,15 @@ func open(n int) Res { Res{id: n} }
 
 func lend(r Res) {}
 
+func held(r Res) bool { true }
+
 func keep(r Res) takes r {}
 
 func take(r Res) int takes r { 0 }
 
 func both(r Res, n int) {}
+
+func bothInt(n int, m int) {}
 
 func fail(n int) int fails Bad {
 	if n > 5 {
@@ -218,7 +626,11 @@ const (
 	ofContinue
 	ofReturn
 	ofTry
+	ofShort
 	ofRun
+	ofCatch // let _ = fail(n) catch { case Bad: …; 0 }: the arm runs on the failure path
+	ofValue // an if or match used as a value (batch-15 A2 M1)
+	ofTail  // the last line of a value arm: where the arm's value comes from (never drawn by stmt)
 	// Aggregates, containers, unions, conversions and with providers (L8
 	// A4): a Box{r Res, n int}, a []Res, a Held = Res | Empty.
 	ofBoxNew     // let bN = Box{r: Y, n: 1}: Y moves into the literal (R14)
@@ -242,15 +654,42 @@ const (
 	ofLast
 )
 
+// Where an ofValue's if or match stands (form) and what its arms yield.
+const (
+	vLetBool = iota // let _ = IF, arms of bool type
+	vShort          // let _ = cond(n) && (IF): an operand that may not run
+	vLend           // lend(IF): a lent Res, a temporary of the statement
+	vKeep           // keep(IF): a taken Res, each arm's value moves
+	vLetRes         // let rN = IF: the value moves into rN
+	vDiscard        // let _ = IF of Res: each arm's new value is discarded
+	vForms
+)
+
+// The tail of a value arm (an ofTail's tk).
+const (
+	tCond   = iota // cond(n)
+	tTake          // take(y) > 0: hands y off
+	tName          // y: moved, lent or dropped as the value is
+	tOpen          // open(k): a new value, owned where the value goes
+	tNested        // a nested if or match (body[0], an ofValue), bool only
+)
+
 type ofStmt struct {
 	kind      int
 	x, y      string // x: the declared or assigned name; y: the operand
 	z         string // the binding of a for-in or a match arm
 	alt       bool   // keep, not lend, the binding
 	mut       bool
+	op        string // ofShort: && or ||
+	left      bool   // ofShort: the take is the left operand, which always runs
+	temp      bool   // ofShort: the right operand lends a temporary instead
+	form      int    // ofValue: vLetBool…
+	match     bool   // ofValue: a match instead of an if
+	tk        int    // ofTail: tCond…
 	body, els []*ofStmt
 	// Filled by ofPrint: the statement's line, the else line, and columns.
 	line, elseLine int
+	armLine        int // ofValue match: the first clause's line; ofCatch: the arm's
 	col, col2      int // y's column (both: the lent y); the taken y in both
 }
 
@@ -265,11 +704,20 @@ type ofGen struct {
 	r    *rand.Rand
 	n    int
 	vars []ofVar
+	// bare: the function has no resource parameters, and its first
+	// statement is a branch, loop, catch or value if/match, reached with
+	// no live value (batch-15 A2 M1 r5: such a point went unchecked).
+	bare, lead bool
 }
 
 func (g *ofGen) program(size int) []*ofStmt {
 	g.vars = []ofVar{{name: "p", depth: 1}, {name: "q", depth: 1}}
-	body := g.block(size, 1, 0, false)
+	var body []*ofStmt
+	if g.r.IntN(3) == 0 {
+		g.bare, g.lead, g.vars = true, true, nil
+		body = []*ofStmt{g.stmt(1, 0, false)}
+	}
+	body = append(body, g.block(size, 1, 0, false)...)
 	// A let mut that is never assigned is S110: write it as a let.
 	assigned := map[string]bool{}
 	var walk func([]*ofStmt, func(*ofStmt))
@@ -290,6 +738,16 @@ func (g *ofGen) program(size int) []*ofStmt {
 }
 
 func (g *ofGen) pick() string { return g.pickKind("") }
+
+// hasRes reports a live Res name to pick.
+func (g *ofGen) hasRes() bool {
+	for _, v := range g.vars {
+		if v.kind == "" {
+			return true
+		}
+	}
+	return false
+}
 
 // pickKind is a live name of a kind, or "" when there is none.
 func (g *ofGen) pickKind(kind string) string {
@@ -324,13 +782,78 @@ func (g *ofGen) fresh() string {
 	return fmt.Sprintf("r%d", g.n)
 }
 
+// value is an if or match used as a value, at form; a bool one may nest
+// another in an arm's tail.
+func (g *ofGen) value(form, depth, nest int, inLoop bool) *ofStmt {
+	s := &ofStmt{kind: ofValue, form: form, match: g.r.IntN(2) == 0}
+	s.body = g.arm(form, depth, nest, inLoop)
+	s.els = g.arm(form, depth, nest, inLoop)
+	return s
+}
+
+// arm is a value arm: up to two statements, then its tail.
+func (g *ofGen) arm(form, depth, nest int, inLoop bool) []*ofStmt {
+	mark := len(g.vars)
+	defer func() { g.vars = g.vars[:mark] }()
+	var out []*ofStmt
+	for range g.r.IntN(3) {
+		out = append(out, g.stmt(depth, nest+1, inLoop))
+	}
+	t := &ofStmt{kind: ofTail}
+	if form == vLetBool || form == vShort {
+		t.tk = []int{tCond, tTake, tNested}[g.r.IntN(3)]
+		if t.tk == tNested && nest >= 2 {
+			t.tk = tTake
+		}
+		if t.tk == tTake && !g.hasRes() {
+			t.tk = tCond
+		}
+	} else {
+		t.tk = []int{tName, tOpen}[g.r.IntN(2)]
+		if !g.hasRes() {
+			t.tk = tOpen
+		}
+	}
+	switch t.tk {
+	case tTake, tName:
+		t.y = g.pick()
+	case tNested:
+		t.body = []*ofStmt{g.value(vLetBool, depth, nest+1, inLoop)}
+	}
+	return append(out, t)
+}
+
 func (g *ofGen) stmt(depth, nest int, inLoop bool) *ofStmt {
 	for {
 		k := g.r.IntN(ofLast)
+		if k == ofTail {
+			continue // only as a value arm's last line
+		}
+		if g.lead {
+			g.lead = false
+			k = []int{ofIf, ofMatch, ofLoop, ofCatch, ofValue}[g.r.IntN(5)]
+		}
 		switch k {
+		case ofDeclMove, ofLend, ofClose, ofKeep, ofBoth, ofShort, ofBoxNew, ofListNew, ofHeldNew, ofWithMove, ofConvert, ofLitLend:
+			if !g.hasRes() {
+				continue // nothing live to name
+			}
+		}
+		switch k {
+		case ofValue:
+			if nest >= 3 {
+				continue
+			}
+			form := g.r.IntN(vForms)
+			s := g.value(form, depth, nest, inLoop)
+			if form == vLetRes {
+				s.x = g.fresh()
+				g.vars = append(g.vars, ofVar{name: s.x, depth: depth})
+			}
+			return s
 		case ofBreak, ofContinue, ofReturn:
 			continue // only as an if body's last statement
-		case ofIf, ofMatch, ofLoop, ofRun:
+		case ofIf, ofMatch, ofLoop, ofRun, ofCatch:
 			if nest >= 3 {
 				continue
 			}
@@ -371,6 +894,19 @@ func (g *ofGen) stmt(depth, nest int, inLoop bool) *ofStmt {
 			g.vars = append(g.vars, ofVar{name: s.x, mut: s.mut, depth: depth})
 		case ofLend, ofClose, ofKeep, ofBoth:
 			s.y = g.pick()
+			if k == ofBoth {
+				s.temp = g.r.IntN(3) == 0
+				s.left = !s.temp && g.r.IntN(2) == 0 // a crossing field, not a lender
+			}
+		case ofShort:
+			s.y = g.pick()
+			s.op = []string{"&&", "||"}[g.r.IntN(2)]
+			switch g.r.IntN(4) {
+			case 0:
+				s.left = true
+			case 1:
+				s.temp = true
+			}
 		case ofIf:
 			s.body = g.block(4, depth, nest+1, inLoop)
 			if g.r.IntN(2) == 0 {
@@ -384,6 +920,8 @@ func (g *ofGen) stmt(depth, nest int, inLoop bool) *ofStmt {
 			s.els = g.block(3, depth, nest+1, inLoop)
 		case ofLoop:
 			s.body = g.block(4, depth, nest+1, true)
+		case ofCatch:
+			s.body = g.block(3, depth, nest+1, inLoop)
 		case ofRun:
 			s.body = g.block(3, depth+1, nest+1, false)
 		case ofQueueNew:
@@ -441,14 +979,15 @@ func (g *ofGen) leave(depth int, inLoop bool) *ofStmt {
 		ks = append(ks, ofBreak, ofContinue)
 	}
 	if len(ks) == 0 {
-		return &ofStmt{kind: ofLend, y: "p"}
+		return &ofStmt{kind: ofTemp}
 	}
 	return &ofStmt{kind: ks[g.r.IntN(len(ks))]}
 }
 
 // ofPrint writes body as the function body of `body` after the prelude;
-// it returns the source and the body's first line.
-func ofPrint(body []*ofStmt) (string, int) {
+// it returns the source and the body's first line. A bare body's function
+// has no resource parameters.
+func ofPrint(body []*ofStmt, bare bool) (string, int) {
 	var b strings.Builder
 	b.WriteString(ofPrelude)
 	line := strings.Count(ofPrelude, "\n") + 1
@@ -461,6 +1000,7 @@ func ofPrint(body []*ofStmt) (string, int) {
 	}
 	col := func(depth int, prefix string) int { return depth + len(prefix) + 1 }
 	k := 0
+	var value func(s *ofStmt, depth int, prefix, suffix string)
 	var walk func(list []*ofStmt, depth int)
 	walk = func(list []*ofStmt, depth int) {
 		for _, s := range list {
@@ -505,8 +1045,16 @@ func ofPrint(body []*ofStmt) (string, int) {
 				s.col = col(depth, "let _ = ")
 				emit(depth, fmt.Sprintf("let _ = open(%d)", k))
 			case ofBoth:
-				s.col = col(depth, "both(")
-				p := "both(" + s.y + ", take("
+				prefix, arg := "both(", s.y
+				if s.left {
+					prefix, arg = "bothInt(", arg+".id"
+				}
+				if s.temp {
+					prefix += "if cond(n) { "
+					arg += " } else { open(0) }"
+				}
+				s.col = col(depth, prefix)
+				p := prefix + arg + ", take("
 				s.col2 = col(depth, p)
 				emit(depth, p+s.y+"))")
 			case ofIf:
@@ -539,10 +1087,61 @@ func ofPrint(body []*ofStmt) (string, int) {
 				emit(depth, "return")
 			case ofTry:
 				emit(depth, "let _ = try fail(n)")
+			case ofShort:
+				if s.temp {
+					k++
+					emit(depth, fmt.Sprintf("let _ = cond(n) %s held(open(%d))", s.op, k))
+				} else if s.left {
+					s.col = col(depth, "let _ = take(")
+					emit(depth, "let _ = take("+s.y+") > 0 "+s.op+" cond(n)")
+				} else {
+					p := "let _ = cond(n) " + s.op + " take("
+					s.col = col(depth, p)
+					emit(depth, p+s.y+") > 0")
+				}
 			case ofRun:
 				emit(depth, "run() {")
 				walk(s.body, depth+1)
 				emit(depth, "}")
+			case ofCatch:
+				emit(depth, "let _ = fail(n) catch {")
+				s.armLine = line
+				emit(depth, "case Bad:")
+				walk(s.body, depth+1)
+				emit(depth+1, "0")
+				emit(depth, "}")
+			case ofValue:
+				prefix, suffix := "", ""
+				switch s.form {
+				case vLetBool, vDiscard:
+					prefix = "let _ = "
+				case vShort:
+					prefix, suffix = "let _ = cond(n) && (", ")"
+				case vLend:
+					prefix, suffix = "lend(", ")"
+				case vKeep:
+					prefix, suffix = "keep(", ")"
+				case vLetRes:
+					prefix = "let " + s.x + " = "
+				}
+				value(s, depth, prefix, suffix)
+			case ofTail:
+				switch s.tk {
+				case tCond:
+					emit(depth, "cond(n)")
+				case tTake:
+					s.col = col(depth, "take(")
+					emit(depth, "take("+s.y+") > 0")
+				case tName:
+					s.col = col(depth, "")
+					emit(depth, s.y)
+				case tOpen:
+					k++
+					s.col = col(depth, "")
+					emit(depth, fmt.Sprintf("open(%d)", k))
+				case tNested:
+					value(s.body[0], depth, "", "")
+				}
 			case ofBoxNew, ofListNew, ofHeldNew, ofWithMove, ofConvert, ofLitLend, ofWithShared:
 				p := map[int]string{
 					ofBoxNew:     fmt.Sprintf("let %s = Box{r: ", s.x),
@@ -611,7 +1210,34 @@ func ofPrint(body []*ofStmt) (string, int) {
 			}
 		}
 	}
-	emit(0, "func body(n int, p Res, q Res) fails Bad takes q {")
+	// value writes an if or match whose value goes where prefix and
+	// suffix put it; line is the statement's (and the then block's or
+	// the first clause's), elseLine the other arm's.
+	value = func(s *ofStmt, depth int, prefix, suffix string) {
+		s.line = line
+		if !s.match {
+			emit(depth, prefix+"if cond(n) {")
+			walk(s.body, depth+1)
+			s.elseLine = line
+			emit(depth, "} else {")
+			walk(s.els, depth+1)
+			emit(depth, "}"+suffix)
+			return
+		}
+		emit(depth, prefix+"match n {")
+		s.armLine = line
+		emit(depth, "case 0:")
+		walk(s.body, depth+1)
+		s.elseLine = line
+		emit(depth, "case _:")
+		walk(s.els, depth+1)
+		emit(depth, "}"+suffix)
+	}
+	if bare {
+		emit(0, "func body(n int) fails Bad {")
+	} else {
+		emit(0, "func body(n int, p Res, q Res) fails Bad takes q {")
+	}
 	walk(body, 1)
 	emit(0, "}")
 	b.WriteString("\nfunc main() {}\n")
@@ -651,11 +1277,24 @@ type rfRun struct {
 	diags  map[string]bool
 	rel    map[string]string
 	movers map[string]bool // slots moved in the current both call
+	// The value arms being run: where their value goes, and for a lent
+	// Res the slot of the statement's temporary that owns a new value.
+	vmode, vslot, vfirst int
 }
 
-func ofReference(body []*ofStmt) ([]string, []string) {
+// Where a value arm's value goes (rfRun.vmode).
+const (
+	rvMove = iota
+	rvLend
+	rvDiscard
+)
+
+func ofReference(body []*ofStmt, bare bool) ([]string, []string) {
 	r := &rfRun{diags: map[string]bool{}, rel: map[string]string{}, depth: 1}
 	r.st = []rfSlot{{name: "p", st: rfOwned, lent: true, depth: 1}, {name: "q", st: rfOwned, depth: 1}}
+	if bare {
+		r.st = []rfSlot{} // reached, nothing live
+	}
 	r.block(body, "block", 0, 0)
 	var d, rs []string
 	for k := range r.diags {
@@ -888,10 +1527,13 @@ func (r *rfRun) stmt(s *ofStmt) {
 		r.use(s.y, s.line, s.col)
 		r.movers = map[string]bool{}
 		r.move(s.y, s.line, s.col2)
-		if r.movers[s.y] {
+		if !s.left && r.movers[s.y] {
 			r.diag(s.line, s.col)
 		}
 		r.movers = nil
+		if s.temp {
+			r.record(fmt.Sprintf("stmt@%d", s.line), "tmp?")
+		}
 	case ofIf:
 		n := len(r.st)
 		saved := rfCopy(r.st)
@@ -912,6 +1554,13 @@ func (r *rfRun) stmt(s *ofStmt) {
 		r.st = rfJoin(a, r.st, n)
 	case ofLoop:
 		r.loop(s)
+	case ofCatch:
+		// The arm runs when fail(n) fails, from the state before it; the
+		// paths meet after the catch.
+		n := len(r.st)
+		saved := rfCopy(r.st)
+		r.block(s.body, "*syntax.CatchArm", s.armLine, 0)
+		r.st = rfJoin(saved, r.st, n)
 	case ofBreak, ofContinue:
 		lp := r.loops[len(r.loops)-1]
 		r.record(fmt.Sprintf("branch@%d", s.line), r.releases(lp.first))
@@ -928,6 +1577,79 @@ func (r *rfRun) stmt(s *ofStmt) {
 		r.st = nil
 	case ofTry:
 		r.record(fmt.Sprintf("try@%d", s.line), r.releases(r.first))
+	case ofShort:
+		// The right operand runs on some paths only: an if with no else.
+		if s.temp {
+			// Its temporary is released at the statement's end under a flag.
+			r.record(fmt.Sprintf("*syntax.VarSpec@%d", s.line), "tmp?")
+			return
+		}
+		saved := rfCopy(r.st)
+		r.move(s.y, s.line, s.col)
+		if !s.left {
+			r.st = rfJoin(r.st, saved, len(r.st))
+		}
+	case ofValue:
+		switch s.form {
+		case vLetBool:
+			r.arms(s, rvDiscard, -1)
+		case vShort:
+			// The operand runs on some paths only: an if with no else.
+			saved := rfCopy(r.st)
+			r.arms(s, rvLend, -1)
+			if saved != nil {
+				r.st = rfJoin(r.st, saved, len(saved))
+			}
+		case vLend:
+			// The value is a temporary of the statement, owned on the
+			// paths whose arm made it.
+			if r.st == nil {
+				r.arms(s, rvLend, -1)
+				return
+			}
+			i := len(r.st)
+			r.st = append(r.st, rfSlot{name: "tmp", st: rfMoved, depth: r.depth})
+			r.arms(s, rvLend, i)
+			r.record(fmt.Sprintf("stmt@%d", s.line), r.releases(i))
+			if r.st != nil {
+				r.st = r.st[:i]
+			}
+		case vKeep:
+			r.arms(s, rvMove, -1)
+		case vLetRes:
+			r.arms(s, rvMove, -1)
+			r.acquire(s.x)
+		case vDiscard:
+			r.arms(s, rvDiscard, -1)
+		}
+	case ofTail:
+		switch s.tk {
+		case tTake:
+			r.move(s.y, s.line, s.col)
+		case tName:
+			if r.vmode == rvLend && r.vslot >= 0 && r.find(s.y) >= r.vfirst {
+				// The temporary owns the value only when the name did: a
+				// name already handed off (S108) gives it nothing.
+				owned := r.st != nil && r.st[r.find(s.y)].st == rfOwned
+				r.move(s.y, s.line, s.col)
+				if owned && r.st[r.find(s.y)].st == rfMoved {
+					r.st[r.vslot].st = rfOwned
+				}
+			} else if r.vmode == rvMove {
+				r.move(s.y, s.line, s.col)
+			} else {
+				r.use(s.y, s.line, s.col)
+			}
+		case tOpen:
+			switch {
+			case r.vmode == rvDiscard:
+				r.diag(s.line, s.col)
+			case r.vslot >= 0 && r.st != nil:
+				r.st[r.vslot].st = rfOwned
+			}
+		case tNested:
+			r.stmt(s.body[0])
+		}
 	case ofBoxNew, ofListNew, ofHeldNew:
 		r.move(s.y, s.line, s.col)
 		r.acquire(s.x)
@@ -1005,6 +1727,26 @@ func (r *rfRun) stmt(s *ofStmt) {
 		r.loops, r.first = loops, first
 		r.st = saved
 	}
+}
+
+// arms runs the two arms of a value if or match whose value goes to mode
+// (slot: the temporary that owns a new lent value, or -1), and joins them.
+func (r *rfRun) arms(s *ofStmt, mode, slot int) {
+	vmode, vslot, vfirst := r.vmode, r.vslot, r.vfirst
+	r.vmode, r.vslot = mode, slot
+	r.vfirst = len(r.st)
+	kind, first := "block", s.line
+	if s.match {
+		kind, first = "case", s.armLine
+	}
+	n := len(r.st)
+	saved := rfCopy(r.st)
+	r.block(s.body, kind, first, 0)
+	a := r.st
+	r.st = rfCopy(saved)
+	r.block(s.els, kind, s.elseLine, 0)
+	r.st = rfJoin(a, r.st, n)
+	r.vmode, r.vslot, r.vfirst = vmode, vslot, vfirst
 }
 
 // loop runs the body to its plain fixpoint quietly, then once more.

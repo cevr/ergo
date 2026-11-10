@@ -1,0 +1,50 @@
+// Package memory keeps a quota.Store whose Table lives as long as the
+// program, and Files, an fstest.Memory holding given files, for tests.
+
+import quota/quota
+import sync
+
+// Store is a quota.Store over one Table in memory. The Table is in a
+// sync.Ref, so every copy of a Store is the same quota: a Store bound in
+// a context keeps its Table from one call to the next. Each change is one
+// sync.Modify, so two tasks posting at once lose no move.
+type Store { cell sync.Ref[quota.Table] }
+
+// NewStore is a Store with an empty Table.
+func NewStore() Store { Store{cell: sync.NewRef[quota.Table](quota.Empty())} }
+
+// Open opens the volume id with its floor. The change is one sync.Modify
+// that keeps the Table it found; quota.Open is pure, so running it again
+// on that Table outside the Modify gives the refusal the change met.
+func Open(s Store, id string, floor int64) fails quota.VolumeExists | quota.BadFloor | quota.Unavailable {
+	let found = sync.Modify(s.cell, func(b quota.Table) (quota.Table, quota.Table) {
+		let next = quota.Open(b, id, floor) catch {
+		case quota.VolumeExists, quota.BadFloor:
+			return (b, b)
+		}
+		(b, next)
+	})
+	let _ = try quota.Open(found, id, floor)
+}
+
+// Post posts t: one sync.Modify, then the record or the refusal of the
+// pure quota.Apply on the Table the change found, as Open does.
+func Post(s Store, t quota.Move) quota.Record fails quota.KeyReused | quota.BadSize | quota.SameVolume | quota.UnknownVolume | quota.NoSpace | quota.Unavailable {
+	let found = sync.Modify(s.cell, func(b quota.Table) (quota.Table, quota.Table) {
+		let next, _ = quota.Apply(b, t) catch {
+		case quota.KeyReused, quota.BadSize, quota.SameVolume, quota.UnknownVolume, quota.NoSpace:
+			return (b, b)
+		}
+		(b, next)
+	})
+	let _, r = try quota.Apply(found, t)
+	r
+}
+
+// SizeOf is the size of id.
+func SizeOf(s Store, id string) int64 fails quota.UnknownVolume | quota.Unavailable {
+	try quota.SizeOf(s.cell.Get(), id)
+}
+
+// Volumes is the volumes, Pool first and then by name.
+func Volumes(s Store) []string fails quota.Unavailable { quota.IDs(s.cell.Get()) }

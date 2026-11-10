@@ -6,15 +6,13 @@ import go io
 
 // ergo:go type COFFSymbol struct
 extern go debug/pe.COFFSymbol type COFFSymbol {
+	Name               [8]uint8,
 	Value              uint32,
 	SectionNumber      int16,
 	Type               uint16,
 	StorageClass       uint8,
 	NumberOfAuxSymbols uint8,
 }
-
-// ergo:go Name [8]uint8
-// ergo:refused COFFSymbol.Name: Ergo has no fixed arrays; a Go array [8]uint8 maps to no Ergo type
 
 // ergo:go func (*COFFSymbol).FullName(st StringTable) (string, error)
 extern go debug/pe.COFFSymbol.FullName func (sym *COFFSymbol) FullName(st StringTable) string fails go.Error needs go.Foreign
@@ -424,10 +422,8 @@ extern go debug/pe.OptionalHeader32 type OptionalHeader32 {
 	SizeOfHeapCommit            uint32,
 	LoaderFlags                 uint32,
 	NumberOfRvaAndSizes         uint32,
+	DataDirectory               [16]DataDirectory,
 }
-
-// ergo:go DataDirectory [16]pe.DataDirectory
-// ergo:refused OptionalHeader32.DataDirectory: Ergo has no fixed arrays; a Go array [16]debug/pe.DataDirectory maps to no Ergo type
 
 // ergo:go type OptionalHeader64 struct
 extern go debug/pe.OptionalHeader64 type OptionalHeader64 {
@@ -460,10 +456,8 @@ extern go debug/pe.OptionalHeader64 type OptionalHeader64 {
 	SizeOfHeapCommit            uint64,
 	LoaderFlags                 uint32,
 	NumberOfRvaAndSizes         uint32,
+	DataDirectory               [16]DataDirectory,
 }
-
-// ergo:go DataDirectory [16]pe.DataDirectory
-// ergo:refused OptionalHeader64.DataDirectory: Ergo has no fixed arrays; a Go array [16]debug/pe.DataDirectory maps to no Ergo type
 
 // ergo:go type Reloc struct
 extern go debug/pe.Reloc type Reloc {
@@ -504,6 +498,7 @@ extern go debug/pe.SectionHeader type SectionHeader {
 
 // ergo:go type SectionHeader32 struct
 extern go debug/pe.SectionHeader32 type SectionHeader32 {
+	Name                 [8]uint8,
 	VirtualSize          uint32,
 	VirtualAddress       uint32,
 	SizeOfRawData        uint32,
@@ -514,9 +509,6 @@ extern go debug/pe.SectionHeader32 type SectionHeader32 {
 	NumberOfLineNumbers  uint16,
 	Characteristics      uint32,
 }
-
-// ergo:go Name [8]uint8
-// ergo:refused SectionHeader32.Name: Ergo has no fixed arrays; a Go array [8]uint8 maps to no Ergo type
 
 // ergo:go type StringTable []byte
 extern go debug/pe.StringTable type StringTable []byte

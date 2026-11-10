@@ -1,0 +1,451 @@
+// The package durable is the design model of a durable machine actor, std
+// actor.StartDurable and journal.Start (runtime.md, Machines and actors
+// 17), checked by `ergo test models/durable`. It replaced the Quint model
+// durable.qnt of docs/research/actor-machine (MU9; deleted): the same
+// actions and invariants, decided by a breadth-first search of every state
+// in a small scope instead of random traces (wf10 explorer X4).
+//
+// The step is pure, so a state is a fold of the signals the actor
+// committed. The runner takes a signal from its inbox, the step decides,
+// and for a commit (Enter, Stay, Emit) the save appends the signal to the
+// journal before the runner commits the state and before it answers the
+// Ask. Every Every saves, the journal takes a snapshot of the state after
+// its signals and drops them. A work's signal carries the epoch of its
+// entry; one of an ended entry is dropped, never stepped, so never saved.
+// The actor may crash between any two actions: the inbox and the live
+// state are lost, the journal stays. Recovery starts from the snapshot and
+// replays the signals after it with the pure step.
+//
+// Each action of the Quint model is a signal; an action that is not
+// enabled is Ignore. The invariants are checked after each step: a step
+// that breaks one enters Broken with its name.
+//
+//   - AnsweredIsJournaled: the transition of each Ask answered with a
+//     commit is in the journal (an Ignore or a Reject saves nothing);
+//   - LiveIsTheFold: a live actor between steps is in the state the pure
+//     step folds from the initial state over every signal the journal
+//     took (also those a snapshot dropped), also after a recovery.
+//
+// The scope is the Quint model's: 7 signals, an inbox of 3, a snapshot
+// every 2 saves, states mod 5. Quint bounds the run at 40 steps; here the
+// whole graph is searched. It is the claim: "proved" means proved in this
+// scope. The state is the Quint state with what no action or invariant can
+// tell apart merged (each is exact: two merged states have the same
+// futures and the same verdicts):
+//
+//   - epochs are relative: an epoch only grows, and only the test "is this
+//     work signal's entry the current one" reads it, so an envelope keeps
+//     Stale, set when its entry ends, in place of its epoch;
+//   - an envelope that commits nothing (Ignore, Reject) is dropped at its
+//     take with no answer, so its kind and its Ask flag are not kept;
+//   - the ghost list of every journaled signal is kept as its fold (Fold),
+//     the only use the invariant makes of it;
+//   - the ghost sets of saved and answered ids: an id is answered only at
+//     the Answer of its envelope, so "the answered ids are saved" breaks
+//     exactly when an Ask whose save has not run yet is answered (CurSaved
+//     is whether the envelope in the step is saved);
+//   - a variable that no later action reads is cleared: the envelope in the
+//     step once the runner is idle, the live state while the actor is down.
+//
+// Mutants, each a machine whose law Breaks must hold (a shortest run that
+// breaks the invariant named; each mutant machine checks only that one):
+//   - SaveAfterAnswer: the runner commits and answers, then saves
+//     (AnsweredIsJournaled);
+//   - SaveAtSend: a work's signal is journaled when the work sends it, not
+//     when it is stepped, so a signal of an ended entry is replayed
+//     (LiveIsTheFold);
+//   - StaleSnapshot: a snapshot keeps the first snapshot's state and drops
+//     the signals after it (LiveIsTheFold).
+//
+// Witnesses, each a machine whose law Reached must hold, so the invariants
+// are not vacuous: a recovery from a snapshot, a dropped work signal, a
+// crash after a save and before its commit, an answered Ask.
+
+// Sig is an outside signal: Ignore, Stay (+1), Enter (+2) or Reject. The
+// work's signal (4 in the Quint model) Stays (+3).
+type Sig = SigIgnore{} | SigStay{} | SigEnter{} | SigReject{}
+
+// Env is an envelope: its signal (0 to 4, as in the Quint model; 0 for
+// both signals that commit nothing), whether a work sent it, whether it is
+// an Ask, and whether its entry ended (a work's signal only).
+type Env { Sig int, Internal bool, Ask bool, Stale bool }
+
+// World is the Quint model's state, merged as the header says. Phase is 0
+// idle, 1 decided (the step decided a commit), 2 saved, 3 committed (the
+// state is the actor's), 4 answered (SaveAfterAnswer only). The journal is
+// Snap (when HasSnap) and the signals Rest after it. Fold is the fold of
+// every signal the journal took. Sent is the number of envelopes sent
+// (Quint's nextId).
+type World {
+	Up       bool,
+	Live     int,
+	Inbox    []Env,
+	Phase    int,
+	Cur      Env,
+	CurSaved bool,
+	Snap     int,
+	HasSnap  bool,
+	Rest     []int,
+	Fold     int,
+	Unsaved  bool,
+	Sent     int,
+}
+
+// St is the model's state: the world, a broken invariant, or a witness
+// reached (only the witness machines enter Seen).
+type St = Live{W World} | Broken{Why string} | Seen{What string}
+
+// Act is the actions of the Quint model.
+type Act = Send{E Sig, Ask bool} | WorkSend{} | Take{} | Save{} | Commit{} | Answer{} | Crash{} | Recover{}
+
+// The scope.
+let Init = 0
+let Every = 2
+let MaxIds = 7
+let MaxInbox = 3
+
+let Idle = 0
+let Decided = 1
+let Saved = 2
+let Committed = 3
+let Answered = 4
+
+// The mutants and the design, as the argument of next.
+let NoMutant = 0
+let SaveAfterAnswerMutant = 1
+let SaveAtSendMutant = 2
+let StaleSnapshotMutant = 3
+
+// The invariants, as the argument of broken (All checks them all).
+let All = 0
+let AnsweredIsJournaled = 1
+let LiveIsTheFold = 2
+
+func sigOf(e Sig) int {
+	match e {
+	case SigIgnore:
+		0
+	case SigStay:
+		1
+	case SigEnter:
+		2
+	case SigReject:
+		3
+	}
+}
+
+func commits(e int) bool {
+	e == 1 || e == 2 || e == 4
+}
+
+func nextOf(s int, e int) int {
+	if e == 1 {
+		return (s + 1) % 5
+	}
+	if e == 2 {
+		return (s + 2) % 5
+	}
+	if e == 4 {
+		return (s + 3) % 5
+	}
+	s
+}
+
+func replay(s int, es []int) int {
+	let mut acc = s
+	for e in es {
+		acc = nextOf(acc, e)
+	}
+	acc
+}
+
+func noEnv() Env {
+	Env{Sig: 0, Internal: false, Ask: false, Stale: false}
+}
+
+// ended is the inbox after the entry ended: each work signal in it is
+// stale.
+func ended(xs []Env) []Env {
+	let mut out = []Env{}
+	for x in xs {
+		out = out.Append(Env{..x, Stale: x.Internal})
+	}
+	out
+}
+
+// first is the start: the actor up in its initial state, the journal empty.
+func first() St {
+	Live{W: World{
+		Up:       true,
+		Live:     Init,
+		Inbox:    []Env{},
+		Phase:    Idle,
+		Cur:      noEnv(),
+		CurSaved: false,
+		Snap:     Init,
+		HasSnap:  false,
+		Rest:     []int{},
+		Fold:     Init,
+		Unsaved:  false,
+		Sent:     0,
+	}}
+}
+
+// journal is w after the journal took the signal e, with a snapshot of
+// after every Every signals.
+func journal(m int, w World, e int, after int) World {
+	let t = w.Rest.Append(e)
+	let w2 = World{..w, Fold: nextOf(w.Fold, e)}
+	if len(t) >= Every {
+		// StaleSnapshot: the first snapshot's state stays.
+		let snap = if m == StaleSnapshotMutant && w.HasSnap { w.Snap } else { after }
+		return World{..w2, Snap: snap, HasSnap: true, Rest: []int{}}
+	}
+	World{..w2, Rest: t}
+}
+
+// broken is the name of the first invariant w breaks among those only
+// selects (All: all of them), or "".
+func broken(w World, only int) string {
+	if (only == All || only == AnsweredIsJournaled) && w.Unsaved {
+		return "AnsweredIsJournaled"
+	}
+	if (only == All || only == LiveIsTheFold) && w.Up && w.Phase == Idle && w.Live != w.Fold {
+		return "LiveIsTheFold"
+	}
+	""
+}
+
+// next is w after the action a under the mutant m (NoMutant is the design),
+// or None when a is not enabled.
+func next(m int, w World, a Act) Option[World] {
+	match a {
+	case Send as s:
+		// An outside Send or Ask is admitted.
+		if !w.Up || len(w.Inbox) >= MaxInbox || w.Sent >= MaxIds {
+			return None
+		}
+		let e = sigOf(s.E)
+		let env = if commits(e) { Env{Sig: e, Internal: false, Ask: s.Ask, Stale: false} } else { noEnv() }
+		Some[World]{Value: World{..w, Inbox: w.Inbox.Append(env), Sent: w.Sent + 1}}
+	case WorkSend:
+		// The current entry's work sends signal 4, tagged with the entry.
+		// SaveAtSend journals it here.
+		if !w.Up || len(w.Inbox) >= MaxInbox || w.Sent >= MaxIds {
+			return None
+		}
+		let env = Env{Sig: 4, Internal: true, Ask: false, Stale: false}
+		let w2 = World{..w, Inbox: w.Inbox.Append(env), Sent: w.Sent + 1}
+		if m == SaveAtSendMutant {
+			return Some[World]{Value: journal(m, w2, 4, w.Live)}
+		}
+		Some[World]{Value: w2}
+	case Take:
+		// The runner takes the oldest envelope and steps it. A work's
+		// signal of an ended entry is dropped; Ignore and Reject commit
+		// nothing and are answered at once.
+		if !w.Up || w.Phase != Idle || len(w.Inbox) == 0 {
+			return None
+		}
+		let env = w.Inbox[0]
+		let mut rest = []Env{}
+		for i, x in w.Inbox {
+			if i > 0 {
+				rest = rest.Append(x)
+			}
+		}
+		if env.Stale || !commits(env.Sig) {
+			return Some[World]{Value: World{..w, Inbox: rest}}
+		}
+		// SaveAtSend saved a work's signal at its send.
+		let saved = m == SaveAtSendMutant && env.Internal
+		Some[World]{Value: World{..w, Inbox: rest, Phase: Decided, Cur: env, CurSaved: saved}}
+	case Save:
+		// The design saves after the decision; SaveAfterAnswer after the
+		// answer. SaveAtSend saved a work's signal at send already.
+		if !w.Up {
+			return None
+		}
+		if m == SaveAfterAnswerMutant {
+			if w.Phase != Answered {
+				return None
+			}
+			return Some[World]{Value: World{..journal(m, w, w.Cur.Sig, w.Live), Phase: Idle, Cur: noEnv(), CurSaved: false}}
+		}
+		if w.Phase != Decided {
+			return None
+		}
+		if m == SaveAtSendMutant && w.Cur.Internal {
+			return Some[World]{Value: World{..w, Phase: Saved}}
+		}
+		Some[World]{Value: World{..journal(m, w, w.Cur.Sig, nextOf(w.Live, w.Cur.Sig)), Phase: Saved, CurSaved: true}}
+	case Commit:
+		// The state becomes the actor's; an Enter opens a new entry.
+		let want = if m == SaveAfterAnswerMutant { Decided } else { Saved }
+		if !w.Up || w.Phase != want {
+			return None
+		}
+		Some[World]{Value: World{..w,
+			Live:  nextOf(w.Live, w.Cur.Sig),
+			Inbox: if w.Cur.Sig == 2 { ended(w.Inbox) } else { w.Inbox },
+			Phase: Committed,
+		}}
+	case Answer:
+		// The asker gets the decision.
+		if !w.Up || w.Phase != Committed {
+			return None
+		}
+		let unsaved = w.Unsaved || (w.Cur.Ask && !w.CurSaved)
+		if m == SaveAfterAnswerMutant {
+			return Some[World]{Value: World{..w, Unsaved: unsaved, Phase: Answered}}
+		}
+		Some[World]{Value: World{..w, Unsaved: unsaved, Phase: Idle, Cur: noEnv(), CurSaved: false}}
+	case Crash:
+		// The process dies: the inbox, the step in progress and the live
+		// state are lost; the journal stays.
+		if !w.Up {
+			return None
+		}
+		Some[World]{Value: World{..w, Up: false, Live: Init, Phase: Idle, Cur: noEnv(), CurSaved: false, Inbox: []Env{}}}
+	case Recover:
+		// A new incarnation starts from the snapshot and replays the
+		// signals after it; its first entry is a new epoch (the inbox is
+		// empty, so no envelope turns stale).
+		if w.Up {
+			return None
+		}
+		let from = if w.HasSnap { w.Snap } else { Init }
+		Some[World]{Value: World{..w, Up: true, Live: replay(from, w.Rest)}}
+	}
+}
+
+// stepWith is the step of the model under the mutant m, which checks the
+// invariants only selects.
+func stepWith(m int, only int, s St, a Act) Decision[St, string] {
+	match s {
+	case Live as l:
+		match next(m, l.W, a) {
+		case None:
+			Ignore
+		case Some[World] as n:
+			let why = broken(n.Value, only)
+			if why != "" {
+				Enter[St]{Next: Broken{Why: why}}
+			} else {
+				Enter[St]{Next: Live{W: n.Value}}
+			}
+		}
+	case _:
+		Ignore
+	}
+}
+
+func stepDesign(s St, a Act) Decision[St, string]          { stepWith(NoMutant, All, s, a) }
+func stepSaveAfterAnswer(s St, a Act) Decision[St, string] { stepWith(SaveAfterAnswerMutant, AnsweredIsJournaled, s, a) }
+func stepSaveAtSend(s St, a Act) Decision[St, string]      { stepWith(SaveAtSendMutant, LiveIsTheFold, s, a) }
+func stepStaleSnapshot(s St, a Act) Decision[St, string]   { stepWith(StaleSnapshotMutant, LiveIsTheFold, s, a) }
+
+// The design keeps every invariant in the scope.
+type Design machine[St, Act] {
+	initial: first(),
+	step:    stepDesign,
+
+	law Safe never reaches Broken,
+}
+
+type SaveAfterAnswer machine[St, Act] {
+	initial: first(),
+	step:    stepSaveAfterAnswer,
+
+	law Breaks reaches Broken,
+}
+
+type SaveAtSend machine[St, Act] {
+	initial: first(),
+	step:    stepSaveAtSend,
+
+	law Breaks reaches Broken,
+}
+
+type StaleSnapshot machine[St, Act] {
+	initial: first(),
+	step:    stepStaleSnapshot,
+
+	law Breaks reaches Broken,
+}
+
+// The witnesses. Each is the design's step that enters Seen when the
+// witness holds for an action (Quint's counters snapRecoveries, dropped,
+// crashesAfterSave and the answered set).
+let SnapRecoveryWitness = 1
+let DropWitness = 2
+let CrashAfterSaveWitness = 3
+let AnswerWitness = 4
+
+// witnessed reports whether the witness k holds when the enabled action a
+// is taken in w.
+func witnessed(k int, w World, a Act) bool {
+	match a {
+	case Recover:
+		k == SnapRecoveryWitness && w.HasSnap
+	case Take:
+		k == DropWitness && w.Inbox[0].Stale
+	case Crash:
+		k == CrashAfterSaveWitness && w.Phase == Saved
+	case Answer:
+		k == AnswerWitness && w.Cur.Ask
+	case _:
+		false
+	}
+}
+
+func stepWitness(k int, s St, a Act) Decision[St, string] {
+	match s {
+	case Live as l:
+		match next(NoMutant, l.W, a) {
+		case None:
+			Ignore
+		case Some[World] as n:
+			if witnessed(k, l.W, a) {
+				Enter[St]{Next: Seen{What: "witness"}}
+			} else {
+				Enter[St]{Next: Live{W: n.Value}}
+			}
+		}
+	case _:
+		Ignore
+	}
+}
+
+func stepSnapRecovery(s St, a Act) Decision[St, string]   { stepWitness(SnapRecoveryWitness, s, a) }
+func stepDrop(s St, a Act) Decision[St, string]           { stepWitness(DropWitness, s, a) }
+func stepCrashAfterSave(s St, a Act) Decision[St, string] { stepWitness(CrashAfterSaveWitness, s, a) }
+func stepAnswer(s St, a Act) Decision[St, string]         { stepWitness(AnswerWitness, s, a) }
+
+type SnapRecovery machine[St, Act] {
+	initial: first(),
+	step:    stepSnapRecovery,
+
+	law Reached reaches Seen,
+}
+
+type Drops machine[St, Act] {
+	initial: first(),
+	step:    stepDrop,
+
+	law Reached reaches Seen,
+}
+
+type CrashAfterSave machine[St, Act] {
+	initial: first(),
+	step:    stepCrashAfterSave,
+
+	law Reached reaches Seen,
+}
+
+type Answers machine[St, Act] {
+	initial: first(),
+	step:    stepAnswer,
+
+	law Reached reaches Seen,
+}

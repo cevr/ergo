@@ -1,0 +1,42 @@
+// Package memory holds an in-memory provider of the pairing's Devices.
+
+import strings
+import pairing/pair
+
+// Devices is a device directory in memory. It keeps no state: the code
+// sent to a serial is its last four digits reversed, a serial that starts
+// with 000 cannot take a code, and two tags name devices.
+type Devices {}
+
+// CodeFor is the code Devices sends to serial.
+func CodeFor(serial string) string {
+	let n = len(serial)
+	if n < 4 {
+		return ""
+	}
+	strings.Slice(serial, n-1, n) + strings.Slice(serial, n-2, n-1) + strings.Slice(serial, n-3, n-2) + strings.Slice(serial, n-4, n-3)
+}
+
+func Send(_ Devices, serial string) fails pair.DeviceUnreachable {
+	if strings.HasPrefix(serial, "000") {
+		return pair.DeviceUnreachable{Serial: serial}
+	}
+}
+
+func Check(_ Devices, serial string, code string) pair.Device fails pair.WrongCode {
+	if code == "" || code != CodeFor(serial) {
+		return pair.WrongCode
+	}
+	pair.Device{ID: "s" + serial, Name: "device " + strings.Slice(serial, len(serial)-4, len(serial))}
+}
+
+func Tag(_ Devices, tag string) pair.Device fails pair.UnknownTag {
+	match tag {
+	case "T-100":
+		pair.Device{ID: "t100", Name: "printer"}
+	case "T-200":
+		pair.Device{ID: "t200", Name: "speaker"}
+	case _:
+		pair.UnknownTag
+	}
+}

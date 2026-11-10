@@ -3,8 +3,64 @@ package lower
 import (
 	"strings"
 
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
+
+// captureLowering selects how an escaping frame captures a let mut of an
+// enclosing frame. Empty in every build: by value, a Go variable bound to
+// the local's value in the statement that makes the literal, as the
+// checker's Info.ValueCaptures lists them. No write to such a local
+// follows the capture (types.md, Function values 3; owner q60), so the
+// copy holds what the local holds whenever the literal runs, and the
+// local, which Go would move to the heap when a closure that may outlive
+// the frame captures a variable that is assigned, stays on the stack.
+// "reference" is the reference lowering, Go's capture by reference,
+// which TestCaptureRuleModel proves equal to it on the admitted programs;
+// a build selects it with
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.captureLowering=reference.
+var captureLowering string
+
+// snapshot lowers the escaping frame n with build, which returns its Go
+// function literal. Each let mut the frame captures by value is bound to
+// a new Go variable in the statement before, in the frame that makes the
+// literal (a task's block runs its literal in the new task, so a copy
+// inside it would race with the creator), and the literal is lowered with
+// each capture's Go name bound to its copy. The copy shares a slice's or
+// Map's storage: no write follows, through the local or the literal.
+func (fc *funcCtx) snapshot(n syntax.Node, build func() string) string {
+	vars := fc.l.info.ValueCaptures[n]
+	if captureLowering == "reference" || len(vars) == 0 {
+		return build()
+	}
+	if capture := fc.l.info.TaskCaptures[n]; capture != nil {
+		// Resource captures move by R12 (#197 L8 B3t); taskSnapshot binds
+		// their one moved value, so the value rule does not copy them.
+		moved := map[*check.Var]bool{}
+		for _, v := range capture.Vars {
+			moved[v] = true
+		}
+		var plain []*check.Var
+		for _, v := range vars {
+			if !moved[v] {
+				plain = append(plain, v)
+			}
+		}
+		vars = plain
+	}
+	saved := make([]string, len(vars))
+	for i, v := range vars {
+		saved[i] = fc.locals[v]
+		name := fc.scope.alloc(v.Name)
+		fc.line(name + " := " + saved[i])
+		fc.locals[v] = name
+	}
+	closure := build()
+	for i, v := range vars {
+		fc.locals[v] = saved[i]
+	}
+	return closure
+}
 
 type envBinding uint8
 

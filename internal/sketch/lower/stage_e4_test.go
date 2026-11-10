@@ -1,7 +1,6 @@
 package lower
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -107,27 +106,24 @@ func main() needs Console {
 	Console.Println("\(Repeat(first(), second()))")
 }
 `, "first\nsecond\nxx\nfirst\nsecond\nfirst\nsecond\nfirst\nsecond\nxx\nfirst\nsecond\nxx\n"},
-	// A declaration with no result over a Go function that has one: the
-	// call runs as a statement and Go drops the result. The no-result
-	// shape is reachable in the pure allowlist (G9 round 2 M2);
-	// TestErgoRunE4DiscardVariadic proves the call is made.
-	{"no_result", `extern go strings.ToUpper func Discard(s string)
-extern go strings.Repeat func Check(s string, n int)
-func main() needs Console {
-	Discard("x")
-	Check("x", 2)
-	Console.Println("discarded")
+	// The targets G9 refused (off the reviewed pure list) run since IG4
+	// with needs go.Foreign: a target with no result (runtime.GC), a
+	// duration parameter (time.Sleep), packages that share a last path
+	// element or whose name is not it (math/rand/v2, crypto/rand,
+	// text/template, html/template) and a generic target (cmp.Compare).
+	{"host_targets", `extern go runtime.GC func GC() needs go.Foreign
+extern go time.Sleep func Pause(d duration) needs go.Foreign
+extern go math/rand/v2.IntN func IntN(n int) int needs go.Foreign
+extern go crypto/rand.Text func Text() string needs go.Foreign
+extern go text/template.HTMLEscapeString func TextEscape(s string) string needs go.Foreign
+extern go html/template.HTMLEscapeString func HTMLEscape(s string) string needs go.Foreign
+extern go cmp.Compare func Compare(a int, b int) int needs go.Foreign
+func main() needs Console | go.Foreign {
+	GC()
+	Pause(1ms)
+	Console.Println("\(IntN(1)) \(len(Text())) \(TextEscape("<a>")) \(HTMLEscape("<b>")) \(Compare(1, 2))")
 }
-`, "discarded\n"},
-	// A Go target whose parameter is variadic ...string accepts the call
-	// with a fixed Ergo arity (strings.NewReplacer, its *Replacer result
-	// discarded); Go checks the call against the Ergo signature.
-	{"variadic", `extern go strings.NewReplacer func Pairs(a string, b string, c string, d string)
-func main() needs Console {
-	Pairs("a", "b", "c", "d")
-	Console.Println("paired")
-}
-`, "paired\n"},
+`, "0 26 &lt;a&gt; &lt;b&gt; -1\n"},
 }
 
 // TestErgoRunE4Externs builds Go because it checks what the built program
@@ -176,77 +172,6 @@ func Shout(s string) string { Up(s) }
 	return cxLower(t, "e4_library", `import example.test/hostlib
 func main() needs Console { Console.Println(hostlib.Shout("lib") + hostlib.Up("")) }
 `, cxImporter{"example.test/hostlib": lib})
-}
-
-// A user extern whose Ergo signature does not match its Go target fails
-// ergo run with go build's error at the line of the Ergo call (the call's
-// //line directive), never a panic. A literal argument lowers typed (196u),
-// so a target of another type never accepts it as an untyped constant, and
-// a result is bound at its Ergo type, so a target's float64 never reaches
-// an interpolation that would print it as the Ergo int (Risk 4).
-func TestErgoRunE4Mismatch(t *testing.T) {
-	needsBuild(t)
-	cases := []struct{ name, src, want string }{
-		{"argument", `extern go strings.ToUpper func Upper(n int) int
-func main() needs Console {
-	let x = 1
-	Console.Println("\(Upper(x))") // call
-}
-`, ""},
-		{"literal-argument", `extern go math.Sqrt func Root(x int) float64
-func main() needs Console {
-	Console.Println("\(Root(4))") // call
-}
-`, ""},
-		{"result", `extern go math.Sqrt func Whole(x float64) int
-func main() needs Console {
-	let n int = Whole(4.0) // call
-	Console.Println("\(n)")
-}
-`, ""},
-		// Interpolation takes any basic type, so only the result binding
-		// stops 1.4142135623730951 printing as an Ergo int.
-		{"result-interpolated", `extern go math.Sqrt func Whole(x float64) int
-func main() needs Console {
-	Console.Println("\(Whole(2.0))") // call
-}
-`, ""},
-		// Round 1 M1: a discarded result is bound at its Ergo type too.
-		{"statement", `extern go math.Sqrt func Whole(x float64) int
-func main() needs Console {
-	Whole(2.0) // call
-	Console.Println("accepted-mismatch")
-}
-`, ""},
-		// Round 1 M2's type target (time.Duration) is outside the pure
-		// allowlist since G9, and no allowlisted package declares a named
-		// basic type: it is e4HostTargets' type_target.
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			line := 0
-			for i, l := range strings.Split(c.src, "\n") {
-				if strings.HasSuffix(l, "// call") {
-					line = i + 1
-				}
-			}
-			out, err := ergoRun(t, c.src)
-			t.Logf("ergo run output:\n%s", out)
-			if err == nil {
-				t.Fatalf("ergo run succeeded")
-			}
-			want := c.want
-			if want == "" {
-				want = "cannot use "
-			}
-			if !regexp.MustCompile(fmt.Sprintf(`(?m)main\.ergo:%d:\d+: %s`, line, want)).MatchString(out) {
-				t.Errorf("the go build error does not name main.ergo:%d with %q", line, want)
-			}
-			if strings.Contains(out, "panic") || strings.Contains(out, "internal compiler error") {
-				t.Errorf("a panic or an internal error")
-			}
-		})
-	}
 }
 
 // A user extern of Go's unsafe that reaches the lowering is an internal
@@ -315,12 +240,12 @@ func main() { with W { A.Use() } }
 		{"close-extern", "release.go extern Close", "S109", "#202", `type A { Use() }
 type P {}
 func Use(_ P) {}
-extern go strings.Close func Close(p P)
+extern go example.com/x.Close func Close(p P)
 let W = context { A: P }
 func main() { with W { A.Use() } }
 `},
 		{"context-extern", "context.go extern protocol function", "S109", "#202", `type tag { text string }
-extern go strings.Key func contextKey(t tag) string
+extern go example.com/x.Key func contextKey(t tag) string
 func contextText(t tag) string { t.text }
 func main() needs Console { with (tag{text: "x"}) { Console.Println("in") } }
 `},

@@ -11,8 +11,8 @@ import v1 "ergo.local/prototype/runtime/v1"
 // Order (R3, R37): the type's own checked Close first (a written Close, or
 // an operation type's Close, which reaches the implementation's release,
 // R23), then the record's fields or the tuple's elements that hold a
-// resource, last declared first; a slice's elements last first; every
-// value of a Map once; the active variant of a union. A field the owner
+// resource, last declared first; a slice's or an array's elements last
+// first; every value of a Map once; the active variant of a union. A field the owner
 // took in place is skipped (R39, Gap 38; the lowering keeps the taken
 // fields with the value's entry).
 //
@@ -30,8 +30,8 @@ type Drop struct {
 	// Fields are the record fields (or tuple elements) that hold a
 	// resource, last declared first.
 	Fields []DropField
-	// Elem is the release of each element of a slice, last first, or of
-	// each value of a Map (R37); nil for none.
+	// Elem is the release of each element of a slice or an array, last
+	// first, or of each value of a Map (R37); nil for none.
 	Elem *Drop
 	// Variants are the union's variants that hold a resource; the active
 	// one is released.
@@ -160,6 +160,8 @@ func (w *dropWalk) visit(t Type) *Drop {
 			}
 		}
 	case *Slice:
+		d.Elem = w.visit(u.Elem)
+	case *Array:
 		d.Elem = w.visit(u.Elem)
 	case *Map:
 		d.Elem = w.visit(u.Elem)

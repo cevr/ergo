@@ -80,6 +80,7 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"Signal": {sel: "Signal"},
 	},
 	"Slice":   {"Elem": {sel: "Elem"}},
+	"Array":   {"Elem": {sel: "Elem"}, "Len": {why: "a length is no type"}},
 	"Map":     {"Key": {sel: "Key"}, "Elem": {sel: "Elem"}},
 	"Pointer": {"Elem": {sel: "Elem"}},
 	"Tuple":   {"Types": {sel: "Types"}},
@@ -121,6 +122,7 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"id":         {why: "an identity"},
 	},
 	"RowArg": {"Row": {sel: "Row"}},
+	"Wired":  {"T": {sel: "T"}},
 	"RowVar": {
 		"sol":   {sel: "Solution"},
 		"of":    {sel: "Solution"},
@@ -159,10 +161,10 @@ var mentionsKinds = map[string]reflect.Type{
 	"Basic": reflect.TypeFor[Basic](), "noValue": reflect.TypeFor[noValue](), "Named": reflect.TypeFor[Named](),
 	"Struct": reflect.TypeFor[Struct](), "Field": reflect.TypeFor[Field](), "Interface": reflect.TypeFor[Interface](),
 	"Method": reflect.TypeFor[Method](), "Union": reflect.TypeFor[Union](), "MachineType": reflect.TypeFor[MachineType](),
-	"Slice": reflect.TypeFor[Slice](), "Map": reflect.TypeFor[Map](), "Pointer": reflect.TypeFor[Pointer](),
+	"Slice": reflect.TypeFor[Slice](), "Array": reflect.TypeFor[Array](), "Map": reflect.TypeFor[Map](), "Pointer": reflect.TypeFor[Pointer](),
 	"Tuple": reflect.TypeFor[Tuple](), "Signature": reflect.TypeFor[Signature](), "Var": reflect.TypeFor[Var](),
 	"TypeParam": reflect.TypeFor[TypeParam](), "RowArg": reflect.TypeFor[RowArg](), "RowVar": reflect.TypeFor[RowVar](),
-	"Row": reflect.TypeFor[Row](),
+	"Wired": reflect.TypeFor[Wired](), "Row": reflect.TypeFor[Row](),
 }
 
 // selectors are the selector names read in the nodes.

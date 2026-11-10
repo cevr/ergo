@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"math/big"
 	"path"
 	"sort"
 	"strconv"
@@ -66,10 +67,15 @@ const testDepth = 4
 type testLowering struct {
 	gens map[pkgKey]bool // generator functions emitted
 	lits map[pkgKey]bool // argument literal functions emitted (literal.go)
+	keys map[pkgKey]bool // state key functions emitted (machinelaws.go)
 	// law is the law whose body is being lowered, nil outside one: a bare
 	// operation call in it (CallLawOp) calls its operation type's
 	// capability, which the run binds to the provider under test.
 	law *check.Law
+	// lawOwn is the Go parameter that holds the provider under test in a
+	// law of a generic operation type, whose bare operation calls call it;
+	// "" in any other law.
+	lawOwn string
 	// lawPkgs are the imported packages whose laws the build lowers
 	// (owners.go, viewOf), set on first use.
 	lawPkgs map[*check.Package]bool
@@ -87,7 +93,7 @@ func LowerTests(u Unit) ([]File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []File{{Path: "go.mod", Data: []byte(goMod)}, {Path: "main.go", Data: code}}, nil
+	return moduleFiles(u.Go, code), nil
 }
 
 // testHelpers are the harness's package-scope entities: key and preferred
@@ -98,11 +104,13 @@ var testHelpers = []struct{ key, base string }{
 	{"Case", "ergoCase"}, {"Asserted", "ergoAsserted"}, {"Where", "ergoWhere"},
 	{"Rand", "ergoRand"}, {"NewRand", "ergoNewRand"}, {"Runes", "ergoRunes"}, {"Edges", "ergoEdges"},
 	{"GenSlice", "ergoGenSlice"}, {"GenMap", "ergoGenMap"},
+	{"GenIn", "ergoGenIn"}, {"GenStrLen", "ergoGenStrLen"}, {"GenSliceLen", "ergoGenSliceLen"},
 	{"LitFloat", "ergoLitFloat"}, {"LitComplex", "ergoLitComplex"},
 	{"LitDuration", "ergoLitDuration"}, {"LitEntries", "ergoLitEntries"},
 	{"Seed", "ergoSeed"}, {"Tests", "ergoTests"},
-	{"Graph", "ergoGraph"}, {"Node", "ergoNode"}, {"ReachCap", "ergoReachCap"}, {"Explore", "ergoExplore"},
+	{"Graph", "ergoGraph"}, {"Node", "ergoNode"}, {"Explore", "ergoExplore"}, {"Signals", "ergoSignals"}, {"Block", "ergoBlock"},
 	{"ExploreAll", "ergoExploreAll"}, {"ExploreRuns", "ergoExploreRuns"}, {"Trace", "ergoTrace"}, {"Refute", "ergoRefute"},
+	{"States", "ergoStates"}, {"explore", "explore"},
 }
 
 // helper is the Go name of the harness entity key.
@@ -139,6 +147,19 @@ func (l *lowerer) nameTests() {
 	for _, r := range l.runLaws() {
 		l.lawFunc(r.Law)
 	}
+	// The key functions of the states of the machines whose reachability
+	// laws run (machinelaws.go, State keys).
+	for _, r := range l.runLaws() {
+		if law := r.Law; lawLowered(r) && law.Machine != nil && law.Decl.Reach != nil {
+			state := law.Machine.Type.(*check.Named).Underlying().(*check.MachineType).State
+			if l.keyWhy(state, map[string]bool{}) == "" {
+				l.keyTypes(state, map[string]bool{}, func(t check.Type) {
+					key, base, _ := l.keyName(t)
+					l.pkgName(key, base)
+				})
+			}
+		}
+	}
 	// Each base (ergoLaw, ergoGen, ergoLit) is its own, so the order of
 	// the law functions and the generators decides no name.
 	l.genRoots(reserveGen)
@@ -166,8 +187,11 @@ func (l *lowerer) genRoots(f func(check.Type)) {
 		if !lawLowered(r) {
 			continue
 		}
+		// A law of a generic operation type draws its parameters at each
+		// provider's instance (lawRuns), not at its own type parameters.
+		generic := lawGenericOwner(law) != nil
 		for i, v := range law.Params {
-			if !lawSlotParam(law, i) {
+			if !lawSlotParam(law, i) && !generic {
 				f(v.Type)
 			}
 		}
@@ -180,6 +204,13 @@ func (l *lowerer) genRoots(f func(check.Type)) {
 		for _, b := range r.Bindings {
 			if bindingUnrun(b) != "" {
 				continue
+			}
+			if generic {
+				for i, t := range b[0].Params {
+					if !lawSlotParam(law, i) {
+						f(t)
+					}
+				}
 			}
 			for _, p := range b {
 				if p.Ctor != nil {
@@ -209,6 +240,7 @@ func (l *lowerer) testImports() []string {
 	for _, p := range []string{"fmt", "os", "sort", "strconv", "strings"} {
 		out = append(out, l.helper(p)+" "+strconv.Quote(p))
 	}
+	out = append(out, l.helper("explore")+" "+strconv.Quote(runtimeModule+"/runtime/explore"))
 	return out
 }
 
@@ -245,7 +277,32 @@ func lawLowered(r check.LawRun) bool {
 			return true
 		}
 	}
+	for _, lc := range r.Contexts {
+		if lc.Unrun == "" {
+			return true
+		}
+	}
 	return false
+}
+
+// lawContexts are the contexts the test build runs laws under
+// (LawRun.Contexts), in the runs' order; none in a run build.
+func (l *lowerer) lawContexts() []check.LawContext {
+	if l.tests == nil {
+		return nil
+	}
+	var out []check.LawContext
+	for _, r := range l.runLaws() {
+		if r.Law.Unrun != "" {
+			continue
+		}
+		for _, lc := range r.Contexts {
+			if lc.Unrun == "" {
+				out = append(out, lc)
+			}
+		}
+	}
+	return out
 }
 
 // bindingUnrun is why a binding does not run: its first provider's, "" when
@@ -343,6 +400,23 @@ func (l *lowerer) lawDecl(law *check.Law) {
 	}
 	fc.env = scope.alloc("env")
 	parts := []string{fc.env + " *" + l.env()}
+	tparams := ""
+	if own := lawGenericOwner(law); own != nil {
+		// A law of a generic operation type is a Go generic function in
+		// the type's parameters (types.md, Generics 5), and takes the
+		// provider under test after the environment: its instance is no
+		// environment field, since the law's own type names T (Laws 10).
+		var names map[*check.TypeParam]string
+		tparams, names = l.typeParams(own.TParams, scope, d)
+		fc.params = names
+		args := make([]string, len(own.TParams))
+		for i, tp := range own.TParams {
+			args[i] = names[tp]
+		}
+		l.tests.lawOwn = scope.alloc("own")
+		parts = append(parts, l.tests.lawOwn+" "+fc.goType(own)+"["+strings.Join(args, ", ")+"]")
+		defer func() { l.tests.lawOwn = "" }()
+	}
 	result := check.Type(check.Typ[check.Bool])
 	fc.frame = newFrame(result, true, framePolls(l.info, d))
 	fc.frame.law = true
@@ -355,7 +429,7 @@ func (l *lowerer) lawDecl(law *check.Law) {
 		fc.locals[v] = n
 		parts = append(parts, n+" "+fc.goType(v.Type))
 	}
-	head := "func " + l.lawFunc(law) + "(" + strings.Join(parts, ", ") + ")"
+	head := "func " + l.lawFunc(law) + tparams + "(" + strings.Join(parts, ", ") + ")"
 	frameErr := ""
 	needsFrame := l.bodyNeedsFrame(d.Body.List)
 	if needsFrame {
@@ -606,17 +680,17 @@ func (l *lowerer) siteText(n syntax.Node) string {
 func (l *lowerer) testEntry(b *strings.Builder) {
 	rt := l.rt()
 	locals := newNamer(l.names)
-	seed, task, env := locals.alloc("seed"), locals.alloc("t"), locals.alloc("env")
+	seed := locals.alloc("seed")
 	b.WriteString("func main() {\n")
 	b.WriteString("\t" + seed + " := " + l.helper("Seed") + "()\n")
-	b.WriteString("\t" + rt + ".Main(func(" + task + " *" + l.taskPkg() + ".Task) error {\n")
-	b.WriteString("\t\t" + env + " := &" + l.env() + "{" + envTask + ": " + task + "}\n")
-	if l.hasInits() {
-		l.entryInits = true
-		b.WriteString("\t\t" + l.pkgName(pkgKey{"init", nil}, "ergoInit") + "(" + env + ")\n")
-	}
-	b.WriteString("\t\treturn " + l.helper("Tests") + "(" + env + ", " + seed + ")\n")
-	b.WriteString("\t})\n}\n\n")
+	b.WriteString("\t" + rt + ".Main(" + l.rootTask(locals, "error", nil, func(env string) string {
+		var s string
+		if l.hasInits() {
+			l.entryInits = true
+			s = "\t\t" + l.pkgName(pkgKey{"init", nil}, "ergoInit") + "(" + env + ")\n"
+		}
+		return s + "\t\treturn " + l.helper("Tests") + "(" + env + ", " + seed + ")\n"
+	}) + ")\n}\n\n")
 	for _, r := range l.runLaws() {
 		if lawLowered(r) && r.Law.Decl.Reach == nil {
 			l.lawDecl(r.Law)
@@ -651,6 +725,13 @@ func (l *lowerer) testRunner() string {
 		}
 		for _, b := range r.Bindings {
 			if bindingUnrun(b) == "" {
+				runs++
+			} else {
+				skips++
+			}
+		}
+		for _, lc := range r.Contexts {
+			if lc.Unrun == "" {
 				runs++
 			} else {
 				skips++
@@ -728,6 +809,25 @@ func (l *lowerer) testRunner() string {
 
 // lawSlotParam reports whether the law's parameter i is a slot, an
 // operation type a run binds to a provider (check.Law.Slots).
+// lawOwnOf is the provider parameter a law operation call c calls in a
+// law of a generic operation type, "" for any other call or outside the
+// test build.
+func (t *testLowering) lawOwnOf(c *check.Call) string {
+	if t == nil || c.Kind != check.CallLawOp {
+		return ""
+	}
+	return t.lawOwn
+}
+
+// lawGenericOwner is the operation type of a law of a generic operation
+// type that runs (its first slot), nil for any other law.
+func lawGenericOwner(law *check.Law) *check.Named {
+	if len(law.Slots) == 0 || law.Slots[0].Param >= 0 || len(law.Slots[0].Type.TParams) == 0 {
+		return nil
+	}
+	return law.Slots[0].Type
+}
+
 func lawSlotParam(law *check.Law, i int) bool {
 	for _, s := range law.Slots {
 		if s.Param == i {
@@ -758,7 +858,15 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 		b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip law "+title+": "+law.Unrun) + ")\n")
 		return
 	}
+	// A machine's reachability law has no operation-type slot, so no
+	// context binds it: it runs before the context runs are deferred.
 	if l.machineLawRuns(b, law, scope, env, seed, failed) {
+		return
+	}
+	// The runs under a context take the case's task from here, the one
+	// classified reader of a law case's task (TestRuntime199TaskReaders).
+	defer l.lawContextRuns(b, lr, scope, env, taskOf(env), seed, failed)
+	if len(lr.Bindings) == 0 && len(lr.Contexts) > 0 {
 		return
 	}
 	if len(lr.Bindings) == 0 {
@@ -834,15 +942,34 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 			return fc.convert(p.Conv, pv, law.Decl)
 		}
 		bound := map[int]check.LawProvider{}
+		args := []string{"&" + e}
+		callee := l.lawFunc(law)
+		generic := lawGenericOwner(law) != nil
 		for k, s := range law.Slots {
+			if s.Param < 0 && generic {
+				// A law of a generic operation type takes its provider
+				// after the environment, at the instance the provider
+				// fixes (lawDecl).
+				args = append(args, provide(tg.b[k], "provider", "provider"))
+				tc := &typeCtx{l: l, site: law.Decl}
+				targs := make([]string, len(tg.b[k].Slot.TArgs))
+				for i, a := range tg.b[k].Slot.TArgs {
+					targs[i] = tc.goType(a)
+				}
+				callee += "[" + strings.Join(targs, ", ") + "]"
+				continue
+			}
 			if s.Param < 0 {
-				bind = append(bind, e+"."+l.envField(s.Type.Obj)+" = "+provide(tg.b[k], "provider", "provider"))
+				bind = append(bind, e+"."+l.envField(s.Type)+" = "+provide(tg.b[k], "provider", "provider"))
 				continue
 			}
 			bound[s.Param] = tg.b[k]
 		}
-		args := []string{"&" + e}
 		for k, v := range law.Params {
+			vt := v.Type
+			if generic {
+				vt = tg.b[0].Params[k]
+			}
 			base := v.Name
 			if base == "_" {
 				base = "arg"
@@ -852,13 +979,17 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 				continue
 			}
 			a := inner.alloc(base)
-			b.WriteString("\t\t\t" + a + " := " + l.genExpr(v.Type, r, strconv.Itoa(testDepth), inner, law.Decl) + "\n")
+			gen := l.genExpr(vt, r, strconv.Itoa(testDepth), inner, law.Decl)
+			if k < len(law.Where) && law.Where[k] != nil {
+				gen = l.genRefined(vt, law.Where[k], r, strconv.Itoa(testDepth), inner, law.Decl)
+			}
+			b.WriteString("\t\t\t" + a + " := " + gen + "\n")
 			args = append(args, a)
-			shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(v.Type, a, law.Decl))
+			shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(vt, a, law.Decl))
 			sep = ", "
 		}
 		body := e + " := *" + env + "; " + strings.Join(append(bind, ""), "; ") +
-			held + ", " + err + " := " + l.lawFunc(law) + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
+			held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
 		b.WriteString("\t\t\t" + ok + " = " + run + "(" + taskOf(env) + ", " + name + ", func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " })\n")
 		b.WriteString("\t\t}\n")
 		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", tg.label, testCases)) + ")\n")
@@ -1129,32 +1260,74 @@ func (r *$Rand) str() string {
 	}
 	b := make([]byte, 0, n*4)
 	for i := 0; i < n; i++ {
-		switch r.intn(16) {
-		case 8:
-			b = append(b, '"')
-		case 9:
-			b = append(b, '\\')
-		case 10:
-			b = append(b, byte(r.intn(0x20)))
-		case 11:
-			b = append(b, 0x7f)
-		case 12:
-			if k := r.intn(0x42); k < 0x40 {
-				b = append(b, byte(0x80+k))
-			} else {
-				b = append(b, byte(0xFE+k-0x40))
-			}
-		case 13:
-			b = append(b, string(rune(0x10000+r.intn(0x100000)))...)
-		case 14:
-			b = append(b, string(rune(0x80+r.intn(0xD800-0x80)))...)
-		case 15:
-			b = append(b, byte(0x20+r.intn(0x5F)))
-		default:
-			b = append(b, string($Runes[r.intn(len($Runes))])...)
-		}
+		b = r.unit(b)
 	}
 	return string(b)
+}
+
+// unit appends one unit of str to b.
+func (r *$Rand) unit(b []byte) []byte {
+	switch r.intn(16) {
+	case 8:
+		return append(b, '"')
+	case 9:
+		return append(b, '\\')
+	case 10:
+		return append(b, byte(r.intn(0x20)))
+	case 11:
+		return append(b, 0x7f)
+	case 12:
+		k := r.intn(0x42)
+		if k < 0x40 {
+			return append(b, byte(0x80+k))
+		}
+		return append(b, byte(0xFE+k-0x40))
+	case 13:
+		return append(b, string(rune(0x10000+r.intn(0x100000)))...)
+	case 14:
+		return append(b, string(rune(0x80+r.intn(0xD800-0x80)))...)
+	case 15:
+		return append(b, byte(0x20+r.intn(0x5F)))
+	}
+	return append(b, string($Runes[r.intn(len($Runes))])...)
+}
+
+// $GenIn draws an integer of one of the closed spans of a refinement
+// (types.md, Refinements 9): a span, each as likely, then its low end, its
+// high end, or any value in it, half the time an end. An unsigned type's
+// spans hold its values' bits.
+func $GenIn(r *$Rand, spans [][2]int64) int64 {
+	s := spans[r.intn(len(spans))]
+	switch r.intn(4) {
+	case 0:
+		return s[0]
+	case 1:
+		return s[1]
+	}
+	w := uint64(s[1]) - uint64(s[0]) + 1
+	if w == 0 {
+		return int64(r.next())
+	}
+	return s[0] + int64(r.next()%w)
+}
+
+// $GenStrLen is a string of n bytes, of str's units; a unit that would
+// pass n is cut, as a codec meets a cut rune.
+func $GenStrLen(r *$Rand, n int) string {
+	b := make([]byte, 0, n+4)
+	for len(b) < n {
+		b = r.unit(b)
+	}
+	return string(b[:n])
+}
+
+// $GenSliceLen is a slice of n elements.
+func $GenSliceLen[T any](r *$Rand, d int, n int, elem func(*$Rand, int) T) []T {
+	xs := make([]T, n)
+	for i := range xs {
+		xs[i] = elem(r, d-1)
+	}
+	return xs
 }
 
 // limit is the largest collection length at depth d: the case's size at
@@ -1242,7 +1415,8 @@ func $LitEntries[K comparable, V any](typ string, m map[K]V, key func(K) string,
 }
 
 // $Seed reads --seed N or --seed=N, N a decimal uint64, the seed of every
-// property; 1 by default. Any other argument is a usage error (exit 2).
+// property; 1 by default. It skips --states N, which $States reads; any
+// other argument is a usage error (exit 2).
 func $Seed() uint64 {
 	seed := uint64(1)
 	args := $os.Args[1:]
@@ -1254,6 +1428,11 @@ func $Seed() uint64 {
 			v = args[i]
 		case len(a) > len("--seed=") && a[:len("--seed=")] == "--seed=":
 			v = a[len("--seed="):]
+		case a == "--states" && i+1 < len(args):
+			i++
+			continue
+		case len(a) > len("--states=") && a[:len("--states=")] == "--states=":
+			continue
 		}
 		n, err := $strconv.ParseUint(v, 10, 64)
 		if err != nil {
@@ -1391,6 +1570,58 @@ func (l *lowerer) genExpr(t check.Type, r, d string, scope *namer, site syntax.N
 	return ""
 }
 
+// lenCap bounds the lengths a refinement's generator draws above a span's
+// low end, so an unbounded `len(it) >= 1` stays small.
+const lenCap = 32
+
+// genRefined is the Go expression that draws a value of t inside the
+// refinement ref (types.md, Refinements 9): t itself is refined, or t is a
+// law parameter's type and ref its where.
+func (l *lowerer) genRefined(t check.Type, ref *check.Refinement, r, d string, scope *namer, site syntax.Node) string {
+	tc := &typeCtx{l: l, site: site}
+	unsigned := false
+	under := t
+	if n, ok := t.(*check.Named); ok {
+		under = n.Underlying()
+	}
+	if b, ok := under.(*check.Basic); ok {
+		unsigned = b.Kind >= check.Uint && b.Kind <= check.Uintptr
+	}
+	var spans []string
+	for _, s := range ref.Spans {
+		lo, hi := new(big.Int).Set(s.Lo), new(big.Int).Set(s.Hi)
+		if ref.Len {
+			if top := new(big.Int).Add(lo, big.NewInt(lenCap)); hi.Cmp(top) > 0 {
+				hi = top
+			}
+		}
+		spans = append(spans, "{"+int64Bits(lo)+", "+int64Bits(hi)+"}")
+	}
+	in := l.helper("GenIn") + "(" + r + ", [][2]int64{" + strings.Join(spans, ", ") + "})"
+	if !ref.Len {
+		if unsigned {
+			return tc.goType(t) + "(uint64(" + in + "))"
+		}
+		return tc.goType(t) + "(" + in + ")"
+	}
+	if s, ok := under.(*check.Slice); ok {
+		inner := newNamer(scope)
+		ir, id := inner.alloc("r"), inner.alloc("d")
+		elem := "func(" + ir + " *" + l.helper("Rand") + ", " + id + " int) " + tc.goType(s.Elem) + " { return " + l.genExpr(s.Elem, ir, id, inner, site) + " }"
+		return tc.goType(t) + "(" + l.helper("GenSliceLen") + "(" + r + ", " + d + ", int(" + in + "), " + elem + "))"
+	}
+	return tc.goType(t) + "(" + l.helper("GenStrLen") + "(" + r + ", int(" + in + ")))"
+}
+
+// int64Bits is v as a Go int64 literal of its two's-complement bits, so a
+// uint64 above MaxInt64 keeps its bits.
+func int64Bits(v *big.Int) string {
+	if v.IsInt64() {
+		return v.String()
+	}
+	return strconv.FormatInt(int64(v.Uint64()), 10)
+}
+
 // genPick writes the body that draws one of variants, the variants of the
 // union t or the members of the row value t: at d <= 0 one of least rank,
 // else any, each equally likely.
@@ -1473,9 +1704,18 @@ func (l *lowerer) genFunc(n *check.Named, site syntax.Node) string {
 		l.gen.WriteString("func " + name + "(" + r + " *" + l.helper("Rand") + ", " + d + " int) " + goType + " {\n" + body.String() + "}\n\n")
 		return name
 	}
+	if ref := check.RefinementOf(n); ref != nil {
+		body.WriteString("\treturn " + l.genRefined(n, ref, r, d, scope, site) + "\n")
+		l.gen.WriteString("func " + name + "(" + r + " *" + l.helper("Rand") + ", " + d + " int) " + goType + " {\n" + body.String() + "}\n\n")
+		return name
+	}
 	switch under := n.Underlying().(type) {
 	case *check.Struct:
 		td := l.typeDecl(n.Obj, site)
+		if td.goError {
+			body.WriteString("\treturn " + l.rt() + ".GoErrorText(" + l.genExpr(under.Fields[0].Type, r, d+"-1", scope, site) + ")\n")
+			break
+		}
 		parts := make([]string, len(under.Fields))
 		for i, f := range under.Fields {
 			field, ok := td.fieldName[f.Name]

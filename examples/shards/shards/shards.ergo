@@ -1,0 +1,155 @@
+// Package shards is a sharded write: a staging of parts, a write of
+// one or more shares, and a summary screen. The write is a machine whose Writing phase
+// hosts a child, the write runner, which hosts a child per share: the
+// writes run at once, and their answers climb back up as signals of the
+// entry that started them.
+
+import actor
+import machines
+
+// Part is a part of the staging and its size in hundredths of a MB.
+type Part { Name string, Size int }
+
+// Job is the write's state.
+type Job =
+	| Staging{Parts []Part, Note string}
+	| Writing{Parts []Part, Shares []Share}
+	| RollingBack{Parts []Part, Refs []Ref, Why string}
+	| Summary{Parts []Part, Refs []Ref}
+
+// Signal is what the write takes: the operator's touches, and the outputs of
+// its phases' children and work.
+type Signal =
+	| Add{Name string, Size int}
+	| Place{Shares []Share}
+	| Cancel{}
+	| Touch{}
+	| SharesWritten{Refs []Ref}
+	| SharesLost{Refs []Ref, Why string}
+	| Erased{}
+	| Idle{}
+
+// Result is how a write ends.
+type Result = Stored{Total int, Refs []Ref} | Cancelled{}
+
+// SummaryWait is how long the summary stays with no touch.
+func SummaryWait() duration { 60s }
+
+// Shards is the write's machine. Its work needs Targets | Scheduler: the
+// runner child writes through the target, and starting a child needs
+// the Scheduler. The target is a capability the binary binds, not a
+// value carried in every state.
+type Shards machine[Job, Signal] { initial: Open, step: Step, after: timer, work: work }
+
+// Open is a staging that starts with parts (none for a new write).
+func Open(parts []Part) Job { Staging{Parts: parts, Note: ""} }
+
+// Total is the size of the parts.
+func Total(parts []Part) int {
+	let mut n = 0
+	for l in parts {
+		n = n + l.Size
+	}
+	n
+}
+
+// placeable reports whether the shares cover the staging exactly, each with
+// a positive size.
+func placeable(parts []Part, shares []Share) bool {
+	let mut ok = len(parts) > 0 && len(shares) > 0 && Sum(shares) == Total(parts)
+	for t in shares {
+		ok = ok && SizeOf(t) > 0
+	}
+	ok
+}
+
+// Step is the write's step.
+func Step(s Job, e Signal) Decision[Job, Result] {
+	match (s, e) {
+	case (Staging as b, Add as a):
+		if a.Size > 0 {
+			Stay[Job]{Next: Staging{..b, Parts: b.Parts.Append(Part{Name: a.Name, Size: a.Size}), Note: ""}}
+		} else {
+			Reject
+		}
+	case (Staging as b, Place as p):
+		if placeable(b.Parts, p.Shares) {
+			Enter[Job]{Next: Writing{Parts: b.Parts, Shares: p.Shares}}
+		} else {
+			Reject
+		}
+	case (Staging, Cancel):
+		Done[Result]{Output: Cancelled}
+	case (Staging, _):
+		Ignore
+	case (Writing as p, SharesWritten as t):
+		Enter[Job]{Next: Summary{Parts: p.Parts, Refs: t.Refs}}
+	case (Writing as p, SharesLost as d):
+		if len(d.Refs) == 0 {
+			Enter[Job]{Next: Staging{Parts: p.Parts, Note: d.Why}}
+		} else {
+			Enter[Job]{Next: RollingBack{Parts: p.Parts, Refs: d.Refs, Why: d.Why}}
+		}
+	case (Writing, Cancel):
+		// A write in flight is never abandoned: a write may be taken.
+		Reject
+	case (Writing, _):
+		Ignore
+	case (RollingBack as v, Erased):
+		Enter[Job]{Next: Staging{Parts: v.Parts, Note: "\(v.Why); \(len(v.Refs)) erased"}}
+	case (RollingBack, _):
+		Ignore
+	case (Summary as r, Touch):
+		// A touch re-enters the summary, so its timer starts again.
+		Enter[Job]{Next: r}
+	case (Summary as r, Idle):
+		Done[Result]{Output: Stored{Total: Total(r.Parts), Refs: r.Refs}}
+	case (Summary, _):
+		Ignore
+	}
+}
+
+func timer(s Job) Option[Timeout[Signal]] {
+	match s {
+	case Summary:
+		Some{Timeout[Signal]{In: SummaryWait(), Signal: Idle}}
+	case Staging:
+		None
+	case Writing:
+		None
+	case RollingBack:
+		None
+	}
+}
+
+// outcome is the runner's output as a write signal.
+func outcome(o Outcome) Signal {
+	match o {
+	case AllTaken as a:
+		SharesWritten{Refs: a.Refs}
+	case SomeLost as d:
+		SharesLost{Refs: d.Refs, Why: d.Why}
+	}
+}
+
+// work: Writing hosts the write runner as a child; RollingBack erases the
+// writes that were taken.
+func work(s Job) Option[machines.Work[Signal, Targets | Scheduler]] {
+	match s {
+	case Writing as p:
+		Some{machines.Work{Listen: func(send func(e Signal)) needs Targets | Scheduler {
+			actor.Child(send, machines.Start(Runner{}, p.Shares), 1, outcome)
+		}}}
+	case RollingBack as v:
+		Some{machines.Work{Run: func() Signal needs Targets {
+			for r in v.Refs {
+				Targets.Erase(r)
+			}
+			Erased
+		}}}
+	case Staging:
+		None
+	case Summary:
+		None
+	}
+}

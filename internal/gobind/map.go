@@ -17,6 +17,7 @@ import (
 	"go/types"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -44,7 +45,10 @@ type Decl struct {
 	Go       string
 	Ergo     string // the declaration after `extern go <target> `
 	Variadic bool   // the last parameter is Go's ...T, spread at the call
-	Refused  string
+	// Context: the first parameter is Go's context.Context, hidden in the
+	// Ergo signature; the lowering passes the calling task's context (IG10).
+	Context bool
+	Refused string
 	// Members are the refusals of a struct's fields and an interface's
 	// methods, by member name, for a type that maps.
 	Members []Member
@@ -169,12 +173,12 @@ func (m *mapper) decl(obj types.Object, recv *types.Named) Decl {
 			d.Kind = Method
 			d.Name = recv.Obj().Name() + "." + o.Name()
 		}
-		text, variadic, err := m.funcDecl(o, recv)
+		text, variadic, ctx, err := m.funcDecl(o, recv)
 		if err != nil {
 			d.Refused = err.Error()
 			return d
 		}
-		d.Ergo, d.Variadic = text, variadic
+		d.Ergo, d.Variadic, d.Context = text, variadic, ctx
 	case *types.TypeName:
 		d.Kind = Type
 		text, members, lines, err := m.typeDecl(o)
@@ -220,7 +224,7 @@ func (m *mapper) needs(name string) string {
 
 // ---------------------------------------------------------------- functions
 
-func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, error) {
+func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool, error) {
 	sig := f.Type().(*types.Signature)
 	subst := map[*types.TypeParam]types.Type{}
 	var tparams []string
@@ -229,7 +233,7 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, error
 		tp := sig.TypeParams().At(i)
 		c, core, err := constraint(tp)
 		if err != nil {
-			return "", false, err
+			return "", false, false, err
 		}
 		if core != nil {
 			subst[tp] = core
@@ -241,14 +245,41 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, error
 			continue
 		}
 		if unconstrainedBefore {
-			return "", false, refuse("type parameters in an order Ergo cannot write: an unconstrained one before %s %s", tp.Obj().Name(), c)
+			return "", false, false, refuse("type parameters in an order Ergo cannot write: an unconstrained one before %s %s", tp.Obj().Name(), c)
 		}
 		tparams = append(tparams, tp.Obj().Name()+" "+c)
 	}
-	sm := &sigMapper{mapper: m, subst: subst}
+	target := m.pkg.Path() + "." + f.Name()
+	if recv != nil {
+		target = m.pkg.Path() + "." + recv.Obj().Name() + "." + f.Name()
+	}
+	n := sig.Results().Len()
+	// A first context.Context parameter is hidden (IG10), except in the
+	// context package itself, whose functions take a context as their
+	// subject (context.Cause(ctx)), not as the call's cancellation.
+	sm := &sigMapper{mapper: m, subst: subst, sync: v1.GoSyncCallbacks[target], method: recv != nil,
+		outerFails: n > 0 && isError(sig.Results().At(n-1).Type()),
+		ctx:        m.pkg.Path() != "context" && sig.Params().Len() > 0 && isContext(sig.Params().At(0).Type())}
 	params, results, fails, variadic, err := sm.signature(sig, false)
 	if err != nil {
-		return "", false, err
+		return "", false, false, err
+	}
+	// A synchronous callback's rows are the call's (IG6): row parameters
+	// CE (its failures, when Go's callback returns an error) and CR (what
+	// it needs), named apart from Go's own type parameters.
+	for _, row := range []struct {
+		name string
+		used bool
+	}{{rowFails, sm.usedFails}, {rowNeeds, sm.usedNeeds}} {
+		if !row.used {
+			continue
+		}
+		for i := 0; i < sig.TypeParams().Len(); i++ {
+			if sig.TypeParams().At(i).Obj().Name() == row.name {
+				return "", false, false, refuse("a Go type parameter named %s, the binding's row parameter", row.name)
+			}
+		}
+		tparams = append(tparams, row.name)
 	}
 	var b strings.Builder
 	b.WriteString("func ")
@@ -279,12 +310,35 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, error
 	if results != "" {
 		b.WriteString(" " + results)
 	}
-	if fails {
+	switch {
+	case fails && sm.usedFails:
+		b.WriteString(" fails " + rowFails + " | go.Error")
+	case fails:
 		b.WriteString(" fails go.Error")
 	}
-	b.WriteString(m.needs(f.Name()))
-	return b.String(), variadic, nil
+	needs := m.needs(f.Name())
+	if sm.ctx {
+		// A call that takes the task's context is a host wait: foreign,
+		// whatever its package (it needs the task, which a pure frame
+		// does not have).
+		needs = " needs go.Foreign"
+	}
+	if sm.usedNeeds {
+		if needs == "" {
+			needs = " needs " + rowNeeds
+		} else {
+			needs = " needs " + rowNeeds + " |" + strings.TrimPrefix(needs, " needs")
+		}
+	}
+	b.WriteString(needs)
+	return b.String(), variadic, sm.ctx, nil
 }
+
+// The row parameters of a function whose callbacks are synchronous.
+const (
+	rowFails = "CE"
+	rowNeeds = "CR"
+)
 
 // inValueSet reports whether method name is in the method set of the value
 // type n, so a value of n calls it (Go's value receiver or a promotion
@@ -350,6 +404,21 @@ func binder(name string) bool {
 type sigMapper struct {
 	*mapper
 	subst map[*types.TypeParam]types.Type
+	// sync: the function is in v1.GoSyncCallbacks; method: it is a
+	// method (row-free callbacks); outerFails: its last result is error.
+	// usedFails and usedNeeds record a callback that took the row
+	// parameters.
+	sync, method, outerFails bool
+	usedFails, usedNeeds     bool
+	// ctx: the first parameter is context.Context, which the Ergo
+	// signature hides (IG10); the callers pass the task's context.
+	ctx bool
+}
+
+// isContext reports Go's context.Context.
+func isContext(t types.Type) bool {
+	n, ok := types.Unalias(t).(*types.Named)
+	return ok && n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == "context" && n.Obj().Name() == "Context"
 }
 
 // signature maps a Go signature: named parameters, the result type, whether
@@ -358,7 +427,11 @@ type sigMapper struct {
 func (m *sigMapper) signature(sig *types.Signature, cb bool) ([]param, string, bool, bool, error) {
 	var params []param
 	used := map[string]bool{}
-	for i := 0; i < sig.Params().Len(); i++ {
+	first := 0
+	if m.ctx && !cb {
+		first = 1
+	}
+	for i := first; i < sig.Params().Len(); i++ {
 		v := sig.Params().At(i)
 		t := v.Type()
 		var text string
@@ -452,7 +525,17 @@ func (m *sigMapper) typ(t types.Type, at pos, cb bool) (string, error) {
 		m.prelude("Map")
 		return "Map[" + k + ", " + v + "]", nil
 	case *types.Array:
-		return "", refuse("Ergo has no fixed arrays; a Go array %s maps to no Ergo type", types.TypeString(t, nil))
+		// [N]T is Ergo's [N]T (types.md, Arrays; L1). Go copies an array
+		// whole, so it shares nothing with Go unless an element holds a
+		// slice or a Map, which v1 does not copy at the boundary.
+		if goHoldsShared(t.Elem()) {
+			return "", refuse("an array whose elements hold a slice or a Map shares them with Go; v1 binds an array that Go copies whole")
+		}
+		e, err := m.typ(t.Elem(), atInner, cb)
+		if err != nil {
+			return "", err
+		}
+		return "[" + strconv.FormatInt(t.Len(), 10) + "]" + e, nil
 	case *types.Chan:
 		return "", refuse("Ergo has no channels (196c); wrap the Go channel in a Go function of your module, or use std queue")
 	case *types.Interface:
@@ -490,10 +573,53 @@ func (m *sigMapper) callback(sig *types.Signature) (string, error) {
 	if result != "" {
 		s += " " + result
 	}
-	if fails {
-		s += " fails go.Error"
+	// Callbacks (IG6; interop.md, Callbacks). A synchronous callback of a
+	// function takes the call's rows: it fails CE when Go's callback
+	// returns an error that the call returns, and needs CR. One of a
+	// method is row-free (a method takes no row parameters in v1), and
+	// fails go.Error, Go's own error, when both return one. An escaping
+	// callback may run after the call: `escaping`, no capability, and only
+	// go.Error, which crosses as Go's error. A callback whose Go type
+	// returns an error always has a fails row, so the lowering reads Go's
+	// callback type from the Ergo one (lower.goCallback).
+	if strings.HasPrefix(result, "(") {
+		return "", refuse("a callback with more than one result")
+	}
+	switch {
+	case m.sync && !m.method:
+		switch {
+		case fails && m.outerFails:
+			s += " fails " + rowFails
+			m.usedFails = true
+		case fails:
+			s += " fails go.Error"
+		}
+		s += " needs " + rowNeeds
+		m.usedNeeds = true
+	case m.sync:
+		if fails {
+			s += " fails go.Error"
+		}
+	default:
+		s = "escaping " + s
+		if fails {
+			s += " fails go.Error"
+		}
 	}
 	return s, nil
+}
+
+// goHoldsShared reports a Go type whose value shares memory when copied: a
+// slice or a Map, a type defined over one, or an array of such. A struct
+// is a host type, which crosses as it is.
+func goHoldsShared(t types.Type) bool {
+	switch u := types.Unalias(t).Underlying().(type) {
+	case *types.Slice, *types.Map:
+		return true
+	case *types.Array:
+		return goHoldsShared(u.Elem())
+	}
+	return false
 }
 
 func basic(t *types.Basic) (string, error) {
@@ -532,6 +658,12 @@ func (m *sigMapper) named(n *types.Named, at pos, cb bool) (string, error) {
 	case n.TypeArgs().Len() > 0:
 		return "", refuse("the generic Go type %s maps to no Ergo type in v1", obj.Name())
 	}
+	if u, ok := n.Underlying().(*types.Signature); ok && at == atParam && !cb && obj.Exported() {
+		// A parameter of a named Go function type (fs.WalkDirFunc) takes
+		// a callback of its underlying signature: Go assigns a function
+		// literal of that signature to it (IG6).
+		return m.callback(u)
+	}
 	if reason := typeRefusal(obj); reason != "" {
 		return "", refuse("type %s is refused: %s", obj.Name(), reason)
 	}
@@ -558,7 +690,7 @@ func (m *sigMapper) pointer(p *types.Pointer, at pos, cb bool) (string, error) {
 	if _, iface := n.Underlying().(*types.Interface); iface {
 		return "", refuse("a pointer to an interface")
 	}
-	if at == atInner {
+	if at == atInner || (cb && at != atParam) {
 		return "", refuse("a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field")
 	}
 	s, err := m.named(n, at, cb)
@@ -616,7 +748,7 @@ func typeRefusal(obj *types.TypeName) string {
 		if !exported {
 			return "an interface with no exported method"
 		}
-	case *types.Slice, *types.Map:
+	case *types.Slice, *types.Map, *types.Array:
 		m := &sigMapper{mapper: &mapper{pkg: obj.Pkg(), q: func(p *types.Package) string { return p.Name() }}}
 		if _, err := m.typ(u, atInner, false); err != nil {
 			return err.Error()
@@ -625,8 +757,6 @@ func typeRefusal(obj *types.TypeName) string {
 		return "a Go function type maps to no Ergo host type in v1"
 	case *types.Chan:
 		return "Ergo has no channels (196c)"
-	case *types.Array:
-		return "Ergo has no fixed arrays"
 	case *types.Pointer:
 		return "a defined pointer type"
 	default:

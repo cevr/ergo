@@ -61,6 +61,8 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Try** (checked): The keyword form `try e`, which yields `e`'s success value and escapes `e`'s failures.
 
+**Call site** (implemented, unit L3): The prelude record `CallSite { File, Line, Column }`, a call's position in Ergo source. A call may leave out its callee's final `CallSite` parameter, and the compiler passes the call's own position; a call that writes it forwards the value. It gives positional identity to `ui` hooks and feeds traces. See [types](docs/spec/types.md#call-sites).
+
 **Catch** (checked): The keyword form `e catch { case T: … }`, which handles named error types of a fallible expression. It covers typed failures only; interruption and defects pass through it.
 
 **Total catch** (checked): A `catch` without `try`. It must handle every error type of the caught row.
@@ -82,6 +84,10 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 **Build** (designed): One execution of a context at one `with`: constructors run once per shared node, and the build owns their releases until the `with` block ends. Each `with` is a new build.
 
 **With** (checked for one context): The compiler-known form `with W { block }`. It installs a context for the block: it discharges the capabilities `W` binds and yields the block's last expression. It also takes context values (designed).
+
+**Context[R]** (checked and lowered; L5): A context as a value: the built providers of the capability row `R`. A context converts to one where a `Context[R]` is expected, and `with v { … }` installs it, discharging `R` and building nothing. Not a *context value* (below), which is a value held in the context. *Prior art:* Effect's `Context<R>`, ZIO's `ZEnvironment[R]`.
+
+**Script** (checked and lowered; L5b): `testing.Script[S]`, a test provider of the capability `S` that the checker derives from `S`'s operations: one field per operation, a `testing.Op` whose `Answer(f)` sets how the operation answers and whose `Calls()` are the arguments of each call so far. Not a *fake* written by hand, which states the operations again. *Prior art:* Elixir's Mox, Go's `mockgen`. See [stdlib](docs/spec/stdlib.md#testing).
 
 **Context value** (designed): A value in the context: an immutable value, such as a span or a log annotation, that `with` scopes to a block and that every task started inside inherits.
 
@@ -231,13 +237,13 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 ## Runtime and providers
 
-**Effect runtime provider** (direction): An implementation of the lawful runtime contract that executes Ergo effects on a target. `runtime/ergo` is the native Go provider of the earlier language, and the prototype's `rt` package is the first provider of the Go-shaped language. Pinned Effect as the JavaScript provider went with the JavaScript target on 2026-10-26.
+**Effect runtime provider** (direction): An implementation of the lawful runtime contract that executes Ergo effects on a target. `runtime/ergo` was the native Go provider of the earlier language (removed in batch 14), and the prototype's `rt` package is the first provider of the Go-shaped language. Pinned Effect as the JavaScript provider went with the JavaScript target on 2026-10-26.
 
 **Lawful runtime contract** (specified research): The host operations and laws an effect runtime provider must satisfy, with each obligation's evidence classified as nominally checked, trusted decision, tested law, refuted or unresolved/unavailable.
 
 **Host-driven program** (direction; owner direction 2026-11-02, [#202](https://github.com/cevr/ergo/issues/202) and [#240](https://github.com/cevr/ergo/issues/240)): A program whose control loop a host owns, such as a game engine, a GUI window or a TUI screen that calls it each frame or event on the host's thread through a declared entry signature, while its capabilities stay separate services provided by a context rather than one platform owning them all.
 
-**Uninterruptible host wait** (designed): A blocking Go call with no cancel hook. It is recorded in the footprint and listed by `ergo inspect` (G8).
+**Uninterruptible host wait** (checked): A foreign Go call whose Go declaration takes no `context.Context`, so an interruption reaches the task only after Go returns. `ergo inspect` lists it for each function that reaches it (IG8; [tooling](docs/tooling.md#inspect)).
 
 **Exit accumulator** (designed): The runtime record that combines a body's outcome with release defects and interruption into one exit cause, so a release never hides a failure.
 
@@ -257,7 +263,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 ## Earlier `.ef` language
 
-These terms describe the retired `.ef` language, with its `effect fn`, `run`, `raises` and `service` forms. [#205](https://github.com/cevr/ergo/issues/205) removed its compiler ([retirement record](docs/receipts/retire-ef.md)); its runtime, `runtime/ergo`, stays in the tree until lowering replaces it. The terms stay as design reference. The Go-shaped language replaces it; where a term has a counterpart above, the entry says so.
+These terms describe the retired `.ef` language, with its `effect fn`, `run`, `raises` and `service` forms. [#205](https://github.com/cevr/ergo/issues/205) removed its compiler ([retirement record](docs/receipts/retire-ef.md)); its runtime, `runtime/ergo`, was removed in batch 14. The terms stay as design reference. The Go-shaped language replaces it; where a term has a counterpart above, the entry says so.
 
 **Record**: A nominal data type with declared fields. Construction checks every required field and its type. Counterpart: struct.
 
@@ -304,6 +310,8 @@ These terms describe the retired `.ef` language, with its `effect fn`, `run`, `r
 **Constant parameter default** (admitted, not implemented): A literal or named constant declared for a parameter and inserted at the call site when the argument is omitted.
 
 **Visibility** (admitted, not implemented): Whether another module may name a declaration. Declarations are private by default and exported with `pub`; the case of a name carries no meaning. Superseded 2026-10-27 by exported names (owner: "Yeah, let's go with your [recommendations]"). Counterpart: exported name, implemented for fields, operations and construction (196b Q6).
+
+**Refinement** (implemented, L6): A defined type with a decidable predicate, `type Port int where 1 <= it && it <= 65535`. The compiler decides the predicate to spans of the base's values, checks every constant against it, derives the parse function `ParsePort` (the only way in for a value that is not a constant) and the law `PortWhere`, and generates values inside it. Distinct from construction authority, which a function checks and the compiler cannot decide. See [types](docs/spec/types.md#refinements).
 
 **Construction authority** (implemented in the Go-shaped language, 196b Q7): The right to construct values of a nominal type. In the `.ef` language a `pub readonly` type let other modules read and match its values while only its owner module constructed them. In the Go-shaped language, an unexported field gives the same authority: outside the package that declares the fields, the struct, a defined type over it and a type that holds it by value have no literal, no record update and no implicit zero value (`lib.Q{}`, `lib.Q{..q, N: 2}`, `let q lib.Q`, a zero-filled field of an enclosing struct), S114, so only the owner package builds the value and its exported functions are the way in. `check.Constructible` exports the rule. See [types](docs/spec/types.md#zero-values-and-definite-initialisation) Zero values 6.
 

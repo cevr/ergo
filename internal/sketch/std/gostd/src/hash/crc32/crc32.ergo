@@ -7,7 +7,7 @@ import go hash
 extern go hash/crc32.Castagnoli let Castagnoli int
 
 // ergo:go func Checksum(data []byte, tab *Table) uint32
-// ergo:refused Checksum: parameter 2: type Table is refused: Ergo has no fixed arrays
+extern go hash/crc32.Checksum func Checksum(data []byte, tab *Table) uint32
 
 // ergo:go func ChecksumIEEE(data []byte) uint32
 extern go hash/crc32.ChecksumIEEE func ChecksumIEEE(data []byte) uint32
@@ -22,10 +22,10 @@ extern go hash/crc32.IEEE let IEEE int
 extern go hash/crc32.Koopman let Koopman int
 
 // ergo:go func MakeTable(poly uint32) *Table
-// ergo:refused MakeTable: result 1: type Table is refused: Ergo has no fixed arrays
+extern go hash/crc32.MakeTable func MakeTable(poly uint32) Option[go.Ref[Table]]
 
 // ergo:go func New(tab *Table) hash.Hash32
-// ergo:refused New: parameter 1: type Table is refused: Ergo has no fixed arrays
+extern go hash/crc32.New func New(tab *Table) hash.Hash32
 
 // ergo:go func NewIEEE() hash.Hash32
 extern go hash/crc32.NewIEEE func NewIEEE() hash.Hash32
@@ -34,7 +34,7 @@ extern go hash/crc32.NewIEEE func NewIEEE() hash.Hash32
 extern go hash/crc32.Size let Size int
 
 // ergo:go type Table [256]uint32
-// ergo:refused Table: Ergo has no fixed arrays
+extern go hash/crc32.Table type Table [256]uint32
 
 // ergo:go func Update(crc uint32, tab *Table, p []byte) uint32
-// ergo:refused Update: parameter 2: type Table is refused: Ergo has no fixed arrays
+extern go hash/crc32.Update func Update(crc uint32, tab *Table, p []byte) uint32

@@ -31,13 +31,13 @@ extern go crypto/sha512.Size256 let Size256 int
 extern go crypto/sha512.Size384 let Size384 int
 
 // ergo:go func Sum384(data []byte) [48]byte
-// ergo:refused Sum384: result 1: Ergo has no fixed arrays; a Go array [48]byte maps to no Ergo type
+extern go crypto/sha512.Sum384 func Sum384(data []byte) [48]byte needs go.Foreign
 
 // ergo:go func Sum512(data []byte) [64]byte
-// ergo:refused Sum512: result 1: Ergo has no fixed arrays; a Go array [64]byte maps to no Ergo type
+extern go crypto/sha512.Sum512 func Sum512(data []byte) [64]byte needs go.Foreign
 
 // ergo:go func Sum512_224(data []byte) [28]byte
-// ergo:refused Sum512_224: result 1: Ergo has no fixed arrays; a Go array [28]byte maps to no Ergo type
+extern go crypto/sha512.Sum512_224 func Sum512_224(data []byte) [28]byte needs go.Foreign
 
 // ergo:go func Sum512_256(data []byte) [32]byte
-// ergo:refused Sum512_256: result 1: Ergo has no fixed arrays; a Go array [32]byte maps to no Ergo type
+extern go crypto/sha512.Sum512_256 func Sum512_256(data []byte) [32]byte needs go.Foreign

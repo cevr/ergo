@@ -51,6 +51,8 @@ type operand struct {
 	// method is the operation an operation-type or capability selector
 	// names (Info.Calls).
 	method *Method
+	// targ is go.As[T]'s written type argument (modeBuiltin).
+	targ Type
 }
 
 func (o *operand) invalid() bool { return o.mode == modeInvalid }
@@ -257,6 +259,13 @@ func exprText(x syntax.Expr) string {
 }
 
 func (c *checker) expr0(x syntax.Expr, hint Type) operand {
+	if row, ok := contextRow(hint); ok {
+		// A context where a Context[R] is expected converts to it
+		// (contextvalues.go).
+		if op, ok := c.contextConversion(x, hint.(*Named), row); ok {
+			return op
+		}
+	}
 	switch x := x.(type) {
 	case *syntax.Ident:
 		return c.boolLiteral(c.ident(x), hint)
@@ -380,7 +389,7 @@ func (c *checker) textForm(e syntax.Expr, t Type) {
 	switch u := under(t).(type) {
 	case *Basic:
 		return
-	case *Struct, *Union, *Tuple, *Slice, *Map:
+	case *Struct, *Union, *Tuple, *Slice, *Array, *Map:
 		c.errorf(e, CodeOutside, "a value of type %s has no text form yet; interpolate one of its fields, or wait for derived text forms (#49)", c.localTypeText(t))
 	case *TypeParam:
 		c.errorf(e, CodeOutside, "a value of type %s has no text form yet: a type parameter has no text form in v1; interpolate a value of a basic type, or wait for derived text forms (#49)", c.localTypeText(u))
@@ -669,9 +678,18 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 			return bad(x)
 		}
 	}
+	if _, isContext := contextRow(t); isContext && !c.pkg.std {
+		// Only a conversion makes a Context value (contextvalues.go).
+		c.errorf(x, CodeType, "a Context value is made from a context: let v %s = context { … } (rows.md, Context values)", t)
+		t = invalid
+	}
 	if isInvalid(t) {
 		c.orphanElements(x, mark, lt())
 		return bad(x)
+	}
+	if RefinementOf(t) != nil {
+		// The elements still check, so nothing cascades (Refinements 6).
+		c.errorf(x, CodeType, "a literal of %s is not checked against its where; write %s(%s{…})", t, c.parseFunc(t), refinedBase(t))
 	}
 	if isZeroRecord(t) && len(x.Elts) == 0 {
 		// One form per job (spec D-B2): a record with no fields is a value
@@ -693,6 +711,8 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 		}
 	case *Slice:
 		c.elements(x, u.Elem, lt)
+	case *Array:
+		c.arrayElements(x, t, u, lt)
 	case *Map:
 		// A constant key appears once, compared after conversion to the
 		// key type, as in Go (N3).
@@ -877,6 +897,19 @@ func instanceFromHint(orig *Named, hint Type) Type {
 // review M4).
 func (c *checker) structLit(x *syntax.CompositeLit, t Type, s *Struct, mark int) bool {
 	ok := true
+	if _, script := scriptArg(t); script {
+		// A Script is made empty (script.go, rule 3).
+		if !c.scriptLit(x, t) {
+			for _, e := range x.Elts {
+				if kv, isKV := e.(*syntax.KeyValueExpr); isKV {
+					e = kv.Value
+				}
+				c.strayValue(e, mark, true)
+			}
+			return false
+		}
+		return true
+	}
 	// A literal or record update of a record with another package's
 	// unexported field builds a new value of it: S114 (types.md, Zero
 	// values 6). Its values are still typed.
@@ -951,7 +984,12 @@ func (c *checker) structLit(x *syntax.CompositeLit, t Type, s *Struct, mark int)
 		return true // a record update takes every field it omits from its base
 	}
 	// A keyed literal names every field: no field takes Go's zero value
-	// in silence (types.md, Zero values 2; owner q44).
+	// in silence (types.md, Zero values 2; owner q44). go.Error{} is not
+	// such a zero: it is the nil Go error (interop.md, Errors 1 and 3),
+	// whose Text is read from Go and never stored.
+	if n, isNamed := t.(*Named); isNamed && len(x.Elts) == 0 && IsGoError(n) {
+		return true
+	}
 	var missing []string
 	for _, f := range s.Fields {
 		if !set[f.Name] && !isInvalid(f.Type) {
@@ -1060,6 +1098,12 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 		}
 	}
 	base := c.expr(x.X, nil)
+	if _, ix := unparen(x.X).(*syntax.IndexExpr); ix && base.mode == modeType && isCapability(base.typ) {
+		// The receiver Store[Job] of Store[Job].Put(j) is a capability
+		// name, as Store is (types.md, Capabilities 7); elsewhere the
+		// instance stays a type (a conversion, a literal).
+		base = operand{mode: modeCap, typ: base.typ, cap: base.typ, obj: base.typ.(*Named).Obj, expr: base.expr}
+	}
 	if c.selfRes != nil && base.mode != modeInvalid {
 		// Typing reached the call: it resolves to a 196m function
 		// (selfCall) or to another member, which takes no edge.
@@ -1131,6 +1175,10 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 			if c.hiddenField(s, x.Sel.Name) {
 				c.errorf(x.Sel, CodeUnknown, "%s (grammar.md, Visibility 2)", hiddenFieldText(s, x.Sel.Name))
 				return bad(x)
+			}
+			if n, ok := t.(*Named); ok && IsGoError(n) {
+				// Text is the native error's text, read-only (IG5).
+				return operand{mode: modeValue, typ: f.Type}
 			}
 			return operand{mode: modeValue, typ: f.Type, addressable: base.addressable || isPointer(base.typ)}
 		}
@@ -1383,6 +1431,8 @@ func (c *checker) qualified(x *syntax.SelectorExpr, pn *PkgName) operand {
 		return operand{mode: modeValue, typ: o.Sig, fn: o}
 	case *Var:
 		return operand{mode: modeValue, typ: o.Type}
+	case *Builtin:
+		return operand{mode: modeBuiltin, obj: o, typ: invalid} // go.Is, go.As
 	}
 	c.errorf(x, CodeUnknown, "%s.%s is not a value or a type", pn.Name, x.Sel.Name)
 	return bad(x)
@@ -1407,6 +1457,23 @@ func (c *checker) index(x *syntax.IndexExpr, hint Type) operand {
 		return bad(x)
 	case modeGeneric:
 		return c.explicit(x, base)
+	case modeBuiltin:
+		// decode[T] names the type decode builds (types.md, Codecs).
+		if b, _ := base.obj.(*Builtin); b != nil && b.Name == "decode" && len(x.Indices) == 1 {
+			t := c.typExpr(x.Indices[0], c.localTypeCtx())
+			if isInvalid(t) {
+				return bad(x)
+			}
+			return operand{mode: modeBuiltin, obj: b, typ: t}
+		}
+		if b, _ := base.obj.(*Builtin); b != nil && b.Name == "go.As" && unparen(x.X) == x.X {
+			// go.As[T]: T is checked at the call (goErrorCall).
+			if len(x.Indices) != 1 {
+				c.errorf(x, CodeType, "go.As takes one type argument, not %d", len(x.Indices))
+				return bad(x)
+			}
+			return operand{mode: modeBuiltin, obj: b, typ: invalid, targ: c.typExpr(x.Indices[0], c.localTypeCtx())}
+		}
 	case modeExtern:
 		// F[int] is still the extern's reference; (F)[int] reads (F) as a
 		// value first, as for any generic function (round 5), and a
@@ -1461,6 +1528,13 @@ func (c *checker) index(x *syntax.IndexExpr, hint Type) operand {
 		return operand{mode: modeValue, typ: u.Elem, mapElem: true}
 	case *Slice:
 		c.intIndex(x.Indices[0])
+		return operand{mode: modeValue, typ: u.Elem, addressable: true}
+	case *Array:
+		// A constant index is checked against the length here; another
+		// is checked when it runs (196y; types.md, Arrays 3).
+		if i, ok := c.intIndex(x.Indices[0]); ok && i >= u.Len {
+			c.errorf(x.Indices[0], CodeType, "index %d is out of bounds of %s, whose length is %d", i, c.localTypeText(base.typ), u.Len)
+		}
 		return operand{mode: modeValue, typ: u.Elem, addressable: true}
 	case *Basic:
 		if isString(t) {
@@ -1529,6 +1603,9 @@ func (c *checker) sliceExpr(x *syntax.SliceExpr) operand {
 		if n, ok := constLength(base); ok {
 			limit, limited = n, true
 		}
+		if a, ok := under(base.typ).(*Array); ok {
+			limit, limited = a.Len, true
+		}
 	}
 	last, haveLast := int64(0), false
 	for _, e := range []syntax.Expr{x.Low, x.High, x.Max} {
@@ -1550,9 +1627,17 @@ func (c *checker) sliceExpr(x *syntax.SliceExpr) operand {
 	if base.invalid() {
 		return bad(x)
 	}
-	switch under(base.typ).(type) {
+	if RefinementOf(base.typ) != nil {
+		c.errorf(x, CodeType, "a slice of %s could leave its where; convert first: %s(…)[…] (types.md, Refinements 7)", base.typ, refinedBase(base.typ))
+		return bad(x)
+	}
+	switch u := under(base.typ).(type) {
 	case *Slice:
 		return operand{mode: modeValue, typ: base.typ}
+	case *Array:
+		// A slice of an array is a new slice of its elements: the array
+		// stays a value (196y; types.md, Arrays 4).
+		return operand{mode: modeValue, typ: &Slice{Elem: u.Elem}}
 	case *Basic:
 		if isString(base.typ) {
 			if x.Slice3 {
@@ -1618,6 +1703,13 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 			}
 			c.errorf(op.expr, CodeType, "cannot use %s as %s in %s", op.typ, t, what)
 		}
+		op.mode = modeInvalid
+		return false
+	}
+	if a.clause == assignUnderlying && RefinementOf(t) != nil && !c.inDerived(t) {
+		// A value of the unnamed base enters a refined type only through
+		// its parse function (types.md, Refinements 6).
+		c.errorf(op.expr, CodeType, "cannot use %s as %s in %s: %s is refined; write %s(…), which checks its where", op.typ, t, what, t, c.parseFunc(t))
 		op.mode = modeInvalid
 		return false
 	}

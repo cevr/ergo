@@ -185,22 +185,24 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 	src := typedPackage(t, ".")
 	readers := src.users(src.method(t, "lowerer", "env"))
 	classified := map[string]string{
-		"funcCtx.envClosure":     "the closure owner",
-		"lowerer.emitBody":       "a declared function's header: func name(env *Env, ...), and a flat machine step's (MU8)",
-		"flatRun.runText":        "the flat machine run's declared header: func ergoRunX(env *Env, ...) (MU8)",
-		"lowerer.initFunc":       "the package initializer's declared header",
-		"lowerer.emitContext":    "a context builder's declared header",
-		"lowerer.envField":       "names the type before its first field",
-		"lowerer.entry":          "the root Env value in main",
-		"lowerer.testEntry":      "the root Env value in the test build's main (196l)",
-		"lowerer.testDecl":       "a test's declared header: func ergoTestName(env *Env, ...)",
-		"lowerer.lawDecl":        "a law's declared header: func ergoLawName(env *Env, ...) (bool, error) (#162)",
-		"lowerer.testRunnerHead": "the test runner's declared header: func ergoTests(env *Env, seed uint64)",
-		"funcCtx.operations":     "an Env value of the caller's task for an operation table",
-		"funcCtx.witnessMethod":  "an Env value of the caller's task for a witness adapter",
-		"typeCtx.funcType":       "a function type, which has no body",
-		"lowerer.machinePlan":    "a machine plan's declared Step header: func (X) Step(env *Env, ...)",
-		"lowerer.genFunc":        "a generator's assertion of the runner's Env that a constructor or a builder runs in (fu6a, fu7a)",
+		"funcCtx.envClosure":       "the closure owner",
+		"lowerer.emitBody":         "a declared function's header: func name(env *Env, ...), and a flat machine step's (MU8)",
+		"flatRun.runText":          "the flat machine run's declared header: func ergoRunX(env *Env, ...) (MU8)",
+		"lowerer.initFunc":         "the package initializer's declared header",
+		"lowerer.initOnce":         "a library's init runner's declared header: func ergoInitRun(env *Env) (IG11)",
+		"lowerer.emitContext":      "a context builder's declared header",
+		"lowerer.envField":         "names the type before its first field",
+		"lowerer.rootTask":         "the root Env value of a root task: main's, the test build's main's (196l), an exported function's (IG11)",
+		"lowerer.testDecl":         "a test's declared header: func ergoTestName(env *Env, ...)",
+		"lowerer.lawDecl":          "a law's declared header: func ergoLawName(env *Env, ...) (bool, error) (#162)",
+		"lowerer.testRunnerHead":   "the test runner's declared header: func ergoTests(env *Env, seed uint64)",
+		"funcCtx.operations":       "an Env value of the caller's task for an operation table",
+		"funcCtx.witnessMethod":    "an Env value of the caller's task for a witness adapter",
+		"funcCtx.scriptOperations": "an Env value of the caller's task for a Script adapter (script.go)",
+		"funcCtx.contextValue":     "the zero Env a Context value's providers build into where no environment is bound: a variable, no closure (its closure is envClosure's)",
+		"typeCtx.funcType":         "a function type, which has no body",
+		"lowerer.machinePlan":      "a machine plan's declared Step header: func (X) Step(env *Env, ...)",
+		"lowerer.genFunc":          "a generator's assertion of the runner's Env that a constructor or a builder runs in (fu6a, fu7a)",
 	}
 	for _, owner := range sortedKeys(readers) {
 		if _, ok := classified[owner]; !ok {
@@ -214,8 +216,8 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 	}
 	// A reader that writes a Go closure whose parameter is not an Env.
 	otherClosure := map[string]string{
-		"lowerer.entry":     "main's root task body takes the task and builds the root Env inside",
-		"lowerer.testEntry": "the test build's root task body, as lowerer.entry's",
+		"lowerer.rootTask": "a root task's body takes the task and builds the root Env inside",
+		"lowerer.initOnce": "the Once.Do body and its recover take no parameter; they run in the caller's task, on ergoInitRun's env",
 	}
 	src.owners(func(owner string, decl ast.Decl) {
 		if !readers[owner] || owner == "funcCtx.envClosure" || otherClosure[owner] != "" {

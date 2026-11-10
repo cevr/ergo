@@ -144,6 +144,10 @@ type funcCtx struct {
 	// (machinerun.go): a type switch on one switches on the tag.
 	flatParam string
 	flatSubj  map[string]bool
+	// rawErr is the Go call whose error a plain catch takes unread
+	// (plainCatch): the call leaves Go's error as it is, since only its
+	// nil test is read (goErrorOf).
+	rawErr syntax.Expr
 	// returned is the owned local the frame is returning (retExpr): its
 	// hand-off keeps its entry until the frame's exit is known
 	// (release.go, v1.Returned).
@@ -621,7 +625,7 @@ func (fc *funcCtx) discard(x syntax.Expr) {
 		return
 	}
 	if call, ok := x.(*syntax.CallExpr); ok {
-		if c := fc.l.info.Calls[call]; c != nil && c.Kind != check.CallWith && c.Kind != check.CallConversion && c.Kind != check.CallLen && !(fc.tries > 0 && fc.fallibleExpr(call)) {
+		if c := fc.l.info.Calls[call]; c != nil && c.Kind != check.CallWith && c.Kind != check.CallConversion && c.Kind != check.CallLen && c.Kind != check.CallGoError && !(fc.tries > 0 && fc.fallibleExpr(call)) {
 			if text := fc.callStmt(call); text != "" {
 				fc.line(text)
 			}

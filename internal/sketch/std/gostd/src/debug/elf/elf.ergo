@@ -1392,6 +1392,7 @@ extern go debug/elf.FormatError.Error func (e *FormatError) Error() string needs
 
 // ergo:go type Header32 struct
 extern go debug/elf.Header32 type Header32 {
+	Ident     [16]byte,
 	Type      uint16,
 	Machine   uint16,
 	Version   uint32,
@@ -1407,11 +1408,9 @@ extern go debug/elf.Header32 type Header32 {
 	Shstrndx  uint16,
 }
 
-// ergo:go Ident [16]byte
-// ergo:refused Header32.Ident: Ergo has no fixed arrays; a Go array [16]byte maps to no Ergo type
-
 // ergo:go type Header64 struct
 extern go debug/elf.Header64 type Header64 {
+	Ident     [16]byte,
 	Type      uint16,
 	Machine   uint16,
 	Version   uint32,
@@ -1426,9 +1425,6 @@ extern go debug/elf.Header64 type Header64 {
 	Shnum     uint16,
 	Shstrndx  uint16,
 }
-
-// ergo:go Ident [16]byte
-// ergo:refused Header64.Ident: Ergo has no fixed arrays; a Go array [16]byte maps to no Ergo type
 
 // ergo:go type ImportedSymbol struct
 extern go debug/elf.ImportedSymbol type ImportedSymbol {

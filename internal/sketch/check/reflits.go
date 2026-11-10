@@ -55,7 +55,7 @@ func fromType(t Type) litType {
 	switch under(t).(type) {
 	case *Struct:
 		return litType{kind: litStruct, typ: t}
-	case *Slice, *Map, *MachineType:
+	case *Slice, *Array, *Map, *MachineType:
 		return litType{kind: litKeyed, typ: t}
 	}
 	return litType{}
@@ -153,6 +153,10 @@ func (c *checker) elemOf(lt litType, key bool) litType {
 	if lt.typ != nil {
 		switch u := under(lt.typ).(type) {
 		case *Slice:
+			if !key {
+				return fromType(u.Elem)
+			}
+		case *Array:
 			if !key {
 				return fromType(u.Elem)
 			}

@@ -28,9 +28,11 @@ import (
 // Mutants it alone catches: uintptr mapped to uint64; (T, bool) mapped to
 // Option[T]; chan admitted; any admitted; the variadic spread mark
 // dropped; a nil-able *S result mapped without Option; a declaration of one
-// platform kept. No binary is built: go/types reads export data in process.
+// platform kept; a Go [N]T refused, or bound with its slice or Map elements
+// (batch-14 apply 1). No binary is built: go/types reads export data in process.
 func TestBindMappingProperty(t *testing.T) {
-	seeds := []uint64{1, 2, 3, 4, 5, 6}
+	// Seed 13 reaches an array whose elements hold a slice or a map.
+	seeds := []uint64{1, 2, 3, 4, 5, 6, 13}
 	if s := os.Getenv("ERGO_BIND_SEED"); s != "" {
 		n, err := strconv.ParseUint(s, 10, 64)
 		if err != nil {
@@ -299,6 +301,9 @@ func ref(t *gt, pos at, cb bool) (string, bool) {
 	case "error":
 		return "go.Error", true
 	case "ptrS":
+		if cb && pos != param {
+			return "", false // a callback's pointer result may be nil (IG6)
+		}
 		switch pos {
 		case param:
 			return "*S", true
@@ -318,6 +323,14 @@ func ref(t *gt, pos at, cb bool) (string, bool) {
 	case "seq":
 		e, ok := ref(t.elem, inner, cb)
 		return "Seq[" + e + "]", ok
+	case "array":
+		// Go copies an array whole; an element that holds a slice or a
+		// Map would be shared, and is refused (batch-14 apply 1).
+		if holdsShared(t.elem) {
+			return "", false
+		}
+		e, ok := ref(t.elem, inner, cb)
+		return "[3]" + e, ok
 	case "func":
 		if pos != param || cb {
 			return "", false
@@ -331,10 +344,12 @@ func ref(t *gt, pos at, cb bool) (string, bool) {
 			ps = append(ps, s)
 		}
 		res, fails, ok := refResults(t.results, true)
-		if !ok {
-			return "", false
+		if !ok || strings.HasPrefix(res, "(") {
+			return "", false // one result at most (IG6)
 		}
-		s := "func(" + strings.Join(ps, ", ") + ")"
+		// A generated package is in no reviewed table of synchronous
+		// callbacks, so every callback is escaping (IG6).
+		s := "escaping func(" + strings.Join(ps, ", ") + ")"
 		if res != "" {
 			s += " " + res
 		}
@@ -343,8 +358,20 @@ func ref(t *gt, pos at, cb bool) (string, bool) {
 		}
 		return s, true
 	}
-	// uintptr, any, an unnamed interface or struct, *int, an array, a chan
+	// uintptr, any, an unnamed interface or struct, *int, a chan
 	return "", false
+}
+
+// holdsShared reports a generated type whose copy shares memory: a slice,
+// a map, or an array of one.
+func holdsShared(t *gt) bool {
+	switch t.kind {
+	case "slice", "map":
+		return true
+	case "array":
+		return holdsShared(t.elem)
+	}
+	return false
 }
 
 // refResults maps results: a last error is the row fails go.Error; the one

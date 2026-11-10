@@ -2,6 +2,7 @@ package check
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -135,12 +136,16 @@ type Interface struct {
 // fewer types and more operators: comparable admits == and !=; ordered
 // adds <, <=, >, >= and + over the integer, float, string and duration
 // types and the defined types over them; number adds -, *, / and unary -
-// over the integer and float types and the defined types over them.
+// over the integer and float types and the defined types over them. codable
+// (types.md, Codecs 1) stands apart from that chain: it admits the types
+// with a wire form and no operator, and it sorts below comparable, so
+// every `>= SetComparable` test leaves it out.
 type TypeSet uint8
 
 // The type sets.
 const (
 	SetAll        TypeSet = iota // every type: a method set or no constraint
+	SetWire                      // codable: the types with a wire form
 	SetComparable                // comparable
 	SetOrdered                   // ordered
 	SetNumber                    // number
@@ -148,6 +153,8 @@ const (
 
 func (s TypeSet) String() string {
 	switch s {
+	case SetWire:
+		return "codable"
 	case SetComparable:
 		return "comparable"
 	case SetOrdered:
@@ -191,6 +198,12 @@ type MachineType struct {
 
 // Slice is []T.
 type Slice struct{ Elem Type }
+
+// Array is the fixed array [N]T (196y): a value of Len elements.
+type Array struct {
+	Len  int64
+	Elem Type
+}
 
 // Map is map[K]V.
 type Map struct{ Key, Elem Type }
@@ -320,6 +333,12 @@ func (v *RowVar) Solution() *Row {
 // E in Task[T, E] or a row inferred for E or R.
 type RowArg struct{ Row *Row }
 
+// Wired is the row element wired[T] for a codable type parameter T: the
+// failures of decode[T], which only T's type argument decides (types.md,
+// Codecs 2; owner q80). Substitution replaces it by the argument's wire
+// row (typeops.go subst), so an instance's row is concrete.
+type Wired struct{ T *TypeParam }
+
 // Tuple is the value of a call with several results.
 type Tuple struct{ Types []Type }
 
@@ -337,11 +356,13 @@ func (*Interface) aType()   {}
 func (*Union) aType()       {}
 func (*MachineType) aType() {}
 func (*Slice) aType()       {}
+func (*Array) aType()       {}
 func (*Map) aType()         {}
 func (*Pointer) aType()     {}
 func (*Signature) aType()   {}
 func (*TypeParam) aType()   {}
 func (*RowArg) aType()      {}
+func (*Wired) aType()       {}
 func (*Tuple) aType()       {}
 func (*noValue) aType()     {}
 func (*RowVar) aType()      {}
@@ -404,7 +425,10 @@ func (t *Union) String() string {
 func (t *MachineType) String() string {
 	return "machine[" + t.State.String() + ", " + t.Signal.String() + "]"
 }
-func (t *Slice) String() string   { return "[]" + t.Elem.String() }
+func (t *Slice) String() string { return "[]" + t.Elem.String() }
+func (t *Array) String() string {
+	return "[" + strconv.FormatInt(t.Len, 10) + "]" + t.Elem.String()
+}
 func (t *Map) String() string     { return "Map[" + t.Key.String() + ", " + t.Elem.String() + "]" }
 func (t *Pointer) String() string { return "*" + t.Elem.String() }
 func (t *Signature) String() string {
@@ -449,6 +473,7 @@ func (v *RowVar) String() string {
 	return "the inferred row of " + v.root().Fn.Name
 }
 func (t *RowArg) String() string { return t.Row.String() }
+func (t *Wired) String() string  { return "wired[" + t.T.Name + "]" }
 func (t *Tuple) String() string {
 	parts := make([]string, len(t.Types))
 	for i, x := range t.Types {
@@ -709,8 +734,12 @@ func typeString(t Type) string {
 		return "$" + t.Name
 	case *RowArg:
 		return "{" + t.Row.list("|") + "}"
+	case *Wired:
+		return "wired[$" + t.T.Name + "]"
 	case *Slice:
 		return "[]" + typeString(t.Elem)
+	case *Array:
+		return "[" + strconv.FormatInt(t.Len, 10) + "]" + typeString(t.Elem)
 	case *Map:
 		return "Map[" + typeString(t.Key) + "," + typeString(t.Elem) + "]"
 	case *Pointer:
@@ -855,6 +884,8 @@ func invalidIn(t Type, body bool) bool {
 		return invalidIn(t.Elem, body)
 	case *Slice:
 		return invalidIn(t.Elem, body)
+	case *Array:
+		return invalidIn(t.Elem, body)
 	case *Map:
 		return invalidIn(t.Key, body) || invalidIn(t.Elem, body)
 	case *Tuple:
@@ -917,7 +948,18 @@ func isCapability(t Type) bool {
 		return false
 	}
 	if len(n.origin().TParams) > 0 {
-		return false
+		// A generic operation type is a capability once its type
+		// arguments are written and concrete (types.md, Capabilities 7):
+		// Store[Job], never Store or Store[T].
+		steps := 0
+		if n.Orig == nil {
+			return false
+		}
+		for _, a := range n.TArgs {
+			if hasParam(a, &steps) {
+				return false
+			}
+		}
 	}
 	i, ok := n.underlying().(*Interface)
 	return ok && len(i.Methods) > 0

@@ -24,7 +24,7 @@ const (
 
 // The Design A2 messages (context_local.go).
 const (
-	contextValueMsg  = "a context is used only by with or embedded in a context: with w { … } or context { w, … }"
+	contextValueMsg  = "a context is used only by with, embedded in a context, or where a Context[R] is expected: with w { … }, context { w, … } or let v Context[R] = w"
 	contextRebindMsg = "a context is bound once by let; it is not reassigned"
 )
 
@@ -97,7 +97,11 @@ var contextPlaceRows = map[string]externPlaceRow{
 	"ProvidesClause.Names": {guardType, "func main() {\n\t$W\n\t_ = with context provides @w { Greeter: Plain } { Greeter.Greet(\"x\") }\n}\n"},
 	"StarExpr.X":           {guardType, "func f(p *@w) {}\n"},
 	"TypeDecl.Spec":        {guardType, "type T = @w\n"},
-	"VarSpec.Type":         {guardType, "func main() {\n\t$W\n\tlet v @w\n\t_ = v\n}\n"},
+	// A where reads only its subject and literals (refine.go): a context
+	// there is its one S108, as a name in a type position is.
+	"TypeDecl.Where": {guardType, "type T int where @w > 0\n"},
+	"Field.Where":    {guardType, "law L(x int where @w > 0) { true }\n"},
+	"VarSpec.Type":   {guardType, "func main() {\n\t$W\n\tlet v @w\n\t_ = v\n}\n"},
 	// A machine's step names a function: a context's name there is no
 	// function, one diagnostic, not the Design A2 message.
 	"MachineEntry.Value": {guardType, machineGuard("initial: Idle,\n\tstep: @w,")},

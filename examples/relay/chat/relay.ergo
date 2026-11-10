@@ -1,0 +1,32 @@
+import strings
+
+// Read is the event of one frame, "<kind> <payload>": the kind chooses
+// the codec, and the codec reads the payload. Each codec is a capability
+// named with its event type, so the two never mix (types.md,
+// Capabilities 7).
+func Read(frame string) Event fails Malformed needs Codec[Note] | Codec[Join] {
+	match strings.Cut(frame, " ") {
+	case Some[strings.Halves] as h:
+		match h.Value.Before {
+		case "note":
+			try Codec[Note].Decode(h.Value.After)
+		case "join":
+			try Codec[Join].Decode(h.Value.After)
+		case _:
+			Malformed{Frame: frame, Why: "unknown kind " + h.Value.Before}
+		}
+	case None:
+		Malformed{Frame: frame, Why: "no kind"}
+	}
+}
+
+// Forward is the frame the relay sends on for an event, in the same text
+// form it reads.
+func Forward(e Event) string needs Codec[Note] | Codec[Join] {
+	match e {
+	case Note as n:
+		"note " + Codec[Note].Encode(n)
+	case Join as j:
+		"join " + Codec[Join].Encode(j)
+	}
+}

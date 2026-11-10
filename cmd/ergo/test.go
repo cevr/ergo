@@ -6,14 +6,16 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketchfront"
 )
 
-// testCommand runs a source's tests: `ergo test FILE [--seed N] [-work]
-// [--target go]`. It is a transport over sketchfront's test build
+// testCommand runs a source's tests: `ergo test FILE [--seed N] [--states N]
+// [-work] [--target go]`. --states is the budget of states of each
+// reachability law's search (machine laws; 1,000,000 by default). It is a transport over sketchfront's test build
 // (build.ModeTest, lower.LowerTests): it checks the source, builds the test
 // binary into a private temporary directory, never the working directory,
 // dist/ or the module, and runs it as a child with --seed, through the
@@ -64,6 +66,9 @@ func testCommand(args []string) error {
 	if opts.seed != "" {
 		childArgs = append(childArgs, "--seed", opts.seed)
 	}
+	if opts.states != "" {
+		childArgs = append(childArgs, "--states", opts.states)
+	}
 	// The test binary runs under a memory limit, 2 GiB unless
 	// ERGO_PROGRAM_MEMORY sets another, and its stderr passes through a
 	// watcher, so a test that grows without bound stops early and `ergo`
@@ -72,11 +77,30 @@ func testCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	child := exec.Command(binary, childArgs...)
+	child := testProgramCommand(binary, childArgs, limit)
+	return runEntryProcess(child, limit, proclimit.Watch(child))
+}
+
+// testProgramCommand keeps the test program's collector inside its hard
+// data limit. Build tools may use a larger heap and GOGC, but passing those
+// settings to a smaller bounded program can reach ENOMEM before collection.
+// Three quarters leaves headroom for stacks, metadata and non-heap data;
+// the normal GC target also avoids an inherited off or high GOGC. An
+// explicitly unbounded program retains the caller's collector settings.
+func testProgramCommand(binary string, args []string, limit uint64) *exec.Cmd {
+	child := exec.Command(binary, args...)
 	child.Stdout = os.Stdout
 	child.Stderr = os.Stderr
 	child.Stdin = os.Stdin
-	return runEntryProcess(child, limit, proclimit.Watch(child))
+	if limit != 0 {
+		for _, entry := range os.Environ() {
+			if !strings.HasPrefix(entry, "GOGC=") && !strings.HasPrefix(entry, "GOMEMLIMIT=") {
+				child.Env = append(child.Env, entry)
+			}
+		}
+		child.Env = append(child.Env, "GOGC=100", "GOMEMLIMIT="+strconv.FormatUint(limit/4*3, 10))
+	}
+	return child
 }
 
 // validSeed reports whether s is a seed the test binary reads: a decimal
@@ -84,4 +108,11 @@ func testCommand(args []string) error {
 func validSeed(s string) bool {
 	_, err := strconv.ParseUint(s, 10, 64)
 	return err == nil
+}
+
+// validStates reports whether s is a budget the test binary reads: a
+// positive decimal int with no sign.
+func validStates(s string) bool {
+	n, err := strconv.Atoi(s)
+	return err == nil && n > 0 && s[0] != '+'
 }

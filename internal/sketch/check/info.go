@@ -171,6 +171,9 @@ type Info struct {
 	Uses map[*syntax.Ident]Object
 	// Calls is every call.
 	Calls map[*syntax.CallExpr]*Call
+	// WirePairs are the by-name wire forms (types.md, Codecs 1) that this
+	// package's encode and decode calls reach, by type (L11).
+	WirePairs map[*TypeName]*WirePair
 	// Closes is a resolved R1 Close identity at a declaration, a function
 	// reference, an operation selector or a call. An entry proves a method
 	// with no operands or results and an empty failure row (R2). A field
@@ -209,10 +212,25 @@ type Info struct {
 	// Literals is every function literal and trailing block, with its
 	// final rows (196a).
 	Literals map[syntax.Node]*Signature
+	// ValueCaptures is every escaping function literal or trailing block
+	// that captures a let mut local of an enclosing frame, with those
+	// locals in order of first capture. No write to such a local follows
+	// the capture (types.md, Function values 3; owner q60), so the
+	// lowering binds a copy of each when the literal is made.
+	ValueCaptures map[syntax.Node][]*Var
+	// LocalFrames is every function literal a let binds to a local that
+	// only runs in place: a non-escaping frame (check/escaping.go,
+	// localFrames).
+	LocalFrames map[*syntax.FuncLit]bool
 	// Loops is every for-in.
 	Loops map[*syntax.RangeStmt]*Loop
 	// Withs is every with site.
 	Withs map[*syntax.CallExpr]*With
+	// ContextValues is every conversion of a context to a Context[R] value
+	// (rows.md, Context values), keyed by the converted expression without
+	// its parentheses. Its With fact builds the providers of R: Contexts,
+	// Discharged (R, sorted), Entries and Acquired, and it has no Next.
+	ContextValues map[syntax.Expr]*With
 	// InitOrder is every package-level let with an initializer, in Go's
 	// initialization order (go/types Info.InitOrder): a let comes after
 	// every let its initializer refers to, directly or through functions,
@@ -387,8 +405,11 @@ func newInfo() *Info {
 		Matches:       map[syntax.Node]*Match{},
 		Tails:         map[syntax.Stmt]Type{},
 		Literals:      map[syntax.Node]*Signature{},
+		ValueCaptures: map[syntax.Node][]*Var{},
+		LocalFrames:   map[*syntax.FuncLit]bool{},
 		Loops:         map[*syntax.RangeStmt]*Loop{},
 		Withs:         map[*syntax.CallExpr]*With{},
+		ContextValues: map[syntax.Expr]*With{},
 		Footprints:    map[syntax.Node]Footprint{},
 		Instances:     map[syntax.Expr]*Instance{},
 
@@ -573,6 +594,15 @@ const (
 	// build lowers: laws are checked, not run (#162). Added in check-v1
 	// stage E3b (additive).
 	CallLawOp
+	// CallGoError is go.Is or go.As (Name "go.Is" or "go.As"); Type is
+	// As's type argument (IG5, goerror.go). Added in IG5 (additive).
+	CallGoError
+	// CallEncode is the encode built-in, encode(v, w): Type is v's type,
+	// a codable one (types.md, Codecs). Added in L11.
+	CallEncode
+	// CallDecode is the decode built-in, decode[T](r): Type is T and Fails
+	// its derived row (wireRow). Added in L11.
+	CallDecode
 	// CallKindCount bounds the call kinds. Keep it last: exhaustive
 	// consumers must account for a newly admitted kind.
 	CallKindCount
@@ -608,6 +638,11 @@ type Call struct {
 	// that returns one. The caller needs a frame scope (frames.go), and
 	// its footprint starts a task.
 	StartsTask bool
+	// Site is the prelude's CallSite when the call leaves out its callee's
+	// final CallSite parameter, and the lowering passes the call's own
+	// position after the written arguments (types.md, Call sites); nil
+	// otherwise. Added in unit L3 (additive).
+	Site *Named
 }
 
 // ConversionKind is an implicit conversion's kind.
@@ -743,6 +778,11 @@ type With struct {
 	// (runtime.md, G1), nil for a with of a context. Such a with has no Contexts
 	// and discharges nothing.
 	Value *ContextBinding
+	// Installs is the Context[R] type of a with whose operand is a context
+	// value made by a conversion (rows.md, Context values), nil otherwise.
+	// Such a with builds nothing: it installs the value's providers, and
+	// Discharged lists what its block charges of R, with no Entries.
+	Installs *Named
 	// Next is the fact of the with's next operand, nil for the last:
 	// Info.Withs holds the first operand's, and `with A, B { b }` has the
 	// facts `with A { with B { b } }` would have, A's Next being B's
@@ -866,6 +906,9 @@ type Law struct {
 	// Unrun is why ergo test does not run the law, "" when it does: a
 	// parameter with no generator or a generic operation type.
 	Unrun string
+	// Where holds the refinement of each parameter that takes a where
+	// (refine.go), at its index in Params; nil without any.
+	Where []*Refinement
 
 	file *fileInfo // the declaring file, selected while the law is checked
 }
@@ -886,6 +929,9 @@ type LawRun struct {
 	// Bindings each hold one provider per slot of Law.Slots, in order. A
 	// law with no slots that runs has one empty binding.
 	Bindings [][]LawProvider
+	// Contexts are the named contexts of this package that bind the
+	// law's owner, each a run of its own (lawcontexts.go).
+	Contexts []LawContext
 }
 
 // LawProvider is a provider bound to a law's slot (LawRun.Bindings). Unrun
@@ -894,11 +940,20 @@ type LawRun struct {
 // Ctor is the provider's constructor when its values have no generator
 // and its package declares New<P> (laws.go, lawConstructor; fs4): each
 // case calls it, with generated arguments, instead of generating a value.
+//
+// Slot is the operation type the provider converts to: the slot's type, or
+// for a law of a generic operation type the instance its operations fix
+// (Store[Job] for a provider of Store[T] whose Put takes a Job; laws.go,
+// rule 7). Params are then the law's parameter types at that instance,
+// one per parameter, for the owner's provider of such a law; nil
+// otherwise.
 type LawProvider struct {
-	Type  *Named
-	Conv  Conversion
-	Ctor  *Func
-	Unrun string
+	Type   *Named
+	Conv   Conversion
+	Ctor   *Func
+	Unrun  string
+	Slot   *Named
+	Params []Type
 }
 
 // A law is an Object, so Defs records its declaring name.
@@ -953,7 +1008,10 @@ func (c *checker) recordCall(x *syntax.CallExpr, fun operand) {
 	case fun.mode == modeType:
 		call.Kind, call.Type = CallConversion, fun.typ
 	case fun.mode == modeBuiltin:
-		call.Kind = CallLen
+		call.Kind = builtinKind(fun.obj.(*Builtin))
+		if b, _ := fun.obj.(*Builtin); b != nil && goErrorBuiltin(b) {
+			call.Kind, call.Name, call.Type = CallGoError, b.Name, fun.targ
+		}
 	case fun.mode == modeCapFn:
 		call.Kind, call.Op = CallProviderOp, fun.method
 	case fun.fn != nil:
@@ -989,7 +1047,7 @@ func (c *checker) recordWith(x *syntax.CallExpr, frames []*withFrame) {
 	}
 	withs := make([]*With, len(frames))
 	for i, f := range frames {
-		w := &With{Value: f.value}
+		w := &With{Value: f.value, Installs: f.installs}
 		if f.context != nil {
 			w.Contexts = []*Context{f.context}
 		}
@@ -1165,6 +1223,10 @@ func (c *checker) finalType(t Type, memo map[Type]Type) Type {
 	case *Slice:
 		if e := c.finalType(t.Elem, memo); e != t.Elem {
 			out = &Slice{Elem: e}
+		}
+	case *Array:
+		if e := c.finalType(t.Elem, memo); e != t.Elem {
+			out = &Array{Len: t.Len, Elem: e}
 		}
 	case *Pointer:
 		if e := c.finalType(t.Elem, memo); e != t.Elem {

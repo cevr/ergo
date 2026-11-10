@@ -14,7 +14,7 @@ extern go flag.Args func Args() []string needs go.Foreign
 // ergo:refused Bool: result 1: a pointer to an unnamed type bool
 
 // ergo:go func BoolFunc(name string, usage string, fn func(string) error)
-extern go flag.BoolFunc func BoolFunc(name string, usage string, fn func(string) fails go.Error) needs go.Foreign
+extern go flag.BoolFunc func BoolFunc(name string, usage string, fn escaping func(string) fails go.Error) needs go.Foreign
 
 // ergo:go func BoolVar(p *bool, name string, value bool, usage string)
 // ergo:refused BoolVar: parameter 1: a pointer to an unnamed type bool
@@ -64,7 +64,7 @@ extern go flag.FlagSet.Args func (f *FlagSet) Args() []string needs go.Foreign
 // ergo:refused FlagSet.Bool: result 1: a pointer to an unnamed type bool
 
 // ergo:go func (*FlagSet).BoolFunc(name string, usage string, fn func(string) error)
-extern go flag.FlagSet.BoolFunc func (f *FlagSet) BoolFunc(name string, usage string, fn func(string) fails go.Error) needs go.Foreign
+extern go flag.FlagSet.BoolFunc func (f *FlagSet) BoolFunc(name string, usage string, fn escaping func(string) fails go.Error) needs go.Foreign
 
 // ergo:go func (*FlagSet).BoolVar(p *bool, name string, value bool, usage string)
 // ergo:refused FlagSet.BoolVar: parameter 1: a pointer to an unnamed type bool
@@ -85,7 +85,7 @@ extern go flag.FlagSet.ErrorHandling func (f *FlagSet) ErrorHandling() ErrorHand
 // ergo:refused FlagSet.Float64Var: parameter 1: a pointer to an unnamed type float64
 
 // ergo:go func (*FlagSet).Func(name string, usage string, fn func(string) error)
-extern go flag.FlagSet.Func func (f *FlagSet) Func(name string, usage string, fn func(string) fails go.Error) needs go.Foreign
+extern go flag.FlagSet.Func func (f *FlagSet) Func(name string, usage string, fn escaping func(string) fails go.Error) needs go.Foreign
 
 // ergo:go func (*FlagSet).Init(name string, errorHandling ErrorHandling)
 extern go flag.FlagSet.Init func (f *FlagSet) Init(name string, errorHandling ErrorHandling) needs go.Foreign
@@ -169,7 +169,7 @@ extern go flag.FlagSet.VisitAll func (f *FlagSet) VisitAll(fn func(*Flag)) needs
 // ergo:refused Float64Var: parameter 1: a pointer to an unnamed type float64
 
 // ergo:go func Func(name string, usage string, fn func(string) error)
-extern go flag.Func func Func(name string, usage string, fn func(string) fails go.Error) needs go.Foreign
+extern go flag.Func func Func(name string, usage string, fn escaping func(string) fails go.Error) needs go.Foreign
 
 // ergo:go type Getter interface
 extern go flag.Getter type Getter {
@@ -256,7 +256,7 @@ extern go flag.Value type Value {
 extern go flag.Var func Var(value Value, name string, usage string) needs go.Foreign
 
 // ergo:go func Visit(fn func(*Flag))
-extern go flag.Visit func Visit(fn func(*Flag)) needs go.Foreign
+extern go flag.Visit func Visit[CR](fn func(*Flag) needs CR) needs CR | go.Foreign
 
 // ergo:go func VisitAll(fn func(*Flag))
-extern go flag.VisitAll func VisitAll(fn func(*Flag)) needs go.Foreign
+extern go flag.VisitAll func VisitAll[CR](fn func(*Flag) needs CR) needs CR | go.Foreign

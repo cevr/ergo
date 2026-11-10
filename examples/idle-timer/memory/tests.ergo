@@ -1,16 +1,23 @@
-// ergo test runs the kiosk.Policies laws here, against Fixed; these two
-// tests call the laws' functions again on the program's own table.
+// ergo test runs the display.Policies laws here twice: against Fixed, made
+// by its generator, and under Tables, the context the tests bind, so the
+// laws also hold for the provider as a with builds it. These two tests
+// call the laws' functions again on the program's own table, through one
+// Context value that both share.
 
-import idletimer/kiosk
+import idletimer/display
 
-test FixedPoliciesCheck {
-	with context { kiosk.Policies: Fixed } {
-		assert kiosk.EveryPolicyChecks()
-	}
+let Tables = context { display.Policies: Fixed }
+
+// within runs check with the providers of w: a Context value carries the
+// tests' choice of policies to the helper, which needs nothing itself.
+func within(w Context[display.Policies], check func() bool needs display.Policies) bool {
+	with w { check() }
 }
 
-test FixedUnlistedIsNoSuchKiosk(name string) {
-	with context { kiosk.Policies: Fixed } {
-		assert kiosk.UnlistedIsNoSuchKiosk(name)
-	}
+test FixedPoliciesCheck {
+	assert within(Tables, func() bool { display.EveryPolicyChecks() })
+}
+
+test FixedUnlistedIsNoSuchDisplay(name string) {
+	assert within(Tables, func() bool { display.UnlistedIsNoSuchDisplay(name) })
 }

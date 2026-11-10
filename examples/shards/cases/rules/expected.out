@@ -1,0 +1,18 @@
+screen: staging: 0 parts, 0.00
+> place disk:1:100
+(refused)
+screen: staging: 0 parts, 0.00
+> add empty 0
+(refused)
+screen: staging: 0 parts, 0.00
+> add index 250
+screen: staging: 1 parts, 2.50
+> place disk:1:100
+(refused)
+screen: staging: 1 parts, 2.50
+> place net:1:250
+? unknown command: place net:1:250
+> cancel
+cancelled
+> add index 250
+(the write has ended)

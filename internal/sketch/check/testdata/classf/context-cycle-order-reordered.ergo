@@ -1,5 +1,5 @@
 type Invoice {A()}
-extern go strings.A func A()
+extern go strings.A func A() // want S104
 let e = context{App} // want S108
 let Invoices = context{Invoice:0, // want S106 S108
 e}

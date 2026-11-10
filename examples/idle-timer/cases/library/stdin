@@ -1,4 +1,4 @@
-kiosk library
+display library
 @0 touch
 # a touch at the very instant the home wait ends is stepped first:
 # the old timer's entry has ended, so it is dropped and no prompt shows

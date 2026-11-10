@@ -29,11 +29,11 @@ func Solution(seed int) Grid {
 	}
 	let rows = g.order()
 	let cols = g.order()
-	let mut cells = []int{}
+	let mut cells [81]int
 	for r in 0..9 {
 		for c in 0..9 {
 			let i = rows[r]*9 + cols[c]
-			cells = cells.Append(label[int(base[i]-'0')])
+			cells[r*9+c] = label[int(base[i]-'0')]
 		}
 	}
 	Grid{cells: cells}

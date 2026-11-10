@@ -102,7 +102,7 @@ func (l *lowerer) lowerAgain() ([]byte, error) {
 	if l.tests != nil {
 		tests = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
 	}
-	next := lowererOf(l.canon, l.pkg, tests)
+	next := lowererOf(l.canon, l.pkg, l.goModule, tests)
 	next.noEntry, next.matchTest = l.noEntry, l.matchTest
 	next.flatOff = map[*check.TypeName]bool{}
 	for tn := range l.flatOff {

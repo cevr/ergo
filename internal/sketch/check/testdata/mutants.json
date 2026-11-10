@@ -2,22 +2,229 @@
   "about": "The mutant ledger of internal/sketch/check: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants check; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
-      "name": "L8-B3t-capture-keeps-sender",
-      "origin": "L8 B3t R12",
-      "file": "internal/sketch/check/taskcapture.go",
-      "from": "w.move(i, id, hand{at: key, how: \"it is captured by a moving task (resources R12)\"})",
-      "to": "w.use(i, id)",
-      "rule": "A moving task capture hands the sender's resource off (R12).",
-      "killers": ["check:TestTaskCaptureOwnership"]
+      "name": "a2-try-keeps-catch-result-target",
+      "origin": "batch-15 round-5 A2 production-edge review",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "h.failed = nil // an explicit try escapes even in a caught value block",
+      "to": "_ = h.failed",
+      "rule": "An explicit try in one arm of a caught value block still escapes its function.",
+      "killers": ["check:TestOwnershipFlowModel"]
     },
     {
-      "name": "L8-B3t-repeated-capture-may-take",
-      "origin": "L8 B3t R12 R30",
+      "name": "a2-catch-block-failure-target-lost",
+      "origin": "batch-15 round-5 A2 production-edge review",
       "file": "internal/sketch/check/ownership.go",
-      "from": "w.acquire(ownLocal{v: v, lent: captures.Repeated})",
-      "to": "w.acquire(ownLocal{v: v})",
-      "rule": "A repeated member body lends from its one root owner; it cannot take on every restart.",
-      "killers": ["check:TestTaskCaptureOwnership"]
+      "from": "failed: t.failed",
+      "to": "failed: nil",
+      "rule": "A caught value block forwards its result failure, but not its operands, to the catch.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-partial-failure-lost",
+      "origin": "batch-15 round-5 A2 production invariant",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "m != nil && m.Partial && saved != nil",
+      "to": "m != nil && m.Partial && saved != nil && false",
+      "rule": "An unhandled partial-catch failure carries the state before success production.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-failure-path-unflagged",
+      "origin": "batch-15 round-5 A2 production invariant",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "r.Flag = r.Flag || i > 0",
+      "to": "r.Flag = r.Flag || i < 0",
+      "rule": "An operand acquired only after an earlier possible failure has a drop flag.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-failure-order-lost",
+      "origin": "batch-15 round-5 A2 production invariant",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "at = j",
+      "to": "at = len(out) + 0*j",
+      "rule": "Failure paths retain reverse acquisition order as later operands become live.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-failure-after-production",
+      "origin": "batch-15 round-5 A2 M1",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.callFailure(x, h)\n\t\t\tw.produced(x, mode, h)",
+      "to": "w.produced(x, mode, h)\n\t\t\tw.callFailure(x, h)",
+      "rule": "A failed call produces no value: release obligations start on success only.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-failure-target-lost",
+      "origin": "batch-15 round-5 A2 fail-safe rule",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.onFailure = func() { paths = append(paths, w.releases(w.first)) }",
+      "to": "w.onFailure = nil",
+      "rule": "Try covers every producing call in its operand, not only the final result.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "c2-address-proof-ignored",
+      "origin": "batch-15 round-5 C2 M1 repeat",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "if !w.addressed[v] {",
+      "to": "if true {",
+      "rule": "Unknown aliases use reference capture; generic call results do not prove uniqueness.",
+      "killers": ["lower:TestCaptureRuleModel"]
+    },
+    {
+      "name": "c2-implicit-address-proof-ignored",
+      "origin": "batch-15 round-5 C2 positive proof",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "address(implicitBorrow(w.info, n))",
+      "to": "_ = n",
+      "rule": "An implicit borrowed receiver also disqualifies a root from value capture.",
+      "killers": ["lower:TestCaptureRuleModel"]
+    },
+    {
+      "name": "c2-fast-path-lost",
+      "origin": "batch-15 round-5 C2 positive proof",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "if !w.addressed[v] {",
+      "to": "if false {",
+      "rule": "A proven unaliased capture still uses the value fast path.",
+      "killers": ["lower:TestCaptureRuleModel"]
+    },
+    {
+      "name": "a2-result-before-operands",
+      "origin": "batch-15 round-4 A2 ordered event invariant",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.resultAfterOperands(x, t.slot)",
+      "to": "_ = x",
+      "rule": "Reserving a result place before its operands does not acquire the result before them: R5 releases the result first.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-yield-projection-root-ignored",
+      "origin": "batch-15 round-4 A2 origin invariant",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "h.yieldRoot = true",
+      "to": "h.yieldRoot = false",
+      "rule": "A projected result cannot outlive its block-local root owner; refuse a partial-owner escape rather than release it early.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-loan-join-lost",
+      "origin": "batch-15 round-4 A2 origin invariant",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "a[i].loans = liveLoans(x.loans, y.loans)",
+      "to": "a[i].loans = nil",
+      "rule": "A result loan on one path remains live at its later consuming call.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-completed-call-keeps-loan",
+      "origin": "batch-15 round-4 A2 origin invariant",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "loan.active = false",
+      "to": "loan.active = true",
+      "rule": "A completed call does not retain a loan of its earlier operand.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-crossing-field-lends-root",
+      "origin": "batch-15 round-4 A2 origin invariant",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "if !w.tracked(result) {",
+      "to": "if false {",
+      "rule": "A crossing field is read before the call; it does not lend its resource root to that call.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-yield-lender-origin-lost",
+      "origin": "batch-15 round-4 A2 origin invariant",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "lend: t.lend",
+      "to": "lend: nil",
+      "rule": "A yielded enclosing lender retains its identity for the consuming call's R17 check.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "c2-escaping-holder-alias-erased",
+      "origin": "batch-15 round-4 C2 M1",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "if len(roots) == 0 {",
+      "to": "if len(roots) == 0 || w.escapingFrom(v) != nil {",
+      "rule": "Every holder use records its aliased root write, including escaping captures.",
+      "killers": ["lower:TestCaptureRuleModel"]
+    },
+    {
+      "name": "a2-yield-enclosing-moved",
+      "origin": "batch-15 round-4 A2 M1",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "mode == mHold && w.tail.slot >= 0 && i >= w.tail.first",
+      "to": "mode == mHold && w.tail.slot >= 0",
+      "rule": "Lending an enclosing name through a block keeps its original owner.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-yield-nested-boundary-reset",
+      "origin": "batch-15 round-4 A2 M1",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "case mode == mHold:\n\t\tt = saved",
+      "to": "case mode == mHold:\n\t\tt.slot = saved.slot",
+      "rule": "Nested result blocks keep the outer consumer's lifetime boundary.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-yield-named-result-unowned",
+      "origin": "batch-15 round-4 A2 M1",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.st.slots[w.tail.slot] = ownSlot{st: ownOwned}",
+      "to": "_ = owned",
+      "rule": "Transferring a named result activates the consumer's owner slot.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-catch-yield-destination-lost",
+      "origin": "batch-15 round-4 A2 M1",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.yieldValue(x, mode, h, func(m ownMode) { w.catch(x, m, h) })",
+      "to": "w.catch(x, mode, h)",
+      "rule": "A catch's result follows the same transfer rule as other block values.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-with-yield-destination-lost",
+      "origin": "batch-15 round-4 A2 M1",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.block(x.Trailing, x.Trailing.List)",
+      "to": "saved := w.tail; w.tail = frameTail; w.block(x.Trailing, x.Trailing.List); w.tail = saved",
+      "rule": "A with block yields into its consumer, not an unrelated function return.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-catch-failure-state-lost",
+      "origin": "batch-15 round-4 A2 M1",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "failed: func() { k.fails = append(k.fails, w.copyState(w.st)) }",
+      "to": "failed: nil",
+      "rule": "A catch receives states at production failure, never a fabricated success state.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "c2-mutable-holder-capture-admitted",
+      "origin": "batch-15 round-4 C2 M1",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "if holdsBorrow(v.Type) {\n\t\t\t\tw.borrowUse(id, v)",
+      "to": "if holdsBorrow(v.Type) && !v.mut {\n\t\t\t\tw.borrowUse(id, v)",
+      "rule": "Borrows 1 is independent of holder mutability.",
+      "killers": ["lower:TestCaptureRuleModel"]
+    },
+    {
+      "name": "a2-yield-local-not-transferred",
+      "origin": "batch-15 round-4 A2 M1",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "mode == mHold && w.tail.slot >= 0 && i >= w.tail.first",
+      "to": "mode == mHold && w.tail.slot >= 0 && i < 0",
+      "rule": "A yielded arm-local resource survives its consuming statement, independent of the block expression form.",
+      "killers": ["check:TestOwnershipFlowModel"]
     },
     {
       "name": "existing-0-B1 rowText prints commas",
@@ -826,6 +1033,237 @@
       ]
     },
     {
+      "name": "b14-goerror-empty-literal",
+      "origin": "wf10/batch-14 integration (IG5 x q44)",
+      "file": "internal/sketch/check/expr.go",
+      "from": "isNamed && len(x.Elts) == 0 && IsGoError(n) {",
+      "to": "isNamed && len(x.Elts) == 0 && IsGoError(n) && false {",
+      "rule": "interop.md Go errors 1 and 3, types.md Zero values 2: the empty go.Error{} is the nil Go error, not a record literal that leaves Text out.",
+      "killers": [
+        "lower:TestGoErrorChainsAgree"
+      ]
+    },
+    {
+      "name": "l6-1 clip of <= drops its bound",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/refine.go",
+      "from": "\tcase syntax.LEQ:\n\t\treturn clip(r.dom.Lo, v, r.dom), true",
+      "to": "\tcase syntax.LEQ:\n\t\treturn clip(r.dom.Lo, new(big.Int).Sub(v, one1), r.dom), true",
+      "rule": "types.md, Refinements 2: the checker decides P to the set of subject values that satisfy it.",
+      "killers": [
+        "check:TestRefinementMatchesPredicate"
+      ]
+    },
+    {
+      "name": "l6-2 a constant outside the where is admitted",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/refine.go",
+      "from": "\tif r.Holds(v) {\n\t\treturn true\n\t}",
+      "to": "\tif r.Holds(v) || true {\n\t\treturn true\n\t}",
+      "rule": "types.md, Refinements 6: a constant enters N only when its value lies in the set.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l6-3 a conversion of a value into a refined type is admitted",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/operators.go",
+      "from": "\t\t} else if !c.inDerived(t) {\n\t\t\targ := exprText(x.Args[0])",
+      "to": "\t\t} else if false {\n\t\t\targ := exprText(x.Args[0])",
+      "rule": "types.md, Refinements 6: a conversion N(x) of a value that is not a constant is S108, except in ParseN's own body.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l6-4 a conversion is refused in the derived parse function",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/operators.go",
+      "from": "\t\t} else if !c.inDerived(t) {\n\t\t\targ := exprText(x.Args[0])",
+      "to": "\t\t} else if true {\n\t\t\targ := exprText(x.Args[0])",
+      "rule": "types.md, Refinements 4 and 6: ParseN's body converts it into N.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l6-5 an assignment from the base is admitted",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/expr.go",
+      "from": "if a.clause == assignUnderlying && RefinementOf(t) != nil && !c.inDerived(t) {",
+      "to": "if a.clause == assignUnderlying && RefinementOf(t) != nil && false {",
+      "rule": "types.md, Refinements 6: an assignment from the unnamed base is S108.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l6-6 a composite literal of a refined type is admitted",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/expr.go",
+      "from": "\tif RefinementOf(t) != nil {\n\t\t// The elements still check",
+      "to": "\tif false {\n\t\t// The elements still check",
+      "rule": "types.md, Refinements 6: a composite literal of N is S108.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l6-7 a slice of a refined value is admitted",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/expr.go",
+      "from": "\tif RefinementOf(base.typ) != nil {",
+      "to": "\tif false {",
+      "rule": "types.md, Refinements 7: a slice expression of a refined value is S108.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l6-8 arithmetic on a refined operand is admitted",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/refine.go",
+      "from": "func (c *checker) refinedArith(x syntax.Node, op syntax.Token, t Type) bool {\n\tif RefinementOf(t) == nil {",
+      "to": "func (c *checker) refinedArith(x syntax.Node, op syntax.Token, t Type) bool {\n\tif true {",
+      "rule": "types.md, Refinements 7: an arithmetic operator on a refined operand is S108.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l6-9 a refined type whose zero fails its where is defaultable",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "if r := RefinementOf(t); r != nil && !r.Holds(big.NewInt(0)) {",
+      "to": "if r := RefinementOf(t); r != nil && r.Holds(big.NewInt(0)) && false {",
+      "rule": "types.md, Refinements 8: let p Port is S108 when 0 fails the where.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11-1",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wire.go",
+      "from": "if !isExported(f.Name) {\n\t\t\t\treturn",
+      "to": "if false && !isExported(f.Name) {\n\t\t\t\treturn",
+      "rule": "types.md, Codecs 1: a record only its package builds is not codable.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11-2",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wire.go",
+      "from": "if !isString(u.Key) {",
+      "to": "if false && !isString(u.Key) {",
+      "rule": "types.md, Codecs 1: a Map's key is a string.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11-3",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wire.go",
+      "from": "return \"\", &wireFault{t, \"is an operation type\"}",
+      "to": "return \"\", nil",
+      "rule": "types.md, Codecs 1: an operation type is not codable.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11-4",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wire.go",
+      "from": "return \"\", &wireFault{t, \"is a function\"}",
+      "to": "return \"\", nil",
+      "rule": "types.md, Codecs 1: a function is not codable.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11-5",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wire.go",
+      "from": "if typeSet(tp) == SetWire {",
+      "to": "if typeSet(tp) == SetWire || true {",
+      "rule": "types.md, Codecs 1: a type parameter is codable only under codable.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11-6",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wirecall.go",
+      "from": "\t\t\tif len(u.Fields) > 0 {\n\t\t\t\tadd(WireMissingName)",
+      "to": "\t\t\tif len(u.Fields) < 0 {\n\t\t\t\tadd(WireMissingName)",
+      "rule": "types.md, Codecs 3: a record with fields adds WireMissingField to decode's row.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11-7",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wirecall.go",
+      "from": "\t\t\trow = row.union(c.types, c.types.resolve(c.funcSig(p.Parse).Errors))",
+      "to": "\t\t\t_ = p",
+      "rule": "types.md, Codecs 3: a by-name ParseX's row joins decode's.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11b-1",
+      "origin": "wf10 v1-lang-B L11b",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "\t\treturn &RowArg{Row: c.wireRow(b)}",
+      "to": "\t\treturn t",
+      "rule": "types.md, Codecs 6: an instance replaces wired[T] by its argument's wire row.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11b-2",
+      "origin": "wf10 v1-lang-B L11b",
+      "file": "internal/sketch/check/wirecall.go",
+      "from": "\t\t\trow = row.with(c.types, &Wired{T: tp})",
+      "to": "\t\t\t_ = tp",
+      "rule": "types.md, Codecs 6: a codable type parameter's part of decode's row is wired[T].",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11b-3",
+      "origin": "wf10 v1-lang-B L11b",
+      "file": "internal/sketch/check/decl.go",
+      "from": "if t, ok := c.wiredElem(x, kind, ctx); ok {",
+      "to": "if t, ok := c.wiredElem(x, kind, ctx); ok && false {",
+      "rule": "types.md, Codecs 6: wired[X] in a fails row is the row of decode[X].",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11b-4",
+      "origin": "wf10 v1-lang-B L11b",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "\t\tc.recordWire(t)\n\t\treturn \"\"",
+      "to": "\t\treturn \"\"",
+      "rule": "types.md, Codecs 1 and 6: a generic codec's argument keeps its by-name pair (the caller records it).",
+      "killers": [
+        "lower:TestStdWireLawsRun"
+      ]
+    },
+    {
       "name": "L8-A1 a union crosses whatever its variants hold",
       "origin": "wf10 L8 A1 (#197)",
       "file": "internal/sketch/check/resource.go",
@@ -983,7 +1421,7 @@
       "name": "L8-A2 the loop body visited once",
       "origin": "wf10 L8 A2 (#197)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\t\tif entry == nil || sameState(next, entry) {",
+      "from": "\t\tif !entry.reached || sameState(next, entry) {",
       "to": "\t\tif true {",
       "rule": "resources R6, R15: a later iteration sees what an earlier one handed off (the loop's fixpoint).",
       "killers": [
@@ -1038,8 +1476,8 @@
       "name": "L8-A2 a lend counts as a move",
       "origin": "wf10 L8 A2 (#197)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\t\tif mode == mMove {\n\t\t\tw.move(i, x, h)",
-      "to": "\t\tif mode != mDiscard {\n\t\t\tw.move(i, x, h)",
+      "from": "} else if mode == mMove {\n\t\t\tw.move(i, x, h)",
+      "to": "} else if mode != mDiscard {\n\t\t\tw.move(i, x, h)",
       "rule": "resources R16: an argument is lent by default; the caller still owns it.",
       "killers": [
         "check:TestOwnershipFlowModel"
@@ -1060,8 +1498,8 @@
       "name": "L8-A2 a lend and a take of one value in one call admitted",
       "origin": "wf10 L8 A2 (#197)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\t\t\t\t\tif w.st != nil && w.st[i].st == ownOwned {",
-      "to": "\t\t\t\t\tif false {",
+      "from": "if l.call.active {",
+      "to": "if false {",
       "rule": "resources R17: no lend and take of one value in one call.",
       "killers": [
         "check:TestOwnershipFlowModel"
@@ -1101,102 +1539,290 @@
       ]
     },
     {
-      "name": "L8-B1 a copy of a reachable state with no slots is unreachable",
-      "origin": "wf10 L8 B1 (#197)",
-      "file": "internal/sketch/check/ownership.go",
-      "from": "\tout := make([]ownSlot, len(s))\n\tcopy(out, s)\n\treturn out",
-      "to": "\treturn append([]ownSlot(nil), s...)",
-      "rule": "resources R5, R6: a loop or branch at the start of a frame that owns nothing yet is reachable; its release plan is recorded.",
+      "name": "c2-write-after-admitted",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "case w.follows(wr, e, ce.regions[:at], w.declDepth[v]):",
+      "to": "case false && w.follows(wr, e, ce.regions[:at], w.declDepth[v]):",
+      "rule": "Function values 3: a write after an escaping capture of its let mut is S108.",
       "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "c2-write-inside-admitted",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "case indexOf(wr.regions, e) >= 0:",
+      "to": "case false && indexOf(wr.regions, e) >= 0:",
+      "rule": "Function values 3: an escaping frame does not write a let mut it captures.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "c2-region-ignored",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "return ev.id.Pos() >= e.End() || commonPrefix(before, ev.regions) > depth",
+      "to": "return ev.id.Pos() >= e.End()",
+      "rule": "Function values 3: a loop or frame that holds the capture and the write runs the write again after it.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "c2-local-call-ignored",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "if !ok || !w.info.LocalFrames[lit] {",
+      "to": "if !ok || !w.info.LocalFrames[lit] || true {",
+      "rule": "Function values 3: a write in a local frame runs where the frame is called.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "c2-local-frames-off",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "\t\t\tw.info.LocalFrames[lit] = true",
+      "to": "\t\t\tw.info.LocalFrames[lit] = false",
+      "rule": "Function values 2: a let-bound literal that only runs in place is a non-escaping frame.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "c2-borrow-capture-admitted",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "w.c.errorf(id, CodeType, borrowCaptureText, id.Name)",
+      "to": "_ = borrowCaptureText",
+      "rule": "Borrows 1: an escaping frame never captures a borrow.",
+      "killers": [
+        "check:TestV1Fixtures"
+      ]
+    },
+    {
+      "name": "c2-overlap-constant-admitted",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/check/borrows.go",
+      "from": "\t\tif constant.Compare(cx, token.EQL, cy) {\n\t\t\treturn relSame",
+      "to": "\t\tif constant.Compare(cx, token.EQL, cy) {\n\t\t\treturn relApart",
+      "rule": "Borrows 2: two borrows of one constant index overlap.",
+      "killers": [
+        "check:TestBorrowOverlapModel"
+      ]
+    },
+    {
+      "name": "c2-dynamic-unguarded-admitted",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/check/borrows.go",
+      "from": "return relMaybe",
+      "to": "return relApart",
+      "rule": "Borrows 2: two dynamic indexes need a dominating guard.",
+      "killers": [
+        "check:TestBorrowOverlapModel"
+      ]
+    },
+    {
+      "name": "c2-guard-ignored",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/check/borrows.go",
+      "from": "if w.guarded(x, y) {",
+      "to": "if false {",
+      "rule": "Borrows 2: a dominating guard keeps two dynamic indexes apart.",
+      "killers": [
+        "check:TestBorrowOverlapModel"
+      ]
+    },
+    {
+      "name": "c2-mut-guard-trusted",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/check/borrows.go",
+      "from": "if !ok || (v.mut && !mutOK) {",
+      "to": "if !ok {",
+      "rule": "Borrows 2: a guard on a let mut index proves nothing at the call.",
+      "killers": [
+        "check:TestBorrowOverlapModel"
+      ]
+    },
+    {
+      "name": "c2-fields-always-apart",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/check/borrows.go",
+      "from": "if x.field != y.field {",
+      "to": "if true {",
+      "rule": "Borrows 2: two borrows of one field overlap.",
+      "killers": [
+        "check:TestBorrowOverlapModel"
+      ]
+    },
+    {
+      "name": "a2-short-right-unconditional",
+      "origin": "wf10 batch-15 fix-r2 (A2 M1)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tw.st = w.join(w.st, skipped, len(w.vars))",
+      "to": "\t_ = skipped",
+      "rule": "resources R5, R21: the right operand of && or || runs on some paths only; a value it hands off is owned on the others and gets a drop flag.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "a2-short-temp-unflagged",
+      "origin": "wf10 batch-15 fix-r2 (A2 M1)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\tw.st.slots[i] = ownSlot{st: ownMaybe, at: x.Y, how: \"its operand did not run\"}",
+      "to": "\t\t\t_ = i",
+      "rule": "resources R43, R21: a temporary of the right operand of && or || exists on some paths only; its release at the statement's end has a flag.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "c2-alias-use-no-write",
+      "origin": "wf10 batch-15 fix-r2 (C2 M1)",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "\t\t\tw.aliasUse(id, v)",
+      "to": "\t\t\t_ = v",
+      "rule": "types.md Function values 3: a local that holds a borrow into a let mut writes it at each use.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "c2-alias-chain-lost",
+      "origin": "wf10 batch-15 fix-r2 (C2 M1)",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "\t\t\t\t*via = append(*via, v)",
+      "to": "\t\t\t\t_ = v",
+      "rule": "types.md Function values 3: a local bound from a local borrow holds the same borrow.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "c2-borrow-root-lost",
+      "origin": "wf10 batch-15 fix-r3 (C2 M1 repeat)",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "\t\t\t\t\t*roots = append(*roots, b)",
+      "to": "\t\t\t\t\t_ = b",
+      "rule": "types.md Function values 3: a &x in the value a local is bound from makes it hold a borrow of x, in any expression form.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "c2-assign-unbound",
+      "origin": "wf10 batch-15 fix-r3 (C2 M1 repeat)",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "\t\t\t\t\t\t\tbind(v, vals...)",
+      "to": "\t\t\t\t\t\t\t_ = vals",
+      "rule": "types.md Function values 3: an assignment re-binds a borrow; the local holds the borrows of every value assigned to it.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "c2-pattern-unbound",
+      "origin": "wf10 batch-15 fix-r3 (C2 M1 repeat)",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "\t\t\treturn n.Values, true",
+      "to": "\t\t\tif n.Pattern != nil {\n\t\t\t\treturn nil, true\n\t\t\t}\n\t\t\treturn n.Values, true",
+      "rule": "types.md Function values 3: a name a let pattern binds holds the borrows of the let's value.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "c2-clause-unbound",
+      "origin": "wf10 batch-15 fix-r3 (C2 M1 repeat)",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "\t\t\t\t\tvals = append(vals, g.X)",
+      "to": "\t\t\t\t\t_ = g",
+      "rule": "types.md Function values 3: a name a match clause's pattern binds holds the borrows of the match subject.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "c2-tuple-holds-none",
+      "origin": "wf10 batch-15 fix-r3 (C2 M1 repeat)",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "\t\t\tif holdsBorrow(e) {",
+      "to": "\t\t\tif false && holdsBorrow(e) {",
+      "rule": "types.md Function values 3: a tuple local with a borrow element holds that borrow.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "a2-value-arms-skipped",
+      "origin": "wf10 batch-15 fix-r3 (A2 M1 repeat)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tw.branchValue(x, mode, h)\n\t\treturn",
+      "to": "\t\t_ = h\n\t\treturn",
+      "rule": "resources R21: an if or match used as a value is walked as the statement is; a hand-off in an arm is a hand-off on that path.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "a2-value-tail-moves",
+      "origin": "wf10 batch-15 fix-r3 (A2 M1 repeat)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.expr(s.X, t.mode, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot, failed: t.failed})",
+      "to": "w.expr(s.X, mMove, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot, failed: t.failed})",
+      "rule": "resources R16, R42, R43: an arm's value goes where the if or match's value goes: lent, it is lent; dropped, a new value is discarded.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "a2-value-temp-unflagged",
+      "origin": "wf10 batch-15 fix-r3 (A2 M1 repeat)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tw.st.slots[t.slot] = ownSlot{st: ownMoved, at: x, how: \"no arm made it\"}",
+      "to": "\t\t_ = x",
+      "rule": "resources R21, R43: a lent if or match's new value is a temporary on the paths whose arm made it; released under a flag unless every arm made it.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "a2-value-temp-unowned",
+      "origin": "wf10 batch-15 fix-r3 (A2 M1 repeat)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\tw.st.slots[i] = ownSlot{st: ownOwned}",
+      "to": "\t\t\t_ = i",
+      "rule": "resources R43: a new value an arm of a lent if or match makes is owned by the statement and released at its end.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "a2-expr-kind-unnamed",
+      "origin": "wf10 batch-15 fix-r3 (A2 M1 repeat)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tcase *syntax.TypeGuard:\n\t\tlend(x.X)\n\t\treturn\n",
+      "to": "",
+      "rule": "The ownership flow names every kind of expression (no default): a new kind, which may hold a block, has no silent skip.",
+      "killers": [
+        "check:TestMintFormNamesEveryKind"
+      ]
+    },
+    {
+      "name": "a2-empty-copy-unreachable",
+      "origin": "wf10 batch-15 fix-r6 (A2 M1 of round 5)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "return ownState{reached: true, slots: append([]ownSlot(nil), s.slots...)}",
+      "to": "return ownState{reached: len(s.slots) > 0, slots: append([]ownSlot(nil), s.slots...)}",
+      "rule": "The old nil encoding: a copied state with no live slot read as unreachable. A loop, match or catch arm reached with nothing live yet is still checked and planned (resources R4, R5, R20).",
+      "killers": [
+        "check:TestOwnershipFlowModel",
         "lower:TestOwnershipRunModel"
-      ]
-    },
-    {
-      "name": "L8-B2 a value with no release admitted",
-      "origin": "wf10 L8 B2 (#197)",
-      "file": "internal/sketch/check/ownership.go",
-      "from": "\tif d == nil {\n\t\tw.reportCode(at, CodeType,",
-      "to": "\tif d == nil && false {\n\t\tw.reportCode(at, CodeType,",
-      "rule": "resources R1, R13: a value whose type keeps resources with no Close has no release, so it is refused, not leaked.",
-      "killers": [
-        "check:TestNoReleaseRefused"
-      ]
-    },
-    {
-      "name": "L8-B1 a hand-off not recorded",
-      "origin": "wf10 L8 B1 (#197)",
-      "file": "internal/sketch/check/ownership.go",
-      "from": "\tw.info.Handoffs[x] = l.v",
-      "to": "",
-      "rule": "resources R15, R19: the lowering ends the owner's entry at each hand-off the checker records.",
-      "killers": [
-        "lower:TestOwnershipRunModel"
-      ]
-    },
-    {
-      "name": "L8-B2 a method value of Close admitted",
-      "origin": "wf10 L8 B2 (#197)",
-      "file": "internal/sketch/check/ownership.go",
-      "from": "\t\t\tw.reportCode(x, CodeType, \"%s is a method value of Close",
-      "to": "\t\t\t_ = w.reportCode; _ = fmt.Sprintf(\"%s is a method value of Close",
-      "rule": "resources R19, R33: a function value owns no resource; `let f = r.Close` is refused, so r is released once.",
-      "killers": [
-        "check:TestCloseFormsTakeOnce"
-      ]
-    },
-    {
-      "name": "L8-B2 an operation type's Close takes nothing",
-      "origin": "wf10 L8 B2 (#197)",
-      "file": "internal/sketch/check/close.go",
-      "from": "\t\tsig.TakesSelf = true",
-      "to": "",
-      "rule": "resources R19, Gap 39: an operation type's Close() takes the value it is called on, as the written Close that implements it does (one rule: closeTakes).",
-      "killers": [
-        "check:TestCloseFormsTakeOnce"
-      ]
-    },
-    {
-      "name": "L8-B2 a generic body's dropped T is no copy site",
-      "origin": "wf10 L8 B2 (#197)",
-      "file": "internal/sketch/check/ownership.go",
-      "from": "\t\tif t := w.typ(l); w.copies != nil && w.genericOnly(t) {",
-      "to": "\t\tif t := w.typ(l); false && w.copies != nil && w.genericOnly(t) {",
-      "rule": "resources Gap 42: a generic body cannot release a T yet, so its drop refuses an instance with a resource instead of leaking it.",
-      "killers": [
-        "check:TestGenericDropRefused"
-      ]
-    },
-    {
-      "name": "L8-B2 a Close through &h takes nothing",
-      "origin": "wf10 L8 B2 (#197)",
-      "file": "internal/sketch/check/ownership.go",
-      "from": "\t\tif x.Op != syntax.AND {\n\t\t\treturn nil, 0, false",
-      "to": "\t\tif x.Op != syntax.AND || true {\n\t\t\treturn nil, 0, false",
-      "rule": "resources R19: `(&h).Close()` takes h; h is released once, not again at its scope end.",
-      "killers": [
-        "check:TestCloseFormsTakeOnce"
-      ]
-    },
-    {
-      "name": "L8-B1 a Close through a borrow takes nothing",
-      "origin": "wf10 L8 B1 (#197)",
-      "file": "internal/sketch/check/ownership.go",
-      "from": "\tw.borrow[p] = root",
-      "to": "",
-      "rule": "resources R19: `let p = &h; p.Close()` takes h; h is released once.",
-      "killers": [
-        "lower:TestRuntime199MaskProperty"
-      ]
-    },
-    {
-      "name": "L8-B1 a Close function value lends its argument",
-      "origin": "wf10 L8 B1 (#197)",
-      "file": "internal/sketch/check/close.go",
-      "from": "\t\tsig.Takes = []int{0}",
-      "to": "",
-      "rule": "resources R19: `let f = Close; f(c)` takes c, as `Close(c)` does.",
-      "killers": [
-        "lower:TestRuntime199MaskProperty"
       ]
     },
     {
@@ -1324,7 +1950,7 @@
       "name": "L8-A4 a field take does not mark the field",
       "origin": "wf10 L8 A4 (#197)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\t\tw.st[i].fields |= 1 << k\n",
+      "from": "\t\tw.st.slots[i].fields |= 1 << k\n",
       "to": "\t\t_ = k\n",
       "rule": "resources R39, Gap 38: a field taken in place is not used or taken again, and the record's release skips it.",
       "killers": [
@@ -1401,12 +2027,118 @@
       "name": "L8-A4 a lent literal keeps its parts",
       "origin": "wf10 L8 A4 (#197)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\t\t\tw.parts(x, hand{at: x, how: \"it moves into the literal\"})\n\t\t\tbreak",
-      "to": "\t\t\tw.children(x)\n\t\t\tbreak",
+      "from": "\t\t\tw.parts(x, hand{at: x, how: \"it moves into the literal\"})\n\t\tdefault:",
+      "to": "\t\t\tlend(x.Base)\n\t\t\tlend(x.Elts...)\n\t\tdefault:",
       "rule": "resources R14: a composite literal moves its parts, also one lent where it is made.",
       "killers": [
         "check:TestOwnershipFlowModel"
       ]
+    },
+    {
+      "name": "L8-B1 a hand-off not recorded",
+      "origin": "wf10 L8 B1 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tw.info.Handoffs[x] = l.v",
+      "to": "",
+      "rule": "resources R15, R19: the lowering ends the owner's entry at each hand-off the checker records.",
+      "killers": [
+        "lower:TestOwnershipRunModel"
+      ]
+    },
+    {
+      "name": "L8-B1 a Close through a borrow takes nothing",
+      "origin": "wf10 L8 B1 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tw.borrow[p] = root",
+      "to": "",
+      "rule": "resources R19: `let p = &h; p.Close()` takes h; h is released once.",
+      "killers": [
+        "lower:TestRuntime199MaskProperty"
+      ]
+    },
+    {
+      "name": "L8-B1 a Close function value lends its argument",
+      "origin": "wf10 L8 B1 (#197)",
+      "file": "internal/sketch/check/close.go",
+      "from": "\t\tsig.Takes = []int{0}",
+      "to": "",
+      "rule": "resources R19: `let f = Close; f(c)` takes c, as `Close(c)` does.",
+      "killers": [
+        "lower:TestRuntime199MaskProperty"
+      ]
+    },
+    {
+      "name": "L8-B2 a value with no release admitted",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tif d == nil {\n\t\tw.reportCode(at, CodeType,",
+      "to": "\tif d == nil && false {\n\t\tw.reportCode(at, CodeType,",
+      "rule": "resources R1, R13: a value whose type keeps resources with no Close has no release, so it is refused, not leaked.",
+      "killers": [
+        "check:TestNoReleaseRefused"
+      ]
+    },
+    {
+      "name": "L8-B2 a method value of Close admitted",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\tw.reportCode(x, CodeType, \"%s is a method value of Close",
+      "to": "\t\t\t_ = w.reportCode; _ = fmt.Sprintf(\"%s is a method value of Close",
+      "rule": "resources R19, R33: a function value owns no resource; `let f = r.Close` is refused, so r is released once.",
+      "killers": [
+        "check:TestCloseFormsTakeOnce"
+      ]
+    },
+    {
+      "name": "L8-B2 an operation type's Close takes nothing",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "internal/sketch/check/close.go",
+      "from": "\t\tsig.TakesSelf = true",
+      "to": "",
+      "rule": "resources R19, Gap 39: an operation type's Close() takes the value it is called on, as the written Close that implements it does (one rule: closeTakes).",
+      "killers": [
+        "check:TestCloseFormsTakeOnce"
+      ]
+    },
+    {
+      "name": "L8-B2 a generic body's dropped T is no copy site",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tif t := w.typ(l); w.copies != nil && w.genericOnly(t) {",
+      "to": "\t\tif t := w.typ(l); false && w.copies != nil && w.genericOnly(t) {",
+      "rule": "resources Gap 42: a generic body cannot release a T yet, so its drop refuses an instance with a resource instead of leaking it.",
+      "killers": [
+        "check:TestGenericDropRefused"
+      ]
+    },
+    {
+      "name": "L8-B2 a Close through &h takes nothing",
+      "origin": "wf10 L8 B2 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tif x.Op != syntax.AND {\n\t\t\treturn nil, 0, false",
+      "to": "\t\tif x.Op != syntax.AND || true {\n\t\t\treturn nil, 0, false",
+      "rule": "resources R19: `(&h).Close()` takes h; h is released once, not again at its scope end.",
+      "killers": [
+        "check:TestCloseFormsTakeOnce"
+      ]
+    },
+    {
+      "name": "L8-B3t-capture-keeps-sender",
+      "origin": "L8 B3t R12",
+      "file": "internal/sketch/check/taskcapture.go",
+      "from": "w.move(i, id, hand{at: key, how: \"it is captured by a moving task (resources R12)\"})",
+      "to": "w.use(i, id)",
+      "rule": "A moving task capture hands the sender's resource off (R12).",
+      "killers": ["check:TestTaskCaptureOwnership"]
+    },
+    {
+      "name": "L8-B3t-repeated-capture-may-take",
+      "origin": "L8 B3t R12 R30",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.acquire(ownLocal{v: v, lent: captures.Repeated})",
+      "to": "w.acquire(ownLocal{v: v})",
+      "rule": "A repeated member body lends from its one root owner; it cannot take on every restart.",
+      "killers": ["check:TestTaskCaptureOwnership"]
     },
     {
       "name": "L8-B3t running finds nothing",
@@ -1439,6 +2171,28 @@
       "rule": "resources R33: a function value owns no resource and holds no lend of one (t.Wait, t.Stop as values).",
       "killers": [
         "lower:TestCheckedImpliesLoweredPart8"
+      ]
+    },
+    {
+      "name": "b16a-array-holds-no-resource",
+      "origin": "wf10 batch-16a integration (B3t x L1 arrays)",
+      "file": "internal/sketch/check/resource.go",
+      "from": "\tcase *Array:\n\t\tedge(t.Elem)\n\tcase *Map:",
+      "to": "\tcase *Map:",
+      "rule": "resources R1, R35: a fixed array holds a resource when its element does (the walk B3t deleted knew it for Task); an element is not taken out by index.",
+      "killers": [
+        "check:TestArrayOwnership"
+      ]
+    },
+    {
+      "name": "b16a-array-element-take-admitted",
+      "origin": "wf10 batch-16a integration (B3t x L1 arrays)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tcase *Slice, *Array, *Map:\n",
+      "to": "\t\tcase *Slice, *Map:\n",
+      "rule": "resources R35: an element of a fixed array is lent by the index; it is not handed off.",
+      "killers": [
+        "check:TestArrayOwnership"
       ]
     }
   ]

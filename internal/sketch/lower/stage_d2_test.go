@@ -13,10 +13,14 @@ import (
 // TestErgoRunSeq: a for over a Seq[T] built by conversion from a function
 // literal runs the body as yield; a break makes yield return false, so a
 // lawful Seq stops (the Seq counts its yields); a Seq value is also called
-// directly, through its declared function type.
+// directly, through its declared function type. The Seq keeps its count in
+// a sync.Ref: its literal escapes, so it cannot write a captured let mut
+// (types.md, Function values 3).
 func TestErgoRunSeq(t *testing.T) {
 	needsBuild(t)
-	wantRun(t, `func upTo(n int) Seq[int] {
+	wantRun(t, `import sync
+
+func upTo(n int) Seq[int] {
 	Seq[int](func(yield func(v int) bool) {
 		let mut i = 0
 		for i < n {
@@ -43,10 +47,10 @@ func main() needs Console {
 	}
 	report("seq", s == 123)
 
-	let mut yields = 0
+	let yields = sync.NewRef(0)
 	let counted = Seq[string](func(yield func(v string) bool) {
 		for w in []string{"a", "b", "c", "d"} {
-			yields += 1
+			yields.Update(func(v int) int { v + 1 })
 			if !yield(w) {
 				return
 			}
@@ -59,7 +63,7 @@ func main() needs Console {
 		}
 		seen = seen + w
 	}
-	report("seq break", seen == "ab" && yields == 3)
+	report("seq break", seen == "ab" && yields.Get() == 3)
 
 	let mut n = 0
 	for _ in upTo(3) {

@@ -70,6 +70,10 @@ type parser struct {
 
 	groups   []*CommentGroup
 	groupOwn []bool // the group starts on a line with no token before it
+
+	// derived holds the declarations derived from the refinement just
+	// parsed (refine.go), which parseFile places after its type.
+	derived []Decl
 }
 
 // ---------------------------------------------------------------- tokens and errors
@@ -91,6 +95,17 @@ func (p *parser) peek(n int) token {
 		return p.toks[p.i+n]
 	}
 	return p.toks[len(p.toks)-1]
+}
+
+// opensCollection reports whether the token n past the current one opens a
+// slice or array type, `[]` or `[N]` (196y), and not type arguments or
+// type parameters, which start with a name.
+func (p *parser) opensCollection(n int) bool {
+	if p.peek(n).tok != LBRACK {
+		return false
+	}
+	next := p.peek(n + 1).tok
+	return next == RBRACK || (next == INT || next == ELLIPSIS) && p.peek(n+2).tok == RBRACK
 }
 
 func (p *parser) backtrack(i int) {
@@ -375,7 +390,17 @@ func (p *parser) parseFile() *File {
 		var d Decl
 		switch p.tok.tok {
 		case TYPE:
-			d = p.parseTypeDecl(doc)
+			td := p.parseTypeDecl(doc)
+			d = td
+			if td.Where != nil {
+				// The derived parse function and law follow the type
+				// (refine.go); the formatter skips them.
+				f.Decls = append(f.Decls, td)
+				p.endDecl()
+				f.Decls = append(f.Decls, p.derived...)
+				p.derived = nil
+				continue
+			}
 		case FUNC:
 			d = p.parseFuncDecl(doc)
 		case EXTERN:
@@ -395,6 +420,7 @@ func (p *parser) parseFile() *File {
 		p.endDecl()
 	}
 	f.EOF = p.tok.pos
+	p.derivePairs(f)
 	return f
 }
 
@@ -470,7 +496,7 @@ func isIdentifier(s string) bool {
 func (p *parser) parseTypeDecl(doc *CommentGroup) *TypeDecl {
 	d := &TypeDecl{Doc: doc, Type: p.want(TYPE)}
 	d.Name = p.parseIdent()
-	if p.tok.tok == LBRACK && p.peek(1).tok != RBRACK {
+	if p.tok.tok == LBRACK && !p.opensCollection(0) {
 		d.TypeParams = p.parseTypeParams()
 	}
 	switch p.tok.tok {
@@ -482,7 +508,11 @@ func (p *parser) parseTypeDecl(doc *CommentGroup) *TypeDecl {
 		p.next()
 		d.Spec = p.parseUnion()
 	default:
+		start := p.i
 		d.Spec = p.parseType(ctxDecl)
+		if p.atWhere() {
+			p.parseRefinement(d, start)
+		}
 	}
 	return d
 }
@@ -879,6 +909,9 @@ func (p *parser) parseExternDecl(doc *CommentGroup) Decl {
 	switch p.tok.tok {
 	case TYPE:
 		d := p.parseTypeDecl(doc)
+		if d.Where != nil {
+			p.errorAt(d.WherePos, len("where"), "a host type takes no where: Go checks nothing on it; declare a refined type over it in Ergo")
+		}
 		d.Extern = x
 		return d
 	case LET:
@@ -988,7 +1021,7 @@ func (p *parser) parseLetDecl(doc *CommentGroup, top bool) Decl {
 // the name; `name [` starts a type when `]` follows, else type arguments of
 // a record pattern.
 func (p *parser) parseLetPattern() Expr {
-	if p.tok.tok == IDENT && p.peek(1).tok == LBRACK && p.peek(2).tok == RBRACK {
+	if p.tok.tok == IDENT && p.opensCollection(1) {
 		return p.parseIdent()
 	}
 	return p.parsePattern()
@@ -1155,8 +1188,8 @@ func (p *parser) commaContinuesRow() bool {
 		return true
 	case LBRACK:
 		// `B[T]` is a capability name with type arguments, refused at
-		// its `[`; `B []T` is a field of slice type.
-		return p.peek(i+1).tok != RBRACK
+		// its `[`; `B []T` and `B [N]T` are fields of slice and array type.
+		return !p.opensCollection(i)
 	}
 	return false
 }
@@ -1165,6 +1198,9 @@ type paramEntry struct {
 	name  *Ident
 	typ   Expr
 	comma Pos // the comma before the entry, or NoPos for the first
+	// wherePos and where are a law parameter's `where P` (refine.go).
+	wherePos Pos
+	where    Expr
 }
 
 // parseParameters parses a parameter list with Go's grouping: either every
@@ -1180,6 +1216,11 @@ func (p *parser) parseParameters(mode paramMode) *FieldList {
 	for p.tok.tok != RPAREN {
 		e := p.parseParamEntry()
 		e.comma = comma
+		if e.name != nil && p.atWhere() {
+			e.wherePos = p.tok.pos
+			p.next()
+			e.where = p.parseExpr()
+		}
 		entries = append(entries, e)
 		if p.tok.tok != COMMA {
 			break
@@ -1214,7 +1255,10 @@ func (p *parser) parseParameters(mode paramMode) *FieldList {
 			pending = append(pending, id)
 			continue
 		}
-		l.List = append(l.List, &Field{Names: append(pending, e.name), Type: e.typ})
+		if e.where != nil && len(pending) > 0 {
+			p.errorAt(e.wherePos, len("where"), "a where follows a parameter of one name: give %s its own type", pending[0].Name)
+		}
+		l.List = append(l.List, &Field{Names: append(pending, e.name), Type: e.typ, WherePos: e.wherePos, Where: e.where})
 		pending = nil
 	}
 	if len(pending) > 0 {
@@ -1280,7 +1324,7 @@ func (p *parser) parseParamEntry() paramEntry {
 		return paramEntry{typ: p.parseType(ctxList)}
 	case LBRACK:
 		// `name []T` or `name [N]T`, against the instantiation `T[A]`.
-		if next := p.peek(1).tok; next == RBRACK || next == INT {
+		if next := p.peek(1).tok; next == RBRACK || next == INT || p.opensCollection(0) {
 			return paramEntry{name: id, typ: p.parseType(ctxList)}
 		}
 		p.backtrack(start)
@@ -1334,13 +1378,28 @@ func (p *parser) parseType(ctx typeCtx) Expr {
 	case LBRACK:
 		lbrack := p.tok.pos
 		p.next()
-		// At the lexical error the source after `[` is unknown: parse on,
-		// so the error is reported (#226).
-		if p.tok.tok != RBRACK && p.tok.tok != ILLEGAL {
+		// `[N]T` is a fixed array whose length N is a decimal integer
+		// literal (196y); `[]T` is a slice. At the lexical error the source
+		// after `[` is unknown: parse on, so the error is reported (#226).
+		var n, npos = "", Pos(0)
+		switch p.tok.tok {
+		case INT:
+			n, npos = p.tok.lit, p.tok.pos
+			p.next()
+		case ELLIPSIS:
 			p.habit(lbrack, 1, habitArray)
+			p.next()
+		case RBRACK, ILLEGAL:
+		default:
+			p.errorf("expected \"]\" or an integer length, found %s", p.found())
+			p.next()
 		}
-		p.next()
-		return &ArrayType{Lbrack: lbrack, Elt: p.parseType(ctx)}
+		if p.tok.tok == RBRACK || p.tok.tok == ILLEGAL {
+			p.next()
+		} else if n != "" {
+			p.errorf("expected \"]\", found %s", p.found())
+		}
+		return &ArrayType{Lbrack: lbrack, Len: n, LenPos: npos, Elt: p.parseType(ctx)}
 	case MUL:
 		star := p.tok.pos
 		p.next()
@@ -1432,10 +1491,10 @@ func (p *parser) parseTypeName(what string) Expr {
 }
 
 // parseCapabilityName parses the TypeName of a needs, provides or context
-// key position: `name`, `pkg.name` or `go.name`, with no type arguments
-// (the decided `TypeName = identifier [ "." identifier ]`). Brackets after
-// it are S001 at the `[`, so a comma run of names ended by `:` is always
-// one context entry's key list (Parser rule 9).
+// key position: `name`, `pkg.name` or `go.name`, with optional type
+// arguments (`Store[Order]`; Parser rule 12). A comma inside the brackets
+// lists type arguments, so a comma run of names ended by `:` is still one
+// context entry's key list (Parser rule 9; keysContinue skips brackets).
 func (p *parser) parseCapabilityName(what string) Expr {
 	p.enter()
 	defer p.leave()
@@ -1444,7 +1503,7 @@ func (p *parser) parseCapabilityName(what string) Expr {
 	}
 	x := p.parseQualifiedName()
 	if p.tok.tok == LBRACK {
-		p.errorAt(p.tok.pos, 1, "a capability name takes no type arguments")
+		x = p.parseTypeArgs(x)
 	}
 	return x
 }
@@ -1562,6 +1621,24 @@ func (p *parser) keysContinue() bool {
 		i++
 		if p.peek(i).tok == PERIOD {
 			i += 2
+		}
+		if p.peek(i).tok == LBRACK {
+			// Type arguments of the key (rule 12): skip the balanced
+			// brackets, whose commas list arguments, not keys.
+			for depth := 0; ; i++ {
+				switch p.peek(i).tok {
+				case LBRACK:
+					depth++
+				case RBRACK:
+					depth--
+				case EOF:
+					return false
+				}
+				if depth == 0 {
+					i++
+					break
+				}
+			}
 		}
 		if p.peek(i).tok == COLON {
 			return true

@@ -1,0 +1,48 @@
+// A value enters a refined type only as a constant inside its where, a
+// result of its derived parse function or a value of the type already
+// (types.md, Refinements 6), and no operator takes it out (7).
+
+type Port int where 1 <= it && it <= 65535
+type Names []string where len(it) > 0
+
+func outside() Port {
+	70000 // want S108
+}
+
+func converted(n int) Port {
+	Port(n) // want S108
+}
+
+func assigned(xs []string) Names {
+	let ns Names = xs // want S108
+	ns
+}
+
+func literal() Names {
+	Names{"a"} // want S108
+}
+
+func next(p Port) Port {
+	p + 1 // want S108
+}
+
+func tail(ns Names) Names {
+	ns[1:] // want S108
+}
+
+func zero() Port {
+	let p Port // want S108
+	p
+}
+
+// The ways in check clean: a constant inside, a constant conversion, the
+// parse function, a value of the type, and a comparison.
+func inside(n int) Port {
+	let a Port = 80
+	let b = Port(443)
+	let c = ParsePort(n) catch {
+	case Unsatisfied:
+		a
+	}
+	if c == b && int(c) + 1 > 2 { c } else { a }
+}

@@ -1,12 +1,12 @@
 # idle-timer
 
-A shared screen, such as a kiosk in a lobby, that ends a session nobody uses any more. After a wait with no activity it asks "are you still there?", counts down, and abandons the session when nobody answers. A hidden gesture, five quick taps in a corner, opens an admin screen. The program runs a script of timed touches on a virtual clock and shows each change of state and each event, at the time of the signal it follows.
+A shared display, such as a screen in a lobby, that ends a session nobody uses any more. After a wait with no activity it asks "are you still there?", counts down, and abandons the session when nobody answers. A hidden gesture, five quick taps in a corner, opens an admin screen. The program runs a script of timed touches on a virtual clock and shows each change of state and each event, at the time of the signal it follows.
 
 Tag: `default`. It is an original program, a neutral re-creation of a common pattern: a class B machine, whose timers the runner owns. Its goldens were made by running the program, and then checked line by line against the rules below by hand.
 
 ## Rules
 
-- A kiosk has a policy, which is the machine's input:
+- A display has a policy, which is the machine's input:
   - `StartWait`: the wait on the home screen;
   - `ScreenWait`: the wait on any other screen;
   - `AssistFactor`: the factor of the wait while the assist mode is on;
@@ -22,7 +22,7 @@ Tag: `default`. It is an original program, a neutral re-creation of a common pat
 - The admin screen closes on `leave` or after `AdminFor` unused (`! admin closed`). `finish` ends a session (`! ended`).
 - A signal at the instant a timer is due is stepped first. A timer whose state has been left, or re-entered, is dropped and never steps. So a touch exactly at the end of the wait means that no prompt shows.
 
-Script: the first line is `kiosk NAME`. Each other line is `@MS WORD` (milliseconds from the start, never going back), and WORD is `touch`, `open home|menu|form`, `assist on|off`, `tap`, `finish` or `leave`. The last line is `@MS end`. Blank lines and lines that start with `#` are skipped.
+Script: the first line is `display NAME`. Each other line is `@MS WORD` (milliseconds from the start, never going back), and WORD is `touch`, `open home|menu|form`, `assist on|off`, `tap`, `finish` or `leave`. The last line is `@MS end`. Blank lines and lines that start with `#` are skipped.
 
 ## Layout
 
@@ -30,21 +30,21 @@ The program is a module of packages (`ergo.mod`: `module idletimer`), in the Go 
 
 | folder | what it holds |
 | --- | --- |
-| `kiosk/` | The domain package. It is pure. `policy.ergo`: `Policy`, `Standard`, `Check` (fails `BadPolicy`). `machine.ergo`: `Screen`, `Session`, the state `Kiosk`, `Signal`, `Event`, `Begin`, `WaitFor`, `Timer` and `Step`. `laws.ergo`: `type Idler machine[Kiosk, Signal] { initial: Begin, step: Step, after: Timer, … }` and its laws. `policies.ergo`: `Policies`, the contract of a store of policies, with two laws. Also `tests.ergo`. |
-| `memory/` | `Fixed`, the in-memory provider of `kiosk.Policies`: `lobby` and `library`. |
-| `script/` | `Read` (fails `BadLine`), `WithTicks`, `Upto` (on `time.Clock` and `Scheduler`) and `Run`, the only function with outside capabilities (`Console`, `io.Stdin`, `kiosk.Policies`, and the clock). |
-| `cmd/idle-timer/` | The binary. `main.ergo` binds `let Live = context { kiosk.Policies: memory.Fixed }`, the host's standard input and a `testing.VirtualClock` for `time.Clock` and `Scheduler`. It is the only place that chooses them. |
+| `display/` | The domain package. It is pure. `policy.ergo`: `Policy`, `Standard`, `Check` (fails `BadPolicy`). `machine.ergo`: `Screen`, `Session`, the state `Display`, `Signal`, `Event`, `Begin`, `WaitFor`, `Timer` and `Step`. `laws.ergo`: `type Idler machine[Display, Signal] { initial: Begin, step: Step, after: Timer, … }` and its laws. `policies.ergo`: `Policies`, the contract of a store of policies, with two laws. Also `tests.ergo`. |
+| `memory/` | `Fixed`, the in-memory provider of `display.Policies`: `lobby` and `library`. |
+| `script/` | `Read` (fails `BadLine`), `WithTicks`, `Upto` (on `time.Clock` and `Scheduler`) and `Run`, the only function with outside capabilities (`Console`, `io.Stdin`, `display.Policies`, and the clock). |
+| `cmd/idle-timer/` | The binary. `main.ergo` binds `let Live = context { display.Policies: memory.Fixed }`, the host's standard input and a `testing.VirtualClock` for `time.Clock` and `Scheduler`. It is the only place that chooses them. |
 
 ## What it shows
 
-- **Runner-owned timers with a wait computed from the state** (V5 `after`, M58). `Timer(k Kiosk) Option[Timeout[Signal]]` gives each state its timer. The wait of `Waiting` depends on its screen and its assist mode. The program never starts or stops a timer.
+- **Runner-owned timers with a wait computed from the state** (V5 `after`, M58). `Timer(k Display) Option[Timeout[Signal]]` gives each state its timer. The wait of `Waiting` depends on its screen and its assist mode. The program never starts or stops a timer.
 - **`Enter` against `Stay`.** Activity re-enters `Waiting`, so its timer restarts. A `Tick` on the prompt is `Stay`, so the prompt's deadline holds. Each corner tap re-enters `Tapping`, so the window restarts.
 - **`Emit` (q28; MQ1).** Each end of a session moves to `Suspended` and tells its event in one decision.
 - **No stale timer (M46).** The runner drops a timer whose entry has ended. The case `library` shows this with a touch at the very instant the wait ends.
-- **Input-initial (V4).** The machine's input is the policy. `script.Run` checks it first, because a start function cannot fail, and then runs `machines.Start(kiosk.Idler{}, policy)`.
+- **Input-initial (V4).** The machine's input is the policy. `script.Run` checks it first, because a start function cannot fail, and then runs `machines.Start(display.Idler{}, policy)`.
 - **One clock.** `machines.RunTimed` reads the `time.Clock` and `Scheduler` of its context, as every sleep does (runtime.md, Machines 9.6). The laws bind a fresh `testing.VirtualClock` for each run, and `main` binds one for the program, so a script of hours replays in no wall time and no host clock is read.
-- **Exhaustive `match`.** Each state's step is a `match` that names all eleven signals. The only `case _` arms are over a script word or a kiosk name, which are strings.
-- **Typed failures.** `BadPolicy`, `NoSuchKiosk` and `BadLine`. `Step` itself never refuses: a signal that means nothing in a state is `Ignore`.
+- **Exhaustive `match`.** Each state's step is a `match` that names all eleven signals. The only `case _` arms are over a script word or a display name, which are strings.
+- **Typed failures.** `BadPolicy`, `NoSuchDisplay` and `BadLine`. `Step` itself never refuses: a signal that means nothing in a state is `Ignore`.
 - **Laws.** `Idler` declares ten laws after its entries (MU6, `laws.ergo`), run by `ergo test`.
   - **Proved** (types.md Laws 10): three laws over one step take a `Session`, a `Signal` and a `bool`, types that can be listed, so `ergo test` runs every value and reports `proved`:
     - `OnlyIdlePrompts`: in a session, only the `Idle` timer brings the prompt, on every screen and assist mode (`proved: all 84 cases`).
@@ -59,8 +59,8 @@ The program is a module of packages (`ergo.mod`: `module idletimer`), in the Go 
     - `ContinueKeepsTheSession`
     - `AdminNeedsFiveQuickTaps`
 
-  The contract `kiosk.Policies` has two member laws, `EveryPolicyChecks` and `UnlistedIsNoSuchKiosk`. The survey's `StaleTimerNeverSteps` is a rule of the runner, not of this machine: std `machines` holds it (V5, `TestMachineRunAgreesWithFold`), and no edit of this program can break it. `LiveEqualsFold` waits for the live runner (MU3).
-- **Tests.** The laws are the tests. `kiosk/tests.ergo` has one timed run, `KioskRun`. `ergo test` runs the two `Policies` laws in `memory` against `Fixed`, and `memory/tests.ergo` calls their functions on the program's table.
+  The contract `display.Policies` has two member laws, `EveryPolicyChecks` and `UnlistedIsNoSuchDisplay`. The survey's `StaleTimerNeverSteps` is a rule of the runner, not of this machine: std `machines` holds it (V5, `TestMachineRunAgreesWithFold`), and no edit of this program can break it. `LiveEqualsFold` waits for the live runner (MU3).
+- **Tests.** The laws are the tests. `display/tests.ergo` has one timed run, `DisplayRun`. `ergo test` runs the two `Policies` laws in `memory` against `Fixed`, and again under `Tables`, the named context `memory/tests.ergo` binds (laws under a context, L5). Its two tests pass `Tables` as a `Context[display.Policies]` value to a helper, `within`, which installs it with `with w { … }` and so needs nothing itself, and call the laws' functions on the program's table.
 
 ## Limits found
 
@@ -78,7 +78,7 @@ The program is a module of packages (`ergo.mod`: `module idletimer`), in the Go 
 ```sh
 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/idle-timer/cmd/idle-timer < examples/idle-timer/cases/lobby/stdin
-./bin/ergo test examples/idle-timer/kiosk
+./bin/ergo test examples/idle-timer/display
 go run ./scripts/examples idle-timer
 ```
 
@@ -87,4 +87,4 @@ go run ./scripts/examples idle-timer
 - `lobby`: the menu wait, a continued prompt, an abandon on the home screen, the admin gesture and leave, assist, and a finish on the prompt.
 - `library`: a touch at the instant the wait ends, the triple assist wait, and a corner tap on the prompt.
 - `badscript`: a screen that does not exist (status 1).
-- `nokiosk`: a kiosk the store does not hold (status 1).
+- `nodisplay`: a display the store does not hold (status 1).

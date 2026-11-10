@@ -70,7 +70,7 @@ var habits = [...]Habit{
 	habitSelect:       {"select", "Ergo has no select; race tasks with `task.Race`"},
 	habitMap:          {"map[K]V", "Ergo has no map keyword; write `Map[K, V]`"},
 	habitVariadic:     {"...T", "Ergo has no variadic parameters; take a slice `[]T`"},
-	habitArray:        {"[N]T", "Ergo has no fixed arrays; use a slice `[]T`"},
+	habitArray:        {"[...]T", "Ergo has no array of unknown length; write its length, `[N]T`, or use a slice `[]T`"},
 	habitLabel:        {"L:", "Ergo has no labels; break and continue act on the innermost for"},
 	habitGoto:         {"goto", "goto is not part of the language; use structured control flow"},
 	habitFallthrough:  {"fallthrough", "fallthrough is not part of the language; list the patterns in one case"},

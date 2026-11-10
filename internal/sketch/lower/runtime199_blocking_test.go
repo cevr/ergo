@@ -25,12 +25,12 @@ func TestRuntime199TaskReaders(t *testing.T) {
 		classified map[string]string
 	}{
 		{"envTask", map[string]string{
-			"taskOf":                "the only reader",
-			"lowerer.envType":       "declares the field",
-			"funcCtx.operations":    "an operation table's Env literal for the caller's task",
-			"funcCtx.witnessMethod": "a witness adapter's Env literal for the caller's task",
-			"lowerer.entry":         "the root Env literal in main",
-			"lowerer.testEntry":     "the root Env literal in the test build's main (196l)",
+			"taskOf":                   "the only reader",
+			"lowerer.envType":          "declares the field",
+			"funcCtx.operations":       "an operation table's Env literal for the caller's task",
+			"funcCtx.witnessMethod":    "a witness adapter's Env literal for the caller's task",
+			"lowerer.rootTask":         "the root Env literal of a root task: main's, the test build's main's (196l), an exported function's (IG11)",
+			"funcCtx.scriptOperations": "a Script adapter's Env literal for the caller's task, as an operation table's (script.go)",
 		}},
 		{"taskOf", map[string]string{
 			"funcCtx.hiddenArgs":      "runtimeCall's hidden CallerTask argument",
@@ -41,10 +41,15 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.poll":            "the interruption point (Check)",
 			"flatRun.runText":         "the flat machine run's task, read once for its per-signal interruption point (Check; MU8)",
 			"funcCtx.envClosure":      "a task callback's Env copy",
+			"funcCtx.goContext":       "rt.GoContext, the task as the hidden context.Context of a Go call; it neither waits nor releases (IG10)",
 			"lowerer.testRunner":      "a test case's task, which the case's Capture classifies its unwinding against (E3a M3)",
 			"lowerer.lawRuns":         "a law case's task, which the case's Capture classifies its unwinding against (#162)",
 			"lowerer.listedRun":       "a listed law or property case's task, which the case's Capture classifies its unwinding against (MU6b, mu6c)",
 			"lowerer.reachRuns":       "a reachability law's task, which its case's Capture classifies its unwinding against (MU6)",
+			"lowerer.wireFunc":        "a codec function's Writer or Reader calls, through the prelude operation type's Go interface (L11)",
+			"typeCtx.wireEncode":      "an inline codec event on the Writer interface (L11)",
+			"typeCtx.wireDecode":      "an inline codec read on the Reader interface (L11)",
+			"typeCtx.wireKind":        "the Reader's Path for a WireWrongKind (L11)",
 		}},
 		{"memberName", map[string]string{
 			"funcCtx.runtimeCall":       "the runtime binding emitter",
@@ -61,13 +66,18 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"lowerer.funcDecl":          "a declared function's Go name",
 			"funcCtx.optionReturn":      "the Value field of Some, for Get and a std body's comma-ok (S3d)",
 			"funcCtx.goResult":          "the Value field of Some, for a non-nil Go pointer or interface of import go (IG3)",
+			"funcCtx.someWhen":          "the Value field of Some, built from Go's (v, ok) or error by a Level 2 adapter (IG4)",
 			"funcCtx.getArmsLower":      "the Value field of Some, bound in a comma-ok match on Get (lw-get-commaok) or in a callback's comma-ok variant (fs7)",
 			"funcCtx.updateFused":       "the Value field of Some, built from a comma-ok read in maps.Update at its call (vr-elide-2)",
 			"lowerer.methodReceiver":    "a declared method's receiver",
 			"lowerer.meetsHostProtocol": "a pure method's Go name against the host protocols (Q-S5-6)",
 			"lowerer.protocolFreeName":  "the Go names already taken on a pure method's type (Q-S5-6)",
 			"lowerer.typeDecl":          "a declared type's members",
-			"lowerer.entry":             "the host Console's Println",
+			"lowerer.hostDecl":          "the host provider's Println and ambient",
+			"funcCtx.fieldName":         "a Script's field, its operation's name (script.go)",
+			"funcCtx.scriptLit":         "a Script literal's fields (script.go)",
+			"funcCtx.scriptOperations":  "a Script adapter's methods and the fields they call (script.go)",
+			"lowerer.scriptType":        "a Script's struct fields (script.go)",
 		}},
 	} {
 		obj := scope.Lookup(c.obj)
@@ -196,10 +206,15 @@ func originOf(obj types.Object) types.Object {
 // none is a user-visible blocking binding.
 func TestRuntime199BlockingOwner(t *testing.T) {
 	helpers := map[string]bool{
-		"Append": true, "Delete": true, "NewScope": true, "NewOwnerScope": true, "Site": true,
+		"Append": true, "Delete": true, "Put": true, "NewScope": true, "NewOwnerScope": true, "Site": true,
 		"RegisterCalls": true, "TextBool": true, "TextDuration": true,
 		"TextInt": true, "TextUint": true, "TextFloat": true, "TextList": true,
 		"Main": true, "Println": true, "End": true,
+		// IG11: an exported function's root task, as Main is main's; Go's
+		// caller waits on it, no Ergo task does. L5b: a Script operation's
+		// record of a call (script.go): one lock for one append, no wait,
+		// no release. The key is the method name, so one row holds both.
+		"Call": true,
 		// Unreachable's defect (defect.go): a panic value, no wait.
 		"UnreachableAt": true,
 		// fs2: a machine timer that is not positive (machine.go,
@@ -208,6 +223,13 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// G4: a user extern's error turned into go.Error; it neither
 		// waits nor releases.
 		"GoErrorOf": true,
+		// IG5: go.Error built, passed to Go, and read by go.Is; none waits
+		// or releases. intn is the generator's Rand, beside GoErrorText
+		// in genFunc.
+		"GoErrorText": true, "Native": true, "GoErrorsNative": true, "GoIs": true, "intn": true,
+		// IG6: a callback's failure handed to Go, and the call's error
+		// untunnelled; neither waits nor releases.
+		"GoCallbackError": true, "GoUntunnel": true, "GoUntunnelEager": true,
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}

@@ -168,7 +168,7 @@ func pureCandidate(info *check.Info, f *check.Func) ([]*check.Func, bool) {
 			switch {
 			case c == nil:
 				ok = false
-			case c.Kind == check.CallLen || c.Kind == check.CallConversion:
+			case c.Kind == check.CallLen || c.Kind == check.CallConversion || c.Kind == check.CallGoError:
 			case c.Kind == check.CallFunc && !c.StartsTask && pureStdBody(c.Func):
 			case c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil && !c.StartsTask:
 				callees = append(callees, c.Func)

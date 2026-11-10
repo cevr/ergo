@@ -20,7 +20,7 @@ extern go crypto/subtle.ConstantTimeLessOrEq func ConstantTimeLessOrEq(x int, y 
 extern go crypto/subtle.ConstantTimeSelect func ConstantTimeSelect(v int, x int, y int) int needs go.Foreign
 
 // ergo:go func WithDataIndependentTiming(f func())
-extern go crypto/subtle.WithDataIndependentTiming func WithDataIndependentTiming(f func()) needs go.Foreign
+extern go crypto/subtle.WithDataIndependentTiming func WithDataIndependentTiming(f escaping func()) needs go.Foreign
 
 // ergo:go func XORBytes(dst []byte, x []byte, y []byte) int
 extern go crypto/subtle.XORBytes func XORBytes(dst []byte, x []byte, y []byte) int needs go.Foreign

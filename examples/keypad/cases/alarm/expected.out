@@ -1,0 +1,43 @@
+form alarm: *label(letters) time(digits) note(any) [lower]
+shift: *label(letters) time(digits) note(any) [shift]
+  label = "A"
+  label = "Ad"
+  label = "Ada"
+  greyed: key 7
+  label = "Ad"
+  label = "Adm"
+submit label "Adm"
+focus time
+  time = "1"
+  time = "12"
+  greyed: key x
+? time needs 4 characters, has 2
+  time = "123"
+  time = "1234"
+  greyed: key 5
+submit time "1234"
+focus note
+shift: label(letters) time(digits) *note(any) [shift]
+shift: label(letters) time(digits) *note(any) [caps]
+  note = "O"
+  note = "OK"
+  note = "OK "
+shift: label(letters) time(digits) *note(any) [lower]
+  note = "OK é"
+  note = "OK éß"
+  note = "OK é"
+  note = "OK "
+  note = "OK"
+  note = "O"
+  note = ""
+  greyed: back
+focus time
+? no field note
+? no field nowhere
+add zip: label(letters) *time(digits) zip(digits) [lower]
+? field zip exists
+? field bad: min 3 and max 2 do not fit
+remove label: *time(digits) zip(digits) [lower]
+focus zip
+? zip is the last field
+closed zip=""

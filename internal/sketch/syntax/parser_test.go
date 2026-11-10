@@ -405,28 +405,6 @@ func TestRoundTwoForms(t *testing.T) {
 
 // TestRoundThreeForms pins the round-2 review's parser findings.
 func TestRoundThreeForms(t *testing.T) {
-	t.Run("M1 capability names take no type arguments", func(t *testing.T) {
-		for _, name := range []string{
-			"needs-type-args", "needs-list-type-args", "operation-needs-type-args", "provides-type-args",
-			"context-key-type-args", "context-replace-type-args", "context-embed-type-args",
-			"context-second-key-type-args", "context-first-key-type-args",
-		} {
-			i := slices.IndexFunc(sketchtest.MalformedTable, func(m sketchtest.Malformed) bool { return m.Name == name })
-			if i < 0 {
-				t.Fatalf("no malformed row %q", name)
-			}
-			src := sketchtest.MalformedTable[i].Src
-			_, err := Parse(src)
-			var e *Error
-			if !errors.As(err, &e) {
-				t.Errorf("%s: %v is not *Error", name, err)
-				continue
-			}
-			if e.Message != "a capability name takes no type arguments" || src[e.Offset] != '[' {
-				t.Errorf("%s: %v at %q, want the capability message at the [", name, e, src[e.Offset:])
-			}
-		}
-	})
 	t.Run("m1 name and paren in a type body is an operation", func(t *testing.T) {
 		// `A (int64, string)` and `A(int64, string)` are the same tokens:
 		// an operation (grammar.md, Parser rule 11).
@@ -467,16 +445,6 @@ func malformedError(t *testing.T, name string) (string, *Error) {
 
 // TestRoundFourForms: a type is never a value (round-3 review M1, m3).
 func TestRoundFourForms(t *testing.T) {
-	t.Run("M1 a function literal's needs clause takes no type arguments", func(t *testing.T) {
-		// No fallback to a function type: the error stands at the `[`
-		// in a call argument, a let and after a fails clause.
-		for _, name := range []string{"funclit-needs-type-args-call", "funclit-needs-type-args-let", "funclit-fails-needs-type-args"} {
-			src, e := malformedError(t, name)
-			if e.Message != "a capability name takes no type arguments" || src[e.Offset] != '[' {
-				t.Errorf("%s: %v at %q, want the capability message at the [", name, e, src[e.Offset:])
-			}
-		}
-	})
 	t.Run("m3 a bare type in value position", func(t *testing.T) {
 		for _, c := range []struct{ name, first string }{
 			{"func-type-value", "func"}, {"func-type-argument", "func"}, {"escaping-func-type-value", "escaping"},

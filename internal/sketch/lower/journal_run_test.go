@@ -149,8 +149,9 @@ func within(want []int, all []int) bool {
 }
 
 // Crashing is a memory journal whose next Append fails when armed: mode 1
-// before it writes, mode 2 after; all is every signal it wrote, kept in a
-// sync.Ref, since a slice captured by a closure is a copy.
+// before it writes, mode 2 after; all is every signal it wrote. Both are
+// kept in a sync.Ref: an escaping literal captures a copy of a local and
+// cannot write it (types.md, Function values 3).
 type Crashing {
 	inner  memory.Journal[int, int],
 	append escaping func(e int) fails journal.Failed,
@@ -166,13 +167,12 @@ func Load(c Crashing) journal.Log[int, int] fails journal.Failed { try c.inner.L
 
 func crashing() Crashing {
 	let inner = memory.New[int, int]()
-	let mut armed = 0
+	let armed = sync.NewRef(0)
 	let all = sync.NewRef([]int{})
 	Crashing{
 		inner: inner,
 		append: func(e int) fails journal.Failed {
-			let mode = armed
-			armed = 0
+			let mode = sync.Modify(armed, func(v int) (int, int) { (v, 0) })
 			if mode == 1 {
 				return journal.Failed{Reason: "crash before the write"}
 			}
@@ -182,7 +182,7 @@ func crashing() Crashing {
 				return journal.Failed{Reason: "crash after the write"}
 			}
 		},
-		arm: func(mode int) { armed = mode },
+		arm: func(mode int) { armed.Set(mode) },
 		all: func() []int { all.Get() },
 	}
 }
@@ -349,7 +349,7 @@ func journalLawTestName(key string) string {
 // builds Go because the laws run the durable actor of std actor and
 // journal on the lowered runtime, as ergo test runs them; no interpreter
 // has the actor runner. MemoryRecoveryIsTheFold is the model-based test of
-// durable.qnt (MU9's acceptance).
+// models/durable (MU9's acceptance).
 func TestStdJournalLawsRun(t *testing.T) {
 	needsBuild(t)
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "stdjournal", journalLawsProbe)}, true)

@@ -225,7 +225,7 @@ const corpusGcPackage = "internal/sketch/lower"
 var corpusGcEnvironment = []string{"ERGO_TEST_CORPUS_GC=1"}
 
 // gofmtDirectories are the Go trees the gate requires to be gofmt-clean.
-var gofmtDirectories = []string{"cmd", "internal", "runtime", "scripts/gate", "scripts/conformance", "scripts/examples", "examples/go-interop", "tools/provenance"}
+var gofmtDirectories = []string{"cmd", "internal", "runtime", "scripts/gate", "scripts/conformance", "scripts/examples", "tools/provenance"}
 
 // provenanceManifest lists the checker functions that may make syntax nodes;
 // the provenance analyzer flags a node made anywhere else in the checker.
@@ -265,6 +265,12 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// reuse one compilation instead of racing to repeat it.
 	add(&Step{Name: fullBuildStep, Argv: []string{"go", "test", "-run", "^$", "./..."}, Class: classHeavy})
 	add(&Step{Name: "go vet", Needs: []string{"go test build"}, Argv: []string{"go", "vet", "./..."}, Class: classFast})
+	// The CLI and the runtime it embeds also build for a 32-bit target,
+	// where int is 32 bits: a constant that overflows it fails here
+	// (batch-14 apply 5, runtime/v1/timetext.go). Its Weight is the step's
+	// measured cold-cache seconds (16.1 s at 4 CPUs, 1-minute load 18,
+	// 2026-11-10).
+	add(&Step{Name: "go vet ./cmd/ergo (GOARCH=386)", Argv: []string{"go", "vet", "./cmd/ergo"}, Env: []string{"GOARCH=386"}, Weight: 16.1, Class: classHeavy})
 	// The analyzer's controls are a go test of another module, uncached,
 	// and its run builds and loads the checker with x/tools: full tier.
 	add(&Step{Name: "provenance analyzer", Argv: provenanceAnalyzer(root), Class: classHeavy})
@@ -382,7 +388,51 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	}
 	add(&Step{Name: "ergo fmt --check", Needs: []string{buildCLIStep}, Argv: append([]string{"./bin/ergo", "fmt", "--check"}, examples...), Class: classFast})
 
+	// The design models (models/<name>, wf10 X3): ergo test decides each
+	// model's laws by a search of its scope. A design law refuted, or a
+	// mutant machine whose law Breaks is not, fails the step. The search
+	// builds and runs a test binary, so the step is heavy.
+	models, err := designModels(root)
+	if err != nil {
+		return nil, err
+	}
+	for _, model := range models {
+		argv := []string{"./bin/ergo", "test", model}
+		if states, ok := modelStates[model]; ok {
+			argv = append(argv, "--states", states)
+		}
+		add(&Step{Name: "ergo test " + model, Needs: []string{buildCLIStep}, Argv: argv, Class: classHeavy, MemoryHeavy: true})
+	}
+
 	return steps, nil
+}
+
+// modelStates is the search budget of a model whose scope needs more than
+// ergo test's default of 1,000,000 states (wf10 X4). models/runner:
+// Design2's whole graph is just over 1,000,000 states; Design3 stops at the budget,
+// "not proved".
+var modelStates = map[string]string{
+	"models/runner": "1200000",
+}
+
+// designModels are the folders of models/, each one design model: a
+// package of .ergo files whose laws are its checks. A checkout with no
+// models/ has none.
+func designModels(root string) ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(root, "models"))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var models []string
+	for _, e := range entries {
+		if e.IsDir() {
+			models = append(models, "models/"+e.Name())
+		}
+	}
+	return models, nil
 }
 
 // uncachedStep is the step as the merge tier runs it: without the hermetic

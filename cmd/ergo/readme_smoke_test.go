@@ -17,8 +17,8 @@ import (
 // runs, then presents the decided language (docs/spec), so each claim is held
 // to what runs today:
 //
-//   - the first two go blocks are examples/checkout/payments/payments.ergo
-//     and examples/checkout/cmd/checkout/main.ergo, byte for byte, so the
+//   - the first two go blocks are examples/lookup/hosts/hosts.ergo
+//     and examples/lookup/cmd/lookup/main.ergo, byte for byte, so the
 //     opening program is a gated example (scripts/examples builds it, runs
 //     its case and its tests);
 //   - every fence has the one strict style (markdownlint MD046/MD048): a
@@ -51,7 +51,7 @@ var (
 	// readmeSmokeOpener is the one admitted opening fence.
 	readmeSmokeOpener = regexp.MustCompile("^```([a-z]+)$")
 	// readmeSmokeDiagnostics is the console block that quotes the S102 line.
-	readmeSmokeDiagnostics = regexp.MustCompile("(?ms)^```console\n\\$ ergo diagnostics pay\\.ergo\n(.*?)^```$")
+	readmeSmokeDiagnostics = regexp.MustCompile("(?ms)^```console\n\\$ ergo diagnostics fetch\\.ergo\n(.*?)^```$")
 	// readmeSmokeShBlock is the shell block of "Working in this repo".
 	readmeSmokeShBlock = regexp.MustCompile("(?ms)^## Working in this repo\n.*?^```sh\n(.*?)^```$")
 	// readmeSmokeCommand is one `./bin/ergo` line, with an optional
@@ -67,34 +67,34 @@ const readmeSmokeMinBlocks = 5
 // README's first go blocks must equal, in order (lower-v1 stage 5, D9;
 // 196b U4 moved the program to the Go layout of packages).
 var readmeSmokeOpening = []string{
-	"examples/checkout/payments/payments.ergo",
-	"examples/checkout/cmd/checkout/main.ergo",
+	"examples/lookup/hosts/hosts.ergo",
+	"examples/lookup/cmd/lookup/main.ergo",
 }
 
 // readmeSmokeProgram is the folder of that program.
-const readmeSmokeProgram = "examples/checkout"
+const readmeSmokeProgram = "examples/lookup"
 
 // readmeSmokeS102Source is the source file behind the README's quoted
-// diagnostic: pay calls Gateway, which its needs clause does not list.
-const readmeSmokeS102Source = `type OrderNotFound { ID string }
-type GatewayDown {}
+// diagnostic: fetch calls Transport, which its needs clause does not list.
+const readmeSmokeS102Source = `type EntryNotFound { ID string }
+type TransportDown {}
 
-type Order {
-	ID    string,
-	Total int64,
+type Entry {
+	ID   string,
+	Size int64,
 }
 
-type Orders {
-	Find(id string) Order fails OrderNotFound,
+type Entries {
+	Find(id string) Entry fails EntryNotFound,
 }
 
-type Gateway {
-	Charge(order Order) string fails GatewayDown,
+type Transport {
+	Send(entry Entry) string fails TransportDown,
 }
 
-func pay(id string) string fails OrderNotFound | GatewayDown needs Orders {
-	let order = try Orders.Find(id)
-	return Gateway.Charge(order)
+func fetch(id string) string fails EntryNotFound | TransportDown needs Entries {
+	let entry = try Entries.Find(id)
+	return Transport.Send(entry)
 }
 
 func main() needs Console {
@@ -249,10 +249,10 @@ func TestReadmeSmoke(t *testing.T) {
 		}
 	})
 
-	// The opening program is the checkout example, so the gate's examples
+	// The opening program is the lookup example, so the gate's examples
 	// step runs what the README shows first. An edit of one and not the
 	// other fails here.
-	t.Run("opening-is-the-checkout-example", func(t *testing.T) {
+	t.Run("opening-is-the-lookup-example", func(t *testing.T) {
 		t.Parallel()
 		blocks, _ := readmeGoBlocks(readme)
 		if len(blocks) < len(readmeSmokeOpening) {
@@ -274,24 +274,24 @@ func TestReadmeSmoke(t *testing.T) {
 	// refused as a fence, before its content could hide anything.
 	t.Run("refuses-document-mutants", func(t *testing.T) {
 		t.Parallel()
-		// Anchors in the opening program: charge in its first go block
-		// (payments.ergo), entry and last in its second (the binary).
-		const charge = "timeout.Expired needs Payments | Scheduler {"
+		// Anchors in the opening program: lookup in its first go block
+		// (hosts.ergo), entry and last in its second (the binary).
+		const lookup = "(name string) Answer fails NotFound | timeout.Expired needs Resolver | Scheduler {"
 		const entry = "func main() needs Console | Ambient {\n"
-		const last = "\tassert with Declining { payments.Purchase(100) } == \"declined\"\n}\n```\n"
-		if !strings.Contains(readme, "```go\n") || strings.Count(readme, charge) != 1 || strings.Count(readme, entry) != 1 || strings.Count(readme, last) != 1 {
+		const last = "\tassert with Missing { hosts.Address(\"example.org\") } == \"unknown\"\n}\n```\n"
+		if !strings.Contains(readme, "```go\n") || strings.Count(readme, lookup) != 1 || strings.Count(readme, entry) != 1 || strings.Count(readme, last) != 1 {
 			t.Fatal("the mutant anchors are not in README.md once each; update them with the first snippet")
 		}
 		first := func(mutated string) string { return strings.Replace(readme, "```go\n", mutated, 1) }
 		uses := func(doc string) string {
-			return strings.Replace(doc, charge, "timeout.Expired uses Payments | Scheduler {", 1)
+			return strings.Replace(doc, lookup, "(name string) Answer fails NotFound | timeout.Expired uses Resolver | Scheduler {", 1)
 		}
 		const fence = "non-canonical fence"
 		for _, mutant := range []struct{ name, doc, want string }{
-			{"uses clause", uses(readme), "README go block 1: line 27, column 70: S001"},
+			{"uses clause", uses(readme), "README go block 1: line 27, column 66: S001"},
 			// The comma spelling of the row is refused at its first comma (196n).
-			{"comma row", strings.Replace(readme, charge, "timeout.Expired needs Payments, Scheduler {", 1), "README go block 1: line 27, column 84: S001 a capability row separates its names with |"},
-			{"deferred Close", strings.Replace(readme, entry, entry+"\tscope.OnExit() { receipt.Close() }\n", 1), "README go block 2: line 12: a resource releases itself"},
+			{"comma row", strings.Replace(readme, lookup, "(name string) Answer fails NotFound | timeout.Expired needs Resolver, Scheduler {", 1), "README go block 1: line 27, column 80: S001 a capability row separates its names with |"},
+			{"deferred Close", strings.Replace(readme, entry, entry+"\tscope.OnExit() { answer.Close() }\n", 1), "README go block 2: line 12: a resource releases itself"},
 			// The reviewer's round-2 cases (round-2-receipts).
 			{"indented tilde marker before a go block with uses", readme + "\n    ~~~text\n\n```go\nfunc bad() uses Console {\n\twork()\n}\n```\n", fence},
 			{"indented closer inside a go block, uses after it", readme + "\n```go\nfunc okay() {\n\twork()\n}\n    ```\nfunc bad() uses Console {\n\twork()\n}\n```\n", fence},
@@ -302,7 +302,7 @@ func TestReadmeSmoke(t *testing.T) {
 			{"opener indented by one space", uses(first(" ```go\n")), fence},
 			{"opener `~~~go`", uses(first("~~~go\n")), fence},
 			{"opener `Go`", uses(first("```Go\n")), fence},
-			{"opener `go title=pay.ergo`", uses(first("```go title=pay.ergo\n")), fence},
+			{"opener `go title=fetch.ergo`", uses(first("```go title=fetch.ergo\n")), fence},
 			{"opener of four backticks", uses(first("````go\n")), fence},
 			{"bare opener with no language", readme + "\n```\nfunc bad() uses Console {}\n```\n", fence},
 			{"closer with trailing text", strings.Replace(readme, last, strings.TrimSuffix(last, "\n")+" end\n", 1), fence},
@@ -336,10 +336,10 @@ func TestReadmeSmoke(t *testing.T) {
 		for _, mutant := range []struct{ name, body, want string }{
 			{"uses clause", "func f() uses Console {\n\tConsole.Println(\"x\")\n}\n", "S001"},
 			{"uses name", "func f() {\n\tlet uses = 1\n\tg(uses)\n}\n", "`uses` was replaced"},
-			{"nil comparison", "func f(x Order) bool {\n\treturn x == nil\n}\n", "no nil"},
-			{"nil value", "func f() Order {\n\treturn nil\n}\n", "no nil"},
-			{"prefix catch of a type", "func f() Receipt {\n\treturn catch Declined {\n\t\tReceipt{}\n\t}\n}\n", "S001"},
-			{"prefix catch of a call", "func f() Receipt {\n\tlet r = catch Charge(c, 1) {\n\tcase Declined:\n\t\tReceipt{}\n\t}\n\treturn r\n}\n", "S001"},
+			{"nil comparison", "func f(x Entry) bool {\n\treturn x == nil\n}\n", "no nil"},
+			{"nil value", "func f() Entry {\n\treturn nil\n}\n", "no nil"},
+			{"prefix catch of a type", "func f() Answer {\n\treturn catch NotFound {\n\t\tAnswer{}\n\t}\n}\n", "S001"},
+			{"prefix catch of a call", "func f() Answer {\n\tlet r = catch Resolve(c, 1) {\n\tcase NotFound:\n\t\tAnswer{}\n\t}\n\treturn r\n}\n", "S001"},
 			{"not canonical", "func f()   {\n}\n", "not canonical"},
 			{"deferred Close", "func f() needs FS {\n\tlet file = FS.Open(\"x\")\n\tscope.OnExit() { file.Close() }\n\tread(file)\n}\n", "deferred Close"},
 		} {
@@ -349,7 +349,7 @@ func TestReadmeSmoke(t *testing.T) {
 			}
 		}
 		for _, control := range []string{
-			"func f(x Order) Receipt fails Declined needs Payments {\n\treturn Payments.Charge(x)\n}\n",
+			"func f(x Entry) Answer fails NotFound needs Resolver {\n\treturn Resolver.Resolve(x)\n}\n",
 			// Exit cleanup that is not a release stays valid (resources.md, `scope.OnExit`).
 			"import queue\nimport scope\n\nfunc f(done queue.Queue[int64]) {\n\tscope.OnExit() { done.Push(1) }\n\twork()\n}\n",
 		} {
@@ -363,19 +363,19 @@ func TestReadmeSmoke(t *testing.T) {
 		t.Parallel()
 		quoted := readmeSmokeDiagnostics.FindStringSubmatch(readme)
 		if quoted == nil {
-			t.Fatal("README has no `$ ergo diagnostics pay.ergo` console block")
+			t.Fatal("README has no `$ ergo diagnostics fetch.ergo` console block")
 		}
 		binary := buildTestCLI(t)
 		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "pay.ergo"), []byte(readmeSmokeS102Source), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "fetch.ergo"), []byte(readmeSmokeS102Source), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		stdout, stderr, code := runSmokeCLI(t, binary, dir, "", "diagnostics", "pay.ergo")
+		stdout, stderr, code := runSmokeCLI(t, binary, dir, "", "diagnostics", "fetch.ergo")
 		if code == 0 {
-			t.Fatalf("ergo diagnostics pay.ergo exited 0\n%s", stdout)
+			t.Fatalf("ergo diagnostics fetch.ergo exited 0\n%s", stdout)
 		}
 		if string(stdout) != quoted[1] {
-			t.Fatalf("ergo diagnostics pay.ergo printed %q, README quotes %q\n%s", stdout, quoted[1], stderr)
+			t.Fatalf("ergo diagnostics fetch.ergo printed %q, README quotes %q\n%s", stdout, quoted[1], stderr)
 		}
 	})
 

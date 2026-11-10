@@ -1,0 +1,29 @@
+// Package parts holds the program's parts library: data, not a service, so it
+// needs no contract.
+
+import stackbuilder/stack
+
+func part(name string, size int) stack.Part { stack.Part{Name: name, Size: size, Slots: []stack.Slot{}} }
+
+func server() stack.Part { part("server", 650) }
+
+func router() stack.Part { part("router", 600) }
+
+func drive() stack.Part { part("drive", 250) }
+
+func cache() stack.Part { part("cache", 300) }
+
+// node is a composite: a compute and a storage part, with a base of 100.
+func node() stack.Part {
+	stack.Part{Name: "node", Size: 100, Slots: []stack.Slot{stack.Slot{Name: "compute", Choices: []stack.Part{server(), router()}}, stack.Slot{Name: "storage", Choices: []stack.Part{drive(), cache()}}}}
+}
+
+// twin is a composite of two nodes, each a composite: editors nest three deep.
+func twin() stack.Part {
+	stack.Part{Name: "twin", Size: 0, Slots: []stack.Slot{stack.Slot{Name: "first", Choices: []stack.Part{node()}}, stack.Slot{Name: "second", Choices: []stack.Part{node()}}}}
+}
+
+// Sample is the library: two pages.
+func Sample() stack.Library {
+	stack.Library{Pages: [][]stack.Part{[]stack.Part{server(), drive(), node()}, []stack.Part{router(), cache(), twin()}}}
+}

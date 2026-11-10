@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"math/big"
 
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -39,6 +40,14 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 		return c.instantiate(t.origin(), args)
 	case *RowArg:
 		return &RowArg{Row: c.substRow(t.Row, m)}
+	case *Wired:
+		// wired[T] at T's argument is the argument's wire row, which
+		// flattens into the row it occurs in (Row.with).
+		b, ok := m[t.T]
+		if !ok || b == nil {
+			return t
+		}
+		return &RowArg{Row: c.wireRow(b)}
 	case *RowVar:
 		// A use of a generic function's inferred row: the substitution is
 		// recorded on the variable and applied to its solution when the row
@@ -104,6 +113,8 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 		return &MachineType{State: c.subst(t.State, m), Signal: c.subst(t.Signal, m)}
 	case *Slice:
 		return &Slice{Elem: c.subst(t.Elem, m)}
+	case *Array:
+		return &Array{Len: t.Len, Elem: c.subst(t.Elem, m)}
 	case *Map:
 		return &Map{Key: c.subst(t.Key, m), Elem: c.subst(t.Elem, m)}
 	case *Pointer:
@@ -713,6 +724,13 @@ func (c *checker) implements(v Type, it *Interface) string {
 	if e := refElem(v); e != nil {
 		v, ptr = e, true
 	}
+	if s := ScriptOf(v); s != nil && !ptr {
+		// A Script has the operations of its capability (script.go, rule 4).
+		if why := c.implements(s, it); why != "" {
+			return fmt.Sprintf("%s: %s", v, why)
+		}
+		return ""
+	}
 	for _, m := range it.Methods {
 		got, fn := c.methodOf(v, m.Name)
 		if got == nil {
@@ -778,6 +796,13 @@ func comparable(t Type) bool {
 }
 
 func comparableSeen(t Type, seen map[Type]bool) bool {
+	if n, ok := t.(*Named); ok && IsGoError(n) {
+		// go.Error keeps Go's native error (IG5): Go's == would compare
+		// the error's identity, and panic on an error type Go cannot
+		// compare. Its == compares Text (equatable, not comparable), so
+		// it is no Map key.
+		return false
+	}
 	switch u := under(t).(type) {
 	case *Basic:
 		return u.Kind != Invalid
@@ -816,6 +841,9 @@ func comparableSeen(t Type, seen map[Type]bool) bool {
 			}
 		}
 		return true
+	case *Array:
+		// An array compares when its element does, as in Go (196y).
+		return comparableSeen(u.Elem, seen)
 	case *Interface:
 		return false
 	case *Pointer:
@@ -843,6 +871,8 @@ func Equatable(t Type) bool { return equatableSeen(t, map[Type]bool{}) }
 func equatableSeen(t Type, seen map[Type]bool) bool {
 	switch u := under(t).(type) {
 	case *Slice:
+		return equatableSeen(u.Elem, seen)
+	case *Array:
 		return equatableSeen(u.Elem, seen)
 	case *Map:
 		return equatableSeen(u.Elem, seen)
@@ -908,6 +938,11 @@ func inSet(t Type, s TypeSet) bool {
 	if _, ok := t.(*TypeParam); ok {
 		return typeSet(t) >= s
 	}
+	if RefinementOf(t) != nil {
+		// ordered and number give + to a generic body, which could leave
+		// the where (Refinements 7).
+		return false
+	}
 	if s == SetOrdered && (isString(t) || isDuration(under(t))) {
 		return true
 	}
@@ -921,6 +956,18 @@ func (c *checker) satisfies(t Type, constraint Type) string {
 	}
 	it := asInterface(constraint)
 	if it == nil {
+		return ""
+	}
+	if it.Set == SetWire {
+		// An instance of a generic codec: the caller's package lowers
+		// the argument's codec, so it records the argument's pairs.
+		if r := c.wireReason(t); r != "" {
+			return r
+		}
+		if p := c.firstInferredParse(t); p != nil {
+			return fmt.Sprintf("%s reaches %s, whose fails row is inferred: write it (types.md, Codecs 2)", t, p.Name)
+		}
+		c.recordWire(t)
 		return ""
 	}
 	if it.Set != SetAll {
@@ -954,17 +1001,23 @@ func (c *checker) letZero(name *syntax.Ident, declared Type) {
 }
 
 // defaultable reports whether t has a valid zero value (types.md, Zero
-// values 1): a basic type, a slice or Map, a record with no fields, or a
-// tuple of these. A record with fields has none: it is built only by a
+// values 1): a basic type, a slice or Map, a record with no fields, or an
+// array or a tuple of these. A record with fields has none: it is built only by a
 // literal that names every field or by a record update (Zero values 2,
 // owner q44). A union, an interface, a function type, a pointer and a tuple
 // that holds a record with fields have none either.
 func defaultable(t Type) bool {
+	if r := RefinementOf(t); r != nil && !r.Holds(big.NewInt(0)) {
+		// The base's zero (0, or length 0) fails the where (Refinements 8).
+		return false
+	}
 	switch u := under(t).(type) {
 	case *Basic:
 		return true
 	case *Slice, *Map:
 		return true
+	case *Array:
+		return defaultable(u.Elem)
 	case *Tuple:
 		for _, e := range u.Types {
 			if !defaultable(e) {

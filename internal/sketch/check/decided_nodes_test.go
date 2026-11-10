@@ -14,7 +14,7 @@ var decidedFamilies = []string{
 	"context declaration", "context header", "context literal", "inline context header", "context entries",
 	"with", "with parentheses", "with several contexts",
 	"record type", "operation type", "law", "union", "variant in place", "machine",
-	"defined type", "type parameters", "ordered constraint",
+	"defined type", "refinement", "type parameters", "ordered constraint",
 	"fails and needs", "escaping", "tuple type", "tuple value", "Map type",
 	"first-parameter function", "extern",
 	"test", "assert",
@@ -589,6 +589,13 @@ func f() int {
 }
 func main() {}
 `, nil},
+	{"function literal", "a trailing function literal (L-tb)", `
+func apply(n int, h func(int) int) int { h(n) }
+func f() int {
+	apply(2) func(x int) int { return x + 1 }
+}
+func main() {}
+`, nil},
 	{"untyped parameter", "an untyped function literal parameter with no expected type is S108 (D-E1)", `
 func f() { _ = func(x) {} }
 func main() {}
@@ -658,6 +665,14 @@ func f(xs []int, m Map[string, int]) int {
 }
 func main() {}
 `, nil},
+	{"core forms", "a fixed array (196y)", `
+func f(a [3]int) int { a[0] + len(a) }
+func main() {
+	let mut b = [3]int{1, 2, 3}
+	b[1] = f(b)
+	_ = b
+}
+`, nil},
 	{"doc comments", "a doc comment on each declaration that keeps one", `
 // The timeout module.
 import timeout
@@ -724,6 +739,21 @@ func Now(f Fixed) int64 { return f.t }
 func f() int64 needs Log { return with context provides Ticker needs Log { Ticker: Fixed{t: 1} } { Ticker.Now() } }
 func main() {}
 `, []string{"S109:6", "S109:6"}},
+	{"refinement", "a refined type and a law parameter's where", `
+type Port int where 1 <= it && it <= 65535
+law DivMod(a int, b int where b != 0) { (a / b) * b + a % b == a }
+func main() {}
+`, nil},
+	{"refinement", "a by-name codec pair and its derived round-trip law", `
+type Host { name string }
+type BadHost { Text string }
+func ParseHost(s string) Host fails BadHost {
+	if s == "" { return BadHost{Text: s} }
+	Host{name: s}
+}
+func Wire(h Host) string { h.name }
+func main() {}
+`, nil},
 	{"law", "a documented law", `
 type Monoid {
 	Combine(a int, b int) int,

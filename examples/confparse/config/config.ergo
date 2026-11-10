@@ -22,7 +22,14 @@
 type Config { Name string, Listen Listen, Log Level, Upstreams []Upstream }
 
 // Listen is where the proxy listens.
-type Listen { Host string, Port int }
+type Listen { Host string, Port Port }
+
+// Port is a TCP port. Decode reads it through ParsePort, which the where
+// derives, so a Config never holds port 0 (types.md, Refinements).
+type Port int where 1 <= it && it <= 65535
+
+// Weight is an upstream's share of the requests.
+type Weight int where 1 <= it && it <= 100
 
 // Level is how much the proxy logs.
 type Level = Debug | Info | Warn | Error
@@ -35,8 +42,31 @@ type Error {}
 // Levels are the names of the levels, in order.
 let Levels = []string{"debug", "info", "warn", "error"}
 
-// LevelName is the name of l, which LevelNamed reads back.
-func LevelName(l Level) string {
+// UnknownLevel is a name that no level has.
+type UnknownLevel { Name string }
+
+// ParseLevel and Wire are Level's by-name codec pair (types.md, Codecs 1):
+// a Level is its name on the wire, read back through ParseLevel. The pair
+// derives the law LevelRoundTrips, which
+// ergo test runs: ParseLevel(Wire(l)) is l for every l that ParseLevel
+// builds (types.md, Codecs 7).
+func ParseLevel(name string) Level fails UnknownLevel {
+	match name {
+	case "debug":
+		Debug
+	case "info":
+		Info
+	case "warn":
+		Warn
+	case "error":
+		Error
+	case _:
+		UnknownLevel{Name: name}
+	}
+}
+
+// Wire is the name of l.
+func Wire(l Level) string {
 	match l {
 	case Debug:
 		"debug"
@@ -49,21 +79,5 @@ func LevelName(l Level) string {
 	}
 }
 
-// LevelNamed is the level of the name, if it names one.
-func LevelNamed(name string) Option[Level] {
-	match name {
-	case "debug":
-		Some[Level]{Value: Debug}
-	case "info":
-		Some[Level]{Value: Info}
-	case "warn":
-		Some[Level]{Value: Warn}
-	case "error":
-		Some[Level]{Value: Error}
-	case _:
-		None
-	}
-}
-
 // Upstream is a server the proxy sends requests to.
-type Upstream { Name string, Addr string, Weight int, Backup bool }
+type Upstream { Name string, Addr string, Weight Weight, Backup bool }

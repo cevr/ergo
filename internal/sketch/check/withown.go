@@ -88,7 +88,11 @@ func (c *checker) withOwnership() {
 			c.contextOwners.add(context)
 		}
 	}
+	for _, s := range c.contextValueSites {
+		c.contextOwners.add(s.w.Contexts[0])
+	}
 	owners := c.contextOwners.of
+	c.contextValueOwnership(owners)
 	// A body checked twice records its sites twice: the last record of each
 	// operand is the one Info holds.
 	type operandKey struct {

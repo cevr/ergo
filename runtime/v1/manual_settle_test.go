@@ -31,7 +31,11 @@ import (
 // of the Advance that did not return. Mutants, each a wait left unparked:
 // Stop's (B1, killed at seed 5), Drain's (B1, seed 23), an Ask's or a
 // State's answer (await, seed 0), ExitOf's end (waitDone, seed 0) and a
-// full Send's room (mailbox, seed 2).
+// full Send's room (mailbox, seed 2). Batch 14 adds Gets of an open, empty
+// host and Advances a member task makes while the test's task waits for
+// it (verdicts-2 follow-ups). Mutants: Host.Get's park removed, and the
+// park of a Handle's Wait removed (b14-settle-hostget,
+// b14-settle-nested-advance in the ledger).
 func TestManualAdvanceSettles(t *testing.T) {
 	var where atomic.Value
 	where.Store("before the first seed")
@@ -245,10 +249,44 @@ func settleRun(seed uint64, where *atomic.Value) string {
 			return struct{}{}, nil
 		})
 	}
+	// The batch-14 waits draw from their own stream, so the seeds the
+	// mutants above name keep their runs: Gets of a host no entry fills
+	// until the run ends, and Advances the test's task leaves to a member
+	// task and waits for (nested: the test's task is parked in the
+	// Wait while that member advances).
+	g2 := rand.New(rand.NewPCG(seed, 17))
+	host := &Host[int]{state: hostOpen}
+	for range g2.IntN(3) {
+		waits = append(waits, "hostget")
+		Go(&sc, Site("waiter hostget"), func(ct *rt.Task) (struct{}, error) {
+			_, _ = host.Get(ct)
+			return struct{}{}, nil
+		})
+	}
+	nested := g2.IntN(2) == 0
+	if nested {
+		waits = append(waits, "nested advance")
+		inner := move
+		move = func(d int) {
+			if g2.IntN(2) == 0 {
+				inner(d)
+				return
+			}
+			h := Go(&sc, Site("advancer"), func(ct *rt.Task) (struct{}, error) {
+				where.Store(fmt.Sprintf("seed %d, nested Advance(%d) after %v", seed, d, trace))
+				line.Advance(ct, time.Duration(d))
+				return struct{}{}, nil
+			})
+			if _, err := h.Wait(); err != nil {
+				panic(err)
+			}
+		}
+	}
 	trace = append(trace, fmt.Sprintf("sends %d, waits [%s]", sends, strings.Join(waits, " ")))
 	defer func() {
 		// Closing full ends every step's Push, so the sink and its
-		// waiters end.
+		// waiters end; closing host ends its Gets.
+		host.close()
 		full.End()
 		_ = sink.Stop(root)
 		_ = a.Stop(root)

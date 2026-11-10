@@ -51,20 +51,20 @@ func BoardOf(p Pad) Board {
 	}
 }
 
-// Login is the board the machine starts with: a name of letters, a
-// four-digit PIN and a note of any keys.
-func Login() []Spec {
+// Alarm is the board the machine starts with: a label of letters, a
+// four-digit time (HHMM) and a note of any keys.
+func Alarm() []Spec {
 	[]Spec{
-		Spec{ID: "name", Layout: Letters, Min: 1, Max: 0},
-		Spec{ID: "pin", Layout: Digits, Min: 4, Max: 4},
+		Spec{ID: "label", Layout: Letters, Min: 1, Max: 0},
+		Spec{ID: "time", Layout: Digits, Min: 4, Max: 4},
 		Spec{ID: "note", Layout: AnyText, Min: 0, Max: 0},
 	}
 }
 
-// Start is the machine's initial state: the Login board, focused on its
+// Start is the machine's initial state: the Alarm board, focused on its
 // first field.
 func Start() Pad {
-	Open(Login()) catch {
+	Open(Alarm()) catch {
 	case NoFields:
 		Board{Fields: []Field{}, Focus: "", Mode: Lower}
 	case Duplicate:

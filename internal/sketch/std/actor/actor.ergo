@@ -310,7 +310,7 @@ func Child[S, E, O, F, R, W, P](send func(e P), m Machine[S, E, O, F, R, W], cap
 // entry. The actor shows the entry only after its work filled its hosts,
 // waited, or ended, so a reader that sees the entry finds each host filled
 // unless the work waited first.
-// law-exempt: a host's answers depend on its owner entry, which only an actor's runner opens, fills and ends, and a law has no running entry; the runner's property TestActorHostAgreesWithModel holds its rules against the model host.qnt.
+// law-exempt: a host's answers depend on its owner entry, which only an actor's runner opens, fills and ends, and a law has no running entry; the runner's property TestActorHostAgreesWithModel holds its rules against the model models/host.
 type Host[A] {
 	// Get is the child once the entry's work filled the host, waiting
 	// while it is empty; it fails Stopped once the entry ended, also after

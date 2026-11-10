@@ -24,7 +24,7 @@ import (
 //     place rooted at a `let mut` or a borrow, and the element of an
 //     in-place Append is copied unless it is fresh: a literal of fresh
 //     parts, a call whose result is fresh (a function each of whose
-//     results is fresh, the prelude's Append and Delete on values that
+//     results is fresh, the prelude's Append, Delete and Put on values that
 //     hold no Map or slice, slices.WithCapacity), or a local that is dead
 //     after the bind and was never shared (move on last use);
 //   - escaping (V2): a read of a `let mut` root (a path x, x.f, x[i],
@@ -37,16 +37,20 @@ import (
 //     result is basic) and the return of the root from its own frame are
 //     never copied. A read through a borrow is always copied when kept: its
 //     caller writes after the call;
-//   - in place (V3): Append and Delete write their source only for
-//     `p = p.Append(x)` and `p = p.Delete(k)` on one place p rooted at a
-//     `let mut` or a borrow, or on a local that is dead after the call and
-//     was never shared; elsewhere Append appends to a clipped slice (a new
-//     array when it grows) and Delete deletes from a copy of the Map;
+//   - in place (V3): Append, Delete and Put write their source only for
+//     `p = p.Append(x)`, `p = p.Delete(k)` and `p = p.Put(k, v)` on one
+//     place p rooted at a `let mut` or a borrow, or on a local that is
+//     dead after the call and was never shared; elsewhere Append appends
+//     to a clipped slice (a new array when it grows), and Delete and Put
+//     write a copy of the Map. Put's value is not owned as Append's
+//     element is: a Map's value has no write path (a Map read is Get),
+//     so a value Put stores is never written through the Map;
 //   - captures (V4): a function literal or block that may outlive its call
-//     (an escaping frame, types.md Function values 2) takes a copy of each
-//     captured `let mut` whose value holds a Map or slice, when it does not
-//     write it and a write can follow its creation (runtime.md, Tasks 6:
-//     values copy into a task);
+//     (an escaping frame, types.md Function values 2 and 3) captures a
+//     `let mut` only when no write to it follows (the checker refuses the
+//     rest, owner q60), so it takes the value, not a copy of the storage
+//     (closures.go, snapshot; runtime.md, Tasks 6: values copy into a
+//     task);
 //   - owned parameters (V5, ownedParams): a parameter that a function
 //     takes into a let mut once and never reads after is copied by the
 //     caller that shares it, not by the callee, and a rebinding p = f(…,
@@ -95,8 +99,8 @@ var valueLowering string
 // valueMutant switches off one rule of the analysis, for the mutant runs
 // of TestValueRuleMutants only: "never-copy", "shallow", "elide-live" (a
 // live local moves), "elide-escape" (a kept read of a root written later
-// shares), "elide-closure" (an escaping frame shares its captures) and
-// "in-place" (Append and Delete always write their source), and for owned
+// shares) and
+// "in-place" (Append, Delete and Put always write their source), and for owned
 // parameters (V5) "consume-live" (an argument that stays live is passed
 // uncopied), "consume-captured" (a rebinding hands over a binding another
 // frame reads) and "own-live" (a parameter read after its bind is owned),
@@ -112,12 +116,11 @@ func valueRule() bool { return valueLowering != "alias" }
 
 // valueFacts are the decisions of the analysis, keyed by syntax node.
 type valueFacts struct {
-	clone    map[syntax.Expr]bool         // values copied where they are lowered
-	inPlace  map[*syntax.CallExpr]bool    // Append and Delete calls that write their source
-	snap     map[syntax.Node][]*check.Var // escaping frames and the captures they copy
-	roots    map[syntax.Node]*valueWalk   // analyzed bodies
-	fresh    map[*check.Func]int8         // 1 deciding, 2 fresh, 3 not fresh
-	consumed map[syntax.Expr]bool         // arguments an owned parameter takes in place (V5)
+	clone    map[syntax.Expr]bool       // values copied where they are lowered
+	inPlace  map[*syntax.CallExpr]bool  // Append, Delete and Put calls that write their source
+	roots    map[syntax.Node]*valueWalk // analyzed bodies
+	fresh    map[*check.Func]int8       // 1 deciding, 2 fresh, 3 not fresh
+	consumed map[syntax.Expr]bool       // arguments an owned parameter takes in place (V5)
 	owned    map[*syntax.FuncDecl][]ownedParam
 	ownCall  map[*syntax.CallExpr]bool     // calls that pass owned arguments unshared (V5)
 	refSites map[*syntax.CallExpr]*refSite // Update and Modify calls whose literal owns the held value (V6)
@@ -135,7 +138,6 @@ func (l *lowerer) valueFacts() *valueFacts {
 		l.vals = &valueFacts{
 			clone:    map[syntax.Expr]bool{},
 			inPlace:  map[*syntax.CallExpr]bool{},
-			snap:     map[syntax.Node][]*check.Var{},
 			roots:    map[syntax.Node]*valueWalk{},
 			fresh:    map[*check.Func]int8{},
 			consumed: map[syntax.Expr]bool{},
@@ -222,7 +224,7 @@ const (
 	occEscape                // kept elsewhere
 	occReturn                // returned from its own frame
 	occWrite                 // the root of a write
-	occPart                  // the source of an in-place Append or Delete
+	occPart                  // the source of an in-place Append, Delete or Put
 )
 
 // vocc is one use of a variable: its identifier, the largest path it
@@ -258,7 +260,7 @@ type valueWalk struct {
 	frameOf  map[syntax.Node]*vframe
 	frames   []*vframe
 	owns     []owning
-	calls    []*syntax.CallExpr       // prelude Append and Delete calls
+	calls    []*syntax.CallExpr       // prelude Append, Delete and Put calls
 	ergo     []*syntax.CallExpr       // calls of functions with an Ergo body (V5)
 	args     []syntax.Expr            // arguments of owned parameters (V5)
 	goArgs   []syntax.Expr            // operands of Go calls of import go that hold a Map or slice (gocall.go)
@@ -340,11 +342,11 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 		w.handParams(n, frame)
 	case *syntax.CallExpr:
 		w.refCall(n)
-		if c := w.info.Calls[n]; c != nil && c.Kind == check.CallFunc && (preludeAppend(c.Func) || preludeDelete(c.Func)) {
+		if c := w.info.Calls[n]; c != nil && c.Kind == check.CallFunc && (preludeAppend(c.Func) || preludeMapWrite(c.Func)) {
 			w.calls = append(w.calls, n)
 		} else if c != nil && c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil {
 			w.ergo = append(w.ergo, n)
-		} else if c != nil && goImportCall(c, w.typeOf) {
+		} else if c != nil && (goImportCall(c, w.typeOf) || goExternCall(c)) {
 			list := n.Args
 			if c.Recv != nil {
 				list = append([]syntax.Expr{c.Recv}, list...)
@@ -445,7 +447,7 @@ func (w *valueWalk) opens(n syntax.Node) (frame, escaping bool) {
 		parent, child := w.unparenParent(n)
 		call, ok := parent.(*syntax.CallExpr)
 		if !ok {
-			return true, true
+			return true, !w.info.LocalFrames[n]
 		}
 		if call.Fun == child {
 			return true, false
@@ -543,8 +545,10 @@ func preludeAppend(f *check.Func) bool {
 	return f != nil && f.Pkg != nil && f.Pkg.Path == "prelude" && f.Decl != nil && f.Decl.Extern != nil && f.Name == "Append"
 }
 
-func preludeDelete(f *check.Func) bool {
-	return f != nil && f.Pkg != nil && f.Pkg.Path == "prelude" && f.Decl != nil && f.Decl.Extern != nil && f.Name == "Delete"
+// preludeMapWrite reports the prelude's Delete or Put: a call that writes
+// its Map source when it may (V3), and writes a copy of it otherwise.
+func preludeMapWrite(f *check.Func) bool {
+	return f != nil && f.Pkg != nil && f.Pkg.Path == "prelude" && f.Decl != nil && f.Decl.Extern != nil && (f.Name == "Delete" || f.Name == "Put")
 }
 
 func (w *valueWalk) typeOf(x syntax.Expr) check.Type {
@@ -569,6 +573,10 @@ func holdsValueSeen(t check.Type, seen map[check.Type]bool) bool {
 	switch u := t.(type) {
 	case *check.Slice, *check.Map:
 		return true
+	case *check.Array:
+		// Go copies an array as a whole: it needs a copy function only
+		// when an element holds a slice or a Map (196y).
+		return holdsValueSeen(u.Elem, seen)
 	case *check.Tuple:
 		for _, e := range u.Types {
 			if holdsValueSeen(e, seen) {
@@ -593,13 +601,15 @@ func elemOf(t check.Type) check.Type {
 	switch u := t.(type) {
 	case *check.Slice:
 		return u.Elem
+	case *check.Array:
+		return u.Elem
 	case *check.Map:
 		return u.Elem
 	}
 	return nil
 }
 
-// recvOf is the source operand of a call of Append or Delete.
+// recvOf is the source operand of a call of Append, Delete or Put.
 func (w *valueWalk) recvOf(call *syntax.CallExpr) syntax.Expr {
 	c := w.info.Calls[call]
 	if c.Recv != nil {
@@ -615,7 +625,7 @@ func (w *valueWalk) recvOf(call *syntax.CallExpr) syntax.Expr {
 // and the snapshots.
 func (w *valueWalk) decide() {
 	vf := w.vf
-	// In-place pattern: p = p.Append(x) or p = p.Delete(k), one place
+	// In-place pattern: p = p.Append(x), p = p.Delete(k) or p = p.Put(k, v), one place
 	// rooted at a let mut or a borrow.
 	for _, call := range w.calls {
 		parent, child := w.unparenParent(call)
@@ -654,17 +664,6 @@ func (w *valueWalk) decide() {
 			w.classify(vv, o)
 			if o.kind == occWrite {
 				vv.writes = append(vv.writes, o)
-			}
-		}
-	}
-	// Captures (V4).
-	if valueMutant != "elide-closure" {
-		for _, vv := range w.order {
-			if !vv.mut || !vv.local || !w.l.holdsValue(vv.v.Type) {
-				continue
-			}
-			for _, f := range w.capturing(vv) {
-				vf.snap[f.node] = append(vf.snap[f.node], vv.v)
 			}
 		}
 	}
@@ -1168,7 +1167,7 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 			if w.recvOf(p) == child && !w.l.holdsValue(elemOf(t)) {
 				o.kind = occRead
 			}
-		case c.Kind == check.CallFunc && (preludeAppend(c.Func) || preludeDelete(c.Func)):
+		case c.Kind == check.CallFunc && (preludeAppend(c.Func) || preludeMapWrite(c.Func)):
 			if w.recvOf(p) == child && !w.l.holdsValue(elemOf(t)) {
 				o.kind = occRead
 			}
@@ -1307,61 +1306,19 @@ func (w *valueWalk) needsCopy(vv *vvar, o *vocc) bool {
 }
 
 // snapshotted reports whether frame f sees a copy of vv taken when an
-// enclosing frame was created.
+// enclosing escaping frame was made (the checker's value captures,
+// Info.ValueCaptures; types.md, Function values 3): no write to vv
+// follows that capture, so a read of the copy keeps a value no write
+// changes.
 func (w *valueWalk) snapshotted(vv *vvar, f *vframe) bool {
 	for ; f != nil && f != vv.frame; f = f.parent {
-		for _, s := range w.vf.snap[f.node] {
+		for _, s := range w.info.ValueCaptures[f.node] {
 			if s == vv.v {
 				return true
 			}
 		}
 	}
 	return false
-}
-
-// capturing are the outermost escaping frames that capture vv, write it
-// nowhere, and can see a write of vv made after their creation.
-func (w *valueWalk) capturing(vv *vvar) []*vframe {
-	var out []*vframe
-	seen := map[*vframe]bool{}
-	for _, o := range vv.occs {
-		f := w.outermostEscaping(o.frame, vv.frame)
-		if f == nil || seen[f] {
-			continue
-		}
-		seen[f] = true
-		writes, after := false, false
-		for _, wr := range vv.writes {
-			if wr.frame.inside(f) {
-				writes = true
-				break
-			}
-			if wr.frame != vv.frame || wr.at > w.pre[f.node] {
-				after = true
-			}
-			for _, l := range wr.loops {
-				if !containsNode(vv.loops, l) && w.pre[l] < w.pre[f.node] && w.post[l] > w.post[f.node] {
-					after = true
-				}
-			}
-		}
-		if !writes && after {
-			out = append(out, f)
-		}
-	}
-	return out
-}
-
-// outermostEscaping is the outermost escaping frame between from and the
-// frame decl that declares the variable, or nil.
-func (w *valueWalk) outermostEscaping(from, decl *vframe) *vframe {
-	var out *vframe
-	for f := from; f != nil && f != decl; f = f.parent {
-		if f.escaping {
-			out = f
-		}
-	}
-	return out
 }
 
 // freshen makes the value e, which enters a root, unshared: nothing when
@@ -1451,7 +1408,7 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 			return len(x.Args) == 1 && w.fresh(x.Args[0])
 		case check.CallFunc:
 			switch {
-			case preludeAppend(c.Func) || preludeDelete(c.Func):
+			case preludeAppend(c.Func) || preludeMapWrite(c.Func):
 				if w.vf.inPlace[x] {
 					return w.fresh(w.recvOf(x))
 				}
@@ -1599,10 +1556,10 @@ func (w *valueWalk) resultsFresh() bool {
 	return ok
 }
 
-// valueSource lowers the source operand of a call of the prelude's Append
-// or Delete that must not write it (V3): Append takes the source clipped
-// to its length, so Go's append makes a new array, and Delete takes a copy
-// of the Map. vals are the call's lowered operands, the source first.
+// valueSource lowers the source operand of a call of the prelude's Append,
+// Delete or Put that must not write it (V3): Append takes the source
+// clipped to its length, so Go's append makes a new array, and Delete and
+// Put take a copy of the Map. vals are the call's lowered operands, the source first.
 func (fc *funcCtx) valueSource(x *syntax.CallExpr, c *check.Call, vals []string) []string {
 	if !valueRule() || len(vals) == 0 || fc.l.valueFacts().inPlace[x] || valueMutant == "in-place" {
 		return vals
@@ -1610,7 +1567,7 @@ func (fc *funcCtx) valueSource(x *syntax.CallExpr, c *check.Call, vals []string)
 	switch {
 	case preludeAppend(c.Func):
 		vals[0] = fc.l.goPkg("slices") + ".Clip(" + vals[0] + ")"
-	case preludeDelete(c.Func):
+	case preludeMapWrite(c.Func):
 		vals[0] = fc.l.goPkg("maps") + ".Clone(" + vals[0] + ")"
 	}
 	return vals
@@ -1664,6 +1621,8 @@ func cloneBase(t check.Type) string {
 		return "ergoClone" + u.Obj.Name
 	case *check.Slice:
 		return "ergoCloneSlice"
+	case *check.Array:
+		return "ergoCloneArray"
 	case *check.Map:
 		return "ergoCloneMap"
 	case *check.Tuple:
@@ -1720,6 +1679,13 @@ func (l *lowerer) cloneFunc(t check.Type, site syntax.Node) (string, []*check.Ty
 		body.WriteString("\t" + c + " := make(" + goType + ", len(" + v + "))\n")
 		body.WriteString("\tfor " + k + ", " + e + " := range " + v + " {\n")
 		body.WriteString("\t\t" + c + "[" + k + "] = " + tc.cloneValue(u.Elem, e, site) + "\n\t}\n\treturn " + c + "\n")
+	case *check.Array:
+		// Go copied the array; each element that holds a slice or a Map
+		// is copied in turn.
+		i := scope.alloc("i")
+		body.WriteString("\t" + c + " := " + v + "\n")
+		body.WriteString("\tfor " + i + " := range " + c + " {\n")
+		body.WriteString("\t\t" + c + "[" + i + "] = " + tc.cloneValue(u.Elem, c+"["+i+"]", site) + "\n\t}\n\treturn " + c + "\n")
 	case *check.Tuple:
 		body.WriteString("\t" + c + " := " + v + "\n")
 		for i, et := range u.Types {
@@ -1776,6 +1742,8 @@ func (l *lowerer) reserveClones(pkgs []*check.Package, reserve func(key pkgKey, 
 		switch u := underEqual(t).(type) {
 		case *check.Slice:
 			walk(u.Elem)
+		case *check.Array:
+			walk(u.Elem)
 		case *check.Map:
 			walk(u.Elem)
 		case *check.Tuple:
@@ -1798,44 +1766,4 @@ func (l *lowerer) reserveClones(pkgs []*check.Package, reserve func(key pkgKey, 
 			}
 		}
 	}
-}
-
-// snapshot lowers the escaping frame n with build, which returns its Go
-// function literal. When the analysis listed captures to copy, each copy
-// is bound to a new Go variable in the statement before, in the frame that
-// creates the literal (a task's block runs its literal in the new task, so
-// a copy inside it would race with the creator's writes), and the literal
-// is lowered with each capture's Go name bound to its copy.
-func (fc *funcCtx) snapshot(n syntax.Node, build func() string) string {
-	if fc.l.vals == nil || len(fc.l.vals.snap[n]) == 0 {
-		return build()
-	}
-	vars := fc.l.vals.snap[n]
-	if capture := fc.l.info.TaskCaptures[n]; capture != nil {
-		// Resource captures move by R12; the value rule must not clone
-		// their containers. taskSnapshot binds their one moved value.
-		moved := map[*check.Var]bool{}
-		for _, v := range capture.Vars {
-			moved[v] = true
-		}
-		var plain []*check.Var
-		for _, v := range vars {
-			if !moved[v] {
-				plain = append(plain, v)
-			}
-		}
-		vars = plain
-	}
-	saved := make([]string, len(vars))
-	for i, v := range vars {
-		saved[i] = fc.locals[v]
-		name := fc.scope.alloc(v.Name)
-		fc.line(name + " := " + fc.cloneValue(v.Type, saved[i], n))
-		fc.locals[v] = name
-	}
-	closure := build()
-	for i, v := range vars {
-		fc.locals[v] = saved[i]
-	}
-	return closure
 }

@@ -125,7 +125,7 @@ func TimeDivide(d time.Duration, n int) time.Duration {
 //ergo:pure
 func TimeCount(d time.Duration, unit time.Duration) int {
 	if unit == -1 && d == time.Duration(-1<<63) {
-		return 1<<63 - 1
+		return int(^uint(0) >> 1) // the largest int on every GOARCH (math.MaxInt)
 	}
 	return int(d / unit)
 }

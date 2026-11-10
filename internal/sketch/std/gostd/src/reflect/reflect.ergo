@@ -90,7 +90,7 @@ extern go reflect.Kind.String func (k Kind) String() string needs go.Foreign
 extern go reflect.MakeChan func MakeChan(typ Type, buffer int) Value needs go.Foreign
 
 // ergo:go func MakeFunc(typ Type, fn func(args []Value) (results []Value)) Value
-extern go reflect.MakeFunc func MakeFunc(typ Type, fn func([]Value) []Value) Value needs go.Foreign
+extern go reflect.MakeFunc func MakeFunc(typ Type, fn escaping func([]Value) []Value) Value needs go.Foreign
 
 // ergo:go func MakeMap(typ Type) Value
 extern go reflect.MakeMap func MakeMap(typ Type) Value needs go.Foreign
@@ -258,7 +258,7 @@ extern go reflect.Type type Type {
 	FieldAlign() int needs go.Foreign,
 	FieldByIndex(index []int) StructField needs go.Foreign,
 	FieldByName(name string) (StructField, bool) needs go.Foreign,
-	FieldByNameFunc(p0 func(string) bool) (StructField, bool) needs go.Foreign,
+	FieldByNameFunc(p0 escaping func(string) bool) (StructField, bool) needs go.Foreign,
 	Fields() Seq[StructField] needs go.Foreign,
 	Implements(u Type) bool needs go.Foreign,
 	In(i int) Type needs go.Foreign,
@@ -397,7 +397,7 @@ extern go reflect.Value.FieldByIndexErr func (v Value) FieldByIndexErr(index []i
 extern go reflect.Value.FieldByName func (v Value) FieldByName(name string) Value needs go.Foreign
 
 // ergo:go func (Value).FieldByNameFunc(match func(string) bool) Value
-extern go reflect.Value.FieldByNameFunc func (v Value) FieldByNameFunc(p0 func(string) bool) Value needs go.Foreign
+extern go reflect.Value.FieldByNameFunc func (v Value) FieldByNameFunc(p0 escaping func(string) bool) Value needs go.Foreign
 
 // ergo:go func (Value).Fields() iter.Seq2[StructField, Value]
 // ergo:refused Value.Fields: result 1: the generic Go type Seq2 maps to no Ergo type in v1
@@ -418,7 +418,7 @@ extern go reflect.Value.Int func (v Value) Int() int64 needs go.Foreign
 // ergo:refused Value.Interface: result 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (Value).InterfaceData() [2]uintptr
-// ergo:refused Value.InterfaceData: result 1: Ergo has no fixed arrays; a Go array [2]uintptr maps to no Ergo type
+// ergo:refused Value.InterfaceData: result 1: Ergo has no uintptr
 
 // ergo:go func (Value).IsNil() bool
 extern go reflect.Value.IsNil func (v Value) IsNil() bool needs go.Foreign

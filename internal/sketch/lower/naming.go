@@ -47,6 +47,9 @@ import (
 
 // nameAll is the naming pass.
 func (l *lowerer) nameAll() {
+	if l.lib != "" {
+		l.nameExports()
+	}
 	l.declareNames()
 	for _, p := range l.sourcedPkgs() {
 		for _, tn := range l.canon.types(p) {
@@ -148,6 +151,13 @@ func (l *lowerer) nameAll() {
 				}
 			}
 		}
+		for x, with := range p.Info.ContextValues {
+			if w := with.Contexts[0]; l.readsFact(p, x) && w.Lit != nil {
+				for _, e := range w.Entries {
+					convs = append(convs, e.Conversions...)
+				}
+			}
+		}
 		if l.tests != nil && p == l.pkg {
 			// A law's run converts each provider into its operation type
 			// (tests.go, lawRuns).
@@ -197,6 +207,9 @@ func (l *lowerer) nameAll() {
 			}
 		}
 	}
+	l.reserveScripts(func(key pkgKey, base string) {
+		generated = append(generated, entry{key, "script " + key.obj.(string), base})
+	})
 	l.reserveDefaults(func(key pkgKey, base string) {
 		generated = append(generated, entry{key, "default " + key.obj.(string), base})
 	})
@@ -205,6 +218,9 @@ func (l *lowerer) nameAll() {
 	})
 	l.reserveClones(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, t check.Type) {
 		generated = append(generated, entry{key, "clone " + key.obj.(string), cloneBase(t)})
+	})
+	l.reserveWires(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, base, sort string) {
+		generated = append(generated, entry{key, sort, base})
 	})
 	for _, e := range sortGenerated(generated) {
 		l.pkgName(e.key, e.base)
@@ -256,6 +272,14 @@ func (l *lowerer) adapterName(c check.Conversion) (key, base string, ok bool) {
 	to, ok := c.To.(*check.Named)
 	if c.Kind != check.ConvOperations || !ok {
 		return "", "", false
+	}
+	if to.Obj.Pkg.Host() {
+		// One adapter per Go interface (gointerface.go); a Go value needs
+		// none.
+		if hostSourced(c.From) {
+			return "", "", false
+		}
+		return goInterfaceKey(l, to), "goAs" + to.Obj.Name, true
 	}
 	var from string
 	if named, _, isNamed := opsSource(c.From); isNamed {
@@ -373,6 +397,11 @@ func (l *lowerer) libraryPackages() []*check.Package {
 				for _, w := range with.Contexts {
 					contextPackages(w, add, visited)
 				}
+			}
+		}
+		for x, with := range info.ContextValues {
+			if l.readsFact(p, x) {
+				contextPackages(with.Contexts[0], add, visited)
 			}
 		}
 	}

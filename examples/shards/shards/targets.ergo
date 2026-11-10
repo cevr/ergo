@@ -1,0 +1,49 @@
+// Share is one share of a write: a disk or a tape, for a size in
+// hundredths.
+type Share = Disk{Device string, Size int} | Tape{Label string, Size int}
+
+// Ref is an acknowledged write: the target's reference and the size taken.
+type Ref { ID string, Size int }
+
+// Refused is a write the target lost.
+type Refused { Why string }
+
+// Targets is the contract the write needs from its targets.
+type Targets {
+	Write(t Share) Ref fails Refused,
+	Erase(r Ref) int,
+
+	// WriteTakesTheSize: an acknowledged write takes exactly the share's
+	// size.
+	law WriteTakesTheSize(disk string, size int) {
+		let t = Disk{Device: disk, Size: size}
+		let r = Write(t) catch {
+		case Refused:
+			return true
+		}
+		r.Size == SizeOf(t)
+	},
+	// EraseGivesBack: a erase gives back the size of its write.
+	law EraseGivesBack(id string, size int) {
+		Erase(Ref{ID: id, Size: size}) == size
+	},
+}
+
+// SizeOf is a share's size.
+func SizeOf(t Share) int {
+	match t {
+	case Disk as c:
+		c.Size
+	case Tape as v:
+		v.Size
+	}
+}
+
+// Sum is the size of the shares.
+func Sum(ts []Share) int {
+	let mut n = 0
+	for t in ts {
+		n = n + SizeOf(t)
+	}
+	n
+}

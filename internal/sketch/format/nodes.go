@@ -7,10 +7,15 @@ import (
 // ---------------------------------------------------------------- file and declarations
 
 func (p *printer) printFile(f *syntax.File) {
-	for i, d := range f.Decls {
-		if i > 0 {
+	printed := 0
+	for _, d := range f.Decls {
+		if syntax.IsDerived(d) {
+			continue // the parser derives it again from its refined type
+		}
+		if printed > 0 {
 			p.newline()
 		}
+		printed++
 		p.decl(d)
 	}
 }
@@ -50,6 +55,12 @@ func (p *printer) decl(d syntax.Decl) {
 			}
 		}
 		p.expr(d.Spec)
+		if d.Where != nil {
+			p.space()
+			p.token(d.WherePos, "where")
+			p.space()
+			p.expr(d.Where)
+		}
 	case *syntax.FuncDecl:
 		p.externSpec(d.Extern)
 		p.token(d.Func, "func")
@@ -298,6 +309,12 @@ func (p *printer) fieldList(l *syntax.FieldList, open, close string) {
 				p.space()
 			}
 			p.typ(f.Type)
+		}
+		if f.Where != nil {
+			p.space()
+			p.token(f.WherePos, "where")
+			p.space()
+			p.expr(f.Where)
 		}
 	}, l.Closing, close)
 }
@@ -942,11 +959,21 @@ func (p *printer) expr1(x syntax.Expr, depth int) {
 			return
 		}
 		p.expr1(x.Fun, depth)
+		args := x.Args
+		if x.TrailingFunc {
+			// The trailing function literal goes back after the `)`
+			// (grammar.md, Expressions 9).
+			args = args[:len(args)-1]
+		}
 		argDepth := depth
-		if len(x.Args) > 1 {
+		if len(args) > 1 {
 			argDepth++
 		}
-		p.list(x.Lparen, "(", nodes(x.Args), func(i int) { p.expr1(x.Args[i], argDepth) }, x.Rparen, ")")
+		p.list(x.Lparen, "(", nodes(args), func(i int) { p.expr1(args[i], argDepth) }, x.Rparen, ")")
+		if x.TrailingFunc {
+			p.space()
+			p.expr1(x.Args[len(x.Args)-1], depth)
+		}
 		if x.Trailing != nil {
 			p.space()
 			p.block(x.Trailing, true)
@@ -1003,6 +1030,9 @@ func (p *printer) expr1(x syntax.Expr, depth int) {
 		p.stmt(x.(syntax.Stmt))
 	case *syntax.ArrayType:
 		p.token(x.Lbrack, "[")
+		if x.Len != "" {
+			p.token(x.LenPos, x.Len)
+		}
 		p.synth("]")
 		p.typ(x.Elt)
 	case *syntax.MapType:

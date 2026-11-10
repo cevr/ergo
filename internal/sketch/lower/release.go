@@ -136,6 +136,10 @@ func closeTypeArgs(cl *check.Close, site syntax.Node) []check.Type {
 			if rs, ok := r.(*check.Slice); ok {
 				match(p.Elem, rs.Elem)
 			}
+		case *check.Array:
+			if ra, ok := r.(*check.Array); ok {
+				match(p.Elem, ra.Elem)
+			}
 		case *check.Map:
 			if rm, ok := r.(*check.Map); ok {
 				match(p.Key, rm.Key)
@@ -449,13 +453,13 @@ func (g *glueGen) parts(d *check.Drop, x, taken string) string {
 	if d.Elem != nil {
 		e := g.fc.temp("e")
 		switch underOf(d.Type).(type) {
-		case *check.Slice:
+		case *check.Slice, *check.Array:
 			i := g.fc.temp("i")
 			b.WriteString("for " + i + " := len(" + x + ") - 1; " + i + " >= 0; " + i + "-- { " + e + " := " + x + "[" + i + "]; " + g.release(d.Elem, e) + "}; ")
 		case *check.Map:
 			b.WriteString("for _, " + e + " := range " + x + " { " + g.release(d.Elem, e) + "}; ")
 		default:
-			ice(g.site, "a generated release of %s, which has elements but is no slice or Map", d.Type)
+			ice(g.site, "a generated release of %s, which has elements but is no slice, array or Map", d.Type)
 		}
 	}
 	if d.Drain != nil {

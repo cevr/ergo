@@ -1,0 +1,1332 @@
+// The package runner is the design model of the live machine runner, std
+// actor.StartMachine (runtime.md, Machines and actors 11 to 13; runtime/v1
+// actor.go, rules 1 to 8, 11 and 17), checked by `ergo test models/runner`.
+// It replaced the Quint model actor_machine.qnt of
+// docs/research/actor-machine (MU3, MU4, MU12, fua-a; deleted): the same
+// actions and invariants, decided by a breadth-first search of every state
+// in a small scope instead of random traces (wf10 explorer X4).
+//
+// Senders admit signals into one inbox of capacity Cap: a Send, or an Ask
+// that waits for its answer. The runner takes the front envelope and steps
+// it to completion before it takes the next (run to completion). Each
+// entry of the machine (the first state, an Enter, an Emit) may arm one
+// timer: a child that sleeps and then pushes a timer envelope tagged with
+// its entry's epoch into the same inbox. When an entry ends, the runner
+// stops the timer child and waits until it has ended before the next entry
+// arms its own (exit before entry); a timer envelope of an ended entry
+// that is already in the inbox is dropped, never stepped. Done ends the
+// actor: the inbox closes, queued Asks are answered Stopped, and nothing is
+// stepped after it. Stop (from outside) closes admission, interrupts the
+// runner (an Ask in flight is answered Stopped) and drains the inbox the
+// same way. The step's decision is a free choice in every step.
+//
+// The entry's work (MU4) is a second child of the entry, started after the
+// commit and before observers see the new state. A running work pushes
+// result envelopes tagged with its entry's epoch (one and it ends, or one
+// of a listener's, which goes on), or one defect envelope, which ends the
+// actor whatever its epoch. When the entry ends, the runner interrupts the
+// work and waits for its end before the next entry starts its own; an
+// interrupted work pushes nothing.
+//
+// Observers and the drain (MU12): each observer may begin a
+// Changes loop at any point; it gets the state shown now, then each state
+// published after it, from a buffer of its own, and its loop ends once the
+// actor ended and it read the buffer. Every written state is published: a
+// Stay's at its commit, an entry's once its children run, and one whose
+// entry a stop overtook at the halt. Drain closes admission; the runner
+// steps what is queued and ends when nothing is queued and no entry is
+// open. An Emit's output goes to the sink with the commit that gives it
+// (fua-a), so no observer is shown a state that owes its output.
+//
+// Each action of the Quint model is a signal; an action that is not
+// enabled is Ignore. The model starts in Boot; Start chooses whether the
+// first entry has a timer and a work (Quint's init). The invariants are
+// checked after each step: a step that breaks one enters Broken with its
+// name. RunToCompletion, NoStaleStep, ExitBeforeEntry, OneTimerPerEntry,
+// OneLiveWorkPerEntry, TimerOnlyInItsEntry, WorkOnlyInItsEntry,
+// NothingAfterInterrupt, ObserversAfterWork, NoStepAfterEnd,
+// PerSenderOrder, AskAnsweredOnce, ChangesInOrderOnce,
+// WaitForMatchesReplay, NothingAfterEnd, DrainStepsQueued and
+// OutputBeforeShown are the Quint model's (see holds).
+//
+// The scope is the Quint model's (2 senders of 2 signals each, and 3 in
+// Design3; an inbox of 2; observers, see below), with one bound Quint has as its 40
+// steps: at most MaxWrites commits (Enter, Stay, Emit), so at most
+// MaxWrites entries after the first. It is the claim: "proved" means
+// proved in this scope. The state is the Quint state with what no action
+// or invariant can tell apart merged (each is exact: two merged states have
+// the same futures and the same verdicts):
+//
+//   - an Ask leaves the system once (stepped, drained, refused), answered
+//     or not, so the answers per id are Twice (an Ask answered twice) and
+//     Lost (an Ask left unanswered);
+//   - a signal leaves the inbox by a take or by a drop, so "the drain
+//     stepped every signal it admitted" is "no admitted signal was
+//     dropped" (Dropped);
+//   - the timer and work counts per entry: only the current entry's can
+//     grow, so ArmsNow and StartsNow count the current entry's, and
+//     ArmsBad and StartsBad keep an older entry's past 1;
+//   - an observer's states read are, in a state that breaks nothing,
+//     consecutive from its start, so it keeps Next (the state it must read
+//     next) and Read (whether it read one);
+//   - epochs are relative: an epoch only grows, and every action and
+//     invariant only compares an epoch with the current one, so an epoch
+//     is "current" (0) or "ended" (-1), and Quint's epoch counter goes;
+//   - the senders are symmetric, so they are relabeled to a canonical
+//     order (canon);
+//   - a field that no later action reads is cleared: the timer's and the
+//     work's entry when they are none, the epoch of a defect and of a
+//     sender's envelope, the sender and number of the envelope in the step
+//     (read only at its take);
+//   - one observer stands for Quint's two: an observer's actions change
+//     only its own record and never enable or disable another action, and
+//     each invariant and witness over observers is about one observer, so a
+//     run with two observers, less one observer's actions, is a run with
+//     one, with the same verdicts;
+//   - counters that only the witnesses read (asks, admitted signals, an
+//     observer's reads, the states an Emit wrote) are kept only by the
+//     witness machine that reads it (Ghost).
+//
+// Mutants, each a machine whose law Breaks must hold (a shortest run that
+// breaks the invariant named; as in the Quint check, each mutant machine
+// checks only that one):
+//   - NoEpoch: the runner steps a timer envelope without its epoch check
+//     (NoStaleStep);
+//   - ArmEarly: the next entry arms before the old timer child ended
+//     (ExitBeforeEntry);
+//   - StayRestarts: Stay restarts the timer, as an Enter does
+//     (OneTimerPerEntry);
+//   - NoClose: Done does not close the inbox; the runner goes on
+//     (NoStepAfterEnd);
+//   - AnswerTwice: an Ask is answered twice (AskAnsweredOnce);
+//   - TwoAtOnce: the runner takes a second envelope while one is in a step
+//     (RunToCompletion);
+//   - AnyOrder: the runner takes any envelope, not the front one
+//     (PerSenderOrder);
+//   - NoWorkEpoch: the runner steps a result envelope of an ended entry
+//     (NoStaleStep);
+//   - WorkEarly: the next entry's work starts before the old work ended
+//     (ExitBeforeEntry);
+//   - FailOnInterrupt: an interrupted work pushes its failure
+//     (NothingAfterInterrupt);
+//   - WorkBeforeCommit: the work starts with the epoch before the commit
+//     (WorkOnlyInItsEntry);
+//   - PublishFirst: observers see the new entry before its work starts
+//     (ObserversAfterWork);
+//   - NotifyTwice: an observer reads a state and keeps it, so it gets it
+//     twice (ChangesInOrderOnce);
+//   - SkipBeforeStop: an observer's loop ends at the end with states unread
+//     (NothingAfterEnd);
+//   - StaleSnapshot: a new observer's first state is one from before its
+//     start (WaitForMatchesReplay);
+//   - DrainDrops: Drain drops the last queued signal (DrainStepsQueued);
+//   - OutputLate: an Emit's output goes to the sink after its entry is
+//     shown, the runner before fua-a (OutputBeforeShown).
+//
+// Witnesses, each a machine whose law Reached must hold, so the invariants
+// are not vacuous: a stale tick and a stale result in a step; an
+// interrupted work; a defect in a step; the end after two Asks with every
+// sender done; a full inbox; two senders queued; an observer that read
+// three states to the end; a wait begun after two commits; a stop that ends
+// the actor while an observer has states unread; a drain that ends the
+// actor after two admitted signals; an observer that reads a state an Emit
+// wrote.
+//
+// Workarounds of today's Ergo: a variant with no fields is written `S0{}`
+// in its union; there is no slice update expression, so setInt, setBool
+// and setObs copy a slice.
+
+type Sender = S0{} | S1{} | S2{}
+
+type Ob = O0{}
+
+// At is the index of the envelope a take picks (AnyOrder only; the
+// design takes the front).
+type At = At0{} | At1{}
+
+// Dec is the step's decision.
+type Dec = DEnter{} | DStay{} | DEmit{} | DIgnore{} | DReject{} | DDone{}
+
+// Env is an envelope. Kind is Send, Ask, Tick, Result, Defect or NoKind; a
+// tick, a result and a defect have Sender -1 and Seq 0; Epoch is 0 when the
+// envelope is of the current entry and -1 when its entry ended (a tick or a
+// result; 0 for the others). The envelope in the step keeps its kind and
+// its epoch only.
+type Env { Kind int, Sender int, Seq int, Epoch int }
+
+// Obs is an observer: whether it subscribed, the state it must read next,
+// whether it read one, its reads (a witness counter, up to 3), the states
+// published to it that it has not read, and whether its loop ended.
+type Obs { Sub bool, Next int, Read bool, Count int, Buf []int, Done bool }
+
+// World is the Quint model's state, merged as the header says. Runner is
+// Idle, Busy or Ended; Timer and Work are NoChild, Sleeping (Running) or
+// Stopping; EndBy is how the actor ended (NotEnded, ByDone, ByDefect,
+// ByStop, ByDrain). TimerEpoch and WorkEpoch are 0 for the current entry
+// and -1 for an ended one; Seen is -1 when observers were last shown an
+// ended entry, 0 the current one, as Quint's seen against epoch.
+type World {
+	Inbox       []Env,
+	NextSeq     []int,
+	Open        bool,
+	StopReq     bool,
+	Runner      int,
+	Cur         Env,
+	InFlight    int,
+	Timer       int,
+	TimerEpoch  int,
+	Work        int,
+	WorkEpoch   int,
+	Pending     bool,
+	Seen        int,
+	ArmsNow     int,
+	ArmsBad     bool,
+	StartsNow   int,
+	StartsBad   bool,
+	LastStepped []int,
+	Twice       bool,
+	Lost        bool,
+	StaleBad    bool,
+	ArmEarly    bool,
+	WorkEarly   bool,
+	AfterIntr   bool,
+	AfterEnd    bool,
+	OrderBad    bool,
+	DoneSeen    bool,
+	ChangesBad  bool,
+	WaitForBad  bool,
+	State       int,
+	Shown       int,
+	Obs         []Obs,
+	Owed        []int,
+	DrainReq    bool,
+	EndBy       int,
+	Dropped     bool,
+	Asked       int,
+	Admitted    int,
+	Emits       []bool,
+}
+
+// St is the model's state: Boot before Start, the world, a broken
+// invariant, or a witness reached (only the witness machines enter Seen).
+type St = Boot{} | Live{W World} | Broken{Why string} | Seen{What string}
+
+// Act is the actions of the Quint model, and Start, its init.
+type Act = Start{Timer bool, Work bool} | Admit{S Sender, Ask bool} | Fire{} | TimerEnds{} | WorkPush{Defect bool, Last bool} | WorkEnds{} | Take{At At} | Drop{} | DefectEnds{} | StepIt{D Dec} | Arm{Timer bool, Work bool} | RequestStop{} | Halt{} | Subscribe{O Ob} | Observe{O Ob} | ObserverEnds{O Ob} | RequestDrain{} | DrainEnds{} | GiveOut{}
+
+// The scope.
+let Msgs = 2
+let Cap = 2
+let MaxWrites = 2
+
+// Envelope kinds.
+let Send = 0
+let Ask = 1
+let Tick = 2
+let Result = 3
+let Defect = 4
+let NoKind = 5
+
+// The runner, the timer and the work.
+let Idle = 0
+let Busy = 1
+let Ended = 2
+let NoChild = 0
+let Sleeping = 1
+let Running = 1
+let Stopping = 2
+
+// How the actor ended.
+let NotEnded = 0
+let ByDone = 1
+let ByDefect = 2
+let ByStop = 3
+let ByDrain = 4
+
+// The mutants and the design, as the argument of next.
+let NoMutant = 0
+let NoEpochMutant = 1
+let ArmEarlyMutant = 2
+let StayRestartsMutant = 3
+let NoCloseMutant = 4
+let AnswerTwiceMutant = 5
+let TwoAtOnceMutant = 6
+let AnyOrderMutant = 7
+let NoWorkEpochMutant = 8
+let WorkEarlyMutant = 9
+let FailOnInterruptMutant = 10
+let WorkBeforeCommitMutant = 11
+let PublishFirstMutant = 12
+let NotifyTwiceMutant = 13
+let SkipBeforeStopMutant = 14
+let StaleSnapshotMutant = 15
+let DrainDropsMutant = 16
+let OutputLateMutant = 17
+
+// The invariants, in the order broken checks them.
+let Invariants = []string{"RunToCompletion", "NoStaleStep", "ExitBeforeEntry", "OneTimerPerEntry", "OneLiveWorkPerEntry", "TimerOnlyInItsEntry", "WorkOnlyInItsEntry", "NothingAfterInterrupt", "ObserversAfterWork", "NoStepAfterEnd", "PerSenderOrder", "AskAnsweredOnce", "ChangesInOrderOnce", "WaitForMatchesReplay", "NothingAfterEnd", "DrainStepsQueued", "OutputBeforeShown"}
+
+// Cfg is a machine of the model: its mutant, its number of senders, the
+// witness whose counter it keeps (0: none), and the invariant it checks
+// ("": every one).
+type Cfg { M int, Senders int, Ghost int, Only string }
+
+func senderIx(s Sender) int {
+	match s {
+	case S0:
+		0
+	case S1:
+		1
+	case S2:
+		2
+	}
+}
+
+func obIx(o Ob) int {
+	match o {
+	case O0:
+		0
+	}
+}
+
+func atIx(a At) int {
+	match a {
+	case At0:
+		0
+	case At1:
+		1
+	}
+}
+
+func setInt(xs []int, i int, v int) []int {
+	let mut out = []int{}
+	for j, x in xs {
+		if j == i {
+			out = out.Append(v)
+		} else {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func setBool(xs []bool, i int, v bool) []bool {
+	let mut out = []bool{}
+	for j, x in xs {
+		if j == i {
+			out = out.Append(v)
+		} else {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func setObs(xs []Obs, i int, v Obs) []Obs {
+	let mut out = []Obs{}
+	for j, x in xs {
+		if j == i {
+			out = out.Append(v)
+		} else {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func removeAt(xs []Env, i int) []Env {
+	let mut out = []Env{}
+	for j, x in xs {
+		if j != i {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// aged is the inbox after its entry ended: each tick and result in it is
+// of an ended entry.
+func aged(xs []Env) []Env {
+	let mut out = []Env{}
+	for x in xs {
+		if x.Kind == Tick || x.Kind == Result {
+			out = out.Append(Env{..x, Epoch: -1})
+		} else {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func noEnv() Env {
+	Env{Kind: NoKind, Sender: -1, Seq: -1, Epoch: -1}
+}
+
+func noObs() Obs {
+	Obs{Sub: false, Next: 0, Read: false, Count: 0, Buf: []int{}, Done: false}
+}
+
+func isSignal(e Env) bool {
+	e.Kind == Send || e.Kind == Ask
+}
+
+// hasSignal reports whether the inbox holds a sender's signal.
+func hasSignal(xs []Env) bool {
+	for x in xs {
+		if isSignal(x) {
+			return true
+		}
+	}
+	false
+}
+
+// first is the start, before Quint's init.
+func first() St {
+	Boot
+}
+
+// booted is the state after Quint's init: the first entry with its timer
+// and its work, or none.
+func booted(timer bool, work bool) World {
+	World{
+		Inbox:       []Env{},
+		NextSeq:     []int{0, 0, 0},
+		Open:        true,
+		StopReq:     false,
+		Runner:      Idle,
+		Cur:         noEnv(),
+		InFlight:    0,
+		Timer:       if timer { Sleeping } else { NoChild },
+		TimerEpoch:  0,
+		Work:        if work { Running } else { NoChild },
+		WorkEpoch:   0,
+		Pending:     false,
+		Seen:        0,
+		ArmsNow:     if timer { 1 } else { 0 },
+		ArmsBad:     false,
+		StartsNow:   if work { 1 } else { 0 },
+		StartsBad:   false,
+		LastStepped: []int{-1, -1, -1},
+		Twice:       false,
+		Lost:        false,
+		StaleBad:    false,
+		ArmEarly:    false,
+		WorkEarly:   false,
+		AfterIntr:   false,
+		AfterEnd:    false,
+		OrderBad:    false,
+		DoneSeen:    false,
+		ChangesBad:  false,
+		WaitForBad:  false,
+		State:       0,
+		Shown:       0,
+		Obs:         []Obs{noObs()},
+		Owed:        []int{},
+		DrainReq:    false,
+		EndBy:       NotEnded,
+		Dropped:     false,
+		Asked:       0,
+		Admitted:    0,
+		Emits:       []bool{false, false, false, false},
+	}
+}
+
+// sendersDone reports whether every sender of the scope sent its signals.
+func sendersDone(c Cfg, w World) bool {
+	for i in 0..c.Senders {
+		if w.NextSeq[i] < Msgs {
+			return false
+		}
+	}
+	true
+}
+
+// holds reports whether w keeps the invariant name.
+func holds(c Cfg, w World, name string) bool {
+	if name == "RunToCompletion" {
+		return w.InFlight <= 1
+	}
+	if name == "NoStaleStep" {
+		return !w.StaleBad
+	}
+	if name == "ExitBeforeEntry" {
+		return !w.ArmEarly && !w.WorkEarly
+	}
+	if name == "OneTimerPerEntry" {
+		return !w.ArmsBad && w.ArmsNow <= 1
+	}
+	if name == "OneLiveWorkPerEntry" {
+		return !w.StartsBad && w.StartsNow <= 1
+	}
+	if name == "TimerOnlyInItsEntry" {
+		return w.Timer != Sleeping || w.TimerEpoch == 0 || w.Pending
+	}
+	if name == "WorkOnlyInItsEntry" {
+		return w.Work != Running || w.WorkEpoch == 0 || w.Pending
+	}
+	if name == "NothingAfterInterrupt" {
+		return !w.AfterIntr
+	}
+	if name == "ObserversAfterWork" {
+		return !(w.Pending && w.Seen == 0)
+	}
+	if name == "NoStepAfterEnd" {
+		return !w.AfterEnd
+	}
+	if name == "PerSenderOrder" {
+		return !w.OrderBad
+	}
+	if name == "AskAnsweredOnce" {
+		return !w.Twice && !(w.Runner == Ended && sendersDone(c, w) && w.Lost)
+	}
+	if name == "ChangesInOrderOnce" {
+		return !w.ChangesBad
+	}
+	if name == "WaitForMatchesReplay" {
+		return !w.WaitForBad
+	}
+	if name == "NothingAfterEnd" {
+		for o in w.Obs {
+			if o.Done && !(w.Runner == Ended && o.Read && o.Next-1 == w.State) {
+				return false
+			}
+		}
+		return true
+	}
+	if name == "DrainStepsQueued" {
+		return w.EndBy != ByDrain || !w.Dropped
+	}
+	// OutputBeforeShown: no state an observer is shown, or may read, owes
+	// its output.
+	for i in w.Owed {
+		if i <= w.Shown {
+			return false
+		}
+	}
+	true
+}
+
+// broken is the name of the first invariant w breaks among those c checks,
+// or "".
+func broken(c Cfg, w World) string {
+	for name in Invariants {
+		if (c.Only == "" || c.Only == name) && !holds(c, w, name) {
+			return name
+		}
+	}
+	""
+}
+
+// publish shows the state s to every subscribed observer whose loop has
+// not ended.
+func publish(w World, s int) World {
+	let mut obs = []Obs{}
+	for o in w.Obs {
+		if o.Sub && !o.Done {
+			obs = obs.Append(Obs{..o, Buf: o.Buf.Append(s)})
+		} else {
+			obs = obs.Append(o)
+		}
+	}
+	World{..w, Shown: s, Obs: obs}
+}
+
+// showWritten publishes the last written state if it is not shown yet.
+func showWritten(w World) World {
+	if w.Shown != w.State {
+		return publish(w, w.State)
+	}
+	w
+}
+
+// stopChildren asks the timer child to stop and interrupts the work.
+func stopChildren(w World) World {
+	World{..w,
+		Timer: if w.Timer == Sleeping { Stopping } else { w.Timer },
+		Work:  if w.Work == Running { Stopping } else { w.Work },
+	}
+}
+
+// answered is w after the Ask e (if it is one) got n answers.
+func answered(w World, e Env, n int) World {
+	if e.Kind == Ask && n >= 2 {
+		return World{..w, Twice: true}
+	}
+	w
+}
+
+// drained is w after the queued envelopes were cleared at an end: every
+// queued Ask is answered Stopped, and each queued signal is dropped.
+func drained(w World) World {
+	World{..w, Inbox: []Env{}, Dropped: w.Dropped || hasSignal(w.Inbox)}
+}
+
+// Perms2 and Perms3 are the relabelings of 2 and 3 senders: p[i] is the
+// new label of sender i.
+let Perms2 = [][]int{[]int{0, 1, 2}, []int{1, 0, 2}}
+let Perms3 = [][]int{[]int{0, 1, 2}, []int{0, 2, 1}, []int{1, 0, 2}, []int{1, 2, 0}, []int{2, 0, 1}, []int{2, 1, 0}}
+
+// relabel is w with sender i named p[i].
+func relabel(w World, p []int) World {
+	let mut nextSeq = []int{0, 0, 0}
+	let mut last = []int{0, 0, 0}
+	for i in 0..3 {
+		nextSeq = setInt(nextSeq, p[i], w.NextSeq[i])
+		last = setInt(last, p[i], w.LastStepped[i])
+	}
+	let mut inbox = []Env{}
+	for e in w.Inbox {
+		inbox = inbox.Append(if e.Sender >= 0 { Env{..e, Sender: p[e.Sender]} } else { e })
+	}
+	World{..w, NextSeq: nextSeq, LastStepped: last, Inbox: inbox}
+}
+
+// senderKey is what a relabeling changes, so two relabelings of w with one
+// key are one state.
+func senderKey(w World) []int {
+	let mut k = []int{}
+	for i in 0..3 {
+		k = k.Append(w.NextSeq[i])
+		k = k.Append(w.LastStepped[i])
+	}
+	for e in w.Inbox {
+		k = k.Append(e.Sender)
+	}
+	k
+}
+
+func lessInts(a []int, b []int) bool {
+	for i, x in a {
+		if x != b[i] {
+			return x < b[i]
+		}
+	}
+	false
+}
+
+// canon is w in its canonical form: the senders relabeled to the least
+// key (the senders are symmetric: each sends the same signals, and every
+// invariant and witness reads them alike), and the entries of a timer or
+// a work that is none cleared.
+func canon(c Cfg, v World) World {
+	let perms = if c.Senders == 3 { Perms3 } else { Perms2 }
+	let mut w = v
+	let mut key = senderKey(v)
+	for p in perms {
+		let r = relabel(v, p)
+		let k = senderKey(r)
+		if lessInts(k, key) {
+			w = r
+			key = k
+		}
+	}
+	World{..w,
+		TimerEpoch: if w.Timer == NoChild { 0 } else { w.TimerEpoch },
+		WorkEpoch:  if w.Work == NoChild { 0 } else { w.WorkEpoch },
+	}
+}
+
+// stale reports whether the envelope in the step is a tick or a result of
+// an ended entry that the runner drops (NoEpoch steps a stale tick,
+// NoWorkEpoch a stale result).
+func stale(c Cfg, w World) bool {
+	(w.Cur.Kind == Tick && w.Cur.Epoch != 0 && c.M != NoEpochMutant) || (w.Cur.Kind == Result && w.Cur.Epoch != 0 && c.M != NoWorkEpochMutant)
+}
+
+// next is w after the action a in the machine c, or None when a is not
+// enabled.
+func next(c Cfg, w World, a Act) Option[World] {
+	match a {
+	case Start:
+		None
+	case Admit as ad:
+		// A sender admits its next signal, or is refused Stopped once
+		// admission closed (a refused Ask is answered by the refusal).
+		let i = senderIx(ad.S)
+		if i >= c.Senders || w.NextSeq[i] >= Msgs {
+			return None
+		}
+		let e = Env{Kind: if ad.Ask { Ask } else { Send }, Sender: i, Seq: w.NextSeq[i], Epoch: 0}
+		let asked = if c.Ghost == EndAfterAsksWitness && ad.Ask && w.Asked < 2 { w.Asked + 1 } else { w.Asked }
+		let w2 = World{..w, NextSeq: setInt(w.NextSeq, i, w.NextSeq[i]+1), Asked: asked}
+		if !w.Open {
+			return Some[World]{Value: w2}
+		}
+		if len(w.Inbox) >= Cap {
+			return None
+		}
+		let admitted = if c.Ghost == DrainEndWitness && w.Admitted < 2 { w.Admitted + 1 } else { w.Admitted }
+		Some[World]{Value: World{..w2, Inbox: w.Inbox.Append(e), Admitted: admitted}}
+	case Fire:
+		// The timer child wakes and pushes its tick, with its entry's
+		// epoch; a child asked to stop may still push (a stale tick).
+		if (w.Timer != Sleeping && w.Timer != Stopping) || !w.Open || len(w.Inbox) >= Cap {
+			return None
+		}
+		Some[World]{Value: World{..w, Inbox: w.Inbox.Append(Env{Kind: Tick, Sender: -1, Seq: 0, Epoch: w.TimerEpoch}), Timer: NoChild}}
+	case TimerEnds:
+		// A stopped timer child ends without pushing.
+		if w.Timer != Stopping {
+			return None
+		}
+		Some[World]{Value: World{..w, Timer: NoChild}}
+	case WorkPush as p:
+		// A running work pushes a result with its entry's epoch (the last,
+		// or one of a listener's), or a defect, and ends. An interrupted
+		// work pushes nothing (FailOnInterrupt: it pushes its failure).
+		if !(w.Work == Running || (c.M == FailOnInterruptMutant && w.Work == Stopping)) || !w.Open || len(w.Inbox) >= Cap {
+			return None
+		}
+		let k = if p.Defect { Defect } else { Result }
+		Some[World]{Value: World{..w,
+			Inbox:     w.Inbox.Append(Env{Kind: k, Sender: -1, Seq: 0, Epoch: if p.Defect { 0 } else { w.WorkEpoch }}),
+			Work:      if p.Last || p.Defect { NoChild } else { w.Work },
+			AfterIntr: w.AfterIntr || w.Work == Stopping,
+		}}
+	case WorkEnds:
+		// A work ends: a listener returns with nothing to send, or an
+		// interrupted work ends without pushing.
+		if w.Work != Running && w.Work != Stopping {
+			return None
+		}
+		Some[World]{Value: World{..w, Work: NoChild}}
+	case Take as t:
+		// The runner takes the front envelope (AnyOrder: any one;
+		// TwoAtOnce: also while one is in a step).
+		let k = atIx(t.At)
+		if !(w.Runner == Idle || (c.M == TwoAtOnceMutant && w.Runner == Busy)) || w.Pending || w.StopReq || len(w.Inbox) == 0 {
+			return None
+		}
+		if k >= len(w.Inbox) || (k > 0 && c.M != AnyOrderMutant) {
+			return None
+		}
+		let e = w.Inbox[k]
+		let signal = isSignal(e)
+		Some[World]{Value: World{..w,
+			Cur:         Env{..e, Sender: -1, Seq: -1},
+			Inbox:       removeAt(w.Inbox, k),
+			OrderBad:    w.OrderBad || (signal && e.Seq < w.LastStepped[e.Sender]),
+			LastStepped: if signal { setInt(w.LastStepped, e.Sender, e.Seq) } else { w.LastStepped },
+			Runner:      Busy,
+			InFlight:    w.InFlight + 1,
+			// TwoAtOnce: the Ask in the step is never answered.
+			Lost: w.Lost || (w.Runner == Busy && w.Cur.Kind == Ask),
+		}}
+	case Drop:
+		// A tick or a result of an ended entry is dropped.
+		if w.Runner != Busy || !stale(c, w) {
+			return None
+		}
+		Some[World]{Value: World{..w, Runner: Idle, InFlight: w.InFlight - 1, Cur: noEnv()}}
+	case DefectEnds:
+		// A defect of the work ends the actor, whatever its epoch, as Done
+		// does.
+		if w.Runner != Busy || w.Cur.Kind != Defect || w.StopReq {
+			return None
+		}
+		Some[World]{Value: stopChildren(World{..drained(w),
+			Runner:   Ended,
+			Open:     false,
+			Pending:  false,
+			AfterEnd: w.AfterEnd || w.DoneSeen,
+			Cur:      noEnv(),
+			InFlight: w.InFlight - 1,
+			EndBy:    ByDefect,
+		})}
+	case StepIt as st:
+		return stepIt(c, w, st.D)
+	case Arm as r:
+		// The new entry arms its timer and starts its work, or has none,
+		// once the old children ended (ArmEarly: the timer at once;
+		// WorkEarly: the work at once), and then observers see it.
+		// WorkBeforeCommit starts the work with the epoch before the
+		// commit.
+		if !w.Pending || w.Runner == Ended || (c.M != ArmEarlyMutant && w.Timer != NoChild) || (c.M != WorkEarlyMutant && w.Work != NoChild) {
+			return None
+		}
+		let arms = if r.Timer { w.ArmsNow + 1 } else { w.ArmsNow }
+		let starts = if r.Work { w.StartsNow + 1 } else { w.StartsNow }
+		Some[World]{Value: showWritten(World{..w,
+			ArmEarly:   w.ArmEarly || w.Timer != NoChild,
+			WorkEarly:  w.WorkEarly || (r.Work && w.Work != NoChild),
+			Timer:      if r.Timer { Sleeping } else { w.Timer },
+			TimerEpoch: if r.Timer { 0 } else { w.TimerEpoch },
+			ArmsNow:    if arms > 2 { 2 } else { arms },
+			Work:       if r.Work { Running } else { w.Work },
+			WorkEpoch:  if !r.Work { w.WorkEpoch } else { if c.M == WorkBeforeCommitMutant { -1 } else { 0 } },
+			StartsNow:  if starts > 2 { 2 } else { starts },
+			Pending:    false,
+			Seen:       0,
+		})}
+	case RequestStop:
+		// Stop from outside: admission closes at once.
+		if w.StopReq {
+			return None
+		}
+		Some[World]{Value: World{..w, StopReq: true, Open: false}}
+	case Halt:
+		// The interrupted runner ends: an Ask in its step and every queued
+		// Ask are answered Stopped; a state written before the stop is
+		// shown.
+		if !w.StopReq || w.Runner == Ended {
+			return None
+		}
+		Some[World]{Value: showWritten(stopChildren(World{..drained(w),
+			Runner:   Ended,
+			InFlight: 0,
+			Cur:      noEnv(),
+			Pending:  false,
+			EndBy:    ByStop,
+		}))}
+	case Subscribe as s:
+		// An observer begins a Changes loop, at any point: its first state
+		// is the one shown now (StaleSnapshot: the one before it).
+		let i = obIx(s.O)
+		let o = w.Obs[i]
+		if o.Sub {
+			return None
+		}
+		let first = if c.M == StaleSnapshotMutant && w.Shown > 0 { w.Shown - 1 } else { w.Shown }
+		Some[World]{Value: World{..w, Obs: setObs(w.Obs, i, Obs{..o, Sub: true, Next: w.Shown, Buf: []int{first}})}}
+	case Observe as s:
+		// An observer reads its next state (NotifyTwice: it is read and
+		// kept).
+		let i = obIx(s.O)
+		let o = w.Obs[i]
+		if !o.Sub || o.Done || len(o.Buf) == 0 {
+			return None
+		}
+		let v = o.Buf[0]
+		let mut rest = []int{}
+		for j, x in o.Buf {
+			if j > 0 || c.M == NotifyTwiceMutant {
+				rest = rest.Append(x)
+			}
+		}
+		let count = if c.Ghost == LongObserverWitness && o.Count < 3 { o.Count + 1 } else { o.Count }
+		Some[World]{Value: World{..w,
+			ChangesBad: w.ChangesBad || v != o.Next,
+			WaitForBad: w.WaitForBad || (!o.Read && v != o.Next),
+			Obs:        setObs(w.Obs, i, Obs{..o, Next: o.Next + 1, Read: true, Count: count, Buf: rest}),
+		}}
+	case ObserverEnds as s:
+		// An observer's loop ends once the actor ended and it read every
+		// state shown to it (SkipBeforeStop: at the end, with states
+		// unread).
+		let i = obIx(s.O)
+		let o = w.Obs[i]
+		if !o.Sub || o.Done || w.Runner != Ended || (c.M != SkipBeforeStopMutant && len(o.Buf) != 0) {
+			return None
+		}
+		Some[World]{Value: World{..w, Obs: setObs(w.Obs, i, Obs{..o, Done: true})}}
+	case RequestDrain:
+		// Drain closes admission; the runner goes on stepping what is
+		// queued (DrainDrops: the last queued signal is dropped).
+		if w.DrainReq || w.StopReq {
+			return None
+		}
+		let drop = c.M == DrainDropsMutant && len(w.Inbox) > 0
+		let last = if drop { w.Inbox[len(w.Inbox)-1] } else { noEnv() }
+		Some[World]{Value: World{..w,
+			DrainReq: true,
+			Open:     false,
+			Inbox:    if drop { removeAt(w.Inbox, len(w.Inbox)-1) } else { w.Inbox },
+			Dropped:  w.Dropped || isSignal(last),
+			Lost:     w.Lost || last.Kind == Ask,
+		}}
+	case DrainEnds:
+		// A drained runner ends when nothing is queued and no step or entry
+		// is open.
+		if !w.DrainReq || w.StopReq || w.Runner != Idle || w.Pending || len(w.Inbox) != 0 {
+			return None
+		}
+		Some[World]{Value: stopChildren(World{..w, Runner: Ended, EndBy: ByDrain})}
+	case GiveOut:
+		// OutputLate: the sink gets the owed outputs once the entry opened.
+		if len(w.Owed) == 0 || w.Pending || w.Runner == Ended {
+			return None
+		}
+		Some[World]{Value: World{..w, Owed: []int{}}}
+	}
+}
+
+// stepIt is the step of the envelope in the step deciding d. Enter and
+// Emit end the entry: its timer child is asked to stop, its work is
+// interrupted, and the new entry's children wait for their end (Arm). Stay
+// keeps the entry (StayRestarts restarts the timer). Done ends the actor
+// (NoClose: the actor goes on). PublishFirst shows observers the new entry
+// at the commit. Enter, Stay and Emit write the next state: a Stay's is
+// shown at once, an entry's once its children run (Arm). An Emit's output
+// is given here (OutputLate: owed until GiveOut).
+func stepIt(c Cfg, w World, d Dec) Option[World] {
+	if w.Runner != Busy || stale(c, w) || w.StopReq || w.Cur.Kind == Defect {
+		return None
+	}
+	let mut commit = false
+	let mut reenter = false
+	let mut stay = false
+	let mut emit = false
+	let mut done = false
+	match d {
+	case DEnter:
+		commit = true
+		reenter = true
+	case DEmit:
+		commit = true
+		reenter = true
+		emit = true
+	case DStay:
+		commit = true
+		stay = true
+	case DDone:
+		done = true
+	case _:
+	}
+	if commit && w.State >= MaxWrites {
+		return None
+	}
+	let tagged = w.Cur.Kind == Tick || w.Cur.Kind == Result
+	let n = if c.M == AnswerTwiceMutant { 2 } else { 1 }
+	let w1 = answered(World{..w,
+		StaleBad: w.StaleBad || (tagged && w.Cur.Epoch != 0),
+		AfterEnd: w.AfterEnd || w.DoneSeen,
+		Cur:      noEnv(),
+		InFlight: w.InFlight - 1,
+	}, w.Cur, n)
+	if done && c.M != NoCloseMutant {
+		return Some[World]{Value: stopChildren(World{..drained(w1), Runner: Ended, Open: false, Pending: false, EndBy: ByDone})}
+	}
+	let restart = reenter || (stay && c.M == StayRestartsMutant)
+	let s = if commit { w.State + 1 } else { w.State }
+	let w2 = World{..w1,
+		Runner:     Idle,
+		Timer:      if restart && w.Timer == Sleeping { Stopping } else { w.Timer },
+		Work:       if reenter && w.Work == Running { Stopping } else { w.Work },
+		Inbox:      if reenter { aged(w.Inbox) } else { w.Inbox },
+		TimerEpoch: if reenter { -1 } else { w.TimerEpoch },
+		WorkEpoch:  if reenter { -1 } else { w.WorkEpoch },
+		ArmsNow:    if reenter { 0 } else { w.ArmsNow },
+		ArmsBad:    w.ArmsBad || (reenter && w.ArmsNow > 1),
+		StartsNow:  if reenter { 0 } else { w.StartsNow },
+		StartsBad:  w.StartsBad || (reenter && w.StartsNow > 1),
+		Pending:    restart || w.Pending,
+		Seen:       if reenter { if c.M == PublishFirstMutant { 0 } else { -1 } } else { w.Seen },
+		DoneSeen:   w.DoneSeen || done,
+		State:      s,
+		Emits:      if c.Ghost == EmitSeenWitness && emit { setBool(w.Emits, s, true) } else { w.Emits },
+		Owed:       if emit && c.M == OutputLateMutant { w.Owed.Append(s) } else { w.Owed },
+	}
+	if stay {
+		return Some[World]{Value: publish(w2, s)}
+	}
+	Some[World]{Value: w2}
+}
+
+// stepWith is the step of the machine c.
+func stepWith(c Cfg, s St, a Act) Decision[St, string] {
+	match s {
+	case Boot:
+		match a {
+		case Start as b:
+			Enter[St]{Next: Live{W: booted(b.Timer, b.Work)}}
+		case _:
+			Ignore
+		}
+	case Live as l:
+		match next(c, l.W, a) {
+		case None:
+			Ignore
+		case Some[World] as n:
+			let v = canon(c, n.Value)
+			let why = broken(c, v)
+			if why != "" {
+				Enter[St]{Next: Broken{Why: why}}
+			} else {
+				Enter[St]{Next: Live{W: v}}
+			}
+		}
+	case _:
+		Ignore
+	}
+}
+
+func design(n int) Cfg {
+	Cfg{M: NoMutant, Senders: n, Ghost: 0, Only: ""}
+}
+
+func mutant(m int, only string) Cfg {
+	Cfg{M: m, Senders: 2, Ghost: 0, Only: only}
+}
+
+func stepDesign2(s St, a Act) Decision[St, string] { stepWith(design(2), s, a) }
+func stepDesign3(s St, a Act) Decision[St, string] { stepWith(design(3), s, a) }
+
+// The design keeps every invariant in the scope, with 2 senders and with 3.
+type Design2 machine[St, Act] {
+	initial: first(),
+	step:    stepDesign2,
+
+	law Safe never reaches Broken,
+}
+
+type Design3 machine[St, Act] {
+	initial: first(),
+	step:    stepDesign3,
+
+	law Safe never reaches Broken,
+}
+
+func stepNoEpoch(s St, a Act) Decision[St, string] {
+	stepWith(mutant(NoEpochMutant, "NoStaleStep"), s, a)
+}
+func stepArmEarly(s St, a Act) Decision[St, string] {
+	stepWith(mutant(ArmEarlyMutant, "ExitBeforeEntry"), s, a)
+}
+func stepStayRestarts(s St, a Act) Decision[St, string] {
+	stepWith(mutant(StayRestartsMutant, "OneTimerPerEntry"), s, a)
+}
+func stepNoClose(s St, a Act) Decision[St, string] {
+	stepWith(mutant(NoCloseMutant, "NoStepAfterEnd"), s, a)
+}
+func stepAnswerTwice(s St, a Act) Decision[St, string] {
+	stepWith(mutant(AnswerTwiceMutant, "AskAnsweredOnce"), s, a)
+}
+func stepTwoAtOnce(s St, a Act) Decision[St, string] {
+	stepWith(mutant(TwoAtOnceMutant, "RunToCompletion"), s, a)
+}
+func stepAnyOrder(s St, a Act) Decision[St, string] {
+	stepWith(mutant(AnyOrderMutant, "PerSenderOrder"), s, a)
+}
+func stepNoWorkEpoch(s St, a Act) Decision[St, string] {
+	stepWith(mutant(NoWorkEpochMutant, "NoStaleStep"), s, a)
+}
+func stepWorkEarly(s St, a Act) Decision[St, string] {
+	stepWith(mutant(WorkEarlyMutant, "ExitBeforeEntry"), s, a)
+}
+func stepFailOnInterrupt(s St, a Act) Decision[St, string] {
+	stepWith(mutant(FailOnInterruptMutant, "NothingAfterInterrupt"), s, a)
+}
+func stepWorkBeforeCommit(s St, a Act) Decision[St, string] {
+	stepWith(mutant(WorkBeforeCommitMutant, "WorkOnlyInItsEntry"), s, a)
+}
+func stepPublishFirst(s St, a Act) Decision[St, string] {
+	stepWith(mutant(PublishFirstMutant, "ObserversAfterWork"), s, a)
+}
+func stepNotifyTwice(s St, a Act) Decision[St, string] {
+	stepWith(mutant(NotifyTwiceMutant, "ChangesInOrderOnce"), s, a)
+}
+func stepSkipBeforeStop(s St, a Act) Decision[St, string] {
+	stepWith(mutant(SkipBeforeStopMutant, "NothingAfterEnd"), s, a)
+}
+func stepStaleSnapshot(s St, a Act) Decision[St, string] {
+	stepWith(mutant(StaleSnapshotMutant, "WaitForMatchesReplay"), s, a)
+}
+func stepDrainDrops(s St, a Act) Decision[St, string] {
+	stepWith(mutant(DrainDropsMutant, "DrainStepsQueued"), s, a)
+}
+func stepOutputLate(s St, a Act) Decision[St, string] {
+	stepWith(mutant(OutputLateMutant, "OutputBeforeShown"), s, a)
+}
+
+type NoEpoch machine[St, Act] {
+	initial: first(),
+	step:    stepNoEpoch,
+
+	law Breaks reaches Broken,
+}
+
+type ArmEarly machine[St, Act] {
+	initial: first(),
+	step:    stepArmEarly,
+
+	law Breaks reaches Broken,
+}
+
+type StayRestarts machine[St, Act] {
+	initial: first(),
+	step:    stepStayRestarts,
+
+	law Breaks reaches Broken,
+}
+
+type NoClose machine[St, Act] {
+	initial: first(),
+	step:    stepNoClose,
+
+	law Breaks reaches Broken,
+}
+
+type AnswerTwice machine[St, Act] {
+	initial: first(),
+	step:    stepAnswerTwice,
+
+	law Breaks reaches Broken,
+}
+
+type TwoAtOnce machine[St, Act] {
+	initial: first(),
+	step:    stepTwoAtOnce,
+
+	law Breaks reaches Broken,
+}
+
+type AnyOrder machine[St, Act] {
+	initial: first(),
+	step:    stepAnyOrder,
+
+	law Breaks reaches Broken,
+}
+
+type NoWorkEpoch machine[St, Act] {
+	initial: first(),
+	step:    stepNoWorkEpoch,
+
+	law Breaks reaches Broken,
+}
+
+type WorkEarly machine[St, Act] {
+	initial: first(),
+	step:    stepWorkEarly,
+
+	law Breaks reaches Broken,
+}
+
+type FailOnInterrupt machine[St, Act] {
+	initial: first(),
+	step:    stepFailOnInterrupt,
+
+	law Breaks reaches Broken,
+}
+
+type WorkBeforeCommit machine[St, Act] {
+	initial: first(),
+	step:    stepWorkBeforeCommit,
+
+	law Breaks reaches Broken,
+}
+
+type PublishFirst machine[St, Act] {
+	initial: first(),
+	step:    stepPublishFirst,
+
+	law Breaks reaches Broken,
+}
+
+type NotifyTwice machine[St, Act] {
+	initial: first(),
+	step:    stepNotifyTwice,
+
+	law Breaks reaches Broken,
+}
+
+type SkipBeforeStop machine[St, Act] {
+	initial: first(),
+	step:    stepSkipBeforeStop,
+
+	law Breaks reaches Broken,
+}
+
+type StaleSnapshot machine[St, Act] {
+	initial: first(),
+	step:    stepStaleSnapshot,
+
+	law Breaks reaches Broken,
+}
+
+type DrainDrops machine[St, Act] {
+	initial: first(),
+	step:    stepDrainDrops,
+
+	law Breaks reaches Broken,
+}
+
+type OutputLate machine[St, Act] {
+	initial: first(),
+	step:    stepOutputLate,
+
+	law Breaks reaches Broken,
+}
+
+// The witnesses (Quint's no… values for design2). Each is the design's
+// step, with the witness counters, that enters Seen when the witness
+// holds for an action: on the state it reaches, or, for the observer
+// witnesses, on the action.
+let StaleTickWitness = 1
+let StaleResultWitness = 2
+let InterruptedWorkWitness = 3
+let DefectEndWitness = 4
+let EndAfterAsksWitness = 5
+let FullInboxWitness = 6
+let TwoSendersQueuedWitness = 7
+let LongObserverWitness = 8
+let LateWaitWitness = 9
+let StopOvertakesWitness = 10
+let DrainEndWitness = 11
+let EmitSeenWitness = 12
+
+func witnessed(k int, c Cfg, w World, a Act, v World) bool {
+	if k == StaleTickWitness {
+		return v.Runner == Busy && v.Cur.Kind == Tick && v.Cur.Epoch != 0
+	}
+	if k == StaleResultWitness {
+		return v.Runner == Busy && v.Cur.Kind == Result && v.Cur.Epoch != 0
+	}
+	if k == InterruptedWorkWitness {
+		return v.Work == Stopping
+	}
+	if k == DefectEndWitness {
+		return v.Runner == Busy && v.Cur.Kind == Defect
+	}
+	if k == EndAfterAsksWitness {
+		return v.Runner == Ended && sendersDone(c, v) && v.Asked >= 2
+	}
+	if k == FullInboxWitness {
+		return len(v.Inbox) == Cap
+	}
+	if k == TwoSendersQueuedWitness {
+		return len(v.Inbox) == Cap && v.Inbox[0].Sender != v.Inbox[1].Sender && v.Inbox[0].Sender >= 0 && v.Inbox[1].Sender >= 0
+	}
+	if k == StopOvertakesWitness {
+		if v.Runner != Ended || v.EndBy != ByStop {
+			return false
+		}
+		for o in v.Obs {
+			if o.Sub && !o.Done && len(o.Buf) > 0 {
+				return true
+			}
+		}
+		return false
+	}
+	if k == DrainEndWitness {
+		return v.EndBy == ByDrain && v.Admitted >= 2
+	}
+	match a {
+	case ObserverEnds as e:
+		// An observer read three states to the end.
+		k == LongObserverWitness && w.Obs[obIx(e.O)].Count >= 3
+	case Subscribe:
+		// A wait begins after two commits.
+		k == LateWaitWitness && w.Shown >= 2
+	case Observe as e:
+		// An observer reads a state an Emit wrote.
+		k == EmitSeenWitness && w.Emits[w.Obs[obIx(e.O)].Buf[0]]
+	case _:
+		false
+	}
+}
+
+func stepWitness(k int, s St, a Act) Decision[St, string] {
+	let c = Cfg{M: NoMutant, Senders: 2, Ghost: k, Only: ""}
+	match s {
+	case Live as l:
+		match next(c, l.W, a) {
+		case None:
+			Ignore
+		case Some[World] as n:
+			if witnessed(k, c, l.W, a, n.Value) {
+				Enter[St]{Next: Seen{What: "witness"}}
+			} else {
+				Enter[St]{Next: Live{W: canon(c, n.Value)}}
+			}
+		}
+	case _:
+		stepWith(c, s, a)
+	}
+}
+
+func stepStaleTick(s St, a Act) Decision[St, string]        { stepWitness(StaleTickWitness, s, a) }
+func stepStaleResult(s St, a Act) Decision[St, string]      { stepWitness(StaleResultWitness, s, a) }
+func stepInterruptedWork(s St, a Act) Decision[St, string]  { stepWitness(InterruptedWorkWitness, s, a) }
+func stepDefectEnd(s St, a Act) Decision[St, string]        { stepWitness(DefectEndWitness, s, a) }
+func stepEndAfterAsks(s St, a Act) Decision[St, string]     { stepWitness(EndAfterAsksWitness, s, a) }
+func stepFullInbox(s St, a Act) Decision[St, string]        { stepWitness(FullInboxWitness, s, a) }
+func stepTwoSendersQueued(s St, a Act) Decision[St, string] { stepWitness(TwoSendersQueuedWitness, s, a) }
+func stepLongObserver(s St, a Act) Decision[St, string]     { stepWitness(LongObserverWitness, s, a) }
+func stepLateWait(s St, a Act) Decision[St, string]         { stepWitness(LateWaitWitness, s, a) }
+func stepStopOvertakes(s St, a Act) Decision[St, string]    { stepWitness(StopOvertakesWitness, s, a) }
+func stepDrainEnd(s St, a Act) Decision[St, string]         { stepWitness(DrainEndWitness, s, a) }
+func stepEmitSeen(s St, a Act) Decision[St, string]         { stepWitness(EmitSeenWitness, s, a) }
+
+type StaleTick machine[St, Act] {
+	initial: first(),
+	step:    stepStaleTick,
+
+	law Reached reaches Seen,
+}
+
+type StaleResult machine[St, Act] {
+	initial: first(),
+	step:    stepStaleResult,
+
+	law Reached reaches Seen,
+}
+
+type InterruptedWork machine[St, Act] {
+	initial: first(),
+	step:    stepInterruptedWork,
+
+	law Reached reaches Seen,
+}
+
+type DefectEnd machine[St, Act] {
+	initial: first(),
+	step:    stepDefectEnd,
+
+	law Reached reaches Seen,
+}
+
+type EndAfterAsks machine[St, Act] {
+	initial: first(),
+	step:    stepEndAfterAsks,
+
+	law Reached reaches Seen,
+}
+
+type FullInbox machine[St, Act] {
+	initial: first(),
+	step:    stepFullInbox,
+
+	law Reached reaches Seen,
+}
+
+type TwoSendersQueued machine[St, Act] {
+	initial: first(),
+	step:    stepTwoSendersQueued,
+
+	law Reached reaches Seen,
+}
+
+type LongObserver machine[St, Act] {
+	initial: first(),
+	step:    stepLongObserver,
+
+	law Reached reaches Seen,
+}
+
+type LateWait machine[St, Act] {
+	initial: first(),
+	step:    stepLateWait,
+
+	law Reached reaches Seen,
+}
+
+type StopOvertakes machine[St, Act] {
+	initial: first(),
+	step:    stepStopOvertakes,
+
+	law Reached reaches Seen,
+}
+
+type DrainEnd machine[St, Act] {
+	initial: first(),
+	step:    stepDrainEnd,
+
+	law Reached reaches Seen,
+}
+
+type EmitSeen machine[St, Act] {
+	initial: first(),
+	step:    stepEmitSeen,
+
+	law Reached reaches Seen,
+}

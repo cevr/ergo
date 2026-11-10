@@ -109,6 +109,7 @@ const (
 	lawPackage  = "a package-level declaration's: no law body holds it"
 	lawMember   = "names a member of a value, a type or a package, in no scope"
 	lawNotParse = "does not parse (node_inventory_test.go)"
+	lawWhere    = "a where's predicate: it reads its subject and literals only (refine.go)"
 )
 
 // lawNoBinder are the fields that bind no name in a law body, each with its
@@ -125,6 +126,7 @@ var lawNoBinder = map[string]string{
 	"ArrayType.Elt":  lawType, "CompositeLit.Type": lawType, "ErrorRow.Types": lawType, "Field.Type": lawType,
 	"InterfaceType.Union": lawType, "MapType.Key": lawType, "MapType.Value": lawType, "NeedsClause.Names": lawType,
 	"ProvidesClause.Names": lawType, "MachineType.Signal": lawType, "MachineType.State": lawType, "LawReach.Targets": lawType,
+	"TypeDecl.Where": lawWhere, "Field.Where": lawWhere,
 	"TypeDecl.Spec": lawType, "VarSpec.Type": lawType, "ContextEntry.Key": lawType, "ContextEntry.Keys": lawType,
 	"ContextDecl.Name": lawPackage, "FuncDecl.Name": lawPackage, "ImportSpec.Name": lawPackage,
 	"TypeDecl.Name": lawPackage, "TestDecl.Name": lawPackage, "VariantSpec.Name": lawPackage,

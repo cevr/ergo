@@ -22,7 +22,7 @@ The program is a module of packages (`ergo.mod`: `module keypad`), in the Go lay
 | folder | what it holds |
 | --- | --- |
 | `keypad/` | The domain package. `field.ergo` (`Layout`, `Spec`, `Field`, `Takes`, `CanType`), `shift.ergo` (the `Shifter` machine of the shift mode), `board.ergo` (`Key`, `Signal`, `Output`, the `Pad` state, the typed refusals, `Open`, `CanPress`, `Step`), `forms.ergo` (`Forms`, the contract of a store of forms, with two laws), `laws.ergo` (the `Keypad` machine and its laws), `tests.ergo`. It is pure. |
-| `memory/` | `Fixed`, the in-memory provider of `keypad.Forms`: the forms `login`, `address` and `code`. |
+| `memory/` | `Fixed`, the in-memory provider of `keypad.Forms`: the forms `alarm`, `address` and `code`. |
 | `script/` | The line protocol: `Parse` (fails `BadLine`) and `Run`, the only function with capabilities (`Console`, `io.Stdin`, `keypad.Forms`). |
 | `cmd/keypad/` | The binary. `main.ergo` binds `let Live = context { keypad.Forms: memory.Fixed }` and the host's standard input, and is the only place that chooses them. |
 
@@ -40,7 +40,7 @@ The program is a module of packages (`ergo.mod`: `module keypad`), in the Go lay
 
 - **Emit came late (q28).** The first draft of this program, on V2, had no `Emit`: the state carried an outbox field that the run loop read after each step. `Ignore` and `Reject` keep the earlier state, so the outbox repeated a stale output after them (the run test found it), and `machines.From` kept only the last output. With V5, `Step` returns `Emit`, and `machines.From` keeps every output in `Emitted`, in order.
 - **One-variant state (M20).** Every keypad state holds the same fields, so `Pad` is a union of one variant, `Board`, and each function first matches it (`BoardOf`).
-- **A start cannot fail (V4).** `initial: start` may take an input since V4, but `start` has no failure row, and `Open(form)` fails on a form with no field, two fields of one ID or lengths that do not fit. So the machine starts at the `login` form, and a run of another form starts with `machines.From(Keypad{}, try Open(form), signals)`. This is the rule (the caller checks the input), not a gap.
+- **A start cannot fail (V4).** `initial: start` may take an input since V4, but `start` has no failure row, and `Open(form)` fails on a form with no field, two fields of one ID or lengths that do not fit. So the machine starts at the `alarm` form, and a run of another form starts with `machines.From(Keypad{}, try Open(form), signals)`. This is the rule (the caller checks the input), not a gap.
 - **No `Can` query (M51).** The screen greys keys with a hand-written `CanPress`; the law `GreyedKeysAreIgnored` holds it equal to what `Step` does.
 - **No rune classes (M18).** A letter is a text that `strings.ToUpper` or `strings.ToLower` changes, so `ß`, which has no one-character upper case, is not a letter here. Key caps are kept as strings, one per key, so Backspace removes one whole character with no rune decoding.
 - **No regions (M56).** The shift mode is a machine held in a field and stepped by hand.
@@ -53,11 +53,11 @@ The program is a module of packages (`ergo.mod`: `module keypad`), in the Go lay
 
 ```sh
 go build -o bin/ergo ./cmd/ergo
-./bin/ergo run examples/keypad/cmd/keypad < examples/keypad/cases/login/stdin
+./bin/ergo run examples/keypad/cmd/keypad < examples/keypad/cases/alarm/stdin
 ./bin/ergo test examples/keypad/keypad
 go run ./scripts/examples keypad
 ```
 
 ## Cases
 
-`login` (one Shift, Caps by two Shifts and its end, greyed keys, a short Return, every refusal, a focus moved by a remove, and a line after `close` that is not read), `address` (another form, a Shift on a text field, a greyed digit in a letters field, lines the script cannot read, and the end of the input) and `noform` (a form the store does not hold: status 1).
+`alarm` (one Shift, Caps by two Shifts and its end, greyed keys, a short Return, every refusal, a focus moved by a remove, and a line after `close` that is not read), `address` (another form, a Shift on a text field, a greyed digit in a letters field, lines the script cannot read, and the end of the input) and `noform` (a form the store does not hold: status 1).

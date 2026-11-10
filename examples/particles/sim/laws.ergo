@@ -3,7 +3,7 @@
 import machines
 import particles/world
 import rand
-import sync
+import testing
 import time
 
 // Word names a decision.
@@ -82,7 +82,7 @@ law PauseResumeRoundTrips(seed uint64, n int) {
 law StepsFollowTheClock(seed uint64, n int, frames int) {
 	let m = time.NewManual(0)
 	let k = if frames < 0 { -(frames % 20) } else { frames % 20 }
-	let g = with context { Scheduler: lateEvery{m: m, every: 3}, time.Clock: m, Screen: blind{n: sync.NewRef[int](0)} } {
+	let g = with context { Scheduler: lateEvery{m: m, every: 3}, time.Clock: m, Screen: recorded() } {
 		Play(box(seed, n), "", k, Pace{Frame: 50ms, Dt: 20ms})
 	}
 	g.Steps == time.Count(m.Now().Sub(time.Unix(0, 0)), 20ms)
@@ -98,9 +98,12 @@ func Sleep(l lateEvery, d duration) {
 	l.m.Advance(d + late)
 }
 
-// blind is a Screen that draws nothing and counts what it is shown.
-type blind { n sync.Ref[int] }
-
-func Show(b blind, _ Frame) { b.n.Update(func(k int) int { k + 1 }) }
-
-func Shown(b blind) int { b.n.Get() }
+// recorded is a Screen for the laws and tests: a testing.Script that keeps
+// every frame it is shown (s.Show.Calls()) and answers Shown with their
+// count. The checker derives it from Screen's operations, so no hand fake
+// restates them.
+func recorded() testing.Script[Screen] {
+	let s = testing.Script[Screen]{}
+	s.Shown.Answer(func() int { len(s.Show.Calls()) })
+	s
+}

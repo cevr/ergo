@@ -57,6 +57,7 @@ type typeDecl struct {
 	variants  []*check.TypeName
 	marker    string
 	errorType bool
+	goError   bool // go.Error: Text is a method, a value is built by v1.GoErrorText
 	library   bool
 	emitted   bool
 	queued    bool // a library type queued for emission
@@ -169,10 +170,18 @@ func (l *lowerer) declareName(d syntax.Decl) {
 // those of every sourced package, since a context of an imported package
 // is built at its importers' withs too (196b U4).
 func (l *lowerer) withsOf(w *check.Context) []*check.With {
-	var xs []*syntax.CallExpr
-	facts := map[*syntax.CallExpr]*check.With{}
+	var xs []syntax.Node
+	facts := map[syntax.Node]*check.With{}
 	for _, p := range l.sourcedPkgs() {
 		for x, with := range p.Info.Withs {
+			if l.readsFact(p, x) {
+				xs = append(xs, x)
+				facts[x] = with
+			}
+		}
+		// A conversion to a Context value builds as a with does
+		// (contextvalues.go).
+		for x, with := range p.Info.ContextValues {
 			if l.readsFact(p, x) {
 				xs = append(xs, x)
 				facts[x] = with
@@ -188,6 +197,13 @@ func (l *lowerer) withsOf(w *check.Context) []*check.With {
 			if len(with.Contexts) > 0 && with.Contexts[0] == w {
 				out = append(out, with)
 			}
+		}
+	}
+	// The test build also builds a context for each law run under it
+	// (LawRun.Contexts), in the runs' order.
+	for _, lc := range l.lawContexts() {
+		if lc.Context == w {
+			out = append(out, lc.With)
 		}
 	}
 	return out
@@ -242,8 +258,10 @@ func (l *lowerer) typeName(tn *check.TypeName) string {
 }
 
 // goErrorDecl is the declaration of the predeclared go.Error (G4), which no
-// package declares: the runtime's record v1.GoError, never emitted, whose
-// one field Text keeps its name.
+// package declares: the runtime's v1.GoError, never emitted, which keeps
+// Go's native error (IG5). Its one field Text is read as the method
+// Text(), the error's Error() at the read; a construction calls
+// v1.GoErrorText (goErrorBuild), since no Go field holds Text.
 func (l *lowerer) goErrorDecl(tn *check.TypeName, named *check.Named, site syntax.Node) *typeDecl {
 	if td := l.types[tn]; td != nil {
 		return td
@@ -253,9 +271,9 @@ func (l *lowerer) goErrorDecl(tn *check.TypeName, named *check.Named, site synta
 		ice(site, "go.Error is not a record")
 	}
 	td := &typeDecl{tn: tn, named: named, name: l.rt() + ".GoError", kind: kindRecord, fields: st.Fields,
-		fieldName: map[string]string{}, errorType: true, library: true, emitted: true}
+		fieldName: map[string]string{}, errorType: true, library: true, emitted: true, goError: true}
 	for _, f := range st.Fields {
-		td.fieldName[f.Name] = f.Name
+		td.fieldName[f.Name] = f.Name + "()"
 	}
 	l.types[tn] = td
 	return td
@@ -482,7 +500,8 @@ func sameGoConstraint(a, b *check.TypeParam) bool {
 	}
 	as, am := setOf(a)
 	bs, bm := setOf(b)
-	return as == bs && !am && !bm
+	// codable takes its codec as a witness (wire.go).
+	return as == bs && !am && !bm && as != check.SetWire
 }
 
 // typeSetDecl is the Go name of the interface that lowers the predeclared
@@ -755,13 +774,19 @@ func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) st
 	if bridge := l.hostBlockingIntrinsic(f); bridge != nil {
 		return bridge
 	}
-	// The functions on slices and Maps (D-D6): Append and Delete call
+	// The functions on slices and Maps (D-D6): Append, Delete and Put call
 	// their runtime/v1 bodies; Get builds the program's Option, which the
 	// lowering emits in each program, so its body is written here.
-	if len(s.Params) != 2 || len(s.Results) != 1 {
+	if len(s.Params) < 2 || len(s.Params) > 3 || len(s.Results) != 1 {
 		return nil
 	}
 	switch {
+	case f.Name == "Put" && len(s.Params) == 3 && len(s.TParams) == 2 && isMapOf(s.Params[0].Type, s.TParams[0], s.TParams[1]) && s.Params[1].Type == s.TParams[0] && s.Params[2].Type == s.TParams[1] && isMapOf(s.Results[0], s.TParams[0], s.TParams[1]):
+		return func(_ *funcCtx, params []string) string {
+			return "\treturn " + l.rt() + ".Put(" + params[0] + ", " + params[1] + ", " + params[2] + ")\n"
+		}
+	case len(s.Params) != 2:
+		return nil
 	case f.Name == "Append" && len(s.TParams) == 1 && isSliceOf(s.Params[0].Type, s.TParams[0]) && s.Params[1].Type == s.TParams[0] && isSliceOf(s.Results[0], s.TParams[0]):
 		return func(_ *funcCtx, params []string) string {
 			return "\treturn " + l.rt() + ".Append(" + params[0] + ", " + params[1] + ")\n"
@@ -1436,9 +1461,16 @@ const envTask = "task"
 // a capability or program operation, a poll, a frame scope).
 func taskOf(env string) string { return env + "." + envTask }
 
-// envField is the environment's field for a capability.
-func (l *lowerer) envField(cap *check.TypeName) string {
-	if f, ok := l.envFields[cap]; ok {
+// envCap is one capability field of the environment: its name and its Go
+// type.
+type envCap struct{ field, goType string }
+
+// envField is the environment's field for a capability: one per type, so
+// each instance of a generic capability has its own (Store[Job] and
+// Store[Note]; types.md, Capabilities 7), keyed by typeKey.
+func (l *lowerer) envField(cap *check.Named) string {
+	key := l.typeKey(cap)
+	if f, ok := l.envFields[key]; ok {
 		return f
 	}
 	l.env()
@@ -1446,13 +1478,14 @@ func (l *lowerer) envField(cap *check.TypeName) string {
 	for _, f := range l.envFields {
 		taken[f] = true
 	}
-	name := memberName(cap.Name)
+	base := memberName(cap.Obj.Name)
+	name := base
 	for i := 1; taken[name]; i++ {
-		name = fmt.Sprintf("%s_%d", memberName(cap.Name), i)
+		name = fmt.Sprintf("%s_%d", base, i)
 	}
-	l.envFields[cap] = name
-	l.envOrder = append(l.envOrder, cap)
-	l.useType(l.typeDecl(cap, cap.Decl.Name))
+	l.envFields[key] = name
+	tc := &typeCtx{l: l, site: cap.Obj.Decl.Name}
+	l.envOrder = append(l.envOrder, envCap{field: name, goType: tc.goType(cap)})
 	return name
 }
 
@@ -1464,7 +1497,7 @@ func (l *lowerer) envType(b *strings.Builder) {
 	b.WriteString("type " + l.envName + " struct {\n")
 	b.WriteString("\t" + envTask + " *" + l.taskPkg() + ".Task\n")
 	for _, cap := range l.envOrder {
-		b.WriteString("\t" + l.envFields[cap] + " " + l.types[cap].name + "\n")
+		b.WriteString("\t" + cap.field + " " + cap.goType + "\n")
 	}
 	b.WriteString("}\n\n")
 }

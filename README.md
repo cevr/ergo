@@ -5,74 +5,74 @@ Ergo reads like Go and compiles to plain Go. What Go leaves to convention, Ergo 
 ```go
 import timeout
 
-type Declined { Reason string }
-type Receipt { ID string, Amount int64 }
+type NotFound { Name string }
+type Answer { Name string, Addr string }
 
 // An operation type: the service a caller must supply, with its contract.
-type Payments {
-	Charge(amount int64) Receipt fails Declined,
+type Resolver {
+	Resolve(name string) Answer fails NotFound,
 
-	// A charge that succeeds is receipted, for the amount charged.
-	law Receipted(amount int64) {
-		let receipt = Charge(amount) catch {
-		case Declined:
+	// A lookup that succeeds answers the name asked, with an address.
+	law Answered(name string) {
+		let answer = Resolve(name) catch {
+		case NotFound:
 			return true
 		}
-		Receipted(receipt, amount)
+		Answered(answer, name)
 	},
 }
 
-// Receipted reports whether receipt has an ID and the amount: the law's
-// check, which a provider's test calls.
-func Receipted(receipt Receipt, amount int64) bool {
-	receipt.ID != "" && receipt.Amount == amount
+// Answered reports whether answer is for name and has an address: the
+// law's check, which a provider's test calls.
+func Answered(answer Answer, name string) bool {
+	answer.Name == name && answer.Addr != ""
 }
 
 // A signature lists every expected failure and every service the caller must supply.
-func Checkout(amount int64) Receipt fails Declined | timeout.Expired needs Payments | Scheduler {
-	timeout.After(2s) { Payments.Charge(amount) } // the block runs as a child task; at 2s it is stopped
+func Lookup(name string) Answer fails NotFound | timeout.Expired needs Resolver | Scheduler {
+	timeout.After(2s) { Resolver.Resolve(name) } // the block runs as a child task; at 2s it is stopped
 }
 
-func Purchase(amount int64) string needs Payments | Scheduler {
-	let receipt = Checkout(amount) catch {
-	case Declined:
-		Receipt{ID: "declined", Amount: 0}
+func Address(name string) string needs Resolver | Scheduler {
+	let answer = Lookup(name) catch {
+	case NotFound:
+		Answer{Name: name, Addr: "unknown"}
 	case timeout.Expired:
-		Receipt{ID: "timed-out", Amount: 0}
+		Answer{Name: name, Addr: "timed-out"}
 	}
-	receipt.ID
+	answer.Addr
 }
 ```
 
-The binary binds the contract to providers in a context. Package `memory` holds two of them, `Gateway`, which pays, and `Decliner`, and its context `Paying` binds `payments.Payments` to `Gateway`:
+The binary binds the contract to providers in a context. Package `memory` holds two of them, `Static`, which answers, and `Empty`, and its context `Listing` binds `hosts.Resolver` to `Static`:
 
 ```go
-import checkout/memory
-import checkout/payments
+import lookup/hosts
+import lookup/memory
 import time
 
 // This binary is the only place that chooses the providers. Memory binds
 // the memory providers and a time.Manual, so a test needs no host; main
 // replaces the Manual with the host's scheduler, which needs Ambient.
-let Memory = context { Scheduler: time.NewManual(0), memory.Paying }
-let Declining = context { Memory, replace payments.Payments: memory.Decliner }
+let Memory = context { Scheduler: time.NewManual(0), memory.Listing }
+let Missing = context { Memory, replace hosts.Resolver: memory.Empty }
 
 func main() needs Console | Ambient {
 	let live = context { Memory, replace Scheduler: NewLiveScheduler() }
-	Console.Println(with live { payments.Purchase(100) })
+	Console.Println(with live { hosts.Address("example.org") })
 }
 
-test ChargeSucceeds {
-	let receipt = try with Memory { payments.Checkout(100) }
-	assert receipt.Amount == 100
+test ResolveAnswers {
+	let answer = try with Memory { hosts.Lookup("example.org") }
+	assert answer.Name == "example.org"
 }
 
-test DeclineIsHandled {
-	assert with Declining { payments.Purchase(100) } == "declined"
+test NotFoundIsHandled {
+	assert with Missing { hosts.Address("example.org") } == "unknown"
 }
 ```
 
-From the signature alone you know how `Checkout` can fail and what it needs. `Purchase` catches both failures, so its own signature has no `fails`. The law `Receipted` states what every provider of `Payments` must keep. `Memory` embeds the context of another package, and `Declining` keeps every provider of `Memory` and replaces one, so the tests swap providers without a mock framework. Only `main` holds `Ambient`, the authority to choose the host, so only `main` binds the host's scheduler. In Go, `try` becomes `if err != nil`, and the rows disappear. This program is [examples/checkout](examples/checkout/cmd/checkout/main.ergo): `ergo run` prints `paid`, and `ergo test` runs both tests.
+From the signature alone you know how `Lookup` can fail and what it needs. `Address` catches both failures, so its own signature has no `fails`. The law `Answered` states what every provider of `Resolver` must keep. `Memory` embeds the context of another package, and `Missing` keeps every provider of `Memory` and replaces one, so the tests swap providers without a mock framework. Only `main` holds `Ambient`, the authority to choose the host, so only `main` binds the host's scheduler. In Go, `try` becomes `if err != nil`, and the rows disappear. This program is [examples/lookup](examples/lookup/cmd/lookup/main.ergo): `ergo run` prints `192.0.2.1`, and `ergo test` runs both tests and the law `Answered` under each of the contexts `Memory` and `Missing` (laws under a context, L5).
 
 ## Designed, not built yet
 
@@ -83,50 +83,50 @@ import testing
 import timeout
 
 // A signature lists every expected failure and every service the caller must supply.
-func Charge(card Card, amount int64) Receipt fails Declined | Frozen | timeout.Expired needs Accounts | Payments | Scheduler {
+func Fetch(url URL, size int64) Reply fails Refused | Busy | timeout.Expired needs Pool | Transport | Scheduler {
 	return timeout.After(2s) { // the block runs as a child task; at 2s it is stopped and drained
-		let lock = try Accounts.Lock(card) // a resource: released on every exit, the timeout included
-		Payments.Charge(lock, amount)      // lends lock for the call
+		let conn = try Pool.Acquire(url.Host) // a resource: released on every exit, the timeout included
+		Transport.Send(conn, size)            // lends conn for the call
 	}
 }
 
-// A law lives in its operation type. It must hold for every Payments provider, and ergo test checks it like a fuzz target.
-type Payments {
-	Charge(lock Lock, amount int64) Receipt fails Declined,
-	Refundable(r Receipt) int64,
+// A law lives in its operation type. It must hold for every Transport provider, and ergo test checks it like a fuzz target.
+type Transport {
+	Send(conn Conn, size int64) Reply fails Refused,
+	Unread(r Reply) int64,
 
-	law RefundNeverExceedsCharge(r Receipt) { Refundable(r) <= r.Amount },
+	law UnreadNeverExceedsSize(r Reply) { Unread(r) <= r.Size },
 }
 
 // A test with replaced providers and virtual time: no sleeps and no mock framework.
 let SlowWorld = context {
-	Accounts:  MemoryAccounts{},
-	Payments:  NewSlowGateway,         // a constructor: it answers after 5s on this context's Scheduler
+	Pool:      MemoryPool{},
+	Transport: NewSlowTransport,       // a constructor: it answers after 5s on this context's Scheduler
 	Scheduler: testing.VirtualClock{}, // jumps to the next timer when every task waits
 }
 
-test SlowGatewayTimesOut {
-	let r = with SlowWorld { Charge(Card{Number: "4242"}, 100) } catch {
+test SlowTransportTimesOut {
+	let r = with SlowWorld { Fetch(URL{Host: "example.org", Path: "/"}, 100) } catch {
 	case timeout.Expired:
-		Receipt{ID: "timed-out", Amount: 0} // reached at once, in virtual time
-	case Declined, Frozen:
-		Receipt{ID: "failed", Amount: 0}
+		Reply{Status: "timed-out", Size: 0} // reached at once, in virtual time
+	case Refused, Busy:
+		Reply{Status: "failed", Size: 0}
 	}
-	assert r.ID == "timed-out"
+	assert r.Status == "timed-out"
 }
 ```
 
-From the signature alone you know how `Charge` can fail and what it needs. The lock cannot leak. The timeout stops its block and waits for cleanup. The law holds for every payment provider, not only this one. The test swaps providers and the clock without a mock framework. In Go, `try` becomes `if err != nil`, and the rows disappear.
+From the signature alone you know how `Fetch` can fail and what it needs. The connection cannot leak. The timeout stops its block and waits for cleanup. The law holds for every transport provider, not only this one. The test swaps providers and the clock without a mock framework. In Go, `try` becomes `if err != nil`, and the rows disappear.
 
 ## Tasks that cannot leak
 
 Every task belongs to a scope. The scope waits for its tasks, stops them on a timeout, and keeps every cause when several fail.
 
 ```go
-func Prices(ids []string) []Price fails NotFound | timeout.Expired needs Catalog | Scheduler {
+func Addresses(names []string) []Answer fails NotFound | timeout.Expired needs Resolver | Scheduler {
 	return timeout.After(2s) {
-		tasks.Transform(ids, 8, func(id string) Price fails NotFound needs Catalog {
-			return Catalog.Price(id)
+		tasks.Transform(names, 8, func(name string) Answer fails NotFound needs Resolver {
+			return Resolver.Resolve(name)
 		})
 	}
 }
@@ -166,18 +166,18 @@ type Breaker machine[State, Signal] {
 A law says what must always hold. It lives in the type it constrains and applies to every provider of that type.
 
 ```go
-type OrderCodec {
-	Encode(o Order) string,
-	Decode(s string) Order fails DecodeFailed,
+type EntryCodec {
+	Encode(e Entry) string,
+	Decode(s string) Entry fails DecodeFailed,
 
-	law RoundTrip(o Order) { try Decode(Encode(o)) == o },
+	law RoundTrip(e Entry) { try Decode(Encode(e)) == e },
 }
 
 type Store {
-	Find(id string) Order fails NotFound,
-	Put(id string, o Order),
+	Find(id string) Entry fails NotFound,
+	Put(id string, e Entry),
 
-	law FindAfterPut(id string, o Order) { Put(id, o); try Find(id) == o },
+	law FindAfterPut(id string, e Entry) { Put(id, e); try Find(id) == e },
 }
 ```
 
@@ -202,15 +202,15 @@ cause trace of the root exit (links recorded by the runtime; candidates are labe
         task #2 exited with interrupted (seq 10)
 ```
 
-With tracing off, a program makes no extra allocations ([receipt](runtime/rt/RECEIPT.md#tracing-off-and-on-188)).
+With tracing off, a program makes no extra allocations ([measured](runtime/rt/MEASURED.md#tracing-off-and-on-188)).
 
 ## Built for agents
 
 An agent reads the same checked model as the compiler. A signature tells it what a call can fail with and what it needs, so it can change a function without reading the whole call graph. Every diagnostic has a code, a position and a rule:
 
 ```console
-$ ergo diagnostics pay.ergo
-pay.ergo:19:9: error S102: this call requires Gateway, which is not in the capability row of function pay and no with provides it
+$ ergo diagnostics fetch.ergo
+fetch.ergo:19:9: error S102: this call requires Transport, which is not in the capability row of function fetch and no with provides it
 ```
 
 One formatter gives one layout, so edits make small, stable diffs. `ergo inspect` is designed to answer questions about a definition (its failures, its needs, its calls and a machine's graph) as JSON, and MCP will serve the same model.
@@ -252,8 +252,8 @@ git clone https://github.com/cevr/ergo.git
 cd ergo
 go build -o bin/ergo ./cmd/ergo
 
-./bin/ergo run examples/checkout/cmd/checkout      # prints: paid
-./bin/ergo test examples/checkout/cmd/checkout     # prints: PASS (2 tests)
+./bin/ergo run examples/lookup/cmd/lookup          # prints: 192.0.2.1
+./bin/ergo test examples/lookup/cmd/lookup         # prints: PASS (4 tests)
 ./bin/ergo run examples/editions/sketch/main.ergo  # prints: hello, Ada / no friend named Bob
 ./bin/ergo fmt --check examples/editions/sketch/main.ergo
 go run ./scripts/examples                          # builds and runs the example programs against their recorded cases

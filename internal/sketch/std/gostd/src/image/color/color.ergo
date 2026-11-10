@@ -76,7 +76,7 @@ extern go image/color.Model type Model {
 }
 
 // ergo:go func ModelFunc(f func(Color) Color) Model
-extern go image/color.ModelFunc func ModelFunc(f func(Color) Color) Model needs go.Foreign
+extern go image/color.ModelFunc func ModelFunc(f escaping func(Color) Color) Model needs go.Foreign
 
 // ergo:go type NRGBA struct
 extern go image/color.NRGBA type NRGBA {
