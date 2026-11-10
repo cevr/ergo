@@ -1912,7 +1912,8 @@
       "to": "\tv := own + \"{}.\" + ofName(k) + \"(\" + val + \")\"",
       "rule": "types.md Unions 6: a flat Option value stands anywhere a Go expression does, an if or a switch header included.",
       "killers": [
-        "lower:TestOptionFlatAgrees"
+        "lower:TestOptionFlatAgrees",
+        "lower:TestStdLawsAddNoGo"
       ]
     },
     {
@@ -1923,7 +1924,7 @@
       "to": "\t\treturn w + \" := \" + fu.flatNarrow(&fc.typeCtx, o, k) + \"; true\"",
       "rule": "runtime.md Machines: a machine's after or work that returns None starts no timer and no work, by the flat Option's tag.",
       "killers": [
-        "lower:TestOptionFlatAgrees"
+        "lower:TestMachineRunAgreesWithFold"
       ]
     },
     {
@@ -1953,7 +1954,7 @@
       "origin": "wf10 OPT2",
       "file": "internal/sketch/lower/equal.go",
       "from": "\"(\"+a+\".tag != \"+strconv.Itoa(k)+\" || \"",
-      "to": "\"(false || \"",
+      "to": "\"(\"+a+\".tag != \"+strconv.Itoa(k)+\" && false || \"",
       "rule": "types.md Equality: two Nones of an Option whose payload is a union are equal; the payload the tag does not name is not compared.",
       "killers": [
         "lower:TestOptionFlatAgrees",
@@ -2005,12 +2006,12 @@
       ]
     },
     {
-      "name": "option-state-key-tag",
+      "name": "option-state-key-payload",
       "origin": "wf10 OPT2",
       "file": "internal/sketch/lower/machinelaws.go",
-      "from": "\n\t\t\t\t\tline(\"\\t\" + k + \".Tag(\" + strconv.Itoa(i) + \")\")",
-      "to": "\n\t\t\t\t\tline(\"\\t\" + k + \".Tag(0)\")",
-      "rule": "types.md Laws 13: a machine state that holds an Option keys its states by the Option's variant, so a law counts each state once.",
+      "from": "\n\t\t\t\t\tline(\"\\t\" + l.keyStmt(vt, k, fu.flatNarrow(tc, v, i), site))",
+      "to": "\n\t\t\t\t\t_ = vt",
+      "rule": "types.md Laws 13: a machine state that holds an Option keys its states by the Option's variant and payload, so a law counts each state once.",
       "killers": [
         "lower:TestOptionFlatAgrees"
       ]
@@ -2020,7 +2021,7 @@
       "origin": "wf10 OPT2",
       "file": "internal/sketch/lower/lawcases.go",
       "from": "\t\t\t\t\t\tvs[i] = fu.flatValue(tc, tc.goType(u), k, vs[i])",
-      "to": "\t\t\t\t\t\tvs[i] = fu.flatValue(tc, tc.goType(u), 0, vs[i])",
+      "to": "\t\t\t\t\t\tvs[i] = fu.flatValue(tc, tc.goType(u), k*0, vs[i])",
       "rule": "types.md Laws: a listed Option argument goes into the flat Option by its variant's tag.",
       "killers": [
         "lower:TestOptionFlatAgrees"

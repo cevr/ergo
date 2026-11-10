@@ -16,9 +16,11 @@ import (
 // Option of an Option, a tuple match, constant patterns, Go's == and the
 // structural ==, a failure that holds an Option, wire's codec, a resource
 // payload whose Close the arm calls, a machine state that holds an Option,
-// generated and listed law arguments), and a main of random statements over
-// them, ending normally, in an uncaught failure whose text holds an Option,
-// or in a defect.
+// a machine's after timer, a Go extern's Option, generated and listed law
+// arguments), and a main that runs each statement path once in the seed's
+// order and more at random, with random arguments, ending normally, in an
+// uncaught failure whose text holds an Option, in a defect, or in a
+// machine's zero timer.
 //
 // The program's run build and test build are lowered with the flat Option
 // and with the reference, form A for every union (unionLowering
@@ -35,7 +37,7 @@ var optionPaths = []string{
 	"find", "find-string", "get-match", "get-bound", "eq-go", "eq-structural", "pair", "nested",
 	"holder", "fails", "catch-yield", "store", "map-value", "map-key", "update", "std", "closure",
 	"cell", "resource", "write", "match-expr", "if-expr", "loop-return", "lost-caught",
-	"go-extern", "timed", "catch-variant",
+	"go-extern", "timed", "catch-variant", "if-header",
 	// The ends, one per seed (seed % 4).
 	"end-ok", "end-fail", "end-defect", "end-timer",
 }
@@ -423,8 +425,7 @@ func (g *optionGen) typed() string {
 	return x
 }
 
-func (g *optionGen) stmt() {
-	path := optionPaths[g.r.IntN(len(optionPaths)-optionEnds)]
+func (g *optionGen) stmt(path string) {
 	g.reached[path] = true
 	switch path {
 	case "find":
@@ -533,6 +534,14 @@ func (g *optionGen) stmt() {
 		g.line(fmt.Sprintf(`Console.Println(env(%q) + " " + replaced(%q))`, []string{"PATH", "ERGO_OPT2_NEVER_SET"}[g.r.IntN(2)], []string{"banana", "xyz"}[g.r.IntN(2)]))
 	case "timed":
 		g.line(fmt.Sprintf("Console.Println(timed(%d))", g.r.IntN(30)))
+	case "if-header":
+		// A variant compared with an Option: the flat Option built from
+		// it stands in the Go if's header.
+		s := g.name("s")
+		g.line(fmt.Sprintf("let %s = Some{%d}", s, g.small()))
+		g.line(fmt.Sprintf("if find(xs, %d) == %s {", g.index(), s))
+		g.line("\tConsole.Println(\"header hit\")")
+		g.line("}")
 	case "catch-variant":
 		v := g.name("c")
 		g.line(fmt.Sprintf("let %s = mustSome(%d) catch {", v, g.r.IntN(4)-2))
@@ -552,8 +561,14 @@ func optionProgram(seed uint64, reached map[string]bool) string {
 	g.line("let mut opts = []Option[int]{}")
 	g.line("let mut mo = Map[int, Option[int]]{}")
 	g.line("let mut mk = Map[Option[int], int]{}")
-	for range 24 {
-		g.stmt()
+	// Every statement path once, in the seed's order, then more drawn at
+	// random.
+	paths := optionPaths[:len(optionPaths)-optionEnds]
+	for _, i := range g.r.Perm(len(paths)) {
+		g.stmt(paths[i])
+	}
+	for range 12 {
+		g.stmt(paths[g.r.IntN(len(paths))])
 	}
 	// Each let mut is written at least once (S110).
 	g.line(fmt.Sprintf("xs[2] = %d", g.small()))
