@@ -200,6 +200,7 @@ func ctxvalHas(xs []int, x int) bool {
 // when the program runs: the checker records the rows, and only the run
 // shows that a value installs its own providers and no others.
 func TestContextValuesAgree(t *testing.T) {
+	needsBuild(t)
 	seeds := []uint64{1, 2, 3, 4}
 	if *ctxvalSeed != 0 {
 		seeds = []uint64{*ctxvalSeed}

@@ -17,6 +17,7 @@ import (
 // lowered text shows a call of NoAnswer, and only the run shows which call
 // reaches it and the text the entry reports.
 func TestScriptNoAnswer(t *testing.T) {
+	needsBuild(t)
 	const head = "import testing\n\ntype Gone { Key string }\n\ntype Photos {\n\tTag(k string),\n\tDrop(k string) fails Gone,\n\tGet(k string) int,\n}\n\n"
 	cases := []struct{ name, body, want string }{
 		{"scriptresult", "\tlet _ = with context { Photos: s } { Photos.Get(\"a\") }\n", "panic: testing.Script[main.Photos]: Get has no answer"},

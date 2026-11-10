@@ -157,6 +157,7 @@ func main() {
 // go build and a run show the exported functions, the adapter and the
 // cancellation.
 func TestGoCallsErgo(t *testing.T) {
+	needsBuild(t)
 	file, err := syntax.Parse(goExportLibrary)
 	if err != nil {
 		t.Fatal(err)
