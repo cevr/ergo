@@ -1896,6 +1896,83 @@
         "file": "internal/sketch/lower/tests.go",
         "text": "Replace(harnessGo + harnessReachGo)"
       }
+    },
+    {
+      "name": "L8-B1 release at function end, not iteration end",
+      "origin": "wf10 L8 B1 (#197)",
+      "file": "internal/sketch/lower/body.go",
+      "from": "\tfc.scoped(body, func() bool { return fc.block(body.List) })",
+      "to": "\tfc.block(body.List)",
+      "rule": "resources R6: a loop body is its own scope; what an iteration owns is released at its end.",
+      "killers": [
+        "lower:TestOwnershipRunModel"
+      ]
+    },
+    {
+      "name": "L8-B1 a statement's temporaries not released",
+      "origin": "wf10 L8 B1 (#197)",
+      "file": "internal/sketch/lower/body.go",
+      "from": "\t\tif !terminates {\n\t\t\tfc.releaseAt(s) // the statement's temporaries (R43)\n\t\t}",
+      "to": "",
+      "rule": "resources R43: a temporary is owned by its statement and released at its end.",
+      "killers": [
+        "lower:TestOwnershipRunModel"
+      ]
+    },
+    {
+      "name": "L8-B1 a moved local still released",
+      "origin": "wf10 L8 B1 (#197)",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\tif v == nil {\n\t\treturn val\n\t}",
+      "to": "\tif true {\n\t\treturn val\n\t}",
+      "rule": "resources R15, R19: a hand-off ends the owner's entry; the new owner releases the value.",
+      "killers": [
+        "lower:TestOwnershipRunModel"
+      ]
+    },
+    {
+      "name": "L8-B1 a returned local released by its frame",
+      "origin": "wf10 L8 B1 (#197)",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\tif v == nil {",
+      "to": "\tif v == nil || returned {",
+      "rule": "resources R10: return moves the value to the caller; the callee does not release it.",
+      "killers": [
+        "lower:TestOwnershipRunModel"
+      ]
+    },
+    {
+      "name": "L8-B1 a reassignment does not release the old value",
+      "origin": "wf10 L8 B1 (#197)",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\tfc.releaseAt(id)\n\tfc.line(target + \" = \" + t)",
+      "to": "\tfc.line(target + \" = \" + t)",
+      "rule": "resources R41: an assignment releases the old value at once.",
+      "killers": [
+        "lower:TestOwnershipRunModel"
+      ]
+    },
+    {
+      "name": "L8-B1 break and continue skip the iteration's releases",
+      "origin": "wf10 L8 B1 (#197)",
+      "file": "internal/sketch/lower/body.go",
+      "from": "\tfc.releaseAt(s) // what the iterations' scopes still own (R6)",
+      "to": "",
+      "rule": "resources R6: break and continue end the iteration's scope.",
+      "killers": [
+        "lower:TestOwnershipRunModel"
+      ]
+    },
+    {
+      "name": "L8-B1 a scope's end releases nothing",
+      "origin": "wf10 L8 B1 (#197)",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\tt := write()\n\tif !t {\n\t\tfc.releaseAt(key)\n\t}",
+      "to": "\tt := write()",
+      "rule": "resources R5: a block releases what it still owns at its end, before the code after it.",
+      "killers": [
+        "lower:TestOwnershipRunModel"
+      ]
     }
   ]
 }

@@ -278,6 +278,20 @@ type Info struct {
 	// leaves; the assigned *syntax.Ident of an assignment for the old value
 	// (R41). A missing key releases nothing. Added in L8 A2 (additive).
 	Releases map[syntax.Node][]Release
+	// OwnedVars and OwnedTemps are the values the ownership pass gives an
+	// owner (#197 L8 B1): each owned local and taken parameter, and each
+	// temporary a statement owns (R43), with the release the lowering
+	// registers for it, the call of its checked Close. The lowering
+	// registers each in the step that receives the value (R8). Added in L8
+	// B1 (additive).
+	OwnedVars  map[*Var]*Close
+	OwnedTemps map[syntax.Expr]*Close
+	// Handoffs is each use of an owned local or taken parameter that
+	// hands it off (a move or a take), with the owned local it hands off:
+	// the ident's own, or the root of the borrow a Close is called through
+	// (`let p = &h; p.Close()`). The lowering removes that local's entry
+	// there. Added in L8 B1 (additive).
+	Handoffs map[*syntax.Ident]*Var
 	// Takes is the inferred takes clause of each unexported function with
 	// a body and no written clause (#197 L8 A3; takes.go): the indexes into
 	// its signature's Params that it takes, ascending. A written clause is
@@ -398,6 +412,9 @@ func newInfo() *Info {
 
 		ReturnedValues: map[syntax.Expr]bool{},
 		Releases:       map[syntax.Node][]Release{},
+		OwnedVars:      map[*Var]*Close{},
+		OwnedTemps:     map[syntax.Expr]*Close{},
+		Handoffs:       map[*syntax.Ident]*Var{},
 		Takes:          map[*Func][]int{},
 		Copies:         map[*Func][]CopySite{},
 	}

@@ -42,7 +42,12 @@ func (fc *funcCtx) yieldList(list []syntax.Stmt, d dest) bool {
 		return fc.stmts(list)
 	}
 	fc.stmts(list[:len(list)-1])
-	return fc.yieldStmt(list[len(list)-1], d)
+	last := list[len(list)-1]
+	t := fc.yieldStmt(last, d)
+	if !t {
+		fc.releaseAt(last) // the statement's temporaries (R43)
+	}
+	return t
 }
 
 // yieldStmt writes the last statement of a body toward d.
@@ -99,7 +104,7 @@ func (fc *funcCtx) yieldStmt(s syntax.Stmt, d dest) bool {
 		fc.at(s)
 		fc.line("{")
 		fc.depth++
-		t := fc.yieldList(s.List, d)
+		t := fc.scoped(s, func() bool { return fc.yieldList(s.List, d) })
 		fc.depth--
 		fc.line("}")
 		return t
@@ -114,7 +119,7 @@ func (fc *funcCtx) ifYield(s *syntax.IfStmt, d dest) bool {
 	cond := fc.headerValue(s.Cond)
 	fc.line("if " + cond + " {")
 	fc.depth++
-	then := fc.yieldList(s.Body.List, d)
+	then := fc.scoped(s.Body, func() bool { return fc.yieldList(s.Body.List, d) })
 	fc.depth--
 	switch e := s.Else.(type) {
 	case nil:
@@ -123,7 +128,7 @@ func (fc *funcCtx) ifYield(s *syntax.IfStmt, d dest) bool {
 	case *syntax.BlockStmt:
 		fc.line("} else {")
 		fc.depth++
-		els := fc.yieldList(e.List, d)
+		els := fc.scoped(e, func() bool { return fc.yieldList(e.List, d) })
 		fc.depth--
 		fc.line("}")
 		return then && els

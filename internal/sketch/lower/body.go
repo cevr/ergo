@@ -47,6 +47,9 @@ type frame struct {
 	// returned decision is given as a value, its kind, the next state flat
 	// and the output.
 	flat *flatRun
+	// plain marks a frame that opens its scope only for its owned values
+	// (release.go): its end is no interruption point (v1.NewOwnerScope).
+	plain bool
 }
 
 // newFrame is the only frame constructor. Every frame-opening path uses it,
@@ -143,6 +146,10 @@ type funcCtx struct {
 	// (plainCatch): the call leaves Go's error as it is, since only its
 	// nil test is read (goErrorOf).
 	rawErr syntax.Expr
+	// returned is the owned local the frame is returning (retExpr): its
+	// hand-off keeps its entry until the frame's exit is known
+	// (release.go, v1.Returned).
+	returned *syntax.Ident
 }
 
 func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
@@ -219,6 +226,9 @@ func (fc *funcCtx) stmts(list []syntax.Stmt) bool {
 	terminates := false
 	for _, s := range list {
 		terminates = fc.stmt(s)
+		if !terminates {
+			fc.releaseAt(s) // the statement's temporaries (R43)
+		}
 	}
 	return terminates
 }
@@ -246,7 +256,7 @@ func (fc *funcCtx) stmt(s syntax.Stmt) bool {
 		fc.exprStmt(s.X)
 	case *syntax.BlockStmt:
 		fc.line("{")
-		t := fc.block(s.List)
+		t := fc.scoped(s, func() bool { return fc.block(s.List) })
 		fc.line("}")
 		return t
 	case *syntax.IfStmt:
@@ -317,6 +327,8 @@ func (fc *funcCtx) let(d *syntax.VarDecl) {
 		if !fc.l.reads[v] {
 			fc.line("_ = " + fc.locals[v])
 		}
+		fc.ownVar(v, id)   // the step that receives the value (R8)
+		fc.releaseAt(spec) // the let's temporaries (R43)
 	}
 }
 
@@ -348,6 +360,9 @@ func (fc *funcCtx) assign(s *syntax.AssignStmt) {
 	target := fc.target(s.Lhs[0], rhsEmits)
 	if op == "" {
 		val := fc.assigned(s.Rhs[0])
+		if fc.reassignOwned(s.Lhs[0], target, val) {
+			return
+		}
 		fc.line(target + " = " + val)
 		return
 	}
@@ -462,6 +477,10 @@ func (fc *funcCtx) isPlace(x syntax.Expr) bool {
 // x's value in a temporary, whose address Go can take.
 func (fc *funcCtx) place(x syntax.Expr, later bool) string {
 	if fc.isPlace(x) {
+		if id, ok := unparen(x).(*syntax.Ident); ok && fc.l.info.Handoffs[id] != nil {
+			// A taking receiver passed by its address: its entry ends here.
+			fc.line("_ = " + fc.handoff(id, fc.ident(id), false))
+		}
 		return "&" + fc.target(x, later)
 	}
 	t := fc.temp("r")
@@ -543,7 +562,11 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 		fc.line("return " + f.flat.decideOf(fc.typeOf(x)) + "(" + fc.value(x) + ")")
 		return
 	}
+	if id, ok := unparen(x).(*syntax.Ident); ok {
+		fc.returned = id
+	}
 	val := fc.moved(fc.assigned(x))
+	fc.returned = nil
 	if f.law {
 		// A law's result is any type over bool (types.md, Laws 8); its Go
 		// function returns bool.
@@ -629,7 +652,7 @@ func (fc *funcCtx) forStmt(s *syntax.ForStmt) bool {
 	breaks := false
 	// The poll ends the iteration (loopBody); a condition that writes
 	// statements runs at the top of the next one.
-	if s.Cond == nil || !fc.emits(s.Cond) {
+	if s.Cond == nil || !fc.emits(s.Cond) && len(fc.l.info.Releases[s.Cond]) == 0 {
 		if s.Cond == nil {
 			fc.line("for {")
 		} else {
@@ -647,7 +670,7 @@ func (fc *funcCtx) forStmt(s *syntax.ForStmt) bool {
 		breaks = true
 	}
 	breaks = fc.containsBreak(s.Body) || breaks
-	fc.loopBody(s, loop, s.Body.List)
+	fc.loopBody(s, loop, s.Body)
 	fc.line("}")
 	body := fc.out.String()
 	fc.out = saved
@@ -734,7 +757,7 @@ func (fc *funcCtx) rangeStmt(s *syntax.RangeStmt) bool {
 	fc.loopBind(s.Key, pos, l.Pos)
 	fc.loopBind(s.Value, elem, l.Elem)
 	fc.depth--
-	fc.loopBody(s, loop, s.Body.List)
+	fc.loopBody(s, loop, s.Body)
 	fc.line("}")
 	body := fc.out.String()
 	fc.out = saved
@@ -753,10 +776,12 @@ func (fc *funcCtx) rangeStmt(s *syntax.RangeStmt) bool {
 // binding, a condition) from the body that receives it. When a continue
 // jumps to the poll, the body is a Go block of its own, so the goto skips
 // none of its declarations (Go spec, Goto statements).
-func (fc *funcCtx) loopBody(s syntax.Stmt, loop *loopCtx, list []syntax.Stmt) {
+func (fc *funcCtx) loopBody(s syntax.Stmt, loop *loopCtx, body *syntax.BlockStmt) {
 	saved := fc.out
 	fc.out = &strings.Builder{}
-	fc.block(list)
+	// The iteration is a scope of its own (R6): what its body still owns
+	// is released before the back-edge poll.
+	fc.scoped(body, func() bool { return fc.block(body.List) })
 	text := fc.out.String()
 	fc.out = saved
 	if loop.next == "" {
@@ -855,6 +880,7 @@ func (fc *funcCtx) branch(s *syntax.BranchStmt) {
 		fc.line("return nil, nil")
 		return
 	}
+	fc.releaseAt(s) // what the iterations' scopes still own (R6)
 	loop := fc.loops[len(fc.loops)-1]
 	if s.Tok == syntax.CONTINUE && fc.frame.polls {
 		// The back-edge poll ends the iteration (loopBody), so a continue
@@ -908,7 +934,12 @@ func (fc *funcCtx) typeMatch(s *syntax.TypeSwitchStmt, d dest) bool {
 		return fc.patternMatch(s, subjects, s.Clauses, d)
 	}
 	subject := fc.headerValue(s.Subjects[0].X)
+	if len(fc.l.info.Releases[s.Subjects[0]]) > 0 {
+		subject = fc.spill(subject)
+		fc.releaseAt(s.Subjects[0])
+	}
 	type arm struct {
+		key   syntax.Node
 		types []string
 		as    *check.Var
 		body  []syntax.Stmt
@@ -926,7 +957,7 @@ func (fc *funcCtx) typeMatch(s *syntax.TypeSwitchStmt, d dest) bool {
 		return goType
 	}
 	for _, cl := range s.Clauses {
-		a := arm{body: cl.Body, def: len(cl.List) == 0}
+		a := arm{key: cl, body: cl.Body, def: len(cl.List) == 0}
 		for _, item := range cl.List {
 			p := fc.l.info.Patterns[item]
 			if p == nil {
@@ -1008,7 +1039,7 @@ func (fc *funcCtx) typeMatch(s *syntax.TypeSwitchStmt, d dest) bool {
 		} else if bind {
 			fc.line("_ = " + narrowed)
 		}
-		terminates = fc.yieldList(a.body, d) && terminates
+		terminates = fc.scoped(a.key, func() bool { return fc.yieldList(a.body, d) }) && terminates
 		fc.depth--
 	}
 	if !hasDefault && d.needsDefault(terminates) {
@@ -1067,7 +1098,7 @@ func (fc *funcCtx) valueMatch(s *syntax.SwitchStmt, d dest) bool {
 			fc.line("case " + strings.Join(values, ", ") + ":")
 		}
 		fc.depth++
-		terminates = fc.yieldList(cl.Body, d) && terminates
+		terminates = fc.scoped(cl, func() bool { return fc.yieldList(cl.Body, d) }) && terminates
 		fc.depth--
 	}
 	if !hasDefault && d.needsDefault(terminates) {

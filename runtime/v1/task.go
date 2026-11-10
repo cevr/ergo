@@ -51,13 +51,22 @@ type Scope struct {
 	// frame.
 	withs  []region
 	parent *Scope
+	// kept are the owned values the frame is returning (Returned, the owned values below):
+	// released only when its exit fails.
+	kept []*entry
+	// plain marks the frame scope of a frame that opens one only for its
+	// owned values (NewOwnerScope): its end is no interruption point, as a
+	// frame with no scope has none.
+	plain bool
 }
 
-// entry is one entry of a frame's list: an exit action or an owned task.
+// entry is one entry of a frame's list: an exit action, an owned task or
+// an owned value's release (the owned values below).
 type entry struct {
 	prev, next *entry
 	action     func()
 	task       owned
+	own        func()
 }
 
 // owned is the side of a Task its owner drains.
@@ -69,6 +78,11 @@ type owned interface {
 
 // NewScope is the frame scope of a frame that runs on task t.
 func NewScope(t *rt.Task) Scope { return Scope{s: rt.NewScope(t)} }
+
+// NewOwnerScope is the frame scope of a frame that opens one only to own
+// values (#197 L8 B1): it releases them on every exit, and a stop pending
+// at its end stays pending for the caller's next checkpoint.
+func NewOwnerScope(t *rt.Task) Scope { return Scope{s: rt.NewScope(t), plain: true} }
 
 // current is the frame that owns what the code at s starts now: the frame
 // of the running exit action, followed down through nested ones, else s.
@@ -127,7 +141,12 @@ func (s *Scope) End(err *error) {
 // end ends the scope with the exit e so far and returns the whole exit.
 func (s *Scope) end(e error) error {
 	e = s.close(e)
-	s.s.End(&e) // stop wins (Exit causes 5); rt holds no entry of this frame
+	if !s.plain {
+		s.s.End(&e) // stop wins (Exit causes 5); rt holds no entry of this frame
+	}
+	if s.kept != nil {
+		e = s.settleKept(e)
+	}
 	return e
 }
 
@@ -270,6 +289,8 @@ func (s *Scope) release() {
 					s.exits.Add(err)
 				}
 			}, nil)
+		} else if x.own != nil {
+			s.runOwn(x) // a checked Close, which masks itself, or OwnErr's release
 		} else {
 			x.action() // a release of its own, through release
 		}
@@ -624,4 +645,158 @@ func (dl *deadline) Stop() bool {
 	default:
 		return true
 	}
+}
+
+// Owned values (docs/spec/resources.md R5-R10, R21, R41, R43; #197 L8 B1).
+// A value whose type holds a resource has one owner: the frame, owning
+// with or statement that the checker's release plan names (check
+// Info.Releases). The lowering registers each owned value on its frame's
+// one list, in the step that receives it (R8): the list that holds the
+// frame's tasks and exit actions, so a frame ends them all last
+// registered first (runtime.md, Exit actions 5).
+//
+// An entry's presence is the value's drop flag (R21). A hand-off (a move
+// or a take) removes it (Hand); a scope that ends inside the frame
+// releases it (Owned.Release); the frame's End releases what is left on
+// every edge that leaves the function: a return, a failure, a defect or a
+// stop. A returned value stays registered until the frame's exit is known
+// (Returned): it is dropped when the frame returns its value, and released
+// when the exit fails, so no defect or stop between the return and the
+// caller loses it.
+//
+// Prior art: Rust's drop elaboration keeps a drop flag per local and
+// drops on each exit and unwind edge; Go's defer runs at function exit
+// only, so a defer in a loop waits for the function (R6), and drops
+// Close's error by habit (Q9).
+
+// Owned is the entry of one owned value in its frame's list; nil, or an
+// entry that left the list, does nothing.
+type Owned struct {
+	s *Scope
+	e *entry
+}
+
+// Owner is the entry, not yet registered, of a value that code at s will
+// own: s is the code's frame scope, or the scope of the innermost owning
+// with around it. Owning registers it.
+func (s *Scope) Owner() *Owned { return &Owned{s: s} }
+
+// Owning registers v as the owned value of h, released by rel, and returns
+// v. It is the step that receives v: no checkpoint runs between the
+// expression that produced v and the registration, so a stop cannot leave
+// v unowned (R8).
+func Owning[T any](h *Owned, v T, rel func(T)) T {
+	o := h.s.own(func() { rel(v) })
+	h.s, h.e = o.s, o.e
+	return v
+}
+
+// own adds a release entry to s, or to the frame of the exit action that
+// code at s runs now.
+func (s *Scope) own(rel func()) *Owned {
+	s = s.current()
+	if s.ended {
+		panic("ownership: the frame that would own this value has returned")
+	}
+	e := &entry{own: rel}
+	s.push(e)
+	return &Owned{s: s, e: e}
+}
+
+// OwnErr registers a release that reports a failure, the Close() error of
+// a host value (Q9; import go, IG9): a non-nil error is a defect of the
+// release, named by site, the Ergo line of the acquisition. The release
+// runs inside the release boundary, masked, as a checked Close's body
+// does.
+func OwnErr(s *Scope, site Site, rel func() error) *Owned {
+	return s.own(func() {
+		t := s.s.Task()
+		var c rt.Cause
+		release(t, &c, func() {
+			if err := rel(); err != nil {
+				panic(fmt.Errorf("release of the value acquired at %s: %w", site, err))
+			}
+		}, nil)
+		if err := c.Err(); err != nil {
+			raise(err)
+		}
+	})
+}
+
+// Hand removes h's entry, the value v being handed off: moved to a new
+// owner or taken by a call, and returns v.
+func Hand[T any](h *Owned, v T) T {
+	h.drop()
+	return v
+}
+
+// Returned keeps h's entry until its frame's exit is known, the value v
+// being returned (R10): the frame drops it when it returns v, and
+// releases it when its exit fails. It returns v.
+func Returned[T any](h *Owned, v T) T {
+	if h == nil || h.e == nil {
+		return v
+	}
+	f := h.s
+	for f.parent != nil {
+		f = f.parent
+	}
+	h.s.remove(h.e)
+	f.kept = append(f.kept, h.e)
+	h.e, h.s = nil, nil
+	return v
+}
+
+// drop removes the entry, if it is still in its list.
+func (h *Owned) drop() {
+	if h == nil || h.e == nil {
+		return
+	}
+	h.s.remove(h.e)
+	h.e, h.s = nil, nil
+}
+
+// Release releases the value now, if its entry is still in the list: the
+// end of a scope inside the frame (a block, a loop iteration, a
+// statement's temporaries, a break or continue), or the old value of an
+// assignment (R41). A defect is raised at once; the frame's End then
+// releases what it still owns and keeps every defect (R9).
+func (h *Owned) Release() {
+	if h == nil || h.e == nil {
+		return
+	}
+	e := h.e
+	h.drop()
+	e.own()
+}
+
+// runOwn is the frame's release of an owned value at its End: a defect
+// joins the frame's exits, and the releases after it still run (R9).
+func (s *Scope) runOwn(e *entry) {
+	t := s.s.Task()
+	defer func() {
+		if p := recover(); p != nil {
+			s.exits.Add(capture(t, p))
+		}
+	}()
+	e.own()
+}
+
+// settleKept ends the values the frame returned (Returned): on a failed
+// exit e, each is released, last first, and its defects join e; on
+// success they leave with the value.
+func (s *Scope) settleKept(e error) error {
+	kept := s.kept
+	s.kept = nil
+	if e == nil {
+		return nil
+	}
+	s.exits = rt.Cause{}
+	for i := len(kept) - 1; i >= 0; i-- {
+		s.runOwn(kept[i])
+	}
+	if len(s.exits.Reasons) > 0 {
+		e = join(e, s.exits.Err())
+	}
+	return e
 }

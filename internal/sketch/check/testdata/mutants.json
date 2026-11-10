@@ -1821,7 +1821,8 @@
       "to": "return ownState{reached: len(s.slots) > 0, slots: append([]ownSlot(nil), s.slots...)}",
       "rule": "The old nil encoding: a copied state with no live slot read as unreachable. A loop, match or catch arm reached with nothing live yet is still checked and planned (resources R4, R5, R20).",
       "killers": [
-        "check:TestOwnershipFlowModel"
+        "check:TestOwnershipFlowModel",
+        "lower:TestOwnershipRunModel"
       ]
     },
     {
@@ -2031,6 +2032,61 @@
       "rule": "resources R14: a composite literal moves its parts, also one lent where it is made.",
       "killers": [
         "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-B1 a value that needs a generated release admitted",
+      "origin": "wf10 L8 B1 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tif cl == nil {\n\t\tw.reportCode(at, CodeOutside,",
+      "to": "\tif cl == nil && false {\n\t\tw.reportCode(at, CodeOutside,",
+      "rule": "resources R3: an aggregate holding a resource has no release until B2 generates it, so it is refused (S109).",
+      "killers": [
+        "check:TestOwnershipGlueRefused"
+      ]
+    },
+    {
+      "name": "L8-B1 a hand-off not recorded",
+      "origin": "wf10 L8 B1 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tw.info.Handoffs[x] = l.v",
+      "to": "",
+      "rule": "resources R15, R19: the lowering ends the owner's entry at each hand-off the checker records.",
+      "killers": [
+        "lower:TestOwnershipRunModel"
+      ]
+    },
+    {
+      "name": "L8-B1 a method value of Close lends its receiver",
+      "origin": "wf10 L8 B1 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\tw.expr(x.X, mMove, hand{at: x,",
+      "to": "\t\t\tw.expr(x.X, mLend, hand{at: x,",
+      "rule": "resources R19: `let f = r.Close` takes r; the call of f is its one release.",
+      "killers": [
+        "lower:TestRuntime199MaskProperty"
+      ]
+    },
+    {
+      "name": "L8-B1 a Close through a borrow takes nothing",
+      "origin": "wf10 L8 B1 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tw.borrow[p] = root",
+      "to": "",
+      "rule": "resources R19: `let p = &h; p.Close()` takes h; h is released once.",
+      "killers": [
+        "lower:TestRuntime199MaskProperty"
+      ]
+    },
+    {
+      "name": "L8-B1 a Close function value lends its argument",
+      "origin": "wf10 L8 B1 (#197)",
+      "file": "internal/sketch/check/close.go",
+      "from": "\t\tsig.Takes = []int{0}",
+      "to": "",
+      "rule": "resources R19: `let f = Close; f(c)` takes c, as `Close(c)` does.",
+      "killers": [
+        "lower:TestRuntime199MaskProperty"
       ]
     }
   ]

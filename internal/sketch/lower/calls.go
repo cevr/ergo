@@ -877,7 +877,7 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 		if w.Next != nil {
 			fc.with(x, i+1, w.Next, d)
 		} else {
-			fc.yieldList(x.Trailing.List, d)
+			fc.scoped(x.Trailing, func() bool { return fc.yieldList(x.Trailing.List, d) })
 		}
 	}
 	if w.Value != nil {

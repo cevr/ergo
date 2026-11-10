@@ -211,6 +211,9 @@ import task
 
 type Fault {}
 type Conn { Fail bool }
+// Mark is Conn without a Close: it crosses (resources R1), so the twin
+// owns nothing and enters no release.
+type Mark { Fail bool }
 
 func Close(c Conn) needs Scheduler {
 	Scheduler.Sleep(1h)
@@ -220,7 +223,7 @@ func Close(c Conn) needs Scheduler {
 	}
 }
 
-func Finish(c Conn) needs Scheduler {
+func Finish(c Mark) needs Scheduler {
 	Scheduler.Sleep(1h)
 	if c.Fail {
 		let xs = []int{}
@@ -238,7 +241,7 @@ func viaDot(fail bool, signal queue.Queue[int]) {
 
 func twinFinish(fail bool, signal queue.Queue[int]) {
 	with context { Scheduler: NewLiveScheduler() } {
-		let c = Conn{Fail: fail}
+		let c = Mark{Fail: fail}
 		signal.End()
 		c.Finish()
 	}

@@ -2073,6 +2073,7 @@ func (c *checker) funcSig(f *Func) *Signature {
 	sig.TParams = tparams
 	f.Sig = sig
 	f.state = 2
+	closeTakes(f)
 	if d.Body == nil {
 		// A bodiless (extern) function's parameters are declared here; a
 		// body's are declared when it is checked.
