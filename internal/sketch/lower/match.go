@@ -100,7 +100,7 @@ func (fc *funcCtx) matchArms(clauses []*syntax.CaseClause, d dest) []treeArm {
 			}
 			arms[k].alts = append(arms[k].alts, p)
 		}
-		arms[k].body = func() bool { return fc.yieldList(cl.Body, d) }
+		arms[k].body = func() bool { return fc.scoped(cl, func() bool { return fc.yieldList(cl.Body, d) }) }
 	}
 	return arms
 }
@@ -157,7 +157,7 @@ func (fc *funcCtx) flatPatternMatch(s syntax.Stmt, vals []string, types []check.
 		}
 		fc.depth++
 		fc.bindArm(conds, binds)
-		terminates = fc.yieldList(cl.Body, d) && terminates
+		terminates = fc.scoped(cl, func() bool { return fc.yieldList(cl.Body, d) }) && terminates
 		fc.depth--
 	}
 	if !hasDefault && d.needsDefault(terminates) {
@@ -362,6 +362,12 @@ func (fc *funcCtx) letPattern(spec *syntax.VarSpec) {
 				fc.line("_ = " + name)
 			}
 		}
+		// Each owned name receives its value in this step (R8), and the
+		// let's temporaries end with it (R43).
+		for _, b := range binds {
+			fc.ownVar(b.v, spec)
+		}
+		fc.releaseAt(spec)
 	}
 	switch {
 	case spec.Pattern != nil && len(spec.Values) == 1:

@@ -112,6 +112,16 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Scope.OpenWith":    {},
 	"Scope.WithAcquire": {},
 	"Scope.EndWith":     {},
+	// Owned values (release.go, B1; resources R5-R10, R21). None waits and
+	// none is a release route: an owned value's release is the call of its
+	// checked Close, which masks itself (callerRelease). Owning registers
+	// in the step that receives the value (R8); Hand and Returned end or
+	// defer the entry at a hand-off; Owned.Release releases at a scope end
+	// inside the frame.
+	"Owning":        {},
+	"Hand":          {},
+	"Returned":      {},
+	"Owned.Release": {},
 	// The context owner (calls.go, contextWith; runtime.md, G1): a region
 	// opens on the scope of the code at the with and ends at its block's
 	// normal end, or when that scope closes. The reads take the running

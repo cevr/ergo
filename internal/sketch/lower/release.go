@@ -320,3 +320,215 @@ func (fc *funcCtx) closeBody(f *check.Func, site syntax.Node, emit func()) {
 	block := "func() {\n" + inner + strings.Repeat("\t", depth) + "}"
 	fc.line(fc.runtimeCall(name, body, "", "", []string{block}, fc.envExpr(site), nil, nil, site))
 }
+
+// Owned values (#197 L8 B1; resources R5-R10, R21, R41, R43). The checker
+// gives each owned local, taken parameter and temporary its release
+// (Info.OwnedVars, Info.OwnedTemps), marks each hand-off (Info.Handoffs)
+// and records the release plan (Info.Releases). The lowering registers
+// each value on its frame's one list in the step that receives it
+// (v1.Owning, R8); a hand-off removes the entry (v1.Hand), a return keeps
+// it until the frame's exit is known (v1.Returned); a scope that ends
+// inside the frame releases what the plan names there (Owned.Release),
+// and the frame's End releases the rest on every edge that leaves the
+// function, each release after an earlier defect, every defect kept (R9).
+// The entry's presence is the drop flag (R21). This is the plain
+// lowering; P-L8 adds the static fast path and keeps this one selectable.
+
+// ownBinding is the v1 body of an ownership binding.
+func (fc *funcCtx) ownBinding(name string, site syntax.Node) v1.Body {
+	body, err := v1.BodyOf(name)
+	if err != nil {
+		ice(site, "the ownership binding %s has no runtime/v1 body: %v", name, err)
+	}
+	return body
+}
+
+// ownRelease is the Go release of an owned value of type t: a function of
+// the value that calls its checked Close, which masks its own body.
+func (fc *funcCtx) ownRelease(cl *check.Close, t check.Type, site syntax.Node) string {
+	v := fc.temp("owned")
+	text := fc.providerRelease(&check.Acquisition{Close: cl}, fc.envExpr(site), v, site)
+	return "func(" + v + " " + fc.goType(t) + ") { " + text + " }"
+}
+
+// own registers val, a value of type t that key's owner owns, and returns
+// the Go expression that yields it: the step that receives the value.
+func (fc *funcCtx) own(key any, cl *check.Close, t check.Type, val string, site syntax.Node) string {
+	if fc.l.owned == nil {
+		fc.l.owned = map[any]string{}
+	}
+	h := fc.temp("own")
+	fc.l.owned[key] = h
+	fc.line("var " + h + " *" + fc.l.rt() + ".Owned")
+	return fc.owning(h, val, fc.ownRelease(cl, t, site), site)
+}
+
+// owning is the registration of val in the entry h on the frame scope
+// (v1.Owning): its hidden frame is the code's frame scope, written here
+// since the call has no call site of its own (hiddenArgs).
+func (fc *funcCtx) owning(h, val, rel string, site syntax.Node) string {
+	body := fc.ownBinding("Owning", site)
+	if len(body.Hidden) != 1 || body.Hidden[0] != v1.Frame {
+		ice(site, "the binding Owning does not take the hidden frame alone")
+	}
+	if _, ok := runtimeBindings["Owning"]; !ok {
+		ice(site, "the binding Owning is not in the runtime catalog")
+	}
+	return fc.l.rt() + ".Owning(" + fc.frameScope(site) + ", &" + h + ", " + val + ", " + rel + ")"
+}
+
+// ownVar registers the local or parameter v, already bound to its Go
+// variable, when the checker gives it an owner.
+func (fc *funcCtx) ownVar(v *check.Var, site syntax.Node) {
+	cl := fc.l.info.OwnedVars[v]
+	if cl == nil {
+		return
+	}
+	fc.line(fc.own(v, cl, v.Type, fc.locals[v], site))
+}
+
+// ownTemp registers the value of x, a temporary its statement owns (R43),
+// in the operand o: on success only, when x may fail.
+func (fc *funcCtx) ownTemp(x syntax.Expr, o operand) operand {
+	cl := fc.l.info.OwnedTemps[x]
+	if cl == nil || o.val == "" {
+		return o
+	}
+	if o.err == "" {
+		o.val = fc.own(x, cl, fc.typeOf(x), o.val, x)
+		return o
+	}
+	val := fc.temp("t")
+	fc.line(val + " := " + o.val)
+	reg := fc.own(x, cl, fc.typeOf(x), val, x)
+	fc.line("if " + o.err + " == nil {")
+	fc.line("\t" + reg)
+	fc.line("}")
+	o.val = val
+	return o
+}
+
+// handoff is the Go value of id, a use of an owned value: as it is, or, at
+// a hand-off, with its entry removed (v1.Hand), or kept until the frame's
+// exit is known when the frame returns it (v1.Returned).
+func (fc *funcCtx) handoff(id *syntax.Ident, val string, returned bool) string {
+	if !fc.l.info.Handoffs[id] {
+		return val
+	}
+	v, _ := fc.l.info.Uses[id].(*check.Var)
+	h := fc.l.owned[v]
+	if h == "" {
+		return val // a value of a type parameter: released by its instance (B2)
+	}
+	name := "Hand"
+	if returned {
+		name = "Returned"
+	}
+	return fc.runtimeCall(name, fc.ownBinding(name, id), "", "", []string{h, val}, "", nil, nil, id)
+}
+
+// releaseAt writes the releases the plan records at key, a place that
+// ends inside the frame: last acquired first. A value whose entry left
+// the list (a hand-off on this path) is skipped by its entry (R21).
+func (fc *funcCtx) releaseAt(key syntax.Node) {
+	for _, r := range fc.l.info.Releases[key] {
+		var h string
+		if r.Var != nil {
+			h = fc.l.owned[r.Var]
+		} else {
+			h = fc.l.owned[r.Temp]
+		}
+		if h == "" {
+			continue // a value of a type parameter (B2)
+		}
+		fc.line(fc.runtimeCall("Owned.Release", fc.ownBinding("Owned.Release", key), "", h, nil, "", nil, nil, key))
+	}
+}
+
+// reassignOwned writes x = val, x an owned local (R41): the new value is
+// registered first, then the old one is released where the plan says it
+// is still owned, then x takes the new value and its entry. So a defect
+// in the old value's release leaves the new one owned. It reports false
+// for any other target.
+func (fc *funcCtx) reassignOwned(lhs syntax.Expr, target, val string) bool {
+	id, ok := unparen(lhs).(*syntax.Ident)
+	if !ok {
+		return false
+	}
+	v, _ := fc.l.info.Uses[id].(*check.Var)
+	cl := fc.l.info.OwnedVars[v]
+	h := fc.l.owned[v]
+	if cl == nil || h == "" {
+		return false
+	}
+	t := fc.temp("t")
+	fc.line(t + " := " + val)
+	next := fc.temp("own")
+	fc.line("var " + next + " *" + fc.l.rt() + ".Owned")
+	fc.line(fc.owning(next, t, fc.ownRelease(cl, v.Type, id), id))
+	fc.releaseAt(id)
+	fc.line(target + " = " + t)
+	fc.line(h + " = " + next)
+	return true
+}
+
+// scoped writes a scope's statements through write and, when they can
+// end normally, the releases of the scope's end (Info.Releases[key]).
+func (fc *funcCtx) scoped(key syntax.Node, write func() bool) bool {
+	t := write()
+	if !t {
+		fc.releaseAt(key)
+	}
+	return t
+}
+
+// bodyOwns reports a body that owns a value: a frame scope holds its
+// entries.
+func (l *lowerer) bodyOwns(list []syntax.Stmt) bool {
+	found := false
+	for _, s := range list {
+		syntax.Inspect(s, func(n syntax.Node) bool {
+			switch n := n.(type) {
+			case *syntax.FuncLit:
+				return false
+			case *syntax.CallExpr:
+				if c := l.info.Calls[n]; n.Trailing != nil && (c == nil || c.Kind != check.CallWith) {
+					syntax.Inspect(n.Fun, func(m syntax.Node) bool { found = found || l.ownsNode(m); return !found })
+					for _, a := range n.Args {
+						syntax.Inspect(a, func(m syntax.Node) bool { found = found || l.ownsNode(m); return !found })
+					}
+					found = found || l.ownsNode(n)
+					return false
+				}
+			}
+			found = found || l.ownsNode(n)
+			return !found
+		})
+		if found {
+			return true
+		}
+	}
+	return false
+}
+
+// ownsNode reports a binding or temporary with an owner.
+func (l *lowerer) ownsNode(n syntax.Node) bool {
+	switch n := n.(type) {
+	case *syntax.Ident:
+		v, ok := l.info.Defs[n].(*check.Var)
+		return ok && l.info.OwnedVars[v] != nil
+	case syntax.Expr:
+		return l.info.OwnedTemps[n] != nil
+	}
+	return false
+}
+
+// ownsParams reports a signature with a taken parameter that has an owner.
+func (l *lowerer) ownsParams(params []*check.Var) bool {
+	for _, v := range params {
+		if l.info.OwnedVars[v] != nil {
+			return true
+		}
+	}
+	return false
+}

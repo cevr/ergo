@@ -263,6 +263,18 @@ type Info struct {
 	// leaves; the assigned *syntax.Ident of an assignment for the old value
 	// (R41). A missing key releases nothing. Added in L8 A2 (additive).
 	Releases map[syntax.Node][]Release
+	// OwnedVars and OwnedTemps are the values the ownership pass gives an
+	// owner (#197 L8 B1): each owned local and taken parameter, and each
+	// temporary a statement owns (R43), with the release the lowering
+	// registers for it, the call of its checked Close. The lowering
+	// registers each in the step that receives the value (R8). Added in L8
+	// B1 (additive).
+	OwnedVars  map[*Var]*Close
+	OwnedTemps map[syntax.Expr]*Close
+	// Handoffs is each use of an owned local or taken parameter that
+	// hands it off (a move or a take): the lowering removes its entry
+	// there. Added in L8 B1 (additive).
+	Handoffs map[*syntax.Ident]bool
 }
 
 // Release is one value a place releases: an owned local or taken
@@ -350,6 +362,9 @@ func newInfo() *Info {
 
 		ReturnedValues: map[syntax.Expr]bool{},
 		Releases:       map[syntax.Node][]Release{},
+		OwnedVars:      map[*Var]*Close{},
+		OwnedTemps:     map[syntax.Expr]*Close{},
+		Handoffs:       map[*syntax.Ident]bool{},
 	}
 }
 

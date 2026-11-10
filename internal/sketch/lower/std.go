@@ -176,7 +176,8 @@ func (l *lowerer) bodyNeedsFrame(list []syntax.Stmt) bool {
 	for _, s := range list {
 		syntax.Inspect(s, visit)
 	}
-	return found
+	// A body that owns a value holds its entries on its frame (release.go).
+	return found || l.bodyOwns(list)
 }
 
 // openFrame writes the frame scope of the function being written, its

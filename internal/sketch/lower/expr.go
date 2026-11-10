@@ -253,7 +253,7 @@ func (fc *funcCtx) expr(x syntax.Expr) operand {
 		o.val = fc.cloneValue(fc.typeOf(x), o.val, x)
 	}
 	o.val = fc.guardHeader(o.val)
-	return o
+	return fc.ownTemp(x, o) // a temporary its statement owns (R43)
 }
 
 func (fc *funcCtx) exprOf(x syntax.Expr) operand {
@@ -267,7 +267,7 @@ func (fc *funcCtx) exprOf(x syntax.Expr) operand {
 	case *syntax.ParenExpr:
 		return fc.expr(x.X)
 	case *syntax.Ident:
-		return operand{val: fc.ident(x)}
+		return operand{val: fc.handoff(x, fc.ident(x), x == fc.returned)}
 	case *syntax.BasicLit:
 		ice(x, "a literal with no Values entry")
 	case *syntax.SelectorExpr:
@@ -985,6 +985,11 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 // value when the catch has one. It reports whether the arm's Go form
 // terminates (the match tree, M1b, reads it).
 func (fc *funcCtx) arm(a *syntax.CatchArm, result string) bool {
+	return fc.scoped(a, func() bool { return fc.armBody(a, result) })
+}
+
+// armBody writes a catch arm's statements; arm ends its scope.
+func (fc *funcCtx) armBody(a *syntax.CatchArm, result string) bool {
 	list := a.Body
 	if len(list) == 0 {
 		return false
@@ -1063,7 +1068,7 @@ func (fc *funcCtx) funcLitClosure(ft *syntax.FuncType, list []syntax.Stmt, n syn
 		inner.frame.unit = result == nil
 		inner.depth = fc.depth + 1
 		results = fc.valueResults(result)
-		if fc.l.bodyNeedsFrame(list) {
+		if fc.l.bodyNeedsFrame(list) || fc.l.ownsParams(params) {
 			// The literal is a frame of its own (stage D3b, Rule 2).
 			errName := fc.scope.alloc("err")
 			named := result
@@ -1073,6 +1078,9 @@ func (fc *funcCtx) funcLitClosure(ft *syntax.FuncType, list []syntax.Stmt, n syn
 			results = fc.namedResults(named, errName)
 			inner.site = n
 			inner.openFrame(errName)
+			for _, v := range params {
+				inner.ownVar(v, n) // a taken parameter, before the entry poll (R8)
+			}
 		}
 		inner.entryPoll(fc.l.info, n)
 		// A trailing block yields its last statement (Info.Tails); a function

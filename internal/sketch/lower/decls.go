@@ -1082,7 +1082,7 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
 	// A function that starts a task, registers an exit action or receives a
 	// Task by return opens its frame scope first (stage D3b, Rule 2).
 	frameErr := ""
-	needsFrame := l.bodyNeedsFrame(f.Decl.Body.List)
+	needsFrame := l.bodyNeedsFrame(f.Decl.Body.List) || l.ownsParams(params)
 	results := ""
 	switch {
 	case needsFrame && fd.fallible:
@@ -1117,6 +1117,9 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
 		if needsFrame {
 			fc.site = site
 			fc.openFrame(frameErr)
+			for _, v := range params {
+				fc.ownVar(v, site) // a taken parameter, before the entry poll (R8)
+			}
 		}
 		fc.entryPoll(f.Pkg.Info, f.Decl)
 		fc.body(f.Decl.Body.List)
