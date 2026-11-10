@@ -25,12 +25,13 @@ func TestRuntime199TaskReaders(t *testing.T) {
 		classified map[string]string
 	}{
 		{"envTask", map[string]string{
-			"taskOf":                "the only reader",
-			"lowerer.envType":       "declares the field",
-			"funcCtx.operations":    "an operation table's Env literal for the caller's task",
-			"funcCtx.witnessMethod": "a witness adapter's Env literal for the caller's task",
-			"lowerer.entry":         "the root Env literal in main",
-			"lowerer.testEntry":     "the root Env literal in the test build's main (196l)",
+			"taskOf":                   "the only reader",
+			"lowerer.envType":          "declares the field",
+			"funcCtx.operations":       "an operation table's Env literal for the caller's task",
+			"funcCtx.witnessMethod":    "a witness adapter's Env literal for the caller's task",
+			"funcCtx.scriptOperations": "a Script adapter's Env literal for the caller's task, as an operation table's (script.go)",
+			"lowerer.entry":            "the root Env literal in main",
+			"lowerer.testEntry":        "the root Env literal in the test build's main (196l)",
 		}},
 		{"taskOf", map[string]string{
 			"funcCtx.hiddenArgs":    "runtimeCall's hidden CallerTask argument",
@@ -63,6 +64,10 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"lowerer.protocolFreeName":  "the Go names already taken on a pure method's type (Q-S5-6)",
 			"lowerer.typeDecl":          "a declared type's members",
 			"lowerer.entry":             "the host Console's Println",
+			"funcCtx.fieldName":         "a Script's field, its operation's name (script.go)",
+			"funcCtx.scriptLit":         "a Script literal's fields (script.go)",
+			"funcCtx.scriptOperations":  "a Script adapter's methods and the fields they call (script.go)",
+			"lowerer.scriptType":        "a Script's struct fields (script.go)",
 		}},
 	} {
 		obj := scope.Lookup(c.obj)
@@ -203,6 +208,9 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// G4: a user extern's error turned into go.Error; it neither
 		// waits nor releases.
 		"GoErrorOf": true,
+		// L5b: a Script operation's record of a call (script.go): one
+		// lock for one append, no wait, no release.
+		"Call": true,
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}

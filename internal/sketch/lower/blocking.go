@@ -196,6 +196,11 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Ref.Set":    {},
 	"Ref.Update": {},
 	"RefModify":  {},
+	// std testing Scripts (stdlib.md, Testing 7 to 12): each operation of
+	// an Op holds its mutex for one step and calls no program code.
+	"NewOp":     {},
+	"Op.Answer": {},
+	"Op.Calls":  {},
 	// std filepath (std-align S3a; stdlib.md, filepath): pure bodies that
 	// neither wait nor release.
 	"FilepathJoin":  {},

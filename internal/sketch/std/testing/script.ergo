@@ -1,0 +1,90 @@
+// Scripts: a test provider of any capability, derived from its operations
+// (docs/spec/stdlib.md, Testing 7 to 12; #237 stage 5). A test makes one
+// with testing.Script[Store]{}, says how each operation answers with
+// s.Get.Answer(f), binds it where the program binds a Store, and reads
+// what the code did with s.Get.Calls(). The checker derives the record of
+// a Script[S] from S: one field per operation, named like it, of type
+// Op[A, F]. The Go bodies are runtime/v1's Op and NewOp.
+
+// Op is one operation of a Script: the answer it gives and the calls it
+// got. A is the operation's arguments: the one parameter's type, a tuple
+// of several, or NoArgs. F is the operation's signature as a function
+// type. Every copy of an Op is the same operation, and two tasks may call
+// it at once.
+// law-exempt: an Op is only a field of a Script, so the Script laws (ScriptRecordsEachCall, ScriptAnswersByTheLastAnswer) state its contract through the operations it answers.
+type Op[A, F] {
+	// Answer makes f the operation's answer from now on. A call of an
+	// operation with no answer is a defect that names the Script and the
+	// operation, except an operation with no result and no failure, which
+	// a call only records.
+	Answer(f F),
+	// Calls is the arguments of each call so far, oldest first.
+	Calls() []A,
+}
+
+// NoArgs is the arguments of a call of an operation that takes none.
+type NoArgs {}
+
+// Script is a provider of the capability S whose answers the test sets and
+// which records the calls it gets. Its record has a field of type Op[A, F]
+// for each operation of S, named like it; testing.Script[S]{} makes one
+// with no answers and no calls. S is a capability with written type
+// arguments, whose operations return no Task and take no function.
+type Script[S] {}
+
+// newOp is the Op of one field of a new Script; the lowering calls its body,
+// v1.NewOp, for each field of a Script literal, and its result makes Op the
+// runtime's sealed type.
+extern go ergo.local/prototype/runtime/v1.NewOp func newOp[A, F]() Op[A, F]
+
+// probe is the capability the laws below script: an operation with no
+// arguments, one with one, one with two, and one that fails.
+// law-exempt: the capability the Script laws script; a Script is its only provider.
+type probe {
+	Size() int,
+	Has(k string) bool,
+	Put(k string, v int),
+	Get(k string) int fails Absent,
+}
+
+// Absent is the failure of probe's Get.
+type Absent { Key string }
+
+// ScriptRecordsEachCall: a Script records the arguments of every call of
+// each operation, in order, and an operation with no result and no failure
+// needs no answer.
+law ScriptRecordsEachCall(ks []string, n int) {
+	let s = Script[probe]{}
+	s.Has.Answer(func(k string) bool { len(k) > 0 })
+	with context { probe: s } {
+		for i, k in ks {
+			probe.Put(k, n + i)
+			let _ = probe.Has(k)
+		}
+	}
+	let puts = s.Put.Calls()
+	let mut same = len(puts) == len(ks) && len(s.Has.Calls()) == len(ks) && len(s.Size.Calls()) == 0
+	for i, k in ks {
+		same = same && puts[i] == (k, n + i) && s.Has.Calls()[i] == k
+	}
+	same
+}
+
+// ScriptAnswersByTheLastAnswer: each call gets the answer of the function
+// set last before it, failure included, and a call with no arguments is
+// recorded as NoArgs.
+law ScriptAnswersByTheLastAnswer(k string, a int, b int) {
+	let s = Script[probe]{}
+	s.Size.Answer(func() int { a })
+	s.Get.Answer(func(key string) int fails Absent { Absent{Key: key} })
+	with context { probe: s } {
+		let first = probe.Size()
+		s.Size.Answer(func() int { b })
+		let second = probe.Size()
+		let got = probe.Get(k) catch {
+		case Absent as e:
+			if e.Key == k { -1 } else { -2 }
+		}
+		first == a && second == b && got == -1 && len(s.Size.Calls()) == 2 && s.Size.Calls()[0] == NoArgs && s.Get.Calls()[0] == k
+	}
+}

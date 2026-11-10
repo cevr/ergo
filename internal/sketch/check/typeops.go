@@ -655,6 +655,13 @@ func (c *checker) implements(v Type, it *Interface) string {
 	if p, ok := v.(*Pointer); ok {
 		v, ptr = p.Elem, true
 	}
+	if s := ScriptOf(v); s != nil && !ptr {
+		// A Script has the operations of its capability (script.go, rule 4).
+		if why := c.implements(s, it); why != "" {
+			return fmt.Sprintf("%s: %s", v, why)
+		}
+		return ""
+	}
 	for _, m := range it.Methods {
 		got, fn := c.methodOf(v, m.Name)
 		if got == nil {

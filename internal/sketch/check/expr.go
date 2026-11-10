@@ -891,6 +891,19 @@ func instanceFromHint(orig *Named, hint Type) Type {
 // review M4).
 func (c *checker) structLit(x *syntax.CompositeLit, t Type, s *Struct, mark int) bool {
 	ok := true
+	if _, script := scriptArg(t); script {
+		// A Script is made empty (script.go, rule 3).
+		if !c.scriptLit(x, t) {
+			for _, e := range x.Elts {
+				if kv, isKV := e.(*syntax.KeyValueExpr); isKV {
+					e = kv.Value
+				}
+				c.strayValue(e, mark, true)
+			}
+			return false
+		}
+		return true
+	}
 	// A literal or record update of a record with another package's
 	// unexported field builds a new value of it: S114 (types.md, Zero
 	// values 6). Its values are still typed.

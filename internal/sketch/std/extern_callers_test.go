@@ -35,6 +35,7 @@ var notHostExterns = map[string]string{
 	"slices.SortStableFunc": "calls the program's comparison",
 	"slices.sortOwned":      "sorts a slice the call owns",
 	"sync.NewRef":           "makes a Ref",
+	"testing.newOp":         "makes an operation of a Script",
 	"sync.Modify":           "changes a Ref of the program with the program's function",
 	"task.Go":               "starts a task of the program",
 	"tasks.Transform":       "starts tasks of the program over its own function",

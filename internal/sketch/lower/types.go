@@ -44,6 +44,10 @@ func (tc *typeCtx) goType(t check.Type) string {
 			// with no parameters and no result.
 			return tc.funcType(&check.Signature{})
 		}
+		if check.ScriptOf(t) != nil {
+			// A Script is a struct of its own (script.go).
+			return tc.l.scriptType(t, tc.site)
+		}
 		// A std type is the runtime's Go type (stage D3b; std.go).
 		name := tc.l.runtimeType(t, tc.site)
 		if name == "" {
