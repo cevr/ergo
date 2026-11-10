@@ -94,6 +94,16 @@ func TestTestCommand(t *testing.T) {
 		t.Fatalf("--seed 7 prints no replay command: %q", seeded)
 	}
 	testReceipt(t, write, run)
+	// Each replay of a shrink builds its own world (fstest.NewMemory, the
+	// builder of fs.Files and fs.Writes): the property fails only on a
+	// fresh file system, so it shrinks only if no replay sees an earlier
+	// replay's file.
+	fresh := write("fresh.ergo", "import fs\nimport fstest\n\ntype Disk { files fs.Files, w fs.Writes }\n\n"+
+		"test FreshWorld(d Disk, n int) {\n\tlet names = try d.files.ReadDir(\".\")\n\ttry d.w.WriteFile(\"a.txt\", \"x\")\n\tassert n < 1000 || len(names) > 0\n}\n\n"+
+		"test Uses {\n\tlet _ = fstest.NewMemory()\n}\n")
+	if stdout, stderr, code := run("test", fresh); code != 1 || !strings.Contains(stdout, "; shrunk from: d = ") {
+		t.Fatalf("a property over a built world did not shrink: exit %d stdout %q stderr %q", code, stdout, stderr)
+	}
 	// Usage errors: exit 2, nothing on stdout, nothing run.
 	for _, c := range []struct {
 		args []string
