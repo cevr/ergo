@@ -619,9 +619,16 @@ func isUnion(t check.Type) bool {
 
 // importBlock imports each package the declarations text names.
 func (g *gen) importBlock(text string) string {
+	// The code, without its comments, which name packages in prose.
+	var code strings.Builder
+	for _, line := range strings.Split(text, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "//") {
+			code.WriteString(line + "\n")
+		}
+	}
 	var paths []string
 	for p, name := range g.imports {
-		if regexp.MustCompile(`(^|[^A-Za-z0-9_.])` + regexp.QuoteMeta(name) + `\.`).MatchString(text) {
+		if regexp.MustCompile(`(^|[^A-Za-z0-9_.])` + regexp.QuoteMeta(name) + `\.`).MatchString(code.String()) {
 			paths = append(paths, p)
 		}
 	}
@@ -694,11 +701,24 @@ func (g *gen) wireFile(pkgName string, ops []Op) fileText {
 
 // check writes the range check of x, by the walker name, that raises the
 // defect of an Unrepresentable as a value of type res (rpc.Refuse).
+// An empty res is a function with no value: the defect needs no return.
 func (g *gen) check(b *strings.Builder, name, x, res string) {
 	if name == "" {
 		return
 	}
+	if res == "" {
+		fmt.Fprintf(b, "%s(%s) catch {\ncase rpc.Unrepresentable as u:\nrpc.Refuse[string](u)\n}\n", name, x)
+		return
+	}
 	fmt.Fprintf(b, "%s(%s) catch {\ncase rpc.Unrepresentable as u:\nreturn rpc.Refuse[%s](u)\n}\n", name, x, res)
+}
+
+// unitOr is res, or "" for an operation with no value.
+func unitOr(op Op, res string) string {
+	if op.Result == nil {
+		return ""
+	}
+	return res
 }
 
 func (g *gen) walkerName(t check.Type) string {
@@ -797,7 +817,7 @@ func (g *gen) clientFile(ops []Op) fileText {
 			fmt.Fprintf(&b, "let p = %s\n", rn)
 		} else {
 			fmt.Fprintf(&b, "let p = %s{%s}\n", rn, strings.Join(fields, ", "))
-			g.check(&b, g.requests[op.Name], "p", res)
+			g.check(&b, g.requests[op.Name], "p", unitOr(op, res))
 		}
 		lead := "let text = "
 		if op.Result == nil {
@@ -819,7 +839,7 @@ func (g *gen) clientFile(ops []Op) fileText {
 				}
 				fmt.Fprintf(&b, "case %s:\n", strings.Join(cases, ", "))
 				fmt.Fprintf(&b, "let e = rpc.Decode[%s](\"failure\", f.Text)\n", g.expr(f))
-				g.check(&b, g.walkerName(f), "e", res)
+				g.check(&b, g.walkerName(f), "e", unitOr(op, res))
 				b.WriteString("return e\n")
 			}
 			fmt.Fprintf(&b, "case _:\n%srpc.Die[%s](\"RpcError\", \"%s failed with a failure the contract does not name: \\(f.Text)\")\n}\n", ret, res, op.Name)
