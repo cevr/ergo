@@ -391,10 +391,22 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		return nil, err
 	}
 	for _, model := range models {
-		add(&Step{Name: "ergo test " + model, Needs: []string{buildCLIStep}, Argv: []string{"./bin/ergo", "test", model}, Class: classHeavy})
+		argv := []string{"./bin/ergo", "test", model}
+		if states, ok := modelStates[model]; ok {
+			argv = append(argv, "--states", states)
+		}
+		add(&Step{Name: "ergo test " + model, Needs: []string{buildCLIStep}, Argv: argv, Class: classHeavy})
 	}
 
 	return steps, nil
+}
+
+// modelStates is the search budget of a model whose scope needs more than
+// ergo test's default of 1,000,000 states (wf10 X4). models/runner:
+// Design2's whole graph is just over 1,000,000 states; Design3 stops at the budget,
+// "not proved".
+var modelStates = map[string]string{
+	"models/runner": "1200000",
 }
 
 // designModels are the folders of models/, each one design model: a

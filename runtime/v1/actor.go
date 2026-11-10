@@ -18,8 +18,7 @@ import (
 // Decision, Option or Machine types (they are the program's), so it holds
 // the step's decision as an opaque D and reads it through kind and next.
 //
-// The runner contract (survey §2.2; the Quint model
-// docs/research/actor-machine/actor_machine.qnt):
+// The runner contract (survey §2.2; the model models/runner):
 //
 //  1. Run to completion: one goroutine takes one envelope at a time and
 //     steps it, commits, arms and answers before it takes the next.
