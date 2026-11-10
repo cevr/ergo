@@ -50,8 +50,8 @@
       "name": "X5-wake-does-not-enable",
       "origin": "X5",
       "file": "runtime/rt/sched_explore.go",
-      "from": "m.v == e.v && m.parked {\n\t\treturn false",
-      "to": "m.v == e.v && (m.parked || x.blocked) {\n\t\treturn false",
+      "from": "m != nil && m.parked {\n\t\treturn false",
+      "to": "m != nil && (m.parked || x.blocked) {\n\t\treturn false",
       "rule": "Explored schedules: a waker enables the task it wakes",
       "killers": ["rt-explore:TestSchedulerFollowsModel"]
     },
