@@ -232,6 +232,7 @@ var stdRecords = map[string]string{
 	"fs.Info":              "Info",
 	"fs.NotFound":          "NotFound",
 	"hex.Malformed":        "HexMalformed",
+	"json.Malformed":       "JSONMalformed",
 	"io.ReadFailed":        "ReadFailed",
 	"os.Exit":              "Exit",
 	"queue.Closed":         "Closed",

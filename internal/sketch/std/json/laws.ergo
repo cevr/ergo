@@ -1,0 +1,92 @@
+// The laws of the JSON codec (types.md, Codecs; S-json). The law runner
+// draws each law's values, so a law over a sample type is a seeded
+// property of the derived codec through JSON text: records, unions,
+// Option, slices, Maps, tuples, every integer width, floats and strings.
+// The ledger in docs/spec/stdlib.md names the test that runs each law.
+
+type up { Host string, Port int, Tags []string, Load float64 }
+type down {}
+type state = up | down
+
+type widths { A int8, B int16, C int32, D int64, E uint8, F uint16, G uint32, H uint64, I int, J uint, K float32, L bool }
+
+type fleet { Name string, States []state, Spare Option[up], Meta Map[string, int], Sizes widths, Pairs Map[string, (string, int64)], Nested [][]float64 }
+
+func codec() Codec[fleet] { Codec[fleet]{MaxBytes: 0, MaxDepth: 0} }
+
+// RoundTrips: the text Encode writes, Decode reads back as the same value.
+law RoundTrips(v fleet) {
+	let back = Decode(codec(), Encode(codec(), v)) catch {
+	case _:
+		return false
+	}
+	back == v
+}
+
+// viaWriter is v's text written through the Writer operations of a Text:
+// the reference path, since its encode's writer is a Writer, not a Text.
+func viaWriter[T codable](v T) string {
+	let t = NewText()
+	let w Writer = t
+	encode(v, w)
+	t.Written()
+}
+
+// FastAgreesWithWriter: the text an encode on a Text writes (the
+// compiler's byte-appending path, lower/wirejson.go) is the text the
+// Writer operations write, inside events too: a value after a key and as
+// the second element of a list.
+law FastAgreesWithWriter(v fleet) {
+	let t = NewText()
+	t.BeginList(2)
+	t.Int(1)
+	encode(v, t)
+	t.EndList()
+	let w = NewText()
+	let r Writer = w
+	r.BeginList(2)
+	r.Int(1)
+	encode(v, r)
+	r.EndList()
+	t.Written() == w.Written() && Encode(codec(), v) == viaWriter(v)
+}
+
+// TruncatedFails: no text shorter than an encoding, cut from its end, is
+// a value: Decode fails Malformed (phase 1) and builds no fleet.
+law TruncatedFails(v fleet, cut int) {
+	let text = Encode(codec(), v)
+	let n = if cut < 0 { -(cut + 1) } else { cut }
+	let short = text[:n % len(text)]
+	let _ = Decode(codec(), short) catch {
+	case Malformed:
+		return true
+	case _:
+		return false
+	}
+	false
+}
+
+// nest is n lists, each inside the one before.
+func nest(n int) string {
+	let mut s = ""
+	for _ in 0..n {
+		s = "[" + s + "]"
+	}
+	s
+}
+
+// DepthLimits: a text nested exactly MaxDepth deep opens, and one level
+// deeper fails Malformed.
+law DepthLimits(k int) {
+	let n = if k < 0 { -(k + 1) } else { k }
+	let depth = n % 64 + 1
+	let _ = Open(nest(depth), 0, depth) catch {
+	case _:
+		return false
+	}
+	let _ = Open(nest(depth + 1), 0, depth) catch {
+	case Malformed:
+		return true
+	}
+	false
+}
