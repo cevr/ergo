@@ -15,6 +15,7 @@
 !internal/migrate196/oldsyntax/
 
 # network sense: wire formats, wire keys and forms of a codec, codec functions named Wire, bytes on the wire (decision 4)
+internal/sketch/std/toml/toml.ergo	func Decode[T wire](c json.Codec[T], text string) T fails Malformed | wired[T] {
 cmd/ergo/tsmap.go	*
 internal/tsproj/accept_test.go	*
 internal/tsproj/project.go	*

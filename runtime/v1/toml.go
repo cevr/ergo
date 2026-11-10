@@ -289,9 +289,13 @@ func (p *tomlParser) table(root *tomlNode, keys []string, array bool) *tomlNode 
 }
 
 func (p *tomlParser) assignment(now *tomlNode, path []string, depth int) {
+	prefix := p.key
 	keys := p.keys()
 	full := append(slices.Clone(path), keys...)
 	p.key = strings.Join(full, ".")
+	if depth > 0 && prefix != "" {
+		p.key = prefix + "." + p.key
+	}
 	if depth+len(full) > p.maxDepth {
 		p.fail("key exceeds MaxDepth")
 	}
@@ -446,6 +450,9 @@ func (p *tomlParser) quoted(allowMulti bool) string {
 			continue
 		}
 		if c < 32 && c != '\t' && !(multi && c == '\n') || c == 127 {
+			if c == '\n' {
+				p.line--
+			} // the invalid byte is on the line just consumed
 			p.fail("control character in string")
 		}
 		b.WriteByte(c)

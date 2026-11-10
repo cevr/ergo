@@ -121,12 +121,25 @@ func tomlOracle(t *testing.T, v any) any {
 }
 
 // TestTOMLFailuresNameLineAndKey is the diagnostic-position seam; the
-// corpus checks rejection, not location. Mutant: fail discards line/key.
+// corpus checks rejection, not location. Mutants: fail discards line/key;
+// a rejected newline points after the byte rather than at it. The rows
+// are the smallest repros of inline-key and newline position bugs.
 func TestTOMLFailuresNameLineAndKey(t *testing.T) {
-	_, err := TOMLParse("# config\n[server]\nport = 1\nport = 2\n", 0, 0)
-	e, ok := err.(TOMLMalformed)
-	if !ok || e.Line != 4 || e.Key != "server.port" || e.Reason == "" {
-		t.Fatalf("got %#v", err)
+	for _, row := range []struct {
+		text string
+		line int
+		key  string
+	}{
+		{"# config\n[server]\nport = 1\nport = 2\n", 4, "server.port"},
+		{"server = { port = ? }", 1, "server.port"},
+		{"name = \"no\n", 1, "name"},
+		{"# config\n# next\n# \xff", 3, ""},
+	} {
+		_, err := TOMLParse(row.text, 0, 0)
+		e, ok := err.(TOMLMalformed)
+		if !ok || e.Line != row.line || e.Key != row.key || e.Reason == "" {
+			t.Fatalf("%q: got %#v", row.text, err)
+		}
 	}
 }
 
