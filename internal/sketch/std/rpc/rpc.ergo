@@ -90,6 +90,9 @@ extern go ergo.local/prototype/runtime/v1.RPCExactUint func ExactUint(path strin
 
 // Under is u found at path inside the value at prefix.
 func Under(prefix string, u Unrepresentable) Unrepresentable {
+	if u.Path == "" {
+		return Unrepresentable{Path: prefix, Value: u.Value}
+	}
 	Unrepresentable{Path: prefix + "." + u.Path, Value: u.Value}
 }
 
