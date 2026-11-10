@@ -186,8 +186,8 @@
       "name": "http-serve-row",
       "origin": "wf10 G1",
       "file": "internal/sketch/std/http/http.ergo",
-      "from": "func Serve[R](l Listener, limits Limits, handle func(Request) Response needs R | Streaming) fails InvalidLimits needs R",
-      "to": "func Serve[R](l Listener, limits Limits, handle func(Request) Response needs R | Streaming) fails InvalidLimits",
+      "from": "func Serve[R](l Listener, limits Limits, handle func(Request) Response needs R | Streaming) fails InvalidLimits needs R | Scheduler",
+      "to": "func Serve[R](l Listener, limits Limits, handle func(Request) Response needs R | Streaming) fails InvalidLimits needs Scheduler",
       "rule": "The function handler's capability row reaches the serving caller.",
       "killers": ["lower:TestHTTPHandlerRows"]
     },

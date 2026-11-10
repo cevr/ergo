@@ -13,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
@@ -24,10 +25,26 @@ type httpHandler = func(*rt.Task, *Exchange, string, string, []HTTPField, []HTTP
 
 func startHTTP(t *testing.T, handle httpHandler) (*Listener, *Task[struct{}]) {
 	t.Helper()
-	return startHTTPLimits(t, HTTPLimits{16, 4096}, handle)
+	return startHTTPLimits(t, serveLimits(16, 4096), handle)
 }
 
+// serveLimits are byte budgets with timeouts no test reaches on the host
+// Scheduler.
+func serveLimits(body, header int) HTTPLimits {
+	return HTTPLimits{body, header, time.Hour, time.Hour, time.Hour}
+}
+
+// liveSleeper is the host Scheduler, as a program binds NewLiveScheduler.
+type liveSleeper struct{}
+
+func (liveSleeper) Sleep(t *rt.Task, d time.Duration) { Sleep(t, d) }
+
 func startHTTPLimits(t *testing.T, limits HTTPLimits, handle httpHandler) (*Listener, *Task[struct{}]) {
+	t.Helper()
+	return startHTTPOn(t, liveSleeper{}, limits, handle)
+}
+
+func startHTTPOn(t *testing.T, sleeper Sleeper, limits HTTPLimits, handle httpHandler) (*Listener, *Task[struct{}]) {
 	t.Helper()
 	l, err := HTTPListen("127.0.0.1:0")
 	if err != nil {
@@ -36,7 +53,7 @@ func startHTTPLimits(t *testing.T, limits HTTPLimits, handle httpHandler) (*List
 	root := rt.Root(t.Name())
 	s := NewScope(root)
 	h := Go(&s, "http test server", func(ct *rt.Task) (struct{}, error) {
-		return struct{}{}, HTTPServe("http test request", ct, l, limits, handle)
+		return struct{}{}, HTTPServe("http test request", ct, sleeper, l, limits, handle)
 	})
 	t.Cleanup(func() { h.Stop(); l.Close() })
 	return l, h
@@ -82,25 +99,35 @@ func httpText(t *testing.T, r *http.Response) string {
 func TestHTTPServerMatchesModel(t *testing.T) {
 	// Invalid required budgets do not consume the transport. Draw every
 	// non-positive limit from a seed, covering each budget independently.
+	// Each budget is zero once (zero is never "unbounded"), then negative.
 	budgetRandom := rand.New(rand.NewPCG(41, 87))
-	for trial := 0; trial < 12; trial++ {
+	for trial := 0; trial < 15; trial++ {
 		l, err := HTTPListen("127.0.0.1:0")
 		if err != nil {
 			t.Fatal(err)
 		}
 		bad := -budgetRandom.IntN(16)
-		if trial < 2 {
+		if trial < 5 {
 			bad = 0
 		}
-		limits := HTTPLimits{bad, 4096}
-		if trial%2 == 0 {
-			limits = HTTPLimits{16, bad}
+		limits := serveLimits(16, 4096)
+		switch trial % 5 {
+		case 0:
+			limits.MaxBodyBytes = bad
+		case 1:
+			limits.MaxHeaderBytes = bad
+		case 2:
+			limits.IdleTimeout = time.Duration(bad)
+		case 3:
+			limits.ReadHeaderTimeout = time.Duration(bad)
+		case 4:
+			limits.ReadBodyTimeout = time.Duration(bad)
 		}
-		err = HTTPServe("invalid", rt.Root("invalid"), l, limits, func(_ *rt.Task, _ *Exchange, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
+		err = HTTPServe("invalid", rt.Root("invalid"), liveSleeper{}, l, limits, func(_ *rt.Task, _ *Exchange, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
 			t.Error("invalid limits called handler")
 			return HTTPResponse{Status: 200}
 		})
-		if err != (HTTPInvalidLimits{limits.MaxBodyBytes, limits.MaxHeaderBytes}) {
+		if err != HTTPInvalidLimits(limits) {
 			t.Fatalf("limits %+v: %v", limits, err)
 		}
 		conn, err := net.Dial("tcp", l.Addr())
@@ -240,6 +267,155 @@ func TestHTTPServerMatchesModel(t *testing.T) {
 	}
 }
 
+// stepSleeper is a test Scheduler whose time moves only by Advance. Each
+// Sleep reports its duration on armed after its deadline is set, so a
+// test that receives the report may Advance with no race. A stop of the
+// sleeping task ends the sleep with the interruption.
+type stepSleeper struct {
+	mu      sync.Mutex
+	now     time.Duration
+	waiters map[*stepWait]bool
+	armed   chan time.Duration
+}
+
+type stepWait struct {
+	at   time.Duration
+	done chan struct{}
+}
+
+func newStepSleeper() *stepSleeper {
+	return &stepSleeper{waiters: map[*stepWait]bool{}, armed: make(chan time.Duration, 64)}
+}
+
+func (s *stepSleeper) Sleep(t *rt.Task, d time.Duration) {
+	w := &stepWait{done: make(chan struct{})}
+	s.mu.Lock()
+	w.at = s.now + d
+	s.waiters[w] = true
+	s.mu.Unlock()
+	s.armed <- d
+	select {
+	case <-w.done:
+	case <-t.Done():
+		s.mu.Lock()
+		delete(s.waiters, w)
+		s.mu.Unlock()
+		raise(rt.Interrupted)
+	}
+}
+
+// Advance moves the time by d and ends every sleep it reaches.
+func (s *stepSleeper) Advance(d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.now += d
+	for w := range s.waiters {
+		if w.at <= s.now {
+			close(w.done)
+			delete(s.waiters, w)
+		}
+	}
+}
+
+// TestHTTPPhasesExpireOnTheScheduler drives one keep-alive connection
+// through its header, body and idle phases on a test Scheduler, for
+// seeded timeouts, with no host timing. Each phase arms its own budget; a
+// phase that ends 1ns inside its budget lets the connection go on; the
+// phase the seed picks expires: an idle or a header phase closes the
+// connection, and a body phase reaches the handler as a failed read.
+// Mutants it kills, which no other test sees: no idle timer (E4: an idle
+// keep-alive connection was held open forever), a phase armed with another
+// phase's budget, a header phase that does not start at the next
+// request's first byte, and an expiry that closes the connection in the
+// body phase instead of failing the read.
+func TestHTTPPhasesExpireOnTheScheduler(t *testing.T) {
+	for seed := uint64(1); seed <= 6; seed++ {
+		t.Run(strconv.FormatUint(seed, 10), func(t *testing.T) {
+			rng := rand.New(rand.NewPCG(seed, 7))
+			budget := func() time.Duration { return time.Duration(1+rng.IntN(1000)) * time.Millisecond }
+			limits := HTTPLimits{16, 4096, budget(), budget(), budget()}
+			sl := newStepSleeper()
+			l, _ := startHTTPOn(t, sl, limits, func(_ *rt.Task, _ *Exchange, _, _ string, _, _ []HTTPField, body string, _ bool, readError string) HTTPResponse {
+				if readError != "" {
+					return HTTPResponse{Status: 408, Body: readError}
+				}
+				return HTTPResponse{Status: 200, Body: body}
+			})
+			conn, err := net.Dial("tcp", l.Addr())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			// A watchdog only: a hung read fails the test with its step.
+			stop := testwait.AfterFunc(t, func() { conn.Close() })
+			defer stop()
+			r := bufio.NewReader(conn)
+			replay := fmt.Sprintf("seed %d, limits %+v; replay: go test ./runtime/v1 -run TestHTTPPhasesExpireOnTheScheduler/%d", seed, limits, seed)
+			armed := func(want time.Duration, step string) {
+				t.Helper()
+				select {
+				case d := <-sl.armed:
+					if d != want {
+						t.Fatalf("%s armed %v, want %v; %s", step, d, want, replay)
+					}
+				case <-testwait.After(t):
+					t.Fatalf("%s armed no timer; %s", step, replay)
+				}
+			}
+			send := func(text string) {
+				t.Helper()
+				if _, err := io.WriteString(conn, text); err != nil {
+					t.Fatalf("send %q: %v; %s", text, err, replay)
+				}
+			}
+			answer := func(step string) (int, string) {
+				t.Helper()
+				resp, err := http.ReadResponse(r, nil)
+				if err != nil {
+					t.Fatalf("%s: %v; %s", step, err, replay)
+				}
+				defer resp.Body.Close()
+				b, err := io.ReadAll(resp.Body)
+				if err != nil {
+					t.Fatalf("%s: %v; %s", step, err, replay)
+				}
+				return resp.StatusCode, string(b)
+			}
+			armed(limits.ReadHeaderTimeout, "the first header")
+			send("POST /a HTTP/1.1\r\nHost: local\r\n")
+			sl.Advance(limits.ReadHeaderTimeout - 1)
+			send("Content-Length: 4\r\n\r\nab")
+			armed(limits.ReadBodyTimeout, "the first body")
+			sl.Advance(limits.ReadBodyTimeout - 1)
+			send("cd")
+			if status, body := answer("the first answer"); status != 200 || body != "abcd" {
+				t.Fatalf("the first answer: %d %q; %s", status, body, replay)
+			}
+			armed(limits.IdleTimeout, "idle")
+			sl.Advance(limits.IdleTimeout - 1)
+			switch seed % 3 {
+			case 0:
+				sl.Advance(1)
+			case 1:
+				send("GET /b HTTP/1.1\r\n")
+				armed(limits.ReadHeaderTimeout, "the second header")
+				sl.Advance(limits.ReadHeaderTimeout)
+			case 2:
+				send("POST /c HTTP/1.1\r\nHost: local\r\nContent-Length: 4\r\n\r\na")
+				armed(limits.ReadBodyTimeout, "the second body")
+				sl.Advance(limits.ReadBodyTimeout)
+				if status, body := answer("the expired body"); status != 408 || !strings.Contains(body, "ReadBodyTimeout") {
+					t.Fatalf("the expired body: %d %q; %s", status, body, replay)
+				}
+			}
+			// The server closes the connection: the next read ends at EOF.
+			if b, err := r.ReadByte(); err != io.EOF {
+				t.Fatalf("after the expiry: read %q, %v, want EOF; %s", b, err, replay)
+			}
+		})
+	}
+}
+
 // TestHTTPConcurrentRequestsAndStop catches lost calls and premature
 // shutdown. Started and released events, rather than time, order the stop.
 // The server must stop children and wait for their protected releases.
@@ -311,9 +487,13 @@ func TestHTTPConcurrentRequestsAndStop(t *testing.T) {
 // TestHTTPDisconnectAndDefects kills ignoring the client's abort, and
 // dropping a request's cleanup defect. A disconnect must end that child
 // without ending the server; a defect then ends Serve with its cause.
+// A connection that never sends its header holds a phase timer on a
+// Scheduler that never moves, so Serve ends only if its defect path stops
+// that timer too (mutant http-stop-leaves-timers).
 func TestHTTPDisconnectAndDefects(t *testing.T) {
 	started, ended := make(chan struct{}), make(chan struct{})
-	l, server := startHTTP(t, func(ct *rt.Task, _ *Exchange, _, path string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
+	sl := newStepSleeper()
+	l, server := startHTTPOn(t, sl, serveLimits(16, 4096), func(ct *rt.Task, _ *Exchange, _, path string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
 		s := NewScope(ct)
 		defer s.End(nil)
 		if path == "/defect" {
@@ -326,6 +506,12 @@ func TestHTTPDisconnectAndDefects(t *testing.T) {
 		ct.Check()
 		return HTTPResponse{Status: 200}
 	})
+	silent, err := net.Dial("tcp", l.Addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silent.Close()
+	<-sl.armed // the silent connection's header phase
 	conn, err := net.Dial("tcp", l.Addr())
 	if err != nil {
 		t.Fatal(err)

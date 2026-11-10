@@ -340,7 +340,7 @@ func main() fails http.ListenFailed | http.InvalidLimits needs Console | Ambient
  if os.Args(host)[0] == "serve" {
   let listener = try http.Listen("127.0.0.1:0")
   Console.Println("listening \(listener.Addr())")
-  with context { domain.API: memory.Memory } { try rpc.Serve(listener, http.Limits{MaxBodyBytes: 16777216, MaxHeaderBytes: 1048576}, "/rpc", domainrpc.Handle) }
+  with context { domain.API: memory.Memory, Scheduler: NewLiveScheduler() } { try rpc.Serve(listener, http.Limits{MaxBodyBytes: 16777216, MaxHeaderBytes: 1048576, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}, "/rpc", domainrpc.Handle) }
   return
  }
  if os.Args(host)[0] == "codec" { Console.Println(enc(values())); return }

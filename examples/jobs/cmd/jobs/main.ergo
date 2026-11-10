@@ -29,9 +29,11 @@ let set = flag.Set{Name: "jobs", Usage: "", Flags: []flag.Flag{addrFlag, siteFla
 
 let usage = "usage: jobs [-addr ADDR] [-site DIR] [-replay]"
 
-// limits are the server's budgets: a body as long as a draft may be, and
-// Go's default header budget.
-let limits = http.Limits{MaxBodyBytes: api.MaxBody, MaxHeaderBytes: 1 << 20}
+// limits are the server's budgets: a body as long as a draft may be, Go's
+// default header budget, and the time a connection may wait idle or take
+// to send a header or a body. They run on the clock the server is given:
+// under -replay, the manual one, whose moves stay well inside them.
+let limits = http.Limits{MaxBodyBytes: api.MaxBody, MaxHeaderBytes: 1 << 20, IdleTimeout: 2m, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}
 
 func main() fails os.Exit needs Ambient {
 	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewHost() } {
@@ -80,7 +82,7 @@ func run(v flag.Values, handle escaping func(http.Request) http.Response needs j
 		case queue.Closed:
 			return
 		}
-		with context { jobs.Store: store, time.Clock: clock } {
+		with context { jobs.Store: store, time.Clock: clock, Scheduler: clock } {
 			let server = task.Go() { try serve(l, handle) }
 			try driver.Wait()
 			server.Stop()
@@ -89,7 +91,7 @@ func run(v flag.Values, handle escaping func(http.Request) http.Response needs j
 	}
 	let l = try listen(addrFlag.Get(v))
 	io.Stdout.Println("jobs: listening on " + l.Addr())
-	with context { jobs.Store: store, time.Clock: time.NewHost() } {
+	with context { jobs.Store: store, time.Clock: time.NewHost(), Scheduler: NewLiveScheduler() } {
 		try serve(l, handle)
 	}
 }
@@ -101,7 +103,7 @@ func listen(addr string) http.Listener fails os.Exit needs Ambient {
 	}
 }
 
-func serve(l http.Listener, handle func(http.Request) http.Response needs jobs.Store | time.Clock) fails os.Exit needs jobs.Store | time.Clock {
+func serve(l http.Listener, handle func(http.Request) http.Response needs jobs.Store | time.Clock) fails os.Exit needs jobs.Store | time.Clock | Scheduler {
 	http.Serve(l, limits, handle) catch {
 	case http.InvalidLimits:
 		return os.Exit{Code: 2, Message: "jobs: the server's limits are not positive"}

@@ -57,16 +57,16 @@ import bench/limits
 import bench/limits/limitsrpc
 import bench/memory
 
-func serve(l http.Listener) fails http.InvalidLimits {
+func serve(l http.Listener) fails http.InvalidLimits needs Scheduler {
 	with context { limits.Limiter: memory.Fixed } {
-		try rpc.Serve(l, http.Limits{MaxBodyBytes: 16777216, MaxHeaderBytes: 1048576}, "/rpc", limitsrpc.Handle)
+		try rpc.Serve(l, http.Limits{MaxBodyBytes: 16777216, MaxHeaderBytes: 1048576, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}, "/rpc", limitsrpc.Handle)
 	}
 }
 
 func main() fails http.ListenFailed | http.InvalidLimits needs Console | Ambient {
 	let l = try http.Listen("127.0.0.1:0")
 	Console.Println("listening \(l.Addr())")
-	try serve(l)
+	with context { Scheduler: NewLiveScheduler() } { try serve(l) }
 }
 `,
 }

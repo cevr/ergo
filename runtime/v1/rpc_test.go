@@ -51,7 +51,7 @@ func startRPC(t *testing.T) *rpcHarness {
 	t.Helper()
 	h := &rpcHarness{started: make(chan struct{}, 1), release: make(chan struct{})}
 	handle := rpcHandle(h)
-	l, _ := startHTTPLimits(t, HTTPLimits{1 << 20, 4096}, func(ct *rt.Task, x *Exchange, _, _ string, _, header []HTTPField, body string, _ bool, _ string) HTTPResponse {
+	l, _ := startHTTPLimits(t, serveLimits(1<<20, 4096), func(ct *rt.Task, x *Exchange, _, _ string, _, header []HTTPField, body string, _ bool, _ string) HTTPResponse {
 		framed := false
 		for _, f := range header {
 			if strings.EqualFold(f.Name, "Content-Type") && strings.HasPrefix(f.Value, rpcNDJSON) {

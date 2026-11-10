@@ -23,7 +23,7 @@ func main() needs Ambient | Console {
 		Unreachable("Parse checked the URL argument")
 	}
 	let policy http.OriginPolicy = if anyOrigin.Get(values) { http.AnyOrigin } else { http.Origins{Values: allowed.Get(values)} }
-	let net = http.NewNet(policy, http.Limits{MaxBodyBytes: 32768, MaxHeaderBytes: 8192}, http.Follow{MaxHops: hops.Get(values)}) catch {
+	let net = http.NewNet(policy, http.Limits{MaxBodyBytes: 32768, MaxHeaderBytes: 8192, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}, http.Follow{MaxHops: hops.Get(values)}) catch {
 	case http.InvalidClient as c:
 		Console.Println("invalid network policy: " + c.Reason)
 		return

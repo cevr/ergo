@@ -9,7 +9,7 @@ type RedirectLimit { URL string, Limit int }
 type Credential { origin string, field Field }
 
 func ForOrigin(origin string, field Field) Credential fails InvalidClient {
-	let checked = try checkNetwork([]string{origin}, Limits{MaxBodyBytes: 1, MaxHeaderBytes: 1})
+	let checked = try checkNetwork([]string{origin}, Limits{MaxBodyBytes: 1, MaxHeaderBytes: 1, IdleTimeout: 1s, ReadHeaderTimeout: 1s, ReadBodyTimeout: 1s})
 	Credential{origin: checked[0], field: field}
 }
 
