@@ -5,8 +5,8 @@
 //
 //   - Redacted is an operation type, so it has no text form: "\(r)" of a
 //     value whose type reaches it is refused by the checker (S108), and an
-//     error report writes the field as <config.Redacted[T]>, the type's
-//     name, never the value (types.md, Methods 6).
+//     error report writes the field as <Redacted>, the type's name, never
+//     the value (types.md, Methods 6; lower TestRedactedNeverPrints).
 //   - It has no wire form (types.md, Codecs 1: an operation type), so
 //     encode, json.Encode and toml.Encode of a value that reaches it are
 //     refused at check time. A program that must write a secret gives the
@@ -14,10 +14,11 @@
 //     Reveal, in its own package, where a reader sees it.
 //   - A law's counterexample writes it as the call of its builder,
 //     config.NewRedacted[T](…), never the value.
-//   - Its Go body's String, GoString, Format, MarshalJSON, MarshalText and
-//     LogValue are "<redacted>", so Go code that reaches the value through
-//     a foreign call or a defect's text prints only that (runtime/v1
-//     TestRedactedNeverRenders).
+//   - Its Go body keeps the value behind a pointer field, never inline, so
+//     Go's fmt can print at most an address, and its String, GoString,
+//     Format, MarshalJSON, MarshalText and LogValue are "<redacted>": Go
+//     code that reaches the value through a foreign call or a defect's
+//     text prints no byte of it (runtime/v1 TestRedactedNeverRenders).
 //
 // Reveal is the one read of the value. It is sealed (check.SealedStd):
 // NewRedacted, an extern, returns it, so no program value implements it.
