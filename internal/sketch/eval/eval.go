@@ -111,6 +111,9 @@ type Result struct {
 	// Site is where it was refuted or hit its defect, or the declaration
 	// for a skip.
 	Site Site
+	// Declaration is related information for a refuted law. Site remains
+	// the failing expression (or the reachability clause).
+	Declaration *Site
 	// Steps is the work this obligation used.
 	Steps int64
 	// Cases is the number executed, Case the first bad case (1 based).
@@ -296,7 +299,7 @@ func (in *interp) runBodyFrame(fr *frame, body *syntax.BlockStmt, law bool, res 
 	if ab == nil {
 		if law && val != nil && !truth(val) {
 			res.Status, res.Reason = Refuted, "the law is false"
-			res.Site = in.site(pkg, decl, lastPos(body))
+			res.Site = in.site(pkg, decl, fr.resultPos)
 			return res
 		}
 		res.Status = Passed
@@ -307,6 +310,7 @@ func (in *interp) runBodyFrame(fr *frame, body *syntax.BlockStmt, law bool, res 
 	case ctlReturn:
 		if law && !truth(ab.val) {
 			res.Status, res.Reason = Refuted, "the law is false"
+			res.Site = in.site(pkg, decl, fr.resultPos)
 			return res
 		}
 		res.Status = Passed
@@ -326,13 +330,6 @@ func (in *interp) runBodyFrame(fr *frame, body *syntax.BlockStmt, law bool, res 
 		ice("the control %d left the body", ab.kind)
 	}
 	return res
-}
-
-func lastPos(b *syntax.BlockStmt) syntax.Pos {
-	if len(b.List) > 0 {
-		return b.List[len(b.List)-1].Pos()
-	}
-	return b.Pos()
 }
 
 // site locates pos of the declaration decl of pkg.

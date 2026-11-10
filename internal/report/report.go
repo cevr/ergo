@@ -117,19 +117,20 @@ type Evaluation struct {
 // bad case and Arguments its values; Replay is the native command that
 // runs the same cases (ergo test draws the same ones for the same seed).
 type Obligation struct {
-	Arguments  []Argument     `json:"arguments,omitempty"`
-	Case       int            `json:"case,omitempty"`
-	Cases      int            `json:"cases"`
-	Evidence   string         `json:"evidence,omitempty"`
-	Machine    *MachineSearch `json:"machine,omitempty"`
-	Name       string         `json:"name"`
-	Reason     string         `json:"reason,omitempty"`
-	Replay     string         `json:"replay,omitempty"`
-	Seed       uint64         `json:"seed,omitempty"`
-	Site       Site           `json:"site"`
-	Status     string         `json:"status"`
-	Steps      int64          `json:"steps"`
-	TotalCases int            `json:"totalCases,omitempty"`
+	Arguments   []Argument     `json:"arguments,omitempty"`
+	Case        int            `json:"case,omitempty"`
+	Cases       int            `json:"cases"`
+	Evidence    string         `json:"evidence,omitempty"`
+	Machine     *MachineSearch `json:"machine,omitempty"`
+	Name        string         `json:"name"`
+	Reason      string         `json:"reason,omitempty"`
+	Replay      string         `json:"replay,omitempty"`
+	Seed        uint64         `json:"seed,omitempty"`
+	Site        Site           `json:"site"`
+	Declaration *Site          `json:"declaration,omitempty"`
+	Status      string         `json:"status"`
+	Steps       int64          `json:"steps"`
+	TotalCases  int            `json:"totalCases,omitempty"`
 }
 
 // Argument is one argument of an obligation's first bad case.

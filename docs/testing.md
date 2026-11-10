@@ -122,6 +122,10 @@ A skip is not a pass. A package whose obligations are all skipped is listed in f
 
 **Receipts, not timings.** Each record carries `steps`, and the evaluation its total `steps` and `bytes` of their limits. Steps are a reproducible count of the work, not a time: the same source, seed and compiler give the same steps on any host. No time is measured or claimed. The two example programs [`examples/pure-eval`](../examples/pure-eval/README.md) (a rate limiter: top-level laws, sampled and listed, and a documented skip) and [`examples/router-model`](../examples/router-model/README.md) (a router's server machine: reachability laws, body laws and a top-level law) record their check-time verdicts and steps in their READMEs, with a mutant that both `ergo check` and `ergo test` refute.
 
+The examples runner checks every package at both seams in one run. Each check-time pass must agree with the native verdict, evidence and case count (machine searches compare verdict and evidence). Check-time skips and exhausted budgets remain explicit, with their reasons; the native test still runs. See the [test leg](../examples/README.md#test-leg).
+
+A false law names the expression that returned false, including a chosen nested tail or explicit return, at both seams. Its declaration is related information: `declaration` beside `site` in check JSON, and an indented `law declared at file:line:column` line in the native report. A reachability law names its clause, since it has no false body expression.
+
 ## Example programs
 
 Each program of `examples/` runs its tests and laws in the gate: `go run ./scripts/examples` runs `ergo test <program>/main.ergo` for every program of one folder, and `ergo test <folder>` for every package folder of a program of packages, and fails the program when a test fails ([examples/README.md](../examples/README.md)).

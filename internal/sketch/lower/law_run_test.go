@@ -76,7 +76,7 @@ func TestLawRunB13(t *testing.T) {
 		t.Errorf("line 1 is %q", got[0])
 	}
 	if !strings.HasPrefix(got[1], "FAIL law Store.PutCountsOne for Stuck (case 1 of 100, seed 7, size 0: provider = Stuck{at: ") ||
-		!strings.HasSuffix(got[1], "law refuted at main.ergo:4:2: the law is false") {
+		!strings.HasSuffix(got[1], "law refuted at main.ergo:5:3: the law is false") {
 		t.Errorf("line 2 is %q", got[1])
 	}
 	if got[2] != "FAIL (1 of 2 tests)" {
@@ -148,7 +148,7 @@ func TestLawRunState(t *testing.T) {
 		t.Errorf("line 2 is %q", got[1])
 	}
 	if !strings.HasPrefix(got[2], "FAIL law Counter.AddAdds for Lossy (case ") || !strings.Contains(got[2], "provider = NewLossy(") ||
-		!strings.HasSuffix(got[2], "law refuted at main.ergo:6:2: the law is false") {
+		!strings.HasSuffix(got[2], "law refuted at main.ergo:10:3: the law is false") {
 		t.Errorf("line 3 is %q", got[2])
 	}
 	if want := "skip law Counter.AddAdds for Plain: its values have no generator: func(int) int is a function type; a func NewPlain() Plain with no rows would build one for each case"; got[0] != want {
@@ -251,10 +251,10 @@ func TestLawRunOtherPackage(t *testing.T) {
 	want := []struct{ line, prefix, suffix string }{
 		{line: "skip law kv.Store.GetAfterPut for Plain" + plain},
 		{line: "ok law kv.Store.GetAfterPut for Last (100 cases)"},
-		{prefix: "FAIL law kv.Store.GetAfterPut for Zero (case ", suffix: "law refuted at lib.ergo:4:2: the law is false"},
+		{prefix: "FAIL law kv.Store.GetAfterPut for Zero (case ", suffix: "law refuted at lib.ergo:6:3: the law is false"},
 		{line: "skip law kv.PutKeepsOthers with s = Plain" + plain},
-		{prefix: "FAIL law kv.PutKeepsOthers with s = Last (case ", suffix: "law refuted at lib.ergo:10:1: the law is false"},
-		{prefix: "FAIL law kv.PutKeepsOthers with s = Zero (case ", suffix: "law refuted at lib.ergo:10:1: the law is false"},
+		{prefix: "FAIL law kv.PutKeepsOthers with s = Last (case ", suffix: "law refuted at lib.ergo:14:3: the law is false"},
+		{prefix: "FAIL law kv.PutKeepsOthers with s = Zero (case ", suffix: "law refuted at lib.ergo:14:3: the law is false"},
 		{line: "FAIL (3 of 4 tests, 2 skipped)"},
 	}
 	for i, w := range want {
@@ -528,7 +528,7 @@ func TestLawRunCapabilities(t *testing.T) {
 		{line: "ok BookStartsEmpty"},
 		{line: "skip law Notes.AddReads for Stuck: its values have no generator: queue.Queue[int] is an operation type with no builder: neither queue nor queuetest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewStuck() Stuck with no rows would build one for each case"},
 		{line: "ok law Notes.AddReads for Book (100 cases)"},
-		{prefix: "FAIL law Notes.AddReads for Lossy (case 1 of 100, seed 7, size 0: provider = Lossy{files: fstest.NewMemory(), writes: fstest.NewMemory()}, line = ", suffix: "law refuted at main.ergo:10:2: the law is false"},
+		{prefix: "FAIL law Notes.AddReads for Lossy (case 1 of 100, seed 7, size 0: provider = Lossy{files: fstest.NewMemory(), writes: fstest.NewMemory()}, line = ", suffix: "law refuted at main.ergo:12:3: the law is false"},
 		{line: "ok law Loud.CountsUp for Echo (100 cases)"},
 		{line: "FAIL (1 of 4 tests, 1 skipped)"},
 	}
@@ -627,7 +627,7 @@ func main() {}
 		return
 	}
 	stdout, stderr, code := runExe(t, exes["lawrun_noparams"])
-	want := []string{"ok law Holds (proved: 1 case)", "FAIL law Breaks: law refuted at main.ergo:3:1: the law is false", "FAIL (1 of 2 tests)"}
+	want := []string{"ok law Holds (proved: 1 case)", "FAIL law Breaks: law refuted at main.ergo:3:16: the law is false", "FAIL (1 of 2 tests)"}
 	if code != 1 || !slices.Equal(verdicts(stdout), want) {
 		t.Errorf("exit %d, stdout:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, strings.Join(want, "\n"), firstLines(stderr, 8))
 	}

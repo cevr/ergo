@@ -57,6 +57,9 @@ func (a Analysis) Evaluation(b eval.Budget, source string) (report.Evaluation, e
 		for _, arg := range res.Arguments {
 			o.Arguments = append(o.Arguments, report.Argument{Name: arg.Name, Value: arg.Value})
 		}
+		if d := res.Declaration; d != nil {
+			o.Declaration = &report.Site{File: d.File, Line: d.Line, Column: d.Column}
+		}
 		if m := res.Machine; m != nil {
 			o.Machine = &report.MachineSearch{States: m.States, Edges: m.Edges, Depth: m.Depth, Checked: m.Checked, Steps: m.Steps, Complete: m.Complete, Runs: m.Runs, Run: m.Run}
 		}

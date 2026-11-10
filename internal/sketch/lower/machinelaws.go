@@ -563,7 +563,7 @@ func $Block[S, E any](g $Graph[S, E], name string, m int, start S, sigs []E, rep
 	return text + "\n" + $Replay(g.file, $strings.TrimPrefix(name, "law "), replay)
 }
 
-func $Refute(at, text string) { panic($Assertion{at: at, text: text, what: "law refuted"}) }
+func $Refute(at, text string) { panic($Assertion{at: at, text: text, what: "law refuted", declaration: at}) }
 
 // $ExploreAll decides the law on the graph by runtime/explore's
 // breadth-first search, within budget states. When the budget stops it

@@ -1077,20 +1077,29 @@ func (l *lowerer) harness() string {
 
 const harnessGo = `// $Assertion is a failed assert, the panic that ends its case (196l).
 // A refuted law is one too: its what is "law refuted", not "assert failed".
-type $Assertion struct{ at, text, what string }
+type $Assertion struct{ at, text, what, declaration string }
 
 func (a $Assertion) String() string {
 	what := a.what
 	if what == "" {
 		what = "assert failed"
 	}
-	return what + " at " + a.at + ": " + a.text
+	text := what + " at " + a.at + ": " + a.text
+	if a.declaration != "" {
+		text += "\n\tlaw declared at " + a.declaration
+	}
+	return text
 }
 
 func $AssertFail(at, text string) { panic($Assertion{at: at, text: text}) }
 
-// $Refuted ends a law's case whose law, declared at at, is false.
-func $Refuted(at string) { panic($Assertion{at: at, text: "the law is false", what: "law refuted"}) }
+// $Refuted ends a false law at its failing expression. declaration, when
+// given, is related information, not the primary failure position.
+func $Refuted(at string, declaration ...string) {
+	a := $Assertion{at: at, text: "the law is false", what: "law refuted"}
+	if len(declaration) > 0 { a.declaration = declaration[0] }
+	panic(a)
+}
 
 // $AssertDiff is the line diff of a failed comparison of two strings, when
 // they differ and either holds more than one line: a line feed, then each line of the

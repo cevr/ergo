@@ -1,0 +1,14 @@
+{
+  "about": "The examples runner's check/native agreement guard.",
+  "mutants": [
+    {
+      "name": "examples-ignore-evaluation",
+      "origin": "wf10 EV6 round 2",
+      "file": "scripts/examples/main.go",
+      "from": "if evaluation != nil && err == nil && o.overCap() == \"\" && !o.timedOut {",
+      "to": "if false && evaluation != nil && err == nil && o.overCap() == \"\" && !o.timedOut {",
+      "rule": "Every example compares each check-time verdict and its evidence with the native test verdict, not just exit codes.",
+      "killers": ["examples:TestCheckVerdictsMatchNative"]
+    }
+  ]
+}

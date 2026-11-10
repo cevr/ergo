@@ -101,7 +101,13 @@ func (in *interp) testCases(pkg *check.Package, t *check.Test, res Result) Resul
 	return in.cases(fr, t.Decl.Body, false, t.Params, p, res)
 }
 
-func (in *interp) runLawTarget(law *check.Law, tg lawTarget, res Result) Result {
+func (in *interp) runLawTarget(law *check.Law, tg lawTarget, res Result) (out Result) {
+	defer func() {
+		if out.Status == Refuted {
+			site := in.site(law.Pkg, law.Decl, law.Decl.Pos())
+			out.Declaration = &site
+		}
+	}()
 	why := tg.why
 	if law.Unrun != "" {
 		why = law.Unrun

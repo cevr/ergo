@@ -41,6 +41,9 @@ type frame struct {
 	// error type only a test's row names is a failure in a test body.
 	owner  check.FactOwner
 	lawOwn *operation
+	// resultPos is the expression returned by this frame, including the
+	// chosen nested tail. The enclosing law uses it for a false result.
+	resultPos syntax.Pos
 }
 
 func (in *interp) newFrame(pkg *check.Package, decl syntax.Decl) *frame {
@@ -267,7 +270,7 @@ func (in *interp) yieldStmt(fr *frame, s syntax.Stmt, ret bool) (Value, *abrupt)
 			return in.retValue(fr, s.X)
 		}
 		if _, tail := fr.info.Tails[s]; tail {
-			return in.expr(fr, s.X)
+			return in.resultExpr(fr, s.X)
 		}
 		_, ab := in.expr(fr, s.X)
 		return nil, ab
@@ -304,7 +307,7 @@ func (in *interp) yieldStmt(fr *frame, s syntax.Stmt, ret bool) (Value, *abrupt)
 // A fallible value's failure leaves the frame: no catch inside the frame
 // sees it.
 func (in *interp) retValue(fr *frame, x syntax.Expr) (Value, *abrupt) {
-	v, ab := in.expr(fr, x)
+	v, ab := in.resultExpr(fr, x)
 	if ab != nil {
 		if ab.kind == ctlFail {
 			out := *ab
@@ -319,6 +322,28 @@ func (in *interp) retValue(fr *frame, x syntax.Expr) (Value, *abrupt) {
 		}
 	}
 	return v, nil
+}
+
+// resultExpr retains the chosen tail of a result-position control
+// expression, but not that of a control expression used as an operand of
+// (for example) a comparison. The comparison itself is then the site.
+func (in *interp) resultExpr(fr *frame, x syntax.Expr) (Value, *abrupt) {
+	origin := unparen(x)
+	for {
+		t, ok := origin.(*syntax.TryExpr)
+		if !ok {
+			break
+		}
+		origin = unparen(t.X)
+	}
+	fr.resultPos = origin.Pos()
+	v, ab := in.expr(fr, x)
+	switch origin.(type) {
+	case *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt, *syntax.CatchExpr:
+	default:
+		fr.resultPos = origin.Pos()
+	}
+	return v, ab
 }
 
 // isErrorValue reports a value of an error type in this frame's view: the
