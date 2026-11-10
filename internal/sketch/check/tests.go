@@ -1,7 +1,6 @@
 package check
 
 import (
-	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -19,11 +18,9 @@ import (
 //     discharges is S102.
 //  3. A property's parameters are generatable: basic types, and slices,
 //     Maps, tuples, records and unions of generatable types, each named type
-//     declared outside a std package (the prelude's data types, Option and
-//     Range, are the language's own and are generated as a program's are;
-//     a std package's type is built only by its constructor) and holding a
-//     finite value
-//     (ValueRanks). A named type is built as its package builds it: when
+//     holding a finite value (ValueRanks). A std package's type follows the
+//     same rule as a program's (CU8): json.Optional is generated as Option
+//     is, and a std record with an unexported field needs std's authority. A named type is built as its package builds it: when
 //     its package declares its constructor (TypeName.Constructor: New<T>
 //     with no type parameters, the one result T, no error or capability row,
 //     and parameters that package generates without reaching T), a
@@ -275,11 +272,9 @@ func (c *checker) ungeneratableFrom(t Type, from *Package) string {
 			if s, built := c.constructorWhy(u); built {
 				return s // built as its package builds it (rule 3)
 			}
-			if u.Obj.Pkg != nil {
-				if _, isStd := std.Package(u.Obj.Pkg.Path); isStd {
-					return u.String() + " is a standard library type"
-				}
-			}
+			// A standard library type follows the same rule (CU8): its
+			// package's authority over its fields, its constructor, its
+			// builder; no exception for std.
 			switch under := u.Underlying().(type) {
 			case *Struct:
 				if obj := literalAuthority(u, from); obj != nil {
