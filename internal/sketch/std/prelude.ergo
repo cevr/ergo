@@ -84,6 +84,12 @@ type Option[T] = Some[T] | None
 // predicate's text (types.md, Refinements).
 type Unsatisfied { Type string, Where string }
 
+// unsatisfied fails u. Its row makes Unsatisfied an error type of the
+// prelude, which declares it (types.md, Error types 1), so it is one in
+// every package: each derived ParseN fails it, and its Go type has the
+// Error method wherever a refined type is declared.
+func unsatisfied(u Unsatisfied) fails Unsatisfied { u }
+
 // Range is the integers from Start up to End, End excluded: `a..b` builds
 // one, and `for i in r` counts through it (#196, one for). A for and `..`
 // take an integer T only; the type itself takes any ordered T.
