@@ -97,6 +97,8 @@ internal/sketch/check/wirecall.go	*
 internal/sketch/lower/calls.go	// A codec call writes its own statements (wire.go).
 internal/sketch/lower/module.go	wires    map[pkgKey]bool          // generated codec functions emitted (wire.go)
 internal/sketch/lower/testdata/mutants.json	      "file": "internal/sketch/lower/wire.go",
+internal/sketch/lower/testdata/mutants.json	"killers": ["examples:wire-config"]
+internal/tsproj/testdata/runtime.mjs	// seed-selected wire names are independent of the projection and Go codec.
 internal/sketch/lower/wire.go	*
 internal/sketch/std/prelude.ergo	// Reader gives the events of a wire form back, in the order
 internal/sketch/std/prelude.ergo	// Writer takes the events of a value's wire form (types.md, Codecs):

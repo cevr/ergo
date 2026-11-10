@@ -134,6 +134,7 @@ var externPlaceRows = map[string]externPlaceRow{
 	"ContextDecl.Name":         {guardBinder, "type C { M() }\ntype P {}\nfunc M(_ P) {}\nlet @Upper = context { C: P }\n"},
 	"ExternSpec.Target":        {guardBinder, "extern go strings.@Upper func Upper(s string) string\n"},
 	"Field.Names":              {guardBinder, "func f(@Upper int) int { Upper }\n"},
+	"Field.Key":                {guardBinder, "type R { Field string \"@Upper\" }\n"},
 	"FuncDecl.Name":            {guardBinder, "extern go strings.ToUpper func @Upper(s string) string\n"},
 	"ImportSpec.Name":          {guardBinder, "import go @Upper strings\n"},
 	"ImportSpec.Path":          {guardBinder, "import @Upper\n"},
