@@ -91,7 +91,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	cfg.Cover, cfg.Tools, cfg.Suites = ergoSuites()
 	var jobs []Job
 	for _, arg := range flags.Args() {
 		path := ledgerPath(cfg.Root, arg)
@@ -101,6 +100,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		jobs = append(jobs, Job{Path: path, Ledger: l, Select: sel})
+	}
+	if cfg.Cover, cfg.Tools, cfg.Suites, err = suitesFor(cfg.Root, jobs); err != nil {
+		fmt.Fprintf(stderr, "mutants: %v\n", err)
+		return 2
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer cancel()
@@ -165,6 +168,53 @@ func ergoSuites() ([]string, []Tool, []Suite) {
 		{Name: "examples", Command: []string{"{bin:examples}", "-root", "{root}", "-ergo", "{bin:ergo}", "-budget", "1h", "{test}"}, List: defaultExamples},
 	}
 	return cover, tools, suites
+}
+
+// suitesFor chooses the suites of the ledgers to run. The checker's and
+// the lowering's ledgers take ergoSuites. The ledger of any other package
+// (runtime/v1, batch 14) is judged by that package's own tests, with
+// coverage of the packages its mutants edit (a runtime/v1 test kills a
+// mutant of runtime/rt too).
+func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	var cover []string
+	var tools []Tool
+	var suites []Suite
+	add := func(pkg string) {
+		if !slices.Contains(cover, pkg) {
+			cover = append(cover, pkg)
+		}
+	}
+	for _, j := range jobs {
+		abs, err := filepath.Abs(j.Path)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		rel, err := filepath.Rel(absRoot, filepath.Dir(filepath.Dir(abs)))
+		if err != nil || strings.HasPrefix(rel, "..") {
+			return nil, nil, nil, fmt.Errorf("ledger %s is outside the checkout %s", j.Path, root)
+		}
+		rel = filepath.ToSlash(rel)
+		if rel == "internal/sketch/check" || rel == "internal/sketch/lower" {
+			if tools == nil {
+				c, t, s := ergoSuites()
+				tools, suites = t, append(suites, s...)
+				for _, p := range c {
+					add(p)
+				}
+			}
+			continue
+		}
+		add("./" + rel)
+		for _, m := range j.Ledger.Mutants {
+			add("./" + filepath.ToSlash(filepath.Dir(m.File)))
+		}
+		suites = append(suites, Suite{Name: rel, Package: "./" + rel})
+	}
+	return cover, tools, suites, nil
 }
 
 // defaultExamples lists the example programs tagged default.
