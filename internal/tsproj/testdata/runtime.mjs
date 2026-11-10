@@ -3,6 +3,11 @@ import { FetchHttpClient } from "effect/http"
 import { RpcClient, RpcSerialization } from "effect/rpc"
 import { API, Bundle, Draft, View } from "./domain/contract.ergo"
 import { readFileSync } from "node:fs"
+import { Point, Status } from "./plain/point.ergo"
+
+Schema.decodeUnknownSync(Point)({ x: 1, y: 2 })
+Schema.decodeUnknownSync(Status)({ _tag: "Waiting" })
+Schema.decodeUnknownSync(Status)({ _tag: "Ready", at: { x: 1, y: 2 } })
 
 const [url, serialization, valuesFile] = process.argv.slice(2)
 const values = JSON.parse(readFileSync(valuesFile, "utf8"))

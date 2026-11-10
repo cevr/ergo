@@ -42,7 +42,7 @@ Std `rpc` serves and calls an operation type over Effect RPC's HTTP protocol, so
 
 `--check` writes nothing and fails when a file differs from what the generator would write. On the server the int rule surfaces as a defect (`rpc.Refuse`) for a value or failure before it is answered, since `Handle` answers a contract's row; a client reads that `Die` back as `Unrepresentable` (Call, rule 4).
 
-The TypeScript mapper and loaders (below) are unaffected: they project the contract package's operation types and the types those reach, and the checked functions live in the generated `<pkg>rpc` package, which declares no operation type and is not projected. The wire of a call is unchanged; only the `Die` of a refused int gains `path` and `value` members, which Effect's `Schema.Defect` does not read.
+The TypeScript mapper and loaders (below) project wire data and operation types, not function bodies. The checked functions live in the generated `<pkg>rpc` package and are not projected. The wire of a call is unchanged; only the `Die` of a refused int gains `path` and `value` members, which Effect's `Schema.Defect` does not read.
 
 Prior art: Effect's `RpcGroup` and `RpcClient` (`effect/src/rpc`, `RpcMessage.ts` for the envelopes, `RpcSerialization.ts` for json and ndjson); Go's `net/rpc` and gRPC's generated stubs; Elixir's `:erpc` over Erlang distribution (a call is a process; a dead node is an error, not a typed failure); Gleam and ReScript generate no RPC layer: their users write JSON encoders and decoders by hand (`gleam/json`) or bind a TypeScript client (tRPC). Ergo's contract is the operation type itself, so the server and the client are derived, not declared twice.
 
@@ -66,9 +66,11 @@ UTF-8 and UTF-16. Renamed wire fields use Alias spans, not Verbatim spans.
 
 Supported wire shapes are listed in the tool README. An unsupported
 shape is a projection diagnostic, never an unchecked `any`. Each mapped
-file exports its package's operation types and the exported types they
-reach; other exported types (machines, records no operation carries) are
-not part of the wire and are not projected. Reachable imported types
+file exports its package's operation types and every exported wire record
+and closed union, including data no operation reaches. Non-wire declarations
+(machines, records with function fields or operation types as values) are
+left out without a diagnostic. A wire type outside the supported TypeScript
+profile still reports a projection diagnostic. Reachable imported types
 use private schema names. Cross-file watch registration is not provided
 yet: restart TypeScript watch after changing another Ergo file in the
 package or an imported package. Runtime loads do not cache the projection.

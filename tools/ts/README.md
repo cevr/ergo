@@ -54,10 +54,12 @@ the codec's tagged Absent/Present form. Instantiated generic fields follow
 the same rule.
 
 No source body runs in TypeScript. Laws stay in Ergo. Each mapped file
-exposes its package's operation types and the exported types they reach;
-other exported types (machines, records no operation carries) are not on
-the wire and are left out. Imported wire types are included under
-private names.
+exposes its package's operation types and every exported wire record and
+closed union, even when no operation reaches it. A non-wire type (a machine,
+a record with a function field or an operation type as data) is left out
+without a diagnostic. A wire type outside the supported TypeScript profile
+still reports a projection diagnostic. Imported wire types are included
+under private names.
 There is no runtime projection cache. For TypeScript incremental builds,
 bump the package version when changing the mapper, or use `tsc --build
 --force`: TypeScript keys mapped output by mapper package/version/options.

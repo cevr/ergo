@@ -15,3 +15,7 @@ export const program = Effect.gen(function* () {
 const draft: Draft = { name: "a" }
 const view: View = { ended: null }
 export const wireForms = [draft, view]
+import { Point, Status } from "./plain/point.ergo"
+const point: Point = { x: 1, y: 2 }
+const status: Status = { _tag: "Ready", at: point }
+export const standalone = [point, status]

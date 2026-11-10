@@ -36,6 +36,7 @@ import (
 // its Ergo source, both outputs and the replay command.
 // E1 also kills e1-optional, e1-nullable and e1-position: no old mapper
 // fixture carries std json's absent-key/null forms or Optional as a value.
+// E2 kills e2-roots: old mapper fixtures import only records reached by API.
 func TestTsProjectionAgrees(t *testing.T) {
 	if os.Getenv("ERGO_TS_TEST") != "1" {
 		t.Skip("select the TS leg with ERGO_TS_TEST=1 (requires pinned offline dependencies)")
@@ -95,6 +96,8 @@ func TestTsProjectionAgrees(t *testing.T) {
 	put(t, dir, "ergo.mod", "module bridge\n")
 	put(t, dir, "domain/contract.ergo", contract)
 	put(t, dir, "shared/types.ergo", "type Label { Text string }\n")
+	put(t, dir, "plain/point.ergo", "type Point { X int, Y int }\ntype NotWire { Hook func() }\ntype Private { secret int }\n")
+	put(t, dir, "plain/status.ergo", "type Status = Waiting{} | Ready{At Point}\n")
 	put(t, dir, "memory/memory.ergo", provider)
 	put(t, dir, "cmd/bridge/main.ergo", main)
 	put(t, dir, "tsconfig.json", `{"compilerOptions":{"strict":true,"noEmit":true,"target":"es2022","module":"preserve","moduleResolution":"bundler","skipLibCheck":true,"types":[]},"contentMappers":[{"package":"ergo-ts","extensions":[".ergo"]}],"include":["client.ts"]}`)

@@ -57,15 +57,14 @@ func sliceUnits(s string, start, length int, enc string) string {
 }
 
 // TestProjectionIsTheWire catches r3b-reach (project every exported type,
-// not the ones the operation types reach). Smallest repro of the R3' bug: a
-// package that also exports a machine (or a float record no operation uses)
+// including non-wire types). Smallest repro of the R3' bug: a
+// package that also exports a machine
 // failed its whole mapped file. No other test mixes a contract with
 // exported types that are not on its wire.
 func TestProjectionIsTheWire(t *testing.T) {
 	const src = "type Spend { Cost int }\ntype Grant { Left int }\n" +
 		"type Tank machine[Grant, Spend] { initial: Grant{Left: 1}, step: step }\n" +
 		"func step(s Grant, e Spend) Decision[Grant, Grant] { return Ignore }\n" +
-		"type Gauge { Ratio float64 }\n" +
 		"type API { Take(s Spend) Grant }\n"
 	a := sketchfront.Check(src)
 	if len(a.Diagnostics) != 0 {
@@ -80,7 +79,7 @@ func TestProjectionIsTheWire(t *testing.T) {
 			t.Fatalf("missing %q:\n%s", want, o.Text)
 		}
 	}
-	for _, not := range []string{"Tank", "Gauge"} {
+	for _, not := range []string{"Tank"} {
 		if strings.Contains(o.Text, not) {
 			t.Fatalf("%s is not on the wire but was projected:\n%s", not, o.Text)
 		}
