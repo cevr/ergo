@@ -153,7 +153,7 @@ func main() {
 // the adapter passes the Ergo value as is (go build fails); the package
 // lets never run (Hello prints "go"); a slice result not copied (nums 99).
 //
-// Builds Go because the subject is a Go program calling emitted Go: only
+// It builds Go because the subject is a Go program calling emitted Go: only
 // go build and a run show the exported functions, the adapter and the
 // cancellation.
 func TestGoCallsErgo(t *testing.T) {
