@@ -2,6 +2,16 @@
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
+      "name": "L8-C1-lend-owned-by-child",
+      "origin": "L8 C1 R27 capture transport",
+      "file": "internal/sketch/check/lend.go",
+      "from": "capture.Borrowed = append(capture.Borrowed, v)",
+      "to": "capture.Vars = append(capture.Vars, v)",
+      "rule": "A lent capture never enters the child's owning list.",
+      "killers": ["lower:TestTaskOwnershipRunModel"],
+      "anchor": {"tests": ["lower:TestTaskOwnershipRunModel"]}
+    },
+    {
       "name": "L8-B4-result-release-nil",
       "origin": "L8 B4 Gap 47",
       "file": "internal/sketch/lower/release.go",

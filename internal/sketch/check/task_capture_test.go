@@ -20,25 +20,27 @@ func TestTaskCaptureOwnership(t *testing.T) {
 						fmt.Fprintf(&decls, "let r%d = R{N: %d};\n", i, i)
 						fmt.Fprintf(&uses, "lend(r%d);\n", i)
 					}
-					start := "let t = task.Go()"
+					before := "let mut t = task.Go() {};\n"
+					start := "t = task.Go()"
 					if set {
-						start = "let s = tasks.NewSet[Fault](tasks.Restart{Limit: 1}); try tasks.Go(s)"
+						before = "let s = tasks.NewSet[Fault](tasks.Restart{Limit: 1});\n"
+						start = "try tasks.Go(s)"
 					}
 					body := " { " + uses.String() + " }"
 					if literal {
 						body = "(func() { " + uses.String() + " })"
 						if set {
-							start = "let s = tasks.NewSet[Fault](tasks.Restart{Limit: 1}); try tasks.Go"
+							start = "try tasks.Go"
 							body = "(s, func() { " + uses.String() + " })"
 						} else {
-							start = "let t = task.Go"
+							start = "t = task.Go"
 						}
 					}
 					after := ""
 					if later {
 						after = "lend(r0)"
 					}
-					src := "import task\nimport tasks\ntype Fault {}\ntype R { N int }\nfunc Close(r R) {}\nfunc lend(r R) {}\nfunc main() fails tasks.Closed {\n" + decls.String() + start + body + ";\n" + after + "\n}\n"
+					src := "import task\nimport tasks\ntype Fault {}\ntype R { N int }\nfunc Close(r R) {}\nfunc lend(r R) {}\nfunc main() fails tasks.Closed {\n" + before + decls.String() + start + body + ";\n" + after + "\n}\n"
 					if set {
 						src = strings.TrimPrefix(src, "import task\n")
 					}
@@ -51,9 +53,13 @@ func TestTaskCaptureOwnership(t *testing.T) {
 		}
 	}
 	for _, call := range []string{"task.Go()", "tasks.Go(s)"} {
-		src := "import task\nimport tasks\ntype Fault {}\ntype R { N int }\nfunc Close(r R) {}\nfunc main() fails tasks.Closed { let s = tasks.NewSet[Fault](tasks.Restart{Limit: 1}); let r = R{N: 1}; "
+		src := "import task\nimport tasks\ntype Fault {}\ntype R { N int }\nfunc Close(r R) {}\nfunc main() fails tasks.Closed { let s = tasks.NewSet[Fault](tasks.Restart{Limit: 1}); "
 		if call == "task.Go()" {
-			src += "let t = "
+			src += "let mut t = task.Go() {}; "
+		}
+		src += "let r = R{N: 1}; "
+		if call == "task.Go()" {
+			src += "t = "
 		} else {
 			src += "try "
 		}

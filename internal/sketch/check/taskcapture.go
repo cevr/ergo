@@ -10,6 +10,7 @@ import (
 // checkpoint; the sender drops its entries only after admission succeeds.
 type TaskCapture struct {
 	Vars     []*Var
+	Borrowed []*Var
 	Repeated bool
 }
 
@@ -29,27 +30,7 @@ func movingBody(call *Call) (int, bool, bool) {
 // hide its capture. Plain values are not tracked and still copy.
 func (w *ownWalk) taskFrame(key syntax.Node, body *syntax.BlockStmt, params []*Var, takes []int, repeated bool) {
 	capture := &TaskCapture{Repeated: repeated}
-	seen := map[*Var]bool{}
-	syntax.Inspect(body, func(n syntax.Node) bool {
-		id, ok := n.(*syntax.Ident)
-		if !ok {
-			return true
-		}
-		v, _ := w.info.Uses[id].(*Var)
-		i, ok := w.slot[v]
-		if !ok || seen[v] {
-			return true
-		}
-		seen[v] = true
-		w.move(i, id, hand{at: key, how: "it is captured by a moving task (resources R12)"})
-		// The hand-off occurs at task admission, not at this use in the
-		// child. The lowering reads TaskCaptures at the call instead.
-		delete(w.info.Handoffs, id)
-		capture.Vars = append(capture.Vars, v)
-		return true
-	})
-	if len(capture.Vars) > 0 {
-		w.info.TaskCaptures[key] = capture
-	}
+	w.literalCaptures(key, body, capture, true)
+	w.keepCallbackLoans(key)
 	w.frameCaptured(body, takes, params, w.name, "this task block", false, capture)
 }

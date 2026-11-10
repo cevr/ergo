@@ -17,20 +17,21 @@ func (fc *funcCtx) taskSnapshot(n syntax.Node, build func() string) string {
 		return build()
 	}
 	names, owners := map[*check.Var]string{}, map[*check.Var]string{}
-	for _, v := range c.Vars {
+	vars := append(slices.Clone(c.Vars), c.Borrowed...)
+	for _, v := range vars {
 		names[v], owners[v] = fc.locals[v], fc.l.owned[v]
 		name := fc.temp(v.Name)
 		fc.line(name + " := " + fc.locals[v])
 		fc.locals[v] = name
 	}
-	if c.Repeated {
+	if c.Repeated && len(c.Vars) > 0 {
 		if fc.l.captureRoots == nil {
 			fc.l.captureRoots = map[syntax.Node]string{}
 		}
 		fc.l.captureRoots[n] = fc.taskCaptureRoot(n, c)
 	}
 	text := build()
-	for _, v := range c.Vars {
+	for _, v := range vars {
 		fc.locals[v], fc.l.owned[v] = names[v], owners[v]
 	}
 	return text

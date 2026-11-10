@@ -65,16 +65,30 @@ func TestTaskOwnershipRunModel(t *testing.T) {
 
 // taskOwnModes counts the program shapes: task, restart, Closed, stop,
 // slice, Map, panic, crossing, unread result, std boundaries.
-const taskOwnModes = 10
+const taskOwnModes = 14
 
 func taskOwnProgram(seed int) (string, string) {
 	n := 1 + (seed/taskOwnModes)%4
 	mode := seed % taskOwnModes
 	var src, want strings.Builder
 	var afterEnd strings.Builder
-	src.WriteString("import task\nimport tasks\nimport sync\nimport queue\nimport slices\nimport strconv\n")
+	src.WriteString("import task\nimport tasks\nimport sync\nimport queue\nimport slices\nimport strconv\nimport scope\n")
 	src.WriteString("type Fault {}\ntype R { N int }\nfunc Close(r R) needs Console { Console.Println(\"close \" + strconv.Itoa(r.N)) }\n")
 	src.WriteString("func main() fails Fault | tasks.Closed needs Console {\n")
+	// Keep the existing move controls: these destinations release after
+	// the later resource bindings, so R27 must not turn them into lends.
+	if mode == 0 {
+		src.WriteString("let mut t = task.Go() { 1 }\n")
+	}
+	if mode == 3 {
+		src.WriteString("let mut t = task.Go(func() fails queue.Closed {})\n")
+	}
+	if mode == 1 {
+		fmt.Fprintf(&src, "let set = tasks.NewSet[Fault](tasks.Restart{Limit: %d})\n", 1+(seed/3)%3)
+	}
+	if mode == 2 {
+		src.WriteString("let set = tasks.NewSet[Fault](tasks.FailFast)\nset.Stop()\n")
+	}
 	for i := 0; i < n; i++ {
 		fmt.Fprintf(&src, "let r%d = R{N: %d}\n", i, i)
 	}
@@ -90,9 +104,9 @@ func taskOwnProgram(seed int) (string, string) {
 	switch mode {
 	case 0:
 		if seed%2 == 0 {
-			src.WriteString("let t = task.Go() {\n" + uses.String() + "1\n}\n")
+			src.WriteString("t = task.Go() {\n" + uses.String() + "1\n}\n")
 		} else {
-			src.WriteString("let t = task.Go(func() int needs Console {\n" + uses.String() + "1\n})\n")
+			src.WriteString("t = task.Go(func() int needs Console {\n" + uses.String() + "1\n})\n")
 		}
 		src.WriteString("let v = t.Wait()\nConsole.Println(\"waited \" + strconv.Itoa(v))\n")
 		for i := 0; i < n; i++ {
@@ -103,7 +117,6 @@ func taskOwnProgram(seed int) (string, string) {
 	case 1:
 		limit := 1 + (seed/3)%3
 		src.WriteString("let calls = sync.NewRef[int](0)\n")
-		fmt.Fprintf(&src, "let set = tasks.NewSet[Fault](tasks.Restart{Limit: %d})\n", limit)
 		src.WriteString("try tasks.Go(set) {\nlet run = sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) })\n")
 		src.WriteString(uses.String())
 		fmt.Fprintf(&src, "if run <= %d { Unreachable(\"restart\") }\n}\ntry set.Wait()\nConsole.Println(\"waited\")\n", limit)
@@ -115,12 +128,11 @@ func taskOwnProgram(seed int) (string, string) {
 		closes()
 		want.WriteString("waited\n")
 	case 2:
-		src.WriteString("let set = tasks.NewSet[Fault](tasks.FailFast)\nset.Stop()\n")
 		src.WriteString("tasks.Go(set) {\n" + uses.String() + "} catch { case tasks.Closed: Console.Println(\"rejected\") }\n")
 		closes()
 		want.WriteString("rejected\n")
 	case 3:
-		src.WriteString("let gate = queue.New[int](0)\nlet t = task.Go() {\nlet _ = try gate.Pop()\n")
+		src.WriteString("let gate = queue.New[int](0)\nt = task.Go() {\nlet _ = try gate.Pop()\n")
 		for i := 0; i < n; i++ {
 			fmt.Fprintf(&src, "let _ = r%d.N\n", i)
 		}
@@ -220,6 +232,40 @@ func taskOwnProgram(seed int) (string, string) {
 		for i := n - 1; i >= 0; i-- {
 			fmt.Fprintf(&afterEnd, "close %d\n", i)
 		}
+	case 10:
+		// The child acknowledges its uses, then stays alive until scope
+		// shutdown. Its exit action proves draining precedes root release.
+		src.WriteString("let done = queue.New[int](0)\nlet gate = queue.New[int](0)\nlet t = task.Go() {\nscope.OnExit() { Console.Println(\"drained\") }\n" + uses.String() + "try done.Push(1)\nlet _ = try gate.Pop()\n}\nlet _ = try done.Pop()\n")
+		for i := 0; i < n; i++ {
+			fmt.Fprintf(&want, "use %d\n", i)
+		}
+		afterEnd.WriteString("drained\n")
+		for i := n - 1; i >= 0; i-- {
+			fmt.Fprintf(&afterEnd, "close %d\n", i)
+		}
+	case 11:
+		src.WriteString("let set = tasks.NewSet[Fault](tasks.FailFast)\ntry tasks.Go(set) {\n" + uses.String() + "}\ntry set.Wait()\n")
+		for i := 0; i < n; i++ {
+			fmt.Fprintf(&want, "use %d\n", i)
+		}
+		for i := n - 1; i >= 0; i-- {
+			fmt.Fprintf(&src, "r%d.Close()\n", i)
+			fmt.Fprintf(&want, "close %d\n", i)
+		}
+	case 12:
+		src.WriteString("let f = func() int needs Console {\n" + uses.String() + "1\n}\nlet t = task.Go(f)\nlet _ = t.Wait()\n")
+		for i := 0; i < n; i++ {
+			fmt.Fprintf(&want, "use %d\n", i)
+		}
+		for i := n - 1; i >= 0; i-- {
+			fmt.Fprintf(&afterEnd, "close %d\n", i)
+		}
+	case 13:
+		src.WriteString("let p = R{N: 100}\nlet pair = Pair{Root: p, Worker: task.Go(func() int fails Fault needs Console { Console.Println(\"use \" + strconv.Itoa(p.N)); 1 })}\nlet _ = try pair.Worker.Wait()\npair.Root.Close()\n")
+		want.WriteString("use 100\nclose 100\n")
+		for i := n - 1; i >= 0; i-- {
+			fmt.Fprintf(&afterEnd, "close %d\n", i)
+		}
 	}
 	src.WriteString("Console.Println(\"end\")\n}\n")
 	if mode != 6 {
@@ -227,15 +273,21 @@ func taskOwnProgram(seed int) (string, string) {
 	}
 	want.WriteString(afterEnd.String())
 	text := src.String()
-	if mode != 0 && mode != 3 && mode != 8 {
+	if mode == 13 {
+		text += "type Pair { Root R, Worker Task[int, Fault] }\n"
+	}
+	if mode != 10 {
+		text = strings.ReplaceAll(text, "import scope\n", "")
+	}
+	if mode != 0 && mode != 3 && mode != 8 && mode != 10 && mode != 12 && mode != 13 {
 		text = strings.ReplaceAll(text, "import task\n", "")
 	}
 	if mode != 1 {
 		text = strings.ReplaceAll(text, "import sync\n", "")
 	}
-	if mode != 3 && mode != 8 {
+	if mode != 3 && mode != 8 && mode != 10 {
 		text = strings.ReplaceAll(text, "import queue\n", "")
-	} else if mode == 8 {
+	} else if mode == 8 || mode == 10 {
 		text = strings.Replace(text, "fails Fault | tasks.Closed", "fails Fault | tasks.Closed | queue.Closed", 1)
 	}
 	if mode != 4 && mode != 6 && mode != 7 {

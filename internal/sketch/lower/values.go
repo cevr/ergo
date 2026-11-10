@@ -1818,6 +1818,9 @@ func (fc *funcCtx) snapshot(n syntax.Node, build func() string) string {
 		for _, v := range capture.Vars {
 			moved[v] = true
 		}
+		for _, v := range capture.Borrowed {
+			moved[v] = true // a lend retains resource identity, never a value clone
+		}
 		var plain []*check.Var
 		for _, v := range vars {
 			if !moved[v] {
