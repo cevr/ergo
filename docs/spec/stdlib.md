@@ -54,7 +54,7 @@ Language v1 ([#196](https://github.com/cevr/ergo/issues/196)) has four small std
 1. `*Scope` is the **frame**: the frame scope of the innermost source function at the call ([Exit actions](runtime.md#exit-actions) 5). In an exit action's block, it is the scope of the function that registered the action; the scope itself routes to the action's frame. `task.Go` and `scope.OnExit` take it, and so does every function whose result holds a `Task`, as its hidden destination ([Tasks](runtime.md#tasks) rule 8): its return is `Task.Move(dest)`.
 2. `Site` is the **site**: the call's Ergo identity, the calling function, the called declaration and the call's source position, such as `main calls task.Go at main.ergo:12:10`, the form of a call frame in a defect report. `task.Go` names the task by it, which a defect's task chain shows ([G2](runtime.md#g2-fork-tree-defects); [#230](https://github.com/cevr/ergo/issues/230)).
 3. `*rt.Task` is the **task**: the task that runs the call. `Push`, `Pop` and `Values` take it, because a stop of that task ends their wait ([Queues](runtime.md#queues) rule 8). `ContextBound` and `ContextValue`, the bodies of the context reads in `trace` and `log` (below), take it because they read that task's context values.
-4. `Sleeper` is the **scheduler**: the `Scheduler` capability of the caller's environment, which is the provider the program bound (`env.Scheduler`). `Sleeper` is a `runtime/v1` interface with the one method `Sleep(*rt.Task, time.Duration)`, so the program's own `Scheduler` interface satisfies it. Lowering supplies it to `After`, whose Ergo signature needs `Scheduler`, so the checker has bound it at the call. A body that takes it and whose signature needs no `Scheduler` is an internal compiler error (`TestStdExternsHaveBodies`). The deadline is time, and time is a capability (Q-S4-7): a test `Scheduler` controls it, as Effect's `TestClock` drives `Effect.timeout` and a Go test injects a clock.
+4. `Sleeper` is the **scheduler**: the `Scheduler` capability of the caller's environment, which is the provider the program bound (`env.Scheduler`). `Sleeper` is a `runtime/v1` interface with the one method `Sleep(*rt.Task, time.Duration)`, so the program's own `Scheduler` interface satisfies it. Lowering supplies it to `After` and to `HTTPServe` (std http's connection phase timers, E4), whose Ergo signatures need `Scheduler`, so the checker has bound it at the call. A body that takes it and whose signature needs no `Scheduler` is an internal compiler error (`TestStdExternsHaveBodies`). The deadline is time, and time is a capability (Q-S4-7): a test `Scheduler` controls it, as Effect's `TestClock` drives `Effect.timeout` and a Go test injects a clock.
 5. `ContextPackage` is the **reading package**: the namespace of the package that declares the context-read extern, `std:` and its path (`std:log`; [runtime.md, G1](runtime.md#g1-context-through-with) 3). Lowering supplies it to `ContextBound` and `ContextValue`. Each binding is stored under the pair of its type's declaring package namespace and its protocol key, so a package reads only its own bindings. Std source does not spell a package prefix.
 
 The hidden parameters come first, in this order, each at most once; a hidden type after an ordinary parameter breaks the convention. The parameters after them stand for the Ergo parameters, one each, in order. The Go results are the Ergo results, then `error` when the Ergo signature has an error row. A function parameter is a Go function under the same convention: the block of `task.Go` is `func(*rt.Task) (T, error)`, which receives the child's task, and the lowering adapts its function value to that shape (the block's providers are captured, never passed). An operation of a type that a std extern returns (`queue.Queue[T]`, the prelude's `Task[T, E]`) is the method of that name on the Go type the extern's body returns (`*Queue[T]`, `*Task[T]`), under the same convention, and the lowering calls that method directly (Types 3).
@@ -369,12 +369,37 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
    transport has no HTTP policy. `l.Close()` releases an unused listener.
    Every server protocol shares it: `rpc.Serve` takes an `http.Listener`.
 2. `Serve[R](l, limits Limits, handle func(Request) Response needs R | Streaming)`
-   has `fails InvalidLimits needs R`. Serve binds the request's `Streaming`
+   has `fails InvalidLimits needs R | Scheduler`. Serve binds the request's `Streaming`
    provider around each invocation, so a handler that does not stream is a
-   function of a narrower row and passes unchanged. `Limits{MaxBodyBytes, MaxHeaderBytes}`
-   is required. Both values must be positive; a refusal leaves the listener
-   open. The header budget has Go `http.Server.MaxHeaderBytes` semantics,
-   including its request-line accounting.
+   function of a narrower row and passes unchanged. `Limits{MaxBodyBytes,
+   MaxHeaderBytes, IdleTimeout, ReadHeaderTimeout, ReadBodyTimeout}` is
+   required. Every value must be positive (zero is not "unbounded"); a
+   refusal leaves the listener open. The header budget has Go
+   `http.Server.MaxHeaderBytes` semantics, including its request-line
+   accounting. The client (`NewClient`, `NewNet`) reads only the two byte
+   budgets.
+
+   **Connection phases** (E4). Serve bounds each read phase of a
+   connection by its timeout: the header phase (from the accept, or from
+   the first byte of the next request, until the whole header is read) by
+   `ReadHeaderTimeout`, the body read by `ReadBodyTimeout`, and the wait of
+   a kept-alive connection for its next request by `IdleTimeout`. The
+   handler's own time is not bounded here. Each bound is a child task of
+   the serving task that sleeps on the program's `Scheduler`, as the
+   deadline of `timeout.After` does: a test `Scheduler` (`time.Manual`)
+   decides when a phase expires, and Serve arms no host timer of its own.
+   A phase that ends first stops its timer. An expired idle or header
+   phase closes the connection with no answer; an expired body phase
+   reaches the handler as `BodyReadFailed`, and its answer is the
+   connection's last. A serving stop stops and drains the timers with the
+   requests. Go: `http.Server.IdleTimeout` and `ReadHeaderTimeout` (on the
+   host clock); Go has no body-only timeout. `TestHTTPPhasesExpireOnTheScheduler`
+   (runtime/v1) holds the three bounds on a test Scheduler.
+   *Prior art:* Go `http.Server` deadlines on the connection; Node's
+   `server.keepAliveTimeout` (5 s by default) and `headersTimeout`; Bandit
+   and Thousand Island's `read_timeout`, one bound for every read; mist
+   (Gleam) closes idle connections on a timer of its actor. Ergo keeps the
+   three apart, as Go and Node do, and makes each required.
 3. `Request{Method, Path, Query, Header, Body}` is buffered. Header and
    query values are slices of `Field{Name, Value}`, retaining repeated
    values. `Header(fields, name)` ignores case; `Query` uses exact names.
