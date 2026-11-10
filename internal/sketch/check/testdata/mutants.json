@@ -46,17 +46,6 @@
       ]
     },
     {
-      "name": "own-check-0-and-or-withown.go:513",
-      "origin": "test-speed plan, own sample (gen.ts 20 11)",
-      "file": "internal/sketch/check/withown.go",
-      "from": "\t\t\tif t := info.Tails[s]; t != nil && !failure(t) {",
-      "to": "\t\t\tif t := info.Tails[s]; t != nil || !failure(t) {",
-      "rule": "providerResults: providerResults collects explicit value returns in this frame and its implicit result tails.",
-      "killers": [
-        "check:TestContextOwnershipFreshFallibleConstructors"
-      ]
-    },
-    {
       "name": "own-check-1-ne-eq-types.go:519",
       "origin": "test-speed plan, own sample (gen.ts 20 11)",
       "file": "internal/sketch/check/types.go",
@@ -1212,6 +1201,94 @@
       "rule": "resources R40: the instantiation of a map key at a resource is S112 (diagnostics.md).",
       "killers": [
         "check:TestTakesInferenceModel"
+      ]
+    },
+    {
+      "name": "L8-A4 a field take does not mark the field",
+      "origin": "wf10 L8 A4 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tw.st[i].fields |= 1 << k\n",
+      "to": "\t\t_ = k\n",
+      "rule": "resources R39, Gap 38: a field taken in place is not used or taken again, and the record's release skips it.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A4 a take through an index admitted",
+      "origin": "wf10 L8 A4 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\tw.placeMove(x, \"an element\", ",
+      "to": "\t\t\t_ = fmt.Sprint(x, \"an element\", ",
+      "rule": "resources R35: an element is lent by its index; a take or a move by index is S108.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A4 match on an owned subject leaves it owned",
+      "origin": "wf10 L8 A4 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\t\tw.move(si, id, hand{at: id, how: fmt.Sprintf(\"the match moves it into %s\", binds[0].Name)})",
+      "to": "\t\t\t\t_ = id",
+      "rule": "Gap 36: an arm that binds a resource moves the owned subject into the binding.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A4 a conversion copies",
+      "origin": "wf10 L8 A4 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tif w.converts(a, pt) {",
+      "to": "\t\tif false && w.converts(a, pt) {",
+      "rule": "resources R23: a conversion to an operation type with Close moves the resource.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A4 a local provider not moved into the with",
+      "origin": "wf10 L8 A4 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\t\tw.expr(p, mMove, hand{at: p, how: \"the with owns it\", provider: true})",
+      "to": "\t\t\t\tw.expr(p, mLend, hand{})",
+      "rule": "resources R11: a local resource provider moves into the with that builds it.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A4 a Values() element lent instead of owned",
+      "origin": "wf10 L8 A4 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\t\towned = true\n",
+      "to": "\t\t\t\towned = false\n",
+      "rule": "Q7: a for-in over a queue's Values() owns each element.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A4 a package let provider admitted",
+      "origin": "wf10 L8 A4 (#197)",
+      "file": "internal/sketch/check/withown.go",
+      "from": "if name := packageRoot(info, a.Entry.Provider); name != \"\" && ",
+      "to": "if name := packageRoot(info, a.Entry.Provider); name == \"-\" && ",
+      "rule": "resources R11: a package let has no owner to hand to the with (S108).",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "L8-A4 a lent literal keeps its parts",
+      "origin": "wf10 L8 A4 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\tw.parts(x, hand{at: x, how: \"it moves into the literal\"})\n\t\t\tbreak",
+      "to": "\t\t\tw.children(x)\n\t\t\tbreak",
+      "rule": "resources R14: a composite literal moves its parts, also one lent where it is made.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
       ]
     }
   ]

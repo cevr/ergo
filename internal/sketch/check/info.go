@@ -118,9 +118,6 @@ type Package struct {
 	// name (D-D6, D-D8), which x.f(…) reaches from a value of exactly an
 	// unnamed slice or Map type; nil in every other package.
 	collFuncs map[collKey]*Func
-	// providerFresh is the freshness fact the context ownership pass computed
-	// during Check, kept so its tests read the fact that decided.
-	providerFresh providerFreshness
 	// testBuilds are, in a test package (fstest), the builders it declares
 	// for each operation type of the package it tests (builders.go rule
 	// 2). Only the package's own check writes it.

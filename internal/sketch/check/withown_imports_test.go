@@ -33,6 +33,14 @@ func Get() Conn { ` + result + ` }
 						t.Fatal(err)
 					}
 					makers, ds := check.Check("makers", []*syntax.File{lib}, nil)
+					if !fresh {
+						// A package let has no owner to hand off (R11, L8
+						// A4): the constructor is refused where it returns it.
+						if len(ds) != 1 || ds[0].Code != "S108" || !strings.Contains(ds[0].Message, "package let") {
+							t.Fatalf("diagnostics %v, want one S108 at the returned package let", ds)
+						}
+						return
+					}
 					if len(ds) != 0 {
 						t.Fatal(ds)
 					}
@@ -56,7 +64,9 @@ func Get() Conn { ` + result + ` }
 						t.Fatal(err)
 					}
 					pkg, ds := check.Check("main", []*syntax.File{main}, ownImporter{makers})
-					if !fresh || missing != "" {
+					// A call's result is its caller's (L8 A4): no call fact
+					// is needed; a provider with no type is unprovable.
+					if missing == "type" {
 						if len(ds) != 1 || ds[0].Code != "S109" || ds[0].Line != line || ds[0].Column != 12 || !strings.Contains(ds[0].Message, "#197") {
 							t.Fatalf("diagnostics %v, want one S109 naming #197 at the importing with", ds)
 						}

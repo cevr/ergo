@@ -165,6 +165,7 @@ type ownWalk struct {
 	// fn is the declaration walked.
 	infer   bool
 	fn      *Func
+	top     *syntax.BlockStmt // the declaration's body
 	promote map[int]bool
 	copies  map[*TypeParam]CopySite
 }
@@ -409,6 +410,9 @@ func (w *ownWalk) frame(body *syntax.BlockStmt, takes []int, params []*Var, name
 	nvars := len(w.vars)
 	w.loops, w.catches = nil, nil
 	w.depth++
+	if w.depth == 1 {
+		w.top = body
+	}
 	w.first = len(w.vars)
 	w.name = name
 	w.nested = nested
@@ -831,6 +835,9 @@ const (
 type hand struct {
 	at  syntax.Node
 	how string
+	// provider marks a with's provider: a package let there is reported
+	// by withown.go, once per entry.
+	provider bool
 }
 
 func (w *ownWalk) nestedText() string {
@@ -912,6 +919,9 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		v, _ := w.info.Uses[x].(*Var)
 		i, ok := w.slot[v]
 		if v == nil || !ok {
+			if v != nil && v.pkg && mode == mMove && !h.provider && w.c.holdsResource(v.Type) {
+				w.report(x, "%s is a package let, which has no owner to hand it off (%s) (resources R11, R15); lend it, or make a new value", v.Name, h.how)
+			}
 			w.funcValue(x, w.info.Types[x])
 			return
 		}
@@ -924,6 +934,8 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 	case *syntax.ParenExpr:
 		w.expr(x.X, mode, h)
 		return
+	case *syntax.ContextLit:
+		return // its providers are evaluated by each with that builds them
 	case *syntax.TryExpr:
 		w.expr(x.X, mode, h)
 		w.failure(x)
@@ -1238,6 +1250,7 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 		for _, a := range x.Args {
 			w.expr(a, mLend, hand{})
 		}
+		w.withProviders(x)
 		if x.Trailing != nil {
 			w.block(x.Trailing, x.Trailing.List)
 		}
@@ -1360,6 +1373,33 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 		w.frame(x.Trailing, takes, nil, w.name, fmt.Sprintf("the block passed to %s", calleeText(x)), false)
 	}
 	return false
+}
+
+// withProviders evaluates the provider expressions with x builds that lie
+// in this body (an inline or a local context's): a resource provider
+// moves into the with, which releases it at the block's end (R11); any
+// other is lent. A context literal itself evaluates nothing: each with
+// that builds it does (expr). A package let provider is withown.go's.
+func (w *ownWalk) withProviders(x *syntax.CallExpr) {
+	if w.top == nil {
+		return
+	}
+	for f := w.info.Withs[x]; f != nil; f = f.Next {
+		for _, a := range f.Acquired {
+			if a == nil || a.Entry == nil || a.Entry.Provider == nil {
+				continue
+			}
+			p := a.Entry.Provider
+			if owner := w.c.contextOwners.of[a.Entry]; owner == nil || owner.file != w.c.cur || p.Pos() < w.top.Pos() || p.End() > w.top.End() {
+				continue
+			}
+			if a.Close != nil {
+				w.expr(p, mMove, hand{at: p, how: "the with owns it", provider: true})
+			} else {
+				w.expr(p, mLend, hand{})
+			}
+		}
+	}
 }
 
 // converts reports whether a, a value that holds a resource and is no
