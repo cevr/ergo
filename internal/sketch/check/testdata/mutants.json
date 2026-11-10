@@ -1009,8 +1009,8 @@
       "name": "L8-A2 a written takes call does not move",
       "origin": "wf10 L8 A2 (#197)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\t\tfor _, i := range sig.Takes {\n\t\t\ttaken[i] = true\n\t\t}\n\t\tselfTaken = sig.TakesSelf",
-      "to": "\t\tselfTaken = sig.TakesSelf",
+      "from": "\t\t}\n\t}\n\tfor _, i := range takes {\n\t\ttaken[i] = true\n\t}",
+      "to": "\t\t}\n\t}\n\tfor range takes {\n\t}",
       "rule": "resources R19: a call of a function whose takes clause names a parameter hands the argument off.",
       "killers": [
         "check:TestOwnershipFlowModel"
@@ -1031,8 +1031,8 @@
       "name": "L8-A2 a hand-off inside a trailing block admitted",
       "origin": "wf10 L8 A2 (#197)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\tcase l.depth != w.depth:\n\t\tw.report(",
-      "to": "\tcase l.depth != w.depth && false:\n\t\tw.report(",
+      "from": "\tcase l.depth != w.depth:\n\t\tw.refuse(i, x, fmt.Sprintf(\"%s hands off",
+      "to": "\tcase l.depth != w.depth && false:\n\t\tw.refuse(i, x, fmt.Sprintf(\"%s hands off",
       "rule": "resources R4, R30: a block (scope.OnExit, a function literal) cannot hand off a value its enclosing function owns.",
       "killers": [
         "check:TestOwnershipFlowModel"
