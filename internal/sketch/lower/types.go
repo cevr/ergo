@@ -125,9 +125,6 @@ func (tc *typeCtx) goType(t check.Type) string {
 // only when its error row is not empty.
 func (tc *typeCtx) funcType(s *check.Signature) string {
 	parts := []string{"*" + tc.l.env()}
-	if s.ResultIsTask() {
-		parts = append(parts, "*"+tc.l.rt()+".Scope") // the destination of the returned Task (stage D3b, Rule 2)
-	}
 	for _, p := range s.Params {
 		parts = append(parts, tc.goType(p.Type))
 	}
@@ -167,14 +164,9 @@ func (tc *typeCtx) resultList(result check.Type, fallible bool) string {
 
 // methodSig is an operation's Go method signature, after its name: the
 // caller's task first (rows.md, Rows 7: capabilities become Go interfaces
-// whose methods take the task handle first), then, for an operation that
-// returns a Task, the destination its return moves the Task to (stage D3b,
-// Rule 2, as a function's; stage E2, C15), then its parameters.
+// whose methods take the task handle first), then its parameters.
 func (tc *typeCtx) methodSig(s *check.Signature) string {
 	params := []string{"*" + tc.l.taskPkg() + ".Task"}
-	if s.ResultIsTask() {
-		params = append(params, "*"+tc.l.rt()+".Scope")
-	}
 	for _, p := range s.Params {
 		params = append(params, tc.goType(p.Type))
 	}

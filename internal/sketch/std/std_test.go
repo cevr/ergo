@@ -22,8 +22,8 @@ const v1Path = "ergo.local/prototype/runtime/v1"
 // that no Ergo operation binds, each with the reason. A body that binds no
 // declaration and is not listed here fails TestEachExternHasItsGoBody.
 var unbound = map[string]string{
-	// The return of a Task (Tasks rule 8): only the lowering calls it.
-	"Task.Move": "lowering only",
+	// None since #197 L8 B3t: a returned Task is an owned value, and no
+	// Move body is left.
 }
 
 // TestEachModuleChecks checks each v1 package with the checker that

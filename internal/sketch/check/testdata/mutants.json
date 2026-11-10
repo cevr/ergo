@@ -1389,6 +1389,39 @@
       "killers": [
         "check:TestOwnershipFlowModel"
       ]
+    },
+    {
+      "name": "L8-B3t running finds nothing",
+      "origin": "wf10 L8 B3t (#197)",
+      "file": "internal/sketch/check/running.go",
+      "from": "\t\t\treturn d.Type\n",
+      "to": "\t\t\treturn nil\n",
+      "rule": "runtime.md Tasks 3: an owning with's value holds no Task or Set (S108).",
+      "killers": [
+        "check:TestWithValueHoldsNoRunningTask"
+      ]
+    },
+    {
+      "name": "L8-B3t running skips a record's fields",
+      "origin": "wf10 L8 B3t (#197)",
+      "file": "internal/sketch/check/running.go",
+      "from": "\t\t\tif r := walk(f.Drop); r != nil {",
+      "to": "\t\t\tif r := walk(nil); r != nil && f.Drop != nil {",
+      "rule": "runtime.md Tasks 3: a Task in a part of an owning with's value is refused too.",
+      "killers": [
+        "check:TestWithValueHoldsNoRunningTask"
+      ]
+    },
+    {
+      "name": "L8-B3t a method value of a resource's operation admitted",
+      "origin": "wf10 L8 B3t (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "if op := w.resourceMethod(x); op != nil {",
+      "to": "if op := w.resourceMethod(x); op != nil && op == nil {",
+      "rule": "resources R33: a function value owns no resource and holds no lend of one (t.Wait, t.Stop as values).",
+      "killers": [
+        "lower:TestCheckedImpliesLoweredPart8"
+      ]
     }
   ]
 }

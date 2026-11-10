@@ -357,10 +357,7 @@ func BlockingEnter(name string, task *rt.Task) func() {
  if BlockingHook != nil { return BlockingHook(name, task) }
  return func() {}
 }
-func BlockingOwner[T any](t *Task[T]) *rt.Task {
- if t.owner == nil { return nil }
- return t.owner.s.Task()
-}
+func BlockingOwner[T any](t *Task[T]) *rt.Task { return t.task }
 func BlockingParked[T any](q *Queue[T]) int {
  q.mu.Lock(); defer q.mu.Unlock(); return q.parked
 }
@@ -418,7 +415,7 @@ func parked(t *testing.T, q *ergo.Queue[int], clock *rt.Virtual) {
 func TestBlocking(t *testing.T) {
  for _, phase := range []string{"before-entry", "while-parked", "concurrent-ready"} {
   for _, masked := range []bool{false, true} {
-   owners := []bool{false}; if strings.HasPrefix(primitive,"Task.") { owners = append(owners,true) }
+   owners := []bool{false}
    for _, moved := range owners {
     label := phase+"/unmasked/direct"; if masked { label = phase+"/masked/direct" }; if moved { label += "/returned-owner" }
     t.Run(label, func(t *testing.T) { drive(t, phase, masked, moved) })
@@ -426,7 +423,7 @@ func TestBlocking(t *testing.T) {
   }
  }
  if primitive == "Task.Wait" {
-  for _, moved := range []bool{false,true} { t.Run("ready-before-stopped-entry",func(t *testing.T) { drive(t,"ready-before-stopped-entry",false,moved) }) }
+  for _, moved := range []bool{false} { t.Run("ready-before-stopped-entry",func(t *testing.T) { drive(t,"ready-before-stopped-entry",false,moved) }) }
  }
 }
 func drive(t *testing.T, phase string, masked, moved bool) {
@@ -454,11 +451,6 @@ func drive(t *testing.T, phase string, masked, moved bool) {
     if primitive == "Task.Stop" { mask := ct.Mask(); defer mask.Unmask() }
     if err := rt.Sleep(ct, clock, time.Hour); err != nil { panic(err) }; return 7,nil
    })
-   if moved {
-    h = h.Move(&destination)
-    if ergo.BlockingEntries(&first) != 0 || ergo.BlockingEntries(&destination) != 1 { done <- outcome{panicValue:"Move kept the first owner"}; return }
-    first.End(nil)
-   }
   }
   _ = h
   out := attempt(func() (int,error) { return subject(&Env{task:waiter}, SUBJECT_ARG) })
@@ -526,7 +518,7 @@ func TestReturnedTaskEnvironment(t *testing.T) {
   if name == primitive && once.CompareAndSwap(false,true) { entered <- task; <-release }
   return func() {}
  }
- h := launch(&Env{task:parent}, &destination,q)
+ h := launch(&Env{task:parent}, q)
  child := receive(t,entered)
  if child != ergo.BlockingRuns(h) { t.Fatal("returned Task's primitive does not use the task the returned Task runs") }
  released := make(chan struct{})

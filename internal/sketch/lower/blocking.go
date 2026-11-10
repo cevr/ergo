@@ -73,9 +73,12 @@ func (b runtimeBinding) takesCaller() bool {
 }
 
 var runtimeBindings = map[string]runtimeBinding{
-	"Sleep":        {wait: callerWait, hostTarget: runtimeModule + "/runtime/rt.Sleep", provider: "LiveScheduler"},
-	"Task.Wait":    {wait: handleWait},
-	"Task.Stop":    {wait: drainWait},
+	"Sleep":     {wait: callerWait, hostTarget: runtimeModule + "/runtime/rt.Sleep", provider: "LiveScheduler"},
+	"Task.Wait": {wait: handleWait},
+	"Task.Stop": {wait: drainWait},
+	// A Task's and a Set's release (B3t): Stop, masked on the caller.
+	"Task.Close":   {release: callerRelease},
+	"Set.Close":    {release: callerRelease},
 	"Queue.Push":   {wait: callerWait},
 	"Queue.Pop":    {wait: callerWait},
 	"Queue.Values": {wait: callerWait},

@@ -270,12 +270,8 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		vals := fc.callArgs(args, x)
 		env := fc.envExpr(x)
 		// A capability's operation takes the running task first (rows.md,
-		// Rows 7), then a returned Task's destination (methodSig).
-		lead := []string{taskOf(env)}
-		if dest := fc.opDest(x, c); dest != "" {
-			lead = append(lead, dest)
-		}
-		vals = append(lead, vals...)
+		// Rows 7).
+		vals = append([]string{taskOf(env)}, vals...)
 		return env + "." + fc.l.envField(cap.Obj) + "." + memberName(c.Op.Name) + "(" + strings.Join(vals, ", ") + ")", len(c.Op.Sig.Results) > 0, len(rowElems(c.Op.Sig.Errors)) > 0
 	case check.CallFuncValue:
 		// A value of a declared function type (Seq[T]) calls through its
@@ -374,7 +370,7 @@ func (fc *funcCtx) hostCallback(fv string, sig *check.Signature, site syntax.Nod
 // the target is called, and the result bound at its Ergo type. A callback
 // parameter is adapted with the environment the value is called with.
 func (fc *funcCtx) hostValue(f *check.Func, sig *check.Signature, site syntax.Node) string {
-	if len(sig.TParams) > 0 || len(sig.Results) > 1 || sig.ResultIsTask() {
+	if len(sig.TParams) > 0 || len(sig.Results) > 1 {
 		ice(site, "the user extern %s used as a value outside its checked domain", f.Name)
 	}
 	callbacks := false
@@ -581,20 +577,11 @@ func hostBase(path string) string {
 }
 
 // taskDestArgs are the leading arguments of a call of a declared function
-// or a function value of signature sig: the environment, then, when the
-// result holds a Task (Info's TaskResult), the frame scope as the
-// destination the callee's return moves the Task to (stage D3b, Rule 2).
-// Since stage E2 (C13) a result holds a Task only by being one: no type
-// argument holds a Task, and a type that holds one otherwise is S108.
-func (fc *funcCtx) taskDestArgs(x *syntax.CallExpr, c *check.Call, sig *check.Signature) []string {
-	out := []string{fc.envExpr(x)}
-	if c.TaskResult != sig.ResultIsTask() {
-		ice(x, "a call whose result holds a Task %v, of a signature that returns a Task %v; the checker refuses a Task held otherwise (S108)", c.TaskResult, sig.ResultIsTask())
-	}
-	if !c.TaskResult {
-		return out
-	}
-	return append(out, fc.frameScope(x))
+// or a function value: the environment. A returned Task is an owned value
+// (#197 L8 B3t): the caller registers it where it receives it, so no
+// destination frame is passed.
+func (fc *funcCtx) taskDestArgs(x *syntax.CallExpr, _ *check.Call, _ *check.Signature) []string {
+	return []string{fc.envExpr(x)}
 }
 
 // callArgs lowers a call's operands left to right, with each argument's
@@ -697,19 +684,6 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 	}
 	return fc.envClosure(callerEnv, envParam, site, func(env string) (params []string, results, body string) {
 		lead := fd.envLead(env)
-		// Since stage E2 (C13) a result holds a Task only by being one, and
-		// an instance's type argument is never a Task, so the value, the
-		// declaration and Info agree.
-		if sig.ResultIsTask() != f.Sig.ResultIsTask() || sig.ResultIsTask() != f.Pkg.Info.TaskResults[f] {
-			ice(site, "the function %s used as a value returns a Task %v, its declaration %v, Info %v", f.Name, sig.ResultIsTask(), f.Sig.ResultIsTask(), f.Pkg.Info.TaskResults[f])
-		}
-		if sig.ResultIsTask() {
-			// The destination passes through to the function, whose return
-			// moves the Task (stage D3b, Rule 2).
-			dest := fc.scope.alloc("dest")
-			params = append(params, dest+" *"+fc.l.rt()+".Scope")
-			lead = append(lead, dest)
-		}
 		var args []string
 		for _, p := range sig.Params {
 			name := fc.scope.alloc("p")
@@ -1319,18 +1293,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 				params[0] = "_ *" + l.taskPkg() + ".Task"
 			}
 			args := fd.envLead("&" + l.env() + "{" + envTask + ": " + task + "}")
-			// An operation that returns a Task takes the destination after
-			// the task (methodSig) and passes it to the function, whose
-			// return moves the Task there (stage D3b, Rule 2; stage E2, C15).
-			if op.Sig.ResultIsTask() != f.Sig.ResultIsTask() {
-				ice(site, "the operation %s of %s and its function %s disagree on a Task result", op.Name, conv.To, f.Name)
-			}
-			if op.Sig.ResultIsTask() {
-				dest := locals.alloc("d")
-				params = append(params, dest+" *"+l.rt()+".Scope")
-				args = append(args, dest)
-			}
-			hidden := len(args) // the environment and the destination
+			hidden := len(args) // the environment
 			for _, p := range op.Sig.Params {
 				n := locals.alloc("p")
 				params = append(params, n+" "+tc.goType(p.Type))

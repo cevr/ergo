@@ -505,7 +505,7 @@ func TestLawSites(t *testing.T) {
 // nodes (owners.go): a law error row makes an error type of the laws only
 // (decl.go collectBodyErrorRows), its frame has a footprint (footprint.go),
 // a Close a law uses has its identity (close.go), a CallLawOp carries none
-// and is opaque, and its TaskResult is a call's (finishInfo).
+// and is opaque.
 func TestLawFacts(t *testing.T) {
 	src := lawSiteDecls + `type Res {}
 
@@ -608,15 +608,6 @@ type Laws {
 		if pkg.Info.Closes[x] != nil {
 			t.Error("Own: a law's operation call has no receiver, so no Close fact")
 		}
-	}
-	started := false
-	for _, x := range calls("Starts") {
-		if call := pkg.Info.Calls[x]; call != nil && call.Kind == check.CallLawOp {
-			started = call.TaskResult
-		}
-	}
-	if !started {
-		t.Error("Starts: a law's operation call that returns a Task has no TaskResult")
 	}
 }
 

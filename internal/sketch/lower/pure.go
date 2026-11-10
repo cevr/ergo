@@ -136,7 +136,7 @@ func pureCandidate(info *check.Info, f *check.Func) ([]*check.Func, bool) {
 		return nil, false
 	}
 	s := f.Sig
-	if len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 || s.ResultIsTask() || info.TaskResults[f] {
+	if len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {
 		return nil, false
 	}
 	// A row type parameter by itself decides nothing: a row of f's own
@@ -169,8 +169,8 @@ func pureCandidate(info *check.Info, f *check.Func) ([]*check.Func, bool) {
 			case c == nil:
 				ok = false
 			case c.Kind == check.CallLen || c.Kind == check.CallConversion:
-			case c.Kind == check.CallFunc && !c.TaskResult && pureStdBody(c.Func):
-			case c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil && !c.TaskResult:
+			case c.Kind == check.CallFunc && !c.StartsTask && pureStdBody(c.Func):
+			case c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil && !c.StartsTask:
 				callees = append(callees, c.Func)
 			default:
 				ok = false

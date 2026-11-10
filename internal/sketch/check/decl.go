@@ -90,7 +90,6 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.checkContextCycles,
 		c.checkErrorMethods,
 		c.checkUnusedImports,
-		c.checkTaskUses,
 		c.finishInfo,
 		c.closeFacts,
 		// After closeFacts: every Close and failure row is final.
@@ -937,9 +936,6 @@ func (c *checker) structType(spec *syntax.StructType, ctx *typeCtx) *Struct {
 	seen := map[string]bool{}
 	for _, field := range spec.Fields.List {
 		t := c.typExpr(field.Type, ctx)
-		if c.taskRefused(field.Type, t) {
-			t = invalid
-		}
 		if field.Include {
 			if n := c.includeTarget(field, t); n != nil {
 				s.includes = append(s.includes, &include{member: field, at: len(s.Fields), target: n})
@@ -1226,9 +1222,6 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		return c.instantiateExprs(n, x.Indices, x, ctx)
 	case *syntax.ArrayType:
 		elem := c.typExpr(x.Elt, ctx)
-		if c.taskRefused(x.Elt, elem) {
-			return invalid
-		}
 		return &Slice{Elem: elem}
 	case *syntax.MapType:
 		if tn := c.declaredMap(); tn != nil {
@@ -1237,9 +1230,6 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		}
 		k := c.typExpr(x.Key, ctx)
 		v := c.typExpr(x.Value, ctx)
-		if c.taskRefused(x.Key, k) || c.taskRefused(x.Value, v) {
-			return invalid
-		}
 		if !isInvalid(k) && !comparable(k) {
 			c.errorf(x.Key, CodeType, "map key type %s is not comparable", k)
 			return invalid
@@ -1254,9 +1244,6 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		inner := *ctx
 		inner.param = false
 		elem := c.typExpr(x.X, &inner)
-		if c.taskRefused(x.X, elem) {
-			return invalid
-		}
 		return &Pointer{Elem: elem}
 	case *syntax.FuncType:
 		// `escaping` marks a function type that may outlive the call it
@@ -1292,7 +1279,7 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		tup := &Tuple{Types: make([]Type, len(x.Elts))}
 		for i, e := range x.Elts {
 			tup.Types[i] = c.typExpr(e, &inner)
-			if isInvalid(tup.Types[i]) || c.taskRefused(e, tup.Types[i]) {
+			if isInvalid(tup.Types[i]) {
 				return invalid
 			}
 		}
@@ -1557,9 +1544,7 @@ func (c *checker) instantiateExprs(n *Named, args []syntax.Expr, at syntax.Node,
 		}
 		targs[i] = t
 	}
-	if !c.typeArgsAdmitted(n.Obj.Name, n.TParams, targs, at) {
-		return invalid
-	}
+	c.recordInstantiation(n.Obj.Name, n.TParams, targs, at)
 	inst := c.instantiate(n, targs)
 	for i, tp := range n.TParams {
 		if tp.Kind == KindType && tp.Constraint != nil && n.state == 2 {

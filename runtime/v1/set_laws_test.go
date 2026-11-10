@@ -24,7 +24,7 @@ func inSetFrame(root *rt.Task, kind, limit int, body func(set *Set)) error {
 	return setCatch(root, func() {
 		fs := NewScope(root)
 		defer fs.End(nil)
-		body(TasksNewSet(&fs, kind, limit))
+		body(ownedSet(&fs, kind, limit))
 	})
 }
 

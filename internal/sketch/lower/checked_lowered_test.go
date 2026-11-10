@@ -58,8 +58,6 @@ type pairKind struct {
 	// decl declares a refused defined type: every use of the kind meets
 	// that one diagnostic.
 	decl string
-	// task: a Task-holding kind; a program with one imports task.
-	task bool
 }
 
 const pairDecls = `type Fault { msg string }
@@ -166,7 +164,6 @@ func pairKinds() []pairKind {
 		{name: "DGen", ty: "DGen", pre: via("DGen", "Gen[int]", "Mem{N: 1}"), decl: "type DGen Gen[int]"},
 		{name: "DU", ty: "DU", pre: via("DU", "U", "Mem{N: 1}"), decl: "type DU U"},
 		{name: "DOpt", ty: "DOpt", pre: via("DOpt", "Option[int]", "Some{1}"), decl: "type DOpt Option[int]"},
-		{name: "Task", ty: "Task[int, Fault]", pre: func(v string) string { return "let " + v + " = task.Go() { work() }" }, under: "Task", named: true, task: true},
 	}
 }
 
@@ -183,8 +180,6 @@ func admits(s, t pairKind) bool {
 		return false
 	case s.name == t.name:
 		return true
-	case s.task || t.task:
-		return false
 	case s.under == t.under && (!s.named || !t.named):
 		return true
 	case t.ops:
@@ -222,20 +217,6 @@ func pairAdmits(site string, s, t pairKind) bool {
 	return admits(s, t)
 }
 
-// taskTypeAt is the line text of a site's own Task type position, refused
-// by the type-position rule (types.md, Task): the multi site's helper
-// returns a tuple of the source kind, and the field site's record has a
-// field of the target kind. "" when the site writes no Task in a type.
-func taskTypeAt(site string, s, t pairKind) string {
-	switch {
-	case site == "multi" && s.task:
-		return "Two() ("
-	case site == "field" && t.task:
-		return "Box { f "
-	}
-	return ""
-}
-
 // pairFunc is the generated code of one pair at one site: declarations and
 // a function named id that prints id, and the text of the line a refusal
 // is reported on.
@@ -252,8 +233,6 @@ func pairFunc(site string, s, t pairKind) (id, code, at string) {
 	id = site + s.name + "To" + t.name
 	use := func(v string) string {
 		switch {
-		case t.task:
-			return v + ".Stop()"
 		case s.name == "None" && t.name == "Opt":
 			return "if !(" + v + " == None) { Console.Println(\"FAIL " + id + "\") }"
 		case t.ok != nil:
@@ -384,13 +363,9 @@ func pairFunc(site string, s, t pairKind) (id, code, at string) {
 }
 
 // pairProgram assembles one program from the kinds it uses and its pair
-// functions, with a main that runs each function in order; started says
-// whether a function starts a task, which needs the task import.
-func pairProgram(kinds []pairKind, started bool, ids, funcs []string) string {
+// functions, with a main that runs each function in order.
+func pairProgram(kinds []pairKind, ids, funcs []string) string {
 	var b strings.Builder
-	if started {
-		b.WriteString("import task\n\n")
-	}
 	seen := map[string]bool{}
 	b.WriteString(pairDecls)
 	for _, k := range kinds {
@@ -412,10 +387,10 @@ func pairProgram(kinds []pairKind, started bool, ids, funcs []string) string {
 
 // pairCandidate is one pair of the grid at one site, as the generator
 // writes it: its function, the program that holds it alone, the site's
-// line for a refusal, and the line of a Task type position ("" for none).
+// line for a refusal.
 type pairCandidate struct {
-	s, k                      pairKind
-	id, code, at, src, taskAt string
+	s, k              pairKind
+	id, code, at, src string
 }
 
 // pairCandidates is every pair the grid writes at site, in the order the
@@ -424,8 +399,8 @@ func pairCandidates(site string, kinds []pairKind) []pairCandidate {
 	var out []pairCandidate
 	for _, s := range kinds {
 		for _, k := range kinds {
-			if site != "let" && site != "multi" && site != "arg" && site != "ret" && site != "field" && (s.decl != "" || k.decl != "" || s.task || k.task) {
-				continue // The original sites own refused definitions and Task type positions.
+			if site != "let" && site != "multi" && site != "arg" && site != "ret" && site != "field" && (s.decl != "" || k.decl != "") {
+				continue // The original sites own refused definitions.
 			}
 			if s.decl != "" && k.decl != "" && s.name != k.name {
 				continue // two refused definitions are two mistakes
@@ -439,13 +414,9 @@ func pairCandidates(site string, kinds []pairKind) []pairCandidate {
 				// an unnamed tuple type.
 				continue
 			}
-			taskAt := taskTypeAt(site, s, k)
-			if taskAt != "" && (s.decl != "" || k.decl != "") {
-				continue // a refused definition and a Task type: two mistakes
-			}
 			id, code, at := pairFunc(site, s, k)
-			src := pairProgram([]pairKind{s, k}, s.task, []string{id}, []string{code})
-			out = append(out, pairCandidate{s: s, k: k, id: id, code: code, at: at, src: src, taskAt: taskAt})
+			src := pairProgram([]pairKind{s, k}, []string{id}, []string{code})
+			out = append(out, pairCandidate{s: s, k: k, id: id, code: code, at: at, src: src})
 		}
 	}
 	return out
@@ -458,12 +429,11 @@ func pairSite(t *testing.T, site string) (*lowered, string) {
 	t.Helper()
 	kinds := pairKinds()
 	var ids, funcs []string
-	started := false // an admitted pair starts a task
 	for _, c := range pairCandidates(site, kinds) {
 		s, k, id, src := c.s, c.k, c.id, c.src
 		o := lowerSource(id, src, true)
 		admitted := o.err == nil && len(o.diags) == 0
-		if model := pairAdmits(site, s, k) && c.taskAt == ""; admitted != model {
+		if model := pairAdmits(site, s, k); admitted != model {
 			t.Errorf("%s: admitted %v, the assignability model says %v; diagnostics %v\n%s", id, admitted, model, o.diags, src)
 			continue
 		}
@@ -473,9 +443,7 @@ func pairSite(t *testing.T, site string) (*lowered, string) {
 				continue
 			}
 			where := c.at
-			if c.taskAt != "" {
-				where = c.taskAt
-			} else if s.decl != "" {
+			if s.decl != "" {
 				where = s.decl
 			} else if k.decl != "" {
 				where = k.decl
@@ -494,7 +462,6 @@ func pairSite(t *testing.T, site string) (*lowered, string) {
 			t.Errorf("%s: checked, lowering refused %+v\n%s", id, o.refused, src)
 			continue
 		}
-		started = started || s.task
 		ids = append(ids, id)
 		funcs = append(funcs, c.code)
 	}
@@ -508,7 +475,7 @@ func pairSite(t *testing.T, site string) (*lowered, string) {
 			used = append(used, k)
 		}
 	}
-	src := pairProgram(used, started, ids, funcs)
+	src := pairProgram(used, ids, funcs)
 	return mustLower(t, "pairs"+site, src), strings.Join(ids, "\n") + "\n"
 }
 

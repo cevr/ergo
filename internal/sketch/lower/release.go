@@ -67,7 +67,7 @@ func (fc *funcCtx) providerRelease(a *check.Acquisition, outer, val string, site
 		if cl.Op == nil {
 			ice(site, "a provider's Close with neither a function nor an operation")
 		}
-		text, _, _ := fc.opCall(cl.Receiver, cl.Op, nil, []string{val}, outer, "", nil, nil, site)
+		text, _, _ := fc.opCall(cl.Receiver, cl.Op, nil, []string{val}, outer, nil, nil, site)
 		return text
 	}
 	if !isClose(cl.Func) || len(cl.Func.Sig.Params) != 1 {

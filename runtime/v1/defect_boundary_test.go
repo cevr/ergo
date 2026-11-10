@@ -63,7 +63,7 @@ func TestDefectInterruptedWait(t *testing.T) {
 		err := runOn(root, func(root *rt.Task) error {
 			return frame(root, func(s *Scope) error {
 				ready := make(chan struct{})
-				child := Go(s, "origin-child", func(ct *rt.Task) (int, error) {
+				child := ownedGo(s, "origin-child", func(ct *rt.Task) (int, error) {
 					return frameValue(ct, func(cs *Scope) (int, error) {
 						cs.OpenContext("log", "where", "child")
 						OnExit(cs, func() { panic("release-after-interrupted-wait") })

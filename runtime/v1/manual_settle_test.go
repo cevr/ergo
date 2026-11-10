@@ -68,7 +68,7 @@ func TestManualAdvanceOneAtATime(t *testing.T) {
 		return nil
 	}
 	var other any
-	h := Go(&sc, Site("other"), func(ct *rt.Task) (struct{}, error) {
+	h := ownedGo(&sc, Site("other"), func(ct *rt.Task) (struct{}, error) {
 		other = advance(ct)
 		return struct{}{}, nil
 	})
@@ -208,7 +208,7 @@ func settleRun(seed uint64, where *atomic.Value) string {
 
 	sc := NewScope(root)
 	var ticks atomic.Int64
-	Go(&sc, Site("ticker"), func(ct *rt.Task) (struct{}, error) {
+	ownedGo(&sc, Site("ticker"), func(ct *rt.Task) (struct{}, error) {
 		for {
 			line.Wait(ct, time.Duration(period))
 			ticks.Add(1)
@@ -217,7 +217,7 @@ func settleRun(seed uint64, where *atomic.Value) string {
 	// The watcher loops over Changes: it gets the first state and then
 	// each commit, so after a settle it has seen 1 + n states.
 	var seen atomic.Int64
-	Go(&sc, Site("watcher"), func(ct *rt.Task) (struct{}, error) {
+	ownedGo(&sc, Site("watcher"), func(ct *rt.Task) (struct{}, error) {
 		for range a.Changes(ct) {
 			seen.Add(1)
 		}
@@ -227,7 +227,7 @@ func settleRun(seed uint64, where *atomic.Value) string {
 	for range g.IntN(4) {
 		w := settleWaits[g.IntN(len(settleWaits))]
 		waits = append(waits, w)
-		Go(&sc, Site("waiter "+w), func(ct *rt.Task) (struct{}, error) {
+		ownedGo(&sc, Site("waiter "+w), func(ct *rt.Task) (struct{}, error) {
 			switch w {
 			case "stop":
 				_ = sink.Stop(ct)

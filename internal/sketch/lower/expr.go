@@ -1042,12 +1042,6 @@ func (fc *funcCtx) funcLitClosure(ft *syntax.FuncType, list []syntax.Stmt, n syn
 	return fc.envClosure(callerEnv, "env", n, func(env string) (parts []string, results, body string) {
 		inner.env = env
 		inner.frame = newFrame(nil, true, framePolls(fc.l.info, n))
-		if sig.ResultIsTask() {
-			// A literal that returns a Task receives its caller's frame scope
-			// as its destination (stage D3b, Rule 2).
-			inner.frame.dest = fc.scope.alloc("dest")
-			parts = append(parts, inner.frame.dest+" *"+fc.l.rt()+".Scope")
-		}
 		var params []*check.Var
 		if ft != nil && ft.Params != nil {
 			for _, field := range ft.Params.List {
@@ -1119,7 +1113,7 @@ func (fc *funcCtx) retTail(x syntax.Expr) {
 		fc.line(fc.errReturn("nil"))
 		return
 	}
-	fc.line("return " + fc.moved(fc.assigned(x)) + ", nil")
+	fc.line("return " + fc.assigned(x) + ", nil")
 }
 
 // simpleCatch reports a catch a Go type switch on the error lowers: arms of

@@ -81,7 +81,7 @@ func forkDefect(root *rt.Task, o observe) error {
 		return frame(t, func(s *Scope) error {
 			span := s.OpenContext("trace", "span", "ingest")
 			release := make(chan struct{})
-			c := Go(s, "task.Go at f.ergo:9:10", func(ct *rt.Task) (int, error) {
+			c := ownedGo(s, "task.Go at f.ergo:9:10", func(ct *rt.Task) (int, error) {
 				return frameValue(ct, func(cs *Scope) (int, error) {
 					inner := cs.OpenContext("log", "region", "inner")
 					<-release
@@ -137,7 +137,7 @@ func TestDefectReportFramesEndAtTheTaskBody(t *testing.T) {
 	file := withSource(t)
 	err := runMain(func(t *rt.Task) error {
 		return frame(t, func(s *Scope) error {
-			c := Go(s, "task.Go at f.ergo:1:1", func(ct *rt.Task) (int, error) { return boom(), nil })
+			c := ownedGo(s, "task.Go at f.ergo:1:1", func(ct *rt.Task) (int, error) { return boom(), nil })
 			_, err := c.Wait()
 			return err
 		})
@@ -203,7 +203,7 @@ func TestDefectKeptWhenTypedFailureDropped(t *testing.T) {
 			ready := make(chan struct{})
 			err := runMain(func(root *rt.Task) error {
 				return frame(root, func(s *Scope) error {
-					c := Go(s, "child", func(ct *rt.Task) (int, error) {
+					c := ownedGo(s, "child", func(ct *rt.Task) (int, error) {
 						return frameValue(ct, func(cs *Scope) (int, error) {
 							OnExit(cs, func() { boom() })
 							close(ready)
@@ -259,7 +259,7 @@ func TestDefectAncestryBounded(t *testing.T) {
 			return boom(), nil
 		}
 		return frameValue(ct, func(s *Scope) (int, error) {
-			c := Go(s, Site(fmt.Sprintf("task.Go at f.ergo:%d:1", n+1)), func(ct *rt.Task) (int, error) { return fork(ct, n+1) })
+			c := ownedGo(s, Site(fmt.Sprintf("task.Go at f.ergo:%d:1", n+1)), func(ct *rt.Task) (int, error) { return fork(ct, n+1) })
 			return c.Wait()
 		})
 	}

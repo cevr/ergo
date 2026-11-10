@@ -219,12 +219,6 @@ type Info struct {
 	// and otherwise in declaration order. The lowering runs them in this
 	// order inside the program's root task (stage C round 2 review m1).
 	InitOrder []*Initializer
-	// TaskResults is every function of the package whose result type
-	// holds a Task (check-v1 stage D3a, Task escape): a Task leaves its
-	// function only by return, so the lowering can pass the caller's
-	// scope to such a function as a hidden destination. Added in stage
-	// D3a (additive).
-	TaskResults map[*Func]bool
 	// Footprints is every frame's footprint (rows.md, Footprints; #199
 	// stage 1): each function with a body (*syntax.FuncDecl), function
 	// literal (*syntax.FuncLit), trailing block of a call other than with
@@ -391,7 +385,6 @@ func newInfo() *Info {
 		Literals:      map[syntax.Node]*Signature{},
 		Loops:         map[*syntax.RangeStmt]*Loop{},
 		Withs:         map[*syntax.CallExpr]*With{},
-		TaskResults:   map[*Func]bool{},
 		Footprints:    map[syntax.Node]Footprint{},
 		Instances:     map[syntax.Expr]*Instance{},
 
@@ -604,15 +597,12 @@ type Call struct {
 	// site, after substitution. A with's Fails is the row its block's
 	// tails pass through (rows.md, With 6).
 	Fails, Needs *Row
-	// TaskResult reports that the call's result holds a Task (CallFunc,
-	// CallFuncValue, including a call of a function literal's value, CallOp,
-	// CallProviderOp and CallLawOp): the caller needs a frame scope and
-	// passes it as the callee's hidden destination (stdlib.md, Hidden
-	// arguments). Derived from the same holdsTask as TaskResults; since
-	// stage E2 (C13) a result holds a Task only by being one. Added in
-	// check-v1 stage D3b (additive); the operation kinds in stage E2 (C15),
-	// CallLawOp in E3b (a law is checked as if it ran).
-	TaskResult bool
+	// StartsTask reports a call whose result holds a running task the
+	// caller then owns, a Task or a tasks.Set (running.go; #197 L8 B3t):
+	// task.Go, tasks.NewSet, or a function, function value or operation
+	// that returns one. The caller needs a frame scope (frames.go), and
+	// its footprint starts a task.
+	StartsTask bool
 }
 
 // ConversionKind is an implicit conversion's kind.
@@ -1099,9 +1089,7 @@ func (c *checker) finishInfo() {
 	for x, call := range c.pkg.Info.Calls {
 		switch call.Kind {
 		case CallFunc, CallFuncValue, CallOp, CallProviderOp, CallLawOp:
-			if t, ok := c.pkg.Info.Types[x]; ok && t != nil {
-				call.TaskResult = c.holdsTask(t)
-			}
+			call.StartsTask = c.running(c.pkg.Info.Types[x]) != nil
 		}
 		if call.Fails != nil {
 			call.Fails = c.types.resolve(call.Fails).known(c.types)
@@ -1119,11 +1107,6 @@ func (c *checker) finishInfo() {
 	}
 	for p, name := range c.asNames {
 		p.Var, _ = c.pkg.Info.Defs[name].(*Var)
-	}
-	for _, f := range c.funcs {
-		if f.Sig != nil && c.resultsHoldTask(f.Sig) {
-			c.pkg.Info.TaskResults[f] = true
-		}
 	}
 	// A function's type keeps its row variables (inference writes the
 	// solution beside them); Info holds the solved rows (invariant 2).

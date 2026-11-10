@@ -533,7 +533,7 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 		}
 		n.opaque = true
 	case CallFunc:
-		fp.runs(n, c.Func, c.TaskResult)
+		fp.runs(n, c.Func, c.StartsTask)
 	case CallFuncValue:
 		if lit, ok := unparen(x.Fun).(*syntax.FuncLit); ok {
 			// A literal called where it is written runs its body here.
@@ -633,7 +633,7 @@ func pureStd(f *Func) bool {
 // q35, reversing stdlib.md Pure bodies 3 for the reviewed list), and its
 // caller needs no environment or entry poll for it, as hand Go has none.
 func pureGo(f *Func) bool {
-	if f == nil || !f.Pkg.Host() || f.Sig == nil || !f.Sig.Uses.Empty() || f.Sig.ResultIsTask() {
+	if f == nil || !f.Pkg.Host() || f.Sig == nil || !f.Sig.Uses.Empty() {
 		return false
 	}
 	for _, p := range f.Sig.Params {

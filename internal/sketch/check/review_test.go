@@ -73,7 +73,7 @@ type S {}
 func M(_ S) {}
 type Box[T I] { X T }
 func F() { _ = Box{S} }`},
-	{"M6", "implicit-row-in-generic-argument", "", `func Await[T, E](t Task[T, E]) T fails E { return t.Wait() }`},
+	{"M6", "implicit-row-in-generic-argument", "", `func Await[T, E](t Task[T, E]) T fails E takes t { return t.Wait() }`},
 	// D3a: a record field holds no Task, so the field is a function type.
 	{"M6", "bracket-row-in-generic-field", "", `type Box[T, E] { run func() T fails E }
 func Open[T, E](b Box[T, E]) T fails E { return b.run() }`},
@@ -118,7 +118,7 @@ func F() int {
 func F() { Id[int] }`},
 	{"M10", "function-value-before-tail", "S110", `func Id[T](x T) T { return x }
 func F() { Id[int]; _ = 0 }`},
-	{"M10", "function-value-implicit", "S108", `func Await[T, E](x T, t Task[T, E]) T fails E { return t.Wait() }
+	{"M10", "function-value-implicit", "S108", `func Await[T, E](x T, t Task[T, E]) T fails E takes t { return t.Wait() }
 func F() { _ = Await[int] }`},
 	{"M11", "index-negative", "S108", `func F(xs []int) int { return xs[-1] }`},
 	{"M11", "slice-bounds", "S108", `func F(xs []int) []int { return xs[3:1] }`},

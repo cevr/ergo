@@ -206,7 +206,7 @@ func impureWhy(info *Info, x *syntax.CallExpr) string {
 		case f == nil || f.Decl == nil:
 			return "a function whose footprint is unknown"
 		case pureStd(f):
-			if k.TaskResult {
+			if k.StartsTask {
 				return f.Name + ", which starts a task"
 			}
 			return ""

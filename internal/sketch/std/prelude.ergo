@@ -184,6 +184,11 @@ type Task[T, E] {
 	// Stop lends it, so a law can say what holds after it.
 	Wait() T fails E takes,
 	Stop(),
+	// Close is the Task's release (#197 L8 B3t; resources R1): its owner's
+	// scope calls it at the scope's end when no Wait took the task. It
+	// stops the task and waits until it has ended, as Stop does, and drops
+	// its typed failure; a Task is a resource.
+	Close(),
 
 	// StopIsIdempotent: a second Stop returns, never fails and changes
 	// nothing.

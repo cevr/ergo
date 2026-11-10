@@ -1101,6 +1101,14 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 			w.children(x)
 			return
 		}
+		if op := w.resourceMethod(x); op != nil {
+			// The same for any other operation of a resource (Task.Wait,
+			// Task.Stop; #197 L8 B3t): the function value would own its
+			// receiver, or hold a lend of it past its release.
+			w.reportCode(x, CodeType, "%s is a method value of %s on %s, a resource; a function value owns no resource and holds no lend of one (resources R19, R33); call %s() instead", exprText(x), op.Name, exprText(x.X), exprText(x))
+			w.children(x)
+			return
+		}
 		if w.selector(x, mode) {
 			return
 		}
@@ -1189,6 +1197,24 @@ func placeText(x syntax.Expr) string {
 		return exprText(ix.X) + "[…]"
 	}
 	return exprText(x)
+}
+
+// resourceMethod returns the operation of the method value x when the
+// value it is called on holds a resource; nil otherwise (a field, plain
+// data).
+func (w *ownWalk) resourceMethod(x *syntax.SelectorExpr) *Method {
+	if _, ok := w.info.Types[x].(*Signature); !ok {
+		return nil
+	}
+	t := w.info.Types[x.X]
+	if t == nil || isInvalid(t) || !w.c.holdsResource(t) {
+		return nil
+	}
+	it := asInterface(t)
+	if it == nil {
+		return nil
+	}
+	return it.method(x.Sel.Name)
 }
 
 // selector evaluates a field x.f of a record; it reports false for any

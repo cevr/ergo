@@ -26,3 +26,18 @@ var movesOnly = map[string]bool{
 // MovesOnly reports whether the generic body name only moves its type
 // parameters' values (movesOnly).
 func MovesOnly(name string) bool { return movesOnly[name] }
+
+// running is the reviewed table of std releases that stop code still
+// running (#197 L8 B3t): a value whose release is one of them runs the
+// code it was started with, in the environment it was started in, until
+// it is released. The checker reads it through StopsRunning: such a value
+// never leaves the with whose providers its code may use (resources.md,
+// Release before the end). The names are BodyOf names.
+var running = map[string]bool{
+	"Task.Close": true, // task.Go's body runs until Wait, Stop or Close
+	"Set.Close":  true, // a Set's members run until Wait, Stop or Close
+}
+
+// StopsRunning reports whether the release name stops running code
+// (running).
+func StopsRunning(name string) bool { return running[name] }

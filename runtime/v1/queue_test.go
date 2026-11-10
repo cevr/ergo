@@ -422,7 +422,7 @@ func TestQueueContract(t *testing.T) {
 		q.End()
 		err := runMain(func(root *rt.Task) error {
 			return frame(root, func(s *Scope) error {
-				c := Go(s, "consumer", func(ct *rt.Task) (int, error) { return q.Pop(ct) })
+				c := ownedGo(s, "consumer", func(ct *rt.Task) (int, error) { return q.Pop(ct) })
 				_, err := c.Wait()
 				return err
 			})
