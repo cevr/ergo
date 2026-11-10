@@ -1,0 +1,7 @@
+place disk:1:100
+add empty 0
+add index 250
+place disk:1:100
+place net:1:250
+cancel
+add index 250

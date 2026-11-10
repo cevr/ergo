@@ -1,5 +1,0 @@
-add tea 500
-pay card:0999:500
-pay card:4111:200 voucher:XZ:300
-pay card:4111:300 voucher:AB:200
-void

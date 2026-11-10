@@ -1,0 +1,49 @@
+// Device is a paired device.
+type Device { ID string, Name string }
+
+// DeviceUnreachable is a serial that a code cannot be sent to.
+type DeviceUnreachable { Serial string }
+
+// WrongCode is a code that does not match the one sent. It is also a
+// signal of the flow, so the work that checks a code needs no failure map.
+type WrongCode {}
+
+// UnknownTag is a tag that names no device. It is a signal too.
+type UnknownTag {}
+
+// Devices is the contract the flow needs: it sends one-time codes, checks
+// them, and reads device tags. A provider package implements it (memory
+// in this program).
+type Devices {
+	Send(serial string) fails DeviceUnreachable,
+	Check(serial string, code string) Device fails WrongCode,
+	Tag(tag string) Device fails UnknownTag,
+
+	// CheckIsStable: asking twice about one code gives one answer, so a
+	// verify that an exit interrupted can run again.
+	law CheckIsStable(serial string, code string) {
+		CheckText(serial, code) == CheckText(serial, code)
+	},
+	// TagIsStable: a tag names the same device, or none, each time.
+	law TagIsStable(tag string) {
+		TagText(tag) == TagText(tag)
+	},
+}
+
+// CheckText is Check's answer as text: the device's ID, or "wrong".
+func CheckText(serial string, code string) string needs Devices {
+	let m = Devices.Check(serial, code) catch {
+	case WrongCode:
+		return "wrong"
+	}
+	m.ID
+}
+
+// TagText is Tag's answer as text: the device's ID, or "unknown".
+func TagText(tag string) string needs Devices {
+	let m = Devices.Tag(tag) catch {
+	case UnknownTag:
+		return "unknown"
+	}
+	m.ID
+}

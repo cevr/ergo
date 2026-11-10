@@ -1,0 +1,48 @@
+import machines
+
+// A write (machine Writer) is one share's write: a child of the write runner,
+// one per share. Its work asks the target; its timer gives up after
+// 30 s with no answer. It ends with an Answer.
+type Storing = Sending{Index int, Share Share}
+
+type WriteSignal = Acked{R Ref} | Refused | NoAnswer{}
+
+// Answer is a write's end: the share's index and how it went.
+type Answer = Taken{Index int, Share Share, R Ref} | Lost{Index int, Share Share, Why string}
+
+// WriteWait is how long a write waits for the target.
+func WriteWait() duration { 30s }
+
+type Writer machine[Storing, WriteSignal] { initial: sending, step: writeStep, after: writeTimer, work: writeWork }
+
+// sending is the write of the share at index i.
+func sending(at (int, Share)) Storing {
+	let i, t = at
+	Sending{Index: i, Share: t}
+}
+
+func writeStep(s Storing, e WriteSignal) Decision[Storing, Answer] {
+	match (s, e) {
+	case (Sending as a, Acked as ok):
+		Done[Answer]{Output: Taken{Index: a.Index, Share: a.Share, R: ok.R}}
+	case (Sending as a, Refused as r):
+		Done[Answer]{Output: Lost{Index: a.Index, Share: a.Share, Why: r.Why}}
+	case (Sending as a, NoAnswer):
+		Done[Answer]{Output: Lost{Index: a.Index, Share: a.Share, Why: "no answer"}}
+	}
+}
+
+func writeTimer(s Storing) Option[Timeout[WriteSignal]] {
+	match s {
+	case Sending:
+		Some{Timeout[WriteSignal]{In: WriteWait(), Signal: NoAnswer}}
+	}
+}
+
+// writeWork asks the target. Refused is a signal, so it needs no map.
+func writeWork(s Storing) Option[machines.Work[WriteSignal, Targets]] {
+	match s {
+	case Sending as a:
+		Some{machines.Work{Run: func() Ref fails Refused needs Targets { try Targets.Write(a.Share) }, OnSuccess: func(r Ref) WriteSignal { Acked{R: r} }}}
+	}
+}

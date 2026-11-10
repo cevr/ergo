@@ -1,0 +1,15 @@
+import strconv
+import strings
+
+// SizeReadsGigabytes: Size reads back every sum Gigabytes writes, so an
+// answer of the console can be typed in again.
+law SizeReadsGigabytes(hundredths int64) {
+	if hundredths < 0 || hundredths > 9000000000000000000 {
+		return true
+	}
+	let back = Size(strings.TrimSuffix(Gigabytes(hundredths), " GB")) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return false
+	}
+	back == hundredths
+}

@@ -1,0 +1,59 @@
+// Store is the contract of a place that keeps a quota: in memory, in a
+// file, or in a database. Each operation is one step of a Table, kept; a
+// store that cannot read or keep its quota fails Unavailable. Post is
+// named for the bookkeeper's verb: an operation named Move would hide
+// the type Move inside the laws (gaps G-ex-b-13).
+type Store {
+	Open(id string, floor int64) fails VolumeExists | BadFloor | Unavailable,
+	Post(t Move) Record fails KeyReused | BadSize | SameVolume | UnknownVolume | NoSpace | Unavailable,
+	SizeOf(id string) int64 fails UnknownVolume | Unavailable,
+	Volumes() []string fails Unavailable,
+
+	// TotalIsKept: a posted move does not change the sum of all the
+	// sizes. Space only moves. The sum is written out twice: a law
+	// cannot call a function that needs Store (gaps G-ex-b-13).
+	law TotalIsKept(t Move) {
+		let mut before = int64(0)
+		for id in try Volumes() {
+			let b = try SizeOf(id)
+			before = before + b
+		}
+		let _ = Post(t) catch {
+		case KeyReused, BadSize, SameVolume, UnknownVolume, NoSpace, Unavailable:
+			return true
+		}
+		let mut after = int64(0)
+		for id in try Volumes() {
+			let b = try SizeOf(id)
+			after = after + b
+		}
+		after == before
+	},
+
+	// PostIsIdempotent: a move posted again with its key gives the
+	// same record and moves no more space.
+	law PostIsIdempotent(t Move) {
+		let first = Post(t) catch {
+		case KeyReused, BadSize, SameVolume, UnknownVolume, NoSpace, Unavailable:
+			return true
+		}
+		let from = try SizeOf(t.From)
+		let again = try Post(t)
+		let after = try SizeOf(t.From)
+		again == first && after == from
+	},
+
+	// FloorHolds: no move takes a volume below its floor, so an
+	// volume opened with floor zero never goes below zero.
+	law FloorHolds(id string, t Move) {
+		Open(id, 0) catch {
+		case VolumeExists, BadFloor, Unavailable:
+			return true
+		}
+		let _ = Post(Move{..t, From: id}) catch {
+		case KeyReused, BadSize, SameVolume, UnknownVolume, NoSpace, Unavailable:
+			return try SizeOf(id) == 0
+		}
+		try SizeOf(id) >= 0
+	},
+}

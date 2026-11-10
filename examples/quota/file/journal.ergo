@@ -1,0 +1,74 @@
+import fs
+import quota/quota
+
+// Journal is a quota.Store over the journal file at path. It reads the
+// file through read and writes it through write, which the program binds:
+// the host's file system, or an fstest.Memory in a test. Each operation
+// replays the file and, when it changes the quota, appends one line, so
+// a day of posts writes each line once. A crash inside an append can
+// leave a part of the last line, which Replay reads as a corrupt line:
+// the store is unavailable and names the line, never silently wrong.
+type Journal { path string, read fs.Files, write fs.Writes }
+
+// At is the journal at path. A missing file is an empty quota.
+func At(path string, read fs.Files, write fs.Writes) Journal {
+	Journal{path: path, read: read, write: write}
+}
+
+// NewJournal is the journal quota.journal in the working directory, which
+// is always there. It is Journal's constructor: ergo test builds each
+// Journal a quota.Store law runs on with it, over the case's own
+// fstest.Memory.
+func NewJournal(read fs.Files, write fs.Writes) Journal { At("quota.journal", read, write) }
+
+// load is the journal's Table.
+func load(j Journal) quota.Table fails quota.Unavailable {
+	let text = j.read.ReadFile(j.path) catch {
+	case fs.NotFound:
+		""
+	case fs.Denied:
+		return quota.Unavailable{Reason: "\(j.path): permission denied"}
+	case fs.Failed as f:
+		return quota.Unavailable{Reason: "\(j.path): \(f.Reason)"}
+	}
+	Replay(text) catch {
+	case Corrupt as c:
+		return quota.Unavailable{Reason: "\(j.path):\(c.Line): \(c.Reason)"}
+	}
+}
+
+// add appends line to the journal's file.
+func add(j Journal, line string) fails quota.Unavailable {
+	j.write.AppendFile(j.path, line) catch {
+	case fs.NotFound:
+		return quota.Unavailable{Reason: "\(j.path): no such directory"}
+	case fs.Denied:
+		return quota.Unavailable{Reason: "\(j.path): permission denied"}
+	case fs.Failed as f:
+		return quota.Unavailable{Reason: "\(j.path): \(f.Reason)"}
+	}
+}
+
+// Open opens the volume id with its floor, and writes its line.
+func Open(j Journal, id string, floor int64) fails quota.VolumeExists | quota.BadFloor | quota.Unavailable {
+	let _ = try quota.Open(try load(j), id, floor)
+	try add(j, OpenLine(id, floor))
+}
+
+// Post posts t, and writes its line unless its key was posted before.
+func Post(j Journal, t quota.Move) quota.Record fails quota.KeyReused | quota.BadSize | quota.SameVolume | quota.UnknownVolume | quota.NoSpace | quota.Unavailable {
+	let b = try load(j)
+	let next, r = try quota.Apply(b, t)
+	if quota.Count(next) != quota.Count(b) {
+		try add(j, PostLine(t))
+	}
+	r
+}
+
+// SizeOf is the size of id.
+func SizeOf(j Journal, id string) int64 fails quota.UnknownVolume | quota.Unavailable {
+	try quota.SizeOf(try load(j), id)
+}
+
+// Volumes is the volumes, Pool first and then by name.
+func Volumes(j Journal) []string fails quota.Unavailable { quota.IDs(try load(j)) }

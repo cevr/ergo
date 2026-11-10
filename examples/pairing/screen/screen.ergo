@@ -1,0 +1,291 @@
+// Package screen drives the pairing flow as an actor from a script of
+// lines, one per touch, key or tap, and prints what the screen shows. A
+// script's first line may name the methods on: `methods serial tag`.
+//
+// Commands: serial, type DIGITS, erase, submit, tap TAG, wait (30 s pass
+// on the screen's clock), cancel. A `tap` line puts a tag on the tag
+// reader, a source the actor owns (actor.Feed): the screen does not send
+// it.
+
+import actor
+import io
+import machines
+import queue
+import strconv
+import strings
+import time
+import pairing/pad
+import pairing/pair
+
+// Command is a line of the script.
+type Command = Send{Signals []pair.Signal} | Touch{Tag string} | Wait{} | Unknown{Line string}
+
+// Reader is the tag reader: Tags are the tags put on it, in order, and
+// Beeps gets one beep for each tag once its tap is in the flow's inbox.
+type Reader {
+	Tags  queue.Queue[string],
+	Beeps queue.Queue[bool],
+}
+
+// Taps is the reader as a source of the flow: each tag a Tapped
+// signal, a beep after each one is queued. It ends when Tags closes or
+// the flow ends.
+func Taps(r Reader) Seq[pair.Signal] {
+	Seq[pair.Signal](func(yield func(e pair.Signal) bool) {
+		for tag in r.Tags.Values() {
+			if !yield(pair.Tapped{Tag: tag}) {
+				return
+			}
+			r.Beeps.Push(true) catch {
+			case queue.Closed:
+				return
+			}
+		}
+	})
+}
+
+// Parse reads a line.
+func Parse(line string) Command {
+	let words = strings.Fields(line)
+	if len(words) == 0 {
+		return Unknown{Line: line}
+	}
+	let arg = if len(words) > 1 { words[1] } else { "" }
+	match words[0] {
+	case "serial":
+		Send{Signals: []pair.Signal{pair.UseSerial}}
+	case "type":
+		let mut keys = []pair.Signal{}
+		for i in 0..len(arg) {
+			let d = strconv.Atoi(strings.Slice(arg, i, i+1)) catch {
+			case strconv.Malformed:
+				return Unknown{Line: line}
+			case strconv.OutOfRange:
+				return Unknown{Line: line}
+			}
+			keys = keys.Append(pair.Press{Key: pad.Digit{D: d}})
+		}
+		Send{Signals: keys}
+	case "erase":
+		Send{Signals: []pair.Signal{pair.Press{Key: pad.Erase}}}
+	case "submit":
+		Send{Signals: []pair.Signal{pair.Submit}}
+	case "tap":
+		Touch{Tag: arg}
+	case "cancel":
+		Send{Signals: []pair.Signal{pair.Cancel}}
+	case "wait":
+		Wait
+	case _:
+		Unknown{Line: line}
+	}
+}
+
+// methods reads a `methods ...` line.
+func methods(line string) pair.Methods {
+	let words = strings.Fields(line)
+	let mut on = pair.Methods{Serial: false, Tag: false}
+	for w in words {
+		match w {
+		case "serial":
+			on = pair.Methods{..on, Serial: true}
+		case "tag":
+			on = pair.Methods{..on, Tag: true}
+		case _:
+		}
+	}
+	on
+}
+
+// Show is what the screen shows in a state.
+func Show(s pair.Flow) string {
+	match s {
+	case pair.Options as o:
+		"choose: \(choices(o.On))"
+	case pair.EnteringSerial as p:
+		"serial: \(shown(p.Pad))"
+	case pair.SendingCode as w:
+		"sending a code to \(w.Serial)"
+	case pair.EnteringCode as c:
+		"code for \(c.Serial): \(shown(c.Pad)) (wrong so far: \(c.Tries))"
+	case pair.Verifying as v:
+		match v.Via {
+		case pair.ByCode:
+			"checking the code"
+		case pair.ByTag as b:
+			"checking tag \(b.Tag)"
+		}
+	case pair.Failed as f:
+		"sorry: \(f.Why)"
+	}
+}
+
+func choices(on pair.Methods) string {
+	match (on.Serial, on.Tag) {
+	case (true, true):
+		"serial or tag"
+	case (true, false):
+		"serial"
+	case (false, true):
+		"tap a tag"
+	case (false, false):
+		"nothing"
+	}
+}
+
+func shown(p pad.Pad) string { p.Text + strings.Repeat("_", p.Max-len(p.Text)) }
+
+// Told is the line for a result.
+func Told(r pair.Result) string {
+	match r {
+	case pair.Paired as s:
+		"paired with \(s.Who.Name) (\(s.Who.ID))"
+	case pair.Locked as l:
+		"locked: too many wrong codes for \(l.Serial)"
+	case pair.Cancelled:
+		"cancelled"
+	}
+}
+
+// answer is the word for the step's decision of a signal.
+func answer(d Decision[pair.Flow, pair.Result]) string {
+	match d {
+	case Enter[pair.Flow]:
+		""
+	case Stay[pair.Flow]:
+		""
+	case Emit[pair.Flow, pair.Result]:
+		""
+	case Ignore:
+		"(ignored)"
+	case Reject:
+		"(refused)"
+	case Done[pair.Result] as r:
+		Told(r.Output)
+	}
+}
+
+// Run plays the script on standard input against the flow, on clock.
+func Run(clock time.Manual) needs Console | io.Stdin | Scheduler | pair.Devices {
+	let mut lines = []string{}
+	for line in io.Stdin.Lines() {
+		lines = lines.Append(line)
+	}
+	let mut on = pair.Methods{Serial: true, Tag: true}
+	let mut from = 0
+	if len(lines) > 0 && strings.HasPrefix(lines[0], "methods") {
+		on = methods(lines[0])
+		from = 1
+	}
+	let a = actor.StartMachine(machines.Start(pair.Pair{}, on), 8, func(r pair.Result) {})
+	let reader = Reader{Tags: queue.New[string](1), Beeps: queue.New[bool](1)}
+	actor.Feed(a, Taps(reader)) catch {
+	case actor.Stopped:
+	}
+	Console.Println("screen: \(Show(a.State()))")
+	let mut ended = false
+	for i in from..len(lines) {
+		Console.Println("> \(lines[i])")
+		if ended {
+			Console.Println("(the pairing has ended)")
+			continue
+		}
+		match Parse(lines[i]) {
+		case Unknown as u:
+			Console.Println("? unknown command: \(u.Line)")
+			continue
+		case Wait:
+			// The error screen's timer sleeps from its commit on, so the
+			// clock moves it at once.
+			clock.Advance(30s)
+		case Touch as sc:
+			// The reader sends the tap, not the screen. After its beep the
+			// tap is queued, so State waits until the flow has stepped it.
+			// A tap that the flow refuses (the tag is off) changes
+			// nothing, so Latest is still its answer; one that it takes
+			// starts a check, whose own signal may be the latest by then,
+			// and WaitFor below shows where the check ended. A waiting
+			// state never ignores a tap.
+			reader.Tags.Push(sc.Tag) catch {
+			case queue.Closed:
+			}
+			reader.Beeps.Pop() catch {
+			case queue.Closed:
+			}
+			a.State()
+			match actor.Latest(a) {
+			case Some[Decision[pair.Flow, pair.Result]] as d:
+				match d.Value {
+				case Reject:
+					Console.Println("(refused)")
+				case _:
+				}
+			case None:
+			}
+		case Send as cmd:
+			for e in cmd.Signals {
+				let d = a.Ask(e) catch {
+				case actor.Stopped:
+					ended = true
+					break
+				}
+				match d {
+				case Done[pair.Result]:
+					ended = true
+				case _:
+				}
+				let told = answer(d)
+				if told != "" && (told != "(ignored)" || len(cmd.Signals) == 1) {
+					Console.Println(told)
+				}
+				if ended {
+					break
+				}
+			}
+		}
+		if ended {
+			continue
+		}
+		// Wait until the screen waits for the operator again: a sent code or
+		// a verify has answered, and an error screen's timer has fired.
+		let s = actor.WaitFor(a, func(s pair.Flow) bool {
+			match s {
+			case pair.Failed:
+				!timePassed(lines[i])
+			case _:
+				pair.Waits(s)
+			}
+		}) catch {
+		case actor.Stopped:
+			// The work's answer ended the flow (a verify that paired).
+			Console.Println(Ending(actor.ExitOf(a)))
+			ended = true
+			continue
+		}
+		Console.Println("screen: \(Show(s))")
+	}
+	reader.Tags.Close()
+	a.Stop()
+	if !ended {
+		Console.Println(Ending(actor.ExitOf(a)))
+	}
+}
+
+// Ending is the line for the actor's exit.
+// Its Failed arm stays for a flow whose step fails: this one never does.
+func Ending[F](e actor.Exit[pair.Flow, pair.Result, F]) string {
+	match e {
+	case actor.Failed[F]:
+		"failed"
+	case actor.Finished[pair.Flow, pair.Result] as f:
+		Told(f.Output)
+	case actor.Halted[pair.Flow] as h:
+		"left at: \(Show(h.State))"
+	case actor.Defected:
+		"defect"
+	}
+}
+
+// timePassed reports whether the line was a wait: an error screen then
+// is one the timer has not left yet.
+func timePassed(line string) bool { strings.TrimSpace(line) == "wait" }

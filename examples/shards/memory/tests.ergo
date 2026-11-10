@@ -1,0 +1,21 @@
+// Targets keeps the laws of shards.Targets. ergo test does not run a law
+// of an imported operation type against this package's providers (pairing
+// finding F4), so these properties restate them with Targets.
+
+import shards/shards
+
+test TargetsTakeTheSize(disk string, code string, size int) {
+	let g shards.Targets = Targets
+	for t in []shards.Share{shards.Disk{Device: disk, Size: size}, shards.Tape{Label: code, Size: size}} {
+		let r = g.Write(t) catch {
+		case shards.Refused:
+			shards.Ref{ID: "", Size: shards.SizeOf(t)}
+		}
+		assert r.Size == shards.SizeOf(t)
+	}
+}
+
+test TargetsEraseGivesBack(id string, size int) {
+	let g shards.Targets = Targets
+	assert g.Erase(shards.Ref{ID: id, Size: size}) == size
+}

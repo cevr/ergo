@@ -1,5 +1,0 @@
-# d1 is in the journal already: sent again, it is not paid twice.
-deposit d1 alice 12.34
-open bob
-pay p1 alice bob 2
-accounts

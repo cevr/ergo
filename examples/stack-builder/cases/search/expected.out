@@ -1,0 +1,26 @@
+page 1/2: 1 server 6.50, 2 drive 2.50, 3 node 1.00 | plan: 0 units, 0.00
+> search
+search "":  | plan: 0 units, 0.00
+> type r
+search "r": 1 server 6.50, 2 drive 2.50, 3 router 6.00 | plan: 0 units, 0.00
+> open 2
+editing drive | plan: 0 units, 0.00
+  drive x1 2.50: add, more, less or back
+> more
+editing drive | plan: 0 units, 0.00
+  drive x2 2.50: add, more, less or back
+> add
+search "r": 1 server 6.50, 2 drive 2.50, 3 router 6.00 | plan: 1 units, 5.00
+> open 9
+(refused)
+search "r": 1 server 6.50, 2 drive 2.50, 3 router 6.00 | plan: 1 units, 5.00
+> close
+page 1/2: 1 server 6.50, 2 drive 2.50, 3 node 1.00 | plan: 1 units, 5.00
+> next
+page 2/2: 1 router 6.00, 2 cache 3.00, 3 twin 0.00 | plan: 1 units, 5.00
+> prev
+page 1/2: 1 server 6.50, 2 drive 2.50, 3 node 1.00 | plan: 1 units, 5.00
+> deploy
+plan: 5.00
+  2x drive 2.50
+cluster: ack 16, 1 to run

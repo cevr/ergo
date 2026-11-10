@@ -21,7 +21,7 @@ type Script { Trace []machines.Timed[search.Signal], End duration }
 
 // Read reads the lines of a script. Each line is `@MS WORD …`: MS is the
 // time in milliseconds from the start, never earlier than the line
-// before, and WORD is key TEXT, clear, choose N, back or checkout. The
+// before, and WORD is key TEXT, clear, pin N, back or open. The
 // line `@MS end` ends the run at MS, and must be the last. A blank line
 // or a line that starts with # is skipped.
 func Read(lines []string) Script fails BadLine {
@@ -78,21 +78,21 @@ func signalOf(n int, words []string) search.Signal fails BadLine {
 		search.Key{Text: arg}
 	case "clear":
 		search.Clear
-	case "choose":
-		search.Choose{Hit: try count(n, arg)}
+	case "pin":
+		search.Pin{Hit: try count(n, arg)}
 	case "back":
 		search.Back
-	case "checkout":
-		search.Checkout
+	case "open":
+		search.Open
 	case _:
 		BadLine{Line: n, Why: "unknown word \(words[1])"}
 	}
 }
 
 // Run reads the script from io.Stdin, plays it against the search with an
-// empty cart (the machine's input) on clock, and shows its timeline. It
+// no pins (the machine's input) on clock, and shows its timeline. It
 // returns the exit status: 0, or 1 when the script is refused.
-func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler | search.Catalog {
+func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler | search.Index {
 	let mut lines = []string{}
 	for line in io.Stdin.Lines() {
 		lines = lines.Append(line)
@@ -112,7 +112,7 @@ func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler | search.Ca
 // is its timeline: each state the actor commits and then each output it
 // tells, at the millisecond of the clock. At one instant the timer that is
 // due goes first, then the script's signal. The search's work answers at
-// the instant it starts: the memory catalogue does not wait.
+// the instant it starts: the memory index does not wait.
 //
 // The actor keeps its own timers on clock, and Advance returns only when
 // every task of the clock's domain waits again (time.Advance), so Play
@@ -120,12 +120,12 @@ func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler | search.Ca
 // the instant it commits it, and the actor's outputs are stamped as it
 // tells them. clock must be made by the task that runs Play or an
 // ancestor, so the actor and the watcher are in its domain.
-func Play(s Script, clock time.Manual) []string needs Scheduler | search.Catalog {
+func Play(s Script, clock time.Manual) []string needs Scheduler | search.Index {
 	let start = clock.Now()
 	let since = func() duration { clock.Now().Sub(start) }
 	let states = queue.New[Event](64)
 	let told = queue.New[Event](64)
-	let a = actor.StartMachine(machines.Start(search.Finder{}, []search.Item{}), 8, func(o search.Output) {
+	let a = actor.StartMachine(machines.Start(search.Finder{}, []search.Entry{}), 8, func(o search.Output) {
 		told.Push(Event{At: since(), Line: "! " + search.Said(o)}) catch {
 		case queue.Closed:
 		}

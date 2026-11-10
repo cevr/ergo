@@ -1,0 +1,44 @@
+// The display's one test is a timed run of the machine; ergo test runs the
+// laws of laws.ergo itself (#162).
+
+import machines
+import strings
+
+func told(es []Event) string {
+	let mut out = []string{}
+	for e in es {
+		out = out.Append(match e {
+		case Began:
+			"began"
+		case Abandoned:
+			"abandoned"
+		case Ended:
+			"ended"
+		case AdminOpened:
+			"admin opened"
+		case AdminClosed:
+			"admin closed"
+		})
+	}
+	strings.Join(out, ", ")
+}
+
+test DisplayRun {
+	// A session on the menu ends with Finish; a second one opens the admin
+	// screen with five quick taps, which closes when it is left unused for
+	// 120s; a third begins and is abandoned after the home wait and the
+	// prompt.
+	let trace = []machines.Timed[Signal]{
+		at(0s, Open{Screen: Menu}),
+		at(50s, Finish),
+		at(60s, Touch),
+		at(61s, CornerTap),
+		at(ms(61500), CornerTap),
+		at(62s, CornerTap),
+		at(ms(62500), CornerTap),
+		at(63s, CornerTap),
+		at(300s, Touch),
+	}
+	let r = run(trace, 400s)
+	assert told(r.Told) == "began, ended, began, admin opened, admin closed, began, abandoned" && Name(r.Last) == "suspended"
+}

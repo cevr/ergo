@@ -1,0 +1,39 @@
+// The journal's laws: what it writes, it reads back.
+
+import quota/quota
+
+// Written is the journal text of the volumes of quota.Sample and the
+// moves of ts that the Table takes, and the Table they make.
+func Written(ts []quota.Move) (string, quota.Table) {
+	let mut text = OpenLine("home", 0) + OpenLine("logs", -500) + OpenLine("media", 0)
+	let mut b = quota.Sample()
+	for t in ts {
+		let next, _ = quota.Apply(b, t) catch {
+		case quota.KeyReused, quota.BadSize, quota.SameVolume, quota.UnknownVolume, quota.NoSpace:
+			continue
+		}
+		if quota.Count(next) != quota.Count(b) {
+			text = text + PostLine(t)
+		}
+		b = next
+	}
+	(text, b)
+}
+
+// ReplayRebuilds: the journal of a day replays to the Table of the day:
+// the same volumes, floors, sizes, records and count.
+law ReplayRebuilds(ns []int) {
+	let text, b = Written(quota.Day(ns))
+	(try Replay(text)) == b
+}
+
+// AnyWordKeeps: a key or a volume of any text, tabs and line feeds
+// too, reads back as it was written.
+law AnyWordKeeps(id string, key string) {
+	if id == "" || id == quota.Pool {
+		return true
+	}
+	let text = OpenLine(id, 0) + PostLine(quota.Move{Key: key, From: quota.Pool, To: id, Size: 7})
+	let b = try Replay(text)
+	try quota.SizeOf(b, id) == 7
+}

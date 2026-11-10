@@ -81,10 +81,10 @@ func letterOf(n int) string {
 // ms is n milliseconds.
 func ms(n int) duration { duration(int64(n) * 1000000) }
 
-// focusedOn is the Login board focused on its field at pick(i).
+// focusedOn is the Alarm board focused on its field at pick(i).
 func focusedOn(i int) Pad {
 	let start = Start()
-	After(start, Focus{ID: Login()[pick(i, len(Login()))].ID})
+	After(start, Focus{ID: Alarm()[pick(i, len(Alarm()))].ID})
 }
 
 // pressed is p after the keys, one every 400 ms.
@@ -114,7 +114,7 @@ func fits(l Layout, c string) bool {
 	}
 }
 
-// Keypad is the on-screen keyboard as a machine: it starts at the Login
+// Keypad is the on-screen keyboard as a machine: it starts at the Alarm
 // board and moves by Step, until Close. Its laws are the rules of the
 // keypad over its step.
 type Keypad machine[Pad, Signal] {
@@ -137,7 +137,7 @@ type Keypad machine[Pad, Signal] {
 	// the one after it is not.
 	law ShiftAppliesOnce(a int, b int) {
 		let p = pressed(Start(), []Key{Shift, Char{Cap: letterOf(a)}, Char{Cap: letterOf(b)}})
-		TextOf(p, "name") == strings.ToUpper(letterOf(a))+letterOf(b)
+		TextOf(p, "label") == strings.ToUpper(letterOf(a))+letterOf(b)
 	},
 
 	// CapsHolds: two Shifts within the window lock Caps: every letter is
@@ -152,7 +152,7 @@ type Keypad machine[Pad, Signal] {
 			want = want + strings.ToUpper(letterOf(n))
 		}
 		let unlocked = After(p, Pressed{Key: Shift, At: ms(500)})
-		TextOf(p, "name") == want && Upper(BoardOf(p).Mode) && !Upper(BoardOf(unlocked).Mode)
+		TextOf(p, "label") == want && Upper(BoardOf(p).Mode) && !Upper(BoardOf(unlocked).Mode)
 	},
 
 	// LayoutHolds: whatever keys are pressed, a digits field holds only
@@ -176,7 +176,7 @@ type Keypad machine[Pad, Signal] {
 	// FocusKept: removing a field that is not focused keeps the focus.
 	law FocusKept(i int, j int) {
 		let p = focusedOn(i)
-		let victim = Login()[pick(j, len(Login()))].ID
+		let victim = Alarm()[pick(j, len(Alarm()))].ID
 		if victim == BoardOf(p).Focus {
 			return true
 		}

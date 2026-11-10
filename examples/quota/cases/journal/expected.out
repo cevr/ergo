@@ -1,0 +1,4 @@
+#1 g1: 12.34 GB from pool to home
+opened logs
+#2 m1: 2.00 GB from home to logs
+pool -12.34 GB, home 10.34 GB, logs 2.00 GB

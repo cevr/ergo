@@ -1,0 +1,18 @@
+# A day at the console, on a quota table in memory.
+open home
+open logs 100        # logs may go 100 GB below zero
+open media
+grant g1 home 250
+grant g2 media 40.5
+move m1 home logs 99.99
+move m1 home logs 99.99   # the same move sent twice: posted once
+move m2 logs media 150     # logs goes below zero, within its overcommit
+move m3 logs media 60      # beyond it
+move m4 media tmp 5
+move m5 media media 5
+move m1 media home 1     # a key used before, for another move
+reclaim r1 media 0
+reclaim r2 media 190.50
+size logs
+size cache
+volumes

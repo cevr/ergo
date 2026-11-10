@@ -1,16 +1,16 @@
-// ergo test runs the kiosk.Policies laws here, against Fixed; these two
+// ergo test runs the display.Policies laws here, against Fixed; these two
 // tests call the laws' functions again on the program's own table.
 
-import idletimer/kiosk
+import idletimer/display
 
 test FixedPoliciesCheck {
-	with context { kiosk.Policies: Fixed } {
-		assert kiosk.EveryPolicyChecks()
+	with context { display.Policies: Fixed } {
+		assert display.EveryPolicyChecks()
 	}
 }
 
-test FixedUnlistedIsNoSuchKiosk(name string) {
-	with context { kiosk.Policies: Fixed } {
-		assert kiosk.UnlistedIsNoSuchKiosk(name)
+test FixedUnlistedIsNoSuchDisplay(name string) {
+	with context { display.Policies: Fixed } {
+		assert display.UnlistedIsNoSuchDisplay(name)
 	}
 }

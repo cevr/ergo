@@ -1,0 +1,112 @@
+// The rules of the Table as laws. Each runs a day of moves among three
+// volumes, made from a list of numbers, so a law over any list meets
+// grants, moves, refusals and keys used again.
+
+// Sample is a Table with home (floor 0), logs (an overcommit of 500) and
+// media (floor 0) opened.
+func Sample() Table {
+	let b = Open(Empty(), "home", 0) catch {
+	case VolumeExists, BadFloor:
+		Empty()
+	}
+	let c = Open(b, "logs", -500) catch {
+	case VolumeExists, BadFloor:
+		b
+	}
+	Open(c, "media", 0) catch {
+	case VolumeExists, BadFloor:
+		c
+	}
+}
+
+// who is one of the volumes of Sample, or a stranger, by n.
+func who(n int) string {
+	match n % 5 {
+	case 0:
+		Pool
+	case 1:
+		"home"
+	case 2:
+		"logs"
+	case 3:
+		"media"
+	case _:
+		"tmp"
+	}
+}
+
+// Day is the moves of ns: each n picks a key (one of 8, so keys come
+// back), the two volumes and a size from -10 to 400.
+func Day(ns []int) []Move {
+	let mut out = []Move{}
+	for n in ns {
+		let k = if n < 0 { -(n % 1000003) } else { n % 1000003 }
+		out = out.Append(Move{Key: "k\(k % 8)", From: who(k / 8), To: who(k / 40), Size: int64(k%411) - 10})
+	}
+	out
+}
+
+// Posted is b after every move of ts that it takes; a refused one
+// changes nothing.
+func Posted(b Table, ts []Move) Table {
+	let mut now = b
+	for t in ts {
+		let next, _ = Apply(now, t) catch {
+		case KeyReused, BadSize, SameVolume, UnknownVolume, NoSpace:
+			continue
+		}
+		now = next
+	}
+	now
+}
+
+// SizesAddUp: the sizes of a Table always add up to zero.
+law SizesAddUp(ns []int) {
+	Total(Posted(Sample(), Day(ns))) == 0
+}
+
+// ApplyIsIdempotent: a move applied again gives its first record and
+// the same sizes. The move is one of Day's, so it meets the
+// volumes and keys of the day.
+law ApplyIsIdempotent(ns []int, m int) {
+	let t = Day([]int{m})[0]
+	let b = Posted(Sample(), Day(ns))
+	let once, first = Apply(b, t) catch {
+	case KeyReused, BadSize, SameVolume, UnknownVolume, NoSpace:
+		return true
+	}
+	let twice, again = try Apply(once, t)
+	let a = try SizeOf(twice, t.From)
+	let b1 = try SizeOf(once, t.From)
+	again == first && Count(twice) == Count(once) && a == b1
+}
+
+// FloorsHold: no volume of a Table is below its floor.
+law FloorsHold(ns []int) {
+	let b = Posted(Sample(), Day(ns))
+	for id in IDs(b) {
+		let low = try floor(b, id)
+		if try SizeOf(b, id) < low {
+			return false
+		}
+	}
+	true
+}
+
+// ApplyLeavesItsArgument: Apply makes a new Table and leaves the one it is
+// given as it was, though the two share no field the program can see.
+law ApplyLeavesItsArgument(ns []int, m int) {
+	let t = Day([]int{m})[0]
+	let b = Posted(Sample(), Day(ns))
+	let before = Count(b)
+	let from = SizeOf(b, t.From) catch {
+	case UnknownVolume:
+		return true
+	}
+	let _, _ = Apply(b, t) catch {
+	case KeyReused, BadSize, SameVolume, UnknownVolume, NoSpace:
+		return true
+	}
+	let now = try SizeOf(b, t.From)
+	Count(b) == before && now == from
+}

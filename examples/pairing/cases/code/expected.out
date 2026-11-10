@@ -1,0 +1,28 @@
+screen: serial: __________
+> type 55512345678
+screen: serial: 5551234567
+> erase
+screen: serial: 555123456_
+> submit
+(refused)
+screen: serial: 555123456_
+> type 5
+screen: serial: 5551234565
+> submit
+screen: code for 5551234565: ____ (wrong so far: 0)
+> type 7654
+screen: code for 5551234565: 7654 (wrong so far: 0)
+> submit
+screen: code for 5551234565: ____ (wrong so far: 1)
+> serial
+(ignored)
+screen: code for 5551234565: ____ (wrong so far: 1)
+> tap T-100
+(refused)
+screen: code for 5551234565: ____ (wrong so far: 1)
+> type 5654
+screen: code for 5551234565: 5654 (wrong so far: 1)
+> submit
+paired with device 4565 (s5551234565)
+> erase
+(the pairing has ended)

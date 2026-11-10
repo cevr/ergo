@@ -1,0 +1,39 @@
+// Ack is a cluster's acknowledgement of a plan: its number and how many
+// units it has to run, subs included.
+type Ack { Number int, Units int }
+
+// Full is a cluster that takes no plan.
+type Full { Why string }
+
+// Cluster is the contract the builder's screen needs to place a plan.
+type Cluster {
+	Submit(o Plan) Ack fails Full,
+
+	// PlanCountsEveryUnit: an ack counts every unit to run, the subs
+	// of a composite included.
+	law PlanCountsEveryUnit(count int, subs int) {
+		let o = Plan{Units: []Unit{Unit{Part: "x", Size: 1, Count: 1 + count%3, Subs: subsOf(subs)}}, Total: 1}
+		let t = Submit(o) catch {
+		case Full:
+			return true
+		}
+		t.Units == CountUnits(o.Units)
+	},
+}
+
+func subsOf(n int) []Unit {
+	let mut out = []Unit{}
+	for _ in 0..n%4 {
+		out = out.Append(Unit{Part: "p", Size: 1, Count: 1, Subs: []Unit{}})
+	}
+	out
+}
+
+// CountUnits is the units to run: each unit and its subs, at depth.
+func CountUnits(units []Unit) int {
+	let mut n = 0
+	for l in units {
+		n = n + 1 + CountUnits(l.Subs)
+	}
+	n
+}

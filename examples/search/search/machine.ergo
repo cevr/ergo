@@ -1,6 +1,6 @@
 import machines
 
-// Search is the machine's state. Every state holds the cart, the items
+// Search is the machine's state. Every state holds the pins, the entries
 // added so far.
 //
 //	Idle       nothing typed
@@ -8,36 +8,36 @@ import machines
 //	Searching  the search of Query runs (its work)
 //	Showing    the hits of Query
 //	Problem    a search or an add failed; Message says why
-type Search = Idle{Cart []Item} | Typing{Query string, Cart []Item} | Searching{Query string, Cart []Item} | Showing{Query string, Hits []Item, Cart []Item} | Problem{Query string, Hits []Item, Cart []Item, Message string}
+type Search = Idle{Pins []Entry} | Typing{Query string, Pins []Entry} | Searching{Query string, Pins []Entry} | Showing{Query string, Hits []Entry, Pins []Entry} | Problem{Query string, Hits []Entry, Pins []Entry, Message string}
 
-// Signal is what the machine reads. Key, Clear, Choose, Back and Checkout
+// Signal is what the machine reads. Key, Clear, Pin, Back and Open
 // come from the user; Paused from the state's timer; Found and IndexDown
 // are the results of Searching's work, which the runner sends only to the
 // entry that started it.
-type Signal = Key{Text string} | Clear{} | Choose{Hit int} | Back{} | Checkout{} | Paused{} | Found{Hits []Item} | IndexDown
+type Signal = Key{Text string} | Clear{} | Pin{Hit int} | Back{} | Open{} | Paused{} | Found{Hits []Entry} | IndexDown
 
-// Output is what the machine tells: the hits of a query, an item put in
-// the cart, and the order at Checkout.
-type Output = Shown{Query string, Count int} | Put{Name string} | Order{Items []Item}
+// Output is what the machine tells: the hits of a query, an entry pinned,
+// and the pinned entries at Open.
+type Output = Shown{Query string, Count int} | Pinned{Name string} | Opened{Entries []Entry}
 
-// NoSuchHit is a Choose of a hit the screen does not show.
+// NoSuchHit is a Pin of a hit the screen does not show.
 type NoSuchHit { Hit int, Count int }
 
 // Pause is how long Typing waits with no key before it searches.
 let Pause = 250ms
 
-// Room is how many items the cart holds.
+// Room is how many entries the pins hold.
 let Room = 3
 
 // find is the work of each state: Searching searches its query in the
-// Catalog. The runner starts it when the entry opens and interrupts it
+// Index. The runner starts it when the entry opens and interrupts it
 // when the entry ends, so a key during a search stops it and its result
-// never reaches a later entry. IndexDown is a failure of the Catalog and
+// never reaches a later entry. IndexDown is a failure of the Index and
 // also a signal, so the work needs no failure map.
-func find(s Search) Option[machines.Work[Signal, Catalog]] {
+func find(s Search) Option[machines.Work[Signal, Index]] {
 	match s {
 	case Searching as q:
-		Some{machines.Work{Run: func() []Item fails IndexDown needs Catalog { try Catalog.Find(q.Query) }, OnSuccess: func(hits []Item) Signal { Found{Hits: hits} }}}
+		Some{machines.Work{Run: func() []Entry fails IndexDown needs Index { try Index.Find(q.Query) }, OnSuccess: func(hits []Entry) Signal { Found{Hits: hits} }}}
 	case Idle:
 		None
 	case Typing:
@@ -82,19 +82,19 @@ func Busy(s Search) bool {
 	}
 }
 
-// CartOf is the cart of s.
-func CartOf(s Search) []Item {
+// PinsOf is the pins of s.
+func PinsOf(s Search) []Entry {
 	match s {
 	case Idle as i:
-		i.Cart
+		i.Pins
 	case Typing as t:
-		t.Cart
+		t.Pins
 	case Searching as q:
-		q.Cart
+		q.Pins
 	case Showing as w:
-		w.Cart
+		w.Pins
 	case Problem as p:
-		p.Cart
+		p.Pins
 	}
 }
 
@@ -120,33 +120,33 @@ func enter(s Search) Decision[Search, Output] { Enter[Search]{Next: s} }
 // with the longer query, so it restarts the pause and stops any running
 // search: the last query wins.
 func typed(s Search, k Key) Decision[Search, Output] {
-	enter(Typing{Query: QueryOf(s) + k.Text, Cart: CartOf(s)})
+	enter(Typing{Query: QueryOf(s) + k.Text, Pins: PinsOf(s)})
 }
 
-// chosen is the decision of Choose c in Showing w: the hit goes into the
-// cart, or the cart is full.
-func chosen(w Showing, c Choose) Decision[Search, Output] fails NoSuchHit {
+// pinned is the decision of Pin c in Showing w: the hit goes into the
+// pins, or the pins are full.
+func pinned(w Showing, c Pin) Decision[Search, Output] fails NoSuchHit {
 	if c.Hit < 1 || c.Hit > len(w.Hits) {
 		return NoSuchHit{Hit: c.Hit, Count: len(w.Hits)}
 	}
-	if len(w.Cart) >= Room {
-		return enter(Problem{Query: w.Query, Hits: w.Hits, Cart: w.Cart, Message: "the cart is full"})
+	if len(w.Pins) >= Room {
+		return enter(Problem{Query: w.Query, Hits: w.Hits, Pins: w.Pins, Message: "the pins are full"})
 	}
-	let item = w.Hits[c.Hit-1]
-	Emit[Search, Output]{Next: Showing{..w, Cart: w.Cart.Append(item)}, Output: Put{Name: item.Name}}
+	let entry = w.Hits[c.Hit-1]
+	Emit[Search, Output]{Next: Showing{..w, Pins: w.Pins.Append(entry)}, Output: Pinned{Name: entry.Name}}
 }
 
-// Start is the machine's start function: the cart it begins with is its
+// Start is the machine's start function: the pins it begins with are its
 // input (V4).
-func Start(cart []Item) Search { Idle{Cart: cart} }
+func Start(pins []Entry) Search { Idle{Pins: pins} }
 
 // Step is the search's transition. A key types; Clear goes back to Idle;
-// a pause searches; the search's result shows; Choose adds a hit;
-// Checkout is Done with the order. A result in a state that has no work
+// a pause searches; the search's result shows; Pin adds a hit;
+// Open is Done with the pinned entries. A result in a state that has no work
 // is Ignore: the runner never sends one (rule 6), and the step does not
 // trust that.
 func Step(s Search, sig Signal) Decision[Search, Output] fails NoSuchHit {
-	let cart = CartOf(s)
+	let pins = PinsOf(s)
 	match sig {
 	case Key as k:
 		typed(s, k)
@@ -155,20 +155,20 @@ func Step(s Search, sig Signal) Decision[Search, Output] fails NoSuchHit {
 		case Idle:
 			Ignore
 		case Typing:
-			enter(Idle{Cart: cart})
+			enter(Idle{Pins: pins})
 		case Searching:
-			enter(Idle{Cart: cart})
+			enter(Idle{Pins: pins})
 		case Showing:
-			enter(Idle{Cart: cart})
+			enter(Idle{Pins: pins})
 		case Problem:
-			enter(Idle{Cart: cart})
+			enter(Idle{Pins: pins})
 		}
-	case Checkout:
-		Done[Output]{Output: Order{Items: cart}}
+	case Open:
+		Done[Output]{Output: Opened{Entries: pins}}
 	case Paused:
 		match s {
 		case Typing as t:
-			enter(Searching{Query: t.Query, Cart: cart})
+			enter(Searching{Query: t.Query, Pins: pins})
 		case Idle:
 			Ignore
 		case Searching:
@@ -181,7 +181,7 @@ func Step(s Search, sig Signal) Decision[Search, Output] fails NoSuchHit {
 	case Found as f:
 		match s {
 		case Searching as q:
-			Emit[Search, Output]{Next: Showing{Query: q.Query, Hits: f.Hits, Cart: cart}, Output: Shown{Query: q.Query, Count: len(f.Hits)}}
+			Emit[Search, Output]{Next: Showing{Query: q.Query, Hits: f.Hits, Pins: pins}, Output: Shown{Query: q.Query, Count: len(f.Hits)}}
 		case Idle:
 			Ignore
 		case Typing:
@@ -194,7 +194,7 @@ func Step(s Search, sig Signal) Decision[Search, Output] fails NoSuchHit {
 	case IndexDown:
 		match s {
 		case Searching as q:
-			enter(Problem{Query: q.Query, Hits: []Item{}, Cart: cart, Message: "the index is down"})
+			enter(Problem{Query: q.Query, Hits: []Entry{}, Pins: pins, Message: "the index is down"})
 		case Idle:
 			Ignore
 		case Typing:
@@ -204,10 +204,10 @@ func Step(s Search, sig Signal) Decision[Search, Output] fails NoSuchHit {
 		case Problem:
 			Ignore
 		}
-	case Choose as c:
+	case Pin as c:
 		match s {
 		case Showing as w:
-			try chosen(w, c)
+			try pinned(w, c)
 		case Idle:
 			NoSuchHit{Hit: c.Hit, Count: 0}
 		case Typing:
@@ -220,7 +220,7 @@ func Step(s Search, sig Signal) Decision[Search, Output] fails NoSuchHit {
 	case Back:
 		match s {
 		case Problem as p:
-			enter(Showing{Query: p.Query, Hits: p.Hits, Cart: cart})
+			enter(Showing{Query: p.Query, Hits: p.Hits, Pins: pins})
 		case Idle:
 			Ignore
 		case Typing:
@@ -233,7 +233,7 @@ func Step(s Search, sig Signal) Decision[Search, Output] fails NoSuchHit {
 	}
 }
 
-// Finder is the search as a machine: its input is the cart it begins
+// Finder is the search as a machine: its input is the pins it begins
 // with, its timer is the pause after a key, and its work is the search.
 type Finder machine[Search, Signal] {
 	initial: Start,
@@ -263,10 +263,10 @@ func Said(o Output) string {
 	match o {
 	case Shown as s:
 		"shown \"\(s.Query)\": \(Hits(s.Count))"
-	case Put as p:
-		"put \(p.Name) in the cart"
-	case Order as r:
-		"order: \(Names(r.Items))"
+	case Pinned as p:
+		"pinned \(p.Name)"
+	case Opened as r:
+		"opened: \(Names(r.Entries))"
 	}
 }
 

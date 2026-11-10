@@ -1,0 +1,88 @@
+page 1/2: 1 server 6.50, 2 drive 2.50, 3 node 1.00 | plan: 0 units, 0.00
+> next
+page 2/2: 1 router 6.00, 2 cache 3.00, 3 twin 0.00 | plan: 0 units, 0.00
+> open 3
+editing twin | plan: 0 units, 0.00
+  twin: choose first: 1 node 1.00
+> choose 1
+editing twin | plan: 0 units, 0.00
+  twin: node for first
+    node: choose compute: 1 server 6.50, 2 router 6.00
+> choose 1
+editing twin | plan: 0 units, 0.00
+  twin: node for first
+    node: server for compute
+      server x1 6.50: add, more, less or back
+> back
+editing twin | plan: 0 units, 0.00
+  twin: node for first
+    node: choose compute: 1 server 6.50, 2 router 6.00
+> choose 2
+editing twin | plan: 0 units, 0.00
+  twin: node for first
+    node: router for compute
+      router x1 6.00: add, more, less or back
+> add
+editing twin | plan: 0 units, 0.00
+  twin: node for first
+    node: choose storage: 1 drive 2.50, 2 cache 3.00
+> choose 2
+editing twin | plan: 0 units, 0.00
+  twin: node for first
+    node: cache for storage
+      cache x1 3.00: add, more, less or back
+> add
+editing twin | plan: 0 units, 0.00
+  twin: node for first
+    node x1 10.00: add, more, less or back
+> add
+editing twin | plan: 0 units, 0.00
+  twin: choose second: 1 node 1.00
+> choose 1
+editing twin | plan: 0 units, 0.00
+  twin: node for second
+    node: choose compute: 1 server 6.50, 2 router 6.00
+> choose 1
+editing twin | plan: 0 units, 0.00
+  twin: node for second
+    node: server for compute
+      server x1 6.50: add, more, less or back
+> add
+editing twin | plan: 0 units, 0.00
+  twin: node for second
+    node: choose storage: 1 drive 2.50, 2 cache 3.00
+> choose 1
+editing twin | plan: 0 units, 0.00
+  twin: node for second
+    node: drive for storage
+      drive x1 2.50: add, more, less or back
+> add
+editing twin | plan: 0 units, 0.00
+  twin: node for second
+    node x1 10.00: add, more, less or back
+> add
+editing twin | plan: 0 units, 0.00
+  twin x1 20.00: add, more, less or back
+> more
+editing twin | plan: 0 units, 0.00
+  twin x2 20.00: add, more, less or back
+> add
+page 2/2: 1 router 6.00, 2 cache 3.00, 3 twin 0.00 | plan: 1 units, 40.00
+> open 3
+editing twin | plan: 1 units, 40.00
+  twin: choose first: 1 node 1.00
+> choose 1
+editing twin | plan: 1 units, 40.00
+  twin: node for first
+    node: choose compute: 1 server 6.50, 2 router 6.00
+> back
+editing twin | plan: 1 units, 40.00
+  twin: choose first: 1 node 1.00
+> back
+page 2/2: 1 router 6.00, 2 cache 3.00, 3 twin 0.00 | plan: 1 units, 40.00
+> deploy
+plan: 40.00
+  2x twin 20.00 [1x node 10.00 [1x router 6.00, 1x cache 3.00], 1x node 10.00 [1x server 6.50, 1x drive 2.50]]
+cluster: ack 24, 7 to run
+> more
+(the plan has ended)
