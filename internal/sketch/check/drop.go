@@ -1,6 +1,25 @@
 package check
 
-import v1 "ergo.local/prototype/runtime/v1"
+import (
+	"slices"
+
+	v1 "ergo.local/prototype/runtime/v1"
+)
+
+// releasesResult reports whether f is a std extern whose runtime body takes
+// the hidden ResultRelease (v1.Releaser; L8 B4, Gap 47): it releases a
+// successful result it drops, so its call records the result's Drop.
+func releasesResult(f *Func) bool {
+	if f == nil || f.Decl == nil || f.Decl.Extern == nil || !f.Pkg.Std() {
+		return false
+	}
+	path, name := f.Decl.Extern.Split()
+	if path != runtimeModule+"/v1" {
+		return false
+	}
+	body, err := v1.BodyOf(name)
+	return err == nil && slices.Contains(body.Hidden, v1.ResultRelease)
+}
 
 // Generated release (#197 L8 B2; resources R3, R23, R37, R39, Gap 36): the
 // release of a value whose type holds a resource in its parts. The checker

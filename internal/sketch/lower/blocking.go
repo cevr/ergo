@@ -144,8 +144,11 @@ var runtimeBindings = map[string]runtimeBinding{
 	"OwningParts":     {},
 	"Owned.TakeField": {},
 	"Scope.Drop":      {},
-	"Drop.Part":       {},
-	"Drop.End":        {},
+	// A std body's release of a result it drops (Releaser; Gap 47) runs
+	// on the releasing task, which NewDrop receives as its hidden task.
+	"NewDrop":   {task: true},
+	"Drop.Part": {},
+	"Drop.End":  {},
 	// The context owner (calls.go, contextWith; runtime.md, G1): a region
 	// opens on the scope of the code at the with and ends at its block's
 	// normal end, or when that scope closes. The reads take the running

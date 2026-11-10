@@ -40,8 +40,9 @@ func TestBodiesFollowTheHiddenConvention(t *testing.T) {
 		"ContextValue": {Hidden: []Hidden{CallerTask, ReadingPackage}, Params: []Param{{Type: "string"}}, Results: []string{"string"}},
 		// timeout.After: the site names the body's task, the caller's task
 		// is its parent, and the caller's Scheduler gives the deadline; the
-		// block receives the child's task.
-		"After": {TypeParams: []TypeParam{{Name: "A", Constraint: "any"}}, Hidden: []Hidden{CallSite, CallerTask, CallerScheduler}, Params: []Param{{Type: "time.Duration"}, {Type: "func(*rt.Task) (A, error)", Func: &Body{Hidden: []Hidden{CallerTask}, Results: []string{"A", "error"}}}}, Results: []string{"A", "error"}},
+		// block receives the child's task; the result release frees a value
+		// the deadline dropped (Gap 47).
+		"After": {TypeParams: []TypeParam{{Name: "A", Constraint: "any"}}, Hidden: []Hidden{CallSite, CallerTask, CallerScheduler, ResultRelease}, Params: []Param{{Type: "time.Duration"}, {Type: "func(*rt.Task) (A, error)", Func: &Body{Hidden: []Hidden{CallerTask}, Results: []string{"A", "error"}}}}, Results: []string{"A", "error"}},
 	}
 	for name, w := range want {
 		got, err := BodyOf(name)

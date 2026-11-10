@@ -237,7 +237,7 @@ func run(env *Env) (err error) {
 	/*line /ergo-test/main.ergo:14:19*/})
 //line /ergo-test/main.ergo:15:2
 //line /ergo-test/main.ergo:15:14
-	v_5, err_4 := ergo.After[int](ergo.Site("run calls timeout.After at /ergo-test/main.ergo:15:14"), env.task, env.Scheduler, time.Duration(3600000000000), func(t_2 *rt.Task) (int, error) {
+	v_5, err_4 := ergo.After[int](ergo.Site("run calls timeout.After at /ergo-test/main.ergo:15:14"), env.task, env.Scheduler, nil, time.Duration(3600000000000), func(t_2 *rt.Task) (int, error) {
 		/*line /ergo-test/main.ergo:15:14*/e_1 := *env
 		/*line /ergo-test/main.ergo:15:14*/e_1.task = t_2
 		/*line /ergo-test/main.ergo:15:14*/return func(env_3 *Env) (int, error) {

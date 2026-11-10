@@ -1,7 +1,6 @@
 package lower
 
 import (
-	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -94,14 +93,13 @@ func early() int needs Scheduler {
 // A host timer in After would leave late() waiting an hour (the test's
 // watchdog fails it), and a deadline that ignores the Scheduler would never
 // ask it for the hour.
+// Builds Go because only executing the deadline with distinct Scheduler
+// providers checks which clock wins and that its child is drained.
 func TestTimeoutDeadlineIsTheProgramScheduler(t *testing.T) {
 	needsBuild(t)
 	prog := lowerSource("deadline", timeoutProgram, false)
 	if len(prog.diags) != 0 || prog.err != nil || prog.panicked != nil || len(prog.refused) != 0 {
 		t.Fatalf("lowering: diags %v, err %v, panic %v, refused %v", prog.diags, prog.err, prog.panicked, prog.refused)
-	}
-	if !strings.Contains(prog.mainGo(), "ergo.After[int](") || !strings.Contains(prog.mainGo(), ".Scheduler, time.Duration(3600000000000)") {
-		t.Fatalf("want a call of ergo.After that passes the environment's Scheduler before the deadline:\n%s", prog.mainGo())
 	}
 	driver := `package main
 

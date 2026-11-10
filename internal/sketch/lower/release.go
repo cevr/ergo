@@ -378,11 +378,17 @@ func (fc *funcCtx) ownRelease(d *check.Drop, t check.Type, site syntax.Node) str
 // glue is the statements that release v, a value of d's type, skipping
 // the top record's fields set in taken.
 func (fc *funcCtx) glue(d *check.Drop, v, taken, env string, site syntax.Node) string {
+	return fc.glueOn(d, v, taken, env, fc.runtimeCall("Scope.Drop", fc.ownBinding("Scope.Drop", site), "", fc.frameScope(site), nil, "", nil, nil, site), site)
+}
+
+// glueOn is glue with the Go text of its v1.Drop, for a release outside a
+// frame (resultRelease).
+func (fc *funcCtx) glueOn(d *check.Drop, v, taken, env, dropText string, site syntax.Node) string {
 	g := &glueGen{fc: fc, site: site, env: env, names: map[*check.Drop]string{}}
 	g.drop = fc.temp("drop")
 	top := g.parts(d, v, taken)
 	var b strings.Builder
-	b.WriteString(g.drop + " := " + fc.runtimeCall("Scope.Drop", fc.ownBinding("Scope.Drop", site), "", fc.frameScope(site), nil, "", nil, nil, site) + "; ")
+	b.WriteString(g.drop + " := " + dropText + "; ")
 	for _, n := range g.order {
 		b.WriteString("var " + g.names[n] + " func(" + fc.goType(n.Type) + "); ")
 	}
@@ -812,4 +818,29 @@ func (l *lowerer) ownsParams(params []*check.Var) bool {
 		}
 	}
 	return false
+}
+
+// resultRelease is the hidden v1.Releaser of a std call (L8 B4, Gap 47):
+// the release of the call's result, which the runtime body runs when it
+// drops a successful result, or nil when the checker recorded none (the
+// result holds no resource). It runs on the releasing task: a copy of the
+// environment with that task, as a std callback's (childEnv).
+func (fc *funcCtx) resultRelease(x *syntax.CallExpr, site syntax.Node) string {
+	d := fc.l.info.ResultDrops[x]
+	if d == nil {
+		return "nil"
+	}
+	return fc.envClosure(childEnv, "e", site, func(env string) ([]string, string, string) {
+		// env is &copy; a release that passes the task selects through it.
+		env = "(" + env + ")"
+		v := fc.scope.alloc("v")
+		var text string
+		if d.Glue() {
+			drop := fc.runtimeCall("NewDrop", fc.ownBinding("NewDrop", site), "", "", nil, env, nil, nil, site)
+			text = fc.glueOn(d, v, "", env, drop, site)
+		} else {
+			text = fc.providerRelease(&check.Acquisition{Close: d.Close}, env, v, site)
+		}
+		return []string{v + " " + fc.goType(d.Type)}, "", strings.Repeat("\t", fc.depth+1) + text + "\n"
+	})
 }

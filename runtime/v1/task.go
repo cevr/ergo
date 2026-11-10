@@ -344,6 +344,14 @@ type Task[T any] struct {
 	h    *rt.Handle[T]
 	task *rt.Task // the task that started it
 	used bool     // Wait, Stop or Close ran
+	// out is the value the body returned, kept past rt's stop-wins, which
+	// zeroes it when a stop is pending at the boundary (Gap 47); ended says
+	// the body returned one. The child writes them before its handle
+	// finishes; the owner reads them after it joined the task. A Wait that
+	// delivers the value moves the Task out of its owner, so no Drain
+	// follows it.
+	out   T
+	ended bool
 }
 
 // Site is the Ergo identity of a call: the calling function, the called
@@ -374,7 +382,13 @@ func Go[T any](s *Scope, span Site, body func(*rt.Task) (T, error)) *Task[T] {
 	// throwaway: the Task's owner releases it through its own entry.
 	holder := rt.NewScope(s.s.Task())
 	t := &Task[T]{task: s.s.Task()}
-	t.h = rt.Go(&holder, string(span), func(ct *rt.Task) (T, error) { return guarded(ct, body) })
+	t.h = rt.Go(&holder, string(span), func(ct *rt.Task) (T, error) {
+		v, err := guarded(ct, body)
+		if err == nil {
+			t.out, t.ended = v, true
+		}
+		return v, err
+	})
 	return t
 }
 
@@ -438,17 +452,18 @@ func (t *Task[T]) Close(ct *rt.Task) {
 }
 
 // Drain is the rest of the release of a Task whose value holds a resource
-// (#197 L8 B3t; Q5, resources R13): after Close, it gives the value the
-// task ended with, for the owner's generated release. Only an owned Task
-// is drained, and a Wait that delivered the value moved the Task out of
-// its owner first. It gives nothing for a task that failed, was
-// interrupted or still runs (a Close ran first, so it has ended). It never
-// waits.
+// (#197 L8 B3t, B4; Q5, Gap 47, resources R13): after Close, it gives the
+// value the body returned, for the owner's generated release, also when
+// rt's stop-wins dropped it (the body returned it while a stop was pending
+// at the task's boundary). A Wait that delivered the value moved the Task
+// out of its owner first, so its owner never drains it. It gives nothing
+// for a body that failed or was interrupted before it returned (a Close
+// ran first, so the task has ended). It never waits.
 func (t *Task[T]) Drain() []T {
-	if v, ok := t.h.Left(); ok {
-		return []T{v}
+	if !t.ended {
+		return nil
 	}
-	return nil
+	return []T{t.out}
 }
 
 // Expired is timeout.Expired, the typed failure of After when the deadline
@@ -485,12 +500,24 @@ type Sleeper interface {
 // caller on every path, as Task.Wait raises it; so is an interruption of
 // t. A Sleep that ends without a stop, by a defect included, ends the
 // race: a deadline that cannot be kept never leaves the body unbounded.
-func After[A any](span Site, t *rt.Task, s Sleeper, d time.Duration, body func(*rt.Task) (A, error)) (A, error) {
+// rel is the hidden release of A: when the body returned a value that
+// After does not give (stop wins at the body's boundary, or the caller is
+// interrupted), After releases it (Gap 47).
+func After[A any](span Site, t *rt.Task, s Sleeper, rel Releaser[A], d time.Duration, body func(*rt.Task) (A, error)) (A, error) {
+	var kept A
+	returned := false
 	v, err := rt.AfterSpan(t, deadlines{t: t, s: s, span: string(span) + " (deadline)"}, d, string(span), func(ct *rt.Task) (A, error) {
-		return guarded(ct, body)
+		v, err := guarded(ct, body)
+		if err == nil {
+			kept, returned = v, true
+		}
+		return v, err
 	})
 	if err == nil {
 		return v, nil
+	}
+	if returned {
+		err = releaseLeft(t, rel, kept, err)
 	}
 	var zero A
 	if f, ok := rt.Failure(err); ok {
@@ -503,22 +530,73 @@ func After[A any](span Site, t *rt.Task, s Sleeper, d time.Duration, body func(*
 	panic("unreachable")
 }
 
+// Releaser is the hidden ResultRelease argument (files.go): the generated
+// release of a value of the call's result type, run on the releasing task.
+// Nil when the type holds no resource.
+type Releaser[T any] func(*rt.Task, T)
+
+// releaseLeft releases v, a successful result a boundary dropped (Gap 47),
+// masked on t, and gives the call's exit: err with the release's defects.
+// A nil rel (the type holds no resource) releases nothing.
+func releaseLeft[T any](t *rt.Task, rel Releaser[T], v T, err error) error {
+	if rel == nil {
+		return err
+	}
+	var c rt.Cause
+	c.Add(err)
+	release(t, &c, func() { rel(t, v) }, nil)
+	return c.Err()
+}
+
 // TasksTransform is tasks.Transform(xs, limit, f) (docs/spec/stdlib.md, Tasks): f on
 // each element, each call on a child task of t, at most limit at once, the
 // results in the order of xs. span and t are the hidden site and task
 // arguments; f receives the child's task. rt.MapSpan waits for whichever
 // child ends first: the first failure stops and drains the rest and is the
 // result. A defect, in f or in a drain, is raised in the caller, as
-// Task.Wait raises it; so is an interruption of t. A limit below 1 is a
-// defect of the caller. Prior art: errgroup.Group with SetLimit; Effect's
-// Effect.forEach with { concurrency }.
-func TasksTransform[A, B any](span Site, t *rt.Task, xs []A, limit int, f func(*rt.Task, A) (B, error)) ([]B, error) {
+// Task.Wait raises it; so is an interruption of t. rel is the hidden
+// release of the result: when Transform fails, the results its calls
+// returned are released, in the order of xs (Gap 47). A limit below 1 is
+// a defect of the caller. Prior art: errgroup.Group with SetLimit;
+// Effect's Effect.forEach with { concurrency }.
+func TasksTransform[A, B any](span Site, t *rt.Task, rel Releaser[[]B], xs []A, limit int, f func(*rt.Task, A) (B, error)) ([]B, error) {
 	if limit < 1 {
 		panic(fmt.Sprintf("tasks.Transform: limit %d is less than 1", limit))
 	}
-	out, err := rt.MapSpan(t, string(span), xs, limit, func(ct *rt.Task, a A) (B, error) {
-		return guarded(ct, func(ct *rt.Task) (B, error) { return f(ct, a) })
-	})
+	var out []B
+	var err error
+	if rel == nil {
+		// B holds no resource: nothing to keep (as fast as before Gap 47).
+		out, err = rt.MapSpan(t, string(span), xs, limit, func(ct *rt.Task, a A) (B, error) {
+			return guarded(ct, func(ct *rt.Task) (B, error) { return f(ct, a) })
+		})
+	} else {
+		kept := make([]B, len(xs))
+		returned := make([]bool, len(xs))
+		idx := make([]int, len(xs))
+		for i := range idx {
+			idx[i] = i
+		}
+		out, err = rt.MapSpan(t, string(span), idx, limit, func(ct *rt.Task, i int) (B, error) {
+			v, err := guarded(ct, func(ct *rt.Task) (B, error) { return f(ct, xs[i]) })
+			if err == nil {
+				kept[i], returned[i] = v, true
+			}
+			return v, err
+		})
+		if err != nil {
+			// MapSpan joined every child: kept is final.
+			var left []B
+			for i, ok := range returned {
+				if ok {
+					left = append(left, kept[i])
+				}
+			}
+			if len(left) > 0 {
+				err = releaseLeft(t, rel, left, err)
+			}
+		}
+	}
 	if err == nil {
 		return out, nil
 	}
@@ -534,15 +612,54 @@ func TasksTransform[A, B any](span Site, t *rt.Task, xs []A, limit int, f func(*
 // end decides; the rest are stopped and drained before it returns
 // (rt.RaceSpan). span and t are the hidden site and task arguments; f
 // receives the child's task. Race of no blocks is a defect of the caller:
-// it would never end. Prior art: Effect.raceAll; Go's select over result
-// channels and a cancel of the losers.
-func TasksRace[T any](span Site, t *rt.Task, n int, f func(*rt.Task, int) (T, error)) (T, error) {
+// it would never end. rel is the hidden release of T: a loser whose block
+// returned a value, and every block's value when Race fails, is released,
+// in block order (Gap 47). Prior art: Effect.raceAll; Go's select over
+// result channels and a cancel of the losers.
+func TasksRace[T any](span Site, t *rt.Task, rel Releaser[T], blocks []func(*rt.Task) (T, error)) (T, error) {
+	n := len(blocks)
+	f := func(ct *rt.Task, i int) (T, error) { return blocks[i](ct) }
 	if n < 1 {
 		panic("tasks.Race: no blocks to race")
 	}
-	v, err := rt.RaceSpan(t, string(span), n, func(ct *rt.Task, i int) (T, error) {
-		return guarded(ct, func(ct *rt.Task) (T, error) { return f(ct, i) })
-	})
+	var v T
+	var err error
+	if rel == nil {
+		// T holds no resource: nothing to keep (as fast as before Gap 47).
+		v, err = rt.RaceSpan(t, string(span), n, func(ct *rt.Task, i int) (T, error) {
+			return guarded(ct, func(ct *rt.Task) (T, error) { return f(ct, i) })
+		})
+	} else {
+		kept := make([]T, n)
+		returned := make([]bool, n)
+		var w raced[T]
+		w, err = rt.RaceSpan(t, string(span), n, func(ct *rt.Task, i int) (raced[T], error) {
+			v, err := guarded(ct, func(ct *rt.Task) (T, error) { return f(ct, i) })
+			if err == nil {
+				kept[i], returned[i] = v, true
+			}
+			return raced[T]{v: v, i: i}, err
+		})
+		// RaceSpan joined every child: kept is final. The winner's value
+		// is given; every other value a block returned is released.
+		win := -1
+		if err == nil {
+			v, win = w.v, w.i
+		}
+		var c rt.Cause
+		c.Add(err)
+		for i, ok := range returned {
+			if ok && i != win {
+				release(t, &c, func() { rel(t, kept[i]) }, nil)
+			}
+		}
+		if err = c.Err(); err != nil && win >= 0 {
+			// A loser's release raised a defect: the winner's value is
+			// not given either.
+			release(t, &c, func() { rel(t, v) }, nil)
+			err = c.Err()
+		}
+	}
 	if err == nil {
 		return v, nil
 	}
@@ -552,6 +669,12 @@ func TasksRace[T any](span Site, t *rt.Task, n int, f func(*rt.Task, int) (T, er
 	}
 	raise(err)
 	panic("unreachable")
+}
+
+// raced is one Race block's value and index, so the winner is known.
+type raced[T any] struct {
+	v T
+	i int
 }
 
 // deadlines is the rt.Scheduler of one After call: each timer it arms is a
@@ -688,6 +811,10 @@ type Drop struct {
 
 // Drop starts the generated release of a value owned at s.
 func (s *Scope) Drop() *Drop { return &Drop{t: s.s.Task()} }
+
+// NewDrop starts the generated release of a value on t outside a frame:
+// the release a std body runs for a result it drops (Releaser; Gap 47).
+func NewDrop(t *rt.Task) *Drop { return &Drop{t: t} }
 
 // Part runs one part's release; a defect joins the value's cause.
 func (d *Drop) Part(rel func()) {

@@ -56,10 +56,14 @@ const (
 	CallerScheduler Hidden = "scheduler"
 	// ReadingPackage is the package that declares the context-read extern.
 	ReadingPackage Hidden = "context-package"
+	// ResultRelease, a Releaser[T], is the generated release of the call's
+	// result type T, or nil when T holds no resource (#197 L8 B4, Gap 47):
+	// a boundary that drops a successful result releases it.
+	ResultRelease Hidden = "release"
 )
 
 // hiddenOrder is the order hidden parameters take, each at most once.
-var hiddenOrder = []Hidden{Frame, CallSite, CallerTask, CallerScheduler, ReadingPackage}
+var hiddenOrder = []Hidden{Frame, CallSite, CallerTask, CallerScheduler, ReadingPackage, ResultRelease}
 
 // Body is the Go shape of one std extern's body: a function of this
 // package, or, for an operation of a type that a std extern returns, the
@@ -163,6 +167,10 @@ type Param struct {
 	// body calls: its own leading hidden parameters (the task that runs the
 	// block, for task.Go) follow the same convention. Nil otherwise.
 	Func *Body
+	// Funcs is the shape of each element of a parameter that is a slice
+	// of functions, such as the blocks of tasks.Race: the lowering adapts
+	// each element as it adapts a Func. Nil otherwise.
+	Funcs *Body
 }
 
 // BodyOf returns the Go shape of the body named name in Source: "Go" for
@@ -653,6 +661,15 @@ func goShape(ft *ast.FuncType, rt string) (Body, error) {
 					}
 					p.Func = &fb
 				}
+				if at, ok := field.Type.(*ast.ArrayType); ok && at.Len == nil {
+					if inner, ok := at.Elt.(*ast.FuncType); ok {
+						fb, err := goShape(inner, rt)
+						if err != nil {
+							return Body{}, fmt.Errorf("function slice parameter %d: %w", len(b.Params)+1, err)
+						}
+						p.Funcs = &fb
+					}
+				}
 				b.Params = append(b.Params, p)
 			}
 		}
@@ -680,6 +697,10 @@ func hiddenOf(e ast.Expr, rt string) (Hidden, bool) {
 		}
 		if x.Name == "ContextPackage" {
 			return ReadingPackage, true
+		}
+	case *ast.IndexExpr:
+		if id, ok := x.X.(*ast.Ident); ok && id.Name == "Releaser" {
+			return ResultRelease, true
 		}
 	case *ast.StarExpr:
 		switch y := x.X.(type) {
