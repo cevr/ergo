@@ -35,7 +35,7 @@ func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *nam
 		b.WriteString("\t\t" + r + ".env = " + env + "\n")
 		b.WriteString("\t\t" + ok + " := true\n")
 		b.WriteString("\t\tfor " + i + " := 1; " + ok + " && " + i + " <= " + strconv.Itoa(testCases) + "; " + i + "++ {\n")
-		b.WriteString("\t\t\t" + r + ".size = " + i + " / 4\n")
+		b.WriteString("\t\t\t" + r + ".start(" + i + ")\n")
 		b.WriteString("\t\t\t" + ok + " = " + l.helper("Prop") + "(" + task + ", " + strconv.Quote(label) + ", " + at + ", " + r + ", func() (func() string, func() error) {\n")
 		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(testCases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)", strconv.Quote(", size "), conv + ".Itoa(" + i + " / 4)"}
 		sep := ": "
