@@ -1,0 +1,112 @@
+// Package route models a request router: a route table that matches a
+// method and a path to a handler, and a server machine that serves
+// requests, reloads its table and drains before it stops. Every function
+// here is pure, so `ergo check` runs the package's laws and searches the
+// machine itself, with no Go build (docs/testing.md, Check-time
+// evaluation).
+
+// Method is the method of a request.
+type Method = Get{} | Put{} | Delete{}
+
+// Route sends the requests of Method to Path to Handler.
+type Route { Method Method, Path string, Handler string }
+
+// Lookup is the table's answer for a request: the handler, or a path that
+// has routes for other methods only, or no route at all.
+type Lookup = Found{Handler string} | WrongMethod{} | Missing{}
+
+// Match is the answer of routes for a request of m to path. The first
+// route of the method and path wins.
+func Match(routes []Route, m Method, path string) Lookup {
+	let mut seen = false
+	for r in routes {
+		if r.Path == path {
+			if r.Method == m {
+				return Found{Handler: r.Handler}
+			}
+			seen = true
+		}
+	}
+	if seen {
+		WrongMethod
+	} else {
+		Missing
+	}
+}
+
+// MethodText is the method as a request line writes it.
+func MethodText(m Method) string {
+	match m {
+	case Get:
+		"GET"
+	case Put:
+		"PUT"
+	case Delete:
+		"DELETE"
+	}
+}
+
+// LookupText is the answer as the program prints it.
+func LookupText(l Lookup) string {
+	match l {
+	case Found as f:
+		"-> \(f.Handler)"
+	case WrongMethod:
+		"405 method not allowed"
+	case Missing:
+		"404 not found"
+	}
+}
+
+// Table is the router's table.
+let Table = []Route{
+	Route{Method: Get, Path: "/", Handler: "index"},
+	Route{Method: Get, Path: "/health", Handler: "health"},
+	Route{Method: Get, Path: "/items", Handler: "list"},
+	Route{Method: Put, Path: "/items", Handler: "store"},
+	Route{Method: Get, Path: "/items", Handler: "shadowed"},
+}
+
+// Probe is a path a law asks the table about: each path of the table, and
+// one that it has no route for.
+type Probe = Root{} | Health{} | Items{} | Elsewhere{}
+
+func pathOf(p Probe) string {
+	match p {
+	case Root:
+		"/"
+	case Health:
+		"/health"
+	case Items:
+		"/items"
+	case Elsewhere:
+		"/elsewhere"
+	}
+}
+
+// LookupIsTheTable: the answer for every method and path is what the
+// table says: Found names the first route of that method and path,
+// WrongMethod means the path has routes but none of the method, and
+// Missing means the path has none. Both seams list every method and probe,
+// so this law is proved.
+law LookupIsTheTable(m Method, p Probe) {
+	let path = pathOf(p)
+	let mut first = ""
+	let mut paths = 0
+	for r in Table {
+		if r.Path == path {
+			paths = paths + 1
+			if r.Method == m && first == "" {
+				first = r.Handler
+			}
+		}
+	}
+	match Match(Table, m, path) {
+	case Found as f:
+		f.Handler == first
+	case WrongMethod:
+		first == "" && paths > 0
+	case Missing:
+		paths == 0
+	}
+}

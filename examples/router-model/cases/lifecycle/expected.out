@@ -1,0 +1,17 @@
+GET / -> index
+GET /items -> list
+PUT /items -> store
+DELETE /items 405 method not allowed
+GET /missing 404 not found
+begin: serving blue, 1 open
+begin: serving blue, 2 open
+begin: rejected
+reload: reloading from blue, 2 open
+end: reloading from blue, 1 open
+loaded: serving green, 1 open (swapped to green)
+drain: draining, 1 open
+begin: rejected
+halt: rejected
+end: draining, 0 open
+halt: stopped (closed)
+begin: ignored

@@ -1,0 +1,205 @@
+import machines
+
+// Gen is which of the two route tables serves: a reload builds the other
+// one, and the server swaps to it when it is loaded.
+type Gen = Blue{} | Green{}
+
+// Server is the router's state:
+//
+//	Serving    the table Gen serves; InFlight requests are open
+//	Reloading  Gen still serves while the other table loads
+//	Draining   no new request is taken; InFlight are still open
+//	Stopped    the server is closed
+type Server = Serving{Gen Gen, InFlight int} | Reloading{Gen Gen, InFlight int} | Draining{InFlight int} | Stopped{}
+
+// Signal is what the server reads: a request begins or ends, the operator
+// asks for a reload, the new table is loaded, the operator drains the
+// server, and halts it.
+type Signal = Begin{} | End{} | Reload{} | Loaded{} | Drain{} | Halt{}
+
+// Event is what the server tells: the table it swapped to, and that it
+// closed.
+type Event = Swapped{Gen Gen} | Closed{}
+
+// MaxInFlight is how many requests a server keeps open at once. A request
+// past it is rejected, so the machine has a finite number of states and its
+// laws are searched in whole.
+let MaxInFlight = 2
+
+func other(g Gen) Gen {
+	match g {
+	case Blue:
+		Green
+	case Green:
+		Blue
+	}
+}
+
+// Step is the server's transition. A request begins while there is room,
+// in Serving and in Reloading alike, and is rejected when there is none or
+// when the server drains; a loaded table swaps the generation; a drained
+// server with no open request halts.
+func Step(s Server, sig Signal) Decision[Server, Event] {
+	match s {
+	case Serving as v:
+		match sig {
+		case Begin:
+			if v.InFlight < MaxInFlight {
+				Enter[Server]{Next: Serving{Gen: v.Gen, InFlight: v.InFlight + 1}}
+			} else {
+				Reject
+			}
+		case End:
+			if v.InFlight > 0 {
+				Enter[Server]{Next: Serving{Gen: v.Gen, InFlight: v.InFlight - 1}}
+			} else {
+				Ignore
+			}
+		case Reload:
+			Enter[Server]{Next: Reloading{Gen: v.Gen, InFlight: v.InFlight}}
+		case Loaded:
+			Ignore
+		case Drain:
+			Enter[Server]{Next: Draining{InFlight: v.InFlight}}
+		case Halt:
+			Reject
+		}
+	case Reloading as r:
+		match sig {
+		case Begin:
+			if r.InFlight < MaxInFlight {
+				Enter[Server]{Next: Reloading{Gen: r.Gen, InFlight: r.InFlight + 1}}
+			} else {
+				Reject
+			}
+		case End:
+			if r.InFlight > 0 {
+				Enter[Server]{Next: Reloading{Gen: r.Gen, InFlight: r.InFlight - 1}}
+			} else {
+				Ignore
+			}
+		case Reload:
+			Ignore
+		case Loaded:
+			Emit[Server, Event]{Next: Serving{Gen: other(r.Gen), InFlight: r.InFlight}, Output: Swapped{Gen: other(r.Gen)}}
+		case Drain:
+			Enter[Server]{Next: Draining{InFlight: r.InFlight}}
+		case Halt:
+			Reject
+		}
+	case Draining as d:
+		match sig {
+		case Begin:
+			Reject
+		case End:
+			if d.InFlight > 0 {
+				Enter[Server]{Next: Draining{InFlight: d.InFlight - 1}}
+			} else {
+				Ignore
+			}
+		case Reload:
+			Ignore
+		case Loaded:
+			Ignore
+		case Drain:
+			Ignore
+		case Halt:
+			if d.InFlight == 0 {
+				Emit[Server, Event]{Next: Stopped, Output: Closed}
+			} else {
+				Reject
+			}
+		}
+	case Stopped:
+		Ignore
+	}
+}
+
+// InFlight is the number of open requests of s.
+func InFlight(s Server) int {
+	match s {
+	case Serving as v:
+		v.InFlight
+	case Reloading as r:
+		r.InFlight
+	case Draining as d:
+		d.InFlight
+	case Stopped:
+		0
+	}
+}
+
+// Text is the state as the program prints it.
+func Text(s Server) string {
+	match s {
+	case Serving as v:
+		"serving \(GenText(v.Gen)), \(v.InFlight) open"
+	case Reloading as r:
+		"reloading from \(GenText(r.Gen)), \(r.InFlight) open"
+	case Draining as d:
+		"draining, \(d.InFlight) open"
+	case Stopped:
+		"stopped"
+	}
+}
+
+// GenText is the generation's name.
+func GenText(g Gen) string {
+	match g {
+	case Blue:
+		"blue"
+	case Green:
+		"green"
+	}
+}
+
+// states is every state a server can be in.
+func states() []Server {
+	let mut out = []Server{Stopped}
+	for n in 0..MaxInFlight+1 {
+		out = out.Append(Serving{Gen: Blue, InFlight: n})
+		out = out.Append(Serving{Gen: Green, InFlight: n})
+		out = out.Append(Reloading{Gen: Blue, InFlight: n})
+		out = out.Append(Reloading{Gen: Green, InFlight: n})
+		out = out.Append(Draining{InFlight: n})
+	}
+	out
+}
+
+// Router is the server as a machine. It starts serving the blue table with
+// no open request. Its signals and states can be listed, so both seams
+// search the whole graph for the reachability laws and list every signal
+// for the body laws: all are proved.
+type Router machine[Server, Signal] {
+	initial: Serving{Gen: Blue, InFlight: 0},
+	step:    Step,
+
+	// CanStop: some run drains the server and stops it.
+	law CanStop reaches Stopped,
+
+	// Swaps: a reload goes back to serving, on the other table.
+	law Swaps path [Serving, Reloading, Serving],
+
+	// InFlightBounded: no step takes a server past MaxInFlight open
+	// requests, or below none.
+	law InFlightBounded(sig Signal) {
+		for s in states() {
+			let n = InFlight(machines.Next(s, Step(s, sig)))
+			if n < 0 || n > MaxInFlight {
+				return false
+			}
+		}
+		true
+	},
+
+	// DrainingRefusesNew: no signal opens a request on a draining server.
+	law DrainingRefusesNew(sig Signal) {
+		for n in 0..MaxInFlight+1 {
+			let d = Draining{InFlight: n}
+			if InFlight(machines.Next(d, Step(d, sig))) > n {
+				return false
+			}
+		}
+		true
+	},
+}

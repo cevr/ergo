@@ -1,0 +1,21 @@
+# requests against the table
+get /
+get /items
+put /items
+delete /items
+get /missing
+# two requests fill the server; a third is rejected
+begin
+begin
+begin
+# a reload keeps serving while the green table loads
+reload
+end
+loaded
+# drain, then halt once the last request ends
+drain
+begin
+halt
+end
+halt
+begin

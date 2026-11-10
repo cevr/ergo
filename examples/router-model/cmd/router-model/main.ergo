@@ -1,0 +1,117 @@
+// router-model plays a script of router signals and requests read from
+// stdin and prints what the server does. Package route is the route table
+// and the server machine, all pure; this binary reads the script, which is
+// the only part that needs a capability.
+//
+// The script's lines are a signal (`begin`, `end`, `reload`, `loaded`,
+// `drain`, `halt`) or a request `get|put|delete PATH`, which the table
+// answers. A blank line or a line that starts with # is skipped.
+
+import io
+import machines
+import os
+import routermodel/route
+import strings
+
+// BadLine is a line the script cannot read.
+type BadLine { Line int, Why string }
+
+func signalOf(n int, word string) route.Signal fails BadLine {
+	match word {
+	case "begin":
+		route.Begin
+	case "end":
+		route.End
+	case "reload":
+		route.Reload
+	case "loaded":
+		route.Loaded
+	case "drain":
+		route.Drain
+	case "halt":
+		route.Halt
+	case _:
+		BadLine{Line: n, Why: "unknown word \(word)"}
+	}
+}
+
+func methodOf(word string) Option[route.Method] {
+	match word {
+	case "get":
+		Some[route.Method]{Value: route.Get}
+	case "put":
+		Some[route.Method]{Value: route.Put}
+	case "delete":
+		Some[route.Method]{Value: route.Delete}
+	case _:
+		None
+	}
+}
+
+// told is what the step d prints.
+func told(d Decision[route.Server, route.Event]) string {
+	match d {
+	case Enter[route.Server] as e:
+		route.Text(e.Next)
+	case Stay[route.Server] as s:
+		route.Text(s.Next)
+	case Emit[route.Server, route.Event] as e:
+		match e.Output {
+		case route.Swapped as w:
+			"\(route.Text(e.Next)) (swapped to \(route.GenText(w.Gen)))"
+		case route.Closed:
+			"\(route.Text(e.Next)) (closed)"
+		}
+	case Ignore:
+		"ignored"
+	case Reject:
+		"rejected"
+	case Done[route.Event]:
+		"done"
+	}
+}
+
+// play runs the script's lines and returns what it prints.
+func play(lines []string) []string fails BadLine {
+	let mut s route.Server = route.Serving{Gen: route.Blue, InFlight: 0}
+	let mut out = []string{}
+	for i, line in lines {
+		let n = i + 1
+		let text = strings.TrimSpace(line)
+		let words = strings.Fields(text)
+		if len(words) == 0 || strings.HasPrefix(text, "#") {
+			continue
+		}
+		match methodOf(words[0]) {
+		case Some[route.Method] as m:
+			if len(words) != 2 {
+				return BadLine{Line: n, Why: "a request is METHOD PATH"}
+			}
+			out = out.Append("\(route.MethodText(m.Value)) \(words[1]) \(route.LookupText(route.Match(route.Table, m.Value, words[1])))")
+		case None:
+			if len(words) != 1 {
+				return BadLine{Line: n, Why: "a signal is one word"}
+			}
+			let d = route.Step(s, try signalOf(n, words[0]))
+			s = machines.Next(s, d)
+			out = out.Append("\(words[0]): \(told(d))")
+		}
+	}
+	out
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	let mut lines = []string{}
+	with context { io.Stdin: io.NewHost() } {
+		for line in io.Stdin.Lines() {
+			lines = lines.Append(line)
+		}
+	}
+	let out = play(lines) catch {
+	case BadLine as b:
+		return os.Exit{Code: 1, Message: "router-model: line \(b.Line): \(b.Why)"}
+	}
+	for l in out {
+		Console.Println(l)
+	}
+}
