@@ -1096,6 +1096,42 @@ func (w *ownWalk) move(i int, x *syntax.Ident, h hand) {
 	w.info.Handoffs[x] = l.v
 }
 
+// qualifiedLet is the package let pkg.Name that x names, or nil.
+func (w *ownWalk) qualifiedLet(x *syntax.SelectorExpr) *Var {
+	id, ok := unparen(x.X).(*syntax.Ident)
+	if !ok {
+		return nil
+	}
+	pn, ok := w.info.Uses[id].(*PkgName)
+	if !ok || pn.Pkg == nil || pn.Pkg.Scope == nil {
+		return nil
+	}
+	if v, ok := w.info.Uses[x.Sel].(*Var); ok && v.pkg {
+		return v
+	}
+	v, _ := pn.Pkg.Scope.names[x.Sel.Name].(*Var)
+	if v == nil || !v.pkg {
+		return nil
+	}
+	return v
+}
+
+// pkgLetMove refuses a hand-off of v, a package let that holds a
+// resource: it has no owner (R11, R15). A Go package variable is one too:
+// borrowed, never released (IG9, q62).
+func (w *ownWalk) pkgLetMove(x syntax.Expr, v *Var, mode ownMode, h hand) {
+	if v == nil || !v.pkg || mode != mMove || h.provider || !w.c.holdsResource(v.Type) {
+		return
+	}
+	what := "a package let"
+	if sel, ok := x.(*syntax.SelectorExpr); ok {
+		if id, ok := unparen(sel.X).(*syntax.Ident); ok && isHostPkgName(w.info.Uses[id]) {
+			what = "a Go package variable, borrowed from Go (q62)"
+		}
+	}
+	w.report(x, "%s is %s, which has no owner to hand it off (%s) (resources R11, R15); lend it, or make a new value", exprText(x), what, h.how)
+}
+
 // expr evaluates x in mode.
 func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 	if x == nil {
@@ -1107,9 +1143,7 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		v, _ := w.info.Uses[x].(*Var)
 		i, ok := w.slot[v]
 		if v == nil || !ok {
-			if v != nil && v.pkg && mode == mMove && !h.provider && w.c.holdsResource(v.Type) {
-				w.report(x, "%s is a package let, which has no owner to hand it off (%s) (resources R11, R15); lend it, or make a new value", v.Name, h.how)
-			}
+			w.pkgLetMove(x, v, mode, h)
 			w.funcValue(x, w.info.Types[x])
 			return
 		}
@@ -1165,6 +1199,12 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		}
 		w.children(x)
 	case *syntax.SelectorExpr:
+		if v := w.qualifiedLet(x); v != nil {
+			// A qualified package let: an imported package's, or a Go
+			// package variable, which is borrowed (IG9, q62).
+			w.pkgLetMove(x, v, mode, h)
+			return
+		}
 		if mode == mMove {
 			w.checkLoanValue(x)
 		}
@@ -1526,6 +1566,10 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 	}
 	closes := w.info.Closes[x] != nil || w.info.Closes[x.Fun] != nil
 	drains := w.drainsLends(call)
+	// A Go function's arguments are lent for the call: a Go signature
+	// cannot move a value (IG9, hostres.go), so converting a resource to
+	// its Go interface parameter is no move (R23).
+	hostCallee := call.Kind == CallFunc && call.Func != nil && call.Func.Pkg.Host()
 	if closes {
 		selfTaken = true
 		if call.Kind == CallFunc {
@@ -1555,7 +1599,7 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 			w.expr(a, mMove, hand{at: a, how: how, endLoans: drains})
 			return
 		}
-		if w.converts(a, pt) {
+		if w.converts(a, pt) && !hostCallee {
 			// R23: a resource converted to an operation type with Close
 			// moves into the interface value.
 			w.expr(a, mMove, hand{at: a, how: fmt.Sprintf("converting it to %s moves it", pt)})

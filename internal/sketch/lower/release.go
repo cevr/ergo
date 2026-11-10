@@ -63,6 +63,9 @@ func isClose(f *check.Func) bool {
 //     spills it), which no operation of the block sees.
 func (fc *funcCtx) providerRelease(a *check.Acquisition, outer, val string, site syntax.Node) string {
 	cl := a.Close
+	if cl.HostClose() {
+		return fc.hostRelease(cl, outer, val, site)
+	}
 	if cl.Func == nil {
 		if cl.Op == nil {
 			ice(site, "a provider's Close with neither a function nor an operation")
@@ -99,6 +102,21 @@ func (fc *funcCtx) providerRelease(a *check.Acquisition, outer, val string, site
 		targs = fc.typeArgs(cl.Func.Sig, closeTypeArgs(cl, site), site)
 	}
 	return fd.name + targs + "(" + outer + ", " + recv + ")"
+}
+
+// hostRelease is the release of a Go value (IG9; q61): Go's Close, called
+// on val inside the release boundary (v1.Release, the callerRelease
+// route), as a checked Close's body runs. A Close() error's non-nil error
+// is a defect naming site, the acquisition (v1.CloseFailed). Go code has
+// no checkpoint, so the mask only keeps a stop pending past it.
+func (fc *funcCtx) hostRelease(cl *check.Close, outer, val string, site syntax.Node) string {
+	call := "(" + val + ").Close()"
+	if cl.HostFallible() {
+		src, line, column := fc.l.locate(site, site.Pos())
+		at := strconv.Quote(src + ":" + strconv.Itoa(line) + ":" + strconv.Itoa(column))
+		call = fc.runtimeCall("CloseFailed", fc.ownBinding("CloseFailed", site), "", "", []string{at, call}, "", nil, nil, site)
+	}
+	return fc.runtimeCall("Release", fc.ownBinding("Release", site), "", "", []string{"func() { " + call + " }"}, outer, nil, nil, site)
 }
 
 // closeTypeArgs are the type arguments of a generic Close's call: each of

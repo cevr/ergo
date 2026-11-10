@@ -408,7 +408,7 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 						}
 						// Typed as the binding says: Go's untyped constant
 						// would take its default type (math.MaxInt64 as int).
-						return fc.goType(o.Type) + "(" + goName + ")"
+						return "(" + fc.goType(o.Type) + ")(" + goName + ")"
 					}
 					if o.Name == x.Sel.Name {
 						// An imported package's let, lowered with the

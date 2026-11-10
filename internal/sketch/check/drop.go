@@ -163,6 +163,23 @@ func (w *dropWalk) visit(t Type) *Drop {
 		if f := w.c.closeMethod(n); f != nil {
 			d.Close = &Close{Receiver: t, Func: f}
 		}
+		if f := w.c.hostClose(n); f != nil {
+			// A Go value: Go's Close is its whole release (IG9).
+			d.Close = &Close{Receiver: t, Func: f}
+			return d
+		}
+		if f := w.c.hostRefClose(t); f != nil {
+			// go.Ref[T], a Go *T: T's Close on the pointer (IG9).
+			d.Close = &Close{Receiver: t, Func: f}
+			return d
+		}
+		if it := asInterface(n); it != nil {
+			if m := hostCloseOp(n, it); m != nil {
+				// A Go interface (io.ReadCloser): its Close operation.
+				d.Close = &Close{Receiver: t, Op: m}
+				return d
+			}
+		}
 		under = n.Underlying()
 	}
 	switch u := under.(type) {

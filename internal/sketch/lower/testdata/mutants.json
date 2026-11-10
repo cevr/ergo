@@ -1858,6 +1858,51 @@
       "killers": [
         "lower:TestDropGlueModel"
       ]
+    },
+    {
+      "name": "IG9 a Go Close error dropped at an automatic release",
+      "origin": "wf10 IG9 (#196 item 15l, #197 q61)",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\tif cl.HostFallible() {\n\t\tsrc, line, column",
+      "to": "\tif false {\n\t\tsrc, line, column",
+      "rule": "q61: a Go Close() error at an automatic release is a defect naming the acquisition.",
+      "killers": [
+        "lower:TestHostResourceRun"
+      ]
+    },
+    {
+      "name": "IG9 a Go type with Close() is no resource",
+      "origin": "wf10 IG9 (#196 item 15l, #197 1.2 rule 1)",
+      "file": "internal/sketch/check/resource.go",
+      "from": "\t\t\tif c.hostClose(t) != nil {\n\t\t\t\treturn true, noLow",
+      "to": "\t\t\tif false {\n\t\t\t\treturn true, noLow",
+      "rule": "plan 1.2 rule 1: a Go type whose method set has Close() or Close() error does not cross.",
+      "killers": [
+        "lower:TestHostResourceVerdicts",
+        "lower:TestHostResourceRun"
+      ]
+    },
+    {
+      "name": "IG9 a Go package variable may be taken",
+      "origin": "wf10 IG9 (#197 q62)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tif v := w.qualifiedLet(x); v != nil {",
+      "to": "\t\tif v := w.qualifiedLet(x); v != nil && false {",
+      "rule": "q62: a Go package variable is borrowed; a take of it is S108.",
+      "killers": [
+        "lower:TestHostResourceVerdicts"
+      ]
+    },
+    {
+      "name": "IG9 R22 refuses a lend to a Go interface parameter",
+      "origin": "wf10 IG9",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "if !c.providing && !c.hostLendArg(t) && c.holdsResource(v)",
+      "to": "if !c.providing && c.holdsResource(v)",
+      "rule": "interop: an argument of a Go function is lent for the call (a Go signature cannot move a value).",
+      "killers": [
+        "lower:TestHostResourceVerdicts"
+      ]
     }
   ]
 }
