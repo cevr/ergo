@@ -48,9 +48,10 @@ type Text {
 	Tag(name string),
 	Key(k string),
 	EndObject(),
-	// Null writes null, which no derived codec writes, for a text written
-	// by hand.
+	// Null writes the null event, including a Nullable's empty state.
 	Null(),
+	// Number writes a number's spelling as it is (json.Value's numbers).
+	Number(text string),
 	// Written is the text written so far.
 	Written() string,
 }
@@ -73,6 +74,10 @@ extern go ergo.local/prototype/runtime/v1.JSONGive func give(t Text) string
 // kind asked for.
 // law-exempt: only open makes a Cursor, from a text, so a law cannot draw one; the package law RoundTrips holds its reads through Reader and decode.
 type Cursor {
+	TakeNull() bool,
+	// Kind is the next value's kind in WireKind's order (0 null to 6 end).
+	Kind() int,
+	Number() string,
 	Path() string,
 	Bool() bool,
 	Int() int64,
@@ -107,6 +112,27 @@ func Open(text string, maxBytes int, maxDepth int) Reader fails Malformed {
 }
 
 func Path(r Reader) string { r.c.Path() }
+
+func TakeNull(r Reader) bool { r.c.TakeNull() }
+
+func Peek(r Reader) WireKind {
+	let k = r.c.Kind()
+	if k == 0 { return WireNull }
+	if k == 1 { return WireBool }
+	if k == 2 { return WireNumber }
+	if k == 3 { return WireString }
+	if k == 4 { return WireList }
+	if k == 5 { return WireObject }
+	WireEnd
+}
+
+func Number(r Reader) string fails WireWrongKind {
+	let v = r.c.Number()
+	if r.c.Wrong() {
+		return WireWrongKind{Path: r.c.Path(), Want: "a number"}
+	}
+	v
+}
 
 func Bool(r Reader) bool fails WireWrongKind {
 	let v = r.c.Bool()

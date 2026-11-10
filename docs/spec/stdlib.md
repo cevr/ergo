@@ -275,6 +275,51 @@ Std `csv` (std-csv U4) is Go's `encoding/csv` with its defaults, over a text: a 
 
 ## json
 
+`Optional[T] = Absent | Present[T]` selects an absent or present record key.
+`Nullable[T] = Null | NonNull[T]` selects null or the bare value. A Nullable
+key is required. `Optional[Nullable[T]]` keeps all three states. `Option`
+is unchanged. These are ordinary closed unions (exhaustive `match`), with
+a codec representation selected in lowering, not a checker exception or
+field annotation. The field's type after instantiation selects the form: a
+field typed `T` in `Box[T]` omits its key when `T` is `json.Optional[int]`,
+also inside a generic function, where the codec witness of `T` carries the
+field form. `Optional` outside a record field keeps its tagged form;
+there is no absent root or array element. Failure rows remain conservative
+structural rows, including the union's possible shape failures.
+
+`Writer.Null` writes a null event. `Reader.TakeNull` consumes null and
+returns true, or leaves the next value and its path unchanged on false.
+Both the JSON reader and codec's event replay support this event.
+
+Effect Schema's intent is to distinguish absent keys from explicit null.
+Ergo does not take schema classes, field annotations or runtime tag checks:
+the field type and exhaustive unions express those states. ReScript uses
+optional record fields and `Nullable.t`; Gleam separates `optional_field`
+from `optional`; Go's `omitempty` and default Elixir maps have only one
+empty-value policy, so a separate wrapper is needed for a third state.
+
+`Value = Null | Boolean | Num | Str | Array | Object` is an untyped JSON
+value (G4): a field the program passes on without reading its shape. It is
+a wire type, alone or as a record field, and a program reads it with an
+exhaustive `match`. `Object` is `[]Member` (`Member { Key, Value }`), so it
+keeps the order of the members. `Num` keeps the spelling of a number;
+`ParseNum` (which fails `Malformed` on a text that is not one JSON number),
+`IntNumber` and `Num.Wire()` are the only ways in and out, so a `Num` is
+always a valid number. The codec writes each kind as the bare JSON value,
+not as a tagged record. The law `ValueRoundTrips`: `Encode(Decode(text))`
+is `text` without insignificant white space, with strings in the encoder's
+escaping. **Rule for a repeated key:** `Value` keeps every member, a
+repeated key included, in order. It does not interpret keys, so it passes
+on what it read; the row `JsonValueRepeatedKey` holds this. `Writer.Number`
+writes a spelling as it is; `Reader.Peek` gives the next value's kind
+(`WireKind`, a prelude union, the end of a list or object included) and
+`Reader.Number` reads a spelling. Codec's `Replay` reads a tag as the member
+`"_tag"` (`Key` leaves it, `String` reads it). Prior art: Go's
+`json.RawMessage` keeps the bytes, unread; ReScript's `JSON.t` and Gleam's
+`Dynamic` are trees that the host's parser builds, and they drop number
+spellings; Elixir Jason keeps member order only with `objects: :ordered_objects`
+and takes the last of a repeated key.
+
 Std `json` (S-json) writes and reads the derived codec's events ([types.md, Codecs](types.md#codecs)) as JSON text (RFC 8259). It is the format Effect's `Schema.parseJson` gives a schema, without a schema value: the codec is the type's own.
 
 | Name | Signature | Go body |
@@ -671,6 +716,10 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `json` | `DepthLimits` | `DepthLimits(k int) { let n = if k < 0 { -(k + 1) } else { k } let depth = n % 64 + 1 let _ = Open(nest(depth), 0, depth) catch { case _: return false } let _ = Open(nest(depth + 1), 0, depth) catch { case Malformed: return true } false }` | `TestStdJSONLawsRun` | tested |
 | `json` | `FastAgreesWithWriter` | `FastAgreesWithWriter(v fleet) { let t = NewText() t.BeginList(3) encode(v, t) t.Int(2) encode(v, t) t.EndList() let w = NewText() let r Writer = w r.BeginList(3) encode(v, r) r.Int(2) encode(v, r) r.EndList() let h = NewHTMLText() encode(v, h) let g = NewHTMLText() let gw Writer = g encode(v, gw) t.Written() == w.Written() && h.Written() == g.Written() && Encode(codec(), v) == viaWriter(v) }` | `TestStdJSONLawsRun` | tested |
 | `json` | `RoundTrips` | `RoundTrips(v fleet) { let back = Decode(codec(), Encode(codec(), v)) catch { case _: return false } back == v }` | `TestStdJSONLawsRun` | tested |
+| `json` | `OptionalRoundTrips` | `OptionalRoundTrips(v Option[int]) { optionalRoundTrips(v) }` | `TestJSONFieldsAgree` | tested |
+| `json` | `NullableRoundTrips` | `NullableRoundTrips(v Option[int]) { nullableRoundTrips(v) }` | `TestJSONFieldsAgree` | tested |
+| `json` | `NestedRoundTrips` | `NestedRoundTrips(v Option[Option[int]]) { nestedRoundTrips(v) }` | `TestJSONFieldsAgree` | tested |
+| `json` | `ValueRoundTrips` | `ValueRoundTrips(d doc) { valueRoundTrips(d) }` | `TestJSONValueAgrees` | tested |
 | `json` | `TruncatedFails` | `TruncatedFails(v fleet, cut int) { let text = Encode(codec(), v) let n = if cut < 0 { -(cut + 1) } else { cut } let short = text[:n % len(text)] let _ = Decode(codec(), short) catch { case Malformed: return true case _: return false } false }` | `TestStdJSONLawsRun` | tested |
 
 *Prior art:* Haskell states class laws beside the class and runs them with QuickCheck's `prop_` functions; Elixir's `StreamData` states properties beside `test`; MoonBit ships its core with property tests; Gleam and ReScript state none in source. Ergo states each law in the std source, where a reader of the std sees it, and keeps the Go test that runs it in one ledger until #162.

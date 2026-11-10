@@ -1,0 +1,17 @@
+GET /
+GET /tasks
+PUT /jobs
+GET /jobs/1/cancel
+POST /jobs {
+POST /jobs []
+POST /jobs {"priority":1}
+POST /jobs {"name":""}
+POST /jobs {"name":"x","priority":"high"}
+GET /jobs/0
+GET /jobs/01
+GET /jobs/x
+GET /jobs/7
+POST /jobs/7/cancel
+DELETE /jobs/7
+HEAD /jobs
+GET /jobs

@@ -56,11 +56,18 @@ func JSONAppendTextString(t *Text, s string) {
 	t.B = jsonAppendString(t.B, s, &jsonSafe)
 }
 
-// Null writes null, a value no derived codec writes (a Text's own event,
-// for a hand-written text).
-func (t *Text) Null() {
+// Null writes the null event, including a Nullable's empty state.
+func (t *Text) Null(task *rt.Task) {
 	t.JSONValue()
 	t.B = append(t.B, "null"...)
+	t.Comma = true
+}
+
+// Number writes a number's spelling as it is. json.Value's Number holds
+// only a spelling the reader validated or one formatted from a number.
+func (t *Text) Number(task *rt.Task, text string) {
+	t.JSONValue()
+	t.B = append(t.B, text...)
 	t.Comma = true
 }
 
@@ -732,6 +739,17 @@ func (c *Cursor) BeginList() bool { return c.begin('[', true) }
 
 func (c *Cursor) BeginObject() bool { return c.begin('{', false) }
 
+// TakeNull consumes null only. A false probe changes no path or list index.
+func (c *Cursor) TakeNull() bool {
+	c.ws()
+	if c.i >= len(c.s) || c.s[c.i] != 'n' {
+		return false
+	}
+	c.at()
+	c.i += len("null") // JSONOpen already validated this value.
+	return true
+}
+
 // Tag is the string value of the member "_tag" of the object just begun,
 // wherever it stands among the members, or false. The member stays: a
 // record's decode skips it as a key it does not know.
@@ -889,6 +907,49 @@ func (c *Cursor) Float() float64 {
 
 func (c *Cursor) String() string {
 	v, ok := c.readString()
+	c.wrong = !ok
+	return v
+}
+
+// The kinds Kind reports, in the order of the prelude's WireKind.
+const (
+	JSONKindNull = iota
+	JSONKindBool
+	JSONKindNumber
+	JSONKindString
+	JSONKindList
+	JSONKindObject
+	JSONKindEnd
+)
+
+// Kind is the kind of the next value, which it leaves: the text is
+// validated, so its first byte decides.
+func (c *Cursor) Kind() int {
+	c.ws()
+	if c.i >= len(c.s) {
+		return JSONKindEnd
+	}
+	switch c.s[c.i] {
+	case 'n':
+		return JSONKindNull
+	case 't', 'f':
+		return JSONKindBool
+	case '"':
+		return JSONKindString
+	case '[':
+		return JSONKindList
+	case '{':
+		return JSONKindObject
+	case ']', '}', ',':
+		return JSONKindEnd
+	}
+	return JSONKindNumber
+}
+
+// Number is the spelling of the next number, unparsed.
+func (c *Cursor) Number() string {
+	c.at()
+	v, ok := c.number()
 	c.wrong = !ok
 	return v
 }

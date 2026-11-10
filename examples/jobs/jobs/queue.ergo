@@ -1,0 +1,61 @@
+import time
+
+// The operations a client asks for, over the Store and the Clock in the
+// context. Each reads the job, settles it to the Clock's time and, for a
+// change, swaps it from the job it read: when another request changed the
+// job first (Stale), it reads again, so no change is lost.
+
+// Submit queues a new job now.
+func Submit(name string, priority int) Job needs Store | time.Clock {
+	Store.Add(name, priority, time.Clock.Now())
+}
+
+// Find is the job of id, now.
+func Find(id int) Job fails NotFound needs Store | time.Clock {
+	Settle(try Store.Get(id), time.Clock.Now())
+}
+
+// List is every job now, by ascending id.
+func List() []Job needs Store | time.Clock {
+	let now = time.Clock.Now()
+	let mut all = []Job{}
+	for j in Store.All() {
+		all = all.Append(Settle(j, now))
+	}
+	all
+}
+
+// CancelJob cancels the job of id: a queued or running job is cancelled
+// now; a job that ended fails Conflict.
+func CancelJob(id int) Job fails NotFound | Conflict needs Store | time.Clock {
+	for {
+		let old = try Store.Get(id)
+		let next = try Apply(old, Cancel, time.Clock.Now())
+		Store.Swap(old, next) catch {
+		case Stale:
+			continue
+		case NotFound as n:
+			return n
+		}
+		return next
+	}
+}
+
+// Remove forgets the job of id. Only a job that ended may go: a queued or
+// running job fails Conflict, so a client cancels it first.
+func Remove(id int) fails NotFound | Conflict needs Store | time.Clock {
+	for {
+		let old = try Store.Get(id)
+		let now = Settle(old, time.Clock.Now())
+		if !Ended(now.State) {
+			return Conflict{Id: id, State: Name(now.State), Asked: "delete"}
+		}
+		Store.Remove(old) catch {
+		case Stale:
+			continue
+		case NotFound as n:
+			return n
+		}
+		return
+	}
+}
