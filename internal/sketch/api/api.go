@@ -80,7 +80,7 @@ func Functions(p *check.Package) []Function {
 		}
 		slices.Sort(v.Takes)
 		slices.Sort(v.TakesParameters)
-		for _, c := range p.Info.Copies[f] {
+		for _, c := range check.CopySites(f) {
 			v.Copies = append(v.Copies, Copy{ParameterIndex: c.TParam, Parameter: s.TParams[c.TParam].Name, Where: c.Where, What: c.What, Key: c.Key})
 		}
 		slices.SortFunc(v.Copies, func(a, b Copy) int { return strings.Compare(a.Parameter, b.Parameter) })

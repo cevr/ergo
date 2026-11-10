@@ -149,7 +149,7 @@ func ledgerPath(root, arg string) string {
 // mutants: their own tests, the std tests (laws and guards), and the
 // default example programs, the end-to-end layer.
 func ergoSuites() ([]string, []Tool, []Suite) {
-	cover := []string{"./internal/sketch/check", "./internal/sketch/lower"}
+	cover := []string{"./internal/sketch/check", "./internal/sketch/lower", "./internal/sketch/api", "./cmd/ergo"}
 	tools := []Tool{
 		{Name: "ergo", Package: "./cmd/ergo", Flags: []string{"-buildvcs=false"}},
 		{Name: "examples", Package: "./scripts/examples", Flags: []string{"-buildvcs=false"}},
@@ -160,6 +160,8 @@ func ergoSuites() ([]string, []Tool, []Suite) {
 		// cliVariable), not one each test process builds.
 		{Name: "lower", Package: "./internal/sketch/lower", Env: []string{"ERGO_TEST_CLI={bin:ergo}"}},
 		{Name: "std", Package: "./internal/sketch/std"},
+		{Name: "api", Package: "./internal/sketch/api"},
+		{Name: "ergo", Package: "./cmd/ergo"},
 		// The case budget is off: a slow case under the runner's load is not
 		// a kill. The per-case timeout stays: a mutant that loops is one.
 		{Name: "examples", Command: []string{"{bin:examples}", "-root", "{root}", "-ergo", "{bin:ergo}", "-budget", "1h", "{test}"}, List: defaultExamples},

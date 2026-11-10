@@ -12,9 +12,13 @@ ergo inspect api --diff OLD NEW [--json]
 1. The view lists each exported function and method in name order. A
    function reached as a method is qualified by its receiver type. It shows
    its checked signature, `fails`, `needs`, its written or inferred `takes`
-   clause, and the copy sites recorded in `Info.Copies` for its generic type
-   parameters. Each copy says `copies T at file:line:column (plain data
-   only)` and gives the checker's reason. No copy mark is written in source.
+   clause, and the checker's copy policy for its generic type parameters.
+   Each body copy says `copies T at file:line:column (plain data only)` and
+   gives the checker's reason. A bodiless generic says `foreign body` in
+   place of a location: it may copy each parameter unless the reviewed
+   runtime table lists it as moving only. Inspection queries that same
+   checker policy; it does not infer another one. No copy mark is written
+   in source.
 2. The summary diff reports added, removed and changed contracts. Takes
    and copies are API facts, not implementation-only details. A newly taken
    parameter or newly copying type parameter says **breaks callers that

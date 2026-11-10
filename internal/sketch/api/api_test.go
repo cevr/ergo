@@ -13,9 +13,24 @@ import (
 
 // TestOwnershipAPIModel checks generated packages and edits against the
 // generator's model: taking, copying, export-only and plain-data changes.
-// Mutants: omitted copy, missed takes/copy change, plain change breaking.
+// Mutants: omitted copy, missed takes/copy change, plain change breaking,
+// and foreign copy facts omitted by reading only recorded body facts.
 // This seam tests checked docs and diff, not the lowering or Go execution.
 func TestOwnershipAPIModel(t *testing.T) {
+	// Smallest repro of the foreign-fact omission: both declarations have
+	// no body, but only Clone's reviewed runtime body may copy its T.
+	std, err := check.Std.Import("slices")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range Functions(std) {
+		if f.Name == "Clone" && (len(f.Copies) != 1 || f.Copies[0].Parameter != "T" || f.Copies[0].Where != "" || f.Copies[0].What == "" || !strings.Contains(Text([]Function{f}), "copies T at foreign body (plain data only)")) {
+			t.Fatalf("foreign copy policy lost: %+v", f)
+		}
+		if f.Name == "WithCapacity" && len(f.Copies) != 0 {
+			t.Fatalf("reviewed moving body reported as copying: %+v", f)
+		}
+	}
 	start, end := int64(1), int64(100)
 	if s := os.Getenv("ERGO_API_SEED"); s != "" {
 		n, err := strconv.ParseInt(s, 10, 64)

@@ -135,10 +135,15 @@ func (c *checker) infersTakes(f *Func) bool {
 		f.Decl.Recv == nil && !writesTakes(f) && !isExported(f.Name) && f.Name != "main"
 }
 
+// CopySites returns f's checked copy policy without exposing the stored
+// slice to modification. Inspection uses the same policy as instantiation,
+// including the conservative facts for a declaration with no body.
+func CopySites(f *Func) []CopySite { return slices.Clone(copiesOf(f)) }
+
 // copiesOf is f's copy sites: its body's, or for a generic declaration
 // with no body every type parameter, unless runtime/v1 lists the body as
 // moving its values only (plan 1.3, D-B).
-func (c *checker) copiesOf(f *Func) []CopySite {
+func copiesOf(f *Func) []CopySite {
 	if f == nil || f.Sig == nil || len(f.Sig.TParams) == 0 {
 		return nil
 	}
@@ -322,7 +327,7 @@ func (c *checker) takesPass(f *Func) bool {
 // f copies, is S108 (S112 for a map key); one built from the caller's own
 // type parameter is the caller's copy site.
 func (w *ownWalk) instance(x *syntax.CallExpr, f *Func, targs []Type) {
-	for _, s := range w.c.copiesOf(f) {
+	for _, s := range copiesOf(f) {
 		if s.TParam >= len(targs) || s.TParam >= len(f.Sig.TParams) {
 			continue
 		}
