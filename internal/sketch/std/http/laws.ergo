@@ -94,8 +94,8 @@ law StreamIsItsWrites(status int, parts []string) {
 // 1024 bytes, and put gets nothing. accept is the 2xx rule, or values
 // with the status added when listed is odd.
 law InMemorySendIntoIsSend(status int, body string, long bool, explicit bool, listed int, values []int) {
-	let text = if long { strings.Repeat(body + "x", 1100) } else { body }
-	let set = if listed % 2 == 0 { values } else { values.Append(status) }
+	let text = if long { strings.Repeat(body+"x", 1100) } else { body }
+	let set = if listed%2 == 0 { values } else { values.Append(status) }
 	let accept Accept = if explicit { Statuses{Values: set} } else { Success }
 	let mut taken = !explicit && status >= 200 && status < 300
 	for v in set {
