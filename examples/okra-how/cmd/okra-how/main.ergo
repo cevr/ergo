@@ -23,10 +23,11 @@ let topicArg = flag.OptionalArg("topic", "the topic of the guide to print; none 
 // fails only as Parse does, so its E is left out and empty.
 let commands = []flag.Command[Cmd]{
 	flag.Command[Cmd]{
-		Name:  "how",
-		Usage: "print the contents of okra's guides, or the guide of one topic",
-		Set:   flag.Set{Name: "okra how", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{topicArg}},
-		Build: buildHow,
+		Name:     "how",
+		Commands: []flag.Command[Cmd]{},
+		Usage:    "print the contents of okra's guides, or the guide of one topic",
+		Set:      flag.Set{Name: "okra how", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{topicArg}},
+		Build:    buildHow,
 	},
 }
 

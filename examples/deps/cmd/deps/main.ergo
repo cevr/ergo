@@ -28,22 +28,25 @@ let nameArg = flag.Arg("package", "the package to explain")
 
 let commands = []flag.Command[Cmd]{
 	flag.Command[Cmd]{
-		Name:  "resolve",
-		Usage: "print each package and its version, in the order to build them",
-		Set:   flag.Set{Name: "deps resolve", Usage: "", Flags: []flag.Flag{fileFlag}, Args: []flag.ArgSpec{}},
-		Build: func(v flag.Values) Cmd { Resolve{File: fileFlag.Get(v)} },
+		Name:     "resolve",
+		Commands: []flag.Command[Cmd]{},
+		Usage:    "print each package and its version, in the order to build them",
+		Set:      flag.Set{Name: "deps resolve", Usage: "", Flags: []flag.Flag{fileFlag}, Args: []flag.ArgSpec{}},
+		Build:    func(v flag.Values) Cmd { Resolve{File: fileFlag.Get(v)} },
 	},
 	flag.Command[Cmd]{
-		Name:  "why",
-		Usage: "print the shortest chain of needs from the project to a package",
-		Set:   flag.Set{Name: "deps why", Usage: "", Flags: []flag.Flag{fileFlag}, Args: []flag.ArgSpec{nameArg}},
-		Build: buildWhy,
+		Name:     "why",
+		Commands: []flag.Command[Cmd]{},
+		Usage:    "print the shortest chain of needs from the project to a package",
+		Set:      flag.Set{Name: "deps why", Usage: "", Flags: []flag.Flag{fileFlag}, Args: []flag.ArgSpec{nameArg}},
+		Build:    buildWhy,
 	},
 	flag.Command[Cmd]{
-		Name:  "graph",
-		Usage: "print each need between the chosen packages",
-		Set:   flag.Set{Name: "deps graph", Usage: "", Flags: []flag.Flag{fileFlag}, Args: []flag.ArgSpec{}},
-		Build: func(v flag.Values) Cmd { Graph{File: fileFlag.Get(v)} },
+		Name:     "graph",
+		Commands: []flag.Command[Cmd]{},
+		Usage:    "print each need between the chosen packages",
+		Set:      flag.Set{Name: "deps graph", Usage: "", Flags: []flag.Flag{fileFlag}, Args: []flag.ArgSpec{}},
+		Build:    func(v flag.Values) Cmd { Graph{File: fileFlag.Get(v)} },
 	},
 }
 

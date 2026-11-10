@@ -27,18 +27,20 @@ let liveFlag = flag.Bool("live", false, "fire on the host's clock, waiting for e
 
 let commands = []flag.Command[Cmd]{
 	flag.Command[Cmd]{
-		Name:  "next",
-		Usage: "print the next times an expression fires",
-		Set:   flag.Set{Name: "cron next", Usage: "", Flags: []flag.Flag{fromFlag, countFlag}, Args: []flag.ArgSpec{exprArg}},
-		Build: func(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+		Name:     "next",
+		Commands: []flag.Command[Cmd]{},
+		Usage:    "print the next times an expression fires",
+		Set:      flag.Set{Name: "cron next", Usage: "", Flags: []flag.Flag{fromFlag, countFlag}, Args: []flag.ArgSpec{exprArg}},
+		Build:    func(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
 			NextCmd{Expr: argOf(exprArg, v), From: fromFlag.Get(v), Count: countFlag.Get(v)}
 		},
 	},
 	flag.Command[Cmd]{
-		Name:  "run",
-		Usage: "fire the jobs of a table and print each firing",
-		Set:   flag.Set{Name: "cron run", Usage: "", Flags: []flag.Flag{fromFlag, untilFlag, liveFlag}, Args: []flag.ArgSpec{tableArg}},
-		Build: func(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+		Name:     "run",
+		Commands: []flag.Command[Cmd]{},
+		Usage:    "fire the jobs of a table and print each firing",
+		Set:      flag.Set{Name: "cron run", Usage: "", Flags: []flag.Flag{fromFlag, untilFlag, liveFlag}, Args: []flag.ArgSpec{tableArg}},
+		Build:    func(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
 			RunCmd{Table: argOf(tableArg, v), From: fromFlag.Get(v), Until: untilFlag.Get(v), Live: liveFlag.Get(v)}
 		},
 	},

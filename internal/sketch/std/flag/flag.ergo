@@ -1,6 +1,6 @@
 // Package flag reads a command line (docs/spec/stdlib.md, flag). It takes
 // Go's flag syntax and names (String, Int, Bool, "-name=value", "-name
-// value", "--name", "--" ends the flags, the last of a repeated flag wins,
+// value", "--name", "--" ends the flags, the last scalar occurrence wins,
 // Usage in PrintDefaults' layout) and Effect's typed commands
 // (@effect/cli: Choice, required flags, positional arguments,
 // subcommands that parse into the program's own union, a closed union of
@@ -21,25 +21,25 @@ import strings
 import time
 
 // StringFlag is the handle of a text flag.
-type StringFlag { name string, def string, usage string, required bool }
+type StringFlag { name string, def string, usage string, required bool, alias string }
 
 // IntFlag is the handle of an integer flag. Its value is read as Go's
 // strconv.ParseInt(s, 0, 64) reads it: 0x10, 0o17, 0b1 and 1_000 too.
-type IntFlag { name string, def int, usage string, required bool }
+type IntFlag { name string, def int, usage string, required bool, alias string }
 
 // BoolFlag is the handle of a switch: -name is true, -name=false is false;
 // a switch never takes the next argument as its value.
-type BoolFlag { name string, def bool, usage string }
+type BoolFlag { name string, def bool, usage string, alias string }
 
 // DurationFlag is the handle of a duration flag. Its value is read as Go's
 // time.ParseDuration reads it: 1h30m, 1.5s, 300ms (std-duration).
-type DurationFlag { name string, def duration, usage string }
+type DurationFlag { name string, def duration, usage string, alias string }
 
 // ChoiceFlag is the handle of a text flag whose value is one of choices.
-type ChoiceFlag { name string, def string, choices []string, usage string }
+type ChoiceFlag { name string, def string, choices []string, usage string, alias string }
 
 // Flag is any flag handle.
-type Flag = StringFlag | IntFlag | BoolFlag | ChoiceFlag | DurationFlag
+type Flag = StringFlag | IntFlag | BoolFlag | ChoiceFlag | DurationFlag | OptionalStringFlag | OptionalIntFlag | RepeatedStringFlag | RepeatedIntFlag | RepeatedBoolFlag | RepeatedDurationFlag | RepeatedChoiceFlag
 
 // ArgSpec is the handle of a positional argument.
 type ArgSpec { name string, usage string, arity arity }
@@ -55,42 +55,42 @@ type Set { Name string, Usage string, Flags []Flag, Args []ArgSpec }
 type Values { set Set, flags Map[string, value], named Map[string, string], rest []string }
 
 // value is a flag's parsed value.
-type value = textValue{V string} | intValue{V int} | boolValue{V bool} | durationValue{V duration}
+type value = textValue{V string} | intValue{V int} | boolValue{V bool} | durationValue{V duration} | listValue{V []value}
 
 // String is a text flag with a default.
 func String(name string, def string, usage string) StringFlag {
-	StringFlag{name: name, def: def, usage: usage, required: false}
+	StringFlag{name: name, def: def, usage: usage, required: false, alias: ""}
 }
 
 // Int is an integer flag with a default.
 func Int(name string, def int, usage string) IntFlag {
-	IntFlag{name: name, def: def, usage: usage, required: false}
+	IntFlag{name: name, def: def, usage: usage, required: false, alias: ""}
 }
 
 // Bool is a switch with a default.
-func Bool(name string, def bool, usage string) BoolFlag { BoolFlag{name: name, def: def, usage: usage} }
+func Bool(name string, def bool, usage string) BoolFlag { BoolFlag{name: name, def: def, usage: usage, alias: ""} }
 
 // RequiredString is a text flag with no default: a Parse without it fails
 // Missing.
 func RequiredString(name string, usage string) StringFlag {
-	StringFlag{name: name, def: "", usage: usage, required: true}
+	StringFlag{name: name, def: "", usage: usage, required: true, alias: ""}
 }
 
 // RequiredInt is an integer flag with no default: a Parse without it fails
 // Missing.
 func RequiredInt(name string, usage string) IntFlag {
-	IntFlag{name: name, def: 0, usage: usage, required: true}
+	IntFlag{name: name, def: 0, usage: usage, required: true, alias: ""}
 }
 
 // Duration is a duration flag with a default: Go's flag.Duration.
 func Duration(name string, def duration, usage string) DurationFlag {
-	DurationFlag{name: name, def: def, usage: usage}
+	DurationFlag{name: name, def: def, usage: usage, alias: ""}
 }
 
 // Choice is a text flag whose value must be one of choices; def is its
 // value when it is absent.
 func Choice(name string, def string, choices []string, usage string) ChoiceFlag {
-	ChoiceFlag{name: name, def: def, choices: choices, usage: usage}
+	ChoiceFlag{name: name, def: def, choices: choices, usage: usage, alias: ""}
 }
 
 // Arg is a positional argument that must be given.
@@ -208,7 +208,13 @@ func Rest(v Values) []string { v.rest }
 func Render(v Values) []string {
 	let mut out = []string{}
 	for f in v.set.Flags {
-		out = out.Append("-" + nameOf(f) + "=" + shown(f, v))
+		if cardinality(f) == 0 {
+			out = out.Append("-" + nameOf(f) + "=" + shown(f, v))
+		} else {
+			for x in stored(f, v) {
+				out = out.Append("-" + nameOf(f) + "=" + shownValue(x))
+			}
+		}
 	}
 	out = out.Append("--")
 	for a in v.set.Args {
@@ -260,6 +266,15 @@ func sameStrings(x []string, y []string) bool {
 
 // sameValue reports whether a and b hold one value for f.
 func sameValue(f Flag, a Values, b Values) bool {
+	if cardinality(f) != 0 {
+		let x = stored(f, a)
+		let y = stored(f, b)
+		if len(x) != len(y) { return false }
+		for i, v in x {
+			if shownValue(v) != shownValue(y[i]) { return false }
+		}
+		return true
+	}
 	match f {
 	case StringFlag as s:
 		s.Get(a) == s.Get(b)
@@ -271,6 +286,8 @@ func sameValue(f Flag, a Values, b Values) bool {
 		c.Get(a) == c.Get(b)
 	case DurationFlag as d:
 		d.Get(a) == d.Get(b)
+	case _:
+		Unreachable("flag: unknown cardinality")
 	}
 }
 
@@ -307,12 +324,14 @@ func shown(f Flag, v Values) string {
 		c.Get(v)
 	case DurationFlag as d:
 		time.DurationText(d.Get(v))
+	case _:
+		Unreachable("flag: a scalar value was required")
 	}
 }
 
 // nameOf is f's name.
 func nameOf(f Flag) string {
-	match f {
+	match scalar(f) {
 	case StringFlag as s:
 		s.name
 	case IntFlag as n:
@@ -332,7 +351,7 @@ func find(s Set, name string) Option[Flag] { findIn(s.Flags, name) }
 // findIn is the flag of flags named name.
 func findIn(flags []Flag, name string) Option[Flag] {
 	for f in flags {
-		if nameOf(f) == name {
+		if nameOf(f) == name || aliasOf(f) != "" && aliasOf(f) == name {
 			return Some[Flag]{Value: f}
 		}
 	}
@@ -356,39 +375,40 @@ func known(v Values, f Flag) {
 // sameHandle reports whether a and b are one handle: the same kind, name,
 // default, usage and, for a Choice, choices.
 func sameHandle(a Flag, b Flag) bool {
-	match a {
+	if cardinality(a) != cardinality(b) { return false }
+	match scalar(a) {
 	case StringFlag as x:
-		match b {
+		match scalar(b) {
 		case StringFlag as y:
 			x == y
 		case _:
 			false
 		}
 	case IntFlag as x:
-		match b {
+		match scalar(b) {
 		case IntFlag as y:
 			x == y
 		case _:
 			false
 		}
 	case BoolFlag as x:
-		match b {
+		match scalar(b) {
 		case BoolFlag as y:
 			x == y
 		case _:
 			false
 		}
 	case DurationFlag as x:
-		match b {
+		match scalar(b) {
 		case DurationFlag as y:
 			x == y
 		case _:
 			false
 		}
 	case ChoiceFlag as x:
-		match b {
+		match scalar(b) {
 		case ChoiceFlag as y:
-			x.name == y.name && x.def == y.def && x.usage == y.usage && sameStrings(x.choices, y.choices)
+			x.name == y.name && x.def == y.def && x.usage == y.usage && x.alias == y.alias && sameStrings(x.choices, y.choices)
 		case _:
 			false
 		}

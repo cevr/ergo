@@ -2,6 +2,76 @@
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
+      "name": "cu1-version-ignored",
+      "origin": "wf10 CU1",
+      "file": "internal/sketch/std/flag/command.ergo",
+      "from": "if len(args) > 0 && args[0] == \"--version\" {",
+      "to": "if false {",
+      "rule": "The root's declared --version yields its stated version.",
+      "killers": ["lower:TestFlagTreesAgree"],
+      "anchor": {"tests": ["lower:TestFlagTreesAgree"]}
+    },
+    {
+      "name": "cu1-repeated-int-ignored",
+      "origin": "wf10 CU1",
+      "file": "internal/sketch/std/flag/cardinality.ergo",
+      "from": "case intValue as n:\n\t\t\tout = out.Append(n.V)",
+      "to": "case intValue as n:\n\t\t\tout = out",
+      "rule": "A repeated integer handle reads every parsed integer, including through its alias.",
+      "killers": ["lower:TestFlagTreesAgree"],
+      "anchor": {"tests": ["lower:TestFlagTreesAgree"]}
+    },
+    {
+      "name": "cu1-alias-ignored",
+      "origin": "wf10 CU1",
+      "file": "internal/sketch/std/flag/flag.ergo",
+      "from": "if nameOf(f) == name || aliasOf(f) != \"\" && aliasOf(f) == name {",
+      "to": "if nameOf(f) == name {",
+      "rule": "A declared short name denotes the same handle as its long name.",
+      "killers": ["lower:TestFlagTreeLaws"],
+      "anchor": {"tests": ["lower:TestFlagTreeLaws"]}
+    },
+    {
+      "name": "cu1-optional-default",
+      "origin": "wf10 CU1",
+      "file": "internal/sketch/std/flag/cardinality.ergo",
+      "from": "func Get(f OptionalStringFlag, v Values) Option[string] {\n\tknown(v, f)\n\tmatch v.flags.Get(f.base.name) {\n\tcase None:\n\t\tNone",
+      "to": "func Get(f OptionalStringFlag, v Values) Option[string] {\n\tknown(v, f)\n\tmatch v.flags.Get(f.base.name) {\n\tcase None:\n\t\tSome[string]{Value: f.base.def}",
+      "rule": "An absent optional string is None, not an explicitly given default.",
+      "killers": ["lower:TestFlagTreeLaws"],
+      "anchor": {"tests": ["lower:TestFlagTreeLaws"]}
+    },
+    {
+      "name": "cu1-repeat-last-only",
+      "origin": "wf10 CU1",
+      "file": "internal/sketch/std/flag/cardinality.ergo",
+      "from": "listValue{V: xs.Append(x)}",
+      "to": "listValue{V: []value{x}}",
+      "rule": "Repeated keeps every occurrence in input order.",
+      "killers": ["lower:TestFlagTreeLaws"],
+      "anchor": {"tests": ["lower:TestFlagTreeLaws"]}
+    },
+    {
+      "name": "cu1-render-loses-items",
+      "origin": "wf10 CU1",
+      "file": "internal/sketch/std/flag/flag.ergo",
+      "from": "for x in stored(f, v) {",
+      "to": "for x in []value{} {",
+      "rule": "Render preserves optional presence and all repeated occurrences.",
+      "killers": ["lower:TestFlagTreeLaws"],
+      "anchor": {"tests": ["lower:TestFlagTreeLaws"]}
+    },
+    {
+      "name": "cu1-help-no-descendants",
+      "origin": "wf10 CU1",
+      "file": "internal/sketch/std/flag/command.ergo",
+      "from": "out = out + commandHelp[C, E](path, c.Commands)",
+      "to": "out = out",
+      "rule": "Command help names every descendant's relative path.",
+      "killers": ["lower:TestFlagTreeLaws"],
+      "anchor": {"tests": ["lower:TestFlagTreeLaws"]}
+    },
+    {
       "name": "stream-recorder-order",
       "origin": "wf10 Rm",
       "file": "internal/sketch/std/http/http.ergo",

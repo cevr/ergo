@@ -1,0 +1,11 @@
+route
+rule
+add
+demo
+-n=
+-p
+0
+-t
+first
+--target
+second

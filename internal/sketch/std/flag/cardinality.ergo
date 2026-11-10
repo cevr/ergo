@@ -1,0 +1,265 @@
+import strconv
+import time
+
+// Optional flags distinguish absence from an explicit empty string or zero.
+type OptionalStringFlag { base StringFlag }
+type OptionalIntFlag { base IntFlag }
+
+// Repeated flags have no default. Get returns the occurrences in input order.
+type RepeatedStringFlag { base StringFlag }
+type RepeatedIntFlag { base IntFlag }
+type RepeatedBoolFlag { base BoolFlag }
+type RepeatedDurationFlag { base DurationFlag }
+type RepeatedChoiceFlag { base ChoiceFlag }
+
+func OptionalString(name string, usage string) OptionalStringFlag {
+	OptionalStringFlag{base: String(name, "", usage)}
+}
+
+func OptionalInt(name string, usage string) OptionalIntFlag {
+	OptionalIntFlag{base: Int(name, 0, usage)}
+}
+
+func Repeated(f StringFlag) RepeatedStringFlag     { RepeatedStringFlag{base: f} }
+func Repeated(f IntFlag) RepeatedIntFlag           { RepeatedIntFlag{base: f} }
+func Repeated(f BoolFlag) RepeatedBoolFlag         { RepeatedBoolFlag{base: f} }
+func Repeated(f DurationFlag) RepeatedDurationFlag { RepeatedDurationFlag{base: f} }
+func Repeated(f ChoiceFlag) RepeatedChoiceFlag     { RepeatedChoiceFlag{base: f} }
+
+// scalarFlag is a flag's element kind, independent of its cardinality.
+type scalarFlag = StringFlag | IntFlag | BoolFlag | DurationFlag | ChoiceFlag
+
+func scalar(f Flag) scalarFlag {
+	match f {
+	case StringFlag as s:
+		s
+	case IntFlag as n:
+		n
+	case BoolFlag as b:
+		b
+	case DurationFlag as d:
+		d
+	case ChoiceFlag as c:
+		c
+	case OptionalStringFlag as s:
+		s.base
+	case OptionalIntFlag as n:
+		n.base
+	case RepeatedStringFlag as s:
+		s.base
+	case RepeatedIntFlag as n:
+		n.base
+	case RepeatedBoolFlag as b:
+		b.base
+	case RepeatedDurationFlag as d:
+		d.base
+	case RepeatedChoiceFlag as c:
+		c.base
+	}
+}
+
+func cardinality(f Flag) int {
+	match f {
+	case OptionalStringFlag, OptionalIntFlag:
+		1
+	case RepeatedStringFlag, RepeatedIntFlag, RepeatedBoolFlag, RepeatedDurationFlag, RepeatedChoiceFlag:
+		2
+	case _:
+		0
+	}
+}
+
+func Get(f OptionalStringFlag, v Values) Option[string] {
+	known(v, f)
+	match v.flags.Get(f.base.name) {
+	case None:
+		None
+	case Some as x:
+		match x.Value {
+		case textValue as s:
+			Some[string]{Value: s.V}
+		case _:
+			Unreachable("flag: optional string has another kind")
+		}
+	}
+}
+
+func Get(f OptionalIntFlag, v Values) Option[int] {
+	known(v, f)
+	match v.flags.Get(f.base.name) {
+	case None:
+		None
+	case Some as x:
+		match x.Value {
+		case intValue as n:
+			Some[int]{Value: n.V}
+		case _:
+			Unreachable("flag: optional int has another kind")
+		}
+	}
+}
+
+func items(f Flag, v Values) []value {
+	known(v, f)
+	match v.flags.Get(nameOf(f)) {
+	case None:
+		[]value{}
+	case Some as x:
+		match x.Value {
+		case listValue as xs:
+			xs.V
+		case _:
+			Unreachable("flag: repeated flag has another kind")
+		}
+	}
+}
+
+func Get(f RepeatedStringFlag, v Values) []string {
+	let mut out = []string{}
+	for x in items(f, v) {
+		match x {
+		case textValue as s:
+			out = out.Append(s.V)
+		case _:
+			Unreachable("flag: repeated string has another kind")
+		}
+	}
+	out
+}
+
+func Get(f RepeatedChoiceFlag, v Values) []string {
+	let mut out = []string{}
+	for x in items(f, v) {
+		match x {
+		case textValue as s:
+			out = out.Append(s.V)
+		case _:
+			Unreachable("flag: repeated choice has another kind")
+		}
+	}
+	out
+}
+
+func Get(f RepeatedIntFlag, v Values) []int {
+	let mut out = []int{}
+	for x in items(f, v) {
+		match x {
+		case intValue as n:
+			out = out.Append(n.V)
+		case _:
+			Unreachable("flag: repeated int has another kind")
+		}
+	}
+	out
+}
+
+func Get(f RepeatedBoolFlag, v Values) []bool {
+	let mut out = []bool{}
+	for x in items(f, v) {
+		match x {
+		case boolValue as b:
+			out = out.Append(b.V)
+		case _:
+			Unreachable("flag: repeated bool has another kind")
+		}
+	}
+	out
+}
+
+func Get(f RepeatedDurationFlag, v Values) []duration {
+	let mut out = []duration{}
+	for x in items(f, v) {
+		match x {
+		case durationValue as d:
+			out = out.Append(d.V)
+		case _:
+			Unreachable("flag: repeated duration has another kind")
+		}
+	}
+	out
+}
+
+// WithAlias declares one ASCII short name. It replaces the previous alias.
+// An invalid declaration is a defect, not a failure of user input.
+func shortName(a string) string {
+	if len(a) != 1 || !((a >= "a" && a <= "z") || (a >= "A" && a <= "Z") || (a >= "0" && a <= "9")) {
+		return Unreachable("flag: an alias is one short name")
+	}
+	a
+}
+
+func WithAlias(f StringFlag, a string) StringFlag                     { StringFlag{..f, alias: shortName(a)} }
+func WithAlias(f IntFlag, a string) IntFlag                           { IntFlag{..f, alias: shortName(a)} }
+func WithAlias(f BoolFlag, a string) BoolFlag                         { BoolFlag{..f, alias: shortName(a)} }
+func WithAlias(f DurationFlag, a string) DurationFlag                 { DurationFlag{..f, alias: shortName(a)} }
+func WithAlias(f ChoiceFlag, a string) ChoiceFlag                     { ChoiceFlag{..f, alias: shortName(a)} }
+func WithAlias(f OptionalStringFlag, a string) OptionalStringFlag     { OptionalStringFlag{base: f.base.WithAlias(a)} }
+func WithAlias(f OptionalIntFlag, a string) OptionalIntFlag           { OptionalIntFlag{base: f.base.WithAlias(a)} }
+func WithAlias(f RepeatedStringFlag, a string) RepeatedStringFlag     { RepeatedStringFlag{base: f.base.WithAlias(a)} }
+func WithAlias(f RepeatedIntFlag, a string) RepeatedIntFlag           { RepeatedIntFlag{base: f.base.WithAlias(a)} }
+func WithAlias(f RepeatedBoolFlag, a string) RepeatedBoolFlag         { RepeatedBoolFlag{base: f.base.WithAlias(a)} }
+func WithAlias(f RepeatedDurationFlag, a string) RepeatedDurationFlag { RepeatedDurationFlag{base: f.base.WithAlias(a)} }
+func WithAlias(f RepeatedChoiceFlag, a string) RepeatedChoiceFlag     { RepeatedChoiceFlag{base: f.base.WithAlias(a)} }
+
+func aliasOf(f Flag) string {
+	match scalar(f) {
+	case StringFlag as s:
+		s.alias
+	case IntFlag as n:
+		n.alias
+	case BoolFlag as b:
+		b.alias
+	case DurationFlag as d:
+		d.alias
+	case ChoiceFlag as c:
+		c.alias
+	}
+}
+
+// collected adds an occurrence only for repeated handles. Scalar and optional
+// handles keep the last occurrence, under the long name for either spelling.
+func collected(f Flag, flags Map[string, value], x value) value {
+	if cardinality(f) != 2 { return x }
+	let mut xs = []value{}
+	match flags.Get(nameOf(f)) {
+	case Some as old:
+		match old.Value {
+		case listValue as list:
+			xs = list.V
+		case _:
+			Unreachable("flag: a repeated flag has a scalar value")
+		}
+	case None:
+	}
+	listValue{V: xs.Append(x)}
+}
+
+func stored(f Flag, v Values) []value {
+	known(v, f)
+	match v.flags.Get(nameOf(f)) {
+	case None:
+		[]value{}
+	case Some as x:
+		match x.Value {
+		case listValue as list:
+			list.V
+		case _:
+			[]value{x.Value}
+		}
+	}
+}
+
+func shownValue(x value) string {
+	match x {
+	case textValue as s:
+		s.V
+	case intValue as n:
+		strconv.Itoa(n.V)
+	case boolValue as b:
+		strconv.FormatBool(b.V)
+	case durationValue as d:
+		time.DurationText(d.V)
+	case listValue:
+		Unreachable("flag: a scalar value was required")
+	}
+}
