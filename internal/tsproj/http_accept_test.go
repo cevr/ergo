@@ -13,7 +13,6 @@ import (
 	"strings"
 	"testing"
 
-	jobsexample "ergo.local/prototype/examples/jobs"
 	"ergo.local/prototype/internal/testwait"
 	tstools "ergo.local/prototype/tools/ts"
 )
@@ -42,14 +41,14 @@ func TestHttpApiClientCallsJobs(t *testing.T) {
 		}
 		put(t, dir, entry.Name(), string(b))
 	}
-	err := fs.WalkDir(jobsexample.Sources, ".", func(path string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(os.DirFS("../../examples/jobs"), ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() || !(strings.HasSuffix(path, ".ergo") || path == "ergo.mod") {
 			return nil
 		}
-		b, err := jobsexample.Sources.ReadFile(path)
+		b, err := os.ReadFile(filepath.Join("../../examples/jobs", path))
 		if err != nil {
 			return err
 		}

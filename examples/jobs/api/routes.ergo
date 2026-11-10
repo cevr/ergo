@@ -1,6 +1,7 @@
 import http
 import jobs/api/endpoint
 import jobs/jobs
+import json
 
 // Endpoint carries only a route's identity; Jobs declares what it asks and
 // answers. Handle calls Jobs in its context, so this is the served contract.
@@ -8,13 +9,23 @@ type Endpoint = endpoint.Endpoint
 
 // Jobs is the job queue's public application contract. HTTP failures are
 // assigned statuses by Handle; the route table declares only success.
-// law-exempt: AgreesWithModel runs this contract through Handle and Queue.
 type Jobs {
 	ListJobs() Listing,
 	SubmitJob(draft Draft) View fails BadBody,
 	ShowJob(id int) View fails jobs.NotFound,
 	CancelJob(id int) View fails jobs.NotFound | jobs.Conflict,
 	DeleteJob(id int) fails jobs.NotFound | jobs.Conflict,
+
+	// EmptyNameIsBadBody applies to every provider, not only the HTTP adapter.
+	// DraftOf already refuses an empty name before Handle calls Jobs, so the
+	// HTTP model cannot catch a provider that forgets this validation.
+	law EmptyNameIsBadBody(priority int) {
+		SubmitJob(Draft{Name: "", Priority: json.Present[int]{Value: priority}}) catch {
+		case BadBody as bad:
+			return bad.Field == "name"
+		}
+		false
+	},
 }
 
 // Routes is shared by http.Match and the TypeScript content mapper. Every

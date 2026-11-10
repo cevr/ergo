@@ -1,6 +1,6 @@
-// The API's rule as one law against a reference model. Handle needs a
-// jobs.Store, so the law takes the Store as a parameter and binds it in a
-// context, with a time.Manual for the Clock; ergo test runs it once per
+// The API's rule as one law against a reference model. Handle needs Jobs,
+// so the law takes the Store as a parameter and binds a Queue that captures
+// it and a time.Manual for the Clock; ergo test runs it once per
 // provider of Store this package sees (memory.Table, built by NewTable).
 // The model is a map of entries and the time in ms. It knows nothing of
 // the machine: it says what each state is from a job's age, so a wrong
@@ -233,7 +233,7 @@ func Disagreement(store jobs.Store, moves []int) string {
 	let clock = time.NewManual(0)
 	let mut model = Model{Entries: Map[int, Entry]{}, Last: 0, Now: 0}
 	let mut log = ""
-	with context { Jobs: NewQueue(store, clock) } {
+	with context { Jobs: Bind(store, clock) } {
 		for m in moves {
 			match AskOf(model, m) {
 			case Wait as w:

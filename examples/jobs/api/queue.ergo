@@ -4,7 +4,8 @@ import time
 // Queue serves Jobs, capturing the store and clock selected by the binary.
 type Queue { store jobs.Store, clock time.Clock }
 
-func NewQueue(store jobs.Store, clock time.Clock) Queue { Queue{store: store, clock: clock} }
+// Bind captures the providers chosen by the binary or by a test's world.
+func Bind(store jobs.Store, clock time.Clock) Queue { Queue{store: store, clock: clock} }
 
 func ListJobs(q Queue) Listing {
 	with context { jobs.Store: q.store, time.Clock: q.clock } {

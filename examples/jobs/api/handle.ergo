@@ -20,7 +20,7 @@ type WrongMethod { Allow string }
 type TooLarge { Limit int }
 type Unreadable { Reason string }
 
-// Handle answers r from the Store and the Clock in the context. answer
+// Handle answers r from Jobs in the context. answer
 // fails with every refusal by its type; this one catch gives each its
 // status, with no case _, so a new failure stops the build until it has
 // a status here.

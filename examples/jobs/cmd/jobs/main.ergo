@@ -79,7 +79,7 @@ func run(v flag.Values, handle escaping func(http.Request) http.Response needs a
 		case queue.Closed:
 			return
 		}
-		with context { api.Jobs: api.NewQueue(store, clock) } {
+		with context { api.Jobs: api.Bind(store, clock) } {
 			let server = task.Go() { try serve(l, handle) }
 			try driver.Wait()
 			server.Stop()
@@ -88,7 +88,7 @@ func run(v flag.Values, handle escaping func(http.Request) http.Response needs a
 	}
 	let l = try listen(addrFlag.Get(v))
 	io.Stdout.Println("jobs: listening on " + l.Addr())
-	with context { api.Jobs: api.NewQueue(store, time.NewHost()) } {
+	with context { api.Jobs: api.Bind(store, time.NewHost()) } {
 		try serve(l, handle)
 	}
 }
