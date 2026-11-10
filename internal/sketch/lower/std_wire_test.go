@@ -15,7 +15,10 @@ import (
 // no by-name pair: WireRefinedParses (a refined field decodes through its
 // ParseN, and a value outside its where fails Unsatisfied) and
 // WireByNamePair (a type with ParseX and Wire encodes as Wire's value and
-// decodes through ParseX, whose failure is in the row).
+// decodes through ParseX, whose failure is in the row, both through
+// generic codecs, so the caller's witness carries the pair). The pair's
+// derived law hostRoundTrips (types.md, Codecs 7) runs here too; it checks
+// the pair, not the codec, so WireByNamePair stays.
 const stdWireLawsProbe = `import wire
 
 type up { Host string, Port int, Tags []string, Load float64 }
@@ -134,6 +137,12 @@ test WireRefinedParses(n int64) {
 	assert int64(int(p)) == n
 }
 
+// replayed decodes a T from evs in a generic function, so a pair's codec
+// runs through the witness its caller's package builds.
+func replayed[T codable](evs []wire.Event) T fails wired[T] {
+	decode[T](wire.NewReplay(evs))
+}
+
 test WireByNamePair(names []string) {
 	let mut hosts = []host{}
 	for s in names {
@@ -142,16 +151,14 @@ test WireByNamePair(names []string) {
 		}
 	}
 	let v = listen{Port: 8080, Hosts: hosts}
-	let e = wire.NewEvents()
-	encode(v, e)
-	let back = decode[listen](wire.NewReplay(wire.Recorded(e))) catch {
+	let back = wire.RoundTrip(v) catch {
 	case _:
 		assert false
 		v
 	}
 	assert back == v
 	let bad = []wire.Event{wire.BeginObjectEvent{N: 2}, wire.KeyEvent{K: "port"}, wire.IntEvent{V: 80}, wire.KeyEvent{K: "hosts"}, wire.BeginListEvent{N: 1}, wire.StringEvent{V: ""}, wire.EndListEvent, wire.EndObjectEvent}
-	let refused = decode[listen](wire.NewReplay(bad)) catch {
+	let refused = replayed[listen](bad) catch {
 	case badHost:
 		return
 	case _:

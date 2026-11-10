@@ -1578,6 +1578,39 @@
       "killers": [
         "lower:TestStdWireLawsRun"
       ]
+    },
+    {
+      "name": "l11b-l1",
+      "origin": "wf10 v1-lang-B L11b",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\t\t\t\tif isCodable(tp) && i < len(inst.TypeArgs) {",
+      "to": "\t\t\t\tif false && isCodable(tp) && i < len(inst.TypeArgs) {",
+      "rule": "types.md, Codecs 6: a codable argument's codec functions are named in the naming pass.",
+      "killers": [
+        "lower:TestStdWireLawsRun"
+      ]
+    },
+    {
+      "name": "l11b-l2",
+      "origin": "wf10 v1-lang-B L11b",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\t\ts += \", \" + tc.wireOf(tp)",
+      "to": "\t\t_ = tp",
+      "rule": "types.md, Codecs 6: a generic codec function takes each type parameter's witness.",
+      "killers": [
+        "lower:TestStdWireLawsRun"
+      ]
+    },
+    {
+      "name": "l11b-l3",
+      "origin": "wf10 v1-lang-B L11b",
+      "file": "internal/sketch/lower/witness.go",
+      "from": "it != nil && (len(it.Methods) > 0 || it.Set == check.SetWire)",
+      "to": "it != nil && len(it.Methods) > 0",
+      "rule": "types.md, Codecs 6: a codable type parameter takes its codec as a witness.",
+      "killers": [
+        "lower:TestStdWireLawsRun"
+      ]
     }
   ]
 }

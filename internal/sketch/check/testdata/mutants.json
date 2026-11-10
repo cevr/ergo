@@ -995,14 +995,47 @@
       ]
     },
     {
-      "name": "l11-8",
-      "origin": "wf10 v1-lang-B L11",
-      "file": "internal/sketch/check/wirecall.go",
-      "from": "\tif tp != nil {\n\t\tc.errorf(n, CodeType, \"%s of a type that holds",
-      "to": "\tif tp != nil && false {\n\t\tc.errorf(n, CodeType, \"%s of a type that holds",
-      "rule": "types.md, Codecs 2: encode and decode of a type parameter is S108 until generic codecs.",
+      "name": "l11b-1",
+      "origin": "wf10 v1-lang-B L11b",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "\t\treturn &RowArg{Row: c.wireRow(b)}",
+      "to": "\t\treturn t",
+      "rule": "types.md, Codecs 6: an instance replaces wired[T] by its argument's wire row.",
       "killers": [
         "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11b-2",
+      "origin": "wf10 v1-lang-B L11b",
+      "file": "internal/sketch/check/wirecall.go",
+      "from": "\t\t\trow = row.with(c.types, &Wired{T: tp})",
+      "to": "\t\t\t_ = tp",
+      "rule": "types.md, Codecs 6: a codable type parameter's part of decode's row is wired[T].",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11b-3",
+      "origin": "wf10 v1-lang-B L11b",
+      "file": "internal/sketch/check/decl.go",
+      "from": "if t, ok := c.wiredElem(x, kind, ctx); ok {",
+      "to": "if t, ok := c.wiredElem(x, kind, ctx); ok && false {",
+      "rule": "types.md, Codecs 6: wired[X] in a fails row is the row of decode[X].",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11b-4",
+      "origin": "wf10 v1-lang-B L11b",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "\t\tc.recordWire(t)\n\t\treturn \"\"",
+      "to": "\t\treturn \"\"",
+      "rule": "types.md, Codecs 1 and 6: a generic codec's argument keeps its by-name pair (the caller records it).",
+      "killers": [
+        "lower:TestStdWireLawsRun"
       ]
     }
   ]
