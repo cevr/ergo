@@ -196,9 +196,10 @@ var runtimeBindings = map[string]runtimeBinding{
 	// The client (H1): Do waits on the network and on the caller's stop.
 	"HTTPCheckOrigin":  {},
 	"HTTPDo":           {wait: callerWait},
+	"HTTPDoInto":       {wait: callerWait},
 	"HTTPCheckNetwork": {},
 	"HTTPFetch":        {wait: callerWait},
-	// FetchInto shares the exchange and runs put on the caller's task;
+	// FetchInto and DoInto share the exchange and runs put on the caller's task;
 	// IntoFile runs its fetch on the caller's task and waits on nothing.
 	"HTTPFetchInto": {wait: callerWait},
 	"HTTPIntoFile":  {task: true},

@@ -157,7 +157,9 @@ var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Acto
 // HTTPFetchInto streams HTTPFetch's last body: runtime/v1
 // TestHTTPFetchIntoStops states that a stop mid-body ends the call with
 // the stop after the peer saw the hang-up.
-var hostWaitLaws = map[string]bool{"ExecRun": true, "IOReadAll": true, "IOLines": true, "RPCCall": true, "Exchange.Write": true, "HTTPDo": true, "HTTPFetch": true, "HTTPFetchInto": true}
+// HTTPDoInto is the same streamed exchange with a fixed origin; the same
+// test holds its wait (httpStreamURL).
+var hostWaitLaws = map[string]bool{"ExecRun": true, "IOReadAll": true, "IOLines": true, "RPCCall": true, "Exchange.Write": true, "HTTPDo": true, "HTTPFetch": true, "HTTPFetchInto": true, "HTTPDoInto": true}
 
 // blockingRoutes is the route axis of a binding (runtime.md, I1): the
 // waiting task of a callerWait binding is the task that invokes the call,

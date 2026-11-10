@@ -717,12 +717,13 @@ func main() {
 	use(Mine)
 }
 `,
-	// Net (H1) is open: a test binds its own transport.
+	// Net (H1) is open: a test binds its own transport (CU6b adds SendInto).
 	"http.Net": `import http
 
 type Mine {}
 
 func Send(_ Mine, r http.Request) http.Response fails http.RequestFailed { http.Response{Status: 200, Header: []http.Field{}, Body: ""} }
+func SendInto(_ Mine, r http.Request, accept http.Accept, put func(part string) fails http.SinkFailed) http.Response fails http.RequestFailed | http.StatusRefused | http.SinkFailed { http.Response{Status: 200, Header: []http.Field{}, Body: ""} }
 
 func use(_ http.Net) {}
 
@@ -737,7 +738,7 @@ func main() {
 type Mine {}
 
 func SendURL(_ Mine, r http.URLRequest) http.Response fails http.RequestFailed | http.OriginRefused | http.RedirectLimit { http.Response{Status: 200, Header: []http.Field{}, Body: ""} }
-func SendURLInto(_ Mine, r http.URLRequest, put func(part string) fails http.SinkFailed) http.Response fails http.RequestFailed | http.OriginRefused | http.RedirectLimit | http.SinkFailed { http.Response{Status: 200, Header: []http.Field{}, Body: ""} }
+func SendURLInto(_ Mine, r http.URLRequest, accept http.Accept, put func(part string) fails http.SinkFailed) http.Response fails http.RequestFailed | http.OriginRefused | http.RedirectLimit | http.StatusRefused | http.SinkFailed { http.Response{Status: 200, Header: []http.Field{}, Body: ""} }
 
 func use(_ http.Network) {}
 

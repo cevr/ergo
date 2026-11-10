@@ -34,6 +34,8 @@ func Save(d Remote, url string, path string) fails domain.Denied | domain.Failed
 		return domain.Failed{Reason: "redirect limit " + strconv.Itoa(l.Limit)}
 	case http.RequestFailed as f:
 		return domain.Failed{Reason: reason(f.Cause)}
+	case http.StatusRefused as s:
+		return domain.Failed{Reason: "status " + strconv.Itoa(s.Status)}
 	case http.SinkFailed as s:
 		return domain.Failed{Reason: "write failed: " + s.Reason}
 	case fs.NotFound, fs.Denied, fs.Failed, fs.Escapes:

@@ -190,6 +190,29 @@ test HttpStreamIsItsWrites(status int, parts []string) {
 	assert response == http.Response{Status: status, Header: header, Body: want}
 }
 
+test HttpInMemorySendIntoIsSend(status int, body string, long bool, explicit bool, listed int, values []int) {
+	let text = if long { strings.Repeat(body + "x", 1100) } else { body }
+	let set = if listed % 2 == 0 { values } else { values.Append(status) }
+	let accept http.Accept = if explicit { http.Statuses{Values: set} } else { http.Success }
+	let mut taken = !explicit && status >= 200 && status < 300
+	for v in set {
+		taken = taken || explicit && v == status
+	}
+	let h = http.InMemory(func(r http.Request) http.Response needs http.Streaming { http.Response{Status: status, Header: []http.Field{}, Body: text} })
+	let got = sync.NewRef[string]("")
+	let r = http.Request{Method: "GET", Path: "/", Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}
+	let response = h.SendInto(r, accept, func(part string) fails http.SinkFailed { got.Update(func(s string) string { s + part }) }) catch {
+	case http.StatusRefused as s:
+		let want = if len(text) > 1024 { text[0:1024] } else { text }
+		assert !taken && s.Status == status && s.Prefix == want && got.Get() == ""
+		return
+	case http.RequestFailed, http.SinkFailed:
+		assert false
+		return
+	}
+	assert taken && got.Get() == text && response.Status == status && response.Body == ""
+}
+
 test HttpWriteAfterStreamFails(text string) {
 	let kept = sync.NewRef[[]http.BodyWriter]([]http.BodyWriter{})
 	let response = with context { http.Streaming: http.NewRecorder() } {
@@ -282,7 +305,7 @@ func TestStdHTTPLawsRun(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("HTTP laws: exit %d\n%s\n%s", code, stdout, stderr)
 	}
-	statements := map[string]string{"http BuiltPathMatches": httpBuiltPathStatement, "http AllowIsWhatMatches": httpAllowStatement, "http FilesAsksBeneath": httpFilesStatement, "http StreamIsItsWrites": httpStreamStatement, "http WriteAfterStreamFails": httpLateWriteStatement}
+	statements := map[string]string{"http BuiltPathMatches": httpBuiltPathStatement, "http AllowIsWhatMatches": httpAllowStatement, "http FilesAsksBeneath": httpFilesStatement, "http StreamIsItsWrites": httpStreamStatement, "http WriteAfterStreamFails": httpLateWriteStatement, "http InMemorySendIntoIsSend": httpInMemoryIntoStatement}
 	lawLabel := func(key string) string { return "Http" + strings.TrimPrefix(key, "http ") }
 	lawledger.Run(t, lawsPassed(t, statements, lawLabel, stdHTTPLawsProbe, stdout, "RouterRefusalsAndHead", "HandlerUnderManual", "FilesAnswersByTheRule"))
 }
@@ -292,3 +315,5 @@ const httpFilesStatement = `FilesAsksBeneath(steps []int, prefixed bool) { let m
 const httpStreamStatement = `StreamIsItsWrites(status int, parts []string) { let header = []Field{Field{Name: "Content-Type", Value: "text/plain"}} let response = with context { Streaming: NewRecorder() } { Stream(status, header, func(w BodyWriter) fails WriteFailed { for p in parts { try w.Write(p) } }) } let mut want = "" for p in parts { want = want + p } response == Response{Status: status, Header: header, Body: want} }`
 
 const httpLateWriteStatement = `WriteAfterStreamFails(text string) { let kept = sync.NewRef[[]BodyWriter]([]BodyWriter{}) let response = with context { Streaming: NewRecorder() } { Stream(200, []Field{}, func(w BodyWriter) fails WriteFailed { kept.Set([]BodyWriter{w}) }) } for w in kept.Get() { w.Write(text) catch { case WriteFailed: return response.Body == "" } } false }`
+
+const httpInMemoryIntoStatement = `InMemorySendIntoIsSend(status int, body string, long bool, explicit bool, listed int, values []int) { let text = if long { strings.Repeat(body + "x", 1100) } else { body } let set = if listed % 2 == 0 { values } else { values.Append(status) } let accept Accept = if explicit { Statuses{Values: set} } else { Success } let mut taken = !explicit && status >= 200 && status < 300 for v in set { taken = taken || explicit && v == status } let h = InMemory(func(r Request) Response needs Streaming { Response{Status: status, Header: []Field{}, Body: text} }) let got = sync.NewRef[string]("") let r = Request{Method: "GET", Path: "/", Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}} let response = h.SendInto(r, accept, func(part string) fails SinkFailed { got.Update(func(s string) string { s + part }) }) catch { case StatusRefused as s: let want = if len(text) > 1024 { text[0:1024] } else { text } return !taken && s.Status == status && s.Prefix == want && got.Get() == "" case RequestFailed, SinkFailed: return false } taken && got.Get() == text && response.Status == status && response.Body == "" }`

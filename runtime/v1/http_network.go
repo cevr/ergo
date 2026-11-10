@@ -19,15 +19,48 @@ type HTTPSinkFailed struct{ Reason string }
 
 func (e HTTPSinkFailed) Error() string { return "http.SinkFailed: " + e.Reason }
 
-// BodyFile is http.BodyFile: the new file of one http.FetchFile. Only
-// HTTPIntoFile makes one, and it is valid only while its fetch runs.
-type BodyFile struct{ f *os.File }
+// BodyFile is http.BodyFile: the new file of one http.IntoFile. Only
+// HTTPIntoFile makes one, and it is valid only while its fetch runs. The
+// file is made at the first Put (open), so a fetch that puts nothing makes
+// none until HTTPIntoFile keeps it.
+type BodyFile struct {
+	root *HostRoot
+	name string
+	// tmp and f are the new file once open made it; failed is the error
+	// that kept open from making it, which HTTPIntoFile returns.
+	tmp    string
+	f      *os.File
+	failed error
+}
 
-// Put appends text to the new file. A failed write is SinkFailed, which
-// ends the fetch.
+// open makes the new file beside name, once.
+func (p *BodyFile) open() error {
+	if p.f != nil || p.failed != nil {
+		return p.failed
+	}
+	dir, base := path.Split(p.name)
+	var err error
+	for range 16 {
+		p.tmp = dir + "." + base + ".part-" + strconv.FormatUint(rand.Uint64(), 36)
+		p.f, err = p.root.root.OpenFile(p.tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
+		if !errors.Is(err, fs.ErrExist) {
+			break
+		}
+	}
+	if err != nil {
+		p.f, p.failed = nil, err
+	}
+	return err
+}
+
+// Put appends text to the new file, making it first. A failed write, or a
+// file that cannot be made, is SinkFailed, which ends the fetch.
 //
 //ergo:host
 func (p *BodyFile) Put(_ *rt.Task, text string) error {
+	if err := p.open(); err != nil {
+		return HTTPSinkFailed{Reason: fsReason(err)}
+	}
 	if _, err := p.f.WriteString(text); err != nil {
 		return HTTPSinkFailed{Reason: fsReason(err)}
 	}
@@ -37,13 +70,15 @@ func (p *BodyFile) Put(_ *rt.Task, text string) error {
 // partOnly marks the runtime's type as the one http.BodyFile.
 func (p *BodyFile) partOnly() {}
 
-// HTTPIntoFile is the body of http.FetchFile. It makes a new file beside
-// name below root (the caller's, borrowed for the call), runs fetch on the
-// caller's task with that file, and, when fetch succeeds, syncs the file
-// and renames it over name, so a reader sees the old file or the whole
-// body, never a part. On every other exit (a failure of fetch, a body over
-// its budget, a stop of t) the new file is closed and removed before the
-// call returns, so no part of the body is left.
+// HTTPIntoFile is the body of http.IntoFile (FetchFile, DoFile). It runs
+// fetch on the caller's task with a BodyFile for name below root (the
+// caller's, borrowed for the call) and, when fetch succeeds, syncs the new
+// file and renames it over name, so a reader sees the old file or the
+// whole body, never a part. On every other exit (a failure of fetch, a
+// refused status, a body over its budget, a stop of t) a new file that
+// was made is closed and removed before the call returns, so no part of
+// the body is left; a new file that could not be made fails with its fs
+// failure.
 //
 //ergo:host
 func HTTPIntoFile(t *rt.Task, root *HostRoot, name string, fetch func(*rt.Task, *BodyFile) (HTTPResponse, error)) (HTTPResponse, error) {
@@ -51,41 +86,32 @@ func HTTPIntoFile(t *rt.Task, root *HostRoot, name string, fetch func(*rt.Task, 
 	if name == "" {
 		return HTTPResponse{}, Failed{Path: name, Reason: "empty path"}
 	}
-	dir, base := path.Split(name)
-	var (
-		tmp string
-		f   *os.File
-		err error
-	)
-	for range 16 {
-		tmp = dir + "." + base + ".part-" + strconv.FormatUint(rand.Uint64(), 36)
-		f, err = root.root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
-		if !errors.Is(err, fs.ErrExist) {
-			break
-		}
-	}
-	if err != nil {
-		return HTTPResponse{}, rootErr(name, err)
-	}
+	file := &BodyFile{root: root, name: name}
 	kept := false
 	defer func() {
-		if !kept {
-			_ = f.Close()
-			_ = root.root.Remove(tmp)
+		if !kept && file.f != nil {
+			_ = file.f.Close()
+			_ = root.root.Remove(file.tmp)
 		}
 	}()
-	res, err := fetch(t, &BodyFile{f: f})
+	res, err := fetch(t, file)
+	if file.failed != nil {
+		return HTTPResponse{}, rootErr(name, file.failed)
+	}
 	if err != nil {
 		return HTTPResponse{}, err
 	}
-	if err := f.Sync(); err != nil {
+	if err := file.open(); err != nil {
 		return HTTPResponse{}, rootErr(name, err)
 	}
-	if err := f.Close(); err != nil {
+	if err := file.f.Sync(); err != nil {
 		return HTTPResponse{}, rootErr(name, err)
 	}
-	if err := root.root.Rename(tmp, name); err != nil {
-		_ = root.root.Remove(tmp)
+	if err := file.f.Close(); err != nil {
+		return HTTPResponse{}, rootErr(name, err)
+	}
+	if err := root.root.Rename(file.tmp, name); err != nil {
+		_ = root.root.Remove(file.tmp)
 		kept = true // closed and removed here
 		return HTTPResponse{}, rootErr(name, err)
 	}
@@ -189,17 +215,18 @@ func HTTPFetch(t *rt.Task, origins []string, anyOrigin bool, limits HTTPLimits, 
 }
 
 // HTTPFetchInto is HTTPFetch with the final response's body given to put,
-// a part at a time, in order, while it arrives (httpStreamURL); the
-// returned response has an empty Body. The body of a redirect it follows
+// a part at a time, in order, while it arrives (httpStreamURL), when
+// accepts takes its status (otherwise StatusRefused); the returned
+// response has an empty Body. The body of a redirect it follows
 // is not read. A failure of put ends the call with that failure, after the
 // exchange let go of its connection. limits.MaxBodyBytes bounds the bytes
 // put is given, not memory: at most two parts are held at once.
 //
 //ergo:host
-func HTTPFetchInto(t *rt.Task, origins []string, anyOrigin bool, limits HTTPLimits, hops int, method, rawURL string, header []HTTPField, owners []string, credentials []HTTPField, body string, put func(*rt.Task, string) error) (HTTPResponse, error) {
+func HTTPFetchInto(t *rt.Task, origins []string, anyOrigin bool, limits HTTPLimits, hops int, method, rawURL string, header []HTTPField, owners []string, credentials []HTTPField, body string, accepts func(int) bool, put func(*rt.Task, string) error) (HTTPResponse, error) {
 	follow := func(r HTTPResponse) bool { return hops != -1 && httpLocation(r) != "" }
 	return httpFetch(t, origins, anyOrigin, hops, method, rawURL, header, owners, credentials, body, func(u *url.URL, method string, fields []HTTPField, body string) (HTTPResponse, error) {
-		return httpStreamURL(t, u, limits, method, fields, body, follow, put)
+		return httpStreamURL(t, u, limits, method, fields, body, follow, accepts, put)
 	})
 }
 
