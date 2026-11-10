@@ -115,38 +115,41 @@ func TestHTTPNetworkRuns(t *testing.T) {
 		r := rand.New(rand.NewPCG(seed, 27))
 		length, hops := r.IntN(5), r.IntN(6)
 		mode := []string{"any", "both", "first", "none"}[r.IntN(4)]
-		sink := []string{"fetch", "into", "file", "dointo", "dofile"}[r.IntN(5)]
 		status := []int{200, 201, 404}[r.IntN(3)]
-		// outcome is the line of a final response: a sink takes a 2xx body
-		// (the default rule); Fetch buffers any.
-		outcome := func(final int, text string) string {
-			if sink != "fetch" && (final < 200 || final >= 300) {
-				return fmt.Sprintf("refused %d [%s]\n", final, text)
+		// Each case runs through every sink, so each sink's std caller meets
+		// a 2xx and a refused status within the seeds.
+		for _, sink := range []string{"fetch", "into", "file", "dointo", "dofile"} {
+			// outcome is the line of a final response: a sink takes a 2xx body
+			// (the default rule); Fetch buffers any.
+			outcome := func(final int, text string) string {
+				if sink != "fetch" && (final < 200 || final >= 300) {
+					return fmt.Sprintf("refused %d [%s]\n", final, text)
+				}
+				return "ok " + text + "\n"
 			}
-			return "ok " + text + "\n"
-		}
-		var want string
-		switch {
-		case strings.HasPrefix(sink, "do") && length > 0:
-			// The fixed-origin client follows no redirect; the 307 has no body.
-			want = outcome(307, "")
-		case strings.HasPrefix(sink, "do"):
-			want = outcome(status, "/")
-		case mode == "none":
-			want = "origin " + origins[0] + "\n"
-		case length > 0 && hops > 0 && mode == "first":
-			want = "origin " + origins[1] + "\n"
-		case length > hops:
-			want = fmt.Sprintf("limit %d\n", hops)
-		case length%2 == 1:
-			want = outcome(status, "/mark-B")
-		default:
-			want = outcome(status, "mark-A/")
-		}
-		dir := t.TempDir()
-		out, errout, code := runExeArgs(t, exes["httpnetwork"], origins[0], origins[1], mode, strconv.Itoa(hops), strconv.Itoa(length), sink, dir, strconv.Itoa(status))
-		if code != 0 || out != want {
-			t.Fatalf("seed %d, mode %s length %d hops %d sink %s status %d\nErgo exit %d: %q\nmodel: %q\nstderr: %s\nreplay: ERGO_HTTP_NETWORK_SOURCE_SEED=%d go test -run '^TestHTTPNetworkRuns$' ./internal/sketch/lower\n%s", seed, mode, length, hops, sink, status, code, out, want, errout, seed, httpNetworkProbe)
+			var want string
+			switch {
+			case strings.HasPrefix(sink, "do") && length > 0:
+				// The fixed-origin client follows no redirect; the 307 has no body.
+				want = outcome(307, "")
+			case strings.HasPrefix(sink, "do"):
+				want = outcome(status, "/")
+			case mode == "none":
+				want = "origin " + origins[0] + "\n"
+			case length > 0 && hops > 0 && mode == "first":
+				want = "origin " + origins[1] + "\n"
+			case length > hops:
+				want = fmt.Sprintf("limit %d\n", hops)
+			case length%2 == 1:
+				want = outcome(status, "/mark-B")
+			default:
+				want = outcome(status, "mark-A/")
+			}
+			dir := t.TempDir()
+			out, errout, code := runExeArgs(t, exes["httpnetwork"], origins[0], origins[1], mode, strconv.Itoa(hops), strconv.Itoa(length), sink, dir, strconv.Itoa(status))
+			if code != 0 || out != want {
+				t.Fatalf("seed %d, mode %s length %d hops %d sink %s status %d\nErgo exit %d: %q\nmodel: %q\nstderr: %s\nreplay: ERGO_HTTP_NETWORK_SOURCE_SEED=%d go test -run '^TestHTTPNetworkRuns$' ./internal/sketch/lower\n%s", seed, mode, length, hops, sink, status, code, out, want, errout, seed, httpNetworkProbe)
+			}
 		}
 	}
 }
