@@ -7,11 +7,11 @@ import deploys/memory
 import deploys/deploys
 import strings
 
-let json = []Header{Header{Name: "Content-Type", Value: "application/json; charset=utf-8"}}
+let jsonHeaders = []Header{Header{Name: "Content-Type", Value: "application/json; charset=utf-8"}}
 
 // call is Handle of method, path and body, with a JSON content type.
 func call(method string, path string, body string) Response needs deploys.Store {
-	Handle(Request{Method: method, Path: path, Headers: json, Body: body})
+	Handle(Request{Method: method, Path: path, Headers: jsonHeaders, Body: body})
 }
 
 // line is the status and body of r, one line.
@@ -31,7 +31,7 @@ test AConversation {
 
 test EachFailureHasItsStatus {
 	with context { deploys.Store: memory.NewTable() } {
-		assert line(call("POST", "/deploys", "{\"service\":")) == "400 {\"error\":\"the body is not JSON: a value is missing at byte 11\"}"
+		assert line(call("POST", "/deploys", "{\"service\":")) == "400 {\"error\":\"the body is not JSON: the text ends before a value at byte 11\"}"
 		assert line(call("POST", "/deploys", "[]")) == "422 {\"error\":\"is not an object\",\"field\":\"body\"}"
 		assert line(call("POST", "/deploys", "{\"service\":\"web\",\"units\":[{\"image\":\"app\",\"replicas\":1.5,\"mem\":1}]}")) == "422 {\"error\":\"is not an integer\",\"field\":\"units[0].replicas\"}"
 		assert line(call("POST", "/deploys", "{\"service\":\"web\",\"units\":[]}")) == "422 {\"error\":\"a deploy has at least one unit\",\"field\":\"units\"}"
