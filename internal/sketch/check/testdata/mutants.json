@@ -916,6 +916,94 @@
       "killers": [
         "check:TestFixtures"
       ]
+    },
+    {
+      "name": "l11-1",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wire.go",
+      "from": "if !isExported(f.Name) {\n\t\t\t\treturn",
+      "to": "if false && !isExported(f.Name) {\n\t\t\t\treturn",
+      "rule": "types.md, Codecs 1: a record only its package builds is not codable.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11-2",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wire.go",
+      "from": "if !isString(u.Key) {",
+      "to": "if false && !isString(u.Key) {",
+      "rule": "types.md, Codecs 1: a Map's key is a string.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11-3",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wire.go",
+      "from": "return \"\", &wireFault{t, \"is an operation type\"}",
+      "to": "return \"\", nil",
+      "rule": "types.md, Codecs 1: an operation type is not codable.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11-4",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wire.go",
+      "from": "return \"\", &wireFault{t, \"is a function\"}",
+      "to": "return \"\", nil",
+      "rule": "types.md, Codecs 1: a function is not codable.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11-5",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wire.go",
+      "from": "if typeSet(tp) == SetWire {",
+      "to": "if true {",
+      "rule": "types.md, Codecs 1: a type parameter is codable only under codable.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11-6",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wirecall.go",
+      "from": "\t\t\tif len(u.Fields) > 0 {\n\t\t\t\tadd(WireMissingName)",
+      "to": "\t\t\tif len(u.Fields) < 0 {\n\t\t\t\tadd(WireMissingName)",
+      "rule": "types.md, Codecs 3: a record with fields adds WireMissingField to decode's row.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11-7",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wirecall.go",
+      "from": "\t\t\trow = row.union(c.types, c.types.resolve(c.funcSig(p.Parse).Errors))",
+      "to": "\t\t\t_ = p",
+      "rule": "types.md, Codecs 3: a by-name ParseX's row joins decode's.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11-8",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wirecall.go",
+      "from": "\tif tp != nil {\n\t\tc.errorf(n, CodeType, \"%s of a type that holds",
+      "to": "\tif tp != nil && false {\n\t\tc.errorf(n, CodeType, \"%s of a type that holds",
+      "rule": "types.md, Codecs 2: encode and decode of a type parameter is S108 until generic codecs.",
+      "killers": [
+        "check:TestFixtures"
+      ]
     }
   ]
 }

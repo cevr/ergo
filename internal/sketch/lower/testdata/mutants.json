@@ -1512,6 +1512,72 @@
       "killers": [
         "lower:TestInterpolationText"
       ]
+    },
+    {
+      "name": "l11-l1",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "b.WriteString(\"if !\" + seen[i] + \" {\\nreturn \"",
+      "to": "b.WriteString(\"if false && !\" + seen[i] + \" {\\nreturn \"",
+      "rule": "types.md, Codecs 3: a field the object lacks fails WireMissingField.",
+      "killers": [
+        "lower:TestStdWireLawsRun"
+      ]
+    },
+    {
+      "name": "l11-l2",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "b.WriteString(\"}\\nreturn \" + zero + \", \" + tc.wireFailure(check.WireTagName",
+      "to": "b.WriteString(\"}\\nreturn \" + zero + \", \" + tc.wireFailure(check.WireMissingName",
+      "rule": "types.md, Codecs 3: a tag no variant has fails WireUnknownTag.",
+      "killers": [
+        "lower:TestStdWireLawsRun"
+      ]
+    },
+    {
+      "name": "l11-l3",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\t\t\tb.WriteString(w + \".Tag(\" + task + \", \" + strconv.Quote(vn.Obj.Name) + \")\\n\")",
+      "to": "\t\t\t_ = vn",
+      "rule": "types.md, Codecs 2: a union value writes its variant's Tag first.",
+      "killers": [
+        "lower:TestStdWireLawsRun"
+      ]
+    },
+    {
+      "name": "l11-l4",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\tif parse := check.RefinedParse(t); parse != nil {",
+      "to": "\tif parse := check.RefinedParse(t); parse != nil {\n\t\traw := scope.alloc(\"raw\")\n\t\tb.WriteString(tc.wireDecode(parse.Sig.Params[0].Type, env, r, raw, zero, scope) + \"return \" + tc.goType(t) + \"(\" + raw + \"), nil\\n\")\n\t\treturn\n\t}\n\tif parse := check.RefinedParse(t); parse != nil {",
+      "rule": "types.md, Codecs 1: a refined value decodes through its ParseN.",
+      "killers": [
+        "lower:TestStdWireLawsRun"
+      ]
+    },
+    {
+      "name": "l11-l5",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wirecall.go",
+      "from": "\treturn string(name[0]-'A'+'a') + name[1:]",
+      "to": "\treturn name",
+      "rule": "types.md, Codecs 2: a field's key is its name with the first letter lowered (Effect's Schema.Option value).",
+      "killers": [
+        "examples:deploys"
+      ]
+    },
+    {
+      "name": "l11-l6",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\tif p := l.info.WirePairOf(t); p != nil {\n\t\tparsed(p.Base, p.Parse)",
+      "to": "\tif p := l.info.WirePairOf(t); p != nil && false {\n\t\tparsed(p.Base, p.Parse)",
+      "rule": "types.md, Codecs 1: a by-name pair decodes through ParseX.",
+      "killers": [
+        "lower:TestStdWireLawsRun"
+      ]
     }
   ]
 }

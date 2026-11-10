@@ -117,6 +117,7 @@ test WireRefinedParses(n int64) {
 		assert false
 		return
 	}
+	assert int(p) >= 1 && int(p) <= 65535
 	assert int64(int(p)) == n
 }
 
