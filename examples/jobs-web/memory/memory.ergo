@@ -1,0 +1,119 @@
+// Package memory holds Memory, a jobs.Jobs whose jobs live in a map in
+// memory. Every copy of a Memory is the same server: its jobs are in a
+// sync.Ref, so the tasks that serve calls at once see one state, and
+// each change is one atomic step.
+
+import jobsweb/job
+import jobsweb/jobs
+import machines
+import maps
+import slices
+import sync
+
+// Memory is a jobs.Jobs in memory. Its fields are unexported: New makes
+// one. Job numbers count from 1.
+type Memory {
+	runs sync.Ref[Map[int, job.Run]],
+	last sync.Ref[int],
+}
+
+// New is a Memory with no jobs. ergo test runs the jobs.Jobs laws
+// against it.
+func New() Memory {
+	Memory{runs: sync.NewRef[Map[int, job.Run]](Map[int, job.Run]{}), last: sync.NewRef[int](0)}
+}
+
+// Submit queues a job of spec and is its number. A spec with no name, with
+// fewer than 1 or more than 100 steps, or failing at a step it never
+// reaches is Rejected.
+func Submit(m Memory, spec jobs.Spec) int fails jobs.Rejected {
+	if spec.Name == "" {
+		return jobs.Rejected{Reason: "a job needs a name"}
+	}
+	if spec.Steps < 1 || spec.Steps > 100 {
+		return jobs.Rejected{Reason: "a job runs 1 to 100 steps, not \(spec.Steps)"}
+	}
+	if spec.FailAt < 0 || spec.FailAt > spec.Steps {
+		return jobs.Rejected{Reason: "step \(spec.FailAt) is not one of the job's \(spec.Steps)"}
+	}
+	let id = sync.Modify(m.last, func(n int) (int, int) { (n + 1, n + 1) })
+	m.runs.Update(func(rs Map[int, job.Run]) Map[int, job.Run] {
+		let mut next = rs
+		next[id] = job.Open(spec)
+		next
+	})
+	id
+}
+
+// cancelled is what one atomic cancel found.
+type cancelled = Stopped{} | Missing{} | Ended{State jobs.State}
+
+// Cancel ends job id, unless it has ended already (AlreadyDone, with its
+// state) or there is no such job.
+func Cancel(m Memory, id int) fails jobs.NoSuchJob | jobs.AlreadyDone {
+	let found = sync.Modify(m.runs, func(rs Map[int, job.Run]) (cancelled, Map[int, job.Run]) {
+		let r = match rs.Get(id) {
+		case Some[job.Run] as s:
+			s.Value
+		case None:
+			return (Missing, rs)
+		}
+		let d = job.Step(r, job.Cancel)
+		match d {
+		case Reject:
+			(Ended{State: r.State}, rs)
+		case Emit[job.Run, jobs.State], Enter[job.Run], Stay[job.Run], Ignore, Done[jobs.State]:
+			let mut next = rs
+			next[id] = machines.Next(r, d)
+			(Stopped, next)
+		}
+	})
+	match found {
+	case Stopped:
+	case Missing:
+		return jobs.NoSuchJob{Number: id}
+	case Ended as e:
+		return jobs.AlreadyDone{Number: id, State: e.State}
+	}
+}
+
+// Status is job id, or None.
+func Status(m Memory, id int) Option[jobs.Job] {
+	match m.runs.Get().Get(id) {
+	case Some[job.Run] as s:
+		Some[jobs.Job]{Value: job.View(id, s.Value)}
+	case None:
+		None
+	}
+}
+
+// List is every job, by number.
+func List(m Memory) []jobs.Job {
+	let rs = m.runs.Get()
+	let mut out = []jobs.Job{}
+	for id in slices.Sorted(maps.Keys(rs)) {
+		match rs.Get(id) {
+		case Some[job.Run] as s:
+			out = out.Append(job.View(id, s.Value))
+		case None:
+		}
+	}
+	out
+}
+
+// Work ticks every job ticks times, each tick one atomic step of all.
+func Work(m Memory, ticks int) {
+	for _ in 0..ticks {
+		m.runs.Update(func(rs Map[int, job.Run]) Map[int, job.Run] {
+			let mut next = rs
+			for id in maps.Keys(rs) {
+				match rs.Get(id) {
+				case Some[job.Run] as s:
+					next[id] = machines.Next(s.Value, job.Step(s.Value, job.Tick))
+				case None:
+				}
+			}
+			next
+		})
+	}
+}

@@ -337,4 +337,11 @@ examples/limiter/limits/limitsrpc/wire.ergo	*
 examples/limiter/loopback/loopback.ergo	*
 examples/limiter/README.md	is the same limiter through the wire
 examples/limiter/README.md	the laws that hold for the provider hold through the wire.
+examples/jobs-web/jobs/jobsrpc/client.ergo	*
+examples/jobs-web/jobs/jobsrpc/server.ergo	*
+examples/jobs-web/jobs/jobsrpc/wire.ergo	*
+examples/jobs-web/loopback/loopback.ergo	*
+examples/jobs-web/README.md	is the same server through the wire
+examples/jobs-web/README.md	the laws that hold for the provider hold through the wire.
+examples/jobs-web/expected-skips	runs these laws through the wire
 docs/spec/stdlib.md	a contract's laws run through the wire

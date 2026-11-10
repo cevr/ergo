@@ -1,0 +1,145 @@
+// Package jobs is a job server's contract: jobs are submitted, worked a
+// step at a time, cancelled and watched. The page and the TypeScript
+// client import this file through the content mapper, so the operation
+// type below is the one contract the server, the page and the client
+// read.
+
+// Spec is a job to run: Steps of work, and the step at which it fails,
+// FailAt, or 0 when no step fails.
+type Spec { Name string, Steps int, FailAt int }
+
+// State is where a job is in its life. Finished, Failed and Cancelled are
+// terminal: a job leaves none of them.
+type State = Queued{} | Running{Step int, Of int} | Finished{} | Failed{Why string} | Cancelled{}
+
+// Job is one job as a client sees it.
+type Job { Number int, Name string, State State }
+
+// Rejected: the spec cannot run; Reason says why.
+type Rejected { Reason string }
+
+// NoSuchJob: no job has the number.
+type NoSuchJob { Number int }
+
+// AlreadyDone: the job is in the terminal State, so a cancel has
+// nothing to stop.
+type AlreadyDone { Number int, State State }
+
+// Jobs is the service the page and the client call. Work moves every
+// job on by ticks steps: the server's worker is driven, so a client that
+// waits says how long, and a case is exact.
+type Jobs {
+	Submit(spec Spec) int fails Rejected,
+	Cancel(id int) fails NoSuchJob | AlreadyDone,
+	Status(id int) Option[Job],
+	List() []Job,
+	Work(ticks int),
+
+	// CancelOfTerminalFails: once a job has ended, a cancel fails
+	// AlreadyDone with the state it ended in, and leaves that state.
+	law CancelOfTerminalFails(steps int, failAt int) { CancelOfTerminalFails(steps, failAt) },
+
+	// ProgressMonotone: work never moves a job back.
+	law ProgressMonotone(steps int, failAt int, works []int) { ProgressMonotone(steps, failAt, works) },
+
+	// RejectsWhatCannotRun: a spec of no steps is rejected and adds no job.
+	law RejectsWhatCannotRun(steps int) { RejectsWhatCannotRun(steps) },
+}
+
+// Terminal is whether s is an end: Finished, Failed or Cancelled.
+func Terminal(s State) bool {
+	match s {
+	case Queued, Running:
+		false
+	case Finished, Failed, Cancelled:
+		true
+	}
+}
+
+// Rank orders states by progress: queued, then each step run, then an end.
+func Rank(s State) int {
+	match s {
+	case Queued:
+		0
+	case Running as r:
+		1 + r.Step
+	case Finished, Failed, Cancelled:
+		1000000
+	}
+}
+
+// small is a spec the server accepts, from any two ints.
+func small(steps int, failAt int) Spec {
+	let n = 1 + ((steps%5)+5)%5
+	Spec{Name: "law", Steps: n, FailAt: ((failAt % (n + 1)) + (n + 1)) % (n + 1)}
+}
+
+// stateOf is job id's state, or None.
+func stateOf(id int) Option[State] needs Jobs {
+	match Jobs.Status(id) {
+	case Some[Job] as j:
+		Some[State]{Value: j.Value.State}
+	case None:
+		None
+	}
+}
+
+// CancelOfTerminalFails runs a job to its end and cancels it.
+func CancelOfTerminalFails(steps int, failAt int) bool needs Jobs {
+	let s = small(steps, failAt)
+	let id = Jobs.Submit(s) catch {
+	case Rejected:
+		return false
+	}
+	Jobs.Work(s.Steps + 1)
+	let ended = match stateOf(id) {
+	case Some[State] as e:
+		e.Value
+	case None:
+		return false
+	}
+	if !Terminal(ended) {
+		return false
+	}
+	Jobs.Cancel(id) catch {
+	case AlreadyDone as a:
+		return a.State == ended && a.Number == id && stateOf(id) == Some[State]{Value: ended}
+	case NoSuchJob:
+		return false
+	}
+	false
+}
+
+// ProgressMonotone works a job in the given amounts and checks its rank
+// after each.
+func ProgressMonotone(steps int, failAt int, works []int) bool needs Jobs {
+	let id = Jobs.Submit(small(steps, failAt)) catch {
+	case Rejected:
+		return false
+	}
+	let mut last = 0
+	for w in works {
+		Jobs.Work(((w % 3) + 3) % 3)
+		let now = match stateOf(id) {
+		case Some[State] as s:
+			Rank(s.Value)
+		case None:
+			return false
+		}
+		if now < last {
+			return false
+		}
+		last = now
+	}
+	true
+}
+
+// RejectsWhatCannotRun submits a spec of zero or fewer steps.
+func RejectsWhatCannotRun(steps int) bool needs Jobs {
+	let before = len(Jobs.List())
+	let _ = Jobs.Submit(Spec{Name: "none", Steps: -(((steps % 4) + 4) % 4), FailAt: 0}) catch {
+	case Rejected:
+		return len(Jobs.List()) == before
+	}
+	false
+}

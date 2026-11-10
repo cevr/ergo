@@ -1,0 +1,46 @@
+// jobs-web serves a job server and the page that drives it, from one origin:
+// one listener, one http.Serve, whose handler sends POST /rpc to the
+// Effect RPC server (rpc.Answer over the generated jobsrpc.Handle) and
+// every other request to the page's folder (http.Files). The folder is
+// the first argument; jobs-web prints its address first, then serves until
+// it is stopped. This binary is the only place that chooses the
+// providers: jobs.Jobs is a memory server.
+
+import fs
+import http
+import jobsweb/jobs
+import jobsweb/jobs/jobsrpc
+import jobsweb/memory
+import os
+import rpc
+import strings
+
+// Usage: the page's folder is missing.
+type Usage { Text string }
+
+// site answers one request: RPC at /rpc, the page's files elsewhere, and
+// the page itself (index.html) at /.
+func site(root fs.Root, r http.Request) http.Response needs jobs.Jobs | http.Streaming {
+	if r.Path == "/rpc" || strings.HasPrefix(r.Path, "/rpc/") {
+		return rpc.Answer(r, "/rpc", jobsrpc.Handle)
+	}
+	if r.Path == "/" {
+		return http.Files(root, "/", http.Request{Method: r.Method, Path: "/index.html", Query: r.Query, Header: r.Header, Body: r.Body})
+	}
+	http.Files(root, "/", r)
+}
+
+func main() fails Usage | fs.NotFound | fs.Denied | fs.Failed | http.ListenFailed | http.InvalidLimits needs Console | Ambient {
+	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
+	if len(args) != 1 {
+		return Usage{Text: "usage: jobs-web PAGE-FOLDER"}
+	}
+	let root = try fs.OpenRoot(args[0])
+	let l = try http.Listen("127.0.0.1:0")
+	Console.Println("listening \(l.Addr())")
+	with context { jobs.Jobs: memory.New() } {
+		try http.Serve(l, http.Limits{MaxBodyBytes: 65536, MaxHeaderBytes: 16384}, func(r http.Request) http.Response needs jobs.Jobs | http.Streaming {
+			site(root, r)
+		})
+	}
+}

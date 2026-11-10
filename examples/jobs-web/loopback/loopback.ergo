@@ -1,0 +1,41 @@
+// Package loopback is the job server through the wire: the generated RPC
+// Client of a memory server that its generated server serves in this
+// process (rpc.Loopback). Every operation crosses Effect RPC's HTTP wire
+// and the contract's codecs both ways, so `ergo test` runs the jobs.Jobs
+// laws against the client exactly as against the memory provider.
+
+import jobsweb/jobs
+import jobsweb/jobs/jobsrpc
+import jobsweb/memory
+import rpc
+
+// Loopback is a jobs.Jobs whose every operation is an RPC call.
+type Loopback { client jobsrpc.Client }
+
+// NewLoopback serves a fresh memory server in process and is its client.
+// The server binds the provider for each call; every call reaches the
+// same jobs, since a Memory's copies share them.
+func NewLoopback() Loopback {
+	let m = memory.New()
+	let conn = rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {
+		with context { jobs.Jobs: m } {
+			try jobsrpc.Handle(tag, payload)
+		}
+	})
+	Loopback{client: jobsrpc.NewClient(conn)}
+}
+
+// Submit is jobs.Jobs' Submit, over the wire.
+func Submit(l Loopback, spec jobs.Spec) int fails jobs.Rejected { try jobsrpc.Submit(l.client, spec) }
+
+// Cancel is jobs.Jobs' Cancel, over the wire.
+func Cancel(l Loopback, id int) fails jobs.NoSuchJob | jobs.AlreadyDone { try jobsrpc.Cancel(l.client, id) }
+
+// Status is jobs.Jobs' Status, over the wire.
+func Status(l Loopback, id int) Option[jobs.Job] { jobsrpc.Status(l.client, id) }
+
+// List is jobs.Jobs' List, over the wire.
+func List(l Loopback) []jobs.Job { jobsrpc.List(l.client) }
+
+// Work is jobs.Jobs' Work, over the wire.
+func Work(l Loopback, ticks int) { jobsrpc.Work(l.client, ticks) }
