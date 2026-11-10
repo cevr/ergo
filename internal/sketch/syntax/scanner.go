@@ -73,7 +73,7 @@ func scan(src string) *scanner {
 func (s *scanner) emit(tok Token, pos, end int, lit string) {
 	s.toks = append(s.toks, token{tok, Pos(pos), Pos(end), lit})
 	switch tok {
-	case IDENT, INT, FLOAT, DURATION, STRING, STRING_TAIL, RUNE, PATH, RPAREN, RBRACK, RBRACE, INC, DEC, RETURN, BREAK, CONTINUE:
+	case IDENT, INT, FLOAT, DURATION, STRING, STRING_TAIL, RUNE, PATH, RPAREN, RBRACK, RBRACE, INC, DEC, RETURN, BREAK, CONTINUE, TAKES:
 		s.semi = true
 	default:
 		s.semi = false

@@ -41,6 +41,7 @@ var GrammarFixtures = []GrammarFixture{
 	{"Param", "func f(_ Store, id string) {}\n"},
 	{"FailsClause", "func f() fails NotFound | Unavailable | retry.Exhausted[E] {}\n"},
 	{"NeedsClause", "func f() needs Clock | go.Foreign {}\n"},
+	{"TakesClause", "func Keep(f File, g File) Pair fails Full needs Clock takes f, g {}\n\ntype Task[T] {\n\tWait() T takes,\n\tPush(v T) fails Closed takes v,\n\tStop(),\n}\n\nfunc apply(h func(f File) takes f, n int64) {}\n"},
 	{"LetDecl", "let Names = []string{\"ada\"}\n\nfunc f(order Order) int64 {\n\tlet x = 1\n\tlet mut y int64 = 2\n\tlet q, r = DivMod(7, 2)\n\tlet (n, d) = DivMod(9, 4)\n\tlet Order{Total: t} = order\n\ty += x + q + r + n + d + t\n\ty\n}\n"},
 	{"ExpressionList", "func f() {\n\tuse(1, 2, 3)\n\twith A, B { run() }\n}\n"},
 	{"ProvidesClause", "let App = context provides Accounts | Ledger needs Clock {\n\tAccounts: Memory{},\n\tLedger:   Memory{},\n}\n"},

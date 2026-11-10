@@ -1063,7 +1063,31 @@ func (p *parser) parseSignature(funcPos Pos, ctx typeCtx) *FuncType {
 	if p.tok.tok == NEEDS {
 		t.Needs = p.parseNeeds(ctx)
 	}
+	if p.tok.tok == TAKES {
+		t.Takes = p.parseTakes(ctx)
+	}
 	return t
+}
+
+// parseTakes parses `takes [a, b]`. The names are optional: a bare takes
+// names the value an operation is called on (the checker refuses it
+// elsewhere). A comma continues the clause in a declaration, and in a
+// member unless the next member starts (`Name(`); in a list a comma ends
+// the element, as after a needs row.
+func (p *parser) parseTakes(ctx typeCtx) *TakesClause {
+	u := &TakesClause{Takes: p.want(TAKES)}
+	if p.tok.tok != IDENT {
+		return u
+	}
+	u.Names = append(u.Names, p.parseIdent())
+	for p.tok.tok == COMMA && p.peek(1).tok == IDENT {
+		if ctx == ctxList || ctx == ctxMember && p.peek(2).tok == LPAREN {
+			break
+		}
+		p.next()
+		u.Names = append(u.Names, p.parseIdent())
+	}
+	return u
 }
 
 // parseResultType parses the one result type. A tuple ending in `error` is

@@ -38,7 +38,7 @@ func main() fails queue.Closed needs Console {
 		case timeout.Expired:
 			"expired"
 		}
-		q.Close()
+		q.End()
 		for line in q.Values() {
 			Console.Println(line)
 		}

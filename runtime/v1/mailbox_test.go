@@ -39,6 +39,9 @@ type queueBox struct{ *Queue[int] }
 
 func (q queueBox) bind(*rt.Task) {}
 
+// Close is the queue's half-close, the mailbox's Close.
+func (q queueBox) Close() { q.End() }
+
 func (q queueBox) pop(t *rt.Task) (int, error) { return q.Pop(t) }
 func (q queueBox) waiters() int {
 	q.mu.Lock()

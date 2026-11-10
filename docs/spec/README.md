@@ -77,7 +77,7 @@ The [support table](support.md) lists the exact support of the build, one family
 | `timeout.After(d) { block }` | Checked as an ordinary library function of the package `timeout` (Gap 31); `ergo build` lowers its call to its `runtime/v1` body, `v1.After` | [runtime](runtime.md#timeouts) |
 | Trailing block as a function-literal argument | Checked; runs | [grammar](grammar.md#expressions) |
 | Function literals and function types | Checked, with rows from the expected type or inferred; runs | [types](types.md#generics) |
-| Resources and automatic release | Designed, not yet implemented ([#197](https://github.com/cevr/ergo/issues/197)) | [resources](resources.md) |
+| Resources and automatic release | Checked in part: resource types (L8 A1) and the ownership flow of locals (L8 A2); the release is lowered by L8 B1 ([#197](https://github.com/cevr/ergo/issues/197)) | [resources](resources.md) |
 | `task.Go`, `Task`, `Wait`, `Stop` | Checked (check-v1: the `task` package, and a `Task` leaves its function only by return, stage D3a); runs (stage D3b: a returned `Task` moves to the caller's scope; one held inside another type is refused naming stage E) | [runtime](runtime.md#tasks) |
 | Task tree, stop propagation, defect propagation | Implemented (the task runtime `runtime/rt`); every built program runs on it | [runtime](runtime.md#tasks) |
 | I1 checks before capability calls | Implemented ([#199](https://github.com/cevr/ergo/issues/199)) | [runtime](runtime.md#i1-interruption-points) |

@@ -275,10 +275,10 @@ func (m *mailbox[T]) Len() int {
 	return n
 }
 
-// Close is Queue.Close.
+// Close is Queue.End (the actor ends its mailbox).
 func (m *mailbox[T]) Close() {
 	if m.ref != nil {
-		m.ref.Close()
+		m.ref.End()
 		return
 	}
 	m.mu.Lock()

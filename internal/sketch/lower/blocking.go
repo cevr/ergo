@@ -79,7 +79,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Queue.Push":   {wait: callerWait},
 	"Queue.Pop":    {wait: callerWait},
 	"Queue.Values": {wait: callerWait},
-	"Queue.Close":  {},
+	"Queue.End":    {},
 	"Queue.Poll":   {},
 	"Queue.Len":    {},
 	"Go":           {},
@@ -388,8 +388,9 @@ func (fc *funcCtx) runtimeCall(name string, body v1.Body, typeArgs, recv string,
 		ice(site, "runtime binding %s does not receive its declared context package", name)
 	}
 	if x != nil && binding.wait != noWait && fc.l.info.Closes[x] != nil {
-		// A std Close is a release (R9). Today every std Close is atomic
-		// (Queue.Close); a waiting one needs a release route first.
+		// A std Close is a release (R9). Today std declares no Close (the
+		// queue's half-close is End, #197 q53); a waiting one, such
+		// as Task.Close (L8 B3), needs a release route first.
 		ice(site, "the std Close binding %s waits, and no release route masks it", name)
 	}
 	var head string

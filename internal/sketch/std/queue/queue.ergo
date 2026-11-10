@@ -10,14 +10,18 @@ type Closed {}
 // Queue is a queue of T with a fixed capacity.
 type Queue[T] {
 	// Push adds v at the back, waiting while the queue is full. It fails
-	// with Closed when the queue is closed, or closes while it waits.
-	Push(v T) fails Closed,
+	// with Closed when the queue is closed, or closes while it waits. It
+	// takes v: a resource moves into the queue (resources R13).
+	Push(v T) fails Closed takes v,
 	// Pop takes the value at the front, waiting while the queue is open and
 	// empty. It fails with Closed when the queue is closed and empty.
 	Pop() T fails Closed,
-	// Close ends admission. It does nothing on a closed queue, never waits
-	// and never fails; the values in the queue stay for Pop.
-	Close(),
+	// End ends admission. It does nothing on a closed queue, never waits
+	// and never fails; the values in the queue stay for Pop. It is a
+	// half-close (Node's writable.end(), gRPC's CloseSend, Go's
+	// CloseWrite), not a release, so a Queue of plain values stays a
+	// shared handle (#197 q53).
+	End(),
 	// Values pops each value in turn, as a Seq for a for loop: it waits
 	// like Pop and ends when the queue is closed and empty. A break stops
 	// it; the values not yet popped stay in the queue.
@@ -32,16 +36,16 @@ type Queue[T] {
 	// room is not counted. It never waits.
 	Len() int,
 
-	// CloseIsIdempotent: a second Close returns at once and never fails.
-	law CloseIsIdempotent() {
-		Close()
-		Close()
+	// EndIsIdempotent: a second End returns at once and never fails.
+	law EndIsIdempotent() {
+		End()
+		End()
 		true
 	},
-	// PushAfterCloseFails: Push on a closed queue fails Closed at once,
+	// PushAfterEndFails: Push after End fails Closed at once,
 	// whatever its capacity and contents.
-	law PushAfterCloseFails(v T) {
-		Close()
+	law PushAfterEndFails(v T) {
+		End()
 		Push(v) catch {
 		case Closed:
 			return true
@@ -56,7 +60,7 @@ type Queue[T] {
 		if k < 1 {
 			return true
 		}
-		Close()
+		End()
 		let n = Len()
 		let mut calls = 0
 		let s = Values()
@@ -79,12 +83,12 @@ law FirstInFirstOut(a int, b int) {
 	first == a && second == b
 }
 
-// CloseKeepsValues: Close ends admission and keeps the values in the queue
+// EndKeepsValues: End ends admission and keeps the values in the queue
 // for Pop.
-law CloseKeepsValues(v int) {
+law EndKeepsValues(v int) {
 	let q = New[int](1)
 	try q.Push(v)
-	q.Close()
+	q.End()
 	try q.Pop() == v
 }
 
@@ -93,17 +97,17 @@ law CloseKeepsValues(v int) {
 law PollOnEmptyIsNone() {
 	let q = New[int](1)
 	let open = q.Poll() == None
-	q.Close()
+	q.End()
 	open && q.Poll() == None
 }
 
 // PollTakesTheFront: Poll takes the values in the order Push added them,
-// also after Close, and is None when they are all taken.
+// also after End, and is None when they are all taken.
 law PollTakesTheFront(a int, b int) {
 	let q = New[int](2)
 	try q.Push(a)
 	try q.Push(b)
-	q.Close()
+	q.End()
 	q.Poll() == Some[int]{Value: a} && q.Poll() == Some[int]{Value: b} && q.Poll() == None
 }
 

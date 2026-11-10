@@ -30,7 +30,7 @@ func TestBodiesFollowTheHiddenConvention(t *testing.T) {
 		"Queue.Push":   {TypeParams: anyT, Hidden: []Hidden{CallerTask}, Params: []Param{{Type: "T"}}, Results: []string{"error"}},
 		"Queue.Pop":    {TypeParams: anyT, Hidden: []Hidden{CallerTask}, Results: []string{"T", "error"}},
 		"Queue.Values": {TypeParams: anyT, Hidden: []Hidden{CallerTask}, Results: []string{"iter.Seq[T]"}},
-		"Queue.Close":  {TypeParams: anyT},
+		"Queue.End":    {TypeParams: anyT},
 		// The prelude's Task operations, and the move a return makes into
 		// the caller's frame, the hidden destination.
 		"Task.Wait":    {TypeParams: anyT, Results: []string{"T", "error"}},

@@ -70,7 +70,7 @@ func TestDefinedTypeBase(t *testing.T) {
 		{"union", "type A {}\ntype B {}\ntype U = A | B\ntype MyU U\nfunc f(u MyU) MyU { let v = u; v }\n", []string{"S108:4"}},
 		{"union-instance", "type MyOpt Option[int]\nfunc f(o MyOpt) MyOpt { let b = o; b }\nfunc g() MyOpt { Some{1} }\n", []string{"S108:1"}},
 		{"task", "type Fault {}\ntype MyTask Task[int, Fault]\nfunc f(t MyTask) int fails Fault { t.Wait() }\n", []string{"S108:2"}},
-		{"std-operation", "import queue\ntype MyQ queue.Queue[int]\nfunc f(q MyQ) { q.Close() }\n", []string{"S108:2"}},
+		{"std-operation", "import queue\ntype MyQ queue.Queue[int]\nfunc f(q MyQ) { q.End() }\n", []string{"S108:2"}},
 		{"over-a-refused-type", "type Store { Get() int }\ntype A Store\ntype B A\nfunc f(b B) int { b.Get() }\n", []string{"S108:2"}},
 		// Allowed bases.
 		{"basic", "type Count int\nfunc f(c Count) int { int(c) }\n", nil},

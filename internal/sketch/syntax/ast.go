@@ -392,6 +392,24 @@ type NeedsClause struct {
 func (u *NeedsClause) Pos() Pos { return u.Needs }
 func (u *NeedsClause) End() Pos { return u.Names[len(u.Names)-1].End() }
 
+// TakesClause is `takes a, b` after a signature's rows (#197, resources.md
+// R19): the parameters the call hands off. Names is empty for a bare
+// `takes` in an operation type, which names the value the operation is
+// called on. The names are binders' references, not expressions: Inspect
+// does not visit them.
+type TakesClause struct {
+	Takes Pos
+	Names []*Ident
+}
+
+func (u *TakesClause) Pos() Pos { return u.Takes }
+func (u *TakesClause) End() Pos {
+	if len(u.Names) == 0 {
+		return u.Takes + Pos(len("takes"))
+	}
+	return u.Names[len(u.Names)-1].End()
+}
+
 // ProvidesClause is a context's exposure: `provides A | B`, the same kind of
 // row as a needs clause (196n).
 type ProvidesClause struct {
@@ -579,6 +597,7 @@ type (
 		Params   *FieldList
 		Results  *FieldList
 		Needs    *NeedsClause
+		Takes    *TakesClause
 	}
 
 	// StructType is the record of `type T { fields }`: Fields holds the
@@ -728,6 +747,8 @@ func (x *FuncType) Pos() Pos {
 }
 func (x *FuncType) End() Pos {
 	switch {
+	case x.Takes != nil:
+		return x.Takes.End()
 	case x.Needs != nil:
 		return x.Needs.End()
 	case x.Results != nil:

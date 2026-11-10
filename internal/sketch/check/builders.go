@@ -226,7 +226,7 @@ func (c *checker) providerBuilder(f *Func, r, n *Named) *Builder {
 	case *Interface, *MachineType:
 		return nil
 	}
-	a, _ := c.assignability(r, n)
+	a, _ := c.providerAssignability(r, n)
 	if !a.ok() || a.conv.Kind != ConvOperations {
 		return nil
 	}

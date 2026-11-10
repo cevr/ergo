@@ -162,10 +162,10 @@ func TestNumberForms(t *testing.T) {
 	}
 }
 
-// TestKeywords: the 27 decided keywords and `as` are keywords, the 15 Go
+// TestKeywords: the 28 decided keywords and `as` are keywords, the 15 Go
 // keywords Ergo does not use are reserved, and none of them is a name.
 func TestKeywords(t *testing.T) {
-	want := strings.Fields("break case continue else for func if import return type try catch needs provides context machine let mut in match escaping fails test law assert extern with as")
+	want := strings.Fields("break case continue else for func if import return type try catch needs provides context machine let mut in match escaping fails test law assert extern with takes as")
 	got := Keywords()
 	slices.Sort(got)
 	slices.Sort(want)

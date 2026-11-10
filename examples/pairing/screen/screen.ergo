@@ -264,7 +264,7 @@ func Run(clock time.Manual) needs Console | io.Stdin | Scheduler | pair.Devices 
 		}
 		Console.Println("screen: \(Show(s))")
 	}
-	reader.Tags.Close()
+	reader.Tags.End()
 	a.Stop()
 	if !ended {
 		Console.Println(Ending(actor.ExitOf(a)))

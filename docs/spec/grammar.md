@@ -35,18 +35,18 @@ Fixtures: `internal/sketch/testdata/probes/letter-name.ergo` (builds), `nonlette
 
 ## Keywords
 
-The decided grammar has **27 keywords**:
+The decided grammar has **28 keywords**:
 
 ```text
 break     case      continue  else      for       func      if
 import    return    type
 try       catch     needs     provides  context   machine
 let       mut       in        match     escaping  fails
-test      law       assert    extern    with
+test      law       assert    extern    with      takes
 ```
 
-- Ten are Go's (`break` to `type`); six are the earlier constructs (`try` to `machine`); eleven come from the decided stages: `let` and `mut` (196v), `in` (one `for`), `match` (196p), `escaping` (196e), `fails` (fifth round), `test`, `law` and `assert` (196l), `extern` (196x) and `with`, which is now a keyword because a `with` block is a construct (fifth round).
-- **`as`** is a keyword too (ninth round, `case Declined as d:`), so the parser reserves 28 words. It binds the value a pattern matched, narrowed to the pattern's type ([Expressions](#expressions) rule 6).
+- Ten are Go's (`break` to `type`); six are the earlier constructs (`try` to `machine`); twelve come from the decided stages: `let` and `mut` (196v), `in` (one `for`), `match` (196p), `escaping` (196e), `fails` (fifth round), `test`, `law` and `assert` (196l), `extern` (196x), `with`, which is now a keyword because a `with` block is a construct (fifth round), and `takes`, the hand-off clause (#197, rule 13 of Declarations).
+- **`as`** is a keyword too (ninth round, `case Declined as d:`), so the parser reserves 29 words. It binds the value a pattern matched, narrowed to the pattern's type ([Expressions](#expressions) rule 6).
 - **Contextual words.** `replace` (in a context), `initial`, `step` and `after` (in a machine), `reaches`, `never` and `path` (after the name of a machine's law), and `go` (after `import` and `extern`) have their meaning only in those positions. `uses` is an ordinary identifier with no compatibility path ([#217](https://github.com/cevr/ergo/issues/217)): `func f() uses A {}` is the plain S001 any stray identifier gets.
 - **`needs` and `provides`** (owner, 2026-10-27). `needs A | B` lists what a function, a function type, an operation or a context requires; `provides A | B` lists what a context exposes ([rows.md](rows.md#context)). Each is a row, a union, so it is spelled as the error row is: `fails NotFound | Declined needs Orders | Payments` (owner, 2026-11-03, 196n). *Prior art:* Roc's `provides` and `requires`; Effect's `Layer<ROut, E, RIn>`, whose requirement channel is the type union `R1 | R2`.
 - Constructs use keyword syntax; a dot form is always library (owner, 2026-10-12). `timeout.After`, `task.Go` and `scope.OnExit` are therefore library functions ([runtime.md](runtime.md)).
@@ -133,11 +133,12 @@ FuncType       = [ "escaping" ] "func" Signature .
 FuncDecl       = "func" identifier [ TypeParams ] Signature Block .
 ExternDecl     = "extern" "go" import_path "." identifier ( "func" [ "(" identifier Type ")" ] identifier [ TypeParams ] Signature | TypeDecl | LetDecl ) .
 TestDecl       = "test" identifier [ Params ] Block .
-Signature      = Params [ Type ] [ FailsClause ] [ NeedsClause ] .
+Signature      = Params [ Type ] [ FailsClause ] [ NeedsClause ] [ TakesClause ] .
 Params         = "(" [ Param { "," Param } [ "," ] ] ")" .
 Param          = [ identifier { "," identifier } ] Type [ "where" Expression ] .
 FailsClause    = "fails" TypeName [ TypeArgs ] { "|" TypeName [ TypeArgs ] } .
 NeedsClause    = "needs" CapName { "|" CapName } .
+TakesClause    = "takes" [ identifier { "," identifier } ] .
 LetDecl        = "let" [ "mut" ] Pattern { "," Pattern } [ Type ] [ "=" Expression ] .
 ProvidesClause = "provides" CapName { "|" CapName } .
 ContextBody    = "{" [ ContextEntry { "," ContextEntry } [ "," ] ] "}" .
@@ -177,7 +178,8 @@ CapName        = TypeName [ TypeArgs ] .
     - The test build (`lower.LowerTests`) lowers each test to a Go function and adds a runner: it prints `ok Name` or a `FAIL` line naming the failed assert's position and text, runs a property over every value when its parameters can be listed and otherwise its 100 cases from a seed (`--seed N`, default 1; [runtime](runtime.md#tests) Tests 2), and exits 1 when a test fails. A case's verdict is the exit that survives its unwinding: failed asserts, with typed failures beside them, fail the test and the run goes on; any other exit, such as a defect an exit action raises after an assert failed, prints the test's `FAIL` line and stops the run with the runtime's report of every reason (exit 2). The run build, which `ergo build` and `ergo run` use, contains no Go from a test. `ergo test FILE [--seed N]` builds the test binary in test mode, a module of the emission cache apart from the run build's, and runs it with the given seed; its exit status is the runner's (0, 1, or 2 for a defect), and a refuted property prints each argument as an Ergo literal of its type, so the case can be pasted into a test ([runtime](runtime.md#tests)).
     - A failed `assert a OP b`, OP one of `==`, `!=`, `<`, `<=`, `>`, `>=` (parentheses around the comparison allowed), shows its operands after the text: `double(2) == 4: left 5, right 4`, each operand an Ergo literal of its type, by the printer of a refuted property's arguments. Each operand is evaluated once, left to right, before the comparison. When both operands are strings (or defined types over string), they differ and either holds more than one line, a line diff follows: `--- left`, `+++ right`, then each line as `  line` (in both), `- line` (left only) or `+ line` (right only), by the longest common subsequence of lines. A comparison of two constants, any other assert (`&&`, a call, a bool), and an operand whose type has no literal here (a type of another package, of std or of the prelude, an operation type, a function, a borrow, a machine) show the text alone (T3, batch 12). *Prior art:* Go's `testing` convention "got X, want Y"; ExUnit's `assert left == right` shows `left:` and `right:` with a diff; pytest rewrites `assert` to show both sides; Gleam's `should.equal` prints both values.
 12. **Visibility.** See [Visibility](#visibility).
-13. **Refinements.** `where` after the type of a defined type (`type Port int where 1 <= it && it <= 65535`) or of a named parameter (`law L(b int where b != 0)`) starts a predicate ([types.md, Refinements](types.md#refinements)). `where` is a contextual word, not a keyword, so a name `where` stays a name elsewhere. The parser derives the type's `ParseN` function and `NWhere` law from it and places them after the type, marked derived; the formatter does not print them. A `where` on a host type and after a parameter group (`a, b int where …`) is S001.
+13. **`takes`** (#197, L8 A1). `func Keep(f File) Holder takes f` says the call hands `f` off: the caller gives it up on every path ([resources](resources.md) R19). The clause comes after `fails` and `needs`, on a function, a function type, a function literal and an operation. Its names are parameters; a name that is no parameter is S108 "takes q names no parameter of Keep". In an operation type a bare `takes` names the value the operation is called on (`Wait() T fails E takes`); a bare `takes` elsewhere is S108. A taken parameter whose type is plain data (it crosses, [resources](resources.md) R1) is S110 "takes n has no effect: int is not a resource". A comma continues the clause in a declaration, and in an operation unless the next operation starts (`Name(`); in a list a comma ends the element, as after a `needs` row. The checker infers the clause of an unexported function with a body (A3); the written clause is an upper bound, as a written row is. *Prior art:* Swift's `consuming` and Rust's by-value `self` mark the parameter; Lean 4 and Clean infer ownership inside a module and Clean writes it at the export. Ergo writes it beside the rows, so a reader who skips the clauses reads Go.
+14. **Refinements.** `where` after the type of a defined type (`type Port int where 1 <= it && it <= 65535`) or of a named parameter (`law L(b int where b != 0)`) starts a predicate ([types.md, Refinements](types.md#refinements)). `where` is a contextual word, not a keyword, so a name `where` stays a name elsewhere. The parser derives the type's `ParseN` function and `NWhere` law from it and places them after the type, marked derived; the formatter does not print them. A `where` on a host type and after a parameter group (`a, b int where …`) is S001.
 
 ## Visibility
 
@@ -226,7 +228,7 @@ CompositeLit   = LiteralType LiteralValue .
 LiteralType    = TypeName [ TypeArgs ] | SliceType | ArrayType .
 LiteralValue   = "{" [ ( ".." Expression { "," Element } | Element { "," Element } ) [ "," ] ] "}" .
 Element        = [ ( Expression | LiteralValue ) ":" ] ( Expression | LiteralValue ) .
-FuncLit        = "func" "(" [ LitParam { "," LitParam } ] ")" [ Type ] [ FailsClause ] [ NeedsClause ] Block .
+FuncLit        = "func" "(" [ LitParam { "," LitParam } ] ")" [ Type ] [ FailsClause ] [ NeedsClause ] [ TakesClause ] Block .
 LitParam       = identifier [ Type ] .
 IfExpr         = "if" Expression Block [ "else" ( IfExpr | Block ) ] .
 MatchExpr      = "match" Expression "{" { CaseClause } "}" .

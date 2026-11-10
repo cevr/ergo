@@ -279,6 +279,13 @@ func f() int fails Bang needs Log {
 }
 func main() {}
 `, nil},
+	{"fails and needs", "a takes clause (#197)", `
+type R {}
+func Close(r R) {}
+type Holder { r R }
+func keep(r R) Holder takes r { Holder{r: r} }
+func main() {}
+`, nil},
 	{"escaping", "an escaping function type (196e, check-v1 stage E2)", `
 func f(g escaping func(int) int) int { return g(1) }
 func main() {}

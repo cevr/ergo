@@ -63,7 +63,7 @@ func TestExternRules(t *testing.T) {
 func main() needs Console {
 	let mk = queue.New[int] // want S108
 	let q = mk(1)
-	q.Close()
+	q.End()
 	Console.Println("made")
 }
 `,
@@ -133,8 +133,8 @@ func main() needs Console {
 	let c = ((Upper))("x")
 	let q = queue.New[int](1)
 	let r = (queue.New[int])(1)
-	q.Close()
-	r.Close()
+	q.End()
+	r.End()
 	Console.Println(a + b + c)
 }
 `,
@@ -178,7 +178,7 @@ func main() needs Console {
 
 func main() needs Console {
 	let q = queue.New[int](1)
-	q.Close()
+	q.End()
 	Console.Println("ok")
 }
 `,
@@ -237,7 +237,7 @@ func Pop(_ Mine) int fails queue.Closed {
 	0
 }
 
-func Close(_ Mine) {}
+func End(_ Mine) {}
 
 func Values(_ Mine) Seq[int] {
 	queue.New[int](0).Values()
@@ -259,7 +259,7 @@ func Len(_ Mine) int {
 // a row whose type std no longer declares.
 var sealedPrograms = map[string]string{
 	"queue.Queue": queueMine + `
-func use(q queue.Queue[int]) { q.Close() }
+func use(q queue.Queue[int]) { q.End() }
 
 func main() {
 	use(Mine)
@@ -714,7 +714,7 @@ func TestStdProtocolSealed(t *testing.T) {
 		// probe convstd, verbatim.
 		"convstd": queueMine + `
 func use(q queue.Queue[int]) {
-	q.Close()
+	q.End()
 }
 
 func main() needs Console {
@@ -725,13 +725,13 @@ func main() needs Console {
 		"written-conversion": queueMine + `
 func main() {
 	let q = queue.Queue[int](Mine) // want S109
-	q.Close()
+	q.End()
 }
 `,
 		"let-typed": queueMine + `
 func main() {
 	let q queue.Queue[int] = Mine // want S109
-	q.Close()
+	q.End()
 }
 `,
 		"tail-value": queueMine + `
@@ -744,8 +744,8 @@ func pair() (Mine, Mine) { (Mine, Mine) }
 
 func main() {
 	let a, b queue.Queue[int] = pair() // want S109
-	a.Close()
-	b.Close()
+	a.End()
+	b.End()
 }
 `,
 		"compare": queueMine + `
@@ -759,13 +759,13 @@ func same(q queue.Queue[int]) bool {
 type Mine {
 	Push(v int) fails queue.Closed,
 	Pop() int fails queue.Closed,
-	Close(),
+	End(),
 	Values() Seq[int],
 	Poll() Option[int],
 	Len() int,
 }
 
-func use(q queue.Queue[int]) { q.Close() }
+func use(q queue.Queue[int]) { q.End() }
 
 func pass(m Mine) {
 	use(m) // want S109
@@ -787,7 +787,7 @@ func main() {
 		// the prelude's Console takes a program provider.
 		"queue-identity": `import queue
 
-func use(q queue.Queue[int]) { q.Close() }
+func use(q queue.Queue[int]) { q.End() }
 
 func main() {
 	use(queue.New[int](1))
@@ -902,12 +902,12 @@ func main() needs Ambient {
 }
 `,
 		"queue-param": queueMine + `
-func use(q queue.Queue[int]) { q.Close() }
+func use(q queue.Queue[int]) { q.End() }
 
 func main() {
 	use(Mine) // want S109
 	let q queue.Queue[int] = Mine // want S109
-	q.Close()
+	q.End()
 }
 `,
 	}

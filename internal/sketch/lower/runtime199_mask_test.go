@@ -22,7 +22,7 @@ import (
 // stop before the call, at release entry and during the release; nested
 // mask depth; a release defect with another cause; and the unmasked twins.
 // Test-only seams sit at the private v1 release boundary, at Sleep and at
-// Queue.Close; a Virtual clock replaces the live clock of NewLiveScheduler.
+// Queue.End; a Virtual clock replaces the live clock of NewLiveScheduler.
 // No settling sleep is needed.
 func TestRuntime199MaskProperty(t *testing.T) {
 	needsBuild(t)
@@ -231,7 +231,7 @@ func Finish(c Conn) needs Scheduler {
 func viaDot(fail bool, signal queue.Queue[int]) {
 	with context { Scheduler: NewLiveScheduler() } {
 		let c = Conn{Fail: fail}
-		signal.Close()
+		signal.End()
 		c.Close()
 	}
 }
@@ -239,7 +239,7 @@ func viaDot(fail bool, signal queue.Queue[int]) {
 func twinFinish(fail bool, signal queue.Queue[int]) {
 	with context { Scheduler: NewLiveScheduler() } {
 		let c = Conn{Fail: fail}
-		signal.Close()
+		signal.End()
 		c.Finish()
 	}
 }
@@ -316,21 +316,21 @@ func Close(o Other, n int) needs Scheduler {
 
 func viaOp(fail bool, signal queue.Queue[int]) {
 	let r Releaser = Plain{Fail: fail, Live: NewLiveScheduler()}
-	signal.Close()
+	signal.End()
 	r.Close()
 }
 
 func viaMethodValue(fail bool, signal queue.Queue[int]) {
 	let r Releaser = Plain{Fail: fail, Live: NewLiveScheduler()}
 	let f = r.Close
-	signal.Close()
+	signal.End()
 	f()
 }
 
 func twinOperand(fail bool, signal queue.Queue[int]) {
 	with context { Scheduler: NewLiveScheduler() } {
 		let o = Other{Fail: fail}
-		signal.Close()
+		signal.End()
 		o.Close(0)
 	}
 }
@@ -349,7 +349,7 @@ func twinOperand(fail bool, signal queue.Queue[int]) {
 func viaPlain(fail bool, signal queue.Queue[int]) {
 	with context { Scheduler: NewLiveScheduler() } {
 		let c = Conn{Fail: fail}
-		signal.Close()
+		signal.End()
 		Close(c)
 	}
 }
@@ -358,7 +358,7 @@ func viaValue(fail bool, signal queue.Queue[int]) {
 	with context { Scheduler: NewLiveScheduler() } {
 		let c = Conn{Fail: fail}
 		let f = Close
-		signal.Close()
+		signal.End()
 		f(c)
 	}
 }
@@ -386,7 +386,7 @@ func Close[T](b Box[T]) needs Scheduler {
 func viaGeneric(fail bool, signal queue.Queue[int]) {
 	with context { Scheduler: NewLiveScheduler() } {
 		let b = Box[string]{Fail: fail, V: "x"}
-		signal.Close()
+		signal.End()
 		b.Close()
 	}
 }
@@ -412,7 +412,7 @@ func viaPointer(fail bool, signal queue.Queue[int]) {
 	with context { Scheduler: NewLiveScheduler() } {
 		let mut h = Held{Fail: fail}
 		let p = &h
-		signal.Close()
+		signal.End()
 		p.Close()
 	}
 }
@@ -458,8 +458,8 @@ func maskNative(t *testing.T, p maskProgram, o *lowered) {
 			from := "func release(t *rt.Task, c *rt.Cause, body func(), after func(error) error) {"
 			data = replace(data, from, from+"\n\tMaskEnter(\"release\", t, 0)")
 		case "ergo/runtime/v1/queue.go":
-			from := "func (q *Queue[T]) Close() {"
-			data = replace(data, from, from+"\n\tMaskEnter(\"Queue.Close\", nil, 0)")
+			from := "func (q *Queue[T]) End() {"
+			data = replace(data, from, from+"\n\tMaskEnter(\"Queue.End\", nil, 0)")
 		case "ergo/runtime/rt/clock.go":
 			data = replace(data, "return liveTimer{time.NewTimer(d)}", "return BlockingClock.NewTimer(d)")
 		}
@@ -534,7 +534,7 @@ type slept struct { d time.Duration; task *rt.Task; depth int; done bool; err er
 type entered struct { task *rt.Task; depth int }
 type trace struct { mu sync.Mutex; sleeps []*slept; releases []entered; stopped bool }
 // stop is when the worker's stop is requested: "" never, "before-call" at
-// Queue.Close just before the dispatch, "release-entry" at the first entry
+// Queue.End just before the dispatch, "release-entry" at the first entry
 // into the v1 release boundary (before its mask), "during" at the entry of
 // the wait of duration at.
 type plan struct { stop string; at time.Duration }
@@ -557,7 +557,7 @@ func observe(t *testing.T, worker *rt.Task, p plan, call func() error) (*trace, 
   case "Sleep":
    tr.sleeps = append(tr.sleeps, &slept{d: d, task: task, depth: rt.MaskDepth(task)})
    if p.stop == "during" && d == p.at { stop() }
-  case "Queue.Close":
+  case "Queue.End":
    if p.stop == "before-call" { stop() }
   }
  }

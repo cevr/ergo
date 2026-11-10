@@ -19,7 +19,7 @@ import (
 
 // stdLawsProbe restates each law whose ledger runner is TestStdLawsRun.
 // A test's name is the ledger key without spaces and dots, its package
-// capitalized: queue's Queue.CloseIsIdempotent is QueueQueueCloseIsIdempotent.
+// capitalized: queue's Queue.EndIsIdempotent is QueueQueueEndIsIdempotent.
 // A member law is restated for each kind of provider the std makes: a
 // queue of capacity 0 and one with room, a waiting task.
 const stdLawsProbe = `import queue
@@ -55,24 +55,24 @@ test PreludeTaskStopIsIdempotent(n int) {
 	assert true
 }
 
-test QueueQueueCloseIsIdempotent(n int) {
+test QueueQueueEndIsIdempotent(n int) {
 	let empty = queue.New[int](0)
-	empty.Close()
-	empty.Close()
+	empty.End()
+	empty.End()
 	let full = queue.New[int](1)
 	try full.Push(n)
-	full.Close()
-	full.Close()
+	full.End()
+	full.End()
 	assert try full.Pop() == n
 }
 
-test QueueQueuePushAfterCloseFails(v int, cap int) {
+test QueueQueuePushAfterEndFails(v int, cap int) {
 	let c = small(cap)
 	let q = queue.New[int](c)
 	if c != 0 {
 		try q.Push(v)
 	}
-	q.Close()
+	q.End()
 	let mut failed = false
 	q.Push(v) catch {
 	case queue.Closed:
@@ -88,7 +88,7 @@ test QueueQueueValuesStops(xs []int, extra int) {
 		for x in xs {
 			try q.Push(x)
 		}
-		q.Close()
+		q.End()
 		let mut calls = 0
 		let s = q.Values()
 		s(func(v int) bool {
@@ -103,7 +103,7 @@ test QueueQueueValuesStops(xs []int, extra int) {
 		assert q.Poll() == None
 	}
 	let empty = queue.New[int](0)
-	empty.Close()
+	empty.End()
 	let mut none = 0
 	for _ in empty.Values() {
 		none = none + 1
@@ -120,10 +120,10 @@ test QueueFirstInFirstOut(a int, b int) {
 	assert first == a && second == b
 }
 
-test QueueCloseKeepsValues(v int) {
+test QueueEndKeepsValues(v int) {
 	let q = queue.New[int](1)
 	try q.Push(v)
-	q.Close()
+	q.End()
 	assert try q.Pop() == v
 }
 
@@ -281,11 +281,11 @@ var stdLawsStatements = map[string]string{
 	"log AnnotationEndRestores":            `AnnotationEndRestores(key string, text string) { let before = Annotation(key) with Annotate(key, text) { Annotation(key) } Annotation(key) == before }`,
 	"log InnerAnnotationShadows":           `InnerAnnotationShadows(key string, outer string, inner string) { with Annotate(key, outer) { with Annotate(key, inner) { Annotation(key) == Some[string]{Value: inner} } } }`,
 	"prelude Task.StopIsIdempotent":        `StopIsIdempotent() { Stop() Stop() true }`,
-	"queue CloseKeepsValues":               `CloseKeepsValues(v int) { let q = New[int](1) try q.Push(v) q.Close() try q.Pop() == v }`,
+	"queue EndKeepsValues":                 `EndKeepsValues(v int) { let q = New[int](1) try q.Push(v) q.End() try q.Pop() == v }`,
 	"queue FirstInFirstOut":                `FirstInFirstOut(a int, b int) { let q = New[int](2) try q.Push(a) try q.Push(b) let first = try q.Pop() let second = try q.Pop() first == a && second == b }`,
-	"queue Queue.CloseIsIdempotent":        `CloseIsIdempotent() { Close() Close() true }`,
-	"queue Queue.PushAfterCloseFails":      `PushAfterCloseFails(v T) { Close() Push(v) catch { case Closed: return true } false }`,
-	"queue Queue.ValuesStops":              `ValuesStops(k int) { if k < 1 { return true } Close() let n = Len() let mut calls = 0 let s = Values() s(func(v T) bool { calls = calls + 1 calls < k }) let taken = if k < n { k } else { n } calls == taken && Len() == n-taken }`,
+	"queue Queue.EndIsIdempotent":          `EndIsIdempotent() { End() End() true }`,
+	"queue Queue.PushAfterEndFails":        `PushAfterEndFails(v T) { End() Push(v) catch { case Closed: return true } false }`,
+	"queue Queue.ValuesStops":              `ValuesStops(k int) { if k < 1 { return true } End() let n = Len() let mut calls = 0 let s = Values() s(func(v T) bool { calls = calls + 1 calls < k }) let taken = if k < n { k } else { n } calls == taken && Len() == n-taken }`,
 	"scope ActionsRunLastFirst":            `ActionsRunLastFirst() { let mut order = "" let f = func() { OnExit() { order = order + "a" } OnExit() { order = order + "b" } } f() order == "ba" }`,
 	"task StopIsIdempotent":                `StopIsIdempotent() { let t = with context { Scheduler: time.NewManual(0) } { Go() { Scheduler.Sleep(1h) 0 } } t.Stop() t.Stop() true }`,
 	"task WaitReturnsTheBlock":             `WaitReturnsTheBlock(n int) { let t = Go() { n } t.Wait() == n }`,
@@ -378,7 +378,7 @@ import log
 func run() fails queue.Closed | timeout.Expired needs Console | Scheduler {
 	let q = queue.New[int](1)
 	try q.Push(1)
-	q.Close()
+	q.End()
 	let t = task.Go() { try q.Pop() }
 	let v = try t.Wait()
 	scope.OnExit() { Console.Println("exit") }
@@ -418,7 +418,7 @@ func TestStdLawsAddNoGo(t *testing.T) {
 	if got != string(want) {
 		t.Errorf("the Go of a program that imports the std packages with laws changed:\n%s", lineDiff(string(want), got))
 	}
-	for _, law := range []string{"FirstInFirstOut", "CloseKeepsValues", "CloseIsIdempotent", "PushAfterCloseFails", "WaitReturnsTheBlock", "StopIsIdempotent", "QuickBodyWins", "DeadlineFirstExpires", "ActionsRunLastFirst", "InnerSpanShadows", "SpanEndRestores", "InnerAnnotationShadows", "AnnotationEndRestores", "IntNInRange", "Float64InUnit"} {
+	for _, law := range []string{"FirstInFirstOut", "EndKeepsValues", "EndIsIdempotent", "PushAfterEndFails", "WaitReturnsTheBlock", "StopIsIdempotent", "QuickBodyWins", "DeadlineFirstExpires", "ActionsRunLastFirst", "InnerSpanShadows", "SpanEndRestores", "InnerAnnotationShadows", "AnnotationEndRestores", "IntNInRange", "Float64InUnit"} {
 		if strings.Contains(got, law) {
 			t.Errorf("the Go names the law %s", law)
 		}

@@ -189,8 +189,8 @@ func Play(s Script, clock time.Manual) []string needs Scheduler | search.Index {
 	}
 	watch.Wait()
 	flush()
-	states.Close()
-	told.Close()
+	states.End()
+	told.End()
 	lines
 }
 

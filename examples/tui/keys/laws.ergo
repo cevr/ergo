@@ -11,10 +11,10 @@ law RoundTrip(keys []Key) {
 // DecodeTakesEveryText: Decode reads any bytes, and no Char it gives is
 // empty or a control byte. The text is also read with an arrow and a
 // control byte after it, which generated texts seldom hold.
-law DecodeTakesEveryText(text string) { takes(text) && takes(text+"\x1b[A\x05") }
+law DecodeTakesEveryText(text string) { consumes(text) && consumes(text+"\x1b[A\x05") }
 
-// takes checks DecodeTakesEveryText for one text.
-func takes(text string) bool {
+// consumes checks DecodeTakesEveryText for one text.
+func consumes(text string) bool {
 	for k in Decode(text) {
 		match k {
 		case Char as c:

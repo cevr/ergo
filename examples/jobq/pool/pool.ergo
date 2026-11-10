@@ -95,11 +95,11 @@ func Run(c sched.Config, js []jobs.Job) []Report fails queue.Closed needs jobs.W
 	for j in js {
 		try q.Push(j)
 	}
-	q.Close()
+	q.End()
 	let pacer = task.Go() { pace(tokens, c.Every) }
 	try crew(1, workers, q, tokens, out, c.Policy)
 	pacer.Stop()
-	out.Close()
+	out.End()
 	let mut got = []Report{}
 	for r in out.Values() {
 		got = got.Append(r)

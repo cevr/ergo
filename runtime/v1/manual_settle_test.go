@@ -287,7 +287,7 @@ func settleRun(seed uint64, where *atomic.Value) string {
 		// Closing full ends every step's Push, so the sink and its
 		// waiters end; closing host ends its Gets.
 		host.close()
-		full.Close()
+		full.End()
 		_ = sink.Stop(root)
 		_ = a.Stop(root)
 		sc.End(nil)

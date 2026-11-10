@@ -533,8 +533,9 @@ func TestPreviewDecidedBlocksCanonical(t *testing.T) {
 // laterProductions are the productions grammar.md gained after the
 // preview's decided sketch: PatternCore (D1) and ArrayType (196y, the
 // fixed arrays that decisions.md 2026-11-02 (c) brought back) and CapName
-// (L4, generic capabilities: a capability name takes type arguments).
-var laterProductions = []string{"PatternCore", "ArrayType", "CapName"}
+// (L4, generic capabilities: a capability name takes type arguments) and
+// TakesClause (#197 L8 A1, ownership).
+var laterProductions = []string{"PatternCore", "ArrayType", "CapName", "TakesClause"}
 
 // TestGrammarStatesTheSketch: the syntactic productions of
 // docs/spec/grammar.md are the 62 of the preview's decided sketch plus

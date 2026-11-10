@@ -314,7 +314,7 @@ func (c *dfCase) write(f *dfFile) {
 	fn := fmt.Sprintf("F%d", k)
 	f.add("func %s(done queue.Queue[int]) int64 fails Fault {", fn)
 	f.add("\tscope.OnExit() {")
-	f.add("\t\tdone.Close()")
+	f.add("\t\tdone.End()")
 	f.add("\t}")
 	if c.place != dfBody {
 		f.add("\tscope.OnExit() {")
@@ -396,7 +396,7 @@ func (c *dfCase) writeLevel(f *dfFile, j int) {
 	f.add("func %s(%s) int64 fails Fault {", name, params)
 	if j > 0 {
 		f.add("\tscope.OnExit() {")
-		f.add("\t\tdone.Close()")
+		f.add("\t\tdone.End()")
 		f.add("\t}")
 	}
 	var blocked []int

@@ -31,14 +31,14 @@ law BackoffIsCapped(p Policy, n int) {
 
 // Lived is the outcome of a job whose every try ends with results[n-1]
 // (the last result again after the list), started as soon as it is ready,
-// each try taking takes, and the number of tries.
-func Lived(p Policy, results []Result, takes duration) (Outcome, int) {
+// each try taking cost, and the number of tries.
+func Lived(p Policy, results []Result, cost duration) (Outcome, int) {
 	let mut phase = Fresh(0s)
 	let mut tries = 0
 	for {
 		match phase {
 		case Queued as q:
-			phase = machines.Next(phase, Step(phase, Start{At: q.Ready, Takes: takes}))
+			phase = machines.Next(phase, Step(phase, Start{At: q.Ready, Takes: cost}))
 			tries = tries + 1
 		case Running as r:
 			let res = if len(results) == 0 { Ok } else if r.N <= len(results) { results[r.N-1] } else { results[len(results)-1] }

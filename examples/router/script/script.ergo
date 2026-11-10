@@ -309,7 +309,7 @@ func Play(cmds []Command, j journal.Journal[route.Router, route.Signal], drop fu
 	lines = lines.Append("end: \(route.TableText(route.BoardOf(a.State()).Table)), \(told) answers")
 	a.Stop()
 	d.Stop()
-	said.Close()
+	said.End()
 	lines
 }
 

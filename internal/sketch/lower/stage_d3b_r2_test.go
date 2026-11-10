@@ -72,7 +72,7 @@ func main() fails queue.Closed needs Console {
 	let q = queue.New[int](4)
 	let push = q.Push
 	let pop = q.Pop
-	let close = q.Close
+	let close = q.End
 	let values = q.Values
 	try push(3)
 	try push(4)

@@ -540,7 +540,7 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 		}
 		slot = c.instantiate(own, targs)
 	}
-	a, _ := c.assignability(p, slot)
+	a, _ := c.providerAssignability(p, slot)
 	if !a.ok() || a.conv.Kind != ConvOperations {
 		return LawProvider{}, false
 	}
