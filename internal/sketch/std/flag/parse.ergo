@@ -6,12 +6,14 @@ import time
 // "-" and is longer than "-"; a flag is -name or --name, with its value
 // after "=" or, for a flag that is not a switch, in the next argument.
 // Flags and positional arguments may interleave; a bare "--" ends the
-// flags, and every argument after it is positional. A repeated flag keeps
-// its last value. Then each required flag must be given, and the
+// flags, and every argument after it is positional. A scalar or optional
+// flag keeps its last value; a Repeated handle keeps every occurrence.
+// Then each required flag must be given, and the
 // positional arguments go to the specs of s.Args in order. A request for
 // help wins over every other failure, wherever it stands before "--", as
 // in @effect/cli (helpAsked).
 func Parse(s Set, args []string) Values fails Help | Unknown | NeedsValue | Invalid | Missing | Extra {
+	validateFlags(s.Flags)
 	if helpAsked(s, args) {
 		return Help{Text: Usage(s)}
 	}
@@ -47,16 +49,18 @@ func Parse(s Set, args []string) Values fails Help | Unknown | NeedsValue | Inva
 		case None:
 			return Unknown{Name: name}
 		case Some[Flag] as found:
-			match found.Value {
+			let f = found.Value
+			let canonical = nameOf(f)
+			match scalar(f) {
 			case BoolFlag:
 				if hasValue {
 					let b = strconv.ParseBool(given) catch {
 					case strconv.Malformed:
 						return Invalid{Name: name, Text: given, Reason: "parse error"}
 					}
-					flags[name] = boolValue{V: b}
+					flags[canonical] = collected(f, flags, boolValue{V: b})
 				} else {
-					flags[name] = boolValue{V: true}
+					flags[canonical] = collected(f, flags, boolValue{V: true})
 				}
 			case StringFlag, IntFlag, ChoiceFlag, DurationFlag:
 				if !hasValue {
@@ -66,7 +70,7 @@ func Parse(s Set, args []string) Values fails Help | Unknown | NeedsValue | Inva
 					given = args[i]
 					i += 1
 				}
-				flags[name] = try read(found.Value, name, given)
+				flags[canonical] = collected(f, flags, try read(f, name, given))
 			}
 		}
 	}
@@ -134,7 +138,7 @@ func helpAsked(s Set, args []string) bool {
 				return true
 			}
 		case Some[Flag] as found:
-			match found.Value {
+			match scalar(found.Value) {
 			case BoolFlag:
 			case StringFlag, IntFlag, ChoiceFlag, DurationFlag:
 				if eq <= 0 {
@@ -148,7 +152,7 @@ func helpAsked(s Set, args []string) bool {
 
 // read is the value of a flag that takes one, from its text.
 func read(f Flag, name string, given string) value fails Invalid {
-	match f {
+	match scalar(f) {
 	case IntFlag:
 		let n = strconv.ParseInt(given, 0, 64) catch {
 		case strconv.Malformed:
@@ -177,12 +181,30 @@ func read(f Flag, name string, given string) value fails Invalid {
 
 // isRequired reports whether f has no default.
 func isRequired(f Flag) bool {
-	match f {
+	if cardinality(f) != 0 { return false }
+	match scalar(f) {
 	case StringFlag as s:
 		s.required
 	case IntFlag as n:
 		n.required
 	case BoolFlag, ChoiceFlag, DurationFlag:
 		false
+	}
+}
+
+// A spelling denotes one handle. Declaration errors are defects, not bad
+// user input. Check before help too, so help cannot hide an ambiguous set.
+func validateFlags(flags []Flag) {
+	let mut seen Map[string, bool]
+	for f in flags {
+		let names = if aliasOf(f) == "" { []string{nameOf(f)} } else { []string{nameOf(f), aliasOf(f)} }
+		for name in names {
+			match seen.Get(name) {
+			case Some:
+				Unreachable("flag: a flag spelling is declared twice: " + name)
+			case None:
+				seen[name] = true
+			}
+		}
 	}
 }

@@ -423,7 +423,7 @@ func listed(v flag.Values) Cmd { Listed }
 func shown(v flag.Values) Cmd { Shown }
 
 func commands() []flag.Command[Cmd] {
-	[]flag.Command[Cmd]{flag.Command[Cmd]{Name: "list", Usage: "list", Set: set(), Build: listed}, flag.Command[Cmd]{Name: "show", Usage: "show", Set: set(), Build: shown}}
+	[]flag.Command[Cmd]{flag.Command[Cmd]{Name: "list", Usage: "list", Set: set(), Build: listed, Commands: []flag.Command[Cmd]{}}, flag.Command[Cmd]{Name: "show", Usage: "show", Set: set(), Build: shown, Commands: []flag.Command[Cmd]{}}}
 }
 
 func nameOf(c Cmd) string {
@@ -584,7 +584,7 @@ func refuse(v flag.Values) Cmd fails Refused {
 }
 
 test FlagBuildFailureReaches(text string) {
-	let all = []flag.Command[Cmd, Refused]{flag.Command[Cmd, Refused]{Name: "refuse", Usage: "refuse", Set: set(), Build: refuse}}
+	let all = []flag.Command[Cmd, Refused]{flag.Command[Cmd, Refused]{Name: "refuse", Usage: "refuse", Set: set(), Build: refuse, Commands: []flag.Command[Cmd, Refused]{}}}
 	let mut got = ""
 	flag.ParseCommand("law", "", all, []string{"refuse", "-s=" + text}) catch {
 	case Refused as r:
@@ -616,7 +616,7 @@ test FlagFlagCrossesPositional(p string, a string) {
 // holds it equal to the ledger, so a law changed in source fails here
 // until its restatement is changed with it.
 var flagLawStatements = map[string]string{
-	"flag BuildFailureReaches":     `BuildFailureReaches(text string) { let commands = []Command[lawCommand, lawRefused]{Command[lawCommand, lawRefused]{Name: "refuse", Usage: "refuse", Set: lawSet(), Build: buildRefuse}} ParseCommand("law", "", commands, []string{"refuse", "-s=" + text}) catch { case lawRefused as r: return r.Text == text case _: return false } false }`,
+	"flag BuildFailureReaches":     `BuildFailureReaches(text string) { let commands = []Command[lawCommand, lawRefused]{Command[lawCommand, lawRefused]{Name: "refuse", Usage: "refuse", Set: lawSet(), Build: buildRefuse, Commands: []Command[lawCommand, lawRefused]{}}} ParseCommand("law", "", commands, []string{"refuse", "-s=" + text}) catch { case lawRefused as r: return r.Text == text case _: return false } false }`,
 	"flag DefaultWhenAbsent":       `DefaultWhenAbsent() { let v = try Parse(lawSet(), []string{}) let required = Set{Name: "law", Usage: "", Flags: []Flag{lawText, lawRequired}, Args: []ArgSpec{}} Parse(required, []string{}) catch { case Missing as m: return m.Name == "r" && lawText.Get(v) == "d" && lawNumber.Get(v) == 0 && !lawSwitch.Get(v) case _: return false } false }`,
 	"flag DoubleDashEndsFlags":     `DoubleDashEndsFlags(x string) { let rest = Rest(try Parse(lawSet(), []string{"--", "-" + x})) len(rest) == 1 && rest[0] == "-"+x }`,
 	"flag EachCommandReaches":      `EachCommandReaches(i int) { let commands = lawCommands() if i < 0 || i >= len(commands) { return true } commandName(try ParseCommand("law", "", commands, []string{commands[i].Name})) == commands[i].Name }`,

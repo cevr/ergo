@@ -1,0 +1,28 @@
+import flag
+import routecli/routing
+
+let name = flag.Arg("name", "the route name")
+let note = flag.OptionalString("note", "an optional note").WithAlias("n")
+let priority = flag.OptionalInt("priority", "an optional priority").WithAlias("p")
+let targets = flag.String("target", "", "a target").Repeated().WithAlias("t")
+
+func add(v flag.Values) routing.Command {
+	let route = match name.Get(v) {
+	case Some as n:
+		n.Value
+	case None:
+		Unreachable("Parse checked the required name")
+	}
+	routing.Add{Name: route, Note: note.Get(v), Priority: priority.Get(v), Targets: targets.Get(v)}
+}
+
+func root() flag.Root[routing.Command] {
+	let set = flag.Set{Name: "add", Usage: "plan a route", Flags: []flag.Flag{note, priority, targets}, Args: []flag.ArgSpec{name}}
+	let addCommand = flag.Command[routing.Command]{Name: "add", Usage: "plan a route", Set: set, Build: add, Commands: []flag.Command[routing.Command]{}}
+	let listCommand = flag.Command[routing.Command]{Name: "list", Usage: "list routes", Set: flag.Set{Name: "list", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(_ flag.Values) routing.Command { routing.List }, Commands: []flag.Command[routing.Command]{}}
+	flag.Root[routing.Command]{Name: "routecli", Usage: "a typed route planner", Commands: []flag.Command[routing.Command]{flag.Group("route", "route commands", []flag.Command[routing.Command]{listCommand, flag.Group("rule", "rule commands", []flag.Command[routing.Command]{addCommand})})}, Version: Some[string]{Value: "routecli v1"}}
+}
+
+func Parse(args []string) routing.Command fails flag.Version | flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+	try flag.ParseRoot(root(), args)
+}

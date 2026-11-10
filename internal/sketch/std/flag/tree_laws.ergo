@@ -1,0 +1,73 @@
+import strconv
+import strings
+
+let treeText = OptionalString("text", "optional text").WithAlias("t")
+let treeNumber = OptionalInt("number", "optional number").WithAlias("n")
+let treeItems = String("item", "", "an item").Repeated().WithAlias("i")
+
+func treeSet() Set {
+	Set{Name: "leaf", Usage: "a leaf", Flags: []Flag{treeText, treeNumber, treeItems}, Args: []ArgSpec{Remaining("rest", "remaining arguments")}}
+}
+
+func treeBuild(v Values) Values { v }
+
+// treeCommands generates both branching and nesting. Depth is bounded by
+// the law's input normalization, not by the parser.
+func treeCommands(depth int) []Command[Values] {
+	let leaf = Command[Values]{Name: "read", Usage: "read", Set: treeSet(), Build: treeBuild, Commands: []Command[Values]{}}
+	if depth == 0 { return []Command[Values]{leaf} }
+	[]Command[Values]{leaf, Group("group", "a group", treeCommands(depth-1))}
+}
+
+func treeDepth(n int) int {
+	let r = n % 3
+	if r < 0 { -r } else { r }
+}
+
+func treePath(depth int) []string {
+	let mut path = []string{}
+	for _ in 0..depth { path = path.Append("group") }
+	path.Append("read")
+}
+
+// RenderParseTreeRoundTrip includes the path and all cardinalities. Each
+// generated line parses, so the law does not discard invalid test inputs.
+law RenderParseTreeRoundTrip(n int, text string, num int, items []string, rest []string) {
+	let depth = treeDepth(n)
+	let commands = treeCommands(depth)
+	let path = treePath(depth)
+	let mut args = path
+	args = args.Append("--text=" + text).Append("--number=" + strconv.Itoa(num))
+	for item in items { args = args.Append("--item=" + item) }
+	args = args.Append("--")
+	for r in rest { args = args.Append(r) }
+	let v = try ParseCommand("tree", "", commands, args)
+	let again = try ParseCommand("tree", "", commands, RenderCommand(path, v))
+	Equal(v, again) && treeText.Get(again) == Some[string]{Value: text} && treeNumber.Get(again) == Some[int]{Value: num} && sameStrings(treeItems.Get(again), items) && sameStrings(Rest(again), rest)
+}
+
+law DeclaredShortAndLongAgree(text string) {
+	Equal(try Parse(treeSet(), []string{"-t=" + text}), try Parse(treeSet(), []string{"--text=" + text}))
+}
+
+law AbsentIsNone() {
+	let v = try Parse(treeSet(), []string{})
+	treeText.Get(v) == None && treeNumber.Get(v) == None
+}
+
+law RepeatedKeepsOrder(items []string) {
+	let mut args = []string{}
+	for item in items { args = args.Append("-i=" + item) }
+	sameStrings(treeItems.Get(try Parse(treeSet(), args)), items)
+}
+
+law HelpNamesEveryCommand(n int) {
+	let depth = treeDepth(n)
+	let help = CommandUsage("tree", "", treeCommands(depth))
+	let mut prefix = ""
+	for _ in 0..depth {
+		if !strings.Contains(help, "\n  "+prefix+"read\n") { return false }
+		prefix = prefix + "group "
+	}
+	strings.Contains(help, "\n  "+prefix+"read\n")
+}
