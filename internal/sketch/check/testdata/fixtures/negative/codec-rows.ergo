@@ -1,0 +1,78 @@
+// decode[T](r)'s row is the union of what T's wire form may fail
+// (types.md, Codecs 2): WireWrongKind always, WireMissingField for a
+// record with fields or a union, WireUnknownTag for a union, Unsatisfied
+// for a refined type, and the row of each by-name ParseX it reaches.
+
+type Port int where 1 <= it && it <= 65535
+
+// Host has a by-name wire form: it encodes as its text.
+type Host { name string }
+type BadHost { Text string }
+
+func ParseHost(s string) Host fails BadHost {
+	if s == "" { return BadHost{Text: s} }
+	Host{name: s}
+}
+func Wire(h Host) string { h.name }
+
+type Up { At Host, Port Port }
+type Down {}
+type State = Up | Down
+type Flags { On bool }
+type Hook { Run func() }
+type Sealed { id int }
+
+func flags(r Reader) Flags fails WireWrongKind {
+	decode[Flags](r) // want S101
+}
+
+func ints(r Reader) []int fails WireWrongKind {
+	decode[[]int](r)
+}
+
+func state(r Reader) State fails WireWrongKind | WireMissingField | WireUnknownTag | Unsatisfied | BadHost {
+	decode[State](r)
+}
+
+func narrow(r Reader) State fails WireWrongKind | WireMissingField | WireUnknownTag | Unsatisfied {
+	decode[State](r) // want S101
+}
+
+func write(s State, w Writer) {
+	encode(s, w)
+	encode(Port(80), w)
+	encode([]Host{}, w)
+}
+
+func refused(h Hook, s Sealed, w Writer, r Reader) {
+	encode(h, w) // want S108
+	encode(s, w) // want S108
+	encode(1) // want S108
+	_ = decode(r) // want S108
+}
+
+// wired[X] is the row of decode[X]; a wire type parameter T stands in
+// it as wired[T], which an instance replaces by its argument's row.
+func generic[T wire](r Reader) []T fails wired[[]T] {
+	decode[[]T](r)
+}
+
+func optional[T wire](r Reader) Option[T] fails wired[T] {
+	decode[Option[T]](r) // want S101
+}
+
+func uses(r Reader) []State fails wired[State] {
+	generic[State](r)
+}
+
+func usesNarrow(r Reader) []State fails WireWrongKind {
+	generic[State](r) // want S101
+}
+
+func badWired(r Reader) int fails wired[Hook] { // want S108
+	0
+}
+
+func notACall() {
+	_ = wired(1) // want S108
+}

@@ -1,0 +1,61 @@
+{
+  "about": "The mutant ledger of runtime/v1, started by R3b (wf10, 2026-11-10) for rpc.Loopback (its body moved into Answer and RPCExits in Rm). Each mutant names the rule it breaks and the test or example that kills it.",
+  "mutants": [
+    {"name":"cu5-zone-not-escaped", "origin":"wf10 CU5", "file":"runtime/v1/http_network.go", "from":"return (&url.URL{Scheme: u.Scheme, Host: host}).String(), nil", "to":"return u.Scheme + \"://\" + host, nil", "rule":"A canonical origin remains a parseable URL, including an escaped IPv6 interface zone, so a credential owner can be read again.", "killers":["runtime/v1:TestHTTPNetworkMatchesModel"]},
+    {"name":"cu5-default-port-not-normalized", "origin":"wf10 CU5", "file":"runtime/v1/http_network.go", "from":"port = strconv.FormatUint(n, 10)", "to":"port = \"0\" + strconv.FormatUint(n, 10)", "rule":"An origin uses its effective numeric port; zero-padded default ports denote the same origin.", "killers":["runtime/v1:TestHTTPNetworkMatchesModel"]},
+    {"name":"cu5-zone-case-folded", "origin":"wf10 CU5", "file":"runtime/v1/http_network.go", "from":"host += \"%\" + zone", "to":"host += \"%\" + strings.ToLower(zone)", "rule":"IPv6 interface-zone identities are not DNS names and retain their case.", "killers":["runtime/v1:TestHTTPNetworkMatchesModel"]},
+    {"name":"cu5-policy-bypassed", "origin":"wf10 CU5", "file":"runtime/v1/http_network.go", "from":"if !originAllowed(origin, origins, anyOrigin) {", "to":"if false {", "rule":"The initial and each redirect origin must satisfy the stated policy before any exchange.", "killers":["runtime/v1:TestHTTPNetworkMatchesModel"]},
+    {"name":"cu5-credential-leaks", "origin":"wf10 CU5", "file":"runtime/v1/http_network.go", "from":"if bound[i] == origin {", "to":"if bound[i] == origin || len(bound) > i {", "rule":"A credential reaches only its own origin, including when two origins have the same hostname but different ports.", "killers":["runtime/v1:TestHTTPNetworkMatchesModel"]},
+    {"name":"cu5-extra-hop", "origin":"wf10 CU5", "file":"runtime/v1/http_network.go", "from":"if followed >= hops {", "to":"if followed > hops {", "rule":"Follow's MaxHops is an exact maximum of followed redirects, including zero.", "killers":["runtime/v1:TestHTTPNetworkMatchesModel"]},
+    {"name":"cu5-no-redirects-ignored", "origin":"wf10 CU5", "file":"runtime/v1/http_network.go", "from":"!redirect || location == \"\" || hops == -1", "to":"!redirect || location == \"\"", "rule":"NoRedirects returns the redirect response without following or refusing its first hop.", "killers":["runtime/v1:TestHTTPNetworkMatchesModel"]},
+    {"name":"cu5-caller-lost", "origin":"wf10 CU5", "file":"runtime/v1/http_network.go", "from":"httpDoURL(t, u, limits, method, fields, body)", "to":"httpDoURL(rt.Root(\"lost caller\"), u, limits, method, fields, body)", "rule":"A stop cancels and joins the current exchange even after a redirect; the target peer sees the hang-up.", "killers":["runtime/v1:TestHTTPNetworkStops"]},
+    {
+      "name": "rpc-calls-stop",
+      "origin": "wf10 R3b, moved by Rm",
+      "file": "runtime/v1/rpc.go",
+      "from": "\t\tcase <-stop:\n\t\t\tpanic(rt.Interrupted)",
+      "to": "\t\tcase <-stop:\n\t\t\tstop = nil",
+      "rule": "A stopped caller's Loopback Call (or a stopped request) ends with the stop, not with a defect read from an Interrupt exit, and after the call's release ran.",
+      "killers": ["runtime/v1:TestRPCCallsStopWithTheCaller"]
+    },
+    {
+      "name": "rpc-calls-join",
+      "origin": "wf10 Rm",
+      "file": "runtime/v1/rpc.go",
+      "from": "\tdefer s.stopAll()",
+      "to": "",
+      "rule": "A failed emit (a WriteFailed of the ndjson stream) stops every call of the batch still held and waits for its release before RPCExitLines returns; no call outlives its request. (A stop of the request also reaches each call by the task tree, so TestRPCCallsStopWithTheCaller does not catch this.)",
+      "killers": ["runtime/v1:TestRPCFailedEmitStopsTheCallsLeft"]
+    },
+    {
+      "name": "r3b-local-exit",
+      "origin": "wf10 R3b",
+      "file": "runtime/v1/rpc.go",
+      "from": "\treturn rpcReadExit([]byte(body), strings.HasPrefix(contentType, rpcNDJSON), id)",
+      "to": "\treturn rpcReadExit([]byte(body), true, id)",
+      "rule": "A Loopback Call reads the json Exit its server answered; the contract's laws hold through it.",
+      "killers": ["examples:limiter/loopback (ergo test: limits.Limiter laws for Loopback)"],
+      "gap": "uncovered by the runner: only a generated program runs this body, and runtime/v1's own tests do not reach it (scripts/mutants judges a package's ledger by its own tests, M1); its killer is run by hand: go run ./scripts/examples limiter"
+    },
+    {"name":"root-reopens-directory", "origin":"wf10 G1f r2", "file":"runtime/v1/host.go", "from":"if err := f(r.root); err != nil {", "to":"reopened, err := os.OpenRoot(r.root.Name()); if err != nil { return fsErr(path, err) }; defer reopened.Close(); if err := f(reopened); err != nil {", "rule":"A Root retains the opened directory across a rename and replacement of its name.", "killers":["runtime/v1:TestFSRootKeepsOpenedDirectory"]},
+    {"name":"root-release-omitted", "origin":"wf10 G1f r2", "file":"runtime/v1/host.go", "from":"OnExit(s, func() { _ = r.root.Close() })", "to":"_ = r", "rule":"Every acquired Root closes at frame end, including failure, defect and stop.", "killers":["runtime/v1:TestFSRootClosesAtScopeEnd"]},
+    {"name":"stream-flush", "origin":"wf10 Rm", "file":"runtime/v1/http.go", "from":"\tif err := http.NewResponseController(x.w).Flush(); err != nil {\n\t\treturn HTTPWriteFailed{Reason: err.Error()}\n\t}", "to":"", "rule":"Each streamed Write reaches the client before it returns.", "killers":["runtime/v1:TestHTTPStreamFlushesEachPart"]},
+    {"name":"stream-second-answer", "origin":"wf10 Rm", "file":"runtime/v1/http.go", "from":"\tif streamed {\n\t\treturn\n\t}", "to":"\tif false && streamed {\n\t\treturn\n\t}", "rule":"A streamed response is the stream alone; the handler's result after it is not sent.", "killers":["runtime/v1:TestHTTPStreamFlushesEachPart"]},
+    {"name":"stream-late-write", "origin":"wf10 Rm", "file":"runtime/v1/http.go", "from":"\tdefer x.mu.Unlock()\n\tx.ended = true\n\treturn x.started", "to":"\tdefer x.mu.Unlock()\n\treturn x.started", "rule":"A writer kept past its request fails WriteFailed; it never writes to a finished response.", "killers":["runtime/v1:TestHTTPStreamFlushesEachPart"]},
+    {"name":"stream-stop-check", "origin":"wf10 Rm", "file":"runtime/v1/http.go", "from":"func (x *Exchange) Write(t *rt.Task, text string) error {\n\tt.Check()", "to":"func (x *Exchange) Write(t *rt.Task, text string) error {", "rule":"A hang-up stops the request task, and the writer's next Write ends with that stop.", "killers":["runtime/v1:TestHTTPStreamHangUpStopsTheWriter"]},
+    {"name":"http-header-budget", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"MaxHeaderBytes: limits.MaxHeaderBytes", "to":"MaxHeaderBytes: 1 << 20", "rule":"The required header budget configures the HTTP parser rather than silently using another cap.", "killers":["runtime/v1:TestHTTPServerMatchesModel"]},
+    {"name":"http-body-budget", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"in.TooLarge = true", "to":"in.Body = string(body)", "rule":"A body over the required limit is a typed body value, not a partial body.", "killers":["runtime/v1:TestHTTPServerMatchesModel"]},
+    {"name":"http-empty-content-type", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"w.Header()[\"Content-Type\"] = nil", "to":"w.Header().Set(\"Content-Type\", \"text/plain\")", "rule":"An empty response has no content type.", "killers":["runtime/v1:TestHTTPServerMatchesModel"]},
+    {"name":"http-swaps-fields", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"HTTPField{k, v}", "to":"HTTPField{v, k}", "rule":"Buffered headers and repeated query values retain their names and text.", "killers":["runtime/v1:TestHTTPServerMatchesModel"]},
+    {"name":"http-truncated-body", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"gone = nil", "to":"gone = r.Context().Done()", "rule":"A half-closed input still delivers the typed read refusal.", "killers":["runtime/v1:TestHTTPServerMatchesModel"]},
+    {"name":"http-serial-handlers", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"live[c] = true", "to":"live[c] = true; _ = finish(<-ended, false)", "rule":"Independent requests run concurrently; one blocked handler does not block admission of every other handler.", "killers":["runtime/v1:TestHTTPConcurrentRequestsAndStop"]},
+    {"name":"http-disconnect-ignored", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"c.cancel()\n\t\t<-c.done", "to":"<-c.done", "rule":"A client abort stops its handler task and drains its cleanup.", "killers":["runtime/v1:TestHTTPDisconnectAndDefects"]},
+    {"name":"client-body-budget", "origin":"wf10 H1", "file":"runtime/v1/http_client.go", "from":"\tif len(body) > limits.MaxBodyBytes {", "to":"\tif false {", "rule":"A response body over the client's budget is TooLarge, never a truncated success.", "killers":["runtime/v1:TestHTTPClientMatchesServer"]},
+    {"name":"client-query-order", "origin":"wf10 H1", "file":"runtime/v1/http_client.go", "from":"b.WriteString(url.QueryEscape(f.Value))", "to":"b.WriteString(f.Value)", "rule":"Query values arrive as sent: each is escaped once.", "killers":["runtime/v1:TestHTTPClientMatchesServer"]},
+    {"name":"client-follows-redirects", "origin":"wf10 H1", "file":"runtime/v1/http_client.go", "from":"\t\tCheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },\n", "to":"", "rule":"One request is one exchange: a 3xx comes back as sent.", "killers":["runtime/v1:TestHTTPClientMatchesServer"]},
+    {"name":"client-path-raw", "origin":"wf10 H1", "file":"runtime/v1/http_client.go", "from":"u.Path, u.RawQuery = path, httpQuery(query)", "to":"u.Opaque, u.RawQuery = path, httpQuery(query)", "rule":"Path is the decoded path: the client escapes it, so it arrives as sent.", "killers":["runtime/v1:TestHTTPClientMatchesServer"]},
+    {"name":"client-refused-kind", "origin":"wf10 H1", "file":"runtime/v1/http_client.go", "from":"\t\tcase errors.Is(err, syscall.ECONNREFUSED):", "to":"\t\tcase errors.Is(err, syscall.EINVAL):", "rule":"A refused connection is the typed Refused cause, apart from a broken exchange.", "killers":["runtime/v1:TestHTTPClientRefusedAndStopped"]},
+    {"name":"client-stop-ignored", "origin":"wf10 H1", "file":"runtime/v1/http_client.go", "from":"\tcase <-t.Done():\n\t\tcancel()\n\t\t<-got\n\t\tpanic(rt.Interrupted)", "to":"\tcase <-t.Done():\n\t\td = <-got", "rule":"A stop of the caller cancels the exchange and ends the call with the stop.", "killers":["runtime/v1:TestHTTPClientRefusedAndStopped"]},
+    {"name":"rchk-refused-die", "origin":"wf10 R-chk", "file":"runtime/v1/rpc.go", "from":"\t\t\t\tcase d.Name == rpcRefused:\n", "to":"\t\t\t\tcase false:\n", "rule":"A Die named RpcError (the server's rpc layer could not read the call) is the typed Transport for a client, not the server's defect (rpc.md, Call).", "killers":["runtime/v1:TestRPCWireFacts"]}
+  ]
+}

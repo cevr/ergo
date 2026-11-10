@@ -40,6 +40,8 @@ type TypeName struct {
 	// package declares (builders.go rules 1 and 2), planned with ctor.
 	newOp    *Builder
 	provides []*Builder
+	// Refine is the refinement of a refined defined type (refine.go), or nil.
+	Refine *Refinement
 }
 
 // Constructor is the function a generator builds the type's values with

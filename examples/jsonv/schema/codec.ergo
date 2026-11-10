@@ -2,6 +2,7 @@
 // (#49; gap G-ex-d-6), so FromJSON walks the value and ToJSON builds one.
 
 import jsonv/json
+import stdjson json
 import strconv
 
 // BadSchema is a JSON value that is not a schema. Path names the part of
@@ -11,24 +12,24 @@ type BadSchema { Path string, Reason string }
 // FromJSON reads v as a schema: true or {} is Anything; an object names
 // its "type" and the keywords of that type. A keyword of another type, or
 // one this language does not have, is BadSchema.
-func FromJSON(v json.Value) Schema fails BadSchema { try read(v, "$") }
+func FromJSON(v stdjson.Value) Schema fails BadSchema { try read(v, "$") }
 
-func read(v json.Value, path string) Schema fails BadSchema {
+func read(v stdjson.Value, path string) Schema fails BadSchema {
 	match v {
-	case json.Bool as b:
-		if b.V {
+	case stdjson.Boolean as b:
+		if b.Value {
 			return Anything
 		}
 		BadSchema{Path: path, Reason: "false accepts no value; this language has no such schema"}
-	case json.Object as o:
+	case stdjson.Object as o:
 		if len(o.Members) == 0 {
 			return Anything
 		}
-		let kind = match o.Get("type") {
-		case Some[json.Value] as t:
+		let kind = match json.Get(o, "type") {
+		case Some[stdjson.Value] as t:
 			match t.Value {
-			case json.Text as name:
-				name.V
+			case stdjson.Str as name:
+				name.Value
 			case _:
 				return BadSchema{Path: Member(path, "type"), Reason: "want a string"}
 			}
@@ -42,7 +43,7 @@ func read(v json.Value, path string) Schema fails BadSchema {
 }
 
 // typed reads the keywords of the schema object o of type kind.
-func typed(o json.Object, kind string, path string) Schema fails BadSchema {
+func typed(o stdjson.Object, kind string, path string) Schema fails BadSchema {
 	match kind {
 	case "null":
 		try only(o, path, []string{"type"})
@@ -61,8 +62,8 @@ func typed(o json.Object, kind string, path string) Schema fails BadSchema {
 		IsNumber{Integer: true, Min: try bound(o, "minimum", path), Max: try bound(o, "maximum", path)}
 	case "array":
 		try only(o, path, []string{"type", "items", "minItems"})
-		let items = match o.Get("items") {
-		case Some[json.Value] as i:
+		let items = match json.Get(o, "items") {
+		case Some[stdjson.Value] as i:
 			try read(i.Value, Member(path, "items"))
 		case None:
 			Anything
@@ -70,11 +71,11 @@ func typed(o json.Object, kind string, path string) Schema fails BadSchema {
 		IsArray{Items: items, MinItems: try count(o, "minItems", path)}
 	case "object":
 		try only(o, path, []string{"type", "properties", "required", "additionalProperties"})
-		let closed = match o.Get("additionalProperties") {
-		case Some[json.Value] as a:
+		let closed = match json.Get(o, "additionalProperties") {
+		case Some[stdjson.Value] as a:
 			match a.Value {
-			case json.Bool as b:
-				!b.V
+			case stdjson.Boolean as b:
+				!b.Value
 			case _:
 				return BadSchema{Path: Member(path, "additionalProperties"), Reason: "want true or false"}
 			}
@@ -88,7 +89,7 @@ func typed(o json.Object, kind string, path string) Schema fails BadSchema {
 }
 
 // only fails for a member of o not in allowed.
-func only(o json.Object, path string, allowed []string) fails BadSchema {
+func only(o stdjson.Object, path string, allowed []string) fails BadSchema {
 	for m in o.Members {
 		if !has(allowed, m.Key) {
 			return BadSchema{Path: Member(path, m.Key), Reason: "not a keyword of this type"}
@@ -96,18 +97,18 @@ func only(o json.Object, path string, allowed []string) fails BadSchema {
 	}
 }
 
-func props(o json.Object, path string) []Prop fails BadSchema {
+func props(o stdjson.Object, path string) []Prop fails BadSchema {
 	let at = Member(path, "properties")
-	match o.Get("properties") {
-	case Some[json.Value] as p:
+	match json.Get(o, "properties") {
+	case Some[stdjson.Value] as p:
 		match p.Value {
-		case json.Object as members:
+		case stdjson.Object as members:
 			let mut out = []Prop{}
 			for m in members.Members {
 				if indexOf(out, m.Key) >= 0 {
 					return BadSchema{Path: Member(at, m.Key), Reason: "the property is named twice"}
 				}
-				out = out.Append(Prop{Name: m.Key, S: try read(m.V, Member(at, m.Key))})
+				out = out.Append(Prop{Name: m.Key, S: try read(m.Value, Member(at, m.Key))})
 			}
 			out
 		case _:
@@ -119,17 +120,17 @@ func props(o json.Object, path string) []Prop fails BadSchema {
 }
 
 // names is the strings of the array member key of o, or none.
-func names(o json.Object, key string, path string) []string fails BadSchema {
+func names(o stdjson.Object, key string, path string) []string fails BadSchema {
 	let at = Member(path, key)
-	match o.Get(key) {
-	case Some[json.Value] as v:
+	match json.Get(o, key) {
+	case Some[stdjson.Value] as v:
 		match v.Value {
-		case json.Array as a:
+		case stdjson.Array as a:
 			let mut out = []string{}
 			for i, item in a.Items {
 				match item {
-				case json.Text as t:
-					out = out.Append(t.V)
+				case stdjson.Str as t:
+					out = out.Append(t.Value)
 				case _:
 					return BadSchema{Path: "\(at)[\(i)]", Reason: "want a string"}
 				}
@@ -144,12 +145,12 @@ func names(o json.Object, key string, path string) []string fails BadSchema {
 }
 
 // count is the integer member key of o, at least 0, or 0.
-func count(o json.Object, key string, path string) int fails BadSchema {
-	match o.Get(key) {
-	case Some[json.Value] as v:
+func count(o stdjson.Object, key string, path string) int fails BadSchema {
+	match json.Get(o, key) {
+	case Some[stdjson.Value] as v:
 		match v.Value {
-		case json.Number as n:
-			let c = strconv.Atoi(n.Text) catch {
+		case stdjson.Num as n:
+			let c = strconv.Atoi(json.Spelling(n)) catch {
 			case strconv.Malformed, strconv.OutOfRange:
 				return BadSchema{Path: Member(path, key), Reason: "want a whole number"}
 			}
@@ -166,12 +167,12 @@ func count(o json.Object, key string, path string) int fails BadSchema {
 }
 
 // bound is the number member key of o.
-func bound(o json.Object, key string, path string) Option[float64] fails BadSchema {
-	match o.Get(key) {
-	case Some[json.Value] as v:
+func bound(o stdjson.Object, key string, path string) Option[float64] fails BadSchema {
+	match json.Get(o, key) {
+	case Some[stdjson.Value] as v:
 		match v.Value {
-		case json.Number as n:
-			Some[float64]{Value: valueOf(n.Text)}
+		case stdjson.Num as n:
+			Some[float64]{Value: valueOf(json.Spelling(n))}
 		case _:
 			BadSchema{Path: Member(path, key), Reason: "want a number"}
 		}
@@ -182,74 +183,86 @@ func bound(o json.Object, key string, path string) Option[float64] fails BadSche
 
 // ToJSON is s as a JSON value that FromJSON reads back as s. A keyword at
 // its default is left out.
-func ToJSON(s Schema) json.Value {
+func ToJSON(s Schema) stdjson.Value {
 	match s {
 	case Anything:
-		json.Bool{V: true}
+		stdjson.Boolean{Value: true}
 	case IsNull:
 		typeOnly("null")
 	case IsBool:
 		typeOnly("boolean")
 	case IsString as str:
-		let mut ms = []json.Member{kindMember("string")}
+		let mut ms = []stdjson.Member{kindMember("string")}
 		if len(str.Enum) > 0 {
-			ms = ms.Append(json.Member{Key: "enum", V: textArray(str.Enum)})
+			ms = ms.Append(stdjson.Member{Key: "enum", Value: textArray(str.Enum)})
 		}
 		if str.MinLength > 0 {
-			ms = ms.Append(json.Member{Key: "minLength", V: json.FormatNumber(str.MinLength)})
+			ms = ms.Append(stdjson.Member{Key: "minLength", Value: stdjson.IntNumber(int64(str.MinLength))})
 		}
-		json.Object{Members: ms}
+		stdjson.Object{Members: ms}
 	case IsNumber as n:
-		let mut ms = []json.Member{kindMember(if n.Integer { "integer" } else { "number" })}
+		let mut ms = []stdjson.Member{kindMember(if n.Integer { "integer" } else { "number" })}
 		match n.Min {
 		case Some[float64] as min:
-			ms = ms.Append(json.Member{Key: "minimum", V: json.Number{Text: formatFloat(min.Value)}})
+			ms = ms.Append(stdjson.Member{Key: "minimum", Value: numberOf(min.Value)})
 		case None:
 		}
 		match n.Max {
 		case Some[float64] as max:
-			ms = ms.Append(json.Member{Key: "maximum", V: json.Number{Text: formatFloat(max.Value)}})
+			ms = ms.Append(stdjson.Member{Key: "maximum", Value: numberOf(max.Value)})
 		case None:
 		}
-		json.Object{Members: ms}
+		stdjson.Object{Members: ms}
 	case IsArray as a:
-		let mut ms = []json.Member{kindMember("array")}
+		let mut ms = []stdjson.Member{kindMember("array")}
 		match a.Items {
 		case Anything:
 		case _:
-			ms = ms.Append(json.Member{Key: "items", V: ToJSON(a.Items)})
+			ms = ms.Append(stdjson.Member{Key: "items", Value: ToJSON(a.Items)})
 		}
 		if a.MinItems > 0 {
-			ms = ms.Append(json.Member{Key: "minItems", V: json.FormatNumber(a.MinItems)})
+			ms = ms.Append(stdjson.Member{Key: "minItems", Value: stdjson.IntNumber(int64(a.MinItems))})
 		}
-		json.Object{Members: ms}
+		stdjson.Object{Members: ms}
 	case IsObject as o:
-		let mut ms = []json.Member{kindMember("object")}
+		let mut ms = []stdjson.Member{kindMember("object")}
 		if len(o.Props) > 0 {
-			let mut ps = []json.Member{}
+			let mut ps = []stdjson.Member{}
 			for p in o.Props {
-				ps = ps.Append(json.Member{Key: p.Name, V: ToJSON(p.S)})
+				ps = ps.Append(stdjson.Member{Key: p.Name, Value: ToJSON(p.S)})
 			}
-			ms = ms.Append(json.Member{Key: "properties", V: json.Object{Members: ps}})
+			ms = ms.Append(stdjson.Member{Key: "properties", Value: stdjson.Object{Members: ps}})
 		}
 		if len(o.Required) > 0 {
-			ms = ms.Append(json.Member{Key: "required", V: textArray(o.Required)})
+			ms = ms.Append(stdjson.Member{Key: "required", Value: textArray(o.Required)})
 		}
 		if o.Closed {
-			ms = ms.Append(json.Member{Key: "additionalProperties", V: json.Bool{V: false}})
+			ms = ms.Append(stdjson.Member{Key: "additionalProperties", Value: stdjson.Boolean{Value: false}})
 		}
-		json.Object{Members: ms}
+		stdjson.Object{Members: ms}
 	}
 }
 
-func kindMember(kind string) json.Member { json.Member{Key: "type", V: json.Text{V: kind}} }
-
-func typeOnly(kind string) json.Value { json.Object{Members: []json.Member{kindMember(kind)}} }
-
-func textArray(xs []string) json.Value {
-	let mut items = []json.Value{}
-	for x in xs {
-		items = items.Append(json.Text{V: x})
+// numberOf is f as a JSON number. A bound read from JSON is finite
+// (valueOf), so ParseNum takes its text; JSON has no number for NaN or an
+// infinity, and std json writes those as strings, as this does.
+func numberOf(f float64) stdjson.Value {
+	let text = formatFloat(f)
+	let n = stdjson.ParseNum(text) catch {
+	case stdjson.Malformed:
+		return stdjson.Str{Value: text}
 	}
-	json.Array{Items: items}
+	n
+}
+
+func kindMember(kind string) stdjson.Member { stdjson.Member{Key: "type", Value: stdjson.Str{Value: kind}} }
+
+func typeOnly(kind string) stdjson.Value { stdjson.Object{Members: []stdjson.Member{kindMember(kind)}} }
+
+func textArray(xs []string) stdjson.Value {
+	let mut items = []stdjson.Value{}
+	for x in xs {
+		items = items.Append(stdjson.Str{Value: x})
+	}
+	stdjson.Array{Items: items}
 }

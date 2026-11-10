@@ -60,6 +60,9 @@ func Defaults(flags []Flag) string {
 func entry(f Flag) string {
 	let (shape, usage) = unquote(usageOf(f), kindOf(f))
 	let mut line = "  -" + nameOf(f)
+	if aliasOf(f) != "" {
+		line = line + ", -" + aliasOf(f)
+	}
 	if shape != "" {
 		line = line + " " + shape
 	}
@@ -90,7 +93,7 @@ func unquote(usage string, kind string) (string, string) {
 
 // usageOf is f's usage text.
 func usageOf(f Flag) string {
-	match f {
+	match scalar(f) {
 	case StringFlag as s:
 		s.usage
 	case IntFlag as n:
@@ -107,7 +110,7 @@ func usageOf(f Flag) string {
 // kindOf is the name Defaults gives f's value: Go's names for its kinds,
 // none for a switch.
 func kindOf(f Flag) string {
-	match f {
+	match scalar(f) {
 	case StringFlag:
 		"string"
 	case IntFlag:
@@ -123,7 +126,9 @@ func kindOf(f Flag) string {
 
 // defaultOf is the " (default …)" text of f, empty for a zero default.
 func defaultOf(f Flag) string {
-	match f {
+	if cardinality(f) == 1 { return " (optional)" }
+	if cardinality(f) == 2 { return " (repeated)" }
+	match scalar(f) {
 	case StringFlag as s:
 		if s.required {
 			" (required)"

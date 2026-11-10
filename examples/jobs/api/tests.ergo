@@ -1,0 +1,10 @@
+// ergo test runs AgreesWithModel here once per provider of jobs.Store
+// this package sees: memory.Table, built by NewTable. No socket: Handle
+// is called as a function, with a time.Manual for the Clock. A refuted
+// case prints its moves; Disagreement(NewTable(), moves) gives the
+// requests so far and both answers.
+
+import jobs/memory
+
+// Fresh is the store a replay of a refuted case starts from.
+func Fresh() memory.Table { memory.NewTable() }

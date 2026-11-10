@@ -1,0 +1,256 @@
+// The API's rule as one law against a reference model. Handle needs a
+// jobs.Store, so the law takes the Store as a parameter and binds it in a
+// context, with a time.Manual for the Clock; ergo test runs it once per
+// provider of Store this package sees (memory.Table, built by NewTable).
+// The model is a map of entries and the time in ms. It knows nothing of
+// the machine: it says what each state is from a job's age, so a wrong
+// timer, a wrong step or a wrong status is a difference.
+
+import http
+import jobs/jobs
+import json
+import strconv
+import strings
+import time
+
+// AgreesWithModel: generated request sequences, with the clock moved
+// between them, get from Handle the status, body and headers the model
+// gives, at each step.
+law AgreesWithModel(store jobs.Store, moves []int) { Disagreement(store, moves) == "" }
+
+// Entry is a job in the model: when it was submitted and, if it was,
+// cancelled, in ms since the start.
+type Entry { Name string, Priority int, Created int64, Cancelled Option[int64] }
+
+// Model is the reference: the entries by id, the last id and the time.
+type Model { Entries Map[int, Entry], Last int, Now int64 }
+
+// Ask is one step of a sequence: a request, or a move of the clock.
+type Ask = Send{Request http.Request} | Wait{Ms int64}
+
+let started = int64(jobs.QueueFor) / 1000000
+let finished = started + int64(jobs.RunFor)/1000000
+
+// stampAt is the JSON form of the time ms after the start.
+func stampAt(ms int64) string { Stamp(time.Unix(0, 0).Add(duration(ms * 1000000))) }
+
+// viewOf is the model's view of the entry id at now.
+func viewOf(id int, e Entry, now int64) View {
+	let age = now - e.Created
+	let v = View{Id: id, Name: e.Name, Priority: e.Priority, State: "queued", Created: stampAt(e.Created), Ended: json.Null}
+	match e.Cancelled {
+	case Some[int64] as c:
+		View{..v, State: "cancelled", Ended: json.NonNull{Value: stampAt(c.Value)}}
+	case None:
+		if age >= finished {
+			View{..v, State: "done", Ended: json.NonNull{Value: stampAt(e.Created + finished)}}
+		} else if age >= started {
+			View{..v, State: "running"}
+		} else {
+			v
+		}
+	}
+}
+
+// Answer is what a response says, as the model and the law compare it:
+// the status, the body, and the Location and Allow headers.
+type Answer { Status int, Body string, Location Option[string], Allow Option[string] }
+
+func answerOf(r http.Response) Answer {
+	Answer{Status: r.Status, Body: r.Body, Location: http.Header(r.Header, "Location"), Allow: http.Header(r.Header, "Allow")}
+}
+
+// AnswerText is a, one line: status, Location, Allow and body.
+func AnswerText(a Answer) string {
+	let mut text = "\(a.Status)"
+	match a.Location {
+	case Some[string] as l:
+		text = text + " Location: " + l.Value
+	case None:
+	}
+	match a.Allow {
+	case Some[string] as l:
+		text = text + " Allow: " + l.Value
+	case None:
+	}
+	text + " " + a.Body
+}
+
+func plain(status int, body string) Answer { Answer{Status: status, Body: body, Location: None, Allow: None} }
+
+func refusal(status int, message string) Answer { plain(status, ProblemText(Problem{Error: message})) }
+
+// pick is a generated number as an index below n.
+func pick(m int, n int) int { ((m % n) + n) % n }
+
+// bad is the bodies of a submit that are refused, and what the model
+// answers to each.
+let bad = []string{"{\"priority\":1}", "{\"name\":\"\"}", "{\"name\":3}", "{"}
+
+func badAnswer(i int) Answer {
+	match i {
+	case 0:
+		refusal(422, "name is missing")
+	case 1:
+		refusal(422, "name is empty")
+	case 2:
+		refusal(422, "name is not a string")
+	case _:
+		refusal(400, "the body is not JSON: an object key that is not a string at byte 1")
+	}
+}
+
+func request(method string, path string, body string) http.Request {
+	http.Request{Method: method, Path: path, Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: body}}
+}
+
+// AskOf is the step a generated number m names, against model.
+func AskOf(model Model, m int) Ask {
+	let arg = pick(m, 1000000) / 10
+	let id = pick(arg, model.Last+2)
+	match pick(m, 10) {
+	case 0:
+		Send{Request: request("POST", "/jobs", DraftText(Draft{Name: "job\(arg)", Priority: json.Present{Value: arg % 5}}))}
+	case 1:
+		Send{Request: request("POST", "/jobs", DraftText(Draft{Name: "job\(arg)", Priority: json.Absent}))}
+	case 2:
+		if arg%5 == 4 {
+			Send{Request: http.Request{..request("POST", "/jobs", ""), Body: http.BodyTooLarge{Limit: MaxBody}}}
+		} else {
+			Send{Request: request("POST", "/jobs", bad[arg%5])}
+		}
+	case 3:
+		Send{Request: request("GET", "/jobs", "")}
+	case 4:
+		Send{Request: request("GET", "/jobs/\(id)", "")}
+	case 5:
+		Send{Request: request("POST", "/jobs/\(id)/cancel", "")}
+	case 6:
+		Send{Request: request("DELETE", "/jobs/\(id)", "")}
+	case 7, 8:
+		Wait{Ms: int64(arg%4+1) * 700}
+	case _:
+		let odd = []http.Request{request("PUT", "/jobs", ""), request("GET", "/nope", ""), request("GET", "/jobs/x", ""), request("POST", "/jobs/1", ""), request("HEAD", "/jobs", "")}
+		Send{Request: odd[arg%len(odd)]}
+	}
+}
+
+// Expect is the model's answer to r, and the model after it.
+func Expect(model Model, r http.Request) (Answer, Model) {
+	let parts = strings.Split(r.Path, "/")
+	if r.Path == "/jobs" {
+		match r.Method {
+		case "GET", "HEAD":
+			let mut views = []View{}
+			for id in 1..model.Last+1 {
+				match model.Entries.Get(id) {
+				case Some[Entry] as e:
+					views = views.Append(viewOf(id, e.Value, model.Now))
+				case None:
+				}
+			}
+			return (plain(200, ListingText(Listing{Jobs: views})), model)
+		case "POST":
+			let text = match r.Body {
+			case http.Buffered as b:
+				b.Text
+			case http.BodyTooLarge, http.BodyReadFailed:
+				return (refusal(413, "the body is over \(MaxBody) bytes"), model)
+			}
+			for i, b in bad {
+				if text == b {
+					return (badAnswer(i), model)
+				}
+			}
+			let d = DraftOf(text) catch {
+			case _:
+				return (plain(0, "the model sends no other body"), model)
+			}
+			// The model's own rule for a missing priority, not PriorityOf.
+			let priority = match d.Priority {
+			case json.Present[int] as p:
+				p.Value
+			case json.Absent:
+				0
+			}
+			let e = Entry{Name: d.Name, Priority: priority, Created: model.Now, Cancelled: None}
+			let id = model.Last + 1
+			let mut entries = model.Entries
+			entries[id] = e
+			let created = Answer{..plain(201, ViewText(viewOf(id, e, model.Now))), Location: Some{"/jobs/\(id)"}}
+			return (created, Model{..model, Entries: entries, Last: id})
+		case _:
+			return (Answer{..refusal(405, r.Method+" is not allowed on /jobs"), Allow: Some{"GET, HEAD, POST"}}, model)
+		}
+	}
+	if len(parts) < 3 || parts[1] != "jobs" || len(parts) > 4 || (len(parts) == 4 && parts[3] != "cancel") {
+		return (refusal(404, "no route "+r.Method+" "+r.Path), model)
+	}
+	let cancel = len(parts) == 4
+	let allowed = if cancel { r.Method == "POST" } else { r.Method == "GET" || r.Method == "HEAD" || r.Method == "DELETE" }
+	if !allowed {
+		let allow = if cancel { "POST" } else { "GET, HEAD, DELETE" }
+		return (Answer{..refusal(405, r.Method+" is not allowed on "+r.Path), Allow: Some{allow}}, model)
+	}
+	let text = parts[2]
+	let id = strconv.Atoi(text) catch {
+	case _:
+		return (refusal(404, "no job "+text), model)
+	}
+	if id < 1 || "\(id)" != text {
+		return (refusal(404, "no job "+text), model)
+	}
+	let e = match model.Entries.Get(id) {
+	case Some[Entry] as found:
+		found.Value
+	case None:
+		return (refusal(404, "no job \(id)"), model)
+	}
+	let v = viewOf(id, e, model.Now)
+	let ended = v.State == "done" || v.State == "cancelled"
+	if cancel {
+		if ended {
+			return (refusal(409, "job \(id) is \(v.State) and cannot cancel"), model)
+		}
+		let next = Entry{..e, Cancelled: Some{model.Now}}
+		let mut entries = model.Entries
+		entries[id] = next
+		return (plain(200, ViewText(viewOf(id, next, model.Now))), Model{..model, Entries: entries})
+	}
+	if r.Method == "DELETE" {
+		if !ended {
+			return (refusal(409, "job \(id) is \(v.State) and cannot delete"), model)
+		}
+		return (plain(204, ""), Model{..model, Entries: model.Entries.Delete(id)})
+	}
+	(plain(200, ViewText(v)), model)
+}
+
+// Disagreement runs the steps of moves through Handle, over store and a
+// manual clock at the start, and through the model. It is "" when every
+// answer agrees, else the steps so far, Handle's answer and the model's.
+func Disagreement(store jobs.Store, moves []int) string {
+	let clock = time.NewManual(0)
+	let mut model = Model{Entries: Map[int, Entry]{}, Last: 0, Now: 0}
+	let mut log = ""
+	with context { jobs.Store: store, time.Clock: clock } {
+		for m in moves {
+			match AskOf(model, m) {
+			case Wait as w:
+				clock.Advance(duration(w.Ms * 1000000))
+				model = Model{..model, Now: model.Now + w.Ms}
+				log = log + "wait \(w.Ms)ms\n"
+			case Send as s:
+				let r = s.Request
+				log = log + r.Method + " " + r.Path + "\n"
+				let got = answerOf(Handle(r))
+				let (want, next) = Expect(model, r)
+				if got != want {
+					return log + "handle: " + AnswerText(got) + "\nmodel:  " + AnswerText(want)
+				}
+				model = next
+			}
+		}
+	}
+	""
+}

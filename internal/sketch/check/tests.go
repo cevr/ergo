@@ -218,6 +218,7 @@ func (c *checker) checkTest(test *Test) {
 		}
 	}
 	c.functionBody(d.Body, name)
+	c.reportGoCopyWrites(d.Body)
 	c.reportUnused(fc)
 	c.reportNeverReassigned(fc)
 }

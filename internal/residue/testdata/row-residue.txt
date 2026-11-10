@@ -39,6 +39,7 @@ internal/sketch/std/actor/actor.ergo	sink func(o O) needs R, recover func() Opti
 internal/sketch/std/actor/actor.ergo	save func(prev S, next S, sig E) fails G needs R, prev S
 internal/sketch/std/actor/actor.ergo	fresh func() S fails G needs R, limit int, step
 internal/sketch/std/actor/actor.ergo	sink func(o O) needs R, policy tasks.Restart)
+internal/sketch/std/rpc/rpc.ergo	fails Failed needs R, emit func(line string)
 internal/sketch/std/actor/actor.ergo	sink func(o O) needs R, fresh func() S fails G needs R, limit int)
 internal/sketch/std/actor/actor.ergo	sink func(o O) needs R, policy tasks.Restart, recover escaping func() Option[S] fails G needs R, save escaping func
 internal/sketch/std/actor/actor.ergo	recover func() Option[S] fails G needs R, initial S)

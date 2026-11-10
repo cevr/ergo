@@ -1,0 +1,40 @@
+> GET /
+200
+Content-Length: 14
+Content-Type: text/html; charset=utf-8
+<h1>jobs</h1>
+
+> HEAD /
+200
+Content-Length: 14
+Content-Type: text/html; charset=utf-8
+> GET /css/site.css
+200
+Content-Length: 20
+Content-Type: text/css; charset=utf-8
+h1 { color: teal; }
+
+> GET /missing.css
+404
+Content-Length: 0
+> GET /../secret.txt
+403
+Content-Length: 0
+> GET /leak.txt
+403
+Content-Length: 0
+> POST /index.html
+405
+Allow: GET, HEAD
+Content-Length: 0
+> POST /jobs {"name":"build"}
+201
+Content-Length: 99
+Content-Type: application/json
+Location: /jobs/1
+{"id":1,"name":"build","priority":0,"state":"queued","created":"1970-01-01T00:00:00Z","ended":null}
+> GET /jobs
+200
+Content-Length: 110
+Content-Type: application/json
+{"jobs":[{"id":1,"name":"build","priority":0,"state":"queued","created":"1970-01-01T00:00:00Z","ended":null}]}

@@ -191,6 +191,7 @@ type lowerer struct {
 	texts    map[pkgKey]bool          // generated text functions emitted
 	defaults map[pkgKey]bool          // generated default functions emitted (types.go, Defaults)
 	equals   map[pkgKey]bool          // generated equality functions emitted (equal.go)
+	wires    map[pkgKey]bool          // generated codec functions emitted (wire.go)
 	clones   map[pkgKey]bool          // generated copy functions emitted (values.go)
 	vals     *valueFacts              // the value rule's decisions (values.go)
 	sets     map[check.TypeSet]string // generated constraint interfaces emitted (decls.go, constraint)

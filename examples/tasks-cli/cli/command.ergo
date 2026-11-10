@@ -23,10 +23,10 @@ let shellArg = flag.Arg("shell", "bash, zsh or fish")
 
 // Commands are the commands of tasks-cli, each parsed into a Cmd.
 let Commands = []flag.Command[Cmd]{
-	flag.Command[Cmd]{Name: "list", Usage: "list tasks, the most urgent first", Set: flag.Set{Name: "tasks-cli list", Usage: "", Flags: []flag.Flag{stateFlag, minFlag, jsonFlag}, Args: []flag.ArgSpec{}}, Build: buildList},
-	flag.Command[Cmd]{Name: "create", Usage: "create a task", Set: flag.Set{Name: "tasks-cli create", Usage: "", Flags: []flag.Flag{priorityFlag, jsonFlag}, Args: []flag.ArgSpec{titleArgs}}, Build: buildCreate},
-	flag.Command[Cmd]{Name: "close", Usage: "close a task, after asking", Set: flag.Set{Name: "tasks-cli close", Usage: "", Flags: []flag.Flag{yesFlag, jsonFlag}, Args: []flag.ArgSpec{idArg}}, Build: buildClose},
-	flag.Command[Cmd]{Name: "completion", Usage: "print the completion script of a shell", Set: flag.Set{Name: "tasks-cli completion", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{shellArg}}, Build: buildCompletion},
+	flag.Command[Cmd]{Name: "list", Usage: "list tasks, the most urgent first", Set: flag.Set{Name: "tasks-cli list", Usage: "", Flags: []flag.Flag{stateFlag, minFlag, jsonFlag}, Args: []flag.ArgSpec{}}, Build: buildList, Commands: []flag.Command[Cmd]{}},
+	flag.Command[Cmd]{Name: "create", Usage: "create a task", Set: flag.Set{Name: "tasks-cli create", Usage: "", Flags: []flag.Flag{priorityFlag, jsonFlag}, Args: []flag.ArgSpec{titleArgs}}, Build: buildCreate, Commands: []flag.Command[Cmd]{}},
+	flag.Command[Cmd]{Name: "close", Usage: "close a task, after asking", Set: flag.Set{Name: "tasks-cli close", Usage: "", Flags: []flag.Flag{yesFlag, jsonFlag}, Args: []flag.ArgSpec{idArg}}, Build: buildClose, Commands: []flag.Command[Cmd]{}},
+	flag.Command[Cmd]{Name: "completion", Usage: "print the completion script of a shell", Set: flag.Set{Name: "tasks-cli completion", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{shellArg}}, Build: buildCompletion, Commands: []flag.Command[Cmd]{}},
 }
 
 // Parse reads args as a command line of tasks.

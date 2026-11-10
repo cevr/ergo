@@ -565,6 +565,19 @@ func (c *checker) checkLaw(law *Law) {
 			for _, id := range field.Names {
 				v := &Var{Name: id.Name, Type: typ, Pos: id.Pos(), id: id, param: true, used: true}
 				law.Params = append(law.Params, v)
+				if field.Where != nil && !containsInvalid(typ) {
+					// A law parameter's where (types.md, Refinements 10):
+					// its generator draws inside the predicate.
+					c.refining = true
+					r := c.refinement(id.Name, typ, field.Where, id.Name)
+					c.refining = false
+					if r != nil {
+						for len(law.Where) < len(law.Params) {
+							law.Where = append(law.Where, nil)
+						}
+						law.Where[len(law.Params)-1] = r
+					}
+				}
 				if id.Name == "_" {
 					continue
 				}
@@ -583,6 +596,7 @@ func (c *checker) checkLaw(law *Law) {
 		}
 	}
 	c.lawBody(d.Body)
+	c.reportGoCopyWrites(d.Body)
 	law.Fails = c.types.resolve(tg.errors).known(c.types)
 	c.reportUnused(fc)
 	c.reportNeverReassigned(fc)

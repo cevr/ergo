@@ -1,0 +1,170 @@
+// Package memory holds Memory, a limits.Limiter whose buckets live in a
+// map in memory. Every copy of a Memory is the same limiter: its buckets
+// are in a sync.Ref, so the tasks that serve calls at once see one state,
+// and each take is one atomic step of its key's bucket.
+
+import limiter/bucket
+import limiter/limits
+import machines
+import maps
+import queue
+import scope
+import slices
+import sync
+
+// Memory is a limits.Limiter in memory. Its fields are unexported: New
+// makes one. waiting holds a wake queue per Hold that waits, by its
+// number; Advance closes them all, and each Hold tries again.
+type Memory {
+	buckets sync.Ref[Map[string, bucket.Bucket]],
+	waiting sync.Ref[Map[int, queue.Queue[bool]]],
+	holds   sync.Ref[int],
+	notes   queue.Queue[Note],
+}
+
+// Note is what a Hold tells while it runs: that it waits, and that its
+// release ran, on every exit (granted, failed or stopped).
+type Note = Waits{Hold int, Key string} | Released{Hold int}
+
+// New is a Memory with a full bucket for each spec, by key, that pushes
+// its notes to notes.
+func New(specs Map[string, bucket.Spec], notes queue.Queue[Note]) Memory {
+	let mut buckets = Map[string, bucket.Bucket]{}
+	for k in maps.Keys(specs) {
+		buckets[k] = bucket.Open(maps.GetOr(specs, k, bucket.Spec{Capacity: 1, RefillMs: 1}))
+	}
+	Memory{
+		buckets: sync.NewRef[Map[string, bucket.Bucket]](buckets),
+		waiting: sync.NewRef[Map[int, queue.Queue[bool]]](Map[int, queue.Queue[bool]]{}),
+		holds:   sync.NewRef[int](0),
+		notes:   notes,
+	}
+}
+
+// NewMemory is a Memory of two small buckets; ergo test runs the
+// limits.Limiter laws against it. No law holds, so nothing reads its
+// notes.
+func NewMemory() Memory {
+	let mut specs = Map[string, bucket.Spec]{}
+	specs["fast"] = bucket.Spec{Capacity: 3, RefillMs: 7}
+	specs["slow"] = bucket.Spec{Capacity: 4, RefillMs: 250}
+	New(specs, queue.New[Note](16))
+}
+
+// Hold takes cost from key's bucket, waiting while the take is Limited:
+// it waits on a wake queue of its own, which the next Advance closes. Its
+// release (scope.OnExit) drops its wake queue and notes Released on every
+// exit, a stop of its caller included.
+func Hold(m Memory, key string, cost int) limits.Grant fails limits.UnknownBucket | limits.BadCost {
+	let id = sync.Modify(m.holds, func(n int) (int, int) { (n, n + 1) })
+	let mut waits = false
+	scope.OnExit() {
+		m.waiting.Update(func(w Map[int, queue.Queue[bool]]) Map[int, queue.Queue[bool]] { w.Delete(id) })
+		if waits {
+			note(m, Released{Hold: id})
+		}
+	}
+	for {
+		// The wake queue is in place before the take, so an Advance
+		// between the take and the wait still wakes this Hold.
+		let wake = queue.New[bool](1)
+		m.waiting.Update(func(w Map[int, queue.Queue[bool]]) Map[int, queue.Queue[bool]] {
+			let mut next = w
+			next[id] = wake
+			next
+		})
+		let g = Take(m, key, cost) catch {
+		case limits.Limited:
+			if !waits {
+				waits = true
+				note(m, Waits{Hold: id, Key: key})
+			}
+			wake.Pop() catch {
+			case queue.Closed:
+				continue
+			}
+			continue
+		case limits.UnknownBucket as u:
+			return u
+		case limits.BadCost as b:
+			return b
+		}
+		return g
+	}
+}
+
+// note pushes n; a closed notes queue drops it.
+func note(m Memory, n Note) {
+	m.notes.Push(n) catch {
+	case queue.Closed:
+	}
+}
+
+// taken is what one atomic take found.
+type taken = Told{T bucket.Told} | Unknown{} | Bad{Capacity int}
+
+// Take steps key's bucket by a spend of cost.
+func Take(m Memory, key string, cost int) limits.Grant fails limits.Limited | limits.UnknownBucket | limits.BadCost {
+	let t = sync.Modify(m.buckets, func(bs Map[string, bucket.Bucket]) (taken, Map[string, bucket.Bucket]) {
+		let b = match bs.Get(key) {
+		case Some[bucket.Bucket] as s:
+			s.Value
+		case None:
+			return (Unknown, bs)
+		}
+		let d = bucket.Step(b, bucket.Spend{Cost: cost})
+		let mut next = bs
+		next[key] = machines.Next(b, d)
+		match d {
+		case Emit[bucket.Bucket, bucket.Told] as e:
+			(Told{T: e.Output}, next)
+		case Enter[bucket.Bucket], Stay[bucket.Bucket], Ignore, Reject, Done[bucket.Told]:
+			(Bad{Capacity: b.Capacity}, bs)
+		}
+	})
+	match t {
+	case Told as told:
+		match told.T {
+		case bucket.Granted as g:
+			limits.Grant{Remaining: g.Remaining}
+		case bucket.Short as s:
+			limits.Limited{RetryAfterMs: s.RetryAfterMs}
+		}
+	case Unknown:
+		limits.UnknownBucket{Key: key}
+	case Bad as b:
+		limits.BadCost{Cost: cost, Capacity: b.Capacity}
+	}
+}
+
+// Peek is key's level, or None for an unknown key.
+func Peek(m Memory, key string) Option[limits.Level] {
+	match m.buckets.Get().Get(key) {
+	case Some[bucket.Bucket] as s:
+		Some[limits.Level]{Value: bucket.LevelOf(s.Value)}
+	case None:
+		None
+	}
+}
+
+// Advance moves every bucket's clock by ms, then wakes every Hold that
+// waits, so each tries its take again.
+func Advance(m Memory, ms int) {
+	m.buckets.Update(func(bs Map[string, bucket.Bucket]) Map[string, bucket.Bucket] {
+		let mut next = bs
+		for k in maps.Keys(bs) {
+			let b = maps.GetOr(bs, k, bucket.Open(bucket.Spec{Capacity: 1, RefillMs: 1}))
+			next[k] = machines.Next(b, bucket.Step(b, bucket.Elapse{Ms: ms}))
+		}
+		next
+	})
+	let woken = sync.Modify(m.waiting, func(w Map[int, queue.Queue[bool]]) (Map[int, queue.Queue[bool]], Map[int, queue.Queue[bool]]) {
+		(w, Map[int, queue.Queue[bool]]{})
+	})
+	for q in maps.Values(woken) {
+		q.Close()
+	}
+}
+
+// Buckets is the keys, sorted.
+func Buckets(m Memory) []string { slices.Sorted(maps.Keys(m.buckets.Get())) }

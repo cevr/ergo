@@ -171,6 +171,9 @@ type Info struct {
 	Uses map[*syntax.Ident]Object
 	// Calls is every call.
 	Calls map[*syntax.CallExpr]*Call
+	// WirePairs are the by-name wire forms (types.md, Codecs 1) that this
+	// package's encode and decode calls reach, by type (L11).
+	WirePairs map[*TypeName]*WirePair
 	// Closes is a resolved R1 Close identity at a declaration, a function
 	// reference, an operation selector or a call. An entry proves a method
 	// with no operands or results and an empty failure row (R2). A field
@@ -579,6 +582,12 @@ const (
 	// build lowers: laws are checked, not run (#162). Added in check-v1
 	// stage E3b (additive).
 	CallLawOp
+	// CallEncode is the encode built-in, encode(v, w): Type is v's type,
+	// a wire one (types.md, Codecs). Added in L11.
+	CallEncode
+	// CallDecode is the decode built-in, decode[T](r): Type is T and Fails
+	// its derived row (wireRow). Added in L11.
+	CallDecode
 	// CallKindCount bounds the call kinds. Keep it last: exhaustive
 	// consumers must account for a newly admitted kind.
 	CallKindCount
@@ -872,6 +881,9 @@ type Law struct {
 	// Unrun is why ergo test does not run the law, "" when it does: a
 	// parameter with no generator or a generic operation type.
 	Unrun string
+	// Where holds the refinement of each parameter that takes a where
+	// (refine.go), at its index in Params; nil without any.
+	Where []*Refinement
 
 	file *fileInfo // the declaring file, selected while the law is checked
 }
@@ -959,7 +971,7 @@ func (c *checker) recordCall(x *syntax.CallExpr, fun operand) {
 	case fun.mode == modeType:
 		call.Kind, call.Type = CallConversion, fun.typ
 	case fun.mode == modeBuiltin:
-		call.Kind = CallLen
+		call.Kind = builtinKind(fun.obj.(*Builtin))
 	case fun.mode == modeCapFn:
 		call.Kind, call.Op = CallProviderOp, fun.method
 	case fun.fn != nil:

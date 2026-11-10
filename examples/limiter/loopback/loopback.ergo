@@ -1,0 +1,46 @@
+// Package loopback is the limiter through the wire: the generated RPC
+// Client of a memory limiter that its generated server serves in this
+// process (rpc.Loopback). Every operation crosses Effect RPC's HTTP wire
+// and the contract's codecs both ways, so `ergo test` runs the
+// limits.Limiter laws against the client exactly as against the memory
+// provider: the same laws hold through the wire.
+
+import limiter/limits
+import limiter/limits/limitsrpc
+import limiter/memory
+import rpc
+
+// Loopback is a limits.Limiter whose every operation is an RPC call.
+type Loopback { client limitsrpc.Client }
+
+// NewLoopback serves a fresh memory limiter (memory.NewMemory) in process
+// and is its client. The server binds the limiter for each call; every
+// call reaches the same buckets, since a Memory's copies share them.
+func NewLoopback() Loopback {
+	let m = memory.NewMemory()
+	let conn = rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {
+		with context { limits.Limiter: m } {
+			try limitsrpc.Handle(tag, payload)
+		}
+	})
+	Loopback{client: limitsrpc.NewClient(conn)}
+}
+
+// Take is limits.Limiter's Take, over the wire.
+func Take(l Loopback, key string, cost int) limits.Grant fails limits.Limited | limits.UnknownBucket | limits.BadCost {
+	try limitsrpc.Take(l.client, key, cost)
+}
+
+// Hold is limits.Limiter's Hold, over the wire.
+func Hold(l Loopback, key string, cost int) limits.Grant fails limits.UnknownBucket | limits.BadCost {
+	try limitsrpc.Hold(l.client, key, cost)
+}
+
+// Peek is limits.Limiter's Peek, over the wire.
+func Peek(l Loopback, key string) Option[limits.Level] { limitsrpc.Peek(l.client, key) }
+
+// Advance is limits.Limiter's Advance, over the wire.
+func Advance(l Loopback, ms int) { limitsrpc.Advance(l.client, ms) }
+
+// Buckets is limits.Limiter's Buckets, over the wire.
+func Buckets(l Loopback) []string { limitsrpc.Buckets(l.client) }

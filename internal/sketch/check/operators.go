@@ -134,7 +134,9 @@ func (c *checker) unary(x *syntax.UnaryExpr, hint Type) operand {
 		return c.undecided(x, "the unary operator "+x.Op.String())
 	}
 	var op operand
+	signed := false
 	if lit, ok := unparen(x.X).(*syntax.BasicLit); ok && (x.Op == syntax.SUB || x.Op == syntax.ADD) {
+		signed = true
 		// A signed literal is one literal: -128 and -(128) are an int8
 		// (literal checks the unsigned value everywhere else). Info records
 		// the signed expression only; its unsigned part has no entry, since
@@ -165,6 +167,11 @@ func (c *checker) unary(x *syntax.UnaryExpr, hint Type) operand {
 			return bad(x)
 		}
 	}
+	// A signed literal is a constant, checked against a where below; any
+	// other operand of a refined type could leave it (Refinements 7).
+	if !signed && x.Op != syntax.NOT && !c.refinedArith(x, x.Op, t) {
+		return bad(x)
+	}
 	if op.mode == modeConst {
 		tok := map[syntax.Token]token.Token{syntax.NOT: token.NOT, syntax.SUB: token.SUB, syntax.ADD: token.ADD, syntax.XOR: token.XOR}[x.Op]
 		prec := uint(0)
@@ -177,6 +184,9 @@ func (c *checker) unary(x *syntax.UnaryExpr, hint Type) operand {
 			if !c.representable(&op, b) {
 				return bad(x)
 			}
+		}
+		if !c.refinedConst(x, op.val, t) {
+			return bad(x)
 		}
 		return operand{mode: modeConst, typ: t, val: op.val}
 	}
@@ -401,8 +411,9 @@ func (c *checker) opDefined(x syntax.Node, op syntax.Token, t Type) bool {
 	}
 	if !ok {
 		c.errorf(x, CodeType, "operator %s is not defined on %s", op, t)
+		return false
 	}
-	return ok
+	return c.refinedArith(x, op, t)
 }
 
 // shift checks x << n and x >> n (spec D-A3). A literal left operand takes
@@ -449,6 +460,9 @@ func (c *checker) shift(x *syntax.BinaryExpr, hint Type) operand {
 	lt := l.typ
 	if !isInteger(lt) {
 		c.errorf(x, CodeType, "operator %s is not defined on %s", x.Op, l.typ)
+		return bad(x)
+	}
+	if !c.refinedArith(x, x.Op, lt) {
 		return bad(x)
 	}
 	if l.mode == modeConst && r.mode == modeConst {
@@ -499,6 +513,22 @@ func (c *checker) conversion(x *syntax.CallExpr, t Type) operand {
 		}
 		c.errorf(x, CodeType, "%s", c.conversionRefusal(x.Args[0], op.typ, t))
 		return bad(x)
+	}
+	if RefinementOf(t) != nil && !c.identical(op.typ, t) {
+		// Into a refined type: a constant that satisfies its where, or
+		// any value in its derived parse function (Refinements 6).
+		if op.mode == modeConst {
+			if !c.refinedConst(x, op.val, t) {
+				return bad(x)
+			}
+		} else if !c.inDerived(t) {
+			arg := exprText(x.Args[0])
+			if arg == "this expression" {
+				arg = "…"
+			}
+			c.errorf(x, CodeType, "a conversion into %s is checked only for a constant; write %s(%s), which checks its where %s (types.md, Refinements 6)", t, c.parseFunc(t), arg, RefinementOf(t).Text)
+			return bad(x)
+		}
 	}
 	if op.mode == modeConst {
 		if tb, ok := under(t).(*Basic); ok {

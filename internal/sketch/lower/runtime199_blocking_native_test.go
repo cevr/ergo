@@ -93,7 +93,17 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 // caller, shielded, and joins nothing: runtime/v1/actor_children_test.go
 // TestActorChildrenAgreeWithTree states that its owner entry stops it,
 // last started first, before the next entry and before the owner ends.
-var childWaitLaws = map[string]bool{"After": true, "TasksTransform": true, "TasksRace": true, "Set.Wait": true, "Set.Stop": true, "MachineSupervise": true, "MachineChild": true}
+// RPCExits and RPCExitLines (std rpc, R1, R3b and Rm) run each call on a
+// task below the caller and join it: runtime/v1/rpc_test.go
+// TestRPCAbortStopsTheCall states that a client's abort stops a served
+// call and its release runs before the answer ends, and
+// TestRPCCallsStopWithTheCaller that a stop of the caller (a Loopback
+// caller's) stops the call, runs its release and ends with the stop.
+var childWaitLaws = map[string]bool{"After": true, "TasksTransform": true, "TasksRace": true, "Set.Wait": true, "Set.Stop": true, "MachineSupervise": true, "MachineChild": true,
+	"RPCExits": true, "RPCExitLines": true, "HTTPServe": true}
+
+// HTTPServe's stop and drain laws are TestHTTPConcurrentRequestsAndStop
+// and TestHTTPDisconnectAndDefects in runtime/v1/http_test.go.
 
 // actorWaitLaws are the waiting bindings of std actor (MU3): each waits on
 // the actor's own runner (for room in its inbox, an answer, a state, a
@@ -129,8 +139,22 @@ var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Acto
 // stop ends the wait, each line is taken once and in order, the line read
 // after a stop stays for the next read); a masked caller's Done is nil, so
 // its read runs to its end; lower TestStdinStopRuns stops a task that waits
-// in Lines.
-var hostWaitLaws = map[string]bool{"ExecRun": true, "IOReadAll": true, "IOLines": true}
+// in Lines. RPCCall (std rpc, R1) waits for a peer's HTTP answer:
+// runtime/v1/rpc_test.go TestRPCAbortStopsTheCall states that a stop of
+// the caller aborts the request, ends the call with the stop and stops the
+// call on the server. Exchange.Write (std http's streamed body, Rm) waits
+// for the client to take a part: runtime/v1/http_stream_test.go
+// TestHTTPStreamHangUpStopsTheWriter states that a hang-up stops the
+// request task and the next Write ends with that stop, and
+// TestHTTPStreamFlushesEachPart that a Write returns once its part is
+// flushed.
+// HTTPDo (std http's client, H1) waits for a peer's answer:
+// runtime/v1/http_client_test.go TestHTTPClientRefusedAndStopped states
+// that a stop of the caller cancels the exchange, ends the call with the
+// stop and reaches the server as a hang-up.
+// HTTPFetch shares HTTPDo's exchange; TestHTTPNetworkStops also exercises
+// cancellation while following a redirect into a held peer.
+var hostWaitLaws = map[string]bool{"ExecRun": true, "IOReadAll": true, "IOLines": true, "RPCCall": true, "Exchange.Write": true, "HTTPDo": true, "HTTPFetch": true}
 
 // blockingRoutes is the route axis of a binding (runtime.md, I1): the
 // waiting task of a callerWait binding is the task that invokes the call,

@@ -1,0 +1,86 @@
+> GET /
+404
+Content-Length: 26
+Content-Type: application/json
+{"error":"no route GET /"}
+> GET /tasks
+404
+Content-Length: 31
+Content-Type: application/json
+{"error":"no route GET /tasks"}
+> PUT /jobs
+405
+Allow: GET, HEAD, POST
+Content-Length: 39
+Content-Type: application/json
+{"error":"PUT is not allowed on /jobs"}
+> GET /jobs/1/cancel
+405
+Allow: POST
+Content-Length: 48
+Content-Type: application/json
+{"error":"GET is not allowed on /jobs/1/cancel"}
+> POST /jobs {
+400
+Content-Length: 78
+Content-Type: application/json
+{"error":"the body is not JSON: an object key that is not a string at byte 1"}
+> POST /jobs []
+422
+Content-Length: 33
+Content-Type: application/json
+{"error":"body is not an object"}
+> POST /jobs {"priority":1}
+422
+Content-Length: 27
+Content-Type: application/json
+{"error":"name is missing"}
+> POST /jobs {"name":""}
+422
+Content-Length: 25
+Content-Type: application/json
+{"error":"name is empty"}
+> POST /jobs {"name":"x","priority":"high"}
+422
+Content-Length: 38
+Content-Type: application/json
+{"error":"priority is not an integer"}
+> GET /jobs/0
+404
+Content-Length: 20
+Content-Type: application/json
+{"error":"no job 0"}
+> GET /jobs/01
+404
+Content-Length: 21
+Content-Type: application/json
+{"error":"no job 01"}
+> GET /jobs/x
+404
+Content-Length: 20
+Content-Type: application/json
+{"error":"no job x"}
+> GET /jobs/7
+404
+Content-Length: 20
+Content-Type: application/json
+{"error":"no job 7"}
+> POST /jobs/7/cancel
+404
+Content-Length: 20
+Content-Type: application/json
+{"error":"no job 7"}
+> DELETE /jobs/7
+404
+Content-Length: 20
+Content-Type: application/json
+{"error":"no job 7"}
+> HEAD /jobs
+200
+Content-Length: 11
+Content-Type: application/json
+> GET /jobs
+200
+Content-Length: 11
+Content-Type: application/json
+{"jobs":[]}

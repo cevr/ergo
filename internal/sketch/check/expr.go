@@ -673,6 +673,10 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 		c.orphanElements(x, mark, lt())
 		return bad(x)
 	}
+	if RefinementOf(t) != nil {
+		// The elements still check, so nothing cascades (Refinements 6).
+		c.errorf(x, CodeType, "a literal of %s is not checked against its where; write %s(%s{…})", t, c.parseFunc(t), refinedBase(t))
+	}
 	if isZeroRecord(t) && len(x.Elts) == 0 {
 		// One form per job (spec D-B2): a record with no fields is a value
 		// by its name alone.
@@ -1407,6 +1411,15 @@ func (c *checker) index(x *syntax.IndexExpr, hint Type) operand {
 		return bad(x)
 	case modeGeneric:
 		return c.explicit(x, base)
+	case modeBuiltin:
+		// decode[T] names the type decode builds (types.md, Codecs).
+		if b, _ := base.obj.(*Builtin); b != nil && b.Name == "decode" && len(x.Indices) == 1 {
+			t := c.typExpr(x.Indices[0], c.localTypeCtx())
+			if isInvalid(t) {
+				return bad(x)
+			}
+			return operand{mode: modeBuiltin, obj: b, typ: t}
+		}
 	case modeExtern:
 		// F[int] is still the extern's reference; (F)[int] reads (F) as a
 		// value first, as for any generic function (round 5), and a
@@ -1550,6 +1563,10 @@ func (c *checker) sliceExpr(x *syntax.SliceExpr) operand {
 	if base.invalid() {
 		return bad(x)
 	}
+	if RefinementOf(base.typ) != nil {
+		c.errorf(x, CodeType, "a slice of %s could leave its where; convert first: %s(…)[…] (types.md, Refinements 7)", base.typ, refinedBase(base.typ))
+		return bad(x)
+	}
 	switch under(base.typ).(type) {
 	case *Slice:
 		return operand{mode: modeValue, typ: base.typ}
@@ -1618,6 +1635,13 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 			}
 			c.errorf(op.expr, CodeType, "cannot use %s as %s in %s", op.typ, t, what)
 		}
+		op.mode = modeInvalid
+		return false
+	}
+	if a.clause == assignUnderlying && RefinementOf(t) != nil && !c.inDerived(t) {
+		// A value of the unnamed base enters a refined type only through
+		// its parse function (types.md, Refinements 6).
+		c.errorf(op.expr, CodeType, "cannot use %s as %s in %s: %s is refined; write %s(…), which checks its where", op.typ, t, what, t, c.parseFunc(t))
 		op.mode = modeInvalid
 		return false
 	}

@@ -1,0 +1,50 @@
+// Option inputs give the law runner ordinary, seeded generators. The wire
+// records contain the JSON-specific alternatives, not Option wire values.
+type optionalField { Value Optional[int] }
+type nullableField { Value Nullable[int] }
+type nestedField { Value Optional[Nullable[int]] }
+
+func optionalOf[T](v Option[T]) Optional[T] {
+	match v {
+	case None: Absent
+	case Some[T] as p: Present{Value: p.Value}
+	}
+}
+
+func nullableOf[T](v Option[T]) Nullable[T] {
+	match v {
+	case None: Null
+	case Some[T] as p: NonNull{Value: p.Value}
+	}
+}
+
+func nestedOf(v Option[Option[int]]) Optional[Nullable[int]] {
+	match v {
+	case None: Absent
+	case Some[Option[int]] as p: Present{Value: nullableOf(p.Value)}
+	}
+}
+
+func c[T wire]() Codec[T] { Codec[T]{MaxBytes: 0, MaxDepth: 0} }
+
+func optionalRoundTrips(v Option[int]) bool {
+	let field = optionalField{Value: optionalOf(v)}
+	let back = Decode(c[optionalField](), Encode(c[optionalField](), field)) catch { case _: return false }
+	back == field
+}
+
+func nullableRoundTrips(v Option[int]) bool {
+	let field = nullableField{Value: nullableOf(v)}
+	let back = Decode(c[nullableField](), Encode(c[nullableField](), field)) catch { case _: return false }
+	back == field
+}
+
+func nestedRoundTrips(v Option[Option[int]]) bool {
+	let field = nestedField{Value: nestedOf(v)}
+	let back = Decode(c[nestedField](), Encode(c[nestedField](), field)) catch { case _: return false }
+	back == field
+}
+
+law OptionalRoundTrips(v Option[int]) { optionalRoundTrips(v) }
+law NullableRoundTrips(v Option[int]) { nullableRoundTrips(v) }
+law NestedRoundTrips(v Option[Option[int]]) { nestedRoundTrips(v) }

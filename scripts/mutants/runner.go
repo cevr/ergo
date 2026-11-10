@@ -707,6 +707,16 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 	return k.add(i, f)
 }
 
+// headerLine reports whether the line of text at byte offset at is a case
+// or an else-if header: lines the cover tool gives no block of their own,
+// though the code that reaches them runs them (coverage.covering).
+func headerLine(text string, at int) bool {
+	start := strings.LastIndexByte(text[:at], '\n') + 1
+	line, _, _ := strings.Cut(text[start:], "\n")
+	line = strings.TrimSpace(line)
+	return strings.HasPrefix(line, "case ") || strings.HasPrefix(line, "} else if ")
+}
+
 func lastLines(s string, n int) string {
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	return strings.Join(lines[max(0, len(lines)-n):], "\n")
@@ -790,6 +800,7 @@ func (w *worker) judge(ctx context.Context, m *Mutant) (r Result) {
 	at := strings.Index(string(original), m.From)
 	r.Line = 1 + strings.Count(string(original[:at]), "\n")
 	file, lo, hi := m.File, r.Line, r.Line+strings.Count(m.From, "\n")
+	header := headerLine(string(original), at)
 	var extra []string
 	if a := m.Anchor; a != nil {
 		extra = a.Tests
@@ -813,7 +824,7 @@ func (w *worker) judge(ctx context.Context, m *Mutant) (r Result) {
 			hi = lo + strings.Count(a.Text, "\n")
 		}
 	}
-	covering := w.e.cov.covering(file, lo, hi, extra)
+	covering := w.e.cov.covering(file, lo, hi, header && m.Anchor == nil, extra)
 	r.Covering = len(covering)
 	if len(covering) == 0 {
 		r.Status = Uncovered

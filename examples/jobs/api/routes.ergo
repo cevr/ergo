@@ -1,0 +1,34 @@
+import http
+
+// Endpoint is what a request asks for. The route table is built from it,
+// so a new endpoint has a route by construction, and a found route
+// carries its endpoint.
+type Endpoint = ListJobs{} | SubmitJob{} | ShowJob{} | CancelJob{} | DeleteJob{}
+
+// Endpoints is every endpoint, in route order.
+let Endpoints = []Endpoint{ListJobs, SubmitJob, ShowJob, CancelJob, DeleteJob}
+
+// RouteOf is the route of e.
+func RouteOf(e Endpoint) http.Route[Endpoint] {
+	match e {
+	case ListJobs:
+		http.Route{Value: e, Method: "GET", Path: "/jobs"}
+	case SubmitJob:
+		http.Route{Value: e, Method: "POST", Path: "/jobs"}
+	case ShowJob:
+		http.Route{Value: e, Method: "GET", Path: "/jobs/:id"}
+	case CancelJob:
+		http.Route{Value: e, Method: "POST", Path: "/jobs/:id/cancel"}
+	case DeleteJob:
+		http.Route{Value: e, Method: "DELETE", Path: "/jobs/:id"}
+	}
+}
+
+// Routes is the route table, for http.Match.
+func Routes() []http.Route[Endpoint] {
+	let mut routes = []http.Route[Endpoint]{}
+	for e in Endpoints {
+		routes = routes.Append(RouteOf(e))
+	}
+	routes
+}

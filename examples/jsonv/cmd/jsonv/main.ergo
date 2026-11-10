@@ -61,8 +61,8 @@ test FailuresExit {
 
 // InferredSchemaAccepts: jsonv check accepts a document against the
 // schema jsonv infer prints for it.
-test InferredSchemaAccepts(v json.Value) {
-	let doc = json.Compact(json.Lawful(v))
+test InferredSchemaAccepts(v json.Tree) {
+	let doc = json.Compact(try json.Lawful(v))
 	let inferred = with context { app.Documents: memory.Shelf{Docs: []memory.Doc{memory.Doc{Name: "-", Text: doc}}} } {
 		try app.Answer(app.Infer{Doc: "-"})
 	}

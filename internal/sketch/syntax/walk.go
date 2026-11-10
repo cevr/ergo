@@ -58,7 +58,7 @@ func Inspect(n Node, f func(Node) bool) {
 		walk(n.Pattern, n.Type)
 		exprs(n.Values)
 	case *TypeDecl:
-		walk(n.Extern, n.Name, n.TypeParams, n.Spec)
+		walk(n.Extern, n.Name, n.TypeParams, n.Spec, n.Where)
 	case *FuncDecl:
 		walk(n.Extern, n.Recv, n.Name, n.TypeParams, n.Type, n.Body)
 	case *ExternSpec:
@@ -95,7 +95,7 @@ func Inspect(n Node, f func(Node) bool) {
 		walk(n.Value)
 	case *Field:
 		idents(n.Names)
-		walk(n.Type)
+		walk(n.Type, n.Where)
 	case *FieldList:
 		fields(n)
 	case *TakesClause:

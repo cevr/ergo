@@ -10,6 +10,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -169,6 +170,123 @@ func FSStat(path string) (Info, error) {
 		return Info{}, fsErr(path, err)
 	}
 	return Info{Name: fi.Name(), Size: int(fi.Size()), Dir: fi.IsDir(), Perm: int(fi.Mode().Perm())}, nil
+}
+
+// Escapes is fs.Escapes: Path leaves the root of an fs.Root.
+type Escapes struct{ Path string }
+
+// Error is the failure's text, as NotFound's is.
+func (e Escapes) Error() string { return "fs.Escapes{Path:" + e.Path + "}" }
+
+// HostRoot is fs.HostRoot, the host's fs.Root: the directory opened once
+// by FSOpenRoot, held until the acquiring frame ends. A rename or a
+// replacement of its original name never changes that directory.
+// os.Root resolves every
+// element with openat below the root's descriptor and reads each link
+// itself, so a path or a link that leads out is refused in the same host
+// operation that reads, never by a check before an ordinary read.
+type HostRoot struct{ root *os.Root }
+
+// FSOpenRoot is the body of fs.OpenRoot. Acquisition and registration on
+// the caller's frame are one masked step. Until local resource tracking
+// (#197), the handle may be used only while this frame is alive.
+//
+//ergo:host
+func FSOpenRoot(s *Scope, dir string) (*HostRoot, error) {
+	s = s.current()
+	if s.ended {
+		panic("fs.OpenRoot: the acquiring frame has returned")
+	}
+	return rt.AcquireInto(s.s.Task(), func() (*HostRoot, error) {
+		r, err := os.OpenRoot(dir)
+		if err != nil {
+			return nil, fsErr(dir, err)
+		}
+		return &HostRoot{root: r}, nil
+	}, func(r *HostRoot) {
+		OnExit(s, func() { _ = r.root.Close() })
+	})
+}
+
+// hostRooted marks the runtime's type as the one fs.HostRoot.
+func (r *HostRoot) hostRooted() {}
+
+// rootErrEscapes is the text of os.Root's unexported errPathEscapes; the
+// host agreement tests pin it, so a Go release that changes it fails them.
+const rootErrEscapes = "path escapes from parent"
+
+// rootErr is the std fs failure of err at path: Escapes for a step out of
+// the root, else fsErr's.
+func rootErr(path string, err error) error {
+	var pe *fs.PathError
+	if errors.As(err, &pe) && pe.Err.Error() == rootErrEscapes {
+		return Escapes{Path: path}
+	}
+	return fsErr(path, err)
+}
+
+// in runs f on the held root. Only the acquisition opens the directory.
+func (r *HostRoot) in(path string, f func(*os.Root) error) error {
+	if err := f(r.root); err != nil {
+		return rootErr(path, err)
+	}
+	return nil
+}
+
+// ReadFile is the whole file at path below the root.
+//
+//ergo:host
+func (r *HostRoot) ReadFile(_ *rt.Task, path string) (string, error) {
+	var text string
+	err := r.in(path, func(root *os.Root) error {
+		data, err := root.ReadFile(path)
+		text = string(data)
+		return err
+	})
+	return text, err
+}
+
+// ReadDir is the names of the entries of the directory path below the
+// root, sorted by name.
+//
+//ergo:host
+func (r *HostRoot) ReadDir(_ *rt.Task, path string) ([]string, error) {
+	var names []string
+	err := r.in(path, func(root *os.Root) error {
+		f, err := root.Open(path)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		entries, err := f.ReadDir(-1)
+		if err != nil {
+			return err
+		}
+		names = make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		slices.Sort(names)
+		return nil
+	})
+	return names, err
+}
+
+// Stat is the file at path below the root, after symbolic links; its Name
+// is the last element of path as given.
+//
+//ergo:host
+func (r *HostRoot) Stat(_ *rt.Task, path string) (Info, error) {
+	var info Info
+	err := r.in(path, func(root *os.Root) error {
+		fi, err := root.Stat(path)
+		if err != nil {
+			return err
+		}
+		info = Info{Name: fi.Name(), Size: int(fi.Size()), Dir: fi.IsDir(), Perm: int(fi.Mode().Perm())}
+		return nil
+	})
+	return info, err
 }
 
 // beforeRename, when it is set, runs on the complete, closed new file of

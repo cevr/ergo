@@ -3,13 +3,53 @@
 // Set, and Build, which makes the program's C from the parsed Values.
 // Build may fail with the program's own failures E as well as the flag
 // failures (a port that is not a number, a path that does not exist): E
-// is a row parameter, empty when Build fails only as Parse does. A nested
-// command is a Build that calls ParseCommand on Rest(v).
+// is a row parameter, empty when Build fails only as Parse does. Commands
+// are the children. A group dispatches to a child; only a leaf uses Set
+// and Build. Group makes a group without a dummy Build at the call site.
 type Command[C, E] {
-	Name  string,
-	Usage string,
-	Set   Set,
-	Build func(v Values) C fails E | Help | Unknown | NeedsValue | Invalid | Missing | Extra | UnknownCommand,
+	Name     string,
+	Usage    string,
+	Set      Set,
+	Build    func(v Values) C fails E | Help | Unknown | NeedsValue | Invalid | Missing | Extra | UnknownCommand,
+	Commands []Command[C, E],
+}
+
+// Group declares a command level. Flags belong to leaves; a group consumes
+// exactly its name and delegates the remaining arguments to its children.
+func Group[C, E](name string, usage string, commands []Command[C, E]) Command[C, E] {
+	if len(commands) == 0 { return Unreachable("flag: a group needs a child command") }
+	Command[C, E]{Name: name, Usage: usage, Set: Set{Name: name, Usage: usage, Flags: []Flag{}, Args: []ArgSpec{}}, Build: func(_ Values) C { Unreachable("flag: a group has no Build") }, Commands: commands}
+}
+
+// Root declares the program name and its optional --version built-in.
+// None means --version is not declared. A Version result is handled beside
+// Help, without adding it to a leaf Build's failure row.
+type Root[C, E] { Name string, Usage string, Commands []Command[C, E], Version Option[string] }
+type Version { Text string }
+
+func ParseRoot[C, E](root Root[C, E], args []string) C fails E | Version | Help | Unknown | NeedsValue | Invalid | Missing | Extra | UnknownCommand {
+	if len(args) > 0 && (args[0] == "--help" || args[0] == "-help" || args[0] == "-h") {
+		return Help{Text: RootUsage(root)}
+	}
+	if len(args) > 0 && args[0] == "--version" {
+		match root.Version {
+		case Some as v:
+			return Version{Text: v.Value}
+		case None:
+		}
+	}
+	try ParseCommand(root.Name, root.Usage, root.Commands, args)
+}
+
+// RootUsage includes only built-ins that the root declares.
+func RootUsage[C, E](root Root[C, E]) string {
+	let help = CommandUsage(root.Name, root.Usage, root.Commands)
+	match root.Version {
+	case None:
+		help
+	case Some:
+		help + "  --version\n    \tprint the version\n"
+	}
 }
 
 // ParseCommand reads args as a command name and that command's own
@@ -32,7 +72,11 @@ func ParseCommand[C, E](name string, usage string, commands []Command[C, E], arg
 	}
 	for c in commands {
 		if c.Name == first {
-			let v = try Parse(c.Set, rest)
+			let path = if name == "" { c.Name } else { name + " " + c.Name }
+			if len(c.Commands) > 0 {
+				return try ParseCommand[C, E](path, c.Usage, c.Commands, rest)
+			}
+			let v = try Parse(Set{..c.Set, Name: path}, rest)
 			return try c.Build(v)
 		}
 	}
@@ -51,9 +95,26 @@ func CommandUsage[C, E](name string, usage string, commands []Command[C, E]) str
 		out = out + usage + "\n"
 	}
 	out = out + "Commands:\n"
+	out = out + commandHelp("", commands)
+	out
+}
+
+// commandHelp lists complete relative paths, including every descendant.
+func commandHelp[C, E](prefix string, commands []Command[C, E]) string {
+	let mut out = ""
 	for c in commands {
-		out = out + "  " + c.Name + "\n    \t" + c.Usage + "\n"
+		let path = if prefix == "" { c.Name } else { prefix + " " + c.Name }
+		out = out + "  " + path + "\n    \t" + c.Usage + "\n"
+		out = out + commandHelp[C, E](path, c.Commands)
 	}
+	out
+}
+
+// RenderCommand prefixes a leaf's canonical arguments with its command path.
+// The path is data supplied by the program, like the names in Command.
+func RenderCommand(path []string, v Values) []string {
+	let mut out = path
+	for a in Render(v) { out = out.Append(a) }
 	out
 }
 

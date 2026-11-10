@@ -110,6 +110,17 @@
       "killers": ["check:TestTaskCaptureOwnership"]
     },
     {
+      "name": "seal-callback-params",
+      "origin": "wf10 Rm",
+      "file": "internal/sketch/check/extern.go",
+      "from": "if ft, ok := p.Type.(*syntax.FuncType); ok && ft.Params != nil {",
+      "to": "if ft, ok := p.Type.(*syntax.FuncType); false && ok && ft.Params != nil {",
+      "rule": "A std operation type the host hands a program through an extern's callback (http.Exchange) is sealed: the runtime's Go type, never a program interface.",
+      "killers": [
+        "lower:TestHTTPHandlerRows"
+      ]
+    },
+    {
       "name": "existing-0-B1 rowText prints commas",
       "origin": "196n/mutants-b.json",
       "file": "internal/sketch/check/typeops.go",
@@ -1530,6 +1541,280 @@
       "killers": [
         "lower:TestCheckedImpliesLoweredPart8"
       ]
+    },
+    {
+      "name": "l6-1 clip of <= drops its bound",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/refine.go",
+      "from": "\tcase syntax.LEQ:\n\t\treturn clip(r.dom.Lo, v, r.dom), true",
+      "to": "\tcase syntax.LEQ:\n\t\treturn clip(r.dom.Lo, new(big.Int).Sub(v, one1), r.dom), true",
+      "rule": "types.md, Refinements 2: the checker decides P to the set of subject values that satisfy it.",
+      "killers": [
+        "check:TestRefinementMatchesPredicate"
+      ]
+    },
+    {
+      "name": "l6-2 a constant outside the where is admitted",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/refine.go",
+      "from": "\tif r.Holds(v) {\n\t\treturn true\n\t}",
+      "to": "\tif r.Holds(v) || true {\n\t\treturn true\n\t}",
+      "rule": "types.md, Refinements 6: a constant enters N only when its value lies in the set.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l6-3 a conversion of a value into a refined type is admitted",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/operators.go",
+      "from": "\t\t} else if !c.inDerived(t) {\n\t\t\targ := exprText(x.Args[0])",
+      "to": "\t\t} else if false {\n\t\t\targ := exprText(x.Args[0])",
+      "rule": "types.md, Refinements 6: a conversion N(x) of a value that is not a constant is S108, except in ParseN's own body.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l6-4 a conversion is refused in the derived parse function",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/operators.go",
+      "from": "\t\t} else if !c.inDerived(t) {\n\t\t\targ := exprText(x.Args[0])",
+      "to": "\t\t} else if true {\n\t\t\targ := exprText(x.Args[0])",
+      "rule": "types.md, Refinements 4 and 6: ParseN's body converts it into N.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l6-5 an assignment from the base is admitted",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/expr.go",
+      "from": "if a.clause == assignUnderlying && RefinementOf(t) != nil && !c.inDerived(t) {",
+      "to": "if a.clause == assignUnderlying && RefinementOf(t) != nil && false {",
+      "rule": "types.md, Refinements 6: an assignment from the unnamed base is S108.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l6-6 a composite literal of a refined type is admitted",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/expr.go",
+      "from": "\tif RefinementOf(t) != nil {\n\t\t// The elements still check",
+      "to": "\tif false {\n\t\t// The elements still check",
+      "rule": "types.md, Refinements 6: a composite literal of N is S108.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l6-7 a slice of a refined value is admitted",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/expr.go",
+      "from": "\tif RefinementOf(base.typ) != nil {",
+      "to": "\tif false {",
+      "rule": "types.md, Refinements 7: a slice expression of a refined value is S108.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l6-8 arithmetic on a refined operand is admitted",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/refine.go",
+      "from": "func (c *checker) refinedArith(x syntax.Node, op syntax.Token, t Type) bool {\n\tif RefinementOf(t) == nil {",
+      "to": "func (c *checker) refinedArith(x syntax.Node, op syntax.Token, t Type) bool {\n\tif true {",
+      "rule": "types.md, Refinements 7: an arithmetic operator on a refined operand is S108.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l6-9 a refined type whose zero fails its where is defaultable",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "if r := RefinementOf(t); r != nil && !r.Holds(big.NewInt(0)) {",
+      "to": "if r := RefinementOf(t); r != nil && r.Holds(big.NewInt(0)) && false {",
+      "rule": "types.md, Refinements 8: let p Port is S108 when 0 fails the where.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11-1",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wire.go",
+      "from": "if !isExported(f.Name) {\n\t\t\t\treturn",
+      "to": "if false && !isExported(f.Name) {\n\t\t\t\treturn",
+      "rule": "types.md, Codecs 1: a record only its package builds does not satisfy wire.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11-2",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wire.go",
+      "from": "if !isString(u.Key) {",
+      "to": "if false && !isString(u.Key) {",
+      "rule": "types.md, Codecs 1: a Map's key is a string.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11-3",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wire.go",
+      "from": "return \"\", &wireFault{t, \"is an operation type\"}",
+      "to": "return \"\", nil",
+      "rule": "types.md, Codecs 1: an operation type does not satisfy wire.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11-4",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wire.go",
+      "from": "return \"\", &wireFault{t, \"is a function\"}",
+      "to": "return \"\", nil",
+      "rule": "types.md, Codecs 1: a function does not satisfy wire.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11-5",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wire.go",
+      "from": "if typeSet(tp) == SetWire {",
+      "to": "if true {",
+      "rule": "types.md, Codecs 1: a type parameter is wire only under wire.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11-6",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wirecall.go",
+      "from": "\t\t\tif len(u.Fields) > 0 {\n\t\t\t\tadd(WireMissingName)",
+      "to": "\t\t\tif len(u.Fields) < 0 {\n\t\t\t\tadd(WireMissingName)",
+      "rule": "types.md, Codecs 3: a record with fields adds WireMissingField to decode's row.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11-7",
+      "origin": "wf10 v1-lang-B L11",
+      "file": "internal/sketch/check/wirecall.go",
+      "from": "\t\t\trow = row.union(c.types, c.types.resolve(c.funcSig(p.Parse).Errors))",
+      "to": "\t\t\t_ = p",
+      "rule": "types.md, Codecs 3: a by-name ParseX's row joins decode's.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11b-1",
+      "origin": "wf10 v1-lang-B L11b",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "\t\treturn &RowArg{Row: c.wireRow(b)}",
+      "to": "\t\treturn t",
+      "rule": "types.md, Codecs 6: an instance replaces wired[T] by its argument's wire row.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11b-2",
+      "origin": "wf10 v1-lang-B L11b",
+      "file": "internal/sketch/check/wirecall.go",
+      "from": "\t\t\trow = row.with(c.types, &Wired{T: tp})",
+      "to": "\t\t\t_ = tp",
+      "rule": "types.md, Codecs 6: a wire type parameter's part of decode's row is wired[T].",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11b-3",
+      "origin": "wf10 v1-lang-B L11b",
+      "file": "internal/sketch/check/decl.go",
+      "from": "if t, ok := c.wiredElem(x, kind, ctx); ok {",
+      "to": "if t, ok := c.wiredElem(x, kind, ctx); ok && false {",
+      "rule": "types.md, Codecs 6: wired[X] in a fails row is the row of decode[X].",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l11b-4",
+      "origin": "wf10 v1-lang-B L11b",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "\t\tc.recordWire(t)\n\t\treturn \"\"",
+      "to": "\t\treturn \"\"",
+      "rule": "types.md, Codecs 1 and 6: a generic codec's argument keeps its by-name pair (the caller records it).",
+      "killers": [
+        "lower:TestStdCodecLawsRun"
+      ]
+    },
+    {
+      "name": "rpc-c2 wire keys keep their case",
+      "origin": "wf10 r-ts-rpc R1",
+      "file": "internal/sketch/check/wirecall.go",
+      "from": "\t\tb[i] += 'a' - 'A'",
+      "to": "\t\t_ = b[i]",
+      "rule": "stdlib.md, json 1 (owner q81; types.md Codecs 2, H3): a record's keys are its field names with the leading capitals lowered, Option's value as value, which Effect's Schemas read.",
+      "killers": ["check:TestWireKeysFollowTheRule"]
+    },
+    {
+      "name": "wire-initialism-last-capital",
+      "origin": "wf10 H3",
+      "file": "internal/sketch/check/wirecall.go",
+      "from": "\t\tn-- // the run's last capital starts the next word",
+      "to": "",
+      "rule": "types.md Codecs 2: a capital run that a lower-case letter follows keeps its last capital (HTTPStatus as httpStatus).",
+      "killers": ["check:TestWireKeysFollowTheRule"]
+    },
+    {
+      "name": "wire-initialism-whole-run",
+      "origin": "wf10 H3",
+      "file": "internal/sketch/check/wirecall.go",
+      "from": "\tfor i := 0; i < n; i++ {",
+      "to": "\tfor i := 0; i < n && i < 1; i++ {",
+      "rule": "types.md Codecs 2: the whole leading initialism is lowered (ID as id, URL as url).",
+      "killers": ["check:TestWireKeysFollowTheRule"]
+    },
+    {
+      "name": "wire-key-clash",
+      "origin": "wf10 H3",
+      "file": "internal/sketch/check/wire.go",
+      "from": "\t\t\tif other, ok := keys[k]; ok {",
+      "to": "\t\t\tif other, ok := keys[k]; ok && false {",
+      "rule": "types.md Codecs 2: a record whose fields share a wire key has no wire form; the S108 names both fields and the key.",
+      "killers": ["check:TestWireKeysFollowTheRule"]
+    },
+    {
+      "name": "gocopy-ergo-use",
+      "origin": "wf10 H5",
+      "file": "internal/sketch/check/gocopy.go",
+      "from": "held[v] && ergoUse[v] {",
+      "to": "held[v] {",
+      "rule": "interop.md Lowering 3 (H5): only a let that is also an Ergo value is a copy; a Go-only let is Go's map, and its writing method is no error.",
+      "killers": ["check:TestGoCopyWriteIsReported"]
+    },
+    {
+      "name": "gocopy-writes",
+      "origin": "wf10 H5",
+      "file": "internal/sketch/check/gocopy.go",
+      "from": "call.Recv != nil && len(c.goResults(call)) == 0 {",
+      "to": "call.Recv != nil {",
+      "rule": "interop.md Lowering 3 (H5): a Go method with a result reads; only one with no result can only write the copy.",
+      "killers": ["check:TestGoCopyWriteIsReported"]
     }
   ]
 }

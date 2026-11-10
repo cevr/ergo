@@ -15,6 +15,9 @@ type typeCtx struct {
 	l      *lowerer
 	params map[*check.TypeParam]string
 	site   syntax.Node // where a refusal of a type is located
+	// wires names the codec witness of each wire type parameter in
+	// scope (wire.go), for a codec call or a codec function's body.
+	wires map[*check.TypeParam]string
 }
 
 // goType is t's Go type. Basic types keep their Go names (duration is

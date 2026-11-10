@@ -1,0 +1,76 @@
+import strconv
+import strings
+
+// doc draws the JSON text the law decodes: nesting, long numbers,
+// exponents and strings of any text. spell writes it with or without
+// insignificant white space, strings in the encoder's escaping.
+type docNull {}
+type docBool { V bool }
+type docInt { V int64 }
+type docDigits { Lead int, Frac int, Exp int, Long bool }
+type docStr { V string }
+type docArr { Items []doc }
+type docObj { Keys []string, Vals []doc }
+type doc = docNull | docBool | docInt | docDigits | docStr | docArr | docObj
+
+// magnitude is n's digits without a sign; the least int has no positive
+// twin, so the sign is cut from the text, not from the number.
+func magnitude(n int) string { strings.TrimPrefix(strconv.Itoa(n), "-") }
+
+// digits spells a number with a fraction, an exponent and, when Long, more
+// digits than any machine number holds.
+func digits(n docDigits) string {
+	let mut s = strconv.Itoa(n.Lead)
+	if n.Long && n.Lead != 0 {
+		s = s + "12345678901234567890123456789"
+	}
+	if n.Frac != 0 {
+		s = s + ".0" + magnitude(n.Frac)
+	}
+	if n.Exp > 0 {
+		s = s + "e+" + strconv.Itoa(n.Exp)
+	}
+	if n.Exp < 0 {
+		s = s + "E" + strconv.Itoa(n.Exp)
+	}
+	s
+}
+
+func quoted(s string) string { Encode(c[string](), s) }
+
+func spell(d doc, sp string) string {
+	match d {
+	case docNull:
+		"null"
+	case docBool as b:
+		if b.V { "true" } else { "false" }
+	case docInt as n:
+		strconv.FormatInt(n.V, 10)
+	case docDigits as n:
+		digits(n)
+	case docStr as s:
+		quoted(s.V)
+	case docArr as a:
+		let mut out = "[" + sp
+		for i in 0..len(a.Items) {
+			if i > 0 { out = out + sp + "," + sp }
+			out = out + spell(a.Items[i], sp)
+		}
+		out + sp + "]"
+	case docObj as o:
+		let mut out = "{" + sp
+		let n = if len(o.Keys) < len(o.Vals) { len(o.Keys) } else { len(o.Vals) }
+		for i in 0..n {
+			if i > 0 { out = out + sp + "," + sp }
+			out = out + quoted(o.Keys[i]) + sp + ":" + sp + spell(o.Vals[i], sp)
+		}
+		out + sp + "}"
+	}
+}
+
+func valueRoundTrips(d doc) bool {
+	let v = Decode(c[Value](), spell(d, " \n\t\r")) catch { case _: return false }
+	Encode(c[Value](), v) == spell(d, "")
+}
+
+law ValueRoundTrips(d doc) { valueRoundTrips(d) }

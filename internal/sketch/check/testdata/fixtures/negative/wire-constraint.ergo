@@ -1,0 +1,46 @@
+// The predeclared constraint wire admits the types with a wire form
+// (types.md, Codecs 1): a type argument without one is S108, naming the
+// first part that has none.
+
+func keep[T wire](v T) T { v }
+
+type Port int where 1 <= it && it <= 65535
+type Up { Host string, Port Port, Tags []string, Meta Map[string, float64] }
+type Down {}
+type State = Up | Down
+type Tree { Name string, Kids []Tree }
+
+type Hook { Name string, Run func() }
+type Sealed { id int }
+type Nested { Inner Hook }
+type ByInt { M Map[int, string] }
+type Sink { Put(s string) }
+
+func uses(h Hook, s Sealed, n Nested, b ByInt, k Sink, d duration) {
+	keep(h) // want S108
+	keep(s) // want S108
+	keep(n) // want S108
+	keep(b) // want S108
+	keep(k) // want S108
+	keep(d) // want S108
+}
+
+func lift[T](v T) T {
+	keep(v) // want S108
+}
+
+// The wire types check clean: basic types, a refined type, a record, a
+// union, Option, a recursive record, a tuple and a wire type parameter.
+func clean[T wire](v T, s State, t Tree, o Option[Up], p Port) {
+	keep(true)
+	keep(1)
+	keep(2.5)
+	keep("x")
+	keep(p)
+	keep(s)
+	keep(t)
+	keep(o)
+	keep((1, "a"))
+	keep(v)
+	keep([]State{s})
+}

@@ -28,9 +28,9 @@ func set(name string, args []flag.ArgSpec) flag.Set {
 }
 
 let commands = []flag.Command[Cmd]{
-	flag.Command[Cmd]{Name: "check", Usage: "decode the file, with the CONFPARSE_ variables over it, and print it", Set: set("check", []flag.ArgSpec{fileArg}), Build: buildCheck},
-	flag.Command[Cmd]{Name: "get", Usage: "print the value of one key as the file writes it", Set: set("get", []flag.ArgSpec{fileArg, keyArg}), Build: buildGet},
-	flag.Command[Cmd]{Name: "fmt", Usage: "print the file in canonical form", Set: set("fmt", []flag.ArgSpec{fileArg}), Build: buildFmt},
+	flag.Command[Cmd]{Name: "check", Usage: "decode the file, with the CONFPARSE_ variables over it, and print it", Set: set("check", []flag.ArgSpec{fileArg}), Build: buildCheck, Commands: []flag.Command[Cmd]{}},
+	flag.Command[Cmd]{Name: "get", Usage: "print the value of one key as the file writes it", Set: set("get", []flag.ArgSpec{fileArg, keyArg}), Build: buildGet, Commands: []flag.Command[Cmd]{}},
+	flag.Command[Cmd]{Name: "fmt", Usage: "print the file in canonical form", Set: set("fmt", []flag.ArgSpec{fileArg}), Build: buildFmt, Commands: []flag.Command[Cmd]{}},
 }
 
 let usage = "confparse reads the configuration of a reverse proxy."
@@ -91,7 +91,7 @@ func environ() Map[string, string] needs os.Process {
 
 // Show is c as lines for a reader.
 func Show(c config.Config) string {
-	let mut lines = []string{"\(c.Name): listen \(c.Listen.Host):\(c.Listen.Port), log \(config.LevelName(c.Log))"}
+	let mut lines = []string{"\(c.Name): listen \(c.Listen.Host):\(c.Listen.Port), log \(config.Wire(c.Log))"}
 	for u in c.Upstreams {
 		lines = lines.Append("upstream \(u.Name) \(u.Addr) weight \(u.Weight)" + if u.Backup { " backup" } else { "" })
 	}

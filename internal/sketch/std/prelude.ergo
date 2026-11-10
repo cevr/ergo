@@ -78,6 +78,103 @@ type Some[T] { Value T }
 type None {}
 type Option[T] = Some[T] | None
 
+// Unsatisfied is the failure of a refined type's derived parse function,
+// ParsePort for `type Port int where 1 <= it && it <= 65535`: the value
+// does not pass the where. Type is the refined type's name and Where the
+// predicate's text (types.md, Refinements).
+type Unsatisfied { Type string, Where string }
+
+// unsatisfied fails u. Its row makes Unsatisfied an error type of the
+// prelude, which declares it (types.md, Error types 1), so it is one in
+// every package: each derived ParseN fails it, and its Go type has the
+// Error method wherever a refined type is declared.
+func unsatisfied(u Unsatisfied) fails Unsatisfied { u }
+
+// Writer takes the events of a value's wire form (types.md, Codecs):
+// the predeclared encode(v, w) calls it, and a format (std json) is a
+// provider of it that writes text. A record is BeginObject(n), then Key
+// and the field's events for each of its n fields, then EndObject; a
+// union value is a record that starts with Tag(variant); a slice or tuple
+// is BeginList(n), n values, EndList; a Map is an object keyed by its
+// keys in order. Prior art: serde's Serializer, Roc's Encoding, Go json
+// v2's jsontext.Encoder.
+// law-exempt: Writer has no read operation, so no law over its own operations can observe an event; std codec's Events records them and carries the laws (EventsReplay).
+type Writer {
+	Null(),
+	// Number writes the spelling of a number a Reader's Number read, as it
+	// is; json.Value writes its numbers through it.
+	Number(text string),
+	Bool(b bool),
+	Int(n int64),
+	Uint(n uint64),
+	Float(f float64),
+	String(s string),
+	BeginList(n int),
+	EndList(),
+	BeginObject(n int),
+	Tag(name string),
+	Key(k string),
+	EndObject(),
+}
+
+// Reader gives the events of a wire form back, in the order
+// decode[T](r) asks for them: the pull form of Writer. A format's
+// decode has checked the whole text first (phase 1), so a Reader
+// fails only the shape failures: the event is not of the kind T needs
+// (WireWrongKind), or an object has no tag (WireMissingField). More reports a
+// next element or key before the end; Key reads it; Skip passes over the
+// next value; End closes the list or object. Path is where the reader is,
+// for a failure's text.
+// law-exempt: a law over Reader alone has no events to read; std codec's Replay reads the events Events recorded and carries the laws (EventsReplay).
+type Reader {
+	// TakeNull consumes the next value only when it is null; otherwise it
+	// leaves the reader at that value. No path or list index changes on false.
+	TakeNull() bool,
+	// Peek is the kind of the next value, which it leaves; an untyped
+	// value (json.Value) reads by it.
+	Peek() WireKind,
+	// Number reads the next number's spelling, unparsed.
+	Number() string fails WireWrongKind,
+	Path() string,
+	Bool() bool fails WireWrongKind,
+	Int() int64 fails WireWrongKind,
+	Uint() uint64 fails WireWrongKind,
+	Float() float64 fails WireWrongKind,
+	String() string fails WireWrongKind,
+	BeginList() fails WireWrongKind,
+	BeginObject() fails WireWrongKind,
+	Tag() string fails WireMissingField,
+	More() bool,
+	Key() string,
+	Skip(),
+	End(),
+}
+
+// The shape failures of decode (types.md, Codecs 2). WireWrongKind is a value
+// of another kind than the type takes at Path, Want the kind it takes;
+// WireMissingField is a field the object at Path does not have; WireUnknownTag is
+// a union's tag that names none of its variants.
+type WireWrongKind { Path string, Want string }
+
+// WireKind is the kind of a Reader's next value (Reader.Peek). WireEnd is
+// the end of the list or object being read: there is no next value.
+type WireNull {}
+type WireBool {}
+type WireNumber {}
+type WireString {}
+type WireList {}
+type WireObject {}
+type WireEnd {}
+type WireKind = WireNull | WireBool | WireNumber | WireString | WireList | WireObject | WireEnd
+type WireMissingField { Path string, Field string }
+type WireUnknownTag { Path string, Tag string }
+
+// The rows of these functions make the shape failures error types of the
+// prelude, as unsatisfied does for Unsatisfied.
+func wireWrongKind(e WireWrongKind) fails WireWrongKind { e }
+func wireMissingField(e WireMissingField) fails WireMissingField { e }
+func wireUnknownTag(e WireUnknownTag) fails WireUnknownTag { e }
+
 // Range is the integers from Start up to End, End excluded: `a..b` builds
 // one, and `for i in r` counts through it (#196, one for). A for and `..`
 // take an integer T only; the type itself takes any ordered T.

@@ -45,6 +45,8 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 			ice(x, "len with %d arguments", len(x.Args))
 		}
 		return operand{val: "len(" + fc.value(x.Args[0]) + ")"}
+	case check.CallEncode, check.CallDecode:
+		return fc.wireCall(x, c)
 	}
 	if check.IsUnreachable(c) {
 		return fc.unreachableValue(x)
@@ -134,6 +136,15 @@ func (fc *funcCtx) callStmt(x *syntax.CallExpr) string {
 		// A Go call writes its own statements (goCall); a discarded
 		// value is used once so Go accepts it.
 		if op := fc.goCall(x, c); op.err != "" {
+			ice(x, "an untried fallible call in a statement")
+		} else if op.val != "" {
+			return "_ = " + op.val
+		}
+		return ""
+	}
+	if c.Kind == check.CallEncode || c.Kind == check.CallDecode {
+		// A codec call writes its own statements (wire.go).
+		if op := fc.wireCall(x, c); op.err != "" {
 			ice(x, "an untried fallible call in a statement")
 		} else if op.val != "" {
 			return "_ = " + op.val

@@ -371,6 +371,11 @@ func permuteDecls(src string, seed uint64, moves func(syntax.Decl) bool) (out st
 		if _, imp := d.(*syntax.ImportDecl); imp {
 			continue
 		}
+		if syntax.IsDerived(d) {
+			// A refinement's derived declarations have no source of their
+			// own: they move with the type's text.
+			continue
+		}
 		decls = append(decls, d)
 	}
 	if len(decls) < 2 {

@@ -33,7 +33,7 @@ func main() {
 
 // knownTags are the words a program's tags file may hold. default stands
 // alone; the others keep a program out of the default gate.
-var knownTags = []string{"default", "slow", "net", "cc", "tty", "gui"}
+var knownTags = []string{"default", "slow", "net", "cc", "tty", "gui", "ts"}
 
 // laterLegs are the tags whose legs are later units: selecting such a
 // program is a diagnostic, never a silent run.
@@ -314,6 +314,8 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			if strings.HasSuffix(file, ".ergo") {
 				p.sources = append(p.sources, filepath.Join(p.dir, file))
 			}
+		case file == "ts" && entry.IsDir():
+			problems = append(problems, tsSources(filepath.Join(p.dir, file))...)
 		case entry.IsDir():
 			if file == "cmd" {
 				problems = append(problems, checkCommands(p, filepath.Join(p.dir, file))...)
@@ -391,6 +393,9 @@ func finishProgram(p *program, present map[string]bool, problems []string, recor
 			problem("tags: %v", err)
 		}
 		p.tags = tags
+	}
+	if present["ts"] != p.tagged("ts") {
+		problem("a ts/ folder and the tag ts go together: the ts leg runs the TypeScript side in ts/")
 	}
 	for _, source := range p.sources {
 		// The test leg tests every package, as go test ./... does: the
@@ -587,6 +592,11 @@ type runner struct {
 	live     *live
 	cases    int
 	failures []string
+	// ts is the TypeScript run of the program whose cases run now, or
+	// nil (ts.go); tsDir and tsErr are the run's one install.
+	ts    *tsRun
+	tsDir string
+	tsErr error
 }
 
 func (r *runner) fail(what string) { r.failures = append(r.failures, what) }
@@ -640,8 +650,20 @@ func (r *runner) runProgram(p *program) {
 		return
 	}
 	r.testProgram(p)
+	command := []string{binary}
+	if p.tagged("ts") {
+		deps, err := r.tsDeps()
+		if err != nil {
+			fmt.Fprintf(r.out, "FAIL %s: ts: %v\n", p.name, err)
+			r.fail(p.name + ": ts")
+			return
+		}
+		r.ts = &tsRun{deps: deps, binary: binary}
+		defer func() { r.ts = nil }()
+		command = []string{"bun"}
+	}
 	for _, c := range p.cases {
-		r.runCase(p, c, []string{binary}, true)
+		r.runCase(p, c, command, true)
 	}
 }
 
@@ -798,8 +820,20 @@ func (r *runner) execCase(p *program, c *testCase, command []string, memory uint
 		env = append([]string{"PATH=" + path}, env...)
 	}
 	env = append(env, c.env...)
+	cwd := work
+	if r.ts != nil {
+		copied, err := r.tsCopy(p, r.ts.deps)
+		if err != nil {
+			fmt.Fprintf(r.out, "FAIL %s/%s: copy the program for its TypeScript: %v\n", p.name, c.name, err)
+			r.fail(p.name + "/" + c.name)
+			return outcome{}, false
+		}
+		defer r.live.removeDir(copied)
+		cwd = copied
+		env = r.ts.env(r.cfg.ergo, env)
+	}
 	if c.setup {
-		o, err := r.live.execute([]string{"sh", filepath.Join(c.dir, "setup.sh"), c.dir}, work, env, "", r.cfg.timeout, 0)
+		o, err := r.live.execute([]string{"sh", filepath.Join(c.dir, "setup.sh"), c.dir}, cwd, env, "", r.cfg.timeout, 0)
 		if err != nil || !o.passed() {
 			what := fmt.Sprintf("setup.sh exit %d", o.status)
 			switch {
@@ -818,7 +852,7 @@ func (r *runner) execCase(p *program, c *testCase, command []string, memory uint
 			return outcome{}, false
 		}
 	}
-	o, err := r.live.execute(append(slices.Clone(command), c.args...), work, env, c.stdin, r.cfg.timeout, memory)
+	o, err := r.live.execute(append(slices.Clone(command), c.args...), cwd, env, c.stdin, r.cfg.timeout, memory)
 	if err != nil {
 		fmt.Fprintf(r.out, "FAIL %s/%s: could not start: %v\n", p.name, c.name, err)
 		r.fail(p.name + "/" + c.name)

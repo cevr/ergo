@@ -272,6 +272,9 @@
     "TestWallClockRule": 0,
     "TestWallClockStaleRow": 0
   },
+  "ergo.local/prototype/internal/rpcgen": {
+    "TestRpcLoopbackAgrees": 5.05
+  },
   "ergo.local/prototype/internal/sketch/build": {
     "TestBuildArrivingAtATrim": 0,
     "TestBuildThatLockedAMovedEntry": 0,

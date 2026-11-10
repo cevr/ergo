@@ -1,0 +1,23 @@
+type Denied { Origin string }
+type Failed { Reason string }
+
+// Downloader is what the workflow needs; it does not choose a host.
+type Downloader {
+	Read(url string) string fails Denied | Failed,
+	law EmptyURLIsRejected() {
+		Read("") catch {
+		case Denied, Failed:
+			return true
+		}
+		false
+	},
+}
+
+func Run(url string) string needs Downloader {
+	Downloader.Read(url) catch {
+	case Denied as d:
+		return "refused origin " + d.Origin
+	case Failed as f:
+		return "download failed: " + f.Reason
+	}
+}

@@ -121,6 +121,7 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"id":         {why: "an identity"},
 	},
 	"RowArg": {"Row": {sel: "Row"}},
+	"Wired":  {"T": {sel: "T"}},
 	"RowVar": {
 		"sol":   {sel: "Solution"},
 		"of":    {sel: "Solution"},
@@ -162,7 +163,7 @@ var mentionsKinds = map[string]reflect.Type{
 	"Slice": reflect.TypeFor[Slice](), "Map": reflect.TypeFor[Map](), "Pointer": reflect.TypeFor[Pointer](),
 	"Tuple": reflect.TypeFor[Tuple](), "Signature": reflect.TypeFor[Signature](), "Var": reflect.TypeFor[Var](),
 	"TypeParam": reflect.TypeFor[TypeParam](), "RowArg": reflect.TypeFor[RowArg](), "RowVar": reflect.TypeFor[RowVar](),
-	"Row": reflect.TypeFor[Row](),
+	"Wired": reflect.TypeFor[Wired](), "Row": reflect.TypeFor[Row](),
 }
 
 // selectors are the selector names read in the nodes.
