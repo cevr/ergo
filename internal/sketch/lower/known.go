@@ -89,6 +89,13 @@ type knownStats struct {
 	// BorrowCopies is the generic results through a borrow copied at the
 	// caller (alias.go, borrowResult).
 	BorrowCopies int
+	// FlatOptions is the Option values the lowering puts into the flat
+	// Option by their tag (flatunion.go, flatValue).
+	FlatOptions int
+	// OptionBails is the times a lowering of the program bailed on the
+	// flat Option, so that it lowered the program again with Option an
+	// interface (lowerAgain).
+	OptionBails int
 }
 
 // statsHook is a test seam, nil outside tests: it receives the counts of

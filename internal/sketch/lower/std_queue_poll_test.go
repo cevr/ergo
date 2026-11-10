@@ -54,7 +54,7 @@ func TestPollNoneAllocatesNothing(t *testing.T) {
 	if n := testing.AllocsPerRun(200, func() { sink = poll(env, q) }); n != 0 {
 		t.Errorf("a Poll of an empty queue allocates %v times", n)
 	}
-	if _, none := sink.(None); !none {
+	if sink != (Option[int]{}).of1(None{}) { // the flat Option (flatunion.go)
 		t.Errorf("a Poll of an empty queue gave %#v; want None", sink)
 	}
 	if q.Push(env.task, 3) != nil {
@@ -145,7 +145,7 @@ func TestQueuePollRuns(t *testing.T) {
 		t.FailNow()
 	}
 	got := progs["queuepoll"].mainGo()
-	if !regexp.MustCompile(`if (v\w*), (ok\w*) := \(?\w+\)?\.Poll\(\); ok\w* \{\n.*return Some\[int\]\{Value: v\w*\}\n.*\}\n.*return None\{\}\n`).MatchString(got) {
+	if !regexp.MustCompile(`if (v\w*), (ok\w*) := \(?\w+\)?\.Poll\(\); ok\w* \{\n.*return (?:\(Option\[int\]\{\}\)\.of0\()?Some\[int\]\{Value: v\w*\}\)?\n.*\}\n.*return (?:\(Option\[int\]\{\}\)\.of1\()?None\{\}\)?\n`).MatchString(got) {
 		t.Errorf("no comma-ok call of the Go Poll in the emitted Go:\n%s", got)
 	}
 	if !strings.Contains(got, ".Len()") {

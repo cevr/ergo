@@ -254,8 +254,6 @@ func (fc *funcCtx) machineWork(conv check.Conversion, site syntax.Node) string {
 		return fc.machineNone(conv, "Work", site)
 	}
 	sig := fc.machineField(conv, "Work", site)
-	some, none := optionVariants(sig.Results[0], site)
-	wsome, _ := optionVariants(work.Sig.Results[0], site)
 	g := fc.funcValue(work, work.Sig, site, nil)
 	gv, o, w := fc.scope.alloc("work"), fc.scope.alloc("o"), fc.scope.alloc("w")
 	return fc.envClosure(callerEnv, "env", site, func(env string) ([]string, string, string) {
@@ -264,10 +262,10 @@ func (fc *funcCtx) machineWork(conv check.Conversion, site syntax.Node) string {
 		return []string{s + " " + fc.goType(sig.Params[0].Type)}, fc.valueResults(sig.Results[0]),
 			ind + gv + " := " + g + "\n" +
 				ind + o + ", _ := " + gv + "(" + env + ", " + s + ")\n" +
-				ind + "if " + w + ", ok := " + o + ".(" + fc.goType(wsome) + "); ok {\n" +
-				ind + "\treturn " + fc.goType(some) + "{Value: " + w + ".Value.Start}, nil\n" +
+				ind + "if " + fc.optionSomeIf(work.Sig.Results[0], o, w, site) + " {\n" +
+				ind + "\treturn " + fc.optionSome(sig.Results[0], w+".Value.Start", site) + ", nil\n" +
 				ind + "}\n" +
-				ind + "return " + fc.goType(none) + "{}, nil\n"
+				ind + "return " + fc.optionNone(sig.Results[0], site) + ", nil\n"
 	})
 }
 
@@ -294,11 +292,10 @@ func (fc *funcCtx) machineField(conv check.Conversion, name string, site syntax.
 // func(S) Option[…], that gives every state None.
 func (fc *funcCtx) machineNone(conv check.Conversion, name string, site syntax.Node) string {
 	sig := fc.machineField(conv, name, site)
-	_, none := optionVariants(sig.Results[0], site)
 	return fc.envClosure(callerEnv, "_", site, func(string) ([]string, string, string) {
 		ind := strings.Repeat("\t", fc.depth+1)
 		return []string{"_ " + fc.goType(sig.Params[0].Type)}, fc.valueResults(sig.Results[0]),
-			ind + "return " + fc.goType(none) + "{}, nil\n"
+			ind + "return " + fc.optionNone(sig.Results[0], site) + ", nil\n"
 	})
 }
 
@@ -315,14 +312,13 @@ func (fc *funcCtx) positiveTimers(conv check.Conversion, after *check.Func, site
 	if n, ok := conv.From.(*check.Named); ok {
 		machine = n.Obj.Name
 	}
-	some, _ := optionVariants(sig.Results[0], site)
 	g := fc.funcValue(after, sig, site, nil)
 	gv, s, o, err, t := fc.scope.alloc("after"), fc.scope.alloc("s"), fc.scope.alloc("o"), fc.scope.alloc("err"), fc.scope.alloc("t")
 	return fc.envClosure(callerEnv, "env", site, func(env string) ([]string, string, string) {
 		ind := strings.Repeat("\t", fc.depth+1)
 		body := ind + gv + " := " + g + "\n" +
 			ind + o + ", " + err + " := " + gv + "(" + env + ", " + s + ")\n" +
-			ind + "if " + t + ", ok := " + o + ".(" + fc.goType(some) + "); ok && " + t + ".Value.In <= 0 {\n" +
+			ind + "if " + fc.optionSomeIf(sig.Results[0], o, t, site) + " && " + t + ".Value.In <= 0 {\n" +
 			ind + "\tpanic(" + fc.l.rt() + ".MachineTimerNotPositive(" + strconv.Quote(machine) + ", " + s + ", " + t + ".Value.In))\n" +
 			ind + "}\n" +
 			ind + "return " + o + ", " + err + "\n"

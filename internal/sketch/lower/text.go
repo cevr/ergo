@@ -367,7 +367,20 @@ func (l *lowerer) textFunc(t check.Type, site syntax.Node) {
 				return "\treturn \"{\" + " + strings.Join(parts, " + ") + " + \"}\"\n"
 			}
 		case kindUnion:
-			if fu := l.flatUnionOf(u); fu != nil && unionMutant != "sig-bail" {
+			if fu := l.flatUnionOf(u); fu != nil && fu.generic {
+				// Option (flatunion.go): the text of the variant its tag
+				// names.
+				body = func() string {
+					var s strings.Builder
+					s.WriteString("\t" + flatHead(v, len(fu.variants)) + "\n")
+					for k, vt := range fu.variants {
+						s.WriteString("\tcase " + strconv.Itoa(k) + ":\n\t\treturn " + l.textExpr(vt, fu.flatNarrow(tc, v, k), site) + "\n")
+					}
+					s.WriteString("\t}\n\treturn \"<nil>\"\n")
+					return s.String()
+				}
+				break
+			} else if fu != nil && unionMutant != "sig-bail" {
 				flatBail(site, fu) // only an error's text names a union: it keeps its interface (flatunion.go)
 			}
 			body = func() string {

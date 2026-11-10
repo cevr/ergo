@@ -416,7 +416,9 @@ func (fc *funcCtx) target(x syntax.Expr, later bool) string {
 		default:
 			base = fc.target(x.X, later || indexEmits)
 		}
-		index := fc.value(x.Indices[0])
+		// A Map key takes its implicit conversion (a variant into a flat
+		// union's key, flatunion.go).
+		index := fc.assigned(x.Indices[0])
 		if later && !fc.isConst(x.Indices[0]) {
 			index = fc.spill(index)
 		}

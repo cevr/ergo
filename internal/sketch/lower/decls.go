@@ -587,7 +587,7 @@ func (l *lowerer) emitType(td *typeDecl) {
 			for _, v := range td.variants {
 				l.emitType(l.useType(l.typeDecl(v, site)))
 			}
-			l.flatDecl(b, td, fu, tc)
+			l.flatDecl(b, td, fu, tc, tparams)
 			break
 		}
 		l.unionMarker(td)
@@ -820,12 +820,11 @@ func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) st
 // program's Option, for the prelude's Get and for std operations (stdResult),
 // so a change of Option's Go form (plan X1) changes both.
 func (fc *funcCtx) optionReturn(t check.Type, ind, commaOk string, site syntax.Node) string {
-	some, none := optionVariants(t, site)
 	v, ok := fc.scope.alloc("v"), fc.scope.alloc("ok")
 	return ind + "if " + v + ", " + ok + " := " + commaOk + "; " + ok + " {\n" +
-		ind + "\treturn " + fc.goType(some) + "{" + memberName("Value") + ": " + v + "}\n" +
+		ind + "\treturn " + fc.optionSome(t, v, site) + "\n" +
 		ind + "}\n" +
-		ind + "return " + fc.goType(none) + "{}\n"
+		ind + "return " + fc.optionNone(t, site) + "\n"
 }
 
 // optionVariants are the Some and None variants of an Option instance.

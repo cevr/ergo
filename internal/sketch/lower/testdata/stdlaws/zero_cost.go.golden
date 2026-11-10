@@ -74,23 +74,35 @@ func Current(env *Env) Option[string] {
 	v := ergo.ContextBound(env.task, "std:trace", "span")
 	if v {
 		v_1 := ergo.ContextValue(env.task, "std:trace", "span")
-		return Some[string]{Value: v_1}
+		return (Option[string]{}).of0(Some[string]{Value: v_1})
 	} else {
-		return None{}
+		return (Option[string]{}).of1(None{})
 	}
 }
 
 type None struct {
 }
 
+type Some[T any] struct {
+	Value T
+}
+
+type Option[T any] struct {
+	tag uint8
+	v0  Some[T]
+}
+
+func (Option[T]) of0(v Some[T]) Option[T] { return Option[T]{tag: 0, v0: v} }
+func (Option[T]) of1(_ None) Option[T]    { return Option[T]{tag: 1} }
+
 func Annotation(env *Env, key string) Option[string] {
 	env.task.Check()
 	v := ergo.ContextBound(env.task, "std:log", key)
 	if v {
 		v_1 := ergo.ContextValue(env.task, "std:log", key)
-		return Some[string]{Value: v_1}
+		return (Option[string]{}).of0(Some[string]{Value: v_1})
 	} else {
-		return None{}
+		return (Option[string]{}).of1(None{})
 	}
 }
 
@@ -118,15 +130,6 @@ type annotation struct {
 	key  string
 	text string
 }
-
-type Option[T any] interface{ isOption() }
-
-type Some[T any] struct {
-	Value T
-}
-
-func (Some[_]) isOption() {}
-func (None) isOption()    {}
 
 type liveOnly struct {
 }
@@ -267,12 +270,12 @@ func run(env *Env) (err error) {
 			/*line /ergo-test/main.ergo:18:4*/t_3 := w
 //line /ergo-test/main.ergo:18:28
 			v_8 := Current(env)
-			/*line /ergo-test/main.ergo:18:28*/t_4 := (v_8 == None{})
+			/*line /ergo-test/main.ergo:18:28*/t_4 := (v_8 == (Option[string]{}).of1(None{}))
 //line /ergo-test/main.ergo:18:55
 			v_9 := Annotation(env, "k")
 //line /ergo-test/main.ergo:18:28
 //line /ergo-test/main.ergo:18:4
-			env.Console.Println(env.task, (string(strconv.AppendInt(make([]byte, 0, 20), int64(t_3), 10)) + " " + strconv.FormatBool(t_4) + " " + strconv.FormatBool((v_9 == None{}))))
+			env.Console.Println(env.task, (string(strconv.AppendInt(make([]byte, 0, 20), int64(t_3), 10)) + " " + strconv.FormatBool(t_4) + " " + strconv.FormatBool((v_9 == (Option[string]{}).of1(None{})))))
 			/*line /ergo-test/main.ergo:18:4*/(cx_1).End()
 		/*line /ergo-test/main.ergo:18:4*/}
 		/*line /ergo-test/main.ergo:18:4*/(cx).End()
