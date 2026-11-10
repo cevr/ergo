@@ -34,6 +34,9 @@ type Unrepresentable { Path string, Value string }
 type Listener {
 	// Addr is the address the listener is bound to, host:port.
 	Addr() string,
+	// bound seals Listener: no other package implements it, so only
+	// Listen, whose row holds Ambient, makes one.
+	bound(),
 }
 
 // Listen binds addr, host:port, on TCP; port 0 picks a free port, which

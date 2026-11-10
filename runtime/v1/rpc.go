@@ -68,19 +68,19 @@ func (e RPCUnrepresentable) Error() string {
 	return "rpc.Unrepresentable{Path:" + e.Path + " Value:" + e.Value + "}"
 }
 
-// RPCDefect is the defect of a call that the peer ended with a Die cause,
+// rpcDefect is the defect of a call that the peer ended with a Die cause,
 // or that broke the protocol: Name and Message are the Die's.
-type RPCDefect struct {
+type rpcDefect struct {
 	Name    string
 	Message string
 }
 
 // Error is the defect's text, as a JavaScript Error prints.
-func (e RPCDefect) Error() string { return e.Name + ": " + e.Message }
+func (e rpcDefect) Error() string { return e.Name + ": " + e.Message }
 
 // RPCDie raises the defect {name, message}: a server answers it as a Die
 // cause with that name and message.
-func RPCDie[T any](name string, message string) T { panic(RPCDefect{Name: name, Message: message}) }
+func RPCDie[T any](name string, message string) T { panic(rpcDefect{Name: name, Message: message}) }
 
 // rpcMaxSafe is 2^53-1, JavaScript's Number.MAX_SAFE_INTEGER: the largest
 // integer an Effect Schema.Int holds exactly.
@@ -110,7 +110,7 @@ func RPCTagged(tag string, object string) string {
 	b = JSONAppendString(b, tag)
 	rest := strings.TrimSpace(object)
 	if len(rest) < 2 || rest[0] != '{' {
-		panic(RPCDefect{Name: "RpcError", Message: "rpc.Tagged: not an object: " + object})
+		panic(rpcDefect{Name: "RpcError", Message: "rpc.Tagged: not an object: " + object})
 	}
 	if inner := strings.TrimSpace(rest[1:]); inner != "}" {
 		b = append(b, ',')
@@ -143,6 +143,9 @@ type Listener struct {
 func RPCListenerOn(ln net.Listener) *Listener {
 	return &Listener{ln: ln, addr: ln.Addr().String()}
 }
+
+// bound is rpc.Listener's unexported operation, which seals the type.
+func (l *Listener) bound() {}
 
 // Addr is the address the listener is bound to, with its port.
 func (l *Listener) Addr() string { return l.addr }
@@ -276,7 +279,7 @@ func RPCServe(span Site, t *rt.Task, l *Listener, mount string, handle func(*rt.
 			panic(rt.Interrupted)
 		case err := <-failed:
 			shutdown()
-			panic(RPCDefect{Name: "RpcError", Message: "rpc.Serve: " + err.Error()})
+			panic(rpcDefect{Name: "RpcError", Message: "rpc.Serve: " + err.Error()})
 		}
 	}
 }
@@ -305,7 +308,7 @@ func rpcExit(v string, err error) string {
 			if pv, ok := p.(*Panic); ok {
 				p = pv.Value
 			}
-			if d, ok := p.(RPCDefect); ok {
+			if d, ok := p.(rpcDefect); ok {
 				name, message = d.Name, d.Message
 			} else {
 				message = fmt.Sprint(p)
@@ -498,7 +501,7 @@ func RPCCall(t *rt.Task, url string, tag string, payload string) (string, error)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(url, "/")+"/", bytes.NewReader(b))
 	if err != nil {
-		panic(RPCDefect{Name: "RpcClientError", Message: err.Error()})
+		panic(rpcDefect{Name: "RpcClientError", Message: err.Error()})
 	}
 	req.Header.Set("Content-Type", rpcJSON)
 	type result struct {
@@ -529,7 +532,7 @@ func RPCCall(t *rt.Task, url string, tag string, payload string) (string, error)
 		panic(rt.Interrupted)
 	}
 	if res.err != nil {
-		panic(RPCDefect{Name: "RpcClientError", Message: res.err.Error()})
+		panic(rpcDefect{Name: "RpcClientError", Message: res.err.Error()})
 	}
 	return rpcReadExit(res.body, strings.HasPrefix(res.ct, rpcNDJSON), id)
 }
@@ -561,7 +564,7 @@ func rpcReadExit(body []byte, framed bool, id string) (string, error) {
 			}
 			var r rpcReply
 			if err := json.Unmarshal(line, &r); err != nil {
-				panic(RPCDefect{Name: "RpcClientError", Message: "malformed response: " + err.Error()})
+				panic(rpcDefect{Name: "RpcClientError", Message: "malformed response: " + err.Error()})
 			}
 			replies = append(replies, r)
 		}
@@ -576,7 +579,7 @@ func rpcReadExit(body []byte, framed bool, id string) (string, error) {
 			replies = append(replies, r)
 		}
 		if err != nil {
-			panic(RPCDefect{Name: "RpcClientError", Message: "malformed response: " + err.Error()})
+			panic(rpcDefect{Name: "RpcClientError", Message: "malformed response: " + err.Error()})
 		}
 	}
 	for _, r := range replies {
@@ -584,7 +587,7 @@ func rpcReadExit(body []byte, framed bool, id string) (string, error) {
 		case "Defect":
 			panic(rpcDefectOf(r.Defect))
 		case "ClientProtocolError":
-			panic(RPCDefect{Name: "RpcClientError", Message: "the server refused the request"})
+			panic(rpcDefect{Name: "RpcClientError", Message: "the server refused the request"})
 		case "Exit":
 		default:
 			continue
@@ -609,15 +612,15 @@ func rpcReadExit(body []byte, framed bool, id string) (string, error) {
 					panic(rpcDefectOf(c.Defect))
 				}
 			}
-			panic(RPCDefect{Name: "RpcInterrupted", Message: "the server interrupted the call"})
+			panic(rpcDefect{Name: "RpcInterrupted", Message: "the server interrupted the call"})
 		}
 	}
-	panic(RPCDefect{Name: "RpcClientError", Message: "no Exit for request " + id})
+	panic(rpcDefect{Name: "RpcClientError", Message: "no Exit for request " + id})
 }
 
 // rpcDefectOf reads a Die's defect: {name, message}, or any other value
 // as its text.
-func rpcDefectOf(raw json.RawMessage) RPCDefect {
+func rpcDefectOf(raw json.RawMessage) rpcDefect {
 	var d struct {
 		Name    *string `json:"name"`
 		Message *string `json:"message"`
@@ -627,11 +630,11 @@ func rpcDefectOf(raw json.RawMessage) RPCDefect {
 		if d.Name != nil {
 			name = *d.Name
 		}
-		return RPCDefect{Name: name, Message: *d.Message}
+		return rpcDefect{Name: name, Message: *d.Message}
 	}
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
-		return RPCDefect{Name: "Error", Message: s}
+		return rpcDefect{Name: "Error", Message: s}
 	}
-	return RPCDefect{Name: "Error", Message: string(raw)}
+	return rpcDefect{Name: "Error", Message: string(raw)}
 }

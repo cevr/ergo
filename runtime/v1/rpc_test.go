@@ -38,7 +38,7 @@ func startRPC(t *testing.T) *rpcHarness {
 		case "Fail":
 			return "", RPCFailed{Text: `{"_tag":"Nope","n":1}`}
 		case "Die":
-			panic(RPCDefect{Name: "Boom", Message: "it broke"})
+			panic(rpcDefect{Name: "Boom", Message: "it broke"})
 		case "Wait":
 			// A call that runs until its task is stopped; its release
 			// closes h.release, as an Ergo frame's exit action would.
@@ -47,7 +47,7 @@ func startRPC(t *testing.T) *rpcHarness {
 			<-ct.Done()
 			panic(rt.Interrupted)
 		}
-		panic(RPCDefect{Name: "RpcError", Message: "no operation " + tag})
+		panic(rpcDefect{Name: "RpcError", Message: "no operation " + tag})
 	}
 	go func() {
 		defer func() { h.done <- recover() }()
@@ -138,7 +138,7 @@ func TestRPCWireFacts(t *testing.T) {
 	}
 	func() {
 		defer func() {
-			if p := recover(); p != (RPCDefect{Name: "Boom", Message: "it broke"}) {
+			if p := recover(); p != (rpcDefect{Name: "Boom", Message: "it broke"}) {
 				t.Errorf("Call Die raised %v, want the server's defect", p)
 			}
 		}()
