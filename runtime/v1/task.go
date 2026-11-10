@@ -437,6 +437,20 @@ func (t *Task[T]) Close(ct *rt.Task) {
 	})
 }
 
+// Drain is the rest of the release of a Task whose value holds a resource
+// (#197 L8 B3t; Q5, resources R13): after Close, it gives the value the
+// task ended with, for the owner's generated release. Only an owned Task
+// is drained, and a Wait that delivered the value moved the Task out of
+// its owner first. It gives nothing for a task that failed, was
+// interrupted or still runs (a Close ran first, so it has ended). It never
+// waits.
+func (t *Task[T]) Drain() []T {
+	if v, ok := t.h.Left(); ok {
+		return []T{v}
+	}
+	return nil
+}
+
 // Expired is timeout.Expired, the typed failure of After when the deadline
 // passes before the body ends (docs/spec/runtime.md, Timeouts 4). It is a
 // record of a v1 package, so the lowering binds timeout.Expired to this Go

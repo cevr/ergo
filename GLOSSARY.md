@@ -143,7 +143,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Generated Close** (designed): The `Close` the compiler gives a struct with resource fields. It closes those fields in reverse declaration order.
 
-**Task** (designed in source; the task tree is implemented in prototype): A unit of concurrent work started by `go`, of type `Task[T, E]`. It is a resource; `Wait` returns its result and `Stop` interrupts it and waits for it.
+**Task** (implemented in prototype): A unit of concurrent work started by `task.Go`, of type `Task[T, E]`. It is a resource (it declares `Close()`): one owner, moved by a hand-off, taken by `Wait`, which returns its result; `Stop` interrupts it and waits for it; its owner's end releases it when nothing took it.
 
 **Task tree** (implemented in prototype): The parent and child relation of tasks. Stopping a task stops every task below it.
 

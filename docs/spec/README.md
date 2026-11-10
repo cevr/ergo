@@ -78,7 +78,7 @@ The [support table](support.md) lists the exact support of the build, one family
 | Trailing block as a function-literal argument | Checked; runs | [grammar](grammar.md#expressions) |
 | Function literals and function types | Checked, with rows from the expected type or inferred; runs | [types](types.md#generics) |
 | Resources and automatic release | Checked in part: resource types (L8 A1) and the ownership flow of locals (L8 A2); the release is lowered by L8 B1 ([#197](https://github.com/cevr/ergo/issues/197)) | [resources](resources.md) |
-| `task.Go`, `Task`, `Wait`, `Stop` | Checked (check-v1: the `task` package, and a `Task` leaves its function only by return, stage D3a); runs (stage D3b: a returned `Task` moves to the caller's scope; one held inside another type is refused naming stage E) | [runtime](runtime.md#tasks) |
+| `task.Go`, `Task`, `Wait`, `Stop` | Checked and runs (#197 L8 B3t): a `Task` is a resource with `Close()`, moved by a return, a field, a container, a queue or a capture, taken by `Wait`, and released at its owner's end (stopped, drained, its unread value released) | [runtime](runtime.md#tasks) |
 | Task tree, stop propagation, defect propagation | Implemented (the task runtime `runtime/rt`); every built program runs on it | [runtime](runtime.md#tasks) |
 | I1 checks before capability calls | Implemented ([#199](https://github.com/cevr/ergo/issues/199)) | [runtime](runtime.md#i1-interruption-points) |
 | I1 at loop back-edges and task-aware blocking waits; I2 masks | Implemented ([#199](https://github.com/cevr/ergo/issues/199); runtime.md, #199 contract status). Channels are not in the language: `chan` is reserved | [runtime](runtime.md#i2-automatic-masks) |

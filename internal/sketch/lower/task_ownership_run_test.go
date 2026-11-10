@@ -21,7 +21,8 @@ import (
 // order; go/types cannot execute task admission, restart or shutdown.
 // Mutants unique to it: omit the child's capture registration, keep the
 // sender's capture entry, register a Set capture on every restart, leave
-// a taken element in its remainder, or lose Take's input on a bounds panic.
+// a taken element in its remainder, lose Take's input on a bounds panic,
+// or drop the resource a drained task ended with (Q5).
 func TestTaskOwnershipRunModel(t *testing.T) {
 	needsBuild(t)
 	first, count := 1, 32
@@ -51,19 +52,23 @@ func TestTaskOwnershipRunModel(t *testing.T) {
 		cmd.Stdout, cmd.Stderr = &out, &errs
 		err := runProgram(t, cmd)
 		got := out.String()
-		if (first+i)%8 == 5 {
+		if (first+i)%taskOwnModes == 5 {
 			got = sortMapReleases(got)
 		}
-		wantFailure := (first+i)%8 == 6
+		wantFailure := (first+i)%taskOwnModes == 6
 		if (err != nil) != wantFailure || got != c.want {
 			t.Errorf("seed %d (ERGO_SEED=%d go test -p 2 -run '^TestTaskOwnershipRunModel$' ./internal/sketch/lower)\n%s\nexit: %v\ngot:\n%s\nwant:\n%s\nstderr:\n%s", first+i, first+i, numbered(c.src), err, out.String(), c.want, errs.String())
 		}
 	}
 }
 
+// taskOwnModes counts the program shapes: task, restart, Closed, stop,
+// slice, Map, panic, crossing, unread result.
+const taskOwnModes = 9
+
 func taskOwnProgram(seed int) (string, string) {
-	n := 1 + (seed/8)%4
-	mode := seed % 8 // task, restart, Closed, stop, slice, Map, panic, crossing
+	n := 1 + (seed/taskOwnModes)%4
+	mode := seed % taskOwnModes
 	var src, want strings.Builder
 	var afterEnd strings.Builder
 	src.WriteString("import task\nimport tasks\nimport sync\nimport queue\nimport slices\nimport strconv\n")
@@ -169,6 +174,19 @@ func taskOwnProgram(seed int) (string, string) {
 		for i := n - 1; i >= 0; i-- {
 			fmt.Fprintf(&afterEnd, "close %d\n", i)
 		}
+	case 8:
+		// Q5: a task that ended with a resource no Wait took. The child's
+		// Push has room, so it ends with its value before main's Pop
+		// returns, and the drain releases that value before main's own.
+		// A Wait moves the value to main instead: one release either way.
+		src.WriteString("let done = queue.New[int](1)\nlet t = task.Go() {\ntry done.Push(1)\nR{N: 100}\n}\nlet _ = try done.Pop()\n")
+		if seed%2 == 1 {
+			src.WriteString("let v = try t.Wait()\n")
+		}
+		afterEnd.WriteString("close 100\n")
+		for i := n - 1; i >= 0; i-- {
+			fmt.Fprintf(&afterEnd, "close %d\n", i)
+		}
 	}
 	src.WriteString("Console.Println(\"end\")\n}\n")
 	if mode != 6 {
@@ -176,14 +194,16 @@ func taskOwnProgram(seed int) (string, string) {
 	}
 	want.WriteString(afterEnd.String())
 	text := src.String()
-	if mode != 0 && mode != 3 {
+	if mode != 0 && mode != 3 && mode != 8 {
 		text = strings.ReplaceAll(text, "import task\n", "")
 	}
 	if mode != 1 {
 		text = strings.ReplaceAll(text, "import sync\n", "")
 	}
-	if mode != 3 {
+	if mode != 3 && mode != 8 {
 		text = strings.ReplaceAll(text, "import queue\n", "")
+	} else if mode == 8 {
+		text = strings.Replace(text, "fails Fault | tasks.Closed", "fails Fault | tasks.Closed | queue.Closed", 1)
 	}
 	if mode != 4 && mode != 6 && mode != 7 {
 		text = strings.ReplaceAll(text, "import slices\n", "")

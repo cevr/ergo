@@ -2,6 +2,33 @@
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
+      "name": "L8-B3t-task-drain-drops-result",
+      "origin": "L8 B3t Q5 (Quint mutant 11)",
+      "file": "runtime/v1/task.go",
+      "from": "\tif v, ok := t.h.Left(); ok {\n\t\treturn []T{v}",
+      "to": "\tif v, ok := t.h.Left(); ok && false {\n\t\treturn []T{v}",
+      "rule": "A drained Task's result that no Wait delivered is released by its owner's generated release.",
+      "killers": ["lower:TestTaskOwnershipRunModel"]
+    },
+    {
+      "name": "L8-B3t-drain-only-without-close",
+      "origin": "L8 B3t Q5",
+      "file": "internal/sketch/check/drop.go",
+      "from": "\td.Drain = w.drain(t, u)\n\t\tif d.Close == nil && d.Drain == nil {",
+      "to": "\tif d.Close == nil {\n\t\t\td.Drain = w.drain(t, u)\n\t\t}\n\t\tif d.Close == nil && d.Drain == nil {",
+      "rule": "An operation type with a Close can still hold values its std body drains after it (a Task's result).",
+      "killers": ["lower:TestTaskOwnershipRunModel"]
+    },
+    {
+      "name": "L8-B3t-taken-result-is-drained",
+      "origin": "L8 B3t Q5",
+      "file": "internal/sketch/check/drop.go",
+      "from": "if m.Sig.TakesSelf && len(m.Sig.Results) == 1 {",
+      "to": "if false && m.Sig.TakesSelf && len(m.Sig.Results) == 1 {",
+      "rule": "A value that an operation taking it gives as its result (Task's Wait) is held until taken.",
+      "killers": ["lower:TestTaskOwnershipRunModel"]
+    },
+    {
       "name": "L8-B3t-capture-root-env-unparenthesized",
       "origin": "L8 B3t chat Set rewrite",
       "file": "internal/sketch/lower/taskcapture.go",

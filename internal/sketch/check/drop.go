@@ -36,9 +36,10 @@ type Drop struct {
 	// Variants are the union's variants that hold a resource; the active
 	// one is released.
 	Variants []*Drop
-	// Drain is the release of each value a std queue holds (Q7, R13): its
-	// runtime body's Drain ends admission and gives the values left,
-	// released last entered first; nil for none.
+	// Drain is the release of each value a std operation type holds (Q7,
+	// R13, Q5): its runtime body's Drain gives them, a queue's values left
+	// (Drain ends admission) or a Task's result no Wait delivered (after
+	// its Close), released last entered first; nil for none.
 	Drain *Drop
 }
 
@@ -104,11 +105,18 @@ func (w *dropWalk) drain(t Type, it *Interface) *Drop {
 		if m.Sig == nil {
 			continue
 		}
+		var held []Type
 		for _, i := range m.Sig.Takes {
-			if i < 0 || i >= len(m.Sig.Params) {
-				continue
+			if i >= 0 && i < len(m.Sig.Params) {
+				held = append(held, m.Sig.Params[i].Type)
 			}
-			pt := m.Sig.Params[i].Type
+		}
+		if m.Sig.TakesSelf && len(m.Sig.Results) == 1 {
+			// An operation that takes the value and gives its one result
+			// (Task's Wait): the value holds that result until it is taken.
+			held = append(held, m.Sig.Results[0])
+		}
+		for _, pt := range held {
 			if len(sub) > 0 {
 				pt = w.c.subst(pt, sub)
 			}
@@ -165,9 +173,10 @@ func (w *dropWalk) visit(t Type) *Drop {
 		if d.Close == nil {
 			d.Close = w.c.closeOperation(t, nil, "Close")
 		}
-		if d.Close == nil {
-			d.Drain = w.drain(t, u)
-		}
+		// A std body's Drain gives what the value still holds after its
+		// Close (a Task's unread result, Q5) or in place of one (a queue's
+		// values left, Q7).
+		d.Drain = w.drain(t, u)
 		if d.Close == nil && d.Drain == nil {
 			w.bad = t.String()
 		}
