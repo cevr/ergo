@@ -111,7 +111,7 @@ Go's operators and punctuation, plus `..`, without the removed ones.
 SourceFile     = { ImportDecl ";" } { TopLevelDecl ";" } .
 ImportDecl     = "import" [ "go" ] [ identifier ] import_path .
 TopLevelDecl   = TypeDecl | FuncDecl | ExternDecl | TestDecl | LawDecl | LetDecl .
-TypeDecl       = "type" identifier [ TypeParams ] ( Members | MachineType | "=" UnionType | Type ) .
+TypeDecl       = "type" identifier [ TypeParams ] ( Members | MachineType | "=" UnionType | Type [ "where" Expression ] ) .
 TypeParams     = "[" TypeParam { "," TypeParam } "]" .
 TypeParam      = identifier { "," identifier } [ TypeName ] .
 Members        = "{" [ Member { "," Member } [ "," ] ] "}" .
@@ -134,7 +134,7 @@ ExternDecl     = "extern" "go" import_path "." identifier ( "func" [ "(" identif
 TestDecl       = "test" identifier [ Params ] Block .
 Signature      = Params [ Type ] [ FailsClause ] [ NeedsClause ] .
 Params         = "(" [ Param { "," Param } [ "," ] ] ")" .
-Param          = [ identifier { "," identifier } ] Type .
+Param          = [ identifier { "," identifier } ] Type [ "where" Expression ] .
 FailsClause    = "fails" TypeName [ TypeArgs ] { "|" TypeName [ TypeArgs ] } .
 NeedsClause    = "needs" TypeName { "|" TypeName } .
 LetDecl        = "let" [ "mut" ] Pattern { "," Pattern } [ Type ] [ "=" Expression ] .
@@ -171,6 +171,7 @@ ContextEntry   = [ "replace" ] TypeName { "," TypeName } ":" Expression | TypeNa
     - The test build (`lower.LowerTests`) lowers each test to a Go function and adds a runner: it prints `ok Name` or a `FAIL` line naming the failed assert's position and text, runs a property over every value when its parameters can be listed and otherwise its 100 cases from a seed (`--seed N`, default 1; [runtime](runtime.md#tests) Tests 2), and exits 1 when a test fails. A case's verdict is the exit that survives its unwinding: failed asserts, with typed failures beside them, fail the test and the run goes on; any other exit, such as a defect an exit action raises after an assert failed, prints the test's `FAIL` line and stops the run with the runtime's report of every reason (exit 2). The run build, which `ergo build` and `ergo run` use, contains no Go from a test. `ergo test FILE [--seed N]` builds the test binary in test mode, a module of the emission cache apart from the run build's, and runs it with the given seed; its exit status is the runner's (0, 1, or 2 for a defect), and a refuted property prints each argument as an Ergo literal of its type, so the case can be pasted into a test ([runtime](runtime.md#tests)).
     - A failed `assert a OP b`, OP one of `==`, `!=`, `<`, `<=`, `>`, `>=` (parentheses around the comparison allowed), shows its operands after the text: `double(2) == 4: left 5, right 4`, each operand an Ergo literal of its type, by the printer of a refuted property's arguments. Each operand is evaluated once, left to right, before the comparison. When both operands are strings (or defined types over string), they differ and either holds more than one line, a line diff follows: `--- left`, `+++ right`, then each line as `  line` (in both), `- line` (left only) or `+ line` (right only), by the longest common subsequence of lines. A comparison of two constants, any other assert (`&&`, a call, a bool), and an operand whose type has no literal here (a type of another package, of std or of the prelude, an operation type, a function, a borrow, a machine) show the text alone (T3, batch 12). *Prior art:* Go's `testing` convention "got X, want Y"; ExUnit's `assert left == right` shows `left:` and `right:` with a diff; pytest rewrites `assert` to show both sides; Gleam's `should.equal` prints both values.
 12. **Visibility.** See [Visibility](#visibility).
+13. **Refinements.** `where` after the type of a defined type (`type Port int where 1 <= it && it <= 65535`) or of a named parameter (`law L(b int where b != 0)`) starts a predicate ([types.md, Refinements](types.md#refinements)). `where` is a contextual word, not a keyword, so a name `where` stays a name elsewhere. The parser derives the type's `ParseN` function and `NWhere` law from it and places them after the type, marked derived; the formatter does not print them. A `where` on a host type and after a parameter group (`a, b int where …`) is S001.
 
 ## Visibility
 
