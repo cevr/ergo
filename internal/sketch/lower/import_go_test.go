@@ -411,3 +411,41 @@ func main() needs Console | go.Foreign {
 		t.Errorf("nil go.Ref: exit %d, stdout %q, stderr:\n%s", code, stdout, firstLines(stderr, 12))
 	}
 }
+
+// TestImportGoHeaderWriteReachesGo is G2's acceptance (H4): a Map that a
+// Go call returns and Go keeps (http.ResponseWriter.Header) goes on to the
+// Go method called on it with no copy, so the handler's Set reaches the
+// httptest recorder; the promised fact of the lowered Go is that no copy
+// wraps that result. It builds Go because the subject is what Go's
+// recorder holds after the emitted call; the checker sees only Ergo.
+func TestImportGoHeaderWriteReachesGo(t *testing.T) {
+	needsBuild(t)
+	prog := mustLower(t, "go_header", `import go net/http
+import go net/http/httptest
+
+func handle(w http.ResponseWriter) needs go.Foreign {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+}
+
+func main() needs Console | go.Foreign {
+	match httptest.NewRecorder() {
+	case Some as rec:
+		handle(rec.Value)
+		Console.Println(rec.Value.Header().Get("Content-Type"))
+	case None:
+	}
+}
+`)
+	if main := prog.mainGo(); strings.Contains(main, "Clone") {
+		t.Errorf("a copy wraps a Go call's Header result:\n%s", main)
+	}
+	exes := buildAll(t, []*lowered{prog}, true)
+	if exes == nil {
+		return
+	}
+	stdout, stderr, code := runExe(t, exes["go_header"])
+	if code != 0 || stdout != "application/json\n" {
+		t.Errorf("the recorder's Content-Type: exit %d, stdout %q, stderr:\n%s", code, stdout, firstLines(stderr, 12))
+	}
+}

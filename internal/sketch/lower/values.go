@@ -121,6 +121,7 @@ type valueFacts struct {
 	owned    map[*syntax.FuncDecl][]ownedParam
 	ownCall  map[*syntax.CallExpr]bool     // calls that pass owned arguments unshared (V5)
 	refSites map[*syntax.CallExpr]*refSite // Update and Modify calls whose literal owns the held value (V6)
+	goShare  map[*syntax.CallExpr]bool     // Go calls whose Map or slice result another Go call takes as Go returned it (H4)
 }
 
 // ownedParam is an owned parameter (V5): its index, counting a dot call's
@@ -142,6 +143,7 @@ func (l *lowerer) valueFacts() *valueFacts {
 			owned:    map[*syntax.FuncDecl][]ownedParam{},
 			ownCall:  map[*syntax.CallExpr]bool{},
 			refSites: map[*syntax.CallExpr]*refSite{},
+			goShare:  map[*syntax.CallExpr]bool{},
 		}
 	}
 	return l.vals
@@ -738,6 +740,17 @@ func (w *valueWalk) decide() {
 	// where Go may write or keep it: copied unless fresh or a local dead
 	// after the call, and always under the reference lowering (gocall.go).
 	for _, a := range w.goArgs {
+		// A Go call's result that is an operand of another Go call (a
+		// receiver: w.Header().Set(k, v)) is never an Ergo value: Go's map
+		// goes on to Go uncopied, as hand Go passes it, so a write reaches
+		// the map Go keeps (interop.md, Lowering 3). Under both lowerings:
+		// a copy here would lose the write, not keep a value.
+		if inner, ok := unparen(a).(*syntax.CallExpr); ok {
+			if c := w.info.Calls[inner]; c != nil && goImportCall(c, w.typeOf) {
+				vf.goShare[inner] = true
+				continue
+			}
+		}
 		if hostCopyAlways {
 			vf.clone[a] = true
 		} else {

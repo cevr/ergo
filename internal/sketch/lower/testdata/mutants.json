@@ -137,6 +137,24 @@
       "killers": ["lower:TestStdHTTPLawsRun"]
     },
     {
+      "name": "go-share-result",
+      "origin": "wf10 H4",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\t\tvf.goShare[inner] = true\n\t\t\t\tcontinue\n",
+      "to": "",
+      "rule": "interop.md Lowering 3 (G2): a Go call's Map result that another Go call takes is Go's own, so w.Header().Set reaches Go.",
+      "killers": ["lower:TestImportGoHeaderWriteReachesGo"]
+    },
+    {
+      "name": "go-share-clone",
+      "origin": "wf10 H4",
+      "file": "internal/sketch/lower/gocall.go",
+      "from": "valueRule() && !fc.goShares(x):",
+      "to": "valueRule():",
+      "rule": "interop.md Lowering 3 (G2): the shared result is not copied where it is bound.",
+      "killers": ["lower:TestImportGoHeaderWriteReachesGo"]
+    },
+    {
       "name": "http-allow-head",
       "origin": "wf10 H2",
       "file": "internal/sketch/std/http/router.ergo",
