@@ -13,6 +13,7 @@ var (
 	_ = declarePrograms("TestStdJSONLawsRun", testBuildProgram("stdjson", stdJSONLawsProbe))
 	_ = declarePrograms("TestStdHTTPLawsRun", testBuildProgram("stdhttp", stdHTTPLawsProbe))
 	_ = declarePrograms("TestJSONFieldsAgree", testBuildProgram("jsonfields", jsonFieldsProbe))
+	_ = declarePrograms("TestJSONValueAgrees", testBuildProgram("jsonvalue", jsonValueProbe))
 	_ = declarePrograms("TestQueuePollLaws", testBuildProgram("queuepolllaws", queuePollLawsProbe))
 	_ = declarePrograms("TestStdRandLawsRun", testBuildProgram("stdrand", stdRandLawsProbe))
 	_ = declarePrograms("TestStdSlicesLawsRun", testBuildProgram("stdslices", stdSlicesLawsProbe))

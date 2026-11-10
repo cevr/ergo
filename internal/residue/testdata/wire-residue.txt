@@ -299,6 +299,12 @@ internal/sketch/lower/std_json_test.go	*
 internal/sketch/lower/json_fields_test.go	*
 internal/sketch/lower/wirefields.go	*
 internal/sketch/std/json/field_laws.ergo	*
+internal/sketch/lower/json_value_test.go	*
+internal/sketch/lower/wirevalue.go	*
+internal/sketch/std/json/value.ergo	*
+internal/sketch/std/json/num.ergo	*
+docs/spec/stdlib.md	`IntNumber` and `Num.Wire()` are the only ways in and out, so a `Num` is
+docs/spec/stdlib.md	a wire type, alone or as a record field, and a program reads it with an
 internal/sketch/lower/testdata/mutants.json	"from": "f.wires[tp] = wit + \".Field\"",
 internal/sketch/lower/testdata/mutants.json	"to": "f.wires[tp] = wit",
 internal/sketch/syntax/testdata/refuse/49-wire-let.ergo	// want: S108 3 cannot write a composite literal of wire

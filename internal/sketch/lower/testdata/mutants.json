@@ -182,6 +182,24 @@
       "killers": ["lower:TestJSONFieldsAgree"]
     },
     {
+      "name": "g4-members",
+      "origin": "G4",
+      "file": "internal/sketch/lower/wirevalue.go",
+      "from": "b.WriteString(out + \" = append(\" + out + \", \"",
+      "to": "b.WriteString(out + \" = append(\" + out + \"[:0], \"",
+      "rule": "json.Value keeps every member of an object in order, a repeated key included; it keeps no last-wins map.",
+      "killers": ["lower:TestJSONValueAgrees"]
+    },
+    {
+      "name": "g4-number",
+      "origin": "G4",
+      "file": "internal/sketch/lower/wirevalue.go",
+      "from": "return w + \".B = append(\" + w + \".B, \" + f + \"...)\\n\"",
+      "to": "return w + \".B = append(\" + w + \".B, \" + f + \"[:1]...)\\n\"",
+      "rule": "A json.Num writes its whole spelling as it was read.",
+      "killers": ["lower:TestJSONValueAgrees"]
+    },
+    {
       "name": "existing-2-unit-h",
       "origin": "lower-v1/verify-s4a/r2/mutants-r2.json",
       "file": "internal/sketch/lower/tests.go",

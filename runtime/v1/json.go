@@ -63,6 +63,14 @@ func (t *Text) Null(task *rt.Task) {
 	t.Comma = true
 }
 
+// Number writes a number's spelling as it is. json.Value's Number holds
+// only a spelling the reader validated or one formatted from a number.
+func (t *Text) Number(task *rt.Task, text string) {
+	t.JSONValue()
+	t.B = append(t.B, text...)
+	t.Comma = true
+}
+
 // JSONValue starts a value: a comma when one is due. Then the value is
 // written and JSONDone marks it written.
 func (t *Text) JSONValue() {
@@ -899,6 +907,49 @@ func (c *Cursor) Float() float64 {
 
 func (c *Cursor) String() string {
 	v, ok := c.readString()
+	c.wrong = !ok
+	return v
+}
+
+// The kinds Kind reports, in the order of the prelude's WireKind.
+const (
+	JSONKindNull = iota
+	JSONKindBool
+	JSONKindNumber
+	JSONKindString
+	JSONKindList
+	JSONKindObject
+	JSONKindEnd
+)
+
+// Kind is the kind of the next value, which it leaves: the text is
+// validated, so its first byte decides.
+func (c *Cursor) Kind() int {
+	c.ws()
+	if c.i >= len(c.s) {
+		return JSONKindEnd
+	}
+	switch c.s[c.i] {
+	case 'n':
+		return JSONKindNull
+	case 't', 'f':
+		return JSONKindBool
+	case '"':
+		return JSONKindString
+	case '[':
+		return JSONKindList
+	case '{':
+		return JSONKindObject
+	case ']', '}', ',':
+		return JSONKindEnd
+	}
+	return JSONKindNumber
+}
+
+// Number is the spelling of the next number, unparsed.
+func (c *Cursor) Number() string {
+	c.at()
+	v, ok := c.number()
 	c.wrong = !ok
 	return v
 }

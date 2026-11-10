@@ -503,6 +503,14 @@ func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder,
 		l.wireNullableEncode(em, tc, b, t, env, task, w, v, scope)
 		return
 	}
+	if jsonWrapper(t, "Value") {
+		l.wireValueEncode(em, tc, b, t, env, task, w, v, scope)
+		return
+	}
+	if jsonWrapper(t, "Num") {
+		l.wireNumEncode(em, tc, b, t, task, w, v)
+		return
+	}
 	if p := l.info.WirePairOf(t); p != nil {
 		b.WriteString(tc.wireEncodeWith(em, p.Base, env, w, l.wireCallFunc(p.Wire, env, tc.site, v)) + "\n")
 		return
@@ -582,6 +590,14 @@ func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder,
 func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, env, task, r, zero string, scope *namer) {
 	if jsonWrapper(t, "Nullable") {
 		l.wireNullableDecode(tc, b, t, env, task, r, zero, scope)
+		return
+	}
+	if jsonWrapper(t, "Value") {
+		l.wireValueDecode(tc, b, t, env, task, r, zero, scope)
+		return
+	}
+	if jsonWrapper(t, "Num") {
+		l.wireNumDecode(tc, b, t, task, r, zero, scope)
 		return
 	}
 	parsed := func(base check.Type, parse *check.Func) {
