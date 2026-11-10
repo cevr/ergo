@@ -2,6 +2,42 @@
   "about": "Host context interruption acceptance mutants. Run the named CLI killer; it builds emitted programs because the contract is a live foreign wait and completed cleanup.",
   "mutants": [
     {
+      "name": "b15-r8-test-inherits-collector-policy",
+      "origin": "wf10 batch-15 fix-r8, verifier r7 on-base",
+      "file": "cmd/ergo/test.go",
+      "from": "child := testProgramCommand(binary, childArgs, limit)",
+      "to": "child := exec.Command(binary, childArgs...)\n\tchild.Stdout, child.Stderr, child.Stdin = os.Stdout, os.Stderr, os.Stdin",
+      "rule": "A test program's Go collector works within the program's hard data cap, not its builder's larger limit.",
+      "killers": ["cmd/ergo:TestTestProgramCollectsWithinItsLimit"]
+    },
+    {
+      "name": "b15-r8-test-inherits-gogc",
+      "origin": "wf10 batch-15 fix-r8",
+      "file": "cmd/ergo/test.go",
+      "from": "\"GOGC=100\", \"GOMEMLIMIT=\"",
+      "to": "\"GOGC=\"+os.Getenv(\"GOGC\"), \"GOMEMLIMIT=\"",
+      "rule": "Bounded test programs do not inherit a disabled or enlarged GC target.",
+      "killers": ["cmd/ergo:TestTestProgramEnvironment"]
+    },
+    {
+      "name": "b15-r8-test-inherits-soft-limit",
+      "origin": "wf10 batch-15 fix-r8",
+      "file": "cmd/ergo/test.go",
+      "from": "\"GOMEMLIMIT=\"+strconv.FormatUint(limit/4*3, 10)",
+      "to": "\"GOMEMLIMIT=\"+os.Getenv(\"GOMEMLIMIT\")",
+      "rule": "The child's soft heap limit is below its hard data cap.",
+      "killers": ["cmd/ergo:TestTestProgramEnvironment"]
+    },
+    {
+      "name": "b15-r8-test-overrides-explicit-off",
+      "origin": "wf10 batch-15 fix-r8",
+      "file": "cmd/ergo/test.go",
+      "from": "if limit != 0 {",
+      "to": "if true {",
+      "rule": "An explicitly unbounded test program retains the caller's collector settings.",
+      "killers": ["cmd/ergo:TestTestProgramEnvironment"]
+    },
+    {
       "name": "b15-r7-go-context-mask-ignored",
       "origin": "wf10 batch-15 fix-r7",
       "file": "runtime/rt/gocontext.go",

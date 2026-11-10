@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/sketch/build"
@@ -76,11 +77,30 @@ func testCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	child := exec.Command(binary, childArgs...)
+	child := testProgramCommand(binary, childArgs, limit)
+	return runEntryProcess(child, limit, proclimit.Watch(child))
+}
+
+// testProgramCommand keeps the test program's collector inside its hard
+// data limit. Build tools may use a larger heap and GOGC, but passing those
+// settings to a smaller bounded program can reach ENOMEM before collection.
+// Three quarters leaves headroom for stacks, metadata and non-heap data;
+// the normal GC target also avoids an inherited off or high GOGC. An
+// explicitly unbounded program retains the caller's collector settings.
+func testProgramCommand(binary string, args []string, limit uint64) *exec.Cmd {
+	child := exec.Command(binary, args...)
 	child.Stdout = os.Stdout
 	child.Stderr = os.Stderr
 	child.Stdin = os.Stdin
-	return runEntryProcess(child, limit, proclimit.Watch(child))
+	if limit != 0 {
+		for _, entry := range os.Environ() {
+			if !strings.HasPrefix(entry, "GOGC=") && !strings.HasPrefix(entry, "GOMEMLIMIT=") {
+				child.Env = append(child.Env, entry)
+			}
+		}
+		child.Env = append(child.Env, "GOGC=100", "GOMEMLIMIT="+strconv.FormatUint(limit/4*3, 10))
+	}
+	return child
 }
 
 // validSeed reports whether s is a seed the test binary reads: a decimal

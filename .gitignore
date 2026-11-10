@@ -1,4 +1,6 @@
 /bin/
+# Run receipts and scratch files are never source.
+tmp/
 # ergo build and ergo run write dist/ under the working directory, wherever
 # that is (cmd/ergo outputPath); no dist/ at any depth is source.
 dist/

@@ -2,6 +2,15 @@
   "about": "Focused scheduler regression mutants, run with their named killers. Model searches reserve all scheduler slots for memory isolation.",
   "mutants": [
     {
+      "name": "b15-r8-run-memory-reservation-disconnected",
+      "origin": "wf10 batch-15 fix-r8, verifier v7-main-held-one",
+      "file": "scripts/gate/main.go",
+      "from": "if step.MemoryHeavy {\n\t\t\t\theld = cpus",
+      "to": "if step.MemoryHeavy {\n\t\t\t\theld = 1",
+      "rule": "The running gate connects MemoryHeavy to an exclusive slot reservation.",
+      "killers": ["scripts/gate:TestGateRunsMemoryHeavyStepsAlone"]
+    },
+    {
       "name": "b15-r7-model-memory-unreserved",
       "origin": "wf10 batch-15 fix-r7",
       "file": "scripts/gate/steps.go",
