@@ -575,7 +575,6 @@ func ofPrint(body []*ofStmt) (string, int) {
 					emit(depth, s.y+"[0].Close()")
 				}
 			case ofQueueNew:
-				s.col = col(depth, "let ")
 				emit(depth, fmt.Sprintf("let %s = newQueue()", s.x))
 			case ofQueueLoop:
 				use := "lend("
@@ -952,10 +951,6 @@ func (r *rfRun) stmt(s *ofStmt) {
 		r.diag(s.line, s.col) // a take by index (R35)
 		r.use(s.y, s.line, s.col)
 	case ofQueueNew:
-		// Its drain is B3's (#197 L8): S109 until then.
-		if r.quiet == 0 && r.st != nil {
-			r.diags[fmt.Sprintf("%d:%d S109", s.line, s.col)] = true
-		}
 		r.acquire(s.x)
 	case ofQueueLoop:
 		// Each element is the body's own: kept, or released at the

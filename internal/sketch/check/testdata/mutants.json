@@ -1097,11 +1097,11 @@
       "name": "L8-B2 a value with no release admitted",
       "origin": "wf10 L8 B2 (#197)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\tif d == nil {\n\t\tw.reportCode(at, CodeOutside,",
-      "to": "\tif d == nil && false {\n\t\tw.reportCode(at, CodeOutside,",
-      "rule": "resources R13, R37: a value holding a queue of resources has no release until B3 drains it, so it is refused (S109).",
+      "from": "\tif d == nil {\n\t\tw.reportCode(at, CodeType,",
+      "to": "\tif d == nil && false {\n\t\tw.reportCode(at, CodeType,",
+      "rule": "resources R1, R13: a value whose type keeps resources with no Close has no release, so it is refused, not leaked.",
       "killers": [
-        "check:TestOwnershipFlowModel"
+        "check:TestNoReleaseRefused"
       ]
     },
     {

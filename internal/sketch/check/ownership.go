@@ -379,10 +379,10 @@ func (w *ownWalk) owned(l ownLocal) {
 	}
 	d, bad := w.c.dropOf(t)
 	if d == nil && l.v != nil && l.v.param {
-		return // a taken parameter of a queue or task of resources: B3's drain (gap until then)
+		return // a taken parameter whose type has no release: refused where it is made
 	}
 	if d == nil {
-		w.reportCode(at, CodeOutside, "the release of %s, which holds %s, is the drain of #197 B3 (queues and tasks of resources); until then own each resource in a local of its own (resources R13, R37)", t, bad)
+		w.reportCode(at, CodeType, "%s has no release: it holds %s, an operation type that keeps the values it takes and has no Close() operation, so nothing could release them (resources R1, R13); give it a Close() operation", t, bad)
 		return
 	}
 	if l.v != nil {
