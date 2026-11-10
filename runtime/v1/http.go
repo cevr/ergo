@@ -16,7 +16,7 @@ import (
 )
 
 // Listener is the transport shared by server protocols. HTTP adds no
-// policy to it; ServerLimits belongs to the serving call, not to the transport.
+// policy to it; Limits belongs to the serving call, not to the transport.
 type Listener struct {
 	ln net.Listener
 }
@@ -38,24 +38,18 @@ func (e HTTPInvalidLimits) Error() string {
 	return fmt.Sprintf("http.InvalidLimits: body=%d header=%d idle=%v read-header=%v read-body=%v", e.MaxBodyBytes, e.MaxHeaderBytes, e.IdleTimeout, e.ReadHeaderTimeout, e.ReadBodyTimeout)
 }
 
-// HTTPServerLimits is http.ServerLimits. The byte budgets bound what one
+// HTTPLimits is http.Limits. The byte budgets bound what one
 // request may send; the three timeouts bound how long a connection may
 // stay in each read phase, measured on the program's Scheduler. Serve
-// reads every field.
-type HTTPServerLimits struct {
+// reads every field; the client uses only the byte budgets.
+type HTTPLimits struct {
 	MaxBodyBytes, MaxHeaderBytes                    int
 	IdleTimeout, ReadHeaderTimeout, ReadBodyTimeout time.Duration
 }
 
-// HTTPClientLimits is http.ClientLimits: the budgets of one response.
-// The client reads every field.
-type HTTPClientLimits struct {
-	MaxBodyBytes, MaxHeaderBytes int
-}
-
 // valid reports whether every budget Serve reads is positive. Zero never
 // means unbounded.
-func (l HTTPServerLimits) valid() bool {
+func (l HTTPLimits) valid() bool {
 	return l.MaxBodyBytes > 0 && l.MaxHeaderBytes > 0 && l.IdleTimeout > 0 && l.ReadHeaderTimeout > 0 && l.ReadBodyTimeout > 0
 }
 
@@ -199,7 +193,7 @@ func (c *httpCall) start(t *rt.Task) {
 }
 
 type httpServer struct {
-	limits  HTTPServerLimits
+	limits  HTTPLimits
 	calls   chan *httpCall
 	quit    chan struct{}
 	mu      sync.Mutex
@@ -214,7 +208,7 @@ type httpServer struct {
 }
 
 // phase is the read phase of one connection. Header, body and idle are
-// bounded by the ServerLimits timeout of that name; the others are not: a
+// bounded by the Limits timeout of that name; the others are not: a
 // handler takes as long as it takes, under its own budgets.
 type phase uint32
 
@@ -227,7 +221,7 @@ const (
 )
 
 // timeout is the bound of phase p, or 0 for an unbounded phase.
-func (l HTTPServerLimits) timeout(p phase) time.Duration {
+func (l HTTPLimits) timeout(p phase) time.Duration {
 	switch p {
 	case phaseHeader:
 		return l.ReadHeaderTimeout
@@ -439,7 +433,7 @@ func connState(nc net.Conn, st http.ConnState) {
 // Stream sends a streamed body; once the call's task ends the Exchange is
 // closed, and a started stream is the whole response.
 //
-// Each connection's read phases are bounded by the ServerLimits timeouts: the
+// Each connection's read phases are bounded by the Limits timeouts: the
 // header (from the accept, or from the first byte after idle, to the
 // whole header), the body, and the idle wait between requests. A phase
 // timer is a child of t that sleeps on sleeper, the program's Scheduler,
@@ -450,7 +444,7 @@ func connState(nc net.Conn, st http.ConnState) {
 // is the connection's last. A stop drains the timers with the requests.
 //
 //ergo:host
-func HTTPServe(site Site, t *rt.Task, sleeper Sleeper, l *Listener, limits HTTPServerLimits, handle func(*rt.Task, *Exchange, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse) error {
+func HTTPServe(site Site, t *rt.Task, sleeper Sleeper, l *Listener, limits HTTPLimits, handle func(*rt.Task, *Exchange, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse) error {
 	if !limits.valid() {
 		return HTTPInvalidLimits(limits)
 	}

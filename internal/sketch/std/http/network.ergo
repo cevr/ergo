@@ -9,7 +9,12 @@ type RedirectLimit { URL string, Limit int }
 type Credential { origin string, field Field }
 
 func ForOrigin(origin string, field Field) Credential fails InvalidClient {
-	let checked = try checkNetwork([]string{origin}, ClientLimits{MaxBodyBytes: 1, MaxHeaderBytes: 1})
+	let checked = checkNetwork([]string{origin}, Limits{MaxBodyBytes: 1, MaxHeaderBytes: 1, IdleTimeout: 1s, ReadHeaderTimeout: 1s, ReadBodyTimeout: 1s}) catch {
+	case InvalidLimits:
+		Unreachable("Origin uses positive limits")
+	case InvalidClient as e:
+		return e
+	}
 	Credential{origin: checked[0], field: field}
 }
 
@@ -25,9 +30,9 @@ func Fetch(r URLRequest) Response fails RequestFailed | OriginRefused | Redirect
 }
 
 // Remote is a provider of Network. Only NewNet delegates Ambient to it.
-type Remote { origins []string, anyOrigin bool, limits ClientLimits, hops int }
+type Remote { origins []string, anyOrigin bool, limits Limits, hops int }
 
-func NewNet(policy OriginPolicy, limits ClientLimits, redirects RedirectPolicy) Remote fails InvalidClient needs Ambient {
+func NewNet(policy OriginPolicy, limits Limits, redirects RedirectPolicy) Remote fails InvalidClient | InvalidLimits needs Ambient {
 	let hops = match redirects {
 	case NoRedirects:
 		-1
@@ -51,7 +56,7 @@ func NewNet(policy OriginPolicy, limits ClientLimits, redirects RedirectPolicy) 
 	Remote{origins: checked, anyOrigin: anyOrigin, limits: limits, hops: hops}
 }
 
-extern go ergo.local/prototype/runtime/v1.HTTPCheckNetwork func checkNetwork(origins []string, limits ClientLimits) []string fails InvalidClient
+extern go ergo.local/prototype/runtime/v1.HTTPCheckNetwork func checkNetwork(origins []string, limits Limits) []string fails InvalidClient | InvalidLimits
 
 func SendURL(n Remote, r URLRequest) Response fails RequestFailed | OriginRefused | RedirectLimit {
 	let mut owners = []string{}
@@ -66,4 +71,4 @@ func SendURL(n Remote, r URLRequest) Response fails RequestFailed | OriginRefuse
 	}
 }
 
-extern go ergo.local/prototype/runtime/v1.HTTPFetch func fetch(origins []string, anyOrigin bool, limits ClientLimits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string) Response fails SendFailed | OriginRefused | RedirectLimit
+extern go ergo.local/prototype/runtime/v1.HTTPFetch func fetch(origins []string, anyOrigin bool, limits Limits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string) Response fails SendFailed | OriginRefused | RedirectLimit

@@ -368,18 +368,19 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
    port zero is valid, and `l.Addr()` reports the bound address. The
    transport has no HTTP policy. `l.Close()` releases an unused listener.
    Every server protocol shares it: `rpc.Serve` takes an `http.Listener`.
-2. `Serve[R](l, limits ServerLimits, handle func(Request) Response needs R | Streaming)`
+2. `Serve[R](l, limits Limits, handle func(Request) Response needs R | Streaming)`
    has `fails InvalidLimits needs R | Scheduler`. Serve binds the request's `Streaming`
    provider around each invocation, so a handler that does not stream is a
-   function of a narrower row and passes unchanged. `ServerLimits{MaxBodyBytes,
+   function of a narrower row and passes unchanged. `Limits{MaxBodyBytes,
    MaxHeaderBytes, IdleTimeout, ReadHeaderTimeout, ReadBodyTimeout}` is
    required. Every value must be positive (zero is not "unbounded"); a
    refusal leaves the listener open. The header budget has Go
    `http.Server.MaxHeaderBytes` semantics, including its request-line
-   accounting. **Rule:** every field of a limits record is read by the
-   operation that takes it, so a required budget is never a field that
-   nobody reads. The client takes its own `ClientLimits{MaxBodyBytes,
-   MaxHeaderBytes}` (item 10).
+   accounting. This one Limits record is also taken by NewClient and
+   NewNet. They validate all five fields, but use only MaxBodyBytes and
+   MaxHeaderBytes to bound each response; their time limit is the caller's
+   scope, not these three server-phase timeouts. A non-positive field is
+   InvalidLimits wherever Limits is taken.
 
    **Connection phases** (E4). Serve bounds each read phase of a
    connection by its timeout: the header phase (from the accept, or from
@@ -489,7 +490,7 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
     `Do(r Request) Response fails RequestFailed needs Net` sends one
     buffered request through the bound `Net`, the operation type
     `Net { Send(r Request) Response fails RequestFailed }`. The host's
-    provider is `NewClient(origin, limits ClientLimits) Client fails InvalidClient needs Ambient`:
+    provider is `NewClient(origin, limits Limits) Client fails InvalidClient | InvalidLimits needs Ambient`:
     `origin` is `scheme://authority` (http or https, no user, path, query
     or fragment), and `limits` is the required response budget (header
     and body, both positive; `InvalidClient{Origin, Reason}` otherwise).
@@ -529,7 +530,7 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
     connections are reused.
 
 11. **Runtime URLs and redirects (CU5).** `NewNet(policy OriginPolicy,
-    limits ClientLimits, redirects RedirectPolicy) Remote fails InvalidClient needs Ambient`
+    limits Limits, redirects RedirectPolicy) Remote fails InvalidClient | InvalidLimits needs Ambient`
     delegates host authority once, without choosing one origin. `OriginPolicy`
     is `AnyOrigin` or `Origins{Values []string}`; an empty set denies every
     origin. `RedirectPolicy` is `NoRedirects` or `Follow{MaxHops int}`; a

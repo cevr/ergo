@@ -30,8 +30,8 @@ func startHTTP(t *testing.T, handle httpHandler) (*Listener, *Task[struct{}]) {
 
 // serveLimits are byte budgets with timeouts no test reaches on the host
 // Scheduler.
-func serveLimits(body, header int) HTTPServerLimits {
-	return HTTPServerLimits{body, header, time.Hour, time.Hour, time.Hour}
+func serveLimits(body, header int) HTTPLimits {
+	return HTTPLimits{body, header, time.Hour, time.Hour, time.Hour}
 }
 
 // liveSleeper is the host Scheduler, as a program binds NewLiveScheduler.
@@ -39,17 +39,17 @@ type liveSleeper struct{}
 
 func (liveSleeper) Sleep(t *rt.Task, d time.Duration) { Sleep(t, d) }
 
-func startHTTPLimits(t *testing.T, limits HTTPServerLimits, handle httpHandler) (*Listener, *Task[struct{}]) {
+func startHTTPLimits(t *testing.T, limits HTTPLimits, handle httpHandler) (*Listener, *Task[struct{}]) {
 	t.Helper()
 	return startHTTPOn(t, liveSleeper{}, limits, handle)
 }
 
-func startHTTPOn(t *testing.T, sleeper Sleeper, limits HTTPServerLimits, handle httpHandler) (*Listener, *Task[struct{}]) {
+func startHTTPOn(t *testing.T, sleeper Sleeper, limits HTTPLimits, handle httpHandler) (*Listener, *Task[struct{}]) {
 	t.Helper()
 	return startHTTPRoot(t, rt.Root(t.Name()), sleeper, limits, handle)
 }
 
-func startHTTPRoot(t *testing.T, root *rt.Task, sleeper Sleeper, limits HTTPServerLimits, handle httpHandler) (*Listener, *Task[struct{}]) {
+func startHTTPRoot(t *testing.T, root *rt.Task, sleeper Sleeper, limits HTTPLimits, handle httpHandler) (*Listener, *Task[struct{}]) {
 	t.Helper()
 	l, err := HTTPListen("127.0.0.1:0")
 	if err != nil {
@@ -126,6 +126,12 @@ func TestHTTPServerMatchesModel(t *testing.T) {
 			limits.ReadHeaderTimeout = time.Duration(bad)
 		case 4:
 			limits.ReadBodyTimeout = time.Duration(bad)
+		}
+		if err := HTTPCheckOrigin("http://localhost", limits); err != HTTPInvalidLimits(limits) {
+			t.Fatalf("client limits %+v: %v", limits, err)
+		}
+		if _, err := HTTPCheckNetwork(nil, limits); err != HTTPInvalidLimits(limits) {
+			t.Fatalf("network limits %+v: %v", limits, err)
 		}
 		err = HTTPServe("invalid", rt.Root("invalid"), liveSleeper{}, l, limits, func(_ *rt.Task, _ *Exchange, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
 			t.Error("invalid limits called handler")
@@ -368,7 +374,7 @@ func TestHTTPPhasesExpireOnTheScheduler(t *testing.T) {
 		t.Run(strconv.FormatUint(seed, 10), func(t *testing.T) {
 			rng := rand.New(rand.NewPCG(seed, 7))
 			budget := func() time.Duration { return time.Duration(1+rng.IntN(1000)) * time.Millisecond }
-			limits := HTTPServerLimits{16, 4096, budget(), budget(), budget()}
+			limits := HTTPLimits{16, 4096, budget(), budget(), budget()}
 			sl := newStepSleeper()
 			count := &httpTimerCount{}
 			l, server := startHTTPRoot(t, rt.TracedRoot(t.Name(), count), sl, limits, func(_ *rt.Task, _ *Exchange, _, _ string, _, _ []HTTPField, body string, _ bool, readError string) HTTPResponse {

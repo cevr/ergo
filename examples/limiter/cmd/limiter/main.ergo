@@ -64,7 +64,7 @@ func main() fails http.ListenFailed | http.InvalidLimits | os.Exit needs Console
 		}
 	}
 	with context { limits.Limiter: memory.New(buckets(), notes), Scheduler: NewLiveScheduler() } {
-		try rpc.Serve(l, http.ServerLimits{MaxBodyBytes: 65536, MaxHeaderBytes: 16384, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}, "/rpc", limitsrpc.Handle)
+		try rpc.Serve(l, http.Limits{MaxBodyBytes: 65536, MaxHeaderBytes: 16384, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}, "/rpc", limitsrpc.Handle)
 	}
 	notes.Close()
 	printer.Stop()

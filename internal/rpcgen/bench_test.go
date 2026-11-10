@@ -59,7 +59,7 @@ import bench/memory
 
 func serve(l http.Listener) fails http.InvalidLimits needs Scheduler {
 	with context { limits.Limiter: memory.Fixed } {
-		try rpc.Serve(l, http.ServerLimits{MaxBodyBytes: 16777216, MaxHeaderBytes: 1048576, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}, "/rpc", limitsrpc.Handle)
+		try rpc.Serve(l, http.Limits{MaxBodyBytes: 16777216, MaxHeaderBytes: 1048576, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}, "/rpc", limitsrpc.Handle)
 	}
 }
 

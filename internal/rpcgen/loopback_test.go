@@ -1298,7 +1298,7 @@ func main() fails http.ListenFailed | http.InvalidLimits needs Console | Ambient
 	case "serve":
 		let l = try http.Listen("127.0.0.1:0")
 		Console.Println("listening \(l.Addr())")
-		let limits = http.ServerLimits{MaxBodyBytes: 16777216, MaxHeaderBytes: 1048576, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}
+		let limits = http.Limits{MaxBodyBytes: 16777216, MaxHeaderBytes: 1048576, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}
 		if key == "lie-fail" {
 			with context { Scheduler: NewLiveScheduler() } { try rpc.Serve(l, limits, "/rpc", lieFail) }
 			return
@@ -1308,7 +1308,7 @@ func main() fails http.ListenFailed | http.InvalidLimits needs Console | Ambient
 			return
 		}
 		with context { %[1]s, Scheduler: NewLiveScheduler() } {
-			try rpc.Serve(l, http.ServerLimits{MaxBodyBytes: 16777216, MaxHeaderBytes: 1048576, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}, "/rpc", handle)
+			try rpc.Serve(l, http.Limits{MaxBodyBytes: 16777216, MaxHeaderBytes: 1048576, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}, "/rpc", handle)
 		}
 	case "payload":
 		Console.Println(payload(key))

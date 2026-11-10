@@ -29,24 +29,19 @@ type Net { Send(r Request) Response fails RequestFailed }
 // HttpClient.execute).
 func Do(r Request) Response fails RequestFailed needs Net { try Net.Send(r) }
 
-// ClientLimits are the required positive budgets of one response, and
-// the client reads every field: MaxHeaderBytes of header and MaxBodyBytes
-// of body. It has no timeout: the caller's scope is the time limit.
-type ClientLimits { MaxBodyBytes int, MaxHeaderBytes int }
-
 // Client is the host's Net for one origin. Its fields are this
 // package's, so only NewClient makes one.
-type Client { origin string, limits ClientLimits }
+type Client { origin string, limits Limits }
 
 // NewClient is a Net to origin (scheme://authority) whose responses have
 // at most limits.MaxHeaderBytes of header and limits.MaxBodyBytes of body.
 // No request is made until a Send.
-func NewClient(origin string, limits ClientLimits) Client fails InvalidClient needs Ambient {
+func NewClient(origin string, limits Limits) Client fails InvalidClient | InvalidLimits needs Ambient {
 	try checkOrigin(origin, limits)
 	Client{origin: origin, limits: limits}
 }
 
-extern go ergo.local/prototype/runtime/v1.HTTPCheckOrigin func checkOrigin(origin string, limits ClientLimits) fails InvalidClient
+extern go ergo.local/prototype/runtime/v1.HTTPCheckOrigin func checkOrigin(origin string, limits Limits) fails InvalidClient | InvalidLimits
 
 // Send joins r.Path and r.Query to the origin and sends r. Redirects are
 // responses; there is no retry and no timeout of its own.
@@ -80,7 +75,7 @@ func causeOf(kind int, reason string, limit int) Cause {
 	}
 }
 
-extern go ergo.local/prototype/runtime/v1.HTTPDo func send(origin string, limits ClientLimits, method string, path string, query []Field, header []Field, body string) Response fails SendFailed
+extern go ergo.local/prototype/runtime/v1.HTTPDo func send(origin string, limits Limits, method string, path string, query []Field, header []Field, body string) Response fails SendFailed
 
 // Handler is a Net with no socket: Send calls handle under a Recorder, as
 // Serve would call it, and never fails. A test binds it so a client is

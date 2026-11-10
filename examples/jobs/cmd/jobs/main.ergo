@@ -33,10 +33,10 @@ let usage = "usage: jobs [-addr ADDR] [-site DIR] [-replay]"
 // default header budget, and the time a connection may wait idle or take
 // to send a header or a body. They run on the clock the server is given:
 // under -replay, the manual one, whose moves stay well inside them.
-let limits = http.ServerLimits{MaxBodyBytes: api.MaxBody, MaxHeaderBytes: 1 << 20, IdleTimeout: 2m, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}
+let limits = http.Limits{MaxBodyBytes: api.MaxBody, MaxHeaderBytes: 1 << 20, IdleTimeout: 2m, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}
 
 // answers are the -replay client's budgets for one answer: the server's.
-let answers = http.ClientLimits{MaxBodyBytes: limits.MaxBodyBytes, MaxHeaderBytes: limits.MaxHeaderBytes}
+let answers = limits
 
 func main() fails os.Exit needs Ambient {
 	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewHost() } {
@@ -64,6 +64,8 @@ func run(v flag.Values, handle escaping func(http.Request) http.Response needs j
 	if replayFlag.Get(v) {
 		let l = try listen("127.0.0.1:0")
 		let client = http.NewClient("http://"+l.Addr(), answers) catch {
+		case http.InvalidLimits:
+			Unreachable("jobs uses positive limits")
 		case http.InvalidClient as e:
 			l.Close()
 			return os.Exit{Code: 1, Message: "jobs: no client for " + e.Origin + ": " + e.Reason}
