@@ -1,0 +1,9 @@
+done 0: data-0
+done 1: data-1
+failed 2: source ended
+close 0
+close 1
+close 2
+close 4
+close 3
+limit closed

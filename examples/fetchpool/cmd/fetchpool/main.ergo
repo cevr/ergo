@@ -1,0 +1,64 @@
+import fetchpool/domain
+import fetchpool/memory
+import fetchpool/pool
+import queue
+import sync
+import tasks
+
+// execute is the composition root: only cmd chooses the providers. The
+// limiter belongs to this call; pool borrows it and releases every worker
+// before it returns. A returned report holds no resource.
+func execute(ids []int, workers int, budget int, log sync.Ref[[]string]) []domain.State fails queue.Closed | tasks.Closed {
+	let limiter domain.Limiter = memory.NewLimit(budget, log)
+	with context { domain.Fetcher: memory.Recording{Log: log} } {
+		pool.Run(ids, workers, limiter)
+	}
+}
+
+func main() needs Console {
+	let log = sync.NewRef[[]string]([]string{})
+	let reports = execute([]int{0, 1, 2, 3, 4}, 1, 3, log) catch {
+	case queue.Closed, tasks.Closed:
+		Unreachable("the pool owns admission until its workers finish")
+	}
+	for report in reports {
+		Console.Println(domain.Render(report))
+	}
+	for line in log.Get() {
+		Console.Println(line)
+	}
+}
+
+// The generated domain is deliberately small, so every connection is
+// observed after all tasks and the queue have ended, without a clock.
+test EveryConnectionClosesOnce(seed int) {
+	let n = 1 + (seed%8+8)%8
+	let budget = (seed%9 + 9) % 9
+	let workers = 1 + (seed%3+3)%3
+	let mut ids = []int{}
+	for id in 0..n {
+		ids = ids.Append(id)
+	}
+	ids = ids.Append(-1)
+	let log = sync.NewRef[[]string]([]string{})
+	let out = try execute(ids, workers, budget, log)
+	let count = if budget < n { budget } else { n }
+	assert len(out) == count+1
+	assert domain.Render(out[0]) == "failed -1: offline"
+	for id in 0..count {
+		let want = if id == 2 { "failed 2: source ended" } else { "done \(id): data-\(id)" }
+		assert domain.Render(out[id+1]) == want
+	}
+	let lines = log.Get()
+	assert len(lines) == n+1
+	assert lines[n] == "limit closed"
+	for id in 0..n {
+		let mut seen = 0
+		for line in lines {
+			if line == "close \(id)" {
+				seen += 1
+			}
+		}
+		assert seen == 1
+	}
+}
