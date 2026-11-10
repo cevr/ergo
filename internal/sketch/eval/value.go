@@ -17,15 +17,21 @@ import (
 //	int64, uint and uintptr uint64 (the 64-bit Go targets); float32,
 //	float64.
 //
-// A record (a union's variant too) is a *record, a tuple a tuple, and the
-// no-value of a unit call is unit{}. Values are never written in place: an
-// assignment to a field builds a new record, so sharing is safe.
+// A record (a union's variant too) is a *record, a tuple a tuple, a slice
+// or an array a sliceV, a Map a mapV, a function literal's value a
+// *closure, and the no-value of a unit call is unit{}. Records and tuples
+// are never written in place: an assignment to a field builds a new
+// record, so sharing one is safe. Slices, arrays and Maps share a store
+// until a write, by ownership (coll.go).
 type Value any
 
 // record is a record value with its nominal type: a union value is the
-// variant's record, and a match tests its type.
+// variant's record, and a match tests its type. key is the key of its
+// type arguments in the frame that built it (types.go), "" for a type
+// that is not generic.
 type record struct {
 	t      *check.Named
+	key    string
 	fields []Value
 }
 
@@ -173,96 +179,89 @@ func convertBasic(v Value, k check.BasicKind) (Value, bool) {
 	return nil, false
 }
 
-// zero is the zero value of t, or false when t has none the evaluator
-// builds (a collection, a union, a function, an operation type).
-func zero(t check.Type) (Value, bool) {
-	if b := basicOf(t); b != nil {
-		switch b.Kind {
-		case check.Bool:
-			return false, true
-		case check.String:
-			return "", true
-		}
-		return fromInt64(b.Kind, 0)
-	}
-	if n, ok := t.(*check.Named); ok {
-		if s := structOf(n); s != nil {
-			r := &record{t: n, fields: make([]Value, len(s.Fields))}
-			for i, f := range s.Fields {
-				z, ok := zero(f.Type)
-				if !ok {
-					return nil, false
-				}
-				r.fields[i] = z
-			}
-			return r, true
-		}
-	}
-	if tt, ok := t.(*check.Tuple); ok {
-		out := tuple{elems: make([]Value, len(tt.Types))}
-		for i, e := range tt.Types {
-			z, ok := zero(e)
-			if !ok {
-				return nil, false
-			}
-			out.elems[i] = z
-		}
-		return out, true
-	}
-	return nil, false
-}
-
-// sameNamed reports whether a and b are one nominal type: one declaration
-// and identical type arguments.
-func sameNamed(a, b *check.Named) bool {
-	if a == b {
-		return true
-	}
-	if a == nil || b == nil || a.Obj != b.Obj || len(a.TArgs) != len(b.TArgs) {
-		return false
-	}
-	for i := range a.TArgs {
-		if a.TArgs[i].String() != b.TArgs[i].String() {
-			return false
-		}
-	}
-	return true
+// sameNominal reports whether two records are of one nominal type: one
+// declaration and type arguments of one key.
+func sameNominal(a, b *record) bool {
+	return a.t.Obj == b.t.Obj && a.key == b.key
 }
 
 // equal is Ergo's == (types.md, Operators 1): Go's on basic values, and
-// structural on records, tuples and union values (the same variant and
-// equal fields). It reports the work it did through cost.
-func equal(a, b Value, cost func(int64)) bool {
+// structural on records, tuples, union values (the same variant and equal
+// fields), slices and arrays (equal lengths, equal elements in order) and
+// Maps (the same keys with equal values). spend pays each level's work
+// before it is done; when it cannot pay, equal stops and reports !paid.
+func equal(a, b Value, spend func(int64) bool) (eq, paid bool) {
 	switch a := a.(type) {
 	case *record:
 		bv, ok := b.(*record)
-		if !ok || !sameNamed(a.t, bv.t) {
-			return false
+		if !ok || !sameNominal(a, bv) {
+			return false, true
 		}
-		cost(int64(len(a.fields)))
+		if !spend(int64(len(a.fields))) {
+			return false, false
+		}
 		for i := range a.fields {
-			if !equal(a.fields[i], bv.fields[i], cost) {
-				return false
+			if eq, paid := equal(a.fields[i], bv.fields[i], spend); !eq || !paid {
+				return eq, paid
 			}
 		}
-		return true
+		return true, true
 	case tuple:
 		bv := b.(tuple)
-		cost(int64(len(a.elems)))
+		if !spend(int64(len(a.elems))) {
+			return false, false
+		}
 		for i := range a.elems {
-			if !equal(a.elems[i], bv.elems[i], cost) {
-				return false
+			if eq, paid := equal(a.elems[i], bv.elems[i], spend); !eq || !paid {
+				return eq, paid
 			}
 		}
-		return true
+		return true, true
+	case sliceV:
+		bv := b.(sliceV)
+		if a.n != bv.n {
+			return false, true
+		}
+		if !spend(int64(a.n)) {
+			return false, false
+		}
+		ae, be := a.elems(), bv.elems()
+		for i := range ae {
+			if eq, paid := equal(ae[i], be[i], spend); !eq || !paid {
+				return eq, paid
+			}
+		}
+		return true, true
+	case mapV:
+		bv := b.(mapV)
+		if len(a.b.m) != len(bv.b.m) {
+			return false, true
+		}
+		if !spend(int64(len(a.b.m))) {
+			return false, false
+		}
+		for k, av := range a.b.m {
+			bw, ok := bv.b.m[k]
+			if !ok {
+				return false, true
+			}
+			if eq, paid := equal(av, bw, spend); !eq || !paid {
+				return eq, paid
+			}
+		}
+		return true, true
 	case string:
 		bs := b.(string)
-		cost(int64(min(len(a), len(bs))))
-		return a == bs
+		if !spend(int64(min(len(a), len(bs)))) {
+			return false, false
+		}
+		return a == bs, true
 	case unit:
-		return true
+		return true, true
+	case *closure:
+		ice("a function value compared")
 	}
-	return a == b
+	return a == b, true
 }
 
 func truth(v Value) bool {
@@ -304,6 +303,9 @@ func describe(v Value) string {
 		return formatFloat(v, 64)
 	case unit:
 		return "no value"
+	}
+	if s, ok := describeColl(v); ok {
+		return s
 	}
 	return fmt.Sprint(v)
 }

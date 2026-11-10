@@ -18,10 +18,12 @@ type ordered interface{ integer | float | ~string }
 // (an integer divided by zero, a negative shift) are defects here.
 func (in *interp) binop(fr *frame, at syntax.Node, op syntax.Token, a, b Value) (Value, *abrupt) {
 	switch op {
-	case syntax.EQL:
-		return in.equal(a, b), nil
-	case syntax.NEQ:
-		return !in.equal(a, b), nil
+	case syntax.EQL, syntax.NEQ:
+		eq, ab := in.equal(fr, at, a, b)
+		if ab != nil {
+			return nil, ab
+		}
+		return eq == (op == syntax.EQL), nil
 	case syntax.SHL, syntax.SHR:
 		n, negative, ok := shiftCount(b)
 		if !ok {

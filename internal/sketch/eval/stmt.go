@@ -54,7 +54,7 @@ func (in *interp) stmtOnly(fr *frame, s syntax.Stmt) *abrupt {
 	case *syntax.ForStmt:
 		return in.forStmt(fr, s)
 	case *syntax.RangeStmt:
-		return fr.unsupported(s, "a for-in loop yet")
+		return in.rangeStmt(fr, s)
 	case *syntax.AssertStmt:
 		v, ab := in.expr(fr, s.X)
 		if ab != nil {
@@ -86,18 +86,126 @@ func (in *interp) forStmt(fr *frame, s *syntax.ForStmt) *abrupt {
 				return nil
 			}
 		}
-		ab := in.stmts(fr, s.Body.List)
-		if ab == nil {
-			continue
+		if done, ab := loopBody(in.stmts(fr, s.Body.List)); done {
+			return ab
 		}
-		switch ab.kind {
-		case ctlBreak:
-			return nil
-		case ctlContinue:
-			continue
-		}
+	}
+}
+
+// loopBody reads one iteration's completion: done when the loop ends
+// (a break: no abrupt; any other abrupt but continue passes out).
+func loopBody(ab *abrupt) (bool, *abrupt) {
+	if ab == nil {
+		return false, nil
+	}
+	switch ab.kind {
+	case ctlBreak:
+		return true, nil
+	case ctlContinue:
+		return false, nil
+	}
+	return true, ab
+}
+
+// rangeStmt runs a for-in over the domain the checker recorded (types.md,
+// Loops and len 1): a slice or an array (its value at the start of the
+// loop), a string's runes as Go's range decodes them, or a Range counting
+// up from Start, End excluded. A Map's order is unspecified, so a for over
+// one has no verdict the Go target is sure to share: a skip (plan section
+// 4). A Seq calls a function value, which a pure frame never does.
+func (in *interp) rangeStmt(fr *frame, s *syntax.RangeStmt) *abrupt {
+	l := fr.info.Loops[s]
+	if l == nil {
+		ice("a for-in with no Loops entry")
+	}
+	if l.Domain == check.LoopMap {
+		return fr.unsupported(s, "a for over a Map, whose order the Go target leaves unspecified")
+	}
+	if l.Domain == check.LoopSeq {
+		return fr.unsupported(s, "a for over a Seq, which calls a function value")
+	}
+	dom, ab := in.expr(fr, s.X)
+	if ab != nil {
 		return ab
 	}
+	iter := func(pos, elem Value) (bool, *abrupt) {
+		if ab := in.charge(fr, s, 1); ab != nil {
+			return true, ab
+		}
+		if ab := in.loopBind(fr, s.Key, pos); ab != nil {
+			return true, ab
+		}
+		if ab := in.loopBind(fr, s.Value, elem); ab != nil {
+			return true, ab
+		}
+		return loopBody(in.stmts(fr, s.Body.List))
+	}
+	switch l.Domain {
+	case check.LoopSlice:
+		xs := dom.(sliceV)
+		elems := xs.elems()
+		for i := 0; i < xs.n; i++ {
+			if done, ab := iter(int64(i), elems[i]); done {
+				return ab
+			}
+		}
+		return nil
+	case check.LoopString:
+		for i, r := range dom.(string) {
+			if done, ab := iter(int64(i), r); done {
+				return ab
+			}
+		}
+		return nil
+	case check.LoopRange:
+		r := dom.(*record)
+		start, end := r.fields[fieldIndex(r.t, "Start")], r.fields[fieldIndex(r.t, "End")]
+		one, ok := convertBasic(int64(1), fr.rt(l.Elem).basic().Kind)
+		if !ok {
+			ice("a Range over %s", l.Elem)
+		}
+		for i := start; ; {
+			less, _, _ := arith(syntax.LSS, i, end)
+			if !less.(bool) {
+				return nil
+			}
+			if done, ab := iter(nil, i); done {
+				return ab
+			}
+			i, _, _ = arith(syntax.ADD, i, one)
+		}
+	}
+	ice("a for-in over the domain %d", l.Domain)
+	return nil
+}
+
+// loopBind binds a for binding: a name, or an irrefutable pattern the
+// checker proved (Info.Patterns). No binding, or `_`, binds nothing.
+func (in *interp) loopBind(fr *frame, p syntax.Expr, v Value) *abrupt {
+	if p == nil {
+		return nil
+	}
+	if id, ok := p.(*syntax.Ident); ok {
+		if id.Name == "_" {
+			return nil
+		}
+		if w, ok := fr.info.Defs[id].(*check.Var); ok {
+			fr.bind(w, v)
+			return nil
+		}
+	}
+	pat := fr.info.Patterns[p]
+	if pat == nil {
+		ice("a for binding with neither a Defs nor a Patterns entry")
+	}
+	ok, ab := in.match(fr, p, pat, v)
+	if ab != nil {
+		return ab
+	}
+	if !ok {
+		return fr.defect(p, "the for pattern does not match")
+	}
+	return nil
 }
 
 // let binds a local let.
@@ -124,7 +232,11 @@ func (in *interp) letSpec(fr *frame, spec *syntax.VarSpec) *abrupt {
 		if ab != nil {
 			return ab
 		}
-		if !in.match(fr, p, v) {
+		ok, ab := in.match(fr, spec.Pattern, p, v)
+		if ab != nil {
+			return ab
+		}
+		if !ok {
 			return fr.defect(spec.Pattern, "the let pattern does not match")
 		}
 		return nil
@@ -139,7 +251,7 @@ func (in *interp) letSpec(fr *frame, spec *syntax.VarSpec) *abrupt {
 		}
 		for i, id := range spec.Names {
 			if w, ok := fr.info.Defs[id].(*check.Var); ok {
-				fr.vars[w] = tup.elems[i]
+				fr.bind(w, tup.elems[i])
 			}
 		}
 		return nil
@@ -157,7 +269,7 @@ func (in *interp) letSpec(fr *frame, spec *syntax.VarSpec) *abrupt {
 		}
 		for i, id := range spec.Names {
 			if w, ok := fr.info.Defs[id].(*check.Var); ok {
-				fr.vars[w] = vals[i]
+				fr.bind(w, vals[i])
 			}
 		}
 		return nil
@@ -184,18 +296,18 @@ func (in *interp) letSpec(fr *frame, spec *syntax.VarSpec) *abrupt {
 		ice("the let %s has no Defs entry", id.Name)
 	}
 	if len(spec.Values) == 0 {
-		z, ok := zero(v.Type)
-		if !ok {
-			return fr.unsupported(spec, "the default value of %s yet", v.Type)
+		z, ab := in.zero(fr, spec, fr.rt(v.Type))
+		if ab != nil {
+			return ab
 		}
-		fr.vars[v] = z
+		fr.bind(v, z)
 		return nil
 	}
 	val, ab := in.expr(fr, spec.Values[0])
 	if ab != nil {
 		return ab
 	}
-	fr.vars[v] = val
+	fr.bind(v, val)
 	return nil
 }
 
@@ -207,9 +319,17 @@ var assignOps = map[syntax.Token]syntax.Token{
 	syntax.SHR_ASSIGN: syntax.SHR, syntax.AND_NOT_ASSIGN: syntax.AND_NOT,
 }
 
-// assign runs `x = e` and `x op= e` on a place: a local, or a field path
-// of one. The place holds no operand that runs, so the order of Go's
-// two-phase assignment has nothing to observe.
+// step is one step of a written place's path: a field, or an index (an
+// element of a slice or an array, a key of a Map).
+type step struct {
+	at    syntax.Expr
+	field string
+	index Value
+}
+
+// assign runs `x = e` and `x op= e` on a place: a local, or a path of
+// fields and indexes rooted at one. As Go's two-phase assignment does, the
+// place's index operands are evaluated, left to right, before the value.
 func (in *interp) assign(fr *frame, s *syntax.AssignStmt) *abrupt {
 	if len(s.Lhs) != 1 || len(s.Rhs) != 1 {
 		ice("an assignment of several values")
@@ -219,18 +339,27 @@ func (in *interp) assign(fr *frame, s *syntax.AssignStmt) *abrupt {
 		_, ab := in.expr(fr, s.Rhs[0])
 		return ab
 	}
-	if why := in.placeForm(fr, lhs); why != "" {
+	root, steps, why, ab := in.place(fr, lhs)
+	if ab != nil {
+		return ab
+	}
+	if why != "" {
 		return fr.unsupported(lhs, "an assignment to %s yet", why)
 	}
 	var old Value
 	if s.Tok != syntax.ASSIGN {
-		v, ab := in.expr(fr, lhs)
+		v, ab := in.read(fr, root.v, steps)
 		if ab != nil {
 			return ab
 		}
 		old = v
 	}
-	val, ab := in.expr(fr, s.Rhs[0])
+	var val Value
+	if call, own := in.handover(fr, root, steps, s); call != nil {
+		val, ab = in.collectionCall(fr, call, fr.info.Calls[call], own)
+	} else {
+		val, ab = in.expr(fr, s.Rhs[0])
+	}
 	if ab != nil {
 		return ab
 	}
@@ -244,59 +373,157 @@ func (in *interp) assign(fr *frame, s *syntax.AssignStmt) *abrupt {
 			return ab
 		}
 	}
-	return in.store(fr, lhs, val)
+	nv, ab := in.storePath(fr, root.own(), root.v, steps, val)
+	if ab != nil {
+		return ab
+	}
+	root.v = nv
+	return nil
 }
 
-// placeForm is "" for a place the evaluator writes, else what it is.
-func (in *interp) placeForm(fr *frame, x syntax.Expr) string {
+// handover is the prelude call of x = x.Append(e), x = x.Put(k, v) or
+// x = x.Delete(k) whose receiver is the local x itself, and x's slot: the
+// assignment replaces x, so the call may take x's own store.
+func (in *interp) handover(fr *frame, root *slot, steps []step, s *syntax.AssignStmt) (*syntax.CallExpr, *slot) {
+	if s.Tok != syntax.ASSIGN || len(steps) != 0 {
+		return nil, nil
+	}
+	call, ok := unparen(s.Rhs[0]).(*syntax.CallExpr)
+	if !ok {
+		return nil, nil
+	}
+	c := fr.info.Calls[call]
+	if c == nil || c.Kind != check.CallFunc || !preludeCollection(c.Func) || c.Recv == nil || c.Func.Name == "Get" {
+		return nil, nil
+	}
+	id, ok := unparen(c.Recv).(*syntax.Ident)
+	if !ok {
+		return nil, nil
+	}
+	v, ok := fr.info.Uses[id].(*check.Var)
+	if !ok || fr.vars[v] != root {
+		return nil, nil
+	}
+	if _, conv := fr.info.Implicit[c.Recv]; conv {
+		return nil, nil
+	}
+	return call, root
+}
+
+// place resolves an assigned place: its root local's slot and the path
+// from it, each index evaluated. why is what the place is when the
+// evaluator does not write it.
+func (in *interp) place(fr *frame, x syntax.Expr) (*slot, []step, string, *abrupt) {
 	switch x := unparen(x).(type) {
 	case *syntax.Ident:
 		v, ok := fr.info.Uses[x].(*check.Var)
 		if !ok {
 			ice("an assignment to %s, which is no variable", x.Name)
 		}
-		if _, local := fr.vars[v]; !local {
-			return "a package let"
+		s, local := fr.vars[v]
+		if !local {
+			return nil, nil, "a package let", nil
 		}
-		return ""
+		return s, nil, "", nil
 	case *syntax.SelectorExpr:
 		if _, ok := fr.typeOf(x.X).(*check.Pointer); ok {
-			return "a field through a pointer"
+			return nil, nil, "a field through a pointer", nil
 		}
-		return in.placeForm(fr, x.X)
+		root, steps, why, ab := in.place(fr, x.X)
+		if ab != nil || why != "" {
+			return nil, nil, why, ab
+		}
+		return root, append(steps, step{at: x, field: x.Sel.Name}), "", nil
 	case *syntax.IndexExpr:
-		return "an element"
+		if _, ok := fr.typeOf(x.X).(*check.Pointer); ok {
+			return nil, nil, "an element through a pointer", nil
+		}
+		root, steps, why, ab := in.place(fr, x.X)
+		if ab != nil || why != "" {
+			return nil, nil, why, ab
+		}
+		iv, ab := in.expr(fr, x.Indices[0])
+		if ab != nil {
+			return nil, nil, "", ab
+		}
+		if !basicValue(iv) {
+			return nil, nil, "an entry of a Map whose key holds parts", nil
+		}
+		return root, append(steps, step{at: x, index: iv}), "", nil
 	case *syntax.StarExpr:
-		return "a pointer's target"
+		return nil, nil, "a pointer's target", nil
 	}
-	return "this place"
+	return nil, nil, "this place", nil
 }
 
-// store writes v into the place x: a new record at each field of the path.
-func (in *interp) store(fr *frame, x syntax.Expr, v Value) *abrupt {
-	switch x := unparen(x).(type) {
-	case *syntax.Ident:
-		fr.vars[fr.info.Uses[x].(*check.Var)] = v
-		return nil
-	case *syntax.SelectorExpr:
-		base, ab := in.expr(fr, x.X)
-		if ab != nil {
-			return ab
+// read is the value at the path from v, for an op-assignment.
+func (in *interp) read(fr *frame, v Value, steps []step) (Value, *abrupt) {
+	for _, st := range steps {
+		if ab := in.charge(fr, st.at, 1); ab != nil {
+			return nil, ab
 		}
-		r, ok := base.(*record)
-		if !ok {
-			ice("a field store into %T", base)
+		switch c := v.(type) {
+		case *record:
+			v = c.fields[fieldIndex(c.t, st.field)]
+		case sliceV:
+			i, ok := in.index(fr, st.at, st.index, c.n)
+			if !ok {
+				return nil, fr.defect(st.at, "index out of range [%s] with length %d", describe(st.index), c.n)
+			}
+			v = c.b.data[c.off+i]
+		case mapV:
+			ice("an op-assignment reads a Map entry")
+		default:
+			ice("a path through %T", v)
 		}
-		i := fieldIndex(r.t, x.Sel.Name)
-		if ab := in.charge(fr, x, int64(len(r.fields))); ab != nil {
-			return ab
-		}
-		next := &record{t: r.t, fields: append([]Value(nil), r.fields...)}
-		next.fields[i] = v
-		return in.store(fr, x.X, next)
 	}
-	ice("a store into %T", x)
-	return nil
+	return v, nil
+}
+
+// storePath is cur with val written at the path: a new record at each
+// field, and each slice, array or Map on the path owned by tok, copied
+// once when another value may share it.
+func (in *interp) storePath(fr *frame, tok *token, cur Value, steps []step, val Value) (Value, *abrupt) {
+	if len(steps) == 0 {
+		return val, nil
+	}
+	st := steps[0]
+	switch c := cur.(type) {
+	case *record:
+		i := fieldIndex(c.t, st.field)
+		if ab := in.charge(fr, st.at, int64(len(c.fields))); ab != nil {
+			return nil, ab
+		}
+		inner, ab := in.storePath(fr, tok, c.fields[i], steps[1:], val)
+		if ab != nil {
+			return nil, ab
+		}
+		next := &record{t: c.t, key: c.key, fields: append([]Value(nil), c.fields...)}
+		next.fields[i] = inner
+		return next, nil
+	case sliceV:
+		i, ok := in.index(fr, st.at, st.index, c.n)
+		if !ok {
+			return nil, fr.defect(st.at, "index out of range [%s] with length %d", describe(st.index), c.n)
+		}
+		c, ab := in.ownSlice(fr, st.at, c, tok)
+		if ab != nil {
+			return nil, ab
+		}
+		inner, ab := in.storePath(fr, tok, c.b.data[c.off+i], steps[1:], val)
+		if ab != nil {
+			return nil, ab
+		}
+		c.b.data[c.off+i] = inner
+		return c, nil
+	case mapV:
+		if len(steps) != 1 {
+			ice("a write through a Map entry")
+		}
+		return in.putIn(fr, st.at, c, st.index, val, tok)
+	}
+	ice("a store into %T", cur)
+	return nil, nil
 }
 
 // fieldIndex is the index of the field name of the record type t.
@@ -339,14 +566,18 @@ func (in *interp) valueMatch(fr *frame, s *syntax.SwitchStmt, ret bool) (Value, 
 			case check.PatWildcard:
 				def = cl
 			case check.PatConst:
-				c, ok := fromConstant(p.Type, p.Value)
+				c, ok := fromConstant(fr.rt(p.Type).t, p.Value)
 				if !ok {
 					return nil, fr.unsupported(item, "a case constant of %s yet", p.Type)
 				}
 				if ab := in.charge(fr, item, 1); ab != nil {
 					return nil, ab
 				}
-				if in.equal(tag, c) {
+				eq, ab := in.equal(fr, item, tag, c)
+				if ab != nil {
+					return nil, ab
+				}
+				if eq {
 					return in.yield(fr, cl.Body, ret)
 				}
 			default:
@@ -392,7 +623,11 @@ func (in *interp) typeMatch(fr *frame, s *syntax.TypeSwitchStmt, ret bool) (Valu
 			if ab := in.charge(fr, item, 1); ab != nil {
 				return nil, ab
 			}
-			if in.match(fr, p, subject) {
+			ok, ab := in.match(fr, item, p, subject)
+			if ab != nil {
+				return nil, ab
+			}
+			if ok {
 				return in.yield(fr, cl.Body, ret)
 			}
 		}
@@ -403,83 +638,96 @@ func (in *interp) typeMatch(fr *frame, s *syntax.TypeSwitchStmt, ret bool) (Valu
 	return in.yield(fr, def.Body, ret)
 }
 
-// match tests v against the checked pattern p and binds its names.
-func (in *interp) match(fr *frame, p *check.Pattern, v Value) bool {
+// match tests v against the checked pattern p, read in the frame's
+// substitution, and binds its names.
+func (in *interp) match(fr *frame, at syntax.Node, p *check.Pattern, v Value) (bool, *abrupt) {
 	switch p.Kind {
 	case check.PatWildcard:
-		return true
+		return true, nil
 	case check.PatBind:
-		if p.Var != nil {
-			fr.vars[p.Var] = v
-		}
-		return true
+		fr.bind(p.Var, v)
+		return true, nil
 	case check.PatTypeTest:
-		return hasType(v, p.Type)
+		return hasType(v, fr.rt(p.Type)), nil
 	case check.PatRecord:
-		if !hasType(v, p.Type) {
-			return false
+		if !hasType(v, fr.rt(p.Type)) {
+			return false, nil
 		}
 		r := v.(*record)
 		for _, f := range p.Fields {
-			if !in.match(fr, f.Pattern, r.fields[fieldIndex(r.t, f.Name)]) {
-				return false
+			ok, ab := in.match(fr, at, f.Pattern, r.fields[fieldIndex(r.t, f.Name)])
+			if !ok || ab != nil {
+				return false, ab
 			}
 		}
-		return true
+		return true, nil
 	case check.PatConst:
-		c, ok := fromConstant(p.Type, p.Value)
+		c, ok := fromConstant(fr.rt(p.Type).t, p.Value)
 		if !ok {
 			ice("a constant pattern of %s", p.Type)
 		}
-		return in.equal(v, c)
+		return in.equal(fr, at, v, c)
 	case check.PatTuple:
 		t, ok := v.(tuple)
 		if !ok || len(t.elems) != len(p.Elems) {
 			ice("a tuple pattern over %T", v)
 		}
 		for i, e := range p.Elems {
-			if !in.match(fr, e, t.elems[i]) {
-				return false
+			ok, ab := in.match(fr, at, e, t.elems[i])
+			if !ok || ab != nil {
+				return false, ab
 			}
 		}
-		return true
+		return true, nil
 	case check.PatAs:
-		if len(p.Elems) != 1 || !in.match(fr, p.Elems[0], v) {
-			return false
+		if len(p.Elems) != 1 {
+			return false, nil
 		}
-		if p.Var != nil {
-			fr.vars[p.Var] = v
+		ok, ab := in.match(fr, at, p.Elems[0], v)
+		if !ok || ab != nil {
+			return false, ab
 		}
-		return true
+		fr.bind(p.Var, v)
+		return true, nil
 	}
 	ice("a pattern of kind %d", p.Kind)
-	return false
+	return false, nil
 }
 
 // hasType reports whether v's dynamic type is t: a record of t, or of a
 // variant of the union t. A value that is no record has its static type.
-func hasType(v Value, t check.Type) bool {
+func hasType(v Value, t rtype) bool {
 	r, ok := v.(*record)
 	if !ok {
 		return true
 	}
-	switch tt := t.(type) {
+	t = t.env.resolve(t.t)
+	switch tt := t.t.(type) {
 	case *check.Union:
 		for _, variant := range tt.Variants {
-			if hasType(v, variant) {
+			if hasType(v, rtype{variant, t.env}) {
 				return true
 			}
 		}
 		return false
 	case *check.Named:
 		if u, isUnion := tt.Underlying().(*check.Union); isUnion {
-			return hasType(v, u)
+			return hasType(v, rtype{u, t.env})
 		}
-		return sameNamed(r.t, tt)
+		return r.t.Obj == tt.Obj && r.key == argsKey(tt, t.env)
 	}
 	return false
 }
 
-func (in *interp) equal(a, b Value) bool {
-	return equal(a, b, func(n int64) { in.steps += n })
+// equal is a == b, its work charged before it is done.
+func (in *interp) equal(fr *frame, at syntax.Node, a, b Value) (bool, *abrupt) {
+	var ab *abrupt
+	eq, paid := equal(a, b, func(n int64) bool {
+		ab = in.charge(fr, at, n)
+		return ab == nil
+	})
+	if !paid {
+		return false, ab
+	}
+	return eq, nil
 }

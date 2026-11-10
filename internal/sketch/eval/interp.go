@@ -13,24 +13,45 @@ type interp struct {
 	steps  int64
 	depth  int
 	files  map[syntax.Decl]*syntax.File
+	// globals are the package-level lets, bound once by the packages'
+	// initializers before any obligation runs (init.go). Nothing writes
+	// them after.
+	globals map[*check.Var]*slot
 }
 
-// frame is one running body: a test, a law or a function call. Locals are
-// keyed by the checker's *Var, which is unique per binding, so a frame
-// needs no scope chain.
+// frame is one running body: a test, a law, a function call or a call of
+// a function literal. Locals are keyed by the checker's *Var, which is
+// unique per binding, so a frame needs no scope chain; a literal called
+// where it is written shares its enclosing frame's slots, which it reads
+// and writes in place (types.md, Function values 2).
 type frame struct {
 	pkg  *check.Package
 	info *check.Info
 	decl syntax.Decl // the declaration whose body runs, for sites
-	vars map[*check.Var]Value
+	vars map[*check.Var]*slot
+	// env is a generic call's substitution, nil outside one.
+	env *tenv
 	// owner is the fact owner of the body (test, law or production): an
 	// error type only a test's row names is a failure in a test body.
 	owner check.FactOwner
 }
 
 func (in *interp) newFrame(pkg *check.Package, decl syntax.Decl) *frame {
-	return &frame{pkg: pkg, info: pkg.Info, decl: decl, vars: map[*check.Var]Value{}, owner: pkg.OwnerOf(decl)}
+	return &frame{pkg: pkg, info: pkg.Info, decl: decl, vars: map[*check.Var]*slot{}, owner: pkg.OwnerOf(decl)}
 }
+
+// bind binds v to a new slot holding val.
+func (fr *frame) bind(v *check.Var, val Value) {
+	if v != nil {
+		fr.vars[v] = &slot{v: val}
+	}
+}
+
+// rt is t read in the frame's substitution.
+func (fr *frame) rt(t check.Type) rtype { return fr.env.resolve(t) }
+
+// rtypeOf is x's checked type in the frame's substitution.
+func (fr *frame) rtypeOf(x syntax.Expr) rtype { return fr.rt(fr.typeOf(x)) }
 
 // ctlKind is how evaluation left the normal flow.
 type ctlKind int
@@ -111,24 +132,27 @@ func unparen(x syntax.Expr) syntax.Expr {
 // call runs fn's body with args as a new frame (a CallFunc of a declared
 // function with a body). It returns the result, or a ctlFail with the
 // callee's failure.
-func (in *interp) call(fr *frame, at *syntax.CallExpr, fn *check.Func, args []Value) (Value, *abrupt) {
+func (in *interp) call(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []check.Type, args []Value) (Value, *abrupt) {
 	switch {
 	case fn.Decl == nil || fn.Decl.Body == nil || fn.Decl.Extern != nil || fn.Pkg.Host():
 		return nil, fr.unsupported(at, "a Go function (%s), even a pure one", fn.Name)
-	case len(fn.Sig.TParams) > 0:
-		return nil, fr.unsupported(at, "a generic function (%s) yet", fn.Name)
 	case fn.Pkg.Info == nil:
 		ice("the package of %s has no Info", fn.Name)
 	}
-	if fn.Pkg != fr.pkg && len(fn.Pkg.Info.InitOrder) > 0 {
-		return nil, fr.unsupported(at, "a package with initializers (%s) yet", fn.Pkg.Path)
-	}
-	if in.depth >= in.budget.Depth {
-		return nil, fr.abrupt(ctlExhausted, at, nil, fmt.Sprintf("the call depth reached its bound of %d", in.budget.Depth))
-	}
-	in.depth++
-	defer func() { in.depth-- }()
 	callee := in.newFrame(fn.Pkg, fn.Decl)
+	if len(fn.Sig.TParams) > 0 {
+		if len(targs) != len(fn.Sig.TParams) {
+			ice("the generic call of %s has %d type arguments for %d parameters", fn.Name, len(targs), len(fn.Sig.TParams))
+		}
+		if inst := fr.info.Instances[at]; inst != nil && len(inst.Witnesses) > 0 {
+			return nil, fr.unsupported(at, "a generic call whose type parameter an operation type constrains (%s) yet", fn.Name)
+		}
+		// Each type argument is read in the caller's substitution.
+		callee.env = &tenv{m: map[*check.TypeParam]rtype{}}
+		for i, tp := range fn.Sig.TParams {
+			callee.env.m[tp] = fr.rt(targs[i])
+		}
+	}
 	var params []*check.Var
 	for _, field := range fn.Decl.Type.Params.List {
 		if len(field.Names) == 0 {
@@ -143,11 +167,20 @@ func (in *interp) call(fr *frame, at *syntax.CallExpr, fn *check.Func, args []Va
 		ice("%s takes %d parameters and was called with %d", fn.Name, len(params), len(args))
 	}
 	for i, p := range params {
-		if p != nil {
-			callee.vars[p] = args[i]
-		}
+		callee.bind(p, args[i])
 	}
-	val, ab := in.bodyValue(callee, fn.Decl.Body.List)
+	return in.runFrame(fr, at, callee, fn.Name, fn.Decl.Body.List)
+}
+
+// runFrame runs the body of a called frame one call deeper, and turns its
+// completion into the call's: a return's value, or the callee's failure.
+func (in *interp) runFrame(fr *frame, at *syntax.CallExpr, callee *frame, name string, body []syntax.Stmt) (Value, *abrupt) {
+	if in.depth >= in.budget.Depth {
+		return nil, fr.abrupt(ctlExhausted, at, nil, fmt.Sprintf("the call depth reached its bound of %d", in.budget.Depth))
+	}
+	in.depth++
+	defer func() { in.depth-- }()
+	val, ab := in.bodyValue(callee, body)
 	if ab == nil {
 		if val == nil {
 			val = unit{}
@@ -167,7 +200,7 @@ func (in *interp) call(fr *frame, at *syntax.CallExpr, fn *check.Func, args []Va
 		out.kind = ctlFail
 		return nil, &out
 	case ctlBreak, ctlContinue:
-		ice("a %d left the function %s", ab.kind, fn.Name)
+		ice("a %d left the function %s", ab.kind, name)
 	}
 	return nil, ab
 }
@@ -249,7 +282,7 @@ func (in *interp) retValue(fr *frame, x syntax.Expr) (Value, *abrupt) {
 		}
 		return nil, ab
 	}
-	if fr.isErrorValue(fr.typeOf(x)) && !fr.info.ReturnedValues[x] {
+	if fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x] {
 		if _, isRecord := v.(*record); isRecord {
 			return nil, fr.abrupt(ctlEscape, x, v, "")
 		}

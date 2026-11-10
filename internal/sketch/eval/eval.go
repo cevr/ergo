@@ -141,7 +141,18 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 		}
 	}()
 	stopped := "" // why the rest of the run does not run
+	initFail := in.initialize(pkg)
 	add := func(res Result) {
+		if initFail != nil && stopped == "" {
+			// No obligation runs without its package's initialized
+			// world: a skipped initializer skips every one; a defect or
+			// an exhausted budget is the first one's, and stops the run.
+			res.Status, res.Reason = initFail.status, initFail.reason
+			if initFail.status != Skipped {
+				res.Site = initFail.site
+				res.Steps = in.steps
+			}
+		}
 		if stopped != "" {
 			res = Result{Name: res.Name, Status: NotRun, Reason: stopped, Site: res.Site}
 		}
@@ -154,7 +165,7 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 		}
 	}
 	for _, t := range pkg.Tests {
-		if stopped != "" {
+		if stopped != "" || initFail != nil {
 			add(Result{Name: t.Name, Site: in.site(pkg, t.Decl, t.Decl.Pos())})
 			continue
 		}
@@ -162,7 +173,7 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 	}
 	for _, run := range pkg.LawRuns {
 		res := Result{Name: lawName(run.Law), Site: in.site(run.Law.Pkg, run.Law.Decl, run.Law.Decl.Pos())}
-		if stopped != "" {
+		if stopped != "" || initFail != nil {
 			add(res)
 			continue
 		}
