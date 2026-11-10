@@ -35,6 +35,7 @@ var taskReleaseLaws = map[string]string{
 	// A Running's release (std exec, CU4) ends its program and waits,
 	// masked, for its end and its group's (Release, resources R9).
 	"Running.Close": "runtime/v1 TestRunningMatchesModel, TestExecStreams",
+	"Running.Stop":  "runtime/v1 TestRunningMatchesModel; lower TestExecStartRuns (post-stop status)",
 }
 
 func TestRuntime199MaskProperty(t *testing.T) {

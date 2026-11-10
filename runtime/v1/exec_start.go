@@ -201,6 +201,14 @@ func (r *Running) Close(ct *rt.Task) {
 	})
 }
 
+// Stop is the consuming, status-returning form of Close. It completes the
+// same masked shutdown even when ct is already stopped; it must not call
+// Wait, whose interruption point would lose the status after cleanup.
+func (r *Running) Stop(ct *rt.Task) int {
+	r.Close(ct)
+	return r.status
+}
+
 // timer is r.after(d), or a channel that never fires when r has no clock
 // (the Script's replay, whose program has ended and whose lines are read).
 func (r *Running) timer(d time.Duration) <-chan time.Time {

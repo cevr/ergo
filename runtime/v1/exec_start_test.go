@@ -20,7 +20,7 @@ import (
 )
 
 // fakeProc is a program for the lifecycle model: the test writes its lines
-// and ends it; a signal ends it as the case says (SIGTERM exits 143 unless
+// and ends it; a signal ends it as the case says (SIGTERM exits termStatus unless
 // the program ignores it; SIGKILL exits 137). It logs every signal and
 // reap, and whether a signal came after the reap.
 type fakeProc struct {
@@ -29,6 +29,7 @@ type fakeProc struct {
 	ended      bool
 	status     int
 	ignoreTerm bool
+	termStatus int
 	log        []string
 	reaps      int
 	outW, errW *io.PipeWriter
@@ -46,7 +47,7 @@ func (p *fakeProc) signal(sig syscall.Signal) {
 		p.log = append(p.log, "TERM")
 		p.mu.Unlock()
 		if !p.ignoreTerm {
-			p.end(128 + 15)
+			p.end(p.termStatus)
 		}
 		return
 	case syscall.SIGKILL:
@@ -91,13 +92,14 @@ type lifeCase struct {
 	outCaller, errCaller bool
 	grace                bool
 	ignoreTerm           bool
+	termStatus           int      // a TERM trap may choose any exit status
 	steps                []string // "out TEXT", "err TEXT", "read K", "exit N"
 	ending               string   // "wait", "close", "stopped wait"
 	stoppedRead          bool     // a stopped caller calls Lines before the end
 }
 
 func genLifeCase(r *rand.Rand) lifeCase {
-	c := lifeCase{outCaller: r.IntN(3) > 0, errCaller: r.IntN(3) > 0, grace: r.IntN(2) == 0, ignoreTerm: r.IntN(2) == 0}
+	c := lifeCase{outCaller: r.IntN(3) > 0, errCaller: r.IntN(3) > 0, grace: r.IntN(2) == 0, ignoreTerm: r.IntN(2) == 0, termStatus: r.IntN(256)}
 	unread, written := 0, 0
 	for range r.IntN(12) {
 		switch r.IntN(4) {
@@ -124,7 +126,7 @@ func genLifeCase(r *rand.Rand) lifeCase {
 	if r.IntN(2) == 0 {
 		c.steps = append(c.steps, "exit "+strconv.Itoa(r.IntN(4)))
 	}
-	c.ending = []string{"wait", "close", "stopped wait"}[r.IntN(3)]
+	c.ending = []string{"wait", "close", "stopped wait", "stop", "stopped stop"}[r.IntN(5)]
 	c.stoppedRead = r.IntN(3) == 0
 	if c.ending == "wait" && !slices.ContainsFunc(c.steps, func(s string) bool { return strings.HasPrefix(s, "exit ") }) {
 		c.ending = "close" // a Wait on a program that never ends would not return
@@ -166,7 +168,7 @@ func modelLife(c lifeCase) lifeModel {
 		switch {
 		case c.grace && !c.ignoreTerm:
 			m.signals = []string{"TERM"}
-			m.status = 143
+			m.status = c.termStatus
 		case c.grace:
 			m.signals = []string{"TERM", "KILL"}
 			m.status = 137
@@ -183,7 +185,7 @@ func modelLife(c lifeCase) lifeModel {
 // runLife drives a Running over a fake program by the case's steps.
 func runLife(t *testing.T, c lifeCase) (signals []string, status int, out, errs []string, reaps int, after []ExecLine) {
 	t.Helper()
-	p := &fakeProc{done: make(chan struct{}), ignoreTerm: c.ignoreTerm}
+	p := &fakeProc{done: make(chan struct{}), ignoreTerm: c.ignoreTerm, termStatus: c.termStatus}
 	var outR, errR io.ReadCloser
 	if c.outCaller {
 		outR, p.outW = io.Pipe()
@@ -248,6 +250,34 @@ func runLife(t *testing.T, c lifeCase) (signals []string, status int, out, errs 
 		}()
 	}
 	switch c.ending {
+	case "stop", "stopped stop":
+		if c.ending == "stopped stop" {
+			task.Interrupt() // Stop owns cleanup even if its caller is stopped.
+		}
+		stopped := make(chan struct{})
+		go func() { status = r.Stop(task); close(stopped) }()
+		if c.grace && c.ignoreTerm {
+			select {
+			case graceUp <- time.Time{}:
+			case <-stopped:
+			}
+		}
+		select {
+		case <-stopped:
+		case <-testwait.After(t):
+			t.Fatalf("Stop did not return: %+v", c)
+		}
+		p.mu.Lock()
+		reaped := p.reaps
+		p.mu.Unlock()
+		if reaped != 1 {
+			// Clean the fake's readers before failing a skipped-cleanup
+			// mutant; do not wait for the harness deadline to kill it.
+			p.end(0)
+			r.Close(rt.Root("failed Stop cleanup"))
+			t.Fatalf("Stop returned before its reap: %+v (reaps %d)", c, reaped)
+		}
+		task = rt.Root("after stop")
 	case "wait":
 		status = r.Wait(task)
 		r.Close(task)
@@ -291,8 +321,10 @@ func runLife(t *testing.T, c lifeCase) (signals []string, status int, out, errs 
 // program against the lifecycle model (exec_start.go): the signals a
 // release sends (SIGTERM, the grace, SIGKILL; SIGKILL at once with no
 // grace; none to a program that ended, but the kill of what is left of its
-// group), the status Wait gives, one reap after the end and no signal after
-// it, the caller's lines in each stream's order, and no line after Wait.
+// group), the status Wait or Stop gives, one reap before Stop returns and
+// no signal after it, the caller's lines in each stream's order, and no line
+// after Wait or Stop. Stop covers before output, mid-stream and after exit;
+// a pending caller stop cannot interrupt it. TERM traps choose their status.
 func TestRunningMatchesModel(t *testing.T) {
 	r := rand.New(rand.NewPCG(23, 5))
 	seen := map[string]int{}
@@ -300,8 +332,20 @@ func TestRunningMatchesModel(t *testing.T) {
 		c := genLifeCase(r)
 		want := modelLife(c)
 		signals, status, out, errs, reaps, after := runLife(t, c)
-		where := fmt.Sprintf("case %d %+v", i, c)
+		where := fmt.Sprintf("seed 23,5 case %d %+v (replay: go test -run '^TestRunningMatchesModel$' ./runtime/v1)", i, c)
 		seen[c.ending+fmt.Sprint(" grace=", c.grace, " ignore=", c.ignoreTerm, " exit=", want.signals[0] == "KILL" && len(want.signals) == 1)]++
+		if strings.Contains(c.ending, "stop") {
+			phase := "before output"
+			for _, s := range c.steps {
+				if strings.HasPrefix(s, "out ") || strings.HasPrefix(s, "err ") {
+					phase = "mid-stream"
+				}
+				if strings.HasPrefix(s, "exit ") {
+					phase = "after exit"
+				}
+			}
+			seen[c.ending+" "+phase]++
+		}
 		if !slices.Equal(signals, want.signals) {
 			t.Errorf("%s\nsignals %q, want %q", where, signals, want.signals)
 		}
@@ -334,6 +378,13 @@ func TestRunningMatchesModel(t *testing.T) {
 	for _, k := range []string{"close grace=true ignore=true exit=false", "close grace=true ignore=false exit=false", "close grace=false ignore=false exit=false", "wait grace=false ignore=false exit=true"} {
 		if seen[k] == 0 {
 			t.Errorf("no case %q: %v", k, seen)
+		}
+	}
+	for _, ending := range []string{"stop", "stopped stop"} {
+		for _, phase := range []string{"before output", "mid-stream", "after exit"} {
+			if seen[ending+" "+phase] == 0 {
+				t.Errorf("seed 23,5 missed %s %s", ending, phase)
+			}
 		}
 	}
 }

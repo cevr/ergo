@@ -501,6 +501,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Running.Lines": {wait: callerWait},
 	"Running.Wait":  {wait: callerWait},
 	"Running.Close": {release: callerRelease},
+	"Running.Stop":  {release: callerRelease},
 }
 
 // runtimeCall binds a std body's hidden arguments at the point it runs.

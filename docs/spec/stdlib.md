@@ -1337,7 +1337,7 @@ func main() needs Console | Ambient {
 | `type Script { Results Map[string, Result] }`; `func Run(s Script, c Command) …`; `func Start(s Script, c Command, st Streams) …` | The test provider: it runs nothing. |
 | `Runner.Start(c Command, s Streams) Running fails NotFound \| Denied \| Failed`, `law StartAgreesWithRun(name string)` | Start a program that runs while its output is read (CU4). |
 | `type Sink = Inherit \| Discard \| ToFile{Path string, Append bool} \| ToCaller`; `type Streams { Stdout Sink, Stderr Sink }` | Where each stream of a started program goes. |
-| `type Running { Lines() Seq[Line], Wait() int, Close() }`; `type Line { Text string, Stderr bool }`; `func Split(text string) []string` | A started program, a resource; its lines; the line rule. |
+| `type Running { Lines() Seq[Line], Wait() int, Stop() int takes, Close() }`; `type Line { Text string, Stderr bool }`; `func Split(text string) []string` | A started program, a resource; its lines; the line rule. |
 | `Command.Grace duration`; `WithGrace(c, d)` | The time between SIGTERM and SIGKILL when a stop, a timeout or a release ends the program; 0 (New's) sends SIGKILL at once. |
 | `type NotFound { Name string }`; `type Denied { Name string }`; `type Failed { Name string, Reason string }` | The failures. |
 
@@ -1362,6 +1362,18 @@ func main() needs Console | Ambient {
 12. `Script.Start` replays the `Result` recorded for `c`: `Split(Stdout)`'s lines, then `Split(Stderr)`'s, each when its sink is `ToCaller`, and `Status` from `Wait`; it writes no file and nothing to this process's streams. `Running` is sealed (the `Start` externs return it), so a program's own `Runner` gives a `Script`'s. The law `StartAgreesWithRun` states that a started program read to its end gives `Run`'s lines and status; `TestExecLaws` runs it against a `Script`. `runtime/v1` `TestRunningMatchesModel` holds the lifecycle against a model over a fake process (the signals, the status, one reap and no signal after it, each stream's order, no line after `Wait`, a stopped caller's `Lines` and `Wait`); `TestExecStreams` is the acceptance check on the host (a helper writes on command; after each command the file or the caller's lines hold exactly what was written; the release ends the group, by SIGTERM or after the grace); lower `TestExecStartRuns` runs the surface in a built program. The Go type is `*v1.Running`; `Line` is `v1.ExecLine`. *Prior art:* Effect's `ChildProcess` gives stdout as a `Stream` and `"inherit"`, and its scope kills the process; Elixir's `Port` sends lines as messages and `System.cmd(into:)` collects into a `Collectable`; Gleam's `shellout` has no streamed form; Go's `os/exec` gives `StdoutPipe` and an `*os.File` as `Stdout`, which `ToFile` uses so the bytes never pass through Ergo. Ergo takes the scope's kill and the inherited stream, not Effect's `Stream` type (a `Seq` a `for` reads is the language's own iterator) and not a collect-into protocol.
 
 *Prior art:* Go's `exec.CommandContext` kills only the process it started, by `cmd.Cancel`, and `WaitDelay` bounds the wait for output a grandchild holds; Ergo kills the whole group, as a shell's job control does. Effect's `ChildProcess` spawns in a scope that kills the process when the scope closes, and gives `exitCode` as a value, not a failure. Elixir's `System.cmd/3` returns `{output, status}` with a status that is not 0 as data, and takes `env:` and `cd:` options; Gleam's `shellout.command(run:, with:, in:, opt:)` returns `Result(String, #(Int, String))`, which makes a status that is not 0 an error; ReScript binds Node's `child_process.spawnSync`, whose result holds `status`, `signal`, `stdout` and `stderr`. Ergo returns the status as data, as Elixir and Effect do, and keeps the failures for a program that did not start.
+
+**Stop and status (CU4b).** `Running.Stop() int takes` runs the same masked grace, group shutdown and reap as `Close`, then returns the child's actual status using `Wait`'s status rule. It consumes the handle; a later use is S108. `Close` stays the scope-release form. To record a timeout's final status, start the program outside the timeout, lend it to `Wait` inside, and call `Stop` in the catch:
+
+```go
+let r = try exec.Runner.Start(c.WithGrace(15s), streams)
+let status = timeout.After(1h) { r.Wait() } catch {
+case timeout.Expired:
+	r.Stop()
+}
+```
+
+`TestRunningMatchesModel` also drives Stop before output, mid-stream and after exit, with arbitrary TERM-trap statuses and a stopped caller. `TestExecStartRuns` checks the timeout/catch shape with a real TERM trap that exits 37. The direct Go control is `Close`'s shutdown followed by the stored exit status; Stop adds no process or extra wait. No speed claim is made. Effect's scoped child process solves the same cleanup need; Ergo's consuming operation combines termination and status observation so a caller need not keep an unowned exit-code handle or signal a raw pid.
 
 ## Testing
 

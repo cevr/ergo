@@ -161,6 +161,12 @@ type Running {
 	// read yet. A stop of the caller ends the wait; the program then runs
 	// until the owner's scope ends it.
 	Wait() int,
+	// Stop takes ownership, ends the group by the command's Grace rule,
+	// reaps it and returns its actual status, as Wait does. Cleanup is
+	// masked even when the caller has been stopped. Start outside a
+	// timeout, Wait inside it, and Stop in its Expired catch to observe
+	// the status after termination. Close is the scope-release form.
+	Stop() int takes,
 	Close(),
 }
 

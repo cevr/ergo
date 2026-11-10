@@ -229,6 +229,33 @@ func main() needs Console | Ambient {
 	}
 }
 `), stdout: "out a\nout b\nout c\nstatus 3\nerr x\nstatus 0\nnot found ergo-exec-missing-7f3a\nwrote 0\nwrote 0\nout one\nout two\nout three\nstatus 0\nfollowed one\nfollowed two\nfollowed three\nleft the follower\nready\nended\nfailed stdout /nonexistent/loop-probe-x/out: no such file or directory\nout a\nout b\nerr e\nstatus 1\nnot found git\n", stderr: []string{"term\n"}},
+		// CU4b regression: Start owns the process outside the timeout;
+		// Wait borrows it inside, and the catch consumes it with Stop.
+		// The trap's 37 is not a guessed signal status (137 or 143).
+		{name: "postStopStatus", src: strings.NewReplacer("STOPFIFO", filepath.Join(dir, "stop.fifo")).Replace(`import exec
+import timeout
+
+func stoppedStatus() int fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner | Scheduler {
+	let p = try exec.Runner.Start(exec.New("/bin/sh", []string{"-c", "mkfifo 'STOPFIFO'; exec 3<> 'STOPFIFO'; trap 'exit 37' TERM; echo ready; read x <&3"}).WithGrace(15s), exec.Streams{Stdout: exec.ToCaller, Stderr: exec.Discard})
+	for line in p.Lines() {
+		if line.Text == "ready" { break }
+	}
+	let code = timeout.After(0ns) { p.Wait() } catch {
+	case timeout.Expired:
+		p.Stop()
+	}
+	code
+}
+
+func main() needs Ambient | Console {
+	let world = context { exec.Runner: exec.NewHost(), Scheduler: NewLiveScheduler() }
+	let code = with world { stoppedStatus() } catch {
+	case _:
+		-1
+	}
+	Console.Println("status \(code)")
+}
+`), stdout: "status 37\n"},
 	})
 }
 
