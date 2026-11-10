@@ -1,0 +1,43 @@
+// Package disk keeps a shelf in one file, in shelf's text form: the store
+// over std fs. A test gives it an fstest.Memory.
+
+import bookmarks/shelf
+import fs
+
+// Broken is a shelf file that cannot be read or written.
+type Broken { Path string, Reason string }
+
+// Read is the shelf in the file at path; no file is an empty shelf.
+func Read(path string) []shelf.Bookmark fails Broken needs fs.Files {
+	let text = fs.Files.ReadFile(path) catch {
+	case fs.NotFound:
+		return []shelf.Bookmark{}
+	case fs.Denied:
+		return Broken{Path: path, Reason: "permission denied"}
+	case fs.Failed as f:
+		return Broken{Path: path, Reason: f.Reason}
+	}
+	shelf.Parse(text) catch {
+	case shelf.BadLine as b:
+		return Broken{Path: path, Reason: "line \(b.No): \(b.Reason)"}
+	}
+}
+
+// Write makes the file at path hold marks, in the directory dir, which
+// it makes when it is not there.
+func Write(dir string, path string, marks []shelf.Bookmark) fails Broken needs fs.Writes {
+	fs.Writes.MkdirAll(dir) catch {
+	case fs.Denied:
+		return Broken{Path: dir, Reason: "permission denied"}
+	case fs.Failed as f:
+		return Broken{Path: dir, Reason: f.Reason}
+	}
+	fs.Writes.WriteFile(path, shelf.Format(marks)) catch {
+	case fs.NotFound:
+		return Broken{Path: path, Reason: "no such directory"}
+	case fs.Denied:
+		return Broken{Path: path, Reason: "permission denied"}
+	case fs.Failed as f:
+		return Broken{Path: path, Reason: f.Reason}
+	}
+}

@@ -1,0 +1,187 @@
+// bookmarks keeps web addresses with titles and tags: `bookmarks add URL`,
+// `bookmarks list`, `bookmarks sync` and `bookmarks config`. Package shelf
+// is the domain, settings the configuration and its one secret, disk the
+// store. This binary is the only place that chooses the providers: the
+// host's environment, files, terminal and standard streams.
+
+import bookmarks/disk
+import bookmarks/settings
+import bookmarks/shelf
+import config
+import flag
+import fs
+import hex
+import io
+import os
+import prompt
+import sha256
+import strings
+import term
+
+// Cmd is a command line of bookmarks. The commands that read Settings
+// carry their flags, the top layer of the configuration.
+type Cmd = AddCmd{Mark shelf.Bookmark} | ListCmd{Flags config.Flags} | SyncCmd{Flags config.Flags} | ShowCmd{Flags config.Flags}
+
+let urlArg = flag.Arg("url", "the address to keep")
+let titleFlag = flag.String("title", "", "the bookmark's title")
+let tagFlag = flag.String("tag", "", "a tag; give it again for more").Repeated()
+let limitFlag = flag.OptionalInt("limit", "show at most `n` bookmarks")
+let onlyFlag = flag.OptionalString("tag", "show only the bookmarks with `tag`")
+let remoteFlag = flag.OptionalString("remote", "the server to sync with")
+
+let commands = []flag.Command[Cmd]{
+	flag.Command[Cmd]{
+		Name:     "add",
+		Commands: []flag.Command[Cmd]{},
+		Usage:    "keep a web address",
+		Set:      flag.Set{Name: "bookmarks add", Usage: "", Flags: []flag.Flag{titleFlag, tagFlag}, Args: []flag.ArgSpec{urlArg}},
+		Build:    buildAdd,
+	},
+	flag.Command[Cmd]{
+		Name:     "list",
+		Commands: []flag.Command[Cmd]{},
+		Usage:    "show the bookmarks, newest first",
+		Set:      flag.Set{Name: "bookmarks list", Usage: "", Flags: []flag.Flag{limitFlag, onlyFlag}, Args: []flag.ArgSpec{}},
+		Build:    func(v flag.Values) Cmd { ListCmd{Flags: config.FromFlags(v)} },
+	},
+	flag.Command[Cmd]{
+		Name:     "sync",
+		Commands: []flag.Command[Cmd]{},
+		Usage:    "sign the shelf for the server with the user's token",
+		Set:      flag.Set{Name: "bookmarks sync", Usage: "", Flags: []flag.Flag{remoteFlag}, Args: []flag.ArgSpec{}},
+		Build:    func(v flag.Values) Cmd { SyncCmd{Flags: config.FromFlags(v)} },
+	},
+	flag.Command[Cmd]{
+		Name:     "config",
+		Commands: []flag.Command[Cmd]{},
+		Usage:    "show the configuration in effect",
+		Set:      flag.Set{Name: "bookmarks config", Usage: "", Flags: []flag.Flag{limitFlag, onlyFlag, remoteFlag}, Args: []flag.ArgSpec{}},
+		Build:    func(v flag.Values) Cmd { ShowCmd{Flags: config.FromFlags(v)} },
+	},
+}
+
+func buildAdd(v flag.Values) Cmd {
+	let url = match urlArg.Get(v) {
+	case Some[string] as u:
+		u.Value
+	case None:
+		""
+	}
+	AddCmd{Mark: shelf.Bookmark{URL: url, Title: titleFlag.Get(v), Tags: tagFlag.Get(v)}}
+}
+
+let usage = "usage: bookmarks add [--title t] [--tag t]... url | bookmarks list [--limit n] [--tag t] | bookmarks sync [--remote url] | bookmarks config"
+
+// exit is the failure that ends bookmarks with status code and message.
+func exit(code int, message string) os.Exit { os.Exit{Code: code, Message: "bookmarks: " + message} }
+
+// load is the Settings of a command, or its problem as an exit.
+func load(flags config.Flags) settings.Settings fails os.Exit needs config.Config {
+	settings.Load(flags) catch {
+	case settings.Problem as p:
+		return exit(1, p.Text)
+	}
+}
+
+// shelfFile is the store's directory and file under the user's state
+// directory.
+func shelfFile() (string, string) fails os.Exit needs config.Config {
+	let dirs = config.UserDirs("bookmarks") catch {
+	case config.NoHome:
+		return exit(1, "HOME is not set")
+	}
+	(dirs.State, dirs.State + "/bookmarks.tsv")
+}
+
+func read(path string) []shelf.Bookmark fails os.Exit needs fs.Files {
+	disk.Read(path) catch {
+	case disk.Broken as b:
+		return exit(1, b.Path+": "+b.Reason)
+	}
+}
+
+// token is the user's token: the configured one, else one typed at the
+// terminal, hidden as it is typed. With no terminal and no token, it
+// says where to set one.
+func token() config.Redacted[settings.Credentials] fails os.Exit needs config.Config | term.Terminal | io.Stderr {
+	let configured = settings.Token() catch {
+	case settings.Problem as p:
+		return exit(1, p.Text)
+	}
+	match configured {
+	case Some as c:
+		c.Value
+	case None:
+		let typed = prompt.Secret("Token") catch {
+		case prompt.NotInteractive:
+			return exit(2, "no token: set "+config.EnvName(settings.Prefix, "token")+" or token in config.toml")
+		case prompt.Cancelled:
+			return exit(1, "cancelled")
+		case io.ReadFailed as f:
+			return exit(1, f.Reason)
+		}
+		config.NewRedacted(settings.Credentials{Token: typed})
+	}
+}
+
+// signature is the first twelve hex digits of the SHA-256 of the token
+// and the text: the one place the program reads the token.
+func signature(secret config.Redacted[settings.Credentials], text string) string {
+	strings.Slice(hex.Encode(sha256.Sum(secret.Reveal().Token+"\n"+text)), 0, 12)
+}
+
+// run is bookmarks on args.
+func run(args []string) fails os.Exit needs io.Stdout | io.Stderr | config.Config | fs.Files | fs.Writes | term.Terminal {
+	let c = flag.ParseCommand("bookmarks", "", commands, args) catch {
+	case err:
+		try flag.Exit(err, usage)
+		return
+	}
+	let (dir, path) = try shelfFile()
+	match c {
+	case AddCmd as a:
+		let marks = shelf.Add(try read(path), a.Mark) catch {
+		case shelf.Duplicate as d:
+			return exit(1, d.URL+" is kept already")
+		case shelf.NotAWebAddress as n:
+			return exit(1, strings.TrimSpace(n.URL+" is not a web address"))
+		case shelf.BadTag as t:
+			return exit(1, "a tag is one word with no comma, not \""+t.Tag+"\"")
+		}
+		disk.Write(dir, path, marks) catch {
+		case disk.Broken as b:
+			return exit(1, b.Path+": "+b.Reason)
+		}
+		io.Stdout.Println("kept " + shelf.Line(marks[len(marks)-1]))
+	case ListCmd as l:
+		let s = try load(l.Flags)
+		let tag = if s.Tag == "" { None } else { Some{Value: s.Tag} }
+		for m in shelf.List(try read(path), shelf.Query{Tag: tag, Limit: s.Limit}) {
+			io.Stdout.Println(shelf.Line(m))
+		}
+	case SyncCmd as y:
+		let s = try load(y.Flags)
+		let marks = try read(path)
+		let secret = try token()
+		io.Stdout.Println("sync: \(len(marks)) bookmarks for " + s.Remote + ", signed " + signature(secret, shelf.Format(marks)))
+	case ShowCmd as w:
+		let s = try load(w.Flags)
+		let given = settings.Token() catch {
+		case settings.Problem as p:
+			return exit(1, p.Text)
+		}
+		let has = match given {
+		case Some:
+			"set"
+		case None:
+			"not set"
+		}
+		io.Stdout.Println("limit: \(s.Limit)\ntag: " + s.Tag + "\nremote: " + s.Remote + "\ntoken: " + has)
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), config.Config: config.NewHost(), fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), io.Stdout: io.NewHost(), io.Stderr: io.NewErrors(), term.Terminal: term.NewHost() } {
+		try run(os.Process.Args())
+	}
+}

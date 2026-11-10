@@ -1,0 +1,110 @@
+// Package shelf is the bookmarks domain: a bookmark, the rules for adding
+// one, the query that lists them, and the text the store keeps. It knows
+// nothing of files, flags or configuration.
+
+import strings
+
+// Bookmark is one saved web address with its title and tags.
+type Bookmark { URL string, Title string, Tags []string }
+
+// Duplicate is a bookmark whose address the shelf holds already.
+type Duplicate { URL string }
+
+// NotAWebAddress is an address that is not one http or https URL with no
+// white space in it.
+type NotAWebAddress { URL string }
+
+// BadTag is a tag that is empty or holds a comma or white space.
+type BadTag { Tag string }
+
+// Add is marks with b at the end, its title on one line and its tags in
+// lower case.
+func Add(marks []Bookmark, b Bookmark) []Bookmark fails Duplicate | NotAWebAddress | BadTag {
+	let words = strings.Fields(b.URL)
+	if len(words) != 1 || words[0] != b.URL || !(strings.HasPrefix(b.URL, "https://") || strings.HasPrefix(b.URL, "http://")) {
+		return NotAWebAddress{URL: b.URL}
+	}
+	for m in marks {
+		if m.URL == b.URL {
+			return Duplicate{URL: b.URL}
+		}
+	}
+	let mut tags = []string{}
+	for t in b.Tags {
+		let fields = strings.Fields(t)
+		if len(fields) != 1 || strings.Contains(t, ",") {
+			return BadTag{Tag: t}
+		}
+		tags = tags.Append(strings.ToLower(fields[0]))
+	}
+	let title = strings.Join(strings.Fields(b.Title), " ")
+	marks.Append(Bookmark{URL: b.URL, Title: title, Tags: tags})
+}
+
+// Query is what List shows: the bookmarks with Tag (any when None), at
+// most Limit of them.
+type Query { Tag Option[string], Limit int }
+
+// List is the bookmarks q selects, newest first.
+func List(marks []Bookmark, q Query) []Bookmark {
+	let mut out = []Bookmark{}
+	let mut i = len(marks) - 1
+	for i >= 0 && len(out) < q.Limit {
+		let m = marks[i]
+		match q.Tag {
+		case Some as t:
+			for each in m.Tags {
+				if each == t.Value {
+					out = out.Append(m)
+					break
+				}
+			}
+		case None:
+			out = out.Append(m)
+		}
+		i = i - 1
+	}
+	out
+}
+
+// Line is how List's caller shows one bookmark.
+func Line(m Bookmark) string {
+	let tags = if len(m.Tags) == 0 { "" } else { " [" + strings.Join(m.Tags, ", ") + "]" }
+	let title = if m.Title == "" { m.URL } else { m.Title + " <" + m.URL + ">" }
+	title + tags
+}
+
+// BadLine is a stored line that is not a bookmark: No is from 1.
+type BadLine { No int, Reason string }
+
+// Format is the text the store keeps: one line per bookmark, its address,
+// title and comma-separated tags split by tabs.
+func Format(marks []Bookmark) string {
+	let mut lines = []string{}
+	for m in marks {
+		lines = lines.Append(m.URL + "\t" + m.Title + "\t" + strings.Join(m.Tags, ","))
+	}
+	if len(lines) == 0 { "" } else { strings.Join(lines, "\n") + "\n" }
+}
+
+// Parse reads what Format writes.
+func Parse(text string) []Bookmark fails BadLine {
+	let mut out = []Bookmark{}
+	for i, line in strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		let parts = strings.Split(line, "\t")
+		if len(parts) != 3 {
+			return BadLine{No: i + 1, Reason: "want address, title and tags split by tabs"}
+		}
+		let mut tags = []string{}
+		for t in strings.Split(parts[2], ",") {
+			if t != "" {
+				tags = tags.Append(t)
+			}
+		}
+		out = out.Append(Bookmark{URL: parts[0], Title: parts[1], Tags: tags})
+	}
+	out
+}

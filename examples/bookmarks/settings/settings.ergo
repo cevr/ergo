@@ -1,0 +1,79 @@
+// Package settings is the program's configuration: what it reads, from
+// where, and the one secret it keeps. std config reads it, highest layer
+// first: the flags given, the BOOKMARKS_ variables, the user's
+// config.toml and config.json, then the defaults written here.
+
+import config
+
+// Settings is the configuration of every command.
+type Settings { Limit int, Tag string, Remote string }
+
+// Credentials is the configuration the program keeps as a secret.
+type Credentials { Token string }
+
+// Defaults is the value of each key no layer sets: a default is stated
+// here, once, and nowhere else.
+let Defaults = Settings{Limit: 10, Tag: "", Remote: "https://bookmarks.example/api"}
+
+// Prefix starts each variable the program reads: BOOKMARKS_LIMIT.
+let Prefix = "BOOKMARKS"
+
+// files are the configuration files under the user's config directory.
+func files(dirs config.Dirs) []config.File {
+	[]config.File{
+		config.File{Path: dirs.Config + "/config.toml", Format: config.TOML},
+		config.File{Path: dirs.Config + "/config.json", Format: config.JSON},
+	}
+}
+
+// Spec is where Settings come from, with the command's flags on top.
+func Spec(flags config.Flags, dirs config.Dirs) config.Spec {
+	config.Spec{Prefix: Prefix, Flags: flags, Files: files(dirs), Defaults: config.DefaultsOf(Defaults)}
+}
+
+// SecretSpec is where the Credentials come from: never a flag, which
+// other users can read in the process list, and no default.
+func SecretSpec(dirs config.Dirs) config.Spec {
+	config.Spec{Prefix: Prefix, Flags: config.NoFlags(), Files: files(dirs), Defaults: config.NoDefaults()}
+}
+
+// Problem is a configuration that cannot be read, as one line.
+type Problem { Text string }
+
+// Load is the Settings of a command with flags.
+func Load(flags config.Flags) Settings fails Problem needs config.Config {
+	let dirs = config.UserDirs("bookmarks") catch {
+	case config.NoHome:
+		return Problem{Text: "HOME is not set"}
+	}
+	config.Load[Settings](Spec(flags, dirs)) catch {
+	case config.Unreadable as u:
+		return Problem{Text: u.Path + ": " + u.Reason}
+	case config.Malformed as m:
+		return Problem{Text: "\(m.Path):\(m.Line): \(m.Reason)"}
+	case WireWrongKind as w:
+		return Problem{Text: w.Path + ": want " + w.Want}
+	case WireMissingField as m:
+		return Problem{Text: "no " + config.MissingKey(m)}
+	}
+}
+
+// Token is the user's token, or None when no layer sets one. Its text
+// is never in a failure: WireWrongKind names the key and the source.
+func Token() Option[config.Redacted[Credentials]] fails Problem needs config.Config {
+	let dirs = config.UserDirs("bookmarks") catch {
+	case config.NoHome:
+		return Problem{Text: "HOME is not set"}
+	}
+	let c = config.LoadSecret[Credentials](SecretSpec(dirs)) catch {
+	case WireMissingField:
+		return None
+	case config.Unreadable as u:
+		return Problem{Text: u.Path + ": " + u.Reason}
+	case config.Malformed as m:
+		return Problem{Text: "\(m.Path):\(m.Line): \(m.Reason)"}
+	case WireWrongKind as w:
+		return Problem{Text: w.Path + ": want " + w.Want}
+	}
+	Some{Value: c}
+}
