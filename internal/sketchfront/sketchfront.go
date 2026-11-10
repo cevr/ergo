@@ -245,6 +245,25 @@ type BuildRequest struct {
 // signed darwin hosts never report, to exercise private builds.
 var compilerIdentity = build.CompilerIdentity
 
+// Library lowers the checked program as the Go library package name of the
+// Go module module (lower.LowerLibrary; IG11), anchored at source for a
+// program of one source text: the files of a Go module, runtime included,
+// that a Go program requires and replaces.
+func Library(a Analysis, source, module, name string) ([]lower.File, error) {
+	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
+		return nil, &BuildError{Diagnostics: a.Diagnostics}
+	}
+	unit := lower.Unit{Package: a.pkg, Files: []*syntax.File{a.file}, Sources: []lower.Source{{Path: source, Text: a.source}}}
+	if a.program != nil {
+		unit = a.program.unit()
+	}
+	files, err := lower.LowerLibrary(unit, module, name)
+	if err != nil {
+		return nil, err
+	}
+	return append(files, lower.Runtime()...), nil
+}
+
 // Build emits the checked analysis into the emission cache, or reuses its
 // published module, and links the module to the request's output with the
 // go command. The request's mode chooses the lowering: lower.Lower for a

@@ -29,8 +29,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"lowerer.envType":       "declares the field",
 			"funcCtx.operations":    "an operation table's Env literal for the caller's task",
 			"funcCtx.witnessMethod": "a witness adapter's Env literal for the caller's task",
-			"lowerer.entry":         "the root Env literal in main",
-			"lowerer.testEntry":     "the root Env literal in the test build's main (196l)",
+			"lowerer.rootTask":      "the root Env literal of a root task: main's, the test build's main's (196l), an exported function's (IG11)",
 		}},
 		{"taskOf", map[string]string{
 			"funcCtx.hiddenArgs":    "runtimeCall's hidden CallerTask argument",
@@ -68,7 +67,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"lowerer.meetsHostProtocol": "a pure method's Go name against the host protocols (Q-S5-6)",
 			"lowerer.protocolFreeName":  "the Go names already taken on a pure method's type (Q-S5-6)",
 			"lowerer.typeDecl":          "a declared type's members",
-			"lowerer.entry":             "the host Console's Println",
+			"lowerer.hostDecl":          "the host provider's Println and ambient",
 		}},
 	} {
 		obj := scope.Lookup(c.obj)
@@ -201,6 +200,9 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		"RegisterCalls": true, "TextBool": true, "TextDuration": true,
 		"TextInt": true, "TextUint": true, "TextFloat": true, "TextList": true,
 		"Main": true, "Println": true, "End": true,
+		// IG11: an exported function's root task, as Main is main's; Go's
+		// caller waits on it, no Ergo task does.
+		"Call": true,
 		// Unreachable's defect (defect.go): a panic value, no wait.
 		"UnreachableAt": true,
 		// fs2: a machine timer that is not positive (machine.go,

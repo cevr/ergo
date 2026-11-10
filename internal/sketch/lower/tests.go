@@ -637,17 +637,17 @@ func (l *lowerer) siteText(n syntax.Node) string {
 func (l *lowerer) testEntry(b *strings.Builder) {
 	rt := l.rt()
 	locals := newNamer(l.names)
-	seed, task, env := locals.alloc("seed"), locals.alloc("t"), locals.alloc("env")
+	seed := locals.alloc("seed")
 	b.WriteString("func main() {\n")
 	b.WriteString("\t" + seed + " := " + l.helper("Seed") + "()\n")
-	b.WriteString("\t" + rt + ".Main(func(" + task + " *" + l.taskPkg() + ".Task) error {\n")
-	b.WriteString("\t\t" + env + " := &" + l.env() + "{" + envTask + ": " + task + "}\n")
-	if l.hasInits() {
-		l.entryInits = true
-		b.WriteString("\t\t" + l.pkgName(pkgKey{"init", nil}, "ergoInit") + "(" + env + ")\n")
-	}
-	b.WriteString("\t\treturn " + l.helper("Tests") + "(" + env + ", " + seed + ")\n")
-	b.WriteString("\t})\n}\n\n")
+	b.WriteString("\t" + rt + ".Main(" + l.rootTask(locals, "error", nil, func(env string) string {
+		var s string
+		if l.hasInits() {
+			l.entryInits = true
+			s = "\t\t" + l.pkgName(pkgKey{"init", nil}, "ergoInit") + "(" + env + ")\n"
+		}
+		return s + "\t\treturn " + l.helper("Tests") + "(" + env + ", " + seed + ")\n"
+	}) + ")\n}\n\n")
 	for _, r := range l.runLaws() {
 		if lawLowered(r) && r.Law.Decl.Reach == nil {
 			l.lawDecl(r.Law)

@@ -22,11 +22,13 @@ Exit status: 0 when the package checks, 1 when it does not, 2 on an
 invalid invocation.
 `
 
-// inspectCommand runs `ergo inspect machine`; every other query of the
-// designed `ergo inspect` stays removed in v1 (#203).
+// inspectCommand runs `ergo inspect machine` when its first word is
+// machine, and else prints what the program reaches of Go
+// (inspectGoCommand); every other query of the designed `ergo inspect`
+// stays removed in v1 (#203).
 func inspectCommand(args []string) error {
 	if len(args) == 0 || args[0] != "machine" {
-		return exitStatusError{code: 1, message: fmt.Sprintf("ergo inspect: only inspect machine runs; the other queries are removed in v1; %s (%s)", toolingReason, ticketTooling)}
+		return inspectGoCommand(args)
 	}
 	if rest := args[1:]; len(rest) == 1 && (rest[0] == "--help" || rest[0] == "-h") {
 		_, err := os.Stdout.WriteString(inspectMachineHelp)

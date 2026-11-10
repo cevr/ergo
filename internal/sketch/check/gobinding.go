@@ -227,6 +227,7 @@ type hostPkg struct {
 	recvPtr  map[*Func]bool           // a method in the method set of *T only
 	variadic map[*Func]bool           // a function whose last parameter is Go's ...T
 	context  map[*Func]bool           // a function whose hidden first parameter is Go's context.Context (IG10)
+	goLines  map[int]string           // the `// ergo:` comment of each line, read by GoDecl (IG8) on first use
 }
 
 func hostOf(p *Package) *hostPkg {
