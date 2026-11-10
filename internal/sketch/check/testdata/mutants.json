@@ -1092,6 +1092,105 @@
       "killers": [
         "check:TestOwnershipFlowWorkIsLinear"
       ]
+    },
+    {
+      "name": "L8-A3 inference misses a take two calls deep",
+      "origin": "wf10 L8 A3 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\ttakes = takesOf(call.Func)",
+      "to": "\t\ttakes = call.Func.Sig.Takes",
+      "rule": "plan 1.1: an argument for a parameter the callee takes, written or inferred, is handed off.",
+      "killers": [
+        "check:TestTakesInferenceModel"
+      ]
+    },
+    {
+      "name": "L8-A3 mutual recursion stops after one round",
+      "origin": "wf10 L8 A3 (#197)",
+      "file": "internal/sketch/check/takes.go",
+      "from": "\t\t\tif !changed {\n\t\t\t\tbreak\n\t\t\t}",
+      "to": "\t\t\tbreak",
+      "rule": "plan 1.1: the takes fixpoint runs per component until nothing changes (Lean 4).",
+      "killers": [
+        "check:TestTakesInferenceModel"
+      ]
+    },
+    {
+      "name": "L8-A3 an exported function that takes without the clause admitted",
+      "origin": "wf10 L8 A3 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tcase l.lent && w.infer && l.param > 0 && w.c.infersTakes(w.fn):",
+      "to": "\tcase l.lent && w.infer && l.param > 0:",
+      "rule": "plan 1.1: an exported function writes its takes clause; a body that takes more is S108.",
+      "killers": [
+        "check:TestTakesInferenceModel"
+      ]
+    },
+    {
+      "name": "L8-A3 function types equal without the clause",
+      "origin": "wf10 L8 A3 (#197)",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "\tif c.takesEffect(vs, nil) != c.takesEffect(ts, nil) {",
+      "to": "\tif false {",
+      "rule": "Gap 39: the takes clause is part of a function type.",
+      "killers": [
+        "check:TestTakesInferenceModel"
+      ]
+    },
+    {
+      "name": "L8-A3 a call through a function value does not move",
+      "origin": "wf10 L8 A3 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\ttakes, selfTaken = sig.Takes, sig.TakesSelf",
+      "to": "\t\tselfTaken = sig.TakesSelf",
+      "rule": "Gap 39, R19: a call through a function value whose type takes r hands r off.",
+      "killers": [
+        "check:TestTakesInferenceModel"
+      ]
+    },
+    {
+      "name": "L8-A3 a copy site not propagated through a generic callee",
+      "origin": "wf10 L8 A3 (#197)",
+      "file": "internal/sketch/check/takes.go",
+      "from": "\t\tcase w.c.mayHoldResource(t):",
+      "to": "\t\tcase false:",
+      "rule": "plan 1.3: a call that binds a copying callee's type parameter to the caller's is the caller's copy site.",
+      "killers": [
+        "check:TestTakesInferenceModel"
+      ]
+    },
+    {
+      "name": "L8-A3 a copy site reported at a call with plain data",
+      "origin": "wf10 L8 A3 (#197)",
+      "file": "internal/sketch/check/takes.go",
+      "from": "\t\tcase w.c.holdsResource(t):",
+      "to": "\t\tcase w.c.mayHoldResource(t) || !isInvalid(t):",
+      "rule": "plan 1.3, q56: a crossing type argument is checked as today (dup(1) stays legal).",
+      "killers": [
+        "check:TestTakesInferenceModel"
+      ]
+    },
+    {
+      "name": "L8-A3 a bodiless generic outside the table treated as moving",
+      "origin": "wf10 L8 A3 (#197)",
+      "file": "internal/sketch/check/takes.go",
+      "from": "\t\tif path, name := f.Decl.Extern.Split(); path == runtimeModule+\"/v1\" && v1.MovesOnly(name) {",
+      "to": "\t\tif true {",
+      "rule": "plan 1.3, D-B: a generic extern copies its type parameters unless runtime/v1 lists it.",
+      "killers": [
+        "check:TestTakesInferenceModel"
+      ]
+    },
+    {
+      "name": "L8-A3 a function with an inferred clause admitted as a value",
+      "origin": "wf10 L8 A3 (#197)",
+      "file": "internal/sketch/check/takes.go",
+      "from": "\tif !held {\n\t\treturn\n\t}",
+      "to": "\treturn",
+      "rule": "Gap 39: a function used as a value writes a takes clause that takes something.",
+      "killers": [
+        "check:TestTakesInferenceModel"
+      ]
     }
   ]
 }

@@ -137,8 +137,8 @@ func TestOwnershipMessages(t *testing.T) {
 		}
 	}
 	// A return hands off (R10): the generated bodies return no value.
-	_, diags := checkFor(ofPrelude + "func give(p Res) Res {\n\treturn p\n}\n\nfunc main() {}\n")
-	if want := "p is lent to give, so it cannot hand p off (it is returned)"; len(diags) != 1 || !strings.Contains(diags[0].Message, want) {
+	_, diags := checkFor(ofPrelude + "func Give(p Res) Res {\n\treturn p\n}\n\nfunc main() {}\n")
+	if want := "p is lent to Give, so it cannot hand p off (it is returned)"; len(diags) != 1 || !strings.Contains(diags[0].Message, want) {
 		t.Errorf("return p: got %v, want one S108 containing %q", diags, want)
 	}
 }

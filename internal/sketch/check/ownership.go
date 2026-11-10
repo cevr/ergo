@@ -24,11 +24,12 @@ import (
 //     owns, as a statement or bound to _ (R42, D4).
 //
 // A hand-off is: `let q = r`, an assignment `x = r`, `return r` or the
-// block's value, an argument for a parameter the callee's written takes
-// clause names, the value an operation with a bare takes is called on,
-// and the receiver of a checked Close (R1, R19). Every other use lends
-// (R16). The takes clause of an unexported function is inferred in A3;
-// here a parameter is taken only when the clause is written.
+// block's value, a part of a tuple or composite literal that is handed
+// off (R14), an argument for a parameter the callee's takes clause names
+// (written, or inferred: takes.go), the value an operation with a bare
+// takes is called on, and the receiver of a checked Close (R1, R19).
+// Every other use lends (R16). A value of a type parameter is tracked
+// too; a refusal of one is a copy site (takes.go), not a diagnostic.
 //
 // The pass records the release plan in Info.Releases: at each scope's end,
 // each statement's end (its temporaries, R43), each exit edge (return,
@@ -72,6 +73,34 @@ type ownLocal struct {
 	temp  syntax.Expr
 	lent  bool // a parameter the function does not take
 	depth int  // the frame that owns it
+	param int  // the declaration's parameter index plus 1; 0 for none
+}
+
+// typ is the type of the value l holds.
+func (w *ownWalk) typ(l ownLocal) Type {
+	if l.v != nil {
+		return l.v.Type
+	}
+	return w.info.Types[l.temp]
+}
+
+// genericOnly reports a type that holds a resource only through a type
+// parameter: a refusal on such a value is a copy site (takes.go).
+func (w *ownWalk) genericOnly(t Type) bool {
+	return t != nil && !w.c.holdsResource(t)
+}
+
+// refuse reports a refusal on slot i, or records it as a copy site when
+// the slot's value is a resource only through a type parameter.
+func (w *ownWalk) refuse(i int, at syntax.Node, what string, format string, args ...any) {
+	if w.st == nil {
+		return
+	}
+	if t := w.typ(w.vars[i]); w.genericOnly(t) {
+		w.copySite(t, at, what, false)
+		return
+	}
+	w.report(at, format, args...)
 }
 
 type ownScope struct {
@@ -99,8 +128,9 @@ type ownFrameSave struct {
 }
 
 type ownDiag struct {
-	at  syntax.Node
-	msg string
+	at   syntax.Node
+	code string
+	msg  string
 }
 
 type ownWalk struct {
@@ -119,16 +149,29 @@ type ownWalk struct {
 	catches      []*ownCatch
 	loopMemo     map[syntax.Node]*ownLoopMemo
 	diags        []ownDiag
+	// Takes inference (takes.go): infer is the silent pass that promotes
+	// fn's lent parameters (promote) and records its copy sites (copies);
+	// fn is the declaration walked.
+	infer   bool
+	fn      *Func
+	promote map[int]bool
+	copies  map[*TypeParam]CopySite
 }
 
-// checkOwnership runs the flow pass over every body of the package.
+func (c *checker) newOwnWalk() *ownWalk {
+	return &ownWalk{c: c, info: c.pkg.Info, slot: map[*Var]int{}, loopMemo: map[syntax.Node]*ownLoopMemo{}}
+}
+
+// checkOwnership runs the flow pass over every body of the package, after
+// the takes clauses and copy sites are inferred.
 func (c *checker) checkOwnership() {
 	saved := c.cur
 	defer func() { c.cur = saved }()
+	c.inferTakes()
 	for _, fi := range c.files {
 		c.cur = fi
 		for _, d := range fi.syntax.Decls {
-			w := &ownWalk{c: c, info: c.pkg.Info, slot: map[*Var]int{}, loopMemo: map[syntax.Node]*ownLoopMemo{}}
+			w := c.newOwnWalk()
 			switch d := d.(type) {
 			case *syntax.FuncDecl:
 				if d.Body == nil || d.Extern != nil {
@@ -138,7 +181,8 @@ func (c *checker) checkOwnership() {
 				if f == nil || f.Sig == nil {
 					continue
 				}
-				w.frame(d.Body, f.Sig, w.paramVars(d.Recv, d.Type.Params), d.Name.Name, "", f.Name == "Close" && c.pkg.Info.Closes[d] != nil)
+				w.fn = f
+				w.frame(d.Body, takesOf(f), w.paramVars(d.Recv, d.Type.Params), d.Name.Name, "", f.Name == "Close" && c.pkg.Info.Closes[d] != nil)
 			case *syntax.TestDecl:
 				w.frame(d.Body, nil, w.paramVars(nil, d.Params), d.Name.Name, "", false)
 			case *syntax.LawDecl:
@@ -152,7 +196,7 @@ func (c *checker) checkOwnership() {
 			for _, g := range w.diags {
 				if !seen[g] {
 					seen[g] = true
-					c.errorf(g.at, CodeType, "%s", g.msg)
+					c.errorf(g.at, g.code, "%s", g.msg)
 				}
 			}
 		}
@@ -183,10 +227,14 @@ func (w *ownWalk) paramVars(lists ...*syntax.FieldList) []*Var {
 func (w *ownWalk) step(n int) { w.c.ownSteps += n }
 
 func (w *ownWalk) report(at syntax.Node, format string, args ...any) {
-	if w.st == nil {
+	w.reportCode(at, CodeType, format, args...)
+}
+
+func (w *ownWalk) reportCode(at syntax.Node, code, format string, args ...any) {
+	if w.st == nil || w.infer {
 		return
 	}
-	w.diags = append(w.diags, ownDiag{at: at, msg: fmt.Sprintf(format, args...)})
+	w.diags = append(w.diags, ownDiag{at: at, code: code, msg: fmt.Sprintf(format, args...)})
 }
 
 func (w *ownWalk) pos(n syntax.Node) string {
@@ -194,9 +242,10 @@ func (w *ownWalk) pos(n syntax.Node) string {
 	return fmt.Sprintf("%d:%d", line, col)
 }
 
-// tracked reports whether a value of type t has an owner here.
+// tracked reports whether a value of type t has an owner here: a value of
+// a type parameter counts, so a generic body's copies are found (A3).
 func (w *ownWalk) tracked(t Type) bool {
-	return t != nil && !isInvalid(t) && w.c.holdsResource(t)
+	return t != nil && !isInvalid(t) && w.c.mayHoldResource(t)
 }
 
 func (w *ownWalk) copyState(s []ownSlot) []ownSlot {
@@ -324,11 +373,11 @@ func (w *ownWalk) close() {
 }
 
 // frame checks one body: a declaration's (depth 1) or a nested function
-// literal's or trailing block's. params are its parameters in sig's order;
-// a parameter sig's takes clause names is owned, any other is lent. A
-// nested frame starts from the enclosing state (its captures are lent)
-// and leaves it unchanged.
-func (w *ownWalk) frame(body *syntax.BlockStmt, sig *Signature, params []*Var, name, nested string, lendAll bool) {
+// literal's or trailing block's. params are its parameters in its
+// signature's order; a parameter its takes clause (takes) names is owned,
+// any other is lent. A nested frame starts from the enclosing state (its
+// captures are lent) and leaves it unchanged.
+func (w *ownWalk) frame(body *syntax.BlockStmt, takes []int, params []*Var, name, nested string, lendAll bool) {
 	saved := ownFrameSave{loops: w.loops, catches: w.catches, first: w.first, name: w.name, nested: w.nested}
 	outer := w.copyState(w.st)
 	nvars := len(w.vars)
@@ -343,14 +392,16 @@ func (w *ownWalk) frame(body *syntax.BlockStmt, sig *Signature, params []*Var, n
 	}
 	w.open(body)
 	taken := map[int]bool{}
-	if sig != nil {
-		for _, i := range sig.Takes {
-			taken[i] = true
-		}
+	for _, i := range takes {
+		taken[i] = true
 	}
 	for i, v := range params {
 		if v != nil && w.tracked(v.Type) {
-			w.acquire(ownLocal{v: v, lent: lendAll || !taken[i]})
+			p := 0
+			if w.depth == 1 {
+				p = i + 1
+			}
+			w.acquire(ownLocal{v: v, lent: lendAll || !taken[i], param: p})
 		}
 	}
 	w.stmts(body.List, true)
@@ -561,7 +612,7 @@ func (w *ownWalk) letSpec(s syntax.Stmt, spec *syntax.VarSpec) {
 		if len(spec.Values) == 1 && len(spec.Names) > 1 {
 			if tup, ok := w.info.Types[spec.Values[0]].(*Tuple); ok {
 				for i, id := range spec.Names {
-					if id.Name == "_" && i < len(tup.Types) && w.tracked(tup.Types[i]) {
+					if id.Name == "_" && i < len(tup.Types) && w.c.holdsResource(tup.Types[i]) {
 						w.report(id, "the %s bound to _ is discarded, and a resource has one owner; bind it to a name, so its scope releases it, or hand it off (resources R42)", tup.Types[i])
 					}
 				}
@@ -614,7 +665,7 @@ func (w *ownWalk) assign(s *syntax.AssignStmt) {
 		}
 		w.record(id, rs)
 		if w.vars[i].depth != w.depth {
-			w.report(id, "%s belongs to the enclosing function; %s cannot replace it (resources R4)", v.Name, w.nestedText())
+			w.refuse(i, id, fmt.Sprintf("%s replaces %s, which may run more than once", w.nestedText(), v.Name), "%s belongs to the enclosing function; %s cannot replace it (resources R4)", v.Name, w.nestedText())
 			continue
 		}
 		w.st[i] = ownSlot{st: ownOwned}
@@ -667,9 +718,9 @@ func (w *ownWalk) use(i int, x *syntax.Ident) {
 	s := w.st[i]
 	switch s.st {
 	case ownMoved:
-		w.report(x, "%s was handed off at %s (%s) and cannot be used after that (resources R15, R20); use %s before it is handed off", x.Name, w.pos(s.at), s.how, x.Name)
+		w.refuse(i, x, fmt.Sprintf("%s is used after it is handed off at %s", x.Name, w.pos(s.at)), "%s was handed off at %s (%s) and cannot be used after that (resources R15, R20); use %s before it is handed off", x.Name, w.pos(s.at), s.how, x.Name)
 	case ownMaybe:
-		w.report(x, "%s may have been handed off at %s (%s) on one path, and cannot be used after that (resources R21); hand it off on every path or on none", x.Name, w.pos(s.at), s.how)
+		w.refuse(i, x, fmt.Sprintf("%s is used after it may be handed off at %s", x.Name, w.pos(s.at)), "%s may have been handed off at %s (%s) on one path, and cannot be used after that (resources R21); hand it off on every path or on none", x.Name, w.pos(s.at), s.how)
 	}
 }
 
@@ -687,14 +738,19 @@ func (w *ownWalk) move(i int, x *syntax.Ident, h hand) {
 	l := w.vars[i]
 	switch {
 	case l.depth != w.depth:
-		w.report(x, "%s cannot hand off %s (%s): %s belongs to the enclosing function, which releases it, and the block may run at another time or more than once (resources R4, R30)", w.nestedText(), x.Name, h.how, x.Name)
+		w.refuse(i, x, fmt.Sprintf("%s hands off %s, which may run more than once", w.nestedText(), x.Name), "%s cannot hand off %s (%s): %s belongs to the enclosing function, which releases it, and the block may run at another time or more than once (resources R4, R30)", w.nestedText(), x.Name, h.how, x.Name)
 		return
+	case l.lent && w.infer && l.param > 0 && w.c.infersTakes(w.fn):
+		// Inference (takes.go): the parameter is taken.
+		w.promote[l.param-1] = true
 	case l.lent:
 		fn := w.name
 		if w.nested != "" {
 			fn = w.nested
 		}
-		w.report(x, "%s is lent to %s, so it cannot hand %s off (%s) (resources R10, R17); write takes %s in the signature", x.Name, fn, x.Name, h.how, x.Name)
+		// A lent T handed off is a copy of it (the caller keeps its own):
+		// a mode, not a mark, so a call with a resource is refused (q56).
+		w.refuse(i, x, fmt.Sprintf("%s is lent and handed off (%s); write takes %s to take it", x.Name, h.how, x.Name), "%s is lent to %s, so it cannot hand %s off (%s) (resources R10, R17); write takes %s in the signature", x.Name, fn, x.Name, h.how, x.Name)
 		return
 	}
 	w.st[i] = ownSlot{st: ownMoved, at: h.at, how: h.how}
@@ -711,6 +767,7 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		v, _ := w.info.Uses[x].(*Var)
 		i, ok := w.slot[v]
 		if v == nil || !ok {
+			w.funcValue(x, w.info.Types[x])
 			return
 		}
 		if mode == mMove {
@@ -734,28 +791,71 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 			return
 		}
 	case *syntax.FuncLit:
-		var sig *Signature
+		var takes []int
 		if s, ok := w.info.Literals[x]; ok {
-			sig = s
+			takes = s.Takes
 		}
 		var params *syntax.FieldList
 		if x.Type != nil {
 			params = x.Type.Params
 		}
-		w.frame(x.Body, sig, w.paramVars(params), w.name, "this function literal", false)
+		w.frame(x.Body, takes, w.paramVars(params), w.name, "this function literal", false)
 		return
+	case *syntax.IndexExpr:
+		if id, ok := unparen(x.X).(*syntax.Ident); ok {
+			if _, fn := w.info.Uses[id].(*Func); fn {
+				w.funcValue(id, w.info.Types[x]) // f[T] as a value
+				return
+			}
+		}
+		w.children(x)
+	case *syntax.TupleExpr, *syntax.CompositeLit:
+		if mode == mMove {
+			// R14: a value built to be handed off moves its parts.
+			w.parts(x, h)
+			return
+		}
+		w.children(x)
 	default:
-		syntax.Inspect(x, func(n syntax.Node) bool {
-			if n == syntax.Node(x) {
-				return true
-			}
-			if e, ok := n.(syntax.Expr); ok && !w.c.typeNodes[e] {
-				w.expr(e, mLend, hand{})
-			}
-			return false
-		})
+		w.children(x)
 	}
 	w.produced(x, mode)
+}
+
+// children lends each operand of x.
+func (w *ownWalk) children(x syntax.Expr) {
+	syntax.Inspect(x, func(n syntax.Node) bool {
+		if n == syntax.Node(x) {
+			return true
+		}
+		if e, ok := n.(syntax.Expr); ok && !w.c.typeNodes[e] {
+			w.expr(e, mLend, hand{})
+		}
+		return false
+	})
+}
+
+// parts moves the parts of a tuple or composite literal that is handed
+// off: a field's or element's value (not a field name or a map key, which
+// is plain, R40), and a `..base`.
+func (w *ownWalk) parts(x syntax.Expr, h hand) {
+	var elts []syntax.Expr
+	switch x := x.(type) {
+	case *syntax.TupleExpr:
+		elts = x.Elts
+	case *syntax.CompositeLit:
+		w.expr(x.Base, mMove, h)
+		elts = x.Elts
+	}
+	for _, e := range elts {
+		if kv, ok := e.(*syntax.KeyValueExpr); ok {
+			if _, field := kv.Key.(*syntax.Ident); !field {
+				w.expr(kv.Key, mLend, hand{})
+			}
+			e = kv.Value
+		}
+		w.expr(e, mMove, h)
+	}
 }
 
 // produced owns or refuses a new value x of a resource type: a call's
@@ -775,6 +875,9 @@ func (w *ownWalk) produced(x syntax.Expr, mode ownMode) {
 	case mLend:
 		w.acquire(ownLocal{temp: x})
 	case mDiscard:
+		if w.genericOnly(t) {
+			return // a generic body may drop a T (plan 1.3); B2 releases it
+		}
 		w.report(x, "the %s this produces is discarded, and a resource has one owner; bind it with let, so its scope releases it, or hand it off (resources R42)", t)
 	}
 }
@@ -859,11 +962,18 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 	}
 	taken := map[int]bool{}
 	selfTaken := false
+	takes := []int(nil)
 	if sig != nil {
-		for _, i := range sig.Takes {
-			taken[i] = true
+		takes, selfTaken = sig.Takes, sig.TakesSelf
+	}
+	if call.Kind == CallFunc && call.Func != nil {
+		takes = takesOf(call.Func)
+		if len(call.TypeArgs) > 0 {
+			w.instance(x, call.Func, call.TypeArgs)
 		}
-		selfTaken = sig.TakesSelf
+	}
+	for _, i := range takes {
+		taken[i] = true
 	}
 	closes := w.info.Closes[x] != nil || w.info.Closes[x.Fun] != nil
 	if closes {
@@ -910,6 +1020,8 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 		off = 1
 	case call.Recv != nil:
 		operand(call.Recv, selfTaken, "")
+	case call.Kind == CallFunc:
+		// The callee is a function's name: no value of its own.
 	default:
 		w.expr(x.Fun, mLend, hand{})
 	}
@@ -920,17 +1032,17 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 		for _, l := range lends {
 			if s := w.st[l.i]; s.st == ownMoved || s.st == ownMaybe {
 				if s.at != nil && s.at.Pos() >= x.Pos() && s.at.End() <= x.End() {
-					w.report(l.id, "%s is lent to %s here and handed off at %s (%s) in the same call (resources R17); hand it off in a statement of its own", l.id.Name, name, w.pos(s.at), s.how)
+					w.refuse(l.i, l.id, fmt.Sprintf("%s is lent and handed off in one call", l.id.Name), "%s is lent to %s here and handed off at %s (%s) in the same call (resources R17); hand it off in a statement of its own", l.id.Name, name, w.pos(s.at), s.how)
 				}
 			}
 		}
 	}
 	if x.Trailing != nil {
-		var tsig *Signature
+		var takes []int
 		if s, ok := w.info.Literals[x.Trailing]; ok {
-			tsig = s
+			takes = s.Takes
 		}
-		w.frame(x.Trailing, tsig, nil, w.name, fmt.Sprintf("the block passed to %s", calleeText(x)), false)
+		w.frame(x.Trailing, takes, nil, w.name, fmt.Sprintf("the block passed to %s", calleeText(x)), false)
 	}
 	return false
 }

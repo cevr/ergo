@@ -301,6 +301,8 @@ func shape(t Type) (kind byte, ref any, n int64, s string, kids []Type) {
 		if t.NonEscaping {
 			s += "!" // a non-escaping parameter's type (escaping.go)
 		}
+		// The takes clause is part of the type (Gap 39, L8 A3).
+		s += takesKey(t)
 		return vSig, nil, 0, s, kids
 	case *Struct:
 		names := make([]string, len(t.Fields))

@@ -91,8 +91,9 @@ type Range[T ordered] { Start T, End T }
 
 // Append is xs with x added at the end. xs is unchanged: a slice is a
 // value (owner q26; types.md, Bindings), and the lowering appends in place
-// only for xs = xs.Append(x) or a dead xs.
-extern go ergo.local/prototype/runtime/v1.Append func Append[T](xs []T, x T) []T
+// only for xs = xs.Append(x) or a dead xs. With resource elements it takes
+// xs and x: the result is their one owner (#197 L8 A3, resources R14).
+extern go ergo.local/prototype/runtime/v1.Append func Append[T](xs []T, x T) []T takes xs, x
 
 // Get is the value of k in m, Some{v}, or None when m has no key k: a Map
 // read may miss, so it returns an Option.
