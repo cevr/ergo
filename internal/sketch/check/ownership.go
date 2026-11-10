@@ -745,6 +745,10 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		w.frame(x.Body, sig, w.paramVars(params), w.name, "this function literal", false)
 		return
 	default:
+		if b, ok := x.(*syntax.BinaryExpr); ok && (b.Op == syntax.LAND || b.Op == syntax.LOR) {
+			w.shortCircuit(b)
+			return
+		}
 		syntax.Inspect(x, func(n syntax.Node) bool {
 			if n == syntax.Node(x) {
 				return true
@@ -776,6 +780,26 @@ func (w *ownWalk) produced(x syntax.Expr, mode ownMode) {
 		w.acquire(ownLocal{temp: x})
 	case mDiscard:
 		w.report(x, "the %s this produces is discarded, and a resource has one owner; bind it with let, so its scope releases it, or hand it off (resources R42)", t)
+	}
+}
+
+// shortCircuit walks `a && b` or `a || b`: a runs on every path, b only on
+// some, so the state after it joins the state after a, as an if with no
+// else does (resources R21: a value handed off in b is owned on the other
+// path and gets a drop flag). A temporary b acquires lives to the end of
+// the statement on the paths that ran b only, so it is released under a
+// flag too. Prior art: Rust lowers && and || to control flow before
+// borrow checking, so a move in the right operand is a conditional move.
+func (w *ownWalk) shortCircuit(x *syntax.BinaryExpr) {
+	w.expr(x.X, mLend, hand{})
+	n := len(w.vars)
+	skipped := w.copyState(w.st)
+	w.expr(x.Y, mLend, hand{})
+	w.st = w.join(w.st, skipped, len(w.vars))
+	for i := n; i < len(w.st); i++ {
+		if w.st[i].st == ownOwned {
+			w.st[i] = ownSlot{st: ownMaybe, at: x.Y, how: "its operand did not run"}
+		}
 	}
 }
 

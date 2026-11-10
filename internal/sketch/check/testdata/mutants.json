@@ -1444,6 +1444,28 @@
       "killers": [
         "check:TestBorrowOverlapModel"
       ]
+    },
+    {
+      "name": "a2-short-right-unconditional",
+      "origin": "wf10 batch-15 fix-r2 (A2 M1)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tw.st = w.join(w.st, skipped, len(w.vars))",
+      "to": "\t_ = skipped",
+      "rule": "resources R5, R21: the right operand of && or || runs on some paths only; a value it hands off is owned on the others and gets a drop flag.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
+    },
+    {
+      "name": "a2-short-temp-unflagged",
+      "origin": "wf10 batch-15 fix-r2 (A2 M1)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\tw.st[i] = ownSlot{st: ownMaybe, at: x.Y, how: \"its operand did not run\"}",
+      "to": "\t\t\t_ = i",
+      "rule": "resources R43, R21: a temporary of the right operand of && or || exists on some paths only; its release at the statement's end has a flag.",
+      "killers": [
+        "check:TestOwnershipFlowModel"
+      ]
     }
   ]
 }

@@ -19,7 +19,8 @@ import (
 // new value or a local), Close, a call of a function with a written takes,
 // a lend and a take of one value in one call, a temporary, a discarded
 // resource (as a statement and bound to _), if/else, match, for with break
-// and continue, return, the failure edge of a try, and a trailing block
+// and continue, return, the failure edge of a try, a take in either
+// operand of && or || (the right one runs on some paths only), and a trailing block
 // (a frame of its own) that uses or hands off the enclosing locals; with a
 // lent and a taken parameter. A reference abstract interpreter in the
 // test, written from resources R4-R21 and R41-R43, computes the verdict
@@ -35,7 +36,9 @@ import (
 // takes call does not move; a lend counts as a move; a hand-off inside a
 // trailing block admitted (the scope.OnExit rule); a lend and a take in
 // one call admitted; a lent parameter handed off; a local held only for
-// its release reported S110.
+// its release reported S110; the right operand of && or || walked as a
+// path every run takes (batch-15 A2 M1: the value leaked when it did not
+// run).
 func TestOwnershipFlowModel(t *testing.T) {
 	seeds := make([]uint64, 0, 400)
 	if s := os.Getenv("ERGO_SEED"); s != "" {
@@ -153,6 +156,8 @@ func open(n int) Res { Res{id: n} }
 
 func lend(r Res) {}
 
+func held(r Res) bool { true }
+
 func keep(r Res) takes r {}
 
 func take(r Res) int takes r { 0 }
@@ -191,6 +196,7 @@ const (
 	ofContinue
 	ofReturn
 	ofTry
+	ofShort
 	ofRun
 )
 
@@ -198,6 +204,9 @@ type ofStmt struct {
 	kind      int
 	x, y      string // x: the declared or assigned name; y: the operand
 	mut       bool
+	op        string // ofShort: && or ||
+	left      bool   // ofShort: the take is the left operand, which always runs
+	temp      bool   // ofShort: the right operand lends a temporary instead
 	body, els []*ofStmt
 	// Filled by ofPrint: the statement's line, the else line, and columns.
 	line, elseLine int
@@ -306,6 +315,15 @@ func (g *ofGen) stmt(depth, nest int, inLoop bool) *ofStmt {
 			g.vars = append(g.vars, ofVar{name: s.x, mut: s.mut, depth: depth})
 		case ofLend, ofClose, ofKeep, ofBoth:
 			s.y = g.pick()
+		case ofShort:
+			s.y = g.pick()
+			s.op = []string{"&&", "||"}[g.r.IntN(2)]
+			switch g.r.IntN(4) {
+			case 0:
+				s.left = true
+			case 1:
+				s.temp = true
+			}
 		case ofIf:
 			s.body = g.block(4, depth, nest+1, inLoop)
 			if g.r.IntN(2) == 0 {
@@ -435,6 +453,18 @@ func ofPrint(body []*ofStmt) (string, int) {
 				emit(depth, "return")
 			case ofTry:
 				emit(depth, "let _ = try fail(n)")
+			case ofShort:
+				if s.temp {
+					k++
+					emit(depth, fmt.Sprintf("let _ = cond(n) %s held(open(%d))", s.op, k))
+				} else if s.left {
+					s.col = col(depth, "let _ = take(")
+					emit(depth, "let _ = take("+s.y+") > 0 "+s.op+" cond(n)")
+				} else {
+					p := "let _ = cond(n) " + s.op + " take("
+					s.col = col(depth, p)
+					emit(depth, p+s.y+") > 0")
+				}
 			case ofRun:
 				emit(depth, "run() {")
 				walk(s.body, depth+1)
@@ -703,6 +733,18 @@ func (r *rfRun) stmt(s *ofStmt) {
 		r.st = nil
 	case ofTry:
 		r.record(fmt.Sprintf("try@%d", s.line), r.releases(r.first))
+	case ofShort:
+		// The right operand runs on some paths only: an if with no else.
+		if s.temp {
+			// Its temporary is released at the statement's end under a flag.
+			r.record(fmt.Sprintf("*syntax.VarSpec@%d", s.line), "tmp?")
+			return
+		}
+		saved := rfCopy(r.st)
+		r.move(s.y, s.line, s.col)
+		if !s.left {
+			r.st = rfJoin(r.st, saved, len(r.st))
+		}
 	case ofRun:
 		saved := rfCopy(r.st)
 		loops, first := r.loops, r.first
