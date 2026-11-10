@@ -2,6 +2,78 @@
   "about": "The mutant ledger of internal/sketch/check: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants check; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
+      "name": "a2-partial-failure-lost",
+      "origin": "batch-15 round-5 A2 production invariant",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "m != nil && m.Partial && saved != nil",
+      "to": "m != nil && m.Partial && saved != nil && false",
+      "rule": "An unhandled partial-catch failure carries the state before success production.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-failure-path-unflagged",
+      "origin": "batch-15 round-5 A2 production invariant",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "r.Flag = r.Flag || i > 0",
+      "to": "r.Flag = r.Flag || i < 0",
+      "rule": "An operand acquired only after an earlier possible failure has a drop flag.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-failure-order-lost",
+      "origin": "batch-15 round-5 A2 production invariant",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "at = j",
+      "to": "at = len(out) + 0*j",
+      "rule": "Failure paths retain reverse acquisition order as later operands become live.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-failure-after-production",
+      "origin": "batch-15 round-5 A2 M1",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.callFailure(x)\n\t\t\tw.produced(x, mode, h)",
+      "to": "w.produced(x, mode, h)\n\t\t\tw.callFailure(x)",
+      "rule": "A failed call produces no value: release obligations start on success only.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-failure-target-lost",
+      "origin": "batch-15 round-5 A2 fail-safe rule",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.onFailure = func() { w.failure(x) }",
+      "to": "w.onFailure = nil",
+      "rule": "Try covers every producing call in its operand, not only the final result.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "c2-address-proof-ignored",
+      "origin": "batch-15 round-5 C2 M1 repeat",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "if !w.addressed[v] {",
+      "to": "if true {",
+      "rule": "Unknown aliases use reference capture; generic call results do not prove uniqueness.",
+      "killers": ["lower:TestCaptureRuleModel"]
+    },
+    {
+      "name": "c2-implicit-address-proof-ignored",
+      "origin": "batch-15 round-5 C2 positive proof",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "address(implicitBorrow(w.info, n))",
+      "to": "_ = n",
+      "rule": "An implicit borrowed receiver also disqualifies a root from value capture.",
+      "killers": ["lower:TestCaptureRuleModel"]
+    },
+    {
+      "name": "c2-fast-path-lost",
+      "origin": "batch-15 round-5 C2 positive proof",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "if !w.addressed[v] {",
+      "to": "if false {",
+      "rule": "A proven unaliased capture still uses the value fast path.",
+      "killers": ["lower:TestCaptureRuleModel"]
+    },
+    {
       "name": "a2-result-before-operands",
       "origin": "batch-15 round-4 A2 ordered event invariant",
       "file": "internal/sketch/check/ownership.go",
@@ -110,12 +182,12 @@
       "killers": ["check:TestOwnershipFlowModel"]
     },
     {
-      "name": "a2-catch-result-always-owned",
+      "name": "a2-catch-failure-state-lost",
       "origin": "batch-15 round-4 A2 M1",
       "file": "internal/sketch/check/ownership.go",
-      "from": "fail[w.tail.slot] = ownSlot{st: ownMoved, at: x, how: \"the result failed\"}",
-      "to": "_ = fail",
-      "rule": "A caught failure has no success result to own.",
+      "from": "w.onFailure = func() { w.failure(x.X) }",
+      "to": "w.onFailure = nil",
+      "rule": "A catch receives states at production failure, never a fabricated success state.",
       "killers": ["check:TestOwnershipFlowModel"]
     },
     {

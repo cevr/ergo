@@ -721,11 +721,87 @@ func captureHolderModel(t *testing.T) {
 	}
 }
 
+// callAliasPrograms draws opaque borrow flow through calls. The optimization
+// cannot assume Borrows 1 was proved at a generic instantiation. Mutants:
+// c2-address-proof-ignored and c2-implicit-address-proof-ignored. The no-borrow
+// control kills c2-fast-path-lost, without pinning a count of captures.
+func callAliasPrograms() []holderProgram {
+	var out []holderProgram
+	for _, seed := range captureSeeds(24) {
+		r := rand.New(rand.NewPCG(seed, 0x197c205))
+		n := 1 + r.IntN(17)
+		forms := []string{
+			"let p = id(&x)",
+			"let p = Box.pass(&x)",
+			"let f = later(&x); let p = f()",
+			"let mut p = &y; put(&p, &x)",
+			"let p = id(id(&x))",
+		}
+		for form, bind := range forms {
+			for before := range 2 {
+				work := fmt.Sprintf("bump(p, %d)\n", n)
+				get := "let get = func() int { x }\n"
+				if before != 0 {
+					get, work = work+get, ""
+				}
+				src := `type Box {}
+func id[T](x T) T { x }
+func pass[T](b Box, x T) T { x }
+func later[T](x T) func() T { func() T { x } }
+func put[T](out *T, x T) { *out = x }
+func bump(p *int, n int) { *p = *p + n }
+func make() func() int {
+let mut x = 0
+let mut y = 0
+let _ = &y
+` + bind + "\n" + get + work + "get\n}\nfunc main() needs Console { let get = make(); Console.Println(\"\\(get())\") }\n"
+				out = append(out, holderProgram{fmt.Sprintf("call%d_%d_%d", seed, form, before), src, fmt.Sprintf("%d\n", n), false})
+			}
+		}
+	}
+	// Examples of both proof outcomes: no alias, and an implicit receiver
+	// borrow. The latter is conservative even though this borrow ends early.
+	out = append(out,
+		holderProgram{"fast", "func make() func() int { let mut x = 0; x = 7; func() int { x } }\nfunc main() needs Console { let get = make(); Console.Println(\"\\(get())\") }", "7\n", false},
+		holderProgram{"implicit", "type Box { n int }\nfunc Bump(b *Box) { b.n = 7 }\nfunc make() func() int { let mut x = Box{n: 0}; x.Bump(); func() int { x.n } }\nfunc main() needs Console { let get = make(); Console.Println(\"\\(get())\") }", "7\n", false})
+	return out
+}
+
+func captureAliasModel(t *testing.T) {
+	t.Helper()
+	fast, reference := 0, 0
+	for _, p := range callAliasPrograms() {
+		o := lowerSource(p.name, p.src, true)
+		if o.err != nil || o.panicked != nil || len(o.diags) != 0 || len(o.refused) != 0 {
+			t.Fatalf("%s: %v %v %v %v\n%s", p.name, o.err, o.panicked, o.diags, o.refused, p.src)
+		}
+		found := false
+		for _, vs := range o.pkg.Info.ValueCaptures {
+			for _, v := range vs {
+				if v.Name == "x" {
+					found = true
+				}
+			}
+		}
+		if found != (p.name == "fast") {
+			t.Fatalf("%s: by-value capture %v, want positive no-alias proof %v\n%s", p.name, found, p.name == "fast", p.src)
+		}
+		if found {
+			fast++
+		} else {
+			reference++
+		}
+	}
+	t.Logf("capture examples: %d fast, %d reference", fast, reference)
+}
+
 // TestCaptureRuleModel is the in-process half of the property (see above).
 func TestCaptureRuleModel(t *testing.T) {
+	captureAliasModel(t)
 	captureHolderModel(t)
 	reached := map[string]bool{}
 	admitted := 0
+	fast := 0
 	for _, seed := range captureSeeds(4000) {
 		tree, src := captureProgram(seed)
 		want := refused(tree)
@@ -756,6 +832,9 @@ func TestCaptureRuleModel(t *testing.T) {
 		value, ref := interpret(tree, true), interpret(tree, false)
 		if len(want) == 0 {
 			admitted++
+			for _, vs := range o.pkg.Info.ValueCaptures {
+				fast += len(vs)
+			}
 			if value != ref {
 				t.Errorf("seed %d: an admitted program prints differently by value and by reference\nReplay: go test -run '^TestCaptureRuleModel$' ./internal/sketch/lower -args -capture.seed=%d\n%s\n--- by value\n%s--- by reference\n%s", seed, seed, src, value, ref)
 			}
@@ -770,9 +849,13 @@ func TestCaptureRuleModel(t *testing.T) {
 		}
 	}
 	t.Logf("%d admitted programs; refused programs that need each reason: %v", admitted, reached)
+	t.Logf("admitted generated examples took %d by-value capture fast paths", fast)
 	if *captureSeed == 0 {
 		if admitted == 0 {
 			t.Errorf("no seed writes an admitted program")
+		}
+		if fast == 0 {
+			t.Error("no admitted generated example takes the capture fast path")
 		}
 		whys := []string{"inside", "after", "region", "local"}
 		for _, f := range bFormName {
@@ -827,7 +910,7 @@ func TestCaptureLoweringAgrees(t *testing.T) {
 	if !copies && *captureSeed == 0 {
 		t.Errorf("no admitted program captures a let mut by value")
 	}
-	for _, p := range holderPrograms() {
+	for _, p := range append(holderPrograms(), callAliasPrograms()...) {
 		if p.escapes {
 			continue
 		}

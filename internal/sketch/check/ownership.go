@@ -123,12 +123,13 @@ type ownCatch struct {
 
 // ownFrameSave is the walk state a nested frame replaces.
 type ownFrameSave struct {
-	loops   []*ownLoop
-	catches []*ownCatch
-	first   int
-	name    string
-	nested  string
-	tail    ownTail
+	loops     []*ownLoop
+	catches   []*ownCatch
+	first     int
+	name      string
+	nested    string
+	tail      ownTail
+	onFailure func()
 }
 
 type ownDiag struct {
@@ -154,6 +155,10 @@ type ownWalk struct {
 	diags        []ownDiag
 	// tail is where the value of the block being walked goes (ownTail).
 	tail ownTail
+	// onFailure receives a fallible call's state after its operands and
+	// before its result exists. Try and catch install their failure target;
+	// a nested function frame starts with none.
+	onFailure func()
 }
 
 // checkOwnership runs the flow pass over every body of the package.
@@ -374,8 +379,9 @@ func (w *ownWalk) close() {
 // nested frame starts from the enclosing state (its captures are lent)
 // and leaves it unchanged.
 func (w *ownWalk) frame(body *syntax.BlockStmt, sig *Signature, params []*Var, name, nested string, lendAll bool) {
-	saved := ownFrameSave{loops: w.loops, catches: w.catches, first: w.first, name: w.name, nested: w.nested, tail: w.tail}
+	saved := ownFrameSave{loops: w.loops, catches: w.catches, first: w.first, name: w.name, nested: w.nested, tail: w.tail, onFailure: w.onFailure}
 	w.tail = frameTail
+	w.onFailure = nil
 	outer := w.copyState(w.st)
 	nvars := len(w.vars)
 	w.loops, w.catches = nil, nil
@@ -405,6 +411,7 @@ func (w *ownWalk) frame(body *syntax.BlockStmt, sig *Signature, params []*Var, n
 	w.st = outer
 	w.depth--
 	w.loops, w.catches, w.first, w.name, w.nested, w.tail = saved.loops, saved.catches, saved.first, saved.name, saved.nested, saved.tail
+	w.onFailure = saved.onFailure
 }
 
 // block checks a scope's statements; key is the scope.
@@ -878,14 +885,22 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		w.expr(x.X, mode, h)
 		return
 	case *syntax.TryExpr:
+		saved := w.onFailure
+		var paths [][]Release
+		w.onFailure = func() { w.failure(x) }
+		if len(w.catches) == 0 {
+			w.onFailure = func() { paths = append(paths, w.releases(w.first)) }
+		}
 		w.expr(x.X, mode, h)
-		w.failure(x)
+		w.onFailure = saved
+		w.recordFailures(x, paths)
 		return
 	case *syntax.CatchExpr:
 		w.yieldValue(x, mode, h, func(m ownMode) { w.catch(x, m, h) })
 		return
 	case *syntax.CallExpr:
 		if !w.call(x, mode, h) {
+			w.callFailure(x)
 			w.produced(x, mode, h)
 		}
 		return
@@ -902,6 +917,60 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		return
 	}
 	panic(fmt.Sprintf("check: internal compiler error: the ownership flow has no rule for a %T (ownWalk.expr)", x))
+}
+
+// callFailure is the production boundary. An unsuccessful call has evaluated
+// its operands, but has not initialized a destination or acquired a temporary.
+func (w *ownWalk) callFailure(x *syntax.CallExpr) {
+	if call := w.info.Calls[x]; call != nil && !call.Fails.Empty() && w.onFailure != nil && w.st != nil {
+		w.onFailure()
+	}
+}
+
+// recordFailures joins release obligations by value identity, not by a slot's
+// position: a later failure may follow a block whose locals are already gone.
+// A value absent on any failure path has a drop flag. Each path supplies the
+// order at its production boundary, never the success destination's state.
+func (w *ownWalk) recordFailures(key syntax.Node, paths [][]Release) {
+	var out []Release
+	for i, path := range paths {
+		for j := range out {
+			found := false
+			for _, r := range path {
+				if out[j].Var == r.Var && out[j].Temp == r.Temp {
+					out[j].Flag = out[j].Flag || r.Flag
+					found = true
+				}
+			}
+			out[j].Flag = out[j].Flag || !found
+		}
+		for p := len(path) - 1; p >= 0; p-- {
+			r := path[p]
+			found := false
+			for _, old := range out {
+				found = found || old.Var == r.Var && old.Temp == r.Temp
+			}
+			if !found {
+				r.Flag = r.Flag || i > 0
+				// Keep this path's reverse-acquisition order. A later
+				// failure can own new operands before an earlier owner.
+				at := len(out)
+				if p+1 < len(path) {
+					next := path[p+1]
+					for j, old := range out {
+						if old.Var == next.Var && old.Temp == next.Temp {
+							at = j
+							break
+						}
+					}
+				}
+				out = append(out, Release{})
+				copy(out[at+1:], out[at:])
+				out[at] = r
+			}
+		}
+	}
+	w.record(key, out)
 }
 
 // lendRoot carries the root owner only when the expression's result holds
@@ -1064,20 +1133,27 @@ func (w *ownWalk) catch(x *syntax.CatchExpr, mode ownMode, h hand) {
 	first := len(w.vars)
 	k := &ownCatch{first: first}
 	w.catches = append(w.catches, k)
+	saved := w.onFailure
+	w.onFailure = func() { w.failure(x.X) }
 	w.expr(x.X, mode, h)
+	w.onFailure = saved
 	w.catches = w.catches[:len(w.catches)-1]
 	// The caught call fails after its operands are evaluated; a try inside
 	// it fails before the later temporaries exist.
 	n := len(w.vars)
-	fail := w.copyState(w.st)
-	if mode == mHold && w.tail.slot >= 0 && fail != nil {
-		// The success result does not exist on a caught failure path.
-		fail[w.tail.slot] = ownSlot{st: ownMoved, at: x, how: "the result failed"}
-	}
+	var fail []ownSlot
 	for _, f := range k.fails {
 		fail = w.join(fail, f, n)
 	}
 	out := w.st
+	if m := w.info.Matches[x]; m != nil && m.Partial && saved != nil {
+		// Unhandled alternatives leave with the same pre-production
+		// states. They must not borrow the successful result's lifetime.
+		for _, f := range k.fails {
+			w.st = padState(w.copyState(f), n)
+			saved()
+		}
+	}
 	for _, arm := range x.Arms {
 		w.st = w.copyState(fail)
 		w.block(arm, arm.Body)

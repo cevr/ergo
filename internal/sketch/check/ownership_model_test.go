@@ -134,10 +134,13 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 	t.Helper()
 	rng := rand.New(rand.NewPCG(seed, 0x197a204))
 	next := 0
-	consumer := rng.IntN(4) // lend, take, bind, short-circuit operand
+	consumer := rng.IntN(10) // lend, take, bind, short circuit, sibling and fallible operands
 	var value func(int) string
 	value = func(depth int) string {
 		if depth == 0 {
+			if rng.IntN(3) == 0 {
+				return "try tryOpen(n)"
+			}
 			if (consumer == 0 || consumer == 3) && rng.IntN(3) == 0 {
 				return "outer"
 			}
@@ -160,7 +163,7 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 			}
 			return value(depth - 1)
 		}
-		switch rng.IntN(5) {
+		switch rng.IntN(6) {
 		case 0:
 			return "if cond(n) {\n" + arm() + "\n} else {\n" + arm() + "\n}"
 		case 1:
@@ -169,6 +172,8 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 			return "match (n, n) {\ncase (_, _):\n" + arm() + "\n}"
 		case 3:
 			return "with context {} {\n" + arm() + "\n}"
+		case 5:
+			return "try tryBoth(n) catch {\ncase Bad:\n" + arm() + "\n}"
 		default:
 			if rng.IntN(2) == 0 {
 				return "tryHold(open(4), n) catch {\ncase Bad:\n" + arm() + "\n}"
@@ -185,8 +190,20 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 		stmt = "let result = " + x + "\nlend(result)"
 	case 3:
 		stmt = "let _ = cond(n) && held(" + x + ")"
+	case 4:
+		stmt = "both(" + x + ", try fail(n))"
+	case 5:
+		stmt = "both(try tryOpen(n), take(" + x + "))"
+	case 6:
+		stmt = "lend(try tryHold(" + x + ", fail(n)))"
+	case 7:
+		stmt = "keep(try tryHold(open(4), fail(n)))"
+	case 8:
+		stmt = "lend(try tryHold(tryOpen(n), fail(n)))"
+	case 9:
+		stmt = "both(try tryHold(tryOpen(n), fail(n)), take(" + x + "))"
 	}
-	src := ofPrelude + "func tryOpen(n int) Res fails Bad { if n > 0 { return Bad }; open(n) }\nfunc tryHold(r Res, n int) Res fails Bad { if n > 0 { return Bad }; open(n) }\nfunc body(n int) {\nlet outer = open(1)\n" + stmt + "\nlend(outer)\n}\nfunc main() {}\n"
+	src := ofPrelude + "type Worse {}\nfunc tryBoth(n int) Res fails Bad | Worse { if n > 0 { return Bad }; if n < 0 { return Worse }; open(n) }\nfunc tryOpen(n int) Res fails Bad { if n > 0 { return Bad }; open(n) }\nfunc tryHold(r Res, n int) Res fails Bad { if n > 0 { return Bad }; open(n) }\nfunc body(n int) fails Bad | Worse {\nlet outer = open(1)\n" + stmt + "\nlend(outer)\n}\nfunc main() {}\n"
 	c, ds := checkFor(src)
 	if len(ds) != 0 {
 		t.Fatalf("yield seed %d: %v\n%s", seed, ds, src)
@@ -197,14 +214,16 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 			body = f.Body
 		}
 	}
-	// Each choice consumes one bit. The generated tree has at most three
-	// nested choices, plus the short-circuit operand and catch success.
-	for path := range 1 << 5 {
+	// Each choice consumes one bit: branch, short-circuit, producing-call
+	// success/failure, or handled/unhandled partial-catch alternative.
+	for path := range 1 << 8 {
 		type token struct{ id, releases int }
 		var tokens []*token
 		vars := map[*Var]*token{}
 		temps := map[syntax.Expr]*token{}
 		active := map[syntax.Expr]bool{}
+		var failure syntax.Node
+		abort := new(int) // only this interpreter's failed try unwinds execution
 		var events []string
 		bits := path
 		choose := func() bool { b := bits&1 != 0; bits >>= 1; return b }
@@ -223,6 +242,9 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 			last := len(tokens) + 1
 			for _, r := range c.pkg.Info.Releases[n] {
 				v := vars[r.Var]
+				if r.Var != nil && r.Flag && v == nil {
+					continue
+				}
 				if r.Temp != nil {
 					v = temps[r.Temp]
 					if r.Flag && !active[r.Temp] {
@@ -282,15 +304,25 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 				return out
 			case *syntax.ParenExpr:
 				return expr(x.X)
+			case *syntax.TryExpr:
+				saved := failure
+				failure = x
+				v := expr(x.X)
+				failure = saved
+				return v
 			case *syntax.CallExpr:
 				k := c.pkg.Info.Calls[x]
 				if k != nil && k.Kind == CallWith {
 					return result(x, x.Trailing, x.Trailing.List)
 				}
 				name := calleeText(x)
-				if name == "open" || name == "tryOpen" || name == "tryHold" {
+				if name == "open" || name == "tryOpen" || name == "tryHold" || name == "tryBoth" {
 					for _, a := range x.Args {
 						expr(a)
+					}
+					if name != "open" && failure != nil && choose() {
+						release(failure)
+						panic(abort)
 					}
 					v := &token{id: len(tokens) + 1}
 					tokens = append(tokens, v)
@@ -302,10 +334,14 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 				for _, a := range x.Args {
 					v := expr(a)
 					use(v)
-					if name == "keep" && v != nil {
+					if (name == "keep" || name == "take") && v != nil {
 						v.releases++
 						events = append(events, "take/release")
 					}
+				}
+				if name == "fail" && failure != nil && choose() {
+					release(failure)
+					panic(abort)
 				}
 			case *syntax.IfStmt:
 				if choose() {
@@ -328,10 +364,17 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 					for _, a := range x.X.(*syntax.CallExpr).Args {
 						expr(a)
 					}
+					if calleeText(x.X.(*syntax.CallExpr)) == "tryBoth" && choose() {
+						release(failure)
+						panic(abort)
+					}
 					a := x.Arms[0]
 					return result(x, a, a.Body)
 				}
+				saved := failure
+				failure = nil // this path chose the caught call's success
 				v := expr(x.X)
+				failure = saved
 				temps[x] = v
 				active[x] = true
 				return v
@@ -363,7 +406,14 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 			}
 			return nil
 		}
-		block(body, body.List)
+		func() {
+			defer func() {
+				if p := recover(); p != nil && p != abort {
+					panic(p)
+				}
+			}()
+			block(body, body.List)
+		}()
 		for _, v := range tokens {
 			if v.releases != 1 {
 				fail("acquired token not released exactly once")

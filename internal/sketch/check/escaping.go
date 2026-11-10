@@ -112,6 +112,10 @@ type escWalk struct {
 	// aliases maps a local that holds a borrow to the let mut locals the
 	// borrow may point into (borrowAliases).
 	aliases map[*Var][]*Var
+	// addressed is a sufficient-proof barrier, independent of alias flow:
+	// an explicit or implicit borrow anywhere in the declaration means
+	// unknown aliases are possible, so this local keeps reference capture.
+	addressed map[*Var]bool
 
 	// Local frames (localFrames below): collecting is set during the
 	// first walk of a declaration, which records the uses of each local
@@ -390,11 +394,13 @@ func (w *escWalk) allowed(id *syntax.Ident, v *Var) bool {
 // rooted at it, the implicit borrow of a dot call whose function takes
 // *T, and each use of a local that holds a borrow into it (`let p = &x`,
 // then `set(p)`: the borrow writes where it is used; borrowAliases).
-// Under the rule a capture by value and Go's capture by reference give
-// one result, so the lowering copies each such local when it makes the
-// literal (Info.ValueCaptures): the local stays on the stack, where Go's
-// capture by reference of a variable that is assigned moves it to the
-// heap. The rule is source order, not reachability: a write in the other
+// The alias graph supplies diagnostics for known writes, never a proof of
+// no alias. Value capture additionally requires a positive no-alias proof:
+// this local's address is never taken anywhere in its declaration (explicit
+// &place or implicit borrowed receiver). Otherwise use reference capture.
+// This sufficient proof needs no knowledge of a call's result, out parameters
+// or closures, and no new lifetime analysis. The rule is source order, not
+// reachability: a write in the other
 // arm of an if after the literal is refused too (the simpler rule; write
 // it before the literal).
 //
@@ -545,6 +551,12 @@ func holdsBorrow(t Type) bool {
 // error, never a silent miss (batch-15 C2 M1 repeat).
 func (w *escWalk) borrowAliases(d syntax.Node) {
 	w.aliases = map[*Var][]*Var{}
+	w.addressed = map[*Var]bool{}
+	address := func(x syntax.Expr) {
+		if v := w.placeRoot(x); v != nil {
+			w.addressed[v] = true
+		}
+	}
 	type edge struct {
 		to    *Var
 		roots []*Var // let mut locals a borrow in the value points into
@@ -569,6 +581,12 @@ func (w *escWalk) borrowAliases(d syntax.Node) {
 	var walk func(n syntax.Node)
 	walk = func(n syntax.Node) {
 		switch n := n.(type) {
+		case *syntax.UnaryExpr:
+			if n.Op == syntax.AND {
+				address(n.X)
+			}
+		case *syntax.CallExpr:
+			address(implicitBorrow(w.info, n))
 		case *syntax.AssignStmt:
 			if n.Tok == syntax.ASSIGN {
 				for i, l := range n.Lhs {
@@ -680,8 +698,10 @@ func assignedNames(x syntax.Expr) []*syntax.Ident {
 // the root holds a borrow itself (via); and each local in x that holds a
 // borrow (via). It reads every expression form (tuples, if and match
 // values, a catch's arms, parentheses), so how the value is written does
-// not matter. It skips a call's operands and a function literal's body: a
-// call's result holds no borrow (Borrows 1), a with's value is its block's.
+// not matter. It skips a call's operands and a function literal's body:
+// these have unknown alias flow, not proof of no alias. addressed separately
+// disqualifies every borrowed root from value capture. A with's value is its
+// block's. Borrow placement through generics is not proved by this graph.
 func (w *escWalk) borrowsIn(x syntax.Expr, roots, via *[]*Var) {
 	syntax.Inspect(x, func(n syntax.Node) bool {
 		switch n := n.(type) {
@@ -756,7 +776,13 @@ func (w *escWalk) finishCaptures() {
 				continue
 			}
 			seen[e] = true
-			w.info.ValueCaptures[e] = append(w.info.ValueCaptures[e], v)
+			// The alias graph proves known writes, not the absence of an
+			// alias. A call can hide one in a generic result or out parameter.
+			// No address taken is a positive, conservative proof; otherwise
+			// the reference lowering remains correct without that proof.
+			if !w.addressed[v] {
+				w.info.ValueCaptures[e] = append(w.info.ValueCaptures[e], v)
+			}
 			at := indexOf(ce.regions, e)
 			for _, wr := range evs {
 				if !wr.write || reported[wr.id] {
