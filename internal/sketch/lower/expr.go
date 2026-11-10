@@ -254,6 +254,9 @@ func (fc *funcCtx) exprOf(x syntax.Expr) operand {
 	if val, ok := fc.bareRecord(x); ok {
 		return operand{val: val}
 	}
+	if w := fc.l.info.ContextValues[x]; w != nil {
+		return operand{val: fc.contextValue(x, w)}
+	}
 	switch x := x.(type) {
 	case *syntax.ParenExpr:
 		return fc.expr(x.X)

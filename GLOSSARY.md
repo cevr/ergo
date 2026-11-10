@@ -85,6 +85,8 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **With** (checked for one context): The compiler-known form `with W { block }`. It installs a context for the block: it discharges the capabilities `W` binds and yields the block's last expression. It also takes context values (designed).
 
+**Context[R]** (checked and lowered; L5): A context as a value: the built providers of the capability row `R`. A context converts to one where a `Context[R]` is expected, and `with v { … }` installs it, discharging `R` and building nothing. Not a *context value* (below), which is a value held in the context. *Prior art:* Effect's `Context<R>`, ZIO's `ZEnvironment[R]`.
+
 **Context value** (designed): A value in the context: an immutable value, such as a span or a log annotation, that `with` scopes to a block and that every task started inside inherits.
 
 **Footprint** (designed): Every capability a function's body exercises, including the ones its own `with` provides, plus `go`. The compiler infers it; it is never written.

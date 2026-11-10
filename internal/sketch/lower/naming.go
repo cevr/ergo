@@ -147,6 +147,13 @@ func (l *lowerer) nameAll() {
 				}
 			}
 		}
+		for x, with := range p.Info.ContextValues {
+			if w := with.Contexts[0]; l.readsFact(p, x) && w.Lit != nil {
+				for _, e := range w.Entries {
+					convs = append(convs, e.Conversions...)
+				}
+			}
+		}
 		if l.tests != nil && p == l.pkg {
 			// A law's run converts each provider into its operation type
 			// (tests.go, lawRuns).
@@ -345,6 +352,11 @@ func (l *lowerer) libraryPackages() []*check.Package {
 				for _, w := range with.Contexts {
 					contextPackages(w, add, visited)
 				}
+			}
+		}
+		for x, with := range info.ContextValues {
+			if l.readsFact(p, x) {
+				contextPackages(with.Contexts[0], add, visited)
 			}
 		}
 	}

@@ -405,6 +405,7 @@ Status: **declared** in the embedded prelude (`internal/sketch/std/prelude.ergo`
 - `Machine[S, E, O, F, R]`, a machine as a value, a record of `Initial S`, `Step func(s S, e E) Decision[S, O] fails F needs R` and `After func(s S) Option[Timeout[E]]`.
 - `InputMachine[I, S, E, O, F, R]`, a machine whose first state is a function of an input `I`: a record of `Start func(input I) S`, `Step` and `After` as in `Machine`. A machine declaration whose `initial` names a start function converts to it, and to no `Machine` ([runtime.md](runtime.md#machines-and-actors) 10). A value of a machine declaration `type X machine[S, E]` is assignable to the `Machine` whose `O`, `F` and `R` are its step's output, error row and capability row, and to no other type (Assignability, ConvMachine; README Gap 46); inference reads them the same way, so `machines.Run(X{}, signals)` needs no type arguments ([runtime.md](runtime.md#machines-and-actors) 8).
 - `CallSite { File string, Line int, Column int }`, a call's source position, which a call passes for a final `CallSite` parameter it leaves out ([Call sites](#call-sites)).
+- `Context[R]`, a context as a value: the built providers of the capability row `R` ([rows.md](rows.md#context) 10).
 - The capabilities `Scheduler`, `Random` and `Console` (`Clock` is `time.Clock`).
 
 ## Unreachable

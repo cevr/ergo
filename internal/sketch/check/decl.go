@@ -1473,15 +1473,26 @@ func (c *checker) rowExpr(xs []syntax.Expr, kind Kind, ctx *typeCtx) *Row {
 // refused element gives nil, so the instance is invalid, as an invalid type
 // argument makes it.
 func (c *checker) rowArg(x syntax.Expr, kind Kind, ctx *typeCtx) *RowArg {
-	t := c.rowElem(x, kind, ctx)
-	if t == nil {
-		return nil
-	}
 	row := newRow()
-	for _, e := range rowMembers(t) {
-		row = row.with(c.types, e)
+	// A row of several elements is written as a row is, A | B (196n).
+	for _, x := range rowArgElems(x, nil) {
+		t := c.rowElem(x, kind, ctx)
+		if t == nil {
+			return nil
+		}
+		for _, e := range rowMembers(t) {
+			row = row.with(c.types, e)
+		}
 	}
 	return &RowArg{Row: row}
+}
+
+// rowArgElems is the elements of a written row argument, A | B | C.
+func rowArgElems(x syntax.Expr, out []syntax.Expr) []syntax.Expr {
+	if b, ok := unparen(x).(*syntax.BinaryExpr); ok && b.Op == syntax.OR {
+		return rowArgElems(b.Y, rowArgElems(b.X, out))
+	}
+	return append(out, x)
 }
 
 // rowMembers is the row a resolved row element t means: the variants of a

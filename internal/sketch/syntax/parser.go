@@ -1355,7 +1355,15 @@ func (p *parser) parseTypeArgs(x Expr) Expr {
 	saved := p.exprLev
 	p.exprLev = 1
 	for p.tok.tok != RBRACK {
-		ix.Indices = append(ix.Indices, p.parseType(ctxList))
+		// A row argument is spelled as a row is, `A | B` (196n): the
+		// checker admits it only at a row parameter (types.md, Generics 7).
+		t := p.parseType(ctxList)
+		for p.tok.tok == OR {
+			pos := p.tok.pos
+			p.next()
+			t = &BinaryExpr{X: t, OpPos: pos, Op: OR, Y: p.parseType(ctxList)}
+		}
+		ix.Indices = append(ix.Indices, t)
 		if !p.got(COMMA) {
 			break
 		}

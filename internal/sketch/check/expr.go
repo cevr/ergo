@@ -259,6 +259,13 @@ func exprText(x syntax.Expr) string {
 }
 
 func (c *checker) expr0(x syntax.Expr, hint Type) operand {
+	if row, ok := contextRow(hint); ok {
+		// A context where a Context[R] is expected converts to it
+		// (contextvalues.go).
+		if op, ok := c.contextConversion(x, hint.(*Named), row); ok {
+			return op
+		}
+	}
 	switch x := x.(type) {
 	case *syntax.Ident:
 		return c.boolLiteral(c.ident(x), hint)
@@ -666,6 +673,11 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 			c.orphanElements(x, mark, lt())
 			return bad(x)
 		}
+	}
+	if _, isContext := contextRow(t); isContext && !c.pkg.std {
+		// Only a conversion makes a Context value (contextvalues.go).
+		c.errorf(x, CodeType, "a Context value is made from a context: let v %s = context { … } (rows.md, Context values)", t)
+		t = invalid
 	}
 	if isInvalid(t) {
 		c.orphanElements(x, mark, lt())

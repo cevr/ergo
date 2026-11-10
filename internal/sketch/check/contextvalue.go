@@ -38,7 +38,11 @@ import (
 // here, with outside's message when outside is set. An unknown with
 // discharges everything, so nothing cascades (D3).
 func (c *checker) contextArg(arg syntax.Expr, outside string) (*ContextBinding, bool) {
-	op := c.valueExpr(arg, nil)
+	return c.contextArgOf(arg, c.valueExpr(arg, nil), outside)
+}
+
+// contextArgOf is contextArg of the operand op, arg already checked.
+func (c *checker) contextArgOf(arg syntax.Expr, op operand, outside string) (*ContextBinding, bool) {
 	if op.invalid() || op.typ == nil || isInvalid(op.typ) {
 		return nil, false
 	}

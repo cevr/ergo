@@ -404,6 +404,12 @@ func (fp *footprinter) with(n *fpNode, w *With) {
 		fp.runs(n, cb.Text, false)
 		return
 	}
+	if w.Installs != nil {
+		// A with of a Context value calls the value, which writes its
+		// providers into the environment copy (contextvalues.go).
+		n.opaque = true
+		return
+	}
 	if len(w.Contexts) == 0 {
 		return
 	}
@@ -506,6 +512,16 @@ func (fp *footprinter) walk(n *fpNode, root syntax.Node) {
 		case *syntax.CallExpr:
 			c := fp.info.Calls[x]
 			fp.call(n, x, c)
+		case syntax.Expr:
+			// A conversion to a Context value builds its providers here
+			// and reads the environment, which a pure frame has not
+			// (contextvalues.go): opaque, as a context read is.
+			if w := fp.info.ContextValues[x]; w != nil {
+				n.opaque = true
+				if !fp.foreign {
+					fp.build(n, w)
+				}
+			}
 		}
 		return true
 	})

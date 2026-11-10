@@ -24,7 +24,7 @@ const (
 
 // The Design A2 messages (context_local.go).
 const (
-	contextValueMsg  = "a context is used only by with or embedded in a context: with w { … } or context { w, … }"
+	contextValueMsg  = "a context is used only by with, embedded in a context, or where a Context[R] is expected: with w { … }, context { w, … } or let v Context[R] = w"
 	contextRebindMsg = "a context is bound once by let; it is not reassigned"
 )
 

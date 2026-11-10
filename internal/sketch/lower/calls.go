@@ -836,6 +836,10 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 		fc.contextWith(arg, w.Value, inner) // the context owner (context.go)
 		return
 	}
+	if w.Installs != nil {
+		fc.installWith(arg, inner) // a Context value (contextvalues.go)
+		return
+	}
 	if len(w.Contexts) == 0 {
 		ice(arg, "a with operand with neither a context nor a context binding (With.Contexts, With.Value)")
 	}
