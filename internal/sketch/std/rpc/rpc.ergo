@@ -52,16 +52,27 @@ extern go ergo.local/prototype/runtime/v1.RPCListen func Listen(addr string) Lis
 // caller closes the listener and stops every call first.
 extern go ergo.local/prototype/runtime/v1.RPCServe func Serve[R](l Listener, mount string, handle func(tag string, payload string) string fails Failed needs R) needs R
 
-// Conn is the URL of an Effect RPC server, for Call.
-type Conn { url string, live hostOnly }
-
-// hostOnly is the zero-size type of Conn's field: only this package
-// builds a Conn, so only code that holds Ambient reaches the host.
-type hostOnly {}
+// Conn is an Effect RPC server, for Call: one at a URL (Dial) or one
+// served in this process (Loopback). Its field is unexported: only this
+// package builds a Conn, so only code that holds Ambient reaches the host.
+type Conn { post func(tag string, payload string) string fails Failed }
 
 // Dial is the server at url, the URL its mount answers (no request is
 // made until a Call).
-func Dial(url string) Conn needs Ambient { Conn{url: url, live: hostOnly} }
+func Dial(url string) Conn needs Ambient {
+	Conn{post: func(tag string, payload string) string fails Failed { try call(url, tag, payload) }}
+}
+
+// Loopback is handle served in this process, as Serve serves it: each
+// Call is answered by Serve's own server (its envelopes, its json answer,
+// a net/http request and response) in memory, with no socket, so it
+// reaches no host and needs no Ambient. handle runs on a task below the caller; a stop of the caller
+// stops that task, and Call ends after its releases ran. A test binds
+// the generated Client of a contract over a Loopback of its server, so
+// the contract's laws hold through the wire.
+func Loopback(handle escaping func(tag string, payload string) string fails Failed) Conn {
+	Conn{post: func(tag string, payload string) string fails Failed { try local(handle, tag, payload) }}
+}
 
 // Call posts one Request for the operation tag with payload, a JSON
 // object's text, and is the Success value's text. A Fail cause fails
@@ -69,10 +80,12 @@ func Dial(url string) Conn needs Ambient { Conn{url: url, live: hostOnly} }
 // response that breaks the protocol are defects. A stop of the caller
 // aborts the request.
 func Call(c Conn, tag string, payload string) string fails Failed {
-	try call(c.url, tag, payload)
+	try c.post(tag, payload)
 }
 
 extern go ergo.local/prototype/runtime/v1.RPCCall func call(url string, tag string, payload string) string fails Failed
+
+extern go ergo.local/prototype/runtime/v1.RPCLocal func local(handle func(tag string, payload string) string fails Failed, tag string, payload string) string fails Failed
 
 // Tagged is object, a JSON object's text, with "_tag": tag as its first
 // member: the wire form of a typed failure and of a request.

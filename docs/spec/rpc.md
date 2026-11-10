@@ -10,7 +10,8 @@ Std `rpc` serves and calls an operation type over Effect RPC's HTTP protocol, so
 | `Listener` | `Addr() string`: the bound address with its port | `Listener` |
 | `Serve` | `Serve[R](l Listener, mount string, handle func(tag string, payload string) string fails Failed needs R) needs R` | `RPCServe` |
 | `Dial` | `Dial(url string) Conn needs Ambient` | Ergo |
-| `Call` | `Call(c Conn, tag string, payload string) string fails Failed` | `RPCCall` |
+| `Loopback` | `Loopback(handle escaping func(tag string, payload string) string fails Failed) Conn`: `handle` served in this process | Ergo over `RPCLocal` |
+| `Call` | `Call(c Conn, tag string, payload string) string fails Failed` | `RPCCall` (Dial), `RPCLocal` (Loopback) |
 | `Failed` | `Failed { Text string }`: a typed failure's tagged JSON | `RPCFailed` |
 | `ListenFailed` | `ListenFailed { Addr string, Reason string }` | `RPCListenFailed` |
 | `Unrepresentable` | `Unrepresentable { Path string, Value string }` | `RPCUnrepresentable` |
@@ -24,6 +25,7 @@ Std `rpc` serves and calls an operation type over Effect RPC's HTTP protocol, so
 3. **Exit.** A value is `{"_tag":"Success","value":V}`, `null` for an operation with no value; `handle`'s `Failed{Text}` is `{"_tag":"Failure","cause":[{"_tag":"Fail","error":Text}]}`; a defect is `{"_tag":"Failure","cause":[{"_tag":"Die","defect":{"name":N,"message":M}}]}`. `requestId` is the request's id token as sent, a number or a string.
 4. **Call.** `Call` posts one `Request` (`application/json`, ids counted from 0) and reads its `Exit`: a value's text, `Failed` with a `Fail`'s error text, and a `Die` raised again as the server's defect. A lost server is the defect `RpcClientError`. A stop of the calling task aborts the request, which stops the call on the server.
 5. **The int rule** (orchestrator 2026-11-10, Q3). A JavaScript number holds an integer exactly only within ±(2^53−1), so the Effect RPC profile refuses a larger one at encode and at decode: `Exact` and `ExactUint` fail with `Unrepresentable{Path, Value}`, and `Under` prefixes its path as a walker descends. The `json` codec itself writes every int's exact digits. A field that needs the full range uses a string type.
+6. **Loopback.** `Loopback(handle)` is a `Conn` to `handle` served in this process: each `Call` is answered by the same server as `Serve`'s (its envelopes, its json answer, a `net/http` request and response) in memory, with no socket and no connection, so it reaches no host and needs no `Ambient`, and `handle` runs on a task below the caller, as a call of `Serve` runs. A stop of the caller stops that task, and `Call` ends after its releases ran (`TestRPCLocalStopRunsTheRelease`). A row-free constructor can build a generated `Client` over it, so `ergo test` runs a contract's laws through the wire: `examples/limiter/loopback`.
 
 ## ergo gen rpc
 

@@ -236,44 +236,19 @@ func RPCServe(span Site, t *rt.Task, l *Listener, mount string, handle func(*rt.
 	srv := &http.Server{Handler: s}
 	failed := make(chan error, 1)
 	go func() { failed <- srv.Serve(l.ln) }()
-	// ended carries each finished call task's handle back to this
-	// goroutine, which owns the handles and consumes each with Wait.
-	ended := make(chan *rt.Handle[struct{}], 16)
-	live := map[*rt.Handle[struct{}]]bool{}
+	tasks := newRPCTasks(span, t, handle)
 	stop := t.Done()
 	shutdown := func() {
 		close(s.quit)
 		_ = srv.Close()
-		for h := range live {
-			h.Task().Interrupt()
-		}
-		for len(live) > 0 {
-			h := <-ended
-			delete(live, h)
-			_, _ = h.Wait()
-		}
+		tasks.stopAll()
 	}
 	for {
 		select {
 		case c := <-s.calls:
-			holder := rt.NewScope(t)
-			var self atomic.Pointer[rt.Handle[struct{}]]
-			ready := make(chan struct{})
-			h := rt.Go(&holder, string(span), func(ct *rt.Task) (struct{}, error) {
-				c.started(ct)
-				v, err := guarded(ct, func(ct *rt.Task) (string, error) { return handle(ct, c.tag, c.payload) })
-				c.exit = rpcExit(v, err)
-				close(c.done)
-				<-ready
-				ended <- self.Load()
-				return struct{}{}, nil
-			})
-			self.Store(h)
-			close(ready)
-			live[h] = true
-		case h := <-ended:
-			delete(live, h)
-			_, _ = h.Wait()
+			tasks.start(c)
+		case h := <-tasks.ended:
+			tasks.end(h)
 		case <-stop:
 			shutdown()
 			panic(rt.Interrupted)
@@ -282,6 +257,170 @@ func RPCServe(span Site, t *rt.Task, l *Listener, mount string, handle func(*rt.
 			panic(rpcDefect{Name: "RpcError", Message: "rpc.Serve: " + err.Error()})
 		}
 	}
+}
+
+// rpcTasks are the call tasks of one server below its task t. Only the
+// goroutine that runs t calls its methods: it owns the handles and
+// consumes each with Wait; ended carries each finished call task's handle
+// back to it.
+type rpcTasks struct {
+	span   Site
+	t      *rt.Task
+	handle func(*rt.Task, string, string) (string, error)
+	ended  chan *rt.Handle[struct{}]
+	live   map[*rt.Handle[struct{}]]bool
+}
+
+func newRPCTasks(span Site, t *rt.Task, handle func(*rt.Task, string, string) (string, error)) *rpcTasks {
+	return &rpcTasks{span: span, t: t, handle: handle, ended: make(chan *rt.Handle[struct{}], 16), live: map[*rt.Handle[struct{}]]bool{}}
+}
+
+// start runs the call c on a task of its own below t.
+func (s *rpcTasks) start(c *rpcCall) {
+	holder := rt.NewScope(s.t)
+	var self atomic.Pointer[rt.Handle[struct{}]]
+	ready := make(chan struct{})
+	h := rt.Go(&holder, string(s.span), func(ct *rt.Task) (struct{}, error) {
+		c.started(ct)
+		v, err := guarded(ct, func(ct *rt.Task) (string, error) { return s.handle(ct, c.tag, c.payload) })
+		c.exit = rpcExit(v, err)
+		close(c.done)
+		<-ready
+		s.ended <- self.Load()
+		return struct{}{}, nil
+	})
+	self.Store(h)
+	close(ready)
+	s.live[h] = true
+}
+
+// end consumes the finished call task h.
+func (s *rpcTasks) end(h *rt.Handle[struct{}]) {
+	delete(s.live, h)
+	_, _ = h.Wait()
+}
+
+// stopAll stops every call task left and consumes each.
+func (s *rpcTasks) stopAll() {
+	for h := range s.live {
+		h.Task().Interrupt()
+	}
+	for len(s.live) > 0 {
+		s.end(<-s.ended)
+	}
+}
+
+// rpcAnswer is the in-process ResponseWriter of a Loopback request: it
+// keeps the status, the headers and the body the server writes.
+type rpcAnswer struct {
+	header http.Header
+	status int
+	body   bytes.Buffer
+}
+
+func (a *rpcAnswer) Header() http.Header { return a.header }
+func (a *rpcAnswer) WriteHeader(status int) {
+	if a.status == 0 {
+		a.status = status
+	}
+}
+func (a *rpcAnswer) Write(b []byte) (int, error) {
+	a.WriteHeader(http.StatusOK)
+	return a.body.Write(b)
+}
+
+// RPCLocal posts one Request for tag with payload to handle, served in
+// this process (rpc.Loopback): the same server as RPCServe's (rpcServer,
+// its envelopes, its json answer) reads a net/http request and writes
+// its response in memory, with no socket and no connection, so it
+// reaches no host. handle runs on a task below t, as a call of Serve
+// runs. A stop of t cancels the request, which stops the call's task;
+// RPCLocal returns after the call's releases ran, with the stop.
+func RPCLocal(span Site, t *rt.Task, handle func(*rt.Task, string, string) (string, error), tag string, payload string) (string, error) {
+	t.Check()
+	s := &rpcServer{mount: "/rpc", calls: make(chan *rpcCall), quit: make(chan struct{})}
+	id, b := rpcRequest(tag, payload)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/rpc/", bytes.NewReader(b))
+	if err != nil {
+		panic(rpcDefect{Name: "RpcClientError", Message: err.Error()})
+	}
+	req.Header.Set("Content-Type", rpcJSON)
+	got := make(chan rpcResult, 1)
+	go func() {
+		a := &rpcAnswer{header: http.Header{}}
+		s.ServeHTTP(a, req)
+		res := rpcResult{body: a.body.Bytes(), ct: a.header.Get("Content-Type")}
+		if a.status != http.StatusOK {
+			res.err = fmt.Errorf("status %d: %s", a.status, strings.TrimSpace(a.body.String()))
+		}
+		got <- res
+	}()
+	tasks := newRPCTasks(span, t, handle)
+	stop := t.Done()
+	stopped := false
+	var res rpcResult
+	for waiting := true; waiting; {
+		select {
+		case c := <-s.calls:
+			tasks.start(c)
+		case h := <-tasks.ended:
+			tasks.end(h)
+		case <-stop:
+			// The cancel reaches the call as a client's abort reaches
+			// Serve's: its task is stopped and its releases run before
+			// the answer ends.
+			stop, stopped = nil, true
+			cancel()
+		case res = <-got:
+			waiting = false
+		}
+	}
+	close(s.quit)
+	tasks.stopAll()
+	if stopped {
+		panic(rt.Interrupted)
+	}
+	if res.err != nil {
+		panic(rpcDefect{Name: "RpcClientError", Message: res.err.Error()})
+	}
+	return rpcReadExit(res.body, strings.HasPrefix(res.ct, rpcNDJSON), id)
+}
+
+// rpcRequest is the id and the body of one Request for tag with payload.
+func rpcRequest(tag, payload string) (string, []byte) {
+	id := strconv.FormatUint(rpcIDs.Add(1)-1, 10)
+	b := make([]byte, 0, len(payload)+len(tag)+64)
+	b = append(b, `{"_tag":"Request","id":`...)
+	b = append(b, id...)
+	b = append(b, `,"tag":`...)
+	b = JSONAppendString(b, tag)
+	b = append(b, `,"payload":`...)
+	b = append(b, payload...)
+	b = append(b, `,"headers":[]}`...)
+	return id, b
+}
+
+// rpcResult is a response's body and content type, or why there is none.
+type rpcResult struct {
+	body []byte
+	ct   string
+	err  error
+}
+
+// rpcPost sends req with hc and reads the whole response.
+func rpcPost(hc *http.Client, req *http.Request) rpcResult {
+	resp, err := hc.Do(req)
+	if err != nil {
+		return rpcResult{err: err}
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err == nil && resp.StatusCode != http.StatusOK {
+		err = fmt.Errorf("status %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+	return rpcResult{body: body, ct: resp.Header.Get("Content-Type"), err: err}
 }
 
 // rpcExit is the Exit's "exit" member for a call's outcome.
@@ -488,15 +627,7 @@ var rpcClient = &http.Client{}
 //ergo:host
 func RPCCall(t *rt.Task, url string, tag string, payload string) (string, error) {
 	t.Check()
-	id := strconv.FormatUint(rpcIDs.Add(1)-1, 10)
-	b := make([]byte, 0, len(payload)+len(tag)+64)
-	b = append(b, `{"_tag":"Request","id":`...)
-	b = append(b, id...)
-	b = append(b, `,"tag":`...)
-	b = JSONAppendString(b, tag)
-	b = append(b, `,"payload":`...)
-	b = append(b, payload...)
-	b = append(b, `,"headers":[]}`...)
+	id, b := rpcRequest(tag, payload)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(url, "/")+"/", bytes.NewReader(b))
@@ -504,26 +635,9 @@ func RPCCall(t *rt.Task, url string, tag string, payload string) (string, error)
 		panic(rpcDefect{Name: "RpcClientError", Message: err.Error()})
 	}
 	req.Header.Set("Content-Type", rpcJSON)
-	type result struct {
-		body []byte
-		ct   string
-		err  error
-	}
-	got := make(chan result, 1)
-	go func() {
-		resp, err := rpcClient.Do(req)
-		if err != nil {
-			got <- result{err: err}
-			return
-		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err == nil && resp.StatusCode != http.StatusOK {
-			err = fmt.Errorf("status %s: %s", resp.Status, strings.TrimSpace(string(body)))
-		}
-		got <- result{body: body, ct: resp.Header.Get("Content-Type"), err: err}
-	}()
-	var res result
+	got := make(chan rpcResult, 1)
+	go func() { got <- rpcPost(rpcClient, req) }()
+	var res rpcResult
 	select {
 	case res = <-got:
 	case <-t.Done():

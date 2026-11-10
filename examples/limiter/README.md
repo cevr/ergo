@@ -19,6 +19,11 @@ reads it through the content mapper (`tools/ts`), so there is no generated
 - `memory/` is the provider: a bucket per key in a `sync.Ref`, so each
   take is one atomic step. `ergo test memory` runs the contract's laws
   against it.
+- `loopback/` is the same limiter through the wire: the generated client
+  of a memory limiter that the generated server serves in process
+  (`rpc.Loopback`: Serve's own server answers each call in memory).
+  `ergo test loopback` runs the contract's laws against the client, so
+  the laws that hold for the provider hold through the wire.
 - `cmd/limiter/main.ergo` chooses the buckets (`api`: 5 tokens, one back
   per 200 ms; `search`: 3, one per second), binds `limits.Limiter` to the
   memory provider and serves it on `127.0.0.1:0`, printing the address

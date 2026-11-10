@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"ergo.local/prototype/internal/testwait"
@@ -205,5 +206,46 @@ func TestRPCAbortStopsTheCall(t *testing.T) {
 	case <-h.release:
 	case <-testwait.After(t):
 		t.Fatal("the stopped caller's call was not stopped on the server")
+	}
+}
+
+// TestRPCLocalStopRunsTheRelease is rpc.Loopback's interruption fact: a
+// stop of the caller aborts the in-memory request, which stops the call's
+// task, and RPCLocal returns, with the stop, after the call's release
+// ran. It catches r3b-local-stop (a stopped caller's Call that ends with
+// a defect read from the server's Interrupt answer). The limiter's laws over
+// a Loopback hold its success and failure paths; no law stops a caller.
+// It waits on events.
+func TestRPCLocalStopRunsTheRelease(t *testing.T) {
+	started := make(chan struct{}, 1)
+	var released atomic.Bool
+	handle := func(ct *rt.Task, tag, payload string) (string, error) {
+		defer released.Store(true)
+		started <- struct{}{}
+		<-ct.Done()
+		panic(rt.Interrupted)
+	}
+	caller := rt.Root("rpc loopback caller")
+	ended := make(chan any, 1)
+	go func() {
+		defer func() { ended <- recover() }()
+		_, _ = RPCLocal("rpc loopback test", caller, handle, "Wait", `{}`)
+	}()
+	select {
+	case <-started:
+	case <-testwait.After(t):
+		t.Fatal("the loopback call did not start")
+	}
+	caller.Interrupt()
+	select {
+	case p := <-ended:
+		if p != rt.Interrupted {
+			t.Errorf("the stopped caller's RPCLocal ended with %v, want the interruption", p)
+		}
+		if !released.Load() {
+			t.Error("RPCLocal returned before the call's release ran")
+		}
+	case <-testwait.After(t):
+		t.Fatal("the stopped caller's loopback call did not end")
 	}
 }

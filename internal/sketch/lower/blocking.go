@@ -330,6 +330,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Listener.Addr": {},
 	"RPCServe":      {wait: childWait},
 	"RPCCall":       {wait: callerWait},
+	"RPCLocal":      {wait: childWait},
 	"RPCTagged":     {},
 	"RPCTagOf":      {},
 	"RPCDie":        {},

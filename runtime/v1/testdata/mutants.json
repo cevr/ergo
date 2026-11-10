@@ -1,0 +1,24 @@
+{
+  "about": "The mutant ledger of runtime/v1, started by R3b (wf10, 2026-11-10) for rpc.Loopback's body RPCLocal. Each mutant names the rule it breaks and the test or example that kills it.",
+  "mutants": [
+    {
+      "name": "r3b-local-stop",
+      "origin": "wf10 R3b",
+      "file": "runtime/v1/rpc.go",
+      "from": "\tif stopped {\n\t\tpanic(rt.Interrupted)\n\t}\n\tif res.err != nil {\n\t\tpanic(rpcDefect{Name: \"RpcClientError\"",
+      "to": "\tif false && stopped {\n\t\tpanic(rt.Interrupted)\n\t}\n\tif res.err != nil {\n\t\tpanic(rpcDefect{Name: \"RpcClientError\"",
+      "rule": "A stopped caller's Loopback Call ends with the stop, not with a defect read from the Interrupt the server answered, and after the call's release ran.",
+      "killers": ["v1:TestRPCLocalStopRunsTheRelease"],
+      "pkg": "./runtime/v1"
+    },
+    {
+      "name": "r3b-local-exit",
+      "origin": "wf10 R3b",
+      "file": "runtime/v1/rpc.go",
+      "from": "\treturn rpcReadExit(res.body, strings.HasPrefix(res.ct, rpcNDJSON), id)\n}\n\n// rpcRequest",
+      "to": "\treturn rpcReadExit(res.body, true, id)\n}\n\n// rpcRequest",
+      "rule": "A Loopback Call reads the json Exit its server answered; the contract's laws hold through it.",
+      "killers": ["examples:limiter/loopback (ergo test: limits.Limiter laws for Loopback)"]
+    }
+  ]
+}
