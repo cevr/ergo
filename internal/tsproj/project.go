@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"ergo.local/prototype/internal/rpcgen"
 	"ergo.local/prototype/internal/sketch/check"
@@ -160,7 +162,11 @@ func Project(pkg *check.Package, file *syntax.File, source string, options Optio
 	return Output{Text: g.b.String(), Extension: ext, Mappings: g.maps}, nil
 }
 
-func public(s string) bool    { return s != "" && s[0] >= 'A' && s[0] <= 'Z' }
+func public(s string) bool {
+	r, _ := utf8.DecodeRuneInString(s)
+	return unicode.IsUpper(r)
+}
+
 func (g *emitter) s(s string) { g.b.WriteString(s) }
 func units(s, enc string) int {
 	if enc == "utf-16" {

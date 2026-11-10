@@ -96,7 +96,7 @@ func TestTsProjectionAgrees(t *testing.T) {
 	put(t, dir, "ergo.mod", "module bridge\n")
 	put(t, dir, "domain/contract.ergo", contract)
 	put(t, dir, "shared/types.ergo", "type Label { Text string }\n")
-	put(t, dir, "plain/point.ergo", "type Point { X int, Y int }\ntype NotWire { Hook func() }\ntype Private { secret int }\n")
+	put(t, dir, "plain/point.ergo", "type Point { X int, Y int }\ntype Écho { Text string }\ntype NotWire { Hook func() }\ntype Private { secret int }\n")
 	put(t, dir, "plain/status.ergo", "type Status = Waiting{} | Ready{At Point}\n")
 	put(t, dir, "memory/memory.ergo", provider)
 	put(t, dir, "cmd/bridge/main.ergo", main)
