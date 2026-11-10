@@ -1,0 +1,156 @@
+// Package config reads a program's configuration, typed, from layered
+// sources, and holds its secrets (docs/spec/stdlib.md, config).
+//
+// Effect's Config and ConfigProvider have this purpose: describe the
+// configuration a program needs, read it from the environment, files and
+// the command line with defaults, and fail with the key and the reason
+// when it is wrong. Ergo takes the purpose, not the shape: the
+// configuration is the program's own record, read by its derived codec
+// (types.md, Codecs), so there is no Config.string/Config.integer builder
+// per key, no Schema class and no ConfigProvider layer. The sources are
+// one capability, Config, that a context binds: the host's environment and
+// files in main, a Memory in a test.
+//
+// Layering is fixed, highest first: the flags the command line gave, the
+// environment, the files in their order, the stated defaults (Load; law
+// HigherLayerWins). A key no layer has fails WireMissingField, unless its
+// field is a json.Optional, and a value of the wrong kind fails
+// WireWrongKind whose Path names the key and the source.
+
+import fs
+import maps
+import os
+import slices
+import strings
+
+// Variable is one variable of the environment.
+type Variable { Name string, Text string }
+
+// Unreadable is a file that is there and cannot be read: a directory, a
+// file the process may not read, or another failure of the host, whose
+// text is Reason.
+type Unreadable { Path string, Reason string }
+
+// Config is the configuration's sources: the environment and the files.
+type Config {
+	// Lookup is the variable name: None when it is unset, Some("") when it
+	// is set to the empty string.
+	Lookup(name string) Option[string],
+	// Environ is every variable whose name starts with prefix, sorted by
+	// name.
+	Environ(prefix string) []Variable,
+	// ReadFile is the text of the file at path, or None when nothing is
+	// there: a configuration file is optional.
+	ReadFile(path string) Option[string] fails Unreadable,
+
+	// EnvironAgreesWithLookup: Environ lists a variable exactly when
+	// Lookup finds it, with Lookup's text, in name order.
+	law EnvironAgreesWithLookup(name string) {
+		let vars = Environ(name)
+		let mut sorted = true
+		for i, v in vars {
+			if !strings.HasPrefix(v.Name, name) || Lookup(v.Name) != (Some{Value: v.Text}) {
+				return false
+			}
+			if i > 0 && strings.Compare(vars[i-1].Name, v.Name) >= 0 {
+				sorted = false
+			}
+		}
+		let listed = len(vars) > 0 && vars[0].Name == name
+		match Lookup(name) {
+		case Some:
+			sorted && listed
+		case None:
+			sorted && !listed
+		}
+	},
+	// ReadIsRepeatable: two reads of one path agree.
+	law ReadIsRepeatable(path string) {
+		let first = ReadFile(path) catch {
+		case Unreadable as u:
+			let _ = ReadFile(path) catch {
+			case Unreadable as v:
+				return u == v
+			}
+			return false
+		}
+		let second = ReadFile(path) catch {
+		case Unreadable:
+			return false
+		}
+		first == second
+	},
+}
+
+// Host is the host's Config provider: its environment and its files. Its
+// fields give this package the construction authority (S114), as os.Host's
+// does; it reads through os's and fs's own hosts, which own those bodies.
+type Host { env os.Host, files fs.Host }
+
+// NewHost is the host's Config provider. It needs Ambient: only code whose
+// row holds the authority to choose the host makes one.
+func NewHost() Host needs Ambient { Host{env: os.NewHost(), files: fs.NewHost()} }
+
+// Lookup is the host's variable name, as os.Getenv reads it.
+func Lookup(h Host, name string) Option[string] { os.Getenv(h.env, name) }
+
+// Environ is the host's variables that start with prefix, by name.
+func Environ(_ Host, prefix string) []Variable {
+	let mut out = []Variable{}
+	for kv in hostEnviron(prefix) {
+		match strings.Cut(kv, "=") {
+		case Some as halves:
+			out = out.Append(Variable{Name: halves.Value.Before, Text: halves.Value.After})
+		case None:
+			Unreachable("config: OSEnviron gives NAME=VALUE")
+		}
+	}
+	out
+}
+
+// ReadFile is the host's file at path: None when nothing is there.
+func ReadFile(h Host, path string) Option[string] fails Unreadable {
+	let text = fs.ReadFile(h.files, path) catch {
+	case fs.NotFound:
+		return None
+	case fs.Denied:
+		return Unreadable{Path: path, Reason: "permission denied"}
+	case fs.Failed as f:
+		return Unreadable{Path: path, Reason: f.Reason}
+	}
+	Some{Value: text}
+}
+
+extern go ergo.local/prototype/runtime/v1.OSEnviron func hostEnviron(prefix string) []string
+
+// Memory is a Config provider for tests: Env is the environment and Files
+// the files by path. It reaches nothing of the host, and a file it has is
+// never Unreadable.
+type Memory { Env Map[string, string], Files Map[string, string] }
+
+// NewMemory is a Memory over env and files: Config's builder, so a law
+// over a generated Config reads a generated Memory.
+func NewMemory(env Map[string, string], files Map[string, string]) Memory {
+	Memory{Env: env, Files: files}
+}
+
+// Lookup is m's variable name.
+func Lookup(m Memory, name string) Option[string] { m.Env.Get(name) }
+
+// Environ is m's variables that start with prefix, by name.
+func Environ(m Memory, prefix string) []Variable {
+	let mut names = []string{}
+	for name, _ in m.Env {
+		if strings.HasPrefix(name, prefix) {
+			names = names.Append(name)
+		}
+	}
+	let mut out = []Variable{}
+	for name in slices.Sort(names) {
+		out = out.Append(Variable{Name: name, Text: maps.GetOr(m.Env, name, "")})
+	}
+	out
+}
+
+// ReadFile is m's file at path, or None.
+func ReadFile(m Memory, path string) Option[string] fails Unreadable { m.Files.Get(path) }

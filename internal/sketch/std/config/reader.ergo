@@ -1,0 +1,348 @@
+import json
+import strconv
+import strings
+import sync
+
+// The reader of the merged layers: a provider of the prelude's Reader
+// that decode[T] reads (docs/spec/stdlib.md, config 4). A file's value is
+// read as its kind is. A text, from a flag or a variable, is read as the
+// kind the field asks for: Int by strconv.ParseInt(text, 0, 64), as std
+// flag reads an Int; Uint the same and not negative; Float by
+// strconv.ParseFloat; Bool by strconv.ParseBool; String as it is. A list
+// field reads the texts, each split at ",": "a,b" is two items, and so is
+// a repeated flag given a and b. A union field reads a text as the name of
+// a variant with no field (Level = Debug | Info: NOTES_LEVEL=Info). A text
+// has the kind String to an untyped json.Value.
+//
+// A failure's Path is the key, and for a value of the wrong kind its
+// source: "port (env NOTES_PORT)". The text of the value is never in it,
+// so a secret's failure does not show the secret.
+
+// frame is an object or list being read: its members (a list's have the
+// key ""), the index of the next one, the index of the one read last (-1
+// before the first), its path, and the union tag it has.
+type frame { members []member, next int, cur int, path string, list bool, tag Option[string] }
+
+// reader reads the tree root. Its frames are in a Ref, so every copy of
+// it is one reader.
+type reader { stack sync.Ref[[]frame] }
+
+func newReader(root node) reader {
+	let top = frame{members: []member{member{Key: "", Value: root}}, next: 0, cur: -1, path: "", list: false, tag: None}
+	reader{stack: sync.NewRef[[]frame]([]frame{top})}
+}
+
+func top(r reader) frame {
+	let st = r.stack.Get()
+	st[len(st) - 1]
+}
+
+func setTop(r reader, f frame) {
+	r.stack.Update(func(st []frame) []frame {
+		let mut out = st
+		out[len(out) - 1] = f
+		out
+	})
+}
+
+// peekNode is the next value, which the read leaves.
+func peekNode(r reader) Option[node] {
+	let f = top(r)
+	if f.next >= len(f.members) {
+		return None
+	}
+	Some{Value: f.members[f.next].Value}
+}
+
+// take passes the next value and gives it: it is the one read last.
+func take(r reader) node {
+	let f = top(r)
+	if f.next >= len(f.members) {
+		return scalar{Value: json.Null, From: FromDefault}
+	}
+	setTop(r, frame{members: f.members, next: f.next + 1, cur: f.next, path: f.path, list: f.list, tag: f.tag})
+	f.members[f.next].Value
+}
+
+// childPath is the path of member i of f.
+func childPath(f frame, i int) string {
+	if f.list {
+		return f.path + "[" + strconv.Itoa(i) + "]"
+	}
+	let key = f.members[i].Key
+	if f.path == "" { key } else if key == "" { f.path } else { f.path + "." + key }
+}
+
+func Path(r reader) string {
+	let f = top(r)
+	if f.cur < 0 { f.path } else { childPath(f, f.cur) }
+}
+
+// wrong is the failure of the value just read, which is not a want.
+func wrong(r reader, n node, want string) WireWrongKind {
+	WireWrongKind{Path: Path(r) + " (" + Describe(sourceOf(n)) + ")", Want: want}
+}
+
+// last is the text a scalar read takes: a repeated flag's last.
+func last(t texts) string {
+	if len(t.Items) == 0 { "" } else { t.Items[len(t.Items) - 1] }
+}
+
+func TakeNull(r reader) bool {
+	match peekNode(r) {
+	case Some as n:
+		match n.Value {
+		case scalar as s:
+			match s.Value {
+			case json.Null:
+				let _ = take(r)
+				true
+			case _:
+				false
+			}
+		case _:
+			false
+		}
+	case None:
+		false
+	}
+}
+
+func Peek(r reader) WireKind {
+	match peekNode(r) {
+	case None:
+		WireEnd
+	case Some as n:
+		match n.Value {
+		case texts: WireString
+		case branch: WireObject
+		case items: WireList
+		case scalar as s:
+			match s.Value {
+			case json.Null: WireNull
+			case json.Boolean: WireBool
+			case json.Num: WireNumber
+			case json.Str: WireString
+			case json.Array: WireList
+			case json.Object: WireObject
+			}
+		}
+	}
+}
+
+func Number(r reader) string fails WireWrongKind {
+	let n = take(r)
+	match n {
+	case scalar as s:
+		match s.Value {
+		case json.Num as v:
+			return json.Wire(v)
+		case _:
+		}
+	case texts as t:
+		let v = json.ParseNum(last(t)) catch {
+		case json.Malformed:
+			return wrong(r, n, "number")
+		}
+		return json.Wire(v)
+	case _:
+	}
+	wrong(r, n, "number")
+}
+
+func Bool(r reader) bool fails WireWrongKind {
+	let n = take(r)
+	match n {
+	case scalar as s:
+		match s.Value {
+		case json.Boolean as b:
+			return b.Value
+		case _:
+		}
+	case texts as t:
+		return strconv.ParseBool(last(t)) catch {
+		case strconv.Malformed:
+			return wrong(r, n, "bool")
+		}
+	case _:
+	}
+	wrong(r, n, "bool")
+}
+
+// numberText is the spelling of a number a read takes, or None.
+func numberText(n node) Option[string] {
+	match n {
+	case scalar as s:
+		match s.Value {
+		case json.Num as v: Some{Value: json.Wire(v)}
+		case _: None
+		}
+	case texts as t:
+		Some{Value: last(t)}
+	case _:
+		None
+	}
+}
+
+func Int(r reader) int64 fails WireWrongKind {
+	let n = take(r)
+	match numberText(n) {
+	case Some as text:
+		strconv.ParseInt(text.Value, 0, 64) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return wrong(r, n, "int")
+		}
+	case None:
+		wrong(r, n, "int")
+	}
+}
+
+func Uint(r reader) uint64 fails WireWrongKind {
+	let n = take(r)
+	match numberText(n) {
+	case Some as text:
+		let v = strconv.ParseInt(text.Value, 0, 64) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return wrong(r, n, "uint")
+		}
+		if v < 0 {
+			return wrong(r, n, "uint")
+		}
+		uint64(v)
+	case None:
+		wrong(r, n, "uint")
+	}
+}
+
+func Float(r reader) float64 fails WireWrongKind {
+	let n = take(r)
+	match n {
+	case scalar as s:
+		match s.Value {
+		case json.Str as v:
+			if v.Value == "NaN" || v.Value == "Infinity" || v.Value == "-Infinity" {
+				return strconv.ParseFloat(v.Value) catch {
+				case strconv.Malformed, strconv.OutOfRange:
+					return wrong(r, n, "float")
+				}
+			}
+		case _:
+		}
+	case _:
+	}
+	match numberText(n) {
+	case Some as text:
+		strconv.ParseFloat(text.Value) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return wrong(r, n, "float")
+		}
+	case None:
+		wrong(r, n, "float")
+	}
+}
+
+func String(r reader) string fails WireWrongKind {
+	let n = take(r)
+	match n {
+	case scalar as s:
+		match s.Value {
+		case json.Str as v:
+			return v.Value
+		case _:
+		}
+	case texts as t:
+		return last(t)
+	case _:
+	}
+	wrong(r, n, "string")
+}
+
+// push opens a frame for the value just read, at the path of it.
+func push(r reader, members []member, list bool, tag Option[string]) {
+	let p = Path(r)
+	r.stack.Update(func(st []frame) []frame {
+		st.Append(frame{members: members, next: 0, cur: -1, path: p, list: list, tag: tag})
+	})
+}
+
+func BeginList(r reader) fails WireWrongKind {
+	let n = take(r)
+	match n {
+	case items as l:
+		let mut ms = []member{}
+		for x in l.Elems {
+			ms = ms.Append(member{Key: "", Value: x})
+		}
+		push(r, ms, true, None)
+	case texts as t:
+		let mut ms = []member{}
+		for item in t.Items {
+			if item != "" {
+				for part in strings.Split(item, ",") {
+					ms = ms.Append(member{Key: "", Value: texts{Items: []string{part}, From: t.From}})
+				}
+			}
+		}
+		push(r, ms, true, None)
+	case _:
+		return wrong(r, n, "list")
+	}
+}
+
+func BeginObject(r reader) fails WireWrongKind {
+	let n = take(r)
+	match n {
+	case branch as b:
+		let mut ms = []member{}
+		let mut tag Option[string] = None
+		for m in b.Members {
+			if m.Key == "_tag" {
+				match m.Value {
+				case scalar as s:
+					match s.Value {
+					case json.Str as name:
+						tag = Some{Value: name.Value}
+					case _:
+					}
+				case texts as t:
+					tag = Some{Value: last(t)}
+				case _:
+				}
+			} else {
+				ms = ms.Append(m)
+			}
+		}
+		push(r, ms, false, tag)
+	case texts as t:
+		push(r, []member{}, false, Some{Value: last(t)})
+	case _:
+		return wrong(r, n, "object")
+	}
+}
+
+func Tag(r reader) string fails WireMissingField {
+	match top(r).tag {
+	case Some as t:
+		t.Value
+	case None:
+		WireMissingField{Path: Path(r), Field: "_tag"}
+	}
+}
+
+func More(r reader) bool {
+	let f = top(r)
+	f.next < len(f.members)
+}
+
+func Key(r reader) string {
+	let f = top(r)
+	if f.next < len(f.members) { f.members[f.next].Key } else { "" }
+}
+
+func Skip(r reader) { let _ = take(r) }
+
+func End(r reader) {
+	r.stack.Update(func(st []frame) []frame {
+		if len(st) > 1 { st[:len(st) - 1] } else { st }
+	})
+}

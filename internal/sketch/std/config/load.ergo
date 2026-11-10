@@ -1,0 +1,159 @@
+import codec
+import flag
+import json
+import strings
+import toml
+
+// Source is where a value came from, or where Load looked for a key.
+type FromFlag { Name string }
+type FromEnv { Name string }
+type FromFile { Path string }
+type FromDefault {}
+type Source = FromFlag | FromEnv | FromFile | FromDefault
+
+// Describe is s as a person reads it: "flag --api-token", "env
+// NOTES_API_TOKEN", "file /home/a/.config/notes/config.toml", "default".
+func Describe(s Source) string {
+	match s {
+	case FromFlag as f: "flag --" + f.Name
+	case FromEnv as e: "env " + e.Name
+	case FromFile as f: "file " + f.Path
+	case FromDefault: "default"
+	}
+}
+
+// Format is a file's syntax.
+type TOML {}
+type JSON {}
+type Format = TOML | JSON
+
+// File is a configuration file. A file that is not there is skipped.
+type File { Path string, Format Format }
+
+// Flags are the flags a command line gave, the highest layer. Only
+// FromFlags and NoFlags make them, so a Spec's flags are flags.
+type Flags { given []flag.Given, declared []string }
+
+// FromFlags is the flags v's command line gave: a flag left at its default
+// is not given, so it does not hide a lower layer.
+func FromFlags(v flag.Values) Flags { Flags{given: flag.GivenFlags(v), declared: flag.Declared(v)} }
+
+// NoFlags is a layer of no flags.
+func NoFlags() Flags { Flags{given: []flag.Given{}, declared: []string{}} }
+
+// Defaults are the stated defaults, the lowest layer: the fields of a
+// value of any wire record D, read as keys of the configuration. D holds
+// only the keys that have a default; a key of the configuration that D
+// does not hold has none.
+type Defaults { events []codec.Event }
+
+// DefaultsOf states d's fields as defaults.
+func DefaultsOf[D wire](d D) Defaults {
+	let e = codec.NewEvents()
+	encode(d, e)
+	Defaults{events: codec.Recorded(e)}
+}
+
+// NoDefaults states no default.
+func NoDefaults() Defaults { Defaults{events: []codec.Event{}} }
+
+// Spec is where a configuration comes from. The layers are read highest
+// first: Flags, then the variables named Prefix and "_" and the key
+// (none when Prefix is empty), then each of Files in order, then Defaults.
+type Spec { Prefix string, Flags Flags, Files []File, Defaults Defaults }
+
+// Malformed is a file that is not TOML or JSON: Line is from 1, Key the
+// dotted key TOML was reading ("" for JSON and before the first key).
+type Malformed { Path string, Line int, Key string, Reason string }
+
+// Load reads a T from s's layers through the Config capability. A key no
+// layer has fails WireMissingField (MissingKey names its key and Looked
+// where Load looked), and a value of the wrong kind fails WireWrongKind,
+// whose Path is the key and its source, such as "port (env NOTES_PORT)".
+// A file's syntax fails Malformed and a file the host cannot read
+// Unreadable.
+func Load[T wire](s Spec) T fails Unreadable | Malformed | wired[T] needs Config {
+	let mut root = fromFlags(s.Flags.given)
+	if s.Prefix != "" {
+		root = merge(root, fromEnv(Config.Environ(s.Prefix + "_"), s.Prefix))
+	}
+	for f in s.Files {
+		match try Config.ReadFile(f.Path) {
+		case Some as text:
+			root = merge(root, try parseFile(f, text.Value))
+		case None:
+		}
+	}
+	if len(s.Defaults.events) > 0 {
+		let (d, _) = fromEvents(s.Defaults.events, 0, FromDefault)
+		root = merge(root, d)
+	}
+	try decode[T](newReader(root))
+}
+
+// LoadSecret is Load of a T that the program keeps as a secret: the T is
+// never in a value the program holds outside the Redacted, and a failure
+// names the key and the source, never the text (WireWrongKind's Path).
+func LoadSecret[T wire](s Spec) Redacted[T] fails Unreadable | Malformed | wired[T] needs Config {
+	NewRedacted(try Load[T](s))
+}
+
+// parseFile is the tree of the file f, whose text is text.
+func parseFile(f File, text string) node fails Malformed {
+	let c = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}
+	match f.Format {
+	case TOML:
+		let v = toml.Decode(c, text) catch {
+		case toml.Malformed as m:
+			return Malformed{Path: f.Path, Line: m.Line, Key: m.Key, Reason: m.Reason}
+		case _:
+			Unreachable("config: a validated TOML text reads as a json.Value")
+		}
+		fromValue(v, FromFile{Path: f.Path})
+	case JSON:
+		let v = json.Decode(c, text) catch {
+		case json.Malformed as m:
+			let line = strings.Count(strings.Slice(text, 0, m.Offset), "\n") + 1
+			return Malformed{Path: f.Path, Line: line, Key: "", Reason: m.Reason}
+		case _:
+			Unreachable("config: a validated JSON text reads as a json.Value")
+		}
+		fromValue(v, FromFile{Path: f.Path})
+	}
+}
+
+// MissingKey is the dotted key of a field no layer has.
+func MissingKey(m WireMissingField) string {
+	if m.Path == "" { m.Field } else { m.Path + "." + m.Field }
+}
+
+// Looked is where Load looks for key, highest first: the flag, when s's
+// flags declare one of its name; the variable, when s has a prefix; each
+// file; the defaults, when s states any.
+func Looked(s Spec, key string) []Source {
+	let mut out = []Source{}
+	let name = flagName(key)
+	for d in s.Flags.declared {
+		if d == name {
+			out = out.Append(FromFlag{Name: name})
+		}
+	}
+	if s.Prefix != "" {
+		out = out.Append(FromEnv{Name: envName(s.Prefix, key)})
+	}
+	for f in s.Files {
+		out = out.Append(FromFile{Path: f.Path})
+	}
+	if len(s.Defaults.events) > 0 {
+		out = out.Append(FromDefault)
+	}
+	out
+}
+
+// FlagName is the flag that sets key: its words in lower case joined by
+// "-", "server.port" and "api-token" for "apiToken".
+func FlagName(key string) string { flagName(key) }
+
+// EnvName is the variable that sets key under prefix: "NOTES_API_TOKEN"
+// for "apiToken", "NOTES_SERVER__PORT" for "server.port".
+func EnvName(prefix string, key string) string { envName(prefix, key) }

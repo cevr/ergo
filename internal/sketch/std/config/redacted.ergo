@@ -1,0 +1,37 @@
+// Redacted[T] is a secret: a value of T that no text form shows (docs/
+// spec/stdlib.md, config). Effect's Redacted has the same purpose: keep a
+// token or a password out of logs, error reports and encoded output. Ergo
+// gets it by construction where Effect checks it at run time:
+//
+//   - Redacted is an operation type, so it has no text form: "\(r)" of a
+//     value whose type reaches it is refused by the checker (S108), and an
+//     error report writes the field as <config.Redacted[T]>, the type's
+//     name, never the value (types.md, Methods 6).
+//   - It has no wire form (types.md, Codecs 1: an operation type), so
+//     encode, json.Encode and toml.Encode of a value that reaches it are
+//     refused at check time. A program that must write a secret gives the
+//     codec itself: its own type with a by-name pair whose Wire calls
+//     Reveal, in its own package, where a reader sees it.
+//   - A law's counterexample writes it as the call of its builder,
+//     config.NewRedacted[T](…), never the value.
+//   - Its Go body's String, GoString, Format, MarshalJSON, MarshalText and
+//     LogValue are "<redacted>", so Go code that reaches the value through
+//     a foreign call or a defect's text prints only that (runtime/v1
+//     TestRedactedNeverRenders).
+//
+// Reveal is the one read of the value. It is sealed (check.SealedStd):
+// NewRedacted, an extern, returns it, so no program value implements it.
+//
+// law-exempt: its one operation gives back the value NewRedacted was given; the top-level law RevealIsTheValue states it over NewRedacted, the only provider, and needs a comparable T.
+type Redacted[T] {
+	// Reveal is the value the secret holds.
+	Reveal() T,
+}
+
+// NewRedacted is a secret that holds v.
+extern go ergo.local/prototype/runtime/v1.NewRedacted func NewRedacted[T](v T) Redacted[T]
+
+// RevealIsTheValue: a secret gives back the value it was made with.
+law RevealIsTheValue(v string, n int) {
+	NewRedacted(v).Reveal() == v && NewRedacted(n).Reveal() == n
+}
