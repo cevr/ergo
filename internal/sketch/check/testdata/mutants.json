@@ -1084,6 +1084,24 @@
       "to": "\t\t\tif other, ok := keys[k]; ok && false {",
       "rule": "types.md Codecs 2: a record whose fields share a wire key has no wire form; the S108 names both fields and the key.",
       "killers": ["check:TestWireKeysFollowTheRule"]
+    },
+    {
+      "name": "gocopy-ergo-use",
+      "origin": "wf10 H5",
+      "file": "internal/sketch/check/gocopy.go",
+      "from": "held[v] && ergoUse[v] {",
+      "to": "held[v] {",
+      "rule": "interop.md Lowering 3 (H5): only a let that is also an Ergo value is a copy; a Go-only let is Go's map, and its writing method is no error.",
+      "killers": ["check:TestGoCopyWriteIsReported"]
+    },
+    {
+      "name": "gocopy-writes",
+      "origin": "wf10 H5",
+      "file": "internal/sketch/check/gocopy.go",
+      "from": "call.Recv != nil && len(c.goResults(call)) == 0 {",
+      "to": "call.Recv != nil {",
+      "rule": "interop.md Lowering 3 (H5): a Go method with a result reads; only one with no result can only write the copy.",
+      "killers": ["check:TestGoCopyWriteIsReported"]
     }
   ]
 }
