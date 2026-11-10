@@ -1,6 +1,6 @@
-# The generated RPC client provides limits.Limiter, but ergo test cannot
-# build one: a Client needs a Conn to a served limiter. The gateway case
-# runs the contract over the wire instead.
+# ergo test cannot build the generated RPC Client of limits.Limiter: a
+# Client needs a Conn to a served limiter. The gateway case calls the
+# contract over RPC instead.
 skip law limits.Limiter.NeverOverdraws for Client: its values have no generator: rpc.Conn is a standard library type; a func NewClient() Client with no rows would build one for each case
 skip law limits.Limiter.RetryAfterIsExact for Client: its values have no generator: rpc.Conn is a standard library type; a func NewClient() Client with no rows would build one for each case
 skip law limits.Limiter.LimitedTakesNothing for Client: its values have no generator: rpc.Conn is a standard library type; a func NewClient() Client with no rows would build one for each case

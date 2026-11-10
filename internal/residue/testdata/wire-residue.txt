@@ -330,3 +330,6 @@ docs/spec/README.md	9. [rpc.md](rpc.md): std `rpc`, Effect RPC's HTTP wire
 docs/spec/stdlib.md	The package, the wire and the int rule are in [rpc.md](rpc.md).
 PRIOR_ART.md	The HTTP wire Ergo speaks
 PRIOR_ART.md	serves a contract's wire projection to `tsc`
+examples/limiter/limits/limitsrpc/client.ergo	*
+examples/limiter/limits/limitsrpc/server.ergo	*
+examples/limiter/limits/limitsrpc/wire.ergo	*
