@@ -60,7 +60,7 @@ for (let i = 0; i < 200; i++) {
   if (form === "path") location = location.replace(/^[\\/?#]+/, "") || "x"
   location = location.trim()
   if (location === "") location = "x"
-  rows.push({ base, location, target: target(location, "http://h.test" + base) })
+  rows.push({ base, baseTarget: target("http://h.test" + base), location, target: target(location, "http://h.test" + base) })
 }
 
 for (const row of rows) console.log(JSON.stringify(row))

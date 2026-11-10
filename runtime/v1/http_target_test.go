@@ -19,7 +19,7 @@ import (
 // Location, and the request target the reference URL parser gives.
 type webTargetRow struct {
 	Lead, Scheme, Sep, Rest, Trail string
-	Base, Location                 string
+	Base, BaseTarget, Location     string
 	Target                         string
 }
 
@@ -65,7 +65,7 @@ func TestHTTPFetchSendsTheWebTarget(t *testing.T) {
 	}
 	type arrival struct{ line, host string }
 	arrivals, replies := make(chan arrival), make(chan string)
-	served := make(chan struct{})
+	served, quit := make(chan struct{}), make(chan struct{})
 	go func() {
 		defer close(served)
 		for {
@@ -85,18 +85,33 @@ func TestHTTPFetchSendsTheWebTarget(t *testing.T) {
 					host = strings.TrimSpace(value)
 				}
 			}
-			arrivals <- arrival{strings.TrimSuffix(line, "\r\n"), host}
-			_, _ = conn.Write([]byte(<-replies))
+			if line == "" {
+				// A connection the client opened and then refused to
+				// write on (a request it could not send).
+				conn.Close()
+				continue
+			}
+			select {
+			case arrivals <- arrival{strings.TrimSuffix(line, "\r\n"), host}:
+			case <-quit:
+				conn.Close()
+				return
+			}
+			select {
+			case reply := <-replies:
+				_, _ = conn.Write([]byte(reply))
+			case <-quit:
+			}
 			conn.Close()
 		}
 	}()
-	defer func() { ln.Close(); <-served }()
+	defer func() { close(quit); ln.Close(); <-served }()
 	host := ln.Addr().String()
 	const ok = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
 	for i, row := range rows {
 		raw, first, location := row.Lead+row.Scheme+":"+row.Sep+host+row.Rest+row.Trail, row.Target, ""
 		if row.Location != "" {
-			raw, first, location = "http://"+host+row.Base, row.Base, row.Location
+			raw, first, location = "http://"+host+row.Base, row.BaseTarget, row.Location
 		}
 		fail := func(format string, args ...any) {
 			t.Helper()
