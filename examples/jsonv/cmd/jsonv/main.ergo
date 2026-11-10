@@ -15,7 +15,7 @@ import os
 
 func main() fails os.Exit needs Ambient {
 	let host = io.NewHost()
-	with context { os.Process: os.NewHost(), io.Stdout: host, app.Documents: files.New(fs.NewHost(), host) } {
+	with context { os.Process: os.NewHost(), io.Stdout: host, app.Documents: files.New(fs.NewHost(), io.NewStdin()) } {
 		try app.Run(os.Process.Args())
 	}
 }
