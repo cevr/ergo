@@ -24,6 +24,11 @@ type httpHandler = func(*rt.Task, *Exchange, string, string, []HTTPField, []HTTP
 
 func startHTTP(t *testing.T, handle httpHandler) (*Listener, *Task[struct{}]) {
 	t.Helper()
+	return startHTTPLimits(t, HTTPLimits{16, 4096}, handle)
+}
+
+func startHTTPLimits(t *testing.T, limits HTTPLimits, handle httpHandler) (*Listener, *Task[struct{}]) {
+	t.Helper()
 	l, err := HTTPListen("127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -31,7 +36,7 @@ func startHTTP(t *testing.T, handle httpHandler) (*Listener, *Task[struct{}]) {
 	root := rt.Root(t.Name())
 	s := NewScope(root)
 	h := Go(&s, "http test server", func(ct *rt.Task) (struct{}, error) {
-		return struct{}{}, HTTPServe("http test request", ct, l, HTTPLimits{16, 4096}, handle)
+		return struct{}{}, HTTPServe("http test request", ct, l, limits, handle)
 	})
 	t.Cleanup(func() { h.Stop(); l.Close() })
 	return l, h

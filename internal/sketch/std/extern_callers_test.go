@@ -255,7 +255,7 @@ func TestStdExternCallersHoldAuthority(t *testing.T) {
 		"http.Listen", "http.serve",
 		"io.hostEprint", "io.hostIsTerminal", "io.hostLines", "io.hostPrint", "io.hostReadAll",
 		"os.hostArgs", "os.hostGetenv", "os.hostHasEnv", "prelude.Sleep",
-		"rand.hostFloat64", "rand.hostIntN", "rand.hostUint64", "rpc.Listen", "rpc.Serve", "rpc.call", "time.hostNow"}
+		"rand.hostFloat64", "rand.hostIntN", "rand.hostUint64", "rpc.call", "time.hostNow"}
 	if !slices.Equal(hosts, want) {
 		t.Errorf("host externs %v, want %v", hosts, want)
 	}

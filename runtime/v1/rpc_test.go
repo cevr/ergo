@@ -13,24 +13,19 @@ import (
 	"ergo.local/prototype/runtime/rt"
 )
 
-// rpcHarness serves RPCServe on a root task with a Go handle, as the
-// generated Handle would be, on a loopback port.
+// rpcHarness serves the rpc bodies on HTTPServe with a Go handle, as std
+// rpc's Answer does with the generated Handle: RPCParse, then RPCExits for
+// json or RPCExitLines through the request's Exchange for ndjson. Answer's
+// routing (mount, method, refusals) is Ergo's; TestRpcLoopbackAgrees and
+// TestRpcFramedExitFlowsWhileHeld (internal/rpcgen) run it.
 type rpcHarness struct {
 	url     string
-	task    *rt.Task
-	done    chan any
 	started chan struct{} // a "Wait" call has started
 	release chan struct{} // closed when a "Wait" call's release ran
 }
 
-func startRPC(t *testing.T) *rpcHarness {
-	t.Helper()
-	l, err := RPCListen("127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	h := &rpcHarness{url: "http://" + l.Addr() + "/rpc", task: rt.Root("rpc test"), done: make(chan any, 1), started: make(chan struct{}, 1), release: make(chan struct{})}
-	handle := func(ct *rt.Task, tag, payload string) (string, error) {
+func rpcHandle(h *rpcHarness) func(*rt.Task, string, string) (string, error) {
+	return func(ct *rt.Task, tag, payload string) (string, error) {
 		switch tag {
 		case "Echo":
 			return payload, nil
@@ -50,34 +45,45 @@ func startRPC(t *testing.T) *rpcHarness {
 		}
 		panic(rpcDefect{Name: "RpcError", Message: "no operation " + tag})
 	}
-	go func() {
-		defer func() { h.done <- recover() }()
-		RPCServe("rpc test", h.task, l, "/rpc", handle)
-	}()
-	t.Cleanup(func() {
-		h.task.Interrupt()
-		select {
-		case p := <-h.done:
-			if p != rt.Interrupted {
-				t.Errorf("RPCServe ended with %v, want the interruption", p)
+}
+
+func startRPC(t *testing.T) *rpcHarness {
+	t.Helper()
+	h := &rpcHarness{started: make(chan struct{}, 1), release: make(chan struct{})}
+	handle := rpcHandle(h)
+	l, _ := startHTTPLimits(t, HTTPLimits{1 << 20, 4096}, func(ct *rt.Task, x *Exchange, _, _ string, _, header []HTTPField, body string, _ bool, _ string) HTTPResponse {
+		framed := false
+		for _, f := range header {
+			if strings.EqualFold(f.Name, "Content-Type") && strings.HasPrefix(f.Value, rpcNDJSON) {
+				framed = true
 			}
-		case <-testwait.After(t):
-			t.Error("RPCServe did not end after its task was stopped")
 		}
+		envs, err := RPCParse(body, framed)
+		if err != nil {
+			return HTTPResponse{Status: 400, Body: err.Error()}
+		}
+		if !framed {
+			return HTTPResponse{Status: 200, Header: []HTTPField{{"Content-Type", rpcJSON}}, Body: RPCExits("rpc test", ct, envs, handle)}
+		}
+		x.Begin(200, []HTTPField{{"Content-Type", rpcNDJSON}})
+		_ = RPCExitLines("rpc test", ct, envs, handle, func(t *rt.Task, line string) error { return x.Write(t, line) })
+		x.End()
+		return HTTPResponse{Status: 200}
 	})
+	h.url = "http://" + l.Addr() + "/rpc"
 	return h
 }
 
-func (h *rpcHarness) post(t *testing.T, path, contentType, body string) (string, string) {
+func (h *rpcHarness) post(t *testing.T, contentType, body string) (string, string) {
 	t.Helper()
-	resp, err := http.Post(strings.TrimSuffix(h.url, "/rpc")+path, contentType, strings.NewReader(body))
+	resp, err := http.Post(h.url+"/", contentType, strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("POST %s: %s %s", path, resp.Status, b)
+		t.Fatalf("POST: %s %s", resp.Status, b)
 	}
 	return string(b), resp.Header.Get("Content-Type")
 }
@@ -88,38 +94,36 @@ func (h *rpcHarness) post(t *testing.T, path, contentType, body string) (string,
 // the spec, so each row states one fact as text. Mutants it kills, which
 // the loopback property (internal/rpcgen) cannot see because the Ergo
 // client reads its own server leniently: rpc-m1 Success without value,
-// rpc-m2 requestId re-typed, rpc-m3 a failure sent as Die, rpc-m4 the
-// trailing-slash path refused, rpc-m5 a batch answered by position.
+// rpc-m2 requestId re-typed, rpc-m3 a failure sent as Die, rpc-m5 a batch
+// answered by position. (rpc-m4, the trailing-slash path, is Answer's,
+// in Ergo: every Ergo Call posts to it.)
 func TestRPCWireFacts(t *testing.T) {
 	h := startRPC(t)
 	req := func(id, tag, payload string) string {
 		return `{"_tag":"Request","id":` + id + `,"tag":"` + tag + `","payload":` + payload + `,"headers":[]}`
 	}
 	rows := []struct {
-		name, path, ct, body string
-		want                 []string
+		name, ct, body string
+		want           []string
 	}{
-		// RpcClient posts to its URL with a trailing slash
-		// (RpcClient.makeProtocolHttp): both paths answer.
-		{"trailing slash", "/rpc/", rpcJSON, req("0", "Echo", `{"a":1}`), []string{`[{"_tag":"Exit","requestId":0,"exit":{"_tag":"Success","value":{"a":1}}}]`}},
-		{"mount", "/rpc", rpcJSON, req("1", "Echo", `{}`), []string{`"requestId":1,`}},
+		{"echo", rpcJSON, req("0", "Echo", `{"a":1}`), []string{`[{"_tag":"Exit","requestId":0,"exit":{"_tag":"Success","value":{"a":1}}}]`}},
 		// ResponseExitEncoded.requestId is string | number: the token
 		// comes back as it was sent.
-		{"string id", "/rpc/", rpcJSON, req(`"7"`, "Echo", `{}`), []string{`"requestId":"7"`}},
+		{"string id", rpcJSON, req(`"7"`, "Echo", `{}`), []string{`"requestId":"7"`}},
 		// ExitEncoded Success has value, null for none (Schema.Void).
-		{"unit value", "/rpc/", rpcJSON, req("2", "Unit", `{}`), []string{`"exit":{"_tag":"Success","value":null}`}},
+		{"unit value", rpcJSON, req("2", "Unit", `{}`), []string{`"exit":{"_tag":"Success","value":null}`}},
 		// A typed failure is a Fail cause whose error is the tagged object.
-		{"fail", "/rpc/", rpcJSON, req("3", "Fail", `{}`), []string{`"exit":{"_tag":"Failure","cause":[{"_tag":"Fail","error":{"_tag":"Nope","n":1}}]}`}},
+		{"fail", rpcJSON, req("3", "Fail", `{}`), []string{`"exit":{"_tag":"Failure","cause":[{"_tag":"Fail","error":{"_tag":"Nope","n":1}}]}`}},
 		// A defect is a Die cause with {name, message} (Schema.Defect).
-		{"die", "/rpc/", rpcJSON, req("4", "Die", `{}`), []string{`"cause":[{"_tag":"Die","defect":{"name":"Boom","message":"it broke"}}]`}},
+		{"die", rpcJSON, req("4", "Die", `{}`), []string{`"cause":[{"_tag":"Die","defect":{"name":"Boom","message":"it broke"}}]`}},
 		// json: an array of envelopes is answered by id, whatever the
 		// order the calls end in.
-		{"batch", "/rpc/", rpcJSON, "[" + req("10", "Echo", `{"x":10}`) + "," + req(`"b"`, "Echo", `{"x":"b"}`) + "]", []string{`"requestId":10,"exit":{"_tag":"Success","value":{"x":10}}`, `"requestId":"b","exit":{"_tag":"Success","value":{"x":"b"}}`}},
+		{"batch", rpcJSON, "[" + req("10", "Echo", `{"x":10}`) + "," + req(`"b"`, "Echo", `{"x":"b"}`) + "]", []string{`"requestId":10,"exit":{"_tag":"Success","value":{"x":10}}`, `"requestId":"b","exit":{"_tag":"Success","value":{"x":"b"}}`}},
 		// ndjson: one Exit line per Request line (RpcSerialization ndjson).
-		{"ndjson", "/rpc/", rpcNDJSON, req("5", "Echo", `{"n":5}`) + "\n" + req("6", "Unit", `{}`) + "\n", []string{"{\"_tag\":\"Exit\",\"requestId\":5,\"exit\":{\"_tag\":\"Success\",\"value\":{\"n\":5}}}\n", "{\"_tag\":\"Exit\",\"requestId\":6,\"exit\":{\"_tag\":\"Success\",\"value\":null}}\n"}},
+		{"ndjson", rpcNDJSON, req("5", "Echo", `{"n":5}`) + "\n" + req("6", "Unit", `{}`) + "\n", []string{"{\"_tag\":\"Exit\",\"requestId\":5,\"exit\":{\"_tag\":\"Success\",\"value\":{\"n\":5}}}\n", "{\"_tag\":\"Exit\",\"requestId\":6,\"exit\":{\"_tag\":\"Success\",\"value\":null}}\n"}},
 	}
 	for _, r := range rows {
-		got, ct := h.post(t, r.path, r.ct, r.body)
+		got, ct := h.post(t, r.ct, r.body)
 		if ct != r.ct {
 			t.Errorf("%s: answered with Content-Type %q, want %q", r.name, ct, r.ct)
 		}
@@ -152,7 +156,7 @@ func TestRPCWireFacts(t *testing.T) {
 // the call's release runs; an Ergo caller whose task is stopped aborts
 // its request, with the same end on the server. It waits on events: the
 // call's start and its release (rpc-m6: a dispatch that ignores the
-// request's context never releases, and the test's deadline names it).
+// request's stop never releases, and the test's deadline names it).
 func TestRPCAbortStopsTheCall(t *testing.T) {
 	h := startRPC(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -209,14 +213,14 @@ func TestRPCAbortStopsTheCall(t *testing.T) {
 	}
 }
 
-// TestRPCLocalStopRunsTheRelease is rpc.Loopback's interruption fact: a
-// stop of the caller aborts the in-memory request, which stops the call's
-// task, and RPCLocal returns, with the stop, after the call's release
-// ran. It catches r3b-local-stop (a stopped caller's Call that ends with
-// a defect read from the server's Interrupt answer). The limiter's laws over
-// a Loopback hold its success and failure paths; no law stops a caller.
-// It waits on events.
-func TestRPCLocalStopRunsTheRelease(t *testing.T) {
+// TestRPCCallsStopWithTheCaller is rpc.Loopback's interruption fact: a
+// stop of the task that runs the calls (a Loopback caller's, or a served
+// request's) stops each call's task, and RPCExits ends with the stop
+// after the call's release ran. It catches rpc-calls-stop (a stopped
+// caller's Call that ends with a defect read from an Interrupt exit). The
+// limiter's laws over a Loopback hold its success and failure paths; no
+// law stops a caller. It waits on events.
+func TestRPCCallsStopWithTheCaller(t *testing.T) {
 	started := make(chan struct{}, 1)
 	var released atomic.Bool
 	handle := func(ct *rt.Task, tag, payload string) (string, error) {
@@ -229,7 +233,8 @@ func TestRPCLocalStopRunsTheRelease(t *testing.T) {
 	ended := make(chan any, 1)
 	go func() {
 		defer func() { ended <- recover() }()
-		_, _ = RPCLocal("rpc loopback test", caller, handle, "Wait", `{}`)
+		envs, _ := RPCParse(RPCRequest("0", "Wait", `{}`), false)
+		_ = RPCExits("rpc loopback test", caller, envs, handle)
 	}()
 	select {
 	case <-started:
@@ -240,10 +245,10 @@ func TestRPCLocalStopRunsTheRelease(t *testing.T) {
 	select {
 	case p := <-ended:
 		if p != rt.Interrupted {
-			t.Errorf("the stopped caller's RPCLocal ended with %v, want the interruption", p)
+			t.Errorf("the stopped caller's RPCExits ended with %v, want the interruption", p)
 		}
 		if !released.Load() {
-			t.Error("RPCLocal returned before the call's release ran")
+			t.Error("RPCExits returned before the call's release ran")
 		}
 	case <-testwait.After(t):
 		t.Fatal("the stopped caller's loopback call did not end")

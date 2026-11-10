@@ -1,0 +1,35 @@
+{
+  "about": "The mutant ledger of internal/rpcgen's tests, started by Rm (wf10, 2026-11-10): edits of std rpc and its runtime/v1 bodies that only a built rpc server observes. Each mutant names the rule it breaks and the test that kills it; pkg is the package of the killer.",
+  "mutants": [
+    {
+      "name": "rpc-answer-buffers",
+      "origin": "wf10 Rm",
+      "file": "internal/sketch/std/rpc/rpc.ergo",
+      "from": "\t\tif framed {\n\t\t\treturn http.Stream(",
+      "to": "\t\tif false && framed {\n\t\t\treturn http.Stream(",
+      "rule": "An ndjson batch is answered as a stream of Exit lines, not as one buffered answer (rpc.md rule 2).",
+      "killers": ["rpcgen:TestRpcFramedExitFlowsWhileHeld"],
+      "pkg": "./internal/rpcgen"
+    },
+    {
+      "name": "rpc-lines-at-end",
+      "origin": "wf10 Rm",
+      "file": "runtime/v1/rpc.go",
+      "from": "\treturn rpcCalls(span, t, envs, handle, func(line []byte) error {\n\t\treturn emit(t, string(append(line, '\\n')))\n\t})",
+      "to": "\tvar all string\n\tif err := rpcCalls(span, t, envs, handle, func(line []byte) error {\n\t\tall += string(append(line, '\\n'))\n\t\treturn nil\n\t}); err != nil {\n\t\treturn err\n\t}\n\treturn emit(t, all)",
+      "rule": "Each Exit line of an ndjson batch is emitted as its call ends, while other calls of the batch are still held.",
+      "killers": ["rpcgen:TestRpcFramedExitFlowsWhileHeld"],
+      "pkg": "./internal/rpcgen"
+    },
+    {
+      "name": "rpc-mount-exact",
+      "origin": "wf10 Rm (R1 rpc-m4, moved into Answer)",
+      "file": "internal/sketch/std/rpc/rpc.ergo",
+      "from": "if r.Path != base && r.Path != base + \"/\" {",
+      "to": "if r.Path != base {",
+      "rule": "Answer answers the mount with a trailing slash, where Effect's RpcClient (and Call) posts.",
+      "killers": ["rpcgen:TestRpcLoopbackAgrees"],
+      "pkg": "./internal/rpcgen"
+    }
+  ]
+}

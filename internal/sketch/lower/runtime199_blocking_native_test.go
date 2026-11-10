@@ -93,14 +93,14 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 // caller, shielded, and joins nothing: runtime/v1/actor_children_test.go
 // TestActorChildrenAgreeWithTree states that its owner entry stops it,
 // last started first, before the next entry and before the owner ends.
-// RPCServe and RPCLocal (std rpc, R1 and R3b) run each call on a task
-// below the caller and join it: runtime/v1/rpc_test.go
-// TestRPCAbortStopsTheCall states that a client's abort stops a Serve
+// RPCExits and RPCExitLines (std rpc, R1, R3b and Rm) run each call on a
+// task below the caller and join it: runtime/v1/rpc_test.go
+// TestRPCAbortStopsTheCall states that a client's abort stops a served
 // call and its release runs before the answer ends, and
-// TestRPCLocalStopRunsTheRelease that a stop of a Loopback caller stops
-// the call, runs its release and ends the call with the stop.
+// TestRPCCallsStopWithTheCaller that a stop of the caller (a Loopback
+// caller's) stops the call, runs its release and ends with the stop.
 var childWaitLaws = map[string]bool{"After": true, "TasksTransform": true, "TasksRace": true, "Set.Wait": true, "Set.Stop": true, "MachineSupervise": true, "MachineChild": true,
-	"RPCServe": true, "RPCLocal": true, "HTTPServe": true}
+	"RPCExits": true, "RPCExitLines": true, "HTTPServe": true}
 
 // HTTPServe's stop and drain laws are TestHTTPConcurrentRequestsAndStop
 // and TestHTTPDisconnectAndDefects in runtime/v1/http_test.go.

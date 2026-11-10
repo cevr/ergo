@@ -51,21 +51,22 @@ func Peek(f Fixed, key string) Option[limits.Level] {
 	Some[limits.Level]{Value: limits.Partial{Tokens: 7}}
 }
 `,
-	"cmd/bench/main.ergo": `import rpc
+	"cmd/bench/main.ergo": `import http
+import rpc
 import bench/limits
 import bench/limits/limitsrpc
 import bench/memory
 
-func serve(l rpc.Listener) {
+func serve(l http.Listener) fails http.InvalidLimits {
 	with context { limits.Limiter: memory.Fixed } {
-		rpc.Serve(l, "/rpc", limitsrpc.Handle)
+		try rpc.Serve(l, http.Limits{MaxBodyBytes: 16777216, MaxHeaderBytes: 1048576}, "/rpc", limitsrpc.Handle)
 	}
 }
 
-func main() fails rpc.ListenFailed needs Console | Ambient {
-	let l = try rpc.Listen("127.0.0.1:0")
+func main() fails http.ListenFailed | http.InvalidLimits needs Console | Ambient {
+	let l = try http.Listen("127.0.0.1:0")
 	Console.Println("listening \(l.Addr())")
-	serve(l)
+	try serve(l)
 }
 `,
 }
@@ -273,7 +274,7 @@ func BenchmarkRpcUnary(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	serve := "serve(&Env{task: task}, v1.RPCListenerOn(l))"
+	serve := "serve(&Env{task: task}, v1.ListenerOn(l))"
 	if !bytes.Contains(mainGo, []byte("func serve(env *Env, l *ergo.Listener)")) {
 		b.Fatalf("the emitted serve is not serve(env, l):\n%s", mainGo)
 	}

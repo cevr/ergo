@@ -1,17 +1,14 @@
 package v1
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 
 	"ergo.local/prototype/runtime/rt"
@@ -19,12 +16,15 @@ import (
 
 // The bodies of std rpc (docs/spec/rpc.md; R1): Effect RPC 4.1.2's HTTP
 // protocol with its json and ndjson serializations (effect/src/rpc/
-// RpcMessage.ts, RpcSerialization.ts), served and called over net/http.
-// The Ergo side writes and reads the payloads, values and failures with
-// std json's derived codecs; this file moves the envelopes.
+// RpcMessage.ts, RpcSerialization.ts). Std rpc's Answer serves it as an
+// ordinary std http handler (Rm): the Ergo side routes the request and
+// streams an ndjson answer through http.Stream, and writes and reads the
+// payloads, values and failures with std json's derived codecs; this file
+// parses the envelopes, runs the calls and writes the Exits. Call posts
+// over net/http.
 //
 // Wire facts, each the shape RpcMessage.ts gives (the wire is the spec):
-//   - a client posts to its URL with a trailing slash; Serve answers the
+//   - a client posts to its URL with a trailing slash; Answer answers the
 //     mount path and the mount path with a slash;
 //   - a json body is one envelope or an array of them, and the answer is
 //     an array; an ndjson body is one envelope per line, and the answer is
@@ -44,17 +44,6 @@ type RPCFailed struct {
 
 // Error is the failure's text.
 func (e RPCFailed) Error() string { return "rpc.Failed{Text:" + e.Text + "}" }
-
-// RPCListenFailed is rpc.ListenFailed: Listen could not bind Addr.
-type RPCListenFailed struct {
-	Addr   string
-	Reason string
-}
-
-// Error is the failure's text.
-func (e RPCListenFailed) Error() string {
-	return "rpc.ListenFailed{Addr:" + e.Addr + " Reason:" + e.Reason + "}"
-}
 
 // RPCUnrepresentable is rpc.Unrepresentable: an integer at Path whose
 // Value a JavaScript number does not hold exactly.
@@ -132,253 +121,147 @@ func RPCTagOf(text string) string {
 	return m.Tag
 }
 
-// RPCListenerOn is a Listener over ln, which Go code makes: an in-process
-// transport for a benchmark of Serve. Ergo source has only Listen.
-func RPCListenerOn(ln net.Listener) *Listener {
-	return &Listener{ln: ln}
+// RPCMalformed is rpc.Malformed: a request body that is not Effect RPC's.
+type RPCMalformed struct {
+	Reason string
 }
 
-// RPCListen binds addr, host:port, on TCP; port 0 picks a free port.
-//
-//ergo:host
-func RPCListen(addr string) (*Listener, error) {
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		reason := err.Error()
-		if e, ok := err.(*net.OpError); ok && e.Err != nil {
-			reason = e.Err.Error()
-		}
-		return nil, RPCListenFailed{Addr: addr, Reason: reason}
-	}
-	return &Listener{ln: ln}, nil
+// Error is the failure's text.
+func (e RPCMalformed) Error() string { return "rpc.Malformed{Reason:" + e.Reason + "}" }
+
+// RPCEnvelope is rpc.Envelope: one message of a request body. ID keeps
+// the id's JSON token as sent.
+type RPCEnvelope struct {
+	Tag     string
+	ID      string
+	RPC     string
+	Payload string
 }
 
-// rpcMaxBody bounds a request body: Effect's ndjson line cap, 16 MiB.
-const rpcMaxBody = 16 << 20
-
-// rpcEnvelope is one message from a client. ID keeps the id's JSON token.
-type rpcEnvelope struct {
-	Tag     string          `json:"_tag"`
-	ID      json.RawMessage `json:"id"`
-	RPC     string          `json:"tag"`
-	Payload json.RawMessage `json:"payload"`
-}
-
-// rpcCall is one Request on its way to a task of Serve and back.
+// rpcCall is one Request on a task of its own and its Exit.
 type rpcCall struct {
 	id, tag, payload string
-	// exit is the Exit's "exit" member; done is closed after it is set
-	// and after the call's task has ended, its releases included.
+	// exit is the Exit's "exit" member, set before the call's task sends
+	// the call on ended.
 	exit string
-	done chan struct{}
-	// mu guards task and cancelled, so a cancel before the task starts
-	// still reaches it.
-	mu        sync.Mutex
-	task      *rt.Task
-	cancelled bool
+	h    *rt.Handle[struct{}]
 }
 
-// cancel interrupts the call's task, now or when it starts.
-func (c *rpcCall) cancel() {
-	c.mu.Lock()
-	c.cancelled = true
-	t := c.task
-	c.mu.Unlock()
-	if t != nil {
-		t.Interrupt()
-	}
-}
-
-// started records the call's task, and interrupts it when the call was
-// cancelled before.
-func (c *rpcCall) started(t *rt.Task) {
-	c.mu.Lock()
-	c.task = t
-	cancelled := c.cancelled
-	c.mu.Unlock()
-	if cancelled {
-		t.Interrupt()
-	}
-}
-
-// rpcServer is the HTTP side of one Serve: it hands each Request to the
-// serving loop and writes the Exits.
-type rpcServer struct {
-	mount string
-	calls chan *rpcCall
-	quit  chan struct{} // closed when Serve ends
-}
-
-// RPCServe serves Effect RPC over HTTP on l at mount until the calling
-// task is stopped: each Request runs handle(tag, payload) on a task of its
-// own below t, whose stop follows the HTTP request (a client abort stops
-// it, and the response waits until its releases ran). handle's value is
-// the Success value's text; its Failed is the Fail error's text; a defect
-// is a Die. A stop of t closes the listener, stops every call and waits
-// for each before Serve returns.
-//
-//ergo:host
-func RPCServe(span Site, t *rt.Task, l *Listener, mount string, handle func(*rt.Task, string, string) (string, error)) {
-	t.Check()
-	s := &rpcServer{mount: strings.TrimSuffix(mount, "/"), calls: make(chan *rpcCall), quit: make(chan struct{})}
-	srv := &http.Server{Handler: s}
-	failed := make(chan error, 1)
-	go func() { failed <- srv.Serve(l.ln) }()
-	tasks := newRPCTasks(span, t, handle)
-	stop := t.Done()
-	shutdown := func() {
-		close(s.quit)
-		_ = srv.Close()
-		tasks.stopAll()
-	}
-	for {
-		select {
-		case c := <-s.calls:
-			tasks.start(c)
-		case h := <-tasks.ended:
-			tasks.end(h)
-		case <-stop:
-			shutdown()
-			panic(rt.Interrupted)
-		case err := <-failed:
-			shutdown()
-			panic(rpcDefect{Name: "RpcError", Message: "rpc.Serve: " + err.Error()})
-		}
-	}
-}
-
-// rpcTasks are the call tasks of one server below its task t. Only the
-// goroutine that runs t calls its methods: it owns the handles and
-// consumes each with Wait; ended carries each finished call task's handle
-// back to it.
-type rpcTasks struct {
+// rpcRun is the calls of one request body below the request's task t.
+// Only the goroutine that runs t calls its methods: it owns the handles
+// and consumes each with Wait; ended carries each finished call back.
+type rpcRun struct {
 	span   Site
 	t      *rt.Task
 	handle func(*rt.Task, string, string) (string, error)
-	ended  chan *rt.Handle[struct{}]
-	live   map[*rt.Handle[struct{}]]bool
-}
-
-func newRPCTasks(span Site, t *rt.Task, handle func(*rt.Task, string, string) (string, error)) *rpcTasks {
-	return &rpcTasks{span: span, t: t, handle: handle, ended: make(chan *rt.Handle[struct{}], 16), live: map[*rt.Handle[struct{}]]bool{}}
+	ended  chan *rpcCall
+	live   map[*rpcCall]bool
 }
 
 // start runs the call c on a task of its own below t.
-func (s *rpcTasks) start(c *rpcCall) {
+func (s *rpcRun) start(c *rpcCall) {
 	holder := rt.NewScope(s.t)
-	var self atomic.Pointer[rt.Handle[struct{}]]
 	ready := make(chan struct{})
-	h := rt.Go(&holder, string(s.span), func(ct *rt.Task) (struct{}, error) {
-		c.started(ct)
+	c.h = rt.Go(&holder, string(s.span), func(ct *rt.Task) (struct{}, error) {
 		v, err := guarded(ct, func(ct *rt.Task) (string, error) { return s.handle(ct, c.tag, c.payload) })
 		c.exit = rpcExit(v, err)
-		close(c.done)
-		<-ready
-		s.ended <- self.Load()
+		<-ready // c.h is set
+		s.ended <- c
 		return struct{}{}, nil
 	})
-	self.Store(h)
 	close(ready)
-	s.live[h] = true
+	s.live[c] = true
 }
 
-// end consumes the finished call task h.
-func (s *rpcTasks) end(h *rt.Handle[struct{}]) {
-	delete(s.live, h)
-	_, _ = h.Wait()
+// end consumes the finished call c.
+func (s *rpcRun) end(c *rpcCall) {
+	delete(s.live, c)
+	_, _ = c.h.Wait()
 }
 
-// stopAll stops every call task left and consumes each.
-func (s *rpcTasks) stopAll() {
-	for h := range s.live {
-		h.Task().Interrupt()
+// stopAll stops every call left and consumes each, its releases run.
+func (s *rpcRun) stopAll() {
+	for c := range s.live {
+		c.h.Task().Interrupt()
 	}
 	for len(s.live) > 0 {
 		s.end(<-s.ended)
 	}
 }
 
-// rpcAnswer is the in-process ResponseWriter of a Loopback request: it
-// keeps the status, the headers and the body the server writes.
-type rpcAnswer struct {
-	header http.Header
-	status int
-	body   bytes.Buffer
-}
-
-func (a *rpcAnswer) Header() http.Header { return a.header }
-func (a *rpcAnswer) WriteHeader(status int) {
-	if a.status == 0 {
-		a.status = status
-	}
-}
-func (a *rpcAnswer) Write(b []byte) (int, error) {
-	a.WriteHeader(http.StatusOK)
-	return a.body.Write(b)
-}
-
-// RPCLocal posts one Request for tag with payload to handle, served in
-// this process (rpc.Loopback): the same server as RPCServe's (rpcServer,
-// its envelopes, its json answer) reads a net/http request and writes
-// its response in memory, with no socket and no connection, so it
-// reaches no host. handle runs on a task below t, as a call of Serve
-// runs. A stop of t cancels the request, which stops the call's task;
-// RPCLocal returns after the call's releases ran, with the stop.
-func RPCLocal(span Site, t *rt.Task, handle func(*rt.Task, string, string) (string, error), tag string, payload string) (string, error) {
+// rpcCalls runs each Request of envs on a task of its own below t and
+// gives each Exit line to each as its call ends, on t's goroutine. A stop
+// of t, a defect or a stop raised by each, and an error of each stop the
+// calls left and wait for them before rpcCalls ends: no call outlives it.
+func rpcCalls(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, string, string) (string, error), each func(line []byte) error) error {
 	t.Check()
-	s := &rpcServer{mount: "/rpc", calls: make(chan *rpcCall), quit: make(chan struct{})}
-	id, b := rpcRequest(tag, payload)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/rpc/", bytes.NewReader(b))
-	if err != nil {
-		panic(rpcDefect{Name: "RpcClientError", Message: err.Error()})
-	}
-	req.Header.Set("Content-Type", rpcJSON)
-	got := make(chan rpcResult, 1)
-	go func() {
-		a := &rpcAnswer{header: http.Header{}}
-		s.ServeHTTP(a, req)
-		res := rpcResult{body: a.body.Bytes(), ct: a.header.Get("Content-Type")}
-		if a.status != http.StatusOK {
-			res.err = fmt.Errorf("status %d: %s", a.status, strings.TrimSpace(a.body.String()))
+	s := &rpcRun{span: span, t: t, handle: handle, ended: make(chan *rpcCall, len(envs)), live: map[*rpcCall]bool{}}
+	defer func() {
+		if p := recover(); p != nil {
+			s.stopAll()
+			panic(p)
 		}
-		got <- res
 	}()
-	tasks := newRPCTasks(span, t, handle)
+	for _, e := range envs {
+		if e.Tag != "Request" {
+			continue // Ack, Ping and Eof mean nothing over HTTP
+		}
+		c := &rpcCall{id: e.ID, tag: e.RPC, payload: e.Payload}
+		if c.payload == "" {
+			c.payload = "{}"
+		}
+		if c.id == "" {
+			c.id = "null"
+		}
+		s.start(c)
+	}
 	stop := t.Done()
-	stopped := false
-	var res rpcResult
-	for waiting := true; waiting; {
+	for len(s.live) > 0 {
 		select {
-		case c := <-s.calls:
-			tasks.start(c)
-		case h := <-tasks.ended:
-			tasks.end(h)
+		case c := <-s.ended:
+			s.end(c)
+			if err := each(rpcExitLine(c.id, c.exit)); err != nil {
+				s.stopAll()
+				return err
+			}
 		case <-stop:
-			// The cancel reaches the call as a client's abort reaches
-			// Serve's: its task is stopped and its releases run before
-			// the answer ends.
-			stop, stopped = nil, true
-			cancel()
-		case res = <-got:
-			waiting = false
+			panic(rt.Interrupted)
 		}
 	}
-	close(s.quit)
-	tasks.stopAll()
-	if stopped {
-		panic(rt.Interrupted)
-	}
-	if res.err != nil {
-		panic(rpcDefect{Name: "RpcClientError", Message: res.err.Error()})
-	}
-	return rpcReadExit(res.body, strings.HasPrefix(res.ct, rpcNDJSON), id)
+	return nil
 }
 
-// rpcRequest is the id and the body of one Request for tag with payload.
-func rpcRequest(tag, payload string) (string, []byte) {
-	id := strconv.FormatUint(rpcIDs.Add(1)-1, 10)
+// RPCExits runs each Request of envs on a task of its own below t and is
+// the json answer: the array of their Exits, in the order the calls end,
+// each with its request's id. A stop of t stops the calls, waits for
+// their releases and ends RPCExits with the stop.
+func RPCExits(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, string, string) (string, error)) string {
+	out := []byte{'['}
+	_ = rpcCalls(span, t, envs, handle, func(line []byte) error {
+		if len(out) > 1 {
+			out = append(out, ',')
+		}
+		out = append(out, line...)
+		return nil
+	})
+	return string(append(out, ']'))
+}
+
+// RPCExitLines runs each Request of envs as RPCExits does and emits each
+// Exit as an ndjson line as soon as its call ends: emit's failure stops
+// the calls left and is RPCExitLines' failure.
+func RPCExitLines(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, string, string) (string, error), emit func(*rt.Task, string) error) error {
+	return rpcCalls(span, t, envs, handle, func(line []byte) error {
+		return emit(t, string(append(line, '\n')))
+	})
+}
+
+// RPCNextID is the id of this process's next Request, from 0, as
+// Effect's default id generator counts.
+func RPCNextID() string { return strconv.FormatUint(rpcIDs.Add(1)-1, 10) }
+
+// RPCRequest is the body of one Request id for tag with payload.
+func RPCRequest(id, tag, payload string) string {
 	b := make([]byte, 0, len(payload)+len(tag)+64)
 	b = append(b, `{"_tag":"Request","id":`...)
 	b = append(b, id...)
@@ -387,7 +270,17 @@ func rpcRequest(tag, payload string) (string, []byte) {
 	b = append(b, `,"payload":`...)
 	b = append(b, payload...)
 	b = append(b, `,"headers":[]}`...)
-	return id, b
+	return string(b)
+}
+
+// RPCReadExit finds the Exit of request id in an answer of status and
+// content type and returns its outcome as RPCCall does; a status other
+// than 200 is the defect RpcClientError.
+func RPCReadExit(id string, status int, contentType string, body string) (string, error) {
+	if status != http.StatusOK {
+		panic(rpcDefect{Name: "RpcClientError", Message: fmt.Sprintf("status %d: %s", status, strings.TrimSpace(body))})
+	}
+	return rpcReadExit([]byte(body), strings.HasPrefix(contentType, rpcNDJSON), id)
 }
 
 // rpcResult is a response's body and content type, or why there is none.
@@ -460,103 +353,6 @@ const (
 	rpcNDJSON = "application/x-ndjson"
 )
 
-// ServeHTTP answers one POST: it reads the body's envelopes, starts a
-// call for each Request, and writes each call's Exit.
-func (s *rpcServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if p := r.URL.Path; p != s.mount && p != s.mount+"/" {
-		http.NotFound(w, r)
-		return
-	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", http.MethodPost)
-		http.Error(w, "rpc: POST only", http.StatusMethodNotAllowed)
-		return
-	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, rpcMaxBody))
-	if err != nil {
-		http.Error(w, "rpc: "+err.Error(), http.StatusRequestEntityTooLarge)
-		return
-	}
-	framed := strings.HasPrefix(r.Header.Get("Content-Type"), rpcNDJSON)
-	envs, err := rpcEnvelopes(body, framed)
-	if err != nil {
-		http.Error(w, "rpc: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	if framed {
-		w.Header().Set("Content-Type", rpcNDJSON)
-	} else {
-		w.Header().Set("Content-Type", rpcJSON)
-	}
-	var calls []*rpcCall
-	for _, e := range envs {
-		if e.Tag != "Request" {
-			continue // Ack, Ping and Eof mean nothing over HTTP
-		}
-		c := &rpcCall{id: string(e.ID), tag: e.RPC, payload: string(e.Payload), done: make(chan struct{})}
-		if len(c.payload) == 0 {
-			c.payload = "{}"
-		}
-		if len(c.id) == 0 {
-			c.id = "null"
-		}
-		select {
-		case s.calls <- c:
-			calls = append(calls, c)
-		case <-s.quit:
-			c.exit = `{"_tag":"Failure","cause":[{"_tag":"Interrupt","fiberId":null}]}`
-			close(c.done)
-			calls = append(calls, c)
-		}
-	}
-	s.answer(w, r.Context(), calls, framed)
-}
-
-// answer writes the Exit of each call as it ends; a done request context
-// (the client went away) cancels the calls left and waits for them.
-func (s *rpcServer) answer(w http.ResponseWriter, ctx context.Context, calls []*rpcCall, framed bool) {
-	ends := make(chan *rpcCall, len(calls))
-	for _, c := range calls {
-		go func() { <-c.done; ends <- c }()
-	}
-	var out []byte
-	if !framed {
-		out = append(out, '[')
-	}
-	flusher, _ := w.(http.Flusher)
-	gone := ctx.Done()
-	for left := len(calls); left > 0; {
-		select {
-		case c := <-ends:
-			left--
-			line := rpcExitLine(c.id, c.exit)
-			if framed {
-				line = append(line, '\n')
-				if gone != nil {
-					_, _ = w.Write(line)
-					if flusher != nil {
-						flusher.Flush()
-					}
-				}
-			} else {
-				if len(out) > 1 {
-					out = append(out, ',')
-				}
-				out = append(out, line...)
-			}
-		case <-gone:
-			gone = nil
-			for _, c := range calls {
-				c.cancel()
-			}
-		}
-	}
-	if !framed && gone != nil {
-		out = append(out, ']')
-		_, _ = w.Write(out)
-	}
-}
-
 func rpcExitLine(id, exit string) []byte {
 	b := make([]byte, 0, len(id)+len(exit)+40)
 	b = append(b, `{"_tag":"Exit","requestId":`...)
@@ -566,36 +362,47 @@ func rpcExitLine(id, exit string) []byte {
 	return append(b, '}')
 }
 
-// rpcEnvelopes reads a body: one JSON value per line (ndjson), or one
-// envelope or an array of them (json).
-func rpcEnvelopes(body []byte, framed bool) ([]rpcEnvelope, error) {
-	var envs []rpcEnvelope
+// rpcEnvelope is one message of a body as JSON writes it. ID keeps the
+// id's JSON token.
+type rpcEnvelope struct {
+	Tag     string          `json:"_tag"`
+	ID      json.RawMessage `json:"id"`
+	RPC     string          `json:"tag"`
+	Payload json.RawMessage `json:"payload"`
+}
+
+// RPCParse reads a body's envelopes: one JSON value per line (framed,
+// ndjson), or one envelope or an array of them (json). A body that is
+// not one fails Malformed, before any call starts.
+func RPCParse(text string, framed bool) ([]RPCEnvelope, error) {
+	var raw []rpcEnvelope
+	var err error
 	if framed {
-		sc := bufio.NewScanner(bytes.NewReader(body))
-		sc.Buffer(nil, rpcMaxBody)
-		for sc.Scan() {
-			line := bytes.TrimSpace(sc.Bytes())
-			if len(line) == 0 {
+		for _, line := range strings.Split(text, "\n") {
+			if line = strings.TrimSpace(line); line == "" {
 				continue
 			}
 			var e rpcEnvelope
-			if err := json.Unmarshal(line, &e); err != nil {
-				return nil, err
+			if err = json.Unmarshal([]byte(line), &e); err != nil {
+				break
 			}
-			envs = append(envs, e)
+			raw = append(raw, e)
 		}
-		return envs, sc.Err()
+	} else if t := strings.TrimSpace(text); len(t) > 0 && t[0] == '[' {
+		err = json.Unmarshal([]byte(t), &raw)
+	} else {
+		var e rpcEnvelope
+		err = json.Unmarshal([]byte(t), &e)
+		raw = append(raw, e)
 	}
-	t := bytes.TrimSpace(body)
-	if len(t) > 0 && t[0] == '[' {
-		err := json.Unmarshal(t, &envs)
-		return envs, err
+	if err != nil {
+		return nil, RPCMalformed{Reason: err.Error()}
 	}
-	var e rpcEnvelope
-	if err := json.Unmarshal(t, &e); err != nil {
-		return nil, err
+	envs := make([]RPCEnvelope, len(raw))
+	for i, e := range raw {
+		envs[i] = RPCEnvelope{Tag: e.Tag, ID: string(e.ID), RPC: e.RPC, Payload: string(e.Payload)}
 	}
-	return append(envs, e), nil
+	return envs, nil
 }
 
 // rpcIDs numbers the Requests of this process's clients, from 0, as
@@ -615,10 +422,10 @@ var rpcClient = &http.Client{}
 //ergo:host
 func RPCCall(t *rt.Task, url string, tag string, payload string) (string, error) {
 	t.Check()
-	id, b := rpcRequest(tag, payload)
+	id := RPCNextID()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(url, "/")+"/", bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(url, "/")+"/", strings.NewReader(RPCRequest(id, tag, payload)))
 	if err != nil {
 		panic(rpcDefect{Name: "RpcClientError", Message: err.Error()})
 	}

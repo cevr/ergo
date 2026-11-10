@@ -10,6 +10,7 @@
 import limiter/bucket
 import limiter/limits
 import limiter/limits/limitsrpc
+import http
 import limiter/memory
 import queue
 import rpc
@@ -34,8 +35,8 @@ func told(n memory.Note) string {
 	}
 }
 
-func main() fails rpc.ListenFailed needs Console | Ambient {
-	let l = try rpc.Listen("127.0.0.1:0")
+func main() fails http.ListenFailed | http.InvalidLimits needs Console | Ambient {
+	let l = try http.Listen("127.0.0.1:0")
 	Console.Println("listening \(l.Addr())")
 	let notes = queue.New[memory.Note](64)
 	let printer = task.Go() {
@@ -44,7 +45,7 @@ func main() fails rpc.ListenFailed needs Console | Ambient {
 		}
 	}
 	with context { limits.Limiter: memory.New(buckets(), notes) } {
-		rpc.Serve(l, "/rpc", limitsrpc.Handle)
+		try rpc.Serve(l, http.Limits{MaxBodyBytes: 65536, MaxHeaderBytes: 16384}, "/rpc", limitsrpc.Handle)
 	}
 	notes.Close()
 	printer.Stop()

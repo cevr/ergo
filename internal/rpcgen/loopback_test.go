@@ -1025,7 +1025,7 @@ func (p *program) providerSig(o *op) string {
 
 func (p *program) mainSource() string {
 	var b strings.Builder
-	b.WriteString("import json\nimport os\nimport rpc\nimport strings\n")
+	b.WriteString("import http\nimport json\nimport os\nimport rpc\nimport strings\n")
 	var caps []string
 	for _, c := range p.contracts {
 		fmt.Fprintf(&b, "import loop/c%d\nimport loop/c%d/c%drpc\n", c.i, c.i, c.i)
@@ -1117,16 +1117,16 @@ func (p *program) mainSource() string {
 	// Modes: serve [KEY]; direct [KEY]; URL [KEY]. A KEY ("w3") runs
 	// that wide call alone; the server's provider gives its outcome.
 	fmt.Fprintf(&b, `
-func main() fails rpc.ListenFailed needs Console | Ambient {
+func main() fails http.ListenFailed | http.InvalidLimits needs Console | Ambient {
 	let args = os.NewHost().Args()
 	let mode = args[0]
 	let key = if len(args) > 1 { args[1] } else { "" }
 	match mode {
 	case "serve":
-		let l = try rpc.Listen("127.0.0.1:0")
+		let l = try http.Listen("127.0.0.1:0")
 		Console.Println("listening \(l.Addr())")
 		with context { %[1]s } {
-			rpc.Serve(l, "/rpc", handle)
+			try rpc.Serve(l, http.Limits{MaxBodyBytes: 16777216, MaxHeaderBytes: 1048576}, "/rpc", handle)
 		}
 	case "payload":
 		Console.Println(payload(key))

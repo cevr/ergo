@@ -122,6 +122,10 @@ func (x *Exchange) finish() bool {
 	return x.started
 }
 
+// ListenerOn is a Listener over ln, which Go code makes: an in-process
+// transport for a benchmark of Serve. Ergo source has only Listen.
+func ListenerOn(ln net.Listener) *Listener { return &Listener{ln: ln} }
+
 // HTTPListen binds TCP. Port zero selects an available port, reported by
 // Addr. The caller either hands the transport to Serve or closes it.
 //

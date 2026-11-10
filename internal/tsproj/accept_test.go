@@ -323,6 +323,7 @@ func Echo(_ Memory, value domain.Bundle) domain.Bundle { value }
 import bridge/domain/domainrpc
 import bridge/memory
 import bridge/shared
+import http
 import json
 import os
 import rpc
@@ -334,12 +335,12 @@ func values() []domain.Bundle {
  []domain.Bundle{
 ` + vals.String() + ` }
 }
-func main() fails rpc.ListenFailed needs Console | Ambient {
+func main() fails http.ListenFailed | http.InvalidLimits needs Console | Ambient {
  let host = os.NewHost()
  if os.Args(host)[0] == "serve" {
-  let listener = try rpc.Listen("127.0.0.1:0")
+  let listener = try http.Listen("127.0.0.1:0")
   Console.Println("listening \(listener.Addr())")
-  with context { domain.API: memory.Memory } { rpc.Serve(listener, "/rpc", domainrpc.Handle) }
+  with context { domain.API: memory.Memory } { try rpc.Serve(listener, http.Limits{MaxBodyBytes: 16777216, MaxHeaderBytes: 1048576}, "/rpc", domainrpc.Handle) }
   return
  }
  if os.Args(host)[0] == "codec" { Console.Println(enc(values())); return }

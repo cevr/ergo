@@ -333,13 +333,17 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Cursor.Key":         {},
 	"Cursor.Skip":        {},
 	"Cursor.End":         {},
-	// std rpc (R1): Serve starts and joins a task per call below the
-	// caller and waits on the caller's stop; Call waits on the network
-	// and on the caller's stop.
-	"RPCListen":    {},
-	"RPCServe":     {wait: childWait},
+	// std rpc (R1, Rm): Exits and ExitLines start and join a task per
+	// call below the caller (the request task, or a Loopback caller) and
+	// wait on the caller's stop; Call waits on the network and on the
+	// caller's stop; the others compute.
+	"RPCExits":     {wait: childWait},
+	"RPCExitLines": {wait: childWait},
 	"RPCCall":      {wait: callerWait},
-	"RPCLocal":     {wait: childWait},
+	"RPCParse":     {},
+	"RPCNextID":    {},
+	"RPCRequest":   {},
+	"RPCReadExit":  {},
 	"RPCTagged":    {},
 	"RPCTagOf":     {},
 	"RPCDie":       {},

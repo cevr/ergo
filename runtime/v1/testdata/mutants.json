@@ -1,22 +1,22 @@
 {
-  "about": "The mutant ledger of runtime/v1, started by R3b (wf10, 2026-11-10) for rpc.Loopback's body RPCLocal. Each mutant names the rule it breaks and the test or example that kills it.",
+  "about": "The mutant ledger of runtime/v1, started by R3b (wf10, 2026-11-10) for rpc.Loopback (its body moved into Answer and RPCExits in Rm). Each mutant names the rule it breaks and the test or example that kills it.",
   "mutants": [
     {
-      "name": "r3b-local-stop",
-      "origin": "wf10 R3b",
+      "name": "rpc-calls-stop",
+      "origin": "wf10 R3b, moved by Rm",
       "file": "runtime/v1/rpc.go",
-      "from": "\tif stopped {\n\t\tpanic(rt.Interrupted)\n\t}\n\tif res.err != nil {\n\t\tpanic(rpcDefect{Name: \"RpcClientError\"",
-      "to": "\tif false && stopped {\n\t\tpanic(rt.Interrupted)\n\t}\n\tif res.err != nil {\n\t\tpanic(rpcDefect{Name: \"RpcClientError\"",
-      "rule": "A stopped caller's Loopback Call ends with the stop, not with a defect read from the Interrupt the server answered, and after the call's release ran.",
-      "killers": ["v1:TestRPCLocalStopRunsTheRelease"],
+      "from": "\t\tcase <-stop:\n\t\t\tpanic(rt.Interrupted)",
+      "to": "\t\tcase <-stop:\n\t\t\tstop = nil",
+      "rule": "A stopped caller's Loopback Call (or a stopped request) ends with the stop, not with a defect read from an Interrupt exit, and after the call's release ran.",
+      "killers": ["v1:TestRPCCallsStopWithTheCaller"],
       "pkg": "./runtime/v1"
     },
     {
       "name": "r3b-local-exit",
       "origin": "wf10 R3b",
       "file": "runtime/v1/rpc.go",
-      "from": "\treturn rpcReadExit(res.body, strings.HasPrefix(res.ct, rpcNDJSON), id)\n}\n\n// rpcRequest",
-      "to": "\treturn rpcReadExit(res.body, true, id)\n}\n\n// rpcRequest",
+      "from": "\treturn rpcReadExit([]byte(body), strings.HasPrefix(contentType, rpcNDJSON), id)",
+      "to": "\treturn rpcReadExit([]byte(body), true, id)",
       "rule": "A Loopback Call reads the json Exit its server answered; the contract's laws hold through it.",
       "killers": ["examples:limiter/loopback (ergo test: limits.Limiter laws for Loopback)"]
     },
