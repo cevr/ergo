@@ -358,7 +358,7 @@ func sources(files map[string]string) string {
 	return b.String()
 }
 
-func writeFile(t *testing.T, path, src string) {
+func writeFile(t testing.TB, path, src string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
@@ -417,7 +417,7 @@ type outcome struct {
 	code           int
 }
 
-func limit(t *testing.T) uint64 {
+func limit(t testing.TB) uint64 {
 	t.Helper()
 	n, err := proclimit.Limit(os.Environ(), proclimit.DefaultLimit)
 	if err != nil {

@@ -138,6 +138,12 @@ type Listener struct {
 	addr string
 }
 
+// RPCListenerOn is a Listener over ln, which Go code makes: an in-process
+// transport for a benchmark of Serve. Ergo source has only Listen.
+func RPCListenerOn(ln net.Listener) *Listener {
+	return &Listener{ln: ln, addr: ln.Addr().String()}
+}
+
 // Addr is the address the listener is bound to, with its port.
 func (l *Listener) Addr() string { return l.addr }
 
