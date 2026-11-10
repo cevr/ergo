@@ -118,9 +118,6 @@ type Package struct {
 	// name (D-D6, D-D8), which x.f(…) reaches from a value of exactly an
 	// unnamed slice or Map type; nil in every other package.
 	collFuncs map[collKey]*Func
-	// providerFresh is the freshness fact the context ownership pass computed
-	// during Check, kept so its tests read the fact that decided.
-	providerFresh providerFreshness
 	// testBuilds are, in a test package (fstest), the builders it declares
 	// for each operation type of the package it tests (builders.go rule
 	// 2). Only the package's own check writes it.
@@ -277,6 +274,31 @@ type Info struct {
 	// (`let p = &h; p.Close()`). The lowering removes that local's entry
 	// there. Added in L8 B1 (additive).
 	Handoffs map[*syntax.Ident]*Var
+	// Takes is the inferred takes clause of each unexported function with
+	// a body and no written clause (#197 L8 A3; takes.go): the indexes into
+	// its signature's Params that it takes, ascending. A written clause is
+	// in Signature.Takes; a function that takes nothing has no key. Added
+	// in L8 A3 (additive).
+	Takes map[*Func][]int
+	// Copies is each generic function's copy sites (#197 L8 A3; plan 1.3;
+	// takes.go): per type parameter of its signature, the first place its
+	// body copies a value of that type (a second use after a hand-off, or a
+	// call of a function that copies it). A call that binds such a type
+	// parameter to a resource is S108. Added in L8 A3 (additive).
+	Copies map[*Func][]CopySite
+}
+
+// CopySite is one place a generic body copies a value of its type
+// parameter TParam (an index into the signature's TParams).
+type CopySite struct {
+	TParam int
+	At     syntax.Node
+	// Where is At as file:line:col; empty for a declaration with no body.
+	Where string
+	// What says how it copies, for the diagnostic: "x is used twice".
+	What string
+	// Key marks a map key (resources R40: S112 at the instantiation).
+	Key bool
 }
 
 // Release is one value a place releases: an owned local or taken
@@ -287,6 +309,11 @@ type Release struct {
 	Var  *Var
 	Temp syntax.Expr
 	Flag bool
+	// Fields are the record's fields taken in place on every path (a bit
+	// per field index; R39, Gap 38): the generated Close skips them.
+	// MaybeFields are those taken on some paths only: each has a drop
+	// flag. Added in L8 A4 (additive).
+	Fields, MaybeFields uint64
 }
 
 // Instance is one instantiation of a generic function.
@@ -367,6 +394,8 @@ func newInfo() *Info {
 		OwnedVars:      map[*Var]*Close{},
 		OwnedTemps:     map[syntax.Expr]*Close{},
 		Handoffs:       map[*syntax.Ident]*Var{},
+		Takes:          map[*Func][]int{},
+		Copies:         map[*Func][]CopySite{},
 	}
 }
 

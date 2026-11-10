@@ -95,9 +95,11 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.closeFacts,
 		// After closeFacts: every Close and failure row is final.
 		c.checkResourceTypes,
-		// After the resource types: who owns each resource (ownership.go).
-		c.checkOwnership,
+		// After the resource types: what each with builds (withown.go),
+		// then who owns each resource (ownership.go), which moves a local
+		// provider into the with that builds it (R11).
 		c.withOwnership,
+		c.checkOwnership,
 		c.checkFrames,
 		c.checkEscapes,
 		c.footprints,
@@ -978,6 +980,9 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx) *Inter
 			mctx.params, mctx.decl = ctx.params, ctx.decl
 		}
 		sig := c.signature(ft, mctx)
+		if c.pkg.host == nil {
+			closeOpTakes(name.Name, sig)
+		}
 		if ft.Needs != nil && c.pkg.host == nil {
 			// A Go interface's method runs Go code: its binding charges
 			// go.Foreign at the call (docs/spec/interop.md).
