@@ -21,6 +21,6 @@ func main() needs Console {
 
 // run> 7
 // test> ok NonNegative (100 cases)
-// test> FAIL Small (case 3 of 100, seed 1, size 0: n = 127, label = ""; shrunk from: n = 2147483647, label = ""): assert failed at main.ergo:15:2: n < 5 || len(label) > 100
+// test> FAIL Small (case 3 of 100, seed 1, size 0: n = 5, label = ""; shrunk from: n = 2147483647, label = ""): assert failed at main.ergo:15:2: n < 5 || len(label) > 100
 // test> FAIL (1 of 2 tests)
 // test exit 1

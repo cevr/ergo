@@ -8,8 +8,10 @@ package v1
 // shortlex is a well-order on finite tapes, so the shrinker ends, and
 // budget bounds the replays as well. The passes, repeated until a round keeps nothing: delete
 // a chunk of 8, 4, 2 or 1 draws; set a chunk to zero; lower each draw, to
-// zero first, then by a binary search on the gap. The result is the
-// smallest tape found and the number of replays (tries), the work counter
+// zero first, then by a binary search on the gap and adjacent decrements
+// until the next decrement no longer refutes the case. Revisit every component after any
+// improvement: changing a later component can unlock an earlier one.
+// The result is the smallest tape found and the number of replays (tries), the work counter
 // a test reads. Prior art: Hypothesis's buffer shrinker; Go's rapid.
 func ShrinkTape(tape []uint64, fails func([]uint64) bool, budget int) (best []uint64, tries int) {
 	best = append([]uint64(nil), tape...)
@@ -61,7 +63,7 @@ func ShrinkTape(tape []uint64, fails func([]uint64) bool, budget int) (best []ui
 			}
 			// best[i] fails and lo does not: search the gap.
 			lo := uint64(0)
-			for lo+1 < best[i] && tries < budget {
+			for best[i]-lo > 2 && tries < budget {
 				mid := lo + (best[i]-lo)/2
 				c := append([]uint64(nil), best...)
 				c[i] = mid
@@ -70,6 +72,16 @@ func ShrinkTape(tape []uint64, fails func([]uint64) bool, budget int) (best []ui
 				} else {
 					lo = mid
 				}
+			}
+			// Binary search can skip failing islands of a non-monotone
+			// predicate. The adjacent step still gives a local minimum.
+			for best[i] > 0 && tries < budget {
+				c := append([]uint64(nil), best...)
+				c[i]--
+				if !try(c) {
+					break
+				}
+				improved = true
 			}
 		}
 	}

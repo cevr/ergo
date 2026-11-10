@@ -55,6 +55,8 @@ FAIL (1 of 3 tests)
 
 The runner shrinks a failing case before it reports it: it replays the case with simpler draws while it still fails the same way, and prints the smallest case it found, then the drawn arguments after `shrunk from:` and the command that runs the cases again. Every type a property can draw shrinks: numbers toward 0, strings, slices and Maps toward empty, a union toward its first variant. A defect is not shrunk. `--seed N` (a decimal `uint64`, default 1) selects the cases, so a failure reproduces with the same seed.
 
+Integers shrink by their value, not by the generator's choice of small values or edges: the runner records a sign and magnitude after narrowing to the integer's width. It searches toward zero, then checks adjacent values, and revisits every component of a composite value until no pass improves it. Thus a monotone integer predicate such as `n < 5` shrinks to its boundary, `5`, when the replay budget is enough. The budget is 500 replays per failed case; reaching that limit can leave a non-minimal case. Arbitrary predicates have no global-minimum guarantee.
+
 ## Exit status
 
 | Status | Meaning |

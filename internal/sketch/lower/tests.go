@@ -1422,6 +1422,51 @@ func (r *$Rand) i64() int64 {
 	return r.any64()
 }
 
+// integer records the generated value, after narrowing, as sign and
+// magnitude (an unsigned value has only magnitude). Distribution choices
+// are not replay choices: switching from an edge to a small-value branch
+// must not strand a shrink at 127. For a fixed sign, lowering magnitude
+// moves toward zero monotonically, including MinInt64 and MaxUint64.
+func (r *$Rand) integer(bits uint, signed bool) uint64 {
+	if bits == 0 {
+		bits = $strconv.IntSize
+	}
+	mask := ^uint64(0) >> (64 - bits)
+	if r.replaying {
+		negative := signed && r.bool()
+		magnitude := r.next()
+		limit := mask
+		if signed {
+			limit = mask >> 1
+			if negative {
+				limit++
+			}
+		}
+		// Deleting draws can move a wider integer into this position.
+		// Clamp rather than wrap: shrinking stays monotone in magnitude.
+		if magnitude > limit {
+			magnitude = limit
+		}
+		if negative {
+			return -magnitude
+		}
+		return magnitude
+	}
+	start := len(r.tape)
+	n := uint64(r.i64()) & mask
+	r.tape = r.tape[:start]
+	magnitude := n
+	if signed {
+		sign := uint64(0)
+		if n & (uint64(1) << (bits - 1)) != 0 {
+			sign, magnitude = 1, -n & mask
+		}
+		r.tape = append(r.tape, sign)
+	}
+	r.tape = append(r.tape, magnitude)
+	return n
+}
+
 // f64 is always finite: a small half-integer half the time.
 func (r *$Rand) f64() float64 {
 	if !r.bool() {
@@ -1684,7 +1729,7 @@ func (l *lowerer) genExpr(t check.Type, r, d string, scope *namer, site syntax.N
 		case u.Kind == check.String:
 			return r + ".str()"
 		case u.Kind == check.Duration:
-			return tc.goType(u) + "(" + r + ".i64())"
+			return tc.goType(u) + "(" + r + ".integer(64, true))"
 		case u.Kind == check.Float32 || u.Kind == check.Float64:
 			return u.Name + "(" + r + ".f64())"
 		case u.Kind == check.Complex64:
@@ -1692,7 +1737,14 @@ func (l *lowerer) genExpr(t check.Type, r, d string, scope *namer, site syntax.N
 		case u.Kind == check.Complex128:
 			return "complex(" + r + ".f64(), " + r + ".f64())"
 		case u.Kind >= check.Int && u.Kind <= check.Uintptr:
-			return u.Name + "(" + r + ".i64())"
+			bits := "0" // int, uint and uintptr have the host's width.
+			for _, width := range []string{"8", "16", "32", "64"} {
+				if strings.HasSuffix(u.Name, width) {
+					bits = width
+				}
+			}
+			signed := !strings.HasPrefix(u.Name, "u")
+			return u.Name + "(" + r + ".integer(" + bits + ", " + strconv.FormatBool(signed) + "))"
 		}
 	case *check.Slice:
 		return l.helper("GenSlice") + "(" + r + ", " + d + ", " + elem(u.Elem) + ")"
