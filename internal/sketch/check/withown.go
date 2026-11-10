@@ -421,17 +421,17 @@ func providerInfo(w *Context) *Info {
 }
 
 // ownedBlock reports, in the block of x, an owning with, the exit actions
-// that need a capability x provides and a value of x that holds a Task
-// (rule 4). A function literal and the trailing block of a call other than
+// that need a capability x provides and a value of x that holds running
+// code, a Task or a tasks.Set (rule 4; running.go). A function literal and the trailing block of a call other than
 // with are frames of their own: what they register ends with them, before
 // the block ends. w is the fact of one operand of x: the operands after it
 // are withs between it and its block (rows.md, With 7). taskHeld records
 // the withs whose Task value is reported, so a with of several owning
 // operands is reported once.
 func (c *checker) ownedBlock(x *syntax.CallExpr, w *With, taskHeld map[*syntax.CallExpr]bool) {
-	if t := c.pkg.Info.Types[x]; t != nil && c.holdsTask(t) && !taskHeld[x] {
+	if r := c.running(c.pkg.Info.Types[x]); r != nil && !taskHeld[x] {
 		taskHeld[x] = true
-		c.errorf(x, CodeType, "the value of this with holds a Task, which leaves the block that stops it before its providers close; wait on the Task inside the block (resources.md, Release before the end)")
+		c.errorf(x, CodeType, "the value of this with holds %s, whose code keeps running after the block, past its providers' close; wait on it inside the block (resources.md, Release before the end)", r)
 	}
 	// Acquisitions are topological: every dependency is visited before
 	// its user. A plain provider independent of resources stays usable by

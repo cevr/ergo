@@ -362,8 +362,8 @@
       "name": "existing-27-pure-too-wide",
       "origin": "lower-v1/verify-s5abc/mutants.json",
       "file": "internal/sketch/lower/pure.go",
-      "from": "if len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 || s.ResultIsTask()",
-      "to": "if len(rowElems(s.Errors)) > 0 || s.ResultIsTask()",
+      "from": "s := f.Sig\n\tif len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {",
+      "to": "s := f.Sig\n\tif len(rowElems(s.Errors)) > 0 {",
       "rule": "pureCandidate: pureCandidate reports whether f meets every rule of a pure function but the last's fixed point, with the Ergo-bodied functions its body calls, of any package; info is f's own package's Info.",
       "killers": [
         "lower:TestStdLawsAddNoGo"
@@ -373,8 +373,8 @@
       "name": "existing-28-pure-too-wide",
       "origin": "lower-v1/receipts/s5/mutants-s5c.json",
       "file": "internal/sketch/lower/pure.go",
-      "from": "\ts := f.Sig\n\tif len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 ||",
-      "to": "\ts := f.Sig\n\tif len(rowElems(s.Uses)) > 0 && len(rowElems(s.Errors)) == 0 {\n\t\treturn nil, true\n\t}\n\tif len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 ||",
+      "from": "\ts := f.Sig\n\tif len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {",
+      "to": "\ts := f.Sig\n\tif len(rowElems(s.Uses)) > 0 && len(rowElems(s.Errors)) == 0 {\n\t\treturn nil, true\n\t}\n\tif len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {",
       "rule": "pureCandidate: pureCandidate reports whether f meets every rule of a pure function but the last's fixed point, with the Ergo-bodied functions its body calls, of any package; info is f's own package's Info.",
       "killers": [
         "lower:TestStdLawsAddNoGo",
@@ -621,7 +621,7 @@
       "name": "existing-46-close-operation-skipped",
       "origin": "lower-v1/receipts/s4/mutants-s4c-close.json",
       "file": "internal/sketch/lower/release.go",
-      "from": "\t\ttext, _, _ := fc.opCall(cl.Receiver, cl.Op, nil, []string{val}, outer, \"\", nil, nil, site)\n\t\treturn text\n",
+      "from": "\t\ttext, _, _ := fc.opCall(cl.Receiver, cl.Op, nil, []string{val}, outer, nil, nil, site)\n\t\treturn text\n",
       "to": "\t\treturn \"_ = \" + val\n",
       "rule": "providerRelease: providerRelease is the release of a provider an owning with built: the call of its checked Close (Acquisition.Close, the checker's fact) on val, the provider's value, in outer, the environment outside the with, where the checker charged the release's needs.",
       "killers": [
@@ -835,8 +835,8 @@
       "name": "existing-60-caller-not-pure",
       "origin": "batch-12/W/W2/mutants.json",
       "file": "internal/sketch/lower/pure.go",
-      "from": "case c.Kind == check.CallFunc && !c.TaskResult && pureStdBody(c.Func):",
-      "to": "case c.Kind == check.CallFunc && !c.TaskResult && pureStdBody(c.Func) && !strings.Contains(c.Func.Name, \"e\"):",
+      "from": "case c.Kind == check.CallFunc && !c.StartsTask && pureStdBody(c.Func):",
+      "to": "case c.Kind == check.CallFunc && !c.StartsTask && pureStdBody(c.Func) && !strings.Contains(c.Func.Name, \"e\"):",
       "rule": "pureCandidate: pureCandidate reports whether f meets every rule of a pure function but the last's fixed point, with the Ergo-bodied functions its body calls, of any package; info is f's own package's Info.",
       "killers": [
         "lower:TestPurePreludeEmits"
@@ -1015,19 +1015,6 @@
       ]
     },
     {
-      "name": "own-lower-14-negate-if-witness.go:233",
-      "origin": "test-speed plan, own sample (gen.ts 20 11)",
-      "file": "internal/sketch/lower/witness.go",
-      "from": "\tif dest != \"\" {",
-      "to": "\tif !(dest != \"\") {",
-      "rule": "witnessCall: witnessCall is the call of the operation op on a value of the type parameter tp, through tp's witness: vals are the receiver's and the arguments' Go text, env the environment of the call and dest the destination of a returned Task, or \"\".",
-      "killers": [
-        "lower:TestErgoRunGenericImplementingFunction",
-        "lower:TestErgoRunE1ForwardedPointerWitness",
-        "lower:TestErgoRunE1Witnesses"
-      ]
-    },
-    {
       "name": "own-lower-15-negate-if-witness.go:90",
       "origin": "test-speed plan, own sample (gen.ts 20 11)",
       "file": "internal/sketch/lower/witness.go",
@@ -1106,8 +1093,8 @@
       "name": "t0-pure-ignores-capability-row",
       "origin": "wf10 T0 ts-mutant-ledger (rule of lower pure_test.go TestPureFunctionsTakeNoEnv)",
       "file": "internal/sketch/lower/pure.go",
-      "from": "\tif len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 || s.ResultIsTask() || info.TaskResults[f] {",
-      "to": "\tif len(rowElems(s.Errors)) > 0 || s.ResultIsTask() || info.TaskResults[f] {",
+      "from": "\tif len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {",
+      "to": "\tif len(rowElems(s.Errors)) > 0 {",
       "rule": "pureCandidate: a function with a capability row is not pure and keeps its environment (spec D5; pure_test.go TestPureFunctionsTakeNoEnv, the needs variant)",
       "killers": [
         "lower:TestStdLawsAddNoGo"
@@ -2027,7 +2014,8 @@
       "rule": "resources R9: each part of a value is released after an earlier part's defect, and every defect is kept.",
       "killers": [
         "lower:TestDropGlueModel"
-      ]
+      ],
+      "anchor": {"tests": ["lower:TestDropGlueModel"]}
     },
     {
       "name": "L8-B2 a type's own Close skipped by its generated release",
@@ -2072,6 +2060,120 @@
       "killers": [
         "lower:TestDropGlueModel"
       ]
+    },
+    {
+      "name": "L8-B3t-task-drain-drops-result",
+      "origin": "L8 B3t Q5 (Quint mutant 11)",
+      "file": "runtime/v1/task.go",
+      "from": "\tif v, ok := t.h.Left(); ok {\n\t\treturn []T{v}",
+      "to": "\tif v, ok := t.h.Left(); ok && false {\n\t\treturn []T{v}",
+      "rule": "A drained Task's result that no Wait delivered is released by its owner's generated release.",
+      "killers": ["lower:TestTaskOwnershipRunModel"],
+      "anchor": {"tests": ["lower:TestTaskOwnershipRunModel"]}
+    },
+    {
+      "name": "L8-B3t-drain-only-without-close",
+      "origin": "L8 B3t Q5",
+      "file": "internal/sketch/check/drop.go",
+      "from": "\td.Drain = w.drain(t, u)\n\t\tif d.Close == nil && d.Drain == nil {",
+      "to": "\tif d.Close == nil {\n\t\t\td.Drain = w.drain(t, u)\n\t\t}\n\t\tif d.Close == nil && d.Drain == nil {",
+      "rule": "An operation type with a Close can still hold values its std body drains after it (a Task's result).",
+      "killers": ["lower:TestTaskOwnershipRunModel"]
+    },
+    {
+      "name": "L8-B3t-taken-result-is-drained",
+      "origin": "L8 B3t Q5",
+      "file": "internal/sketch/check/drop.go",
+      "from": "if m.Sig.TakesSelf && len(m.Sig.Results) == 1 {",
+      "to": "if false && m.Sig.TakesSelf && len(m.Sig.Results) == 1 {",
+      "rule": "A value that an operation taking it gives as its result (Task's Wait) is held until taken.",
+      "killers": ["lower:TestTaskOwnershipRunModel"]
+    },
+    {
+      "name": "L8-B3t-capture-root-env-unparenthesized",
+      "origin": "L8 B3t chat Set rewrite",
+      "file": "internal/sketch/lower/taskcapture.go",
+      "from": "inner.env, inner.site = \"(\"+env+\")\", n",
+      "to": "inner.env, inner.site = env, n",
+      "rule": "A Set member's root releases a captured resource whose Close needs the task through the root's environment copy; its task selects through the copy's pointer (&copy.task is a **Task).",
+      "killers": ["examples:chat"]
+    },
+    {
+      "name": "L8-B3t-release-empty-needs-is-not-pure",
+      "origin": "L8 B3t std queue release laws",
+      "file": "internal/sketch/lower/release.go",
+      "from": "cl := a.Close\n\tif cl.Func == nil {",
+      "to": "cl := a.Close\n\tif cl.Func != nil && len(rowElems(cl.Func.Sig.Uses)) == 0 { return \"\" }\n\tif cl.Func == nil {",
+      "rule": "A Close with no capability row may still change synchronized state and must run. The queue release laws observe a Close that pushes to a queue; the earlier release models observe closes through Console, a capability.",
+      "killers": ["lower:TestStdLawsRun"]
+    },
+    {
+      "name": "L8-B3t-take-writes-crossing-slice",
+      "origin": "L8 B3t mode crossing",
+      "file": "runtime/v1/data.go",
+      "from": "xs = slices.Clone(xs)",
+      "to": "original := xs; xs = slices.Clone(xs); xs = original",
+      "rule": "Take leaves a still-readable plain-data slice unchanged.",
+      "killers": ["lower:TestTaskOwnershipRunModel"],
+      "anchor": {"tests": ["lower:TestTaskOwnershipRunModel"]}
+    },
+    {
+      "name": "L8-B3t-take-writes-crossing-map",
+      "origin": "L8 B3t mode crossing",
+      "file": "runtime/v1/data.go",
+      "from": "rest := make(map[K]V, len(m))",
+      "to": "rest := make(map[K]V, len(m)); rest = m",
+      "rule": "Map.Take leaves a still-readable plain-data map unchanged.",
+      "killers": ["lower:TestTaskOwnershipRunModel"],
+      "anchor": {"tests": ["lower:TestTaskOwnershipRunModel"]}
+    },
+    {
+      "name": "L8-B3t-take-panic-loses-input",
+      "origin": "L8 B3t R36",
+      "file": "internal/sketch/lower/release.go",
+      "from": "case c.Kind == check.CallFunc && c.Func != nil && c.Func.Pkg != nil && c.Func.Pkg.Std() && c.Func.Decl != nil && c.Func.Decl.Extern != nil:",
+      "to": "case false && c.Kind == check.CallFunc && c.Func != nil && c.Func.Pkg != nil && c.Func.Pkg.Std() && c.Func.Decl != nil && c.Func.Decl.Extern != nil:",
+      "rule": "A native taking removal retains the input's owner until it succeeds, so an index panic releases the intact input.",
+      "killers": ["lower:TestTaskOwnershipRunModel"],
+      "anchor": {"tests": ["lower:TestTaskOwnershipRunModel"]}
+    },
+    {
+      "name": "L8-B3t-take-keeps-slice-element",
+      "origin": "L8 B3t R36",
+      "file": "runtime/v1/data.go",
+      "from": "return value, xs[:len(xs)-1]",
+      "to": "return value, xs",
+      "rule": "Slice Take removes the owned element from the remainder.",
+      "killers": ["lower:TestTaskOwnershipRunModel"],
+      "anchor": {"tests": ["lower:TestTaskOwnershipRunModel"]}
+    },
+    {
+      "name": "L8-B3t-take-keeps-map-element",
+      "origin": "L8 B3t R36",
+      "file": "runtime/v1/data.go",
+      "from": "delete(rest, k) // Take moves the entry out of the remainder",
+      "to": "// mutant: the remainder still owns the returned entry",
+      "rule": "Map.Take removes a found entry before returning its owned value.",
+      "killers": ["lower:TestTaskOwnershipRunModel"],
+      "anchor": {"tests": ["lower:TestTaskOwnershipRunModel"]}
+    },
+    {
+      "name": "L8-B3t-capture-keeps-sender-entry",
+      "origin": "L8 B3t R12",
+      "file": "internal/sketch/lower/taskcapture.go",
+      "from": "fc.handCaptures(owners, x)",
+      "to": "// mutant: sender keeps the captures",
+      "rule": "After successful task admission, only the child root owns the captures.",
+      "killers": ["lower:TestTaskOwnershipRunModel"]
+    },
+    {
+      "name": "L8-B3t-capture-root-not-registered",
+      "origin": "L8 B3t R12",
+      "file": "internal/sketch/lower/taskcapture.go",
+      "from": "inner.ownVar(v, n)",
+      "to": "_ = v // mutant: root loses the captured resource",
+      "rule": "The member's root registers and releases its captures once across all restarts.",
+      "killers": ["lower:TestTaskOwnershipRunModel"]
     }
   ]
 }

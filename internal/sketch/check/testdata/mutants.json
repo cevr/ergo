@@ -2121,6 +2121,79 @@
       "killers": [
         "check:TestCloseFormsTakeOnce"
       ]
+    },
+    {
+      "name": "L8-B3t-capture-keeps-sender",
+      "origin": "L8 B3t R12",
+      "file": "internal/sketch/check/taskcapture.go",
+      "from": "w.move(i, id, hand{at: key, how: \"it is captured by a moving task (resources R12)\"})",
+      "to": "w.use(i, id)",
+      "rule": "A moving task capture hands the sender's resource off (R12).",
+      "killers": ["check:TestTaskCaptureOwnership"]
+    },
+    {
+      "name": "L8-B3t-repeated-capture-may-take",
+      "origin": "L8 B3t R12 R30",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.acquire(ownLocal{v: v, lent: captures.Repeated})",
+      "to": "w.acquire(ownLocal{v: v})",
+      "rule": "A repeated member body lends from its one root owner; it cannot take on every restart.",
+      "killers": ["check:TestTaskCaptureOwnership"]
+    },
+    {
+      "name": "L8-B3t running finds nothing",
+      "origin": "wf10 L8 B3t (#197)",
+      "file": "internal/sketch/check/running.go",
+      "from": "\t\t\treturn d.Type\n",
+      "to": "\t\t\treturn nil\n",
+      "rule": "runtime.md Tasks 3: an owning with's value holds no Task or Set (S108).",
+      "killers": [
+        "check:TestWithValueHoldsNoRunningTask"
+      ]
+    },
+    {
+      "name": "L8-B3t running skips a record's fields",
+      "origin": "wf10 L8 B3t (#197)",
+      "file": "internal/sketch/check/running.go",
+      "from": "\t\t\tif r := walk(f.Drop); r != nil {",
+      "to": "\t\t\tif r := walk(nil); r != nil && f.Drop != nil {",
+      "rule": "runtime.md Tasks 3: a Task in a part of an owning with's value is refused too.",
+      "killers": [
+        "check:TestWithValueHoldsNoRunningTask"
+      ]
+    },
+    {
+      "name": "L8-B3t a method value of a resource's operation admitted",
+      "origin": "wf10 L8 B3t (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "if op := w.resourceMethod(x); op != nil {",
+      "to": "if op := w.resourceMethod(x); op != nil && op == nil {",
+      "rule": "resources R33: a function value owns no resource and holds no lend of one (t.Wait, t.Stop as values).",
+      "killers": [
+        "lower:TestCheckedImpliesLoweredPart8"
+      ]
+    },
+    {
+      "name": "b16a-array-holds-no-resource",
+      "origin": "wf10 batch-16a integration (B3t x L1 arrays)",
+      "file": "internal/sketch/check/resource.go",
+      "from": "\tcase *Array:\n\t\tedge(t.Elem)\n\tcase *Map:",
+      "to": "\tcase *Map:",
+      "rule": "resources R1, R35: a fixed array holds a resource when its element does (the walk B3t deleted knew it for Task); an element is not taken out by index.",
+      "killers": [
+        "check:TestArrayOwnership"
+      ]
+    },
+    {
+      "name": "b16a-array-element-take-admitted",
+      "origin": "wf10 batch-16a integration (B3t x L1 arrays)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tcase *Slice, *Array, *Map:\n",
+      "to": "\t\tcase *Slice, *Map:\n",
+      "rule": "resources R35: an element of a fixed array is lent by the index; it is not handed off.",
+      "killers": [
+        "check:TestArrayOwnership"
+      ]
     }
   ]
 }

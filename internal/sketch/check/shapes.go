@@ -164,9 +164,6 @@ func (c *checker) definedType(n *Named, spec syntax.Expr, ctx *typeCtx) Type {
 		c.errorf(spec, CodeType, "a defined type is over a basic, slice, Map, function, tuple or record type, and %s is %s; use %s directly (types.md, Defined types)", c.localTypeText(base), noun, c.localTypeText(base))
 		return invalid
 	}
-	if c.taskRefused(spec, base) {
-		return invalid
-	}
 	// Keep the direct edge even when the base is still resolving. Cycle
 	// classification belongs to checkRecursiveStructs, after all bodies
 	// have resolved; a back edge alone cannot distinguish the two kinds.
@@ -271,8 +268,6 @@ func (c *checker) completeDefinedTypes() {
 		spec := tn.Decl.Spec
 		if noun := baseNoun(n.under); noun != "" {
 			c.errorf(spec, CodeType, "a defined type is over a basic, slice, Map, function, tuple or record type, and %s is %s; use %s directly (types.md, Defined types)", c.localTypeText(n.def), noun, c.localTypeText(n.def))
-			n.def, n.under = nil, invalid
-		} else if c.taskRefused(spec, n.def) {
 			n.def, n.under = nil, invalid
 		}
 	}

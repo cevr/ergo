@@ -47,6 +47,19 @@ func frameNoRow(t *rt.Task, body func(s *Scope)) {
 	body(&s)
 }
 
+// ownedGo is task.Go as the lowering emits it (#197 L8 B3t): the Task is an
+// owned value of the code at s, registered in the step that receives it
+// (Owning, R8), and its owner's end releases it with Close.
+func ownedGo[T any](s *Scope, span Site, body func(*rt.Task) (T, error)) *Task[T] {
+	return Owning(s.Owner(), Go(s, span, body), func(c *Task[T]) { c.Close(s.current().s.Task()) })
+}
+
+// ownedSet is tasks.NewSet as the lowering emits it: an owned value of the
+// code at s, released with Close.
+func ownedSet(s *Scope, kind, limit int) *Set {
+	return Owning(s.Owner(), TasksNewSet(s, kind, limit), func(set *Set) { set.Close(set.owner) })
+}
+
 // explode is a Go defect at a known frame: an index out of range.
 //
 //go:noinline
@@ -110,8 +123,8 @@ var (
 func TestWait(t *testing.T) {
 	err := runMain(func(root *rt.Task) error {
 		return frame(root, func(s *Scope) error {
-			a := Go(s, "a", func(*rt.Task) (int, error) { return 7, nil })
-			b := Go(s, "b", func(*rt.Task) (int, error) { return 0, bad{"b"} })
+			a := ownedGo(s, "a", func(*rt.Task) (int, error) { return 7, nil })
+			b := ownedGo(s, "b", func(*rt.Task) (int, error) { return 0, bad{"b"} })
 			if v, err := a.Wait(); v != 7 || err != nil {
 				t.Errorf("a.Wait() = %d, %v; want 7, nil", v, err)
 			}
@@ -133,7 +146,7 @@ func TestWaitRaisesDefect(t *testing.T) {
 	var cleaned atomic.Bool
 	err := runMain(func(root *rt.Task) error {
 		return frame(root, func(s *Scope) error {
-			c := Go(s, "child at x.ergo:3:2", func(ct *rt.Task) (int, error) {
+			c := ownedGo(s, "child at x.ergo:3:2", func(ct *rt.Task) (int, error) {
 				return frameValue(ct, func(s *Scope) (int, error) {
 					OnExit(s, func() { cleaned.Store(true) })
 					return explode(), nil
@@ -171,9 +184,9 @@ func TestWaitRaisesDefect(t *testing.T) {
 func TestDefectChainAcrossTasks(t *testing.T) {
 	err := runMain(func(root *rt.Task) error {
 		return frame(root, func(s *Scope) error {
-			c := Go(s, "child", func(ct *rt.Task) (int, error) {
+			c := ownedGo(s, "child", func(ct *rt.Task) (int, error) {
 				return frameValue(ct, func(s *Scope) (int, error) {
-					g := Go(s, "grandchild", func(*rt.Task) (int, error) { return explode(), nil })
+					g := ownedGo(s, "grandchild", func(*rt.Task) (int, error) { return explode(), nil })
 					return g.Wait()
 				})
 			})
@@ -209,7 +222,7 @@ func TestWaitInterrupted(t *testing.T) {
 			root.Interrupt()
 		}()
 		return frame(root, func(s *Scope) error {
-			c := Go(s, "child", func(ct *rt.Task) (int, error) {
+			c := ownedGo(s, "child", func(ct *rt.Task) (int, error) {
 				return frameValue(ct, func(s *Scope) (int, error) {
 					OnExit(s, func() {
 						time.Sleep(5 * time.Millisecond)
@@ -248,7 +261,7 @@ func TestStop(t *testing.T) {
 	started := make(chan struct{})
 	err := runMain(func(root *rt.Task) error {
 		return frame(root, func(s *Scope) error {
-			c := Go(s, "child", func(ct *rt.Task) (int, error) {
+			c := ownedGo(s, "child", func(ct *rt.Task) (int, error) {
 				return frameValue(ct, func(s *Scope) (int, error) {
 					OnExit(s, func() {
 						time.Sleep(5 * time.Millisecond)
@@ -267,7 +280,7 @@ func TestStop(t *testing.T) {
 				t.Error("Stop returned before the task's exit action ended")
 			}
 			c.Stop() // a second Stop does nothing
-			d := Go(s, "defect", func(dt *rt.Task) (int, error) {
+			d := ownedGo(s, "defect", func(dt *rt.Task) (int, error) {
 				_ = rt.Sleep(dt, rt.Live{}, time.Hour)
 				return explode(), nil
 			})
@@ -294,7 +307,7 @@ func TestFrameReleaseOrder(t *testing.T) {
 	err := runMain(func(root *rt.Task) error {
 		err := frame(root, func(s *Scope) error {
 			OnExit(s, func() { r.add("A") })
-			Go(s, "T", func(ct *rt.Task) (int, error) {
+			ownedGo(s, "T", func(ct *rt.Task) (int, error) {
 				return frameValue(ct, func(s *Scope) (int, error) {
 					OnExit(s, func() {
 						time.Sleep(5 * time.Millisecond)
@@ -421,7 +434,7 @@ func TestExitCauses(t *testing.T) {
 	t.Run("action re-raises a task's defect", func(t *testing.T) {
 		p := recovered(func() {
 			frameNoRow(rt.Root("main"), func(s *Scope) {
-				c := Go(s, "child", func(*rt.Task) (int, error) { return explode(), nil })
+				c := ownedGo(s, "child", func(*rt.Task) (int, error) { return explode(), nil })
 				OnExit(s, func() { _, _ = c.Wait() })
 			})
 		})
@@ -445,7 +458,7 @@ func TestExitCauses(t *testing.T) {
 func TestAbandonedChild(t *testing.T) {
 	started := make(chan struct{})
 	err := frame(rt.Root("main"), func(s *Scope) error {
-		Go(s, "child", func(ct *rt.Task) (int, error) {
+		ownedGo(s, "child", func(ct *rt.Task) (int, error) {
 			close(started)
 			if err := rt.Sleep(ct, rt.Live{}, time.Hour); err != nil {
 				return 0, bad{"child"}
@@ -461,7 +474,7 @@ func TestAbandonedChild(t *testing.T) {
 	p := recovered(func() {
 		started := make(chan struct{})
 		_ = frame(rt.Root("main"), func(s *Scope) error {
-			Go(s, "child", func(ct *rt.Task) (int, error) {
+			ownedGo(s, "child", func(ct *rt.Task) (int, error) {
 				close(started)
 				_ = rt.Sleep(ct, rt.Live{}, time.Hour)
 				return explode(), nil
@@ -480,49 +493,43 @@ func TestAbandonedChild(t *testing.T) {
 	}
 }
 
-// TestGapR3NormalClose pins a named gap: at a normal frame end, a task the
-// frame never consumed that already failed is dropped with its typed
-// failure. Law R3 keeps that failure; rt drops it (#198 O1). #197 makes a
-// dropped Task a compile error, which removes this case from checked
-// programs. Change this test when either lands.
+// TestUnconsumedFailureDropped (Q5, Tasks 12): at a normal frame end, a
+// task the frame never consumed that already failed is released (Close)
+// and its typed failure is dropped, not raised in the owner.
 //
 // The frame returns only after rt has finished the task (rt detaches a
 // finished task from its parent), so the frame's release meets a task that
-// already failed: the test fails if the frame keeps the failure (the gap
-// closed), and it cannot pass through a stop of a task that still runs.
-func TestGapR3NormalClose(t *testing.T) {
+// already failed: the test fails if the release keeps the failure, and it
+// cannot pass through a stop of a task that still runs.
+func TestUnconsumedFailureDropped(t *testing.T) {
 	err := frame(rt.Root("main"), func(s *Scope) error {
-		c := Go(s, "child", func(*rt.Task) (int, error) { return 0, bad{"unobserved"} })
+		c := ownedGo(s, "child", func(*rt.Task) (int, error) { return 0, bad{"unobserved"} })
 		if !testwait.Until(t, func() bool { return c.h.Task().Parent() == nil }) {
 			t.Fatal("the child did not finish")
 		}
 		return nil
 	})
 	if err != nil {
-		t.Errorf("exit %v; the gap drops the unobserved failure (update this test with #197/#124)", err)
+		t.Errorf("exit %v; want nil: the release drops the unobserved failure (Q5)", err)
 	}
 }
 
-// start is a lowered function whose result is a Task: dest is the hidden
-// destination argument, its caller's frame, and its return moves the Task
-// there in one step. A nil dest stands for a lowering that forgot the move.
-func start(t *rt.Task, dest *Scope, body func(*rt.Task) (int, error)) *Task[int] {
+// start is a lowered function whose result is a Task (#197 L8 B3t): the Task
+// is its owned value, and the return keeps the entry until the exit is
+// known (Returned); the caller's frame to registers it in the step that
+// receives it, as the lowering does.
+func start(t *rt.Task, to *Scope, body func(*rt.Task) (int, error)) *Task[int] {
 	c, _ := frameValue(t, func(s *Scope) (*Task[int], error) {
-		c := Go(s, "returned", body)
-		if dest == nil {
-			return c, nil
-		}
-		return c.Move(dest), nil
+		h := s.Owner()
+		c := Owning(h, Go(s, "returned", body), func(c *Task[int]) { c.Close(t) })
+		return Returned(h, c), nil
 	})
-	return c
+	return Owning(to.Owner(), c, func(c *Task[int]) { c.Close(t) })
 }
 
-// TestTaskReturn is the regression test of the stage 3a round 1 review, M1,
-// in the form of the round 2 ruling (Tasks rule 8): a Task leaves its frame
-// by a direct return, which moves it straight into the caller's frame, so
-// it stays live, the caller can Wait for it, and the caller's frame drains
-// it. A Task returned without the move was drained by its frame, and a Wait
-// on it is a named defect: the guard of the lowering's calling convention.
+// TestTaskReturn is the regression test of the stage 3a round 1 review, M1
+// (Tasks rule 8), on owned values (#197 L8 B3t): a returned Task stays live,
+// the caller can Wait for it, and the caller's frame releases it.
 func TestTaskReturn(t *testing.T) {
 	t.Run("Wait after the frame returned", func(t *testing.T) {
 		var v int
@@ -577,96 +584,6 @@ func TestTaskReturn(t *testing.T) {
 			t.Errorf("exit %v, order %q; want nil, %q", err, r.String(), want)
 		}
 	})
-	t.Run("without the move, Wait is a named defect", func(t *testing.T) {
-		var p any
-		_ = runMain(func(root *rt.Task) error {
-			c := start(root, nil, func(*rt.Task) (int, error) { return 7, nil })
-			p = recovered(func() { _, _ = c.Wait() })
-			return nil
-		})
-		if s, _ := p.(string); !strings.Contains(s, "its owner stopped when it ended") {
-			t.Errorf("Wait raised %#v; want the named defect", p)
-		}
-	})
-	t.Run("into a returned frame, another task or no frame", func(t *testing.T) {
-		var saved *Scope
-		var pEnded, pOther, pNil any
-		_ = runMain(func(root *rt.Task) error {
-			frameNoRow(root, func(s *Scope) { saved = s })
-			frameNoRow(root, func(s *Scope) {
-				c := Go(s, "c", func(*rt.Task) (int, error) { return 0, nil })
-				pEnded = recovered(func() { c.Move(saved) })
-				pNil = recovered(func() { c.Move(nil) })
-				other := Go(s, "other", func(ct *rt.Task) (int, error) {
-					frameNoRow(ct, func(os *Scope) { pOther = recovered(func() { c.Move(os) }) })
-					return 0, nil
-				})
-				_, _ = other.Wait()
-			})
-			return nil
-		})
-		if s, _ := pEnded.(string); !strings.Contains(s, "has returned (law R9)") {
-			t.Errorf("Move into a returned frame raised %#v; want the R9 defect", pEnded)
-		}
-		if s, _ := pOther.(string); !strings.Contains(s, "another task") {
-			t.Errorf("Move into another task's frame raised %#v; want the R9 defect", pOther)
-		}
-		if s, _ := pNil.(string); !strings.Contains(s, "no destination") {
-			t.Errorf("Move to no frame raised %#v; want the defect", pNil)
-		}
-	})
-}
-
-// TestTaskRegistrationsBounded is the regression test of the stage 3a
-// round 2 review, M1: a frame's list holds only the tasks it still owns.
-// Inside one live task, a long-lived frame receives, waits for and drops
-// many returned tasks with 1 MiB results, directly and through fresh
-// receiving frames; its list never holds more than the one live task, and
-// the heap does not keep the dropped results.
-func TestTaskRegistrationsBounded(t *testing.T) {
-	const rounds, size = 200, 1 << 20
-	big := func(*rt.Task) ([]byte, error) { return make([]byte, size), nil }
-	startBig := func(rt0 *rt.Task, dest *Scope) *Task[[]byte] {
-		c, _ := frameValue(rt0, func(s *Scope) (*Task[[]byte], error) {
-			return Go(s, "big", big).Move(dest), nil
-		})
-		return c
-	}
-	var most, left int
-	var grew int64
-	err := runMain(func(root *rt.Task) error {
-		return frame(root, func(s *Scope) error {
-			var before, after runtime.MemStats
-			runtime.GC()
-			runtime.ReadMemStats(&before)
-			for i := range rounds {
-				if i%2 == 0 {
-					c := startBig(root, s)
-					most = max(most, s.n)
-					_, _ = c.Wait()
-				} else {
-					_ = frame(root, func(r *Scope) error {
-						c := startBig(root, r)
-						most = max(most, s.n+r.n)
-						_, err := c.Wait()
-						return err
-					})
-				}
-			}
-			left = s.n
-			runtime.GC()
-			runtime.ReadMemStats(&after)
-			grew = int64(after.HeapAlloc) - int64(before.HeapAlloc)
-			return nil
-		})
-	})
-	t.Logf("%d rounds: most entries %d, left %d, heap grew by %d bytes", rounds, most, left, grew)
-	if err != nil || most != 1 || left != 0 {
-		t.Errorf("exit %v, most entries %d, left %d; want nil, 1, 0", err, most, left)
-	}
-	if grew > 32*size {
-		t.Errorf("the heap grew by %d bytes over %d dropped results of %d bytes; want far less than all of them", grew, rounds, size)
-	}
 }
 
 // TestGoInExitAction is the regression test of the stage 3a round 1 review,
@@ -682,7 +599,7 @@ func TestGoInExitAction(t *testing.T) {
 		err := runMain(func(root *rt.Task) error {
 			return frame(root, func(s *Scope) error {
 				OnExit(s, func() {
-					v, _ = Go(s, "cleanup", func(*rt.Task) (int, error) { ran = true; return 1, nil }).Wait()
+					v, _ = ownedGo(s, "cleanup", func(*rt.Task) (int, error) { ran = true; return 1, nil }).Wait()
 				})
 				return nil
 			})
@@ -698,7 +615,7 @@ func TestGoInExitAction(t *testing.T) {
 				OnExit(s, func() { r.add("earlier action") })
 				OnExit(s, func() {
 					started := make(chan struct{})
-					Go(s, "cleanup", func(ct *rt.Task) (int, error) {
+					ownedGo(s, "cleanup", func(ct *rt.Task) (int, error) {
 						defer r.add("child ended")
 						close(started)
 						// Inside an exit action the child is shielded from
@@ -737,7 +654,7 @@ func TestGoInExitAction(t *testing.T) {
 		err := runMain(func(root *rt.Task) error {
 			return frame(root, func(s *Scope) error {
 				OnExit(s, func() {
-					_, _ = Go(s, "cleanup", func(*rt.Task) (int, error) { return explode(), nil }).Wait()
+					_, _ = ownedGo(s, "cleanup", func(*rt.Task) (int, error) { return explode(), nil }).Wait()
 				})
 				return nil
 			})
@@ -757,7 +674,7 @@ func TestGoInExitAction(t *testing.T) {
 			return frame(root, func(s *Scope) error {
 				OnExit(s, func() {
 					OnExit(s, func() {
-						v, _ = Go(s, "inner", func(*rt.Task) (int, error) { return 1, nil }).Wait()
+						v, _ = ownedGo(s, "inner", func(*rt.Task) (int, error) { return 1, nil }).Wait()
 					})
 				})
 				return nil
@@ -775,7 +692,7 @@ func TestGoInExitAction(t *testing.T) {
 				OnExit(s, func() {
 					OnExit(s, func() {
 						started := make(chan struct{})
-						Go(s, "inner", func(ct *rt.Task) (int, error) {
+						ownedGo(s, "inner", func(ct *rt.Task) (int, error) {
 							defer r.add("inner-child-ended")
 							close(started)
 							_ = rt.Sleep(ct, rt.Live{}, time.Hour)
@@ -800,7 +717,7 @@ func TestGoInExitAction(t *testing.T) {
 func TestGoOnEndedFrame(t *testing.T) {
 	var saved *Scope
 	frameNoRow(rt.Root("main"), func(s *Scope) { saved = s })
-	p := recovered(func() { Go(saved, "late", func(*rt.Task) (int, error) { return 0, nil }) })
+	p := recovered(func() { ownedGo(saved, "late", func(*rt.Task) (int, error) { return 0, nil }) })
 	if s, _ := p.(string); !strings.Contains(s, "law R9") {
 		t.Errorf("raised %#v; want the R9 defect", p)
 	}
@@ -809,7 +726,7 @@ func TestGoOnEndedFrame(t *testing.T) {
 // TestSecondWait: a task is waited for once; a second Wait is a defect.
 func TestSecondWait(t *testing.T) {
 	frameNoRow(rt.Root("main"), func(s *Scope) {
-		c := Go(s, "child", func(*rt.Task) (int, error) { return 1, nil })
+		c := ownedGo(s, "child", func(*rt.Task) (int, error) { return 1, nil })
 		_, _ = c.Wait()
 		p := recovered(func() { _, _ = c.Wait() })
 		if s, _ := p.(string); !strings.Contains(s, "already waited") {
@@ -844,7 +761,7 @@ func TestNoTaskOutlivesItsFrame(t *testing.T) {
 				kids := make([]*Task[int], n)
 				for i := range kids {
 					kidSeed := rng.Uint64()
-					kids[i] = Go(s, Site(fmt.Sprintf("d%d.%d", depth, i)), func(t *rt.Task) (int, error) { return tree(t, depth+1, kidSeed) })
+					kids[i] = ownedGo(s, Site(fmt.Sprintf("d%d.%d", depth, i)), func(t *rt.Task) (int, error) { return tree(t, depth+1, kidSeed) })
 				}
 				for _, k := range kids {
 					switch rng.IntN(4) {
@@ -870,7 +787,7 @@ func TestNoTaskOutlivesItsFrame(t *testing.T) {
 		rootSeed := rng.Uint64()
 		_ = runMain(func(root *rt.Task) error {
 			return frame(root, func(s *Scope) error {
-				c := Go(s, "root child", func(t *rt.Task) (int, error) { return tree(t, 0, rootSeed) })
+				c := ownedGo(s, "root child", func(t *rt.Task) (int, error) { return tree(t, 0, rootSeed) })
 				if rng.IntN(2) == 0 {
 					return bad{"leave it to the frame"}
 				}

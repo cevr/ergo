@@ -317,7 +317,7 @@ func setRun(c setCase) setOutcome {
 	exit := setCatch(root, func() {
 		fs := NewScope(root)
 		defer fs.End(nil)
-		set := TasksNewSet(&fs, c.kind, c.limit)
+		set := ownedSet(&fs, c.kind, c.limit)
 		for _, op := range c.ops {
 			switch op.kind {
 			case "go":
@@ -449,7 +449,7 @@ func TestSetNoRestartAfterClose(t *testing.T) {
 	for round := range 64 {
 		root := rt.Root("gap")
 		fs := NewScope(root)
-		set := TasksNewSet(&fs, setRestart, 3)
+		set := ownedSet(&fs, setRestart, 3)
 		var mu sync.Mutex
 		runs := 0
 		panicNow := make(chan struct{})

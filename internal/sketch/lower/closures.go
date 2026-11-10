@@ -3,6 +3,7 @@ package lower
 import (
 	"strings"
 
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -31,6 +32,21 @@ func (fc *funcCtx) snapshot(n syntax.Node, build func() string) string {
 	vars := fc.l.info.ValueCaptures[n]
 	if captureLowering == "reference" || len(vars) == 0 {
 		return build()
+	}
+	if capture := fc.l.info.TaskCaptures[n]; capture != nil {
+		// Resource captures move by R12 (#197 L8 B3t); taskSnapshot binds
+		// their one moved value, so the value rule does not copy them.
+		moved := map[*check.Var]bool{}
+		for _, v := range capture.Vars {
+			moved[v] = true
+		}
+		var plain []*check.Var
+		for _, v := range vars {
+			if !moved[v] {
+				plain = append(plain, v)
+			}
+		}
+		vars = plain
 	}
 	saved := make([]string, len(vars))
 	for i, v := range vars {

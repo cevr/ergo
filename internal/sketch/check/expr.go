@@ -225,9 +225,7 @@ func (c *checker) instantiateValue(op *operand, sig *Signature, targs []Type) bo
 	if op.fn != nil {
 		name = op.fn.Name
 	}
-	if !c.typeArgsAdmitted(name, sig.TParams, targs, op.expr) {
-		return false
-	}
+	c.recordInstantiation(name, sig.TParams, targs, op.expr)
 	if op.fn != nil {
 		c.recordInstance(unparen(op.expr), op.fn, targs)
 	}
@@ -867,9 +865,7 @@ func (c *checker) literalType(x *syntax.CompositeLit, hint Type) Type {
 			}
 		}
 	}
-	if !c.typeArgsAdmitted(n.Obj.Name, n.TParams, targs, x) {
-		return nil
-	}
+	c.recordInstantiation(n.Obj.Name, n.TParams, targs, x)
 	return c.instantiate(n, targs)
 }
 
@@ -1386,9 +1382,7 @@ func (c *checker) selfCall(x *syntax.SelectorExpr, base operand, sig *Signature,
 				tps, targs = append(tps, tp), append(targs, b)
 			}
 		}
-		if !c.typeArgsAdmitted(fn.Name, tps, targs, x) {
-			return bad(x)
-		}
+		c.recordInstantiation(fn.Name, tps, targs, x)
 	}
 	if len(sig.TParams) > 0 {
 		return operand{mode: modeGeneric, typ: sig, fn: fn, self: self}

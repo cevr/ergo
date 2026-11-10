@@ -17,6 +17,8 @@ var movesOnly = map[string]bool{
 	"New":            true, // queue.New: an empty queue; Push takes, Pop gives (Q7)
 	"Append":         true, // prelude Append: takes xs and x, gives one slice
 	"WithCapacity":   true, // an empty slice
+	"SlicesTake":     true, // the element and the disjoint remainder move out
+	"MapTake":        true, // a found value and the disjoint remainder move out
 	"Go":             true, // task.Go: the body's result moves to Wait
 	"TasksRace":      true, // the winner's result moves out; a loser's is released (Gap 47, B4)
 	"TasksTransform": true, // each result moves into the output once
@@ -26,3 +28,32 @@ var movesOnly = map[string]bool{
 // MovesOnly reports whether the generic body name only moves its type
 // parameters' values (movesOnly).
 func MovesOnly(name string) bool { return movesOnly[name] }
+
+// running is the reviewed table of std releases that stop code still
+// running (#197 L8 B3t): a value whose release is one of them runs the
+// code it was started with, in the environment it was started in, until
+// it is released. The checker reads it through StopsRunning: such a value
+// never leaves the with whose providers its code may use (resources.md,
+// Release before the end). The names are BodyOf names.
+var running = map[string]bool{
+	"Task.Close": true, // task.Go's body runs until Wait, Stop or Close
+	"Set.Close":  true, // a Set's members run until Wait, Stop or Close
+}
+
+// StopsRunning reports whether the release name stops running code
+// (running).
+func StopsRunning(name string) bool { return running[name] }
+
+// MovingBody names the callback whose captures move to a child task's
+// root lifetime (R12). Repeated is true when the callback can run again:
+// it only lends those captures, as any repeated nested frame does. This
+// is a reviewed body fact, not a check on an Ergo library name.
+func MovingBody(name string) (param int, repeated, ok bool) {
+	switch name {
+	case "Go":
+		return 0, false, true
+	case "TasksGo":
+		return 1, true, true
+	}
+	return 0, false, false
+}

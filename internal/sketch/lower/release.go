@@ -67,7 +67,7 @@ func (fc *funcCtx) providerRelease(a *check.Acquisition, outer, val string, site
 		if cl.Op == nil {
 			ice(site, "a provider's Close with neither a function nor an operation")
 		}
-		text, _, _ := fc.opCall(cl.Receiver, cl.Op, nil, []string{val}, outer, "", nil, nil, site)
+		text, _, _ := fc.opCall(cl.Receiver, cl.Op, nil, []string{val}, outer, nil, nil, site)
 		return text
 	}
 	if !isClose(cl.Func) || len(cl.Func.Sig.Params) != 1 {
@@ -453,13 +453,13 @@ func (g *glueGen) parts(d *check.Drop, x, taken string) string {
 	if d.Elem != nil {
 		e := g.fc.temp("e")
 		switch underOf(d.Type).(type) {
-		case *check.Slice:
+		case *check.Slice, *check.Array:
 			i := g.fc.temp("i")
 			b.WriteString("for " + i + " := len(" + x + ") - 1; " + i + " >= 0; " + i + "-- { " + e + " := " + x + "[" + i + "]; " + g.release(d.Elem, e) + "}; ")
 		case *check.Map:
 			b.WriteString("for _, " + e + " := range " + x + " { " + g.release(d.Elem, e) + "}; ")
 		default:
-			ice(g.site, "a generated release of %s, which has elements but is no slice or Map", d.Type)
+			ice(g.site, "a generated release of %s, which has elements but is no slice, array or Map", d.Type)
 		}
 	}
 	if d.Drain != nil {
@@ -598,15 +598,25 @@ func (fc *funcCtx) ownTemp(x syntax.Expr, o operand) operand {
 // Push that fails releases its value and a stopped one leaves it to the
 // frame's End (Q7, plan 1.4). It returns their Go entries.
 func (fc *funcCtx) holdTaken(x *syntax.CallExpr, c *check.Call) []string {
-	if c.Kind != check.CallOp || c.Op == nil || c.Op.Sig == nil || len(c.Op.Sig.Takes) == 0 || !fc.stdOp(c) {
+	var takes []int
+	args := x.Args
+	switch {
+	case c.Kind == check.CallOp && c.Op != nil && c.Op.Sig != nil && fc.stdOp(c):
+		takes = c.Op.Sig.Takes
+	case c.Kind == check.CallFunc && c.Func != nil && c.Func.Pkg != nil && c.Func.Pkg.Std() && c.Func.Decl != nil && c.Func.Decl.Extern != nil:
+		takes = c.Func.Sig.Takes
+		if c.Recv != nil {
+			args = append([]syntax.Expr{c.Recv}, args...)
+		}
+	default:
 		return nil
 	}
 	var held []string
-	for _, i := range c.Op.Sig.Takes {
-		if i >= len(x.Args) {
+	for _, i := range takes {
+		if i >= len(args) {
 			continue
 		}
-		id, ok := unparen(x.Args[i]).(*syntax.Ident)
+		id, ok := unparen(args[i]).(*syntax.Ident)
 		if !ok || fc.l.info.Handoffs[id] == nil {
 			continue
 		}

@@ -196,6 +196,11 @@ extern go ergo.local/prototype/runtime/v1.Delete func Delete[K comparable, V](m 
 // in place only for m = m.Put(k, v) or a dead m (#196 item 13, L2).
 extern go ergo.local/prototype/runtime/v1.Put func Put[K comparable, V](m Map[K, V], k K, v V) Map[K, V]
 
+// Take gives up m and returns the value at k (Some, or None if absent)
+// and the map without k. Resource values and the remainder have separate
+// owners. With plain-data values, m is unchanged (mode crossing).
+extern go ergo.local/prototype/runtime/v1.MapTake func Take[K comparable, V](m Map[K, V], k K) (Option[V], Map[K, V]) takes m
+
 // Unreachable states that a path cannot run (owner q29, 2026-11-08). When
 // it runs anyway, it raises a defect that holds reason and the call's
 // source position: never a typed failure, so it is in no row and no catch
@@ -276,6 +281,11 @@ type Task[T, E] {
 	// Stop lends it, so a law can say what holds after it.
 	Wait() T fails E takes,
 	Stop(),
+	// Close is the Task's release (#197 L8 B3t; resources R1): its owner's
+	// scope calls it at the scope's end when no Wait took the task. It
+	// stops the task and waits until it has ended, as Stop does, and drops
+	// its typed failure; a Task is a resource.
+	Close(),
 
 	// StopIsIdempotent: a second Stop returns, never fails and changes
 	// nothing.

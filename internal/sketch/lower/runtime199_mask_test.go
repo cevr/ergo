@@ -24,11 +24,21 @@ import (
 // Test-only seams sit at the private v1 release boundary, at Sleep and at
 // Queue.End; a Virtual clock replaces the live clock of NewLiveScheduler.
 // No settling sleep is needed.
+// taskReleaseLaws are the caller-release bindings of a running task's
+// release (#197 L8 B3t): Close masks on the caller and stops and drains the
+// task, as Stop does. They release no checked Close body, so this property
+// does not drive them; the runtime/v1 tests named here are their mask, stop
+// and drain laws.
+var taskReleaseLaws = map[string]string{
+	"Task.Close": "runtime/v1 TestUnconsumedFailureDropped, TestAbandonedChild, TestTaskReturn",
+	"Set.Close":  "runtime/v1 TestSetModel",
+}
+
 func TestRuntime199MaskProperty(t *testing.T) {
 	needsBuild(t)
 	routes := map[releaseRoute][]string{}
 	for name, binding := range runtimeBindings {
-		if binding.release == notRelease {
+		if binding.release == notRelease || taskReleaseLaws[name] != "" {
 			continue
 		}
 		if _, err := v1.BodyOf(name); err != nil {
@@ -749,11 +759,9 @@ func TestExitActions(t *testing.T) {
 func TestExitActionTask(t *testing.T) {
  if !frames { t.Skip("exit actions run in the operations program") }
  parent := rt.Root("parent")
- dest := ergo.NewScope(parent)
  tr, got := observe(t, parent, plan{}, func() error {
-  h := launch(&Env{task: parent}, &dest)
+  h := launch(&Env{task: parent})
   _, err := h.Wait()
-  dest.End(nil)
   return err
  })
  if got != "" { t.Fatalf("exit %q", got) }

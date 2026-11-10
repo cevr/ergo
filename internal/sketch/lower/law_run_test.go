@@ -68,7 +68,7 @@ func TestLawRunB13(t *testing.T) {
 		return
 	}
 	stdout, stderr, code := runExeArgs(t, exes["lawrun_b13"], "--seed", "7")
-	got := lines(stdout)
+	got := verdicts(stdout)
 	if code != 1 || len(got) != 3 {
 		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
 	}
@@ -140,7 +140,7 @@ func TestLawRunState(t *testing.T) {
 		return
 	}
 	stdout, stderr, code := runExeArgs(t, exes["lawrun_state"], "--seed", "7")
-	got := lines(stdout)
+	got := verdicts(stdout)
 	if code != 1 || len(got) != 4 {
 		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
 	}
@@ -243,7 +243,7 @@ func TestLawRunOtherPackage(t *testing.T) {
 		return
 	}
 	stdout, stderr, code := runExeArgs(t, exes["lawrun_xpkg"], "--seed", "7")
-	got := lines(stdout)
+	got := verdicts(stdout)
 	if code != 1 || len(got) != 7 {
 		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
 	}
@@ -274,7 +274,7 @@ func TestLawRunOtherPackage(t *testing.T) {
 		"law PutKeepsOthers runs where Store has a provider: none is in this package or its imports",
 		"PASS (0 tests)",
 	}
-	if code != 0 || !slices.Equal(lines(stdout), wantKV) {
+	if code != 0 || !slices.Equal(verdicts(stdout), wantKV) {
 		t.Errorf("kv: exit %d, stdout:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, strings.Join(wantKV, "\n"), firstLines(stderr, 8))
 	}
 }
@@ -337,7 +337,7 @@ func TestLawRunLeastPackage(t *testing.T) {
 		return
 	}
 	stdout, stderr, code := runExeArgs(t, exes["lawrun_least"], "--seed", "7")
-	got := lines(stdout)
+	got := verdicts(stdout)
 	want := []string{
 		"ok law kv.Store.GetAfterPut for mem.Last (100 cases)",
 		"FAIL law kv.Store.GetAfterPut for mem.Zero (case ",
@@ -354,7 +354,7 @@ func TestLawRunLeastPackage(t *testing.T) {
 		}
 	}
 	stdout, _, code = runExe(t, exes["lawrun_mem"])
-	if code != 0 || !slices.Equal(lines(stdout), []string{"PASS (0 tests)"}) {
+	if code != 0 || !slices.Equal(verdicts(stdout), []string{"PASS (0 tests)"}) {
 		t.Errorf("mem: exit %d, stdout:\n%s", code, stdout)
 	}
 }
@@ -427,7 +427,7 @@ func main() {}
 		"skip law Calls: its parameter f has no generator: func(int) int is a function type",
 		"PASS (1 tests, 6 skipped)",
 	}
-	if code != 0 || !slices.Equal(lines(stdout), want) {
+	if code != 0 || !slices.Equal(verdicts(stdout), want) {
 		t.Errorf("exit %d, stdout:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, strings.Join(want, "\n"), firstLines(stderr, 8))
 	}
 }
@@ -523,7 +523,7 @@ func TestLawRunCapabilities(t *testing.T) {
 		return
 	}
 	stdout, stderr, code := runExeArgs(t, exes["lawrun_caps"], "--seed", "7")
-	got := lines(stdout)
+	got := verdicts(stdout)
 	want := []struct{ line, prefix, suffix string }{
 		{line: "ok BookStartsEmpty"},
 		{line: "skip law Notes.AddReads for Stuck: its values have no generator: queue.Queue[int] is an operation type with no builder: neither queue nor queuetest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewStuck() Stuck with no rows would build one for each case"},
@@ -570,7 +570,7 @@ func main() {}
 	}
 	stdout, stderr, code := runExe(t, exes["lawrun_flag"])
 	want := []string{"ok law FlagTail (100 cases)", "ok law FlagReturn (100 cases)", "PASS (2 tests)"}
-	if code != 0 || !slices.Equal(lines(stdout), want) {
+	if code != 0 || !slices.Equal(verdicts(stdout), want) {
 		t.Errorf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
 	}
 }
@@ -604,7 +604,7 @@ func main() {}
 		return
 	}
 	stdout, stderr, code := runExe(t, exes["lawrun_generic_listed"])
-	got := lines(stdout)
+	got := verdicts(stdout)
 	if code != 1 || len(got) != 3 || got[0] != "ok law Flip.Moves for Turn (proved: all 2 cases)" ||
 		!strings.HasPrefix(got[1], "FAIL law Flip.Moves for Stuck (case 1 of 2, every value: provider = Stuck, v = false)") {
 		t.Errorf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
@@ -628,7 +628,7 @@ func main() {}
 	}
 	stdout, stderr, code := runExe(t, exes["lawrun_noparams"])
 	want := []string{"ok law Holds (proved: 1 case)", "FAIL law Breaks: law refuted at main.ergo:3:1: the law is false", "FAIL (1 of 2 tests)"}
-	if code != 1 || !slices.Equal(lines(stdout), want) {
+	if code != 1 || !slices.Equal(verdicts(stdout), want) {
 		t.Errorf("exit %d, stdout:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, strings.Join(want, "\n"), firstLines(stderr, 8))
 	}
 }
@@ -782,7 +782,7 @@ func TestLawRunFindsTheBrokenProvider(t *testing.T) {
 	}
 	for _, p := range progs {
 		stdout, stderr, code := runExe(t, exes[p.name])
-		got := lines(stdout)
+		got := verdicts(stdout)
 		ok := code == p.exit && len(got) == len(p.want)
 		for k := 0; ok && k < len(got); k++ {
 			w := p.want[k]
@@ -932,7 +932,7 @@ func TestLawRunReadIsRepeatable(t *testing.T) {
 		return
 	}
 	stdout, stderr, code := runExeArgs(t, exes["lawrun_files"], "--seed", "7")
-	got := lines(stdout)
+	got := verdicts(stdout)
 	want := []string{
 		"FAIL law fs.Files.ReadIsRepeatable for Drifty (case ",
 		"FAIL law fs.Files.ReadIsRepeatable for DriftyDenied (case ",

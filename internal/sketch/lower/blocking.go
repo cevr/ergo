@@ -73,9 +73,12 @@ func (b runtimeBinding) takesCaller() bool {
 }
 
 var runtimeBindings = map[string]runtimeBinding{
-	"Sleep":        {wait: callerWait, hostTarget: runtimeModule + "/runtime/rt.Sleep", provider: "LiveScheduler"},
-	"Task.Wait":    {wait: handleWait},
-	"Task.Stop":    {wait: drainWait},
+	"Sleep":     {wait: callerWait, hostTarget: runtimeModule + "/runtime/rt.Sleep", provider: "LiveScheduler"},
+	"Task.Wait": {wait: handleWait},
+	"Task.Stop": {wait: drainWait},
+	// A Task's and a Set's release (B3t): Stop, masked on the caller.
+	"Task.Close":   {release: callerRelease},
+	"Set.Close":    {release: callerRelease},
 	"Queue.Push":   {wait: callerWait},
 	"Queue.Pop":    {wait: callerWait},
 	"Queue.Values": {wait: callerWait},
@@ -85,7 +88,10 @@ var runtimeBindings = map[string]runtimeBinding{
 	// The release of a queue of resources (release.go, B3; Q7): ends
 	// admission and gives the values left; never waits.
 	"Queue.Drain": {},
-	"Go":          {},
+	// The rest of the release of a Task whose value holds a resource
+	// (release.go, B3t; Q5): the value no Wait delivered; never waits.
+	"Task.Drain": {},
+	"Go":         {},
 	// timeout.After joins its body and deadline children, whichever ends
 	// first, as their parent (runtime.md, Timeouts).
 	"After":        {wait: childWait},
@@ -93,6 +99,8 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Release":      {release: callerRelease},
 	"New":          {},
 	"WithCapacity": {},
+	"SlicesTake":   {},
+	"MapTake":      {},
 	// tasks.Transform joins its children, whichever ends first, as their
 	// parent (stdlib.md, Tasks; rt.MapSpan).
 	"TasksTransform": {wait: childWait},
@@ -101,11 +109,12 @@ var runtimeBindings = map[string]runtimeBinding{
 	// tasks.Set (runtime.md, G4): NewSet registers on the frame, as Go
 	// does; tasks.Go starts a member below the caller; Wait joins the
 	// members as their parent, and Stop stops and joins them, uninterruptibly.
-	"TasksNewSet": {},
-	"TasksGo":     {wait: parentTask},
-	"Set.Wait":    {wait: childWait},
-	"Set.Stop":    {wait: childWait},
-	"Set.Len":     {},
+	"TasksNewSet":  {},
+	"TasksGo":      {wait: parentTask},
+	"TasksGoOwned": {wait: parentTask},
+	"Set.Wait":     {wait: childWait},
+	"Set.Stop":     {wait: childWait},
+	"Set.Len":      {},
 	// The with lifetime owner's scope (with, withClose; resources.md, Context
 	// ownership). None waits, and none is a release route: the release a
 	// with registers is the call of a checked Close, which masks itself

@@ -768,9 +768,7 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 	if fun.fn != nil {
 		name = fun.fn.Name
 	}
-	if !c.typeArgsAdmitted(name, sig.TParams, targs, x) {
-		return bad(x)
-	}
+	c.recordInstantiation(name, sig.TParams, targs, x)
 	if fun.fn != nil {
 		if len(fun.self) > 0 {
 			targs = fullTypeArgs(fun.fn, fun.self, in.m)

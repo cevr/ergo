@@ -351,9 +351,6 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		// Only a value that implements the operation type can reach
 		// the ownership guard. A missing operation is the more specific
 		// failure (cmd/compile assignOp's diagnostic order).
-		if c.holdsTask(v) && !c.holdsTask(t) {
-			return assignment{}, taskEscapeText
-		}
 		if !c.providing && c.holdsResource(v) && !c.holdsResource(t) {
 			// R22: the operation value would never be released.
 			return assignment{}, resourceIntoCrossingText(v, t)

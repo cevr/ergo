@@ -57,34 +57,13 @@ func main() fails Fault needs Console {
 }
 `
 
-// TestTaskGoAndTaskResults: a function that starts a task or receives one by
-// return opens its frame scope, its error result named for End; a function
-// that returns a Task takes the caller's scope as its destination and moves
-// the Task there on return, through a direct call, a function value, a
-// literal and a fallible return; task.Go's block runs on a copy of the
-// environment that holds the child's task, with its Site; the exit actions
-// run after the body, last registered first (Rule 2).
+// TestTaskGoAndTaskResults: a Task started, returned through a direct
+// call, a function value, a literal and a fallible return, waited for and
+// stopped, runs its block and its exit actions after the body, last
+// registered first (Rule 2). A returned Task is an owned value (#197 L8
+// B3t): the caller registers it, so no destination frame is passed.
 func TestTaskGoAndTaskResults(t *testing.T) {
 	needsBuild(t)
-	o := mustLower(t, "tasks", taskProgram)
-	goSrc := stripDirectives(o.mainGo())
-	for _, want := range []string{
-		"func start(env *Env, dest *ergo.Scope, n int64) *ergo.Task[int64] {\n\tfs := ergo.NewScope(env.task)\n\tdefer fs.End(nil)\n",
-		"return v_1.Move(dest)\n",
-		"func startChecked(env *Env, dest *ergo.Scope, n int64) (_ *ergo.Task[int64], err error) {\n\tfs := ergo.NewScope(env.task)\n\tdefer fs.End(&err)\n",
-		"func main_1(env *Env) (err error) {\n\tfs := ergo.NewScope(env.task)\n\tdefer fs.End(&err)\n",
-		"ergo.Go[int64](&fs, ergo.Site(\"start calls task.Go at /ergo-test/main.ergo:14:2\"), func(t *rt.Task) (int64, error) {\n\t\te := *env\n\t\te.task = t\n",
-		"ergo.OnExit(&fs, func() {\n",
-		"dest *ergo.Scope, p int64) (*ergo.Task[int64], error) {\n\t\treturn start(env_4, dest, p), nil\n",
-		"v_3, err_3 := s(env, &fs, int64(4))\n",
-		"v_5 := start(env_5, &fs_1, n)\n\t\treturn v_5.Move(dest_1), nil\n",
-		"v_6, err_6 := lit(env, &fs, int64(5))\n",
-		"v_8, err_8 := startChecked(env, &fs, int64(6))\n",
-	} {
-		if !strings.Contains(goSrc, want) {
-			t.Errorf("the lowered Go lacks %q:\n%s", want, goSrc)
-		}
-	}
 	wantRun(t, taskProgram, "waited\nbody\nexit 2\nexit 1\n")
 }
 

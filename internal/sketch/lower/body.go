@@ -27,9 +27,8 @@ type frame struct {
 	// errReturn writes each such return).
 	unit bool
 	// scope is the Go name of the frame scope, "" when the frame opens
-	// none (stage D3b, Rule 2); dest is the destination parameter of a
-	// frame that returns a Task, "" otherwise.
-	scope, dest string
+	// none (stage D3b, Rule 2).
+	scope string
 	// with is the Go name of the scope of the innermost owning with around
 	// the code being written, "" outside one (calls.go, with): the scope
 	// that owns the tasks the code starts or receives (frameScope).
@@ -569,7 +568,7 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 	if id, ok := unparen(x).(*syntax.Ident); ok {
 		fc.returned = id
 	}
-	val := fc.moved(fc.assigned(x))
+	val := fc.assigned(x)
 	fc.returned = nil
 	if f.law {
 		// A law's result is any type over bool (types.md, Laws 8); its Go

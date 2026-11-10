@@ -17,4 +17,11 @@ func TestMovesOnlyNamesBodies(t *testing.T) {
 			t.Errorf("%s has no type parameter: the table lists generic bodies only", name)
 		}
 	}
+	// The running table (B3t) names bodies too: a stale entry would admit
+	// a running value into a with's result.
+	for name := range running {
+		if _, err := BodyOf(name); err != nil {
+			t.Errorf("running %s: %v", name, err)
+		}
+	}
 }

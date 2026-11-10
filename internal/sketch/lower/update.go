@@ -100,7 +100,7 @@ func (l *lowerer) okShape(g *check.Func) *check.Var {
 	if g == nil || g.Decl == nil || g.Decl.Body == nil || g.Decl.Extern != nil || g.Pkg == nil || g.Pkg.Info == nil || g.Sig == nil {
 		return nil
 	}
-	if len(g.Sig.TParams) > 0 || len(g.Sig.Params) != 1 || len(g.Sig.Results) != 1 || len(rowElems(g.Sig.Errors)) > 0 || g.Pkg.Info.TaskResults[g] || len(witnessParams(g.Sig)) > 0 {
+	if len(g.Sig.TParams) > 0 || len(g.Sig.Params) != 1 || len(g.Sig.Results) != 1 || len(rowElems(g.Sig.Errors)) > 0 || len(witnessParams(g.Sig)) > 0 {
 		return nil
 	}
 	if !isPreludeType(g.Sig.Params[0].Type, "Option") || g.Decl.Type == nil || g.Decl.Type.Params == nil {
@@ -202,7 +202,7 @@ func (fc *funcCtx) updateCallback(arg syntax.Expr) *check.Func {
 	if !ok || g.Decl == nil || g.Pkg == nil || g.Pkg.Info == nil || g.Sig == nil {
 		return nil
 	}
-	if len(g.Sig.TParams) > 0 || len(g.Sig.Params) != 1 || len(g.Sig.Results) != 1 || len(rowElems(g.Sig.Errors)) > 0 || g.Pkg.Info.TaskResults[g] || len(witnessParams(g.Sig)) > 0 {
+	if len(g.Sig.TParams) > 0 || len(g.Sig.Params) != 1 || len(g.Sig.Results) != 1 || len(rowElems(g.Sig.Errors)) > 0 || len(witnessParams(g.Sig)) > 0 {
 		return nil
 	}
 	if g.Decl.Extern != nil || g.Decl.Body == nil {

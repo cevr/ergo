@@ -175,11 +175,6 @@ type checker struct {
 	// which reads a literal's kind as the walk does: an operation count for the
 	// linear-growth tests (round 17 M2).
 	walkOps int
-	// taskMemo caches holdsTask by interned type id, for finished
-	// components only (taskescape.go); taskSteps counts the walk's visits
-	// for the linear-growth tests.
-	taskMemo  map[int32]bool
-	taskSteps int
 	// resMemo caches holdsResource (0) and mayHoldResource (1) by interned
 	// type id; resSteps counts the walk's visits (resource.go).
 	resMemo  [2]map[int32]bool
