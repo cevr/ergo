@@ -253,7 +253,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 ## Earlier `.ef` language
 
-These terms describe the retired `.ef` language, with its `effect fn`, `run`, `raises` and `service` forms. [#205](https://github.com/cevr/ergo/issues/205) removed its compiler ([retirement record](docs/receipts/retire-ef.md)); its runtime, `runtime/ergo`, stays in the tree until lowering replaces it. The terms stay as design reference. The Go-shaped language replaces it; where a term has a counterpart above, the entry says so.
+These terms describe the retired `.ef` language, with its `effect fn`, `run`, `raises` and `service` forms. [#205](https://github.com/cevr/ergo/issues/205) removed its compiler ([retirement record](docs/receipts/retire-ef.md)); its runtime, `runtime/ergo`, was removed in batch 14. The terms stay as design reference. The Go-shaped language replaces it; where a term has a counterpart above, the entry says so.
 
 **Record**: A nominal data type with declared fields. Construction checks every required field and its type. Counterpart: struct.
 
