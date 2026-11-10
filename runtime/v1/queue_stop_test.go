@@ -59,7 +59,7 @@ func TestQueueWaitsEndOnAStop(t *testing.T) {
 		if got := pop(t, q); got != 1 {
 			t.Fatalf("Pop = %d; want 1", got)
 		}
-		q.CloseSend()
+		q.End()
 		if _, err := q.Pop(bg); !closed(t, err) {
 			t.Fatal("the stopped Push's value entered the queue")
 		}
@@ -129,7 +129,7 @@ func TestQueueWaitsEndOnAStop(t *testing.T) {
 		if !interruptedBy(func() { _ = q.Push(task, 1) }) {
 			t.Fatal("Push on a stopped task returned")
 		}
-		if q.CloseSend(); !interruptedBy(func() { _, _ = q.Pop(task) }) {
+		if q.End(); !interruptedBy(func() { _, _ = q.Pop(task) }) {
 			t.Fatal("Pop on a stopped task returned")
 		}
 		if _, err := q.Pop(bg); !closed(t, err) {
@@ -201,7 +201,7 @@ func TestPollerEnds(t *testing.T) {
 			q = New[int](16)
 			producer := Go(s, "producer at poller.ergo:52:17", func(pt *rt.Task) (struct{}, error) {
 				frameNoRow(pt, func(ps *Scope) {
-					OnExit(ps, func() { q.CloseSend() })
+					OnExit(ps, func() { q.End() })
 					for i := 0; ; i++ {
 						if err := q.Push(pt, i); err != nil {
 							return // closed: the producer ends

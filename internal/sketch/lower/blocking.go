@@ -73,16 +73,16 @@ func (b runtimeBinding) takesCaller() bool {
 }
 
 var runtimeBindings = map[string]runtimeBinding{
-	"Sleep":           {wait: callerWait, hostTarget: runtimeModule + "/runtime/rt.Sleep", provider: "LiveScheduler"},
-	"Task.Wait":       {wait: handleWait},
-	"Task.Stop":       {wait: drainWait},
-	"Queue.Push":      {wait: callerWait},
-	"Queue.Pop":       {wait: callerWait},
-	"Queue.Values":    {wait: callerWait},
-	"Queue.CloseSend": {},
-	"Queue.Poll":      {},
-	"Queue.Len":       {},
-	"Go":              {},
+	"Sleep":        {wait: callerWait, hostTarget: runtimeModule + "/runtime/rt.Sleep", provider: "LiveScheduler"},
+	"Task.Wait":    {wait: handleWait},
+	"Task.Stop":    {wait: drainWait},
+	"Queue.Push":   {wait: callerWait},
+	"Queue.Pop":    {wait: callerWait},
+	"Queue.Values": {wait: callerWait},
+	"Queue.End":    {},
+	"Queue.Poll":   {},
+	"Queue.Len":    {},
+	"Go":           {},
 	// timeout.After joins its body and deadline children, whichever ends
 	// first, as their parent (runtime.md, Timeouts).
 	"After":        {wait: childWait},
@@ -384,7 +384,7 @@ func (fc *funcCtx) runtimeCall(name string, body v1.Body, typeArgs, recv string,
 	}
 	if x != nil && binding.wait != noWait && fc.l.info.Closes[x] != nil {
 		// A std Close is a release (R9). Today std declares no Close (the
-		// queue's half-close is CloseSend, #197 q53); a waiting one, such
+		// queue's half-close is End, #197 q53); a waiting one, such
 		// as Task.Close (L8 B3), needs a release route first.
 		ice(site, "the std Close binding %s waits, and no release route masks it", name)
 	}

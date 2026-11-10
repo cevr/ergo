@@ -34,7 +34,7 @@ func Write(c Conn, line string) {
 
 // Close ends the server's side: the next Read after the sent lines hangs
 // up.
-func Close(c Conn) { c.inbound.CloseSend() }
+func Close(c Conn) { c.inbound.End() }
 
 // Send is the client sending line. It fails with Hangup when the
 // connection is closed.
@@ -48,8 +48,8 @@ func Send(c Conn, line string) fails server.Hangup {
 // Hang is the client hanging up: the server reads what it sent, then
 // Hangup, and later writes are lost.
 func Hang(c Conn) {
-	c.inbound.CloseSend()
-	c.outbound.CloseSend()
+	c.inbound.End()
+	c.outbound.End()
 }
 
 // Received is every line the server wrote to c that the client has not

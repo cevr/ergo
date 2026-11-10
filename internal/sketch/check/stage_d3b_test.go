@@ -13,10 +13,10 @@ import (
 // record's method through a pointer stay accepted.
 func TestOperationThroughPointerRefused(t *testing.T) {
 	cases := []d1Case{
-		{"std-queue", "import queue\nfunc f(p *queue.Queue[int]) {\n\tp.CloseSend()\n}\n", []string{"S108:3"}},
+		{"std-queue", "import queue\nfunc f(p *queue.Queue[int]) {\n\tp.End()\n}\n", []string{"S108:3"}},
 		{"std-queue-fallible", "import queue\nfunc f(p *queue.Queue[int]) fails queue.Closed {\n\ttry p.Push(1)\n}\n", []string{"S108:3"}},
 		{"own", "type Shape { Area() int }\nfunc f(p *Shape) int {\n\tp.Area()\n}\n", []string{"S108:3"}},
-		{"value", "import queue\nfunc f(q queue.Queue[int]) {\n\tq.CloseSend()\n}\n", nil},
+		{"value", "import queue\nfunc f(q queue.Queue[int]) {\n\tq.End()\n}\n", nil},
 		{"record-method", "type P { X int }\nfunc Get(p P) int { p.X }\nfunc f(p *P) int {\n\tp.X\n}\n", nil},
 	}
 	runD1(t, cases)

@@ -502,7 +502,7 @@ func drive(t *testing.T, phase string, masked, moved bool) {
  } else if phase != "concurrent-ready" && !interrupted { t.Fatalf("stopped primitive delivered a value: %+v", out) }
  if !interrupted { want := 7; if primitive == "Task.Stop" { want = 0 }; if out.value != want { t.Fatalf("value %d, want %d", out.value,want) } }
  if clock.Pending() != 0 { t.Fatalf("%d retained timers", clock.Pending()) }
- q.CloseSend(); var remaining []int
+ q.End(); var remaining []int
  for v := range q.Values(control) { remaining = append(remaining,v) }
  count := 0; for _, v := range remaining { if v == 7 { count++ } }
  if primitive == "Queue.Push" {

@@ -53,7 +53,7 @@ func Serve(conns []Conn, log queue.Queue[string]) room.State fails queue.Closed 
 	let inbox = queue.New[Envelope](16)
 	let hub = task.Go() { host(inbox, log) }
 	try serveAll(conns, 0, inbox)
-	inbox.CloseSend()
+	inbox.End()
 	try hub.Wait()
 }
 

@@ -12,7 +12,7 @@ import (
 // (docs/spec/runtime.md, Queues): a FIFO of T between tasks with a fixed
 // capacity. Push, Pop and Values take the caller's task as a hidden first
 // argument, which the lowering passes (gap 1 ruling; docs/spec/stdlib.md,
-// Hidden arguments); Poll, Len and CloseSend never wait and take none. The
+// Hidden arguments); Poll, Len and End never wait and take none. The
 // lowering calls these methods directly (stdlib.md, Types 3). The contract:
 //
 //   - New(capacity) makes an open, empty queue. capacity is how many values
@@ -33,7 +33,7 @@ import (
 //     queue is closed and empty. A loop that stops early (break, return,
 //     try) takes no further value: the rest stay in the queue for the next
 //     Pop or Values.
-//   - CloseSend() ends admission. It is idempotent, never waits and never
+//   - End() ends admission. It is idempotent, never waits and never
 //     fails. Values already in the queue stay for Pop and Values.
 //   - Poll() takes the value Pop would take when one can be taken now, and
 //     reports false otherwise; it never waits. Len() is the count of values
@@ -186,8 +186,8 @@ func (q *Queue[T]) Len() int {
 	return n
 }
 
-// CloseSend is q.CloseSend().
-func (q *Queue[T]) CloseSend() {
+// End is q.End().
+func (q *Queue[T]) End() {
 	q.mu.Lock()
 	if !q.closed {
 		q.closed = true

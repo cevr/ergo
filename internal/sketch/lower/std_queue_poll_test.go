@@ -81,7 +81,7 @@ const queuePollLawsProbe = `import queue
 test QueuePollOnEmptyIsNone(c int) {
 	let q = queue.New[int](c % 3 * (c % 3))
 	assert q.Poll() == None
-	q.CloseSend()
+	q.End()
 	assert q.Poll() == None
 }
 
@@ -89,7 +89,7 @@ test QueuePollTakesTheFront(a int, b int) {
 	let q = queue.New[int](2)
 	try q.Push(a)
 	try q.Push(b)
-	q.CloseSend()
+	q.End()
 	assert q.Poll() == Some[int]{Value: a}
 	assert q.Poll() == Some[int]{Value: b}
 	assert q.Poll() == None
@@ -113,8 +113,8 @@ test QueueLenCountsUntaken(xs []int) {
 // lawledger.Run holds it equal to the ledger (fu-ledger-runner).
 var queuePollLawStatements = map[string]string{
 	"queue LenCountsUntaken":  `LenCountsUntaken(xs []int) { let q = New[int](len(xs)) for x in xs { try q.Push(x) } let full = q.Len() == len(xs) let mut drained = true for x in xs { drained = drained && q.Poll() == Some[int]{Value: x} } full && drained && q.Len() == 0 }`,
-	"queue PollOnEmptyIsNone": `PollOnEmptyIsNone() { let q = New[int](1) let open = q.Poll() == None q.CloseSend() open && q.Poll() == None }`,
-	"queue PollTakesTheFront": `PollTakesTheFront(a int, b int) { let q = New[int](2) try q.Push(a) try q.Push(b) q.CloseSend() q.Poll() == Some[int]{Value: a} && q.Poll() == Some[int]{Value: b} && q.Poll() == None }`,
+	"queue PollOnEmptyIsNone": `PollOnEmptyIsNone() { let q = New[int](1) let open = q.Poll() == None q.End() open && q.Poll() == None }`,
+	"queue PollTakesTheFront": `PollTakesTheFront(a int, b int) { let q = New[int](2) try q.Push(a) try q.Push(b) q.End() q.Poll() == Some[int]{Value: a} && q.Poll() == Some[int]{Value: b} && q.Poll() == None }`,
 }
 
 // TestQueuePollLaws runs the probe with --seed 1; lawledger.Run holds that
@@ -177,7 +177,7 @@ func main() fails queue.Closed needs Console | Ambient {
 	Console.Println("len \(q.Len())")
 	show(q.Poll())
 	Console.Println("len \(q.Len())")
-	q.CloseSend()
+	q.End()
 	show(q.Poll())
 	show(q.Poll())
 	Console.Println("len \(q.Len())")

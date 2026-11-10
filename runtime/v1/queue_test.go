@@ -21,7 +21,7 @@ import (
 var _ interface {
 	Push(*rt.Task, int) error
 	Pop(*rt.Task) (int, error)
-	CloseSend()
+	End()
 	Values(*rt.Task) iter.Seq[int]
 	Poll() (int, bool)
 	Len() int
@@ -91,7 +91,7 @@ func TestQueuePoll(t *testing.T) {
 			if v, ok := poll(t, q); ok {
 				t.Fatalf("capacity %d: Poll on an open, empty queue = %d, true", capacity, v)
 			}
-			q.CloseSend()
+			q.End()
 			if v, ok := poll(t, q); ok {
 				t.Fatalf("capacity %d: Poll on a closed, empty queue = %d, true", capacity, v)
 			}
@@ -111,7 +111,7 @@ func TestQueuePoll(t *testing.T) {
 		if v, ok := poll(t, q); !ok || v != 1 {
 			t.Fatalf("Poll() = %d, %v; want 1, true", v, ok)
 		}
-		q.CloseSend()
+		q.End()
 		if v, ok := poll(t, q); !ok || v != 2 {
 			t.Fatalf("Poll() after Close = %d, %v; want 2, true", v, ok)
 		}
@@ -311,7 +311,7 @@ func TestQueueContract(t *testing.T) {
 	})
 	t.Run("Push after Close", func(t *testing.T) {
 		q := New[int](2)
-		q.CloseSend()
+		q.End()
 		if !closed(t, q.Push(bg, 1)) {
 			t.Fatal("Push on a closed queue did not fail with queue.Closed")
 		}
@@ -323,8 +323,8 @@ func TestQueueContract(t *testing.T) {
 		q := New[int](2)
 		push(t, q, 1)
 		push(t, q, 2)
-		q.CloseSend()
-		q.CloseSend() // idempotent
+		q.End()
+		q.End() // idempotent
 		if a, b := pop(t, q), pop(t, q); a != 1 || b != 2 {
 			t.Fatalf("Pop, Pop = %d, %d; want 1, 2", a, b)
 		}
@@ -341,7 +341,7 @@ func TestQueueContract(t *testing.T) {
 		done := make(chan error, 1)
 		go func() { done <- q.Push(bg, 2) }()
 		parked(t, q, 1)
-		q.CloseSend()
+		q.End()
 		if err := result(t, done); err != (Closed{}) {
 			t.Fatalf("the waiting Push gave %v; want queue.Closed", err)
 		}
@@ -361,7 +361,7 @@ func TestQueueContract(t *testing.T) {
 			done <- err
 		}()
 		parked(t, q, 1)
-		q.CloseSend()
+		q.End()
 		if err := result(t, done); err != (Closed{}) {
 			t.Fatalf("the waiting Pop gave %v; want queue.Closed", err)
 		}
@@ -375,7 +375,7 @@ func TestQueueContract(t *testing.T) {
 			for i := range 100 {
 				_ = q.Push(bg, i)
 			}
-			q.CloseSend()
+			q.End()
 		}()
 		n := 0
 		for v := range q.Values(bg) {
@@ -409,7 +409,7 @@ func TestQueueContract(t *testing.T) {
 		done := make(chan error, 1)
 		go func() { done <- q.Push(bg, 1) }()
 		parked(t, q, 1)
-		q.CloseSend() // returns while a Push waits: it never waits itself
+		q.End() // returns while a Push waits: it never waits itself
 		if err := result(t, done); err != (Closed{}) {
 			t.Fatalf("the waiting Push gave %v; want queue.Closed", err)
 		}
@@ -419,7 +419,7 @@ func TestQueueContract(t *testing.T) {
 		// closed, empty queue fails with queue.Closed; its owner receives
 		// it from Wait as a typed failure, and main exits 1, not 130.
 		q := New[int](1)
-		q.CloseSend()
+		q.End()
 		err := runMain(func(root *rt.Task) error {
 			return frame(root, func(s *Scope) error {
 				c := Go(s, "consumer", func(ct *rt.Task) (int, error) { return q.Pop(ct) })
@@ -519,12 +519,12 @@ func TestQueueModel(t *testing.T) {
 				}
 			case 4:
 				if rng.IntN(4) == 0 {
-					q.CloseSend()
+					q.End()
 					isClosed = true
 				}
 			}
 		}
-		q.CloseSend()
+		q.End()
 		var rest []int
 		for v := range q.Values(bg) {
 			rest = append(rest, v)
@@ -627,7 +627,7 @@ func TestQueueStress(t *testing.T) {
 			}()
 		}
 		time.Sleep(time.Duration(rng.IntN(3000)) * time.Microsecond)
-		q.CloseSend()
+		q.End()
 		wg.Wait()
 		seen := map[item]int{}
 		for c, list := range taken {
@@ -778,7 +778,7 @@ func interleave(t *testing.T, seed uint64) {
 		for pops.Load() < closeAfter && producersDone.Load() < int64(producers) && consumersDone.Load() < int64(consumers) {
 			runtime.Gosched()
 		}
-		q.CloseSend()
+		q.End()
 	}()
 	wg.Wait()
 	if e := lenErr.Load(); e != nil {

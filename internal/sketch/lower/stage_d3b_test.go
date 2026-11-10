@@ -120,7 +120,7 @@ func produce(q queue.Queue[int], n int) int fails queue.Closed {
 	for i in 1..n {
 		try q.Push(i)
 	}
-	q.CloseSend()
+	q.End()
 	n - 1
 }
 
@@ -158,7 +158,7 @@ func TestErgoRunQueueOperations(t *testing.T) {
 	needsBuild(t)
 	o := mustLower(t, "queues", queueProgram)
 	goSrc := stripDirectives(o.mainGo())
-	for _, want := range []string{"(q).Push(env.task, ", "(q).Pop(env.task)", "(q).CloseSend()", "ergo.New[int](", "ergo.Closed"} {
+	for _, want := range []string{"(q).Push(env.task, ", "(q).Pop(env.task)", "(q).End()", "ergo.New[int](", "ergo.Closed"} {
 		if !strings.Contains(goSrc, want) {
 			t.Errorf("the lowered Go lacks %q:\n%s", want, goSrc)
 		}

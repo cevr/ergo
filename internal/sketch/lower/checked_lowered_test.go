@@ -667,17 +667,17 @@ type stdOp struct {
 }
 
 var stdOps = []stdOp{
-	{"GoValue", "let t = task.Go() { 7 }\nq.CloseSend()\nt.Wait()", "let g = task.Go\nlet t = g() { 7 }\nq.CloseSend()\nt.Wait()", "let g = task.Go", false, 7},
+	{"GoValue", "let t = task.Go() { 7 }\nq.End()\nt.Wait()", "let g = task.Go\nlet t = g() { 7 }\nq.End()\nt.Wait()", "let g = task.Go", false, 7},
 	{"GoNoValue", "let t = task.Go() { try q.Push(3) }\ntry t.Wait()\ntry q.Pop()", "let g = task.Go\nlet t = g() { try q.Push(3) }\ntry t.Wait()\ntry q.Pop()", "let g = task.Go", true, 3},
 	{"Wait", "let t = task.Go() { try q.Pop() }\ntry q.Push(4)\ntry t.Wait()", "let t = task.Go() { try q.Pop() }\ntry q.Push(4)\nlet w = t.Wait\ntry w()", "let w = t.Wait", true, 4},
 	{"Stop", "let t = task.Go() { try q.Pop() }\nt.Stop()\n5", "let t = task.Go() { try q.Pop() }\nlet s = t.Stop\ns()\n5", "let s = t.Stop", false, 5},
 	{"Move", "let t = popper(q)\ntry q.Push(6)\ntry t.Wait()", "let p = popper\nlet t = p(q)\ntry q.Push(6)\ntry t.Wait()", "let p = popper", true, 6},
-	{"OnExit", "scope.OnExit() { q.CloseSend() }\n8", "let o = scope.OnExit\no() { q.CloseSend() }\n8", "let o = scope.OnExit", false, 8},
+	{"OnExit", "scope.OnExit() { q.End() }\n8", "let o = scope.OnExit\no() { q.End() }\n8", "let o = scope.OnExit", false, 8},
 	{"Push", "try q.Push(9)\ntry q.Pop()", "let push = q.Push\ntry push(9)\ntry q.Pop()", "let push = q.Push", true, 9},
 	{"Pop", "try q.Push(10)\nlet v = try q.Pop()\nv", "try q.Push(10)\nlet pop = q.Pop\ntry pop()", "let pop = q.Pop", true, 10},
-	{"Values", "try q.Push(5)\ntry q.Push(6)\nq.CloseSend()\nlet mut n = 0\nfor v in q.Values() {\nn += v\n}\nn", "try q.Push(5)\ntry q.Push(6)\nq.CloseSend()\nlet vs = q.Values\nlet mut n = 0\nfor v in vs() {\nn += v\n}\nn", "let vs = q.Values", true, 11},
-	{"Close", "q.CloseSend()\n12", "let c = q.CloseSend\nc()\n12", "let c = q.CloseSend", false, 12},
-	{"Closed", "q.CloseSend()\nlet v = q.Pop() catch {\ncase queue.Closed: 13\n}\nv", "q.CloseSend()\nlet pop = q.Pop\nlet v = pop() catch {\ncase queue.Closed: 13\n}\nv", "let pop = q.Pop", false, 13},
+	{"Values", "try q.Push(5)\ntry q.Push(6)\nq.End()\nlet mut n = 0\nfor v in q.Values() {\nn += v\n}\nn", "try q.Push(5)\ntry q.Push(6)\nq.End()\nlet vs = q.Values\nlet mut n = 0\nfor v in vs() {\nn += v\n}\nn", "let vs = q.Values", true, 11},
+	{"Close", "q.End()\n12", "let c = q.End\nc()\n12", "let c = q.End", false, 12},
+	{"Closed", "q.End()\nlet v = q.Pop() catch {\ncase queue.Closed: 13\n}\nv", "q.End()\nlet pop = q.Pop\nlet v = pop() catch {\ncase queue.Closed: 13\n}\nv", "let pop = q.Pop", false, 13},
 }
 
 var stdSites = []string{"direct", "funcvalue", "value", "literal", "taskbody", "provider"}

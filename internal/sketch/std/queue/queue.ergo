@@ -16,11 +16,12 @@ type Queue[T] {
 	// Pop takes the value at the front, waiting while the queue is open and
 	// empty. It fails with Closed when the queue is closed and empty.
 	Pop() T fails Closed,
-	// CloseSend ends admission. It does nothing on a closed queue, never
-	// waits and never fails; the values in the queue stay for Pop. It is a
-	// half-close (gRPC's CloseSend, Go's CloseWrite), not a release, so a
-	// Queue of plain values stays a shared handle (#197 q53).
-	CloseSend(),
+	// End ends admission. It does nothing on a closed queue, never waits
+	// and never fails; the values in the queue stay for Pop. It is a
+	// half-close (Node's writable.end(), gRPC's CloseSend, Go's
+	// CloseWrite), not a release, so a Queue of plain values stays a
+	// shared handle (#197 q53).
+	End(),
 	// Values pops each value in turn, as a Seq for a for loop: it waits
 	// like Pop and ends when the queue is closed and empty. A break stops
 	// it; the values not yet popped stay in the queue.
@@ -35,16 +36,16 @@ type Queue[T] {
 	// room is not counted. It never waits.
 	Len() int,
 
-	// CloseSendIsIdempotent: a second CloseSend returns at once and never fails.
-	law CloseSendIsIdempotent() {
-		CloseSend()
-		CloseSend()
+	// EndIsIdempotent: a second End returns at once and never fails.
+	law EndIsIdempotent() {
+		End()
+		End()
 		true
 	},
-	// PushAfterCloseSendFails: Push after CloseSend fails Closed at once,
+	// PushAfterEndFails: Push after End fails Closed at once,
 	// whatever its capacity and contents.
-	law PushAfterCloseSendFails(v T) {
-		CloseSend()
+	law PushAfterEndFails(v T) {
+		End()
 		Push(v) catch {
 		case Closed:
 			return true
@@ -59,7 +60,7 @@ type Queue[T] {
 		if k < 1 {
 			return true
 		}
-		CloseSend()
+		End()
 		let n = Len()
 		let mut calls = 0
 		let s = Values()
@@ -82,12 +83,12 @@ law FirstInFirstOut(a int, b int) {
 	first == a && second == b
 }
 
-// CloseSendKeepsValues: CloseSend ends admission and keeps the values in the queue
+// EndKeepsValues: End ends admission and keeps the values in the queue
 // for Pop.
-law CloseSendKeepsValues(v int) {
+law EndKeepsValues(v int) {
 	let q = New[int](1)
 	try q.Push(v)
-	q.CloseSend()
+	q.End()
 	try q.Pop() == v
 }
 
@@ -96,17 +97,17 @@ law CloseSendKeepsValues(v int) {
 law PollOnEmptyIsNone() {
 	let q = New[int](1)
 	let open = q.Poll() == None
-	q.CloseSend()
+	q.End()
 	open && q.Poll() == None
 }
 
 // PollTakesTheFront: Poll takes the values in the order Push added them,
-// also after CloseSend, and is None when they are all taken.
+// also after End, and is None when they are all taken.
 law PollTakesTheFront(a int, b int) {
 	let q = New[int](2)
 	try q.Push(a)
 	try q.Push(b)
-	q.CloseSend()
+	q.End()
 	q.Poll() == Some[int]{Value: a} && q.Poll() == Some[int]{Value: b} && q.Poll() == None
 }
 

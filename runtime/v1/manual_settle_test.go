@@ -249,7 +249,7 @@ func settleRun(seed uint64, where *atomic.Value) string {
 	defer func() {
 		// Closing full ends every step's Push, so the sink and its
 		// waiters end.
-		full.CloseSend()
+		full.End()
 		_ = sink.Stop(root)
 		_ = a.Stop(root)
 		sc.End(nil)

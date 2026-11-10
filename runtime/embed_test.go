@@ -90,7 +90,7 @@ func run(t *rt.Task) (err error) {
 				return 0, err
 			}
 		}
-		q.CloseSend()
+		q.End()
 		return 3, nil
 	})
 	sum := 0
