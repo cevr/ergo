@@ -1,0 +1,41 @@
+{
+  "reason": "Ceilings are the Ergo-only bytes (fixture minus the Go hello control, default and stripped builds) and the Go package count measured on linux/amd64 with go1.27.0 at main f6802de7, plus 2 %, rounded up (binsize plan, BS0). A unit that shrinks a fixture lowers its ceilings to its measured value plus 2 %; a unit that grows one past a ceiling raises it only with the reason in its request. Forbid lists facts: patterns of linked symbol names that must stay absent.",
+  "fixtures": {
+    "hello": {
+      "ergoOnly": 986937,
+      "ergoOnlyStripped": 685179,
+      "goPackages": 109,
+      "forbid": ["^net/", "^encoding/json\\.", "^encoding/csv\\.", "^os/exec\\.", "^bufio\\.", "^math/rand"]
+    },
+    "pure": {
+      "ergoOnly": 986880,
+      "ergoOnlyStripped": 685179,
+      "goPackages": 109,
+      "forbid": ["^net/", "^encoding/json\\.", "^encoding/csv\\.", "^os/exec\\.", "^bufio\\.", "^math/rand"]
+    },
+    "unused": {
+      "ergoOnly": 1006740,
+      "ergoOnlyStripped": 701891,
+      "goPackages": 109,
+      "forbid": ["^net/", "^encoding/json\\.", "^encoding/csv\\.", "^os/exec\\.", "^math/rand"]
+    },
+    "relay": {
+      "ergoOnly": 1015494,
+      "ergoOnlyStripped": 706069,
+      "goPackages": 109,
+      "forbid": ["^net/", "^encoding/json\\.", "^encoding/csv\\.", "^os/exec\\."]
+    },
+    "kvstore": {
+      "ergoOnly": 1460586,
+      "ergoOnlyStripped": 1006879,
+      "goPackages": 110,
+      "forbid": ["^net/", "^encoding/json\\.", "^encoding/csv\\.", "^os/exec\\."]
+    },
+    "deploys": {
+      "ergoOnly": 1309699,
+      "ergoOnlyStripped": 914965,
+      "goPackages": 109,
+      "forbid": ["^net/", "^encoding/json\\.", "^encoding/csv\\.", "^os/exec\\."]
+    }
+  }
+}

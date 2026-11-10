@@ -272,6 +272,11 @@
     "TestWallClockRule": 0,
     "TestWallClockStaleRow": 0
   },
+  "ergo.local/prototype/internal/sizes": {
+    "TestBudgetFactsMatchSymbols": 0,
+    "TestBudgetSubtractsTheControl": 0,
+    "TestMeasureReadsEachFile": 0
+  },
   "ergo.local/prototype/internal/sketch/build": {
     "TestBuildArrivingAtATrim": 0,
     "TestBuildThatLockedAMovedEntry": 0,

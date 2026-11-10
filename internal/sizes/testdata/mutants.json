@@ -1,0 +1,49 @@
+{
+  "about": "The mutant ledger of internal/sizes: edits of the size receipt and its budget check that some internal/sizes test must kill. Run it with go run ./scripts/mutants ./internal/sizes (docs/tooling.md, \"Mutant ledger\"). Seeded by binsize BS0.",
+  "mutants": [
+    {
+      "name": "bs0-compare-off",
+      "origin": "wf10 binsize BS0",
+      "file": "internal/sizes/sizes.go",
+      "from": "if r.ErgoOnly() > f.ErgoOnly {",
+      "to": "if false && r.ErgoOnly() > f.ErgoOnly {",
+      "rule": "binsize plan 3 (f): a receipt whose Ergo-only bytes pass the fixture's ceiling fails the budget.",
+      "killers": [
+        "internal/sizes:TestBudgetSubtractsTheControl"
+      ]
+    },
+    {
+      "name": "bs0-fact-off",
+      "origin": "wf10 binsize BS0",
+      "file": "internal/sizes/sizes.go",
+      "from": "if re.MatchString(s) {",
+      "to": "if false && re.MatchString(s) {",
+      "rule": "binsize plan 3 (f): a linked symbol that a fact forbids fails the budget.",
+      "killers": [
+        "internal/sizes:TestBudgetFactsMatchSymbols"
+      ]
+    },
+    {
+      "name": "bs0-wrong-file",
+      "origin": "wf10 binsize BS0",
+      "file": "internal/sizes/sizes.go",
+      "from": "stripped, err := os.Stat(strippedPath)",
+      "to": "stripped, err := os.Stat(defaultPath)",
+      "rule": "binsize plan 3 (f): the stripped size is the stripped file's size.",
+      "killers": [
+        "internal/sizes:TestMeasureReadsEachFile"
+      ]
+    },
+    {
+      "name": "bs0-no-control",
+      "origin": "wf10 binsize BS0",
+      "file": "internal/sizes/sizes.go",
+      "from": "func (r Receipt) ErgoOnly() int64 { return r.Size - r.Control.Size }",
+      "to": "func (r Receipt) ErgoOnly() int64 { return r.Size }",
+      "rule": "binsize plan 3 (f): Ergo-only bytes are the fixture's size minus the Go hello control's.",
+      "killers": [
+        "internal/sizes:TestBudgetSubtractsTheControl"
+      ]
+    }
+  ]
+}
