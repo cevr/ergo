@@ -143,6 +143,8 @@ func wireBase(dir string, t check.Type) string {
 		return head + "Map"
 	case *check.Tuple:
 		return head + "Tuple"
+	case *check.Basic:
+		return head + strings.ToUpper(u.Name[:1]) + u.Name[1:]
 	}
 	return head
 }
@@ -192,7 +194,12 @@ func (l *lowerer) reserveWires(pkgs []*check.Package, reserve func(key pkgKey, b
 			walk(dir, info, p.Base)
 			return
 		}
-		if _, ok := t.(*check.Basic); ok {
+		if l.wireInline(t) {
+			// A call site writes it inline, but decode[T] of an inline T
+			// is a call of its decode function (wireCall).
+			if dir == "decode" {
+				reserve(key, wireBase(dir, t), key.kind+" "+key.obj.(string))
+			}
 			return
 		}
 		reserve(key, wireBase(dir, t), key.kind+" "+key.obj.(string))
@@ -255,7 +262,14 @@ func (fc *funcCtx) wireCall(x *syntax.CallExpr, c *check.Call) operand {
 	env := fc.envExpr(x)
 	tc := fc.wireCtx(x)
 	if c.Kind == check.CallEncode {
-		fc.line(tc.wireEncode(c.Type, env, vals[1], vals[0]))
+		w := vals[1]
+		if fc.l.wireInline(c.Type) {
+			// The inline event is a method call on w: a variable, so a
+			// Writer adapter's pointer methods are in its method set.
+			w = fc.temp("w")
+			fc.line(w + " := " + vals[1])
+		}
+		fc.line(tc.wireEncode(c.Type, env, w, vals[0]))
 		return operand{}
 	}
 	call := ""
@@ -540,6 +554,13 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 	if parse := check.RefinedParse(t); parse != nil {
 		base := parse.Sig.Params[0].Type
 		parsed(base, parse)
+		return
+	}
+	if l.wireInline(t) {
+		// decode[T] of a basic T, or a defined type over one, at the top.
+		x := scope.alloc("x")
+		b.WriteString(tc.wireDecode(t, env, r, x, zero, scope))
+		b.WriteString("return " + x + ", nil\n")
 		return
 	}
 	goType := tc.goType(t)

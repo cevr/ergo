@@ -1723,6 +1723,39 @@
       "anchor": {
         "text": "runInits := l.initOnce(b)"
       }
+    },
+    {
+      "name": "l11-basic-decode-unnamed",
+      "origin": "wf10 batch-15 fix-r2 (L11 M1)",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\t\t\tif dir == \"decode\" {",
+      "to": "\t\t\tif false {",
+      "rule": "types.md Codecs 1-2: decode[T] takes every codable T, a basic one at the top too.",
+      "killers": [
+        "lower:TestStdWireLawsRun"
+      ]
+    },
+    {
+      "name": "l11-basic-decode-no-inline-body",
+      "origin": "wf10 batch-15 fix-r2 (L11 M1)",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\tif l.wireInline(t) {\n\t\t// decode[T] of a basic T",
+      "to": "\tif false {\n\t\t// decode[T] of a basic T",
+      "rule": "types.md Codecs 1-2: decode[T] of a basic T reads one event.",
+      "killers": [
+        "lower:TestStdWireLawsRun"
+      ]
+    },
+    {
+      "name": "l11-basic-encode-no-temp",
+      "origin": "wf10 batch-15 fix-r2 (L11 M1)",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\t\tif fc.l.wireInline(c.Type) {",
+      "to": "\t\tif false {",
+      "rule": "types.md Codecs 1-2: encode(v, w) of a basic v writes one event on any Writer.",
+      "killers": [
+        "lower:TestStdWireLawsRun"
+      ]
     }
   ]
 }

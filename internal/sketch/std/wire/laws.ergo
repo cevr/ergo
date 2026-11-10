@@ -24,6 +24,41 @@ law EventsReplay(v fleet) {
 	back == v
 }
 
+// BasicReplay: a basic value at the top, not inside a record, is one event,
+// and decode[T] of a basic T reads it back: every kind (string, bool, a
+// narrow integer, an unsigned one, a float). decode[T] here is the direct
+// call, not RoundTrip's witness.
+law BasicReplay(s string, b bool, i int8, u uint8, f float64) {
+	let e = NewEvents()
+	encode(s, e)
+	encode(b, e)
+	encode(i, e)
+	encode(u, e)
+	encode(f, e)
+	let r = NewReplay(Recorded(e))
+	let s2 = decode[string](r) catch {
+	case _:
+		return false
+	}
+	let b2 = decode[bool](r) catch {
+	case _:
+		return false
+	}
+	let i2 = decode[int8](r) catch {
+	case _:
+		return false
+	}
+	let u2 = decode[uint8](r) catch {
+	case _:
+		return false
+	}
+	let f2 = decode[float64](r) catch {
+	case _:
+		return false
+	}
+	s2 == s && b2 == b && i2 == i && u2 == u && f2 == f
+}
+
 // many is vs through Events and back as one list, so the codec of []T and
 // Option[T] runs inside a generic function, on T's witness.
 func many[T codable](vs []T) ([]T, Option[T]) fails wired[Option[T]] {

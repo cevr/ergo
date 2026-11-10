@@ -44,6 +44,42 @@ test WireEventsReplay(v fleet) {
 	assert back == v
 }
 
+test WireBasicReplay(s string, b bool, i int8, u uint8, f float64) {
+	let e = wire.NewEvents()
+	encode(s, e)
+	encode(b, e)
+	encode(i, e)
+	encode(u, e)
+	encode(f, e)
+	let r = wire.NewReplay(wire.Recorded(e))
+	let s2 = decode[string](r) catch {
+	case _:
+		assert false
+		return
+	}
+	let b2 = decode[bool](r) catch {
+	case _:
+		assert false
+		return
+	}
+	let i2 = decode[int8](r) catch {
+	case _:
+		assert false
+		return
+	}
+	let u2 = decode[uint8](r) catch {
+	case _:
+		assert false
+		return
+	}
+	let f2 = decode[float64](r) catch {
+	case _:
+		assert false
+		return
+	}
+	assert s2 == s && b2 == b && i2 == i && u2 == u && f2 == f
+}
+
 func many[T codable](vs []T) ([]T, Option[T]) fails wired[Option[T]] {
 	let e = wire.NewEvents()
 	encode(vs, e)
@@ -171,6 +207,7 @@ test WireByNamePair(names []string) {
 
 // stdWireLawStatements is each restated law's ledger statement.
 var stdWireLawStatements = map[string]string{
+	"wire BasicReplay":       "BasicReplay(s string, b bool, i int8, u uint8, f float64) { let e = NewEvents() encode(s, e) encode(b, e) encode(i, e) encode(u, e) encode(f, e) let r = NewReplay(Recorded(e)) let s2 = decode[string](r) catch { case _: return false } let b2 = decode[bool](r) catch { case _: return false } let i2 = decode[int8](r) catch { case _: return false } let u2 = decode[uint8](r) catch { case _: return false } let f2 = decode[float64](r) catch { case _: return false } s2 == s && b2 == b && i2 == i && u2 == u && f2 == f }",
 	"wire EncodeNests":       "EncodeNests(v fleet) { let e = NewEvents() encode(v, e) let mut open = 0 let mut ok = true for ev in Recorded(e) { open = open + depth(ev) if open < 0 { ok = false } } ok && open == 0 }",
 	"wire EventsReplay":      "EventsReplay(v fleet) { let back = RoundTrip(v) catch { case _: return false } back == v }",
 	"wire GenericReplay":     "GenericReplay(vs []state) { let (back, first) = many(vs) catch { case _: return false } let want Option[state] = if len(vs) > 0 { Some{Value: vs[0]} } else { None } back == vs && first == want }",
