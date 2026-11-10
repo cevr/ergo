@@ -238,6 +238,12 @@ func TestNodeSpans(t *testing.T) {
 				if n == parent {
 					return true
 				}
+				if d, ok := n.(Decl); ok && IsDerived(d) {
+					// A refinement's derived declaration places its parts
+					// at the type's own positions (refine.go): no span
+					// of the source is its own.
+					return false
+				}
 				pos, end := n.Pos(), n.End()
 				if pos < 0 || end < pos || int(end) > len(in.Src) {
 					t.Errorf("%s: %T spans %d..%d in a %d-byte source", in.Name, n, pos, end, len(in.Src))

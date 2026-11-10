@@ -60,8 +60,56 @@ func (p *parser) parseRefinement(d *TypeDecl, typeStart int) {
 	}
 	base := func() Expr { return again(typeStart, func() Expr { return p.parseType(ctxDecl) }) }
 	pred := func() Expr { return again(predStart, p.parseExpr) }
-	text := strings.Join(strings.Fields(p.src[d.Where.Pos():d.Where.End()]), " ")
+	text := p.tokenText(predStart, p.i)
 	p.derived = deriveRefinement(d, base, pred, text)
+}
+
+// tokenText is the source of the tokens i..j on one line, without
+// comments: one space between tokens, none inside parentheses or after a
+// unary operator, so a comment or a line break never changes the text.
+func (p *parser) tokenText(i, j int) string {
+	var b strings.Builder
+	prev := ILLEGAL
+	for k := i; k < j; k++ {
+		t := p.toks[k]
+		if t.tok == SEMICOLON || t.end <= t.pos {
+			continue
+		}
+		tight := prev == LPAREN || t.tok == RPAREN || prev == NOT || (prev == SUB || prev == ADD) && p.unaryAt(k-1, i)
+		if prev != ILLEGAL && !tight {
+			b.WriteByte(' ')
+		}
+		b.WriteString(p.src[t.pos:t.end])
+		prev = t.tok
+	}
+	return b.String()
+}
+
+// WhereText is the predicate x of the source src as one line, as the
+// derived parse function's failure states it (tokenText).
+func WhereText(src string, x Expr) string {
+	sub := src[x.Pos():x.End()]
+	s := scan(sub)
+	p := &parser{s: s, src: sub, toks: s.toks}
+	return p.tokenText(0, len(s.toks))
+}
+
+// unaryAt reports whether the + or - token k, of a predicate starting at
+// token i, is a sign: it starts the predicate or follows an operator or (.
+func (p *parser) unaryAt(k, i int) bool {
+	if k == i {
+		return true
+	}
+	before := p.toks[k-1].tok
+	return before == LPAREN || before == NOT || isBinaryOp(before)
+}
+
+func isBinaryOp(t Token) bool {
+	switch t {
+	case LAND, LOR, EQL, NEQ, LSS, LEQ, GTR, GEQ, ADD, SUB, MUL, QUO, REM:
+		return true
+	}
+	return false
 }
 
 // ParseName is the name of the parse function a refinement of the type

@@ -5,7 +5,6 @@ import (
 	"go/token"
 	"math"
 	"math/big"
-	"strings"
 
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -170,10 +169,8 @@ func (c *checker) refinement(subject string, t Type, where syntax.Expr, what str
 		c.errorf(where, CodeType, "no value of %s satisfies this where (types.md, Refinements 2)", t)
 		return nil
 	}
-	return &Refinement{Len: isLen, Spans: set, Text: oneLine(c.cur.syntax.Src[where.Pos():where.End()])}
+	return &Refinement{Len: isLen, Spans: set, Text: syntax.WhereText(c.cur.syntax.Src, where)}
 }
-
-func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 type refiner struct {
 	c       *checker
