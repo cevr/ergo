@@ -54,6 +54,42 @@
       "to": "f.wires[tp] = wit",
       "rule": "A present Optional argument in a type-parameter field writes and reads its bare payload, not the tagged union.",
       "killers": ["lower:TestJSONFieldsAgree"]
+    },
+    {
+      "name": "g4-members",
+      "origin": "G4",
+      "file": "internal/sketch/lower/wirevalue.go",
+      "from": "b.WriteString(out + \" = append(\" + out + \", \"",
+      "to": "b.WriteString(out + \" = append(\" + out + \"[:0], \"",
+      "rule": "json.Value keeps every member of an object in order, a repeated key included; it keeps no last-wins map.",
+      "killers": ["lower:TestJSONValueAgrees"]
+    },
+    {
+      "name": "g4-number",
+      "origin": "G4",
+      "file": "internal/sketch/lower/wirevalue.go",
+      "from": "return w + \".B = append(\" + w + \".B, \" + f + \"...)\\n\"",
+      "to": "return w + \".B = append(\" + w + \".B, \" + f + \"[:1]...)\\n\"",
+      "rule": "A json.Num writes its whole spelling as it was read.",
+      "killers": ["lower:TestJSONValueAgrees"]
+    },
+    {
+      "name": "g4-peek",
+      "origin": "G4",
+      "file": "internal/sketch/std/json/json.ergo",
+      "from": "if k == 2 { return WireNumber }",
+      "to": "if k == 2 { return WireString }",
+      "rule": "The JSON Reader's Peek maps each kind of the Cursor to its WireKind.",
+      "killers": ["lower:TestJSONValueAgrees"]
+    },
+    {
+      "name": "g4-replay-tag",
+      "origin": "G4",
+      "file": "internal/sketch/std/codec/codec.ergo",
+      "from": "case TagEvent:",
+      "to": "case NullEvent:",
+      "rule": "Replay reads a union's tag as the member \"_tag\", as a format writes it.",
+      "killers": ["lower:TestJSONValueAgrees"]
     }
     ,
     {

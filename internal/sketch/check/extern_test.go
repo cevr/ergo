@@ -283,6 +283,7 @@ func Tag(_ Mine, name string)   {}
 func Key(_ Mine, k string)      {}
 func EndObject(_ Mine)          {}
 func Null(_ Mine)                {}
+func Number(_ Mine, text string) {}
 func Written(_ Mine) string     { "" }
 
 func use(t json.Text) { t.EndList() }
@@ -297,6 +298,8 @@ type Mine {}
 
 func Path(_ Mine) string             { "" }
 func TakeNull(_ Mine) bool           { false }
+func Kind(_ Mine) int                { 0 }
+func Number(_ Mine) string           { "" }
 func Bool(_ Mine) bool               { false }
 func Int(_ Mine) int64               { 0 }
 func Uint(_ Mine) uint64             { 0 }
@@ -486,6 +489,7 @@ func pass(m Mine) {
 	"prelude.Writer": `type Mine {}
 
 func Null(_ Mine) {}
+func Number(_ Mine, text string) {}
 func Bool(_ Mine, b bool) {}
 func Int(_ Mine, n int64) {}
 func Uint(_ Mine, n uint64) {}
@@ -507,6 +511,8 @@ func main() {
 	"prelude.Reader": `type Mine {}
 
 func TakeNull(_ Mine) bool { false }
+func Peek(_ Mine) WireKind { WireEnd }
+func Number(_ Mine) string fails WireWrongKind { "" }
 func Path(_ Mine) string { "" }
 func Bool(_ Mine) bool fails WireWrongKind { true }
 func Int(_ Mine) int64 fails WireWrongKind { 0 }

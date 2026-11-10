@@ -1,0 +1,4 @@
+// Wire is a Num's spelling, as it was read or formatted: ParseNum's other
+// half (value.ergo). The halves are in two files, so the parser derives no
+// pair law; ValueRoundTrips holds the spellings through decode and encode.
+func Wire(n Num) string { n.text }
