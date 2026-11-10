@@ -29,6 +29,8 @@ The program is a module of packages (`ergo.mod`: `module router`), in the Go lay
 
 ## What it shows
 
+- **Embedded help.** A script containing only `help` reads `cmd/router/help/usage.txt` from the binary through `fs.Files`. `HelpUsesTheChosenFiles` binds the same consumer to `fstest.Memory`, checks the string and byte forms, and checks the embedded tree's directory and size. No runtime disk read supplies the asset.
+
 - **A request queue in the state (survey M52: no postpone).** `Board.Queue` keeps waiting requests; a request that arrives while the router is busy is a `Stay`, so the current entry (and its work) goes on.
 - **Eventless step (M48's pattern).** `Settle` is the state after a request ends; every arm that ends one ends in it.
 - **Ask and reply.** A client's `Ask` returns when its request is queued; its answer is in the state, where a client waits for its own (`actor.WaitFor`, MU12). Answers are not outputs.

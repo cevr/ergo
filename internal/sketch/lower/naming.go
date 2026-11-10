@@ -63,6 +63,7 @@ func (l *lowerer) nameAll() {
 	}
 	l.pkgName(pkgKey{"import", runtimeImport}, "ergo")
 	l.pkgName(pkgKey{"import", "time"}, "time")
+	l.pkgName(pkgKey{"import", "embed"}, "embed")
 	l.pkgName(pkgKey{"import", "strconv"}, "strconv") // interpolation (interp.go)
 	if valueRule() {
 		l.pkgName(pkgKey{"import", "maps"}, "maps")     // copies (values.go)

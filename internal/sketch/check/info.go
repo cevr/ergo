@@ -552,6 +552,8 @@ const (
 	// CallDecode is the decode built-in, decode[T](r): Type is T and Fails
 	// its derived row (wireRow). Added in L11.
 	CallDecode
+	// CallEmbed is the compile-time embedded[T](pattern) initializer.
+	CallEmbed
 	// CallKindCount bounds the call kinds. Keep it last: exhaustive
 	// consumers must account for a newly admitted kind.
 	CallKindCount
@@ -560,6 +562,8 @@ const (
 // Call is one call site.
 type Call struct {
 	Kind CallKind
+	// Embed is the loader's immutable asset snapshot for CallEmbed.
+	Embed *Embed
 	// Func is the called function (CallFunc).
 	Func *Func
 	// Op is the called operation of an operation type or capability

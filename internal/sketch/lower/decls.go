@@ -139,6 +139,13 @@ func (l *lowerer) declareName(d syntax.Decl) {
 			}
 		case *syntax.VarDecl:
 			for _, spec := range d.Specs {
+				if len(spec.Values) == 1 {
+					if x, ok := spec.Values[0].(*syntax.CallExpr); ok {
+						if c := l.info.Calls[x]; c != nil && c.Embed != nil && c.Embed.Tree {
+							l.pkgName(pkgKey{"embed", c.Embed.Prefix}, spec.Names[0].Name+"Files")
+						}
+					}
+				}
 				for _, id := range spec.Names {
 					if v, ok := l.info.Defs[id].(*check.Var); ok {
 						l.vars[v] = l.pkgName(pkgKey{"let", v}, v.Name)
@@ -1318,6 +1325,12 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 		fc.frame.polls = framePolls(l.info, spec)
 	}
 	l.recordDecl(fc.owner, spec)
+	if call, ok := x.(*syntax.CallExpr); ok {
+		if c := l.info.Calls[call]; c != nil && c.Kind == check.CallEmbed {
+			fc.packageEmbed(c, name, goType, id)
+			return
+		}
+	}
 	if x == nil {
 		l.user.WriteString(l.directive(id))
 		if def := fc.defaultValue(v.Type); def != "" {

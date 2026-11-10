@@ -1,0 +1,12 @@
+{
+  "about": "Build-time embedding mutants. The focused unit runner runs the named sketchfront tests; runtime tree-prefix behavior is also exercised by the embedded-assets example.",
+  "mutants": [
+    {"name":"embed-missing-directive","file":"internal/sketch/lower/embed.go","from":"//go:embed ","to":"//not-embedded ","killers":["sketchfront:TestEmbeddedAssetsSnapshot"]},
+    {"name":"embed-payload-not-keyed","file":"internal/sketchfront/embed.go","from":"l.texts[filepath.ToSlash(rel)] = string(data)","to":"_ = rel","killers":["sketchfront:TestEmbeddedAssetsSnapshot"]},
+    {"name":"embed-asset-dropped","file":"internal/sketch/lower/embed.go","from":"Data: slices.Clone(byPath[name])","to":"Data: nil","killers":["sketchfront:TestEmbeddedAssetsSnapshot"]},
+    {"name":"embed-parent-escape","file":"internal/sketchfront/embed.go","from":"!fs.ValidPath(pattern)","to":"false","killers":["sketchfront:TestEmbeddedDiagnostics"]},
+    {"name":"embed-local-initializer","file":"internal/sketch/check/embed.go","from":"if spec == nil {","to":"if spec == nil && false {","killers":["sketchfront:TestEmbeddedDiagnostics"]},
+    {"name":"embed-multiple-string-files","file":"internal/sketchfront/embed.go","from":"if !tree && len(selected) != 1 {","to":"if false {","killers":["sketchfront:TestEmbeddedDiagnostics"]},
+    {"name":"embed-tree-prefix-retained","file":"runtime/v1/embed.go","from":"fs.Sub(files, prefix)","to":"fs.Sub(files, \".\")","killers":["example:router"]}
+  ]
+}

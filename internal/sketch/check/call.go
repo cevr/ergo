@@ -1232,6 +1232,8 @@ func (c *checker) builtin(x *syntax.CallExpr, b *Builtin, targ Type) operand {
 		return c.encodeCall(x)
 	case "decode":
 		return c.decodeCall(x, targ)
+	case "embedded":
+		return c.embedCall(x, targ)
 	}
 	if b.Name == WiredName {
 		c.errorf(x, CodeType, "%s[T] is a row, not a function: write it in a fails row (types.md, Codecs 2)", WiredName)

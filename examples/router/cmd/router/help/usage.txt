@@ -1,0 +1,2 @@
+router: route ID TOPIC DEST; remove ID TOPIC; yes; no; abort ID
+send TOPIC BODY; drop; restart

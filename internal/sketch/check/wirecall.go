@@ -125,6 +125,8 @@ func builtinKind(b *Builtin) CallKind {
 		return CallEncode
 	case "decode":
 		return CallDecode
+	case "embedded":
+		return CallEmbed
 	}
 	return CallLen
 }

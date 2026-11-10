@@ -10,6 +10,9 @@
 // one moves (nothing here waits on time).
 
 import io
+import embed
+import fs
+import fstest
 import journal
 import jmemory journal/memory
 import os
@@ -18,12 +21,49 @@ import router/memory
 import router/route
 import router/script
 
+let Assets = embedded[embed.FS]("help")
+let HelpText = embedded[string]("help/usage.txt")
+let HelpBytes = embedded[[]byte]("help/usage.txt")
+
+func readHelp() string fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	fs.Files.ReadFile("help/usage.txt")
+}
+
+// Kills an emitted tree that retains its private namespace, or a consumer
+// that bypasses fs.Files and reads the embedded provider directly.
+test HelpUsesTheChosenFiles {
+	assert try with context { fs.Files: Assets } { readHelp() } == HelpText
+	assert try Assets.ReadFile("help/usage.txt") == HelpText
+	assert len(HelpBytes) == len(HelpText)
+	for i, b in HelpBytes {
+		assert b == HelpText[i]
+	}
+	let mut changed = HelpBytes
+	changed[0] = 0
+	assert HelpBytes[0] == HelpText[0]
+	let memory = fstest.NewMemory()
+	try memory.MkdirAll("help")
+	try memory.WriteFile("help/usage.txt", "test help")
+	assert try with context { fs.Files: memory } { readHelp() } == "test help"
+	let info = try Assets.Stat("help/usage.txt")
+	assert info.Size == len(HelpBytes) && !info.Dir
+	assert try Assets.ReadDir("help") == []string{"usage.txt"}
+}
+
 func main() fails os.Exit needs Console | Ambient {
 	let mut lines = []string{}
 	with context { io.Stdin: io.NewHost() } {
 		for line in io.Stdin.Lines() {
 			lines = lines.Append(line)
 		}
+	}
+	if len(lines) == 1 && lines[0] == "help" {
+		let text = with context { fs.Files: Assets } { readHelp() } catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return os.Exit{Code: 1, Message: "router: embedded help is unavailable"}
+		}
+		Console.Println(text)
+		return
 	}
 	let cmds = script.Read(lines) catch {
 	case script.BadLine as b:

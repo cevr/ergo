@@ -1465,7 +1465,7 @@ func (c *checker) index(x *syntax.IndexExpr, hint Type) operand {
 		return c.explicit(x, base)
 	case modeBuiltin:
 		// decode[T] names the type decode builds (types.md, Codecs).
-		if b, _ := base.obj.(*Builtin); b != nil && b.Name == "decode" && len(x.Indices) == 1 {
+		if b, _ := base.obj.(*Builtin); b != nil && (b.Name == "decode" || b.Name == "embedded") && len(x.Indices) == 1 {
 			t := c.typExpr(x.Indices[0], c.localTypeCtx())
 			if isInvalid(t) {
 				return bad(x)

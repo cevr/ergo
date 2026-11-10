@@ -93,7 +93,7 @@ func LowerTests(u Unit) ([]File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return moduleFiles(u.Go, code), nil
+	return append(moduleFiles(u.Go, code), l.assetFiles()...), nil
 }
 
 // testHelpers are the harness's package-scope entities: key and preferred

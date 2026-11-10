@@ -23,6 +23,8 @@ import (
 // A member law is restated for each kind of provider the std makes: a
 // queue of capacity 0 and one with room, a waiting task.
 const stdLawsProbe = `import queue
+import embed
+import fs
 import task
 import time
 import timeout
@@ -30,6 +32,29 @@ import scope
 import trace
 import log
 import testing
+
+test EmbedEmptyHasNoFiles(path string) {
+	let _ = embed.NewEmpty().ReadFile(path) catch {
+	case fs.NotFound:
+		return
+	case fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	assert false
+}
+
+test EmbedFSReadIsRepeatable(path string) {
+	let f = embed.NewEmpty()
+	let first = f.ReadFile(path) catch {
+	case fs.NotFound:
+		return
+	case fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	assert try f.ReadFile(path) == first
+}
 
 // small is a capacity in 0..2 drawn from n.
 func small(n int) int {
@@ -278,6 +303,8 @@ func stdLawsTestName(pkg, law string) string {
 // holds it equal to the ledger, so a law changed in source fails here
 // until its restatement in the probe is changed with it.
 var stdLawsStatements = map[string]string{
+	"embed EmptyHasNoFiles":                `EmptyHasNoFiles(path string) { let _ = NewEmpty().ReadFile(path) catch { case fs.NotFound: return true case fs.Denied, fs.Failed: return false } false }`,
+	"embed FS.ReadIsRepeatable":            `ReadIsRepeatable(path string) { let first = ReadFile(path) catch { case fs.NotFound: return true case fs.Denied, fs.Failed: return false } try ReadFile(path) == first }`,
 	"log AnnotationEndRestores":            `AnnotationEndRestores(key string, text string) { let before = Annotation(key) with Annotate(key, text) { Annotation(key) } Annotation(key) == before }`,
 	"log InnerAnnotationShadows":           `InnerAnnotationShadows(key string, outer string, inner string) { with Annotate(key, outer) { with Annotate(key, inner) { Annotation(key) == Some[string]{Value: inner} } } }`,
 	"prelude Task.StopIsIdempotent":        `StopIsIdempotent() { Stop() Stop() true }`,

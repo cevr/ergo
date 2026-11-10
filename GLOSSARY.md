@@ -179,6 +179,8 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 ## Constructs, contracts and laws
 
+**Embedded asset** (implemented, S-embed): A file selected at build time by `embedded[T](pattern)` in an immutable package declaration. Its bytes are build inputs and Go's `//go:embed` stores them in the executable. It is a string, a byte slice, or a read-only `embed.FS` provider of `fs.Files`. See [stdlib](docs/spec/stdlib.md#build-time-assets).
+
 **Construct admission** (owner rule, 2026-10-07; the 2026-10-12 tests and checks are direction, a recorded synthesis and elaboration of owner direction, not owner words): The rule that a language construct, meaning syntax or a checker rule, exists only to make bad code unrepresentable where a library cannot. Since 2026-10-12 a construct must also pass the guardrail test, the portability test and the composability checks.
 
 **Guardrail test** (direction; recorded synthesis of owner direction, 2026-10-12, not owner words): The first construct admission test. A construct passes when it makes an illegal state unrepresentable that neither a library function nor a general type feature can. Behavior that fails it is a primitive function plus library.

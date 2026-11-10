@@ -63,6 +63,8 @@ type runtimeBinding struct {
 	// task marks a binding that takes the invocation's task to know where
 	// it runs and never waits: actor.NewHost asks whether it runs in a
 	// step of an actor (runtime.md, Machines and actors 16).
+	// It also preserves the ordinary operation-type ABI on native values
+	// that implement a source operation type (embed.FS implements fs.Files).
 	task bool
 }
 
@@ -73,6 +75,12 @@ func (b runtimeBinding) takesCaller() bool {
 }
 
 var runtimeBindings = map[string]runtimeBinding{
+	// Build-time assets are immutable in-memory reads: no waiting task.
+	"EmbeddedFS":   {},
+	"NewEmptyFS":   {},
+	"FS.ReadFile":  {task: true},
+	"FS.ReadDir":   {task: true},
+	"FS.Stat":      {task: true},
 	"Sleep":        {wait: callerWait, hostTarget: runtimeModule + "/runtime/rt.Sleep", provider: "LiveScheduler"},
 	"Task.Wait":    {wait: handleWait},
 	"Task.Stop":    {wait: drainWait},

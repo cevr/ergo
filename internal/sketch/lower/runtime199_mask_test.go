@@ -96,7 +96,7 @@ func closeDispatch(t *testing.T) map[string]bool {
 			// The value is a checked Close reference: a declared function
 			// or an operation method value.
 			paths["value"], paths["methodValue"] = true, true
-		case check.CallConversion, check.CallLen, check.CallWith, check.CallPrelude, check.CallGoError, check.CallEncode, check.CallDecode:
+		case check.CallConversion, check.CallLen, check.CallWith, check.CallPrelude, check.CallGoError, check.CallEncode, check.CallDecode, check.CallEmbed:
 			// A conversion, len, go.Is and go.As, encode and decode (L11)
 			// and a with block call no Close; a prelude dot call is a
 			// CallFunc since check-v1 stage D3a.
