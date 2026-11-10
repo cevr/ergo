@@ -4,6 +4,36 @@ The source is an Ergo operation type. TypeScript reads its Effect RPC
 schemas without a generated `.ts` file. Ergo still compiles only to Go.
 `ergo build`, `check` and `test` never run these tools.
 
+An exported constant `[]http.Route[E]` table also exposes a stock Effect
+`HttpApi`, under the table's name. Its exported operation type names every
+variant of `E` as an operation. The table names method, path and required
+success `Status`; the operation names path parameter types, at most one
+JSON payload parameter, and its success result. `E` is a closed union of
+empty endpoint variants, each routed exactly once. Computed tables or
+fields, repeated or missing endpoints, and ambiguous contracts are
+projection diagnostics. Nothing evaluates the table's source in JavaScript.
+
+For example, `examples/jobs/api/routes.ergo` maps to `Routes`:
+
+```ts
+import { HttpApiClient } from "effect/http-api"
+import { Routes } from "./api/routes.ergo"
+const client = yield* HttpApiClient.make(Routes, { baseUrl })
+const job = yield* client.POST.SubmitJob({ payload: { name: "build" } })
+const found = yield* client.GET.ShowJob({ params: { id: job.id } })
+```
+
+Groups are named by HTTP method. Changing ShowJob from GET to POST removes
+`client.GET.ShowJob`, so even a method-only drift fails at its TypeScript
+call site. Path parameter names bind operation parameters by name; one
+remaining parameter is the JSON body itself, not a wrapper. A no-result
+operation uses `HttpApiSchema.Empty(Status)`; results carry the table's
+status annotation, including 201. A result with 204, 205 or HEAD is refused.
+The handler uses `http.Success(found.Route, text)` so the server reads the
+same status as the mapper. Failure rows are allowed, but HTTP failure
+statuses and schemas are not projected yet: stock Effect reports an
+undeclared-status error. RPC projections retain their existing failures.
+
 Use the pins in `package.json`: Effect 4.1.2 and TypeScript 7.1.0-beta.
 Install this private package from its local path; publishing needs an owner
 request. Put the matching `ergo` executable on PATH. Runtime loaders also

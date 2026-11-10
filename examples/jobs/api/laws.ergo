@@ -233,7 +233,7 @@ func Disagreement(store jobs.Store, moves []int) string {
 	let clock = time.NewManual(0)
 	let mut model = Model{Entries: Map[int, Entry]{}, Last: 0, Now: 0}
 	let mut log = ""
-	with context { jobs.Store: store, time.Clock: clock } {
+	with context { Jobs: NewQueue(store, clock) } {
 		for m in moves {
 			match AskOf(model, m) {
 			case Wait as w:

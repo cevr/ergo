@@ -1,6 +1,8 @@
 {
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
+    { "name": "e3-success-status", "origin": "E3", "file": "internal/sketch/std/http/router.ergo", "from": "Response{Status: route.Status, Header: []Field{Field", "to": "Response{Status: 200, Header: []Field{Field", "rule": "Success takes the matched route's explicit status.", "killers": ["lower:TestStdHTTPLawsRun"] },
+    { "name": "e3-success-empty", "origin": "E3", "file": "internal/sketch/std/http/router.ergo", "from": "if route.Status == 204 || route.Status == 205", "to": "if route.Status == 204", "rule": "A 205 success is empty, like a 204.", "killers": ["lower:TestStdHTTPLawsRun"] },
     {
       "name": "stream-recorder-order",
       "origin": "wf10 Rm",

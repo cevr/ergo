@@ -1,0 +1,34 @@
+import jobs/jobs
+import time
+
+// Queue serves Jobs, capturing the store and clock selected by the binary.
+type Queue { store jobs.Store, clock time.Clock }
+
+func NewQueue(store jobs.Store, clock time.Clock) Queue { Queue{store: store, clock: clock} }
+
+func ListJobs(q Queue) Listing {
+	with context { jobs.Store: q.store, time.Clock: q.clock } {
+		let mut views = []View{}
+		for j in jobs.List() { views = views.Append(ViewOf(j)) }
+		Listing{Jobs: views}
+	}
+}
+
+func SubmitJob(q Queue, draft Draft) View fails BadBody {
+	if draft.Name == "" { return BadBody{Field: "name", Reason: "is empty"} }
+	with context { jobs.Store: q.store, time.Clock: q.clock } {
+		ViewOf(jobs.Submit(draft.Name, PriorityOf(draft)))
+	}
+}
+
+func ShowJob(q Queue, id int) View fails jobs.NotFound {
+	with context { jobs.Store: q.store, time.Clock: q.clock } { ViewOf(try jobs.Find(id)) }
+}
+
+func CancelJob(q Queue, id int) View fails jobs.NotFound | jobs.Conflict {
+	with context { jobs.Store: q.store, time.Clock: q.clock } { ViewOf(try jobs.CancelJob(id)) }
+}
+
+func DeleteJob(q Queue, id int) fails jobs.NotFound | jobs.Conflict {
+	with context { jobs.Store: q.store, time.Clock: q.clock } { try jobs.Remove(id) }
+}

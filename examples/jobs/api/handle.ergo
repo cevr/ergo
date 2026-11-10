@@ -1,10 +1,10 @@
 import fs
 import http
+import jobs/api/endpoint
 import jobs/jobs
 import json
 import strconv
 import strings
-import time
 
 // BadId is a path id that is not a job id: not a whole number above 0.
 type BadId { Text string }
@@ -31,7 +31,7 @@ type Unreadable { Reason string }
 //	409 a cancel or a delete the job's state does not allow
 //	413 a body over MaxBody
 //	422 JSON of the wrong shape, or an empty name
-func Handle(r http.Request) http.Response needs jobs.Store | time.Clock {
+func Handle(r http.Request) http.Response needs Jobs {
 	answer(r) catch {
 	case NoRoute:
 		Refuse(404, "no route "+r.Method+" "+r.Path)
@@ -56,32 +56,28 @@ func Handle(r http.Request) http.Response needs jobs.Store | time.Clock {
 }
 
 // answer is the response to r, or the refusal that stops it.
-func answer(r http.Request) http.Response fails NoRoute | WrongMethod | TooLarge | Unreadable | json.Malformed | BadBody | BadId | jobs.NotFound | jobs.Conflict needs jobs.Store | time.Clock {
-	match http.Match(Routes(), r.Method, r.Path) {
+func answer(r http.Request) http.Response fails NoRoute | WrongMethod | TooLarge | Unreadable | json.Malformed | BadBody | BadId | jobs.NotFound | jobs.Conflict needs Jobs {
+	match http.Match(Routes, r.Method, r.Path) {
 	case http.NotFound:
 		return NoRoute
 	case http.MethodNotAllowed as m:
 		return WrongMethod{Allow: strings.Join(m.Allow, ", ")}
 	case http.Found as f:
 		match f.Route.Value {
-		case ListJobs:
-			let mut views = []View{}
-			for j in jobs.List() {
-				views = views.Append(ViewOf(j))
-			}
-			Respond(200, ListingText(Listing{Jobs: views}))
-		case SubmitJob:
+		case endpoint.ListJobs:
+			http.Success(f.Route, ListingText(Jobs.ListJobs()))
+		case endpoint.SubmitJob:
 			let d = try DraftOf(try textOf(r.Body))
-			let j = jobs.Submit(d.Name, PriorityOf(d))
-			let created = Respond(201, ViewText(ViewOf(j)))
+			let j = try Jobs.SubmitJob(d)
+			let created = http.Success(f.Route, ViewText(j))
 			http.Response{..created, Header: created.Header.Append(http.Field{Name: "Location", Value: "/jobs/\(j.Id)"})}
-		case ShowJob:
-			Respond(200, ViewText(ViewOf(try jobs.Find(try idOf(f)))))
-		case CancelJob:
-			Respond(200, ViewText(ViewOf(try jobs.CancelJob(try idOf(f)))))
-		case DeleteJob:
-			try jobs.Remove(try idOf(f))
-			http.Response{Status: 204, Header: []http.Field{}, Body: ""}
+		case endpoint.ShowJob:
+			http.Success(f.Route, ViewText(try Jobs.ShowJob(try idOf(f))))
+		case endpoint.CancelJob:
+			http.Success(f.Route, ViewText(try Jobs.CancelJob(try idOf(f))))
+		case endpoint.DeleteJob:
+			try Jobs.DeleteJob(try idOf(f))
+			http.Success(f.Route, "")
 		}
 	}
 }
@@ -128,7 +124,7 @@ func Refuse(status int, message string) http.Response { Respond(status, ProblemT
 // WithSite answers a path under /jobs with Handle, and any other path
 // with a file of site: "/" is "/index.html". http.Files reads through the
 // root, so no request path reaches outside it.
-func WithSite(site fs.Root, r http.Request) http.Response needs jobs.Store | time.Clock {
+func WithSite(site fs.Root, r http.Request) http.Response needs Jobs {
 	if r.Path == "/jobs" || strings.HasPrefix(r.Path, "/jobs/") {
 		return Handle(r)
 	}

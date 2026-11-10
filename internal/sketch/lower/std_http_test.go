@@ -163,9 +163,20 @@ test FilesAnswersByTheRule(steps []int, prefixed bool, verb int) {
 	}
 }
 
+test HttpSuccessUsesRoute(pick int, body string) {
+	let status = 200 + ((pick%100)+100)%100
+	let route = http.Route{Value: "reply", Method: "POST", Path: "/", Status: status}
+	let response = http.Success(route, body)
+	assert response.Status == status && if status == 204 || status == 205 {
+		response.Body == "" && len(response.Header) == 0
+	} else {
+		response.Body == body && http.Header(response.Header, "Content-Type") == Some{"application/json"}
+	}
+}
+
 test HttpBuiltPathMatches(a string, b string) {
 	if a == "" || b == "" || strings.Contains(a, "/") || strings.Contains(b, "/") { return }
-	let route = http.Route{Value: "pair", Method: "GET", Path: "/:a/:b"}
+	let route = http.Route{Value: "pair", Method: "GET", Path: "/:a/:b", Status: 201}
 	match http.Match([]http.Route[string]{route}, "GET", "/" + a + "/" + b) {
 	case http.Found as f:
 		assert f.Route == route && f.Params.Get("a") == Some{a} && f.Params.Get("b") == Some{b}
@@ -213,7 +224,7 @@ test HttpAllowIsWhatMatches(picks []int, asked int) {
 	let pick = func(i int) string { methods[if i < 0 { -(i % len(methods)) } else { i % len(methods) }] }
 	let mut routes = []http.Route[int]{}
 	for i, p in picks {
-		routes = routes.Append(http.Route{Value: i, Method: pick(p), Path: "/r/:id"})
+		routes = routes.Append(http.Route{Value: i, Method: pick(p), Path: "/r/:id", Status: 200})
 	}
 	match http.Match(routes, pick(asked), "/r/7") {
 	case http.Found, http.NotFound:
@@ -233,7 +244,7 @@ test HttpAllowIsWhatMatches(picks []int, asked int) {
 
 test RouterRefusalsAndHead(id string) {
 	let path = "/jobs/j" + strings.ReplaceAll(id, "/", "_")
-	let routes = []http.Route[string]{http.Route{Value: "get", Method: "GET", Path: "/jobs/:id"}, http.Route{Value: "head", Method: "HEAD", Path: "/jobs/:id"}}
+	let routes = []http.Route[string]{http.Route{Value: "get", Method: "GET", Path: "/jobs/:id", Status: 200}, http.Route{Value: "head", Method: "HEAD", Path: "/jobs/:id", Status: 200}}
 	match http.Match(routes, "HEAD", path) {
 	case http.Found as f: assert f.Route.Value == "head"
 	case http.NotFound, http.MethodNotAllowed: assert false
@@ -269,20 +280,24 @@ test HandlerUnderManual(sec int64, value string) {
 }
 `
 
-const httpBuiltPathStatement = `BuiltPathMatches(a string, b string) { if a == "" || b == "" || strings.Contains(a, "/") || strings.Contains(b, "/") { return true } let route = Route{Value: "pair", Method: "GET", Path: "/:a/:b"} match Match([]Route[string]{route}, "GET", "/"+a+"/"+b) { case Found as f: f.Route == route && f.Params.Get("a") == Some{a} && f.Params.Get("b") == Some{b} case NotFound, MethodNotAllowed: false } }`
+const httpBuiltPathStatement = `BuiltPathMatches(a string, b string) { if a == "" || b == "" || strings.Contains(a, "/") || strings.Contains(b, "/") { return true } let route = Route{Value: "pair", Method: "GET", Path: "/:a/:b", Status: 201} match Match([]Route[string]{route}, "GET", "/"+a+"/"+b) { case Found as f: f.Route == route && f.Params.Get("a") == Some{a} && f.Params.Get("b") == Some{b} case NotFound, MethodNotAllowed: false } }`
 
-const httpAllowStatement = `AllowIsWhatMatches(picks []int, asked int) { let methods = []string{"GET", "HEAD", "POST", "PUT", "DELETE"} let pick = func(i int) string { methods[if i < 0 { -(i % len(methods)) } else { i % len(methods) }] } let mut routes = []Route[int]{} for i, p in picks { routes = routes.Append(Route{Value: i, Method: pick(p), Path: "/r/:id"}) } match Match(routes, pick(asked), "/r/7") { case Found, NotFound: true case MethodNotAllowed as m: for i, a in m.Allow { if slices.Contains(m.Allow[i+1:], a) { return false } } for name in methods { let found = match Match(routes, name, "/r/7") { case Found: true case NotFound, MethodNotAllowed: false } if found != slices.Contains(m.Allow, name) { return false } } true } }`
+const httpAllowStatement = `AllowIsWhatMatches(picks []int, asked int) { let methods = []string{"GET", "HEAD", "POST", "PUT", "DELETE"} let pick = func(i int) string { methods[if i < 0 { -(i % len(methods)) } else { i % len(methods) }] } let mut routes = []Route[int]{} for i, p in picks { routes = routes.Append(Route{Value: i, Method: pick(p), Path: "/r/:id", Status: 200}) } match Match(routes, pick(asked), "/r/7") { case Found, NotFound: true case MethodNotAllowed as m: for i, a in m.Allow { if slices.Contains(m.Allow[i+1:], a) { return false } } for name in methods { let found = match Match(routes, name, "/r/7") { case Found: true case NotFound, MethodNotAllowed: false } if found != slices.Contains(m.Allow, name) { return false } } true } }`
+
+const httpSuccessStatement = `SuccessUsesRoute(pick int, body string) { let status = 200 + ((pick%100)+100)%100 let route = Route{Value: "reply", Method: "POST", Path: "/", Status: status} let response = Success(route, body) response.Status == status && if status == 204 || status == 205 { response.Body == "" && len(response.Header) == 0 } else { response.Body == body && Header(response.Header, "Content-Type") == Some{"application/json"} } }`
 
 // TestStdHTTPLawsRun runs the construction law and public pure handler
 // checks. It builds Go because the native property runner executes the
 // std router and bound clock; go/types alone cannot observe their values.
+// E3 adds e3-success-status and e3-success-empty: old laws never construct
+// a response from a route or exercise 205's no-content form.
 func TestStdHTTPLawsRun(t *testing.T) {
 	needsBuild(t)
 	stdout, stderr, code := runExeArgs(t, tableExe(t, "stdhttp"), "--seed", "1")
 	if code != 0 {
 		t.Fatalf("HTTP laws: exit %d\n%s\n%s", code, stdout, stderr)
 	}
-	statements := map[string]string{"http BuiltPathMatches": httpBuiltPathStatement, "http AllowIsWhatMatches": httpAllowStatement, "http FilesAsksBeneath": httpFilesStatement, "http StreamIsItsWrites": httpStreamStatement, "http WriteAfterStreamFails": httpLateWriteStatement}
+	statements := map[string]string{"http SuccessUsesRoute": httpSuccessStatement, "http BuiltPathMatches": httpBuiltPathStatement, "http AllowIsWhatMatches": httpAllowStatement, "http FilesAsksBeneath": httpFilesStatement, "http StreamIsItsWrites": httpStreamStatement, "http WriteAfterStreamFails": httpLateWriteStatement}
 	lawLabel := func(key string) string { return "Http" + strings.TrimPrefix(key, "http ") }
 	lawledger.Run(t, lawsPassed(t, statements, lawLabel, stdHTTPLawsProbe, stdout, "RouterRefusalsAndHead", "HandlerUnderManual", "FilesAnswersByTheRule"))
 }

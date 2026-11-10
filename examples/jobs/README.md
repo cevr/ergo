@@ -28,12 +28,13 @@ The program is a module of packages (`ergo.mod`: `module jobs`), in the Go layou
 
 ## What it shows
 
-- **A handler with a capability row, served by std `http`.** `api.Handle(http.Request) http.Response needs jobs.Store | time.Clock` is a plain function. `http.Serve` runs it on a child task per request, and its row reaches `Serve`'s caller, `main`, which binds the store and the clock. The tests call it as a function, with a `time.Manual` and no socket.
+- **A handler with a capability row, served by std `http`.** `api.Handle(http.Request) http.Response needs api.Jobs` is a plain function. `http.Serve` runs it on a child task per request. The binary binds Jobs to `api.NewQueue(store, clock)`, which captures its chosen store and clock. Tests bind the same served contract with a `time.Manual` and no socket.
 - **A lifecycle machine on a clock.** `Lifecycle` is `machine[State, Signal]` with `after: Timer`: a queued job starts after `QueueFor`, a running one finishes after `RunFor`. The server runs no actor per job: `Settle` fires each due timer at its own time when a job is read, so a job read late is the job read on time (law `SettleComposes`).
 - **A store contract with laws, and no lost change.** `Store.Swap` and `Store.Remove` take the job the caller read and fail `Stale` when another request changed it first; `CancelJob` and `Remove` read again. `memory.Table` makes each change one `sync.Modify`.
 - **Typed failures become statuses in one place.** `answer` fails with each refusal by its type; `Handle`'s one `catch` names each and gives its status, with no `case _`, so a new failure stops the build until it has a status (`TestJobsFailureNeedsAStatus` in `scripts/examples`).
 - **Optional and nullable JSON fields.** `Draft.Priority` is a `json.Optional[int]`: a client may leave the key out. `View.Ended` is a `json.Nullable[string]`: the key is always there, and `null` until the job ends.
-- **Exhaustive `match`.** `Step` names every pair of state and signal; `RouteOf` names every endpoint, and the route table is built from it.
+- **Exhaustive `match` and one route contract.** `Step` names every pair of state and signal; Handle names every endpoint. `Routes` is a constant literal table with required success statuses, used by `http.Match`, `http.Success` and the TypeScript mapper. `RoutesCoverEndpoints` and the mapper require each endpoint exactly once. Jobs is served, not a synthetic description-only operation type. The small `api/endpoint` package keeps route constructors apart from the provider's method namespace.
+- **A stock typed HTTP client.** Import `Routes` from `api/routes.ergo` with [ergo-ts](../../tools/ts/README.md) and pass it to Effect's `HttpApiClient.make`: `client.GET.ShowJob({params: {id: 1}})` reads one job, and `client.POST.SubmitJob({payload: {name: "build"}})` queues one. Method groups make a method-only change fail at the call site. Success 201 and empty 204 are declared once in Routes. Failure statuses remain Handle's total catch; their TypeScript schemas are a follow-up.
 
 ## Laws
 
@@ -44,6 +45,7 @@ The program is a module of packages (`ergo.mod`: `module jobs`), in the Go layou
 | `CancelBeforeTheEnd` | jobs | a cancel succeeds exactly before the end, and names the state when it fails | a done job that is not ended |
 | `Store.AddIsQueued`, `AllByAscendingId`, `SwapFromCurrent`, `StaleSwapChangesNothing`, `RemoveForgets` | contract, run in `memory` | the store keeps, lists, swaps and forgets jobs, and a stale change changes nothing | a swap that compares ids, not jobs |
 | `AgreesWithModel` | api, with `memory.Table` | generated request sequences, with clock moves between them, get the model's status, body, `Location` and `Allow` at each step | a done job that is not ended; `ended` never set; a missing priority that is not 0; an `Allow` of one method; a lost `Location`; a delete of a running job; 409 given as 400 |
+| `RoutesCoverEndpoints` | api | every generated Endpoint has exactly one route | a missing or repeated route |
 
 Two mutants no law sees are caught elsewhere: a `case _` in `Handle`'s catch by `TestJobsFailureNeedsAStatus`, and an id with a leading zero (`/jobs/01`) taken as job 1 by the case `refusals`. Each mutant was applied once and killed by an assertion (measured).
 

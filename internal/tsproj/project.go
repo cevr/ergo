@@ -108,6 +108,13 @@ func Project(pkg *check.Package, file *syntax.File, source string, options Optio
 		}
 	}
 	g.s("import { Schema as $Schema } from \"effect\";\nimport { Rpc as $Rpc, RpcGroup as $RpcGroup } from \"effect/rpc\";\n")
+	tables, err := httpTables(pkg, file, contracts)
+	if err != nil {
+		return Output{}, err
+	}
+	if len(tables) > 0 {
+		g.s("import { HttpApi as $HttpApi, HttpApiGroup as $HttpApiGroup, HttpApiEndpoint as $HttpApiEndpoint, HttpApiSchema as $HttpApiSchema } from \"effect/http-api\";\n")
+	}
 	// Standalone wire declarations need no synthetic operation type.
 	for _, n := range data {
 		g.schema(n)
@@ -151,6 +158,9 @@ func Project(pkg *check.Package, file *syntax.File, source string, options Optio
 			g.s(" }),\n")
 		}
 		g.s(") {}\n")
+	}
+	for _, table := range tables {
+		g.httpAPI(table)
 	}
 	if g.err != nil {
 		return Output{}, g.err

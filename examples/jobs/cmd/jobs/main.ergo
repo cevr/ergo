@@ -12,7 +12,6 @@ import fs
 import http
 import io
 import jobs/api
-import jobs/jobs
 import jobs/memory
 import os
 import queue
@@ -49,12 +48,12 @@ func main() fails os.Exit needs Ambient {
 		case fs.NotFound, fs.Denied, fs.Failed:
 			return os.Exit{Code: 1, Message: "jobs: cannot open the site " + dir}
 		}
-		try run(v, func(r http.Request) http.Response needs jobs.Store | time.Clock { api.WithSite(root, r) })
+		try run(v, func(r http.Request) http.Response needs api.Jobs { api.WithSite(root, r) })
 	}
 }
 
 // run answers with handle, from standard input or on the listener.
-func run(v flag.Values, handle escaping func(http.Request) http.Response needs jobs.Store | time.Clock) fails os.Exit needs Ambient | io.Stdout | io.Stdin {
+func run(v flag.Values, handle escaping func(http.Request) http.Response needs api.Jobs) fails os.Exit needs Ambient | io.Stdout | io.Stdin {
 	let store = memory.NewTable()
 	if replayFlag.Get(v) {
 		let l = try listen("127.0.0.1:0")
@@ -80,7 +79,7 @@ func run(v flag.Values, handle escaping func(http.Request) http.Response needs j
 		case queue.Closed:
 			return
 		}
-		with context { jobs.Store: store, time.Clock: clock } {
+		with context { api.Jobs: api.NewQueue(store, clock) } {
 			let server = task.Go() { try serve(l, handle) }
 			try driver.Wait()
 			server.Stop()
@@ -89,7 +88,7 @@ func run(v flag.Values, handle escaping func(http.Request) http.Response needs j
 	}
 	let l = try listen(addrFlag.Get(v))
 	io.Stdout.Println("jobs: listening on " + l.Addr())
-	with context { jobs.Store: store, time.Clock: time.NewHost() } {
+	with context { api.Jobs: api.NewQueue(store, time.NewHost()) } {
 		try serve(l, handle)
 	}
 }
@@ -101,7 +100,7 @@ func listen(addr string) http.Listener fails os.Exit needs Ambient {
 	}
 }
 
-func serve(l http.Listener, handle func(http.Request) http.Response needs jobs.Store | time.Clock) fails os.Exit needs jobs.Store | time.Clock {
+func serve(l http.Listener, handle func(http.Request) http.Response needs api.Jobs) fails os.Exit needs api.Jobs {
 	http.Serve(l, limits, handle) catch {
 	case http.InvalidLimits:
 		return os.Exit{Code: 2, Message: "jobs: the server's limits are not positive"}

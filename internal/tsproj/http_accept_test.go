@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	jobsexample "ergo.local/prototype/examples/jobs"
 	"ergo.local/prototype/internal/testwait"
 	tstools "ergo.local/prototype/tools/ts"
 )
@@ -40,14 +41,14 @@ func TestHttpApiClientCallsJobs(t *testing.T) {
 		}
 		put(t, dir, entry.Name(), string(b))
 	}
-	err := fs.WalkDir(os.DirFS("../../examples/jobs"), ".", func(path string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(jobsexample.Sources, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() || !(strings.HasSuffix(path, ".ergo") || path == "ergo.mod") {
 			return nil
 		}
-		b, err := os.ReadFile(filepath.Join("../../examples/jobs", path))
+		b, err := jobsexample.Sources.ReadFile(path)
 		if err != nil {
 			return err
 		}
@@ -74,15 +75,15 @@ import { FetchHttpClient } from "effect/http";
 import { Routes } from "./api/routes.ergo";
 const program = Effect.gen(function*() {
   const client = yield* HttpApiClient.make(Routes, { baseUrl: process.argv[2] });
-  const created = yield* client.Jobs.SubmitJob({ payload: { name: "build" }, responseMode: "decoded-and-response" });
+  const created = yield* client.POST.SubmitJob({ payload: { name: "build" }, responseMode: "decoded-and-response" });
   if (created[1].status !== 201 || created[0].name !== "build" || created[0].priority !== 0 || created[0].ended !== null) throw new Error("submit");
-  const job = yield* client.Jobs.ShowJob({ params: { id: created[0].id } });
+  const job = yield* client.GET.ShowJob({ params: { id: created[0].id } });
   const id: number = job.id;
-  const listed = yield* client.Jobs.ListJobs();
+  const listed = yield* client.GET.ListJobs();
   if (listed.jobs[0].id !== id) throw new Error("list");
-  const cancelled = yield* client.Jobs.CancelJob({ params: { id } });
+  const cancelled = yield* client.POST.CancelJob({ params: { id } });
   if (cancelled.state !== "cancelled" || cancelled.ended === null) throw new Error("cancel");
-  const deleted = yield* client.Jobs.DeleteJob({ params: { id }, responseMode: "decoded-and-response" });
+  const deleted = yield* client.DELETE.DeleteJob({ params: { id }, responseMode: "decoded-and-response" });
   const unit: void = deleted[0];
   if (deleted[1].status !== 204 || unit !== undefined) throw new Error("delete");
   console.log("HTTP client agrees");
@@ -94,6 +95,22 @@ await Effect.runPromise(program.pipe(Effect.provide(FetchHttpClient.layer)));
 		return command("bun", "node_modules/typescript/bin/tsc", "--runExternalCode", "--pretty", "false", "-p", ".")
 	}
 	runCheck(t, tsc())
+	// A method-only change leaves the operation signature intact. Method
+	// groups make even that drift a call-site error, not just a runtime 405.
+	routes, err := os.ReadFile(filepath.Join(dir, "api/routes.ergo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := strings.Replace(string(routes), `Value: endpoint.ShowJob, Method: "GET"`, `Value: endpoint.ShowJob, Method: "POST"`, 1)
+	if changed == string(routes) {
+		t.Fatal("ShowJob route not found")
+	}
+	put(t, dir, "api/routes.ergo", changed)
+	out, code := runResult(t, tsc())
+	put(t, dir, "api/routes.ergo", string(routes))
+	if code == 0 || !bytes.Contains(out, []byte("client.ts(9,")) {
+		t.Fatalf("method drift did not fail at the call site (exit %d):\n%s", code, out)
+	}
 	// Rename the path parameter and its operation parameter together. The
 	// contract remains checked; the stale client must fail at its call site.
 	api := filepath.Join(dir, "api")
@@ -109,7 +126,7 @@ await Effect.runPromise(program.pipe(Effect.provide(FetchHttpClient.layer)));
 		old[e.Name()] = string(b)
 		put(t, api, e.Name(), strings.ReplaceAll(string(b), "id", "key"))
 	}
-	out, code := runResult(t, tsc())
+	out, code = runResult(t, tsc())
 	for name, text := range old {
 		put(t, api, name, text)
 	}

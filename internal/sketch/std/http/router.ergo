@@ -6,7 +6,8 @@ import strings
 // a GET fallback. There is no path cleaning or implicit trailing slash.
 // Value is what the route stands for (an endpoint), so a Found route
 // names its endpoint by a field read, with no lookup that could miss.
-type Route[T] { Value T, Method string, Path string }
+// Status is the explicit success status; Success uses it for the reply.
+type Route[T] { Value T, Method string, Path string, Status int }
 type Found[T] { Route Route[T], Params Map[string, string] }
 type NotFound {}
 
@@ -15,6 +16,29 @@ type NotFound {}
 // GET serves it, as RFC 9110 asks of a 405's Allow header.
 type MethodNotAllowed { Allow []string }
 type MatchResult[T] = Found[T] | NotFound | MethodNotAllowed
+
+// Success answers a matched route with its declared success status and a JSON
+// body. A no-content status (204 or 205) has neither a body nor a content type.
+// Refusals are not successes: the handler still chooses their status.
+func Success[T](route Route[T], body string) Response {
+	if route.Status == 204 || route.Status == 205 {
+		return Response{Status: route.Status, Header: []Field{}, Body: ""}
+	}
+	Response{Status: route.Status, Header: []Field{Field{Name: "Content-Type", Value: "application/json"}}, Body: body}
+}
+
+// SuccessUsesRoute catches a reply that defaults to 200, drops its body, or
+// writes a JSON body for a no-content status. The generated status is explicit.
+law SuccessUsesRoute(pick int, body string) {
+	let status = 200 + ((pick%100)+100)%100
+	let route = Route{Value: "reply", Method: "POST", Path: "/", Status: status}
+	let response = Success(route, body)
+	response.Status == status && if status == 204 || status == 205 {
+		response.Body == "" && len(response.Header) == 0
+	} else {
+		response.Body == body && Header(response.Header, "Content-Type") == Some{"application/json"}
+	}
+}
 
 func parameters(pattern string, path string) Option[Map[string, string]] {
 	let want = strings.Split(pattern, "/")
@@ -67,7 +91,7 @@ func Match[T](routes []Route[T], method string, path string) MatchResult[T] {
 // Empty strings and strings with a slash are not one path segment.
 law BuiltPathMatches(a string, b string) {
 	if a == "" || b == "" || strings.Contains(a, "/") || strings.Contains(b, "/") { return true }
-	let route = Route{Value: "pair", Method: "GET", Path: "/:a/:b"}
+	let route = Route{Value: "pair", Method: "GET", Path: "/:a/:b", Status: 201}
 	match Match([]Route[string]{route}, "GET", "/"+a+"/"+b) {
 	case Found as f:
 		f.Route == route && f.Params.Get("a") == Some{a} && f.Params.Get("b") == Some{b}
@@ -84,7 +108,7 @@ law AllowIsWhatMatches(picks []int, asked int) {
 	let pick = func(i int) string { methods[if i < 0 { -(i % len(methods)) } else { i % len(methods) }] }
 	let mut routes = []Route[int]{}
 	for i, p in picks {
-		routes = routes.Append(Route{Value: i, Method: pick(p), Path: "/r/:id"})
+		routes = routes.Append(Route{Value: i, Method: pick(p), Path: "/r/:id", Status: 200})
 	}
 	match Match(routes, pick(asked), "/r/7") {
 	case Found, NotFound:
