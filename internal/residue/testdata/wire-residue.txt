@@ -100,6 +100,9 @@ internal/sketch/lower/testdata/mutants.json	      "file": "internal/sketch/lower
 internal/sketch/lower/testdata/mutants.json	"killers": ["examples:wire-config"]
 internal/sketch/lower/testdata/mutants.json	"file": "internal/sketch/lower/wire.go",
 tmp/orchestrate/wf10/gaps-1/gap-wire/round-1-request.md	*
+# Reference to the lane's measured baseline log, not the old construct name.
+tmp/orchestrate/wf10/gaps-1/gap-sched/round-1-request.md	/home/exedev/.cache/baton/wf10/gaps-1/gap-wire/base-red-1.log
+tmp/orchestrate/wf10/gaps-1/gap-sched/round-1-request.md	internal/residue/testdata/wire-residue.txt: narrow allowance
 internal/tsproj/testdata/runtime.mjs	// seed-selected wire names are independent of the projection and Go codec.
 internal/sketch/lower/wire.go	*
 internal/sketch/std/prelude.ergo	// Reader gives the events of a wire form back, in the order
