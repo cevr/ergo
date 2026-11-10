@@ -32,10 +32,33 @@ func Step(s Status, e Event) Decision[Status, Status] {
 	}
 }
 
-// Lifecycle is the lifecycle of one deploy as a machine.
+// Lifecycle is the lifecycle of one deploy as a machine. Its states and
+// events can be listed, so ergo test decides its laws on the whole graph.
 type Lifecycle machine[Status, Event] {
 	initial: Pending,
 	step:    Step,
+
+	// AlwaysCancellable: in every status a deploy can reach, an operator
+	// can still cancel it unless it is final.
+	law AlwaysCancellable always cancellable,
+
+	// Ends: some run of events ends a deploy; its shortest run prints as
+	// a test.
+	law Ends sometimes Final,
+}
+
+// cancellable reports whether s is final, or a Cancel moves it to
+// Cancelled.
+func cancellable(s Status) bool {
+	if Final(s) {
+		return true
+	}
+	match after(s, Cancel) {
+	case Cancelled:
+		true
+	case Pending, Approved, Live:
+		false
+	}
 }
 
 // Name is the external name of s.
