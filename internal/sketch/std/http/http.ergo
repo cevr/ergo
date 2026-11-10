@@ -40,7 +40,8 @@ func Header(fields []Field, name string) Option[string] {
 	None
 }
 
-// Query returns the first query value with the exact name.
+// Query returns the first query value with the exact name. DecodeQuery
+// reads a typed record and refuses a scalar key given twice.
 func Query(fields []Field, name string) Option[string] {
 	for f in fields {
 		if f.Name == name { return Some{f.Value} }

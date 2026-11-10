@@ -193,6 +193,8 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Listener.Addr":  {},
 	"Listener.Close": {},
 	"HTTPServe":      {wait: childWait},
+	// std http.ParseQuery (S-query): a pure parse of a string.
+	"HTTPParseQuery": {},
 	// The client (H1): Do waits on the network and on the caller's stop.
 	"HTTPCheckOrigin": {},
 	"HTTPDo":          {wait: callerWait},

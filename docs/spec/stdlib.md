@@ -380,6 +380,31 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
    values. `Header(fields, name)` ignores case; `Query` uses exact names.
    Both return `Option[string]`, keeping a missing and an empty value apart.
    `Path` is Go's decoded URL path; matching does not clean it.
+   **Typed query** (S-query). `DecodeQuery[T wire](fields) T fails QueryRepeated | wired[T]`
+   reads a record from the query through the derived codec (types.md,
+   Codecs), as `json.Decode` reads one from a text, so a query record
+   follows the codec's one rule: a field's key is its wire name, an
+   unknown key is skipped (as JSON's), a field the query does not name is
+   `WireMissingField` unless its type is `json.Optional` (a list that may
+   be empty is `json.Optional[[]T]`: the codec has no default value), and
+   a value that does not parse is `WireWrongKind` at its key. A scalar
+   field (a string, `true`/`false`, a decimal number, or a refined type
+   over one) takes exactly one value: a key given twice is
+   `QueryRepeated{Key}`, never first- or last-wins. A slice field takes
+   every value of its key in query order. A record or union field has no
+   query form (`WireWrongKind`). `ParseQuery(raw)` is the fields Serve
+   gives `Request.Query` (Go's `url.ParseQuery`; a pair with a malformed
+   escape is dropped, as Go's `URL.Query` drops it); the law
+   `QueryDecodesByTheRule` sends generated query strings, with repeats,
+   an unknown key, upper and lower case escapes, `+` and dropped pairs,
+   through both and compares a hand reference. Effect's
+   `HttpServerRequest.schemaSearchParams` decodes the search params with a
+   Schema whose field is a string or an array, and a repeated key given
+   to a string field is a parse issue; Ergo keeps that purpose without a
+   Schema value: the record's type is the schema and the failure is a
+   typed row. Go's `url.Values.Get` takes the first value; Phoenix's `Plug.Conn.Query` takes the last unless the key ends
+   in `[]`; Gleam's `wisp` gives the list of pairs and leaves the choice
+   to the handler.
 4. `Body` is `Buffered{Text} | BodyTooLarge{Limit} | BodyReadFailed{Reason}`.
    No partial body is passed as a success. The application chooses a status
    for each refusal. Header parse errors remain Go's HTTP protocol refusals.
@@ -569,6 +594,7 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `http` | `FilesAsksBeneath` | `FilesAsksBeneath(steps []int, prefixed bool) { let mut rest = "" let mut dotdot = false for i, s in steps { let e = fileSegment(s) dotdot = dotdot \|\| e == ".." rest = if i == 0 { e } else { rest + "/" + e } } let path = if prefixed { "/static/" + rest } else { "/" + rest } let method = if len(steps)%2 == 0 { "GET" } else { "HEAD" } let root = filesProbe{paths: sync.NewRef[[]string]([]string{})} let response = Files(root, "/static/", Request{Method: method, Path: path, Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}) let asked = root.paths.Get() if len(asked) > 1 \|\| (dotdot \|\| !prefixed) && len(asked) != 0 { return false } for p in asked { if strings.HasPrefix(p, "/") { return false } for e in strings.Split(p, "/") { if e == "" \|\| e == "." \|\| e == ".." { return false } } } response.Status == 200 \|\| response.Status == 403 \|\| response.Status == 404 }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `StreamIsItsWrites` | `StreamIsItsWrites(status int, parts []string) { let header = []Field{Field{Name: "Content-Type", Value: "text/plain"}} let response = with context { Streaming: NewRecorder() } { Stream(status, header, func(w BodyWriter) fails WriteFailed { for p in parts { try w.Write(p) } }) } let mut want = "" for p in parts { want = want + p } response == Response{Status: status, Header: header, Body: want} }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `WriteAfterStreamFails` | `WriteAfterStreamFails(text string) { let kept = sync.NewRef[[]BodyWriter]([]BodyWriter{}) let response = with context { Streaming: NewRecorder() } { Stream(200, []Field{}, func(w BodyWriter) fails WriteFailed { kept.Set([]BodyWriter{w}) }) } for w in kept.Get() { w.Write(text) catch { case WriteFailed: return response.Body == "" } } false }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `QueryDecodesByTheRule` | `QueryDecodesByTheRule(counts []int, numbers []int, texts []string) { let keys = []string{"load", "name", "note", "on", "other key", "page", "size", "tags"} let mut pairs = []Field{} let mut raw = "" let mut i = 0 for j, key in keys { let k = if j < len(counts) { ((counts[j] % 6) + 6) % 6 } else { 5 } let times = if k == 0 { 0 } else if k == 1 { 2 } else if k == 2 { 3 } else { 1 } for _ in 0..times { let n = if len(numbers) == 0 { i } else { numbers[i%len(numbers)] } let m = if n < 0 { -(n % 1000) } else { n % 1000 } let text = if len(texts) == 0 { "" } else { texts[i%len(texts)] } let typed = key == "load" \|\| key == "on" \|\| key == "page" \|\| key == "size" let value = if !typed { text } else if m%7 == 6 { text + "x" } else if key == "on" { if m%2 == 0 { "true" } else { "false" } } else { strconv.Itoa(1000 + 13*m) } pairs = pairs.Append(Field{Name: key, Value: value}) let part = queryEscape(key, m%2 == 0, m%3 == 0) + "=" + queryEscape(value, m%5 != 0, m%3 == 1) raw = if i == 0 { part } else { raw + "&" + part } if m%11 == 0 { raw = raw + "&bad=%zz" } i = i + 1 } } let (want, record) = queryExpected(pairs) let got = DecodeQuery[queryProbe](ParseQuery(raw)) catch { case QueryRepeated as q: return want == "repeated "+q.Key case WireWrongKind as w: return want == "wrong "+w.Path case WireMissingField as f: return want == "missing "+f.Field case WireUnknownTag: return false } want == "ok" && got == record }` | `TestStdHTTPLawsRun` | tested |
 | `actor` | `Actor.ChangesStops` | `ChangesStops(k int) { if k < 1 { return true } Stop() catch { case _: } let mut calls = 0 let s = Changes() s(func(v S) bool { calls = calls + 1 calls < k }) calls == 1 }` | `TestStdActorLawsRun` | tested |
 | `actor` | `Actor.StopIsFinal` | `StopIsFinal(e E) { Stop() catch { case _: } Send(e) catch { case Stopped: return true } false }` | `TestStdActorLawsRun` | tested |
 | `actor` | `CanIsTheStep` | `CanIsTheStep(signals []int, e int) { with context { Scheduler: time.NewManual(0) } { can(signals, e) } }` | `TestStdActorLawsRun` | tested |
