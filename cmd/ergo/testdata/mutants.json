@@ -2,6 +2,60 @@
   "about": "Host context interruption acceptance mutants. Run the named CLI killer; it builds emitted programs because the contract is a live foreign wait and completed cleanup.",
   "mutants": [
     {
+      "name": "dist1h-binding-platform-unchecked",
+      "origin": "wf10 DIST1-h",
+      "file": "internal/sketchfront/load.go",
+      "from": "} else if why := bindingPlatform(path, src, l.platform); why != \"\" {",
+      "to": "} else if why := bindingPlatform(path, src, l.platform); false && why != \"\" {",
+      "rule": "Every imported module binding must state the selected platform before emission.",
+      "killers": ["cmd/ergo:TestGoBindingPlatforms"]
+    },
+    {
+      "name": "dist1h-check-ignores-target",
+      "origin": "wf10 DIST1-h",
+      "file": "cmd/ergo/main.go",
+      "from": "func checkCommand(args []string) error {\n\topts, err := parseFileOptions(\"check\", args)",
+      "to": "func checkCommand(args []string) error {\n\topts, err := parseFileOptions(\"check\", args)\n\topts.platform = gobind.Platform{GOOS: \"linux\", GOARCH: \"amd64\"}",
+      "rule": "Check validates a binding against GOOS/GOARCH, not the compiler host.",
+      "killers": ["cmd/ergo:TestGoBindingPlatforms"]
+    },
+    {
+      "name": "dist1h-build-ignores-target",
+      "origin": "wf10 DIST1-h",
+      "file": "cmd/ergo/build.go",
+      "from": "l, err := loadForPlatform(opts.file, opts.target, opts.platform)",
+      "to": "l, err := load(opts.file, opts.target)",
+      "rule": "Build validates a binding against --platform before placing its artifact.",
+      "killers": ["cmd/ergo:TestGoBindingPlatforms"]
+    },
+    {
+      "name": "dist1h-missing-platforms-admitted",
+      "origin": "wf10 DIST1-h",
+      "file": "internal/sketchfront/gomod.go",
+      "from": "if slices.Contains(platforms, platform.String()) {",
+      "to": "if len(platforms) == 0 || slices.Contains(platforms, platform.String()) {",
+      "rule": "A binding with no platform provenance fails closed.",
+      "killers": ["cmd/ergo:TestGoBindingPlatforms"]
+    },
+    {
+      "name": "dist1h-substring-platform-admitted",
+      "origin": "wf10 DIST1-h",
+      "file": "internal/sketchfront/gomod.go",
+      "from": "slices.Contains(platforms, platform.String())",
+      "to": "slices.Contains(platforms, platform.String()) || strings.Contains(strings.Join(platforms, \" \"), platform.String())",
+      "rule": "A platform is a complete header token, never a substring.",
+      "killers": ["cmd/ergo:TestGoBindingPlatforms"]
+    },
+    {
+      "name": "dist1h-wrong-binding-header-admitted",
+      "origin": "wf10 DIST1-h",
+      "file": "internal/sketchfront/gomod.go",
+      "from": "len(fields) >= 2 && fields[0] == path",
+      "to": "len(fields) >= 2",
+      "rule": "A binding's platform header must name its imported package.",
+      "killers": ["cmd/ergo:TestGoBindingPlatforms"]
+    },
+    {
       "name": "b15-r8-test-inherits-collector-policy",
       "origin": "wf10 batch-15 fix-r8, verifier r7 on-base",
       "file": "cmd/ergo/test.go",

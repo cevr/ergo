@@ -28,11 +28,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"unicode"
 
+	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/check"
@@ -114,10 +116,11 @@ type program struct {
 
 // loader reads and checks one program.
 type loader struct {
-	fsys   FS
-	root   string // the module root, or the root package's folder
-	module string // the module name; empty with no ergo.mod
-	pkgs   map[string]*loadedPackage
+	fsys     FS
+	platform gobind.Platform
+	root     string // the module root, or the root package's folder
+	module   string // the module name; empty with no ergo.mod
+	pkgs     map[string]*loadedPackage
 	// missing holds the reason of each local import path with no package.
 	missing map[string]string
 	state   map[*loadedPackage]int
@@ -171,6 +174,8 @@ func (l *loader) goBinding(path string) (string, bool) {
 	l.bindings[path] = src
 	if why := staleBinding(l.goMod, path, src); why != "" {
 		l.stale[path] = why
+	} else if why := bindingPlatform(path, src, l.platform); why != "" {
+		l.stale[path] = why
 	}
 	return src, true
 }
@@ -189,12 +194,23 @@ func CheckDir(dir string) (Analysis, error) {
 	return checkDir(hostFS{}, dir)
 }
 
+// CheckDirForPlatform checks the package and its imports against the stated
+// GOOS/GOARCH. A module binding must name that exact platform in its header;
+// the check reads committed source only and runs no Go tool.
+func CheckDirForPlatform(dir string, platform gobind.Platform) (Analysis, error) {
+	return checkDirForPlatform(hostFS{}, dir, platform)
+}
+
 func checkDir(fsys FS, dir string) (Analysis, error) {
+	return checkDirForPlatform(fsys, dir, gobind.Platform{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH})
+}
+
+func checkDirForPlatform(fsys FS, dir string, platform gobind.Platform) (Analysis, error) {
 	if !filepath.IsAbs(dir) {
 		return Analysis{}, fmt.Errorf("sketchfront: the package folder %s is not absolute", dir)
 	}
 	dir = filepath.Clean(dir)
-	l := &loader{fsys: fsys, root: dir, pkgs: map[string]*loadedPackage{}, missing: map[string]string{}, state: map[*loadedPackage]int{}, texts: map[string]string{}}
+	l := &loader{fsys: fsys, platform: platform, root: dir, pkgs: map[string]*loadedPackage{}, missing: map[string]string{}, state: map[*loadedPackage]int{}, texts: map[string]string{}}
 	found, err := l.findModule(dir)
 	if err != nil {
 		return Analysis{}, err

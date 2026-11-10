@@ -13,9 +13,11 @@ import (
 	"fmt"
 	pathpkg "path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
+	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/sketch/lower"
 )
 
@@ -246,6 +248,31 @@ func staleBinding(m *goMod, path, src string) string {
 		return fmt.Sprintf("it was made for %s, and %s now names %s", stamp, GoModFile, key)
 	}
 	return ""
+}
+
+// bindingPlatform checks the binding's provenance, not a substring of its
+// source or the platforms supported by today's generator. Old bindings keep
+// their stated set until ergo bind go regenerates them.
+func bindingPlatform(path, src string, platform gobind.Platform) string {
+	var platforms []string
+	lines := strings.SplitN(src, "\n", 4)
+	for _, line := range lines[:min(3, len(lines))] {
+		if rest, ok := strings.CutPrefix(line, "// ergo:bind "); ok {
+			fields := strings.Fields(rest)
+			if len(fields) >= 2 && fields[0] == path {
+				platforms = fields[2:]
+			}
+			break
+		}
+	}
+	if slices.Contains(platforms, platform.String()) {
+		return ""
+	}
+	stated := strings.Join(platforms, " ")
+	if stated == "" {
+		stated = "(none)"
+	}
+	return fmt.Sprintf("it states platforms %s; target is %s", stated, platform)
 }
 
 // readGoModule reads go.mod and go.sum beside ergo.mod, if go.mod exists.
