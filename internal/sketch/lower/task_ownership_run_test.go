@@ -285,7 +285,11 @@ func taskOwnProgram(seed int) (string, string) {
 		text += "type Pair { Root R, Worker Task[int, Fault] }\n"
 	}
 	if mode == 14 {
-		text += "func borrowOnce(p R) needs Console { let t = task.Go() { Console.Println(\"borrowed \" + strconv.Itoa(p.N)); 1 }; let _ = t.Wait() }\n"
+		// Declare the borrowed-only helper before any function which owns
+		// a local. Lowering must not depend on an earlier function having
+		// initialized the module's owning-handle map.
+		helper := "func borrowOnce(p R) needs Console { let t = task.Go() { Console.Println(\"borrowed \" + strconv.Itoa(p.N)); 1 }; let _ = t.Wait() }\n"
+		text = strings.Replace(text, "func Close", helper+"func Close", 1)
 	}
 	if mode != 10 {
 		text = strings.ReplaceAll(text, "import scope\n", "")
