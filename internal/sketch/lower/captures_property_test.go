@@ -17,7 +17,9 @@ import (
 // slice and in tasks; write them inside an escaping literal; and nest in
 // loops, ifs, a non-escaping block that its callee runs twice (each), and
 // local frames (let h = func() { … }, only called). At the end it calls
-// every literal, waits for every task and prints the ints.
+// every literal, waits for every task and prints the ints. A let may bind
+// a borrow of an int (let pN = &vK), which later statements write through
+// (bump(pN, c)): each such use is a write of vK (batch-15 C2 M1).
 //
 // The generator keeps the program as a tree and is the reference:
 //
@@ -56,6 +58,8 @@ const (
 	cEach                // each(2) { … }
 	cLocal               // let hN = func() { writes }
 	cCall                // hN()
+	cBorrow              // let pN = &vK, or let pN = pM: a write of vK (the borrow may write it)
+	cBump                // bump(pN, c): a write of vK through the borrow pN
 )
 
 type cstmt struct {
@@ -67,7 +71,7 @@ type cstmt struct {
 	line, end  int // the source lines of the statement and of its closing brace
 	seq, after int // preorder numbers: the statement, and past its subtree
 	regions    []*cstmt
-	callee     *cstmt // a call's local frame
+	callee     *cstmt // a call's local frame; a bump's borrow
 }
 
 type captureGen struct {
@@ -78,12 +82,19 @@ type captureGen struct {
 	seq    int
 	tasks  []*cstmt
 	locals []*cstmt
+	// borrows are the let-bound borrows in scope, outermost first.
+	borrows []*cstmt
+	bumped  map[*cstmt]bool
 }
 
 const capturePrelude = `func each(n int, f func()) {
 	for _ in 0..n {
 		f()
 	}
+}
+
+func bump(p *int, c int) {
+	*p = *p + c
 }
 
 func main() needs Console {
@@ -120,10 +131,35 @@ func captureProgram(seed uint64) ([]*cstmt, string) {
 func (g *captureGen) block(depth int, regions []*cstmt, top bool) []*cstmt {
 	var out []*cstmt
 	var locals []*cstmt
+	mark := len(g.borrows)
 	n := 1 + g.r.IntN(4)
 	for range n {
-		s := &cstmt{kind: g.r.IntN(9), v: g.r.IntN(3), c: 1 + g.r.IntN(5)}
+		s := &cstmt{kind: g.r.IntN(11), v: g.r.IntN(3), c: 1 + g.r.IntN(5)}
 		switch s.kind {
+		case cBorrow:
+			g.n++
+			s.name = fmt.Sprintf("p%d", g.n)
+			if len(g.borrows) > 0 && g.r.IntN(2) == 0 {
+				// let pN = pM: a borrow passed on, a use of pM.
+				s.callee = g.borrows[g.r.IntN(len(g.borrows))]
+				s.v = s.callee.v
+				if g.bumped == nil {
+					g.bumped = map[*cstmt]bool{}
+				}
+				g.bumped[s.callee] = true
+			}
+			g.borrows = append(g.borrows, s)
+		case cBump:
+			if len(g.borrows) == 0 {
+				s.kind = cWrite
+				break
+			}
+			s.callee = g.borrows[g.r.IntN(len(g.borrows))]
+			s.v = s.callee.v
+			if g.bumped == nil {
+				g.bumped = map[*cstmt]bool{}
+			}
+			g.bumped[s.callee] = true
 		case cCapture:
 			s.reads = []int{g.r.IntN(3)}
 			if g.r.IntN(2) == 0 {
@@ -182,6 +218,13 @@ func (g *captureGen) block(depth int, regions []*cstmt, top bool) []*cstmt {
 			out = append(out, &cstmt{kind: cCall, callee: l})
 		}
 	}
+	// Every borrow is used at least once (an unread local is S110).
+	for _, b := range g.borrows[mark:] {
+		if !g.bumped[b] {
+			out = append(out, &cstmt{kind: cBump, callee: b, v: b.v, c: 1 + g.r.IntN(5)})
+		}
+	}
+	g.borrows = g.borrows[:mark]
 	return out
 }
 
@@ -255,6 +298,14 @@ func (g *captureGen) renderIn(list []*cstmt, depth int, regions []*cstmt) {
 			s.end = g.emit(depth, "}")
 		case cCall:
 			s.line = g.emit(depth, "%s()", s.callee.name)
+		case cBorrow:
+			if s.callee != nil {
+				s.line = g.emit(depth, "let %s = %s", s.name, s.callee.name)
+			} else {
+				s.line = g.emit(depth, "let %s = &v%d", s.name, s.v)
+			}
+		case cBump:
+			s.line = g.emit(depth, "bump(%s, %d)", s.callee.name, s.c)
 		}
 		s.after = g.seq + 1
 	}
@@ -270,7 +321,8 @@ func walkC(list []*cstmt, f func(*cstmt)) {
 }
 
 // refused is the reference rule: the lines of the refused writes, with
-// the reason of each ("inside", "after", "region", "local").
+// the reason of each ("inside", "after", "region", "local", and "alias"
+// for a write through a let-bound borrow).
 func refused(tree []*cstmt) map[int]string {
 	var captures, writes, calls []*cstmt
 	walkC(tree, func(s *cstmt) {
@@ -279,7 +331,9 @@ func refused(tree []*cstmt) map[int]string {
 			captures = append(captures, s)
 		case cCaptureWrite:
 			captures = append(captures, s)
-		case cWrite:
+		case cWrite, cBorrow, cBump:
+			// A borrow &vK is a write of vK where it is taken, and each
+			// use of the local that holds it is one where it is used.
 			writes = append(writes, s)
 		case cCall:
 			calls = append(calls, s)
@@ -322,6 +376,9 @@ func refused(tree []*cstmt) map[int]string {
 			}
 			if local == nil {
 				if why := follows(e, w.seq, w.regions); why != "" {
+					if w.kind == cBump {
+						why = "alias"
+					}
 					out[w.line] = why
 				}
 				continue
@@ -351,7 +408,7 @@ func interpret(tree []*cstmt, byValue bool) string {
 	run = func(list []*cstmt) {
 		for _, s := range list {
 			switch s.kind {
-			case cWrite:
+			case cWrite, cBump:
 				vars[s.v] += s.c
 			case cCapture, cCaptureWrite:
 				fs = append(fs, &closure{s: s, snap: slices.Clone(vars)})
@@ -470,7 +527,7 @@ func TestCaptureRuleModel(t *testing.T) {
 		if admitted == 0 {
 			t.Errorf("no seed writes an admitted program")
 		}
-		for _, why := range []string{"inside", "after", "region", "local"} {
+		for _, why := range []string{"inside", "after", "region", "local", "alias"} {
 			if !reached[why] {
 				t.Errorf("no seed refuses a program by %q alone whose runs differ: %v", why, reached)
 			}

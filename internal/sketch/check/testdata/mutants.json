@@ -1466,6 +1466,28 @@
       "killers": [
         "check:TestOwnershipFlowModel"
       ]
+    },
+    {
+      "name": "c2-alias-use-no-write",
+      "origin": "wf10 batch-15 fix-r2 (C2 M1)",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "\t\t\tw.aliasUse(id, v)",
+      "to": "\t\t\t_ = v",
+      "rule": "types.md Function values 3: a local that holds a borrow into a let mut writes it at each use.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "c2-alias-chain-lost",
+      "origin": "wf10 batch-15 fix-r2 (C2 M1)",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "\t\t\t\tadd = w.aliases[b]",
+      "to": "\t\t\t\tadd = nil",
+      "rule": "types.md Function values 3: a local bound from a local borrow holds the same borrow.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
     }
   ]
 }

@@ -1,6 +1,7 @@
 package check
 
 import (
+	"slices"
 	"sort"
 
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -75,6 +76,7 @@ func (c *checker) checkEscapes() {
 		c.cur = f
 		w := &escWalk{c: c, info: c.pkg.Info, varFrame: map[*Var]int{}, declDepth: map[*Var]int{}, writes: map[*syntax.Ident]bool{}}
 		for _, d := range f.syntax.Decls {
+			w.borrowAliases(d)
 			w.localFrames(d)
 			w.visit(d)
 			w.finishCaptures()
@@ -106,6 +108,9 @@ type escWalk struct {
 	writes     map[*syntax.Ident]bool
 	events     map[*Var][]mutEvent
 	order      []*Var
+	// aliases maps a local that holds a borrow to the let mut locals the
+	// borrow may point into (borrowAliases).
+	aliases map[*Var][]*Var
 
 	// Local frames (localFrames below): collecting is set during the
 	// first walk of a declaration, which records the uses of each local
@@ -151,6 +156,7 @@ func (w *escWalk) visit(n syntax.Node) {
 			case isPointer(v.Type):
 				w.borrowUse(id, v)
 			}
+			w.aliasUse(id, v)
 		}
 		return
 	}
@@ -377,8 +383,10 @@ func (w *escWalk) allowed(id *syntax.Ident, v *Var) bool {
 //     for-in, a non-escaping block that its callee may call again).
 //
 // A write is an assignment rooted at the local, a borrow `&x` of a place
-// rooted at it, and the implicit borrow of a dot call whose function takes
-// *T. Under the rule a capture by value and Go's capture by reference give
+// rooted at it, the implicit borrow of a dot call whose function takes
+// *T, and each use of a local that holds a borrow into it (`let p = &x`,
+// then `set(p)`: the borrow writes where it is used; borrowAliases).
+// Under the rule a capture by value and Go's capture by reference give
 // one result, so the lowering copies each such local when it makes the
 // literal (Info.ValueCaptures): the local stays on the stack, where Go's
 // capture by reference of a variable that is assigned moves it to the
@@ -481,6 +489,127 @@ func (w *escWalk) mutUse(id *syntax.Ident, v *Var) {
 func (w *escWalk) borrowUse(id *syntax.Ident, v *Var) {
 	if w.escapingFrom(v) != nil {
 		w.c.errorf(id, CodeType, borrowCaptureText, id.Name)
+	}
+}
+
+// aliasUse records a use of the local v that holds a borrow as a write of
+// each let mut local the borrow may point into: the borrow writes its
+// place where it is used, not only where it is taken. A use in an escaping
+// frame is borrowUse's S108 already.
+func (w *escWalk) aliasUse(id *syntax.Ident, v *Var) {
+	roots := w.aliases[v]
+	if len(roots) == 0 || w.escapingFrom(v) != nil {
+		return
+	}
+	for _, r := range roots {
+		if w.events == nil {
+			w.events = map[*Var][]mutEvent{}
+		}
+		if _, ok := w.events[r]; !ok {
+			w.order = append(w.order, r)
+		}
+		w.events[r] = append(w.events[r], mutEvent{id: id, write: true, regions: append([]syntax.Node(nil), w.regions...)})
+	}
+}
+
+// borrowAliases computes, for the declaration d, the let mut locals each
+// local borrow may point into: a let or an assignment of a borrow `&x.f`,
+// of another local borrow, or of a place through one (`&p.f`) adds the
+// roots of its value, to a fixpoint. It is flow-insensitive: a local that
+// once holds a borrow of x may write x at each of its uses.
+func (w *escWalk) borrowAliases(d syntax.Node) {
+	w.aliases = map[*Var][]*Var{}
+	type edge struct {
+		to  *Var
+		val syntax.Expr
+	}
+	var edges []edge
+	local := func(id *syntax.Ident, defs bool) *Var {
+		var obj Object
+		if defs {
+			obj = w.info.Defs[id]
+		} else {
+			obj = w.info.Uses[id]
+		}
+		v, ok := obj.(*Var)
+		if !ok || v.pkg || !isPointer(v.Type) {
+			return nil
+		}
+		return v
+	}
+	syntax.Inspect(d, func(n syntax.Node) bool {
+		switch n := n.(type) {
+		case *syntax.VarSpec:
+			if n.Pattern == nil && len(n.Names) == len(n.Values) {
+				for i, id := range n.Names {
+					if v := local(id, true); v != nil {
+						edges = append(edges, edge{v, n.Values[i]})
+					}
+				}
+			}
+		case *syntax.AssignStmt:
+			if n.Tok == syntax.ASSIGN && len(n.Lhs) == len(n.Rhs) {
+				for i, l := range n.Lhs {
+					if id, ok := unparen(l).(*syntax.Ident); ok {
+						if v := local(id, false); v != nil {
+							edges = append(edges, edge{v, n.Rhs[i]})
+						}
+					}
+				}
+			}
+		}
+		return true
+	})
+	if len(edges) == 0 {
+		return
+	}
+	// base is the local a borrow value is rooted at: &x.f[i] is x, p.f
+	// and *p are p.
+	base := func(x syntax.Expr) *Var {
+		for {
+			switch e := x.(type) {
+			case *syntax.ParenExpr:
+				x = e.X
+			case *syntax.UnaryExpr:
+				if e.Op != syntax.AND {
+					return nil
+				}
+				x = e.X
+			case *syntax.SelectorExpr:
+				x = e.X
+			case *syntax.IndexExpr:
+				x = e.X
+			case *syntax.StarExpr:
+				x = e.X
+			case *syntax.Ident:
+				v, _ := w.info.Uses[e].(*Var)
+				if v == nil || v.pkg {
+					return nil
+				}
+				return v
+			default:
+				return nil
+			}
+		}
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, e := range edges {
+			b := base(e.val)
+			if b == nil {
+				continue
+			}
+			add := []*Var{b}
+			if isPointer(b.Type) {
+				add = w.aliases[b]
+			}
+			for _, r := range add {
+				if r.mut && !slices.Contains(w.aliases[e.to], r) {
+					w.aliases[e.to] = append(w.aliases[e.to], r)
+					changed = true
+				}
+			}
+		}
 	}
 }
 
