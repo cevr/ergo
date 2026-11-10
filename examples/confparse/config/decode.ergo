@@ -198,10 +198,8 @@ func level(src Source, key string) Level fails WrongType | BadChoice {
 	case MissingKey:
 		return Info
 	}
-	match LevelNamed(name) {
-	case Some as l:
-		l.Value
-	case None:
+	ParseLevel(name) catch {
+	case UnknownLevel:
 		let from Origin = match find(src, key) {
 		case FromEnv as e:
 			InEnv{Name: e.Name}
@@ -210,7 +208,7 @@ func level(src Source, key string) Level fails WrongType | BadChoice {
 		case Absent:
 			InFile{At: start()}
 		}
-		BadChoice{From: from, Key: key, Got: name, Choices: Levels}
+		return BadChoice{From: from, Key: key, Got: name, Choices: Levels}
 	}
 }
 

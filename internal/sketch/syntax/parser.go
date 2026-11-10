@@ -409,6 +409,7 @@ func (p *parser) parseFile() *File {
 		p.endDecl()
 	}
 	f.EOF = p.tok.pos
+	p.derivePairs(f)
 	return f
 }
 

@@ -31,7 +31,7 @@ func IsDerived(d Decl) bool {
 	case *FuncDecl:
 		return d.Derived != nil
 	case *LawDecl:
-		return d.Derived != nil
+		return d.Derived != nil || d.Pair != nil
 	}
 	return false
 }

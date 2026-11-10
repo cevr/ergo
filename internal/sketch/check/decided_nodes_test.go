@@ -722,6 +722,16 @@ type Port int where 1 <= it && it <= 65535
 law DivMod(a int, b int where b != 0) { (a / b) * b + a % b == a }
 func main() {}
 `, nil},
+	{"refinement", "a by-name codec pair and its derived round-trip law", `
+type Host { name string }
+type BadHost { Text string }
+func ParseHost(s string) Host fails BadHost {
+	if s == "" { return BadHost{Text: s} }
+	Host{name: s}
+}
+func Wire(h Host) string { h.name }
+func main() {}
+`, nil},
 	{"law", "a documented law", `
 type Monoid {
 	Combine(a int, b int) int,

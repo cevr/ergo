@@ -89,6 +89,9 @@ type LawDecl struct {
 	// law from (refine.go), or nil for a written one. The formatter does
 	// not print it.
 	Derived *TypeDecl
+	// Pair is the Wire function of the by-name codec pair whose round
+	// trip the parser derived this law from (pair.go), or nil.
+	Pair *FuncDecl
 }
 
 func (d *LawDecl) Pos() Pos { return d.Law }

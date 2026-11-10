@@ -4,7 +4,7 @@ import confparse/toml
 func Encode(c Config) toml.Doc {
 	let mut tables = []toml.Table{
 		table("listen", false, []toml.Entry{entry("host", toml.Str{S: c.Listen.Host}), entry("port", toml.Int{N: int(c.Listen.Port)})}),
-		table("log", false, []toml.Entry{entry("level", toml.Str{S: LevelName(c.Log)})}),
+		table("log", false, []toml.Entry{entry("level", toml.Str{S: Wire(c.Log)})}),
 	}
 	for u in c.Upstreams {
 		tables = tables.Append(table("upstream", true, []toml.Entry{
