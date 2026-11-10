@@ -167,9 +167,9 @@ func TestTsProjectionAgrees(t *testing.T) {
 				var cmd *exec.Cmd
 				switch loader {
 				case "bun":
-					cmd = command("bun", "--preload", "./bun.mjs", "runtime.mjs", url, ser, "values.json")
+					cmd = command("bun", "--preload", "ergo-ts/bun", "runtime.mjs", url, ser, "values.json")
 				case "node":
-					cmd = command("node", "--import", "./node.mjs", "runtime.mjs", url, ser, "values.json")
+					cmd = command("node", "--import", "ergo-ts/node", "runtime.mjs", url, ser, "values.json")
 				case "vite":
 					cmd = command("node", "output/client.mjs", url, ser, "values.json")
 				case "esbuild":

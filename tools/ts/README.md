@@ -80,6 +80,14 @@ keeps refusing and the install moves out.
 * To use the mapper in a project, add `ergo-ts` from its local path in
   that project (`bun add /path/to/ergo/tools/ts`); the install lands in the
   project's `node_modules`, outside the Ergo checkout.
+* Inside a copy of `tools/ts` itself (its own `package.json` is the
+  nearest one), `bun --preload ergo-ts/bun` and `node --import
+  ergo-ts/node` resolve by package self-reference (measured, Bun 1.4.4,
+  Node 24.11.1). TypeScript 7.1.0-beta's `contentMappers` does not:
+  `"package": "ergo-ts"` fails with TS18075 there. Link the copy into its
+  own `node_modules` (`node_modules/ergo-ts` -> the copy), as the
+  conformance check does, or name the copy by absolute path in
+  `"package"`.
 
 If the sweep reports "a hard link outside the checkout is another name of
 a checkout file" under `tools/ts/node_modules`, delete that folder.
