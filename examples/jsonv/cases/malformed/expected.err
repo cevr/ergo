@@ -1,1 +1,1 @@
-jsonv: broken.json:3:30: unexpected "]", want a value
+jsonv: broken.json:3:30: an unexpected "]" where a value belongs

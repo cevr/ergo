@@ -1,6 +1,7 @@
 import flag
 import io
 import jsonv/json
+import stdjson json
 import jsonv/schema
 import os
 import strings
@@ -16,12 +17,12 @@ type SchemaBroken { Name string, Path string, Reason string }
 type Broken { Name string, Violations []schema.Violation }
 
 // Load is the document name as a JSON value.
-func Load(name string) json.Value fails NoDocument | Unreadable | Malformed needs Documents {
+func Load(name string) stdjson.Value fails NoDocument | Unreadable | Malformed needs Documents {
 	let text = try Documents.Read(name)
 	json.Parse(text) catch {
-	case err:
-		let p = json.Locate(text, json.Offset(err))
-		return Malformed{Name: name, Line: p.Line, Col: p.Col, Reason: json.Describe(err)}
+	case stdjson.Malformed as err:
+		let p = json.Locate(text, err.Offset)
+		return Malformed{Name: name, Line: p.Line, Col: p.Col, Reason: err.Reason}
 	}
 }
 

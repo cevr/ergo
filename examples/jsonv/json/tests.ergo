@@ -1,16 +1,19 @@
-// The codec's tests: examples. The laws run under ergo test, over
-// generated values whose strings hold quotes, backslashes, control bytes
-// and invalid UTF-8.
+// The layer's tests: examples. The laws run under ergo test, over drawn
+// trees whose strings hold quotes, backslashes, control bytes and invalid
+// UTF-8. The grammar and the escapes are std json's, and its laws hold
+// them; these tests hold what jsonv adds: the printers' layout, Get, the
+// depth limit and the place a failure names.
 
+import json
 import strings
 
 // failure is the text and position of the failure of Parse(text), or
 // "ok".
 func failure(text string) string {
 	let _ = Parse(text) catch {
-	case err:
-		let p = Locate(text, Offset(err))
-		return "\(p.Line):\(p.Col): \(Describe(err))"
+	case json.Malformed as err:
+		let p = Locate(text, err.Offset)
+		return "\(p.Line):\(p.Col): \(err.Reason)"
 	}
 	"ok"
 }
@@ -19,8 +22,8 @@ test ParsesEveryKind {
 	let v = try Parse(" {\"a\": [1, -2.5e+3, true, false, null], \"b\": \"x\\ty\", \"c\": {}} ")
 	assert Compact(v) == "{\"a\":[1,-2.5e+3,true,false,null],\"b\":\"x\\ty\",\"c\":{}}"
 	match v {
-	case Object as o:
-		assert Kind(o.Members[0].V) == "array" && Kind(o.Members[2].V) == "object"
+	case json.Object as o:
+		assert Kind(o.Members[0].Value) == "array" && Kind(o.Members[2].Value) == "object"
 	case _:
 		assert false
 	}
@@ -36,16 +39,6 @@ test IndentIsJqLayout {
 	assert Indent(v, "  ") == "[\n  1,\n  [\n    2,\n    {\n      \"a\": []\n    }\n  ],\n  {}\n]"
 }
 
-test EscapesDecode {
-	let v = try Parse("\"\\u00e9\\ud83d\\ude00\\/\\\\\\\"\\b\\f\\n\\r\\t\"")
-	match v {
-	case Text as t:
-		assert t.V == "é😀/\\\"\b\f\n\r\t"
-	case _:
-		assert false
-	}
-}
-
 test QuoteEscapesAsJq {
 	assert Quoted("a\"b\\c\nd\u0001\u007fé") == "\"a\\\"b\\\\c\\nd\\u0001\\u007fé\""
 }
@@ -53,9 +46,9 @@ test QuoteEscapesAsJq {
 test LastKeyWins {
 	let v = try Parse("{\"a\": 1, \"a\": 2}")
 	match v {
-	case Object as o:
-		match o.Get("a") {
-		case Some[Value] as found:
+	case json.Object as o:
+		match Get(o, "a") {
+		case Some[json.Value] as found:
 			assert Compact(found.Value) == "2"
 		case None:
 			assert false
@@ -65,39 +58,28 @@ test LastKeyWins {
 	}
 }
 
+// A failure names its line and column, and std's reason names the byte
+// it did not expect.
 test FailuresNameTheirPlace {
-	assert failure("[1,]") == "1:4: unexpected \"]\", want a value"
-	assert failure("{\"a\" 1}") == "1:6: unexpected \"1\", want a colon"
-	assert failure("[1 2]") == "1:4: unexpected \"2\", want a comma or ]"
-	assert failure("01") == "1:1: bad number \"01\""
-	assert failure("1.") == "1:1: bad number \"1.\""
-	assert failure("-") == "1:1: bad number \"-\""
-	assert failure("\"abc") == "1:5: unexpected end of input, want a closing quote"
-	assert failure("\"a\\x\"") == "1:3: bad escape \"\\\\x\" in a string"
-	assert failure("\"\\ud800\"") == "1:2: bad escape \"\\\\ud800\" in a string"
-	assert failure("\"\\u12g4\"") == "1:2: bad escape \"\\\\u12g4\" in a string"
-	assert failure("\"a\tb\"") == "1:3: a control character in a string; write it as an escape"
-	assert failure("\"\xff\"") == "1:2: invalid UTF-8 in a string"
-	assert failure("[1]\n x") == "2:2: unexpected \"x\", want the end of the text"
-	assert failure("") == "1:1: unexpected end of input, want a value"
-	assert failure("tru") == "1:1: unexpected \"t\", want a value"
+	assert failure("[1,]") == "1:4: an unexpected \"]\" where a value belongs"
+	assert failure("[1]\n x") == "2:2: text after the value"
 }
 
 test DepthIsLimited {
 	let deep = strings.Repeat("[", MaxDepth) + strings.Repeat("]", MaxDepth)
 	let _ = try Parse(deep)
-	assert failure("["+deep+"]") == "1:\(MaxDepth + 1): arrays and objects nest deeper than \(MaxDepth)"
+	assert failure("["+deep+"]") == "1:\(MaxDepth + 1): nesting deeper than MaxDepth \(MaxDepth)"
 }
 
 // Prefixes of a valid text: every proper prefix of a compact array or
 // object fails, and never past its end.
-test PrefixesFail(v Value) {
-	let text = Compact(Array{Items: []Value{Lawful(v)}})
+test PrefixesFail(t Tree) {
+	let text = Compact(json.Array{Items: []json.Value{try Lawful(t)}})
 	for n in 0..len(text) {
 		let prefix = strings.Slice(text, 0, n)
 		let _ = Parse(prefix) catch {
-		case err:
-			assert Offset(err) <= n
+		case json.Malformed as err:
+			assert err.Offset <= n
 			continue
 		}
 		assert false

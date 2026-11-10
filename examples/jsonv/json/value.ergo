@@ -1,43 +1,37 @@
-// Package json is a JSON codec written by hand: a scanner and a
-// recursive-descent parser into the union Value, and two printers, compact
-// and indented. It is pure: no function needs a capability. RFC 8259 is
-// the grammar; jq 1.7 is the model of the indented layout.
+// Package json is jsonv's JSON layer over std json: Parse reads a text
+// into std's json.Value, which keeps member order, repeated keys and each
+// number's spelling, and two printers write a Value back, compact and
+// indented, in jq's layout. It is pure: no function needs a capability.
+// RFC 8259 is the grammar; jq 1.7 is the model of the printed layout.
 
-// Value is one JSON value. A number keeps its text as the source wrote it,
-// so 2.50 prints as 2.50 and an integer of any size keeps every digit, as
-// Go's json.Number and jq 1.7 keep it. An object keeps its members in
-// source order, and a key may repeat, as RFC 8259 allows; Get finds the
-// last.
-type Value = Null{} | Bool{V bool} | Number{Text string} | Text{V string} | Array{Items []Value} | Object{Members []Member}
-
-// Member is one key and its value in an object.
-type Member { Key string, V Value }
+import json
 
 // Kind is the name of v's kind, as a schema writes it: null, boolean,
 // number, string, array or object.
-func Kind(v Value) string {
+func Kind(v json.Value) string {
 	match v {
-	case Null:
+	case json.Null:
 		"null"
-	case Bool:
+	case json.Boolean:
 		"boolean"
-	case Number:
+	case json.Num:
 		"number"
-	case Text:
+	case json.Str:
 		"string"
-	case Array:
+	case json.Array:
 		"array"
-	case Object:
+	case json.Object:
 		"object"
 	}
 }
 
-// Get is the value of the last member of o named key.
-func Get(o Object, key string) Option[Value] {
-	let mut found Option[Value] = None
+// Get is the value of the last member of o named key, as a decode into a
+// record takes the last of a repeated key.
+func Get(o json.Object, key string) Option[json.Value] {
+	let mut found Option[json.Value] = None
 	for m in o.Members {
 		if m.Key == key {
-			found = Some[Value]{Value: m.V}
+			found = Some[json.Value]{Value: m.Value}
 		}
 	}
 	found

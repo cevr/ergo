@@ -5,7 +5,7 @@
 // (Infer), and checked against a value (Validate), which names the path
 // of every violation. It is pure.
 
-import jsonv/json
+import json
 
 // Schema is what a value must be.
 type Schema = Anything{} | IsNull{} | IsBool{} | IsString{Enum []string, MinLength int} | IsNumber{Integer bool, Min Option[float64], Max Option[float64]} | IsArray{Items Schema, MinItems int} | IsObject{Props []Prop, Required []string, Closed bool}
@@ -20,11 +20,11 @@ func Infer(v json.Value) Schema {
 	match v {
 	case json.Null:
 		IsNull
-	case json.Bool:
+	case json.Boolean:
 		IsBool
-	case json.Number as n:
-		IsNumber{Integer: isInteger(n.Text), Min: None, Max: None}
-	case json.Text:
+	case json.Num as n:
+		IsNumber{Integer: isInteger(json.Wire(n)), Min: None, Max: None}
+	case json.Str:
 		IsString{Enum: []string{}, MinLength: 0}
 	case json.Array as a:
 		if len(a.Items) == 0 {
@@ -39,7 +39,7 @@ func Infer(v json.Value) Schema {
 		let mut props = []Prop{}
 		let mut names = []string{}
 		for m in o.Members {
-			let s = Infer(m.V)
+			let s = Infer(m.Value)
 			let at = indexOf(props, m.Key)
 			if at < 0 {
 				props = props.Append(Prop{Name: m.Key, S: s})

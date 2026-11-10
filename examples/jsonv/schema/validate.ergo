@@ -1,4 +1,5 @@
 import jsonv/json
+import stdjson json
 import math
 import strconv
 import strings
@@ -13,7 +14,7 @@ type Invalid { Violations []Violation }
 
 // Check is nothing when v keeps s, and Invalid with every violation when
 // it does not.
-func Check(s Schema, v json.Value) fails Invalid {
+func Check(s Schema, v stdjson.Value) fails Invalid {
 	let found = Validate(s, v)
 	if len(found) > 0 {
 		return Invalid{Violations: found}
@@ -23,7 +24,7 @@ func Check(s Schema, v json.Value) fails Invalid {
 // Validate is every violation of s by v, in document order: an object's
 // members in the order of its properties, then the members it may not
 // have, then the required members it lacks.
-func Validate(s Schema, v json.Value) []Violation {
+func Validate(s Schema, v stdjson.Value) []Violation {
 	let mut w = report{found: []Violation{}}
 	validate(&w, s, v, "$")
 	w.found
@@ -33,28 +34,28 @@ type report { found []Violation }
 
 func add(w *report, x Violation) { w.found = w.found.Append(x) }
 
-func validate(w *report, s Schema, v json.Value, path string) {
+func validate(w *report, s Schema, v stdjson.Value, path string) {
 	match s {
 	case Anything:
 	case IsNull:
 		match v {
-		case json.Null:
+		case stdjson.Null:
 		case _:
 			add(w, WrongKind{Path: path, Want: "null", Got: json.Kind(v)})
 		}
 	case IsBool:
 		match v {
-		case json.Bool:
+		case stdjson.Boolean:
 		case _:
 			add(w, WrongKind{Path: path, Want: "boolean", Got: json.Kind(v)})
 		}
 	case IsString as str:
 		match v {
-		case json.Text as t:
-			if len(str.Enum) > 0 && !has(str.Enum, t.V) {
-				add(w, NotInEnum{Path: path, Text: t.V})
+		case stdjson.Str as t:
+			if len(str.Enum) > 0 && !has(str.Enum, t.Value) {
+				add(w, NotInEnum{Path: path, Text: t.Value})
 			}
-			let n = utf8.RuneCount(t.V)
+			let n = utf8.RuneCount(t.Value)
 			if n < str.MinLength {
 				add(w, TooShort{Path: path, Min: str.MinLength, Got: n})
 			}
@@ -63,22 +64,22 @@ func validate(w *report, s Schema, v json.Value, path string) {
 		}
 	case IsNumber as num:
 		match v {
-		case json.Number as n:
-			if num.Integer && !isInteger(n.Text) {
-				add(w, NotInteger{Path: path, Got: n.Text})
+		case stdjson.Num as n:
+			if num.Integer && !isInteger(stdjson.Wire(n)) {
+				add(w, NotInteger{Path: path, Got: stdjson.Wire(n)})
 			}
-			let f = valueOf(n.Text)
+			let f = valueOf(stdjson.Wire(n))
 			match num.Min {
 			case Some[float64] as min:
 				if f < min.Value {
-					add(w, BelowMinimum{Path: path, Min: min.Value, Got: n.Text})
+					add(w, BelowMinimum{Path: path, Min: min.Value, Got: stdjson.Wire(n)})
 				}
 			case None:
 			}
 			match num.Max {
 			case Some[float64] as max:
 				if f > max.Value {
-					add(w, AboveMaximum{Path: path, Max: max.Value, Got: n.Text})
+					add(w, AboveMaximum{Path: path, Max: max.Value, Got: stdjson.Wire(n)})
 				}
 			case None:
 			}
@@ -87,7 +88,7 @@ func validate(w *report, s Schema, v json.Value, path string) {
 		}
 	case IsArray as arr:
 		match v {
-		case json.Array as a:
+		case stdjson.Array as a:
 			if len(a.Items) < arr.MinItems {
 				add(w, TooFewItems{Path: path, Min: arr.MinItems, Got: len(a.Items)})
 			}
@@ -99,10 +100,10 @@ func validate(w *report, s Schema, v json.Value, path string) {
 		}
 	case IsObject as obj:
 		match v {
-		case json.Object as o:
+		case stdjson.Object as o:
 			for p in obj.Props {
-				match o.Get(p.Name) {
-				case Some[json.Value] as m:
+				match json.Get(o, p.Name) {
+				case Some[stdjson.Value] as m:
 					validate(w, p.S, m.Value, Member(path, p.Name))
 				case None:
 				}
@@ -117,8 +118,8 @@ func validate(w *report, s Schema, v json.Value, path string) {
 				}
 			}
 			for r in obj.Required {
-				match o.Get(r) {
-				case Some[json.Value]:
+				match json.Get(o, r) {
+				case Some[stdjson.Value]:
 				case None:
 					add(w, MissingMember{Path: path, Name: r})
 				}

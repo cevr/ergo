@@ -1,12 +1,13 @@
 // The schema's tests: examples. The laws run under ergo test.
 
 import jsonv/json
+import stdjson json
 import strings
 
-func parsed(text string) json.Value {
+func parsed(text string) stdjson.Value {
 	json.Parse(text) catch {
-	case err:
-		json.Text{V: "unparsed: " + json.Describe(err)}
+	case stdjson.Malformed as err:
+		stdjson.Str{Value: "unparsed: " + err.Reason}
 	}
 }
 

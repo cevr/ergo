@@ -1,3 +1,4 @@
+import json
 import strconv
 import strings
 
@@ -8,7 +9,7 @@ type writer { parts []string }
 func put(w *writer, s string) { w.parts = w.parts.Append(s) }
 
 // Compact is v with no white space: jq -c's layout.
-func Compact(v Value) string {
+func Compact(v json.Value) string {
 	let mut w = writer{parts: []string{}}
 	compact(&w, v)
 	strings.Join(w.parts, "")
@@ -17,15 +18,15 @@ func Compact(v Value) string {
 // Indent is v with one member or item per line, each level indented by
 // one more indent, and an empty array or object as [] or {}: jq's layout
 // with indent "  ". The text has no final line feed.
-func Indent(v Value, indent string) string {
+func Indent(v json.Value, indent string) string {
 	let mut w = writer{parts: []string{}}
 	pretty(&w, v, indent, "\n")
 	strings.Join(w.parts, "")
 }
 
-func compact(w *writer, v Value) {
+func compact(w *writer, v json.Value) {
 	match v {
-	case Array as a:
+	case json.Array as a:
 		put(w, "[")
 		for i, item in a.Items {
 			if i > 0 {
@@ -34,7 +35,7 @@ func compact(w *writer, v Value) {
 			compact(w, item)
 		}
 		put(w, "]")
-	case Object as o:
+	case json.Object as o:
 		put(w, "{")
 		for i, m in o.Members {
 			if i > 0 {
@@ -42,7 +43,7 @@ func compact(w *writer, v Value) {
 			}
 			quote(w, m.Key)
 			put(w, ":")
-			compact(w, m.V)
+			compact(w, m.Value)
 		}
 		put(w, "}")
 	case _:
@@ -52,10 +53,10 @@ func compact(w *writer, v Value) {
 
 // pretty prints v; newline is a line feed and the indent of the level v
 // is at.
-func pretty(w *writer, v Value, indent string, newline string) {
+func pretty(w *writer, v json.Value, indent string, newline string) {
 	let inner = newline + indent
 	match v {
-	case Array as a:
+	case json.Array as a:
 		if len(a.Items) == 0 {
 			put(w, "[]")
 			return
@@ -66,7 +67,7 @@ func pretty(w *writer, v Value, indent string, newline string) {
 			pretty(w, item, indent, inner)
 		}
 		put(w, newline+"]")
-	case Object as o:
+	case json.Object as o:
 		if len(o.Members) == 0 {
 			put(w, "{}")
 			return
@@ -76,7 +77,7 @@ func pretty(w *writer, v Value, indent string, newline string) {
 			put(w, if i > 0 { "," + inner } else { inner })
 			quote(w, m.Key)
 			put(w, ": ")
-			pretty(w, m.V, indent, inner)
+			pretty(w, m.Value, indent, inner)
 		}
 		put(w, newline+"}")
 	case _:
@@ -84,19 +85,19 @@ func pretty(w *writer, v Value, indent string, newline string) {
 	}
 }
 
-func scalar(w *writer, v Value) {
+func scalar(w *writer, v json.Value) {
 	match v {
-	case Null:
+	case json.Null:
 		put(w, "null")
-	case Bool as b:
-		put(w, if b.V { "true" } else { "false" })
-	case Number as n:
-		put(w, n.Text)
-	case Text as t:
-		quote(w, t.V)
-	case Array:
+	case json.Boolean as b:
+		put(w, if b.Value { "true" } else { "false" })
+	case json.Num as n:
+		put(w, json.Wire(n))
+	case json.Str as t:
+		quote(w, t.Value)
+	case json.Array:
 		compact(w, v)
-	case Object:
+	case json.Object:
 		compact(w, v)
 	}
 }
@@ -152,6 +153,3 @@ func Quoted(s string) string {
 	quote(&w, s)
 	strings.Join(w.parts, "")
 }
-
-// FormatNumber is the JSON text of an integer.
-func FormatNumber(n int) Value { Number{Text: strconv.Itoa(n)} }
