@@ -179,7 +179,10 @@ func taskOwnProgram(seed int) (string, string) {
 		// Push has room, so it ends with its value before main's Pop
 		// returns, and the drain releases that value before main's own.
 		// A Wait moves the value to main instead: one release either way.
-		src.WriteString("let done = queue.New[int](1)\nlet t = task.Go() {\ntry done.Push(1)\nR{N: 100}\n}\nlet _ = try done.Pop()\n")
+		// With capacity 0 the body may return its value after main's
+		// release stopped the task: stop wins at the boundary (Gap 47, B4),
+		// and the drain still releases the value (measured: most runs).
+		fmt.Fprintf(&src, "let done = queue.New[int](%d)\nlet t = task.Go() {\ntry done.Push(1)\nR{N: 100}\n}\nlet _ = try done.Pop()\n", (seed/2)%2)
 		if seed%2 == 1 {
 			src.WriteString("let v = try t.Wait()\n")
 		}

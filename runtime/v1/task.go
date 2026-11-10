@@ -344,6 +344,14 @@ type Task[T any] struct {
 	h    *rt.Handle[T]
 	task *rt.Task // the task that started it
 	used bool     // Wait, Stop or Close ran
+	// out is the value the body returned, kept past rt's stop-wins, which
+	// zeroes it when a stop is pending at the boundary (Gap 47); ended says
+	// the body returned one. The child writes them before its handle
+	// finishes; the owner reads them after it joined the task. A Wait that
+	// delivers the value moves the Task out of its owner, so no Drain
+	// follows it.
+	out   T
+	ended bool
 }
 
 // Site is the Ergo identity of a call: the calling function, the called
@@ -374,7 +382,13 @@ func Go[T any](s *Scope, span Site, body func(*rt.Task) (T, error)) *Task[T] {
 	// throwaway: the Task's owner releases it through its own entry.
 	holder := rt.NewScope(s.s.Task())
 	t := &Task[T]{task: s.s.Task()}
-	t.h = rt.Go(&holder, string(span), func(ct *rt.Task) (T, error) { return guarded(ct, body) })
+	t.h = rt.Go(&holder, string(span), func(ct *rt.Task) (T, error) {
+		v, err := guarded(ct, body)
+		if err == nil {
+			t.out, t.ended = v, true
+		}
+		return v, err
+	})
 	return t
 }
 
@@ -438,17 +452,18 @@ func (t *Task[T]) Close(ct *rt.Task) {
 }
 
 // Drain is the rest of the release of a Task whose value holds a resource
-// (#197 L8 B3t; Q5, resources R13): after Close, it gives the value the
-// task ended with, for the owner's generated release. Only an owned Task
-// is drained, and a Wait that delivered the value moved the Task out of
-// its owner first. It gives nothing for a task that failed, was
-// interrupted or still runs (a Close ran first, so it has ended). It never
-// waits.
+// (#197 L8 B3t, B4; Q5, Gap 47, resources R13): after Close, it gives the
+// value the body returned, for the owner's generated release, also when
+// rt's stop-wins dropped it (the body returned it while a stop was pending
+// at the task's boundary). A Wait that delivered the value moved the Task
+// out of its owner first, so its owner never drains it. It gives nothing
+// for a body that failed or was interrupted before it returned (a Close
+// ran first, so the task has ended). It never waits.
 func (t *Task[T]) Drain() []T {
-	if v, ok := t.h.Left(); ok {
-		return []T{v}
+	if !t.ended {
+		return nil
 	}
-	return nil
+	return []T{t.out}
 }
 
 // Expired is timeout.Expired, the typed failure of After when the deadline

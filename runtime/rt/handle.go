@@ -149,17 +149,6 @@ func (h *Handle[T]) Wait() (T, error) {
 	return zero, c.Err()
 }
 
-// Left is the value of a finished task that ended with one, for its
-// owner's release of a result no Wait delivered (#197 Q5): false while the
-// task runs, and when it ended with a failure, a defect or an interruption.
-func (h *Handle[T]) Left() (T, bool) {
-	if !h.finished() || h.err != nil {
-		var zero T
-		return zero, false
-	}
-	return h.value, true
-}
-
 // Stop interrupts the task and waits, uninterruptibly, until it has finished,
 // releases included (runtime.md Tasks, rule 4). It returns only the task's
 // defects: its interruption and an abandoned typed failure are the expected

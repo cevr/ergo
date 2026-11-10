@@ -2,11 +2,21 @@
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
+      "name": "L8-B4-boundary-keeps-no-value",
+      "origin": "L8 B4 Gap 47 (Quint mutant 4)",
+      "file": "runtime/v1/task.go",
+      "from": "\t\t\tt.out, t.ended = v, true",
+      "to": "\t\t\t_ = v",
+      "rule": "A value the body returned is kept past rt's stop-wins, so the Task's release releases it.",
+      "killers": ["lower:TestTaskOwnershipRunModel"],
+      "anchor": {"tests": ["lower:TestTaskOwnershipRunModel"]}
+    },
+    {
       "name": "L8-B3t-task-drain-drops-result",
       "origin": "L8 B3t Q5 (Quint mutant 11)",
       "file": "runtime/v1/task.go",
-      "from": "\tif v, ok := t.h.Left(); ok {\n\t\treturn []T{v}",
-      "to": "\tif v, ok := t.h.Left(); ok && false {\n\t\treturn []T{v}",
+      "from": "\tif !t.ended {\n\t\treturn nil\n\t}\n\treturn []T{t.out}",
+      "to": "\tif !t.ended {\n\t\treturn nil\n\t}\n\treturn nil",
       "rule": "A drained Task's result that no Wait delivered is released by its owner's generated release.",
       "killers": ["lower:TestTaskOwnershipRunModel"],
       "anchor": {"tests": ["lower:TestTaskOwnershipRunModel"]}
