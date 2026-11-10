@@ -54,6 +54,10 @@ type Scope struct {
 	// kept are the owned values the frame is returning (Returned, the owned values below):
 	// released only when its exit fails.
 	kept []*entry
+	// plain marks the frame scope of a frame that opens one only for its
+	// owned values (NewOwnerScope): its end is no interruption point, as a
+	// frame with no scope has none.
+	plain bool
 }
 
 // entry is one entry of a frame's list: an exit action, an owned task or
@@ -74,6 +78,11 @@ type owned interface {
 
 // NewScope is the frame scope of a frame that runs on task t.
 func NewScope(t *rt.Task) Scope { return Scope{s: rt.NewScope(t)} }
+
+// NewOwnerScope is the frame scope of a frame that opens one only to own
+// values (#197 L8 B1): it releases them on every exit, and a stop pending
+// at its end stays pending for the caller's next checkpoint.
+func NewOwnerScope(t *rt.Task) Scope { return Scope{s: rt.NewScope(t), plain: true} }
 
 // current is the frame that owns what the code at s starts now: the frame
 // of the running exit action, followed down through nested ones, else s.
@@ -132,7 +141,9 @@ func (s *Scope) End(err *error) {
 // end ends the scope with the exit e so far and returns the whole exit.
 func (s *Scope) end(e error) error {
 	e = s.close(e)
-	s.s.End(&e) // stop wins (Exit causes 5); rt holds no entry of this frame
+	if !s.plain {
+		s.s.End(&e) // stop wins (Exit causes 5); rt holds no entry of this frame
+	}
 	if s.kept != nil {
 		e = s.settleKept(e)
 	}
@@ -665,13 +676,18 @@ type Owned struct {
 	e *entry
 }
 
-// Owning registers v on the scope s as an owned value, released by rel,
-// stores its entry in *h, and returns v. It is the step that receives v:
-// no checkpoint runs between the expression that produced v and the
-// registration, so a stop cannot leave v unowned (R8). s is the code's
-// frame scope, or the scope of the innermost owning with around it.
-func Owning[T any](s *Scope, h **Owned, v T, rel func(T)) T {
-	*h = s.own(func() { rel(v) })
+// Owner is the entry, not yet registered, of a value that code at s will
+// own: s is the code's frame scope, or the scope of the innermost owning
+// with around it. Owning registers it.
+func (s *Scope) Owner() *Owned { return &Owned{s: s} }
+
+// Owning registers v as the owned value of h, released by rel, and returns
+// v. It is the step that receives v: no checkpoint runs between the
+// expression that produced v and the registration, so a stop cannot leave
+// v unowned (R8).
+func Owning[T any](h *Owned, v T, rel func(T)) T {
+	o := h.s.own(func() { rel(v) })
+	h.s, h.e = o.s, o.e
 	return v
 }
 

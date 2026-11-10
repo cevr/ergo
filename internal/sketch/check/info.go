@@ -272,9 +272,11 @@ type Info struct {
 	OwnedVars  map[*Var]*Close
 	OwnedTemps map[syntax.Expr]*Close
 	// Handoffs is each use of an owned local or taken parameter that
-	// hands it off (a move or a take): the lowering removes its entry
+	// hands it off (a move or a take), with the owned local it hands off:
+	// the ident's own, or the root of the borrow a Close is called through
+	// (`let p = &h; p.Close()`). The lowering removes that local's entry
 	// there. Added in L8 B1 (additive).
-	Handoffs map[*syntax.Ident]bool
+	Handoffs map[*syntax.Ident]*Var
 }
 
 // Release is one value a place releases: an owned local or taken
@@ -364,7 +366,7 @@ func newInfo() *Info {
 		Releases:       map[syntax.Node][]Release{},
 		OwnedVars:      map[*Var]*Close{},
 		OwnedTemps:     map[syntax.Expr]*Close{},
-		Handoffs:       map[*syntax.Ident]bool{},
+		Handoffs:       map[*syntax.Ident]*Var{},
 	}
 }
 

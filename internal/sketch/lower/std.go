@@ -141,6 +141,12 @@ func hasHidden(list []v1.Hidden, h v1.Hidden) bool {
 // call other than with are frames of their own, so their calls do not
 // count; a with block runs in the frame (rows.md, With 8).
 func (l *lowerer) bodyNeedsFrame(list []syntax.Stmt) bool {
+	return l.bodyNeedsScope(list) || l.bodyOwns(list)
+}
+
+// bodyNeedsScope is bodyNeedsFrame without owned values: a frame that
+// opens its scope only for them opens a plain one (v1.NewOwnerScope).
+func (l *lowerer) bodyNeedsScope(list []syntax.Stmt) bool {
 	found := false
 	var visit func(n syntax.Node) bool
 	visit = func(n syntax.Node) bool {
@@ -176,8 +182,7 @@ func (l *lowerer) bodyNeedsFrame(list []syntax.Stmt) bool {
 	for _, s := range list {
 		syntax.Inspect(s, visit)
 	}
-	// A body that owns a value holds its entries on its frame (release.go).
-	return found || l.bodyOwns(list)
+	return found
 }
 
 // openFrame writes the frame scope of the function being written, its
@@ -186,7 +191,11 @@ func (l *lowerer) bodyNeedsFrame(list []syntax.Stmt) bool {
 func (fc *funcCtx) openFrame(errName string) {
 	fs := fc.scope.alloc("fs")
 	fc.frame.scope = fs
-	fc.line(fs + " := " + fc.l.rt() + ".NewScope(" + taskOf(fc.envExpr(fc.site)) + ")")
+	ctor := ".NewScope("
+	if fc.frame.plain {
+		ctor = ".NewOwnerScope(" // a scope for owned values only (release.go)
+	}
+	fc.line(fs + " := " + fc.l.rt() + ctor + taskOf(fc.envExpr(fc.site)) + ")")
 	if errName == "" {
 		fc.line("defer " + fs + ".End(nil)")
 	} else {

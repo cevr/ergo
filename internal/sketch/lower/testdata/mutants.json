@@ -1539,7 +1539,7 @@
       "name": "L8-B1 a moved local still released",
       "origin": "wf10 L8 B1 (#197)",
       "file": "internal/sketch/lower/release.go",
-      "from": "\tif !fc.l.info.Handoffs[id] {\n\t\treturn val\n\t}",
+      "from": "\tif v == nil {\n\t\treturn val\n\t}",
       "to": "\tif true {\n\t\treturn val\n\t}",
       "rule": "resources R15, R19: a hand-off ends the owner's entry; the new owner releases the value.",
       "killers": [
@@ -1550,8 +1550,8 @@
       "name": "L8-B1 a returned local released by its frame",
       "origin": "wf10 L8 B1 (#197)",
       "file": "internal/sketch/lower/release.go",
-      "from": "\tif !fc.l.info.Handoffs[id] {",
-      "to": "\tif !fc.l.info.Handoffs[id] || returned {",
+      "from": "\tif v == nil {",
+      "to": "\tif v == nil || returned {",
       "rule": "resources R10: return moves the value to the caller; the callee does not release it.",
       "killers": [
         "lower:TestOwnershipRunModel"

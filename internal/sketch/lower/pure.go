@@ -149,6 +149,11 @@ func pureCandidate(info *check.Info, f *check.Func) ([]*check.Func, bool) {
 	if fp, ok := info.Footprints[d]; !ok || !fp.Empty() || fp.EntryPoll {
 		return nil, false
 	}
+	if ownsValues(info, d) {
+		// Its owned values are released through its frame scope, on its
+		// task (release.go, L8 B1).
+		return nil, false
+	}
 	var callees []*check.Func
 	ok := true
 	syntax.Inspect(d.Body, func(n syntax.Node) bool {

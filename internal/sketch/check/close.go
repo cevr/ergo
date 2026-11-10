@@ -11,6 +11,25 @@ type Close struct {
 	Op       *Method
 }
 
+// closeTakes writes in the signature of a Close of the R1 shape that it
+// takes its receiver (R19), so a call through its function value moves the
+// argument as a direct call does (`let f = Close; f(c)`; Gap 39 makes the
+// clause part of a function type's identity in A3). closeFacts admits or
+// refuses the Close itself.
+func closeTakes(f *Func) {
+	sig := f.Sig
+	if f.owner == nil || f.Name != "Close" || len(sig.Params) != 1 || len(sig.Results) != 0 || sig.Takes != nil {
+		return
+	}
+	recv := sig.Params[0].Type
+	if p, ok := recv.(*Pointer); ok {
+		recv = p.Elem
+	}
+	if n, ok := recv.(*Named); ok && ownTypeParam(n, f) == nil {
+		sig.Takes = []int{0}
+	}
+}
+
 // closeFacts runs after row inference and resolution. It records identity
 // once, for each declaration and each resolved use, including operation
 // method values. It does not infer ownership or synthesize aggregate Close.

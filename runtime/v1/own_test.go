@@ -127,8 +127,8 @@ func (c ownCase) run() string {
 					})
 					continue
 				}
-				var h *Owned
-				Owning(s, &h, id, func(v int) {
+				h := s.Owner()
+				Owning(h, id, func(v int) {
 					log = append(log, fmt.Sprint("close ", v))
 					if kind == relPanic {
 						panic(fmt.Sprint("close panics ", v))
@@ -216,8 +216,8 @@ func BenchmarkReleaseLocal(b *testing.B) {
 	b.Run("owned", func(b *testing.B) {
 		for range b.N {
 			frameNoRow(root, func(s *Scope) {
-				var h *Owned
-				r := Owning(s, &h, benchRes{&n}, func(v benchRes) { v.Close() })
+				h := s.Owner()
+				r := Owning(h, benchRes{&n}, func(v benchRes) { v.Close() })
 				_ = r
 			})
 		}
@@ -241,8 +241,8 @@ func BenchmarkReleaseLoop(b *testing.B) {
 	b.Run("owned", func(b *testing.B) {
 		frameNoRow(root, func(s *Scope) {
 			for range b.N {
-				var h *Owned
-				Owning(s, &h, benchRes{&n}, func(v benchRes) { v.Close() })
+				h := s.Owner()
+				Owning(h, benchRes{&n}, func(v benchRes) { v.Close() })
 				h.Release()
 			}
 		})

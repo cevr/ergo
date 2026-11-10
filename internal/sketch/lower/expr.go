@@ -1077,6 +1077,7 @@ func (fc *funcCtx) funcLitClosure(ft *syntax.FuncType, list []syntax.Stmt, n syn
 			}
 			results = fc.namedResults(named, errName)
 			inner.site = n
+			inner.frame.plain = !fc.l.bodyNeedsScope(list)
 			inner.openFrame(errName)
 			for _, v := range params {
 				inner.ownVar(v, n) // a taken parameter, before the entry poll (R8)

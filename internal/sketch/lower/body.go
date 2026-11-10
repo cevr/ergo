@@ -47,6 +47,9 @@ type frame struct {
 	// returned decision is given as a value, its kind, the next state flat
 	// and the output.
 	flat *flatRun
+	// plain marks a frame that opens its scope only for its owned values
+	// (release.go): its end is no interruption point (v1.NewOwnerScope).
+	plain bool
 }
 
 // newFrame is the only frame constructor. Every frame-opening path uses it,
@@ -470,7 +473,7 @@ func (fc *funcCtx) isPlace(x syntax.Expr) bool {
 // x's value in a temporary, whose address Go can take.
 func (fc *funcCtx) place(x syntax.Expr, later bool) string {
 	if fc.isPlace(x) {
-		if id, ok := unparen(x).(*syntax.Ident); ok && fc.l.info.Handoffs[id] {
+		if id, ok := unparen(x).(*syntax.Ident); ok && fc.l.info.Handoffs[id] != nil {
 			// A taking receiver passed by its address: its entry ends here.
 			fc.line("_ = " + fc.handoff(id, fc.ident(id), false))
 		}

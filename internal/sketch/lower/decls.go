@@ -1083,6 +1083,7 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
 	// Task by return opens its frame scope first (stage D3b, Rule 2).
 	frameErr := ""
 	needsFrame := l.bodyNeedsFrame(f.Decl.Body.List) || l.ownsParams(params)
+	fc.frame.plain = needsFrame && !l.bodyNeedsScope(f.Decl.Body.List)
 	results := ""
 	switch {
 	case needsFrame && fd.fallible:

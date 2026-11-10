@@ -359,22 +359,13 @@ func (fc *funcCtx) own(key any, cl *check.Close, t check.Type, val string, site 
 	}
 	h := fc.temp("own")
 	fc.l.owned[key] = h
-	fc.line("var " + h + " *" + fc.l.rt() + ".Owned")
+	fc.line(h + " := " + fc.runtimeCall("Scope.Owner", fc.ownBinding("Scope.Owner", site), "", fc.frameScope(site), nil, "", nil, nil, site))
 	return fc.owning(h, val, fc.ownRelease(cl, t, site), site)
 }
 
-// owning is the registration of val in the entry h on the frame scope
-// (v1.Owning): its hidden frame is the code's frame scope, written here
-// since the call has no call site of its own (hiddenArgs).
+// owning is the registration of val in the entry h (v1.Owning).
 func (fc *funcCtx) owning(h, val, rel string, site syntax.Node) string {
-	body := fc.ownBinding("Owning", site)
-	if len(body.Hidden) != 1 || body.Hidden[0] != v1.Frame {
-		ice(site, "the binding Owning does not take the hidden frame alone")
-	}
-	if _, ok := runtimeBindings["Owning"]; !ok {
-		ice(site, "the binding Owning is not in the runtime catalog")
-	}
-	return fc.l.rt() + ".Owning(" + fc.frameScope(site) + ", &" + h + ", " + val + ", " + rel + ")"
+	return fc.runtimeCall("Owning", fc.ownBinding("Owning", site), "", "", []string{h, val, rel}, "", nil, nil, site)
 }
 
 // ownVar registers the local or parameter v, already bound to its Go
@@ -412,10 +403,10 @@ func (fc *funcCtx) ownTemp(x syntax.Expr, o operand) operand {
 // a hand-off, with its entry removed (v1.Hand), or kept until the frame's
 // exit is known when the frame returns it (v1.Returned).
 func (fc *funcCtx) handoff(id *syntax.Ident, val string, returned bool) string {
-	if !fc.l.info.Handoffs[id] {
+	v := fc.l.info.Handoffs[id]
+	if v == nil {
 		return val
 	}
-	v, _ := fc.l.info.Uses[id].(*check.Var)
 	h := fc.l.owned[v]
 	if h == "" {
 		return val // a value of a type parameter: released by its instance (B2)
@@ -464,7 +455,7 @@ func (fc *funcCtx) reassignOwned(lhs syntax.Expr, target, val string) bool {
 	t := fc.temp("t")
 	fc.line(t + " := " + val)
 	next := fc.temp("own")
-	fc.line("var " + next + " *" + fc.l.rt() + ".Owned")
+	fc.line(next + " := " + fc.runtimeCall("Scope.Owner", fc.ownBinding("Scope.Owner", id), "", fc.frameScope(id), nil, "", nil, nil, id))
 	fc.line(fc.owning(next, t, fc.ownRelease(cl, v.Type, id), id))
 	fc.releaseAt(id)
 	fc.line(target + " = " + t)
@@ -521,6 +512,27 @@ func (l *lowerer) ownsNode(n syntax.Node) bool {
 		return l.info.OwnedTemps[n] != nil
 	}
 	return false
+}
+
+// ownsValues reports a declaration that owns a value anywhere in it, its
+// parameters and nested literals included: its frames release through a
+// frame scope on their task, so it is no pure function (pure.go).
+func ownsValues(info *check.Info, d *syntax.FuncDecl) bool {
+	found := false
+	syntax.Inspect(d, func(n syntax.Node) bool {
+		switch n := n.(type) {
+		case *syntax.Ident:
+			if v, ok := info.Defs[n].(*check.Var); ok && info.OwnedVars[v] != nil {
+				found = true
+			}
+		case syntax.Expr:
+			if info.OwnedTemps[n] != nil {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
 }
 
 // ownsParams reports a signature with a taken parameter that has an owner.

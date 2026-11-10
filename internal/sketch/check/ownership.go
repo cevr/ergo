@@ -120,6 +120,9 @@ type ownWalk struct {
 	catches      []*ownCatch
 	loopMemo     map[syntax.Node]*ownLoopMemo
 	diags        []ownDiag
+	// borrow maps a let-bound borrow `let p = &h` of an owned local to
+	// that local: a Close called through p takes h (R19).
+	borrow map[*Var]*Var
 }
 
 // checkOwnership runs the flow pass over every body of the package.
@@ -638,6 +641,41 @@ func (w *ownWalk) letSpec(s syntax.Stmt, spec *syntax.VarSpec) {
 	for _, v := range bound {
 		w.acquire(ownLocal{v: v})
 	}
+	w.letBorrow(spec)
+}
+
+// letBorrow records `let p = &h`, or `let q = p` of such a p, where h is
+// an owned local and the new name is not mut: a Close through it takes h.
+func (w *ownWalk) letBorrow(spec *syntax.VarSpec) {
+	if len(spec.Names) != 1 || len(spec.Values) != 1 || spec.Pattern != nil {
+		return
+	}
+	p, _ := w.info.Defs[spec.Names[0]].(*Var)
+	if p == nil || p.mut {
+		return
+	}
+	var root *Var
+	switch x := unparen(spec.Values[0]).(type) {
+	case *syntax.UnaryExpr:
+		if id, ok := unparen(x.X).(*syntax.Ident); ok && x.Op == syntax.AND {
+			if v, _ := w.info.Uses[id].(*Var); v != nil {
+				if _, ok := w.slot[v]; ok {
+					root = v
+				}
+			}
+		}
+	case *syntax.Ident:
+		if v, _ := w.info.Uses[x].(*Var); v != nil {
+			root = w.borrow[v]
+		}
+	}
+	if root == nil {
+		return
+	}
+	if w.borrow == nil {
+		w.borrow = map[*Var]*Var{}
+	}
+	w.borrow[p] = root
 }
 
 func (w *ownWalk) assign(s *syntax.AssignStmt) {
@@ -759,7 +797,7 @@ func (w *ownWalk) move(i int, x *syntax.Ident, h hand) {
 		return
 	}
 	w.st[i] = ownSlot{st: ownMoved, at: h.at, how: h.how}
-	w.info.Handoffs[x] = true
+	w.info.Handoffs[x] = l.v
 }
 
 // expr evaluates x in mode.
@@ -807,6 +845,12 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		w.frame(x.Body, sig, w.paramVars(params), w.name, "this function literal", false)
 		return
 	default:
+		if sel, ok := x.(*syntax.SelectorExpr); ok && w.info.Closes[sel] != nil {
+			// A method value of a checked Close takes its receiver: the
+			// value's call is the release (R19).
+			w.expr(sel.X, mMove, hand{at: sel, how: "the method value " + sel.Sel.Name + " takes it"})
+			return
+		}
 		syntax.Inspect(x, func(n syntax.Node) bool {
 			if n == syntax.Node(x) {
 				return true
@@ -944,6 +988,16 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 			how := fmt.Sprintf("%s takes %s", name, pname)
 			if pname == "" || closes {
 				how = fmt.Sprintf("%s takes it", name)
+			}
+			if id, ok := unparen(a).(*syntax.Ident); ok && closes {
+				if v, _ := w.info.Uses[id].(*Var); v != nil && w.borrow[v] != nil {
+					// A Close through a borrow of an owned local takes
+					// that local.
+					if i, ok := w.slot[w.borrow[v]]; ok {
+						w.move(i, id, hand{at: a, how: how})
+						return
+					}
+				}
 			}
 			w.expr(a, mMove, hand{at: a, how: how})
 			return

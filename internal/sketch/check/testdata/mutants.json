@@ -1119,11 +1119,44 @@
       "name": "L8-B1 a hand-off not recorded",
       "origin": "wf10 L8 B1 (#197)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\tw.info.Handoffs[x] = true",
+      "from": "\tw.info.Handoffs[x] = l.v",
       "to": "",
       "rule": "resources R15, R19: the lowering ends the owner's entry at each hand-off the checker records.",
       "killers": [
         "lower:TestOwnershipRunModel"
+      ]
+    },
+    {
+      "name": "L8-B1 a method value of Close lends its receiver",
+      "origin": "wf10 L8 B1 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\tw.expr(sel.X, mMove, hand{at: sel,",
+      "to": "\t\t\tw.expr(sel.X, mLend, hand{at: sel,",
+      "rule": "resources R19: `let f = r.Close` takes r; the call of f is its one release.",
+      "killers": [
+        "lower:TestRuntime199MaskProperty"
+      ]
+    },
+    {
+      "name": "L8-B1 a Close through a borrow takes nothing",
+      "origin": "wf10 L8 B1 (#197)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tw.borrow[p] = root",
+      "to": "",
+      "rule": "resources R19: `let p = &h; p.Close()` takes h; h is released once.",
+      "killers": [
+        "lower:TestRuntime199MaskProperty"
+      ]
+    },
+    {
+      "name": "L8-B1 a Close function value lends its argument",
+      "origin": "wf10 L8 B1 (#197)",
+      "file": "internal/sketch/check/close.go",
+      "from": "\t\tsig.Takes = []int{0}",
+      "to": "",
+      "rule": "resources R19: `let f = Close; f(c)` takes c, as `Close(c)` does.",
+      "killers": [
+        "lower:TestRuntime199MaskProperty"
       ]
     }
   ]
