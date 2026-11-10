@@ -24,11 +24,96 @@ type httpRoute struct {
 	params             []*check.Var
 	payload            *check.Var
 	result             check.Type
+	failures           []httpFailure
+}
+
+type httpFailure struct {
+	typ    check.Type
+	status int
+}
+
+// One table in the package serves all its HTTP contracts. Tags are the codec's
+// nominal failure names, not expressions evaluated by the TypeScript peer.
+func httpFailureStatuses(pkg *check.Package) (map[string]int, error) {
+	var statuses map[string]int
+	for _, init := range pkg.Info.InitOrder {
+		if len(init.Vars) != 1 || !public(init.Vars[0].Name) {
+			continue
+		}
+		s, ok := init.Vars[0].Type.(*check.Slice)
+		if !ok {
+			continue
+		}
+		n, ok := s.Elem.(*check.Named)
+		if !ok || n.Obj.Pkg == nil || !n.Obj.Pkg.Std() || n.Obj.Pkg.Path != "http" || n.Obj.Name != "FailureStatus" {
+			continue
+		}
+		bad := func(why string) error { return fmt.Errorf("HTTP failure table %s: %s", init.Vars[0].Name, why) }
+		if statuses != nil {
+			return nil, bad("needs only one exported failure table per package")
+		}
+		statuses = map[string]int{}
+		lit, ok := init.Value.(*syntax.CompositeLit)
+		if !ok || lit.Base != nil {
+			return nil, bad("requires a constant literal slice of literal failure statuses")
+		}
+		for _, e := range lit.Elts {
+			r, ok := e.(*syntax.CompositeLit)
+			if !ok || r.Base != nil {
+				return nil, bad("requires literal failure statuses")
+			}
+			fields := map[string]syntax.Expr{}
+			for _, e := range r.Elts {
+				kv, ok := e.(*syntax.KeyValueExpr)
+				if !ok {
+					return nil, bad("requires named literal fields")
+				}
+				id, ok := kv.Key.(*syntax.Ident)
+				if !ok {
+					return nil, bad("requires named literal fields")
+				}
+				fields[id.Name] = kv.Value
+			}
+			tag, ok := stringLiteral(fields["Tag"])
+			l, literal := fields["Status"].(*syntax.BasicLit)
+			if !ok || tag == "" || !literal || l.Kind != syntax.INT {
+				return nil, bad("Tag and Status must be literals")
+			}
+			status, exact := constant.Int64Val(pkg.Info.Values[l])
+			if !exact || status < 400 || status > 599 {
+				return nil, bad("Status must be a failure status (400..599)")
+			}
+			if _, exists := statuses[tag]; exists {
+				return nil, bad("repeated failure " + tag)
+			}
+			statuses[tag] = int(status)
+		}
+	}
+	return statuses, nil
+}
+
+func httpFailures(t check.Type) []*check.Named {
+	if n, ok := t.(*check.Named); ok {
+		if u, ok := n.Underlying().(*check.Union); ok {
+			var all []*check.Named
+			for _, v := range u.Variants {
+				all = append(all, httpFailures(v)...)
+			}
+			return all
+		}
+		return []*check.Named{n}
+	}
+	return nil
 }
 
 // HTTP tables are data, not evaluated Ergo code. Only the projection reads
 // this finite profile; it adds no language checking or runtime semantics.
 func httpTables(pkg *check.Package, file *syntax.File, contracts []*check.TypeName) ([]httpTable, error) {
+	statuses, err := httpFailureStatuses(pkg)
+	if err != nil {
+		return nil, err
+	}
+	failureTypes := map[string]*check.Named{}
 	local := map[*syntax.Ident]bool{}
 	for _, d := range file.Decls {
 		if v, ok := d.(*syntax.VarDecl); ok {
@@ -190,6 +275,20 @@ func httpTables(pkg *check.Package, file *syntax.File, contracts []*check.TypeNa
 				}
 			}
 			route := httpRoute{name: name, method: method, path: path, status: int(status), result: op.Result}
+			for _, f := range op.Fails {
+				for _, n := range httpFailures(f) {
+					tag := n.Obj.Name
+					if prior := failureTypes[tag]; prior != nil && prior != n {
+						return nil, errTable("distinct failures share the tag " + tag)
+					}
+					failureTypes[tag] = n
+					status, ok := statuses[tag]
+					if !ok {
+						return nil, errTable("missing status for failure " + tag)
+					}
+					route.failures = append(route.failures, httpFailure{typ: n, status: status})
+				}
+			}
 			for _, p := range op.Params {
 				if params[p.Name] {
 					if _, ok := p.Type.(*check.Basic); !ok {
@@ -219,6 +318,13 @@ func httpTables(pkg *check.Package, file *syntax.File, contracts []*check.TypeNa
 			return nil, errTable("must route every endpoint exactly once: missing endpoint")
 		}
 		tables = append(tables, table)
+	}
+	if len(tables) > 0 {
+		for tag := range statuses {
+			if failureTypes[tag] == nil {
+				return nil, fmt.Errorf("HTTP failure table: %s is not a contract failure", tag)
+			}
+		}
 	}
 	return tables, nil
 }
@@ -265,6 +371,9 @@ func (g *emitter) httpAPI(table httpTable) {
 		if route.result != nil {
 			g.schema(route.result)
 		}
+		for _, f := range route.failures {
+			g.schema(f.typ)
+		}
 	}
 	g.s("export const ")
 	g.name(table.name, table.name, table.pos, table.local)
@@ -303,6 +412,13 @@ func (g *emitter) httpAPI(table httpTable) {
 			}
 			if route.payload != nil {
 				g.s(", payload: " + g.schema(route.payload.Type))
+			}
+			if len(route.failures) > 0 {
+				g.s(", error: [")
+				for _, f := range route.failures {
+					g.s(g.errorSchema(f.typ) + ".pipe($HttpApiSchema.status(" + strconv.Itoa(f.status) + ")), ")
+				}
+				g.s("]")
 			}
 			g.s(" }),\n")
 		}

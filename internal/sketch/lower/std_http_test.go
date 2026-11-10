@@ -73,6 +73,7 @@ import time
 import slices
 import strconv
 import sync
+import json
 
 func segment(step int) string {
 	let segments = []string{"..", ".", "", "a.txt", "sub", "out", "in", "%2e%2e", "...", "..a", "b.txt"}
@@ -161,6 +162,16 @@ test FilesAnswersByTheRule(steps []int, prefixed bool, verb int) {
 		let one = "/files/" + name
 		assert http.Files(root, "/files/", http.Request{Method: method, Path: one, Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}) == expected(root, method, one)
 	}
+}
+
+test HttpFailureUsesTable(pick int, tag string) {
+	let status = 400 + ((pick%200)+200)%200
+	let entry = http.FailureStatus{Tag: tag, Status: status}
+	let other = http.FailureStatus{Tag: tag+"!", Status: if status == 400 { 599 } else { 400 }}
+	let table = []http.FailureStatus{other, entry}
+	let body = "{\"_tag\":"+json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, tag)+"}"
+	let response = http.Failure(table, body)
+	assert response.Status == status && response.Body == body && http.Header(response.Header, "Content-Type") == Some{"application/json"} && http.StatusOf([]http.FailureStatus{other}, tag) == None && http.StatusOf([]http.FailureStatus{entry, entry}, tag) == None && http.StatusOf([]http.FailureStatus{http.FailureStatus{Tag: tag, Status: 200}}, tag) == None && http.StatusOf([]http.FailureStatus{http.FailureStatus{Tag: tag, Status: 600}}, tag) == None
 }
 
 test HttpSuccessUsesRoute(pick int, body string) {
@@ -286,6 +297,8 @@ const httpAllowStatement = `AllowIsWhatMatches(picks []int, asked int) { let met
 
 const httpSuccessStatement = `SuccessUsesRoute(pick int, body string) { let status = 200 + ((pick%100)+100)%100 let route = Route{Value: "reply", Method: "POST", Path: "/", Status: status} let response = Success(route, body) response.Status == status && if status == 204 || status == 205 { response.Body == "" && len(response.Header) == 0 } else { response.Body == body && Header(response.Header, "Content-Type") == Some{"application/json"} } }`
 
+const httpFailureStatement = `FailureUsesTable(pick int, tag string) { let status = 400 + ((pick%200)+200)%200 let entry = FailureStatus{Tag: tag, Status: status} let other = FailureStatus{Tag: tag+"!", Status: if status == 400 { 599 } else { 400 }} let table = []FailureStatus{other, entry} let body = "{\"_tag\":"+json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, tag)+"}" let response = Failure(table, body) response.Status == status && response.Body == body && Header(response.Header, "Content-Type") == Some{"application/json"} && StatusOf([]FailureStatus{other}, tag) == None && StatusOf([]FailureStatus{entry, entry}, tag) == None && StatusOf([]FailureStatus{FailureStatus{Tag: tag, Status: 200}}, tag) == None && StatusOf([]FailureStatus{FailureStatus{Tag: tag, Status: 600}}, tag) == None }`
+
 // TestStdHTTPLawsRun runs the construction law and public pure handler
 // checks. It builds Go because the native property runner executes the
 // std router and bound clock; go/types alone cannot observe their values.
@@ -297,7 +310,7 @@ func TestStdHTTPLawsRun(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("HTTP laws: exit %d\n%s\n%s", code, stdout, stderr)
 	}
-	statements := map[string]string{"http SuccessUsesRoute": httpSuccessStatement, "http BuiltPathMatches": httpBuiltPathStatement, "http AllowIsWhatMatches": httpAllowStatement, "http FilesAsksBeneath": httpFilesStatement, "http StreamIsItsWrites": httpStreamStatement, "http WriteAfterStreamFails": httpLateWriteStatement}
+	statements := map[string]string{"http FailureUsesTable": httpFailureStatement, "http SuccessUsesRoute": httpSuccessStatement, "http BuiltPathMatches": httpBuiltPathStatement, "http AllowIsWhatMatches": httpAllowStatement, "http FilesAsksBeneath": httpFilesStatement, "http StreamIsItsWrites": httpStreamStatement, "http WriteAfterStreamFails": httpLateWriteStatement}
 	lawLabel := func(key string) string { return "Http" + strings.TrimPrefix(key, "http ") }
 	lawledger.Run(t, lawsPassed(t, statements, lawLabel, stdHTTPLawsProbe, stdout, "RouterRefusalsAndHead", "HandlerUnderManual", "FilesAnswersByTheRule"))
 }

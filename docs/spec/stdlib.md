@@ -410,7 +410,16 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
    `Status` is required and has no default. `Success(route, jsonText)` uses
    that status and `application/json`; 204 and 205 have no body or content
    type. A handler uses this helper for success and its own total catch for
-   failures. `SuccessUsesRoute` holds this rule. `Serve` stays independent
+   failures. `SuccessUsesRoute` holds this rule. `FailureStatus{Tag, Status}`
+   tables give each nominal contract failure exactly one status (400..599).
+   `StatusOf(table, tag)` is None for missing, repeated or invalid entries.
+   `Failure(table, taggedJson)` preserves the body with application/json and
+   reads the status from that table; invalid JSON, a missing tag or an absent
+   status is a defect, not a default 500. Use the ordinary codec for a closed
+   union or row value so the failure body has its nominal `_tag` and fields.
+   The TypeScript HTTP projection checks exported literal tables against the
+   contract's actual failure rows. `FailureUsesTable` tests lookup and response
+   preservation. `Serve` stays independent
    of the router: it sends the response the handler returns.
 8. `Files(root fs.Root, prefix string, r Request) Response` serves the
    files of a read-only folder (G1f). The name is `r.Path` after `prefix`,
@@ -554,6 +563,7 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | Package | Law | Statement | Runner | State |
 | --- | --- | --- | --- | --- |
 | `http` | `SuccessUsesRoute` | `SuccessUsesRoute(pick int, body string) { let status = 200 + ((pick%100)+100)%100 let route = Route{Value: "reply", Method: "POST", Path: "/", Status: status} let response = Success(route, body) response.Status == status && if status == 204 \|\| status == 205 { response.Body == "" && len(response.Header) == 0 } else { response.Body == body && Header(response.Header, "Content-Type") == Some{"application/json"} } }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `FailureUsesTable` | `FailureUsesTable(pick int, tag string) { let status = 400 + ((pick%200)+200)%200 let entry = FailureStatus{Tag: tag, Status: status} let other = FailureStatus{Tag: tag+"!", Status: if status == 400 { 599 } else { 400 }} let table = []FailureStatus{other, entry} let body = "{\"_tag\":"+json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, tag)+"}" let response = Failure(table, body) response.Status == status && response.Body == body && Header(response.Header, "Content-Type") == Some{"application/json"} && StatusOf([]FailureStatus{other}, tag) == None && StatusOf([]FailureStatus{entry, entry}, tag) == None && StatusOf([]FailureStatus{FailureStatus{Tag: tag, Status: 200}}, tag) == None && StatusOf([]FailureStatus{FailureStatus{Tag: tag, Status: 600}}, tag) == None }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `BuiltPathMatches` | `BuiltPathMatches(a string, b string) { if a == "" \|\| b == "" \|\| strings.Contains(a, "/") \|\| strings.Contains(b, "/") { return true } let route = Route{Value: "pair", Method: "GET", Path: "/:a/:b", Status: 201} match Match([]Route[string]{route}, "GET", "/"+a+"/"+b) { case Found as f: f.Route == route && f.Params.Get("a") == Some{a} && f.Params.Get("b") == Some{b} case NotFound, MethodNotAllowed: false } }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `AllowIsWhatMatches` | `AllowIsWhatMatches(picks []int, asked int) { let methods = []string{"GET", "HEAD", "POST", "PUT", "DELETE"} let pick = func(i int) string { methods[if i < 0 { -(i % len(methods)) } else { i % len(methods) }] } let mut routes = []Route[int]{} for i, p in picks { routes = routes.Append(Route{Value: i, Method: pick(p), Path: "/r/:id", Status: 200}) } match Match(routes, pick(asked), "/r/7") { case Found, NotFound: true case MethodNotAllowed as m: for i, a in m.Allow { if slices.Contains(m.Allow[i+1:], a) { return false } } for name in methods { let found = match Match(routes, name, "/r/7") { case Found: true case NotFound, MethodNotAllowed: false } if found != slices.Contains(m.Allow, name) { return false } } true } }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `FilesAsksBeneath` | `FilesAsksBeneath(steps []int, prefixed bool) { let mut rest = "" let mut dotdot = false for i, s in steps { let e = fileSegment(s) dotdot = dotdot \|\| e == ".." rest = if i == 0 { e } else { rest + "/" + e } } let path = if prefixed { "/static/" + rest } else { "/" + rest } let method = if len(steps)%2 == 0 { "GET" } else { "HEAD" } let root = filesProbe{paths: sync.NewRef[[]string]([]string{})} let response = Files(root, "/static/", Request{Method: method, Path: path, Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}) let asked = root.paths.Get() if len(asked) > 1 \|\| (dotdot \|\| !prefixed) && len(asked) != 0 { return false } for p in asked { if strings.HasPrefix(p, "/") { return false } for e in strings.Split(p, "/") { if e == "" \|\| e == "." \|\| e == ".." { return false } } } response.Status == 200 \|\| response.Status == 403 \|\| response.Status == 404 }` | `TestStdHTTPLawsRun` | tested |

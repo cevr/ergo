@@ -7,8 +7,8 @@ import json
 // answers. Handle calls Jobs in its context, so this is the served contract.
 type Endpoint = endpoint.Endpoint
 
-// Jobs is the job queue's public application contract. HTTP failures are
-// assigned statuses by Handle; the route table declares only success.
+// Jobs is the job queue's public application contract. Failures declares
+// the HTTP status of each type of its failure rows.
 type Jobs {
 	ListJobs() Listing,
 	SubmitJob(draft Draft) View fails BadBody,
@@ -36,6 +36,37 @@ let Routes = []http.Route[Endpoint]{
 	http.Route{Value: endpoint.ShowJob, Method: "GET", Path: "/jobs/:id", Status: 200},
 	http.Route{Value: endpoint.CancelJob, Method: "POST", Path: "/jobs/:id/cancel", Status: 200},
 	http.Route{Value: endpoint.DeleteJob, Method: "DELETE", Path: "/jobs/:id", Status: 204},
+}
+
+// A row can name failures from several packages. A declared union cannot:
+// its variants belong to its own package. This private carrier lets the law
+// generate the row value without wrapping or copying any domain failure.
+type failureCase[F] { Error F }
+type contractFailure = failureCase[BadBody | jobs.NotFound | jobs.Conflict]
+
+let Failures = []http.FailureStatus{
+	http.FailureStatus{Tag: "BadBody", Status: 422},
+	http.FailureStatus{Tag: "NotFound", Status: 404},
+	http.FailureStatus{Tag: "Conflict", Status: 409},
+}
+
+// The generated union covers each nominal failure and its payload. Every one
+// must have exactly one status; StatusOf refuses missing and repeated entries.
+law FailuresCoverContract(f contractFailure) {
+	let body = json.Encode(json.Codec[BadBody | jobs.NotFound | jobs.Conflict]{MaxBytes: 0, MaxDepth: 0}, f.Error)
+	let r = json.Open(body, 0, 0) catch {
+	case _:
+		return false
+	}
+	json.BeginObject(r) catch {
+	case _:
+		return false
+	}
+	let tag = json.Tag(r) catch {
+	case _:
+		return false
+	}
+	http.StatusOf(Failures, tag) != None
 }
 
 // Endpoints is every endpoint, independent of the route table. A new variant

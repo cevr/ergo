@@ -21,9 +21,10 @@ type TooLarge { Limit int }
 type Unreadable { Reason string }
 
 // Handle answers r from Jobs in the context. answer
-// fails with every refusal by its type; this one catch gives each its
-// status, with no case _, so a new failure stops the build until it has
-// a status here.
+// fails with every refusal by its type. The total catch names transport
+// refusals explicitly; contract failures use Failures, the shared table.
+// A new unhandled failure stops the build; a missing contract status also
+// refutes the example law and is a TypeScript projection diagnostic.
 //
 //	400 a body that is not JSON, or that could not be read
 //	404 no such route, or no such job
@@ -45,14 +46,18 @@ func Handle(r http.Request) http.Response needs Jobs {
 	case json.Malformed as m:
 		Refuse(400, "the body is not JSON: \(m.Reason) at byte \(m.Offset)")
 	case BadBody as b:
-		Refuse(422, b.Field+" "+b.Reason)
+		Failure(contractFailure{Error: b})
 	case BadId as b:
 		Refuse(404, "no job "+b.Text)
 	case jobs.NotFound as n:
-		Refuse(404, "no job \(n.Id)")
+		Failure(contractFailure{Error: n})
 	case jobs.Conflict as c:
-		Refuse(409, "job \(c.Id) is \(c.State) and cannot \(c.Asked)")
+		Failure(contractFailure{Error: c})
 	}
+}
+
+func Failure(f contractFailure) http.Response {
+	http.Failure(Failures, json.Encode(json.Codec[BadBody | jobs.NotFound | jobs.Conflict]{MaxBytes: 0, MaxDepth: 0}, f.Error))
 }
 
 // answer is the response to r, or the refusal that stops it.

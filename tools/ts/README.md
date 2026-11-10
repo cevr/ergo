@@ -30,9 +30,18 @@ remaining parameter is the JSON body itself, not a wrapper. A no-result
 operation uses `HttpApiSchema.Empty(Status)`; results carry the table's
 status annotation, including 201. A result with 204, 205 or HEAD is refused.
 The handler uses `http.Success(found.Route, text)` so the server reads the
-same status as the mapper. Failure rows are allowed, but HTTP failure
-statuses and schemas are not projected yet: stock Effect reports an
-undeclared-status error. RPC projections retain their existing failures.
+same status as the mapper. A package with failure rows exports one constant
+literal `[]http.FailureStatus` table: `{Tag: "NotFound", Status: 404}` per
+nominal failure tag. It covers the routed contracts' failures exactly once;
+computed entries, missing/repeated/unknown tags, tag collisions between types
+and statuses outside 400..599 are projection diagnostics. Several failure
+types may share a status: Effect decodes their tagged bodies at that status.
+Each endpoint projects only its own failure row, with per-schema statuses.
+The handler encodes a closed union of its contract failures, then calls
+`http.Failure(Failures, taggedJson)`; it never chooses those statuses by hand.
+`Effect.catchTag("NotFound", ...)` receives typed fields on a stock client.
+Transport refusals outside the operation row remain undeclared-status errors.
+RPC projections retain their existing failures.
 
 Use the pins in `package.json`: Effect 4.1.2 and TypeScript 7.1.0-beta.
 Install this private package from its local path; publishing needs an owner

@@ -21,7 +21,7 @@ import (
 // can establish that the mapped statuses and codecs agree with the real jobs
 // server. The in-process checker cannot run the TypeScript peer. It kills
 // e3-table, e3-method, e3-path, e3-payload, e3-status, e3-empty-status and
-// e3-param: the old RPC
+// e3-param, plus E3b's e3b-errors, e3b-status and e3b-tag: the old RPC
 // property has neither an HTTP route table nor status-directed success codecs.
 func TestHttpApiClientCallsJobs(t *testing.T) {
 	if os.Getenv("ERGO_TS_TEST") != "1" {
