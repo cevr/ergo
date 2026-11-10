@@ -1,6 +1,7 @@
 {
   "about": "R3' projection/mapper/loader mutants. The focused judge runs the named tests with ERGO_TS_TEST=1 for stock-client mutants. The generic scripts/mutants runner does not yet select tsproj; the R3' request records the judge and results.",
   "mutants": [
+    { "name": "e3b-errors", "origin": "E3b", "file": "internal/tsproj/http.go", "from": "if len(route.failures) > 0 {", "to": "if false {", "rule": "HTTP operation failures are typed in the stock client's error channel.", "killers": ["tsproj:TestHttpApiClientCallsJobs"] },
     { "name": "e3-missing", "origin": "E3", "file": "internal/tsproj/http.go", "from": "if len(seen) != len(variants) {", "to": "if false {", "rule": "Every endpoint has a route.", "killers": ["tsproj:TestHttpTableRefusesAmbiguousContracts"] },
     { "name": "e3-repeat", "origin": "E3", "file": "internal/tsproj/http.go", "from": "if seen[name] {", "to": "if false {", "rule": "An endpoint has only one route.", "killers": ["tsproj:TestHttpTableRefusesAmbiguousContracts"] },
     { "name": "e3-literal", "origin": "E3", "file": "internal/tsproj/http.go", "from": "if !ok || lit.Base != nil {\n\t\t\treturn nil, errTable(\"requires a constant literal slice of literal routes\")", "to": "if !ok || lit.Base != nil {\n\t\t\treturn nil, nil", "rule": "A computed table is a diagnostic, not an empty projection.", "killers": ["tsproj:TestHttpTableRefusesAmbiguousContracts"] },

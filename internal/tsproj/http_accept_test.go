@@ -86,6 +86,10 @@ const program = Effect.gen(function*() {
   const deleted = yield* client.DELETE.DeleteJob({ params: { id }, responseMode: "decoded-and-response" });
   const unit: void = deleted[0];
   if (deleted[1].status !== 204 || unit !== undefined) throw new Error("delete");
+  const missing = yield* client.GET.ShowJob({ params: { id } }).pipe(Effect.catchTag("NotFound", e => Effect.succeed(e.id)));
+  if (missing !== id) throw new Error("not-found did not decode");
+  const invalid = yield* client.POST.SubmitJob({ payload: { name: "" } }).pipe(Effect.catchTag("BadBody", e => Effect.succeed(e.field + " " + e.reason)));
+  if (invalid !== "name is empty") throw new Error("invalid draft did not decode");
   console.log("HTTP client agrees");
 });
 declare const process: { argv: string[] };
@@ -95,6 +99,44 @@ await Effect.runPromise(program.pipe(Effect.provide(FetchHttpClient.layer)));
 		return command("bun", "node_modules/typescript/bin/tsc", "--runExternalCode", "--pretty", "false", "-p", ".")
 	}
 	runCheck(t, tsc())
+	// Failure names are part of the call site's checked error channel, not
+	// only exported data schemas. Rename throughout the copied source so the
+	// Ergo contract remains valid, but leave catchTag in the peer stale.
+	var renamed []string
+	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && d.Name() == "node_modules" {
+			return filepath.SkipDir
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".ergo") {
+			return nil
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(b), "BadBody") {
+			renamed = append(renamed, path)
+			put(t, filepath.Dir(path), filepath.Base(path), strings.ReplaceAll(string(b), "BadBody", "InvalidDraft"))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, code := runResult(t, tsc())
+	for _, path := range renamed {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		put(t, filepath.Dir(path), filepath.Base(path), strings.ReplaceAll(string(b), "InvalidDraft", "BadBody"))
+	}
+	if code == 0 || !bytes.Contains(out, []byte("client.ts(20,")) {
+		t.Fatalf("failure rename did not fail at catchTag call site (exit %d):\n%s", code, out)
+	}
 	// A method-only change leaves the operation signature intact. Method
 	// groups make even that drift a call-site error, not just a runtime 405.
 	routes, err := os.ReadFile(filepath.Join(dir, "api/routes.ergo"))
@@ -106,7 +148,7 @@ await Effect.runPromise(program.pipe(Effect.provide(FetchHttpClient.layer)));
 		t.Fatal("ShowJob route not found")
 	}
 	put(t, dir, "api/routes.ergo", changed)
-	out, code := runResult(t, tsc())
+	out, code = runResult(t, tsc())
 	put(t, dir, "api/routes.ergo", string(routes))
 	if code == 0 || !bytes.Contains(out, []byte("client.ts(9,")) {
 		t.Fatalf("method drift did not fail at the call site (exit %d):\n%s", code, out)
