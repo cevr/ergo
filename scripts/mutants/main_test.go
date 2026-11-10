@@ -11,6 +11,27 @@ import (
 
 func TestMain(m *testing.M) { os.Exit(testinputs.Main(m)) }
 
+// TestHeaderLineIsCoveredByWhatReachesIt is the smallest repro of M1's
+// uncovered runtime/v1 mutant: the cover tool gives a case line of a
+// tagless switch no block (measured: blocks 180 and 182 around the case at
+// 181 of http_client.go), so a mutant there had no covering test. The
+// block that ends last before the line stands for it.
+func TestHeaderLineIsCoveredByWhatReachesIt(t *testing.T) {
+	c := &coverage{
+		Tests: []*covTest{{ID: "s:Early"}, {ID: "s:Reaches"}, {ID: "s:Body"}},
+		Files: map[string][]covBlock{"f.go": {{Start: 1, End: 3, Tests: []int{0}}, {Start: 5, End: 6, Tests: []int{1}}, {Start: 8, End: 8, Tests: []int{2}}}},
+	}
+	c.reindex()
+	header := headerLine("a\nb\n\t\tcase errors.Is(err, x):\n", len("a\nb\n\t\tcase "))
+	got := c.covering("f.go", 7, 7, header, nil)
+	if !header || len(got) != 1 || !got["s:Reaches"] {
+		t.Errorf("the tests of a header line at 7 (header %v): %v, want s:Reaches", header, got)
+	}
+	if other := c.covering("f.go", 7, 7, headerLine("var x = \"lit\"\n", 9), nil); len(other) != 0 {
+		t.Errorf("a line in no block that is no header is covered by %v", other)
+	}
+}
+
 // TestScopeIsTheLedgersPackage: a ledger outside check and lower is judged
 // by its own package's tests alone, so the coverage pass records that
 // package's blocks and runs only its tests (M1: under ergoSuites a

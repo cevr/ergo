@@ -26,7 +26,8 @@
       "from": "\treturn rpcReadExit([]byte(body), strings.HasPrefix(contentType, rpcNDJSON), id)",
       "to": "\treturn rpcReadExit([]byte(body), true, id)",
       "rule": "A Loopback Call reads the json Exit its server answered; the contract's laws hold through it.",
-      "killers": ["examples:limiter/loopback (ergo test: limits.Limiter laws for Loopback)"]
+      "killers": ["examples:limiter/loopback (ergo test: limits.Limiter laws for Loopback)"],
+      "gap": "uncovered by the runner: only a generated program runs this body, and runtime/v1's own tests do not reach it (scripts/mutants judges a package's ledger by its own tests, M1); its killer is run by hand: go run ./scripts/examples limiter"
     },
     {"name":"root-reopens-directory", "origin":"wf10 G1f r2", "file":"runtime/v1/host.go", "from":"if err := f(r.root); err != nil {", "to":"reopened, err := os.OpenRoot(r.root.Name()); if err != nil { return fsErr(path, err) }; defer reopened.Close(); if err := f(reopened); err != nil {", "rule":"A Root retains the opened directory across a rename and replacement of its name.", "killers":["runtime/v1:TestFSRootKeepsOpenedDirectory"]},
     {"name":"root-release-omitted", "origin":"wf10 G1f r2", "file":"runtime/v1/host.go", "from":"OnExit(s, func() { _ = r.root.Close() })", "to":"_ = r", "rule":"Every acquired Root closes at frame end, including failure, defect and stop.", "killers":["runtime/v1:TestFSRootClosesAtScopeEnd"]},
