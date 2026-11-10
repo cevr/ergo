@@ -12,8 +12,10 @@ import limiter/limits
 import limiter/limits/limitsrpc
 import http
 import limiter/memory
+import os
 import queue
 import rpc
+import strings
 import task
 
 // buckets is the limiter's shape: "api" holds five tokens and gets one
@@ -35,7 +37,24 @@ func told(n memory.Note) string {
 	}
 }
 
-func main() fails http.ListenFailed | http.InvalidLimits needs Console | Ambient {
+// check is the small caller beside the server, `limiter check URL`: it
+// asks the limiter that URL names for its buckets through the checked
+// call, so a limiter that does not answer, or a URL that names no
+// limiter, is a typed rpc.Transport: a line and status 1, not a defect.
+func check(url string) fails os.Exit needs Console | Ambient {
+	let keys = limitsrpc.BucketsChecked(limitsrpc.NewClient(rpc.Dial(url))) catch {
+	case rpc.Transport:
+		return os.Exit{Code: 1, Message: "limiter: no limiter answers at \(url)"}
+	}
+	Console.Println("the limiter has the buckets \(strings.Join(keys, ", "))")
+}
+
+func main() fails http.ListenFailed | http.InvalidLimits | os.Exit needs Console | Ambient {
+	let args = os.NewHost().Args()
+	if len(args) == 2 && args[0] == "check" {
+		try check(args[1])
+		return
+	}
 	let l = try http.Listen("127.0.0.1:0")
 	Console.Println("listening \(l.Addr())")
 	let notes = queue.New[memory.Note](64)

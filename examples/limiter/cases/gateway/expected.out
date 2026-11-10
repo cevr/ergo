@@ -23,3 +23,5 @@ limiter: hold 1 waits on search
 POST /advance?ms=1000 -> 204
 GET /hold/search -> 200: granted, 0 left
 limiter: hold 1 released
+limiter check http://ADDR/rpc -> 0: the limiter has the buckets api, search
+limiter check http://ADDR/nope -> 1: limiter: no limiter answers at http://ADDR/nope

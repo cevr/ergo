@@ -6,7 +6,7 @@
 import { Effect, Layer } from "effect"
 import { FetchHttpClient } from "effect/http"
 import { RpcClient, RpcSerialization } from "effect/rpc"
-import { spawn } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import { createInterface } from "node:readline"
 import { ClientLive, handler } from "./gateway.ts"
 
@@ -88,6 +88,17 @@ console.log(`limiter: ${await nextLine()}`)
 console.log(await send("POST", "/advance?ms=1000"))
 console.log(await granted)
 console.log(`limiter: ${await nextLine()}`)
+
+// The small Ergo caller: `limiter check URL` asks the limiter for its
+// buckets through the generated checked call (BucketsChecked); a URL that
+// names no limiter is a typed rpc.Transport, a line and status 1.
+const check = (url: string): string => {
+  const run = spawnSync(bin, ["check", url], { encoding: "utf8" })
+  const said = `${run.stdout}${run.stderr}`.trim().replaceAll(addr, "ADDR")
+  return `limiter check ${url.replaceAll(addr, "ADDR")} -> ${run.status}: ${said}`
+}
+console.log(check(`http://${addr}/rpc`))
+console.log(check(`http://${addr}/nope`))
 await server.stop(true)
 await app.dispose()
 limiter.kill()

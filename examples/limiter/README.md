@@ -31,6 +31,10 @@ reads it through the content mapper (`tools/ts`), so there is no generated
   per 200 ms; `search`: 3, one per second), binds `limits.Limiter` to the
   memory provider and serves it on `127.0.0.1:0`, printing the address
   first. The clock moves only through `Advance`, so the case is exact.
+  `limiter check URL` is the small Ergo caller: it asks the limiter at
+  URL for its buckets through the generated checked call
+  (`limitsrpc.BucketsChecked`), so a URL that names no limiter is the
+  typed `rpc.Transport`, a line and status 1, not a defect.
 - `ts/gateway.ts` is the Effect gateway: `GET /fetch/:key?cost=N` takes,
   `Effect.catchTag` turns `Limited` into 429 with `Retry-After`,
   `UnknownBucket` into 404 and `BadCost` into 400; `GET /level/:key`
@@ -45,7 +49,8 @@ warmed Bun cache, see `tools/ts/README.md`):
 - `gateway`: the script, through both servers; then a Hold whose client
   hangs up (the limiter prints that the Hold waits, then that its release
   ran) and a Hold that an Advance lets through. The driver waits on the
-  limiter's lines, never on time.
+  limiter's lines, never on time. Last, `limiter check` against the
+  running limiter and against a URL with no RPC mount.
 - `tsc`: `tsc --runExternalCode` type-checks the gateway against the
   contract.
 - `tsc-drift`: the contract renames `BadCost.Capacity`; tsc fails at the
