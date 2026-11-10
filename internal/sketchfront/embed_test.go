@@ -109,13 +109,16 @@ func TestEmbeddedDiagnostics(t *testing.T) {
 		{`let Asset = embedded[string]("/nonexistent/loop-probe-x")`, "must stay under the package folder"},
 		{`let Asset = embedded[string]("missing")`, "matches no files"},
 		{`let Asset = embedded[string]("link")`, "symbolic link"},
+		{`let Asset = embedded[string]("invalid/.git/asset")`, "portable embed path"},
+		{`let Asset = embedded[string]("invalid/bad./asset")`, "portable embed path"},
+		{`let Asset = embedded[string]("invalid/NUL.txt")`, "portable embed path"},
 		{`let Asset = embedded[string]("data/*")`, "exactly one file"},
 		{`func f() string { embedded[string]("data/a") }`, "whole initializer"},
 		{`let Asset = embedded[int]("data/a")`, "string, []byte or embed.FS"},
 		{`func pattern() string { "data/a" }; let Asset = embedded[string](pattern())`, "constant string"},
 	} {
 		t.Run(row.want+row.source, func(t *testing.T) {
-			root := writeTree(t, map[string]string{"main.ergo": row.source + "\nfunc main() {}\n", "data/a": "a", "data/b": "b"})
+			root := writeTree(t, map[string]string{"main.ergo": row.source + "\nfunc main() {}\n", "data/a": "a", "data/b": "b", "invalid/.git/asset": "fixture", "invalid/bad./asset": "fixture", "invalid/NUL.txt": "fixture"})
 			if err := os.Symlink(filepath.Join(root, "data/a"), filepath.Join(root, "link")); err != nil {
 				t.Fatal(err)
 			}

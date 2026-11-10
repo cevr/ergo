@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -92,8 +93,11 @@ func (l *loader) ResolveEmbed(file *syntax.File, pattern string, tree bool) ([]c
 			}
 			return nil
 		}
-		if !info.Mode().IsRegular() || path.Base(name) == "go.mod" || strings.ContainsAny(name, "\"*:<>?`'|\\[]") {
+		if !info.Mode().IsRegular() {
 			return fmt.Errorf("%q is not an embeddable regular file name", name)
+		}
+		if !embedNameAllowed(name) {
+			return fmt.Errorf("%q is not a portable embed path", name)
 		}
 		selected[name] = true
 		return nil
@@ -157,4 +161,37 @@ func (l *loader) ResolveEmbed(file *syntax.File, pattern string, tree bool) ([]c
 		out = append(out, check.EmbedFile{Path: name, Data: slices.Clone(data)})
 	}
 	return out, nil
+}
+
+// embedNameAllowed is a portable subset of Go module.CheckFilePath, which
+// cmd/go applies to every element of an embedded path. Brackets are also
+// refused: emitted directives name exact files, not more glob patterns.
+// Keep this at the source boundary, before the Go builder can reject it.
+func embedNameAllowed(name string) bool {
+	for _, elem := range strings.Split(name, "/") {
+		if elem == "" || strings.HasSuffix(elem, ".") {
+			return false
+		}
+		switch elem {
+		case ".git", ".hg", ".svn", ".bzr", "go.mod":
+			return false
+		}
+		short, _, _ := strings.Cut(strings.ToUpper(elem), ".")
+		if short == "CON" || short == "PRN" || short == "AUX" || short == "NUL" ||
+			len(short) == 4 && (strings.HasPrefix(short, "COM") || strings.HasPrefix(short, "LPT")) && short[3] >= '1' && short[3] <= '9' {
+			return false
+		}
+		for _, r := range elem {
+			if r < 128 {
+				if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("!#$%&()+,-.=@^_{}~ ", r) {
+					continue
+				}
+				return false
+			}
+			if !unicode.IsLetter(r) {
+				return false
+			}
+		}
+	}
+	return true
 }

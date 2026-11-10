@@ -7,6 +7,7 @@
     {"name":"embed-parent-escape","file":"internal/sketchfront/embed.go","from":"!fs.ValidPath(pattern)","to":"false","killers":["sketchfront:TestEmbeddedDiagnostics"]},
     {"name":"embed-local-initializer","file":"internal/sketch/check/embed.go","from":"if spec == nil {","to":"if spec == nil && false {","killers":["sketchfront:TestEmbeddedDiagnostics"]},
     {"name":"embed-multiple-string-files","file":"internal/sketchfront/embed.go","from":"if !tree && len(selected) != 1 {","to":"if false {","killers":["sketchfront:TestEmbeddedDiagnostics"]},
-    {"name":"embed-tree-prefix-retained","file":"runtime/v1/embed.go","from":"fs.Sub(files, prefix)","to":"fs.Sub(files, \".\")","killers":["example:router"]}
+    {"name":"embed-tree-prefix-retained","file":"runtime/v1/embed.go","from":"fs.Sub(files, prefix)","to":"fs.Sub(files, \".\")","killers":["example:router"]},
+    {"name":"embed-invalid-element","file":"internal/sketchfront/embed.go","from":"if !embedNameAllowed(name) {","to":"if false {","killers":["sketchfront:TestEmbeddedDiagnostics"]}
   ]
 }
