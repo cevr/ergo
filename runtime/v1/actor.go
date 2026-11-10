@@ -192,7 +192,11 @@ type Actor[S, E, D any] struct {
 	// still does, and a channel closed once they are stopped. kidsMu is
 	// held while a child starts, so the stop of an entry's children waits
 	// for a start in progress and then sees it.
-	kidsMu    sync.Mutex
+	kidsMu sync.Mutex
+	// adopting is set, in an explored run only, while adopt holds kidsMu
+	// across a child's start, whose handshake is a scheduling point:
+	// stopKids waits for it where the scheduler sees the wait (X7).
+	adopting  atomic.Bool
 	kids      []*kid
 	kidsEpoch uint64
 	kidsOpen  bool
@@ -892,6 +896,10 @@ func (r *entryRef[S, E, D]) adopt(h hostCell, start func(func(*rt.Task, error) b
 	a := r.a
 	a.kidsMu.Lock()
 	defer a.kidsMu.Unlock()
+	if rt.Exploring {
+		a.adopting.Store(true)
+		defer a.adopting.Store(false)
+	}
 	if !a.kidsOpen || a.kidsEpoch != r.epoch {
 		return false, true
 	}
@@ -956,6 +964,9 @@ func (a *Actor[S, E, D]) openKids() {
 // and waits for its end, last started first. It gives the defects of the
 // children that they did not report.
 func (a *Actor[S, E, D]) stopKids() error {
+	if rt.Exploring {
+		rt.Await(nil, func() bool { return !a.adopting.Load() })
+	}
 	a.kidsMu.Lock()
 	ks, done := a.kids, a.kidsDone
 	a.kids, a.kidsOpen, a.kidsDone = nil, false, nil
