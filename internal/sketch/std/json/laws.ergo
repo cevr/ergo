@@ -25,7 +25,7 @@ law RoundTrips(v fleet) {
 
 // viaWriter is v's text written through the Writer operations of a Text:
 // the reference path, since its encode's writer is a Writer, not a Text.
-func viaWriter[T codable](v T) string {
+func viaWriter[T wire](v T) string {
 	let t = NewText()
 	let w Writer = t
 	encode(v, w)

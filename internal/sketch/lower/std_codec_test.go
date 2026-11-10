@@ -8,18 +8,18 @@ import (
 	"ergo.local/prototype/internal/lawledger"
 )
 
-// stdWireLawsProbe restates the laws of std wire's laws.ergo as Ergo
+// stdCodecLawsProbe restates the laws of std codec's laws.ergo as Ergo
 // property tests over the derived encode and decode (types.md, Codecs;
 // L11), with the package's private types written out again, and adds two
 // tests the std laws cannot state, since std declares no refined type and
-// no by-name pair: WireRefinedParses (a refined field decodes through its
+// no by-name pair: CodecRefinedParses (a refined field decodes through its
 // ParseN, and a value outside its where fails Unsatisfied) and
-// WireByNamePair (a type with ParseX and Wire encodes as Wire's value and
+// CodecByNamePair (a type with ParseX and Wire encodes as Wire's value and
 // decodes through ParseX, whose failure is in the row, both through
 // generic codecs, so the caller's witness carries the pair). The pair's
 // derived law hostRoundTrips (types.md, Codecs 7) runs here too; it checks
-// the pair, not the codec, so WireByNamePair stays.
-const stdWireLawsProbe = `import wire
+// the pair, not the codec, so CodecByNamePair stays.
+const stdCodecLawsProbe = `import codec
 
 type up { Host string, Port int, Tags []string, Load float64 }
 type down {}
@@ -27,16 +27,16 @@ type state = up | down
 type widths { A int8, B int16, C int32, D int64, E uint8, F uint16, G uint32, H uint64, I int, J uint, K float32, L bool }
 type fleet { Name string, States []state, Spare Option[up], Meta Map[string, int], Sizes widths }
 
-func depth(e wire.Event) int {
+func depth(e codec.Event) int {
 	match e {
-	case wire.BeginListEvent, wire.BeginObjectEvent: 1
-	case wire.EndListEvent, wire.EndObjectEvent: -1
+	case codec.BeginListEvent, codec.BeginObjectEvent: 1
+	case codec.EndListEvent, codec.EndObjectEvent: -1
 	case _: 0
 	}
 }
 
-test WireEventsReplay(v fleet) {
-	let back = wire.RoundTrip(v) catch {
+test CodecEventsReplay(v fleet) {
+	let back = codec.RoundTrip(v) catch {
 	case _:
 		assert false
 		v
@@ -44,16 +44,16 @@ test WireEventsReplay(v fleet) {
 	assert back == v
 }
 
-func many[T codable](vs []T) ([]T, Option[T]) fails wired[Option[T]] {
-	let e = wire.NewEvents()
+func many[T wire](vs []T) ([]T, Option[T]) fails wired[Option[T]] {
+	let e = codec.NewEvents()
 	encode(vs, e)
 	let first Option[T] = if len(vs) > 0 { Some{Value: vs[0]} } else { None }
 	encode(first, e)
-	let r = wire.NewReplay(wire.Recorded(e))
+	let r = codec.NewReplay(codec.Recorded(e))
 	(try decode[[]T](r), try decode[Option[T]](r))
 }
 
-test WireGenericReplay(vs []state) {
+test CodecGenericReplay(vs []state) {
 	let (back, first) = many(vs) catch {
 	case _:
 		assert false
@@ -63,12 +63,12 @@ test WireGenericReplay(vs []state) {
 	assert back == vs && first == want
 }
 
-test WireEncodeNests(v fleet) {
-	let e = wire.NewEvents()
+test CodecEncodeNests(v fleet) {
+	let e = codec.NewEvents()
 	encode(v, e)
 	let mut open = 0
 	let mut ok = true
-	for ev in wire.Recorded(e) {
+	for ev in codec.Recorded(e) {
 		open = open + depth(ev)
 		if open < 0 {
 			ok = false
@@ -77,9 +77,9 @@ test WireEncodeNests(v fleet) {
 	assert ok && open == 0
 }
 
-test WireMissingFieldFails() {
-	let empty = []wire.Event{wire.BeginObjectEvent{N: 0}, wire.EndObjectEvent}
-	let missing = decode[up](wire.NewReplay(empty)) catch {
+test CodecMissingFieldFails() {
+	let empty = []codec.Event{codec.BeginObjectEvent{N: 0}, codec.EndObjectEvent}
+	let missing = decode[up](codec.NewReplay(empty)) catch {
 	case WireMissingField:
 		return
 	case _:
@@ -89,15 +89,15 @@ test WireMissingFieldFails() {
 	assert missing.Host == "never"
 }
 
-test WireUnknownTagFails(name string) {
+test CodecUnknownTagFails(name string) {
 	if name == "up" {
 		return
 	}
 	if name == "down" {
 		return
 	}
-	let evs = []wire.Event{wire.BeginObjectEvent{N: 0}, wire.TagEvent{Name: name}, wire.EndObjectEvent}
-	let s = decode[state](wire.NewReplay(evs)) catch {
+	let evs = []codec.Event{codec.BeginObjectEvent{N: 0}, codec.TagEvent{Name: name}, codec.EndObjectEvent}
+	let s = decode[state](codec.NewReplay(evs)) catch {
 	case WireUnknownTag:
 		return
 	case _:
@@ -123,9 +123,9 @@ func parseHost(s string) host fails badHost {
 
 func Wire(h host) string { h.name }
 
-test WireRefinedParses(n int64) {
-	let evs = []wire.Event{wire.IntEvent{V: n}}
-	let p = decode[port](wire.NewReplay(evs)) catch {
+test CodecRefinedParses(n int64) {
+	let evs = []codec.Event{codec.IntEvent{V: n}}
+	let p = decode[port](codec.NewReplay(evs)) catch {
 	case Unsatisfied:
 		assert n < 1 || n > 65535
 		return
@@ -139,11 +139,11 @@ test WireRefinedParses(n int64) {
 
 // replayed decodes a T from evs in a generic function, so a pair's codec
 // runs through the witness its caller's package builds.
-func replayed[T codable](evs []wire.Event) T fails wired[T] {
-	decode[T](wire.NewReplay(evs))
+func replayed[T wire](evs []codec.Event) T fails wired[T] {
+	decode[T](codec.NewReplay(evs))
 }
 
-test WireByNamePair(names []string) {
+test CodecByNamePair(names []string) {
 	let mut hosts = []host{}
 	for s in names {
 		if s != "" {
@@ -151,13 +151,13 @@ test WireByNamePair(names []string) {
 		}
 	}
 	let v = listen{Port: 8080, Hosts: hosts}
-	let back = wire.RoundTrip(v) catch {
+	let back = codec.RoundTrip(v) catch {
 	case _:
 		assert false
 		v
 	}
 	assert back == v
-	let bad = []wire.Event{wire.BeginObjectEvent{N: 2}, wire.KeyEvent{K: "port"}, wire.IntEvent{V: 80}, wire.KeyEvent{K: "hosts"}, wire.BeginListEvent{N: 1}, wire.StringEvent{V: ""}, wire.EndListEvent, wire.EndObjectEvent}
+	let bad = []codec.Event{codec.BeginObjectEvent{N: 2}, codec.KeyEvent{K: "port"}, codec.IntEvent{V: 80}, codec.KeyEvent{K: "hosts"}, codec.BeginListEvent{N: 1}, codec.StringEvent{V: ""}, codec.EndListEvent, codec.EndObjectEvent}
 	let refused = replayed[listen](bad) catch {
 	case badHost:
 		return
@@ -169,33 +169,33 @@ test WireByNamePair(names []string) {
 }
 `
 
-// stdWireLawStatements is each restated law's ledger statement.
-var stdWireLawStatements = map[string]string{
-	"wire EncodeNests":       "EncodeNests(v fleet) { let e = NewEvents() encode(v, e) let mut open = 0 let mut ok = true for ev in Recorded(e) { open = open + depth(ev) if open < 0 { ok = false } } ok && open == 0 }",
-	"wire EventsReplay":      "EventsReplay(v fleet) { let back = RoundTrip(v) catch { case _: return false } back == v }",
-	"wire GenericReplay":     "GenericReplay(vs []state) { let (back, first) = many(vs) catch { case _: return false } let want Option[state] = if len(vs) > 0 { Some{Value: vs[0]} } else { None } back == vs && first == want }",
-	"wire MissingFieldFails": "MissingFieldFails() { let empty = []Event{BeginObjectEvent{N: 0}, EndObjectEvent} let _ = decode[up](NewReplay(empty)) catch { case WireMissingField: return true case _: return false } false }",
-	"wire UnknownTagFails":   `UnknownTagFails(name string) { if name == "up" { return true } if name == "down" { return true } let evs = []Event{BeginObjectEvent{N: 0}, TagEvent{Name: name}, EndObjectEvent} let _ = decode[state](NewReplay(evs)) catch { case WireUnknownTag: return true case _: return false } false }`,
+// stdCodecLawStatements is each restated law's ledger statement.
+var stdCodecLawStatements = map[string]string{
+	"codec EncodeNests":       "EncodeNests(v fleet) { let e = NewEvents() encode(v, e) let mut open = 0 let mut ok = true for ev in Recorded(e) { open = open + depth(ev) if open < 0 { ok = false } } ok && open == 0 }",
+	"codec EventsReplay":      "EventsReplay(v fleet) { let back = RoundTrip(v) catch { case _: return false } back == v }",
+	"codec GenericReplay":     "GenericReplay(vs []state) { let (back, first) = many(vs) catch { case _: return false } let want Option[state] = if len(vs) > 0 { Some{Value: vs[0]} } else { None } back == vs && first == want }",
+	"codec MissingFieldFails": "MissingFieldFails() { let empty = []Event{BeginObjectEvent{N: 0}, EndObjectEvent} let _ = decode[up](NewReplay(empty)) catch { case WireMissingField: return true case _: return false } false }",
+	"codec UnknownTagFails":   `UnknownTagFails(name string) { if name == "up" { return true } if name == "down" { return true } let evs = []Event{BeginObjectEvent{N: 0}, TagEvent{Name: name}, EndObjectEvent} let _ = decode[state](NewReplay(evs)) catch { case WireUnknownTag: return true case _: return false } false }`,
 }
 
-// TestStdWireLawsRun runs the wire probe's tests with --seed 1;
+// TestStdCodecLawsRun runs the wire probe's tests with --seed 1;
 // lawledger.Run holds that the probe restates exactly the ledger's laws
 // whose runner is this test, each with the row's statement, and that each
 // passed, and the two extra tests pass too.
 //
 // It builds Go because the laws run in the built test binary (ergo test),
 // the only place a law runs.
-func TestStdWireLawsRun(t *testing.T) {
+func TestStdCodecLawsRun(t *testing.T) {
 	needsBuild(t)
-	stdout, stderr, code := runExeArgs(t, tableExe(t, "stdwire"), "--seed", "1")
+	stdout, stderr, code := runExeArgs(t, tableExe(t, "stdcodec"), "--seed", "1")
 	if code != 0 {
-		t.Errorf("the law tests of stdwire failed: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
+		t.Errorf("the law tests of stdcodec failed: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
 	}
-	extra := []string{"WireRefinedParses", "WireByNamePair"}
-	laws := lawsPassed(t, stdWireLawStatements, func(key string) string {
+	extra := []string{"CodecRefinedParses", "CodecByNamePair"}
+	laws := lawsPassed(t, stdCodecLawStatements, func(key string) string {
 		pkg, law, _ := strings.Cut(key, " ")
 		return stdLawsTestName(pkg, law)
-	}, stdWireLawsProbe, stdout, extra...)
+	}, stdCodecLawsProbe, stdout, extra...)
 	for _, name := range extra {
 		if !regexp.MustCompile(`(?m)^ok ` + name + `( \(\d+ cases\))?$`).MatchString(stdout) {
 			t.Errorf("no ok line for %s:\n%s", name, stdout)

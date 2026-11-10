@@ -36,9 +36,9 @@ func witnessParams(sig *check.Signature) []*check.TypeParam {
 	return out
 }
 
-// isCodable reports a type parameter under codable, whose witness is its
+// isWireParam reports a type parameter under wire, whose witness is its
 // codec (wire.go wireCodecType).
-func isCodable(tp *check.TypeParam) bool {
+func isWireParam(tp *check.TypeParam) bool {
 	it := constraintOf(tp)
 	return it != nil && it.Set == check.SetWire
 }
@@ -46,7 +46,7 @@ func isCodable(tp *check.TypeParam) bool {
 // witnessType is the Go type of the witness of tp's constraint for the
 // type self: in the generic function, self is tp itself.
 func (tc *typeCtx) witnessType(tp *check.TypeParam, self check.Type) string {
-	if isCodable(tp) {
+	if isWireParam(tp) {
 		return tc.wireCodecType(self)
 	}
 	it := constraintOf(tp)
@@ -77,7 +77,7 @@ func (fc *funcCtx) witnessArgs(f *check.Func, inst *check.Instance, site syntax.
 	}
 	out := make([]string, len(params))
 	for i, tp := range params {
-		if isCodable(tp) {
+		if isWireParam(tp) {
 			out[i] = fc.wireWitness(instArg(f, inst, tp, site), site)
 			continue
 		}

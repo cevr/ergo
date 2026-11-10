@@ -9,7 +9,7 @@ var (
 	_ = declarePrograms("TestStdLawsRun", testBuildProgram("stdlaws", stdLawsProbe))
 	_ = declarePrograms("TestStdMachinesLawsRun", testBuildProgram("stdmachines", machinesLawsProbe))
 	_ = declarePrograms("TestStdCSVLawsRun", testBuildProgram("stdcsv", stdCSVLawsProbe))
-	_ = declarePrograms("TestStdWireLawsRun", testBuildProgram("stdwire", stdWireLawsProbe))
+	_ = declarePrograms("TestStdCodecLawsRun", testBuildProgram("stdcodec", stdCodecLawsProbe))
 	_ = declarePrograms("TestQueuePollLaws", testBuildProgram("queuepolllaws", queuePollLawsProbe))
 	_ = declarePrograms("TestStdRandLawsRun", testBuildProgram("stdrand", stdRandLawsProbe))
 	_ = declarePrograms("TestStdSlicesLawsRun", testBuildProgram("stdslices", stdSlicesLawsProbe))

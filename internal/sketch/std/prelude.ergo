@@ -98,7 +98,7 @@ func unsatisfied(u Unsatisfied) fails Unsatisfied { u }
 // is BeginList(n), n values, EndList; a Map is an object keyed by its
 // keys in order. Prior art: serde's Serializer, Roc's Encoding, Go json
 // v2's jsontext.Encoder.
-// law-exempt: Writer has no read operation, so no law over its own operations can observe an event; std wire's Events records them and carries the laws (EventsReplay).
+// law-exempt: Writer has no read operation, so no law over its own operations can observe an event; std codec's Events records them and carries the laws (EventsReplay).
 type Writer {
 	Bool(b bool),
 	Int(n int64),
@@ -121,7 +121,7 @@ type Writer {
 // next element or key before the end; Key reads it; Skip passes over the
 // next value; End closes the list or object. Path is where the reader is,
 // for a failure's text.
-// law-exempt: a law over Reader alone has no events to read; std wire's Replay reads the events Events recorded and carries the laws (EventsReplay).
+// law-exempt: a law over Reader alone has no events to read; std codec's Replay reads the events Events recorded and carries the laws (EventsReplay).
 type Reader {
 	Path() string,
 	Bool() bool fails WireWrongKind,

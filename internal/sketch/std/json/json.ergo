@@ -169,10 +169,10 @@ func End(r Reader) { r.c.End() }
 // longest text Decode reads (no limit when it is not positive), and
 // MaxDepth, the deepest nesting of lists and objects (10000 when it is
 // not positive). Encode has no limit: it writes the value it is given.
-type Codec[T codable] { MaxBytes int, MaxDepth int }
+type Codec[T wire] { MaxBytes int, MaxDepth int }
 
 // Encode is v's JSON text.
-func Encode[T codable](c Codec[T], v T) string {
+func Encode[T wire](c Codec[T], v T) string {
 	let t = NewText()
 	encode(v, t)
 	t.Written()
@@ -180,7 +180,7 @@ func Encode[T codable](c Codec[T], v T) string {
 
 // Decode is the T that text writes: Malformed when the text breaks
 // Open's rules, else the failures of decode[T] on its shape.
-func Decode[T codable](c Codec[T], text string) T fails Malformed | wired[T] {
+func Decode[T wire](c Codec[T], text string) T fails Malformed | wired[T] {
 	let r = try Open(text, c.MaxBytes, c.MaxDepth)
 	try decode[T](r)
 }

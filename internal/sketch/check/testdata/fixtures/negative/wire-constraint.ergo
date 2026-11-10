@@ -1,8 +1,8 @@
-// The predeclared constraint codable admits the types with a wire form
+// The predeclared constraint wire admits the types with a wire form
 // (types.md, Codecs 1): a type argument without one is S108, naming the
 // first part that has none.
 
-func keep[T codable](v T) T { v }
+func keep[T wire](v T) T { v }
 
 type Port int where 1 <= it && it <= 65535
 type Up { Host string, Port Port, Tags []string, Meta Map[string, float64] }
@@ -30,8 +30,8 @@ func lift[T](v T) T {
 }
 
 // The wire types check clean: basic types, a refined type, a record, a
-// union, Option, a recursive record, a tuple and a codable type parameter.
-func clean[T codable](v T, s State, t Tree, o Option[Up], p Port) {
+// union, Option, a recursive record, a tuple and a wire type parameter.
+func clean[T wire](v T, s State, t Tree, o Option[Up], p Port) {
 	keep(true)
 	keep(1)
 	keep(2.5)

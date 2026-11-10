@@ -1,4 +1,4 @@
-// Package wire records and replays the events of a wire form (types.md,
+// Package codec records and replays the events of a wire form (types.md,
 // Codecs; L11). Events is a provider of the prelude's Writer that keeps
 // every event encode(v, w) writes; Replay is a provider of the Reader that
 // gives a list of events back in the order decode[T](r) asks for them. A
@@ -59,7 +59,7 @@ func EndObject(e Events)          { record(e, EndObjectEvent) }
 
 // RoundTrip is v through Events and back: decode[T] of a Replay of the
 // events encode(v) wrote. Its row is wired[T], the row of decode[T].
-func RoundTrip[T codable](v T) T fails wired[T] {
+func RoundTrip[T wire](v T) T fails wired[T] {
 	let e = NewEvents()
 	encode(v, e)
 	decode[T](NewReplay(Recorded(e)))

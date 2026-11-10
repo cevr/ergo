@@ -4,7 +4,7 @@ import "ergo.local/prototype/internal/sketch/syntax"
 
 // The predeclared encode and decode (types.md, Codecs; L11 design items 2
 // to 5). encode(v, w) writes v's wire form as events on the Writer w;
-// decode[T](r) reads a T from the Reader r. Both take a codable type, and
+// decode[T](r) reads a T from the Reader r. Both take a wire type, and
 // the lowering derives the walk from the type (lower/wire.go); the
 // checker decides what the walk may fail.
 
@@ -21,7 +21,7 @@ const (
 )
 
 // wiredElem resolves the row element wired[X] at x (owner q80): the row of
-// decode[X], each codable type parameter X reaches standing as wired[T].
+// decode[X], each wire type parameter X reaches standing as wired[T].
 // It reports false when x is not a use of the predeclared wired.
 func (c *checker) wiredElem(x syntax.Expr, kind Kind, ctx *typeCtx) (Type, bool) {
 	ix, ok := x.(*syntax.IndexExpr)
@@ -36,7 +36,7 @@ func (c *checker) wiredElem(x syntax.Expr, kind Kind, ctx *typeCtx) (Type, bool)
 		return nil, false
 	}
 	if kind != KindErrors || len(ix.Indices) != 1 {
-		c.errorf(x, CodeType, "%s[T] takes one codable type and stands in a fails row: fails %s[T] (types.md, Codecs 2)", WiredName, WiredName)
+		c.errorf(x, CodeType, "%s[T] takes one wire type and stands in a fails row: fails %s[T] (types.md, Codecs 2)", WiredName, WiredName)
 		return nil, true
 	}
 	t := c.typExpr(ix.Indices[0], ctx)
@@ -51,7 +51,7 @@ func (c *checker) wiredElem(x syntax.Expr, kind Kind, ctx *typeCtx) (Type, bool)
 }
 
 // WirePair is the by-name wire form of a type X (types.md, Codecs 1): its
-// package declares ParseX(b B) X and Wire(x X) B for a codable B, so X
+// package declares ParseX(b B) X and Wire(x X) B for a wire B, so X
 // encodes as Wire(x) and decodes through ParseX. Coherence: the pair is
 // looked up in X's own package only, as construction authority is.
 type WirePair struct {
@@ -129,7 +129,7 @@ func builtinKind(b *Builtin) CallKind {
 	return CallLen
 }
 
-// encodeCall checks encode(v, w): v of a codable type, w a Writer. It has
+// encodeCall checks encode(v, w): v of a wire type, w a Writer. It has
 // no value and fails nothing: a Writer's events do not fail.
 func (c *checker) encodeCall(x *syntax.CallExpr) operand {
 	if len(x.Args) != 2 {
@@ -142,7 +142,7 @@ func (c *checker) encodeCall(x *syntax.CallExpr) operand {
 	if !ok || !okW || v.invalid() {
 		return bad(x)
 	}
-	if !c.codableOperand(x.Args[0], v.typ, "encode") {
+	if !c.wireOperand(x.Args[0], v.typ, "encode") {
 		return bad(x)
 	}
 	call := c.callInfo(x)
@@ -151,7 +151,7 @@ func (c *checker) encodeCall(x *syntax.CallExpr) operand {
 	return operand{mode: modeNoValue, typ: NoValue, errs: v.errs}
 }
 
-// decodeCall checks decode[T](r): T codable, r a Reader. Its value is a T,
+// decodeCall checks decode[T](r): T wire, r a Reader. Its value is a T,
 // and its row is wireRow(T).
 func (c *checker) decodeCall(x *syntax.CallExpr, t Type) operand {
 	if t == nil || isInvalid(t) {
@@ -167,7 +167,7 @@ func (c *checker) decodeCall(x *syntax.CallExpr, t Type) operand {
 	if !c.argument(x.Args[0], preludeType(WireReaderName), x) {
 		return bad(x)
 	}
-	if !c.codableOperand(x, t, "decode") {
+	if !c.wireOperand(x, t, "decode") {
 		return bad(x)
 	}
 	row := c.wireRow(t)
@@ -177,10 +177,10 @@ func (c *checker) decodeCall(x *syntax.CallExpr, t Type) operand {
 	return operand{mode: modeValue, typ: t, errs: row}
 }
 
-// codableOperand reports whether what (encode or decode) takes t, else
-// S108 at n. A type parameter is codable under the codable constraint;
+// wireOperand reports whether what (encode or decode) takes t, else
+// S108 at n. A type parameter is wire under the wire constraint;
 // its part of the row is wired[T] (wireRow).
-func (c *checker) codableOperand(n syntax.Node, t Type, what string) bool {
+func (c *checker) wireOperand(n syntax.Node, t Type, what string) bool {
 	if r := c.wireReason(t); r != "" {
 		c.errorf(n, CodeType, "%s takes a %s type: %s", what, SetWire, r)
 		return false
@@ -260,7 +260,7 @@ func (c *checker) firstInferredParse(t Type) *Func {
 // any value read, WireMissingField when T reaches a record with fields or
 // a union (whose tag may be missing), WireUnknownTag when it reaches a
 // union, Unsatisfied when it reaches a refined type, and the row of each
-// by-name ParseX it reaches. A codable type parameter T it reaches adds
+// by-name ParseX it reaches. A wire type parameter T it reaches adds
 // wired[T], which an instance replaces by its argument's wire row.
 func (c *checker) wireRow(t Type) *Row {
 	row := newRow().with(c.types, preludeType(WireKindName))

@@ -26,7 +26,7 @@ law EventsReplay(v fleet) {
 
 // many is vs through Events and back as one list, so the codec of []T and
 // Option[T] runs inside a generic function, on T's witness.
-func many[T codable](vs []T) ([]T, Option[T]) fails wired[Option[T]] {
+func many[T wire](vs []T) ([]T, Option[T]) fails wired[Option[T]] {
 	let e = NewEvents()
 	encode(vs, e)
 	let first Option[T] = if len(vs) > 0 { Some{Value: vs[0]} } else { None }

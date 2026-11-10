@@ -33,7 +33,7 @@ import (
 //go:embed math/*.ergo bits/*.ergo
 //go:embed hex/*.ergo base64/*.ergo sha256/*.ergo crc32/*.ergo
 //go:embed machines/*.ergo
-//go:embed csv/*.ergo wire/*.ergo json/*.ergo
+//go:embed csv/*.ergo codec/*.ergo json/*.ergo
 //go:embed testing/*.ergo
 //go:embed tasks/*.ergo
 //go:embed schedule/*.ergo

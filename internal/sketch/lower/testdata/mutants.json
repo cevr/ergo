@@ -1521,7 +1521,7 @@
       "to": "b.WriteString(\"if false && !\" + seen[i] + \" {\\nreturn \"",
       "rule": "types.md, Codecs 3: a field the object lacks fails WireMissingField.",
       "killers": [
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     },
     {
@@ -1532,7 +1532,7 @@
       "to": "b.WriteString(\"}\\nreturn \" + zero + \", \" + tc.wireFailure(check.WireMissingName",
       "rule": "types.md, Codecs 3: a tag no variant has fails WireUnknownTag.",
       "killers": [
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     },
     {
@@ -1543,7 +1543,7 @@
       "to": "\t\t\t_ = vn",
       "rule": "types.md, Codecs 2: a union value writes its variant's Tag first.",
       "killers": [
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     },
     {
@@ -1554,7 +1554,7 @@
       "to": "\tif parse := check.RefinedParse(t); parse != nil {\n\t\traw := scope.alloc(\"raw\")\n\t\tb.WriteString(tc.wireDecode(parse.Sig.Params[0].Type, env, r, raw, zero, scope) + \"return \" + tc.goType(t) + \"(\" + raw + \"), nil\\n\")\n\t\treturn\n\t}\n\tif parse := check.RefinedParse(t); parse != nil {",
       "rule": "types.md, Codecs 1: a refined value decodes through its ParseN.",
       "killers": [
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     },
     {
@@ -1576,18 +1576,18 @@
       "to": "\tif p := l.info.WirePairOf(t); p != nil && false {\n\t\tparsed(p.Base, p.Parse)",
       "rule": "types.md, Codecs 1: a by-name pair decodes through ParseX.",
       "killers": [
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     },
     {
       "name": "l11b-l1",
       "origin": "wf10 v1-lang-B L11b",
       "file": "internal/sketch/lower/wire.go",
-      "from": "\t\t\t\tif isCodable(tp) && i < len(inst.TypeArgs) {",
-      "to": "\t\t\t\tif false && isCodable(tp) && i < len(inst.TypeArgs) {",
-      "rule": "types.md, Codecs 6: a codable argument's codec functions are named in the naming pass.",
+      "from": "\t\t\t\tif isWireParam(tp) && i < len(inst.TypeArgs) {",
+      "to": "\t\t\t\tif false && isWireParam(tp) && i < len(inst.TypeArgs) {",
+      "rule": "types.md, Codecs 6: a wire argument's codec functions are named in the naming pass.",
       "killers": [
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     },
     {
@@ -1598,7 +1598,7 @@
       "to": "\t\t_ = tp",
       "rule": "types.md, Codecs 6: a generic codec function takes each type parameter's witness.",
       "killers": [
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     },
     {
@@ -1607,9 +1607,9 @@
       "file": "internal/sketch/lower/witness.go",
       "from": "it != nil && (len(it.Methods) > 0 || it.Set == check.SetWire)",
       "to": "it != nil && len(it.Methods) > 0",
-      "rule": "types.md, Codecs 6: a codable type parameter takes its codec as a witness.",
+      "rule": "types.md, Codecs 6: a wire type parameter takes its codec as a witness.",
       "killers": [
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     }
   ]

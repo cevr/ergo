@@ -504,7 +504,7 @@ const (
 	// stage E3b (additive).
 	CallLawOp
 	// CallEncode is the encode built-in, encode(v, w): Type is v's type,
-	// a codable one (types.md, Codecs). Added in L11.
+	// a wire one (types.md, Codecs). Added in L11.
 	CallEncode
 	// CallDecode is the decode built-in, decode[T](r): Type is T and Fails
 	// its derived row (wireRow). Added in L11.

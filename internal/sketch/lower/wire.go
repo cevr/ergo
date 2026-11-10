@@ -35,7 +35,7 @@ import (
 // form (std json writing bytes directly) is the measured fast path that
 // waits for S-json.
 
-// Generic codecs (owner q80). A type parameter under codable takes its
+// Generic codecs (owner q80). A type parameter under wire takes its
 // codec as a witness (witness.go): a struct of the encode and decode
 // functions of its argument, of wireCodecType's shape. A codec function of
 // a type that holds type parameters is a Go generic function that takes
@@ -107,7 +107,7 @@ func (fc *funcCtx) wireCtx(site syntax.Node) *typeCtx {
 func (tc *typeCtx) wireOf(tp *check.TypeParam) string {
 	w, ok := tc.wires[tp]
 	if !ok {
-		ice(tc.site, "the codable type parameter %s has no codec witness here", tp.Name)
+		ice(tc.site, "the wire type parameter %s has no codec witness here", tp.Name)
 	}
 	return w
 }
@@ -230,14 +230,14 @@ func (l *lowerer) reserveWires(pkgs []*check.Package, reserve func(key pkgKey, b
 				walk("decode", p.Info, c.Type)
 			}
 		}
-		// A generic function's codable argument: its witness calls the
+		// A generic function's wire argument: its witness calls the
 		// argument's codec functions (wireWitness).
 		for x, inst := range p.Info.Instances {
 			if inst == nil || inst.Func == nil || !l.readsFact(p, x) {
 				continue
 			}
 			for i, tp := range inst.Func.Sig.TParams {
-				if isCodable(tp) && i < len(inst.TypeArgs) {
+				if isWireParam(tp) && i < len(inst.TypeArgs) {
 					walk("encode", p.Info, inst.TypeArgs[i])
 					walk("decode", p.Info, inst.TypeArgs[i])
 				}
