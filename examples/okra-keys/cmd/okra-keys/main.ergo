@@ -42,12 +42,15 @@ func run(args []string) fails os.Exit needs keys.Store | os.Process | io.Stdin |
 // The tests run run over a memory.Vault, a process of their own and an
 // io.Recorder for both streams, with no host.
 
-// proc is an os.Process with an environment of its own.
+// proc is an os.Process with an environment of its own and the working
+// directory /work.
 type proc { env Map[string, string] }
 
 func Args(_ proc) []string { []string{} }
 
 func Getenv(p proc, key string) Option[string] { p.env.Get(key) }
+
+func Getwd(_ proc) string fails os.NoWorkdir { "/work" }
 
 // ran is the transcript of run on args over v, with standard input text
 // and the environment env: both streams, then "exit CODE" on a failure.

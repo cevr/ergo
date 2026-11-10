@@ -9,6 +9,8 @@
 // program reaches the host only through a Host it was given or made under
 // Ambient.
 
+import filepath
+
 // Exit is the failure that ends main with status Code. When it is main's
 // only reason, the entry writes Message and a line feed to standard error,
 // verbatim, and exits with Code; Code must be in 1..125 (docs/spec/
@@ -16,14 +18,49 @@
 // cleanup runs before the program ends.
 type Exit { Code int, Message string }
 
-// Process is the host process: the arguments after the program name, and
-// the environment.
+// NoWorkdir is the failure of Getwd when the host cannot name the
+// process's working directory: it was removed, or a directory above it
+// cannot be read. Message is the host's reason.
+type NoWorkdir { Message string }
+
+// Process is the host process: the arguments after the program name, the
+// environment and the working directory.
 type Process {
 	Args() []string,
 	Getenv(key string) Option[string],
+	Getwd() string fails NoWorkdir,
 
 	// GetenvIsStable: two reads of one key agree.
 	law GetenvIsStable(key string) { Getenv(key) == Getenv(key) },
+
+	// GetwdIsStable: with no change of directory between them, two reads
+	// of the working directory agree, in value and in failure. A process
+	// has no operation that changes it.
+	law GetwdIsStable() {
+		let first = Getwd() catch {
+		case NoWorkdir:
+			let _ = Getwd() catch {
+			case NoWorkdir:
+				return true
+			}
+			return false
+		}
+		let second = Getwd() catch {
+		case NoWorkdir:
+			return false
+		}
+		first == second
+	},
+
+	// GetwdIsAbsolute: the working directory is an absolute path, so a
+	// message that names a file under it names one place.
+	law GetwdIsAbsolute() {
+		let dir = Getwd() catch {
+		case NoWorkdir:
+			return true
+		}
+		filepath.IsAbs(dir)
+	},
 }
 
 // Host is the host's Process provider. Its field gives this package the
@@ -51,6 +88,11 @@ func Getenv(_ Host, key string) Option[string] {
 	}
 }
 
+// Getwd is the host process's working directory, an absolute path (Go's
+// os.Getwd). It fails NoWorkdir when the host cannot name it.
+func Getwd(_ Host) string fails NoWorkdir { try hostGetwd() }
+
 extern go ergo.local/prototype/runtime/v1.OSArgs func hostArgs() []string
+extern go ergo.local/prototype/runtime/v1.OSGetwd func hostGetwd() string fails NoWorkdir
 extern go ergo.local/prototype/runtime/v1.OSHasEnv func hostHasEnv(key string) bool
 extern go ergo.local/prototype/runtime/v1.OSGetenv func hostGetenv(key string) string

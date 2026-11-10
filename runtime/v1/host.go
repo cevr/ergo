@@ -65,6 +65,28 @@ func OSHasEnv(key string) bool {
 //ergo:host
 func OSGetenv(key string) string { return os.Getenv(key) }
 
+// NoWorkdir is os.NoWorkdir: the host cannot name the process's working
+// directory. It is a record of a v1 package, so the lowering binds
+// os.NoWorkdir to this Go type (docs/spec/stdlib.md, Types 4).
+type NoWorkdir struct{ Message string }
+
+// Error is the failure's text: its Ergo name and fields, as the lowering
+// writes a record's.
+func (e NoWorkdir) Error() string { return "os.NoWorkdir{Message:" + e.Message + "}" }
+
+// OSGetwd is the body of os.Host's Getwd: the working directory, an
+// absolute path (Go's os.Getwd). Every error of os.Getwd is NoWorkdir with
+// Go's text, so the Ergo row holds it whole.
+//
+//ergo:host
+func OSGetwd() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", NoWorkdir{Message: err.Error()}
+	}
+	return dir, nil
+}
+
 // The bodies of std fs (docs/spec/stdlib.md, fs). Each reads or writes
 // the host file system and returns one of the three failures below, so
 // none is pure. No body keeps a file open after it returns.

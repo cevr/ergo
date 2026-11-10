@@ -167,12 +167,15 @@ func main() fails os.Exit needs Ambient {
 // The tests run run over an fstest.Memory of three files, a Process
 // provider with set variables and a Recorder, with no host.
 
-// proc is a Process with the variables of env and no arguments.
+// proc is a Process with the variables of env, no arguments and the
+// working directory /work.
 type proc { env Map[string, string] }
 
 func Args(_ proc) []string { []string{} }
 
 func Getenv(p proc, key string) Option[string] { p.env.Get(key) }
+
+func Getwd(_ proc) string fails os.NoWorkdir { "/work" }
 
 func ran(args []string, env Map[string, string]) string fails fs.NotFound | fs.Denied | fs.Failed {
 	let disk = fstest.NewMemory()

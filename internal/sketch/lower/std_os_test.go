@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -36,6 +37,14 @@ func run() fails os.Exit needs Console | os.Process {
 	Console.Println(show(os.Process.Getenv("ERGO_G2_K")))
 	Console.Println(show(os.Process.Getenv("ERGO_G2_EMPTY")))
 	Console.Println(show(os.Process.Getenv("ERGO_G2_UNSET")))
+	Console.Println(wd())
+}
+
+func wd() string needs os.Process {
+	os.Process.Getwd() catch {
+	case os.NoWorkdir as e:
+		"no workdir: " + e.Message
+	}
 }
 
 func main() fails os.Exit needs Console | Ambient {
@@ -49,11 +58,13 @@ func main() fails os.Exit needs Console | Ambient {
 const fakeProgram = `import os
 import strings
 
-type FakeEnv { Vars Map[string, string], Argv []string }
+type FakeEnv { Vars Map[string, string], Argv []string, Dir string }
 
 func Args(e FakeEnv) []string { e.Argv }
 
 func Getenv(e FakeEnv, key string) Option[string] { e.Vars.Get(key) }
+
+func Getwd(e FakeEnv) string fails os.NoWorkdir { e.Dir }
 
 func show(v Option[string]) string {
 	match v {
@@ -70,10 +81,15 @@ func run() needs Console | os.Process {
 	Console.Println(show(os.Process.Getenv("ERGO_G2_K")))
 	Console.Println(show(os.Process.Getenv("ERGO_G2_EMPTY")))
 	Console.Println(show(os.Process.Getenv("ERGO_G2_UNSET")))
+	let dir = os.Process.Getwd() catch {
+	case os.NoWorkdir as e:
+		"no workdir: " + e.Message
+	}
+	Console.Println(dir)
 }
 
 func main() needs Console {
-	let env = FakeEnv{Vars: Map[string, string]{"ERGO_G2_K": "v", "ERGO_G2_EMPTY": ""}, Argv: []string{"a", "b"}}
+	let env = FakeEnv{Vars: Map[string, string]{"ERGO_G2_K": "v", "ERGO_G2_EMPTY": ""}, Argv: []string{"a", "b"}, Dir: "/work"}
 	with context { os.Process: env } { run() }
 }
 `
@@ -87,6 +103,8 @@ type FakeEnv { Argv []string }
 func Args(e FakeEnv) []string { e.Argv }
 
 func Getenv(_ FakeEnv, key string) Option[string] { Some[string]{Value: "fake"} }
+
+func Getwd(_ FakeEnv) string fails os.NoWorkdir { "/fake" }
 
 func show(p os.Process) string {
 	match p.Getenv("ERGO_G2_K") {
@@ -106,7 +124,8 @@ func main() needs Console | Ambient {
 
 // TestOSProcessRuns: std os reads the host process through os.Host bound in
 // a context (stdlib.md, host packages): Args excludes the program name;
-// Getenv tells Some("") from None; os.Exit alone writes its Message
+// Getenv tells Some("") from None; Getwd is the directory the program
+// starts in (gap-os); os.Exit alone writes its Message
 // verbatim and exits with its Code, and a Code outside 1..125 exits 1
 // (runtime.md, Exit causes). A program's own provider gives the same
 // output through the same calls. os.Process is an open std protocol
@@ -122,7 +141,13 @@ func TestOSProcessRuns(t *testing.T) {
 	if exes == nil {
 		return
 	}
-	const want = "2 a b\nSome v\nSome \nNone\n"
+	// The host's Getwd is the directory the program starts in.
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const reads = "2 a b\nSome v\nSome \nNone\n"
+	want := reads + dir + "\n"
 	env := []string{"ERGO_G2_K=v", "ERGO_G2_EMPTY="}
 	cases := []struct {
 		name, exe string
@@ -134,11 +159,11 @@ func TestOSProcessRuns(t *testing.T) {
 		{"host", exes["osHost"], []string{"a", "b"}, want, "", 0},
 		{"hostNope", exes["osHost"], []string{"nope"}, "", "[NOT_FOUND] Unknown topic 'nope'\n", 3},
 		{"hostZero", exes["osHost"], []string{"zero"}, "", "claims success\nerror: os.Exit code 0 is outside 1..125\n", 1},
-		{"fake", exes["osFake"], []string{"ignored"}, want, "", 0},
+		{"fake", exes["osFake"], []string{"ignored"}, reads + "/work\n", "", 0},
 		{"param", exes["osParam"], []string{"a"}, "1 v\n3 fake\n", "", 0},
 	}
 	for _, c := range cases {
-		stdout, stderr, code := runWithEnv(t, c.exe, env, c.args...)
+		stdout, stderr, code := runInDir(t, dir, c.exe, env, c.args...)
 		if stdout != c.stdout || stderr != c.stderr || code != c.exit {
 			t.Errorf("%s: exit %d, want %d\nstdout %q\nwant   %q\nstderr %q\nwant   %q", c.name, code, c.exit, stdout, c.stdout, stderr, c.stderr)
 		}
@@ -149,9 +174,17 @@ func TestOSProcessRuns(t *testing.T) {
 // holds no ERGO_G2_ variable of the test's own.
 func runWithEnv(t *testing.T, exe string, env []string, args ...string) (string, string, int) {
 	t.Helper()
+	return runInDir(t, "", exe, env, args...)
+}
+
+// runInDir is runWithEnv started in dir (the test's own directory when dir
+// is empty), with no PWD of the test's own.
+func runInDir(t *testing.T, dir, exe string, env []string, args ...string) (string, string, int) {
+	t.Helper()
 	cmd := exec.Command(exe, args...)
+	cmd.Dir = dir
 	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "ERGO_G2_") {
+		if !strings.HasPrefix(kv, "ERGO_G2_") && !strings.HasPrefix(kv, "PWD=") {
 			cmd.Env = append(cmd.Env, kv)
 		}
 	}

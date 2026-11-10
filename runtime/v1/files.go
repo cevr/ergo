@@ -249,6 +249,7 @@ var stdRecords = map[string]string{
 	"term.NotTerminal":     "TermNotTerminal",
 	"term.Window":          "TermWindow",
 	"os.Exit":              "Exit",
+	"os.NoWorkdir":         "NoWorkdir",
 	"queue.Closed":         "Closed",
 	"rpc.Failed":           "RPCFailed",
 	"rpc.Malformed":        "RPCMalformed",

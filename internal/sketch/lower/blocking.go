@@ -365,6 +365,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"OSArgs":   {},
 	"OSHasEnv": {},
 	"OSGetenv": {},
+	"OSGetwd":  {},
 	// std fs (G4, G4b; stdlib.md, fs): bodies that read or write the host
 	// file system and neither wait nor release.
 	"FSReadFile":  {},
