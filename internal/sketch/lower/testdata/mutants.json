@@ -1133,8 +1133,9 @@
       "from": "\t\tif x.Base != nil {",
       "to": "\t\tif !(x.Base != nil) {",
       "rule": "freshen: freshen makes the value e, which enters a root, unshared: nothing when it is fresh, its parts when it is a literal, else a copy.",
-      "killers": [],
-      "gap": "survives at the T5 base too (cb1f7522): no kept or deleted test kills it (T5 base.log); a gap of the suite, not a loss of the cut"
+      "killers": [
+        "lower:TestSpreadMatchesModel"
+      ]
     },
     {
       "name": "t5-5-true-false-calls.go:1126",
@@ -1488,8 +1489,9 @@
       "from": "\t\t\t\tif !w.fresh(x) {",
       "to": "\t\t\t\tif !(!w.fresh(x)) {",
       "rule": "resultsFresh: resultsFresh reports whether every value the root frame returns is fresh.",
-      "killers": [],
-      "gap": "survives at the T5 base too (cb1f7522): no kept or deleted test kills it (T5 base.log); a gap of the suite, not a loss of the cut"
+      "killers": [
+        "lower:TestRefOwnElides"
+      ]
     },
     {
       "name": "t5-38-negate-if-match.go:287",
