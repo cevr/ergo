@@ -148,7 +148,11 @@ var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Acto
 // request task and the next Write ends with that stop, and
 // TestHTTPStreamFlushesEachPart that a Write returns once its part is
 // flushed.
-var hostWaitLaws = map[string]bool{"ExecRun": true, "IOReadAll": true, "IOLines": true, "RPCCall": true, "Exchange.Write": true}
+// HTTPDo (std http's client, H1) waits for a peer's answer:
+// runtime/v1/http_client_test.go TestHTTPClientRefusedAndStopped states
+// that a stop of the caller cancels the exchange, ends the call with the
+// stop and reaches the server as a hang-up.
+var hostWaitLaws = map[string]bool{"ExecRun": true, "IOReadAll": true, "IOLines": true, "RPCCall": true, "Exchange.Write": true, "HTTPDo": true}
 
 // blockingRoutes is the route axis of a binding (runtime.md, I1): the
 // waiting task of a callerWait binding is the task that invokes the call,

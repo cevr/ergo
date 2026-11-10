@@ -252,7 +252,7 @@ func TestStdExternCallersHoldAuthority(t *testing.T) {
 	slices.Sort(hosts)
 	want := []string{"exec.hostRun", "fs.OpenRoot", "fs.hostAppendFile", "fs.hostChmod", "fs.hostMkdirAll", "fs.hostMkdirAllMode",
 		"fs.hostReadDir", "fs.hostReadFile", "fs.hostRemove", "fs.hostRename", "fs.hostStat", "fs.hostWriteFile", "fs.hostWriteFileMode",
-		"http.Listen", "http.serve",
+		"http.Listen", "http.send", "http.serve",
 		"io.hostEprint", "io.hostIsTerminal", "io.hostLines", "io.hostPrint", "io.hostReadAll",
 		"os.hostArgs", "os.hostGetenv", "os.hostHasEnv", "prelude.Sleep",
 		"rand.hostFloat64", "rand.hostIntN", "rand.hostUint64", "rpc.call", "time.hostNow"}

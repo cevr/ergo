@@ -193,6 +193,9 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Listener.Addr":  {},
 	"Listener.Close": {},
 	"HTTPServe":      {wait: childWait},
+	// The client (H1): Do waits on the network and on the caller's stop.
+	"HTTPCheckOrigin": {},
+	"HTTPDo":          {wait: callerWait},
 	// A streamed response (Rm): Begin and End take the exchange's lock
 	// for one step; Write checks the caller's stop, then waits on the
 	// network write and its flush, which a hang-up or Serve's stop ends.

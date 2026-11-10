@@ -447,6 +447,49 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
    connection in the handler's hands; here the request task owns it, so its
    stop is the hang-up.
 
+10. **Client** (H1, G9; orchestrator contract 2026-11-10).
+    `Do(r Request) Response fails RequestFailed needs Net` sends one
+    buffered request through the bound `Net`, the operation type
+    `Net { Send(r Request) Response fails RequestFailed }`. The host's
+    provider is `NewClient(origin, limits Limits) Client fails InvalidClient needs Ambient`:
+    `origin` is `scheme://authority` (http or https, no user, path, query
+    or fragment), and `limits` is the required response budget (header
+    and body, both positive; `InvalidClient{Origin, Reason}` otherwise).
+    No request is made until a Send. Send joins `r.Path` (the decoded
+    path, which the client escapes) and `r.Query` (in its order) to the
+    origin and sends `r.Header` with the `Buffered` body; the Request type
+    is the server's. `RequestFailed{Cause}` has the closed cause union
+    `Refused{Reason}` (nothing accepted the connection),
+    `Transport{Reason}` (the exchange broke or was not HTTP),
+    `TooLarge{Limit}` (the response's header or body over its budget;
+    never a truncated success) and `Malformed{Reason}` (the request cannot
+    be sent: a method or header name that is not a token, a header value
+    with a line break, a path without "/", a body that is not `Buffered`).
+    One request is one exchange: a redirect is a response, and the body
+    comes back as sent (no transparent decompression). There is no timeout
+    and no retry: a stop of the caller's scope cancels the exchange and
+    ends Do with the stop after the exchange let go; a caller adds a
+    deadline (`timeout.After`) or a schedule. `InMemory(handle)` is a
+    `Net` with no socket that calls `handle` under a Recorder, so a test
+    binds a client to its server in process. The property
+    `TestHTTPClientMatchesServer` sends generated requests to Serve on a
+    loopback listener: each arrives as sent, and each generated response
+    (3xx included) comes back as sent or TooLarge;
+    `TestHTTPClientRefusedAndStopped` holds Refused and the stop, waiting
+    on events. Effect `HttpClient`'s purpose is a request whose failures
+    are typed and whose transport a test replaces; Ergo takes that through
+    the operation type and the closed cause union, and leaves out its
+    service tag and layers (a `context` binds Net), its request and
+    response middleware (`filterStatusOk`: a status is a value the caller
+    matches), and its schema-bodied responses (the caller decodes the
+    buffered text). Gleam `gleam/httpc` `send` is the same buffered request
+    in, response out, with its own error union (`FailedToConnect`,
+    `ResponseTimeout`); Elixir `Req` follows redirects and retries by
+    default and Finch keeps a pool and a receive timeout: here those are
+    the caller's explicit choices. Go `net/http`'s `Client` is the host
+    transport; one Go transport per header budget is shared, so idle
+    connections are reused.
+
 Prior art for Files (source inspected, not measured): Wisp's `serve_static`
 (main branch) drops every ".." substring from the decoded path, joins it to
 the directory and reads through `simplifile`, so the guard is lexical and a

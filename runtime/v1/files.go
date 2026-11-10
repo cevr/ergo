@@ -235,6 +235,8 @@ var stdRecords = map[string]string{
 	"hex.Malformed":        "HexMalformed",
 	"http.ListenFailed":    "HTTPListenFailed",
 	"http.InvalidLimits":   "HTTPInvalidLimits",
+	"http.InvalidClient":   "HTTPInvalidClient",
+	"http.SendFailed":      "HTTPSendFailed",
 	"http.Limits":          "HTTPLimits",
 	"http.Field":           "HTTPField",
 	"http.Response":        "HTTPResponse",

@@ -717,6 +717,19 @@ func main() {
 	use(Mine)
 }
 `,
+	// Net (H1) is open: a test binds its own transport.
+	"http.Net": `import http
+
+type Mine {}
+
+func Send(_ Mine, r http.Request) http.Response fails http.RequestFailed { http.Response{Status: 200, Header: []http.Field{}, Body: ""} }
+
+func use(_ http.Net) {}
+
+func main() {
+	use(Mine)
+}
+`,
 	// std fs (G1f): OpenRoot's extern returns the HostRoot; Root is open.
 	"fs.HostRoot": `import fs
 
@@ -790,6 +803,7 @@ var openStd = map[string]bool{
 	"journal.Codec":     true,
 	"fs.Root":           true,
 	"http.Streaming":    true,
+	"http.Net":          true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type
