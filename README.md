@@ -72,7 +72,7 @@ test NotFoundIsHandled {
 }
 ```
 
-From the signature alone you know how `Lookup` can fail and what it needs. `Address` catches both failures, so its own signature has no `fails`. The law `Answered` states what every provider of `Resolver` must keep. `Memory` embeds the context of another package, and `Missing` keeps every provider of `Memory` and replaces one, so the tests swap providers without a mock framework. Only `main` holds `Ambient`, the authority to choose the host, so only `main` binds the host's scheduler. In Go, `try` becomes `if err != nil`, and the rows disappear. This program is [examples/lookup](examples/lookup/cmd/lookup/main.ergo): `ergo run` prints `192.0.2.1`, and `ergo test` runs both tests.
+From the signature alone you know how `Lookup` can fail and what it needs. `Address` catches both failures, so its own signature has no `fails`. The law `Answered` states what every provider of `Resolver` must keep. `Memory` embeds the context of another package, and `Missing` keeps every provider of `Memory` and replaces one, so the tests swap providers without a mock framework. Only `main` holds `Ambient`, the authority to choose the host, so only `main` binds the host's scheduler. In Go, `try` becomes `if err != nil`, and the rows disappear. This program is [examples/lookup](examples/lookup/cmd/lookup/main.ergo): `ergo run` prints `192.0.2.1`, and `ergo test` runs both tests and the law `Answered` under each of the contexts `Memory` and `Missing` (laws under a context, L5).
 
 ## Designed, not built yet
 
@@ -253,7 +253,7 @@ cd ergo
 go build -o bin/ergo ./cmd/ergo
 
 ./bin/ergo run examples/lookup/cmd/lookup          # prints: 192.0.2.1
-./bin/ergo test examples/lookup/cmd/lookup         # prints: PASS (2 tests)
+./bin/ergo test examples/lookup/cmd/lookup         # prints: PASS (4 tests)
 ./bin/ergo run examples/editions/sketch/main.ergo  # prints: hello, Ada / no friend named Bob
 ./bin/ergo fmt --check examples/editions/sketch/main.ergo
 go run ./scripts/examples                          # builds and runs the example programs against their recorded cases
