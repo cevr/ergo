@@ -6,7 +6,7 @@
 // is a soft goal of one Go runtime, and a child program does not inherit it as
 // a limit. On 2026-11-08 a generated program that a lowering test started grew
 // to 46.7 GB on the 64 GB workbox. It ran at oom_score_adj -900, inherited
-// from the SSH service (bite-workbox-sshd.service, OOMScoreAdjust=-900) through
+// from the workbox's SSH service (a sshd unit, OOMScoreAdjust=-900) through
 // the agent session, go test and the test binary, so the kernel killed every
 // other process first (docs/tooling.md, "Test memory").
 //
