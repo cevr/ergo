@@ -35,21 +35,21 @@ func viaWriter[T wire](v T) string {
 // FastAgreesWithWriter: the text an encode on a Text writes (the
 // compiler's byte-appending path, lower/wirejson.go) is the text the
 // Writer operations write, in a Text and in an HTML Text, inside events
-// too: a value between two others of a list, so its comma and the one
-// after it are right.
+// too: a value first in a list and one after another value, so the comma
+// before a value and the one after it are right.
 law FastAgreesWithWriter(v fleet) {
 	let t = NewText()
 	t.BeginList(3)
-	t.Int(1)
 	encode(v, t)
 	t.Int(2)
+	encode(v, t)
 	t.EndList()
 	let w = NewText()
 	let r Writer = w
 	r.BeginList(3)
-	r.Int(1)
 	encode(v, r)
 	r.Int(2)
+	encode(v, r)
 	r.EndList()
 	let h = NewHTMLText()
 	encode(v, h)

@@ -1611,6 +1611,83 @@
       "killers": [
         "lower:TestStdCodecLawsRun"
       ]
+    },
+    {
+      "name": "sj-l1",
+      "origin": "wf10 v1-lang-B S-json",
+      "file": "internal/sketch/lower/wirejson.go",
+      "from": "\tif first {\n\t\treturn appendConst(w, quotedKey(name))",
+      "to": "\tif !first {\n\t\treturn appendConst(w, quotedKey(name))",
+      "rule": "stdlib.md, json 4: the fast path writes a record's commas as the Writer path does.",
+      "killers": [
+        "lower:TestStdJSONLawsRun"
+      ]
+    },
+    {
+      "name": "sj-l2",
+      "origin": "wf10 v1-lang-B S-json",
+      "file": "internal/sketch/lower/wirejson.go",
+      "from": "\treturn \"if \" + i + \" > 0 {\\n\" + w + \".B = append(\" + w + \".B, ',')\\n}\\n\"",
+      "to": "\treturn \"\"",
+      "rule": "stdlib.md, json 4: the fast path writes the commas of a list and a Map.",
+      "killers": [
+        "lower:TestStdJSONLawsRun"
+      ]
+    },
+    {
+      "name": "sj-l3",
+      "origin": "wf10 v1-lang-B S-json",
+      "file": "internal/sketch/lower/wirejson.go",
+      "from": "\tif i == 0 {\n\t\treturn \"\"\n\t}",
+      "to": "\tif i >= 0 {\n\t\treturn \"\"\n\t}",
+      "rule": "stdlib.md, json 4: the fast path writes a tuple's commas.",
+      "killers": [
+        "lower:TestStdJSONLawsRun"
+      ]
+    },
+    {
+      "name": "sj-l4",
+      "origin": "wf10 v1-lang-B S-json",
+      "file": "internal/sketch/lower/wirejson.go",
+      "from": "\treturn appendConst(w, quotedKey(\"_tag\")+string(v1.JSONAppendString(nil, name)))",
+      "to": "\treturn appendConst(w, quotedKey(\"tag\")+string(v1.JSONAppendString(nil, name)))",
+      "rule": "stdlib.md, json 1: a union's tag is the member _tag on both paths.",
+      "killers": [
+        "lower:TestStdJSONLawsRun"
+      ]
+    },
+    {
+      "name": "sj-l5",
+      "origin": "wf10 v1-lang-B S-json",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\t\t\tfc.line(t + \".JSONValue()\")",
+      "to": "\t\t\t_ = t",
+      "rule": "stdlib.md, json 4: an encode on a Text writes the comma its state asks for.",
+      "killers": [
+        "lower:TestStdJSONLawsRun"
+      ]
+    },
+    {
+      "name": "sj-l6",
+      "origin": "wf10 v1-lang-B S-json",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\t\t\tfc.line(t + \".Comma = true\")",
+      "to": "\t\t\t_ = t",
+      "rule": "stdlib.md, json 4: an encode on a Text marks its value written.",
+      "killers": [
+        "lower:TestStdJSONLawsRun"
+      ]
+    },
+    {
+      "name": "sj-l7",
+      "origin": "wf10 v1-lang-B S-json",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\tfast := \"nil\"\n\tif wireFast() {",
+      "to": "\tfast := \"nil\"\n\tif false {",
+      "rule": "stdlib.md, json 4: a codec witness carries the fast function in a fast build.",
+      "killers": [
+        "lower:TestStdJSONLawsRun"
+      ]
     }
   ]
 }
