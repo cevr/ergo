@@ -439,6 +439,11 @@ func (g *knownGen) stmt() {
 			g.kept = append(g.kept, keptVal{v, "ds", func() int { return d }})
 			g.reached[fn] = true
 		}
+		// A write through the root follows, so a part bound above that
+		// still shares bs shows the write.
+		c := g.small()
+		g.line(fmt.Sprintf("bs.items[0][0] = %d", c))
+		g.bs.items[0][0] = c
 	case 23:
 		c := g.small()
 		f := g.name("h")
