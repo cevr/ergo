@@ -646,9 +646,9 @@ func (l *lowerer) rootTask(locals *namer, results string, fields []string, body 
 // capability (rows.md, Capability rows 4): Console's Println and Ambient's
 // ambient. go.Foreign (import go) has no operation, so no code reads it
 // from the environment: the checker's row is the authority (rows.md, Entry
-// 4), and the environment holds nothing for it. refuse is called with each
+// 4), and the environment holds nothing for it. unprovided is called with each
 // other capability.
-func (l *lowerer) hostFields(uses *check.Row, name string, provided []string, refuse func(check.Type)) ([]string, []string) {
+func (l *lowerer) hostFields(uses *check.Row, name string, provided []string, unprovided func(check.Type)) ([]string, []string) {
 	var fields []string
 	for _, cap := range rowElems(uses) {
 		n, ok := cap.(*check.Named)
@@ -656,7 +656,7 @@ func (l *lowerer) hostFields(uses *check.Row, name string, provided []string, re
 			continue
 		}
 		if !ok || n.Obj.Pkg == nil || n.Obj.Pkg.Path != "prelude" || n.Obj.Name != "Console" && n.Obj.Name != "Ambient" {
-			refuse(cap)
+			unprovided(cap)
 			continue
 		}
 		if !slices.Contains(provided, n.Obj.Name) {
