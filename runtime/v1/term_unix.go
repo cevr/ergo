@@ -20,27 +20,27 @@ type winsize struct {
 // writes inside it; the pointer is converted in the call expression, so
 // the value stays live and unmoved for the call (unsafe.Pointer rule 4).
 // No safe form exists in Go's standard library, so this is the FFI edge
-// of the 2026-11-02 rule, not a speed use. TestTermStateRestores
-// (runtime/v1) fails if a get or set writes the wrong layout: the state
-// read back after a set differs.
-func ioctl(fd int, req uintptr, arg unsafe.Pointer) bool {
-	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), req, uintptr(arg))
+// of the 2026-11-02 rule, not a speed use. TestTermModesRestore
+// (internal/sketch/lower) checks the complete state after generated mode
+// scopes. The pointer conversion lives only here, at the syscall edge.
+func ioctl[T syscall.Termios | winsize](fd int, req uintptr, arg *T) bool {
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), req, uintptr(unsafe.Pointer(arg)))
 	return errno == 0
 }
 
 func getTermios(fd int) (syscall.Termios, bool) {
 	var t syscall.Termios
-	ok := ioctl(fd, ioctlGetTermios, unsafe.Pointer(&t))
+	ok := ioctl(fd, ioctlGetTermios, &t)
 	return t, ok
 }
 
 func setTermios(fd int, t *syscall.Termios) bool {
-	return ioctl(fd, ioctlSetTermios, unsafe.Pointer(t))
+	return ioctl(fd, ioctlSetTermios, t)
 }
 
 func termSize(fd int) (cols, rows int, ok bool) {
 	var w winsize
-	if !ioctl(fd, syscall.TIOCGWINSZ, unsafe.Pointer(&w)) {
+	if !ioctl(fd, syscall.TIOCGWINSZ, &w) {
 		return 0, 0, false
 	}
 	return int(w.Col), int(w.Row), true

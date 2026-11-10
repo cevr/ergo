@@ -1,0 +1,3 @@
+# Reviewed runtime host edges; not an import permission for the syntax-node analyzer.
+# path<TAB>function<TAB>reason<TAB>guard
+runtime/v1/term_unix.go	ioctl	CU2 q1 (2026-11-10): kernel ioctl needs a pointer to its exact Termios or winsize layout; the live typed pointer converts only in the syscall expression. No safe standard-library form and no external module dependency.	internal/sketch/lower.TestTermModesRestore
