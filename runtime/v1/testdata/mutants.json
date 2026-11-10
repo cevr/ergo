@@ -120,7 +120,12 @@
       "rule": "stdlib.md Types 4 (binsize BS2): a program that names a body reaching rt.TypedText imports the gofmt leaf.",
       "killers": [
         "runtime/v1:TestHostTextUsersAreListed"
-      ]
+      ],
+      "anchor": {
+        "tests": [
+          "runtime/v1:TestHostTextUsersAreListed"
+        ]
+      }
     }
   ]
 }
