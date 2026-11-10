@@ -46,11 +46,15 @@ func startHTTPLimits(t *testing.T, limits HTTPServerLimits, handle httpHandler) 
 
 func startHTTPOn(t *testing.T, sleeper Sleeper, limits HTTPServerLimits, handle httpHandler) (*Listener, *Task[struct{}]) {
 	t.Helper()
+	return startHTTPRoot(t, rt.Root(t.Name()), sleeper, limits, handle)
+}
+
+func startHTTPRoot(t *testing.T, root *rt.Task, sleeper Sleeper, limits HTTPServerLimits, handle httpHandler) (*Listener, *Task[struct{}]) {
+	t.Helper()
 	l, err := HTTPListen("127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := rt.Root(t.Name())
 	s := NewScope(root)
 	h := Go(&s, "http test server", func(ct *rt.Task) (struct{}, error) {
 		return struct{}{}, HTTPServe("http test request", ct, sleeper, l, limits, handle)
@@ -317,6 +321,35 @@ func (s *stepSleeper) Advance(d time.Duration) {
 	}
 }
 
+// httpTimerCount counts started timer tasks until the owner observes their
+// completed exits. An interruption alone does not vacate the timer slot.
+// The phase property has one connection, so its peak is a per-connection
+// bound, not a bound on how many clients a server can admit.
+type httpTimerCount struct {
+	mu           sync.Mutex
+	live         map[uint64]bool
+	starts, peak int
+}
+
+func (c *httpTimerCount) Event(e rt.Event) {
+	if e.Def != "http test request (timeout)" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	switch e.Kind {
+	case rt.TraceStart:
+		if c.live == nil {
+			c.live = map[uint64]bool{}
+		}
+		c.live[e.Task] = true
+		c.starts++
+		c.peak = max(c.peak, len(c.live))
+	case rt.TraceObserve:
+		delete(c.live, e.Task)
+	}
+}
+
 // TestHTTPPhasesExpireOnTheScheduler drives one keep-alive connection
 // through its header, body and idle phases on a test Scheduler, for
 // seeded timeouts, with no host timing. Each phase arms its own budget; a
@@ -327,7 +360,9 @@ func (s *stepSleeper) Advance(d time.Duration) {
 // keep-alive connection was held open forever), a phase armed with another
 // phase's budget, a header phase that does not start at the next
 // request's first byte, and an expiry that closes the connection in the
-// body phase instead of failing the read.
+// body phase instead of failing the read. Its task counter also kills
+// http-timers-overlap: starting the next phase before joining the old
+// timer, which the deadline results alone do not detect.
 func TestHTTPPhasesExpireOnTheScheduler(t *testing.T) {
 	for seed := uint64(1); seed <= 6; seed++ {
 		t.Run(strconv.FormatUint(seed, 10), func(t *testing.T) {
@@ -335,7 +370,8 @@ func TestHTTPPhasesExpireOnTheScheduler(t *testing.T) {
 			budget := func() time.Duration { return time.Duration(1+rng.IntN(1000)) * time.Millisecond }
 			limits := HTTPServerLimits{16, 4096, budget(), budget(), budget()}
 			sl := newStepSleeper()
-			l, _ := startHTTPOn(t, sl, limits, func(_ *rt.Task, _ *Exchange, _, _ string, _, _ []HTTPField, body string, _ bool, readError string) HTTPResponse {
+			count := &httpTimerCount{}
+			l, server := startHTTPRoot(t, rt.TracedRoot(t.Name(), count), sl, limits, func(_ *rt.Task, _ *Exchange, _, _ string, _, _ []HTTPField, body string, _ bool, readError string) HTTPResponse {
 				if readError != "" {
 					return HTTPResponse{Status: 408, Body: readError}
 				}
@@ -411,6 +447,12 @@ func TestHTTPPhasesExpireOnTheScheduler(t *testing.T) {
 			// The server closes the connection: the next read ends at EOF.
 			if b, err := r.ReadByte(); err != io.EOF {
 				t.Fatalf("after the expiry: read %q, %v, want EOF; %s", b, err, replay)
+			}
+			server.Stop()
+			count.mu.Lock()
+			defer count.mu.Unlock()
+			if count.peak > 1 || len(count.live) != 0 {
+				t.Fatalf("timer tasks: %d starts, peak %d live, %d left after stop; want peak <= 1 and none left; %s", count.starts, count.peak, len(count.live), replay)
 			}
 		})
 	}

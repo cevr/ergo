@@ -292,6 +292,13 @@ func (c *httpConn) enterLocked(p phase) {
 	c.phase = p
 	c.at.Store(uint32(p))
 	c.epoch++
+	c.queueLocked()
+}
+
+// queueLocked asks the serving goroutine to read c's latest phase. A
+// stopped timer uses it again once joined: interruption does not vacate
+// the timer slot, so a connection never has two live timer tasks.
+func (c *httpConn) queueLocked() {
 	if c.queued {
 		return
 	}
@@ -479,23 +486,30 @@ func HTTPServe(site Site, t *rt.Task, sleeper Sleeper, l *Listener, limits HTTPS
 	cancel := func(pt *phaseTimer) {
 		pt.cancelled = true
 		pt.h.Task().Interrupt()
-		if pt.c.timer == pt {
-			pt.c.timer = nil
-		}
+		// Keep c.timer until settle joins the child, including its cleanup.
 	}
 	// settle ends a timer whose task has ended: a sleep that ran its whole
 	// length expires its phase, if that phase is still current.
 	settle := func(pt *phaseTimer) error {
 		delete(timers, pt)
+		var err error
+		if pt.cancelled {
+			err = pt.h.Stop()
+		} else {
+			_, err = pt.h.Wait()
+			if err == nil {
+				pt.c.expire(pt.epoch)
+			}
+		}
 		if pt.c.timer == pt {
 			pt.c.timer = nil
 		}
 		if pt.cancelled {
-			return pt.h.Stop()
-		}
-		_, err := pt.h.Wait()
-		if err == nil {
-			pt.c.expire(pt.epoch)
+			// A phase change may have been taken while the old child was
+			// stopping. Revisit the latest phase now that its slot is free.
+			pt.c.mu.Lock()
+			pt.c.queueLocked()
+			pt.c.mu.Unlock()
 		}
 		return err
 	}

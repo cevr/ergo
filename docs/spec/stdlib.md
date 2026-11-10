@@ -390,13 +390,17 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
    the serving task that sleeps on the program's `Scheduler`, as the
    deadline of `timeout.After` does: a test `Scheduler` (`time.Manual`)
    decides when a phase expires, and Serve arms no host timer of its own.
-   A phase that ends first stops its timer. An expired idle or header
-   phase closes the connection with no answer; an expired body phase
+   A phase that ends first stops its timer. Each connection has at most
+   one live timer task: Serve joins the old timer before starting the next
+   phase's timer. The timers are sequential children, not one re-armable
+   child. An expired idle or header phase closes the connection with no
+   answer; an expired body phase
    reaches the handler as `BodyReadFailed`, and its answer is the
    connection's last. A serving stop stops and drains the timers with the
    requests. Go: `http.Server.IdleTimeout` and `ReadHeaderTimeout` (on the
    host clock); Go has no body-only timeout. `TestHTTPPhasesExpireOnTheScheduler`
-   (runtime/v1) holds the three bounds on a test Scheduler.
+   (runtime/v1) holds the three bounds on a test Scheduler and counts live
+   timer tasks without measuring host time.
    *Prior art:* Go `http.Server` deadlines on the connection; Node's
    `server.keepAliveTimeout` (5 s by default) and `headersTimeout`; Bandit
    and Thousand Island's `read_timeout`, one bound for every read; mist
