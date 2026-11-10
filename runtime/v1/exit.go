@@ -394,6 +394,9 @@ func Main(body func(*rt.Task) error) {
 
 // runMain runs body as the root task and returns its canonical exit.
 func runMain(body func(*rt.Task) error) error {
+	if rt.Exploring {
+		return exploreMain(body)
+	}
 	root, written := rootFor()
 	defer written()
 	return runOn(root, body)

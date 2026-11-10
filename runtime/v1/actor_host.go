@@ -103,11 +103,13 @@ func (h *Host[A]) Get(t *rt.Task) (A, error) {
 		}
 		h.mu.Unlock()
 		stopped := false
+		rt.Block(t)
 		select {
 		case <-w:
 		case <-t.Done():
 			stopped = true
 		}
+		rt.Unblock(t)
 		if inDomain {
 			p.Unpark()
 			h.mu.Lock()

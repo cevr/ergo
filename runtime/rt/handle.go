@@ -52,13 +52,16 @@ func GoMasked[T any](s *Scope, span string, body func(t *Task, restore Mask) (T,
 }
 
 func spawn[T any](parent *Task, span string, masked, shield bool, body func(*Task) (T, error)) *Handle[T] {
+	Point(parent, Op{OpSpawn, parent})
 	h := &Handle[T]{owner: parent, done: make(chan struct{})}
 	h.task.init(parent, span, masked, shield)
+	schedSpawn(parent, &h.task)
 	go h.run(body)
 	return h
 }
 
 func (h *Handle[T]) run(body func(*Task) (T, error)) {
+	schedStart(&h.task)
 	defer h.finish()
 	h.value, h.err = Run(&h.task, body)
 }
@@ -69,6 +72,7 @@ func (h *Handle[T]) run(body func(*Task) (T, error)) {
 // parent, the only task that waits for done; detach clears the link, so
 // it is read first.
 func (h *Handle[T]) finish() {
+	Point(&h.task, Op{OpEnd, &h.task})
 	waiter := h.task.parent.Load()
 	h.task.detach()
 	m := waiter.waking(h)
@@ -77,6 +81,7 @@ func (h *Handle[T]) finish() {
 	if own := h.task.member.Load(); own != nil {
 		own.leave()
 	}
+	schedEnd(&h.task)
 }
 
 // finished reports whether the task has finished.
@@ -93,7 +98,9 @@ func (h *Handle[T]) finished() bool {
 // when w, the waiter, is in an auto clock's domain.
 func (h *Handle[T]) join(w *Task) {
 	m := h.park(w, nil)
+	Block(w)
 	<-h.done
+	Unblock(w)
 	m.unpark()
 }
 
@@ -118,13 +125,16 @@ func (h *Handle[T]) Task() *Task { return &h.task }
 func (h *Handle[T]) Wait() (T, error) {
 	owner := h.owner
 	h.consumed, h.owner = true, nil
+	Point(owner, Op{OpJoin, &h.task})
 	if !owner.Stopped() {
 		stop := owner.Done()
 		m := h.park(owner, stop)
+		Block(owner)
 		select {
 		case <-h.done:
 		case <-stop:
 		}
+		Unblock(owner)
 		m.unpark()
 		// Done closes only on a stop the owner can observe, so an owner that
 		// is still not stopped was woken by the task finishing.
@@ -160,6 +170,7 @@ func (h *Handle[T]) Stop() error {
 	}
 	owner := h.owner
 	h.consumed, h.owner = true, nil
+	Point(owner, Op{OpStop, &h.task})
 	h.task.Interrupt()
 	h.join(owner)
 	if h.task.trace != nil {

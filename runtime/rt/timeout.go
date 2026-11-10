@@ -68,8 +68,10 @@ func AfterSpan[T any](t *Task, s Scheduler, d time.Duration, span string, body f
 	h = spawn(t, span, false, false, body)
 	stop := t.Done()
 	m := raceParked(t, h, timer, stop)
+	Block(t)
 	select {
 	case <-h.done:
+		Unblock(t)
 		m.unpark()
 		joined = true
 		if h.task.trace != nil {
@@ -78,6 +80,7 @@ func AfterSpan[T any](t *Task, s Scheduler, d time.Duration, span string, body f
 		c.Add(h.err)
 		v = h.value
 	case <-timer.C():
+		Unblock(t)
 		m.unpark()
 		if h.task.trace != nil {
 			h.task.childEvent(TraceDeadline, t, false)
@@ -91,6 +94,7 @@ func AfterSpan[T any](t *Task, s Scheduler, d time.Duration, span string, body f
 		c.Add(defectsOf(h.err))
 		c.AddFailure(Expired{})
 	case <-stop:
+		Unblock(t)
 		m.unpark()
 		h.task.Interrupt()
 		h.join(t)

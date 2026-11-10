@@ -101,6 +101,7 @@ func New[T any](capacity int) *Queue[T] {
 // Closed when it did not. It raises rt.Interrupted, and v never enters the
 // queue, when t is stopped before it begins or while it waits.
 func (q *Queue[T]) Push(t *rt.Task, v T) error {
+	rt.Point(t, rt.Op{Kind: rt.OpPush, On: q})
 	t.Check()
 	q.mu.Lock()
 	if q.closed {
@@ -137,6 +138,7 @@ func (q *Queue[T]) Push(t *rt.Task, v T) error {
 // closed, empty queue. It raises rt.Interrupted, and takes no value, when
 // t is stopped before it begins or while it waits.
 func (q *Queue[T]) Pop(t *rt.Task) (T, error) {
+	rt.Point(t, rt.Op{Kind: rt.OpPop, On: q})
 	t.Check()
 	v, ok := q.take(t, t.Done())
 	if !ok {
@@ -150,6 +152,7 @@ func (q *Queue[T]) Pop(t *rt.Task) (T, error) {
 func (q *Queue[T]) Values(t *rt.Task) iter.Seq[T] {
 	return func(yield func(T) bool) {
 		for {
+			rt.Point(t, rt.Op{Kind: rt.OpPop, On: q})
 			t.Check()
 			v, ok := q.take(t, t.Done())
 			if !ok || !yield(v) {
@@ -168,6 +171,7 @@ func (q *Queue[T]) Values(t *rt.Task) iter.Seq[T] {
 // (stdlib.md, Types 5). Prior art: Go's select with a default case, and
 // v, ok := <-ch; Effect's Queue.poll.
 func (q *Queue[T]) Poll() (T, bool) {
+	rt.PointRunning(rt.Op{Kind: rt.OpPop, On: q})
 	q.mu.Lock()
 	v, ok := q.front()
 	q.mu.Unlock()
@@ -180,6 +184,7 @@ func (q *Queue[T]) Poll() (T, bool) {
 // capacity 0 always has Len 0. It never waits. Prior art: Go's len(ch);
 // Effect's Queue.size, without its negative count of waiting takers.
 func (q *Queue[T]) Len() int {
+	rt.PointRunning(rt.Op{Kind: rt.OpRead, On: q})
 	q.mu.Lock()
 	n := len(q.buf)
 	q.mu.Unlock()
@@ -188,6 +193,7 @@ func (q *Queue[T]) Len() int {
 
 // End is q.End().
 func (q *Queue[T]) End() {
+	rt.PointRunning(rt.Op{Kind: rt.OpClose, On: q})
 	q.mu.Lock()
 	if !q.closed {
 		q.closed = true
@@ -312,12 +318,14 @@ func (q *Queue[T]) wait(t *rt.Task, stop <-chan struct{}) bool {
 		q.domain = append(q.domain, t)
 	}
 	q.mu.Unlock()
+	rt.Block(t)
 	woke := true
 	select {
 	case <-ch:
 	case <-stop:
 		woke = false
 	}
+	rt.Unblock(t)
 	q.mu.Lock()
 	q.parked--
 	if t.InDomain() {

@@ -242,12 +242,15 @@ func (e *ends) next(t *Task, stop <-chan struct{}) (i int, ok bool) {
 		e.wake = ch
 		m := park(t, e, nil, stop, nil)
 		e.mu.Unlock()
+		Block(t)
 		select {
 		case <-ch:
 		case <-stop:
+			Unblock(t)
 			m.unpark()
 			return 0, false
 		}
+		Unblock(t)
 		m.unpark()
 		e.mu.Lock()
 	}

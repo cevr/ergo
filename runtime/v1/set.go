@@ -303,10 +303,12 @@ func (set *Set) Wait(t *rt.Task) error {
 		stop := t.Done()
 		p := rt.Park(t, set, stop, nil)
 		set.mu.Unlock()
+		rt.Block(t)
 		select {
 		case <-ch:
 		case <-stop:
 		}
+		rt.Unblock(t)
 		p.Unpark()
 		set.mu.Lock()
 		set.wake = nil

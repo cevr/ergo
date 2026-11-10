@@ -74,6 +74,7 @@ func NewManual(t *Task, start time.Time) *Virtual {
 
 // newDomain is a Virtual with a domain whose first member is t.
 func newDomain(t *Task, start time.Time) *Virtual {
+	schedDomain(t)
 	v := NewVirtual(start)
 	v.domain = true
 	if old := t.member.Load(); old != nil {
@@ -247,6 +248,7 @@ func (v *Virtual) idle() {
 		v.now = when
 	}
 	v.steps++
+	schedTick(v)
 	for len(v.timers) > 0 && v.timers[0].when.Equal(when) {
 		v.fire(v.timers[0])
 		v.timers = v.timers[1:]
@@ -314,11 +316,14 @@ func (v *Virtual) sleep(t *Task, d time.Duration) error {
 	if sleepGap != nil {
 		sleepGap(t)
 	}
+	Block(t)
 	select {
 	case <-tm.c:
+		Unblock(t)
 		m.unpark()
 		return nil
 	case <-stop:
+		Unblock(t)
 		m.unpark()
 		// A deadline that came at the same instant as the stop has passed:
 		// the sleep is done, so a tie in tasks.Race keeps its order.

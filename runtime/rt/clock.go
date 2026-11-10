@@ -251,6 +251,7 @@ func (v *Virtual) AwaitTimers(n int) {
 // (I1): it returns Interrupted when t is stopped before or while it waits.
 // Inside a masked region it waits the full duration.
 func Sleep(t *Task, s Scheduler, d time.Duration) error {
+	Point(t, Op{OpSleep, s})
 	if t.Stopped() {
 		return Interrupted
 	}
