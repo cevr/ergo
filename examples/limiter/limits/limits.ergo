@@ -22,8 +22,12 @@ type Level = Full{} | Partial{Tokens int} | Empty{RetryAfterMs int}
 
 // Limiter is the service a gateway calls. Advance moves the limiter's
 // clock: the clock is the limiter's, so a client that waits says how long.
+// Hold is a take that waits, while the take would be Limited, until an
+// Advance lets the bucket pay; a caller that stops waiting (a client that
+// hangs up) stops it.
 type Limiter {
 	Take(key string, cost int) Grant fails Limited | UnknownBucket | BadCost,
+	Hold(key string, cost int) Grant fails UnknownBucket | BadCost,
 	Peek(key string) Option[Level],
 	Advance(ms int),
 	Buckets() []string,

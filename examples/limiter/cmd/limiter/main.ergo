@@ -11,7 +11,9 @@ import limiter/bucket
 import limiter/limits
 import limiter/limits/limitsrpc
 import limiter/memory
+import queue
 import rpc
+import task
 
 // buckets is the limiter's shape: "api" holds five tokens and gets one
 // back every 200 ms of its clock; "search" holds three, one per second.
@@ -22,10 +24,28 @@ func buckets() Map[string, bucket.Spec] {
 	specs
 }
 
+// told is a Hold's note as a line, which the gateway's case waits for.
+func told(n memory.Note) string {
+	match n {
+	case memory.Waits as w:
+		"hold \(w.Hold) waits on \(w.Key)"
+	case memory.Released as r:
+		"hold \(r.Hold) released"
+	}
+}
+
 func main() fails rpc.ListenFailed needs Console | Ambient {
 	let l = try rpc.Listen("127.0.0.1:0")
 	Console.Println("listening \(l.Addr())")
-	with context { limits.Limiter: memory.New(buckets()) } {
+	let notes = queue.New[memory.Note](64)
+	let printer = task.Go() {
+		for n in notes.Values() {
+			Console.Println(told(n))
+		}
+	}
+	with context { limits.Limiter: memory.New(buckets(), notes) } {
 		rpc.Serve(l, "/rpc", limitsrpc.Handle)
 	}
+	notes.Close()
+	printer.Stop()
 }

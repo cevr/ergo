@@ -47,6 +47,19 @@ export const Routes = HttpRouter.use(router =>
         Effect.catchTag("BadCost", e => Effect.succeed(text(`a take costs 1 to ${e.capacity}, not ${e.cost}`, 400))),
       ))
 
+    // GET /hold/:key?cost=N: a take that waits until the limiter's clock
+    // lets the bucket pay. A client that hangs up interrupts this fiber,
+    // which interrupts the RPC call, which stops the Ergo Hold.
+    yield* router.add("GET", "/hold/:key", request =>
+      Effect.gen(function* () {
+        const { key } = yield* HttpRouter.params
+        const grant = yield* limiter.Hold({ key: key ?? "", cost: query(request, "cost", 1) })
+        return text(`granted, ${grant.remaining} left`)
+      }).pipe(
+        Effect.catchTag("UnknownBucket", e => Effect.succeed(text(`no bucket ${e.key}`, 404))),
+        Effect.catchTag("BadCost", e => Effect.succeed(text(`a take costs 1 to ${e.capacity}, not ${e.cost}`, 400))),
+      ))
+
     // GET /level/:key: the bucket's level, or 404.
     yield* router.add("GET", "/level/:key", Effect.gen(function* () {
       const { key } = yield* HttpRouter.params

@@ -31,6 +31,11 @@ func Take(l Loopback, key string, cost int) limits.Grant fails limits.Limited | 
 	try limitsrpc.Take(l.client, key, cost)
 }
 
+// Hold is limits.Limiter's Hold, over the wire.
+func Hold(l Loopback, key string, cost int) limits.Grant fails limits.UnknownBucket | limits.BadCost {
+	try limitsrpc.Hold(l.client, key, cost)
+}
+
 // Peek is limits.Limiter's Peek, over the wire.
 func Peek(l Loopback, key string) Option[limits.Level] { limitsrpc.Peek(l.client, key) }
 

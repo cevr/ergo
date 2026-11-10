@@ -15,3 +15,11 @@ GET /level/nope -> 404: no bucket nope
 POST /advance?ms=5000 -> 204
 GET /level/api -> 200: full
 GET /level/search -> 200: full
+GET /fetch/search?cost=3 -> 200: granted, 0 left
+limiter: hold 0 waits on search
+GET /hold/search -> the client hung up
+limiter: hold 0 released
+limiter: hold 1 waits on search
+POST /advance?ms=1000 -> 204
+GET /hold/search -> 200: granted, 0 left
+limiter: hold 1 released
