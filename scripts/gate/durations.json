@@ -793,6 +793,11 @@
     "TestWitnessFacts": 0,
     "TestWorklistOrder": 0
   },
+  "ergo.local/prototype/internal/sketch/eval": {
+    "TestEvalAgreesWithReference": 0.21,
+    "TestRunRefusesAnAbsentFootprint": 0,
+    "TestRunStopsTheRun": 0
+  },
   "ergo.local/prototype/internal/sketch/format": {
     "FuzzFormat": 0.1,
     "TestAlignmentIsLinear": 2.43,
