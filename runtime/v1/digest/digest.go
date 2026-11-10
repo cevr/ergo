@@ -1,4 +1,4 @@
-package v1
+package digest
 
 // The Go bodies of the std packages hex, base64, sha256 and crc32 (docs/
 // spec/stdlib.md, encodings and digests; G3 std-digest). Ergo's string

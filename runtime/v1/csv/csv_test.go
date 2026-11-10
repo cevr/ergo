@@ -1,4 +1,4 @@
-package v1
+package csv
 
 import (
 	"encoding/csv"
@@ -210,3 +210,6 @@ func TestCSVScanStopsTheRead(t *testing.T) {
 		}
 	}
 }
+
+// textSink keeps a benchmark's result alive.
+var textSink any

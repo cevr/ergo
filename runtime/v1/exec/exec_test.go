@@ -1,4 +1,4 @@
-package v1
+package exec
 
 import (
 	"bytes"
@@ -568,3 +568,6 @@ func BenchmarkExecRunMiB(b *testing.B) {
 		}
 	})
 }
+
+// sinkString keeps a benchmark's result alive.
+var sinkString string

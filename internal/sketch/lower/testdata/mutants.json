@@ -1525,6 +1525,28 @@
       "killers": [
         "lower:TestLawRunGenericListed"
       ]
+    },
+    {
+      "name": "bs1-leaf-in-core",
+      "origin": "wf10 binsize BS1",
+      "file": "internal/sketch/lower/module.go",
+      "from": "if pkg == \"\" || pkg == runtimeImport {",
+      "to": "if true || pkg == \"\" || pkg == runtimeImport {",
+      "rule": "stdlib.md Types 4 (binsize BS1): a declaration of a leaf of runtime/v1 is named through the import of that leaf.",
+      "killers": [
+        "lower:TestMainImportsOnlyTheRuntimeLeavesItCalls"
+      ]
+    },
+    {
+      "name": "bs1-import-all-leaves",
+      "origin": "wf10 binsize BS1",
+      "file": "internal/sketch/lower/module.go",
+      "from": "\tfor _, leaf := range slices.Sorted(maps.Keys(l.rtLeaves)) {\n\t\timports = append(imports, l.pkgNames[pkgKey{\"import\", leaf}]+\" \"+strconv.Quote(leaf))",
+      "to": "\tfor _, leaf := range v1.Leaves {\n\t\timports = append(imports, \"_ \"+strconv.Quote(runtimeImport+\"/\"+leaf))",
+      "rule": "stdlib.md Types 4 (binsize BS1): a program imports a leaf of runtime/v1 only when it names one of its declarations.",
+      "killers": [
+        "lower:TestMainImportsOnlyTheRuntimeLeavesItCalls"
+      ]
     }
   ]
 }

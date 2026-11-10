@@ -88,6 +88,9 @@ type Body struct {
 	// authority (docs/spec/stdlib.md, Host packages 7). An exported body
 	// that reaches a host member (hostReach) and is not marked is refused.
 	Host bool
+	// Package is the import path of the body's package: runtime/v1 (Path)
+	// or one of its leaves (Leaves), which the lowering imports to call it.
+	Package string
 }
 
 // PureMark is the directive line that marks a body pure, in the doc
@@ -177,13 +180,76 @@ func BodyOf(name string) (Body, error) {
 	return decls.body(name)
 }
 
-// sourceDecls parses Source once per process.
-var sourceDecls = sync.OnceValues(func() (goDecls, error) { return parseDecls(Source) })
+// Path is the import path of runtime/v1.
+const Path = runtimefiles.Module + "/runtime/v1"
+
+// Leaves are the leaf packages of runtime/v1, by name: the package Path/LEAF
+// in the directory runtime/v1/LEAF (binsize BS1). A leaf holds the bodies
+// whose Go packages no other body needs (crypto/sha256, encoding/csv,
+// os/exec, math/rand/v2): the Go linker keeps the init task of every
+// imported package, so a program imports a leaf only when it calls one of
+// its bodies, and a program that calls none links none of those packages.
+// A leaf may import runtime/v1; runtime/v1 imports no leaf. A name is
+// unique across runtime/v1 and its leaves (sourceDecls), so a body is named
+// by its Go name alone, as before, and PackageOf finds its package.
+var Leaves = []string{"csv", "digest", "exec", "rand"}
+
+// Owns reports whether the Go package path is runtime/v1 or one of its
+// leaves: the packages whose exported functions are std bodies.
+func Owns(path string) bool {
+	leaf, ok := strings.CutPrefix(path, Path+"/")
+	return path == Path || ok && slices.Contains(Leaves, leaf)
+}
+
+// PackageOf returns the import path of the package of runtime/v1 or its
+// leaves that declares the exported Go declaration name ("HexEncode",
+// "Stream.IntN", "HexMalformed"), or "" when none does.
+func PackageOf(name string) string {
+	decls, err := sourceDecls()
+	if err != nil {
+		return ""
+	}
+	return decls[name].pkg
+}
+
+// BodyIn is BodyOf for an extern that names its body in the package path:
+// it fails when the body named name is in another package.
+func BodyIn(path, name string) (Body, error) {
+	body, err := BodyOf(name)
+	if err == nil && body.Package != path {
+		return Body{}, fmt.Errorf("runtime/v1: the body %s is in %s, not in %s", name, body.Package, path)
+	}
+	return body, err
+}
+
+// sourceDecls parses Source and the source of each leaf once per process.
+var sourceDecls = sync.OnceValues(func() (goDecls, error) {
+	decls, err := parseDecls(Source, Path)
+	if err != nil {
+		return nil, err
+	}
+	for _, leaf := range Leaves {
+		path := Path + "/" + leaf
+		leafDecls, err := parseDecls(runtimefiles.Package("v1/"+leaf), path)
+		if err != nil {
+			return nil, err
+		}
+		for name, d := range leafDecls {
+			if other, ok := decls[name]; ok {
+				return nil, fmt.Errorf("runtime/v1: %s is declared in %s and in %s; a body name is unique across runtime/v1 and its leaves", name, other.pkg, path)
+			}
+			decls[name] = d
+		}
+	}
+	return decls, nil
+})
 
 // goDecl is one exported function, method or type of a parsed package,
 // with the local name its file gives runtime/rt, the import paths of its
 // file, and the package's names of functions and variables at top level.
 type goDecl struct {
+	// pkg is the import path of the declaring package: Path or a leaf.
+	pkg     string
 	fn      *ast.FuncDecl
 	typ     *ast.TypeSpec
 	rt      string
@@ -290,8 +356,9 @@ func (d goDecls) structFields(name string) ([]string, error) {
 	return fields, nil
 }
 
-// parseDecls parses every non-test Go file at the root of fsys.
-func parseDecls(fsys fs.FS) (goDecls, error) {
+// parseDecls parses every non-test Go file at the root of fsys, the
+// package whose import path is pkg.
+func parseDecls(fsys fs.FS, pkg string) (goDecls, error) {
 	names, err := fs.Glob(fsys, "*.go")
 	if err != nil {
 		return nil, err
@@ -335,7 +402,7 @@ func parseDecls(fsys fs.FS) (goDecls, error) {
 			if gd, ok := d.(*ast.GenDecl); ok && gd.Tok == token.TYPE {
 				for _, s := range gd.Specs {
 					if ts := s.(*ast.TypeSpec); ts.Name.IsExported() {
-						decls[ts.Name.Name] = goDecl{typ: ts, rt: rt, imports: imports, locals: locals, values: values, index: index}
+						decls[ts.Name.Name] = goDecl{pkg: pkg, typ: ts, rt: rt, imports: imports, locals: locals, values: values, index: index}
 					}
 				}
 				continue
@@ -364,7 +431,7 @@ func parseDecls(fsys fs.FS) (goDecls, error) {
 			if fn.Recv != nil && len(fn.Recv.List) == 1 {
 				key = recvName(fn.Recv.List[0].Type) + "." + key
 			}
-			decls[key] = goDecl{fn: fn, rt: rt, imports: imports, locals: locals, values: values, index: index}
+			decls[key] = goDecl{pkg: pkg, fn: fn, rt: rt, imports: imports, locals: locals, values: values, index: index}
 		}
 	}
 	return decls, nil
@@ -409,6 +476,7 @@ func (d goDecls) body(name string) (Body, error) {
 	if err != nil {
 		return Body{}, fmt.Errorf("runtime/v1: %s: %w", name, err)
 	}
+	b.Package = g.pkg
 	if b.TypeParams, err = d.typeParams(g.fn); err != nil {
 		return Body{}, fmt.Errorf("runtime/v1: %s: %w", name, err)
 	}

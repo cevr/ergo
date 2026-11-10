@@ -170,4 +170,4 @@ func Run(_ Host, c Command) Result fails NotFound | Denied | Failed {
 	try hostRun(c.Name, c.Args, c.Env, c.Dir, c.Stdin)
 }
 
-extern go ergo.local/prototype/runtime/v1.ExecRun func hostRun(name string, args []string, env Map[string, string], dir string, stdin string) Result fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1/exec.ExecRun func hostRun(name string, args []string, env Map[string, string], dir string, stdin string) Result fails NotFound | Denied | Failed

@@ -1,0 +1,37 @@
+{
+  "about": "The mutant ledger of package runtime (runtimefiles): edits of the core runtime packages that a runtime test must kill. Run it with go run ./scripts/mutants ./runtime (docs/tooling.md, \"Mutant ledger\"). Seeded by binsize BS1.",
+  "mutants": [
+    {
+      "name": "bs1-core-imports-crypto",
+      "origin": "wf10 binsize BS1",
+      "file": "runtime/v1/runtime.go",
+      "from": "import (\n",
+      "to": "import (\n\t_ \"crypto/sha256\"\n",
+      "rule": "stdlib.md Types 4 (binsize BS1): runtime/v1 imports no crypto/, encoding/, hash/ or os/exec package; a body that needs one is in a leaf.",
+      "killers": [
+        "runtime:TestCoreHasNoInitRoots"
+      ],
+      "anchor": {
+        "tests": [
+          "runtime:TestCoreHasNoInitRoots"
+        ]
+      }
+    },
+    {
+      "name": "bs1-core-init",
+      "origin": "wf10 binsize BS1",
+      "file": "runtime/v1/runtime.go",
+      "from": "import (\n",
+      "to": "func init() {}\n\nimport (\n",
+      "rule": "stdlib.md Types 4 (binsize BS1): no core runtime package declares an init function.",
+      "killers": [
+        "runtime:TestCoreHasNoInitRoots"
+      ],
+      "anchor": {
+        "tests": [
+          "runtime:TestCoreHasNoInitRoots"
+        ]
+      }
+    }
+  ]
+}

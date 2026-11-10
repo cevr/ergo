@@ -620,10 +620,10 @@ func pureStd(f *Func) bool {
 		return false
 	}
 	path, name := f.Decl.Extern.Split()
-	if path != runtimeModule+"/v1" {
+	if !v1.Owns(path) {
 		return false
 	}
-	body, err := v1.BodyOf(name)
+	body, err := v1.BodyIn(path, name)
 	return err == nil && body.Pure
 }
 

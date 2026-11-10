@@ -389,7 +389,7 @@ func (fc *funcCtx) runtimeCall(name string, body v1.Body, typeArgs, recv string,
 	}
 	var head string
 	if recv == "" {
-		head = fc.l.rt() + "." + name + typeArgs
+		head = fc.l.rtRef(name) + typeArgs
 	} else {
 		i := strings.LastIndex(name, ".")
 		if i < 0 || typeArgs != "" {

@@ -7,6 +7,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // The naming pass. Before any body is lowered, it gives every package-scope
@@ -59,6 +60,10 @@ func (l *lowerer) nameAll() {
 		}
 	}
 	l.pkgName(pkgKey{"import", runtimeImport}, "ergo")
+	for _, leaf := range v1.Leaves {
+		pkg := runtimeImport + "/" + leaf
+		l.pkgName(pkgKey{"import", pkg}, leafName(pkg)) // rtRef
+	}
 	l.pkgName(pkgKey{"import", "time"}, "time")
 	l.pkgName(pkgKey{"import", "strconv"}, "strconv") // interpolation (interp.go)
 	if valueRule() {

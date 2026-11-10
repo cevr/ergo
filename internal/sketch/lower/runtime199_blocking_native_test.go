@@ -120,7 +120,7 @@ var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Acto
 	"Actor.Drain": true, "ActorExitKind": true, "ActorFeed": true, "ActorLiveState": true, "Host.Get": true}
 
 // hostWaitLaws are the callerWait bindings that wait for a host process
-// (std-align S3c): runtime/v1/exec_test.go TestExecStopModel states their
+// (std-align S3c): runtime/v1/exec/exec_test.go TestExecStopModel states their
 // laws (a stop before the call starts nothing, a stop while the program
 // runs kills its group and returns after the reap, a masked caller runs
 // it to its end), and lower TestExecRuns stops a task that waits in one.

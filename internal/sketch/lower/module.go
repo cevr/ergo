@@ -15,6 +15,7 @@ import (
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 	runtimefiles "ergo.local/prototype/runtime"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // The emitted module. Its main package is at the root. The runtime package
@@ -45,7 +46,14 @@ type File struct {
 // under v1.Main, whose defect report names Ergo call sites (#230).
 func Runtime() []File {
 	files := []File{{Path: runtimeDir + "/go.mod", Data: []byte("module " + runtimeModule + "\n\ngo " + goVersion + "\n")}}
-	src, err := runtimefiles.Files("runtime/v1")
+	// Every leaf of runtime/v1 is copied with it: a program imports only
+	// the leaves it calls (rtRef), and the Go linker reads only imported
+	// packages, so a leaf it does not import costs it no byte.
+	pkgs := []string{"runtime/v1"}
+	for _, leaf := range v1.Leaves {
+		pkgs = append(pkgs, "runtime/v1/"+leaf)
+	}
+	src, err := runtimefiles.Files(pkgs...)
 	if err != nil {
 		panic("lower: the runtime source is not embedded: " + err.Error())
 	}
@@ -256,6 +264,9 @@ type lowerer struct {
 	envOrder  []envCap
 
 	rtName, timeName, taskName string
+	// rtLeaves are the leaves of runtime/v1 that main.go names (rtRef),
+	// by import path.
+	rtLeaves map[string]bool
 	// hostImports are the Go packages a lowered call of a user extern
 	// names (hostPkg), imported under their reserved names.
 	hostImports map[string]bool
@@ -510,6 +521,9 @@ func (l *lowerer) program() ([]byte, error) {
 	if l.rtName != "" {
 		imports = append(imports, l.rtName+" "+`"`+runtimeImport+`"`)
 	}
+	for _, leaf := range slices.Sorted(maps.Keys(l.rtLeaves)) {
+		imports = append(imports, l.pkgNames[pkgKey{"import", leaf}]+" "+strconv.Quote(leaf))
+	}
 	if l.timeName != "" {
 		imports = append(imports, l.timeName+` "time"`)
 	}
@@ -602,6 +616,25 @@ func (l *lowerer) rt() string {
 	}
 	return l.rtName
 }
+
+// rtRef is the Go reference to the exported declaration name of runtime/v1
+// or of one of its leaves (a body, a record or an operation type): through
+// the import of the package that declares it (v1.PackageOf), so a program
+// imports a leaf only when it names one of its declarations.
+func (l *lowerer) rtRef(name string) string {
+	pkg := v1.PackageOf(name)
+	if pkg == "" || pkg == runtimeImport {
+		return l.rt() + "." + name
+	}
+	if l.rtLeaves == nil {
+		l.rtLeaves = map[string]bool{}
+	}
+	l.rtLeaves[pkg] = true
+	return l.pkgName(pkgKey{"import", pkg}, leafName(pkg)) + "." + name
+}
+
+// leafName is the name main.go gives the import of the runtime leaf pkg.
+func leafName(pkg string) string { return "ergo" + path.Base(pkg) }
 
 // timePkg is the time package's name in main.go.
 func (l *lowerer) timePkg() string {

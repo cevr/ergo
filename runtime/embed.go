@@ -27,10 +27,10 @@ import (
 //go:embed v1/host.go
 //go:embed v1/collections.go
 //go:embed v1/time.go v1/timetext.go
-//go:embed v1/rand.go
 //go:embed v1/sync.go v1/set.go
-//go:embed v1/path.go v1/numbers.go v1/digest.go v1/goerror.go v1/gocallback.go v1/csv.go
-//go:embed v1/exec.go v1/exec_exit_kqueue.go v1/exec_exit_linux.go
+//go:embed v1/path.go v1/numbers.go v1/goerror.go v1/gocallback.go
+//go:embed v1/digest/digest.go v1/csv/csv.go v1/rand/rand.go
+//go:embed v1/exec/exec.go v1/exec/exec_exit_kqueue.go v1/exec/exec_exit_linux.go
 var sources embed.FS
 
 // Module is the path of the runtime's Go module, which an emitted module
@@ -53,8 +53,24 @@ var packages = map[string]pkg{
 		files: []string{"cause.go", "clock.go", "doc.go", "gocontext.go", "handle.go", "idle.go", "machine.go", "regions.go", "run.go", "scope.go", "task.go", "tasks.go", "timeout.go", "trace.go", "values.go"},
 	},
 	"runtime/v1": {
-		files:   []string{"actor.go", "actor_host.go", "actor_trace.go", "collections.go", "context.go", "csv.go", "data.go", "digest.go", "exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exit.go", "gocallback.go", "goerror.go", "host.go", "mailbox.go", "numbers.go", "path.go", "queue.go", "rand.go", "runtime.go", "set.go", "sync.go", "task.go", "text.go", "time.go", "timetext.go", "trace.go"},
+		files:   []string{"actor.go", "actor_host.go", "actor_trace.go", "collections.go", "context.go", "data.go", "exit.go", "gocallback.go", "goerror.go", "host.go", "mailbox.go", "numbers.go", "path.go", "queue.go", "runtime.go", "set.go", "sync.go", "task.go", "text.go", "time.go", "timetext.go", "trace.go"},
 		imports: []string{"runtime/rt", "runtime/rt/rttrace"},
+	},
+	// The leaves of runtime/v1: each brings Go packages of its own (and
+	// their init tasks, which the Go linker keeps for every imported
+	// package), so only a program that calls one imports it (binsize BS1).
+	"runtime/v1/csv": {
+		files: []string{"csv.go"},
+	},
+	"runtime/v1/digest": {
+		files: []string{"digest.go"},
+	},
+	"runtime/v1/exec": {
+		files:   []string{"exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go"},
+		imports: []string{"runtime/rt"},
+	},
+	"runtime/v1/rand": {
+		files: []string{"rand.go"},
 	},
 	"runtime/rt/rttrace": {
 		files:   []string{"encode.go", "jsonl.go", "rttrace.go"},

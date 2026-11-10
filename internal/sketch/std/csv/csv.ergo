@@ -41,14 +41,14 @@ type Row = Parsed | Malformed
 // ReadAll is every record of text, as Go's
 // csv.NewReader(strings.NewReader(text)).ReadAll(), or its first error.
 // A text with no record is no rows.
-extern go ergo.local/prototype/runtime/v1.CSVReadAll func ReadAll(text string) [][]string fails ParseError
+extern go ergo.local/prototype/runtime/v1/csv.CSVReadAll func ReadAll(text string) [][]string fails ParseError
 
 // Format is rows as text, as Go's csv.Writer writes them: fields joined by
 // commas, each row ended by a line feed, and a field quoted, its quotes
 // written twice, when it holds a comma, a quote, a CR or a LF, or starts
 // with a space. A row of one empty field is "" (Go writes an empty line);
 // a row of no field is an empty line, which ReadAll skips.
-extern go ergo.local/prototype/runtime/v1.CSVFormat func Format(rows [][]string) string
+extern go ergo.local/prototype/runtime/v1/csv.CSVFormat func Format(rows [][]string) string
 
 // Rows is the records of text, each a Parsed, then a Malformed with the
 // error when the text breaks the format: the rows ReadAll gives, or the
@@ -69,7 +69,7 @@ func Rows(text string) Seq[Row] {
 // starts, in order, until each returns false or the text ends, and gives
 // the error Go's reader stopped at, or a ParseError with no Reason when
 // there was none or each stopped.
-extern go ergo.local/prototype/runtime/v1.CSVScan func scan(text string, each func(fields []string, at []Position) bool) ParseError
+extern go ergo.local/prototype/runtime/v1/csv.CSVScan func scan(text string, each func(fields []string, at []Position) bool) ParseError
 
 // same reports whether a and b hold the same fields in the same rows.
 func same(a [][]string, b [][]string) bool {

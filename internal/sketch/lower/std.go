@@ -59,13 +59,13 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 		if _, err := v1.StructFields(goName); err != nil {
 			ice(site, "the std record %s.%s binds v1.%s: %v", obj.Pkg.Path, obj.Name, goName, err)
 		}
-		return l.rt() + "." + goName
+		return l.rtRef(goName)
 	case *syntax.InterfaceType:
 		if len(spec.Union) == 0 {
 			if !check.SealedStd(n) {
 				return "" // an open std protocol, such as os.Process: a program value implements it
 			}
-			return "*" + l.rt() + "." + obj.Name
+			return "*" + l.rtRef(obj.Name)
 		}
 		// A closed union of std records, such as flag.Failure (std-align
 		// S1d) or time.Layout (S2b): a declaration of the program, as the
@@ -98,11 +98,11 @@ func (l *lowerer) stdBody(fd *funcDecl) (v1.Body, string, bool) {
 		return v1.Body{}, "", false
 	}
 	i := strings.LastIndex(fd.extern, ".")
-	if i < 0 || fd.extern[:i] != runtimeImport {
+	if i < 0 || !v1.Owns(fd.extern[:i]) {
 		return v1.Body{}, "", false
 	}
 	name := fd.extern[i+1:]
-	body, err := v1.BodyOf(name)
+	body, err := v1.BodyIn(fd.extern[:i], name)
 	if err != nil {
 		ice(fd.fn.Decl, "the std function %s binds %s, which has no readable runtime/v1 body: %v", fd.fn.Name, fd.extern, err)
 	}

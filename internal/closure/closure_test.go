@@ -122,9 +122,22 @@ var declared = map[string][]allowance{
 	"internal/sketch/std": declare(
 		[]allowance{{"docs/spec/stdlib.md", file, "TestStdLawLedger and the host law runner read the Std laws ledger (std-align S1a, fu-ledger-runner)"}},
 		glob("internal/sketch/lower/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages) to find each ledger runner and whether it calls lawledger.Run"),
+		glob("runtime/v1/csv/*_test.go", "TestStdStrengthsTable reads the test files of the leaf csv for the benchmark its table names"),
+		glob("runtime/v1/digest/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf digest runs the hex, base64 and crc32 laws"),
+		glob("runtime/v1/exec/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf exec runs the exec laws"),
+		glob("runtime/v1/rand/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf rand runs the rand laws"),
 	),
 	"runtime/v1": {
 		{"docs/spec/stdlib.md", file, "the std law runners of the Go bodies pass their laws to lawledger.Run, which reads the Std laws ledger (fu-ledger-runner)"},
+	},
+	"runtime/v1/digest": {
+		{"docs/spec/stdlib.md", file, "TestStdDigestLaws passes its laws to lawledger.Run, which reads the Std laws ledger"},
+	},
+	"runtime/v1/exec": {
+		{"docs/spec/stdlib.md", file, "the exec law runners pass their laws to lawledger.Run, which reads the Std laws ledger"},
+	},
+	"runtime/v1/rand": {
+		{"docs/spec/stdlib.md", file, "TestRandLaws passes its laws to lawledger.Run, which reads the Std laws ledger"},
 	},
 	"internal/sketch/syntax": declare(
 		glob("internal/sketch/testdata/*.ergo", "decidedInputs parses every source of the shared corpus"),

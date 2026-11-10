@@ -1,41 +1,94 @@
 {
-  "reason": "Ceilings are the Ergo-only bytes (fixture minus the Go hello control, default and stripped builds) and the Go package count measured on linux/amd64 with go1.27.0 at main f6802de7, plus 2 %, rounded up (binsize plan, BS0). A unit that shrinks a fixture lowers its ceilings to its measured value plus 2 %; a unit that grows one past a ceiling raises it only with the reason in its request. Forbid lists facts: patterns of linked symbol names that must stay absent.",
+  "reason": "Ceilings are the Ergo-only bytes (fixture minus the Go hello control, default and stripped builds) measured on linux/amd64 with go1.27.0, plus 2 %, rounded up; Go package ceilings likewise, except hello, pure and relay, whose ceiling of 72 is the bound binsize BS1 states. BS0 set them at main f6802de7; BS1 (runtime/v1 leaves) lowered them. A unit that shrinks a fixture lowers its ceilings to its measured value plus 2 %; a unit that grows one past a ceiling raises it only with the reason in its request. Forbid lists facts: patterns of linked symbol names that must stay absent.",
   "fixtures": {
     "hello": {
-      "ergoOnly": 986937,
-      "ergoOnlyStripped": 685179,
-      "goPackages": 109,
-      "forbid": ["^net/", "^encoding/json\\.", "^encoding/csv\\.", "^os/exec\\.", "^bufio\\.", "^math/rand"]
+      "ergoOnly": 649319,
+      "ergoOnlyStripped": 442860,
+      "goPackages": 72,
+      "forbid": [
+        "^net/",
+        "^encoding/json\\.",
+        "^encoding/csv\\.",
+        "^os/exec\\.",
+        "^bufio\\.",
+        "^math/rand",
+        "^crypto/",
+        "^hash/crc32\\.",
+        "^encoding/base64\\."
+      ]
     },
     "pure": {
-      "ergoOnly": 986880,
-      "ergoOnlyStripped": 685179,
-      "goPackages": 109,
-      "forbid": ["^net/", "^encoding/json\\.", "^encoding/csv\\.", "^os/exec\\.", "^bufio\\.", "^math/rand"]
+      "ergoOnly": 649442,
+      "ergoOnlyStripped": 442860,
+      "goPackages": 72,
+      "forbid": [
+        "^net/",
+        "^encoding/json\\.",
+        "^encoding/csv\\.",
+        "^os/exec\\.",
+        "^bufio\\.",
+        "^math/rand",
+        "^crypto/",
+        "^hash/crc32\\.",
+        "^encoding/base64\\."
+      ]
     },
     "unused": {
-      "ergoOnly": 1006740,
-      "ergoOnlyStripped": 701891,
-      "goPackages": 109,
-      "forbid": ["^net/", "^encoding/json\\.", "^encoding/csv\\.", "^os/exec\\.", "^math/rand"]
+      "ergoOnly": 1003509,
+      "ergoOnlyStripped": 697713,
+      "goPackages": 110,
+      "forbid": [
+        "^net/",
+        "^encoding/json\\.",
+        "^encoding/csv\\.",
+        "^os/exec\\.",
+        "^math/rand"
+      ]
     },
     "relay": {
-      "ergoOnly": 1015494,
-      "ergoOnlyStripped": 706069,
-      "goPackages": 109,
-      "forbid": ["^net/", "^encoding/json\\.", "^encoding/csv\\.", "^os/exec\\."]
+      "ergoOnly": 680887,
+      "ergoOnlyStripped": 467928,
+      "goPackages": 72,
+      "forbid": [
+        "^net/",
+        "^encoding/json\\.",
+        "^encoding/csv\\.",
+        "^os/exec\\.",
+        "^crypto/",
+        "^hash/crc32\\.",
+        "^encoding/base64\\.",
+        "^math/rand",
+        "^bufio\\."
+      ]
     },
     "kvstore": {
-      "ergoOnly": 1460586,
-      "ergoOnlyStripped": 1006879,
-      "goPackages": 110,
-      "forbid": ["^net/", "^encoding/json\\.", "^encoding/csv\\.", "^os/exec\\."]
+      "ergoOnly": 1125661,
+      "ergoOnlyStripped": 764560,
+      "goPackages": 74,
+      "forbid": [
+        "^net/",
+        "^encoding/json\\.",
+        "^encoding/csv\\.",
+        "^os/exec\\.",
+        "^crypto/",
+        "^hash/crc32\\.",
+        "^encoding/base64\\."
+      ]
     },
     "deploys": {
-      "ergoOnly": 1309699,
-      "ergoOnlyStripped": 914965,
-      "goPackages": 109,
-      "forbid": ["^net/", "^encoding/json\\.", "^encoding/csv\\.", "^os/exec\\."]
+      "ergoOnly": 977850,
+      "ergoOnlyStripped": 676824,
+      "goPackages": 73,
+      "forbid": [
+        "^net/",
+        "^encoding/json\\.",
+        "^encoding/csv\\.",
+        "^os/exec\\.",
+        "^crypto/",
+        "^hash/crc32\\.",
+        "^encoding/base64\\.",
+        "^math/rand"
+      ]
     }
   }
 }
