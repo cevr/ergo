@@ -817,6 +817,105 @@
       "killers": [
         "check:TestCheckerScalePart0"
       ]
+    },
+    {
+      "name": "l6-1 clip of <= drops its bound",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/refine.go",
+      "from": "\tcase syntax.LEQ:\n\t\treturn clip(r.dom.Lo, v, r.dom), true",
+      "to": "\tcase syntax.LEQ:\n\t\treturn clip(r.dom.Lo, new(big.Int).Sub(v, one1), r.dom), true",
+      "rule": "types.md, Refinements 2: the checker decides P to the set of subject values that satisfy it.",
+      "killers": [
+        "check:TestRefinementMatchesPredicate"
+      ]
+    },
+    {
+      "name": "l6-2 a constant outside the where is admitted",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/refine.go",
+      "from": "\tif r.Holds(v) {\n\t\treturn true\n\t}",
+      "to": "\tif r.Holds(v) || true {\n\t\treturn true\n\t}",
+      "rule": "types.md, Refinements 6: a constant enters N only when its value lies in the set.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l6-3 a conversion of a value into a refined type is admitted",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/operators.go",
+      "from": "\t\t} else if !c.inDerived(t) {\n\t\t\targ := exprText(x.Args[0])",
+      "to": "\t\t} else if false {\n\t\t\targ := exprText(x.Args[0])",
+      "rule": "types.md, Refinements 6: a conversion N(x) of a value that is not a constant is S108, except in ParseN's own body.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l6-4 a conversion is refused in the derived parse function",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/operators.go",
+      "from": "\t\t} else if !c.inDerived(t) {\n\t\t\targ := exprText(x.Args[0])",
+      "to": "\t\t} else if true {\n\t\t\targ := exprText(x.Args[0])",
+      "rule": "types.md, Refinements 4 and 6: ParseN's body converts it into N.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l6-5 an assignment from the base is admitted",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/expr.go",
+      "from": "if a.clause == assignUnderlying && RefinementOf(t) != nil && !c.inDerived(t) {",
+      "to": "if a.clause == assignUnderlying && RefinementOf(t) != nil && false {",
+      "rule": "types.md, Refinements 6: an assignment from the unnamed base is S108.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l6-6 a composite literal of a refined type is admitted",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/expr.go",
+      "from": "\tif RefinementOf(t) != nil {\n\t\t// The elements still check",
+      "to": "\tif false {\n\t\t// The elements still check",
+      "rule": "types.md, Refinements 6: a composite literal of N is S108.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l6-7 a slice of a refined value is admitted",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/expr.go",
+      "from": "\tif RefinementOf(base.typ) != nil {",
+      "to": "\tif false {",
+      "rule": "types.md, Refinements 7: a slice expression of a refined value is S108.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l6-8 arithmetic on a refined operand is admitted",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/refine.go",
+      "from": "func (c *checker) refinedArith(x syntax.Node, op syntax.Token, t Type) bool {\n\tif RefinementOf(t) == nil {",
+      "to": "func (c *checker) refinedArith(x syntax.Node, op syntax.Token, t Type) bool {\n\tif true {",
+      "rule": "types.md, Refinements 7: an arithmetic operator on a refined operand is S108.",
+      "killers": [
+        "check:TestFixtures"
+      ]
+    },
+    {
+      "name": "l6-9 a refined type whose zero fails its where is defaultable",
+      "origin": "wf10 v1-lang-B L6",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "if r := RefinementOf(t); r != nil && !r.Holds(big.NewInt(0)) {",
+      "to": "if r := RefinementOf(t); r != nil && r.Holds(big.NewInt(0)) && false {",
+      "rule": "types.md, Refinements 8: let p Port is S108 when 0 fails the where.",
+      "killers": [
+        "check:TestFixtures"
+      ]
     }
   ]
 }
