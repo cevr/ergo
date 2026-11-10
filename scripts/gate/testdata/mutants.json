@@ -1,0 +1,32 @@
+{
+  "about": "Focused scheduler regression mutants, run with their named killers. Model searches reserve all scheduler slots for memory isolation.",
+  "mutants": [
+    {
+      "name": "b15-r7-model-memory-unreserved",
+      "origin": "wf10 batch-15 fix-r7",
+      "file": "scripts/gate/steps.go",
+      "from": "Class: classHeavy, MemoryHeavy: true",
+      "to": "Class: classHeavy",
+      "rule": "Every model search declares a full-gate memory reservation.",
+      "killers": ["scripts/gate:TestFastTierHoldsNoHeavyStep"]
+    },
+    {
+      "name": "b15-r7-memory-slot-undercharged",
+      "origin": "wf10 batch-15 fix-r7",
+      "file": "scripts/gate/slots.go",
+      "from": "p.free -= queue[next].slots",
+      "to": "p.free--",
+      "rule": "A queued memory-heavy step reserves all requested slots, not one.",
+      "killers": ["scripts/gate:TestSlotPoolReservesMemoryHeavySteps"]
+    },
+    {
+      "name": "b15-r7-memory-immediate-undercharged",
+      "origin": "wf10 batch-15 fix-r7",
+      "file": "scripts/gate/slots.go",
+      "from": "p.free -= slots",
+      "to": "p.free--",
+      "rule": "An immediate memory-heavy reservation also takes all requested slots.",
+      "killers": ["scripts/gate:TestSlotPoolReservesMemoryHeavySteps"]
+    }
+  ]
+}

@@ -48,6 +48,9 @@ func TestFastTierHoldsNoHeavyStep(t *testing.T) {
 	}
 	var light []string
 	for _, step := range full {
+		if strings.HasPrefix(step.Name, "ergo test models/") && !step.MemoryHeavy {
+			t.Errorf("%s reserves no memory weight: model searches must run alone", step.Name)
+		}
 		switch why := heavyWork(module, step); {
 		case step.Class == classUndeclared:
 			t.Errorf("%s declares no class (stepClass)", step.Name)

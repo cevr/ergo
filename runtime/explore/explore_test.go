@@ -210,7 +210,14 @@ func TestSearchAgreesWithReference(t *testing.T) {
 			t.Fatalf("seed %d (ERGO_EXPLORE_SEED=%d): %s\ngraph: next %v, starts %v, targets %v, budget %d", seed, seed, fmt.Sprintf(format, args...), tb.next, tb.starts, tb.targets, tb.budget)
 		}
 		got := Search(g, func(s state) bool { return tb.targets[0][s.id] }, tb.budget)
+		if got.FrontierStates != 0 {
+			fail("Search retained %d whole payload states in pending layers; want node indexes only", got.FrontierStates)
+		}
 		want := refSearch(tb)
+		stored := search(g, func(s state) bool { return tb.targets[0][s.id] }, tb.budget, true)
+		if got.Found != stored.Found || got.States != stored.States || got.Edges != stored.Edges || got.Depth != stored.Depth || got.Checked != stored.Checked || got.Complete != stored.Complete || !slices.Equal(got.nodes, stored.nodes) {
+			fail("Search replay %+v differs from whole-frontier reference %+v", got, stored)
+		}
 		gotLen := -1
 		if got.Found >= 0 {
 			start, sigs := got.Run(got.Found)
@@ -232,6 +239,13 @@ func TestSearchAgreesWithReference(t *testing.T) {
 			targets[i] = func(s state) bool { return set[s.id] }
 		}
 		p := Path(g, targets, len(tb.next)*len(tb.targets)+1)
+		storedPath := path(g, targets, len(tb.next)*len(tb.targets)+1, true)
+		if p.Found != storedPath.Found || p.States != storedPath.States || p.Edges != storedPath.Edges || p.Depth != storedPath.Depth || p.Checked != storedPath.Checked || p.Complete != storedPath.Complete || !slices.Equal(p.nodes, storedPath.nodes) {
+			fail("Path replay %+v differs from whole-frontier reference %+v", p, storedPath)
+		}
+		if p.FrontierStates != 0 {
+			fail("Path retained %d whole payload states in pending layers; want node indexes only", p.FrontierStates)
+		}
 		if (p.Found >= 0) != refPath(tb) || !p.Complete {
 			fail("Path: found %v, complete %v; the reference: %v", p.Found >= 0, p.Complete, refPath(tb))
 		}

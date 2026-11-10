@@ -82,8 +82,8 @@
       "name": "x1-explore-path-layer-shared",
       "origin": "wf10/explorer/x1",
       "file": "runtime/explore/explore.go",
-      "from": "\tfor d := 1; d < len(targets) && len(frontier) > 0; d++ {\n\t\tlayer = map[Hash]struct{}{}\n",
-      "to": "\tfor d := 1; d < len(targets) && len(frontier) > 0; d++ {\n",
+      "from": "\tfor d := 1; d < len(targets) && len(ids) > 0; d++ {\n\t\tlayer = map[Hash]struct{}{}\n",
+      "to": "\tfor d := 1; d < len(targets) && len(ids) > 0; d++ {\n",
       "rule": "Path: each layer keeps its own visited set.",
       "killers": [
         "explore:TestSearchAgreesWithReference"
@@ -121,6 +121,33 @@
       "killers": [
         "lower:TestKeyEqualsEquality"
       ]
+    },
+    {
+      "name": "b15-r7-search-retains-frontier",
+      "origin": "wf10 batch-15 fix-r7",
+      "file": "runtime/explore/explore.go",
+      "from": "return search(g, target, budget, false)",
+      "to": "return search(g, target, budget, true)",
+      "rule": "Search pending layers retain node indexes, not whole model payloads; FrontierStates counts their actual retained payloads.",
+      "killers": ["explore:TestSearchAgreesWithReference"]
+    },
+    {
+      "name": "b15-r7-path-retains-frontier",
+      "origin": "wf10 batch-15 fix-r7",
+      "file": "runtime/explore/explore.go",
+      "from": "return path(g, targets, budget, false)",
+      "to": "return path(g, targets, budget, true)",
+      "rule": "Path pending layers retain node indexes, not whole model payloads.",
+      "killers": ["explore:TestSearchAgreesWithReference"]
+    },
+    {
+      "name": "b15-r7-frontier-replay-skips-signal",
+      "origin": "wf10 batch-15 fix-r7",
+      "file": "runtime/explore/explore.go",
+      "from": "\treturn Replay(g, start, signals)\n}",
+      "to": "\treturn Replay(g, start, signals[:max(0, len(signals)-1)])\n}",
+      "rule": "A materialized frontier state replays every signal of its shortest run, and agrees with the retained-state reference.",
+      "killers": ["explore:TestSearchAgreesWithReference"]
     }
   ]
 }

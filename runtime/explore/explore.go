@@ -6,9 +6,10 @@
 //
 // The search keeps, for each state it has seen, the 128-bit hash of the
 // state's key, the index of its parent and the index of its signal; it
-// keeps whole states only in the frontier. A run to a state is rebuilt
-// from the parents and replayed from its start by the step, so a state
-// costs about 24 bytes in the visited set (hash and node). The search
+// keeps no whole states in the frontier. A run to a state is rebuilt
+// from the parents and replayed from its start by the step. The visited
+// data is a 16-byte hash (plus map overhead), an 8-byte node and frontier
+// indexes; payloads do not multiply by the frontier width. The search
 // stops when it has seen budget states: its result then is not a proof.
 // It counts work (states, edges, depth); it never reads a clock.
 //
@@ -163,7 +164,11 @@ type Result struct {
 	Depth, Checked int
 	// Complete is true when the whole graph was seen and no target met.
 	Complete bool
-	nodes    []node
+	// FrontierStates is the peak number of whole state payloads retained in
+	// the pending layers (not the caller's Starts or the state being stepped).
+	// It counts retained work, not heap samples or elapsed time.
+	FrontierStates int
+	nodes          []node
 }
 
 // Run is the run to the node i: the index of its start in Starts, and the
@@ -190,6 +195,12 @@ func Replay[S, E any](g Graph[S, E], start int, signals []int) S {
 // until it meets a state for which target is true or it has seen budget
 // states. The first target it meets has a shortest run.
 func Search[S, E any](g Graph[S, E], target func(S) bool, budget int) Result {
+	return search(g, target, budget, false)
+}
+
+// retain selects the old whole-frontier implementation as a reference in
+// the seeded property. Production reconstructs each state from its run.
+func search[S, E any](g Graph[S, E], target func(S) bool, budget int, retain bool) Result {
 	r := Result{Found: -1}
 	seen := map[Hash]struct{}{}
 	var k Key
@@ -219,13 +230,17 @@ func Search[S, E any](g Graph[S, E], target func(S) bool, budget int) Result {
 			r.Found = len(r.nodes) - 1
 			return r
 		}
-		frontier = append(frontier, s)
+		if retain {
+			frontier = append(frontier, s)
+		}
+		r.FrontierStates = max(r.FrontierStates, len(frontier))
 		ids = append(ids, len(r.nodes)-1)
 	}
-	for depth := 1; len(frontier) > 0; depth++ {
+	for depth := 1; len(ids) > 0; depth++ {
 		var next []S
 		var nextIDs []int
-		for f, s := range frontier {
+		for f := range ids {
+			s := frontierState(g, r, frontier, f, ids[f])
 			for e, sig := range g.Signals {
 				t, ok := g.Step(s, sig)
 				if !ok {
@@ -246,7 +261,10 @@ func Search[S, E any](g Graph[S, E], target func(S) bool, budget int) Result {
 					r.Found = len(r.nodes) - 1
 					return r
 				}
-				next = append(next, t)
+				if retain {
+					next = append(next, t)
+				}
+				r.FrontierStates = max(r.FrontierStates, len(frontier)+len(next))
 				nextIDs = append(nextIDs, len(r.nodes)-1)
 			}
 		}
@@ -264,6 +282,10 @@ func Search[S, E any](g Graph[S, E], target func(S) bool, budget int) Result {
 // search ended without the budget (so Found is -1 only when no run
 // follows the path).
 func Path[S, E any](g Graph[S, E], targets []func(S) bool, budget int) Result {
+	return path(g, targets, budget, false)
+}
+
+func path[S, E any](g Graph[S, E], targets []func(S) bool, budget int, retain bool) Result {
 	r := Result{Found: -1}
 	var k Key
 	layer := map[Hash]struct{}{}
@@ -285,15 +307,19 @@ func Path[S, E any](g Graph[S, E], targets []func(S) bool, budget int) Result {
 				return r
 			}
 			r.nodes = append(r.nodes, node{parent: -1, sig: int32(i)})
-			frontier = append(frontier, s)
+			if retain {
+				frontier = append(frontier, s)
+			}
+			r.FrontierStates = max(r.FrontierStates, len(frontier))
 			ids = append(ids, len(r.nodes)-1)
 		}
 	}
-	for d := 1; d < len(targets) && len(frontier) > 0; d++ {
+	for d := 1; d < len(targets) && len(ids) > 0; d++ {
 		layer = map[Hash]struct{}{}
 		var next []S
 		var nextIDs []int
-		for f, s := range frontier {
+		for f := range ids {
+			s := frontierState(g, r, frontier, f, ids[f])
 			for e, sig := range g.Signals {
 				t, ok := g.Step(s, sig)
 				if !ok {
@@ -308,7 +334,10 @@ func Path[S, E any](g Graph[S, E], targets []func(S) bool, budget int) Result {
 					return r
 				}
 				r.nodes = append(r.nodes, node{parent: int32(ids[f]), sig: int32(e)})
-				next = append(next, t)
+				if retain {
+					next = append(next, t)
+				}
+				r.FrontierStates = max(r.FrontierStates, len(frontier)+len(next))
 				nextIDs = append(nextIDs, len(r.nodes)-1)
 			}
 		}
@@ -318,10 +347,20 @@ func Path[S, E any](g Graph[S, E], targets []func(S) bool, budget int) Result {
 	r.States = len(r.nodes)
 	r.Checked = r.Depth
 	r.Complete = true
-	if len(frontier) > 0 {
+	if len(ids) > 0 {
 		r.Found = ids[0]
 	}
 	return r
+}
+
+// frontierState materializes only the state being stepped. A wide layer
+// keeps indexes, not copies of payload-rich model worlds (batch-15 r7).
+func frontierState[S, E any](g Graph[S, E], r Result, states []S, at, id int) S {
+	if states != nil {
+		return states[at]
+	}
+	start, signals := r.Run(id)
+	return Replay(g, start, signals)
 }
 
 // Moves is the indexes of the signals whose step from s does not end

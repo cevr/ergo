@@ -164,6 +164,10 @@ type Step struct {
 	// slot goes to the heaviest waiting step (slotPool). It orders the
 	// steps only: no key holds it.
 	Weight float64
+	// MemoryHeavy reserves every scheduler slot while the step runs. Model
+	// searches can retain a large graph; their memory must not overlap other
+	// steps. This is a conservative full-gate memory weight, not a higher cap.
+	MemoryHeavy bool
 	// Class says which tiers run the step (stepClass). Every declared
 	// step has one; the fast tier keeps only its classFast steps.
 	Class stepClass
@@ -862,13 +866,17 @@ func (g *gate) run(out io.Writer) int {
 			for _, j := range after[i] {
 				<-done[j]
 			}
-			slots.acquireWeighted(first[i], step.Weight)
+			held := 1
+			if step.MemoryHeavy {
+				held = cpus
+			}
+			slots.acquireN(first[i], step.Weight, held)
 			if step.Sweep != "" {
 				results[i] = g.sweepCheckout(step)
 			} else {
 				results[i] = g.execute(step)
 			}
-			slots.release()
+			slots.releaseN(held)
 		}()
 	}
 

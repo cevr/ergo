@@ -401,7 +401,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		if states, ok := modelStates[model]; ok {
 			argv = append(argv, "--states", states)
 		}
-		add(&Step{Name: "ergo test " + model, Needs: []string{buildCLIStep}, Argv: argv, Class: classHeavy})
+		add(&Step{Name: "ergo test " + model, Needs: []string{buildCLIStep}, Argv: argv, Class: classHeavy, MemoryHeavy: true})
 	}
 
 	return steps, nil
