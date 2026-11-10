@@ -18,6 +18,12 @@ clone clone
 # unsafe are never listed.
 import cmp container/heap encoding/binary fmt go/constant go/token maps math math/bits path regexp runtime slices sort strconv strings sync unicode unicode/utf8
 import ergo.local/prototype/internal/sketch/std ergo.local/prototype/internal/sketch/syntax
+# math/big (L6 refinements, refine.go and typeops.go): exact integer sets
+# over every integer width (a uint64 bound, 2^64-1, and the count of a set
+# exceed int64). The checker uses only its integer arithmetic (big.Int),
+# no host I/O; it imports no ergo.local package (go list -deps), so it
+# cannot name, receive or build a syntax node.
+import math/big
 # runtime/v1 (G5b, the std purity fact): footprint.go calls only
 # v1.BodyOf(name string) and reads Body.Pure; extern.go reads only the
 # []string v1.PureImports (G9, the user extern allowlist). runtime/v1 depends on no
