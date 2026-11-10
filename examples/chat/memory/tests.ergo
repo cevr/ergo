@@ -1,8 +1,8 @@
 // The memory connection's tests, and the server's: sessions replayed over
 // memory connections with a time.Manual clock, so no test sleeps or
-// touches the host. ergo test skips the Conn law (a Conn holds a queue,
-// and its constructor takes a size; expected-skips), so it is restated as
-// a test.
+// touches the host. ergo test skips the Conn and Peer laws (a Server and
+// a Sender hold a queue, and Pipe takes a size; expected-skips), so they
+// are restated as a test.
 
 import chat/server
 import queue
@@ -10,22 +10,24 @@ import time
 
 test HangupIsFinalHolds(lines []string) {
 	// Room for every line: a Send to a full connection waits for a reader,
-	// and this test reads only after the close.
-	let c = New(len(lines) + 1)
+	// and this test reads only after the hang-up.
+	let end, c = Pipe(len(lines) + 1)
 	for l in lines {
 		c.Send(l) catch {
 		case server.Hangup:
 			assert false
 		}
 	}
-	c.Close()
-	// The lines sent before the close are read first.
+	end.Peer().Hangup()
+	// HangupIsIdempotent: a second Hangup changes nothing.
+	end.Peer().Hangup()
+	// The lines sent before the hang-up are read first.
 	for l in lines {
-		assert (try c.Read()) == l
+		assert (try end.Read()) == l
 	}
 	let mut hangups = 0
 	for _ in 0..2 {
-		let _ = c.Read() catch {
+		let _ = end.Read() catch {
 		case server.Hangup:
 			hangups += 1
 			continue

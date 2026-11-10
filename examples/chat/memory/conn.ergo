@@ -1,44 +1,63 @@
-// Package memory is a server.Conn in memory: two queues, one per
-// direction. The server's side reads and writes it through the Conn
-// operations; the client's side, a test or the binary's driver, sends
-// lines, takes what it was sent, and hangs up.
+// Package memory is a connection in memory, as Go's net.Pipe: two queues,
+// one per direction, and two owned ends. The server's end is a
+// server.Conn; the client's end, which a test or the binary's driver
+// holds, sends lines, takes what it was sent, and hangs up. Each end is a
+// resource (it has Close), so its owner's scope releases it.
 
 import chat/server
 import queue
 
-// Conn is a connection in memory. Its queues are shared by every copy,
-// so the server and the client hold the same connection.
-type Conn { inbound queue.Queue[string], outbound queue.Queue[string] }
+// Server is the server's end of a connection in memory.
+type Server { inbound queue.Queue[string], outbound queue.Queue[string] }
 
-// New is a connection whose directions each hold up to capacity lines.
-// A write to a full connection waits for the client to take a line, as a
-// full socket buffer does; the queue has no unbounded form.
-func New(capacity int) Conn { Conn{inbound: queue.New[string](capacity), outbound: queue.New[string](capacity)} }
+// Client is the client's end of the same connection.
+type Client { inbound queue.Queue[string], outbound queue.Queue[string] }
+
+// Sender is the server end's sending side, its server.Peer: it shares the
+// queues, so the room may keep a copy for each member.
+type Sender { inbound queue.Queue[string], outbound queue.Queue[string] }
+
+// Pipe is a connection whose directions each hold up to capacity lines,
+// as its two ends. A write to a full connection waits for the client to
+// take a line, as a full socket buffer does; the queue has no unbounded
+// form.
+func Pipe(capacity int) (Server, Client) {
+	let inbound = queue.New[string](capacity)
+	let outbound = queue.New[string](capacity)
+	(Server{inbound: inbound, outbound: outbound}, Client{inbound: inbound, outbound: outbound})
+}
 
 // Read is the next line the client sent, or Hangup once the client hung
-// up, or the server closed the connection, and every sent line is read.
-func Read(c Conn) string fails server.Hangup {
-	c.inbound.Pop() catch {
+// up, or the server hung up, and every sent line is read.
+func Read(s Server) string fails server.Hangup {
+	s.inbound.Pop() catch {
 	case queue.Closed:
 		return server.Hangup
 	}
 }
 
+// Peer is s's sending side.
+func Peer(s Server) server.Peer { Sender{inbound: s.inbound, outbound: s.outbound} }
+
+// Close releases the server's end: the client's next Send hangs up.
+func Close(s Server) { s.inbound.End() }
+
 // Write sends line to the client; a write after the client is gone is
 // lost.
-func Write(c Conn, line string) {
-	c.outbound.Push(line) catch {
+func Write(p Sender, line string) {
+	p.outbound.Push(line) catch {
 	case queue.Closed:
 	}
 }
 
-// Close ends the server's side: the next Read after the sent lines hangs
+// Hangup ends the connection from the server's side: the server reads
+// the lines already sent, then Hangup, and the client's next Send hangs
 // up.
-func Close(c Conn) { c.inbound.End() }
+func Hangup(p Sender) { p.inbound.End() }
 
 // Send is the client sending line. It fails with Hangup when the
-// connection is closed.
-func Send(c Conn, line string) fails server.Hangup {
+// connection is ended.
+func Send(c Client, line string) fails server.Hangup {
 	c.inbound.Push(line) catch {
 	case queue.Closed:
 		return server.Hangup
@@ -47,14 +66,17 @@ func Send(c Conn, line string) fails server.Hangup {
 
 // Hang is the client hanging up: the server reads what it sent, then
 // Hangup, and later writes are lost.
-func Hang(c Conn) {
+func Hang(c Client) {
 	c.inbound.End()
 	c.outbound.End()
 }
 
+// Close releases the client's end: it hangs up, if it has not yet.
+func Close(c Client) { c.Hang() }
+
 // Received is every line the server wrote to c that the client has not
 // taken yet, in order. It never waits.
-func Received(c Conn) []string {
+func Received(c Client) []string {
 	let mut out = []string{}
 	for {
 		match c.outbound.Poll() {

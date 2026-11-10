@@ -1,7 +1,9 @@
 # Skip lines `ergo test` prints for this program's packages (fs4, law-xpkg, fu7a).
-# memory.Conn holds a queue.Queue. queue's constructor is New(capacity), not
-# New<Queue>, so a Queue has no builder (check/builders.go). That stays: a
-# generated capacity is any int, and a negative one or one near 2^63 cannot
-# be allocated, so a generator must not draw it. memory/tests.ergo restates
-# HangupIsFinal on a Conn sized to its lines.
-skip law server.Conn.HangupIsFinal for Conn: its values have no generator: queue.Queue[string] is an operation type with no builder: neither queue nor queuetest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewConn() Conn with no rows would build one for each case
+# memory.Server and memory.Sender hold a queue.Queue. queue's constructor is
+# New(capacity), not New<Queue>, so a Queue has no builder
+# (check/builders.go). That stays: a generated capacity is any int, and a
+# negative one or one near 2^63 cannot be allocated, so a generator must not
+# draw it. memory/tests.ergo restates HangupIsFinal and HangupIsIdempotent on
+# a Pipe sized to its lines.
+skip law server.Conn.HangupIsFinal for Server: its values have no generator: queue.Queue[string] is an operation type with no builder: neither queue nor queuetest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewServer() Server with no rows would build one for each case
+skip law server.Peer.HangupIsIdempotent for Sender: its values have no generator: queue.Queue[string] is an operation type with no builder: neither queue nor queuetest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewSender() Sender with no rows would build one for each case

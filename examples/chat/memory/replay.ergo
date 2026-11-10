@@ -18,25 +18,27 @@ type Step = Speak{Client string, Line string} | Tick{By duration} | HangUp{Clien
 type Session { Log []string, Clients []string, Received [][]string }
 
 // Replay runs steps on a server whose clock is clock, then hangs up every
-// client still connected, in order.
+// client still connected, in order. The server's end of each connection
+// moves into the server's accept queue; the client's ends stay here, and
+// Replay's end releases them.
 func Replay(steps []Step, clock time.Manual) Session fails queue.Closed {
 	let mut names = []string{}
-	let mut conns = []Conn{}
+	let mut conns = []Client{}
+	let accept = queue.New[server.Conn](len(steps) + 1)
 	for s in steps {
 		match s {
 		case Speak as sp:
 			if indexOf(names, sp.Client) < 0 {
 				names = names.Append(sp.Client)
-				conns = conns.Append(New(256))
+				let end, c = Pipe(256)
+				try accept.Push(end)
+				conns = conns.Append(c)
 			}
 		case Tick:
 		case HangUp:
 		}
 	}
-	let mut served = []server.Conn{}
-	for c in conns {
-		served = served.Append(c)
-	}
+	accept.End()
 	let log = queue.New[string](256)
 	let mut seen = []string{}
 	let mut hung = []bool{}
@@ -46,7 +48,7 @@ func Replay(steps []Step, clock time.Manual) Session fails queue.Closed {
 		named = named.Append(false)
 	}
 	with context { time.Clock: clock } {
-		let t = task.Go() { try server.Serve(served, log) }
+		let t = task.Go() { try server.Serve(accept, log) }
 		for s in steps {
 			match s {
 			case Speak as sp:
