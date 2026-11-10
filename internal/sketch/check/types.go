@@ -135,12 +135,16 @@ type Interface struct {
 // fewer types and more operators: comparable admits == and !=; ordered
 // adds <, <=, >, >= and + over the integer, float, string and duration
 // types and the defined types over them; number adds -, *, / and unary -
-// over the integer and float types and the defined types over them.
+// over the integer and float types and the defined types over them. codable
+// (types.md, Codecs 1) stands apart from that chain: it admits the types
+// with a wire form and no operator, and it sorts below comparable, so
+// every `>= SetComparable` test leaves it out.
 type TypeSet uint8
 
 // The type sets.
 const (
 	SetAll        TypeSet = iota // every type: a method set or no constraint
+	SetWire                      // codable: the types with a wire form
 	SetComparable                // comparable
 	SetOrdered                   // ordered
 	SetNumber                    // number
@@ -148,6 +152,8 @@ const (
 
 func (s TypeSet) String() string {
 	switch s {
+	case SetWire:
+		return "codable"
 	case SetComparable:
 		return "comparable"
 	case SetOrdered:

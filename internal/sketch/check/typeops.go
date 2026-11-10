@@ -885,6 +885,8 @@ func inSet(t Type, s TypeSet) bool {
 		return true
 	case SetComparable:
 		return comparable(t)
+	case SetWire:
+		return wireReason(t) == ""
 	}
 	if _, ok := t.(*TypeParam); ok {
 		return typeSet(t) >= s
@@ -908,6 +910,9 @@ func (c *checker) satisfies(t Type, constraint Type) string {
 	it := asInterface(constraint)
 	if it == nil {
 		return ""
+	}
+	if it.Set == SetWire {
+		return wireReason(t)
 	}
 	if it.Set != SetAll {
 		if !inSet(t, it.Set) {

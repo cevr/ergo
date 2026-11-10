@@ -568,7 +568,7 @@ func universe() *Scope {
 		basic("byte", Uint8)
 		basic("rune", Int32)
 		// The predeclared constraints (D-E1): each names a type set.
-		for _, set := range []TypeSet{SetComparable, SetOrdered, SetNumber} {
+		for _, set := range []TypeSet{SetWire, SetComparable, SetOrdered, SetNumber} {
 			s.insert(set.String(), &TypeName{Name: set.String(), Pkg: u, Type: &Interface{Set: set}, id: newID()})
 		}
 		errName := &TypeName{Name: "error", Pkg: u, id: newID()}
