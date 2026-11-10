@@ -54,11 +54,39 @@ bump the package version when changing the mapper, or use `tsc --build
 Restart watch after editing a different Ergo file in the same package or
 an imported Ergo package (cross-file watch registration is not yet provided).
 
+## Installing: never inside the checkout
+
+Rule: dependencies of `tools/ts` are installed outside the Ergo checkout,
+never as `tools/ts/node_modules`. Bun installs by hard-linking files from
+its global cache, so an install inside the checkout gives checkout files
+other names outside it. The closure sweep (`internal/closure`) refuses
+such a checkout, because a test could read or change a checkout file
+through a name the sweep cannot see. Skipping git-ignored dependency
+folders in the sweep would make that blind spot permanent, so the sweep
+keeps refusing and the install moves out.
+
+* To warm Bun's cache for the conformance check, copy the reviewed pins to
+  a scratch directory and install there:
+
+  ```sh
+  d=$(mktemp -d) && cp tools/ts/package.json tools/ts/bun.lock "$d" &&
+    (cd "$d" && bun install --frozen-lockfile --ignore-scripts)
+  ```
+
+  Delete the scratch directory afterwards; the cache stays warm.
+* To use the mapper in a project, add `ergo-ts` from its local path in
+  that project (`bun add /path/to/ergo/tools/ts`); the install lands in the
+  project's `node_modules`, outside the Ergo checkout.
+
+If the sweep reports "a hard link outside the checkout is another name of
+a checkout file" under `tools/ts/node_modules`, delete that folder.
+
 ## Opt-in conformance
 
-Warm the Bun cache once from the reviewed lockfile. The check then installs
-with `bun install --frozen-lockfile --offline`; missing tools or dependencies
-are errors, never a successful skip when the TS leg is selected.
+The check copies the tools into its own scratch directory (`t.TempDir()`)
+and installs there with `bun install --frozen-lockfile --offline`; it never
+writes inside the checkout. Missing tools or dependencies are errors, never
+a successful skip when the TS leg is selected.
 
 `ERGO_TS_TEST=1 go test -count=1 -timeout 10m ./internal/tsproj`
 
