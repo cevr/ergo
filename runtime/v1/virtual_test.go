@@ -224,7 +224,7 @@ func virtualRun(prog [][]vop) map[vkey]vstamp {
 					line.Wait(ct, time.Duration(o.d)*time.Second)
 					stamp(i, k, false)
 				case vAfter:
-					_, err := After("after", ct, lineSleeper{line}, time.Duration(o.d)*time.Second, func(bt *rt.Task) (int, error) {
+					_, err := After("after", ct, lineSleeper{line}, nil, time.Duration(o.d)*time.Second, func(bt *rt.Task) (int, error) {
 						line.Wait(bt, time.Duration(o.e)*time.Second)
 						return 0, nil
 					})

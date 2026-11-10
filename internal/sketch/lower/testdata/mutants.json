@@ -2,6 +2,46 @@
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
+      "name": "L8-B4-result-release-nil",
+      "origin": "L8 B4 Gap 47",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\td := fc.l.info.ResultDrops[x]\n\tif d == nil {",
+      "to": "\td := fc.l.info.ResultDrops[x]\n\tif true {",
+      "rule": "A std call whose result holds a resource passes its generated release as the hidden Releaser.",
+      "killers": ["lower:TestTaskOwnershipRunModel"],
+      "anchor": {"tests": ["lower:TestTaskOwnershipRunModel"]}
+    },
+    {
+      "name": "L8-B4-result-drop-unrecorded",
+      "origin": "L8 B4 Gap 47",
+      "file": "internal/sketch/check/info.go",
+      "from": "\t\tif call.Kind == CallFunc && releasesResult(call.Func) {",
+      "to": "\t\tif false && call.Kind == CallFunc && releasesResult(call.Func) {",
+      "rule": "The checker records the release of the result of a std call whose body takes the hidden Releaser.",
+      "killers": ["lower:TestTaskOwnershipRunModel"],
+      "anchor": {"tests": ["lower:TestTaskOwnershipRunModel"]}
+    },
+    {
+      "name": "L8-B4-race-loser-kept",
+      "origin": "L8 B4 Gap 47",
+      "file": "runtime/v1/task.go",
+      "from": "\t\t\tif ok && i != win {",
+      "to": "\t\t\tif false && ok && i != win {",
+      "rule": "tasks.Race releases each value a loser returned (Gap 47).",
+      "killers": ["lower:TestTaskOwnershipRunModel"],
+      "anchor": {"tests": ["lower:TestTaskOwnershipRunModel"]}
+    },
+    {
+      "name": "L8-B4-transform-partials-kept",
+      "origin": "L8 B4 Gap 47",
+      "file": "runtime/v1/task.go",
+      "from": "\t\t\tif len(left) > 0 {\n\t\t\t\terr = releaseLeft(t, rel, left, err)",
+      "to": "\t\t\tif false && len(left) > 0 {\n\t\t\t\terr = releaseLeft(t, rel, left, err)",
+      "rule": "tasks.Transform releases the finished results when another call fails (Gap 47).",
+      "killers": ["lower:TestTaskOwnershipRunModel"],
+      "anchor": {"tests": ["lower:TestTaskOwnershipRunModel"]}
+    },
+    {
       "name": "L8-B4-boundary-keeps-no-value",
       "origin": "L8 B4 Gap 47 (Quint mutant 4)",
       "file": "runtime/v1/task.go",

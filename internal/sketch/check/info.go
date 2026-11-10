@@ -267,6 +267,11 @@ type Info struct {
 	// started task (R12). A repeated callback only lends them: the root
 	// owns and releases them once, outside all runs of the callback.
 	TaskCaptures map[syntax.Node]*TaskCapture
+	// ResultDrops is the release of the result of a std call whose runtime
+	// body takes the hidden ResultRelease (v1.Releaser): a boundary that
+	// drops a successful result releases it (Gap 47, L8 B4). A call whose
+	// result holds no resource has none; the lowering passes nil.
+	ResultDrops map[*syntax.CallExpr]*Drop
 	// FieldTakes is each field taken in place (`b.r.Close()`, R39, Gap
 	// 38): the owned record's local and the field's index. The lowering
 	// marks the field on the record's entry there, and the generated
@@ -397,6 +402,7 @@ func newInfo() *Info {
 		OwnedVars:      map[*Var]*Drop{},
 		OwnedTemps:     map[syntax.Expr]*Drop{},
 		TaskCaptures:   map[syntax.Node]*TaskCapture{},
+		ResultDrops:    map[*syntax.CallExpr]*Drop{},
 		FieldTakes:     map[*syntax.SelectorExpr]FieldTake{},
 		Handoffs:       map[*syntax.Ident]*Var{},
 		Takes:          map[*Func][]int{},
@@ -1095,6 +1101,11 @@ func (c *checker) finishInfo() {
 		switch call.Kind {
 		case CallFunc, CallFuncValue, CallOp, CallProviderOp, CallLawOp:
 			call.StartsTask = c.running(c.pkg.Info.Types[x]) != nil
+		}
+		if call.Kind == CallFunc && releasesResult(call.Func) {
+			if d, bad := c.dropOf(c.pkg.Info.Types[x]); d != nil && bad == "" {
+				c.pkg.Info.ResultDrops[x] = d
+			}
 		}
 		if call.Fails != nil {
 			call.Fails = c.types.resolve(call.Fails).known(c.types)

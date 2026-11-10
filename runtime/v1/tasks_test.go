@@ -127,7 +127,7 @@ func transformRun(c transformCase) transformOutcome {
 	for i := range xs {
 		xs[i] = i
 	}
-	out, err := TasksTransform(Site("model"), root, xs, c.limit, func(ct *rt.Task, i int) (int, error) {
+	out, err := TasksTransform(Site("model"), root, nil, xs, c.limit, func(ct *rt.Task, i int) (int, error) {
 		mu.Lock()
 		o.started[i] = true
 		running++
@@ -186,7 +186,7 @@ func TestTasksLaws(t *testing.T) {
 				}
 				root := rt.Root("law")
 				line := NewVirtualTimeline(root, 0, 0)
-				won, err := TasksRace(Site("law"), root, len(ds), func(ct *rt.Task, i int) (int, error) {
+				won, err := raceIndexed(Site("law"), root, nil, len(ds), func(ct *rt.Task, i int) (int, error) {
 					line.Wait(ct, time.Duration(sleeps[i]))
 					return i, nil
 				})
@@ -203,7 +203,7 @@ func TestTasksLaws(t *testing.T) {
 				line := NewVirtualTimeline(root, 0, 0)
 				var cleaned sync.Mutex
 				count := 0
-				won, err := TasksRace(Site("law"), root, 2, func(ct *rt.Task, i int) (int, error) {
+				won, err := raceIndexed(Site("law"), root, nil, 2, func(ct *rt.Task, i int) (int, error) {
 					if i == 1 {
 						return n, nil
 					}
@@ -227,7 +227,7 @@ func TestTasksLaws(t *testing.T) {
 			r := rand.New(rand.NewPCG(1, 22))
 			for range 200 {
 				xs, limit := draw(r)
-				got, err := TasksTransform(Site("law"), rt.Root("law"), xs, limit, func(_ *rt.Task, x int) (int, error) { return x*3 - 1, nil })
+				got, err := TasksTransform(Site("law"), rt.Root("law"), nil, xs, limit, func(_ *rt.Task, x int) (int, error) { return x*3 - 1, nil })
 				if err != nil || len(got) != len(xs) {
 					t.Fatalf("Transform(%v, %d) = %v, %v", xs, limit, got, err)
 				}
@@ -248,7 +248,7 @@ func TestTasksLaws(t *testing.T) {
 				for i := range idx {
 					idx[i] = i
 				}
-				got, err := TasksTransform(Site("law"), root, idx, limit, func(ct *rt.Task, i int) (int, error) {
+				got, err := TasksTransform(Site("law"), root, nil, idx, limit, func(ct *rt.Task, i int) (int, error) {
 					line.Wait(ct, time.Duration(len(xs)-i))
 					return xs[i], nil
 				})
@@ -265,7 +265,7 @@ func TestTasksLaws(t *testing.T) {
 				line := NewVirtualTimeline(root, 0, 0)
 				var mu sync.Mutex
 				running, most := 0, 0
-				got, err := TasksTransform(Site("law"), root, xs, limit, func(ct *rt.Task, x int) (int, error) {
+				got, err := TasksTransform(Site("law"), root, nil, xs, limit, func(ct *rt.Task, x int) (int, error) {
 					mu.Lock()
 					running++
 					most = max(most, running)
@@ -316,7 +316,7 @@ func TestTransformCallerStopped(t *testing.T) {
 					m := root.Mask()
 					defer m.Unmask()
 				}
-				out, outErr = TasksTransform(Site("test"), root, []int{0, 1, 2, 3, 4}, 2, func(ct *rt.Task, i int) (int, error) {
+				out, outErr = TasksTransform(Site("test"), root, nil, []int{0, 1, 2, 3, 4}, 2, func(ct *rt.Task, i int) (int, error) {
 					mu.Lock()
 					started++
 					running++
@@ -360,7 +360,7 @@ func BenchmarkTasksTransform(b *testing.B) {
 	root := rt.Root("bench")
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := TasksTransform(Site("bench"), root, xs, 8, func(_ *rt.Task, x int) (int, error) { return x + 1, nil }); err != nil {
+		if _, err := TasksTransform(Site("bench"), root, nil, xs, 8, func(_ *rt.Task, x int) (int, error) { return x + 1, nil }); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -433,7 +433,7 @@ func TestRaceModel(t *testing.T) {
 		line := NewVirtualTimeline(root, 0, 0)
 		var mu sync.Mutex
 		exits := 0
-		v, err := TasksRace(Site("race"), root, n, func(ct *rt.Task, i int) (int, error) {
+		v, err := raceIndexed(Site("race"), root, nil, n, func(ct *rt.Task, i int) (int, error) {
 			defer func() {
 				mu.Lock()
 				exits++
@@ -464,7 +464,7 @@ func TestRaceModel(t *testing.T) {
 func TestRaceNoBlocksDefect(t *testing.T) {
 	p := func() (p any) {
 		defer func() { p = recover() }()
-		_, _ = TasksRace(Site("defect"), rt.Root("defect"), 0, func(*rt.Task, int) (int, error) { return 0, nil })
+		_, _ = raceIndexed(Site("defect"), rt.Root("defect"), nil, 0, func(*rt.Task, int) (int, error) { return 0, nil })
 		return nil
 	}()
 	if fmt.Sprint(p) != "tasks.Race: no blocks to race" {
@@ -479,7 +479,7 @@ func TestTransformLimitDefect(t *testing.T) {
 		calls := 0
 		p := func() (p any) {
 			defer func() { p = recover() }()
-			_, _ = TasksTransform(Site("defect"), rt.Root("defect"), []int{1}, limit, func(*rt.Task, int) (int, error) {
+			_, _ = TasksTransform(Site("defect"), rt.Root("defect"), nil, []int{1}, limit, func(*rt.Task, int) (int, error) {
 				calls++
 				return 0, nil
 			})
@@ -489,4 +489,13 @@ func TestTransformLimitDefect(t *testing.T) {
 			t.Fatalf("limit %d: recovered %v after %d calls", limit, p, calls)
 		}
 	}
+}
+
+// raceIndexed is TasksRace of n blocks, block i calling f(ct, i).
+func raceIndexed[T any](span Site, t *rt.Task, rel Releaser[T], n int, f func(*rt.Task, int) (T, error)) (T, error) {
+	blocks := make([]func(*rt.Task) (T, error), n)
+	for i := range blocks {
+		blocks[i] = func(ct *rt.Task) (T, error) { return f(ct, i) }
+	}
+	return TasksRace(span, t, rel, blocks)
 }

@@ -22,7 +22,8 @@ import (
 // Mutants unique to it: omit the child's capture registration, keep the
 // sender's capture entry, register a Set capture on every restart, leave
 // a taken element in its remainder, lose Take's input on a bounds panic,
-// or drop the resource a drained task ended with (Q5).
+// drop the resource a drained task ended with (Q5), or pass no release
+// to a std boundary that drops a returned value (Gap 47).
 func TestTaskOwnershipRunModel(t *testing.T) {
 	needsBuild(t)
 	first, count := 1, 32
@@ -63,8 +64,8 @@ func TestTaskOwnershipRunModel(t *testing.T) {
 }
 
 // taskOwnModes counts the program shapes: task, restart, Closed, stop,
-// slice, Map, panic, crossing, unread result.
-const taskOwnModes = 9
+// slice, Map, panic, crossing, unread result, std boundaries.
+const taskOwnModes = 10
 
 func taskOwnProgram(seed int) (string, string) {
 	n := 1 + (seed/taskOwnModes)%4
@@ -187,6 +188,35 @@ func taskOwnProgram(seed int) (string, string) {
 			src.WriteString("let v = try t.Wait()\n")
 		}
 		afterEnd.WriteString("close 100\n")
+		for i := n - 1; i >= 0; i-- {
+			fmt.Fprintf(&afterEnd, "close %d\n", i)
+		}
+	case 9:
+		// Gap 47 (B4): std boundaries that drop values a block returned.
+		// Blocks with no interruption point always return, so Race's
+		// first block wins and it releases the losers in block order;
+		// Transform with limit 1 fails at call k and releases the results
+		// before it (its []R glue releases last first).
+		m, k := n+1, (seed/taskOwnModes)%(n+1)
+		src.WriteString("let won = tasks.Race([]func() R needs Console{\n")
+		for i := 0; i < m; i++ {
+			fmt.Fprintf(&src, "func() R needs Console { R{N: %d} },\n", 400+i)
+			if i > 0 {
+				fmt.Fprintf(&want, "close %d\n", 400+i)
+			}
+		}
+		src.WriteString("})\nConsole.Println(\"won \" + strconv.Itoa(won.N))\n")
+		want.WriteString("won 400\n")
+		var xs []string
+		for i := 0; i < m; i++ {
+			xs = append(xs, strconv.Itoa(i))
+		}
+		fmt.Fprintf(&src, "let got = tasks.Transform([]int{%s}, 1, func(x int) R fails Fault {\nif x == %d {\nreturn Fault\n}\nR{N: 300 + x}\n}) catch {\ncase Fault:\nConsole.Println(\"failed\")\n[]R{}\n}\n", strings.Join(xs, ", "), k)
+		for i := k - 1; i >= 0; i-- {
+			fmt.Fprintf(&want, "close %d\n", 300+i)
+		}
+		want.WriteString("failed\n")
+		afterEnd.WriteString("close 400\n")
 		for i := n - 1; i >= 0; i-- {
 			fmt.Fprintf(&afterEnd, "close %d\n", i)
 		}

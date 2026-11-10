@@ -249,6 +249,9 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 		if p.Func != nil {
 			vals[i] = fc.adaptFunc(vals[i], p.Func, fc.argSig(args[i], x), x)
 		}
+		if p.Funcs != nil {
+			vals[i] = fc.adaptFuncs(vals[i], p.Funcs, args[i], x)
+		}
 	}
 	fc.bindDeferred(body, vals)
 	if root := fc.movingRootArg(x); root != "" {
@@ -563,6 +566,8 @@ func (fc *funcCtx) hiddenArgs(list []v1.Hidden, x *syntax.CallExpr, c *check.Cal
 				ice(site, "a context read without its declaring package")
 			}
 			out = append(out, strconv.Quote(contextNamespace(c.Func.Pkg)))
+		case v1.ResultRelease:
+			out = append(out, fc.resultRelease(x, site))
 		default:
 			ice(x, "the hidden argument %s of a std body", h)
 		}
@@ -749,6 +754,34 @@ func (fc *funcCtx) adaptTaskFunc(fv string, shape *v1.Body, sig *check.Signature
 		}
 		return params, results, body
 	})
+}
+
+// adaptFuncs adapts fs, a slice of Ergo blocks (the blocks of tasks.Race),
+// to a Go slice of shape, each element adapted as adaptFunc adapts one
+// block, here, where the call is made. Only a block that takes the hidden
+// task and gives a value and an error has a slice shape today.
+func (fc *funcCtx) adaptFuncs(fs string, shape *v1.Body, arg syntax.Expr, site syntax.Node) string {
+	t := fc.typeOf(arg)
+	if n, ok := t.(*check.Named); ok {
+		t = n.Underlying()
+	}
+	s, ok := t.(*check.Slice)
+	if !ok {
+		ice(site, "a function slice argument of a std body that is not a slice")
+	}
+	sig, ok := s.Elem.(*check.Signature)
+	if !ok || len(sig.Params) != 0 || len(sig.Results) != 1 || len(shape.Params) != 0 || len(shape.Results) != 2 || len(shape.Hidden) != 1 || shape.Hidden[0] != v1.CallerTask {
+		ice(site, "a function slice parameter of a std body with an unsupported shape")
+	}
+	fs = fc.spill(fs)
+	out, i := fc.temp("blocks"), fc.temp("i")
+	fc.line(out + " := make([]func(*" + fc.l.taskPkg() + ".Task) (" + fc.goType(sig.Results[0]) + ", error), len(" + fs + "))")
+	fc.line("for " + i + " := range " + fs + " {")
+	fc.depth++
+	fc.line(out + "[" + i + "] = " + fc.adaptFunc(fs+"["+i+"]", shape, sig, site))
+	fc.depth--
+	fc.line("}")
+	return out
 }
 
 // adaptFunc adapts fv, an Ergo function value of the uniform shape
