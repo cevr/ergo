@@ -48,6 +48,13 @@ func (in *interp) initialize(pkg *check.Package) *initFailure {
 			return f
 		}
 	}
+	// Then each package's machines' initial values, in the same order
+	// (lower/decls.go initFunc).
+	for _, p := range order {
+		if f := in.initMachines(p); f != nil {
+			return f
+		}
+	}
 	return nil
 }
 

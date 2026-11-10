@@ -7,6 +7,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/eval"
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // Machine laws (MU6; types.md, Laws 13) and listed laws (MU6b; Laws 10).
@@ -513,6 +517,7 @@ func TestMachineLawTables(t *testing.T) {
 	if !ok {
 		t.Errorf("seed %d: exit %d\nstdout:\n%s\nwant:\n%s\nstderr:\n%s\nsource:\n%s", seed, code, stdout, strings.Join(want, "\n"), firstLines(stderr, 8), src.String())
 	}
+	agreesAtCheckTime(t, src.String(), 1, 0, got)
 	// Each refuted law, a searched never law, a listed law and a law of
 	// generated cases, reruns alone by its replay command (X1b).
 	if checkReplays(t, exes["machinelaw_tables"], stdout) == 0 {
@@ -648,6 +653,8 @@ func TestMachineLawRuns(t *testing.T) {
 	if !strings.HasPrefix(got[5], "FAIL law Small (case ") || got[6] != "FAIL (3 of 6 tests)" {
 		t.Errorf("the last lines are %q", got[5:])
 	}
+	// Check time draws the same runs from the same seed and budget.
+	agreesAtCheckTime(t, machineLawRuns, 7, 5, got)
 	// A refuted law's replay command (X1b) carries the seed and the budget
 	// of its generated run, and runs that law alone to the same FAIL line.
 	exe := exes["machinelaw_runs"]
@@ -664,6 +671,59 @@ func TestMachineLawRuns(t *testing.T) {
 	stdout, stderr, code = runExeArgs(t, exe, "--law", "Meter.Nope")
 	if code != 1 || stdout != "FAIL no law Meter.Nope in this package (--law)\n" {
 		t.Errorf("--law of no law: exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
+	}
+}
+
+// agreesAtCheckTime holds check-time evaluation (L7 EV4) of src, under
+// seed and the budget of states, to the test binary's verdict lines got:
+// each law it runs is ok there exactly when it passes here and FAIL when it
+// is refuted; a reachability law's ok line is its reason word for word,
+// and a refuted one's FAIL line holds its reason (the counterexample's run
+// and end state). A law evaluation skips is not compared.
+func agreesAtCheckTime(t *testing.T, src string, seed uint64, states int, got []string) {
+	t.Helper()
+	f, err := syntax.Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, diags := check.Check("main", []*syntax.File{f}, nil)
+	if len(diags) > 0 {
+		t.Fatalf("check: %v", diags)
+	}
+	b := eval.DefaultBudget()
+	b.Seed, b.States, b.Steps = seed, states, 1<<40
+	rep, err := eval.Run(pkg, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	searched := 0
+	for _, res := range rep.Results {
+		line := ""
+		for _, g := range got {
+			if strings.HasPrefix(g, "ok "+res.Name+" (") || strings.HasPrefix(g, "FAIL "+res.Name+" (") {
+				line = g
+			}
+		}
+		ok := true
+		switch res.Status {
+		case eval.Skipped:
+			continue
+		case eval.Passed:
+			ok = strings.HasPrefix(line, "ok ") && (res.Machine == nil || line == "ok "+res.Name+" ("+res.Reason+")")
+		case eval.Refuted:
+			ok = strings.HasPrefix(line, "FAIL ") && (res.Machine == nil || strings.Contains(line, res.Reason))
+		default:
+			ok = false
+		}
+		if res.Machine != nil {
+			searched++
+		}
+		if !ok {
+			t.Errorf("check time says %s %s (%s); the test binary %q\nsource:\n%s", res.Name, res.Status, res.Reason, line, src)
+		}
+	}
+	if searched == 0 {
+		t.Errorf("check time ran no reachability law: %+v", rep.Results)
 	}
 }
 

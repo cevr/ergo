@@ -33,8 +33,8 @@ func lawTargets(pkg *check.Package, run check.LawRun) []lawTarget {
 
 func qualifiedLaw(pkg *check.Package, law *check.Law) string {
 	n := lawName(law)
-	if law.Pkg != pkg {
-		n = "law " + law.Pkg.Name + "." + strings.TrimPrefix(n, "law ")
+	if lawPkg(law) != pkg {
+		n = "law " + lawPkg(law).Name + "." + strings.TrimPrefix(n, "law ")
 	}
 	return n
 }
@@ -106,14 +106,14 @@ func (in *interp) runLawTarget(law *check.Law, tg lawTarget, res Result) Result 
 	if law.Unrun != "" {
 		why = law.Unrun
 	}
-	if law.Machine != nil {
-		why = "a machine law runs on the explorer, which check-time evaluation does not drive yet"
-	}
 	if why != "" {
 		res.Status, res.Reason = Skipped, why
 		return res
 	}
-	fr := in.newFrame(law.Pkg, law.Decl)
+	if law.Machine != nil && law.Decl.Reach != nil {
+		return in.machineLaw(law, res)
+	}
+	fr := in.newFrame(lawPkg(law), law.Decl)
 	if own := testplan.GenericOwner(law); own != nil {
 		fr.env = &tenv{m: map[*check.TypeParam]rtype{}}
 		for i, tp := range own.TParams {

@@ -19,6 +19,9 @@ type interp struct {
 	// them after.
 	globals map[*check.Var]*slot
 	ranges  []*sliceRange
+	// initials are the machines' initial values, computed once after
+	// every let (machine.go initMachines).
+	initials map[*check.TypeName]Value
 }
 
 // frame is one running body: a test, a law, a function call or a call of

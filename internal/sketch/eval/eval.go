@@ -42,12 +42,18 @@ type Budget struct {
 	Steps int64
 	Depth int
 	Seed  uint64
+	// States is the explorer's budget of states for a machine law's
+	// search, the test build's --states; 0 is its default, 1,000,000.
+	States int
 }
 
 // DefaultBudget is the editor budget the plan proposes (section 5): one
 // million steps and a call depth of 1024. It is a work bound, not a time
 // bound.
 func DefaultBudget() Budget { return Budget{Steps: 1_000_000, Depth: 1024, Seed: 1} }
+
+// defaultStates is the test build's --states default ($States).
+const defaultStates = 1_000_000
 
 // Status is one obligation's verdict.
 type Status string
@@ -99,6 +105,8 @@ type Result struct {
 	Evidence    string
 	Seed        uint64
 	Arguments   []Argument
+	// Machine is a reachability law's search (machine.go), else nil.
+	Machine *MachineSearch
 }
 
 type Argument struct{ Name, Value string }
@@ -139,7 +147,13 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 	if pkg == nil || pkg.Info == nil {
 		return Report{}, errors.New("eval: no checked package")
 	}
-	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}}
+	if b.States < 0 {
+		return Report{}, ErrBudget
+	}
+	if b.States == 0 {
+		b.States = defaultStates
+	}
+	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}}
 	rep.Limit = b.Steps
 	defer func() {
 		if r := recover(); r != nil {
@@ -183,7 +197,7 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 	}
 	for _, run := range pkg.LawRuns {
 		for _, target := range lawTargets(pkg, run) {
-			res := Result{Name: target.name, Site: in.site(run.Law.Pkg, run.Law.Decl, run.Law.Decl.Pos())}
+			res := Result{Name: target.name, Site: in.site(lawPkg(run.Law), run.Law.Decl, run.Law.Decl.Pos())}
 			if stopped != "" || initFail != nil {
 				add(res)
 				continue
@@ -193,6 +207,15 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 	}
 	rep.Steps = in.steps
 	return rep, nil
+}
+
+// lawPkg is the package that declares l: a machine's law records only its
+// machine, whose package declares it.
+func lawPkg(l *check.Law) *check.Package {
+	if l.Pkg == nil && l.Machine != nil {
+		return l.Machine.Pkg
+	}
+	return l.Pkg
 }
 
 func lawName(l *check.Law) string {

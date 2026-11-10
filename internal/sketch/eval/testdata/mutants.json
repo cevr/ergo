@@ -296,6 +296,69 @@
       "to": "\t\t\t_ = i; callee.env.m[tp] = rtype{t: tp}",
       "rule": "A generic call's checked arguments bind the callee's type parameters, including nominal patterns (Generics).",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "machine-done-is-edge",
+      "origin": "wf10/l7-eval/EV4",
+      "file": "internal/sketch/eval/machine.go",
+      "from": "\tcase \"Done\":\n\t\treturn s, false\n",
+      "to": "\tcase \"Done\":\n\t\treturn s, true\n",
+      "rule": "A step's Done ends the run, so it is no edge of the machine's graph (types.md, Laws 13; lower/machinelaws.go).",
+      "killers": ["internal/sketch/eval:TestMachineLawsAgreeWithModel"]
+    },
+    {
+      "name": "machine-initial-unchecked",
+      "origin": "wf10/l7-eval/EV4",
+      "file": "internal/sketch/eval/machine.go",
+      "from": "\t\tfor k := range nodes {\n",
+      "to": "\t\tfor k := 1; k < len(nodes); k++ {\n",
+      "rule": "A generated run's first state meets a law's target too: a run reaches the state it starts in ($ExploreRuns).",
+      "killers": ["internal/sketch/eval:TestMachineLawsAgreeWithModel"]
+    },
+    {
+      "name": "machine-key-negative-zero",
+      "origin": "wf10/l7-eval/EV4",
+      "file": "internal/sketch/eval/machine.go",
+      "from": "\t\tcase float64:\n\t\t\tk.Float(x)\n",
+      "to": "\t\tcase float64:\n\t\t\tif x == 0 {\n\t\t\t\tx = 0\n\t\t\t}\n\t\t\tk.Float(x)\n",
+      "rule": "A state key writes a float by its bits: -0 and 0 are two states, since a step can tell them apart (batch-15 X1 M1).",
+      "killers": ["internal/sketch/eval:TestMachineLawsAgreeWithModel"]
+    },
+    {
+      "name": "machine-fuel-stop-complete",
+      "origin": "wf10/l7-eval/EV4",
+      "file": "internal/sketch/eval/machine.go",
+      "from": "\t\t\tout.Status, out.Reason, out.Site = statusOf(ab), ab.msg, in.site(ab.pkg, ab.decl, ab.at)\n\t\t\tout.Evidence = \"\"\n",
+      "to": "\t\t\tout.Status, out.Reason, out.Site = statusOf(ab), ab.msg, in.site(ab.pkg, ab.decl, ab.at)\n\t\t\tout.Evidence = \"\"\n\t\t\tif ab.kind == ctlExhausted {\n\t\t\t\tout.Status, out.Evidence = Passed, \"proved\"\n\t\t\t}\n",
+      "rule": "A search the step budget stops is incomplete, never passed or proved (plan section 5).",
+      "killers": ["internal/sketch/eval:TestMachineLawsAgreeWithModel"]
+    },
+    {
+      "name": "machine-replay-unmetered",
+      "origin": "wf10/l7-eval/EV4",
+      "file": "internal/sketch/eval/machine.go",
+      "from": "\tg.Step = func(s, e Value) (Value, bool) {\n\t\tms.Steps++\n\t\tmustCharge(in, fr, 1)\n\t\treturn in.machineStep(fr, m, s, e)\n\t}\n",
+      "to": "\tmemo := map[string][2]any{}\n\tg.Step = func(s, e Value) (Value, bool) {\n\t\tkey := describe(s) + \"|\" + describe(e)\n\t\tif c, hit := memo[key]; hit {\n\t\t\treturn c[0], c[1].(bool)\n\t\t}\n\t\tms.Steps++\n\t\tmustCharge(in, fr, 1)\n\t\tv, ok := in.machineStep(fr, m, s, e)\n\t\tmemo[key] = [2]any{v, ok}\n\t\treturn v, ok\n\t}\n",
+      "rule": "Every step call is metered, a replay's too: the explorer rebuilds each state it expands by stepping its run again, so its work exceeds its edges (plan section 5).",
+      "killers": ["internal/sketch/eval:TestMachineLawsAgreeWithModel"]
+    },
+    {
+      "name": "machine-runs-ignore-walk",
+      "origin": "wf10/l7-eval/EV4",
+      "file": "internal/sketch/eval/machine.go",
+      "from": "\t\t\t\te = g.Signals[moves[r.Intn(len(moves))]]\n",
+      "to": "\t\t\t\t_ = moves[r.Intn(len(moves))]\n",
+      "rule": "A generated run over a keyed, listed graph steps by the signal its walk picks among those that change the state, as the test build's run does ($ExploreRuns), so both find the same run.",
+      "killers": ["internal/sketch/lower:TestMachineLawRuns"]
+    },
+    {
+      "name": "machine-proof-text-edges",
+      "origin": "wf10/l7-eval/EV4",
+      "file": "internal/sketch/eval/machine.go",
+      "from": "itoa(r.Edges)+\" edges",
+      "to": "itoa(r.States)+\" edges",
+      "rule": "A whole search's report names the states, edges and depth the test build names for the same law ($ExploreAll).",
+      "killers": ["internal/sketch/lower:TestMachineLawTables"]
     }
   ]
 }
