@@ -665,7 +665,27 @@ func Run(_ Mine, c exec.Command) exec.Result fails exec.NotFound | exec.Denied |
 	exec.Result{Status: 0, Stdout: "", Stderr: ""}
 }
 
+func Start(_ Mine, c exec.Command, s exec.Streams) exec.Running fails exec.NotFound | exec.Denied | exec.Failed {
+	try exec.Script{Results: Map[string, exec.Result]{}}.Start(c, s)
+}
+
 func use(r exec.Runner) { _ = r.Run(exec.New("true", []string{})) catch { case exec.NotFound, exec.Denied, exec.Failed: exec.Result{Status: 0, Stdout: "", Stderr: ""} } }
+
+func main() {
+	use(Mine)
+}
+`,
+	// exec.Running (CU4): the Script's and the Host's Start externs
+	// return it, so it is sealed.
+	"exec.Running": `import exec
+
+type Mine {}
+
+func Lines(_ Mine) Seq[exec.Line] { Seq[exec.Line](func(yield func(v exec.Line) bool) {}) }
+func Wait(_ Mine) int { 0 }
+func Close(_ Mine) {}
+
+func use(r exec.Running) { _ = r.Wait() }
 
 func main() {
 	use(Mine)

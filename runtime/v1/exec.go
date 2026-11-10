@@ -87,10 +87,12 @@ type ExecResult struct {
 // ExecRun is the body of exec.Host's Run on the caller's task t: it runs
 // name with args in dir ("" is the caller's working directory), with the
 // host process's environment and env's entries over it, and with stdin as
-// its standard input.
+// its standard input. A stop of t sends SIGTERM to the group and waits
+// grace for the program's end before the SIGKILL; grace 0 sends SIGKILL at
+// once.
 //
 //ergo:host
-func ExecRun(t *rt.Task, name string, args []string, env map[string]string, dir string, stdin string) (ExecResult, error) {
+func ExecRun(t *rt.Task, name string, args []string, env map[string]string, dir string, stdin string, grace time.Duration) (ExecResult, error) {
 	t.Check()
 	if name == "" {
 		return ExecResult{}, ExecNotFound{Name: name} // no program has the empty name
@@ -184,6 +186,16 @@ func ExecRun(t *rt.Task, name string, args []string, env map[string]string, dir 
 		execKillGroup(group)
 	case <-t.Done():
 		stopped = true
+		if grace > 0 {
+			// The command's grace (exec.WithGrace): SIGTERM first, and
+			// SIGKILL only when the program has not ended within it. The
+			// wait is uninterruptible: the stop is what it serves.
+			execSignalGroup(group, syscall.SIGTERM)
+			select {
+			case <-exited:
+			case <-time.After(grace):
+			}
+		}
 		execKillGroup(group)
 		<-exited
 		// The kill ended each holder of the output in the group; one that

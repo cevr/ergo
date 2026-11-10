@@ -34,21 +34,29 @@ type Result { Status int, Stdout string, Stderr string }
 // Command is one program to run: the program Name (a name looked up on
 // the PATH, or a path), its arguments after the name, the environment
 // entries set over the host process's environment, the working directory
-// ("" is the caller's) and the text its standard input reads.
+// ("" is the caller's), the text its standard input reads, and the Grace
+// a stop gives it: SIGTERM to its process group, then SIGKILL when it has
+// not ended within Grace. A Grace of 0 sends SIGKILL at once.
 type Command {
 	Name  string,
 	Args  []string,
 	Env   Map[string, string],
 	Dir   string,
 	Stdin string,
+	Grace duration,
 }
 
 // New is the command that runs name with args, in the caller's working
-// directory, with the host process's environment and an empty standard
-// input.
+// directory, with the host process's environment, an empty standard input
+// and no grace.
 func New(name string, args []string) Command {
-	Command{Name: name, Args: args, Env: Map[string, string]{}, Dir: "", Stdin: ""}
+	Command{Name: name, Args: args, Env: Map[string, string]{}, Dir: "", Stdin: "", Grace: 0s}
 }
+
+// WithGrace is c with the grace d: a stop, a timeout or the release of its
+// Running sends SIGTERM to the program's group and SIGKILL only when the
+// program has not ended d later.
+func WithGrace(c Command, d duration) Command { Command{..c, Grace: d} }
 
 // WithEnv is c with the environment entry key set to value, over any entry
 // of key that c sets. c itself is unchanged: the copy has its own Env.
@@ -94,11 +102,101 @@ law WithEnvKeepsTheOriginal(key string, first string, second string) {
 	c.Env.Get(key) == Some[string]{Value: first} && d.Env.Get(key) == Some[string]{Value: second}
 }
 
-// Runner runs a program to its end. A stop of the calling task ends the
-// program and every process it started in its process group, and Run
-// returns only after they are gone.
+// Split is the lines of text as Lines gives them: each without its line
+// feed, and a last line with no line feed included. Empty text has none.
+func Split(text string) []string {
+	if text == "" {
+		return []string{}
+	}
+	let parts = strings.Split(text, "\n")
+	if strings.HasSuffix(text, "\n") {
+		return slices.Slice(parts, 0, len(parts)-1)
+	}
+	parts
+}
+
+// Inherit is a sink: the program writes to the stream of this process.
+type Inherit {}
+
+// Discard is a sink: the program writes to the null device.
+type Discard {}
+
+// ToFile is a sink: the program writes to the file at Path, created when
+// missing, emptied first unless Append. The bytes reach the file as the
+// program writes them: the file is the program's own stream.
+type ToFile { Path string, Append bool }
+
+// ToCaller is a sink: the caller reads the program's lines from Lines, as
+// they come.
+type ToCaller {}
+
+// Sink is where a stream of a started program goes.
+type Sink = Inherit | Discard | ToFile | ToCaller
+
+// Streams are the sinks of a started program's standard output and
+// standard error.
+type Streams { Stdout Sink, Stderr Sink }
+
+// Line is one line of a stream whose sink is ToCaller, without its line
+// feed, and whether it came from standard error.
+type Line { Text string, Stderr bool }
+
+// Running is a started program. It is a resource: the scope that owns it
+// ends the program when it ends (SIGTERM to the program's process group,
+// the command's Grace, then SIGKILL), reaps it and waits until no process
+// of its group is left, on every exit, a stop and a timeout included.
+//
+// law-exempt: the lifecycle is a property against a model over a fake
+// process (runtime/v1 TestRunningMatchesModel); a real program's streams
+// are TestExecStreams.
+type Running {
+	// Lines gives the lines of the streams whose sink is ToCaller, in the
+	// order they come, until both end. A full buffer of 64 lines makes the
+	// program wait in its write, so the caller's reading paces it. A break
+	// leaves the rest for the next Lines; after Wait it gives none.
+	// seq-exempt: Running is law-exempt (its lines come from a program, which a law cannot generate); TestRunningMatchesModel (runtime/v1) holds a break and the stop of a reader against its model, and lower TestExecStartRuns a break on the host (a follower).
+	Lines() Seq[Line],
+	// Wait waits for the program's end and gives its status, 128 plus the
+	// signal's number for a program a signal ended. It drops the lines not
+	// read yet. A stop of the caller ends the wait; the program then runs
+	// until the owner's scope ends it.
+	Wait() int,
+	Close(),
+}
+
+// Runner runs a program to its end, or starts it. A stop of the calling
+// task ends the program and every process it started in its process
+// group, and Run returns only after they are gone.
 type Runner {
 	Run(c Command) Result fails NotFound | Denied | Failed,
+
+	// Start starts c with its streams going to s, and returns once it has
+	// started. The caller owns the Running.
+	Start(c Command, s Streams) Running fails NotFound | Denied | Failed,
+
+	// StartAgreesWithRun: a started program whose streams go to the
+	// caller gives the lines and the status Run gives.
+	law StartAgreesWithRun(name string) {
+		let c = New(name, []string{})
+		let want = Run(c) catch {
+		case NotFound, Denied, Failed:
+			return true
+		}
+		let p = Start(c, Streams{Stdout: ToCaller, Stderr: ToCaller}) catch {
+		case NotFound, Denied, Failed:
+			return false
+		}
+		let mut out = []string{}
+		let mut errs = []string{}
+		for l in p.Lines() {
+			if l.Stderr {
+				errs = errs.Append(l.Text)
+			} else {
+				out = out.Append(l.Text)
+			}
+		}
+		slices.Equal(out, Split(want.Stdout)) && slices.Equal(errs, Split(want.Stderr)) && p.Wait() == want.Status
+	},
 
 	// NotFoundNamesTheProgram: a program that is not found is named by its
 	// failure.
@@ -128,6 +226,30 @@ func Run(s Script, c Command) Result fails NotFound | Denied | Failed {
 		return NotFound{Name: c.Name}
 	}
 }
+
+// Start is a Running that replays the Result recorded for c: Lines gives
+// the lines of its Stdout, then those of its Stderr, each when its sink is
+// ToCaller, and Wait its Status. It writes nothing to a file or a stream
+// of this process. It fails NotFound when Results holds no Result for c.
+func Start(s Script, c Command, st Streams) Running fails NotFound | Denied | Failed {
+	match s.Results.Get(Key(c)) {
+	case Some[Result] as hit:
+		return replay(Split(hit.Value.Stdout), Split(hit.Value.Stderr), hit.Value.Status, toCaller(st.Stdout), toCaller(st.Stderr))
+	case None:
+		return NotFound{Name: c.Name}
+	}
+}
+
+func toCaller(s Sink) bool {
+	match s {
+	case ToCaller:
+		true
+	case Inherit, Discard, ToFile:
+		false
+	}
+}
+
+extern go ergo.local/prototype/runtime/v1.ExecReplay func replay(out []string, errs []string, status int, outCaller bool, errCaller bool) Running
 
 // ScriptReplaysRecorded: a Script gives back the Result recorded for a
 // command, whatever its status, and two commands whose arguments differ
@@ -167,7 +289,48 @@ func NewHost() Host needs Ambient { Host{live: hostOnly} }
 // output. A stop of the calling task kills the group, waits for the reap
 // and ends the call.
 func Run(_ Host, c Command) Result fails NotFound | Denied | Failed {
-	try hostRun(c.Name, c.Args, c.Env, c.Dir, c.Stdin)
+	try hostRun(c.Name, c.Args, c.Env, c.Dir, c.Stdin, c.Grace)
 }
 
-extern go ergo.local/prototype/runtime/v1.ExecRun func hostRun(name string, args []string, env Map[string, string], dir string, stdin string) Result fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.ExecRun func hostRun(name string, args []string, env Map[string, string], dir string, stdin string, grace duration) Result fails NotFound | Denied | Failed
+
+// Start starts c on the host, in a process group of its own, with its
+// standard output and standard error going to s's sinks. A file sink that
+// cannot be opened fails Failed and starts nothing.
+func Start(_ Host, c Command, s Streams) Running fails NotFound | Denied | Failed {
+	try hostStart(c.Name, c.Args, c.Env, c.Dir, c.Stdin, c.Grace, sinkKind(s.Stdout), sinkPath(s.Stdout), sinkAppends(s.Stdout), sinkKind(s.Stderr), sinkPath(s.Stderr), sinkAppends(s.Stderr))
+}
+
+// sinkKind is the runtime's number of a sink (runtime/v1 exec_start.go).
+func sinkKind(s Sink) int {
+	match s {
+	case Inherit:
+		0
+	case Discard:
+		1
+	case ToFile:
+		2
+	case ToCaller:
+		3
+	}
+}
+
+func sinkPath(s Sink) string {
+	match s {
+	case ToFile as f:
+		f.Path
+	case Inherit, Discard, ToCaller:
+		""
+	}
+}
+
+func sinkAppends(s Sink) bool {
+	match s {
+	case ToFile as f:
+		f.Append
+	case Inherit, Discard, ToCaller:
+		false
+	}
+}
+
+extern go ergo.local/prototype/runtime/v1.ExecStart func hostStart(name string, args []string, env Map[string, string], dir string, stdin string, grace duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) Running fails NotFound | Denied | Failed

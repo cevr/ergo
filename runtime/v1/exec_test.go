@@ -174,7 +174,7 @@ func runExecCase(t *testing.T, c execCase) (res ExecResult, err error, interrupt
 			defer m.Unmask()
 		}
 		close(started)
-		out.res, out.err = ExecRun(task, "sh", []string{"-c", c.script}, nil, "", "")
+		out.res, out.err = ExecRun(task, "sh", []string{"-c", c.script}, nil, "", "", 0)
 	}()
 	<-started
 	if c.stop == "running" || c.stop == "masked" {
@@ -386,7 +386,7 @@ echo late >> %[2]s
 		done := make(chan bool, 1)
 		go func() {
 			defer func() { done <- recover() == rt.Interrupted }()
-			_, _ = ExecRun(task, "sh", []string{"-c", script}, nil, "", "")
+			_, _ = ExecRun(task, "sh", []string{"-c", script}, nil, "", "", 0)
 		}()
 		var pids []int
 		testwait.Until(t, func() bool {
@@ -446,7 +446,7 @@ func TestExecFailures(t *testing.T) {
 		{"true", filepath.Join(dir, "nowhere"), ExecFailed{Name: "true", Reason: "dir " + filepath.Join(dir, "nowhere") + ": no such file or directory"}},
 		{"true", plain, ExecFailed{Name: "true", Reason: "dir " + plain + ": not a directory"}},
 	} {
-		_, err := ExecRun(task, c.name, nil, nil, c.dir, "")
+		_, err := ExecRun(task, c.name, nil, nil, c.dir, "", 0)
 		if err != c.want {
 			t.Errorf("ExecRun(%q, dir %q) failed %#v, want %#v", c.name, c.dir, err, c.want)
 		}
@@ -454,7 +454,7 @@ func TestExecFailures(t *testing.T) {
 	t.Setenv("ERGO_EXEC_HOST", "host")
 	t.Setenv("ERGO_EXEC_OVER", "host")
 	res, err := ExecRun(task, "sh", []string{"-c", `printf '%s %s %s|' "$ERGO_EXEC_HOST" "$ERGO_EXEC_OVER" "$(pwd)"; cat; echo oops >&2; exit 7`},
-		map[string]string{"ERGO_EXEC_OVER": "set"}, dir, "in\nput")
+		map[string]string{"ERGO_EXEC_OVER": "set"}, dir, "in\nput", 0)
 	want := ExecResult{Status: 7, Stdout: "host set " + dir + "|in\nput", Stderr: "oops\n"}
 	if err != nil || res != want {
 		t.Errorf("ExecRun = %#v, %v; want %#v", res, err, want)
@@ -493,7 +493,7 @@ func TestExecNotFoundNamesTheProgram(t *testing.T) {
 		"exec Runner.NotFoundNamesTheProgram": {Statement: `NotFoundNamesTheProgram(name string) { Run(New(name, []string{})) catch { case NotFound as n: return n.Name == name case Denied, Failed: return true } true }`, Check: func(t *testing.T) {
 			notFound := 0
 			for _, name := range names {
-				_, err := ExecRun(task, name, nil, nil, "", "")
+				_, err := ExecRun(task, name, nil, nil, "", "", 0)
 				var nf ExecNotFound
 				if errors.As(err, &nf) {
 					notFound++
@@ -517,7 +517,7 @@ func BenchmarkExecRunTrue(b *testing.B) {
 		task := rt.Root("exec bench")
 		b.ReportAllocs()
 		for b.Loop() {
-			if _, err := ExecRun(task, "true", nil, nil, "", ""); err != nil {
+			if _, err := ExecRun(task, "true", nil, nil, "", "", 0); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -546,7 +546,7 @@ func BenchmarkExecRunMiB(b *testing.B) {
 		task := rt.Root("exec bench")
 		b.ReportAllocs()
 		for b.Loop() {
-			res, err := ExecRun(task, "head", args, nil, "", "")
+			res, err := ExecRun(task, "head", args, nil, "", "", 0)
 			if err != nil || len(res.Stdout) != 1<<20 {
 				b.Fatal(err, len(res.Stdout))
 			}

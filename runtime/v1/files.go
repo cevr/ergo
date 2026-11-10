@@ -231,6 +231,7 @@ var stdRecords = map[string]string{
 	"actor.Stopped":        "ActorStopped",
 	"exec.Denied":          "ExecDenied",
 	"exec.Failed":          "ExecFailed",
+	"exec.Line":            "ExecLine",
 	"exec.NotFound":        "ExecNotFound",
 	"exec.Result":          "ExecResult",
 	"filepath.NotRelative": "NotRelative",

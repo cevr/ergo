@@ -123,6 +123,115 @@ func main() fails exec.NotFound | exec.Denied | exec.Failed needs Console | Ambi
 	})
 }
 
+// TestExecStartRuns: std exec's Start (stdlib.md, exec 9 to 12) through the
+// host's Runner and a Script, in a built program: the lines of a ToCaller
+// stream in order, a last line with no line feed, the status; a ToFile sink
+// emptied or appended to; a follower (tail -f) that the caller leaves with
+// break, whose scope then ends it; a Grace that lets the program's TERM
+// trap run at the release; a sink that cannot be opened; a Script that
+// replays its recorded lines.
+//
+// It builds Go because the release of a Running is the generated code's
+// scope end and the Ergo surface (Sink, Streams, Line, Split) is lowered
+// source: no in-process check runs that code against a real process. Each
+// check is an event: a line read, a program's exit, the release's return.
+func TestExecStartRuns(t *testing.T) {
+	needsBuild(t)
+	dir := t.TempDir()
+	file := filepath.Join(dir, "out")
+	runBehaviors(t, []behavior{
+		{name: "execStart", src: strings.NewReplacer("FILE", file).Replace(`import exec
+
+func show(c exec.Command) needs Console | exec.Runner {
+	let r = exec.Runner.Start(c, exec.Streams{Stdout: exec.ToCaller, Stderr: exec.ToCaller}) catch {
+	case exec.NotFound as n:
+		Console.Println("not found \(n.Name)")
+		return
+	case exec.Denied, exec.Failed:
+		Console.Println("did not start")
+		return
+	}
+	for l in r.Lines() {
+		if l.Stderr {
+			Console.Println("err " + l.Text)
+		} else {
+			Console.Println("out " + l.Text)
+		}
+	}
+	Console.Println("status \(r.Wait())")
+}
+
+func toFile(text string, appends bool) needs Console | exec.Runner {
+	let r = exec.Runner.Start(exec.New("sh", []string{"-c", "printf '" + text + "'"}), exec.Streams{Stdout: exec.ToFile{Path: "FILE", Append: appends}, Stderr: exec.Discard}) catch {
+	case exec.NotFound, exec.Denied, exec.Failed:
+		Console.Println("did not start")
+		return
+	}
+	Console.Println("wrote \(r.Wait())")
+}
+
+func follow() needs Console | exec.Runner {
+	let r = exec.Runner.Start(exec.New("tail", []string{"-n", "+1", "-f", "FILE"}), exec.Streams{Stdout: exec.ToCaller, Stderr: exec.Discard}) catch {
+	case exec.NotFound, exec.Denied, exec.Failed:
+		Console.Println("did not start")
+		return
+	}
+	for l in r.Lines() {
+		Console.Println("followed " + l.Text)
+		if l.Text == "three" {
+			break
+		}
+	}
+}
+
+func graceful() needs Console | exec.Runner {
+	let c = exec.New("sh", []string{"-c", "trap 'echo term >&2; exit 5' TERM; echo ready; while :; do sleep 0.01; done"}).WithGrace(3600s)
+	let r = exec.Runner.Start(c, exec.Streams{Stdout: exec.ToCaller, Stderr: exec.Inherit}) catch {
+	case exec.NotFound, exec.Denied, exec.Failed:
+		Console.Println("did not start")
+		return
+	}
+	for l in r.Lines() {
+		Console.Println(l.Text)
+		break
+	}
+}
+
+func run() needs Console | exec.Runner {
+	show(exec.New("sh", []string{"-c", "echo a; echo b; printf c; exit 3"}))
+	show(exec.New("sh", []string{"-c", "echo x >&2"}))
+	show(exec.New("ergo-exec-missing-7f3a", []string{}))
+	toFile("one\\ntwo\\n", false)
+	toFile("three\\n", true)
+	show(exec.New("cat", []string{"FILE"}))
+	follow()
+	Console.Println("left the follower")
+	graceful()
+	Console.Println("ended")
+	let r = exec.Runner.Start(exec.New("true", []string{}), exec.Streams{Stdout: exec.ToFile{Path: "/nonexistent/loop-probe-x/out", Append: false}, Stderr: exec.Discard}) catch {
+	case exec.Failed as f:
+		Console.Println("failed " + f.Reason)
+		return
+	case exec.NotFound, exec.Denied:
+		return
+	}
+	Console.Println("started \(r.Wait())")
+}
+
+func main() needs Console | Ambient {
+	with context { exec.Runner: exec.NewHost() } { run() }
+	let mut results = Map[string, exec.Result]{}
+	let c = exec.New("git", []string{"status"})
+	results[exec.Key(c)] = exec.Result{Status: 1, Stdout: "a\nb", Stderr: "e\n"}
+	with context { exec.Runner: exec.Script{Results: results} } {
+		show(c)
+		show(exec.New("git", []string{"log"}))
+	}
+}
+`), stdout: "out a\nout b\nout c\nstatus 3\nerr x\nstatus 0\nnot found ergo-exec-missing-7f3a\nwrote 0\nwrote 0\nout one\nout two\nout three\nstatus 0\nfollowed one\nfollowed two\nfollowed three\nleft the follower\nready\nended\nfailed stdout /nonexistent/loop-probe-x/out: no such file or directory\nout a\nout b\nerr e\nstatus 1\nnot found git\n", stderr: []string{"term\n"}},
+	})
+}
+
 // inGroup reports whether pid names a live process or a zombie of the
 // process group pgid, from its /proc stat line (Linux). A pid with no
 // entry, or one the host gave to a process of another group, is not.
@@ -144,6 +253,28 @@ func inGroup(pid, pgid string) bool {
 // a test of the same name (TestStdLawsRun's naming), and the Runner law
 // against a Script, the std's test provider.
 const execLawsProbe = `import exec
+import slices
+
+test ExecRunnerStartAgreesWithRun(name string, out string, errs string, status int) {
+	let c = exec.New(name, []string{})
+	let mut results = Map[string, exec.Result]{}
+	results[exec.Key(c)] = exec.Result{Status: status, Stdout: out, Stderr: errs}
+	let s = exec.Script{Results: results}
+	let want = try s.Run(c)
+	let p = try s.Start(c, exec.Streams{Stdout: exec.ToCaller, Stderr: exec.ToCaller})
+	let mut o = []string{}
+	let mut e = []string{}
+	for l in p.Lines() {
+		if l.Stderr {
+			e = e.Append(l.Text)
+		} else {
+			o = o.Append(l.Text)
+		}
+	}
+	assert slices.Equal(o, exec.Split(want.Stdout))
+	assert slices.Equal(e, exec.Split(want.Stderr))
+	assert p.Wait() == want.Status
+}
 
 test ExecWithEnvOverrides(key string, first string, second string) {
 	let c = exec.New("x", []string{}).WithEnv(key, first).WithEnv(key, second)
@@ -190,9 +321,10 @@ test ScriptNotFoundNamesTheProgram(name string, other string) {
 // law's source text as the ledger writes it, by ledger key; lawledger.Run
 // holds it equal to the ledger (fu-ledger-runner).
 var execLawStatements = map[string]string{
-	"exec ScriptReplaysRecorded":   `ScriptReplaysRecorded(name string, arg string, status int, out string) { let c = New(name, []string{arg, arg}) let joined = New(name, []string{arg + "," + arg}) let mut results = Map[string, Result]{} results[Key(c)] = Result{Status: status, Stdout: out, Stderr: ""} results[Key(joined)] = Result{Status: status + 1, Stdout: out, Stderr: ""} let r = Script{Results: results}.Run(c) catch { case NotFound, Denied, Failed: return false } let s = Script{Results: results}.Run(joined) catch { case NotFound, Denied, Failed: return false } r.Status == status && r.Stdout == out && r.Stderr == "" && s.Status == status+1 }`,
-	"exec WithEnvKeepsTheOriginal": `WithEnvKeepsTheOriginal(key string, first string, second string) { let c = New("x", []string{}).WithEnv(key, first) let d = c.WithEnv(key, second) c.Env.Get(key) == Some[string]{Value: first} && d.Env.Get(key) == Some[string]{Value: second} }`,
-	"exec WithEnvOverrides":        `WithEnvOverrides(key string, first string, second string) { let c = New("x", []string{}).WithEnv(key, first).WithEnv(key, second) c.Env.Get(key) == Some[string]{Value: second} }`,
+	"exec Runner.StartAgreesWithRun": `StartAgreesWithRun(name string) { let c = New(name, []string{}) let want = Run(c) catch { case NotFound, Denied, Failed: return true } let p = Start(c, Streams{Stdout: ToCaller, Stderr: ToCaller}) catch { case NotFound, Denied, Failed: return false } let mut out = []string{} let mut errs = []string{} for l in p.Lines() { if l.Stderr { errs = errs.Append(l.Text) } else { out = out.Append(l.Text) } } slices.Equal(out, Split(want.Stdout)) && slices.Equal(errs, Split(want.Stderr)) && p.Wait() == want.Status }`,
+	"exec ScriptReplaysRecorded":     `ScriptReplaysRecorded(name string, arg string, status int, out string) { let c = New(name, []string{arg, arg}) let joined = New(name, []string{arg + "," + arg}) let mut results = Map[string, Result]{} results[Key(c)] = Result{Status: status, Stdout: out, Stderr: ""} results[Key(joined)] = Result{Status: status + 1, Stdout: out, Stderr: ""} let r = Script{Results: results}.Run(c) catch { case NotFound, Denied, Failed: return false } let s = Script{Results: results}.Run(joined) catch { case NotFound, Denied, Failed: return false } r.Status == status && r.Stdout == out && r.Stderr == "" && s.Status == status+1 }`,
+	"exec WithEnvKeepsTheOriginal":   `WithEnvKeepsTheOriginal(key string, first string, second string) { let c = New("x", []string{}).WithEnv(key, first) let d = c.WithEnv(key, second) c.Env.Get(key) == Some[string]{Value: first} && d.Env.Get(key) == Some[string]{Value: second} }`,
+	"exec WithEnvOverrides":          `WithEnvOverrides(key string, first string, second string) { let c = New("x", []string{}).WithEnv(key, first).WithEnv(key, second) c.Env.Get(key) == Some[string]{Value: second} }`,
 }
 
 // TestExecLaws runs the probe with --seed 1; lawledger.Run holds that it

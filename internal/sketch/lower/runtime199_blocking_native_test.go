@@ -154,7 +154,12 @@ var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Acto
 // stop and reaches the server as a hang-up.
 // HTTPFetch shares HTTPDo's exchange; TestHTTPNetworkStops also exercises
 // cancellation while following a redirect into a held peer.
-var hostWaitLaws = map[string]bool{"ExecRun": true, "IOReadAll": true, "IOLines": true, "RPCCall": true, "Exchange.Write": true, "HTTPDo": true, "HTTPFetch": true}
+// ExecStart, Running.Lines and Running.Wait (std exec's Start, CU4) wait
+// on a host process's output and end: runtime/v1/exec_start_test.go
+// TestRunningMatchesModel states that a stopped caller's Lines and Wait
+// end with the stop and leave the program to its owner's release, and
+// TestExecStartStopped that a stopped caller's Start starts nothing.
+var hostWaitLaws = map[string]bool{"ExecRun": true, "ExecStart": true, "Running.Lines": true, "Running.Wait": true, "IOReadAll": true, "IOLines": true, "RPCCall": true, "Exchange.Write": true, "HTTPDo": true, "HTTPFetch": true}
 
 // blockingRoutes is the route axis of a binding (runtime.md, I1): the
 // waiting task of a callerWait binding is the task that invokes the call,
