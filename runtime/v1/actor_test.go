@@ -206,7 +206,7 @@ func (r *ref) open() bool {
 		tm := r.m.timers[r.s.v]
 		r.armed, r.deadline, r.due = true, r.now+int(d), tsig{tm.sig, tm.x}
 		r.events = append(r.events, rt.MachineEvent{What: rt.MachineTimerArmed, Epoch: r.epoch, State: stateVariant(r.s),
-			Signal: sigVariant(r.due), In: d})
+			Signal: sigVariant(r.due), In: rt.Span(d)})
 		return true
 	}
 	return false

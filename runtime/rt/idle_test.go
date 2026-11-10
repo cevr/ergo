@@ -27,7 +27,7 @@ func TestVirtualSleepTieEndsAsSleep(t *testing.T) {
 		if !root.StopRequested() {
 			t.Fatalf("round %d: the hook did not run: the sleep did not reach the gap", round)
 		}
-		if got := v.Now(); !got.Equal(epoch.Add(time.Second)) {
+		if got := v.Now(); got != Instant(epoch.Add(time.Second).UnixNano()) {
 			t.Fatalf("round %d: clock at %v; want the deadline %v", round, got, epoch.Add(time.Second))
 		}
 	}

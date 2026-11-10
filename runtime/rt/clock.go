@@ -7,37 +7,57 @@ import (
 	"time"
 )
 
+// Instant is a time on a clock: nanoseconds since the Unix epoch, as
+// time.Time.UnixNano gives it. Span is a duration in nanoseconds, as
+// time.Duration. Neither has a method: the clock types, which the type
+// graph of every Task reaches, name no type of package time, so no program
+// keeps time.Time's String and Format, or time.Duration's String, for them
+// (binsize BS3). The std time bodies convert at their boundary.
+type (
+	Instant int64
+	Span    int64
+)
+
 // Clock is the time-reading capability.
 type Clock interface {
-	Now() time.Time
+	Now() Instant
 }
 
 // Timer is one armed deadline. C delivers once when it fires; Stop disarms it
 // and reports whether it was still armed.
 type Timer interface {
-	C() <-chan time.Time
+	C() <-chan Instant
 	Stop() bool
 }
 
 // Scheduler is the capability that arms deadlines. Sleep and After use it, so
 // a virtual scheduler drives both without real waiting.
 type Scheduler interface {
-	NewTimer(d time.Duration) Timer
+	NewTimer(d Span) Timer
 }
 
 // Live is the wall clock and the host's timers.
 type Live struct{}
 
 // Now returns the wall-clock time.
-func (Live) Now() time.Time { return time.Now() }
+func (Live) Now() Instant { return Instant(time.Now().UnixNano()) }
 
-// NewTimer arms a host timer.
-func (Live) NewTimer(d time.Duration) Timer { return liveTimer{time.NewTimer(d)} }
+// NewTimer arms a host timer. time.AfterFunc's goroutine sends on its
+// channel, so liveTimer holds no *time.Timer, whose C is a channel of
+// time.Time (binsize BS3).
+func (Live) NewTimer(d Span) Timer {
+	c := make(chan Instant, 1)
+	t := time.AfterFunc(time.Duration(d), func() { c <- Instant(time.Now().UnixNano()) })
+	return liveTimer{c: c, stop: t.Stop}
+}
 
-type liveTimer struct{ t *time.Timer }
+type liveTimer struct {
+	c    chan Instant
+	stop func() bool
+}
 
-func (l liveTimer) C() <-chan time.Time { return l.t.C }
-func (l liveTimer) Stop() bool          { return l.t.Stop() }
+func (l liveTimer) C() <-chan Instant { return l.c }
+func (l liveTimer) Stop() bool        { return l.stop() }
 
 // Virtual is a deterministic clock and scheduler. Time moves only by Advance,
 // which fires each due timer in deadline order, ties in arming order. Tests
@@ -45,7 +65,7 @@ func (l liveTimer) Stop() bool          { return l.t.Stop() }
 type Virtual struct {
 	mu     sync.Mutex
 	armed  *sync.Cond
-	now    time.Time
+	now    Instant
 	seq    uint64
 	timers []*virtualTimer // sorted by (when, seq)
 	// A clock with a domain (idle.go: an auto clock or a manual one)
@@ -70,21 +90,21 @@ var AdvanceRunning = errors.New("another task's Advance of this clock is running
 
 type virtualTimer struct {
 	v    *Virtual
-	when time.Time
+	when Instant
 	seq  uint64
-	c    chan time.Time
+	c    chan Instant
 	task *Task // the sleeper of an auto clock's Sleep, nil otherwise
 }
 
 // NewVirtual returns a virtual clock that reads start.
 func NewVirtual(start time.Time) *Virtual {
-	v := &Virtual{now: start}
+	v := &Virtual{now: Instant(start.UnixNano())}
 	v.armed = sync.NewCond(&v.mu)
 	return v
 }
 
 // Now returns the virtual time.
-func (v *Virtual) Now() time.Time {
+func (v *Virtual) Now() Instant {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	return v.now
@@ -92,11 +112,11 @@ func (v *Virtual) Now() time.Time {
 
 // NewTimer arms a timer d after the virtual now. A deadline at or before now
 // fires at once.
-func (v *Virtual) NewTimer(d time.Duration) Timer {
+func (v *Virtual) NewTimer(d Span) Timer {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.seq++
-	t := &virtualTimer{v: v, when: v.now.Add(d), seq: v.seq, c: make(chan time.Time, 1)}
+	t := &virtualTimer{v: v, when: v.now + Instant(d), seq: v.seq, c: make(chan Instant, 1)}
 	if d <= 0 {
 		t.c <- v.now
 		return t
@@ -110,10 +130,10 @@ func (v *Virtual) NewTimer(d time.Duration) Timer {
 }
 
 func (t *virtualTimer) before(u *virtualTimer) bool {
-	return t.when.Before(u.when) || t.when.Equal(u.when) && t.seq < u.seq
+	return t.when < u.when || t.when == u.when && t.seq < u.seq
 }
 
-func (t *virtualTimer) C() <-chan time.Time { return t.c }
+func (t *virtualTimer) C() <-chan Instant { return t.c }
 
 func (t *virtualTimer) Stop() bool {
 	v := t.v
@@ -131,11 +151,11 @@ func (t *virtualTimer) Stop() bool {
 
 // Advance moves the virtual time forward by d, firing every timer due by the
 // new time in deadline order. While a timer fires, Now reads its deadline.
-func (v *Virtual) Advance(d time.Duration) {
+func (v *Virtual) Advance(d Span) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	target := v.now.Add(d)
-	for len(v.timers) > 0 && !v.timers[0].when.After(target) {
+	target := v.now + Instant(d)
+	for len(v.timers) > 0 && v.timers[0].when <= target {
 		t := v.timers[0]
 		v.timers = v.timers[1:]
 		v.now = t.when
@@ -156,7 +176,7 @@ func (v *Virtual) Advance(d time.Duration) {
 // returns Interrupted, with the timers of the instants not reached armed.
 // One runs at a time: a call while another runs returns AdvanceRunning at
 // once and moves nothing.
-func (v *Virtual) AdvanceSettled(t *Task, d time.Duration) error {
+func (v *Virtual) AdvanceSettled(t *Task, d Span) error {
 	if !v.domain {
 		v.Advance(d)
 		return nil
@@ -167,7 +187,7 @@ func (v *Virtual) AdvanceSettled(t *Task, d time.Duration) error {
 		return AdvanceRunning
 	}
 	v.advancing = true
-	target := v.now.Add(d)
+	target := v.now + Instant(d)
 	v.mu.Unlock()
 	defer func() {
 		v.mu.Lock()
@@ -179,8 +199,8 @@ func (v *Virtual) AdvanceSettled(t *Task, d time.Duration) error {
 			return err
 		}
 		v.mu.Lock()
-		if len(v.timers) == 0 || v.timers[0].when.After(target) {
-			if target.After(v.now) {
+		if len(v.timers) == 0 || v.timers[0].when > target {
+			if target > v.now {
 				v.now = target
 			}
 			v.armed.Broadcast()
@@ -189,7 +209,7 @@ func (v *Virtual) AdvanceSettled(t *Task, d time.Duration) error {
 		}
 		when := v.timers[0].when
 		v.now = when
-		for len(v.timers) > 0 && v.timers[0].when.Equal(when) {
+		for len(v.timers) > 0 && v.timers[0].when == when {
 			tm := v.timers[0]
 			v.timers = v.timers[1:]
 			v.fire(tm)
@@ -255,9 +275,9 @@ func Sleep(t *Task, s Scheduler, d time.Duration) error {
 		return Interrupted
 	}
 	if v, ok := s.(*Virtual); ok && v.domain {
-		return v.sleep(t, d)
+		return v.sleep(t, Span(d))
 	}
-	timer := s.NewTimer(d)
+	timer := s.NewTimer(Span(d))
 	select {
 	case <-timer.C():
 		return nil

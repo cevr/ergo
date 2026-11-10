@@ -243,11 +243,11 @@ func (v *Virtual) idle() {
 		return
 	}
 	when := v.timers[0].when
-	if when.After(v.now) {
+	if when > v.now {
 		v.now = when
 	}
 	v.steps++
-	for len(v.timers) > 0 && v.timers[0].when.Equal(when) {
+	for len(v.timers) > 0 && v.timers[0].when == when {
 		v.fire(v.timers[0])
 		v.timers = v.timers[1:]
 	}
@@ -281,14 +281,14 @@ var sleepGap func(*Task)
 // sleep is Sleep on an auto clock: the sleeper parks when it is a member
 // of v, and an idle domain wakes it at its deadline. A stop ends the sleep
 // and removes the timer.
-func (v *Virtual) sleep(t *Task, d time.Duration) error {
+func (v *Virtual) sleep(t *Task, d Span) error {
 	if d <= 0 {
 		t.Done()
 		return nil
 	}
 	v.mu.Lock()
 	v.seq++
-	tm := &virtualTimer{v: v, when: v.now.Add(d), seq: v.seq, c: make(chan time.Time, 1), task: t}
+	tm := &virtualTimer{v: v, when: v.now + Instant(d), seq: v.seq, c: make(chan Instant, 1), task: t}
 	i := sort.Search(len(v.timers), func(i int) bool { return tm.before(v.timers[i]) })
 	v.timers = append(v.timers, nil)
 	copy(v.timers[i+1:], v.timers[i:])

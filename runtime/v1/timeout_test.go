@@ -66,7 +66,7 @@ func TestAfterDeadlineFromScheduler(t *testing.T) {
 	within(t, "After(1h) under a virtual Scheduler", func() {
 		go func() {
 			s.v.AwaitTimers(1)
-			s.v.Advance(time.Hour)
+			s.v.Advance(rt.Span(time.Hour))
 		}()
 		err := runMain(func(root *rt.Task) error {
 			got, gotErr = After(Site("test calls timeout.After"), root, s, time.Hour, func(ct *rt.Task) (int, error) {
@@ -222,7 +222,7 @@ func TestAfterMaskedCaller(t *testing.T) {
 	within(t, "After in a masked caller", func() {
 		go func() {
 			s.v.AwaitTimers(1)
-			s.v.Advance(time.Hour)
+			s.v.Advance(rt.Span(time.Hour))
 		}()
 		err := runMain(func(root *rt.Task) error {
 			m := root.Mask()

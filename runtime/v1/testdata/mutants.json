@@ -126,6 +126,15 @@
           "runtime/v1:TestHostTextUsersAreListed"
         ]
       }
+    },
+    {
+      "name": "bs3-instant-unit",
+      "origin": "wf10 binsize BS3",
+      "file": "runtime/v1/time.go",
+      "from": "n := time.Unix(0, int64(l.v.Now()))",
+      "to": "n := time.Unix(0, int64(l.v.Now())/1000)",
+      "rule": "stdlib.md Types 4 (binsize BS3): a manual or virtual clock's rt.Instant is nanoseconds since the Unix epoch; time.Manual reads it as that time.",
+      "killers": []
     }
   ]
 }

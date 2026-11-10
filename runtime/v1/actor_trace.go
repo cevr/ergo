@@ -239,7 +239,7 @@ func (a *Actor[S, E, D]) traceArmed(at *rt.Task, s S) {
 	}
 	g := a.graphOf()
 	at.TraceMachine(&rt.MachineEvent{What: rt.MachineTimerArmed, Epoch: a.epoch, State: variant(g, s),
-		Signal: a.timerSignal(g, s), In: d})
+		Signal: a.timerSignal(g, s), In: rt.Span(d)})
 }
 
 // traceWork reports what happened to the work of the entry epoch, on the
