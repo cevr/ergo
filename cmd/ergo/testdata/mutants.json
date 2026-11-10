@@ -1,0 +1,6 @@
+{
+  "about": "The CLI route guard complements the API projection property.",
+  "mutants": [
+    {"name":"c3-api-route-removed","origin":"L8 C3 q70","file":"cmd/ergo/inspect.go","from":"len(args) > 0 && args[0] == \"api\"","to":"len(args) > 0 && args[0] == \"disabled-api\"","rule":"The public inspect api command reaches its checked projection.","killers":["ergo:TestInspectAPIRoute"]}
+  ]
+}

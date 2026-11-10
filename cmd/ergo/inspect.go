@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"ergo.local/prototype/internal/sketch/api"
 	"ergo.local/prototype/internal/sketch/machinegraph"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -20,19 +21,98 @@ graphs as JSON, each with its reachable pairs.
 
 Exit status: 0 when the package checks, 1 when it does not, 2 on an
 invalid invocation.
+` + "\n" + inspectAPIHelp
+
+const inspectAPIHelp = `usage: ergo inspect api FILE|DIR [--json]
+       ergo inspect api --diff OLD NEW [--json]
+
+Shows exported functions and methods from checked source: fails, needs,
+takes (written or inferred), and generic copy sites (plain data only).
+This text is also the docs view. --diff reports public contract changes;
+a new take or copying parameter breaks callers that pass a resource.
+--json prints structured contracts or changes. Both inputs must check.
+Exit status: 0 on success, 1 on a source error, 2 on invalid arguments.
 `
 
-// inspectCommand runs `ergo inspect machine`; every other query of the
-// designed `ergo inspect` stays removed in v1 (#203).
+// inspectCommand runs checked machine and public API queries.
 func inspectCommand(args []string) error {
+	if len(args) > 0 && args[0] == "api" {
+		if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
+			_, err := os.Stdout.WriteString(inspectAPIHelp)
+			return err
+		}
+		return inspectAPICommand(args[1:])
+	}
 	if len(args) == 0 || args[0] != "machine" {
-		return exitStatusError{code: 1, message: fmt.Sprintf("ergo inspect: only inspect machine runs; the other queries are removed in v1; %s (%s)", toolingReason, ticketTooling)}
+		return exitStatusError{code: 1, message: fmt.Sprintf("ergo inspect: only inspect machine and inspect api run; the other queries are removed in v1; %s (%s)", toolingReason, ticketTooling)}
 	}
 	if rest := args[1:]; len(rest) == 1 && (rest[0] == "--help" || rest[0] == "-h") {
 		_, err := os.Stdout.WriteString(inspectMachineHelp)
 		return err
 	}
 	return inspectMachineCommand(args[1:])
+}
+
+func inspectAPICommand(args []string) error {
+	json, diff := false, false
+	var paths []string
+	for _, arg := range args {
+		switch arg {
+		case "--json":
+			json = true
+		case "--diff":
+			diff = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return invalidInvocation(fmt.Errorf("inspect api: unknown option %s", arg))
+			}
+			paths = append(paths, arg)
+		}
+	}
+	if (!diff && len(paths) != 1) || (diff && len(paths) != 2) {
+		return invalidInvocation(fmt.Errorf("inspect api: supply FILE|DIR, or --diff OLD NEW"))
+	}
+	var views [][]api.Function
+	for _, path := range paths {
+		opts, err := parseFileOptions("inspect api", []string{path})
+		if err != nil {
+			return invalidInvocation(err)
+		}
+		l, err := load(opts.file, opts.target)
+		if err != nil {
+			return err
+		}
+		if !l.result.Checked {
+			return refuseUnchecked(l, opts)
+		}
+		fs := api.Functions(l.analysis.Root().Package)
+		// A single-file check has no file name in the syntax snapshot.
+		if !isPackageFolder(path) {
+			for i := range fs {
+				for j := range fs[i].Copies {
+					if fs[i].Copies[j].Where != "" {
+						fs[i].Copies[j].Where = path + ":" + fs[i].Copies[j].Where
+					}
+				}
+			}
+		}
+		views = append(views, fs)
+	}
+	var text string
+	if diff {
+		changes := api.Diff(views[0], views[1])
+		if json {
+			return printJSON(changes)
+		}
+		text = api.DiffText(changes)
+	} else {
+		if json {
+			return printJSON(views[0])
+		}
+		text = api.Text(views[0])
+	}
+	_, err := os.Stdout.WriteString(text)
+	return err
 }
 
 // inspectMachineCommand prints the machine graphs of the root package.
