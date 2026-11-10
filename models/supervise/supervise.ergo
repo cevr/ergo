@@ -1,0 +1,373 @@
+// The package supervise is the design model of a supervised machine actor,
+// std actor.Supervise (runtime.md, Machines and actors 18; runtime/v1
+// actor.go), checked by `ergo test models/supervise`. It replaced the Quint
+// model supervise.qnt of docs/research/actor-machine (MU7; deleted): the
+// same actions and invariants, decided by a breadth-first search of every
+// state in a small scope instead of random traces (wf10 explorer X4).
+//
+// One actor's runner restarts after a defect within a budget of Limit
+// restarts (tasks.Restart{Limit}). Senders admit asks and sends into the
+// inbox while admission is open; the runner steps the head (ok, Done, or a
+// defect), and a work's defect may also arrive between steps. A crash ends
+// the incarnation as an end does (runner rule 8) but keeps admission open:
+// the ask in the step and every queued ask are answered Stopped, queued
+// sends are dropped, and the new incarnation starts from a fresh state.
+// Stop requests the runner's end and closes admission; Drain closes
+// admission and lets the queue run out. Done, Stop and Drain are terminal:
+// no restart after them. When the budget is spent, the actor ends with the
+// defect.
+//
+// The abstract state St counts the commits the actor has made since it
+// started from a fresh state; the ghost Commits counts the commits of the
+// current incarnation, so St == Commits says no restart reused the state.
+//
+// Each action of the Quint model is a signal; an action that is not
+// enabled is Ignore. The invariants are checked after each step: a step
+// that breaks one enters Broken with its name.
+//
+//   - WithinBudget: no more than Limit restarts;
+//   - FreshState: St == Commits (a restart never reuses the state);
+//   - AsksAnswered: every admitted ask is queued or answered, once;
+//   - EndAnswered: when the actor has ended, every admitted ask is
+//     answered;
+//   - TerminalFinal: after an end, no new incarnation runs;
+//   - Exhaustion: an end by a defect comes with the budget spent, or after
+//     a Stop or a Drain closed admission.
+//
+// The scope is the Quint model's: a budget of 2 restarts and 5 admitted
+// envelopes. It is the claim: "proved" means proved in this scope. Quint's
+// ids serve only its ghost of answers per ask id; an ask leaves the queue
+// once, answered or not, so the queue keeps whether each envelope is an
+// ask, and Lost is set when an admitted ask leaves the queue unanswered
+// (the merge is exact: AsksAnswered and EndAnswered read the same).
+//
+// Mutants, each a machine whose law Breaks must hold (a shortest run that
+// breaks one of the invariants, as Quint's check of `safe`):
+//   - ReuseState: a restart keeps the last state;
+//   - AskUnanswered: a crash drops the queued asks unanswered;
+//   - RestartAfterDone: a work's defect after Done restarts the actor;
+//   - BudgetOffByOne: one restart past the budget.
+//
+// Witnesses, each a machine whose law Reached must hold, so the invariants
+// are not vacuous: a restart; an end by a defect with admission open (the
+// budget spent); a fresh state after a restart with an ask admitted.
+
+// Exit is how the actor ended.
+type Exit = NotEnded{} | ExitDone{} | ExitHalted{} | ExitDefect{}
+
+type World {
+	Queue     []bool,
+	NextId    int,
+	Asked     bool,
+	Lost      bool,
+	St        int,
+	Commits   int,
+	Inc       int,
+	Restarts  int,
+	Running   bool,
+	Closed    bool,
+	StopReq   bool,
+	Exit      Exit,
+	EverEnded bool,
+	IncAtEnd  int,
+}
+
+// Sv is the model's state: the world, a broken invariant, or a witness
+// reached (only the witness machines enter Seen).
+type Sv = Live{W World} | Broken{Why string} | Seen{What string}
+
+// Act is the actions of the Quint model.
+type Act = Admit{Ask bool} | StepOk{} | StepDone{} | Crash{InStep bool} | Stop{} | StopEnds{} | Drain{} | Drained{} | LateDefect{}
+
+// The scope.
+let Limit = 2
+let MaxId = 5
+
+// The mutants and the design, as the argument of next.
+let NoMutant = 0
+let ReuseStateMutant = 1
+let AskUnansweredMutant = 2
+let RestartAfterDoneMutant = 3
+let BudgetOffByOneMutant = 4
+
+func first() Sv {
+	Live{W: World{
+		Queue:     []bool{},
+		NextId:    0,
+		Asked:     false,
+		Lost:      false,
+		St:        0,
+		Commits:   0,
+		Inc:       0,
+		Restarts:  0,
+		Running:   true,
+		Closed:    false,
+		StopReq:   false,
+		Exit:      NotEnded,
+		EverEnded: false,
+		IncAtEnd:  0,
+	}}
+}
+
+func tail(q []bool) []bool {
+	let mut out = []bool{}
+	for i, x in q {
+		if i > 0 {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func hasAsk(q []bool) bool {
+	for x in q {
+		if x {
+			return true
+		}
+	}
+	false
+}
+
+// broken is the name of the first invariant w breaks, or "".
+func broken(w World) string {
+	if w.Restarts > Limit {
+		return "WithinBudget"
+	}
+	if w.St != w.Commits {
+		return "FreshState"
+	}
+	if w.Lost {
+		return "AsksAnswered"
+	}
+	if !w.Running && hasAsk(w.Queue) {
+		return "EndAnswered"
+	}
+	if w.EverEnded && (w.Running || w.Inc != w.IncAtEnd) {
+		return "TerminalFinal"
+	}
+	match w.Exit {
+	case ExitDefect:
+		if w.Restarts != Limit && !w.Closed {
+			return "Exhaustion"
+		}
+	case _:
+	}
+	""
+}
+
+// next is w after the action a under the mutant m (NoMutant is the design),
+// or None when a is not enabled.
+func next(m int, w World, a Act) Option[World] {
+	match a {
+	case Admit as ad:
+		// A sender admits an ask or a send.
+		if !w.Running || w.Closed || w.NextId >= MaxId {
+			return None
+		}
+		Some[World]{Value: World{..w, Queue: w.Queue.Append(ad.Ask), NextId: w.NextId + 1, Asked: w.Asked || ad.Ask}}
+	case StepOk:
+		// The runner steps the head: it commits and answers its ask.
+		if !w.Running || w.StopReq || len(w.Queue) == 0 {
+			return None
+		}
+		Some[World]{Value: World{..w, Queue: tail(w.Queue), St: w.St + 1, Commits: w.Commits + 1}}
+	case StepDone:
+		// The head's step decides Done: answered, then the actor ends; the
+		// queued asks are answered Stopped (rule 8).
+		if !w.Running || w.StopReq || len(w.Queue) == 0 {
+			return None
+		}
+		Some[World]{Value: World{..w, Queue: []bool{}, Running: false, Exit: ExitDone, EverEnded: true, IncAtEnd: w.Inc, Closed: true}}
+	case Crash as c:
+		// A crash: the head's step (InStep) or a work's defect between
+		// steps. The ask in the step and the queued asks are answered
+		// Stopped; then a restart, or the end with the defect.
+		// AskUnanswered: the queued asks are dropped unanswered.
+		if !w.Running || w.StopReq || (c.InStep && len(w.Queue) == 0) {
+			return None
+		}
+		let rest = if c.InStep { tail(w.Queue) } else { w.Queue }
+		let lost = w.Lost || (m == AskUnansweredMutant && hasAsk(rest))
+		let budget = if m == BudgetOffByOneMutant { Limit + 1 } else { Limit }
+		let again = w.Restarts < budget && !w.Closed
+		if again {
+			return Some[World]{Value: World{..w,
+				Queue:    []bool{},
+				Lost:     lost,
+				Restarts: w.Restarts + 1,
+				Inc:      w.Inc + 1,
+				St:       if m == ReuseStateMutant { w.St } else { 0 },
+				Commits:  0,
+			}}
+		}
+		Some[World]{Value: World{..w,
+			Queue:     []bool{},
+			Lost:      lost,
+			Running:   false,
+			Exit:      ExitDefect,
+			EverEnded: true,
+			IncAtEnd:  w.Inc,
+		}}
+	case Stop:
+		// Stop: the request closes admission; the runner ends at its next
+		// take.
+		if !w.Running || w.StopReq {
+			return None
+		}
+		Some[World]{Value: World{..w, StopReq: true, Closed: true}}
+	case StopEnds:
+		if !w.Running || !w.StopReq {
+			return None
+		}
+		Some[World]{Value: World{..w, Queue: []bool{}, Running: false, Exit: ExitHalted, EverEnded: true, IncAtEnd: w.Inc}}
+	case Drain:
+		// Drain closes admission; the runner ends once the queue ran out.
+		if !w.Running || w.Closed {
+			return None
+		}
+		Some[World]{Value: World{..w, Closed: true}}
+	case Drained:
+		if !w.Running || !w.Closed || w.StopReq || len(w.Queue) != 0 {
+			return None
+		}
+		Some[World]{Value: World{..w, Running: false, Exit: ExitHalted, EverEnded: true, IncAtEnd: w.Inc}}
+	case LateDefect:
+		// RestartAfterDone: a work's defect reported after Done restarts
+		// the actor.
+		if m != RestartAfterDoneMutant || w.Running || w.Restarts >= Limit {
+			return None
+		}
+		match w.Exit {
+		case ExitDone:
+			Some[World]{Value: World{..w, Running: true, Inc: w.Inc + 1, Restarts: w.Restarts + 1, St: 0, Commits: 0, Closed: false}}
+		case _:
+			None
+		}
+	}
+}
+
+func stepWith(m int, s Sv, a Act) Decision[Sv, string] {
+	match s {
+	case Live as l:
+		match next(m, l.W, a) {
+		case None:
+			Ignore
+		case Some[World] as n:
+			let why = broken(n.Value)
+			if why != "" {
+				Enter[Sv]{Next: Broken{Why: why}}
+			} else {
+				Enter[Sv]{Next: Live{W: n.Value}}
+			}
+		}
+	case _:
+		Ignore
+	}
+}
+
+func stepDesign(s Sv, a Act) Decision[Sv, string]           { stepWith(NoMutant, s, a) }
+func stepReuseState(s Sv, a Act) Decision[Sv, string]       { stepWith(ReuseStateMutant, s, a) }
+func stepAskUnanswered(s Sv, a Act) Decision[Sv, string]    { stepWith(AskUnansweredMutant, s, a) }
+func stepRestartAfterDone(s Sv, a Act) Decision[Sv, string] { stepWith(RestartAfterDoneMutant, s, a) }
+func stepBudgetOffByOne(s Sv, a Act) Decision[Sv, string]   { stepWith(BudgetOffByOneMutant, s, a) }
+
+// The design keeps every invariant in the scope.
+type Design machine[Sv, Act] {
+	initial: first(),
+	step:    stepDesign,
+
+	law Safe never reaches Broken,
+}
+
+type ReuseState machine[Sv, Act] {
+	initial: first(),
+	step:    stepReuseState,
+
+	law Breaks reaches Broken,
+}
+
+type AskUnanswered machine[Sv, Act] {
+	initial: first(),
+	step:    stepAskUnanswered,
+
+	law Breaks reaches Broken,
+}
+
+type RestartAfterDone machine[Sv, Act] {
+	initial: first(),
+	step:    stepRestartAfterDone,
+
+	law Breaks reaches Broken,
+}
+
+type BudgetOffByOne machine[Sv, Act] {
+	initial: first(),
+	step:    stepBudgetOffByOne,
+
+	law Breaks reaches Broken,
+}
+
+// The witnesses (Quint's noRestart, noExhaustion, noFreshAfterCommits).
+// Each is the design's step that enters Seen when the witness holds in the
+// state the step reaches.
+let RestartWitness = 1
+let ExhaustionWitness = 2
+let FreshAfterCommitsWitness = 3
+
+func witnessed(k int, v World) bool {
+	if k == RestartWitness {
+		return v.Restarts > 0
+	}
+	if k == ExhaustionWitness {
+		match v.Exit {
+		case ExitDefect:
+			return !v.Closed
+		case _:
+			return false
+		}
+	}
+	v.Restarts > 0 && v.St == 0 && v.Asked
+}
+
+func stepWitness(k int, s Sv, a Act) Decision[Sv, string] {
+	match s {
+	case Live as l:
+		match next(NoMutant, l.W, a) {
+		case None:
+			Ignore
+		case Some[World] as n:
+			if witnessed(k, n.Value) {
+				Enter[Sv]{Next: Seen{What: "witness"}}
+			} else {
+				Enter[Sv]{Next: Live{W: n.Value}}
+			}
+		}
+	case _:
+		Ignore
+	}
+}
+
+func stepRestart(s Sv, a Act) Decision[Sv, string]           { stepWitness(RestartWitness, s, a) }
+func stepExhaustion(s Sv, a Act) Decision[Sv, string]        { stepWitness(ExhaustionWitness, s, a) }
+func stepFreshAfterCommits(s Sv, a Act) Decision[Sv, string] { stepWitness(FreshAfterCommitsWitness, s, a) }
+
+type Restarts machine[Sv, Act] {
+	initial: first(),
+	step:    stepRestart,
+
+	law Reached reaches Seen,
+}
+
+type Exhausts machine[Sv, Act] {
+	initial: first(),
+	step:    stepExhaustion,
+
+	law Reached reaches Seen,
+}
+
+type FreshAfterCommits machine[Sv, Act] {
+	initial: first(),
+	step:    stepFreshAfterCommits,
+
+	law Reached reaches Seen,
+}

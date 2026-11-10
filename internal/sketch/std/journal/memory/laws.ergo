@@ -1,5 +1,5 @@
 // The laws of a durable actor over a memory journal (MU9; the model
-// docs/research/actor-machine/durable.qnt). RecoveryIsTheFold is the
+// models/durable). RecoveryIsTheFold is the
 // model-based property: a generated trace of Asks with crashes at
 // generated points (a crash between steps, a save that fails before it
 // writes, a save that fails after it writes), each crash followed by a

@@ -20,6 +20,19 @@ import (
 // build's harness Go ($Explore), which only a built binary runs; no
 // in-process interpreter runs a test build.
 
+// verdicts are the lines of a test binary's stdout less the indented ones:
+// a refuted never law's counterexample test and replay command follow its
+// FAIL line, indented by a tab.
+func verdicts(stdout string) []string {
+	var out []string
+	for _, line := range lines(stdout) {
+		if !strings.HasPrefix(line, "\t") {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
 // tableMachine is a generated machine whose step is a table over fieldless
 // states and signals: next[s][e] is the state an edge goes to, and kind is
 // the decision.
@@ -453,7 +466,7 @@ func TestMachineLawTables(t *testing.T) {
 				continue
 			}
 			failed++
-			want = append(want, "FAIL "+label+" (every run): law refuted at ")
+			want = append(want, "FAIL "+label+" (")
 		}
 		total++
 		cases := strconv.Itoa(len(m.states) * len(m.signals))
@@ -488,7 +501,7 @@ func TestMachineLawTables(t *testing.T) {
 		return
 	}
 	stdout, stderr, code := runExe(t, exes["machinelaw_tables"])
-	got := lines(stdout)
+	got := verdicts(stdout)
 	want = append(want, fmt.Sprintf("FAIL (%d of %d tests)", failed, total))
 	ok := code == 1 && len(got) == len(want)
 	for k := 0; ok && k < len(got); k++ {
@@ -551,13 +564,44 @@ type Meter machine[Pos, Push] {
 	},
 }
 
+type Lane = At{N int} | Far{} | Gone{}
+
+type Nudge = Go{} | Wait1{} | Wait2{} | Wait3{} | Wait4{} | Wait5{} | Wait6{} | Wait7{}
+
+func walk(p Lane, s Nudge) Decision[Lane, int] {
+	match p {
+	case At as a:
+		match s {
+		case Go:
+			if a.N >= 15 {
+				Enter[Lane]{Next: Far}
+			} else {
+				Enter[Lane]{Next: At{N: a.N + 1}}
+			}
+		case _:
+			Ignore
+		}
+	case _:
+		Ignore
+	}
+}
+
+type Road machine[Lane, Nudge] {
+	initial: At{N: 0},
+	step:    walk,
+
+	law NeverFar never reaches Far,
+	law NeverGone never reaches Gone,
+}
+
 func main() {}
 `
 
 // TestMachineLawRuns: a false reachability law over a machine whose graph
 // cannot be listed fails with the seed and the run that refutes it; a
 // witness proves a reaches law; a law that reads a payload is tested,
-// never proved. It builds Go because the laws run in the built test
+// never proved. Past the budget of states (--states) a law is not proved,
+// and its generated runs pick only signals that change the state (X1). It builds Go because the laws run in the built test
 // binary (ergo test), the only place a law runs.
 func TestMachineLawRuns(t *testing.T) {
 	needsBuild(t)
@@ -565,9 +609,9 @@ func TestMachineLawRuns(t *testing.T) {
 	if exes == nil {
 		return
 	}
-	stdout, stderr, code := runExeArgs(t, exes["machinelaw_runs"], "--seed", "7")
-	got := lines(stdout)
-	if code != 1 || len(got) != 4 {
+	stdout, stderr, code := runExeArgs(t, exes["machinelaw_runs"], "--seed", "7", "--states", "5")
+	got := verdicts(stdout)
+	if code != 1 || len(got) != 6 {
 		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
 	}
 	if !strings.HasPrefix(got[0], "FAIL law Meter.NeverHigh (run ") || !strings.Contains(got[0], ", seed 7, size ") ||
@@ -580,7 +624,17 @@ func TestMachineLawRuns(t *testing.T) {
 	if got[2] != "ok law Meter.UpKeepsLow (100 cases)" {
 		t.Errorf("line 3 is %q", got[2])
 	}
-	if got[3] != "FAIL (1 of 3 tests)" {
-		t.Errorf("the summary is %q", got[3])
+	// Road's graph passes the budget of 5 states. A generated run picks
+	// only signals that change the state, so it walks the 16 Go signals to
+	// Far past seven Waits that Ignore; a law the budget stopped is not
+	// proved.
+	if !strings.HasPrefix(got[3], "FAIL law Road.NeverFar (run ") || !strings.HasSuffix(got[3], "} reaches Far") {
+		t.Errorf("line 4 is %q", got[3])
+	}
+	if got[4] != "ok law Road.NeverGone (no counterexample in runs of at most 4 signals; 5 states; 100 runs; not proved)" {
+		t.Errorf("line 5 is %q", got[4])
+	}
+	if got[5] != "FAIL (2 of 5 tests)" {
+		t.Errorf("the summary is %q", got[5])
 	}
 }

@@ -1,0 +1,518 @@
+// The package children is the design model of a machine actor's children
+// (runtime.md, Machines and actors 14; std actor.Child, runtime/v1
+// actor.go), checked by `ergo test models/children`. It replaced the Quint
+// model children.qnt of docs/research/actor-machine (MU5; deleted): the same actions
+// and invariants, decided by a breadth-first search of every state in a
+// small scope instead of random traces (wf10 explorer X3).
+//
+// Node 0 is a root actor; nodes 1 and 2 are machine actors that a work of
+// some live actor's entry starts as its children. A child is owned by its
+// parent's entry (Owner, OwnerEpoch) and kept in that entry's list, in
+// start order. A child's output is pushed into its parent's inbox tagged
+// with the parent's entry; the parent steps the front of its inbox while
+// no exit runs and drops an output of an ended entry. When an entry ends
+// (a re-entry) or the actor ends, the actor stops its children one at a
+// time, from the last started to the first, each one stopping its own
+// children first, and only then opens the next entry or ends. A child may
+// also end by itself (Done); it stops its own children first, too.
+//
+// Each action of the Quint model is a signal; an action that is not
+// enabled is Ignore. The invariants are checked after each step: a step
+// that breaks one enters Broken with its name.
+//
+//   - ChildInsideEntry: a live child's parent is live and still in the
+//     entry that started the child;
+//   - NoLateChildOutput: no output of an ended entry is stepped;
+//   - ChildrenStopFirst: no live child has an ended parent, and a child is
+//     stopped only when every sibling started after it has ended (reverse
+//     start order).
+//
+// The scope is 3 nodes, a tree depth of 2, an inbox of 1 output and entry
+// epochs 0 to 4. It is the claim: "proved" means proved in this scope.
+// Every mutant is refuted in the same scope as the design's proof, so a
+// bound that hides a mutant fails the model's test (with epochs 0 to 3,
+// EpochWraps would not be refuted).
+//
+// Mutants, each a machine whose law Breaks must hold (a shortest run that
+// breaks the invariant named):
+//   - LateOutput: the parent steps a child output without its entry check
+//     (NoLateChildOutput);
+//   - ParentFirst: an actor ends or opens its next entry without waiting
+//     for its children (ChildrenStopFirst);
+//   - ByKind: an entry keeps its children by kind, so a second editor
+//     replaces the first in the list, which is then never stopped
+//     (ChildInsideEntry);
+//   - EpochWraps: the runner compares entries modulo 4, as a small counter
+//     does (NoLateChildOutput). Quint's random runs miss it in 250,000
+//     traces; the search refutes it with a run of 13 signals.
+//
+// Witnesses, each a machine whose law Reached must hold, so the invariant
+// is not vacuous: a stale output is dropped; an entry re-opens after its
+// children stopped; two editors live under one entry; a child at the
+// deepest level lives; the root ends after stopping two children.
+//
+// Workarounds of today's Ergo (follow-ups of X3): a variant with no fields
+// in a union of names is written `N0{}`; there is no slice update
+// expression, so setInt, setBool, setKids and setInbox copy a slice.
+
+type Node = N0{} | N1{} | N2{}
+
+// Out is a child's output in its parent's inbox: the child and the
+// parent's entry it was sent in.
+type Out { From int, Epoch int }
+
+// World is the state of the tree. Each slice has one element per node.
+// Closing is 0 when the node's entry is open, 1 while its re-entry's exit
+// runs and 2 while its end runs.
+type World {
+	Alive      []bool,
+	Used       []bool,
+	Owner      []int,
+	OwnerEpoch []int,
+	Epoch      []int,
+	Depth      []int,
+	Kids       [][]int,
+	Closing    []int,
+	StopReq    []bool,
+	Inbox      [][]Out,
+	Late       bool,
+	OrderBad   bool,
+}
+
+// St is the model's state: the tree, a broken invariant, or a witness
+// reached (only the witness machines enter Seen).
+type St = Live{W World} | Broken{Why string} | Seen{What string}
+
+// Act is the actions of the Quint model.
+type Act = Start{P Node, C Node} | Emit{C Node} | Take{P Node} | Reenter{P Node} | SelfEnd{P Node} | StopNext{P Node} | EndNode{P Node} | Open{P Node}
+
+// The scope.
+let Nodes = 3
+let MaxDepth = 2
+let Cap = 1
+let MaxEpoch = 4
+
+// Wrap is the modulus of EpochWraps's entry compare.
+let Wrap = 4
+
+// The mutants and the design, as the argument of next.
+let NoMutant = 0
+let LateOutputMutant = 1
+let ParentFirstMutant = 2
+let ByKindMutant = 3
+let EpochWrapsMutant = 4
+
+func ix(n Node) int {
+	match n {
+	case N0:
+		0
+	case N1:
+		1
+	case N2:
+		2
+	}
+}
+
+func setInt(xs []int, i int, v int) []int {
+	let mut out = []int{}
+	for j, x in xs {
+		if j == i {
+			out = out.Append(v)
+		} else {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func setBool(xs []bool, i int, v bool) []bool {
+	let mut out = []bool{}
+	for j, x in xs {
+		if j == i {
+			out = out.Append(v)
+		} else {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func setKids(xs [][]int, i int, v []int) [][]int {
+	let mut out = [][]int{}
+	for j, x in xs {
+		if j == i {
+			out = out.Append(v)
+		} else {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func setInbox(xs [][]Out, i int, v []Out) [][]Out {
+	let mut out = [][]Out{}
+	for j, x in xs {
+		if j == i {
+			out = out.Append(v)
+		} else {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func without(xs []int, n int) []int {
+	let mut out = []int{}
+	for x in xs {
+		if x != n {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// first is the start: the root alive with an open entry, no children.
+func first() St {
+	Live{W: World{
+		Alive:      []bool{true, false, false},
+		Used:       []bool{true, false, false},
+		Owner:      []int{-1, -1, -1},
+		OwnerEpoch: []int{-1, -1, -1},
+		Epoch:      []int{0, 0, 0},
+		Depth:      []int{0, 0, 0},
+		Kids:       [][]int{[]int{}, []int{}, []int{}},
+		Closing:    []int{0, 0, 0},
+		StopReq:    []bool{false, false, false},
+		Inbox:      [][]Out{[]Out{}, []Out{}, []Out{}},
+		Late:       false,
+		OrderBad:   false,
+	}}
+}
+
+// broken is the name of the invariant w breaks, or "".
+func broken(w World) string {
+	if w.Late {
+		return "NoLateChildOutput"
+	}
+	if w.OrderBad {
+		return "ChildrenStopFirst"
+	}
+	for c in 1..Nodes {
+		if w.Alive[c] {
+			let o = w.Owner[c]
+			if !w.Alive[o] {
+				return "ChildrenStopFirst"
+			}
+			if w.OwnerEpoch[c] != w.Epoch[o] {
+				return "ChildInsideEntry"
+			}
+		}
+	}
+	""
+}
+
+// next is w after the action a under the mutant m (NoMutant is the design),
+// or None when a is not enabled.
+func next(m int, w World, a Act) Option[World] {
+	match a {
+	case Start as s:
+		// A work of p's open entry starts c as a child of that entry.
+		let p = ix(s.P)
+		let c = ix(s.C)
+		if !w.Alive[p] || w.Closing[p] != 0 || w.Used[c] || w.Depth[p] >= MaxDepth {
+			return None
+		}
+		// ByKind: every node but the root is an editor here, so a second
+		// child replaces the first in the list.
+		let kids = if m == ByKindMutant { []int{c} } else { w.Kids[p].Append(c) }
+		Some[World]{Value: World{..w,
+			Alive:      setBool(w.Alive, c, true),
+			Used:       setBool(w.Used, c, true),
+			Owner:      setInt(w.Owner, c, p),
+			OwnerEpoch: setInt(w.OwnerEpoch, c, w.Epoch[p]),
+			Depth:      setInt(w.Depth, c, w.Depth[p]+1),
+			Kids:       setKids(w.Kids, p, kids),
+		}}
+	case Emit as e:
+		// A live child gives an output; it goes to its parent's inbox with
+		// the parent's entry, while the parent is live and has room.
+		let c = ix(e.C)
+		if c == 0 || !w.Alive[c] {
+			return None
+		}
+		let o = w.Owner[c]
+		if !w.Alive[o] || len(w.Inbox[o]) >= Cap {
+			return None
+		}
+		Some[World]{Value: World{..w, Inbox: setInbox(w.Inbox, o, w.Inbox[o].Append(Out{From: c, Epoch: w.OwnerEpoch[c]}))}}
+	case Take as t:
+		// p takes the front of its inbox while no exit runs: an output of
+		// the open entry is stepped, one of an ended entry is dropped.
+		let p = ix(t.P)
+		if !w.Alive[p] || w.Closing[p] != 0 || len(w.Inbox[p]) == 0 {
+			return None
+		}
+		let stale = w.Inbox[p][0].Epoch != w.Epoch[p]
+		let treated = if m == EpochWrapsMutant { w.Inbox[p][0].Epoch%Wrap != w.Epoch[p]%Wrap } else { stale }
+		let mut rest = []Out{}
+		for i, o in w.Inbox[p] {
+			if i > 0 {
+				rest = rest.Append(o)
+			}
+		}
+		// LateOutput: the parent steps the output without its entry check.
+		Some[World]{Value: World{..w, Inbox: setInbox(w.Inbox, p, rest), Late: w.Late || (stale && (m == LateOutputMutant || !treated))}}
+	case Reenter as r:
+		// p's step re-enters: the entry's exit begins.
+		let p = ix(r.P)
+		if !w.Alive[p] || w.Closing[p] != 0 {
+			return None
+		}
+		Some[World]{Value: World{..w, Closing: setInt(w.Closing, p, 1)}}
+	case SelfEnd as r:
+		// The root is stopped, or a child ends by itself: its end begins.
+		let p = ix(r.P)
+		if !w.Alive[p] || w.Closing[p] == 2 {
+			return None
+		}
+		Some[World]{Value: World{..w, Closing: setInt(w.Closing, p, 2)}}
+	case StopNext as r:
+		// p's exit stops its last started child that is not stopping yet.
+		let p = ix(r.P)
+		if !w.Alive[p] || w.Closing[p] == 0 || len(w.Kids[p]) == 0 {
+			return None
+		}
+		let c = w.Kids[p][len(w.Kids[p])-1]
+		if w.StopReq[c] {
+			return None
+		}
+		Some[World]{Value: World{..w, StopReq: setBool(w.StopReq, c, true), Closing: setInt(w.Closing, c, 2)}}
+	case EndNode as r:
+		// n ends once its children have ended; it leaves its parent's list
+		// and its inbox closes. ParentFirst: it ends without waiting.
+		let n = ix(r.P)
+		if !w.Alive[n] || w.Closing[n] != 2 || (m != ParentFirstMutant && len(w.Kids[n]) > 0) {
+			return None
+		}
+		let p = w.Owner[n]
+		let mut kids = w.Kids
+		let mut bad = w.OrderBad
+		if p >= 0 {
+			let sibs = w.Kids[p]
+			kids = setKids(w.Kids, p, without(sibs, n))
+			bad = bad || (w.StopReq[n] && len(sibs) > 0 && sibs[len(sibs)-1] != n)
+		}
+		Some[World]{Value: World{..w,
+			Alive:    setBool(w.Alive, n, false),
+			Kids:     kids,
+			OrderBad: bad,
+			Inbox:    setInbox(w.Inbox, n, []Out{}),
+		}}
+	case Open as r:
+		// p opens its next entry once the old entry's children have ended.
+		// ParentFirst: it opens without waiting.
+		let p = ix(r.P)
+		if !w.Alive[p] || w.Closing[p] != 1 || (m != ParentFirstMutant && len(w.Kids[p]) > 0) || w.Epoch[p] >= MaxEpoch {
+			return None
+		}
+		Some[World]{Value: World{..w,
+			Epoch:   setInt(w.Epoch, p, w.Epoch[p]+1),
+			Closing: setInt(w.Closing, p, 0),
+			Kids:    setKids(w.Kids, p, []int{}),
+		}}
+	}
+}
+
+// stepWith is the step of the model under the mutant m.
+func stepWith(m int, s St, a Act) Decision[St, string] {
+	match s {
+	case Live as l:
+		match next(m, l.W, a) {
+		case None:
+			Ignore
+		case Some[World] as n:
+			let why = broken(n.Value)
+			if why != "" {
+				Enter[St]{Next: Broken{Why: why}}
+			} else {
+				Enter[St]{Next: Live{W: n.Value}}
+			}
+		}
+	case _:
+		Ignore
+	}
+}
+
+func stepDesign(s St, a Act) Decision[St, string]      { stepWith(NoMutant, s, a) }
+func stepLateOutput(s St, a Act) Decision[St, string]  { stepWith(LateOutputMutant, s, a) }
+func stepParentFirst(s St, a Act) Decision[St, string] { stepWith(ParentFirstMutant, s, a) }
+func stepByKind(s St, a Act) Decision[St, string]      { stepWith(ByKindMutant, s, a) }
+func stepEpochWraps(s St, a Act) Decision[St, string]  { stepWith(EpochWrapsMutant, s, a) }
+
+// The design keeps every invariant in the scope.
+type Design machine[St, Act] {
+	initial: first(),
+	step:    stepDesign,
+
+	law Safe never reaches Broken,
+}
+
+type LateOutput machine[St, Act] {
+	initial: first(),
+	step:    stepLateOutput,
+
+	law Breaks reaches Broken,
+}
+
+type ParentFirst machine[St, Act] {
+	initial: first(),
+	step:    stepParentFirst,
+
+	law Breaks reaches Broken,
+}
+
+type ByKind machine[St, Act] {
+	initial: first(),
+	step:    stepByKind,
+
+	law Breaks reaches Broken,
+}
+
+type EpochWraps machine[St, Act] {
+	initial: first(),
+	step:    stepEpochWraps,
+
+	law Breaks reaches Broken,
+}
+
+// The witnesses. Each is the design's step that enters Seen when the
+// witness holds after an action.
+let DropsWitness = 1
+let ReentersAfterStopsWitness = 2
+let TwoEditorsWitness = 3
+let DeepChildWitness = 4
+let RootEndsAfterStopsWitness = 5
+
+// stops is the number of children that ended after their parent stopped
+// them (Quint's kidStops).
+func stops(w World) int {
+	let mut n = 0
+	for c in 0..Nodes {
+		if w.StopReq[c] && !w.Alive[c] {
+			n = n + 1
+		}
+	}
+	n
+}
+
+// witnessed reports whether the witness k holds when the action a takes w
+// to v in the design.
+func witnessed(k int, w World, a Act, v World) bool {
+	if k == DropsWitness {
+		// A stale output is dropped.
+		match a {
+		case Take as t:
+			let p = ix(t.P)
+			return w.Inbox[p][0].Epoch != w.Epoch[p]
+		case _:
+			return false
+		}
+	}
+	if k == ReentersAfterStopsWitness {
+		// An entry re-opens after its children stopped (Quint: reentries
+		// > 0 and kidStops > 0; an entry re-opened when an epoch is past 0).
+		for p in 0..Nodes {
+			if v.Epoch[p] > 0 && stops(v) > 0 {
+				return true
+			}
+		}
+		return false
+	}
+	if k == TwoEditorsWitness {
+		// Two editors live under one entry.
+		for p in 0..Nodes {
+			if v.Alive[p] {
+				let mut live = 0
+				for c in v.Kids[p] {
+					if v.Alive[c] {
+						live = live + 1
+					}
+				}
+				if live >= 2 {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	if k == DeepChildWitness {
+		// A child at the deepest level lives.
+		for n in 0..Nodes {
+			if v.Alive[n] && v.Depth[n] == MaxDepth {
+				return true
+			}
+		}
+		return false
+	}
+	// The root ends after stopping two children.
+	!v.Alive[0] && stops(v) >= 2
+}
+
+func stepWitness(k int, s St, a Act) Decision[St, string] {
+	match s {
+	case Live as l:
+		match next(NoMutant, l.W, a) {
+		case None:
+			Ignore
+		case Some[World] as n:
+			if witnessed(k, l.W, a, n.Value) {
+				Enter[St]{Next: Seen{What: "witness"}}
+			} else {
+				Enter[St]{Next: Live{W: n.Value}}
+			}
+		}
+	case _:
+		Ignore
+	}
+}
+
+func stepDrops(s St, a Act) Decision[St, string]              { stepWitness(DropsWitness, s, a) }
+func stepReentersAfterStops(s St, a Act) Decision[St, string] { stepWitness(ReentersAfterStopsWitness, s, a) }
+func stepTwoEditors(s St, a Act) Decision[St, string]         { stepWitness(TwoEditorsWitness, s, a) }
+func stepDeepChild(s St, a Act) Decision[St, string]          { stepWitness(DeepChildWitness, s, a) }
+func stepRootEndsAfterStops(s St, a Act) Decision[St, string] { stepWitness(RootEndsAfterStopsWitness, s, a) }
+
+type Drops machine[St, Act] {
+	initial: first(),
+	step:    stepDrops,
+
+	law Reached reaches Seen,
+}
+
+type ReentersAfterStops machine[St, Act] {
+	initial: first(),
+	step:    stepReentersAfterStops,
+
+	law Reached reaches Seen,
+}
+
+type TwoEditors machine[St, Act] {
+	initial: first(),
+	step:    stepTwoEditors,
+
+	law Reached reaches Seen,
+}
+
+type DeepChild machine[St, Act] {
+	initial: first(),
+	step:    stepDeepChild,
+
+	law Reached reaches Seen,
+}
+
+type RootEndsAfterStops machine[St, Act] {
+	initial: first(),
+	step:    stepRootEndsAfterStops,
+
+	law Reached reaches Seen,
+}

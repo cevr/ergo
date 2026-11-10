@@ -388,7 +388,51 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	}
 	add(&Step{Name: "ergo fmt --check", Needs: []string{buildCLIStep}, Argv: append([]string{"./bin/ergo", "fmt", "--check"}, examples...), Class: classFast})
 
+	// The design models (models/<name>, wf10 X3): ergo test decides each
+	// model's laws by a search of its scope. A design law refuted, or a
+	// mutant machine whose law Breaks is not, fails the step. The search
+	// builds and runs a test binary, so the step is heavy.
+	models, err := designModels(root)
+	if err != nil {
+		return nil, err
+	}
+	for _, model := range models {
+		argv := []string{"./bin/ergo", "test", model}
+		if states, ok := modelStates[model]; ok {
+			argv = append(argv, "--states", states)
+		}
+		add(&Step{Name: "ergo test " + model, Needs: []string{buildCLIStep}, Argv: argv, Class: classHeavy})
+	}
+
 	return steps, nil
+}
+
+// modelStates is the search budget of a model whose scope needs more than
+// ergo test's default of 1,000,000 states (wf10 X4). models/runner:
+// Design2's whole graph is just over 1,000,000 states; Design3 stops at the budget,
+// "not proved".
+var modelStates = map[string]string{
+	"models/runner": "1200000",
+}
+
+// designModels are the folders of models/, each one design model: a
+// package of .ergo files whose laws are its checks. A checkout with no
+// models/ has none.
+func designModels(root string) ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(root, "models"))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var models []string
+	for _, e := range entries {
+		if e.IsDir() {
+			models = append(models, "models/"+e.Name())
+		}
+	}
+	return models, nil
 }
 
 // uncachedStep is the step as the merge tier runs it: without the hermetic

@@ -67,6 +67,7 @@ const testDepth = 4
 type testLowering struct {
 	gens map[pkgKey]bool // generator functions emitted
 	lits map[pkgKey]bool // argument literal functions emitted (literal.go)
+	keys map[pkgKey]bool // state key functions emitted (machinelaws.go)
 	// law is the law whose body is being lowered, nil outside one: a bare
 	// operation call in it (CallLawOp) calls its operation type's
 	// capability, which the run binds to the provider under test.
@@ -107,8 +108,9 @@ var testHelpers = []struct{ key, base string }{
 	{"LitFloat", "ergoLitFloat"}, {"LitComplex", "ergoLitComplex"},
 	{"LitDuration", "ergoLitDuration"}, {"LitEntries", "ergoLitEntries"},
 	{"Seed", "ergoSeed"}, {"Tests", "ergoTests"},
-	{"Graph", "ergoGraph"}, {"Node", "ergoNode"}, {"ReachCap", "ergoReachCap"}, {"Explore", "ergoExplore"},
+	{"Graph", "ergoGraph"}, {"Node", "ergoNode"}, {"Explore", "ergoExplore"}, {"Signals", "ergoSignals"}, {"Block", "ergoBlock"},
 	{"ExploreAll", "ergoExploreAll"}, {"ExploreRuns", "ergoExploreRuns"}, {"Trace", "ergoTrace"}, {"Refute", "ergoRefute"},
+	{"States", "ergoStates"}, {"explore", "explore"},
 }
 
 // helper is the Go name of the harness entity key.
@@ -144,6 +146,19 @@ func (l *lowerer) nameTests() {
 	}
 	for _, r := range l.runLaws() {
 		l.lawFunc(r.Law)
+	}
+	// The key functions of the states of the machines whose reachability
+	// laws run (machinelaws.go, State keys).
+	for _, r := range l.runLaws() {
+		if law := r.Law; lawLowered(r) && law.Machine != nil && law.Decl.Reach != nil {
+			state := law.Machine.Type.(*check.Named).Underlying().(*check.MachineType).State
+			if l.keyWhy(state, map[string]bool{}) == "" {
+				l.keyTypes(state, map[string]bool{}, func(t check.Type) {
+					key, base, _ := l.keyName(t)
+					l.pkgName(key, base)
+				})
+			}
+		}
 	}
 	// Each base (ergoLaw, ergoGen, ergoLit) is its own, so the order of
 	// the law functions and the generators decides no name.
@@ -225,6 +240,7 @@ func (l *lowerer) testImports() []string {
 	for _, p := range []string{"fmt", "os", "sort", "strconv", "strings"} {
 		out = append(out, l.helper(p)+" "+strconv.Quote(p))
 	}
+	out = append(out, l.helper("explore")+" "+strconv.Quote(runtimeModule+"/runtime/explore"))
 	return out
 }
 
@@ -1399,7 +1415,8 @@ func $LitEntries[K comparable, V any](typ string, m map[K]V, key func(K) string,
 }
 
 // $Seed reads --seed N or --seed=N, N a decimal uint64, the seed of every
-// property; 1 by default. Any other argument is a usage error (exit 2).
+// property; 1 by default. It skips --states N, which $States reads; any
+// other argument is a usage error (exit 2).
 func $Seed() uint64 {
 	seed := uint64(1)
 	args := $os.Args[1:]
@@ -1411,6 +1428,11 @@ func $Seed() uint64 {
 			v = args[i]
 		case len(a) > len("--seed=") && a[:len("--seed=")] == "--seed=":
 			v = a[len("--seed="):]
+		case a == "--states" && i+1 < len(args):
+			i++
+			continue
+		case len(a) > len("--states=") && a[:len("--states=")] == "--states=":
+			continue
 		}
 		n, err := $strconv.ParseUint(v, 10, 64)
 		if err != nil {

@@ -57,7 +57,7 @@ effect-machine would host the editor with `.spawn(State.Editing, ({ self }) => s
 
 | concern | effect-machine | Ergo here | who checks |
 | --- | --- | --- | --- |
-| reaching the current child | look up by string id, or `ActorHost` with a generation check | an `actor.Host` in the parent's state, which the entry's work fills with `actor.ChildIn` before the entry is shown; a `Get` after the entry ended fails `Stopped`, and a Send to an ended child fails `Stopped` | compiler (the type) + runner (host.qnt) |
+| reaching the current child | look up by string id, or `ActorHost` with a generation check | an `actor.Host` in the parent's state, which the entry's work fills with `actor.ChildIn` before the entry is shown; a `Get` after the entry ended fails `Stopped`, and a Send to an ended child fails `Stopped` | compiler (the type) + runner (models/host) |
 | nested children of one machine | distinct ids per depth | identity, no id | runner |
 | child output | `sendParent` with an event the parent may not handle | `toParent` gives the parent's signal type, which the parent's total step decides | compiler |
 | stop order on leaving a state | not specified | innermost first, before the next entry | runner (MU5 model) |

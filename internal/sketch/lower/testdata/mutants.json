@@ -1624,6 +1624,80 @@
       "killers": [
         "lower:TestStdWireLawsRun"
       ]
+    },
+    {
+      "name": "x1-key-drops-field",
+      "origin": "wf10/explorer/x1",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "\t\t\t\tline(l.keyStmt(f.Type, k, v+\".\"+field, site))",
+      "to": "\t\t\t\tif f.Name != \"F1\" {\n\t\t\t\t\tline(l.keyStmt(f.Type, k, v+\".\"+field, site))\n\t\t\t\t}",
+      "rule": "State keys: a record's key writes every field.",
+      "killers": [
+        "lower:TestKeyEqualsEquality"
+      ]
+    },
+    {
+      "name": "x1-key-variant-tag",
+      "origin": "wf10/explorer/x1",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "line(\"\\t\" + k + \".Tag(\" + strconv.Itoa(i) + \")\")",
+      "to": "line(\"\\t\" + k + \".Tag(0*\" + strconv.Itoa(i) + \")\")",
+      "rule": "State keys: a union's key writes its variant.",
+      "killers": [
+        "lower:TestKeyEqualsEquality"
+      ]
+    },
+    {
+      "name": "x1-key-slice-length",
+      "origin": "wf10/explorer/x1",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "\t\tline(k + \".Tag(len(\" + v + \"))\")\n",
+      "to": "",
+      "rule": "State keys: a slice's key writes its length.",
+      "killers": [
+        "lower:TestKeyEqualsEquality"
+      ]
+    },
+    {
+      "name": "x1-key-map-value",
+      "origin": "wf10/explorer/x1",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "\t\tline(\"\\t\" + l.keyStmt(u.Elem, k2, b, site))\n",
+      "to": "\t\tline(\"\\t_ = \" + b)\n",
+      "rule": "State keys: a Map's key writes each entry's value.",
+      "killers": [
+        "lower:TestKeyEqualsEquality"
+      ]
+    },
+    {
+      "name": "x1-harness-runs-ignore-walk",
+      "origin": "wf10/explorer/x1",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "\t\t\t\te = g.signals[moves[r.intn(len(moves))]]",
+      "to": "\t\t\t\te = g.signals[r.intn(len(g.signals))]",
+      "rule": "$ExploreRuns: with a key and listed signals, a generated run picks among the signals that change the state.",
+      "killers": [
+        "lower:TestMachineLawRuns"
+      ],
+      "anchor": {
+        "file": "internal/sketch/lower/tests.go",
+        "text": "Replace(harnessGo + harnessReachGo)"
+      }
+    },
+    {
+      "name": "x1-harness-budget-proved",
+      "origin": "wf10/explorer/x1",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "\tif kind == \"reaches\" {\n\t\treturn \"no run of at most \"",
+      "to": "\tif true {\n\t\treturn \"proved: \", true\n\t}\n\tif kind == \"reaches\" {\n\t\treturn \"no run of at most \"",
+      "rule": "$ExploreAll: a search the budget stops passes as not proved.",
+      "killers": [
+        "lower:TestMachineLawRuns"
+      ],
+      "anchor": {
+        "file": "internal/sketch/lower/tests.go",
+        "text": "Replace(harnessGo + harnessReachGo)"
+      }
     }
   ]
 }

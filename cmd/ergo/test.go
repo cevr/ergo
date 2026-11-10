@@ -12,8 +12,9 @@ import (
 	"ergo.local/prototype/internal/sketchfront"
 )
 
-// testCommand runs a source's tests: `ergo test FILE [--seed N] [-work]
-// [--target go]`. It is a transport over sketchfront's test build
+// testCommand runs a source's tests: `ergo test FILE [--seed N] [--states N]
+// [-work] [--target go]`. --states is the budget of states of each
+// reachability law's search (machine laws; 1,000,000 by default). It is a transport over sketchfront's test build
 // (build.ModeTest, lower.LowerTests): it checks the source, builds the test
 // binary into a private temporary directory, never the working directory,
 // dist/ or the module, and runs it as a child with --seed, through the
@@ -64,6 +65,9 @@ func testCommand(args []string) error {
 	if opts.seed != "" {
 		childArgs = append(childArgs, "--seed", opts.seed)
 	}
+	if opts.states != "" {
+		childArgs = append(childArgs, "--states", opts.states)
+	}
 	// The test binary runs under a memory limit, 2 GiB unless
 	// ERGO_PROGRAM_MEMORY sets another, and its stderr passes through a
 	// watcher, so a test that grows without bound stops early and `ergo`
@@ -84,4 +88,11 @@ func testCommand(args []string) error {
 func validSeed(s string) bool {
 	_, err := strconv.ParseUint(s, 10, 64)
 	return err == nil
+}
+
+// validStates reports whether s is a budget the test binary reads: a
+// positive decimal int with no sign.
+func validStates(s string) bool {
+	n, err := strconv.Atoi(s)
+	return err == nil && n > 0 && s[0] != '+'
 }

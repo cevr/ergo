@@ -79,7 +79,7 @@ go run ./scripts/examples router
 | one answer per request | `call` answers with the transition; a later answer is a second protocol | the answer lives in the state; `WaitFor` reads it; `AnsweredOnce` holds it | law |
 | persistence | `lifecycle.recovery.resolve` at spawn, `durability.save` after each commit | `SuperviseDurable(m, …, recover, save)`: save runs before anyone sees the state; the step must be pure (S108) | runner + checker |
 | supervision | `Supervisor` with a restart schedule | `tasks.Restart{Limit}`; a restart runs `recover` again | runner (MU7 model) |
-| a child named before it runs | `ActorHost.make` with `acquire` | a `Host` in the state, filled once by `ChildIn` in the entry's work, closed with the entry | runner (host.qnt) + law |
+| a child named before it runs | `ActorHost.make` with `acquire` | a `Host` in the state, filled once by `ChildIn` in the entry's work, closed with the entry | runner (models/host) + law |
 | observing | `subscribe`, `waitFor` | `Changes`, `WaitFor`, loops with no callback | runner (MU12) |
 
 Where Ergo could not improve:
