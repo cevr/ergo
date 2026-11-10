@@ -331,7 +331,6 @@ var runtimeBindings = map[string]runtimeBinding{
 	// caller and waits on the caller's stop; Call waits on the network
 	// and on the caller's stop.
 	"RPCListen":     {},
-	"Listener.Addr": {},
 	"RPCServe":      {wait: childWait},
 	"RPCCall":       {wait: callerWait},
 	"RPCLocal":      {wait: childWait},
