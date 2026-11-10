@@ -1,5 +1,5 @@
 // Package memory supplies deterministic downloads and a recording release
-// sink. A missing endpoint and an interrupted read are typed failures.
+// sink. A missing endpoint and a failed source read are typed failures.
 import fetchpool/domain
 import sync
 
