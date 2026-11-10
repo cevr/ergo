@@ -61,9 +61,41 @@ const (
 
 // ownSlot is one value's state at a program point.
 type ownSlot struct {
-	st  ownSt
-	at  syntax.Node // the hand-off (moved, maybe)
-	how string
+	st    ownSt
+	at    syntax.Node // the hand-off (moved, maybe)
+	how   string
+	loans []ownLoan // result origins still lent to calls being evaluated
+}
+
+type ownLoanCall struct {
+	name   string
+	active bool
+}
+
+type ownLoan struct {
+	call *ownLoanCall
+	id   *syntax.Ident
+}
+
+// liveLoans unions immutable path facts. A completed or aborted call no
+// longer lends its operands, including in saved failure-edge states.
+func liveLoans(lists ...[]ownLoan) []ownLoan {
+	var out []ownLoan
+	for _, list := range lists {
+		for _, l := range list {
+			if !l.call.active {
+				continue
+			}
+			found := false
+			for _, old := range out {
+				found = found || old == l
+			}
+			if !found {
+				out = append(out, l)
+			}
+		}
+	}
+	return out
 }
 
 // ownLocal is what a slot holds: a local, a parameter or a temporary.
@@ -236,6 +268,7 @@ func (w *ownWalk) join(a, b []ownSlot, n int) []ownSlot {
 		case y.st == ownOwned || y.st == ownMaybe:
 			a[i] = ownSlot{st: ownMaybe, at: x.at, how: x.how}
 		}
+		a[i].loans = liveLoans(x.loans, y.loans)
 	}
 	return a
 }
@@ -256,6 +289,15 @@ func sameState(a, b []ownSlot) bool {
 	for i := range a {
 		if a[i].st != b[i].st {
 			return false
+		}
+		x, y := liveLoans(a[i].loans), liveLoans(b[i].loans)
+		if len(x) != len(y) {
+			return false
+		}
+		for j := range x {
+			if x[j] != y[j] {
+				return false
+			}
 		}
 	}
 	return true
@@ -398,7 +440,7 @@ func (w *ownWalk) stmt(s syntax.Stmt) {
 	case *syntax.ExprStmt:
 		if _, tail := w.info.Tails[s]; tail {
 			t := w.tail
-			w.region(s, func() { w.expr(s.X, t.mode, hand{at: s.X, how: t.how}) })
+			w.region(s, func() { w.expr(s.X, t.mode, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot}) })
 			return
 		}
 		w.region(s, func() { w.expr(s.X, mDiscard, hand{}) })
@@ -615,6 +657,7 @@ func (w *ownWalk) assign(s *syntax.AssignStmt) {
 		// R41: the old value is released, where it is still owned.
 		var rs []Release
 		if st := w.st[i].st; st == ownOwned || st == ownMaybe {
+			w.loanConflict(i, hand{at: id, how: "it is replaced"})
 			rs = []Release{{Var: v, Flag: st == ownMaybe}}
 		}
 		w.record(id, rs)
@@ -649,16 +692,18 @@ const (
 	mLend    ownMode = iota // the value is lent: read, or passed to a lending parameter
 	mMove                   // the value moves to a new owner
 	mDiscard                // the value is dropped
-	// mHold: the value becomes another node's: a name is lent, a new value
-	// is owned by w.tail.slot (a lent if or match, branchValue) or, with no
-	// slot, by the with that builds a context.
+	// mHold: a yielded result is owned by w.tail.slot when its origin
+	// cannot survive that result's consumer. An enclosing name stays lent.
+	// With no slot the context build owns new provider values.
 	mHold
 )
 
 // hand names a hand-off for the diagnostics: where it is and what it does.
 type hand struct {
-	at  syntax.Node
-	how string
+	at        syntax.Node
+	how       string
+	lend      func(int, *syntax.Ident) // the root owners lent by this result
+	yieldRoot bool                     // this root is projected into an enclosing block result
 }
 
 func (w *ownWalk) nestedText() string {
@@ -706,7 +751,20 @@ func (w *ownWalk) move(i int, x *syntax.Ident, h hand) {
 		w.report(x, "%s is lent to %s, so it cannot hand %s off (%s) (resources R10, R17); write takes %s in the signature", x.Name, fn, x.Name, h.how, x.Name)
 		return
 	}
+	w.loanConflict(i, h)
 	w.st[i] = ownSlot{st: ownMoved, at: h.at, how: h.how}
+}
+
+// loanConflict checks on the moving path, before the root owner ends.
+// Joining a lend in one arm with a take in the other must not invent a
+// path that does both. A lend that survives the join is checked if a later
+// operand moves or replaces that owner.
+func (w *ownWalk) loanConflict(i int, h hand) {
+	for _, l := range w.st[i].loans {
+		if l.call.active {
+			w.report(l.id, "%s is lent to %s here and handed off at %s (%s) in the same call (resources R17); hand it off in a statement of its own", l.id.Name, l.call.name, w.pos(h.at), h.how)
+		}
+	}
 }
 
 // expr evaluates x in mode. Its type switch names every kind of
@@ -750,14 +808,15 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		lend(x.Key, x.Value)
 		return
 	case *syntax.SelectorExpr:
-		lend(x.X)
+		w.lendRoot(x.X, w.info.Types[x], mode, h)
 		return
 	case *syntax.IndexExpr:
-		lend(x.X)
+		w.lendRoot(x.X, w.info.Types[x], mode, h)
 		lend(x.Indices...)
 		return
 	case *syntax.SliceExpr:
-		lend(x.X, x.Low, x.High, x.Max)
+		w.lendRoot(x.X, w.info.Types[x], mode, h)
+		lend(x.Low, x.High, x.Max)
 		return
 	case *syntax.TypeGuard:
 		lend(x.X)
@@ -776,7 +835,9 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		lend(x.X, x.Y)
 		return
 	case *syntax.TupleExpr:
-		lend(x.Elts...)
+		for _, e := range x.Elts {
+			w.lendRoot(e, w.info.Types[x], mode, h)
+		}
 		return
 	case *syntax.InterpolatedString:
 		lend(x.Exprs...)
@@ -784,7 +845,7 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 	case *syntax.CompositeLit:
 		lend(x.Base)
 		lend(x.Elts...)
-		w.produced(x, mode)
+		w.produced(x, mode, h)
 		return
 	case *syntax.Ident:
 		v, _ := w.info.Uses[x].(*Var)
@@ -792,10 +853,25 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		if v == nil || !ok {
 			return
 		}
-		if mode == mMove {
+		if mode == mHold && w.tail.slot >= 0 && i >= w.tail.first && !h.yieldRoot {
+			// The source owner ends inside the result expression. Transfer
+			// it before closing that scope, just as for a directly produced
+			// result. Nested result blocks share the same destination.
+			owned := w.st != nil && w.st[i].st == ownOwned
+			w.move(i, x, hand{at: x, how: "it is yielded to its consumer"})
+			if owned && w.st[i].st == ownMoved {
+				w.st[w.tail.slot] = ownSlot{st: ownOwned}
+			}
+		} else if mode == mMove {
 			w.move(i, x, h)
 		} else {
 			w.use(i, x)
+			if h.yieldRoot && w.tail.slot >= 0 && i >= w.tail.first {
+				w.report(x, "the yielded resource is rooted at %s, whose owner ends before its consumer; yield the whole owner instead of a part (resources R43)", x.Name)
+			}
+			if h.lend != nil && w.st != nil && w.st[i].st == ownOwned {
+				h.lend(i, x)
+			}
 		}
 		return
 	case *syntax.ParenExpr:
@@ -806,11 +882,11 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		w.failure(x)
 		return
 	case *syntax.CatchExpr:
-		w.catch(x, mode, h)
+		w.yieldValue(x, mode, h, func(m ownMode) { w.catch(x, m, h) })
 		return
 	case *syntax.CallExpr:
 		if !w.call(x, mode, h) {
-			w.produced(x, mode)
+			w.produced(x, mode, h)
 		}
 		return
 	case *syntax.FuncLit:
@@ -828,14 +904,29 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 	panic(fmt.Sprintf("check: internal compiler error: the ownership flow has no rule for a %T (ownWalk.expr)", x))
 }
 
+// lendRoot carries the root owner only when the expression's result holds
+// a resource. Reading r.id as an int does not lend r to that int's consumer.
+func (w *ownWalk) lendRoot(root syntax.Expr, result Type, mode ownMode, h hand) {
+	if !w.tracked(result) {
+		h.lend = nil
+		h.yieldRoot = false
+	} else if mode == mHold && w.tail.slot >= 0 {
+		h.yieldRoot = true
+	}
+	w.expr(root, mLend, hand{lend: h.lend, yieldRoot: h.yieldRoot})
+}
+
 // produced owns or refuses a new value x of a resource type: a call's
 // result or a literal. A lent one is a temporary of the statement (R43);
 // a dropped one is discarded (R42); a moved one has its new owner; a held
 // one is the value of the lent if or match whose slot is w.tail.slot.
-func (w *ownWalk) produced(x syntax.Expr, mode ownMode) {
+func (w *ownWalk) produced(x syntax.Expr, mode ownMode, h hand) {
 	t := w.info.Types[x]
 	if !w.tracked(t) || w.st == nil {
 		return
+	}
+	if h.yieldRoot {
+		w.report(x, "the yielded resource is rooted in this temporary, whose owner ends before its consumer; bind and yield the whole owner instead of a part (resources R43)")
 	}
 	switch mode {
 	case mLend:
@@ -853,37 +944,46 @@ func (w *ownWalk) produced(x syntax.Expr, mode ownMode) {
 // evaluated in, the hand-off it names, and, for mHold, the slot of the
 // temporary that owns a new value (-1: an owner outside the flow).
 type ownTail struct {
-	mode ownMode
-	how  string
-	slot int
+	mode      ownMode
+	how       string
+	slot      int
+	first     int // locals at/after this boundary cannot outlive the consumer
+	lend      func(int, *syntax.Ident)
+	yieldRoot bool
 }
 
 // frameTail is a function body's: its value is returned.
 var frameTail = ownTail{mode: mMove, how: "it is the block's value", slot: -1}
 
-// branchValue walks an if or match used as a value (resources R21): the
-// statement walk, each arm's tail evaluated where the value goes. Moved
-// (a let, a taken argument), each arm's value moves; dropped, each is
-// discarded. Lent (an argument of a lending parameter, an operand), a
-// name is lent where it is, and a value an arm makes is a temporary of
-// the statement owned on the paths that made it: one slot, acquired here
-// as handed off and owned by each arm that makes the value, so where the
-// arms meet it is released under a flag unless every arm made it. Prior
-// art: Rust lowers if and match in every position to MIR control flow
-// before move checking, so a move in an arm is a conditional move.
+// branchValue walks the structured paths of an if or match as a value.
 func (w *ownWalk) branchValue(x syntax.Expr, mode ownMode, h hand) {
+	w.yieldValue(x, mode, h, func(ownMode) { w.stmt(x.(syntax.Stmt)) })
+}
+
+// yieldValue gives every block-valued expression one result destination:
+// if, match, catch and with all transfer their result before arm locals
+// are released. A lending consumer owns a new or block-local result until
+// its statement ends; an enclosing lender keeps its original owner. The
+// boundary is that of the outer result, not the innermost arm, so nested
+// blocks cannot shorten the yielded value's lifetime. Prior art: Rust's
+// MIR transfers an arm result to an outer place before dropping locals.
+func (w *ownWalk) yieldValue(x syntax.Expr, mode ownMode, h hand, walk func(ownMode)) {
 	saved := w.tail
-	t := ownTail{mode: mode, how: h.how, slot: -1}
+	t := ownTail{mode: mode, how: h.how, slot: -1, first: len(w.vars), lend: h.lend, yieldRoot: h.yieldRoot}
 	switch {
 	case mode == mHold:
-		t.slot = saved.slot
+		t = saved
 	case mode == mLend && w.tracked(w.info.Types[x]) && w.st != nil:
 		t.mode = mHold
 		t.slot = w.acquire(ownLocal{temp: x})
 		w.st[t.slot] = ownSlot{st: ownMoved, at: x, how: "no arm made it"}
+		t.first = len(w.vars)
+		if h.yieldRoot {
+			t.first = saved.first
+		}
 	}
 	w.tail = t
-	w.stmt(x.(syntax.Stmt))
+	walk(t.mode)
 	w.tail = saved
 }
 
@@ -931,6 +1031,10 @@ func (w *ownWalk) catch(x *syntax.CatchExpr, mode ownMode, h hand) {
 	// it fails before the later temporaries exist.
 	n := len(w.vars)
 	fail := w.copyState(w.st)
+	if mode == mHold && w.tail.slot >= 0 && fail != nil {
+		// The success result does not exist on a caught failure path.
+		fail[w.tail.slot] = ownSlot{st: ownMoved, at: x, how: "the result failed"}
+	}
 	for _, f := range k.fails {
 		fail = w.join(fail, f, n)
 	}
@@ -960,17 +1064,15 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 		}
 		return true
 	case CallWith:
-		for _, a := range x.Args {
-			w.expr(a, mLend, hand{})
-		}
-		if x.Trailing != nil {
-			// The block's value is the with's, which produced owns.
-			saved := w.tail
-			w.tail = frameTail
-			w.block(x.Trailing, x.Trailing.List)
-			w.tail = saved
-		}
-		return false
+		w.yieldValue(x, mode, h, func(ownMode) {
+			for _, a := range x.Args {
+				w.expr(a, mLend, hand{})
+			}
+			if x.Trailing != nil {
+				w.block(x.Trailing, x.Trailing.List)
+			}
+		})
+		return true
 	}
 	var sig *Signature
 	name := ""
@@ -1004,11 +1106,12 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 			taken[0] = true
 		}
 	}
-	type lend struct {
-		i  int
-		id *syntax.Ident
-	}
-	var lends []lend
+	var loan *ownLoanCall
+	defer func() {
+		if loan != nil {
+			loan.active = false
+		}
+	}()
 	operand := func(a syntax.Expr, take bool, pname string) {
 		if take {
 			how := fmt.Sprintf("%s takes %s", name, pname)
@@ -1018,16 +1121,12 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 			w.expr(a, mMove, hand{at: a, how: how})
 			return
 		}
-		if id, ok := unparen(a).(*syntax.Ident); ok {
-			if v, _ := w.info.Uses[id].(*Var); v != nil {
-				if i, ok := w.slot[v]; ok {
-					if w.st != nil && w.st[i].st == ownOwned {
-						lends = append(lends, lend{i, id})
-					}
-				}
+		w.expr(a, mLend, hand{lend: func(i int, id *syntax.Ident) {
+			if loan == nil {
+				loan = &ownLoanCall{name: name, active: true}
 			}
-		}
-		w.expr(a, mLend, hand{})
+			w.st[i].loans = append(liveLoans(w.st[i].loans), ownLoan{loan, id})
+		}})
 	}
 	pname := func(i int) string {
 		if sig != nil && i < len(sig.Params) {
@@ -1047,15 +1146,6 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 	}
 	for i, a := range x.Args {
 		operand(a, taken[i+off], pname(i+off))
-	}
-	if w.st != nil {
-		for _, l := range lends {
-			if s := w.st[l.i]; s.st == ownMoved || s.st == ownMaybe {
-				if s.at != nil && s.at.Pos() >= x.Pos() && s.at.End() <= x.End() {
-					w.report(l.id, "%s is lent to %s here and handed off at %s (%s) in the same call (resources R17); hand it off in a statement of its own", l.id.Name, name, w.pos(s.at), s.how)
-				}
-			}
-		}
 	}
 	if x.Trailing != nil {
 		var tsig *Signature

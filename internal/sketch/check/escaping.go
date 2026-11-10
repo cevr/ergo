@@ -154,7 +154,10 @@ func (w *escWalk) visit(n syntax.Node) {
 				w.localUses[v] = append(w.localUses[v], mutEvent{id: id, regions: append([]syntax.Node(nil), w.regions...)})
 			case v.mut:
 				w.mutUse(id, v)
-			case holdsBorrow(v.Type):
+			}
+			// Borrow legality is independent of rebinding and of local-frame
+			// use collection: a mutable holder still holds a borrow.
+			if holdsBorrow(v.Type) {
 				w.borrowUse(id, v)
 			}
 			w.aliasUse(id, v)
@@ -495,11 +498,12 @@ func (w *escWalk) borrowUse(id *syntax.Ident, v *Var) {
 
 // aliasUse records a use of the local v that holds a borrow as a write of
 // each let mut local the borrow may point into: the borrow writes its
-// place where it is used, not only where it is taken. A use in an escaping
-// frame is borrowUse's S108 already.
+// place where it is used, not only where it is taken. Escape classification
+// belongs to the root being written, not to the holder. Even an illegal
+// borrowed capture must not erase the root's alias event.
 func (w *escWalk) aliasUse(id *syntax.Ident, v *Var) {
 	roots := w.aliases[v]
-	if len(roots) == 0 || w.escapingFrom(v) != nil {
+	if len(roots) == 0 {
 		return
 	}
 	for _, r := range roots {
@@ -509,7 +513,7 @@ func (w *escWalk) aliasUse(id *syntax.Ident, v *Var) {
 		if _, ok := w.events[r]; !ok {
 			w.order = append(w.order, r)
 		}
-		w.events[r] = append(w.events[r], mutEvent{id: id, write: true, regions: append([]syntax.Node(nil), w.regions...)})
+		w.events[r] = append(w.events[r], mutEvent{id: id, write: true, esc: w.escapingFrom(r), regions: append([]syntax.Node(nil), w.regions...)})
 	}
 }
 
@@ -641,14 +645,14 @@ func bindingValues(stack []syntax.Node) (vals []syntax.Expr, ok bool) {
 				return nil, false
 			}
 			switch m := stack[i-1].(type) {
-			case *syntax.SwitchStmt:
-				return []syntax.Expr{m.Tag}, true
 			case *syntax.TypeSwitchStmt:
 				for _, g := range m.Subjects {
 					vals = append(vals, g.X)
 				}
 				return vals, true
 			}
+			// SwitchStmt has only literal and wildcard patterns
+			// (syntax.literalCases), so it declares no local to bind.
 			return nil, false
 		}
 	}

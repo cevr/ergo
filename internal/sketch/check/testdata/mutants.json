@@ -2,6 +2,132 @@
   "about": "The mutant ledger of internal/sketch/check: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants check; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
+      "name": "a2-yield-projection-root-ignored",
+      "origin": "batch-15 round-4 A2 origin invariant",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "h.yieldRoot = true",
+      "to": "h.yieldRoot = false",
+      "rule": "A projected result cannot outlive its block-local root owner; refuse a partial-owner escape rather than release it early.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-loan-join-lost",
+      "origin": "batch-15 round-4 A2 origin invariant",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "a[i].loans = liveLoans(x.loans, y.loans)",
+      "to": "a[i].loans = nil",
+      "rule": "A result loan on one path remains live at its later consuming call.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-completed-call-keeps-loan",
+      "origin": "batch-15 round-4 A2 origin invariant",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "loan.active = false",
+      "to": "loan.active = true",
+      "rule": "A completed call does not retain a loan of its earlier operand.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-crossing-field-lends-root",
+      "origin": "batch-15 round-4 A2 origin invariant",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "if !w.tracked(result) {",
+      "to": "if false {",
+      "rule": "A crossing field is read before the call; it does not lend its resource root to that call.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-yield-lender-origin-lost",
+      "origin": "batch-15 round-4 A2 origin invariant",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "lend: t.lend",
+      "to": "lend: nil",
+      "rule": "A yielded enclosing lender retains its identity for the consuming call's R17 check.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "c2-escaping-holder-alias-erased",
+      "origin": "batch-15 round-4 C2 M1",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "if len(roots) == 0 {",
+      "to": "if len(roots) == 0 || w.escapingFrom(v) != nil {",
+      "rule": "Every holder use records its aliased root write, including escaping captures.",
+      "killers": ["lower:TestCaptureRuleModel"]
+    },
+    {
+      "name": "a2-yield-enclosing-moved",
+      "origin": "batch-15 round-4 A2 M1",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "mode == mHold && w.tail.slot >= 0 && i >= w.tail.first",
+      "to": "mode == mHold && w.tail.slot >= 0",
+      "rule": "Lending an enclosing name through a block keeps its original owner.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-yield-nested-boundary-reset",
+      "origin": "batch-15 round-4 A2 M1",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "case mode == mHold:\n\t\tt = saved",
+      "to": "case mode == mHold:\n\t\tt.slot = saved.slot",
+      "rule": "Nested result blocks keep the outer consumer's lifetime boundary.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-yield-named-result-unowned",
+      "origin": "batch-15 round-4 A2 M1",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.st[w.tail.slot] = ownSlot{st: ownOwned}",
+      "to": "_ = owned",
+      "rule": "Transferring a named result activates the consumer's owner slot.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-catch-yield-destination-lost",
+      "origin": "batch-15 round-4 A2 M1",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.yieldValue(x, mode, h, func(m ownMode) { w.catch(x, m, h) })",
+      "to": "w.catch(x, mode, h)",
+      "rule": "A catch's result follows the same transfer rule as other block values.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-with-yield-destination-lost",
+      "origin": "batch-15 round-4 A2 M1",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.block(x.Trailing, x.Trailing.List)",
+      "to": "saved := w.tail; w.tail = frameTail; w.block(x.Trailing, x.Trailing.List); w.tail = saved",
+      "rule": "A with block yields into its consumer, not an unrelated function return.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-catch-result-always-owned",
+      "origin": "batch-15 round-4 A2 M1",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "fail[w.tail.slot] = ownSlot{st: ownMoved, at: x, how: \"the result failed\"}",
+      "to": "_ = fail",
+      "rule": "A caught failure has no success result to own.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "c2-mutable-holder-capture-admitted",
+      "origin": "batch-15 round-4 C2 M1",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "if holdsBorrow(v.Type) {\n\t\t\t\tw.borrowUse(id, v)",
+      "to": "if holdsBorrow(v.Type) && !v.mut {\n\t\t\t\tw.borrowUse(id, v)",
+      "rule": "Borrows 1 is independent of holder mutability.",
+      "killers": ["lower:TestCaptureRuleModel"]
+    },
+    {
+      "name": "a2-yield-local-not-transferred",
+      "origin": "batch-15 round-4 A2 M1",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "mode == mHold && w.tail.slot >= 0 && i >= w.tail.first",
+      "to": "mode == mHold && w.tail.slot >= 0 && i < 0",
+      "rule": "A yielded arm-local resource survives its consuming statement, independent of the block expression form.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
       "name": "existing-0-B1 rowText prints commas",
       "origin": "196n/mutants-b.json",
       "file": "internal/sketch/check/typeops.go",
@@ -1262,8 +1388,8 @@
       "name": "L8-A2 a lend counts as a move",
       "origin": "wf10 L8 A2 (#197)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\t\tif mode == mMove {\n\t\t\tw.move(i, x, h)",
-      "to": "\t\tif mode != mDiscard {\n\t\t\tw.move(i, x, h)",
+      "from": "} else if mode == mMove {\n\t\t\tw.move(i, x, h)",
+      "to": "} else if mode != mDiscard {\n\t\t\tw.move(i, x, h)",
       "rule": "resources R16: an argument is lent by default; the caller still owns it.",
       "killers": [
         "check:TestOwnershipFlowModel"
@@ -1284,8 +1410,8 @@
       "name": "L8-A2 a lend and a take of one value in one call admitted",
       "origin": "wf10 L8 A2 (#197)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\t\t\t\t\tif w.st != nil && w.st[i].st == ownOwned {",
-      "to": "\t\t\t\t\tif false {",
+      "from": "if l.call.active {",
+      "to": "if false {",
       "rule": "resources R17: no lend and take of one value in one call.",
       "killers": [
         "check:TestOwnershipFlowModel"
@@ -1559,8 +1685,8 @@
       "name": "a2-value-tail-moves",
       "origin": "wf10 batch-15 fix-r3 (A2 M1 repeat)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\t\t\tw.region(s, func() { w.expr(s.X, t.mode, hand{at: s.X, how: t.how}) })",
-      "to": "\t\t\tw.region(s, func() { w.expr(s.X, mMove, hand{at: s.X, how: t.how}) })",
+      "from": "\t\t\tw.region(s, func() { w.expr(s.X, t.mode, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot}) })",
+      "to": "\t\t\tw.region(s, func() { w.expr(s.X, mMove, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot}) })",
       "rule": "resources R16, R42, R43: an arm's value goes where the if or match's value goes: lent, it is lent; dropped, a new value is discarded.",
       "killers": [
         "check:TestOwnershipFlowModel"

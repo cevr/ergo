@@ -58,6 +58,8 @@ func TestOwnershipFlowModel(t *testing.T) {
 		}
 	}
 	for _, seed := range seeds {
+		ofYieldProjections(t, seed)
+		ofYieldLifetimes(t, seed)
 		g := &ofGen{r: rand.New(rand.NewPCG(seed, 0x197a2))}
 		body := g.program(12)
 		src, first := ofPrint(body)
@@ -77,6 +79,281 @@ func TestOwnershipFlowModel(t *testing.T) {
 			}
 			t.Fatalf("seed %d (replay: ERGO_SEED=%d go test -run TestOwnershipFlowModel ./internal/sketch/check)\nsource:\n%s\nchecker diagnostics: %v\nmodel diagnostics:   %v\n%s\nchecker releases: %v\nmodel releases:   %v",
 				seed, seed, ofNumbered(src), gotD, wantD, strings.Join(full, "\n"), gotR, wantR)
+		}
+	}
+}
+
+// ofYieldProjections varies the result's root owner, not just the tail's
+// spelling. A part of a block-local owner cannot be released safely by
+// closing the part alone, so it must be refused; an enclosing root stays
+// lent. This kills a2-yield-projection-root-ignored.
+func ofYieldProjections(t *testing.T, seed uint64) {
+	t.Helper()
+	rng := rand.New(rand.NewPCG(seed, 0x197a205))
+	for origin := range 5 {
+		arm := []string{
+			"let b = box()\nb.R",
+			"box().R",
+			"outer.R",
+			"let b = box()\n(with context {} { b }).R",
+			"(if cond(n) { outer } else { outer }).R",
+		}[origin]
+		var x string
+		switch rng.IntN(5) {
+		case 0:
+			x = "if cond(n) {\n" + arm + "\n} else { open(0) }"
+		case 1:
+			x = "match n {\ncase 0:\n" + arm + "\ncase _: open(0)\n}"
+		case 2:
+			x = "match (n, n) {\ncase (_, _):\n" + arm + "\n}"
+		case 3:
+			x = "with context {} {\n" + arm + "\n}"
+		case 4:
+			x = "tryOpen(n) catch {\ncase Bad:\n" + arm + "\n}"
+		}
+		src := ofPrelude + "type Box { R Res }\nfunc box() Box { Box{R: open(1)} }\nfunc tryOpen(n int) Res fails Bad { if n > 0 { return Bad }; open(n) }\nfunc body(n int, outer Box) { lend(" + x + ") }\nfunc main() {}\n"
+		_, ds := checkFor(src)
+		want := origin == 0 || origin == 1 || origin == 3
+		if (len(ds) > 0) != want {
+			t.Fatalf("projection seed %d origin %d: diagnostics %v, want refusal %v\nReplay: ERGO_SEED=%d go test -run '^TestOwnershipFlowModel$' ./internal/sketch/check\n%s", seed, origin, ds, want, seed, src)
+		}
+		for _, d := range ds {
+			if d.Code != "S108" || !strings.Contains(d.Message, "owner ends before its consumer") {
+				t.Fatalf("projection seed %d: unexpected %v\n%s", seed, ds, src)
+			}
+		}
+	}
+}
+
+// ofYieldLifetimes executes the release plan, not the abstract lattice's
+// prediction of that plan. Tokens retain their acquisition identity across
+// result expressions. A consumer must use a live token, and every acquisition
+// must be released once. This kills a2-yield-local-not-transferred: the old
+// model agreed with the early arm release (batch-15 r3 M1).
+func ofYieldLifetimes(t *testing.T, seed uint64) {
+	t.Helper()
+	rng := rand.New(rand.NewPCG(seed, 0x197a204))
+	next := 0
+	consumer := rng.IntN(4) // lend, take, bind, short-circuit operand
+	var value func(int) string
+	value = func(depth int) string {
+		if depth == 0 {
+			if (consumer == 0 || consumer == 3) && rng.IntN(3) == 0 {
+				return "outer"
+			}
+			if rng.IntN(2) == 0 {
+				return "open(2)"
+			}
+			next++
+			name := fmt.Sprintf("local%d", next)
+			return "with context {} {\nlet " + name + " = open(2)\nlend(" + name + ")\n" + name + "\n}"
+		}
+		arm := func() string {
+			next++
+			name := fmt.Sprintf("local%d", next)
+			if rng.IntN(2) == 0 {
+				tail := name
+				if rng.IntN(2) == 0 {
+					tail = "with context {} { " + name + " }"
+				}
+				return "let " + name + " = open(2)\nlend(" + name + ")\n" + tail
+			}
+			return value(depth - 1)
+		}
+		switch rng.IntN(5) {
+		case 0:
+			return "if cond(n) {\n" + arm() + "\n} else {\n" + arm() + "\n}"
+		case 1:
+			return "match n {\ncase 0:\n" + arm() + "\ncase _:\n" + arm() + "\n}"
+		case 2:
+			return "match (n, n) {\ncase (_, _):\n" + arm() + "\n}"
+		case 3:
+			return "with context {} {\n" + arm() + "\n}"
+		default:
+			return "tryOpen(n) catch {\ncase Bad:\n" + arm() + "\n}"
+		}
+	}
+	x := value(1 + rng.IntN(3))
+	stmt := "lend(" + x + ")"
+	switch consumer {
+	case 1:
+		stmt = "keep(" + x + ")"
+	case 2:
+		stmt = "let result = " + x + "\nlend(result)"
+	case 3:
+		stmt = "let _ = cond(n) && held(" + x + ")"
+	}
+	src := ofPrelude + "func tryOpen(n int) Res fails Bad { if n > 0 { return Bad }; open(n) }\nfunc body(n int) {\nlet outer = open(1)\n" + stmt + "\nlend(outer)\n}\nfunc main() {}\n"
+	c, ds := checkFor(src)
+	if len(ds) != 0 {
+		t.Fatalf("yield seed %d: %v\n%s", seed, ds, src)
+	}
+	var body *syntax.BlockStmt
+	for _, d := range c.pkg.Files()[0].Decls {
+		if f, ok := d.(*syntax.FuncDecl); ok && f.Name.Name == "body" {
+			body = f.Body
+		}
+	}
+	// Each choice consumes one bit. The generated tree has at most three
+	// nested choices, plus the short-circuit operand and catch success.
+	for path := range 1 << 5 {
+		type token struct{ releases int }
+		var tokens []*token
+		vars := map[*Var]*token{}
+		temps := map[syntax.Expr]*token{}
+		active := map[syntax.Expr]bool{}
+		var events []string
+		bits := path
+		choose := func() bool { b := bits&1 != 0; bits >>= 1; return b }
+		fail := func(msg string) {
+			t.Fatalf("yield seed %d path %d: %s\nevents %v\nReplay: ERGO_SEED=%d go test -run '^TestOwnershipFlowModel$' ./internal/sketch/check\n%s", seed, path, msg, events, seed, src)
+		}
+		use := func(v *token) {
+			if v != nil {
+				events = append(events, "use")
+				if v.releases != 0 {
+					fail("use after release")
+				}
+			}
+		}
+		release := func(n syntax.Node) {
+			for _, r := range c.pkg.Info.Releases[n] {
+				v := vars[r.Var]
+				if r.Temp != nil {
+					v = temps[r.Temp]
+					if r.Flag && !active[r.Temp] {
+						continue
+					}
+				}
+				if v == nil {
+					fail(fmt.Sprintf("release without acquisition at %T", n))
+				}
+				events = append(events, fmt.Sprintf("release at %T", n))
+				v.releases++
+				if v.releases != 1 {
+					fail("double release")
+				}
+			}
+		}
+		var expr func(syntax.Expr) *token
+		var block func(syntax.Node, []syntax.Stmt) *token
+		// evalResult associates the selected token with the expression's
+		// result place before its arm closes. An enclosing name is lent:
+		// it has an owner before evaluation starts. A new/local result has
+		// no such owner and belongs to the consumer's temporary instead.
+		result := func(x syntax.Expr, key syntax.Node, list []syntax.Stmt) *token {
+			before := len(tokens)
+			var v *token
+			for i, s := range list {
+				if i == len(list)-1 {
+					var tail syntax.Expr
+					if es, ok := s.(*syntax.ExprStmt); ok {
+						tail = es.X
+					} else if e, ok := s.(syntax.Expr); ok {
+						tail = e
+					}
+					if tail != nil {
+						v = expr(tail)
+						temps[x] = v
+						active[x] = slices.Contains(tokens[before:], v)
+						release(s)
+						continue
+					}
+				}
+				block(nil, []syntax.Stmt{s})
+			}
+			release(key)
+			return v
+		}
+		expr = func(x syntax.Expr) *token {
+			switch x := x.(type) {
+			case *syntax.Ident:
+				v, _ := c.pkg.Info.Uses[x].(*Var)
+				out := vars[v]
+				use(out)
+				return out
+			case *syntax.ParenExpr:
+				return expr(x.X)
+			case *syntax.CallExpr:
+				k := c.pkg.Info.Calls[x]
+				if k != nil && k.Kind == CallWith {
+					return result(x, x.Trailing, x.Trailing.List)
+				}
+				name := calleeText(x)
+				if name == "open" || name == "tryOpen" {
+					v := &token{}
+					tokens = append(tokens, v)
+					temps[x] = v
+					active[x] = true
+					events = append(events, "acquire")
+					return v
+				}
+				for _, a := range x.Args {
+					v := expr(a)
+					use(v)
+					if name == "keep" && v != nil {
+						v.releases++
+						events = append(events, "take/release")
+					}
+				}
+			case *syntax.IfStmt:
+				if choose() {
+					return result(x, x.Body, x.Body.List)
+				}
+				b := x.Else.(*syntax.BlockStmt)
+				return result(x, b, b.List)
+			case *syntax.SwitchStmt:
+				i := 0
+				if len(x.Clauses) > 1 && choose() {
+					i = 1
+				}
+				cl := x.Clauses[i]
+				return result(x, cl, cl.Body)
+			case *syntax.TypeSwitchStmt:
+				cl := x.Clauses[0]
+				return result(x, cl, cl.Body)
+			case *syntax.CatchExpr:
+				if choose() {
+					a := x.Arms[0]
+					return result(x, a, a.Body)
+				}
+				v := expr(x.X)
+				temps[x] = v
+				active[x] = true
+				return v
+			case *syntax.BinaryExpr:
+				expr(x.X)
+				if choose() {
+					expr(x.Y)
+				}
+			}
+			return nil
+		}
+		block = func(key syntax.Node, list []syntax.Stmt) *token {
+			for _, s := range list {
+				switch s := s.(type) {
+				case *syntax.DeclStmt:
+					for _, spec := range s.Decl.Specs {
+						v := expr(spec.Values[0])
+						release(spec)
+						obj, _ := c.pkg.Info.Defs[spec.Names[0]].(*Var)
+						vars[obj] = v
+					}
+				case *syntax.ExprStmt:
+					expr(s.X)
+					release(s)
+				}
+			}
+			if key != nil {
+				release(key)
+			}
+			return nil
+		}
+		block(body, body.List)
+		for _, v := range tokens {
+			if v.releases != 1 {
+				fail("acquired token not released exactly once")
+			}
 		}
 	}
 }
@@ -168,6 +445,8 @@ func keep(r Res) takes r {}
 func take(r Res) int takes r { 0 }
 
 func both(r Res, n int) {}
+
+func bothInt(n int, m int) {}
 
 func fail(n int) int fails Bad {
 	if n > 5 {
@@ -392,6 +671,10 @@ func (g *ofGen) stmt(depth, nest int, inLoop bool) *ofStmt {
 			g.vars = append(g.vars, ofVar{name: s.x, mut: s.mut, depth: depth})
 		case ofLend, ofClose, ofKeep, ofBoth:
 			s.y = g.pick()
+			if k == ofBoth {
+				s.temp = g.r.IntN(3) == 0
+				s.left = !s.temp && g.r.IntN(2) == 0 // a crossing field, not a lender
+			}
 		case ofShort:
 			s.y = g.pick()
 			s.op = []string{"&&", "||"}[g.r.IntN(2)]
@@ -497,8 +780,16 @@ func ofPrint(body []*ofStmt) (string, int) {
 				s.col = col(depth, "let _ = ")
 				emit(depth, fmt.Sprintf("let _ = open(%d)", k))
 			case ofBoth:
-				s.col = col(depth, "both(")
-				p := "both(" + s.y + ", take("
+				prefix, arg := "both(", s.y
+				if s.left {
+					prefix, arg = "bothInt(", arg+".id"
+				}
+				if s.temp {
+					prefix += "if cond(n) { "
+					arg += " } else { open(0) }"
+				}
+				s.col = col(depth, prefix)
+				p := prefix + arg + ", take("
 				s.col2 = col(depth, p)
 				emit(depth, p+s.y+"))")
 			case ofIf:
@@ -643,7 +934,7 @@ type rfRun struct {
 	movers map[string]bool // slots moved in the current both call
 	// The value arms being run: where their value goes, and for a lent
 	// Res the slot of the statement's temporary that owns a new value.
-	vmode, vslot int
+	vmode, vslot, vfirst int
 }
 
 // Where a value arm's value goes (rfRun.vmode).
@@ -836,10 +1127,13 @@ func (r *rfRun) stmt(s *ofStmt) {
 		r.use(s.y, s.line, s.col)
 		r.movers = map[string]bool{}
 		r.move(s.y, s.line, s.col2)
-		if r.movers[s.y] {
+		if !s.left && r.movers[s.y] {
 			r.diag(s.line, s.col)
 		}
 		r.movers = nil
+		if s.temp {
+			r.record(fmt.Sprintf("stmt@%d", s.line), "tmp?")
+		}
 	case ofIf:
 		n := len(r.st)
 		saved := rfCopy(r.st)
@@ -926,7 +1220,12 @@ func (r *rfRun) stmt(s *ofStmt) {
 		case tTake:
 			r.move(s.y, s.line, s.col)
 		case tName:
-			if r.vmode == rvMove {
+			if r.vmode == rvLend && r.vslot >= 0 && r.find(s.y) >= r.vfirst {
+				r.move(s.y, s.line, s.col)
+				if r.st != nil {
+					r.st[r.vslot].st = rfOwned
+				}
+			} else if r.vmode == rvMove {
 				r.move(s.y, s.line, s.col)
 			} else {
 				r.use(s.y, s.line, s.col)
@@ -956,8 +1255,9 @@ func (r *rfRun) stmt(s *ofStmt) {
 // arms runs the two arms of a value if or match whose value goes to mode
 // (slot: the temporary that owns a new lent value, or -1), and joins them.
 func (r *rfRun) arms(s *ofStmt, mode, slot int) {
-	vmode, vslot := r.vmode, r.vslot
+	vmode, vslot, vfirst := r.vmode, r.vslot, r.vfirst
 	r.vmode, r.vslot = mode, slot
+	r.vfirst = len(r.st)
 	kind, first := "block", s.line
 	if s.match {
 		kind, first = "case", s.armLine
@@ -969,7 +1269,7 @@ func (r *rfRun) arms(s *ofStmt, mode, slot int) {
 	r.st = rfCopy(saved)
 	r.block(s.els, kind, s.elseLine, 0)
 	r.st = rfJoin(a, r.st, n)
-	r.vmode, r.vslot = vmode, vslot
+	r.vmode, r.vslot, r.vfirst = vmode, vslot, vfirst
 }
 
 // loop runs the body to its plain fixpoint quietly, then once more.

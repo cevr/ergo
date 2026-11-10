@@ -69,18 +69,19 @@ const (
 
 // The binding forms of a borrow (a cBorrow's form; batch-15 C2 M1 repeat).
 const (
-	bLet      = iota // let pN = &vK
-	bChain           // let pN = pM
-	bTuple           // let (pN, _) = (&vK, 0)
-	bIf              // let pN = if vA > c { &vK } else { &vJ }
-	bMatch           // let pN = match vA { case 1: &vK  case _: &vJ }, one arm a line
-	bRebind          // let mut pN = &vK, then pN = &vJ
-	bTupleVia        // let pNt = (&vK, 0), then let (pN, _) = pNt: a tuple local that holds a borrow
-	bClause          // let pNt = (&vK, 0), then match pNt { case (pN, _): bump(pN, c) }
+	bLet          = iota // let pN = &vK
+	bChain               // let pN = pM
+	bTuple               // let (pN, _) = (&vK, 0)
+	bIf                  // let pN = if vA > c { &vK } else { &vJ }
+	bMatch               // let pN = match vA { case 1: &vK  case _: &vJ }, one arm a line
+	bRebind              // let mut pN = &vK, then pN = &vJ
+	bTupleVia            // let pNt = (&vK, 0), then let (pN, _) = pNt: a tuple local that holds a borrow
+	bClause              // let pNt = (&vK, 0), then match pNt { case (pN, _): bump(pN, c) }
+	bSingleClause        // a non-tuple match subject binds the borrow by name (TypeSwitchStmt)
 	bForms
 )
 
-var bFormName = []string{"let", "chain", "tuple", "if", "match", "rebind", "tuplevia", "clause"}
+var bFormName = []string{"let", "chain", "tuple", "if", "match", "rebind", "tuplevia", "clause", "singleclause"}
 
 type cstmt struct {
 	kind       int
@@ -184,12 +185,12 @@ func (g *captureGen) block(depth int, regions []*cstmt, top bool) []*cstmt {
 					g.bumped = map[*cstmt]bool{}
 				}
 				g.bumped[s.callee] = true
-			case bLet, bTuple, bTupleVia, bClause:
+			case bLet, bTuple, bTupleVia, bClause, bSingleClause:
 				s.roots = []int{s.v}
 			default:
 				s.roots = []int{s.v, s.j}
 			}
-			if s.form != bClause { // a clause's pN is used in the clause alone
+			if s.form != bClause && s.form != bSingleClause { // clause names live in the clause alone
 				g.borrows = append(g.borrows, s)
 			}
 		case cBump:
@@ -372,6 +373,13 @@ func (g *captureGen) renderIn(list []*cstmt, depth int, regions []*cstmt) {
 				b := g.emit(depth+1, "bump(%s, %d)", s.name, s.c)
 				g.emit(depth, "}")
 				s.lines = []int{m, b}
+			case bSingleClause:
+				s.line = g.emit(depth, "let %st = &v%d", s.name, s.v)
+				m := g.emit(depth, "match %st {", s.name)
+				g.emit(depth, "case %s:", s.name)
+				b := g.emit(depth+1, "bump(%s, %d)", s.name, s.c)
+				g.emit(depth, "}")
+				s.lines = []int{m, b}
 			}
 		case cBump:
 			s.line = g.emit(depth, "bump(%s, %d)", s.callee.name, s.c)
@@ -425,7 +433,7 @@ func writesOf(s *cstmt) []wev {
 			all(s, s.lines[0]) // &vJ, and the assignment uses pN
 		case bTupleVia:
 			out = append(out, wev{s, s.v, s.line}, wev{s, s.v, s.lines[0]}) // &vK, then a use of pNt
-		case bClause:
+		case bClause, bSingleClause:
 			// &vK, the subject pNt, and the bump through the clause's pN.
 			out = append(out, wev{s, s.v, s.line}, wev{s, s.v, s.lines[0]}, wev{s, s.v, s.lines[1]})
 		}
@@ -544,7 +552,7 @@ func interpret(tree []*cstmt, byValue bool) string {
 					}
 				case bRebind:
 					target[s] = s.j
-				case bClause:
+				case bClause, bSingleClause:
 					vars[s.v] += s.c
 				}
 			case cCapture, cCaptureWrite:
@@ -612,11 +620,113 @@ func captureSeeds(n int) []uint64 {
 	return seeds
 }
 
+type holderProgram struct {
+	name, src, want string
+	escapes         bool
+}
+
+// holderPrograms extends the property's domain with the thing being
+// captured: a borrow holder, not just its referent. The independent oracle
+// is Borrows 1: holder mutability and its binding form cannot change whether
+// a frame may keep the holder. The old generator never captured a holder.
+// Mutants: c2-mutable-holder-capture-admitted,
+// c2-escaping-holder-alias-erased; the clause forms kill c2-clause-unbound.
+func holderPrograms() []holderProgram {
+	var out []holderProgram
+	for mut := range 3 {
+		for tuple := range 2 {
+			for binding := range 6 {
+				for frame := range 5 {
+					seed := uint64(1 + (((mut*2+tuple)*6+binding)*5 + frame))
+					if *captureSeed != 0 && *captureSeed != seed {
+						continue
+					}
+					r := rand.New(rand.NewPCG(seed, 0x197c204))
+					delta := 1 + r.IntN(9)
+					val := "&x"
+					if tuple != 0 {
+						val = "((&x, 0), 1)"
+					}
+					initial := strings.ReplaceAll(val, "&x", "&y")
+					bound := val
+					setup := ""
+					switch binding {
+					case 1:
+						setup = "let alias = " + val + "\n"
+						bound = "alias"
+					case 2:
+						bound = "if true { " + val + " } else { " + val + " }"
+					case 3:
+						bound = "match 1 {\ncase _: " + val + "\n}"
+					case 4:
+						setup = "let (alias, _) = (" + val + ", 0)\n"
+						bound = "alias"
+					case 5:
+						bound = "with context {} { " + val + " }"
+					}
+					bind := setup + "let p = " + bound + "\n"
+					if mut > 0 {
+						first := bound
+						if mut == 2 {
+							first = initial
+						}
+						bind = setup + "let mut p = " + first + "\np = " + bound + "\n"
+					}
+					write := fmt.Sprintf("bump(p, %d)", delta)
+					if tuple != 0 {
+						write = fmt.Sprintf("let ((q, _), _) = p; bump(q, %d)", delta)
+					}
+					work := ""
+					switch frame {
+					case 0:
+						work = write + "\n"
+					case 1:
+						work = "(func() { " + write + " })()\n"
+					case 2:
+						work = "each(1, func() { " + write + " })\n"
+					case 3:
+						work = "let local = func() { " + write + " }\nlocal()\n"
+					}
+					tail := work + "let get = func() int { x }\n(get, func() {})\n"
+					if frame == 4 {
+						tail = "let get = func() int { x }\n(get, func() { " + write + " })\n"
+					}
+					src := "func bump(p *int, n int) { *p = *p + n }\nfunc each(n int, f func()) { for _ in 0..n { f() } }\nfunc make() (func() int, func()) {\nlet mut x = 0\nlet mut y = 0\nlet _ = &y\n" + bind + tail + "}\nfunc main() needs Console { let (get, put) = make(); put(); Console.Println(\"\\(get())\") }\n"
+					out = append(out, holderProgram{fmt.Sprintf("holder%d", seed), src, fmt.Sprintf("%d\n", delta), frame == 4})
+				}
+			}
+		}
+	}
+	return out
+}
+
+func captureHolderModel(t *testing.T) {
+	t.Helper()
+	for _, p := range holderPrograms() {
+		o := lowerSource(p.name, p.src, true)
+		if o.err != nil || o.panicked != nil {
+			t.Fatalf("%s: %v %v\n%s", p.name, o.err, o.panicked, p.src)
+		}
+		borrow, rootWrite := false, false
+		for _, d := range o.diags {
+			if d.Code != "S108" || (!strings.Contains(d.Message, "Borrows 1") && !strings.Contains(d.Message, "Function values 3")) {
+				t.Fatalf("%s: unexpected %s\n%s", p.name, d, p.src)
+			}
+			borrow = borrow || strings.Contains(d.Message, "Borrows 1")
+			rootWrite = rootWrite || strings.Contains(d.Message, "Function values 3")
+		}
+		if borrow != p.escapes || rootWrite != p.escapes || (!p.escapes && len(o.diags) != 0) {
+			t.Fatalf("%s: Borrows 1 refusal %v, want %v; diagnostics %v\nReplay: go test -run '^TestCaptureRuleModel$' ./internal/sketch/lower -args -capture.seed=%s\n%s", p.name, borrow, p.escapes, o.diags, strings.TrimPrefix(p.name, "holder"), p.src)
+		}
+	}
+}
+
 // TestCaptureRuleModel is the in-process half of the property (see above).
 func TestCaptureRuleModel(t *testing.T) {
+	captureHolderModel(t)
 	reached := map[string]bool{}
 	admitted := 0
-	for _, seed := range captureSeeds(2000) {
+	for _, seed := range captureSeeds(4000) {
 		tree, src := captureProgram(seed)
 		want := refused(tree)
 		o := lowerSource(fmt.Sprintf("cap%d", seed), src, true)
@@ -666,7 +776,7 @@ func TestCaptureRuleModel(t *testing.T) {
 		}
 		whys := []string{"inside", "after", "region", "local"}
 		for _, f := range bFormName {
-			if f != "clause" {
+			if f != "clause" && f != "singleclause" {
 				// A clause's bump writes with its own &vK, so it is never
 				// refused alone; the checker's lines must still equal the
 				// reference's on it.
@@ -716,6 +826,21 @@ func TestCaptureLoweringAgrees(t *testing.T) {
 	}
 	if !copies && *captureSeed == 0 {
 		t.Errorf("no admitted program captures a let mut by value")
+	}
+	for _, p := range holderPrograms() {
+		if p.escapes {
+			continue
+		}
+		// The only write is the generated bump, executed before get is
+		// captured. Its argument is printed in the source: independent of
+		// the capture lowering, both executions must agree.
+		for _, mode := range []string{"", "reference"} {
+			saved := captureLowering
+			captureLowering = mode
+			programs = append(programs, mustLower(t, p.name+mode, p.src))
+			captureLowering = saved
+			runs = append(runs, run{0, p.src, p.want})
+		}
 	}
 	exes := buildAll(t, programs, true)
 	if exes == nil {
