@@ -239,7 +239,7 @@ func BenchmarkRpcUnary(b *testing.B) {
 	if err != nil || a.Root().Package == nil {
 		b.Fatalf("the contract does not check: %v %v", err, a.Diagnostics)
 	}
-	out, err := Generate(a.Root().Package, "bench/limits", "Limiter", "limits.Limiter")
+	out, err := Generate(a.Root().Package, "bench/limits", "Limiter")
 	if err != nil {
 		b.Fatal(err)
 	}

@@ -1,0 +1,15 @@
+{
+  "about": "The mutant ledger of cmd/ergo, started by R3b (wf10, 2026-11-10). Each mutant names the rule it breaks and the test that kills it. The R3b judge runs the killer with go test -run in ./cmd/ergo.",
+  "mutants": [
+    {
+      "name": "r3b-spell",
+      "origin": "wf10 R3b",
+      "file": "cmd/ergo/gen.go",
+      "from": "\tpath, err := importPath(abs)\n",
+      "to": "\tpath, err := importPath(abs)\n\tpath = filepath.ToSlash(dir)\n",
+      "rule": "ergo gen rpc names the contract by its resolved import path, never by how the command spelled the folder; --check from any spelling finds current files current.",
+      "killers": ["ergo:TestGenCheckReadsThePackage"],
+      "pkg": "./cmd/ergo"
+    }
+  ]
+}

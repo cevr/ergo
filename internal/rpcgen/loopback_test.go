@@ -78,7 +78,7 @@ func loopback(t *testing.T, seed uint64) {
 		if err != nil || a.Root().Package == nil {
 			t.Fatalf("seed %d: contract c%d does not check: %v %v\n%s", seed, i, err, a.Diagnostics, files[fmt.Sprintf("c%d/contract.ergo", i)])
 		}
-		out, err := Generate(a.Root().Package, fmt.Sprintf("loop/c%d", i), "Svc", fmt.Sprintf("c%d.Svc", i))
+		out, err := Generate(a.Root().Package, fmt.Sprintf("loop/c%d", i), "Svc")
 		if err != nil {
 			t.Fatalf("seed %d: generate c%d: %v", seed, i, err)
 		}

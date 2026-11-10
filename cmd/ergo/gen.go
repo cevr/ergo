@@ -56,7 +56,7 @@ func genCommand(args []string) error {
 	if err != nil {
 		return exitStatusError{code: 1, message: "ergo gen rpc: " + err.Error()}
 	}
-	out, err := rpcgen.Generate(root.Package, path, opName, arg)
+	out, err := rpcgen.Generate(root.Package, path, opName)
 	if err != nil {
 		return exitStatusError{code: 1, message: "ergo gen rpc: " + err.Error()}
 	}
