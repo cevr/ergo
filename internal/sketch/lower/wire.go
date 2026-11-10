@@ -628,7 +628,7 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 		b.WriteString("for " + r + ".More(" + task + ") {\nswitch " + r + ".Key(" + task + ") {\n")
 		for i, f := range s.Fields {
 			fv := scope.alloc("f")
-			b.WriteString("case " + strconv.Quote(check.WireFieldName(f.Name)) + ":\n")
+			b.WriteString("case " + strconv.Quote(check.WireFieldName(f)) + ":\n")
 			ft := f.Type
 			if wit, ftc, ok := tc.paramField(ft); ok {
 				x, y := scope.alloc("f"), scope.alloc("f")
@@ -653,7 +653,7 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 		}
 		b.WriteString("default:\n" + r + ".Skip(" + task + ")\n}\n}\n" + r + ".End(" + task + ")\n")
 		for i, f := range s.Fields {
-			missing := "return " + zero + ", " + tc.wireFailure(check.WireMissingName, r+".Path("+task+")", strconv.Quote(check.WireFieldName(f.Name))) + "\n"
+			missing := "return " + zero + ", " + tc.wireFailure(check.WireMissingName, r+".Path("+task+")", strconv.Quote(check.WireFieldName(f))) + "\n"
 			if wit, _, ok := tc.paramField(f.Type); ok {
 				b.WriteString("if !" + seen[i] + " {\nif " + wit + ".Field == nil {\n" + missing + "}\n" + out + "." + td.fieldName[f.Name] + " = " + wit + ".Field.Empty\n}\n")
 				continue

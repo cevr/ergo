@@ -329,6 +329,7 @@ type Field struct {
 	Doc     *CommentGroup
 	Names   []*Ident
 	Type    Expr
+	Key     *BasicLit // optional record field key, independent of the codec format
 	Any     Pos
 	Include bool
 	Dots    Pos
@@ -348,6 +349,9 @@ func (f *Field) Pos() Pos {
 	return f.Type.Pos()
 }
 func (f *Field) End() Pos {
+	if f.Key != nil {
+		return f.Key.End()
+	}
 	if f.Any > 0 {
 		return f.Any + Pos(len("any"))
 	}

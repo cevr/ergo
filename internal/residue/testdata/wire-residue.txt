@@ -288,6 +288,9 @@ internal/sketch/check/intern.go	vWired         // wired[T]: the decode row of a 
 internal/sketch/check/testdata/fixtures/negative/wire-constraint.ergo	*
 internal/sketch/check/testdata/mutants.json	*
 internal/sketch/check/types.go	*
+internal/sketch/check/decl.go	c.errorf(field.Key, CodeType, "a wire key must be non-empty valid UTF-8 (types.md, Codecs 2)")
+internal/sketch/syntax/parser.go	p.errorAt(f.Key.Pos(), int(f.Key.End()-f.Key.Pos()), "a wire key names one field; split the field group")
+docs/spec/types.md	**Explicit keys override the default in rule 2.** A field declaration may end in a key literal: `NodeID int "node_id"`. That key is shared by every format (JSON, TOML), `ergo gen rpc` and the TS projection; there is no global naming policy. A key must be non-empty valid UTF-8, or the declaration is S108, even when the record has no wire form. A field with no literal keeps rule 2's capital-run mapping. Included and instantiated fields keep the declaring field's key. Two declared or default keys that meet in a wire record are S108, naming both fields and the key. A variant field with key `_tag` has no wire union form because the discriminator owns that key; an ordinary record may use it. An unused valid key is allowed on a type with no wire form. The checked field's origin carries the literal, and `check.WireFieldName(field)` is the one key rule for every consumer. `TestWireKeysDeclared` holds the checker and formatter to it; `examples/wire-config` holds JSON and TOML to independently written documents. This is static metadata, not a runtime tag lookup: the same literal constants that hand-written Go would pass are emitted.
 internal/sketch/lower/decls.go	// wire takes its codec as a witness (wire.go).
 internal/sketch/lower/std_codec_test.go	*
 internal/sketch/lower/testdata/mutants.json	"rule": "types.md, Codecs 6: a wire argument's codec functions are named in the naming pass.",

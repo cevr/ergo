@@ -4,6 +4,7 @@
 package tsproj
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -121,7 +122,7 @@ func Project(pkg *check.Package, file *syntax.File, source string, options Optio
 		for _, op := range ops {
 			g.s("$Rpc.make(" + strconv.Quote(op.Name) + ", { payload: { ")
 			for _, p := range op.Params {
-				g.s(strconv.Quote(check.WireFieldName(rpcgen.FieldName(p.Name))) + ": " + g.schema(p.Type) + ", ")
+				g.s(strconv.Quote(check.WireFieldName(&check.Field{Name: rpcgen.FieldName(p.Name)})) + ": " + g.schema(p.Type) + ", ")
 			}
 			g.s("}, success: ")
 			if op.Result == nil {
@@ -287,22 +288,39 @@ func (g *emitter) declare(n *check.Named) {
 	}
 	local := g.local[n.Obj.Decl]
 	if g.failure[n] {
-		if _, ok := under.(*check.Struct); !ok {
+		s, ok := under.(*check.Struct)
+		if !ok {
 			g.fail(n, "failure is not a record")
 			return
 		}
-		g.s(export + "class ")
-		g.name(name, n.Obj.Name, n.Obj.Pos, local)
+		className, classExport := name, export
+		if g.keyMap(s) != "" {
+			className, classExport = "$error"+name, ""
+		}
+		g.s(classExport + "class ")
+		g.name(className, n.Obj.Name, n.Obj.Pos, local)
 		g.s(" extends $Schema.TaggedError")
 		if !g.JavaScript {
-			g.s("<" + name + ">")
+			g.s("<" + className + ">")
 		}
 		g.s("()(" + strconv.Quote(n.Obj.Name) + ", ")
 		g.fields(under.(*check.Struct), local)
 		g.s(") {}\n")
+		if className != name {
+			g.s(export + "const ")
+			g.name(name, n.Obj.Name, n.Obj.Pos, local)
+			g.s(" = " + className)
+			g.keys(s)
+			g.s(";\n")
+			if !g.JavaScript {
+				g.s(export + "type " + name + " = $Schema.Schema.Type<typeof " + name + ">;\n")
+			}
+		}
 		g.s("const $value" + name + " = $Schema.Struct(")
 		g.fields(under.(*check.Struct), local)
-		g.s(");\n")
+		g.s(")")
+		g.keys(s)
+		g.s(";\n")
 	} else {
 		g.s(export + "const ")
 		g.name(name, n.Obj.Name, n.Obj.Pos, local)
@@ -312,6 +330,7 @@ func (g *emitter) declare(n *check.Named) {
 			g.s("$Schema.Struct(")
 			g.fields(u, local)
 			g.s(")")
+			g.keys(u)
 		case *check.Union:
 			g.s("$Schema.Union([")
 			for _, v := range u.Variants {
@@ -327,7 +346,9 @@ func (g *emitter) declare(n *check.Named) {
 				}
 				g.s("$Schema.TaggedStruct(" + strconv.Quote(vn.Obj.Name) + ", ")
 				g.fields(st, g.local[vn.Obj.Decl])
-				g.s("), ")
+				g.s(")")
+				g.keys(st)
+				g.s(", ")
 			}
 			g.s("])")
 		default:
@@ -357,10 +378,44 @@ func (g *emitter) fields(s *check.Struct, local bool) {
 	g.s("{ ")
 	for _, f := range s.Fields {
 		g.s("\"")
-		g.name(check.WireFieldName(f.Name), f.Name, f.Pos, local)
+		name := projectedFieldName(s, f)
+		g.name(name, f.Name, f.Pos, local)
 		g.s("\": " + g.schema(f.Type) + ", ")
 	}
 	g.s("}")
+}
+
+// Projected properties keep the default name. When explicit keys make a
+// record wire whose default names collide (ID and Id), those properties
+// keep their source spelling instead: a projection must not drop a field.
+func projectedFieldName(s *check.Struct, f *check.Field) string {
+	name := check.WireFieldName(&check.Field{Name: f.Name})
+	for _, other := range s.Fields {
+		if other != f && check.WireFieldName(&check.Field{Name: other.Name}) == name {
+			return f.Name
+		}
+	}
+	return name
+}
+
+func (g *emitter) keyMap(s *check.Struct) string {
+	var entries []string
+	for _, f := range s.Fields {
+		name, key := projectedFieldName(s, f), check.WireFieldName(f)
+		if key != name {
+			encoded, _ := json.Marshal(key) // JSON string escapes are valid in both TS and JS.
+			entries = append(entries, strconv.Quote(name)+": "+string(encoded))
+		}
+	}
+	return strings.Join(entries, ", ")
+}
+
+// Effect 4 supplies the struct-level encodeKeys transform, not fromKey.
+// The same checked keys supply ordinary records, tagged variants and errors.
+func (g *emitter) keys(s *check.Struct) {
+	if keys := g.keyMap(s); keys != "" {
+		g.s(".pipe($Schema.encodeKeys({ " + keys + " }))")
+	}
 }
 func (g *emitter) doc(obj *check.TypeName) {
 	if !g.local[obj.Decl] || obj.Decl == nil || obj.Decl.Doc == nil {

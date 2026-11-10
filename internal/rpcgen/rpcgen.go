@@ -107,9 +107,49 @@ func Ops(pkg *check.Package, opName string) ([]Op, error) {
 			return nil, fmt.Errorf("%s.%s needs %s; an RPC operation needs nothing", opName, m.Name, m.Sig.Uses)
 		}
 		op.Fails = m.Sig.Errors.Elems()
+		for _, p := range op.Params {
+			if err := wireKeys(p.Type, false, map[check.Type]bool{}); err != nil {
+				return nil, err
+			}
+		}
+		if op.Result != nil {
+			if err := wireKeys(op.Result, false, map[check.Type]bool{}); err != nil {
+				return nil, err
+			}
+		}
+		for _, f := range op.Fails {
+			if err := wireKeys(f, true, map[check.Type]bool{}); err != nil {
+				return nil, err
+			}
+		}
 		ops = append(ops, op)
 	}
 	return ops, nil
+}
+
+// wireKeys checks the core key rule also at the RPC profile's tagged failure
+// boundary. A failure record gets its tag from RPC rather than a core union.
+func wireKeys(t check.Type, tagged bool, seen map[check.Type]bool) error {
+	u := t
+	if n, ok := t.(*check.Named); ok {
+		u = n.Underlying()
+	}
+	if s, ok := u.(*check.Struct); ok && pairOf(t) == nil {
+		if why := check.WireRecordKeyReason(s, tagged); why != "" {
+			return fmt.Errorf("%s %s", t, why)
+		}
+	}
+	if seen[t] {
+		return nil
+	}
+	seen[t] = true
+	_, union := u.(*check.Union)
+	for _, part := range parts(t) {
+		if err := wireKeys(part, union, seen); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func exported(name string) bool { return name != "" && name[0] >= 'A' && name[0] <= 'Z' }
@@ -433,7 +473,7 @@ func (g *gen) walkerOf(t check.Type) *walker {
 		switch u := under.(type) {
 		case *check.Struct:
 			for _, f := range u.Fields {
-				at(&b, "v."+f.Name, f.Type, quote(check.WireFieldName(f.Name)))
+				at(&b, "v."+f.Name, f.Type, quote(check.WireFieldName(f)))
 			}
 		case *check.Union:
 			b.WriteString("match v {\n")
@@ -442,7 +482,7 @@ func (g *gen) walkerOf(t check.Type) *walker {
 				if vn, ok := vt.(*check.Named); ok {
 					if fields, ok := vn.Underlying().(*check.Struct); ok {
 						for _, f := range fields.Fields {
-							at(&inner, "x."+f.Name, f.Type, quote(check.WireFieldName(f.Name)))
+							at(&inner, "x."+f.Name, f.Type, quote(check.WireFieldName(f)))
 						}
 					}
 				}
@@ -510,6 +550,13 @@ func (g *gen) describeNamed(n *check.Named) {
 		return
 	}
 	d := n.Underlying().String()
+	if s, ok := n.Underlying().(*check.Struct); ok {
+		for _, f := range s.Fields {
+			if key := check.WireFieldName(f); key != check.WireFieldName(&check.Field{Name: f.Name}) {
+				d += fmt.Sprintf(" key %s=%q", f.Name, key)
+			}
+		}
+	}
 	if f := pairOf(n); f != nil {
 		d = "wire " + f.Sig.Results[0].String()
 	}

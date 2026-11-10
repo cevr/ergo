@@ -3,10 +3,12 @@ package check_test
 import (
 	"fmt"
 	"math/rand/v2"
+	"strconv"
 	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/format"
 )
 
 // wireKeyReference is types.md Codecs 2 by words: the name's leading
@@ -20,6 +22,52 @@ func wireKeyReference(name string) string {
 		return strings.ToLower(name[:caps-1]) + name[caps-1:]
 	}
 	return strings.ToLower(name[:caps]) + rest
+}
+
+// TestWireKeysDeclared catches gw-key, gw-origin and gw-format: ignoring an
+// explicit key, losing it through inclusion/instantiation, or dropping it in
+// formatting. The implicit-key property never declares a key. Each seed
+// reaches both an explicit/implicit collision and a renamed non-collision.
+func TestWireKeysDeclared(t *testing.T) {
+	for seed := uint64(1); seed <= 40; seed++ {
+		r := rand.New(rand.NewPCG(seed, 98))
+		name := wireName(r)
+		for _, clash := range []bool{false, true} {
+			key := "renamed_" + strconv.FormatUint(seed, 10) + " 🧭\"\\"
+			if clash {
+				key = wireKeyReference(name)
+			}
+			src := fmt.Sprintf("type Base[T] { Value T %s }\ntype R[T] { ..Base[T], %s int }\nfunc keep[T wire](v T) T { v }\nfunc use(v R[string]) R[string] { keep(v) }\n", strconv.Quote(key), name)
+			formatted, err := format.Source(src)
+			if err != nil {
+				t.Fatalf("seed %d: %v\n%s", seed, err, src)
+			}
+			for _, text := range []string{src, formatted} {
+				_, ds := check.CheckSource(text)
+				if (!clash && len(ds) != 0) || (clash && (len(ds) != 1 || ds[0].Code != "S108" || !strings.Contains(ds[0].Message, fmt.Sprintf("fields Value and %s, which share the wire key %q", name, key)))) {
+					t.Fatalf("seed %d clash=%t: %v\n%s\nreplay: go test -run '^TestWireKeysDeclared$' ./internal/sketch/check", seed, clash, ds, text)
+				}
+			}
+		}
+	}
+}
+
+// TestWireKeyDiagnostics catches gw-invalid and gw-group. These diagnostic
+// text rows cover invalid metadata, which the valid-key property cannot draw.
+func TestWireKeyDiagnostics(t *testing.T) {
+	for _, row := range []struct{ src, code, text string }{
+		{`type R { A, B string "x" }`, "S001", "a wire key names one field"},
+		{`type R { A string "" }`, "S108", "a wire key must be non-empty valid UTF-8"},
+		{`type R { A string "\xff" }`, "S108", "a wire key must be non-empty valid UTF-8"},
+		{`type R = A{Tag string "_tag"} | B{}
+func keep[T wire](v T) T { v }
+func use(v R) R { keep(v) }`, "S108", `wire key "_tag", reserved for a union tag`},
+	} {
+		_, ds := check.CheckSource(row.src)
+		if len(ds) != 1 || ds[0].Code != row.code || !strings.Contains(ds[0].Message, row.text) {
+			t.Fatalf("%s: want %s %q, got %v", row.src, row.code, row.text, ds)
+		}
+	}
 }
 
 // fieldName draws from fewer letters, so that two names of one record
@@ -51,7 +99,7 @@ func TestWireKeysFollowTheRule(t *testing.T) {
 	for seed := uint64(1); seed <= 300; seed++ {
 		r := rand.New(rand.NewPCG(seed, 81))
 		name := wireName(r)
-		if got, want := check.WireFieldName(name), wireKeyReference(name); got != want {
+		if got, want := check.WireFieldName(&check.Field{Name: name}), wireKeyReference(name); got != want {
 			t.Fatalf("seed %d: the key of %s is %q, want %q\nreplay: go test -run TestWireKeysFollowTheRule ./internal/sketch/check", seed, name, got, want)
 		}
 	}
@@ -67,7 +115,7 @@ func TestWireKeysFollowTheRule(t *testing.T) {
 				continue
 			}
 			names = append(names, n)
-			k := check.WireFieldName(n)
+			k := check.WireFieldName(&check.Field{Name: n})
 			if o, ok := owner[k]; ok && clash[0] == "" {
 				clash = [2]string{o, n}
 			}
@@ -85,7 +133,7 @@ func TestWireKeysFollowTheRule(t *testing.T) {
 			}
 			continue
 		}
-		if len(diags) != 1 || !strings.Contains(diags[0].Message, fmt.Sprintf("fields %s and %s, which share the wire key %q", clash[0], clash[1], check.WireFieldName(clash[1]))) {
+		if len(diags) != 1 || !strings.Contains(diags[0].Message, fmt.Sprintf("fields %s and %s, which share the wire key %q", clash[0], clash[1], check.WireFieldName(&check.Field{Name: clash[1]}))) {
 			fail("a key clash is not the one S108 naming both fields")
 		}
 		clashes++
