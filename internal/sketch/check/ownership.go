@@ -984,7 +984,46 @@ func (w *ownWalk) yieldValue(x syntax.Expr, mode ownMode, h hand, walk func(ownM
 	}
 	w.tail = t
 	walk(t.mode)
+	w.resultAfterOperands(x, t.slot)
 	w.tail = saved
+}
+
+// resultAfterOperands separates reserving a result place from acquiring its
+// value. Operand temporaries are acquired before the result, so the result
+// must be released first (R5). Only this expression's own statement-level
+// result place moves; an inherited place belongs to an enclosing consumer.
+func (w *ownWalk) resultAfterOperands(x syntax.Expr, slot int) {
+	if w.st == nil || slot < 0 || slot+1 >= len(w.vars) || w.vars[slot].temp != x {
+		return
+	}
+	n := len(w.vars)
+	for _, l := range w.vars[slot+1:] {
+		if l.v != nil {
+			panic("check: internal compiler error: a result place crosses a named owner")
+		}
+	}
+	l := w.vars[slot]
+	copy(w.vars[slot:], w.vars[slot+1:])
+	w.vars[n-1] = l
+	rotate := func(st []ownSlot) []ownSlot {
+		if st == nil {
+			return nil
+		}
+		st = padState(st, n)
+		result := st[slot]
+		copy(st[slot:], st[slot+1:])
+		st[n-1] = result
+		w.step(n - slot)
+		return st
+	}
+	w.st = rotate(w.st)
+	// An enclosing catch may have saved a failure before the result was
+	// acquired. Its states must use the same place layout at the join.
+	for _, k := range w.catches {
+		for i, st := range k.fails {
+			k.fails[i] = rotate(w.copyState(st))
+		}
+	}
 }
 
 // shortCircuit walks `a && b` or `a || b`: a runs on every path, b only on

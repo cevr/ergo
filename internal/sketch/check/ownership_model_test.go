@@ -170,6 +170,9 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 		case 3:
 			return "with context {} {\n" + arm() + "\n}"
 		default:
+			if rng.IntN(2) == 0 {
+				return "tryHold(open(4), n) catch {\ncase Bad:\n" + arm() + "\n}"
+			}
 			return "tryOpen(n) catch {\ncase Bad:\n" + arm() + "\n}"
 		}
 	}
@@ -183,7 +186,7 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 	case 3:
 		stmt = "let _ = cond(n) && held(" + x + ")"
 	}
-	src := ofPrelude + "func tryOpen(n int) Res fails Bad { if n > 0 { return Bad }; open(n) }\nfunc body(n int) {\nlet outer = open(1)\n" + stmt + "\nlend(outer)\n}\nfunc main() {}\n"
+	src := ofPrelude + "func tryOpen(n int) Res fails Bad { if n > 0 { return Bad }; open(n) }\nfunc tryHold(r Res, n int) Res fails Bad { if n > 0 { return Bad }; open(n) }\nfunc body(n int) {\nlet outer = open(1)\n" + stmt + "\nlend(outer)\n}\nfunc main() {}\n"
 	c, ds := checkFor(src)
 	if len(ds) != 0 {
 		t.Fatalf("yield seed %d: %v\n%s", seed, ds, src)
@@ -197,7 +200,7 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 	// Each choice consumes one bit. The generated tree has at most three
 	// nested choices, plus the short-circuit operand and catch success.
 	for path := range 1 << 5 {
-		type token struct{ releases int }
+		type token struct{ id, releases int }
 		var tokens []*token
 		vars := map[*Var]*token{}
 		temps := map[syntax.Expr]*token{}
@@ -217,6 +220,7 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 			}
 		}
 		release := func(n syntax.Node) {
+			last := len(tokens) + 1
 			for _, r := range c.pkg.Info.Releases[n] {
 				v := vars[r.Var]
 				if r.Temp != nil {
@@ -228,6 +232,10 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 				if v == nil {
 					fail(fmt.Sprintf("release without acquisition at %T", n))
 				}
+				if v.id > last {
+					fail("releases at one owner end are not in reverse acquisition order")
+				}
+				last = v.id
 				events = append(events, fmt.Sprintf("release at %T", n))
 				v.releases++
 				if v.releases != 1 {
@@ -280,8 +288,11 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 					return result(x, x.Trailing, x.Trailing.List)
 				}
 				name := calleeText(x)
-				if name == "open" || name == "tryOpen" {
-					v := &token{}
+				if name == "open" || name == "tryOpen" || name == "tryHold" {
+					for _, a := range x.Args {
+						expr(a)
+					}
+					v := &token{id: len(tokens) + 1}
 					tokens = append(tokens, v)
 					temps[x] = v
 					active[x] = true
@@ -314,6 +325,9 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 				return result(x, cl, cl.Body)
 			case *syntax.CatchExpr:
 				if choose() {
+					for _, a := range x.X.(*syntax.CallExpr).Args {
+						expr(a)
+					}
 					a := x.Arms[0]
 					return result(x, a, a.Body)
 				}

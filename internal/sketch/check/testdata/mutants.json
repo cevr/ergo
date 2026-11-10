@@ -2,6 +2,15 @@
   "about": "The mutant ledger of internal/sketch/check: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants check; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
+      "name": "a2-result-before-operands",
+      "origin": "batch-15 round-4 A2 ordered event invariant",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.resultAfterOperands(x, t.slot)",
+      "to": "_ = x",
+      "rule": "Reserving a result place before its operands does not acquire the result before them: R5 releases the result first.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
       "name": "a2-yield-projection-root-ignored",
       "origin": "batch-15 round-4 A2 origin invariant",
       "file": "internal/sketch/check/ownership.go",
