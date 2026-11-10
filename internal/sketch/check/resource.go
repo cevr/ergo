@@ -33,7 +33,9 @@ import (
 //     question; an instantiation decides it, A3's copy sites), and
 //     mayHoldResource as a resource (rule 6 of plan 1.2: a generic body is
 //     checked as if T were one; a `takes` of a T has effect).
-//  6. A host (Go) type crosses until IG9 reads its Close.
+//  6. A host (Go) type does not cross when its method set has Close()
+//     or Close() error (IG9, hostres.go), nor does go.Ref[T] of one (its
+//     type argument); any other host type crosses.
 //
 // The walk is the holdsTask walk (taskescape.go): Tarjan's components over
 // interned type identity, memoized per finished component, one memo per
@@ -96,7 +98,18 @@ func (w *resWalk) visit(t Type) (bool, int) {
 	case *TypeParam:
 		return w.generic, noLow
 	case *Named:
-		if t.foreign || t.Obj != nil && t.Obj.Pkg != nil && t.Obj.Pkg.Host() {
+		if t.foreign {
+			return false, noLow
+		}
+		if t.Obj != nil && t.Obj.Pkg != nil && t.Obj.Pkg.Host() {
+			// A Go type is a resource when its method set has Close() or
+			// Close() error (IG9, hostres.go); its fields are Go's.
+			if c.hostClose(t) != nil {
+				return true, noLow
+			}
+			if it := asInterface(t); it != nil && hostCloseOp(t, it) != nil {
+				return true, noLow
+			}
 			return false, noLow
 		}
 	case *Slice, *Array, *Map, *Tuple, *Struct, *Union, *Interface:

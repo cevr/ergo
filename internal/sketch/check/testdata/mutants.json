@@ -1366,8 +1366,8 @@
       "name": "L8-A1 a conversion to a crossing operation type admitted",
       "origin": "wf10 L8 A1 (#197)",
       "file": "internal/sketch/check/typeops.go",
-      "from": "if !c.providing && c.holdsResource(v) && !c.holdsResource(t) {",
-      "to": "if false && !c.providing && c.holdsResource(v) && !c.holdsResource(t) {",
+      "from": "if !c.providing && !c.hostLendArg(t) && c.holdsResource(v) && !c.holdsResource(t) {",
+      "to": "if false && !c.providing && !c.hostLendArg(t) && c.holdsResource(v) && !c.holdsResource(t) {",
       "rule": "resources R22: a resource converted to an operation type with no Close is S108.",
       "killers": [
         "check:TestResourceTypeModel"
@@ -1983,8 +1983,8 @@
       "name": "L8-A4 a conversion copies",
       "origin": "wf10 L8 A4 (#197)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\t\tif w.converts(a, pt) {",
-      "to": "\t\tif false && w.converts(a, pt) {",
+      "from": "\t\tif w.converts(a, pt) && !hostCallee {",
+      "to": "\t\tif false && w.converts(a, pt) && !hostCallee {",
       "rule": "resources R23: a conversion to an operation type with Close moves the resource.",
       "killers": [
         "check:TestOwnershipFlowModel"

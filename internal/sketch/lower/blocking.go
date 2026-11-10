@@ -94,9 +94,12 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Go":         {},
 	// timeout.After joins its body and deadline children, whichever ends
 	// first, as their parent (runtime.md, Timeouts).
-	"After":        {wait: childWait},
-	"OnExit":       {release: frameRelease},
-	"Release":      {release: callerRelease},
+	"After":   {wait: childWait},
+	"OnExit":  {release: frameRelease},
+	"Release": {release: callerRelease},
+	// The end of a Go value's release (IG9): its Close's error is a
+	// defect. It runs inside Release, never waits and masks nothing.
+	"CloseFailed":  {},
 	"New":          {},
 	"WithCapacity": {},
 	"SlicesTake":   {},

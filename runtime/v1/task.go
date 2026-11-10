@@ -854,15 +854,22 @@ func OwnErr(s *Scope, site Site, rel func() error) *Owned {
 	return s.own(func() {
 		t := s.s.Task()
 		var c rt.Cause
-		release(t, &c, func() {
-			if err := rel(); err != nil {
-				panic(fmt.Errorf("release of the value acquired at %s: %w", site, err))
-			}
-		}, nil)
+		release(t, &c, func() { CloseFailed(string(site), rel()) }, nil)
 		if err := c.Err(); err != nil {
 			raise(err)
 		}
 	})
+}
+
+// CloseFailed ends the release of a Go value whose Close returns an error
+// (IG9; Q9, q61): a non-nil err is a defect of the release, naming at,
+// the Ergo position of the value's acquisition. It runs inside a release
+// (Release, OwnErr), whose boundary keeps the defect in the exit cause;
+// Go's habit of `defer f.Close()` drops the error instead.
+func CloseFailed(at string, err error) {
+	if err != nil {
+		panic(fmt.Errorf("release of the value acquired at %s: %w", at, err))
+	}
 }
 
 // Hand removes h's entry, the value v being handed off: moved to a new

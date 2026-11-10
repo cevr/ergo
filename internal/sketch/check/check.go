@@ -185,6 +185,10 @@ type checker struct {
 	// providing is set while a provider is checked against its capability
 	// (providerAssignability): R22 does not apply there.
 	providing bool
+	// hostCall is set while the arguments of a call of a Go function are
+	// checked: each is lent to Go for the call (IG9), so R22 does not
+	// apply to a Go interface parameter.
+	hostCall bool
 	// resourceSites are the map keys and taken parameters A1's late pass
 	// decides (resource.go); the seen sets keep one site per syntax node.
 	resourceSites []resourceSite

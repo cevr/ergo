@@ -104,6 +104,19 @@ Each call's row comes from the reviewed tables of `runtime/v1`, never from the G
 7. **Callbacks** are lowered as [Callbacks](#callbacks) says.
 8. **Not yet.** A Go function used as a value is a later unit.
 
+## Resources
+
+Status: **implemented** (IG9; `check/hostres.go`, `TestHostResourceVerdicts`, `TestHostResourceRun`).
+
+1. **A Go resource.** A Go type whose method set has `Close()` or `Close() error` (the binding's `Close()` or `Close() fails go.Error`, value or pointer receiver) is a resource ([resources.md](resources.md) R1), and so is `go.Ref[T]` of one and a Go interface with such a `Close` (`io.ReadCloser`). The binding states the method set, so no user marks the type and no Go tool runs.
+2. **Owned results.** A Go function's result of a resource type is owned by the caller (owner q62): `let f = try os.Open(p)` is released at its scope's end on every exit, last acquired first, with no `defer` to write. `try f.Close()` is the explicit take; it fails `go.Error` as any Go call with a last `error` does, and a later use of `f` is S108.
+3. **The release.** An automatic release calls Go's `Close` inside the release boundary (`v1.Release`, masked, as a checked `Close` runs). A non-nil error of `Close() error` there is a defect in the exit cause, `release of the value acquired at <file:line:col>: <error>`, naming the acquisition (owner q61, `v1.CloseFailed`). Go's `defer f.Close()` drops that error by habit.
+4. **Borrowed package variables.** A Go package variable is borrowed (owner q62): it is never released, and a take of it (`try P.V.Close()`, `let v = P.V`) is S108 "a Go package variable, borrowed from Go". `ergo bind go` still refuses a variable that is not an `error` (Which Go declarations import), so today only a module's binding declares one.
+5. **Arguments are lent.** A Go signature cannot move a value, so an argument of a Go function is lent for the call: a resource passed to a Go interface parameter (`io.Copy(w, f)`) is neither R22's unreleased copy nor R23's move. Go code that keeps it past the call (`bufio.NewReader(f)`) is outside what a binding states; the owner still releases it at its scope's end.
+6. **Generic Go functions** copy each type parameter (D-B): they are bodiless and the reviewed table (`v1.MovesOnly`) lists none, so a resource instantiation is S108 at the call.
+
+*Prior art:* Rust's `File` closes on drop and drops the error; Swift's `~Copyable` `FileDescriptor` needs a written close; Go's vet has no check for a leaked `*os.File`. Gleam, Elixir and ReScript leave a host handle to the host (the BEAM closes a port with its process).
+
 *Prior art:* Gleam's `@external` and ReScript's `@module` externals are direct calls with no adapter, as here when no Map or slice crosses shared; Kotlin/Native's cinterop and Swift's Clang importer map a nullable pointer to an optional the same way; Swift copies an `Array` passed to C only when its buffer is shared, as the value rule copies a live operand.
 
 ## Go modules

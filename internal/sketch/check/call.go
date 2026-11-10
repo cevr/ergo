@@ -263,12 +263,20 @@ func (c *checker) callSig(x *syntax.CallExpr, sig *Signature, fun operand) opera
 		return bad(x)
 	}
 	refused := false
+	fn := fun.fn
+	if fn == nil {
+		fn, _ = fun.obj.(*Func)
+	}
+	savedHost := c.hostCall
+	// A Go function's arguments are lent for the call (IG9, hostres.go).
+	c.hostCall = fn != nil && fn.Pkg.Host()
 	for i, a := range args.exprs {
 		pt := paramType(sig, i)
 		if !c.argument(a, pt, x) {
 			refused = true
 		}
 	}
+	c.hostCall = savedHost
 	if refused {
 		return bad(x)
 	}

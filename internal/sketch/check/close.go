@@ -79,7 +79,15 @@ func (c *checker) closeFacts() {
 		c.errorf(tn.Decl.Name, CodeType, "Close must have an empty failure row (resources R2); handle cleanup failures inside Close")
 	}
 	funcFact := func(f *Func) *Close {
-		if f == nil || f.Pkg == nil || f.Pkg.Info == nil {
+		if f == nil || f.Pkg == nil {
+			return nil
+		}
+		if hf := c.hostCloseFunc(f); hf != nil {
+			// A Go type's Close() or Close() error (IG9): the binding
+			// declares it, no Close fact of its own records it.
+			return &Close{Func: hf}
+		}
+		if f.Pkg.Info == nil {
 			return nil
 		}
 		return f.Pkg.Info.Closes[f.Decl]
@@ -169,6 +177,13 @@ func (c *checker) closeOperation(t Type, resolved *Method, name string) *Close {
 		return nil
 	}
 	m := it.method("Close")
+	if n, ok := t.(*Named); ok && hostCloseOp(n, it) != nil {
+		// A Go interface's Close() error (IG9).
+		if resolved != nil && resolved != m {
+			return nil
+		}
+		return &Close{Receiver: recv, Op: m}
+	}
 	if !closeShape(m) || (resolved != nil && resolved != m) || !c.types.resolve(m.Sig.Errors).Empty() {
 		return nil
 	}

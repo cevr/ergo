@@ -37,12 +37,21 @@ type lowered struct {
 	refused  []Refusal
 	err      error // a lowering error other than a refusal
 	panicked any
+	// extra are Go files the program's module holds beside it (a Go
+	// package an import go reads), each path relative to the module root.
+	extra []File
 }
 
 // lowerSource parses, checks and lowers src. Without entry, a program with
 // no runnable main still lowers, with an empty Go main, so every
 // declaration of a library-shaped fixture is lowered and compiled.
 func lowerSource(name, src string, entry bool) *lowered {
+	return lowerSourceWith(name, src, entry, nil)
+}
+
+// lowerSourceWith is lowerSource checked with imp, an importer that may
+// give Go bindings of the module's own Go packages (check.GoImporter).
+func lowerSourceWith(name, src string, entry bool, imp check.Importer) *lowered {
 	out := &lowered{name: name, src: src}
 	if entry {
 		probeLog("lower", probeSum([]byte(src)))
@@ -55,7 +64,7 @@ func lowerSource(name, src string, entry bool) *lowered {
 		return out
 	}
 	out.file = file
-	out.pkg, out.diags = check.Check("main", []*syntax.File{file}, nil)
+	out.pkg, out.diags = check.Check("main", []*syntax.File{file}, imp)
 	if len(out.diags) > 0 {
 		return out
 	}
@@ -178,6 +187,9 @@ func (m *goModuleDir) write(rel string, data []byte) {
 func (m *goModuleDir) program(p *lowered, src string) {
 	m.t.Helper()
 	m.write("p/"+p.name+"/main.go", []byte(src))
+	for _, f := range p.extra {
+		m.write(f.Path, f.Data)
+	}
 	m.byPkg[p.name] = p
 }
 
