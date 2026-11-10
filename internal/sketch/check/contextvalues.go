@@ -102,7 +102,7 @@ func (c *checker) contextConversion(x syntax.Expr, want *Named, row *Row) (opera
 		}
 		found, node := binds.find(c.types, cap)
 		if !found {
-			c.errorf(x, CodeMissingCap, "this context binds no %s, which %s provides (rows.md, Context values)", cap, want)
+			c.errorf(x, CodeMissingCap, "this context binds no %s, a capability of %s (rows.md, Context values)", cap, want)
 			ok = false
 			continue
 		}

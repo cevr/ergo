@@ -40,8 +40,9 @@ func (tc *typeCtx) goType(t check.Type) string {
 	case *check.Named:
 		if check.IsContext(t) {
 			// A Context[R] writes its providers into an environment
-			// (contextvalues.go).
-			return "func(*" + tc.l.env() + ")"
+			// (contextvalues.go): a function value of the uniform shape
+			// with no parameters and no result.
+			return tc.funcType(&check.Signature{})
 		}
 		// A std type is the runtime's Go type (stage D3b; std.go).
 		name := tc.l.runtimeType(t, tc.site)

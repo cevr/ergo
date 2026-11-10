@@ -793,7 +793,9 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 		b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip law "+title+": "+law.Unrun) + ")\n")
 		return
 	}
-	defer l.lawContextRuns(b, lr, scope, env, seed, failed)
+	// The runs under a context take the case's task from here, the one
+	// classified reader of a law case's task (TestRuntime199TaskReaders).
+	defer l.lawContextRuns(b, lr, scope, env, taskOf(env), seed, failed)
 	if len(lr.Bindings) == 0 && len(lr.Contexts) > 0 {
 		return
 	}

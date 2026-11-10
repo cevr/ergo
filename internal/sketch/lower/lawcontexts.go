@@ -14,8 +14,9 @@ import (
 // the runner's environment, builds the context into the copy with its
 // builder, as a with of it does, draws the law's parameters and calls the
 // law's function, the provider being the one the context bound. The report
-// names the context: `ok law T.L under Live (100 cases)`.
-func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *namer, env, seed, failed string) {
+// names the context: `ok law T.L under Live (100 cases)`. task is the
+// runner's task, which lawRuns reads (taskOf).
+func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *namer, env, task, seed, failed string) {
 	law := lr.Law
 	fmtPkg, run, conv := l.helper("fmt"), l.helper("Case"), l.helper("strconv")
 	at := strconv.Quote(l.siteText(law.Decl))
@@ -71,7 +72,7 @@ func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *nam
 		build := l.contextBuilder(lc.With, law.Decl)
 		body := e + " := *" + env + "; " + build + "(&" + e + "); " +
 			held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
-		b.WriteString("\t\t\t" + ok + " = " + run + "(" + taskOf(env) + ", " + strconv.Quote(label) + ", " + at + ", func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " })\n")
+		b.WriteString("\t\t\t" + ok + " = " + run + "(" + task + ", " + strconv.Quote(label) + ", " + at + ", func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " })\n")
 		b.WriteString("\t\t}\n")
 		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", label, testCases)) + ")\n")
 		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n\t}\n")

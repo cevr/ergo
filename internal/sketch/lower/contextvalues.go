@@ -8,7 +8,8 @@ import (
 )
 
 // Context values (rows.md, Context values). A Context[R] is the Go
-// function `func(*Env)` that writes the providers of R into the
+// function value `func(*Env) (struct{}, error)` (the uniform shape of a
+// function with no parameters and no result; it never fails) that writes the providers of R into the
 // environment copy a with makes. A conversion builds the providers once,
 // where the value is made, into a snapshot of the environment, as a with
 // of that context builds them (its builder, or its providers in place for
@@ -43,22 +44,23 @@ func (fc *funcCtx) contextValue(x syntax.Expr, w *check.With) string {
 		}
 		fc.line(fc.l.contextBuilder(w, x) + "(&" + snap + ")")
 	}
-	e := fc.temp("e")
-	var b strings.Builder
-	b.WriteString("func(" + e + " *" + fc.l.env() + ") {")
-	for i, cap := range w.Discharged {
-		n, ok := cap.(*check.Named)
-		if !ok {
-			ice(x, "a Context value of the row element %s, which is no capability", cap)
+	// The value is a function value of the uniform shape (funcType of a
+	// signature with no parameters and no result), written by the one
+	// closure owner, envClosure.
+	return fc.envClosure(callerEnv, "e", x, func(e string) ([]string, string, string) {
+		ind := strings.Repeat("\t", fc.depth+1)
+		var b strings.Builder
+		for _, cap := range w.Discharged {
+			n, ok := cap.(*check.Named)
+			if !ok {
+				ice(x, "a Context value of the row element %s, which is no capability", cap)
+			}
+			f := fc.l.envField(n)
+			b.WriteString(ind + e + "." + f + " = " + snap + "." + f + "\n")
 		}
-		if i > 0 {
-			b.WriteString(";")
-		}
-		f := fc.l.envField(n)
-		b.WriteString(" " + e + "." + f + " = " + snap + "." + f)
-	}
-	b.WriteString(" }")
-	return b.String()
+		b.WriteString(ind + "return struct{}{}, nil\n")
+		return nil, fc.valueResults(nil), b.String()
+	})
 }
 
 // installWith lowers operand arg of a with whose value is a Context[R]

@@ -200,6 +200,7 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"typeCtx.funcType":       "a function type, which has no body",
 		"lowerer.machinePlan":    "a machine plan's declared Step header: func (X) Step(env *Env, ...)",
 		"lowerer.genFunc":        "a generator's assertion of the runner's Env that a constructor runs in (fu6a)",
+		"funcCtx.contextValue":   "the zero Env a Context value's providers build into where no environment is bound: a variable, no closure (its closure is envClosure's)",
 	}
 	for _, owner := range sortedKeys(readers) {
 		if _, ok := classified[owner]; !ok {
