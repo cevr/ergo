@@ -1,0 +1,10 @@
+# a bucket of 5 tokens that gains 1 a tick
+bucket 5 1
+heavy
+heavy
+wait 1
+heavy
+bulk
+light
+wait 100
+light

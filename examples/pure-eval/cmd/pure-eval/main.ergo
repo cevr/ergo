@@ -1,0 +1,89 @@
+// pure-eval runs a token-bucket rate limiter over a script of requests read
+// from stdin and prints each verdict. Package limit is the limiter, all pure
+// functions; this binary reads the script, which is the only part that
+// needs a capability.
+//
+// The script's lines are `bucket CAPACITY RATE` (a new full bucket),
+// `light`, `heavy` or `bulk` (a request), and `wait TICKS`. A blank line or a
+// line that starts with # is skipped.
+
+import io
+import os
+import pureeval/limit
+import strconv
+import strings
+
+// BadLine is a line the script cannot read.
+type BadLine { Line int, Why string }
+
+func count(n int, word string) int fails BadLine {
+	let v = strconv.Atoi(word) catch {
+	case strconv.Malformed:
+		return BadLine{Line: n, Why: "\(word) is not a number"}
+	case strconv.OutOfRange:
+		return BadLine{Line: n, Why: "\(word) is out of range"}
+	}
+	if v < 0 || v > 1000000 {
+		return BadLine{Line: n, Why: "a number is 0 to 1000000"}
+	}
+	v
+}
+
+// play runs the script's lines and returns what it prints.
+func play(lines []string) []string fails BadLine {
+	let mut b = limit.New(10, 1)
+	let mut out = []string{}
+	for i, line in lines {
+		let n = i + 1
+		let text = strings.TrimSpace(line)
+		let words = strings.Fields(text)
+		if len(words) == 0 || strings.HasPrefix(text, "#") {
+			continue
+		}
+		match words[0] {
+		case "bucket":
+			if len(words) != 3 {
+				return BadLine{Line: n, Why: "bucket takes a capacity and a rate"}
+			}
+			b = limit.New(try count(n, words[1]), try count(n, words[2]))
+			out = out.Append("bucket of \(b.Capacity), \(b.Rate) a tick")
+		case "wait":
+			if len(words) != 2 {
+				return BadLine{Line: n, Why: "wait takes ticks"}
+			}
+			b = limit.Refill(b, try count(n, words[1]))
+			out = out.Append("waited: \(b.Tokens) tokens")
+		case "light":
+			let v = limit.Decide(b, limit.Light)
+			b = limit.Apply(b, v)
+			out = out.Append("light: \(limit.Text(v))")
+		case "heavy":
+			let v = limit.Decide(b, limit.Heavy)
+			b = limit.Apply(b, v)
+			out = out.Append("heavy: \(limit.Text(v))")
+		case "bulk":
+			let v = limit.Decide(b, limit.Bulk)
+			b = limit.Apply(b, v)
+			out = out.Append("bulk: \(limit.Text(v))")
+		case _:
+			return BadLine{Line: n, Why: "unknown word \(words[0])"}
+		}
+	}
+	out
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	let mut lines = []string{}
+	with context { io.Stdin: io.NewHost() } {
+		for line in io.Stdin.Lines() {
+			lines = lines.Append(line)
+		}
+	}
+	let out = play(lines) catch {
+	case BadLine as b:
+		return os.Exit{Code: 1, Message: "pure-eval: line \(b.Line): \(b.Why)"}
+	}
+	for l in out {
+		Console.Println(l)
+	}
+}

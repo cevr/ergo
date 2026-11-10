@@ -1,0 +1,26 @@
+// The limiter's examples: tests with no parameters. ergo check runs
+// BurstThenWait at check time. TextIsLowerCase calls a Go function, which
+// check-time evaluation never runs, so ergo check lists it as skipped with
+// that reason, and ergo test runs it.
+
+import strings
+
+// BurstThenWait: a full bucket of 5 takes a heavy request and has 2 tokens
+// left; the next heavy request waits one tick, and a bulk request costs more
+// than the bucket holds.
+test BurstThenWait {
+	let b = New(5, 1)
+	let first = Decide(b, Heavy)
+	let left = Apply(b, first)
+	assert Text(first) == "allowed, 2 left"
+	assert Text(Decide(left, Heavy)) == "delayed 1 ticks"
+	assert Text(Decide(left, Bulk)) == "refused"
+	assert Text(Decide(Refill(left, 1), Heavy)) == "allowed, 0 left"
+}
+
+// TextIsLowerCase: the verdicts print in lower case.
+test TextIsLowerCase {
+	for v in []Verdict{Allowed{Left: 1}, Delayed{Ticks: 2}, Refused} {
+		assert strings.ToLower(Text(v)) == Text(v)
+	}
+}

@@ -1,0 +1,87 @@
+// Package limit is a token-bucket rate limiter, written as pure functions
+// over values. A bucket holds tokens up to its capacity; each request costs
+// tokens; time refills the bucket at its rate. No function here has a
+// capability, so `ergo check` runs this package's tests and laws itself,
+// with no Go build (docs/testing.md, Check-time evaluation).
+
+// Bucket is a token bucket: it holds Tokens, at most Capacity, and gains
+// Rate tokens each tick.
+type Bucket { Capacity int, Tokens int, Rate int }
+
+// Cost is what one request costs.
+type Cost = Light{} | Heavy{} | Bulk{}
+
+// Verdict is what the limiter says to one request: Allowed takes its
+// tokens and leaves Left; Delayed must wait Ticks before it is allowed;
+// Refused costs more than the bucket can ever hold.
+type Verdict = Allowed{Left int} | Delayed{Ticks int} | Refused{}
+
+// TokensOf is the price of a cost in tokens.
+func TokensOf(c Cost) int {
+	match c {
+	case Light:
+		1
+	case Heavy:
+		3
+	case Bulk:
+		10
+	}
+}
+
+// New is a full bucket of capacity tokens that gains rate tokens a tick.
+func New(capacity int, rate int) Bucket {
+	Bucket{Capacity: capacity, Tokens: capacity, Rate: rate}
+}
+
+// Refill is b after ticks ticks: it gains Rate tokens a tick and never holds
+// more than its capacity. It never multiplies past the capacity, so a long
+// wait cannot overflow.
+func Refill(b Bucket, ticks int) Bucket {
+	if ticks <= 0 || b.Rate <= 0 {
+		return b
+	}
+	let room = b.Capacity - b.Tokens
+	if ticks > room/b.Rate {
+		return Bucket{Capacity: b.Capacity, Tokens: b.Capacity, Rate: b.Rate}
+	}
+	Bucket{Capacity: b.Capacity, Tokens: b.Tokens + ticks*b.Rate, Rate: b.Rate}
+}
+
+// Decide is the verdict on a request of cost c to b. A request that the
+// bucket holds tokens for is allowed; one that waits is told the least
+// number of ticks after which it is allowed.
+func Decide(b Bucket, c Cost) Verdict {
+	let n = TokensOf(c)
+	if n > b.Capacity || b.Rate <= 0 {
+		return Refused
+	}
+	if n <= b.Tokens {
+		return Allowed{Left: b.Tokens - n}
+	}
+	Delayed{Ticks: (n - b.Tokens + b.Rate - 1) / b.Rate}
+}
+
+// Apply is b after the verdict v: an allowed request takes its tokens; a
+// delayed or refused one takes none.
+func Apply(b Bucket, v Verdict) Bucket {
+	match v {
+	case Allowed as a:
+		Bucket{Capacity: b.Capacity, Tokens: a.Left, Rate: b.Rate}
+	case Delayed:
+		b
+	case Refused:
+		b
+	}
+}
+
+// Text is the verdict as the program prints it.
+func Text(v Verdict) string {
+	match v {
+	case Allowed as a:
+		"allowed, \(a.Left) left"
+	case Delayed as d:
+		"delayed \(d.Ticks) ticks"
+	case Refused:
+		"refused"
+	}
+}

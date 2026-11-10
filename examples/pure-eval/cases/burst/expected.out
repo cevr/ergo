@@ -1,0 +1,9 @@
+bucket of 5, 1 a tick
+heavy: allowed, 2 left
+heavy: delayed 1 ticks
+waited: 3 tokens
+heavy: allowed, 0 left
+bulk: refused
+light: delayed 1 ticks
+waited: 5 tokens
+light: allowed, 4 left
