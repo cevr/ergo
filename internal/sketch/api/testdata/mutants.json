@@ -1,0 +1,11 @@
+{
+  "about": "C3 public ownership API projection and diff. Killers run in process.",
+  "mutants": [
+    {"name":"c3-implicit-take-marked-written","origin":"L8 C3 q70","file":"internal/sketch/api/api.go","from":"v.TakesInferred = len(takes) > 0 && f.Decl != nil && f.Decl.Type.Takes == nil","to":"v.TakesInferred = false","rule":"The checker inserts Close's takes; the source did not write it.","killers":["api:TestOwnershipAPIModel"]},
+    {"name":"c3-copy-site-omitted","origin":"L8 C3 q70","file":"internal/sketch/api/api.go","from":"for _, c := range check.CopySites(f) {","to":"for _, c := range check.CopySites(f)[:0] {","rule":"The docs and JSON retain the checker copy sites.","killers":["api:TestOwnershipAPIModel"]},
+    {"name":"c3-foreign-copy-facts-omitted","origin":"L8 C3 q70 r2","file":"internal/sketch/api/api.go","from":"for _, c := range check.CopySites(f) {","to":"for _, c := range p.Info.Copies[f] {","rule":"Bodiless generics expose the checker's conservative copy policy, except reviewed moving bodies; recorded body facts alone miss this.","killers":["api:TestOwnershipAPIModel"]},
+    {"name":"c3-new-copy-not-breaking","origin":"L8 C3 q70","file":"internal/sketch/api/api.go","from":"if !found {","to":"if false && !found {","rule":"A new copying parameter excludes resource callers.","killers":["api:TestOwnershipAPIModel"]},
+    {"name":"c3-new-take-not-breaking","origin":"L8 C3 q70","file":"internal/sketch/api/api.go","from":"if !slices.Contains(a.TakesParameters, t) {","to":"if false && !slices.Contains(a.TakesParameters, t) {","rule":"A new take breaks a caller that still uses its resource.","killers":["api:TestOwnershipAPIModel"]},
+    {"name":"c3-plain-change-resource-warning","origin":"L8 C3 q70","file":"internal/sketch/api/api.go","from":"c := Change{Name: n}","to":"c := Change{Name: n, BreaksResourceCallers: true}","rule":"A plain-data change is not a new ownership restriction.","killers":["api:TestOwnershipAPIModel"]}
+  ]
+}

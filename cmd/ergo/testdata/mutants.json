@@ -63,6 +63,7 @@
       "to": "\tb.WriteString(\"\\t\\t_ = \" + held + \"\\n\\t}\\n\")",
       "rule": "runtime.md Tests 8: the law receipt has one entry per law run, a machine's searched reachability law included.",
       "killers": ["cmd/ergo:TestTestCommand"]
-    }
+    },
+    {"name":"c3-api-route-removed","origin":"L8 C3 q70","file":"cmd/ergo/inspect.go","from":"len(args) > 0 && args[0] == \"api\"","to":"len(args) > 0 && args[0] == \"disabled-api\"","rule":"The public inspect api command reaches its checked projection.","killers":["ergo:TestInspectAPIRoute"]}
   ]
 }
