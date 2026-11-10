@@ -155,7 +155,7 @@ type ergoCall = struct {
 var ergoCalls = [...]ergoCall{
 	{Func: "run", Callee: "queue.New", File: "/ergo-test/main.ergo", Line: 9, Column: 10},
 	{Func: "run", Callee: "Queue.Push", File: "/ergo-test/main.ergo", Line: 10, Column: 6},
-	{Func: "run", Callee: "Queue.Close", File: "/ergo-test/main.ergo", Line: 11, Column: 2},
+	{Func: "run", Callee: "Queue.CloseSend", File: "/ergo-test/main.ergo", Line: 11, Column: 2},
 	{Func: "run", Callee: "task.Go", File: "/ergo-test/main.ergo", Line: 12, Column: 10},
 	{Func: "run", Callee: "Queue.Pop", File: "/ergo-test/main.ergo", Line: 12, Column: 26},
 	{Func: "run", Callee: "Task.Wait", File: "/ergo-test/main.ergo", Line: 13, Column: 14},
@@ -194,7 +194,7 @@ func run(env *Env) (err error) {
 		/*line /ergo-test/main.ergo:10:2*/return err_1
 	/*line /ergo-test/main.ergo:10:2*/}
 //line /ergo-test/main.ergo:11:2
-	(q).Close()
+	(q).CloseSend()
 //line /ergo-test/main.ergo:12:2
 //line /ergo-test/main.ergo:12:10
 	v_2 := ergo.Go[int](&fs, ergo.Site("run calls task.Go at /ergo-test/main.ergo:12:10"), func(t *rt.Task) (int, error) {

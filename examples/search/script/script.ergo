@@ -226,7 +226,7 @@ func Play(s Script, clock time.Manual) []string needs Scheduler | search.Catalog
 	a.Stop() catch {
 	case search.NoSuchHit:
 	}
-	said.Close()
+	said.CloseSend()
 	lines
 }
 

@@ -116,7 +116,7 @@ func Live(w int, h int, period duration) game.Mode needs io.Stdin | io.Stdout | 
 		case game.Title, game.Playing, game.Paused:
 		}
 	}
-	keys.Close()
+	keys.CloseSend()
 	reader.Stop()
 	at
 }
@@ -132,7 +132,7 @@ func read(keys queue.Queue[game.Signal]) needs io.Stdin {
 			}
 		}
 	}
-	keys.Close()
+	keys.CloseSend()
 }
 
 // draw writes the frame of m: over the last frame on a terminal, after it

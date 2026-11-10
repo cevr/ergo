@@ -13,5 +13,5 @@ func main() {
 	let mk = queue.New // want S108
 	_ = mk
 	let q = keep()(1)
-	q.Close()
+	q.CloseSend()
 }

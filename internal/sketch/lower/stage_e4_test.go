@@ -281,7 +281,7 @@ func main() needs Console {
 func main() needs Console {
 	let mk = queue.New[int]
 	let q = mk(1)
-	q.Close()
+	q.CloseSend()
 	Console.Println("made")
 }
 `},
@@ -289,11 +289,11 @@ func main() needs Console {
 type Mine {}
 func Push(_ Mine, v int) fails queue.Closed {}
 func Pop(_ Mine) int fails queue.Closed { 0 }
-func Close(_ Mine) {}
+func CloseSend(_ Mine) {}
 func Values(_ Mine) Seq[int] { queue.New[int](0).Values() }
 func Poll(_ Mine) Option[int] { None }
 func Len(_ Mine) int { 0 }
-func use(q queue.Queue[int]) { q.Close() }
+func use(q queue.Queue[int]) { q.CloseSend() }
 func main() needs Console {
 	use(Mine)
 	Console.Println("converted")

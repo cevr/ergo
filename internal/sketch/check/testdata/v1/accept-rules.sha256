@@ -28,6 +28,9 @@
 # L6 (batch 12, owner q30): D3-prelude-names.neg refuses `type true` in place
 # of `type Option`, which a package may now declare; the source rule takes the
 # same change when the orchestrator syncs it.
+# L8 A1 (#197 q53): Esub4-extern-call-only.neg calls q.CloseSend(), the queue's
+# half-close renamed from Close; the source rule takes the same change when the
+# orchestrator syncs it.
 42d3415f36e25b15e3ec1c5d5f7db162c013549fea5e6d7134e4c23b24aa8bb4  A1-literal-context.neg.ergo
 e1e6669a8bb9c6c8ff7f6c2a43489acf828265cf1ba29bb60017c058c7a37b37  A1-literal-context.pos.ergo
 dbbdafd0840737ec447f29252d036748a640ed4ddbd1ce5699d20b85e7689627  A2-default-and-operands.neg.ergo
@@ -112,7 +115,7 @@ ad36a14e661cbecb97202ba13bc01524e268a06c795b1348a0130c870cc376ca  Esub1-instance
 a6dcbc09a9d61c412e3a17ef022e8c89452e4ad5613b9e4d3478ddf91db73c93  Esub1-instances.pos.ergo
 6182b87a0720eeb3d5001c5efa4a324fc34034d40a3aac95b0ff15b751431f97  Esub2-task-type-args.neg.ergo
 c1f91f94a70d53a83e9180ebcbffed0fd84eed9eeb048f701aff0faa50068caf  Esub2-task-type-args.pos.ergo
-12013b9766fc282649712eb406adb49f26b58244f598893d10c93e57e687afbd  Esub4-extern-call-only.neg.ergo
+0109d0f6067d916112b8b29f0f6213089e56176e66268d71523e54e18073d37d  Esub4-extern-call-only.neg.ergo
 f284fe3e358d033626af8fe8375d7574a5229c0f3fe7d3a68f79ac664f93eda1  Esub4-extern-call-only.pos.ergo
 eb087c2e21669836d0ca601507aff6fca21627e0cc528ccebf18110666853616  Esub5-context-charge.neg.ergo
 fbfbc349de0faa0400f0dd95d3aac501d88950e891a978dcb79f9dbafbed109f  Esub5-context-charge.pos.ergo

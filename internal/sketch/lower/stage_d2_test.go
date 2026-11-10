@@ -124,9 +124,9 @@ func main() needs Console {
 // D3b, Rule 5). Neither reaches the lowering.
 func TestStdOperationThroughDefinedTypeOrPointerRefused(t *testing.T) {
 	cases := []struct{ name, src, diag, text string }{
-		{"defined", "import queue\n\ntype MyQ queue.Queue[int]\n\nfunc f(q MyQ) {\n\tq.Close()\n}\n", "3:10: S108", "use queue.Queue[int] directly"},
-		{"defined-twice", "import queue\n\ntype MyQ queue.Queue[int]\ntype Q2 MyQ\n\nfunc f(q Q2) {\n\tq.Close()\n}\n", "3:10: S108", "use queue.Queue[int] directly"},
-		{"pointer", "import queue\n\nfunc f(p *queue.Queue[int]) {\n\tp.Close()\n}\n", "4:2: S108", "an operation type is already a reference; call it on the value"},
+		{"defined", "import queue\n\ntype MyQ queue.Queue[int]\n\nfunc f(q MyQ) {\n\tq.CloseSend()\n}\n", "3:10: S108", "use queue.Queue[int] directly"},
+		{"defined-twice", "import queue\n\ntype MyQ queue.Queue[int]\ntype Q2 MyQ\n\nfunc f(q Q2) {\n\tq.CloseSend()\n}\n", "3:10: S108", "use queue.Queue[int] directly"},
+		{"pointer", "import queue\n\nfunc f(p *queue.Queue[int]) {\n\tp.CloseSend()\n}\n", "4:2: S108", "an operation type is already a reference; call it on the value"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

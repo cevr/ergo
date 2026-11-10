@@ -246,7 +246,7 @@ func hostScript(t *testing.T, seed int64, n int, rng *rand.Rand, reached map[str
 			}
 			entry++
 			if curGate != nil {
-				curGate.Close()
+				curGate.CloseSend()
 			}
 			curGate = e.gate
 		}

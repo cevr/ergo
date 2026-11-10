@@ -62,7 +62,7 @@ func work(n int64) int64 fails Fault {
 func produce(q queue.Queue[int64]) fails queue.Closed {
 	try q.Push(1)
 	try q.Push(2)
-	q.Close()
+	q.CloseSend()
 }
 
 func main() fails Fault | queue.Closed needs Console {
@@ -240,7 +240,7 @@ func TestEachExternHasItsGoBody(t *testing.T) {
 			t.Errorf("std package %s declares no extern", path)
 		}
 	}
-	for _, name := range []string{"Go", "OnExit", "New", "WithCapacity", "Queue.Push", "Queue.Pop", "Queue.Close", "Task.Wait", "Task.Stop", "ContextBound", "ContextValue"} {
+	for _, name := range []string{"Go", "OnExit", "New", "WithCapacity", "Queue.Push", "Queue.Pop", "Queue.CloseSend", "Task.Wait", "Task.Stop", "ContextBound", "ContextValue"} {
 		if !bound[name] {
 			t.Errorf("the Go body %s binds no std declaration", name)
 		}

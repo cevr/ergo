@@ -19,7 +19,7 @@ import (
 
 // stdLawsProbe restates each law whose ledger runner is TestStdLawsRun.
 // A test's name is the ledger key without spaces and dots, its package
-// capitalized: queue's Queue.CloseIsIdempotent is QueueQueueCloseIsIdempotent.
+// capitalized: queue's Queue.CloseSendIsIdempotent is QueueQueueCloseSendIsIdempotent.
 // A member law is restated for each kind of provider the std makes: a
 // queue of capacity 0 and one with room, a waiting task.
 const stdLawsProbe = `import queue
@@ -54,24 +54,24 @@ test PreludeTaskStopIsIdempotent(n int) {
 	assert true
 }
 
-test QueueQueueCloseIsIdempotent(n int) {
+test QueueQueueCloseSendIsIdempotent(n int) {
 	let empty = queue.New[int](0)
-	empty.Close()
-	empty.Close()
+	empty.CloseSend()
+	empty.CloseSend()
 	let full = queue.New[int](1)
 	try full.Push(n)
-	full.Close()
-	full.Close()
+	full.CloseSend()
+	full.CloseSend()
 	assert try full.Pop() == n
 }
 
-test QueueQueuePushAfterCloseFails(v int, cap int) {
+test QueueQueuePushAfterCloseSendFails(v int, cap int) {
 	let c = small(cap)
 	let q = queue.New[int](c)
 	if c != 0 {
 		try q.Push(v)
 	}
-	q.Close()
+	q.CloseSend()
 	let mut failed = false
 	q.Push(v) catch {
 	case queue.Closed:
@@ -87,7 +87,7 @@ test QueueQueueValuesStops(xs []int, extra int) {
 		for x in xs {
 			try q.Push(x)
 		}
-		q.Close()
+		q.CloseSend()
 		let mut calls = 0
 		let s = q.Values()
 		s(func(v int) bool {
@@ -102,7 +102,7 @@ test QueueQueueValuesStops(xs []int, extra int) {
 		assert q.Poll() == None
 	}
 	let empty = queue.New[int](0)
-	empty.Close()
+	empty.CloseSend()
 	let mut none = 0
 	for _ in empty.Values() {
 		none = none + 1
@@ -119,10 +119,10 @@ test QueueFirstInFirstOut(a int, b int) {
 	assert first == a && second == b
 }
 
-test QueueCloseKeepsValues(v int) {
+test QueueCloseSendKeepsValues(v int) {
 	let q = queue.New[int](1)
 	try q.Push(v)
-	q.Close()
+	q.CloseSend()
 	assert try q.Pop() == v
 }
 
@@ -234,21 +234,21 @@ func stdLawsTestName(pkg, law string) string {
 // holds it equal to the ledger, so a law changed in source fails here
 // until its restatement in the probe is changed with it.
 var stdLawsStatements = map[string]string{
-	"log AnnotationEndRestores":       `AnnotationEndRestores(key string, text string) { let before = Annotation(key) with Annotate(key, text) { Annotation(key) } Annotation(key) == before }`,
-	"log InnerAnnotationShadows":      `InnerAnnotationShadows(key string, outer string, inner string) { with Annotate(key, outer) { with Annotate(key, inner) { Annotation(key) == Some[string]{Value: inner} } } }`,
-	"prelude Task.StopIsIdempotent":   `StopIsIdempotent() { Stop() Stop() true }`,
-	"queue CloseKeepsValues":          `CloseKeepsValues(v int) { let q = New[int](1) try q.Push(v) q.Close() try q.Pop() == v }`,
-	"queue FirstInFirstOut":           `FirstInFirstOut(a int, b int) { let q = New[int](2) try q.Push(a) try q.Push(b) let first = try q.Pop() let second = try q.Pop() first == a && second == b }`,
-	"queue Queue.CloseIsIdempotent":   `CloseIsIdempotent() { Close() Close() true }`,
-	"queue Queue.PushAfterCloseFails": `PushAfterCloseFails(v T) { Close() Push(v) catch { case Closed: return true } false }`,
-	"queue Queue.ValuesStops":         `ValuesStops(k int) { if k < 1 { return true } Close() let n = Len() let mut calls = 0 let s = Values() s(func(v T) bool { calls = calls + 1 calls < k }) let taken = if k < n { k } else { n } calls == taken && Len() == n-taken }`,
-	"scope ActionsRunLastFirst":       `ActionsRunLastFirst() { let mut order = "" let f = func() { OnExit() { order = order + "a" } OnExit() { order = order + "b" } } f() order == "ba" }`,
-	"task StopIsIdempotent":           `StopIsIdempotent() { let t = with context { Scheduler: time.NewManual(0) } { Go() { Scheduler.Sleep(1h) 0 } } t.Stop() t.Stop() true }`,
-	"task WaitReturnsTheBlock":        `WaitReturnsTheBlock(n int) { let t = Go() { n } t.Wait() == n }`,
-	"timeout DeadlineFirstExpires":    `DeadlineFirstExpires() { let m = time.NewManual(0) with context { Scheduler: m } { After(1ms) { for m.Sleepers() == 0 { } m.Advance(1ms) Scheduler.Sleep(1h) false } catch { case Expired: true } } }`,
-	"timeout QuickBodyWins":           `QuickBodyWins(n int) { with context { Scheduler: time.NewManual(0) } { try After(1h) { n } == n } }`,
-	"trace InnerSpanShadows":          `InnerSpanShadows(outer string, inner string) { with Span(outer) { with Span(inner) { Current() == Some[string]{Value: inner} } } }`,
-	"trace SpanEndRestores":           `SpanEndRestores(name string) { let before = Current() with Span(name) { Current() } Current() == before }`,
+	"log AnnotationEndRestores":           `AnnotationEndRestores(key string, text string) { let before = Annotation(key) with Annotate(key, text) { Annotation(key) } Annotation(key) == before }`,
+	"log InnerAnnotationShadows":          `InnerAnnotationShadows(key string, outer string, inner string) { with Annotate(key, outer) { with Annotate(key, inner) { Annotation(key) == Some[string]{Value: inner} } } }`,
+	"prelude Task.StopIsIdempotent":       `StopIsIdempotent() { Stop() Stop() true }`,
+	"queue CloseSendKeepsValues":          `CloseSendKeepsValues(v int) { let q = New[int](1) try q.Push(v) q.CloseSend() try q.Pop() == v }`,
+	"queue FirstInFirstOut":               `FirstInFirstOut(a int, b int) { let q = New[int](2) try q.Push(a) try q.Push(b) let first = try q.Pop() let second = try q.Pop() first == a && second == b }`,
+	"queue Queue.CloseSendIsIdempotent":   `CloseSendIsIdempotent() { CloseSend() CloseSend() true }`,
+	"queue Queue.PushAfterCloseSendFails": `PushAfterCloseSendFails(v T) { CloseSend() Push(v) catch { case Closed: return true } false }`,
+	"queue Queue.ValuesStops":             `ValuesStops(k int) { if k < 1 { return true } CloseSend() let n = Len() let mut calls = 0 let s = Values() s(func(v T) bool { calls = calls + 1 calls < k }) let taken = if k < n { k } else { n } calls == taken && Len() == n-taken }`,
+	"scope ActionsRunLastFirst":           `ActionsRunLastFirst() { let mut order = "" let f = func() { OnExit() { order = order + "a" } OnExit() { order = order + "b" } } f() order == "ba" }`,
+	"task StopIsIdempotent":               `StopIsIdempotent() { let t = with context { Scheduler: time.NewManual(0) } { Go() { Scheduler.Sleep(1h) 0 } } t.Stop() t.Stop() true }`,
+	"task WaitReturnsTheBlock":            `WaitReturnsTheBlock(n int) { let t = Go() { n } t.Wait() == n }`,
+	"timeout DeadlineFirstExpires":        `DeadlineFirstExpires() { let m = time.NewManual(0) with context { Scheduler: m } { After(1ms) { for m.Sleepers() == 0 { } m.Advance(1ms) Scheduler.Sleep(1h) false } catch { case Expired: true } } }`,
+	"timeout QuickBodyWins":               `QuickBodyWins(n int) { with context { Scheduler: time.NewManual(0) } { try After(1h) { n } == n } }`,
+	"trace InnerSpanShadows":              `InnerSpanShadows(outer string, inner string) { with Span(outer) { with Span(inner) { Current() == Some[string]{Value: inner} } } }`,
+	"trace SpanEndRestores":               `SpanEndRestores(name string) { let before = Current() with Span(name) { Current() } Current() == before }`,
 }
 
 // lawsPassed is the lawledger checks of a test build's run: the law of
@@ -332,7 +332,7 @@ import log
 func run() fails queue.Closed | timeout.Expired needs Console | Scheduler {
 	let q = queue.New[int](1)
 	try q.Push(1)
-	q.Close()
+	q.CloseSend()
 	let t = task.Go() { try q.Pop() }
 	let v = try t.Wait()
 	scope.OnExit() { Console.Println("exit") }
@@ -372,7 +372,7 @@ func TestStdLawsAddNoGo(t *testing.T) {
 	if got != string(want) {
 		t.Errorf("the Go of a program that imports the std packages with laws changed:\n%s", lineDiff(string(want), got))
 	}
-	for _, law := range []string{"FirstInFirstOut", "CloseKeepsValues", "CloseIsIdempotent", "PushAfterCloseFails", "WaitReturnsTheBlock", "StopIsIdempotent", "QuickBodyWins", "DeadlineFirstExpires", "ActionsRunLastFirst", "InnerSpanShadows", "SpanEndRestores", "InnerAnnotationShadows", "AnnotationEndRestores", "IntNInRange", "Float64InUnit"} {
+	for _, law := range []string{"FirstInFirstOut", "CloseSendKeepsValues", "CloseSendIsIdempotent", "PushAfterCloseSendFails", "WaitReturnsTheBlock", "StopIsIdempotent", "QuickBodyWins", "DeadlineFirstExpires", "ActionsRunLastFirst", "InnerSpanShadows", "SpanEndRestores", "InnerAnnotationShadows", "AnnotationEndRestores", "IntNInRange", "Float64InUnit"} {
 		if strings.Contains(got, law) {
 			t.Errorf("the Go names the law %s", law)
 		}

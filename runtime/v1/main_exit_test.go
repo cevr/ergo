@@ -53,7 +53,7 @@ func TestMainHelper(t *testing.T) {
 			sleepUntilStopped(root)
 		case "closed":
 			q := New[int](1)
-			q.Close()
+			q.CloseSend()
 			return q.Push(root, 1)
 		}
 		return nil
