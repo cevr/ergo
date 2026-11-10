@@ -33,6 +33,23 @@ test ThreeJobsTwoWorkers {
 	assert kind(rs[2].Out) == "gave up after 3: try 3 of c timed out; no tries left"
 }
 
+// Two workers drain one closed queue of two jobs. In every order of their
+// steps each job runs once, on a worker of the pool, and no worker fails
+// on the drained queue. The program's explored file has the explore leg
+// search this test's schedules, so a race between the two workers' takes
+// is a failing schedule, not a rare flake.
+test TwoWorkersDrainTheQueue {
+	let c = sched.Config{Workers: 2, Policy: jobs.Policy{Attempts: 1, Base: 0s, Max: 0s}, Burst: 2, Every: 0s}
+	let js = []jobs.Job{jobs.Job{ID: 1, Name: "a", Takes: 0s, Flaky: 0, Fatal: false}, jobs.Job{ID: 2, Name: "b", Takes: 0s, Flaky: 0, Fatal: false}}
+	let rs = try with context { jobs.Worker: jobs.Script, Scheduler: testing.NewVirtualClock(0) } { Run(c, js) }
+	assert len(rs) == 2
+	for i, r in rs {
+		assert r.ID == i+1
+		assert kind(r.Out) == "done after 1"
+		assert r.Worker >= 1 && r.Worker <= 2
+	}
+}
+
 test NoJobLostHolds(c int, ns []int) {
 	let rs = try pooled(c, ns)
 	assert len(rs) == len(ns)

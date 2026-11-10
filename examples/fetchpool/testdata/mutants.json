@@ -2,6 +2,14 @@
   "about": "fetchpool's application mutants; each is judged by the example's laws, generated test and CLI case, not by a compiler test.",
   "mutants": [
     {
+      "name": "x8-fetchpool-admit-reads-then-writes", "origin": "wf10/explorer/x8 (explored schedules)",
+      "file": "examples/fetchpool/memory/fetch.ergo",
+      "from": "\tsync.Modify(l.left, func(n int) (bool, int) {\n\t\tif n > 0 { (true, n - 1) } else { (false, n) }\n\t})",
+      "to": "\tlet n = l.left.Get()\n\tif n > 0 {\n\t\tl.left.Set(n - 1)\n\t}\n\tn > 0",
+      "rule": "Admission takes one unit of the budget in one step; a read and a later write let two workers take the same unit. Only the explore leg (TwoWorkersShareTheBudget) finds it; the plain tests and Limiter.AdmissionSpendsOne pass it.",
+      "anchor": {"tests": ["examples:fetchpool"]}, "killers": ["examples:fetchpool"]
+    },
+    {
       "name": "X-L8 read changes on a repeated lend", "origin": "X-L8 Conn contract",
       "file": "examples/fetchpool/memory/fetch.ergo",
       "from": "\"data-\\(c.id)\"", "to": "sync.Modify(c.log, func(xs []string) (string, []string) { (\"data-\\(c.id + len(xs))\", xs.Append(\"read\")) })",

@@ -85,6 +85,8 @@ type program struct {
 	main   string
 	tests  []string
 	cases  []*testCase
+	// explored are the lines of its explored file (explored.go).
+	explored []explored
 }
 
 func (p *program) tagged(tag string) bool { return slices.Contains(p.tags, tag) }
@@ -269,7 +271,7 @@ func loadProgram(dir, name string, record bool) (*program, []string) {
 			if !entry.IsDir() {
 				problem("%s is not a folder", file)
 			}
-		case file == "main.ergo" || file == "README.md" || file == "tags" || file == "origin" || file == "record.sh" || file == expectedSkipsFile || strings.HasSuffix(file, ".ergo"):
+		case file == "main.ergo" || file == "README.md" || file == "tags" || file == "origin" || file == "record.sh" || file == expectedSkipsFile || file == exploredFile || strings.HasSuffix(file, ".ergo"):
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 				continue
@@ -278,7 +280,7 @@ func loadProgram(dir, name string, record bool) (*program, []string) {
 				p.sources = append(p.sources, filepath.Join(dir, file))
 			}
 		default:
-			problem("unexpected %s; a program folder holds main.ergo, README.md, tags and cases/, and may hold origin with record.sh, expected-skips, testdata/ and other .ergo files", file)
+			problem("unexpected %s; a program folder holds main.ergo, README.md, tags and cases/, and may hold origin with record.sh, expected-skips, explored, testdata/ and other .ergo files", file)
 		}
 	}
 	if !present["main.ergo"] {
@@ -306,7 +308,7 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			if !entry.IsDir() {
 				problem("%s is not a folder", file)
 			}
-		case file == "ergo.mod" || file == "README.md" || file == "tags" || file == "origin" || file == "record.sh" || file == expectedSkipsFile || strings.HasSuffix(file, ".ergo"):
+		case file == "ergo.mod" || file == "README.md" || file == "tags" || file == "origin" || file == "record.sh" || file == expectedSkipsFile || file == exploredFile || strings.HasSuffix(file, ".ergo"):
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 				continue
@@ -320,7 +322,7 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			}
 			problems = append(problems, packageSources(p, filepath.Join(p.dir, file), file)...)
 		default:
-			problem("unexpected %s; a program of packages holds ergo.mod, cmd/%s/main.ergo, package folders, README.md, tags and cases/, and may hold origin with record.sh, expected-skips and testdata/", file, p.name)
+			problem("unexpected %s; a program of packages holds ergo.mod, cmd/%s/main.ergo, package folders, README.md, tags and cases/, and may hold origin with record.sh, expected-skips, explored and testdata/", file, p.name)
 		}
 	}
 	if !present["cmd"] {
@@ -408,6 +410,11 @@ func finishProgram(p *program, present map[string]bool, problems []string, recor
 		}
 	}
 	slices.Sort(p.tests)
+	if present[exploredFile] {
+		lines, found := readExplored(p)
+		problems = append(problems, found...)
+		p.explored = lines
+	}
 	if present["cases"] {
 		cases, found := loadCases(filepath.Join(dir, "cases"), record)
 		problems = append(problems, found...)
@@ -640,6 +647,7 @@ func (r *runner) runProgram(p *program) {
 		return
 	}
 	r.testProgram(p)
+	r.exploreProgram(p)
 	for _, c := range p.cases {
 		r.runCase(p, c, []string{binary}, true)
 	}

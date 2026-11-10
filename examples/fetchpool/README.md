@@ -49,6 +49,18 @@ laws and this composed example catch. The CLI case fixes the deterministic
 single-worker release order; multi-worker tests require counts and a
 completed limiter boundary, not an order between independent workers.
 
+## Explored schedules
+
+`TwoWorkersShareTheBudget` runs two workers on a budget of two. The
+`explored` file has the examples gate search its schedules with
+`ergo test cmd/fetchpool --run TwoWorkersShareTheBudget --explore dfs
+--preempt 1`, which proves it for one preemption. A limiter whose `Admit`
+reads the budget and then writes it (`testdata/mutants.json`, X8) admits a
+third download in the 20th schedule; the plain tests, the generated
+property and the `Limiter` law all pass it. The report names each handle
+by its Ergo call (`read on sync.NewRef at memory/fetch.ergo:39:14`) and
+prints a `--schedule` command that replays the failure.
+
 ## Limit found
 
 An implicit conversion from a concrete resource argument to a lending

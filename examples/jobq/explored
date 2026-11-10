@@ -1,0 +1,4 @@
+# The explore leg searches these tests' schedules (scripts/examples, explored.go).
+# Two workers take from one closed queue: every order of one preemption
+# runs each job once (testdata/mutants.json: "a worker checks Len, then pops").
+pool TwoWorkersDrainTheQueue --explore dfs --preempt 1

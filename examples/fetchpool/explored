@@ -1,0 +1,4 @@
+# The explore leg searches these tests' schedules (scripts/examples, explored.go).
+# Two workers' admissions race on the shared limiter: every order of one
+# preemption keeps the budget (testdata/mutants.json: "admission reads then writes").
+cmd/fetchpool TwoWorkersShareTheBudget --explore dfs --preempt 1
