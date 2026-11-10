@@ -6,13 +6,14 @@ import (
 	"math/big"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/runtime/testgen"
 )
 
 const (
 	TypeCap = 256
 	CaseCap = 4096
 	Cases   = 100
-	Depth   = 4
+	Depth   = testgen.Depth
 )
 
 // Value is a member of a finite domain. Scalar holds a bool or a decimal

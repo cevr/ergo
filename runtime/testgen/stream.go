@@ -2,6 +2,9 @@
 // executables and the compiler's bounded evaluator. It has no compiler imports.
 package testgen
 
+// Depth is the initial structural generator depth, shared with case plans.
+const Depth = 4
+
 // Stream is splitmix64, mixed with the run's full binding label. Start changes
 // the size and case world, never the random state. Charge, when set, is called
 // before each draw and allocation; a bounded caller may unwind from it.
@@ -134,7 +137,7 @@ func (r *Stream) StrLen(n int) string {
 }
 func (r *Stream) Limit(d int) int {
 	n := r.size
-	for k := d; k < 4 && n > 0; k++ {
+	for k := d; k < Depth && n > 0; k++ {
 		n /= 2
 	}
 	return n
