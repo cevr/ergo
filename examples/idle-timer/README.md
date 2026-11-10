@@ -54,7 +54,7 @@ The program is a module of packages (`ergo.mod`: `module idletimer`), in the Go 
   - `AdminNeedsFiveQuickTaps`
 
   The contract `kiosk.Policies` has two member laws, `EveryPolicyChecks` and `UnlistedIsNoSuchKiosk`. The survey's `StaleTimerNeverSteps` is a rule of the runner, not of this machine: std `machines` holds it (V5, `TestMachineRunAgreesWithFold`), and no edit of this program can break it. `LiveEqualsFold` waits for the live runner (MU3).
-- **Tests.** The laws are the tests. `kiosk/tests.ergo` has one timed run, `KioskRun`. `ergo test` runs the two `Policies` laws in `memory` against `Fixed`, and `memory/tests.ergo` calls their functions on the program's table.
+- **Tests.** The laws are the tests. `kiosk/tests.ergo` has one timed run, `KioskRun`. `ergo test` runs the two `Policies` laws in `memory` against `Fixed`, and again under `Tables`, the named context `memory/tests.ergo` binds (laws under a context, L5). Its two tests pass `Tables` as a `Context[kiosk.Policies]` value to a helper, `within`, which installs it with `with w { … }` and so needs nothing itself, and call the laws' functions on the program's table.
 
 ## Limits found
 
