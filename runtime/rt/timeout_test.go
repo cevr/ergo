@@ -97,7 +97,7 @@ func TestAfterStopsAndDrainsChild(t *testing.T) {
 		var log []string
 		record := func(s string) { mu.Lock(); log = append(log, s); mu.Unlock() }
 		h := afterCase(&s, v, func(task *Task) (int, error) {
-			return Scoped(task, func(s *Scope) (int, error) {
+			return Scoped(task, nil, func(s *Scope) (int, error) {
 				s.Defer(func() { record("child released") })
 				<-task.Done()
 				return 0, errBody // abandoned work: normalized

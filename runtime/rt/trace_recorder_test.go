@@ -151,7 +151,7 @@ func TestTracePanickingTracerIsDisabled(t *testing.T) {
 	root := rt.TracedRoot("app.main", p)
 	released := 0
 	_, err := rt.Run(root, func(t0 *rt.Task) (struct{}, error) {
-		return rt.Scoped(t0, func(s *rt.Scope) (struct{}, error) {
+		return rt.Scoped(t0, nil, func(s *rt.Scope) (struct{}, error) {
 			s.Defer(func() { released++ })
 			t0.Trace(rt.TraceConstruct, "app.Live", "app.sketch:3:2")
 			return struct{}{}, nil

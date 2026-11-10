@@ -42,7 +42,7 @@ func equalFailures(t *testing.T, children bool, mk func() error) ([]rttrace.Reco
 			}
 			return struct{}{}, c.Err()
 		}
-		_, err := rt.Scoped(t0, func(s *rt.Scope) (struct{}, error) {
+		_, err := rt.Scoped(t0, nil, func(s *rt.Scope) (struct{}, error) {
 			var hs [2]*rt.Handle[struct{}]
 			for i := range hs {
 				hs[i] = rt.Go(s, "app.child", func(ct *rt.Task) (struct{}, error) {

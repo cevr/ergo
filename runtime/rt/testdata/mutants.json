@@ -1,0 +1,41 @@
+{
+  "about": "L8 B5 Scoped result-release mutants; runtime tests run in process. The standard mutant runner currently measures compiler suites only; the unit's runtime runner applies each edit in a scratch copy.",
+  "mutants": [
+    {
+      "name": "L8-B5-scoped-result-lost",
+      "origin": "L8 B5",
+      "file": "runtime/rt/scope.go",
+      "from": "if returned && release != nil {",
+      "to": "if false && returned && release != nil {",
+      "rule": "Gap 47: a discarded successful result is released once",
+      "killers": ["rt:TestScopedResultReleaseModel"]
+    },
+    {
+      "name": "L8-B5-scoped-failed-candidate",
+      "origin": "L8 B5",
+      "file": "runtime/rt/scope.go",
+      "from": "returned = err == nil",
+      "to": "returned = true",
+      "rule": "A failed body has no valid result",
+      "killers": ["rt:TestScopedResultReleaseModel"]
+    },
+    {
+      "name": "L8-B5-scoped-unmasked",
+      "origin": "L8 B5",
+      "file": "runtime/rt/scope.go",
+      "from": "m := t.Mask()\n\t\t\t\ts.runRelease(entry{run: closeWith[T]{release}, v: left}, &c)\n\t\t\t\tm.Unmask()",
+      "to": "s.runRelease(entry{run: closeWith[T]{release}, v: left}, &c)",
+      "rule": "R9: result releases are masked",
+      "killers": ["rt:TestScopedResultReleaseModel"]
+    },
+    {
+      "name": "L8-B5-scoped-defect-lost",
+      "origin": "L8 B5",
+      "file": "runtime/rt/scope.go",
+      "from": "err = c.Err()",
+      "to": "_ = c.Err()",
+      "rule": "R9: a result-release defect joins the failed exit",
+      "killers": ["rt:TestScopedResultReleaseModel"]
+    }
+  ]
+}

@@ -47,7 +47,7 @@ func TestAcquireInsideProtectedCleanup(t *testing.T) {
 						return h.Wait()
 					}
 					releaseWithAcquire := func() (int, error) {
-						return Scoped(task, func(s *Scope) (int, error) {
+						return Scoped(task, nil, func(s *Scope) (int, error) {
 							s.Defer(func() {
 								local := NewScope(task)
 								defer local.End(nil)
@@ -66,9 +66,9 @@ func TestAcquireInsideProtectedCleanup(t *testing.T) {
 					var err error
 					restore.Interruptible(func() {
 						if nesting == "restore then acquire then release" {
-							_, err = Scoped(task, func(s *Scope) (int, error) {
+							_, err = Scoped(task, nil, func(s *Scope) (int, error) {
 								return Acquire(s, func() (int, error) {
-									return Scoped(task, func(inner *Scope) (int, error) {
+									return Scoped(task, nil, func(inner *Scope) (int, error) {
 										inner.Defer(func() {
 											local := NewScope(task)
 											defer local.End(nil)
@@ -120,7 +120,7 @@ func TestDeepMasksKeepCleanup(t *testing.T) {
 		for range 65535 {
 			masks = append(masks, task.Mask())
 		}
-		return Scoped(task, func(s *Scope) (int, error) {
+		return Scoped(task, nil, func(s *Scope) (int, error) {
 			s.Defer(func() { closed = true })
 			return 0, errBody
 		})
