@@ -309,6 +309,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"NewJSONText":        {},
 	"JSONOpen":           {},
 	"TOMLParse":          {},
+	"TOMLFromJSON":       {},
 	"JSONTake":           {},
 	"NewJSONHTMLText":    {},
 	"Text.Null":          {task: true},
@@ -362,9 +363,19 @@ var runtimeBindings = map[string]runtimeBinding{
 	"RPCExactUint": {},
 	// std os (G2; stdlib.md, host packages): bodies that read the host
 	// process and neither wait nor release.
-	"OSArgs":   {},
-	"OSHasEnv": {},
-	"OSGetenv": {},
+	"OSArgs":    {},
+	"OSHasEnv":  {},
+	"OSGetenv":  {},
+	"OSEnviron": {},
+	// std config (S-config; stdlib.md, config): a secret's constructor
+	// and its one read, and the pure names of a key, none of which waits
+	// or releases.
+	"NewRedacted":     {},
+	"Redacted.Reveal": {},
+	"ConfigFlagName":  {},
+	"ConfigEnvName":   {},
+	"ConfigFlagKey":   {},
+	"ConfigEnvKey":    {},
 	// std fs (G4, G4b; stdlib.md, fs): bodies that read or write the host
 	// file system and neither wait nor release.
 	"FSReadFile":  {},

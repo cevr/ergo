@@ -32,6 +32,7 @@ import (
 //go:embed v1/sync.go v1/set.go
 //go:embed v1/path.go v1/numbers.go v1/digest.go v1/goerror.go v1/csv.go
 //go:embed v1/exec.go v1/exec_exit_kqueue.go v1/exec_exit_linux.go
+//go:embed v1/redacted.go v1/redacted_text.go v1/config_names.go v1/toml_encode.go
 var sources embed.FS
 
 // Module is the path of the runtime's Go module, which an emitted module
@@ -54,7 +55,7 @@ var packages = map[string]pkg{
 		files: []string{"cause.go", "clock.go", "doc.go", "handle.go", "idle.go", "machine.go", "regions.go", "run.go", "scope.go", "task.go", "tasks.go", "timeout.go", "trace.go", "values.go"},
 	},
 	"runtime/v1": {
-		files:   []string{"actor.go", "actor_host.go", "actor_trace.go", "collections.go", "context.go", "csv.go", "data.go", "digest.go", "exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exit.go", "goerror.go", "host.go", "http.go", "http_client.go", "http_network.go", "json.go", "mailbox.go", "numbers.go", "path.go", "queue.go", "rand.go", "rpc.go", "runtime.go", "set.go", "sync.go", "task.go", "term.go", "term_darwin.go", "term_linux.go", "term_unix.go", "text.go", "time.go", "timetext.go", "toml.go", "trace.go", "wire.go"},
+		files:   []string{"actor.go", "actor_host.go", "actor_trace.go", "collections.go", "config_names.go", "context.go", "csv.go", "data.go", "digest.go", "exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exit.go", "goerror.go", "host.go", "http.go", "http_client.go", "http_network.go", "json.go", "mailbox.go", "numbers.go", "path.go", "queue.go", "rand.go", "redacted.go", "redacted_text.go", "rpc.go", "runtime.go", "set.go", "sync.go", "task.go", "term.go", "term_darwin.go", "term_linux.go", "term_unix.go", "text.go", "time.go", "timetext.go", "toml.go", "toml_encode.go", "trace.go", "wire.go"},
 		imports: []string{"runtime/rt", "runtime/rt/rttrace"},
 	},
 	"runtime/rt/rttrace": {

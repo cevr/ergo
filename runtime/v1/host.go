@@ -65,6 +65,31 @@ func OSHasEnv(key string) bool {
 //ergo:host
 func OSGetenv(key string) string { return os.Getenv(key) }
 
+// OSEnviron is the body of config.Host's Environ: each variable of the
+// environment whose name starts with prefix, as "NAME=VALUE", sorted by
+// name, in a fresh slice. A variable set twice is given once, with the
+// value Go's os.Getenv reads.
+//
+//ergo:host
+func OSEnviron(prefix string) []string {
+	names := []string{}
+	seen := map[string]bool{}
+	for _, kv := range os.Environ() {
+		name, _, ok := strings.Cut(kv, "=")
+		if !ok || name == "" || !strings.HasPrefix(name, prefix) || seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	out := make([]string, len(names))
+	for i, name := range names {
+		out[i] = name + "=" + os.Getenv(name)
+	}
+	return out
+}
+
 // The bodies of std fs (docs/spec/stdlib.md, fs). Each reads or writes
 // the host file system and returns one of the three failures below, so
 // none is pure. No body keeps a file open after it returns.
