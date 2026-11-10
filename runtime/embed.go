@@ -27,7 +27,7 @@ import (
 //go:embed v1/host.go v1/term.go v1/term_unix.go v1/term_linux.go v1/term_darwin.go
 //go:embed v1/http.go v1/http_client.go v1/http_network.go
 //go:embed v1/collections.go
-//go:embed v1/time.go v1/timetext.go v1/wire.go v1/json.go v1/rpc.go
+//go:embed v1/time.go v1/timetext.go v1/wire.go v1/json.go v1/toml.go v1/rpc.go
 //go:embed v1/rand.go
 //go:embed v1/sync.go v1/set.go
 //go:embed v1/path.go v1/numbers.go v1/digest.go v1/goerror.go v1/csv.go
@@ -54,7 +54,7 @@ var packages = map[string]pkg{
 		files: []string{"cause.go", "clock.go", "doc.go", "handle.go", "idle.go", "machine.go", "regions.go", "run.go", "scope.go", "task.go", "tasks.go", "timeout.go", "trace.go", "values.go"},
 	},
 	"runtime/v1": {
-		files:   []string{"actor.go", "actor_host.go", "actor_trace.go", "collections.go", "context.go", "csv.go", "data.go", "digest.go", "exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exit.go", "goerror.go", "host.go", "http.go", "http_client.go", "http_network.go", "json.go", "mailbox.go", "numbers.go", "path.go", "queue.go", "rand.go", "rpc.go", "runtime.go", "set.go", "sync.go", "task.go", "term.go", "term_darwin.go", "term_linux.go", "term_unix.go", "text.go", "time.go", "timetext.go", "trace.go", "wire.go"},
+		files:   []string{"actor.go", "actor_host.go", "actor_trace.go", "collections.go", "context.go", "csv.go", "data.go", "digest.go", "exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exit.go", "goerror.go", "host.go", "http.go", "http_client.go", "http_network.go", "json.go", "mailbox.go", "numbers.go", "path.go", "queue.go", "rand.go", "rpc.go", "runtime.go", "set.go", "sync.go", "task.go", "term.go", "term_darwin.go", "term_linux.go", "term_unix.go", "text.go", "time.go", "timetext.go", "toml.go", "trace.go", "wire.go"},
 		imports: []string{"runtime/rt", "runtime/rt/rttrace"},
 	},
 	"runtime/rt/rttrace": {

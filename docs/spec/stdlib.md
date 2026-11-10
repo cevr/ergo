@@ -592,6 +592,49 @@ comparison, not an HTTP implementation claim. Effect HttpServer supplies
 the scoped-server intent; Ergo takes ordinary functions and checked rows
 instead of runtime tags, Effect instructions and middleware composition.
 
+## toml
+
+`toml.Decode(c json.Codec[T], text string) T fails toml.Malformed | wired[T]`
+reads TOML 1.0 through the same derived codec as `json`. `toml.Open(text,
+maxBytes, maxDepth)` returns a `json.Reader` for `decode[T]`. No encoding
+API is provided (CU7).
+
+1. The whole document is validated before a value is decoded. Syntax and
+   limit failures are `Malformed{Line, Key, Reason}`: a 1-based source line,
+   the dotted key being read, and the failed rule. Derived shape, refinement
+   and `ParseX` failures retain the shared codec's typed rows and paths.
+2. Field naming, unknown-field skipping, maps, slices, unions (an explicit
+   `_tag` key) and refinements are the shared codec's rules. TOML has no
+   null; absence is an omitted `json.Optional` field, not a new null value.
+3. Integers are signed 64-bit; dates and times map to canonical strings
+   (upper-case T/Z, fractions trimmed to nanosecond precision). Floats
+   use float64 and json's `NaN`/`Infinity`/`-Infinity` strings. Input is UTF-8.
+   Tables, arrays of tables, dotted and quoted keys, inline tables, and
+   basic/literal/multiline strings follow TOML 1.0. Duplicate keys and
+   redefinitions fail, not last-wins as JSON does.
+4. MaxBytes bounds the input, and MaxDepth bounds nested values and key
+   paths. Nonpositive limits mean no byte bound and depth 10000. Parsing
+   keeps a tree then writes validated JSON for the existing Reader. This
+   costs an extra tree/text pass; direct Reader events are a follow-up.
+   No speed or parity claim is made.
+
+Intent and prior art: Effect `ConfigProvider` reads external configuration
+into typed values; Ergo uses the declared record and derivation, not Config
+builders, Schema classes, service tags or tagged runtime error trees (W4,
+W5, W6). Go has no standard TOML decoder; BurntSushi/toml parses tables
+then decodes into Go values. Gleam `tom` decodes a TOML value with typed
+decoder functions; Elixir `toml` returns maps and date/time structs;
+ReScript uses host libraries. These are ordinary library calls lowered
+to Erlang/JavaScript or BEAM, not compiler-known TOML operations. Ergo adds
+no checker or lowering branch: its parser is a Go runtime body and its
+decoder is the existing Reader derivation.
+
+Acceptance: `runtime/v1.TestTOMLCorpus` reads the public toml-test 1.0
+selection at `96fd0884`, with upstream license and byte-exact data in
+`runtime/v1/testdata/toml-test`. `TestTOMLDecode` runs the generated-record
+law through the public derived decoder; `TestTOMLFailuresNameLineAndKey`
+checks the diagnostic source location. These are tests, not proofs.
+
 ## Std laws
 
 HTTP's transport lifetime runs in `runtime/v1.TestHTTPConcurrentRequestsAndStop`
@@ -610,6 +653,7 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 
 | Package | Law | Statement | Runner | State |
 | --- | --- | --- | --- | --- |
+| `toml` | `ReadsGeneratedRecord` | `ReadsGeneratedRecord(name string, count int64, active bool, steps []int64) { if !utf8.ValidString(name) { return true } let sc = json.Codec[string]{MaxBytes: 0, MaxDepth: 0} let nc = json.Codec[int64]{MaxBytes: 0, MaxDepth: 0} let bc = json.Codec[bool]{MaxBytes: 0, MaxDepth: 0} let lc = json.Codec[[]int64]{MaxBytes: 0, MaxDepth: 0} let quoted = strings.ReplaceAll(json.Encode(sc, name), "\x7f", "\\u007f") let text = "name = " + quoted + "\ncount = " + json.Encode(nc, count) + "\nactive = " + json.Encode(bc, active) + "\nsteps = " + json.Encode(lc, steps) + "\n" let back = Decode(json.Codec[sample]{MaxBytes: 0, MaxDepth: 0}, text) catch { case _: return false } back == sample{Name: name, Count: count, Active: active, Steps: steps} }` | `TestTOMLDecode` | tested |
 | `http` | `BuiltPathMatches` | `BuiltPathMatches(a string, b string) { if a == "" \|\| b == "" \|\| strings.Contains(a, "/") \|\| strings.Contains(b, "/") { return true } let route = Route{Value: "pair", Method: "GET", Path: "/:a/:b"} match Match([]Route[string]{route}, "GET", "/"+a+"/"+b) { case Found as f: f.Route == route && f.Params.Get("a") == Some{a} && f.Params.Get("b") == Some{b} case NotFound, MethodNotAllowed: false } }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `AllowIsWhatMatches` | `AllowIsWhatMatches(picks []int, asked int) { let methods = []string{"GET", "HEAD", "POST", "PUT", "DELETE"} let pick = func(i int) string { methods[if i < 0 { -(i % len(methods)) } else { i % len(methods) }] } let mut routes = []Route[int]{} for i, p in picks { routes = routes.Append(Route{Value: i, Method: pick(p), Path: "/r/:id"}) } match Match(routes, pick(asked), "/r/7") { case Found, NotFound: true case MethodNotAllowed as m: for i, a in m.Allow { if slices.Contains(m.Allow[i+1:], a) { return false } } for name in methods { let found = match Match(routes, name, "/r/7") { case Found: true case NotFound, MethodNotAllowed: false } if found != slices.Contains(m.Allow, name) { return false } } true } }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `FilesAsksBeneath` | `FilesAsksBeneath(steps []int, prefixed bool) { let mut rest = "" let mut dotdot = false for i, s in steps { let e = fileSegment(s) dotdot = dotdot \|\| e == ".." rest = if i == 0 { e } else { rest + "/" + e } } let path = if prefixed { "/static/" + rest } else { "/" + rest } let method = if len(steps)%2 == 0 { "GET" } else { "HEAD" } let root = filesProbe{paths: sync.NewRef[[]string]([]string{})} let response = Files(root, "/static/", Request{Method: method, Path: path, Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}) let asked = root.paths.Get() if len(asked) > 1 \|\| (dotdot \|\| !prefixed) && len(asked) != 0 { return false } for p in asked { if strings.HasPrefix(p, "/") { return false } for e in strings.Split(p, "/") { if e == "" \|\| e == "." \|\| e == ".." { return false } } } response.Status == 200 \|\| response.Status == 403 \|\| response.Status == 404 }` | `TestStdHTTPLawsRun` | tested |
@@ -929,6 +973,7 @@ The table has one row per std package, the prelude included. The Effect module i
 | `trace` | `Tracer.ts` | W12 | a context value bound by `with trace.Span(…)` ([runtime.md, G1](runtime.md#g1-context-through-with)) | none: a read is one `runtime/v1` context lookup; no benchmark yet |
 | `utf8` | `String.ts` | W2, W3, W10 | data-first pure functions; Go's two results of `DecodeRuneInString` as the record `Decoded`, where Effect's `String` has no rune decoder and JavaScript's `codePointAt` gives `undefined` past the end ([strings and strconv](#strings-and-strconv) 8; [Pure bodies](#pure-bodies)) | `runtime/v1.BenchmarkText`: `RuneCount` 87.1 ns against Go 87.4 ns (run dir `wf10/batch-10/s1/s1c/bench-summary.txt`); `runtime/v1.BenchmarkUTF8Decode` (a `Decoded` record against Go's two results): pending in `wf10/batch-12/S/bench-pending.md` |
 | `codec` | `Schema.ts` (`encode`, `decode`, `ParseResult` issues) | W5, W6, W7, W9 | no Schema value: the codec is derived from the declared type by the predeclared `encode(v, w)` and `decode[T](r)` over the prelude's `Writer` and `Reader` events ([types.md, Codecs](types.md#codecs)); decode's row is the union of what the type reaches (`WireWrongKind`, `WireMissingField`, `WireUnknownTag`, `Unsatisfied`, each `ParseX`'s row); `Events` and `Replay` record and replay the events, and its laws hold the round trip | none: the events are a test's record; the format-specialised path is std json's (its row) |
+| `toml` | `ConfigProvider.ts` (external typed configuration; no TOML parser in Effect core) | W4, W5, W6 | declared records and the shared codec derivation, typed `Malformed` and `wired[T]` rows, not Config/Schema builders ([toml](#toml)) | `runtime/v1.BenchmarkTOMLParse`: parse-only baseline; no measured parity. Hand-Go control: the same parser followed by encoding/json into an equivalent Go config record; generated decoder/control comparison pending in `wf10/cli-units/cu7/bench-pending.md`. Current tree plus JSON transcode costs an extra pass; direct Reader events are the follow-up. |
 | `json` | `Schema.ts` (`parseJson`, `encode`, `decode`), `JSON.parse`/`JSON.stringify` | W5, W6, W7, W9 | `Codec[T wire]{MaxBytes, MaxDepth}` over the derived codec ([types.md, Codecs](types.md#codecs)) with `Encode` (cannot fail) and `Decode` (`fails Malformed \| wired[T]`: phase 1 checks the whole text, phase 2 is the derived `decode[T]` with each failure's path); `Text` is a `Writer`, `Reader` a `Reader`; the law `FastAgreesWithWriter` holds the compiler's fast path to the Writer path | `internal/sketch/lower.BenchmarkJSON` (a 1 KB deploy record against `encoding/json` and `encoding/json/v2` over hand structs with the same keys): encode writes bytes with no interface call per event (`lower/wirejson.go`), 7 allocations to Go's 8; decode is the Reader interface path, 97 allocations to Go's 30 (an `Env` per adapter call); ratios bench-pending on a quiet host (S-json bench-pending.md) |
 
 *Prior art:* ReScript makes pipe-first `->` a plain call and uncurries by default (W2, W3); Elixir's `|>` is a macro and `with` chains the happy path (W1, W2), and `@derive` generates protocol code (W7, W8); Gleam's `use` replaces callbacks with plain lines and its `Result` replaces exceptions (W1, W5), with no type classes (W16); Roc and MoonBit derive equality, hashing and codecs (W7, W8), and Roc gives each host effect as a platform capability (W4, W18); Elm has no derivation and writes decoders by hand, the shape W7 and W17 avoid; Koka's evidence passing makes a tail-resumptive handler a direct call, as Ergo's environment of capabilities does (W14).

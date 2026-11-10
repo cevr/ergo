@@ -308,6 +308,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	// body waits or releases.
 	"NewJSONText":        {},
 	"JSONOpen":           {},
+	"TOMLParse":          {},
 	"JSONTake":           {},
 	"NewJSONHTMLText":    {},
 	"Text.Null":          {task: true},

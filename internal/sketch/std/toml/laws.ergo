@@ -1,0 +1,24 @@
+import json
+import strings
+import utf8
+
+type sample { Name string, Count int64, Active bool, Steps []int64 }
+
+// TOML has no byte strings. This family law quantifies over UTF-8 labels;
+// the corpus separately covers every TOML 1.0 scalar and table form.
+law ReadsGeneratedRecord(name string, count int64, active bool, steps []int64) {
+	if !utf8.ValidString(name) {
+		return true
+	}
+	let sc = json.Codec[string]{MaxBytes: 0, MaxDepth: 0}
+	let nc = json.Codec[int64]{MaxBytes: 0, MaxDepth: 0}
+	let bc = json.Codec[bool]{MaxBytes: 0, MaxDepth: 0}
+	let lc = json.Codec[[]int64]{MaxBytes: 0, MaxDepth: 0}
+	let quoted = strings.ReplaceAll(json.Encode(sc, name), "\x7f", "\\u007f")
+	let text = "name = " + quoted + "\ncount = " + json.Encode(nc, count) + "\nactive = " + json.Encode(bc, active) + "\nsteps = " + json.Encode(lc, steps) + "\n"
+	let back = Decode(json.Codec[sample]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case _:
+		return false
+	}
+	back == sample{Name: name, Count: count, Active: active, Steps: steps}
+}

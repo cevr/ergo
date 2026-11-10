@@ -1,0 +1,41 @@
+// Package toml decodes TOML 1.0 through the same derived Reader contract
+// as json. A config record is declared once; ParseX, refinements, field
+// names and typed failures are those of decode[T], not a second schema.
+// There is no encoding API. Dates and times decode as canonical strings;
+// inf/nan use json's special-float mapping. Unknown fields are skipped.
+//
+// Effect ConfigProvider's intent is typed configuration from external
+// text. Ergo takes the intent, not its Config/Schema builders, tags or
+// runtime error trees: the record, its derivation and its failure row are
+// the contract. Go has no standard TOML package. The hand-Go control is
+// recursive-descent parsing followed by a typed record decoder. This
+// first version retains a parsed tree and transcodes it to JSON; direct
+// Reader events are a future cost improvement, not a parity claim.
+
+import json
+
+// Malformed names the line (from 1), dotted key and rule that fails.
+// Key is empty if no key has yet been read.
+type Malformed { Line int, Key string, Reason string }
+
+extern go ergo.local/prototype/runtime/v1.TOMLParse func parse(text string, maxBytes int, maxDepth int) string fails Malformed
+
+// Open validates the whole TOML document, within the supplied limits,
+// and returns a Reader for the ordinary derived decoder. Limits count
+// input bytes and value/table nesting; nonpositive limits mean no byte
+// limit and depth 10000, as json.Open does.
+func Open(text string, maxBytes int, maxDepth int) json.Reader fails Malformed {
+	let encoded = try parse(text, maxBytes, maxDepth)
+	json.Open(encoded, 0, 0) catch {
+	case json.Malformed:
+		Unreachable("validated TOML produced invalid JSON")
+	}
+}
+
+// Decode reads a record with the same codec used by json. Syntax failures
+// carry TOML's line/key; derived type/ParseX failures keep their paths and
+// their own typed failures in wired[T].
+func Decode[T wire](c json.Codec[T], text string) T fails Malformed | wired[T] {
+	let r = try Open(text, c.MaxBytes, c.MaxDepth)
+	try decode[T](r)
+}
