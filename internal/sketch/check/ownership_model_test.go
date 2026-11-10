@@ -163,7 +163,7 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 			}
 			return value(depth - 1)
 		}
-		switch rng.IntN(6) {
+		switch rng.IntN(8) {
 		case 0:
 			return "if cond(n) {\n" + arm() + "\n} else {\n" + arm() + "\n}"
 		case 1:
@@ -174,11 +174,22 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 			return "with context {} {\n" + arm() + "\n}"
 		case 5:
 			return "try tryBoth(n) catch {\ncase Bad:\n" + arm() + "\n}"
+		case 6:
+			return "tryHold(try tryOpen(n), n) catch {\ncase Bad:\n" + arm() + "\n}"
+		case 7:
+			return "try tryHold(tryOpen(n), n) catch {\ncase Bad:\n" + arm() + "\n}"
 		default:
+			target := "tryOpen(n)"
 			if rng.IntN(2) == 0 {
-				return "tryHold(open(4), n) catch {\ncase Bad:\n" + arm() + "\n}"
+				target = "tryHold(open(4), n)"
 			}
-			return "tryOpen(n) catch {\ncase Bad:\n" + arm() + "\n}"
+			switch rng.IntN(3) {
+			case 1:
+				target = "with context {} { " + target + " }"
+			case 2:
+				target = "with context {} { if cond(n) { try tryOpen(n) } else { " + target + " } }"
+			}
+			return target + " catch {\ncase Bad:\n" + arm() + "\n}"
 		}
 	}
 	x := value(1 + rng.IntN(3))
@@ -237,6 +248,14 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 					fail("use after release")
 				}
 			}
+		}
+		acquire := func(x syntax.Expr) *token {
+			v := &token{id: len(tokens) + 1}
+			tokens = append(tokens, v)
+			temps[x] = v
+			active[x] = true
+			events = append(events, "acquire")
+			return v
 		}
 		release := func(n syntax.Node) {
 			last := len(tokens) + 1
@@ -317,19 +336,18 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 				}
 				name := calleeText(x)
 				if name == "open" || name == "tryOpen" || name == "tryHold" || name == "tryBoth" {
+					var args []*token
 					for _, a := range x.Args {
-						expr(a)
+						args = append(args, expr(a))
+					}
+					for _, v := range args {
+						use(v)
 					}
 					if name != "open" && failure != nil && choose() {
 						release(failure)
 						panic(abort)
 					}
-					v := &token{id: len(tokens) + 1}
-					tokens = append(tokens, v)
-					temps[x] = v
-					active[x] = true
-					events = append(events, "acquire")
-					return v
+					return acquire(x)
 				}
 				for _, a := range x.Args {
 					v := expr(a)
@@ -360,23 +378,60 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 				cl := x.Clauses[0]
 				return result(x, cl, cl.Body)
 			case *syntax.CatchExpr:
-				if choose() {
-					for _, a := range x.X.(*syntax.CallExpr).Args {
-						expr(a)
+				target := x.X
+				wrappers := []syntax.Expr{x}
+				var ends []syntax.Node
+				if with, ok := target.(*syntax.CallExpr); ok && c.pkg.Info.Calls[with].Kind == CallWith {
+					wrappers = append(wrappers, with)
+					tail := with.Trailing.List[0]
+					if branch, ok := tail.(*syntax.IfStmt); ok {
+						wrappers = append(wrappers, branch)
+						b := branch.Body
+						if choose() {
+							b = branch.Else.(*syntax.BlockStmt)
+						}
+						tail = b.List[0]
+						ends = append(ends, tail, b, branch)
+					} else {
+						ends = append(ends, tail)
 					}
-					if calleeText(x.X.(*syntax.CallExpr)) == "tryBoth" && choose() {
+					target = tail.(*syntax.ExprStmt).X
+					ends = append(ends, with.Trailing)
+				}
+				finish := func(v *token) {
+					for _, e := range wrappers {
+						temps[e], active[e] = v, v != nil
+					}
+					for _, end := range ends {
+						release(end)
+					}
+				}
+				if _, tried := target.(*syntax.TryExpr); tried {
+					v := expr(target)
+					finish(v)
+					return v
+				}
+				call := target.(*syntax.CallExpr)
+				// Operands run before the caught call. Their tried failures
+				// escape the function, not into this catch (rows.md Catch 5).
+				var args []*token
+				for _, a := range call.Args {
+					args = append(args, expr(a))
+				}
+				for _, v := range args {
+					use(v)
+				}
+				if choose() {
+					finish(nil)
+					if calleeText(call) == "tryBoth" && choose() {
 						release(failure)
 						panic(abort)
 					}
 					a := x.Arms[0]
 					return result(x, a, a.Body)
 				}
-				saved := failure
-				failure = nil // this path chose the caught call's success
-				v := expr(x.X)
-				failure = saved
-				temps[x] = v
-				active[x] = true
+				v := acquire(call) // this path chose the caught call's success
+				finish(v)
 				return v
 			case *syntax.BinaryExpr:
 				expr(x.X)

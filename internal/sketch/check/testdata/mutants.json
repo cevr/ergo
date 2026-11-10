@@ -2,6 +2,33 @@
   "about": "The mutant ledger of internal/sketch/check: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants check; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
+      "name": "a2-try-keeps-catch-result-target",
+      "origin": "batch-15 round-5 A2 production-edge review",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "h.failed = nil // an explicit try escapes even in a caught value block",
+      "to": "_ = h.failed",
+      "rule": "An explicit try in one arm of a caught value block still escapes its function.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-catch-block-failure-target-lost",
+      "origin": "batch-15 round-5 A2 production-edge review",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "failed: t.failed",
+      "to": "failed: nil",
+      "rule": "A caught value block forwards its result failure, but not its operands, to the catch.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "a2-catch-operand-failure-swallowed",
+      "origin": "batch-15 round-5 A2 production-edge review",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.expr(x.X, mode, caught)",
+      "to": "old := w.onFailure; w.onFailure = caught.failed; w.expr(x.X, mode, caught); w.onFailure = old",
+      "rule": "A catch handles result failures; an operand's tried failure escapes the function.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
       "name": "a2-partial-failure-lost",
       "origin": "batch-15 round-5 A2 production invariant",
       "file": "internal/sketch/check/ownership.go",
@@ -32,8 +59,8 @@
       "name": "a2-failure-after-production",
       "origin": "batch-15 round-5 A2 M1",
       "file": "internal/sketch/check/ownership.go",
-      "from": "w.callFailure(x)\n\t\t\tw.produced(x, mode, h)",
-      "to": "w.produced(x, mode, h)\n\t\t\tw.callFailure(x)",
+      "from": "w.callFailure(x, h)\n\t\t\tw.produced(x, mode, h)",
+      "to": "w.produced(x, mode, h)\n\t\t\tw.callFailure(x, h)",
       "rule": "A failed call produces no value: release obligations start on success only.",
       "killers": ["check:TestOwnershipFlowModel"]
     },
@@ -41,7 +68,7 @@
       "name": "a2-failure-target-lost",
       "origin": "batch-15 round-5 A2 fail-safe rule",
       "file": "internal/sketch/check/ownership.go",
-      "from": "w.onFailure = func() { w.failure(x) }",
+      "from": "w.onFailure = func() { paths = append(paths, w.releases(w.first)) }",
       "to": "w.onFailure = nil",
       "rule": "Try covers every producing call in its operand, not only the final result.",
       "killers": ["check:TestOwnershipFlowModel"]
@@ -185,8 +212,8 @@
       "name": "a2-catch-failure-state-lost",
       "origin": "batch-15 round-4 A2 M1",
       "file": "internal/sketch/check/ownership.go",
-      "from": "w.onFailure = func() { w.failure(x.X) }",
-      "to": "w.onFailure = nil",
+      "from": "failed: func() { k.fails = append(k.fails, w.copyState(w.st)) }",
+      "to": "failed: nil",
       "rule": "A catch receives states at production failure, never a fabricated success state.",
       "killers": ["check:TestOwnershipFlowModel"]
     },

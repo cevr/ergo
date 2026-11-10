@@ -228,6 +228,7 @@ func keys() Map[Key, string] {
 4. **R41. Assignment releases the old value.** `r = open(2)` releases the value `r` held, where it still owns one, then owns the new one (D5). Status: **checked** (L8 A2, recorded at the assigned name); lowered by L8 B1.
 5. **R42. A discarded resource.** A call or literal whose resource value no one owns, as a statement (`open()`) or bound to `_` (`let _ = open()`), is an error (D4). A `let` local held only for its release is no unused local (S110). Status: **checked** (L8 A2).
 6. **R43. Temporaries.** A resource value lent where it is made, `lend(open())`, is owned by its statement and released at the statement's end, also on a failure edge inside the statement (D6). The release obligation starts at successful production, after the producing call or literal completes, never at a destination slot reserved for it. A failed `try` produces nothing: its edge releases earlier acquisitions and operand temporaries, but not the failed result. This is the same rule in operands, value arms and lending or taking arguments. Status: **checked** (L8 A2, recorded in the release plan); lowered by L8 B1.
+   Failure destinations follow [rows.md, Catch 5](rows.md#catch): a catch handles the result's failure, not a tried operand's failure. An explicit `try` in a caught value block still escapes its function. Both destinations observe the state before success production.
 
 ## Conversions
 

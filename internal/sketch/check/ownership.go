@@ -155,9 +155,9 @@ type ownWalk struct {
 	diags        []ownDiag
 	// tail is where the value of the block being walked goes (ownTail).
 	tail ownTail
-	// onFailure receives a fallible call's state after its operands and
-	// before its result exists. Try and catch install their failure target;
-	// a nested function frame starts with none.
+	// onFailure propagates tried failures out of this function, after a
+	// call's operands and before its result exists. A catch handles only
+	// result failures (hand.failed), never an operand's tried failure.
 	onFailure func()
 }
 
@@ -447,7 +447,9 @@ func (w *ownWalk) stmt(s syntax.Stmt) {
 	case *syntax.ExprStmt:
 		if _, tail := w.info.Tails[s]; tail {
 			t := w.tail
-			w.region(s, func() { w.expr(s.X, t.mode, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot}) })
+			w.region(s, func() {
+				w.expr(s.X, t.mode, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot, failed: t.failed})
+			})
 			return
 		}
 		w.region(s, func() { w.expr(s.X, mDiscard, hand{}) })
@@ -711,6 +713,7 @@ type hand struct {
 	how       string
 	lend      func(int, *syntax.Ident) // the root owners lent by this result
 	yieldRoot bool                     // this root is projected into an enclosing block result
+	failed    func()                   // the result's catch, not its operands' propagation target
 }
 
 func (w *ownWalk) nestedText() string {
@@ -887,10 +890,8 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 	case *syntax.TryExpr:
 		saved := w.onFailure
 		var paths [][]Release
-		w.onFailure = func() { w.failure(x) }
-		if len(w.catches) == 0 {
-			w.onFailure = func() { paths = append(paths, w.releases(w.first)) }
-		}
+		w.onFailure = func() { paths = append(paths, w.releases(w.first)) }
+		h.failed = nil // an explicit try escapes even in a caught value block
 		w.expr(x.X, mode, h)
 		w.onFailure = saved
 		w.recordFailures(x, paths)
@@ -900,7 +901,7 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		return
 	case *syntax.CallExpr:
 		if !w.call(x, mode, h) {
-			w.callFailure(x)
+			w.callFailure(x, h)
 			w.produced(x, mode, h)
 		}
 		return
@@ -921,9 +922,13 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 
 // callFailure is the production boundary. An unsuccessful call has evaluated
 // its operands, but has not initialized a destination or acquired a temporary.
-func (w *ownWalk) callFailure(x *syntax.CallExpr) {
-	if call := w.info.Calls[x]; call != nil && !call.Fails.Empty() && w.onFailure != nil && w.st != nil {
-		w.onFailure()
+func (w *ownWalk) callFailure(x *syntax.CallExpr, h hand) {
+	if call := w.info.Calls[x]; call != nil && !call.Fails.Empty() && w.st != nil {
+		if h.failed != nil {
+			h.failed()
+		} else if w.onFailure != nil {
+			w.onFailure()
+		}
 	}
 }
 
@@ -1019,6 +1024,7 @@ type ownTail struct {
 	first     int // locals at/after this boundary cannot outlive the consumer
 	lend      func(int, *syntax.Ident)
 	yieldRoot bool
+	failed    func()
 }
 
 // frameTail is a function body's: its value is returned.
@@ -1051,6 +1057,7 @@ func (w *ownWalk) yieldValue(x syntax.Expr, mode ownMode, h hand, walk func(ownM
 			t.first = saved.first
 		}
 	}
+	t.failed = h.failed
 	w.tail = t
 	walk(t.mode)
 	w.resultAfterOperands(x, t.slot)
@@ -1115,28 +1122,12 @@ func (w *ownWalk) shortCircuit(x *syntax.BinaryExpr) {
 	}
 }
 
-// failure is a try's failure edge: to the enclosing catch of this frame,
-// or out of the function, releasing what the frame owns.
-func (w *ownWalk) failure(x syntax.Node) {
-	if w.st == nil {
-		return
-	}
-	if n := len(w.catches); n > 0 {
-		k := w.catches[n-1]
-		k.fails = append(k.fails, w.copyState(w.st))
-		return
-	}
-	w.record(x, w.releases(w.first))
-}
-
 func (w *ownWalk) catch(x *syntax.CatchExpr, mode ownMode, h hand) {
 	first := len(w.vars)
 	k := &ownCatch{first: first}
 	w.catches = append(w.catches, k)
-	saved := w.onFailure
-	w.onFailure = func() { w.failure(x.X) }
-	w.expr(x.X, mode, h)
-	w.onFailure = saved
+	caught := hand{at: h.at, how: h.how, lend: h.lend, yieldRoot: h.yieldRoot, failed: func() { k.fails = append(k.fails, w.copyState(w.st)) }}
+	w.expr(x.X, mode, caught)
 	w.catches = w.catches[:len(w.catches)-1]
 	// The caught call fails after its operands are evaluated; a try inside
 	// it fails before the later temporaries exist.
@@ -1146,6 +1137,10 @@ func (w *ownWalk) catch(x *syntax.CatchExpr, mode ownMode, h hand) {
 		fail = w.join(fail, f, n)
 	}
 	out := w.st
+	saved := h.failed
+	if saved == nil {
+		saved = w.onFailure
+	}
 	if m := w.info.Matches[x]; m != nil && m.Partial && saved != nil {
 		// Unhandled alternatives leave with the same pre-production
 		// states. They must not borrow the successful result's lifetime.
