@@ -168,9 +168,18 @@
       "name": "bs6-decode-file",
       "origin": "wf10 binsize BS6",
       "file": "runtime/v1/exit.go",
-      "from": "File: callNames[c.File]",
-      "to": "File: callNames[c.Func]",
+      "from": "\" at \"+callNames[c.File]",
+      "to": "\" at \"+callNames[c.Func]",
       "rule": "binsize BS6: the report decodes each compact site's file index, not its function index.",
+      "killers": ["runtime/v1:TestCompactCallsAgree"]
+    },
+    {
+      "name": "bs6-wide-file",
+      "origin": "wf10 binsize BS6",
+      "file": "runtime/v1/exit.go",
+      "from": "File: intern(c.File)",
+      "to": "File: intern(c.Func)",
+      "rule": "binsize BS6: registering the selectable wide reference preserves its file names when normalizing the source map.",
       "killers": ["runtime/v1:TestCompactCallsAgree"]
     }
   ]

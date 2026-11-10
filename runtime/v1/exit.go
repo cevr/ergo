@@ -190,9 +190,8 @@ var (
 		File      string
 		Line, End int
 	}
-	calls        []sourceCall // reference representation
-	compactCalls []SourceCall
-	callNames    []string
+	calls     []SourceCall
+	callNames []string
 )
 
 type sourceCall = struct {
@@ -216,21 +215,8 @@ func RegisterCompactCalls(declTable []struct {
 	File      string
 	Line, End int
 }, names []string, table []SourceCall) {
-	registered, decls, calls = true, declTable, nil
-	callNames, compactCalls = names, table
+	registered, decls, calls, callNames = true, declTable, table, names
 }
-
-// callAt expands one site only while reporting a defect. No allocation or
-// lookup is added to a successful application's call path.
-func callAt(i int) sourceCall {
-	if compactCalls == nil {
-		return calls[i]
-	}
-	c := compactCalls[i]
-	return sourceCall{Func: callNames[c.Func], Callee: callNames[c.Callee], File: callNames[c.File], Line: int(c.Line), Column: int(c.Column)}
-}
-
-func callCount() int { return len(calls) + len(compactCalls) }
 
 // RegisterCalls registers the program's source map (#230). decls has one
 // entry per source declaration (a function, a package-level let, a context):
@@ -244,8 +230,24 @@ func RegisterCalls(declTable []struct {
 	File      string
 	Line, End int
 }, table []sourceCall) {
-	registered, decls, calls = true, declTable, table
-	callNames, compactCalls = nil, nil
+	// Only the selectable wide reference calls this adapter. A default
+	// program links neither this conversion nor its map allocation.
+	var names []string
+	indices := map[string]uint32{}
+	intern := func(text string) uint32 {
+		if i, ok := indices[text]; ok {
+			return i
+		}
+		i := uint32(len(names))
+		indices[text] = i
+		names = append(names, text)
+		return i
+	}
+	compact := make([]SourceCall, len(table))
+	for i, c := range table {
+		compact[i] = SourceCall{Func: intern(c.Func), Callee: intern(c.Callee), File: intern(c.File), Line: uint32(c.Line), Column: uint32(c.Column)}
+	}
+	RegisterCompactCalls(declTable, names, compact)
 }
 
 // taskEntry starts the traceback line of guarded, the boundary of every
@@ -289,9 +291,8 @@ func ergoStack(stack []byte) []string {
 	for _, d := range decls {
 		files[d.File] = true
 	}
-	for i := 0; i < callCount(); i++ {
-		c := callAt(i)
-		files[c.File] = true
+	for _, c := range calls {
+		files[callNames[c.File]] = true
 	}
 	var frames []site
 	lines := strings.Split(string(stack), "\n")
@@ -387,9 +388,8 @@ func ergoStack(stack []byte) []string {
 		}
 		var here []int
 		if i > 0 {
-			for j := 0; j < callCount(); j++ {
-				c := callAt(j)
-				if c.File == f.file && c.Line == f.line {
+			for j, c := range calls {
+				if callNames[c.File] == f.file && int(c.Line) == f.line {
 					here = append(here, j)
 				}
 			}
@@ -407,7 +407,7 @@ func ergoStack(stack []byte) []string {
 			// the declaration of the frame inside it.
 			var made []int
 			for _, j := range here {
-				if callAt(j).Callee == owner(frames[i-1]) {
+				if callNames[calls[j].Callee] == owner(frames[i-1]) {
 					made = append(made, j)
 				}
 			}
@@ -415,12 +415,12 @@ func ergoStack(stack []byte) []string {
 				here = made
 			}
 		}
-		c := callAt(here[0])
-		callees := []string{c.Callee}
+		c := calls[here[0]]
+		callees := []string{callNames[c.Callee]}
 		for _, j := range here[1:] {
-			callees = append(callees, callAt(j).Callee)
+			callees = append(callees, callNames[calls[j].Callee])
 		}
-		add(c.Func+" calls "+strings.Join(callees, " or ")+" at "+c.File+":"+strconv.Itoa(c.Line)+":"+strconv.Itoa(c.Column), f.fn)
+		add(callNames[c.Func]+" calls "+strings.Join(callees, " or ")+" at "+callNames[c.File]+":"+strconv.Itoa(int(c.Line))+":"+strconv.Itoa(int(c.Column)), f.fn)
 	}
 	out := make([]string, len(entries))
 	for i, e := range entries {
