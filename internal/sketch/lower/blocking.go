@@ -144,6 +144,16 @@ var runtimeBindings = map[string]runtimeBinding{
 	// taken in place marks its entry (Owned.TakeField), and its release
 	// runs each part's checked Close through one Drop, which keeps every
 	// part's defect (R9). None waits: each part masks itself.
+	// The static release (static.go, P-L8): a frame's owned values in
+	// slots and bits; StaticBegin takes the task its releases run on, and
+	// each Part is a checked Close, which masks itself. None waits.
+	"OwnStatic":       {},
+	"HandStatic":      {},
+	"ReturnStatic":    {},
+	"StaticBegin":     {task: true},
+	"Static.Part":     {},
+	"Static.Failed":   {},
+	"Static.End":      {},
 	"OwningParts":     {},
 	"Owned.TakeField": {},
 	"Scope.Drop":      {},

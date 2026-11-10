@@ -547,6 +547,9 @@ func underOf(t check.Type) check.Type {
 // own registers val, a value of type t that key's owner owns, and returns
 // the Go expression that yields it: the step that receives the value.
 func (fc *funcCtx) own(key any, d *check.Drop, t check.Type, val string, site syntax.Node) string {
+	if fc.frame != nil && fc.frame.static != nil {
+		return fc.staticOwn(key, d, t, val, site)
+	}
 	if fc.l.owned == nil {
 		fc.l.owned = map[any]string{}
 	}
@@ -704,6 +707,11 @@ func (fc *funcCtx) handoff(id *syntax.Ident, val string, returned bool) string {
 	if h == "" {
 		return val // a value of a type parameter: released by its instance (B2)
 	}
+	if st := fc.staticState(); st != nil {
+		if _, ok := st.bit[v]; ok {
+			return fc.staticHand(v, val, returned, id)
+		}
+	}
 	name := "Hand"
 	if returned {
 		name = "Returned"
@@ -724,6 +732,16 @@ func (fc *funcCtx) releaseAt(key syntax.Node) {
 		}
 		if h == "" {
 			continue // a value of a type parameter (B2)
+		}
+		if st := fc.staticState(); st != nil {
+			key := any(r.Temp)
+			if r.Var != nil {
+				key = r.Var
+			}
+			if _, ok := st.bit[key]; ok {
+				fc.staticRelease(key)
+				continue
+			}
 		}
 		fc.line(fc.runtimeCall("Owned.Release", fc.ownBinding("Owned.Release", key), "", h, nil, "", nil, nil, key))
 	}

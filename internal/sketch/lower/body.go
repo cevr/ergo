@@ -49,6 +49,9 @@ type frame struct {
 	// plain marks a frame that opens its scope only for its owned values
 	// (release.go): its end is no interruption point (v1.NewOwnerScope).
 	plain bool
+	// static is the state of a plain frame lowered in the static release
+	// form (static.go, P-L8); nil for the list form.
+	static *staticFrame
 }
 
 // newFrame is the only frame constructor. Every frame-opening path uses it,

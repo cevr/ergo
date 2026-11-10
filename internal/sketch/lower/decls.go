@@ -1111,6 +1111,9 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
 	frameErr := ""
 	needsFrame := l.bodyNeedsFrame(f.Decl.Body.List) || l.ownsParams(params)
 	fc.frame.plain = needsFrame && !l.bodyNeedsScope(f.Decl.Body.List)
+	if fc.frame.plain && flat == nil && l.staticPlan(params, f.Decl.Body.List) {
+		fc.frame.static = &staticFrame{}
+	}
 	results := ""
 	switch {
 	case needsFrame && fd.fallible:
@@ -1152,6 +1155,11 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
 		fc.entryPoll(f.Pkg.Info, f.Decl)
 		fc.body(f.Decl.Body.List)
 	})
+	if fc.frame.static != nil {
+		body := fc.closeStatic(fc.out.String(), frameErr, site)
+		fc.out.Reset()
+		fc.out.WriteString(body)
+	}
 	if flat != nil {
 		body := fc.out.String()
 		if namesIdent(body, paramNames[0]) {
