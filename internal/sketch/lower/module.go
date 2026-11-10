@@ -41,11 +41,12 @@ type File struct {
 
 // Runtime returns the runtime files every emitted module holds, besides
 // go.mod and main.go: the runtime module's go.mod and the source of
-// runtime/v1 and of runtime/rt, which it imports. The lowered main runs
+// runtime/v1 and of runtime/rt, which it imports, and of runtime/explore,
+// which a test build's reachability laws call (machinelaws.go). The lowered main runs
 // under v1.Main, whose defect report names Ergo call sites (#230).
 func Runtime() []File {
 	files := []File{{Path: runtimeDir + "/go.mod", Data: []byte("module " + runtimeModule + "\n\ngo " + goVersion + "\n")}}
-	src, err := runtimefiles.Files("runtime/v1")
+	src, err := runtimefiles.Files("runtime/v1", "runtime/explore")
 	if err != nil {
 		panic("lower: the runtime source is not embedded: " + err.Error())
 	}
