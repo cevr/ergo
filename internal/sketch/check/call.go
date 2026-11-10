@@ -55,6 +55,12 @@ func (c *checker) callOf(x *syntax.CallExpr, hint Type) operand {
 	}
 	if fun.mode != modeInvalid {
 		c.recordCall(x, fun)
+		if fun.fn != nil && fun.fn.Pkg.Host() {
+			// A Go function or method of import go (wf10 D2).
+			if sig, ok := under(fun.typ).(*Signature); ok {
+				c.goCallbacks(x, sig)
+			}
+		}
 	}
 	switch fun.mode {
 	case modeInvalid:

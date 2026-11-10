@@ -110,10 +110,11 @@ type funcCtx struct {
 	depth      int
 	locals     map[*check.Var]string
 	frame      *frame
-	acquiring  *acquireFlow     // a native acquisition callback, in this same source frame
-	stmtCall   *syntax.CallExpr // the call callStmt lowers, whose value is dropped (update.go)
-	okSubject  *okSubject       // the Option parameter of a callback's comma-ok variant (update.go)
-	env        string           // the current environment pointer, which every Go function the lowering writes binds
+	acquiring  *acquireFlow         // a native acquisition callback, in this same source frame
+	stmtCall   *syntax.CallExpr     // the call callStmt lowers, whose value is dropped (update.go)
+	okSubject  *okSubject           // the Option parameter of a callback's comma-ok variant (update.go)
+	env        string               // the current environment pointer, which every Go function the lowering writes binds
+	goDirect   map[syntax.Node]bool // Go functions of import go passed as Go's own to a Go function parameter (goCall)
 	directives bool
 	loops      []*loopCtx
 	// tries counts the try expressions being lowered: inside one, every

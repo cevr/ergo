@@ -1929,6 +1929,39 @@
       "rule": "A record's fields avoid the Error method of an error type that any lowered package defines over it.",
       "killers": [],
       "gap": "uncovered: needs a record with a field named Error under a defined error type of another library (wf10 defects D1); no program has one"
+    },
+    {
+      "name": "d2-go-value-not-direct",
+      "origin": "wf10 defects D2",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "\t\tif fc.goDirect[site] {",
+      "to": "\t\tif false && fc.goDirect[site] {",
+      "rule": "interop.md, Lowering 7: a Go function passed to a Go function parameter is Go's own function.",
+      "killers": [
+        "lower:TestExternValuesRun"
+      ]
+    },
+    {
+      "name": "d2-callback-no-adapter",
+      "origin": "wf10 defects D2",
+      "file": "internal/sketch/lower/gocall.go",
+      "from": "\t\tif cb != nil {\n\t\t\tvals[i]",
+      "to": "\t\tif false && cb != nil {\n\t\t\tvals[i]",
+      "rule": "interop.md, Lowering 7: an Ergo function value reaches a Go function parameter through the adapter to Go's plain form.",
+      "killers": [
+        "lower:TestExternValuesRun"
+      ]
+    },
+    {
+      "name": "d2-callback-drops-go-error",
+      "origin": "wf10 defects D2",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "ind + \"_, \" + e + \" := \" + call + \"\\n\" + ind + \"return \" + e + \"\\n\"",
+      "to": "ind + \"_, \" + e + \" := \" + call + \"\\n\" + ind + \"_ = \" + e + \"\\n\" + ind + \"return nil\\n\"",
+      "rule": "interop.md, Lowering 7: a fails go.Error callback returns its failure as Go's last error.",
+      "killers": [
+        "lower:TestExternValuesRun"
+      ]
     }
   ]
 }

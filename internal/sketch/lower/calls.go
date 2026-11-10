@@ -352,7 +352,10 @@ func (fc *funcCtx) hostTarget(site syntax.Node, f *check.Func) string {
 // is nil. The caller binds fv once (bindFunc, or a parameter's name), so
 // the adapter calls the value as it was where the call was made.
 func (fc *funcCtx) hostCallback(fv string, sig *check.Signature, site syntax.Node) string {
-	if len(sig.Results) > 1 || len(rowElems(sig.Errors)) != 0 || len(rowElems(sig.Uses)) != 0 {
+	// A Go callback of import go may fail go.Error (check.GoDirectSig):
+	// Go's last error result, which carries the value's failure.
+	goFails := len(rowElems(sig.Errors)) != 0
+	if len(sig.Results) > 1 || (goFails && !check.GoDirectSig(sig)) || len(rowElems(sig.Uses)) != 0 {
 		ice(site, "a user extern callback outside its checked domain")
 	}
 	return fc.envClosure(capturedEnv, "e", site, func(env string) (params []string, results, body string) {
@@ -364,6 +367,14 @@ func (fc *funcCtx) hostCallback(fv string, sig *check.Signature, site syntax.Nod
 		}
 		ind := strings.Repeat("\t", fc.depth+1)
 		call := fv + "(" + strings.Join(args, ", ") + ")"
+		if goFails {
+			e := fc.scope.alloc("err")
+			if len(sig.Results) == 0 {
+				return params, " error", ind + "_, " + e + " := " + call + "\n" + ind + "return " + e + "\n"
+			}
+			r := fc.scope.alloc("r")
+			return params, " (" + fc.goType(sig.Results[0]) + ", error)", ind + r + ", " + e + " := " + call + "\n" + ind + "return " + r + ", " + e + "\n"
+		}
 		if len(sig.Results) == 0 {
 			return params, "", ind + "_, _ = " + call + "\n"
 		}
@@ -669,11 +680,22 @@ func (fc *funcCtx) envExpr(site syntax.Node) string {
 // function's come from Go's inference on the closure's typed parameters,
 // so every type-kinded parameter must appear in a parameter type.
 func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst *check.Instance) string {
-	fd := fc.l.useFunc(f, site)
 	sig, ok := t.(*check.Signature)
 	if !ok {
 		ice(site, "the function %s used as a value has no function type", f.Name)
 	}
+	if f.Pkg.Host() {
+		// A Go function of import go (wf10 D2): passed to a Go function
+		// parameter it is Go's own function, as hand Go passes
+		// sha256.New; elsewhere a literal of the uniform shape that calls
+		// it, as a user extern's (check.GoDirectSig admits only a type
+		// whose Go form needs no conversion).
+		if fc.goDirect[site] {
+			return fc.hostTarget(site, f)
+		}
+		return fc.hostValue(f, sig, site)
+	}
+	fd := fc.l.useFunc(f, site)
 	// An extern with no Go function of its own (a user extern's target, a
 	// std body of runtime/v1) is a value through a literal of the uniform
 	// shape that calls it (G1; the checker admits only externs whose call

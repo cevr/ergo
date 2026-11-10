@@ -92,6 +92,12 @@ func externValue(f *Func) bool {
 	if !isExtern(f) || f.Sig == nil || len(f.Sig.TParams) > 0 {
 		return false
 	}
+	if f.Pkg.Host() {
+		// A Go function of import go, or a Go method (never a value: its
+		// receiver is a parameter of no Ergo function type), whose Go type
+		// is the one its Ergo type maps from (govalue.go; wf10 D2).
+		return f.Decl.Recv == nil && !GoVariadic(f) && GoDirectSig(f.Sig)
+	}
 	if !f.Pkg.Std() {
 		return true
 	}

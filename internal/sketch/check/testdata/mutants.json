@@ -1037,6 +1037,28 @@
       "killers": [
         "lower:TestStdCodecLawsRun"
       ]
+    },
+    {
+      "name": "d2-go-value-any-type",
+      "origin": "wf10 defects D2",
+      "file": "internal/sketch/check/extern.go",
+      "from": "\t\treturn f.Decl.Recv == nil && !GoVariadic(f) && GoDirectSig(f.Sig)",
+      "to": "\t\treturn true",
+      "rule": "interop.md, Lowering 7: a Go function whose type needs a conversion at the edge is no value (S108), never a lowering defect.",
+      "killers": [
+        "check:TestImportGoUses"
+      ]
+    },
+    {
+      "name": "d2-callback-any-type",
+      "origin": "wf10 defects D2",
+      "file": "internal/sketch/check/govalue.go",
+      "from": "\t\tif !ok || GoDirectSig(cb) {",
+      "to": "\t\tif !ok || true {",
+      "rule": "interop.md, Lowering 7: a Go function parameter whose type needs a conversion is S109 at the argument, never Go's build error.",
+      "killers": [
+        "check:TestImportGoUses"
+      ]
     }
   ]
 }

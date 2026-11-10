@@ -111,6 +111,14 @@ func TestImportGoUses(t *testing.T) {
 			"2:50:S109 the Go method strings.Builder.Len has a pointer receiver; call it on a go.Ref[strings.Builder] or a borrow, not on a copy (docs/spec/interop.md)"},
 		{"borrow-kept", "import go net/url\nfunc F(p *url.URL) go.Ref[url.URL] { p }\n",
 			"2:38:S108 cannot use *url.URL as go.Ref[url.URL] in the body's tail value: a borrow is not kept as a go.Ref"},
+		// wf10 defects D2: a Go function is a value only when its type
+		// needs no conversion at the Go edge (check.GoDirectSig), and so
+		// is a Go function parameter an Ergo function is passed to.
+		{"value-direct", "import go unicode\nimport go strings\nfunc F(s string) string { strings.Map(unicode.ToUpper, s) }\n", ""},
+		{"value-slice", "import go strings\nfunc F() int { let f = strings.Fields; len(f(\"a b\")) }\n",
+			"2:24:S108 strings.Fields is an extern and is not a value; pass func(s string) []string { strings.Fields(s) } (grammar.md, Extern)"},
+		{"callback-slice", "import go regexp\nfunc F(re go.Ref[regexp.Regexp]) []byte needs go.Foreign { re.ReplaceAllFunc([]byte{97}, func(b []byte) []byte { b }) }\n",
+			"2:90:S109 a Go function parameter of type func([]uint8) []uint8 takes or gives a value that needs a conversion at the Go edge (a slice, a Map, an Option, a go.Ref or several results); IG6 lowers it (interop.md, Lowering 7)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, d := check.CheckSource(tc.src)
