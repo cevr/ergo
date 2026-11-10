@@ -485,6 +485,10 @@ func (l *lowerer) wireCallFunc(f *check.Func, env string, site syntax.Node, args
 // wireEncodeBody writes the statements of t's encode function on the
 // path em: the Writer's events, or JSON appends (wirejson.go).
 func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder, t check.Type, env, task, w, v string, scope *namer) {
+	if jsonWrapper(t, "Nullable") {
+		l.wireNullableEncode(em, tc, b, t, env, task, w, v, scope)
+		return
+	}
 	if p := l.info.WirePairOf(t); p != nil {
 		b.WriteString(tc.wireEncodeWith(em, p.Base, env, w, l.wireCallFunc(p.Wire, env, tc.site, v)) + "\n")
 		return
@@ -496,10 +500,7 @@ func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder,
 		}
 	}
 	fields := func(td *typeDecl, s *check.Struct, rec string, tagged bool) {
-		for i, f := range s.Fields {
-			b.WriteString(em.key(check.WireFieldName(f.Name), i == 0 && !tagged, task, w))
-			b.WriteString(tc.wireEncodeWith(em, f.Type, env, w, rec+"."+td.fieldName[f.Name]) + "\n")
-		}
+		l.wireFields(em, tc, b, td, s, rec, tagged, env, task, w, scope)
 	}
 	// index is a loop's index variable: "_" on a path that needs none.
 	index := func() string {
@@ -532,7 +533,7 @@ func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder,
 			ice(tc.site, "the record type %s has no name", t)
 		}
 		td := l.typeDecl(n.Obj, tc.site)
-		b.WriteString(em.open(false, strconv.Itoa(len(u.Fields)), task, w))
+		b.WriteString(em.open(false, l.wireFieldCount(em, tc, b, td, u, v, scope), task, w))
 		fields(td, u, v, false)
 		b.WriteString(em.close(false, task, w))
 	case *check.Union:
@@ -552,7 +553,7 @@ func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder,
 			if len(vs.Fields) == 0 {
 				b.WriteString("_ = " + x + "\n")
 			}
-			b.WriteString(em.open(false, strconv.Itoa(len(vs.Fields)), task, w))
+			b.WriteString(em.open(false, l.wireFieldCount(em, tc, b, td, vs, x, scope), task, w))
 			b.WriteString(em.tag(vn.Obj.Name, task, w))
 			fields(td, vs, x, true)
 			b.WriteString(em.close(false, task, w))
@@ -565,6 +566,10 @@ func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder,
 
 // wireDecodeBody writes the statements of t's decode function.
 func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, env, task, r, zero string, scope *namer) {
+	if jsonWrapper(t, "Nullable") {
+		l.wireNullableDecode(tc, b, t, env, task, r, zero, scope)
+		return
+	}
 	parsed := func(base check.Type, parse *check.Func) {
 		raw := scope.alloc("raw")
 		b.WriteString(tc.wireDecode(base, env, r, raw, zero, scope))
@@ -594,11 +599,27 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 		for i, f := range s.Fields {
 			fv := scope.alloc("f")
 			b.WriteString("case " + strconv.Quote(check.WireFieldName(f.Name)) + ":\n")
-			b.WriteString(tc.wireDecode(f.Type, env, r, fv, zero, scope))
+			ft := f.Type
+			optional := jsonWrapper(ft, "Optional")
+			var present check.Type
+			var field *check.Field
+			if optional {
+				_, present, field = wrapperParts(ft)
+				ft = field.Type
+			}
+			b.WriteString(tc.wireDecode(ft, env, r, fv, zero, scope))
+			if optional {
+				fv = tc.wrapperValue(present, field, fv)
+			}
 			b.WriteString(out + "." + td.fieldName[f.Name] + " = " + fv + "\n" + seen[i] + " = true\n")
 		}
 		b.WriteString("default:\n" + r + ".Skip(" + task + ")\n}\n}\n" + r + ".End(" + task + ")\n")
 		for i, f := range s.Fields {
+			if jsonWrapper(f.Type, "Optional") {
+				empty, _, _ := wrapperParts(f.Type)
+				b.WriteString("if !" + seen[i] + " {\n" + out + "." + td.fieldName[f.Name] + " = " + tc.goType(empty) + "{}\n}\n")
+				continue
+			}
 			b.WriteString("if !" + seen[i] + " {\nreturn " + zero + ", " + tc.wireFailure(check.WireMissingName, r+".Path("+task+")", strconv.Quote(check.WireFieldName(f.Name))) + "\n}\n")
 		}
 	}

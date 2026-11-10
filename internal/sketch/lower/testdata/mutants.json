@@ -2,6 +2,43 @@
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
+      "name": "g3-omit",
+      "origin": "G3",
+      "file": "internal/sketch/lower/wirefields.go",
+      "from": "optional := jsonWrapper(ft, \"Optional\")",
+      "to": "optional := false",
+      "rule": "Absent fields write no key and Present writes its bare value.",
+      "killers": ["lower:TestJSONFieldsAgree"]
+    },
+    {
+      "name": "g3-null",
+      "origin": "G3",
+      "file": "internal/sketch/lower/wirefields.go",
+      "from": "appendConst(w, \"null\")",
+      "to": "appendConst(w, \"false\")",
+      "rule": "Nullable's empty state writes null, not false.",
+      "killers": ["lower:TestJSONFieldsAgree"]
+    },
+    {
+      "name": "g3-comma",
+      "origin": "G3",
+      "file": "internal/sketch/lower/wirefields.go",
+      "from": "em.key(key, false, task, w)",
+      "to": "em.key(key, true, task, w)",
+      "rule": "Present fields after another field need a comma even when an earlier field was omitted.",
+      "killers": ["lower:TestJSONFieldsAgree"]
+    },
+    {
+      "name": "g3-required",
+      "origin": "G3",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "if jsonWrapper(f.Type, \"Optional\") {",
+      "to": "if jsonWrapper(f.Type, \"Optional\") || jsonWrapper(f.Type, \"Nullable\") {",
+      "rule": "A Nullable field still requires its key; null is not absence.",
+      "killers": ["lower:TestJSONFieldsAgree"]
+    }
+    ,
+    {
       "name": "existing-2-unit-h",
       "origin": "lower-v1/verify-s4a/r2/mutants-r2.json",
       "file": "internal/sketch/lower/tests.go",

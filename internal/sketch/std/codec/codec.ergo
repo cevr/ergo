@@ -29,9 +29,10 @@ type BeginObjectEvent { N int }
 type TagEvent { Name string }
 type KeyEvent { K string }
 type EndObjectEvent {}
+type NullEvent {}
 
 // Event is one event of a wire form.
-type Event = BoolEvent | IntEvent | UintEvent | FloatEvent | StringEvent | BeginListEvent | EndListEvent | BeginObjectEvent | TagEvent | KeyEvent | EndObjectEvent
+type Event = BoolEvent | IntEvent | UintEvent | FloatEvent | StringEvent | BeginListEvent | EndListEvent | BeginObjectEvent | TagEvent | KeyEvent | EndObjectEvent | NullEvent
 
 // Events records the events written to it.
 type Events { log sync.Ref[[]Event] }
@@ -45,6 +46,7 @@ func Recorded(e Events) []Event { e.log.Get() }
 func record(e Events, ev Event) { e.log.Update(func(xs []Event) []Event { xs.Append(ev) }) }
 
 // The Writer's operations.
+func Null(e Events)              { record(e, NullEvent) }
 func Bool(e Events, b bool)       { record(e, BoolEvent{V: b}) }
 func Int(e Events, n int64)       { record(e, IntEvent{V: n}) }
 func Uint(e Events, n uint64)     { record(e, UintEvent{V: n}) }
@@ -100,6 +102,16 @@ func depth(e Event) int {
 }
 
 // The Reader's operations.
+func TakeNull(r Replay) bool {
+	match peek(r) {
+	case NullEvent:
+		_ = next(r)
+		true
+	case _:
+		false
+	}
+}
+
 func Path(r Replay) string { "event " + strconv.Itoa(r.at.Get()) }
 
 func Bool(r Replay) bool fails WireWrongKind {
