@@ -4,7 +4,8 @@
 // wf10's ownership.qnt: R12 (a capture moves into its task), Q7 (a
 // failed Push releases its value; a queue's drain releases what is
 // left), R5 and Tasks 8 (a drain waits for its task to end) and Q5 (a
-// drained task's unread result is released).
+// drained task's unread result is released), and Gap 47 (a stop that wins at
+// the task's boundary keeps its result for the drain).
 //
 // Run it with `ergo test docs/research/ownership/main.ergo`. Design's
 // Safe law is proved by a breadth-first search over every reachable
@@ -70,6 +71,7 @@ let FailedPushLoses = 2    // Q7: a Push that fails Closed loses its value
 let DrainNoWait = 3        // R5: a drain does not wait for the task to end
 let QueueDrainSkips = 4    // Q7: the queue's drain skips the values left
 let DrainDropsResult = 5   // Q5: a drained task's unread result is dropped
+let StopWinsDrops = 6      // Gap 47: stop wins and the boundary drops the result
 
 func released(rel []int, i int) []int {
 	let mut out = []int{}
@@ -120,7 +122,7 @@ func broken(w World) string {
 
 // child is an action of the task: it runs beside main, also while main's
 // frame ends.
-func child(w World, a Act) Option[World] {
+func child(m int, w World, a Act) Option[World] {
 	match a {
 	case ChildUse:
 		if w.Child != Running {
@@ -135,8 +137,11 @@ func child(w World, a Act) Option[World] {
 			return None
 		}
 		// The task's root releases its captures, then holds its result.
+		// Main's end has stopped the task when Stage > 0: stop wins at the
+		// boundary, and the result is still held for the drain (Gap 47).
 		let rel = if w.ChildA { released(w.Rel, A) } else { w.Rel }
-		Some[World]{Value: World{..w, Child: Ended, ChildA: false, C: Held, Rel: rel}}
+		let c = if m == StopWinsDrops && w.Stage > 0 { Gone } else { Held }
+		Some[World]{Value: World{..w, Child: Ended, ChildA: false, C: c, Rel: rel}}
 	case _:
 		None
 	}
@@ -214,7 +219,7 @@ func release(m int, w World) Option[World] {
 			return Some[World]{Value: World{..w, Stage: 3}}
 		}
 		if w.Child == Ended {
-			if m == DrainDropsResult {
+			if m == DrainDropsResult || w.C != Held { // the drain releases only a result the task holds
 				return Some[World]{Value: World{..w, Stage: 3, Child: Joined, C: Gone}}
 			}
 			return Some[World]{Value: World{..w, Stage: 3, Child: Joined, C: Gone, Rel: released(w.Rel, C)}}
@@ -244,9 +249,9 @@ func next(m int, w World, a Act) Option[World] {
 	case Release:
 		release(m, w)
 	case ChildUse:
-		child(w, a)
+		child(m, w, a)
 	case ChildEnd:
-		child(w, a)
+		child(m, w, a)
 	case _:
 		program(m, w, a)
 	}
@@ -277,6 +282,7 @@ func stepFailedPushLoses(s St, a Act) Decision[St, string]    { stepWith(FailedP
 func stepDrainNoWait(s St, a Act) Decision[St, string]        { stepWith(DrainNoWait, s, a) }
 func stepQueueDrainSkips(s St, a Act) Decision[St, string]    { stepWith(QueueDrainSkips, s, a) }
 func stepDrainDropsResult(s St, a Act) Decision[St, string]   { stepWith(DrainDropsResult, s, a) }
+func stepStopWinsDrops(s St, a Act) Decision[St, string]      { stepWith(StopWinsDrops, s, a) }
 
 // Ownership is the design: no run breaks an invariant.
 type Ownership machine[St, Act] {
@@ -317,6 +323,13 @@ type QueueDrainSkipsModel machine[St, Act] {
 type DrainDropsResultModel machine[St, Act] {
 	initial: first(),
 	step:    stepDrainDropsResult,
+
+	law Breaks reaches Broken,
+}
+
+type StopWinsDropsModel machine[St, Act] {
+	initial: first(),
+	step:    stepStopWinsDrops,
 
 	law Breaks reaches Broken,
 }
