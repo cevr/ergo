@@ -5,8 +5,8 @@ Head: 946e8f606e9a8efca969eae6a46451bf347e869e.
 Base: 0003eb62cc42109ad07acfc28d5ccac71a98955d.
 Diff stat: 9 files changed, 52 insertions(+), 18 deletions(-).
 
-Changes: check/wire.go exports the existing admission as WireType; tsproj/project.go
-selects exported standalone wire records/unions. accept_test.go and the TS/JS
+Changes: the checker exports its existing codec admission as WireType; tsproj/project.go
+selects exported standalone JSON records/unions. accept_test.go and the TS/JS
 fixtures import and decode Point/Status from two files without an operation type.
 project_test.go removes obsolete unused-float omission; machines remain guarded.
 testdata/mutants.json adds e2-roots/e2-admission and updates r3b-reach.
