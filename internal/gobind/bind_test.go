@@ -29,6 +29,9 @@ import (
 // Option[T]; chan admitted; any admitted; the variadic spread mark
 // dropped; a nil-able *S result mapped without Option; a declaration of one
 // platform kept. No binary is built: go/types reads export data in process.
+// BV1 extends it with resource variables: it alone kills refusal of a
+// resource variable, admission of ordinary state or a wrong Close result,
+// and mapping a nullable package pointer as a non-null handle.
 func TestBindMappingProperty(t *testing.T) {
 	seeds := []uint64{1, 2, 3, 4, 5, 6}
 	if s := os.Getenv("ERGO_BIND_SEED"); s != "" {
@@ -431,7 +434,7 @@ func (g *gen) results(depth int) []*gt {
 // ref gives each exported one.
 func genPackage(name string, r *rand.Rand) (string, map[string]verdict) {
 	var b strings.Builder
-	fmt.Fprintf(&b, "package %s\n\nimport (\n\t\"cmp\"\n\t\"io\"\n\t\"iter\"\n\t\"time\"\n)\n\n", name)
+	fmt.Fprintf(&b, "package %s\n\nimport (\n\t\"cmp\"\n\t\"io\"\n\t\"iter\"\n\t\"os\"\n\t\"time\"\n)\n\n", name)
 	b.WriteString("type S struct{ X int }\n\ntype D int\n\ntype I interface{ M() int }\n\n")
 	b.WriteString("var (\n\t_ io.Reader\n\t_ time.Duration\n\t_ iter.Seq[int]\n)\n\nfunc _[T cmp.Ordered]() {}\n\n")
 	want := map[string]verdict{
@@ -439,6 +442,41 @@ func genPackage(name string, r *rand.Rand) (string, map[string]verdict) {
 		"D": {ergo: "type D int"},
 		"I": {ergo: "type I { M() int needs go.Foreign, }"},
 	}
+	// BV1's smallest repro: os.Stdout was refused as ordinary host state.
+	b.WriteString("var Stdout = os.Stdout\n\n")
+	want["Stdout"] = verdict{ergo: "let Stdout Option[go.Ref[os.File]]"}
+	// Generate method sets, not named special cases. Only Close() and
+	// Close() error make a resource; a pointer-only Close does not make
+	// a variable of the value type releasable by Go's value method set.
+	for i, signature := range []string{"()", "() error", "(x int)", "() int", "() (int, error)"} {
+		name := fmt.Sprintf("Resource%d", i)
+		pointer := r.IntN(2) == 0
+		recv := name
+		if pointer {
+			recv = "*" + recv
+		}
+		fmt.Fprintf(&b, "type %s struct{}\nfunc (r %s) Close%s { panic(0) }\nvar Value%d %s\nvar Pointer%d *%s\n\n", name, recv, signature, i, name, i, name)
+		want[name] = verdict{ergo: "type " + name + " {}"}
+		ergoSig := signature
+		switch i {
+		case 1:
+			ergoSig = "() fails go.Error"
+		case 4:
+			ergoSig = "() int fails go.Error"
+		}
+		want[name+".Close"] = verdict{ergo: "func (r " + recv + ") Close" + ergoSig + " needs go.Foreign"}
+		want[fmt.Sprintf("Value%d", i)] = verdict{refused: true}
+		want[fmt.Sprintf("Pointer%d", i)] = verdict{refused: true}
+		if i < 2 {
+			if !pointer {
+				want[fmt.Sprintf("Value%d", i)] = verdict{ergo: fmt.Sprintf("let Value%d %s", i, name)}
+			}
+			want[fmt.Sprintf("Pointer%d", i)] = verdict{ergo: fmt.Sprintf("let Pointer%d Option[go.Ref[%s]]", i, name)}
+		}
+	}
+	b.WriteString("var Closer io.ReadCloser\nvar Reader io.Reader\n\n")
+	want["Closer"] = verdict{ergo: "let Closer io.ReadCloser"}
+	want["Reader"] = verdict{refused: true}
 	g := &gen{r: r}
 	for i := range 14 {
 		switch r.IntN(10) {

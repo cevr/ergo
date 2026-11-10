@@ -193,15 +193,40 @@ func (m *mapper) decl(obj types.Object, recv *types.Named) Decl {
 		d.Ergo = "let " + o.Name() + " " + t
 	case *types.Var:
 		d.Kind = Var
-		if !isError(o.Type()) {
+		if !isError(o.Type()) && !resourceType(o.Type()) {
 			d.Refused = "a Go variable is host state; call a function"
 			return d
 		}
-		d.Ergo = "let " + o.Name() + " go.Error"
+		// Package variables are borrowed, never acquired (owner q62).
+		// A pointer has no successful-call non-nil promise, so keep the
+		// normal field/result Option mapping, not atErrResult's go.Ref.
+		t, err := (&sigMapper{mapper: m}).typ(o.Type(), atField, false)
+		if err != nil {
+			d.Refused = err.Error()
+			return d
+		}
+		d.Ergo = "let " + o.Name() + " " + t
 	default:
 		d.Refused = "not a function, type, constant or variable"
 	}
 	return d
+}
+
+// resourceType is the Go-side form of interop.md Resources 1. Only the
+// actual value's method set counts: a pointer-only Close does not make a
+// copy of T implement Close. The checker reads this same signature from
+// the binding, without running a Go tool (check/hostres.go).
+func resourceType(t types.Type) bool {
+	m := types.NewMethodSet(t).Lookup(nil, "Close")
+	if m == nil {
+		return false
+	}
+	sig, ok := m.Obj().Type().(*types.Signature)
+	if !ok || sig.Params().Len() != 0 || sig.Variadic() {
+		return false
+	}
+	n := sig.Results().Len()
+	return n == 0 || n == 1 && isError(sig.Results().At(0).Type())
 }
 
 // pure reports whether a member of the bound package is in the reviewed

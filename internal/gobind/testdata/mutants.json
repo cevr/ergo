@@ -1,0 +1,41 @@
+{
+  "about": "BV1 resource-variable admission. TestBindMappingProperty generates Go method sets and checks the binding against the interop table.",
+  "mutants": [
+    {
+      "name": "BV1 resource variables remain refused",
+      "origin": "wf10 BV1",
+      "file": "internal/gobind/map.go",
+      "from": "!isError(o.Type()) && !resourceType(o.Type())",
+      "to": "!isError(o.Type())",
+      "rule": "Resource-typed package variables are admitted as borrows.",
+      "killers": ["gobind:TestBindMappingProperty", "lower:TestHostResourceVerdicts"]
+    },
+    {
+      "name": "BV1 ordinary host state admitted",
+      "origin": "wf10 BV1",
+      "file": "internal/gobind/map.go",
+      "from": "!isError(o.Type()) && !resourceType(o.Type())",
+      "to": "false",
+      "rule": "Non-resource, non-error variables remain refused.",
+      "killers": ["gobind:TestBindMappingProperty"]
+    },
+    {
+      "name": "BV1 any Close result makes a resource",
+      "origin": "wf10 BV1",
+      "file": "internal/gobind/map.go",
+      "from": "return n == 0 || n == 1 && isError(sig.Results().At(0).Type())",
+      "to": "return n >= 0",
+      "rule": "Close must return nothing or error alone.",
+      "killers": ["gobind:TestBindMappingProperty"]
+    },
+    {
+      "name": "BV1 package pointers silently promise non-nil",
+      "origin": "wf10 BV1",
+      "file": "internal/gobind/map.go",
+      "from": "(&sigMapper{mapper: m}).typ(o.Type(), atField, false)",
+      "to": "(&sigMapper{mapper: m}).typ(o.Type(), atErrResult, false)",
+      "rule": "A variable can be nil; map a resource pointer to Option[go.Ref[T]].",
+      "killers": ["gobind:TestBindMappingProperty", "lower:TestHostResourceVerdicts"]
+    }
+  ]
+}

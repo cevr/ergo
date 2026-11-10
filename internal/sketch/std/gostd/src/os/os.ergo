@@ -535,13 +535,13 @@ extern go os.StartProcess func StartProcess(name string, argv []string, attr *Pr
 extern go os.Stat func Stat(name string) fs.FileInfo fails go.Error needs go.Foreign
 
 // ergo:go var Stderr *File
-// ergo:refused Stderr: a Go variable is host state; call a function
+extern go os.Stderr let Stderr Option[go.Ref[File]]
 
 // ergo:go var Stdin *File
-// ergo:refused Stdin: a Go variable is host state; call a function
+extern go os.Stdin let Stdin Option[go.Ref[File]]
 
 // ergo:go var Stdout *File
-// ergo:refused Stdout: a Go variable is host state; call a function
+extern go os.Stdout let Stdout Option[go.Ref[File]]
 
 // ergo:go func Symlink(oldname string, newname string) error
 extern go os.Symlink func Symlink(oldname string, newname string) fails go.Error needs go.Foreign

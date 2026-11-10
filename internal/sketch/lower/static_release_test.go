@@ -67,7 +67,7 @@ func TestStaticReleaseAgrees(t *testing.T) {
 		src := hrSource(body, nil)
 		want, _ := (&hrModel{keepAt: 3}).run(body)
 		lower := func(name string) *lowered {
-			o := lowerSourceWith(name, src, true, newHresImporter())
+			o := lowerSourceWith(name, src, true, newHresImporter(t))
 			if o.err != nil || len(o.diags) > 0 || o.panicked != nil || len(o.refused) > 0 {
 				t.Fatalf("seed %d (ERGO_SEED=%d replays): does not lower: %v %v %v %+v\n%s", seed, seed, o.err, o.diags, o.panicked, o.refused, numbered(src))
 			}

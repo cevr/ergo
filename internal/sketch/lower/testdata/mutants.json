@@ -2,6 +2,25 @@
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
+      "name": "BV1 resource variable reads need no authority",
+      "origin": "wf10 BV1",
+      "file": "internal/sketch/check/expr.go",
+      "from": "if pn.Pkg.Host() && c.holdsResource(o.Type) {",
+      "to": "if false {",
+      "rule": "Reading a borrowed resource variable observes host state and charges go.Foreign, even without a method call.",
+      "killers": ["lower:TestHostResourceVerdicts"]
+    },
+    {
+      "name": "BV1 borrowed variable pointer is cast to Option",
+      "origin": "wf10 BV1",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "if isOptionType(o.Type) {",
+      "to": "if false {",
+      "rule": "A borrowed pointer variable maps nil to None and a handle to Some, never a Go pointer-to-interface cast.",
+      "killers": ["lower:TestHostResourceRun"],
+      "anchor": {"tests": ["lower:TestHostResourceRun"]}
+    },
+    {
       "name": "L8-C1-incoming-capture-owner-map",
       "origin": "L8 C1 lossless wrapping",
       "file": "internal/sketch/lower/taskcapture.go",
