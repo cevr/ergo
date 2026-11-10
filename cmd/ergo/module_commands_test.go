@@ -30,6 +30,7 @@ func TestModuleCommands(t *testing.T) {
 		write(filepath.Join(ignored, "bad.ergo"), "this is not Ergo\n")
 	}
 	write("nested/ergo.mod", "module separate\n")
+	write("nested/deep/bad.ergo", "this is not Ergo\n")
 	run := func(args ...string) (string, string, int) {
 		t.Helper()
 		out, err, code := runSmokeCLI(t, bin, root, "", args...)
