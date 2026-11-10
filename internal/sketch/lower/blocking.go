@@ -358,6 +358,12 @@ var runtimeBindings = map[string]runtimeBinding{
 	"FSChmod":         {},
 	"FSRename":        {},
 	"FSRemove":        {},
+	// fs.Root on the host (G1f): reads below a root, which neither wait
+	// nor release.
+	"FSOpenRoot":        {},
+	"HostRoot.ReadFile": {task: true},
+	"HostRoot.ReadDir":  {task: true},
+	"HostRoot.Stat":     {task: true},
 	// std io (S1b; stdlib.md, io): bodies that write or read a standard
 	// stream of the host process; none releases. A read of standard input
 	// waits on the caller's task (batch-12 C3, decision O15): a stop of that

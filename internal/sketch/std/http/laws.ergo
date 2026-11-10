@@ -1,0 +1,70 @@
+import fs
+import strings
+import sync
+
+// filesProbe is this law's private recorder. It refuses every read; the
+// law observes the paths, not file contents. These helpers are reachable
+// only from the law and emit no code in a non-test build. The functional
+// property uses fstest.Tree without making http import a test provider.
+type filesProbe { paths sync.Ref[[]string] }
+
+func noteFilePath(p filesProbe, path string) {
+	sync.Modify(p.paths, func(ps []string) (bool, []string) { (true, ps.Append(path)) })
+}
+
+func ReadFile(p filesProbe, path string) string fails fs.Escapes {
+	noteFilePath(p, path)
+	fs.Escapes{Path: path}
+}
+func ReadDir(p filesProbe, path string) []string fails fs.Escapes {
+	noteFilePath(p, path)
+	fs.Escapes{Path: path}
+}
+func Stat(p filesProbe, path string) fs.Info fails fs.Escapes {
+	noteFilePath(p, path)
+	fs.Escapes{Path: path}
+}
+
+// fileSegment is the request path element that step picks: names, links,
+// "." and "..", empty elements and their encoded forms (Serve gives
+// Files the decoded path, so "%2e%2e" is a name here, not "..").
+func fileSegment(step int) string {
+	let segments = []string{"..", ".", "", "a.txt", "sub", "out", "in", "%2e%2e", "...", "..a", "b.txt"}
+	let i = if step < 0 { -(step % len(segments)) } else { step % len(segments) }
+	segments[i]
+}
+
+// FilesAsksBeneath: whatever the request path, Files asks its root for
+// at most one path, and that path is relative, with no "..", "." or empty
+// element, so it names a file below the root before any link is read
+// (fs.Root confines the links). A request path with a ".." element after
+// the prefix reaches no read. steps picks the elements of the request
+// path after "/static/", and the parity of their count GET or HEAD.
+law FilesAsksBeneath(steps []int, prefixed bool) {
+	let mut rest = ""
+	let mut dotdot = false
+	for i, s in steps {
+		let e = fileSegment(s)
+		dotdot = dotdot || e == ".."
+		rest = if i == 0 { e } else { rest + "/" + e }
+	}
+	let path = if prefixed { "/static/" + rest } else { "/" + rest }
+	let method = if len(steps)%2 == 0 { "GET" } else { "HEAD" }
+	let root = filesProbe{paths: sync.NewRef[[]string]([]string{})}
+	let response = Files(root, "/static/", Request{Method: method, Path: path, Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}})
+	let asked = root.paths.Get()
+	if len(asked) > 1 || (dotdot || !prefixed) && len(asked) != 0 {
+		return false
+	}
+	for p in asked {
+		if strings.HasPrefix(p, "/") {
+			return false
+		}
+		for e in strings.Split(p, "/") {
+			if e == "" || e == "." || e == ".." {
+				return false
+			}
+		}
+	}
+	response.Status == 200 || response.Status == 403 || response.Status == 404
+}

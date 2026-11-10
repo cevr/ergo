@@ -25,6 +25,7 @@ var (
 	_ = declarePrograms("TestFSWritesRuns", entryProgram("fsWrites", fsWritesProgram))
 	_ = declarePrograms("TestFSSafeRuns", entryProgram("fsSafe", fsSafeProgram))
 	_ = declarePrograms("TestFSMemoryAgreesWithHost", entryProgram("fsMemory", fsMemoryProgram))
+	_ = declarePrograms("TestFSRootTreeAgreesWithHost", entryProgram("fsRoot", fsRootProgram))
 	_ = declarePrograms("TestTimeCivilMatchesGo", entryProgram("timeCivil", timeCivilProgram))
 	_ = declarePrograms("TestHostAuthorityRuns", entryProgram("hostAuthority", hostAuthorityProgram))
 	_ = declarePrograms("TestStdActorLawsRun", testBuildProgram("stdactor", actorLawsProbe))

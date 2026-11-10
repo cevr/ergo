@@ -757,8 +757,11 @@ func TestRuntime199AcquireOwner(t *testing.T) {
 		t.Errorf("the acquisition owner emits WithAcquire %d times, want 1", emits)
 	}
 	allowed := map[string]map[string]bool{
-		"acquire":     {"rt.AcquireInto": true},
-		"AcquireInto": {"rt.Acquire": true, "v1.WithAcquire": true},
+		"acquire": {"rt.AcquireInto": true},
+		// FSOpenRoot is the native rooted-directory acquisition. It uses
+		// the same masked acquire/register boundary and frame release list;
+		// TestFSRootClosesAtScopeEnd guards its registration on every exit.
+		"AcquireInto": {"rt.Acquire": true, "v1.WithAcquire": true, "v1.FSOpenRoot": true},
 		"Acquire":     {},
 		"ownRelease":  {"v1.WithAcquire": true},
 	}
