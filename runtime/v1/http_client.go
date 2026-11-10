@@ -47,7 +47,7 @@ func httpFailed(kind int, reason string) HTTPSendFailed {
 // HTTPCheckOrigin accepts scheme://authority with the scheme http or
 // https and nothing after the authority (a lone "/" is allowed). It is
 // pure: http.NewClient holds the authority to choose the host.
-func HTTPCheckOrigin(origin string, limits HTTPLimits) error {
+func HTTPCheckOrigin(origin string, limits HTTPClientLimits) error {
 	if limits.MaxBodyBytes <= 0 || limits.MaxHeaderBytes <= 0 {
 		return HTTPInvalidClient{origin, "the response budget must be positive"}
 	}
@@ -130,7 +130,7 @@ type httpDone struct {
 // timeout, retry or redirect of its own.
 //
 //ergo:host
-func HTTPDo(t *rt.Task, origin string, limits HTTPLimits, method, path string, query, header []HTTPField, body string) (HTTPResponse, error) {
+func HTTPDo(t *rt.Task, origin string, limits HTTPClientLimits, method, path string, query, header []HTTPField, body string) (HTTPResponse, error) {
 	t.Check()
 	if !httpToken(method) {
 		return HTTPResponse{}, httpFailed(httpMalformed, "the method is not a token: "+method)
@@ -153,7 +153,7 @@ func HTTPDo(t *rt.Task, origin string, limits HTTPLimits, method, path string, q
 
 // httpDoURL is the shared stopped-and-joined exchange for fixed and dynamic
 // origins. Its client never follows redirects implicitly.
-func httpDoURL(t *rt.Task, u *url.URL, limits HTTPLimits, method string, header []HTTPField, body string) (HTTPResponse, error) {
+func httpDoURL(t *rt.Task, u *url.URL, limits HTTPClientLimits, method string, header []HTTPField, body string) (HTTPResponse, error) {
 	t.Check()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -181,7 +181,7 @@ func httpDoURL(t *rt.Task, u *url.URL, limits HTTPLimits, method string, header 
 }
 
 // httpExchange sends req and reads at most limits.MaxBodyBytes of body.
-func httpExchange(c *http.Client, req *http.Request, limits HTTPLimits) httpDone {
+func httpExchange(c *http.Client, req *http.Request, limits HTTPClientLimits) httpDone {
 	resp, err := c.Do(req)
 	if err != nil {
 		switch {

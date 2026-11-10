@@ -19,7 +19,7 @@ func main() fails http.InvalidClient needs Ambient | Console {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
 	let hops = strconv.Atoi(args[3]) catch { case _: Unreachable("test hop input") }
 	let policy http.OriginPolicy = if args[2] == "any" { http.AnyOrigin } else if args[2] == "both" { http.Origins{Values: []string{args[0], args[1]}} } else if args[2] == "first" { http.Origins{Values: []string{args[0]}} } else { http.Origins{Values: []string{}} }
-	let net = try http.NewNet(policy, http.Limits{MaxBodyBytes: 128, MaxHeaderBytes: 8192, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}, http.Follow{MaxHops: hops})
+	let net = try http.NewNet(policy, http.ClientLimits{MaxBodyBytes: 128, MaxHeaderBytes: 8192}, http.Follow{MaxHops: hops})
 	let a = try http.ForOrigin(args[0], http.Field{Name: "X-Mark-A", Value: "mark-A"})
 	let b = try http.ForOrigin(args[1], http.Field{Name: "X-Mark-B", Value: "mark-B"})
 	let request = http.URLRequest{URL: args[0] + "/0/" + args[4], Method: "GET", Header: []http.Field{}, Credentials: []http.Credential{a, b}, Body: ""}

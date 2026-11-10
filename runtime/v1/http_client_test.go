@@ -120,7 +120,7 @@ func TestHTTPClientMatchesServer(t *testing.T) {
 		mu.Lock()
 		next = c.answer
 		mu.Unlock()
-		res, err := HTTPDo(caller, origin, HTTPLimits{MaxBodyBytes: c.budget, MaxHeaderBytes: 1 << 16}, c.method, c.path, c.query, c.header, c.body)
+		res, err := HTTPDo(caller, origin, HTTPClientLimits{MaxBodyBytes: c.budget, MaxHeaderBytes: 1 << 16}, c.method, c.path, c.query, c.header, c.body)
 		mu.Lock()
 		in := arrived
 		mu.Unlock()
@@ -169,7 +169,7 @@ func TestHTTPClientRefusedAndStopped(t *testing.T) {
 	}
 	addr := closed.Addr()
 	closed.Close()
-	_, err = HTTPDo(rt.Root("refused"), "http://"+addr, HTTPLimits{MaxBodyBytes: 16, MaxHeaderBytes: 4096}, "GET", "/", nil, nil, "")
+	_, err = HTTPDo(rt.Root("refused"), "http://"+addr, HTTPClientLimits{MaxBodyBytes: 16, MaxHeaderBytes: 4096}, "GET", "/", nil, nil, "")
 	var f HTTPSendFailed
 	if !errors.As(err, &f) || f.Kind != httpRefused {
 		t.Fatalf("a refused connection failed %v, want Refused", err)
@@ -186,7 +186,7 @@ func TestHTTPClientRefusedAndStopped(t *testing.T) {
 	ended := make(chan any, 1)
 	go func() {
 		defer func() { ended <- recover() }()
-		_, err := HTTPDo(caller, "http://"+l.Addr(), HTTPLimits{MaxBodyBytes: 16, MaxHeaderBytes: 4096}, "GET", "/hold", nil, nil, "")
+		_, err := HTTPDo(caller, "http://"+l.Addr(), HTTPClientLimits{MaxBodyBytes: 16, MaxHeaderBytes: 4096}, "GET", "/hold", nil, nil, "")
 		ended <- fmt.Sprintf("returned %v", err)
 	}()
 	select {

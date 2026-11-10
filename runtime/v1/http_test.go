@@ -30,8 +30,8 @@ func startHTTP(t *testing.T, handle httpHandler) (*Listener, *Task[struct{}]) {
 
 // serveLimits are byte budgets with timeouts no test reaches on the host
 // Scheduler.
-func serveLimits(body, header int) HTTPLimits {
-	return HTTPLimits{body, header, time.Hour, time.Hour, time.Hour}
+func serveLimits(body, header int) HTTPServerLimits {
+	return HTTPServerLimits{body, header, time.Hour, time.Hour, time.Hour}
 }
 
 // liveSleeper is the host Scheduler, as a program binds NewLiveScheduler.
@@ -39,12 +39,12 @@ type liveSleeper struct{}
 
 func (liveSleeper) Sleep(t *rt.Task, d time.Duration) { Sleep(t, d) }
 
-func startHTTPLimits(t *testing.T, limits HTTPLimits, handle httpHandler) (*Listener, *Task[struct{}]) {
+func startHTTPLimits(t *testing.T, limits HTTPServerLimits, handle httpHandler) (*Listener, *Task[struct{}]) {
 	t.Helper()
 	return startHTTPOn(t, liveSleeper{}, limits, handle)
 }
 
-func startHTTPOn(t *testing.T, sleeper Sleeper, limits HTTPLimits, handle httpHandler) (*Listener, *Task[struct{}]) {
+func startHTTPOn(t *testing.T, sleeper Sleeper, limits HTTPServerLimits, handle httpHandler) (*Listener, *Task[struct{}]) {
 	t.Helper()
 	l, err := HTTPListen("127.0.0.1:0")
 	if err != nil {
@@ -333,7 +333,7 @@ func TestHTTPPhasesExpireOnTheScheduler(t *testing.T) {
 		t.Run(strconv.FormatUint(seed, 10), func(t *testing.T) {
 			rng := rand.New(rand.NewPCG(seed, 7))
 			budget := func() time.Duration { return time.Duration(1+rng.IntN(1000)) * time.Millisecond }
-			limits := HTTPLimits{16, 4096, budget(), budget(), budget()}
+			limits := HTTPServerLimits{16, 4096, budget(), budget(), budget()}
 			sl := newStepSleeper()
 			l, _ := startHTTPOn(t, sl, limits, func(_ *rt.Task, _ *Exchange, _, _ string, _, _ []HTTPField, body string, _ bool, readError string) HTTPResponse {
 				if readError != "" {

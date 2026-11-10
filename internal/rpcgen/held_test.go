@@ -39,7 +39,7 @@ func main() fails http.ListenFailed | http.InvalidLimits needs Console | Ambient
 	let l = try http.Listen("127.0.0.1:0")
 	Console.Println("listening \(l.Addr())")
 	let gate = queue.New[bool](1)
-	with context { Scheduler: NewLiveScheduler() } { try rpc.Serve(l, http.Limits{MaxBodyBytes: 65536, MaxHeaderBytes: 16384, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}, "/rpc", func(tag string, payload string) string fails rpc.Failed {
+	with context { Scheduler: NewLiveScheduler() } { try rpc.Serve(l, http.ServerLimits{MaxBodyBytes: 65536, MaxHeaderBytes: 16384, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}, "/rpc", func(tag string, payload string) string fails rpc.Failed {
 		try answer(gate, tag, payload)
 	}) }
 }

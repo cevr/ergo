@@ -12,14 +12,15 @@ import sync
 type ListenFailed { Addr string, Reason string }
 type InvalidLimits { MaxBodyBytes int, MaxHeaderBytes int, IdleTimeout duration, ReadHeaderTimeout duration, ReadBodyTimeout duration }
 
-// Limits are required positive budgets. Zero never means unbounded. The
+// ServerLimits are Serve's required positive budgets. Zero never means
+// unbounded, and Serve reads every field (a limits record holds only what
+// the operation that takes it reads; the client's is ClientLimits). The
 // byte budgets bound one request. The timeouts bound how long Serve lets
 // a connection stay in each read phase, on the program's Scheduler:
 // IdleTimeout the wait for the next request on a kept-alive connection,
 // ReadHeaderTimeout the header (from the accept, or from the next
-// request's first byte), and ReadBodyTimeout the body. The client reads
-// only the byte budgets.
-type Limits { MaxBodyBytes int, MaxHeaderBytes int, IdleTimeout duration, ReadHeaderTimeout duration, ReadBodyTimeout duration }
+// request's first byte), and ReadBodyTimeout the body.
+type ServerLimits { MaxBodyBytes int, MaxHeaderBytes int, IdleTimeout duration, ReadHeaderTimeout duration, ReadBodyTimeout duration }
 
 // Listener is transport-only, shared by server protocols. Close releases a
 // bound listener that the program does not hand to Serve.
@@ -64,12 +65,12 @@ func Query(fields []Field, name string) Option[string] {
 // Each invocation runs with its request's Streaming provider bound, so a
 // handler may answer with Stream; a handler that does not stays a
 // function of a narrower row.
-// The Limits timeouts are measured on the Scheduler, as timeout.After's
+// The limits' timeouts are measured on the Scheduler, as timeout.After's
 // deadline is, so a test Scheduler decides when a phase expires. An idle
 // or header phase that expires closes the connection; a body phase that
 // expires reaches handle as BodyReadFailed, and its answer is the
 // connection's last.
-func Serve[R](l Listener, limits Limits, handle func(Request) Response needs R | Streaming) fails InvalidLimits needs R | Scheduler {
+func Serve[R](l Listener, limits ServerLimits, handle func(Request) Response needs R | Streaming) fails InvalidLimits needs R | Scheduler {
 	return serve(l, limits, func(x Exchange, method string, path string, query []Field, header []Field, text string, tooLarge bool, readError string) Response needs R {
 		let body Body = if tooLarge {
 			BodyTooLarge{Limit: limits.MaxBodyBytes}
@@ -85,7 +86,7 @@ func Serve[R](l Listener, limits Limits, handle func(Request) Response needs R |
 }
 
 // The transport's scalar arguments become a closed body value above.
-extern go ergo.local/prototype/runtime/v1.HTTPServe func serve[R](l Listener, limits Limits, handle func(Exchange, string, string, []Field, []Field, string, bool, string) Response needs R) fails InvalidLimits needs R | Scheduler
+extern go ergo.local/prototype/runtime/v1.HTTPServe func serve[R](l Listener, limits ServerLimits, handle func(Exchange, string, string, []Field, []Field, string, bool, string) Response needs R) fails InvalidLimits needs R | Scheduler
 
 // WriteFailed is a streamed write that did not reach the client: the
 // connection refused it (the client went away), or its stream had ended.

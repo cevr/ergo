@@ -61,7 +61,7 @@ func networkOrigin(u *url.URL) (string, error) {
 	return (&url.URL{Scheme: u.Scheme, Host: host}).String(), nil
 }
 
-func HTTPCheckNetwork(origins []string, limits HTTPLimits) ([]string, error) {
+func HTTPCheckNetwork(origins []string, limits HTTPClientLimits) ([]string, error) {
 	if limits.MaxBodyBytes <= 0 || limits.MaxHeaderBytes <= 0 {
 		return nil, HTTPInvalidClient{"", "the response budget must be positive"}
 	}
@@ -98,7 +98,7 @@ func originAllowed(origin string, origins []string, anyOrigin bool) bool {
 // NoRedirects is -1; Follow(0) refuses the first hop. Limits apply per response.
 //
 //ergo:host
-func HTTPFetch(t *rt.Task, origins []string, anyOrigin bool, limits HTTPLimits, hops int, method, rawURL string, header []HTTPField, owners []string, credentials []HTTPField, body string) (HTTPResponse, error) {
+func HTTPFetch(t *rt.Task, origins []string, anyOrigin bool, limits HTTPClientLimits, hops int, method, rawURL string, header []HTTPField, owners []string, credentials []HTTPField, body string) (HTTPResponse, error) {
 	t.Check()
 	if !httpToken(method) || len(owners) != len(credentials) || hops < -1 {
 		return HTTPResponse{}, httpFailed(httpMalformed, "invalid network request")

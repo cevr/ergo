@@ -39,7 +39,7 @@ func main() fails Usage | fs.NotFound | fs.Denied | fs.Failed | http.ListenFaile
 	let l = try http.Listen("127.0.0.1:0")
 	Console.Println("listening \(l.Addr())")
 	with context { jobs.Jobs: memory.New(), Scheduler: NewLiveScheduler() } {
-		try http.Serve(l, http.Limits{MaxBodyBytes: 65536, MaxHeaderBytes: 16384, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}, func(r http.Request) http.Response needs jobs.Jobs | http.Streaming {
+		try http.Serve(l, http.ServerLimits{MaxBodyBytes: 65536, MaxHeaderBytes: 16384, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}, func(r http.Request) http.Response needs jobs.Jobs | http.Streaming {
 			site(root, r)
 		})
 	}

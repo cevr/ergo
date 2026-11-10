@@ -90,16 +90,16 @@ func TestHTTPNetworkMatchesModel(t *testing.T) {
 			scheme = "https"
 		}
 		name := fmt.Sprintf("ExAmPle-%d.TeSt", r.IntN(100))
-		canonical, err := HTTPCheckNetwork([]string{fmt.Sprintf("%s://%s:00%d", scheme, name, defaultPort)}, HTTPLimits{MaxBodyBytes: 128, MaxHeaderBytes: 8192})
+		canonical, err := HTTPCheckNetwork([]string{fmt.Sprintf("%s://%s:00%d", scheme, name, defaultPort)}, HTTPClientLimits{MaxBodyBytes: 128, MaxHeaderBytes: 8192})
 		if err != nil || len(canonical) != 1 || canonical[0] != scheme+"://"+strings.ToLower(name) {
 			t.Fatalf("seed %d: default-port origin %q, %v", seed, canonical, err)
 		}
 		zone := fmt.Sprintf("En%d", r.IntN(20))
-		canonical, err = HTTPCheckNetwork([]string{scheme + "://[FE80:0:0:0:0:0:0:1%25" + zone + "]:" + strconv.Itoa(defaultPort)}, HTTPLimits{MaxBodyBytes: 128, MaxHeaderBytes: 8192})
+		canonical, err = HTTPCheckNetwork([]string{scheme + "://[FE80:0:0:0:0:0:0:1%25" + zone + "]:" + strconv.Itoa(defaultPort)}, HTTPClientLimits{MaxBodyBytes: 128, MaxHeaderBytes: 8192})
 		if err != nil || len(canonical) != 1 || canonical[0] != scheme+"://[fe80::1%25"+zone+"]" {
 			t.Fatalf("seed %d: IPv6-zone origin %q, %v", seed, canonical, err)
 		}
-		roundTrip, err := HTTPCheckNetwork(canonical, HTTPLimits{MaxBodyBytes: 128, MaxHeaderBytes: 8192})
+		roundTrip, err := HTTPCheckNetwork(canonical, HTTPClientLimits{MaxBodyBytes: 128, MaxHeaderBytes: 8192})
 		if err != nil || !slices.Equal(roundTrip, canonical) {
 			t.Fatalf("seed %d: origin identity is not stable: %q -> %q, %v", seed, canonical, roundTrip, err)
 		}
@@ -147,7 +147,7 @@ func TestHTTPNetworkMatchesModel(t *testing.T) {
 		mu.Lock()
 		nodes, arrived = graph, nil
 		mu.Unlock()
-		res, err := HTTPFetch(rt.Root("network model"), allowed, mode == 0, HTTPLimits{MaxBodyBytes: 128, MaxHeaderBytes: 8192}, hops, method, origins[0]+"/0", header, owners, credentials, body)
+		res, err := HTTPFetch(rt.Root("network model"), allowed, mode == 0, HTTPClientLimits{MaxBodyBytes: 128, MaxHeaderBytes: 8192}, hops, method, origins[0]+"/0", header, owners, credentials, body)
 		var want []networkArrival
 		at, followed := 0, 0
 		wantFailure := ""
@@ -238,7 +238,7 @@ func TestHTTPNetworkStops(t *testing.T) {
 				ended <- p
 			}
 		}()
-		_, err := HTTPFetch(caller, nil, true, HTTPLimits{MaxBodyBytes: 128, MaxHeaderBytes: 8192}, 1, "GET", first.URL+"/", nil, nil, nil, "")
+		_, err := HTTPFetch(caller, nil, true, HTTPClientLimits{MaxBodyBytes: 128, MaxHeaderBytes: 8192}, 1, "GET", first.URL+"/", nil, nil, nil, "")
 		ended <- err
 	}()
 	select {
