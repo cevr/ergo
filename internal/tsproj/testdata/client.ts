@@ -1,6 +1,6 @@
 import { Effect, Option } from "effect"
 import { RpcClient } from "effect/rpc"
-import { API } from "./domain/contract.ergo"
+import { API, Draft, View } from "./domain/contract.ergo"
 
 export const program = Effect.gen(function* () {
   const client = yield* RpcClient.make(API)
@@ -11,3 +11,7 @@ export const program = Effect.gen(function* () {
   const present: Option.Option<unknown> = level
   return [remaining, Option.isSome(present)]
 })
+
+const draft: Draft = { name: "a" }
+const view: View = { ended: null }
+export const wireForms = [draft, view]

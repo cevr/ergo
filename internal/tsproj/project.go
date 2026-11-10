@@ -105,7 +105,7 @@ func Project(pkg *check.Package, file *syntax.File, source string, options Optio
 		ops, _ := rpcgen.Ops(pkg, c.Name)
 		for _, op := range ops {
 			for _, p := range op.Params {
-				g.schema(p.Type)
+				g.fieldSchema(p.Type)
 			}
 			if op.Result != nil {
 				g.schema(op.Result)
@@ -121,7 +121,7 @@ func Project(pkg *check.Package, file *syntax.File, source string, options Optio
 		for _, op := range ops {
 			g.s("$Rpc.make(" + strconv.Quote(op.Name) + ", { payload: { ")
 			for _, p := range op.Params {
-				g.s(strconv.Quote(check.WireFieldName(rpcgen.FieldName(p.Name))) + ": " + g.schema(p.Type) + ", ")
+				g.s(strconv.Quote(check.WireFieldName(rpcgen.FieldName(p.Name))) + ": " + g.fieldSchema(p.Type) + ", ")
 			}
 			g.s("}, success: ")
 			if op.Result == nil {
@@ -194,6 +194,9 @@ func union(xs []string) string {
 	return "$Schema.Union([" + strings.Join(xs, ", ") + "])"
 }
 func (g *emitter) schema(t check.Type) string {
+	if arg := jsonArgument(t, "Nullable"); arg != nil {
+		return "$Schema.NullOr(" + g.schema(arg) + ")"
+	}
 	switch u := t.(type) {
 	case *check.Basic:
 		switch u.Kind {
@@ -271,7 +274,7 @@ func (g *emitter) declare(n *check.Named) {
 	switch u := under.(type) {
 	case *check.Struct:
 		for _, f := range u.Fields {
-			g.schema(f.Type)
+			g.fieldSchema(f.Type)
 		}
 	case *check.Union:
 		for _, v := range u.Variants {
@@ -358,9 +361,26 @@ func (g *emitter) fields(s *check.Struct, local bool) {
 	for _, f := range s.Fields {
 		g.s("\"")
 		g.name(check.WireFieldName(f.Name), f.Name, f.Pos, local)
-		g.s("\": " + g.schema(f.Type) + ", ")
+		g.s("\": " + g.fieldSchema(f.Type) + ", ")
 	}
 	g.s("}")
+}
+
+// JSON's field form depends on the instantiated field type, not its spelling.
+// Optional remains tagged in a slice, a tuple or an operation's result.
+func (g *emitter) fieldSchema(t check.Type) string {
+	if arg := jsonArgument(t, "Optional"); arg != nil {
+		return "$Schema.optionalKey(" + g.schema(arg) + ")"
+	}
+	return g.schema(t)
+}
+
+func jsonArgument(t check.Type, name string) check.Type {
+	n, ok := t.(*check.Named)
+	if ok && n.Obj != nil && n.Obj.Pkg != nil && n.Obj.Pkg.Std() && n.Obj.Pkg.Path == "json" && n.Obj.Name == name && len(n.TArgs) == 1 {
+		return n.TArgs[0]
+	}
+	return nil
 }
 func (g *emitter) doc(obj *check.TypeName) {
 	if !g.local[obj.Decl] || obj.Decl == nil || obj.Decl.Doc == nil {

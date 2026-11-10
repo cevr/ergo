@@ -73,6 +73,12 @@ use private schema names. Cross-file watch registration is not provided
 yet: restart TypeScript watch after changing another Ergo file in the
 package or an imported package. Runtime loads do not cache the projection.
 
+The schemas follow std json's field and value forms: a record field of
+`json.Optional[T]` uses `Schema.optionalKey(T)`, `json.Nullable[T]` uses
+`Schema.NullOr(T)` in every position, and nesting composes these rules.
+Optional outside a record field stays the tagged Absent/Present union.
+The instantiated field type selects its form, including a generic field.
+
 Measured acceptance: `ERGO_TS_TEST=1 go test -count=1 -timeout 10m
 ./internal/tsproj` checks a seeded codec round trip, stock RpcClient
 against an Ergo server under Bun/Node/Vite with json and ndjson, and four

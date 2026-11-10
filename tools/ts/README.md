@@ -46,6 +46,13 @@ Schema.Int; the RPC boundary enforces the safe-number range. Non-finite
 float forms, recursive schemas, refinement predicates, by-name codec pairs,
 and open/generic operation contracts are diagnostics, not `any`.
 
+Std `json.Optional[T]` in a record field is `Schema.optionalKey(T)`:
+an absent value has no key. `json.Nullable[T]` is `Schema.NullOr(T)`:
+its empty value is null, but its field key is still required. The two
+compose for a three-state field. Outside a record field, Optional keeps
+the codec's tagged Absent/Present form. Instantiated generic fields follow
+the same rule.
+
 No source body runs in TypeScript. Laws stay in Ergo. Each mapped file
 exposes its package's operation types and the exported types they reach;
 other exported types (machines, records no operation carries) are not on

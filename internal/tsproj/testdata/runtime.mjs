@@ -1,12 +1,17 @@
 import { Cause, Effect, Exit, Layer, Option, Schema } from "effect"
 import { FetchHttpClient } from "effect/http"
 import { RpcClient, RpcSerialization } from "effect/rpc"
-import { API, Bundle } from "./domain/contract.ergo"
+import { API, Bundle, Draft, View } from "./domain/contract.ergo"
 import { readFileSync } from "node:fs"
 
 const [url, serialization, valuesFile] = process.argv.slice(2)
 const values = JSON.parse(readFileSync(valuesFile, "utf8"))
 const codec = Schema.toCodecJson(Bundle)
+Schema.decodeUnknownSync(Draft)({ name: "a" })
+Schema.decodeUnknownSync(View)({ ended: null })
+let missingNullableRefused = false
+try { Schema.decodeUnknownSync(View)({}) } catch { missingNullableRefused = true }
+if (!missingNullableRefused) throw new Error("Nullable incorrectly made its key optional")
 const canonical = value => JSON.stringify(value, (_key, value) =>
   value !== null && typeof value === "object" && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
