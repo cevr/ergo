@@ -196,12 +196,11 @@ func (s *rpcRun) stopAll() {
 func rpcCalls(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, string, string) (string, error), each func(line []byte) error) error {
 	t.Check()
 	s := &rpcRun{span: span, t: t, handle: handle, ended: make(chan *rpcCall, len(envs)), live: map[*rpcCall]bool{}}
-	defer func() {
-		if p := recover(); p != nil {
-			s.stopAll()
-			panic(p)
-		}
-	}()
+	// A stop or a defect unwinds through here: the calls left stop and are
+	// consumed while the panic goes on, so no recover takes it from its
+	// owner. A failed each returns with calls left, which stop the same way;
+	// on a whole run live is already empty.
+	defer s.stopAll()
 	for _, e := range envs {
 		if e.Tag != "Request" {
 			continue // Ack, Ping and Eof mean nothing over HTTP
@@ -221,8 +220,7 @@ func rpcCalls(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, s
 		case c := <-s.ended:
 			s.end(c)
 			if err := each(rpcExitLine(c.id, c.exit)); err != nil {
-				s.stopAll()
-				return err
+				return err // the deferred stopAll stops the calls left
 			}
 		case <-stop:
 			panic(rt.Interrupted)

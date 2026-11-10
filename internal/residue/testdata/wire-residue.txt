@@ -315,6 +315,7 @@ docs/spec/stdlib.md	| `json` | `Schema.ts` (`parseJson`, `encode`, `decode`), `J
 cmd/ergo/gen.go	*
 internal/rpcgen/rpcgen.go	*
 internal/rpcgen/loopback_test.go	*
+internal/rpcgen/held_test.go	*
 internal/sketch/std/rpc/rpc.ergo	*
 runtime/v1/rpc.go	*
 runtime/v1/rpc_test.go	*

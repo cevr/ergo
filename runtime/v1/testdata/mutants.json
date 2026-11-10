@@ -12,6 +12,16 @@
       "pkg": "./runtime/v1"
     },
     {
+      "name": "rpc-calls-join",
+      "origin": "wf10 Rm",
+      "file": "runtime/v1/rpc.go",
+      "from": "\tdefer s.stopAll()",
+      "to": "",
+      "rule": "A stop of the request stops every call left and waits for its release before the request (or a Loopback Call) ends; no call outlives its request.",
+      "killers": ["v1:TestRPCCallsStopWithTheCaller"],
+      "pkg": "./runtime/v1"
+    },
+    {
       "name": "r3b-local-exit",
       "origin": "wf10 R3b",
       "file": "runtime/v1/rpc.go",
