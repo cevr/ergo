@@ -22,6 +22,11 @@ type Toolchain struct {
 	// GOOS, GOARCH and GOFLAGS are set in the action's environment; an
 	// empty value leaves Go's own default.
 	GOOS, GOARCH, GOFLAGS string
+	// Tags are the build tags of the action (-tags), such as ergoexplore
+	// for `ergo test --explore` (runtime.md, Explored schedules). They
+	// choose runtime files at link time and are no input of the lowering:
+	// the emitted module is the same with and without them.
+	Tags []string
 }
 
 // HostToolchain is the go command on PATH with the target and flags of the
@@ -35,6 +40,9 @@ func HostToolchain() Toolchain {
 // module directory, with exactly the toolchain's target and flags.
 func (t Toolchain) Command(module Module, output string) *exec.Cmd {
 	args := append([]string{"build"}, receipt.GoBuildFlags...)
+	if len(t.Tags) > 0 {
+		args = append(args, "-tags", strings.Join(t.Tags, ","))
+	}
 	args = append(args, "-o", output, ".")
 	child := exec.Command(t.Go, args...)
 	child.Dir = module.Dir

@@ -44,6 +44,3 @@ func schedEnd(t *Task) {}
 
 // schedTick records a move of v, an auto clock. v.mu is held.
 func schedTick(v *Virtual) {}
-
-// schedDomain refuses a new clock domain for a task of an explored run.
-func schedDomain(t *Task) {}

@@ -235,7 +235,7 @@ func (r schedRun) String() string {
 	var b strings.Builder
 	for _, e := range r.res.Events {
 		if e.Tick {
-			fmt.Fprintf(&b, "  tick %v\n", e.At)
+			fmt.Fprintf(&b, "  tick %v\n", e.Now.UnixNano())
 		} else {
 			fmt.Fprintf(&b, "  %s %v #%d\n", e.Task, e.Kind, e.Handle)
 		}

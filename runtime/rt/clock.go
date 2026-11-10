@@ -161,6 +161,7 @@ func (v *Virtual) AdvanceSettled(t *Task, d time.Duration) error {
 		v.Advance(d)
 		return nil
 	}
+	Point(t, Op{OpWrite, v})
 	v.mu.Lock()
 	if v.advancing {
 		v.mu.Unlock()
@@ -222,9 +223,25 @@ func (v *Virtual) Settle(t *Task) error {
 		}
 		ch := v.change
 		v.mu.Unlock()
+		stop := t.Done()
+		if Exploring {
+			// The settle is a wait the clock does not see: under the
+			// explored scheduler the caller gives the baton away until a
+			// member parks or leaves, or it is stopped.
+			Await(t, func() bool {
+				select {
+				case <-ch:
+					return true
+				case <-stop:
+					return true
+				default:
+					return false
+				}
+			})
+		}
 		select {
 		case <-ch:
-		case <-t.Done():
+		case <-stop:
 			return Interrupted
 		}
 		v.mu.Lock()

@@ -1,0 +1,8 @@
+design safe: [ok] (want [ok])
+design noDeadlock: [violation] (want [violation])
+design noTick: [violation] (want [violation])
+design noEnd: [violation] (want [violation])
+twoBatons OneBaton: [violation] (want [violation])
+earlyTick ClockOnlyWhenIdle: [violation] (want [violation])
+lostWake DeadlockHonest: [violation] (want [violation])
+MODEL_STATUS=0

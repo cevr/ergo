@@ -99,6 +99,42 @@
       "to": "e.res.Deadlock = nil",
       "rule": "Explored schedules: no enabled task while tasks remain is a deadlock",
       "killers": ["rt-explore:TestSchedulerFollowsModel"]
+    },
+    {
+      "name": "X5-live-hook-body",
+      "origin": "X5",
+      "file": "runtime/rt/sched_live.go",
+      "from": "func Block(t *Task) {}",
+      "to": "func Block(t *Task) { t.Done() }",
+      "rule": "Explored schedules 7: without the tag a hook costs nothing",
+      "killers": ["runtime:TestSchedHooksCostNothingLive"]
+    },
+    {
+      "name": "X5-hook-argument-calls",
+      "origin": "X5",
+      "file": "runtime/rt/clock.go",
+      "from": "Point(t, Op{OpSleep, s})",
+      "to": "Point(t, Op{OpSleep, s.NewTimer(0)})",
+      "rule": "Explored schedules 7: a hook's arguments are plain values",
+      "killers": ["runtime:TestSchedHooksCostNothingLive"]
+    },
+    {
+      "name": "X5-hook-closure-unguarded",
+      "origin": "X5",
+      "file": "runtime/v1/actor.go",
+      "from": "\t\tif rt.Exploring {\n\t\t\trt.Await(at, isClosedTest(settled))\n\t\t}\n",
+      "to": "\t\trt.Await(at, isClosedTest(settled))\n",
+      "rule": "Explored schedules 7: a hook call that builds a closure sits inside if rt.Exploring",
+      "killers": ["runtime:TestSchedHooksCostNothingLive"]
+    },
+    {
+      "name": "X5-tags-not-linked",
+      "origin": "X5",
+      "file": "internal/sketch/build/action.go",
+      "from": "if len(t.Tags) > 0 {",
+      "to": "if false && len(t.Tags) > 0 {",
+      "rule": "Explored schedules: --explore links the tagged runtime",
+      "killers": ["build:TestCacheInputs"]
     }
   ]
 }

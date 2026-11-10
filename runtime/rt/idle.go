@@ -74,7 +74,6 @@ func NewManual(t *Task, start time.Time) *Virtual {
 
 // newDomain is a Virtual with a domain whose first member is t.
 func newDomain(t *Task, start time.Time) *Virtual {
-	schedDomain(t)
 	v := NewVirtual(start)
 	v.domain = true
 	if old := t.member.Load(); old != nil {

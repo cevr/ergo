@@ -68,8 +68,8 @@ type Choice struct {
 // SchedEvent is one entry of a run's trace: a pick, or a move of the clock.
 type SchedEvent struct {
 	Pending
-	Tick bool          // the clock moved; Pending is empty
-	At   time.Duration // a tick's time, from the run's start
+	Tick bool      // a clock moved; Pending.Handle names it
+	Now  time.Time // a tick's time on the clock that moved (Handle)
 }
 
 // Result is what an explored run did.
@@ -119,7 +119,6 @@ var ErrExploreBusy = errors.New("rt: another explored run is active")
 
 type explorer struct {
 	v        *Virtual
-	start    time.Time
 	strategy Strategy
 	tasks    map[*Task]*xtask
 	order    []*xtask // in the order they were started
@@ -159,7 +158,7 @@ func Explore(start time.Time, s Strategy, body func(*Task) error) Result {
 	defer exploreMu.Unlock()
 	root := Root("explore")
 	v := NewAuto(root, start)
-	e := &explorer{v: v, start: start, strategy: s, tasks: map[*Task]*xtask{}, handles: map[any]int{}, over: make(chan struct{})}
+	e := &explorer{v: v, strategy: s, tasks: map[*Task]*xtask{}, handles: map[any]int{}, over: make(chan struct{})}
 	e.running = e.add(root, "0")
 	active.Store(e)
 	go func() {
@@ -204,7 +203,10 @@ func (e *explorer) enabled(x *xtask) bool {
 	if x.done {
 		return false
 	}
-	if m := x.t.member.Load(); m != nil && m.v == e.v && m.parked {
+	// A task may wait in a clock domain of its own (a test's virtual or
+	// manual clock): its parked flag is written only by the task that
+	// holds the baton, so it is read here without that clock's lock.
+	if m := x.t.member.Load(); m != nil && m.parked {
 		return false
 	}
 	return x.await == nil || x.await()
@@ -347,7 +349,7 @@ func Block(t *Task) {
 	}
 	defer e.v.mu.Unlock()
 	m := t.member.Load()
-	if m == nil || m.v != e.v || !m.parked {
+	if m == nil || !m.parked {
 		return
 	}
 	if x != e.running {
@@ -370,12 +372,15 @@ func Unblock(t *Task) {
 		return
 	}
 	x.blocked = false
-	if m := t.member.Load(); m != nil && m.v == e.v && m.parked {
+	m := t.member.Load()
+	if m != nil && m.parked {
 		// The wait ended with no wake the clock saw.
 		e.escape("task " + x.path + " woke with no wake the scheduler saw")
-		m.release()
+	} else {
+		m = nil
 	}
 	e.v.mu.Unlock()
+	m.unpark()
 	<-x.baton
 }
 
@@ -453,22 +458,22 @@ func schedEnd(t *Task) {
 	e.handoff(x)
 }
 
-// schedTick records a move of v. v.mu is held.
+// schedTick records a move of v, the clock of the task that runs. v.mu is
+// held; the lock order is a clock's, then the run's.
 func schedTick(v *Virtual) {
 	e := active.Load()
-	if e == nil || e.v != v || e.free {
-		return
-	}
-	e.res.Events = append(e.res.Events, SchedEvent{Tick: true, At: v.now.Sub(e.start)})
-}
-
-// schedDomain refuses a new clock domain for t, a task of an explored
-// run: the explorer owns the clock of its tasks.
-func schedDomain(t *Task) {
-	e, _ := lookup(t)
 	if e == nil {
 		return
 	}
-	e.v.mu.Unlock()
-	panic("rt: a clock domain inside an explored run: the explorer owns its tasks' clock (runtime.md, Explored schedules)")
+	if e.v != v {
+		e.v.mu.Lock()
+		defer e.v.mu.Unlock()
+	}
+	if e.free || e.running == nil {
+		return
+	}
+	if m := e.running.t.member.Load(); m == nil || m.v != v {
+		return
+	}
+	e.res.Events = append(e.res.Events, SchedEvent{Tick: true, Now: v.now, Pending: Pending{Handle: e.handle(v)}})
 }

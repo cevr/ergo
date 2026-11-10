@@ -12,8 +12,11 @@ import (
 	"ergo.local/prototype/internal/sketchfront"
 )
 
-// testCommand runs a source's tests: `ergo test FILE [--seed N] [-work]
-// [--target go]`. It is a transport over sketchfront's test build
+// testCommand runs a source's tests: `ergo test FILE [--seed N]
+// [--explore] [-work] [--target go]`. --explore links the same test module
+// with the ergoexplore tag, so its tasks run on one baton under the
+// cooperative schedule, and a deadlock is a defect that names the tasks
+// (runtime.md, Explored schedules). It is a transport over sketchfront's test build
 // (build.ModeTest, lower.LowerTests): it checks the source, builds the test
 // binary into a private temporary directory, never the working directory,
 // dist/ or the module, and runs it as a child with --seed, through the
@@ -46,12 +49,19 @@ func testCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	toolchain := build.HostToolchain()
+	if opts.explore {
+		// The tag chooses the runtime's controlled scheduler at link
+		// time; the emitted module is the one a plain `ergo test` uses
+		// (runtime.md, Explored schedules).
+		toolchain.Tags = []string{"ergoexplore"}
+	}
 	module, err := sketchfront.Build(l.analysis, sketchfront.BuildRequest{
 		Mode:      build.ModeTest,
 		Source:    l.source.Admitted(),
 		Output:    binary,
 		Cache:     build.Cache{Root: root},
-		Toolchain: build.HostToolchain(),
+		Toolchain: toolchain,
 		Stderr:    os.Stderr,
 	})
 	if opts.work && module.Dir != "" {

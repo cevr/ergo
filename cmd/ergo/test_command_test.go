@@ -126,8 +126,9 @@ func TestTestCommand(t *testing.T) {
 // TestBuildAndTestActionsDiffer: `ergo build -work` and `ergo test -work`
 // of one source name two modules of the emission cache. The build module
 // holds no Go from the test body; the test module maps it. An unchanged
-// second `ergo test -work` reuses its module without rewriting a file, and
-// the test binary is never written into the module.
+// second `ergo test -work` reuses its module without rewriting a file, as
+// does `ergo test --explore -work`, whose tag is the link's alone, and the
+// test binary is never written into the module.
 func TestBuildAndTestActionsDiffer(t *testing.T) {
 	binary := buildTestCLI(t)
 	root := physicalTempDir(t)
@@ -163,6 +164,13 @@ func TestBuildAndTestActionsDiffer(t *testing.T) {
 	stdout, stderr, code = testRunCLI(t, binary, root, xdg, tmp, "test", "main.ergo", "-work")
 	if code != 0 || workDir(t, stderr) != tested || stdout != "ok OnlyTest\nPASS (1 tests)\n" {
 		t.Fatalf("second test -work: exit %d stdout %q stderr %q, want the module %s", code, stdout, stderr, tested)
+	}
+	// --explore links the same module with the ergoexplore tag: the
+	// lowered Go is the same in both builds (runtime.md, Explored
+	// schedules).
+	stdout, stderr, code = testRunCLI(t, binary, root, xdg, tmp, "test", "main.ergo", "--explore", "-work")
+	if code != 0 || workDir(t, stderr) != tested || stdout != "ok OnlyTest\nPASS (1 tests)\n" {
+		t.Fatalf("test --explore -work: exit %d stdout %q stderr %q, want the module %s", code, stdout, stderr, tested)
 	}
 	after := moduleState(t, tested)
 	if len(after) != len(before) {
