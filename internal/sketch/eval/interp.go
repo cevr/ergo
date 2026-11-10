@@ -17,6 +17,7 @@ type interp struct {
 	// initializers before any obligation runs (init.go). Nothing writes
 	// them after.
 	globals map[*check.Var]*slot
+	ranges  []*sliceRange
 }
 
 // frame is one running body: a test, a law, a function call or a call of

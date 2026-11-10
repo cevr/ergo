@@ -71,7 +71,7 @@
       "name": "variant-test-true",
       "origin": "wf10/l7-eval/EV1",
       "file": "internal/sketch/eval/stmt.go",
-      "from": "\t\treturn sameNamed(r.t, tt)",
+      "from": "\t\treturn r.t.Obj == tt.Obj && r.key == argsKey(tt, t.env)",
       "to": "\t\treturn r != nil",
       "rule": "A type pattern matches a union value only of that variant (rows.md, Totality; a Go type switch).",
       "killers": [
@@ -82,8 +82,8 @@
       "name": "returned-error-is-value",
       "origin": "wf10/l7-eval/EV1",
       "file": "internal/sketch/eval/interp.go",
-      "from": "\tif fr.isErrorValue(fr.typeOf(x)) && !fr.info.ReturnedValues[x] {",
-      "to": "\tif false && fr.isErrorValue(fr.typeOf(x)) && !fr.info.ReturnedValues[x] {",
+      "from": "\tif fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x] {",
+      "to": "\tif false && fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x] {",
       "rule": "Returning a value of an error type is a failure (types.md, Error types 2).",
       "killers": [
         "internal/sketch/eval:TestEvalAgreesWithReference"
@@ -143,6 +143,123 @@
       "killers": [
         "internal/sketch/eval:TestRunStopsTheRun"
       ]
+    },
+    {
+      "name": "slice-write-shared",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/coll.go",
+      "from": "\tif tok != nil && s.b.owner == tok {",
+      "to": "\tif true {",
+      "rule": "A write through one binding never changes another binding's slice or array (Bindings 1).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "map-write-shared",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/coll.go",
+      "from": "\tif tok != nil && m.b.owner == tok {",
+      "to": "\tif true {",
+      "rule": "A Map's index write, Put and Delete change only their root (Bindings 1).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "append-tip-owned",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/coll.go",
+      "from": "\t\t\txs.b.owner = nil",
+      "to": "\t\t\txs.b.owner = own",
+      "rule": "An Append that shares its input must not grant exclusive ownership to its output (Bindings 1).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "handover-lends-not",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/coll.go",
+      "from": "func (s *slot) lend() { s.tok = nil }",
+      "to": "func (s *slot) lend() {}",
+      "rule": "A read that lets a part escape revokes the slot's exclusive ownership (Bindings 1).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "record-field-shared",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/stmt.go",
+      "from": "\t\tnext := &record{t: c.t, key: c.key, fields: append([]Value(nil), c.fields...)}",
+      "to": "\t\tnext := c",
+      "rule": "A record field write changes that root alone (Bindings 1).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "range-snapshot-domain",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/stmt.go",
+      "from": "\t\t\tif r.root == root && r.view.b == old {",
+      "to": "\t\t\tif false && r.root == root && r.view.b == old {",
+      "rule": "Slice range sees indexed writes through its root (Bindings 3; Loops and len 7); seed-83 bug.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "int8-conversion-dropped",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\t\tout, ok := convertBasic(v, b.Kind)",
+      "to": "\t\tif b.Kind == check.Int8 { return int8(0), nil }; out, ok := convertBasic(v, b.Kind)",
+      "rule": "Runtime conversion to int8 preserves its low eight bits (Conversions).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "literal-frame-copies",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tcallee := &frame{pkg: fr.pkg, info: fr.info, decl: fr.decl, vars: fr.vars, env: fr.env, owner: fr.owner}",
+      "to": "\tvars := map[*check.Var]*slot{}; for k, v := range fr.vars { vars[k] = &slot{v: v.v} }; callee := &frame{pkg: fr.pkg, info: fr.info, decl: fr.decl, vars: vars, env: fr.env, owner: fr.owner}",
+      "rule": "An immediately called literal writes its enclosing mutable locals (Function values 2).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "init-order-ignored",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/init.go",
+      "from": "\tfor _, ini := range p.Info.InitOrder {",
+      "to": "\tfor i := len(p.Info.InitOrder)-1; i >= 0; i-- { ini := p.Info.InitOrder[i]",
+      "rule": "Every package initializer runs in the checker's dependency order before obligations.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "string-range-bytes",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/stmt.go",
+      "from": "\t\tfor i, r := range dom.(string) {",
+      "to": "\t\tfor i := range len(dom.(string)) { r := rune(dom.(string)[i])",
+      "rule": "String range decodes UTF-8 runes, including invalid bytes, as Go does (Loops and len 1).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "copy-fuel-ignored",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/coll.go",
+      "from": "\tif ab := in.charge(fr, at, int64(s.n)+1); ab != nil {",
+      "to": "\tif ab := in.charge(fr, at, 0); ab != nil {",
+      "rule": "Bulk copying consumes element work before allocation (plan section 5).",
+      "killers": ["internal/sketch/eval:TestEvalMetersCollectionsAndCalls"]
+    },
+    {
+      "name": "recursion-depth-ignored",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/interp.go",
+      "from": "\tif in.depth >= in.budget.Depth {",
+      "to": "\tif false && in.depth >= in.budget.Depth {",
+      "rule": "The explicit call-depth bound stops recursion with incomplete, never pass.",
+      "killers": ["internal/sketch/eval:TestEvalMetersCollectionsAndCalls"]
+    },
+    {
+      "name": "generic-substitution-unbound",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/interp.go",
+      "from": "\t\t\tcallee.env.m[tp] = fr.rt(targs[i])",
+      "to": "\t\t\t_ = i; callee.env.m[tp] = rtype{t: tp}",
+      "rule": "A generic call's checked arguments bind the callee's type parameters, including nominal patterns (Generics).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
     }
   ]
 }

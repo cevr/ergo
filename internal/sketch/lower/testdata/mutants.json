@@ -2,6 +2,16 @@
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
+      "name": "eval-conversion-drift",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\t\tout, ok := convertBasic(v, b.Kind)",
+      "to": "\t\tif b.Kind == check.Int8 { return int8(0), nil }; out, ok := convertBasic(v, b.Kind)",
+      "rule": "The check-time evaluator agrees with native Go on runtime conversions. EV2 also runs the paired eval-model-shared-drift manually because a ledger edit changes only one file.",
+      "killers": ["lower:TestEvalAgreesWithGo"],
+      "anchor": {"tests": ["lower:TestEvalAgreesWithGo"]}
+    },
+    {
       "name": "existing-2-unit-h",
       "origin": "lower-v1/verify-s4a/r2/mutants-r2.json",
       "file": "internal/sketch/lower/tests.go",

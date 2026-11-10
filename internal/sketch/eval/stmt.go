@@ -108,8 +108,8 @@ func loopBody(ab *abrupt) (bool, *abrupt) {
 }
 
 // rangeStmt runs a for-in over the domain the checker recorded (types.md,
-// Loops and len 1): a slice or an array (its value at the start of the
-// loop), a string's runes as Go's range decodes them, or a Range counting
+// Loops and len 1, 7): a slice's initial header with live element writes,
+// an array's initial value, a string's runes as Go decodes them, or a Range counting
 // up from Start, End excluded. A Map's order is unspecified, so a for over
 // one has no verdict the Go target is sure to share: a skip (plan section
 // 4). A Seq calls a function value, which a pure frame never does.
@@ -124,11 +124,31 @@ func (in *interp) rangeStmt(fr *frame, s *syntax.RangeStmt) *abrupt {
 	if l.Domain == check.LoopSeq {
 		return fr.unsupported(s, "a for over a Seq, which calls a function value")
 	}
-	dom, ab := in.expr(fr, s.X)
+	var root *slot
+	var dom Value
+	var ab *abrupt
+	if l.Domain == check.LoopSlice {
+		dom, root, ab = in.peek(fr, s.X)
+		if root != nil {
+			root.lend()
+		}
+	} else {
+		dom, ab = in.expr(fr, s.X)
+	}
 	if ab != nil {
 		return ab
 	}
+	if l.Domain == check.LoopSlice && root != nil {
+		if xs, ok := dom.(sliceV); ok && !xs.array {
+			if _, direct := unparen(s.X).(*syntax.Ident); !direct {
+				return fr.unsupported(s, "a slice range rooted through a field or subscript yet")
+			}
+		}
+	}
 	iter := func(pos, elem Value) (bool, *abrupt) {
+		if root != nil && !basicValue(elem) {
+			root.lend() // the iteration binding holds its own element value
+		}
 		if ab := in.charge(fr, s, 1); ab != nil {
 			return true, ab
 		}
@@ -143,9 +163,14 @@ func (in *interp) rangeStmt(fr *frame, s *syntax.RangeStmt) *abrupt {
 	switch l.Domain {
 	case check.LoopSlice:
 		xs := dom.(sliceV)
-		elems := xs.elems()
+		if !xs.array {
+			// A loop is not a value binding (Bindings 3). Follow writes
+			// through the ranged root even when COW relocates its store.
+			in.ranges = append(in.ranges, &sliceRange{root: root, view: &xs})
+			defer func() { in.ranges = in.ranges[:len(in.ranges)-1] }()
+		}
 		for i := 0; i < xs.n; i++ {
-			if done, ab := iter(int64(i), elems[i]); done {
+			if done, ab := iter(int64(i), xs.elems()[i]); done {
 				return ab
 			}
 		}
@@ -346,6 +371,11 @@ func (in *interp) assign(fr *frame, s *syntax.AssignStmt) *abrupt {
 	if why != "" {
 		return fr.unsupported(lhs, "an assignment to %s yet", why)
 	}
+	for _, r := range in.ranges {
+		if r.root == root && len(steps) == 0 {
+			return fr.unsupported(lhs, "replacement of an active slice range's root yet")
+		}
+	}
 	var old Value
 	if s.Tok != syntax.ASSIGN {
 		v, ab := in.read(fr, root.v, steps)
@@ -373,7 +403,7 @@ func (in *interp) assign(fr *frame, s *syntax.AssignStmt) *abrupt {
 			return ab
 		}
 	}
-	nv, ab := in.storePath(fr, root.own(), root.v, steps, val)
+	nv, ab := in.storePath(fr, root, root.v, steps, val)
 	if ab != nil {
 		return ab
 	}
@@ -483,7 +513,8 @@ func (in *interp) read(fr *frame, v Value, steps []step) (Value, *abrupt) {
 // storePath is cur with val written at the path: a new record at each
 // field, and each slice, array or Map on the path owned by tok, copied
 // once when another value may share it.
-func (in *interp) storePath(fr *frame, tok *token, cur Value, steps []step, val Value) (Value, *abrupt) {
+func (in *interp) storePath(fr *frame, root *slot, cur Value, steps []step, val Value) (Value, *abrupt) {
+	tok := root.own()
 	if len(steps) == 0 {
 		return val, nil
 	}
@@ -494,7 +525,7 @@ func (in *interp) storePath(fr *frame, tok *token, cur Value, steps []step, val 
 		if ab := in.charge(fr, st.at, int64(len(c.fields))); ab != nil {
 			return nil, ab
 		}
-		inner, ab := in.storePath(fr, tok, c.fields[i], steps[1:], val)
+		inner, ab := in.storePath(fr, root, c.fields[i], steps[1:], val)
 		if ab != nil {
 			return nil, ab
 		}
@@ -506,11 +537,18 @@ func (in *interp) storePath(fr *frame, tok *token, cur Value, steps []step, val 
 		if !ok {
 			return nil, fr.defect(st.at, "index out of range [%s] with length %d", describe(st.index), c.n)
 		}
+		old := c.b
+		oldOff := c.off
 		c, ab := in.ownSlice(fr, st.at, c, tok)
 		if ab != nil {
 			return nil, ab
 		}
-		inner, ab := in.storePath(fr, tok, c.b.data[c.off+i], steps[1:], val)
+		for _, r := range in.ranges {
+			if r.root == root && r.view.b == old {
+				r.view.b, r.view.off = c.b, r.view.off-oldOff
+			}
+		}
+		inner, ab := in.storePath(fr, root, c.b.data[c.off+i], steps[1:], val)
 		if ab != nil {
 			return nil, ab
 		}

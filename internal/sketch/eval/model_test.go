@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"testing"
@@ -24,9 +25,8 @@ import (
 //
 // Mutants it kills (testdata/mutants.json): slice-write-shared,
 // map-write-shared, append-tip-owned, handover-lends-not, record-field-shared,
-// range-live-domain, int8-conversion-dropped, match-arm-last,
-// variant-key-ignored, literal-frame-copies, generic-zero-unbound,
-// init-order-ignored, string-range-bytes, slice-expr-shares-array.
+// range-snapshot-domain, int8-conversion-dropped, literal-frame-copies,
+// init-order-ignored, string-range-bytes.
 func TestEvalAgreesWithModel(t *testing.T) {
 	n := 300
 	if testing.Short() {
@@ -69,6 +69,47 @@ func TestEvalAgreesWithModel(t *testing.T) {
 		}
 		if defects == 0 || defects == n {
 			t.Errorf("%d of %d seeds defect: the verdicts are not both reached", defects, n)
+		}
+	}
+}
+
+// TestEvalMetersCollectionsAndCalls checks counted work at small increasing
+// sizes through Run: creating an array and copying it twice costs at least
+// three element visits per element, independent of AST dispatch. Removing
+// ownSlice's charge (copy-fuel-ignored) leaves only the default's linear work.
+// The same sizes recurse beyond an explicit call-depth bound; removing that
+// bound (recursion-depth-ignored) completes instead of reporting incomplete.
+// Existing EV1 loop fuel checks reach neither bulk copying nor call depth.
+func TestEvalMetersCollectionsAndCalls(t *testing.T) {
+	var previous int64
+	var last int
+	for n := 8; n <= 128; n *= 2 {
+		src := fmt.Sprintf(`test Copies {
+	let mut a [%d]int
+	let b = a
+	a[0] = 1
+	let c = a
+	a[0] = 2
+	assert b[0] == 0 && c[0] == 1 && a[0] == 2
+}
+`, n)
+		rep, err := Run(checked(t, src), DefaultBudget())
+		if err != nil || len(rep.Results) != 1 || rep.Results[0].Status != Passed {
+			t.Fatalf("n=%d: %+v %v\n%s", n, rep, err, src)
+		}
+		if last != 0 && rep.Steps-previous < int64(3*(n-last)) {
+			t.Fatalf("n=%d: only %d extra steps for %d extra elements (two copies and a default)", n, rep.Steps-previous, n-last)
+		}
+		previous, last = rep.Steps, n
+		src = fmt.Sprintf(`func down(n int) int {
+	if n == 0 { return 0 }
+	down(n - 1)
+}
+test Calls { assert down(%d) == 0 }
+`, n)
+		rep, err = Run(checked(t, src), Budget{Steps: 100_000, Depth: n / 2})
+		if err != nil || len(rep.Results) != 1 || rep.Results[0].Status != Incomplete {
+			t.Fatalf("n=%d: %+v %v\n%s", n, rep, err, src)
 		}
 	}
 }

@@ -66,6 +66,12 @@ type sliceV struct {
 	array  bool
 }
 
+// sliceRange observes element writes, not replacement of the ranged place.
+type sliceRange struct {
+	root *slot
+	view *sliceV
+}
+
 func newSlice(elems []Value) sliceV {
 	return sliceV{b: &backing{data: elems}, n: len(elems)}
 }
@@ -124,10 +130,20 @@ func (in *interp) ownMap(fr *frame, at syntax.Node, m mapV, tok *token) (mapV, *
 // appendTo is xs with x at its end. own is the token of the slot that
 // hands xs over (x = x.Append(e)), nil otherwise.
 func (in *interp) appendTo(fr *frame, at syntax.Node, xs sliceV, x Value, own *token) (Value, *abrupt) {
+	for _, r := range in.ranges {
+		if r.view.b == xs.b {
+			return nil, fr.unsupported(at, "an Append of an active slice range, whose backing capacity the Go target decides")
+		}
+	}
 	if ab := in.charge(fr, at, 1); ab != nil {
 		return nil, ab
 	}
 	if xs.off+xs.n == len(xs.b.data) {
+		if len(xs.b.data) == cap(xs.b.data) {
+			if ab := in.charge(fr, at, int64(len(xs.b.data))); ab != nil {
+				return nil, ab
+			}
+		}
 		// No value sees past xs's end, so the store grows in place. It
 		// stays the slot's own only when the slot hands over its own
 		// store: else another value may share it now.

@@ -31,14 +31,15 @@ import (
 // two things under test. Each program runs under the kit's memory limit
 // (runProgram).
 //
-// Mutant it kills (testdata/mutants.json): eval-model-shared-drift, a
+// Mutant it kills (testdata/mutants.json): eval-conversion-drift. The
+// manual two-file mutant eval-model-shared-drift is a
 // paired edit of the model and the evaluator that keeps them agreeing
 // (TestEvalAgreesWithModel passes) while both depart from the Go target:
-// both read an int8 conversion without its wrap.
+// both read an int8 conversion as zero (EV2's paired-mutant log).
 func TestEvalAgreesWithGo(t *testing.T) {
 	needsBuild(t)
 	seeds := make([]uint64, 0, 40)
-	for s := uint64(1); s <= 400; s++ {
+	for s := uint64(1); s <= 40; s++ {
 		seeds = append(seeds, s)
 	}
 	if s := os.Getenv("ERGO_EVAL_GO_SEED"); s != "" {

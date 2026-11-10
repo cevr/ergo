@@ -194,6 +194,25 @@ func fib(n int) int {
 	fib(n - 1) + fib(n - 2)
 }
 
+func rangeLive(n int) int {
+	let mut xs = []int{1, n, 3}
+	let mut sum = 0
+	for x in xs {
+		xs[2] = n + 7
+		sum += x
+	}
+	sum
+}
+
+func appendLent(n int) int {
+	let mut xs = []int{n}
+	xs[0] += 1
+	let mut ys = xs
+	ys = ys.Append(n + 2)
+	ys[0] = n + 3
+	xs[0] + ys[0]
+}
+
 `
 }
 
@@ -208,7 +227,7 @@ func (g *gen) source(want string) string {
 	for _, s := range g.body {
 		s.write(&b, 1)
 	}
-	b.WriteString("\tOut{n: i0 + 31 * i1 + 7 * i2 + sumArr(a0) + 3 * sumArr(a1), w: w0, u: u0, s: t0, xs: s0, ys: s1, g: g0, m: m0, m2: m1, p: p0, q: p1, sh: sh0, f: \"\\(float64(i0) / float64(i1)) \\(float32(i2) / float32(i0))\"}\n}\n\n")
+	b.WriteString("\tOut{n: i0 + 31 * i1 + 7 * i2 + sumArr(a0) + 3 * sumArr(a1) + rangeLive(base) + appendLent(base), w: w0, u: u0, s: t0, xs: s0, ys: s1, g: g0, m: m0, m2: m1, p: p0, q: p1, sh: sh0, f: \"\\(float64(i0) / float64(i1)) \\(float32(i2) / float32(i0))\"}\n}\n\n")
 	b.WriteString("test V {\n\tassert r() == " + want + "\n}\n")
 	return b.String()
 }
@@ -319,9 +338,28 @@ func fib(n int64) int64 {
 	return fib(n-1) + fib(n-2)
 }
 
+func rangeLive(n int64) int64 {
+	xs := []int64{1, n, 3}
+	var sum int64
+	for _, x := range xs {
+		xs[2] = n + 7
+		sum += x
+	}
+	return sum
+}
+
+func appendLent(n int64) int64 {
+	xs := []int64{n}
+	xs[0]++
+	ys := cloneInts(xs)
+	ys = append(cloneInts(ys), n+2)
+	ys[0] = n + 3
+	return xs[0] + ys[0]
+}
+
 // out is r()'s value as an Ergo literal.
 func (m *model) out() string {
-	n := m.ints["i0"] + 31*m.ints["i1"] + 7*m.ints["i2"] + sumArr(m.arrs["a0"]) + 3*sumArr(m.arrs["a1"])
+	n := m.ints["i0"] + 31*m.ints["i1"] + 7*m.ints["i2"] + sumArr(m.arrs["a0"]) + 3*sumArr(m.arrs["a1"]) + rangeLive(m.base) + appendLent(m.base)
 	f := strconv.FormatFloat(float64(m.ints["i0"])/float64(m.ints["i1"]), 'g', -1, 64) + " " +
 		strconv.FormatFloat(float64(float32(m.ints["i2"])/float32(m.ints["i0"])), 'g', -1, 32)
 	return fmt.Sprintf("Out{n: %d, w: %d, u: %d, s: %s, xs: %s, ys: %s, g: %s, m: %s, m2: %s, p: %s, q: %s, sh: %s, f: %s}",
@@ -381,7 +419,8 @@ type gen struct {
 	body   []stmt
 	kinds  map[string]int
 	fresh  int
-	loops  int // the enclosing loops of the statement being made
+	loops  int            // the enclosing loops of the statement being made
+	ranged map[string]int // active slice domains; no capacity-dependent Append
 }
 
 // stmt is one generated statement.
@@ -538,7 +577,7 @@ func (g *gen) intExpr(d int) iexpr {
 		if x.konst {
 			y = g.live(y)
 		}
-		return ie("(" + x.text + " " + op + " " + y.text + ")", func(m *model) int64 {
+		return ie("("+x.text+" "+op+" "+y.text+")", func(m *model) int64 {
 			a := x.val(m)
 			b := y.val(m)
 			switch op {
@@ -554,7 +593,7 @@ func (g *gen) intExpr(d int) iexpr {
 		x, y := g.intExpr(d-1), g.live(g.intExpr(d-1))
 		op := []string{"/", "%"}[g.r.IntN(2)]
 		g.kind("defect-divide")
-		return ie("(" + x.text + " " + op + " " + y.text + ")", func(m *model) int64 {
+		return ie("("+x.text+" "+op+" "+y.text+")", func(m *model) int64 {
 			a := x.val(m)
 			b := y.val(m)
 			if b == 0 {
@@ -567,10 +606,10 @@ func (g *gen) intExpr(d int) iexpr {
 		})
 	case 4:
 		s := g.pick(sliceVars)
-		return ie("len(" + s + ")", func(m *model) int64 { return int64(len(m.slices[s])) })
+		return ie("len("+s+")", func(m *model) int64 { return int64(len(m.slices[s])) })
 	case 5:
 		s, i := g.pick(sliceVars), g.intExpr(d-1)
-		return ie("at(" + s + ", " + i.text + ")", func(m *model) int64 { return at(m.slices[s], i.val(m)) })
+		return ie("at("+s+", "+i.text+")", func(m *model) int64 { return at(m.slices[s], i.val(m)) })
 	case 6:
 		// A raw index: a defect past the end.
 		s, k := g.pick(sliceVars), g.r.IntN(5)
@@ -597,7 +636,7 @@ func (g *gen) intExpr(d int) iexpr {
 	case 8:
 		s, i, dflt := g.pick(sliceVars), g.intExpr(d-1), g.intExpr(d-1)
 		g.kind("generic-call")
-		return ie("pick(" + s + ", " + i.text + ", " + dflt.text + ")", func(m *model) int64 {
+		return ie("pick("+s+", "+i.text+", "+dflt.text+")", func(m *model) int64 {
 			xs := m.slices[s]
 			iv := i.val(m)
 			dv := dflt.val(m)
@@ -608,7 +647,7 @@ func (g *gen) intExpr(d int) iexpr {
 		})
 	case 9:
 		a := g.pick(arrVars)
-		return ie("sumArr(" + a + ")", func(m *model) int64 { return sumArr(m.arrs[a]) })
+		return ie("sumArr("+a+")", func(m *model) int64 { return sumArr(m.arrs[a]) })
 	case 10:
 		return ie("runes(t0)", func(m *model) int64 { return runes(m.str) })
 	case 11:
@@ -627,13 +666,13 @@ func (g *gen) intExpr(d int) iexpr {
 	case 14:
 		g.kind("recursion")
 		i := g.intExpr(d - 1)
-		return ie("fib(idx(12, " + i.text + "))", func(m *model) int64 { return fib(idx(12, i.val(m))) })
+		return ie("fib(idx(12, "+i.text+"))", func(m *model) int64 { return fib(idx(12, i.val(m))) })
 	case 15:
 		mv := g.pick(mapVars)
-		return ie("len(" + mv + ")", func(m *model) int64 { return int64(len(m.maps[mv])) })
+		return ie("len("+mv+")", func(m *model) int64 { return int64(len(m.maps[mv])) })
 	}
 	p := g.pick(pairVars)
-	return ie("(" + p + ".a + len(" + p + ".xs))", func(m *model) int64 { return m.pairs[p].a + int64(len(m.pairs[p].xs)) })
+	return ie("("+p+".a + len("+p+".xs))", func(m *model) int64 { return m.pairs[p].a + int64(len(m.pairs[p].xs)) })
 }
 
 // stmt adds one statement of depth at most d to the body.
@@ -688,6 +727,9 @@ func (g *gen) simple(c int) (stmt, bool) {
 		return stmt{line("u0 = u0 * uint16(" + e.text + ") + 7"), func(m *model) { m.u = m.u*uint16(e.val(m)) + 7 }}, true
 	case 3:
 		s, e := g.pick(sliceVars), g.intExpr(2)
+		if len(g.ranged) > 0 {
+			return stmt{}, false
+		}
 		g.kind("slice-append-handover")
 		return stmt{line(s + " = " + s + ".Append(" + e.text + ")"), func(m *model) {
 			v := e.val(m)
@@ -695,6 +737,9 @@ func (g *gen) simple(c int) (stmt, bool) {
 		}}, true
 	case 4:
 		s, o, e := g.pick(sliceVars), g.pick(sliceVars), g.intExpr(2)
+		if len(g.ranged) > 0 {
+			return stmt{}, false
+		}
 		g.kind("slice-append-other")
 		return stmt{line(s + " = " + o + ".Append(" + e.text + ")"), func(m *model) {
 			v := e.val(m)
@@ -702,6 +747,9 @@ func (g *gen) simple(c int) (stmt, bool) {
 		}}, true
 	case 5:
 		s, o := g.pick(sliceVars), g.pick(sliceVars)
+		if g.ranged[s] > 0 {
+			return stmt{}, false
+		}
 		g.kind("slice-alias")
 		return stmt{line(s + " = " + o), func(m *model) { m.slices[s] = cloneInts(m.slices[o]) }}, true
 	case 6:
@@ -717,6 +765,9 @@ func (g *gen) simple(c int) (stmt, bool) {
 		}}, true
 	case 7:
 		s, o := g.pick(sliceVars), g.pick(sliceVars)
+		if g.ranged[s] > 0 {
+			return stmt{}, false
+		}
 		lo, hi := g.r.IntN(3), g.r.IntN(4)
 		g.kind("slice-slice")
 		if hi < lo {
@@ -750,6 +801,9 @@ func (g *gen) simple(c int) (stmt, bool) {
 		}}, true
 	case 9:
 		s, i := g.pick(sliceVars), g.intExpr(1)
+		if g.ranged[s] > 0 {
+			return stmt{}, false
+		}
 		g.kind("grid-row-alias")
 		return stmt{block("if len(g0) > 0 {", []stmt{{line(s + " = g0[idx(len(g0), " + i.text + ")]"), nil}}, "}"), func(m *model) {
 			if len(m.grid) > 0 {
@@ -827,6 +881,9 @@ func (g *gen) simple(c int) (stmt, bool) {
 		p, e := g.pick(pairVars), g.intExpr(2)
 		g.kind("record-slice-write")
 		if g.r.IntN(2) == 0 {
+			if len(g.ranged) > 0 {
+				return stmt{}, false
+			}
 			return stmt{line(p + ".xs = " + p + ".xs.Append(" + e.text + ")"), func(m *model) {
 				v := e.val(m)
 				x := clonePair(m.pairs[p])
@@ -877,6 +934,9 @@ func (g *gen) simple(c int) (stmt, bool) {
 		}}, true
 	case 24:
 		s, e := g.pick(sliceVars), g.intExpr(1)
+		if len(g.ranged) > 0 {
+			return stmt{}, false
+		}
 		g.kind("literal-capture")
 		return stmt{block("func() {", []stmt{{line(s + " = " + s + ".Append(" + e.text + ")"), nil}, {line("i0 += 1"), nil}}, "}()"), func(m *model) {
 			v := e.val(m)
@@ -933,18 +993,27 @@ func (g *gen) compound(c, d int) (stmt, bool) {
 			}
 		}}, true
 	case 28:
-		// A for over a slice: the domain is its value at the start, and
-		// the body may write the slice.
+		// A slice range keeps Go's initial header, with live element
+		// writes (Bindings 3; Loops and len 7), unlike an array range.
+		// Append while ranging is capacity-dependent, outside this model.
 		s, x := g.pick(sliceVars), g.name("lx")
 		g.kind("for-slice")
+		if g.ranged == nil {
+			g.ranged = map[string]int{}
+		}
+		g.ranged[s]++
 		g.loops++
 		body := inner()
 		g.loops--
+		g.ranged[s]--
+		if g.ranged[s] == 0 {
+			delete(g.ranged, s)
+		}
 		esc := g.escape(x)
 		return stmt{func(b *strings.Builder, depth int) {
 			block("for "+x+" in "+s+" {", append([]stmt{esc.stmt}, body...), "}")(b, depth)
 		}, func(m *model) {
-			dom := cloneInts(m.slices[s])
+			dom := m.slices[s]
 			for _, v := range dom {
 				m.ints[x] = v
 				brk, cont := esc.run(m)

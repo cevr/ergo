@@ -8,7 +8,7 @@
 // The evaluator runs only what it can prove has no effect: an obligation
 // whose footprint (check.Footprint, rows.md Footprints) is not empty is a
 // visible skip, and so is a form the evaluator does not interpret yet (a
-// Go call, a collection, a function value). Because what runs is pure, a
+// Go call or an unresolved function value). Because what runs is pure, a
 // skip found part way through a run is sound: nothing observable happened.
 //
 // Work is bounded by a budget of steps and of call depth, never by time:
@@ -19,7 +19,7 @@
 // wrap at their checked width (int and uint are 64 bits), integer division
 // by zero and a negative shift are defects, floats are IEEE at their width,
 // strings are bytes. Records, tuples and union values are immutable here,
-// so Ergo's value semantics (a copy on every assignment) costs nothing.
+// so their value copies cost nothing; collections use metered copy-on-write.
 //
 // Prior art: Zig's comptime runs ordinary functions at compile time under
 // an evaluation quota and refuses runtime-only operations by name; Lean's
