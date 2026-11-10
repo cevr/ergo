@@ -54,6 +54,15 @@
       "to": "func (fc *funcCtx) afterGoContext(x syntax.Node, ctx bool) {\n\tif false && ctx {",
       "rule": "A stop of a Go wait unwinds before the catch arm can observe context.Canceled as a typed Go error.",
       "killers": ["cmd/ergo:TestGoContextInterrupts"]
+    },
+    {
+      "name": "b16a-receipt-omits-searched-law",
+      "origin": "wf10 batch-16a integration (L10 receipts x X1 machine laws)",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "\tb.WriteString(\"\\t\\t\" + l.helper(\"RecordSearch\") + \"(\" + strconv.Quote(label) + \", \" + held + \", \" + how + \", \" + where + \")\\n\\t}\\n\")",
+      "to": "\tb.WriteString(\"\\t\\t_ = \" + held + \"\\n\\t}\\n\")",
+      "rule": "runtime.md Tests 8: the law receipt has one entry per law run, a machine's searched reachability law included.",
+      "killers": ["cmd/ergo:TestTestCommand"]
     }
   ]
 }

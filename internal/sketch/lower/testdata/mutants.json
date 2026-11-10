@@ -18,7 +18,7 @@
       "to": "func (r *$Rand) integer(bits uint, signed bool) uint64 {\n\treturn uint64(r.i64())\n",
       "rule": "Integer replay uses canonical sign and magnitude, not distribution branches.",
       "killers": ["lower:TestIntegerShrinksReachBoundary"],
-      "anchor": {"text": "Replace(harnessGo)"}
+      "anchor": {"text": "Replace(harnessGo + harnessReachGo)"}
     },
     {
       "name": "l10b-integer-no-narrowing",
@@ -28,7 +28,7 @@
       "to": "mask := ^uint64(0)",
       "rule": "Record magnitude after narrowing, so a smaller integer width shrinks by value rather than wrapping.",
       "killers": ["lower:TestIntegerShrinksReachBoundary"],
-      "anchor": {"text": "Replace(harnessGo)"}
+      "anchor": {"text": "Replace(harnessGo + harnessReachGo)"}
     },
     {
       "name": "existing-2-unit-h",
@@ -188,8 +188,8 @@
       "name": "existing-13-defect-continues",
       "origin": "lower-v1/verify-s4a/mutants-s4a.json",
       "file": "internal/sketch/lower/tests.go",
-      "from": "\t$Runtime.Raise(exit)\n",
-      "to": "\tok = false\n",
+      "from": "\t\t$Runtime.Raise(exit)\n\t}\n\t$fmt.Println(\"FAIL \" + name + $Where(args) + \": \" + msg)\n",
+      "to": "\t\t_ = exit\n\t}\n\t$fmt.Println(\"FAIL \" + name + $Where(args) + \": \" + msg)\n",
       "rule": "$Case: $Case runs one case of the test name, declared at at, on the task t.",
       "killers": [
         "lower:TestE3Sweep",
@@ -204,8 +204,8 @@
       "name": "existing-14-assert-stops",
       "origin": "lower-v1/verify-s4a/mutants-s4a.json",
       "file": "internal/sketch/lower/tests.go",
-      "from": "\t\t\tok = false\n",
-      "to": "\t\t\t$os.Exit(1)\n",
+      "from": "\t\t\tmsg, kind, exit = a.String(), 1, nil\n",
+      "to": "\t\t\t$fmt.Println(\"FAIL \" + a.String())\n\t\t\t$os.Exit(1)\n",
       "rule": "$Case: $Case runs one case of the test name, declared at at, on the task t.",
       "killers": [
         "lower:TestArgumentTextRoundTrips"
@@ -1785,6 +1785,117 @@
       "killers": [
         "lower:TestStdWireLawsRun"
       ]
+    },
+    {
+      "name": "x1b-law-ignored",
+      "origin": "wf10/explorer/x1b",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\t\tb.WriteString(\"\\tif !\" + picked + \" || \" + pick + \" == \" + title + \" {\\n\")",
+      "to": "\t\tb.WriteString(\"\\tif true {\\n\")",
+      "rule": "testRunner: --law NAME runs only the law of that title.",
+      "killers": [
+        "lower:TestMachineLawRuns"
+      ]
+    },
+    {
+      "name": "x1b-law-runs-tests",
+      "origin": "wf10/explorer/x1b",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\tb.WriteString(\"\\tif !\" + picked + \" {\\n\")",
+      "to": "\tb.WriteString(\"\\tif true {\\n\")",
+      "rule": "testRunner: --law NAME runs no test.",
+      "killers": [
+        "lower:TestMachineLawTables"
+      ]
+    },
+    {
+      "name": "x1b-replay-drops-flags",
+      "origin": "wf10/explorer/x1b",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\tif flags != \"\" {\n\t\tline += \" \" + flags",
+      "to": "\tif false {\n\t\tline += \" \" + flags",
+      "rule": "$Replay: the replay command carries the case's seed or the search's budget.",
+      "killers": [
+        "lower:TestMachineLawRuns",
+        "lower:TestMachineLawTables"
+      ],
+      "anchor": {
+        "file": "internal/sketch/lower/tests.go",
+        "text": "Replace(harnessGo + harnessReachGo)"
+      }
+    },
+    {
+      "name": "x1b-cases-no-replay",
+      "origin": "wf10/explorer/x1b",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\t\tb.WriteString(\"\\t\\t\\t\" + l.replayLine(law, strconv.Quote(\"--seed \")+\" + \"+conv+\".FormatUint(\"+seed+\", 10)\") + \"\\n\\t\\t}\\n\")",
+      "to": "\t\tb.WriteString(\"\\t\\t}\\n\")",
+      "rule": "lawRuns: a law refuted on a generated case prints its replay command with its seed.",
+      "killers": [
+        "lower:TestMachineLawRuns"
+      ]
+    },
+    {
+      "name": "x1b-listed-no-replay",
+      "origin": "wf10/explorer/x1b",
+      "file": "internal/sketch/lower/lawcases.go",
+      "from": "failed, l.replayLine(law, `\"\"`), func(",
+      "to": "failed, \"\", func(",
+      "rule": "listedRuns: a law refuted on a listed value prints its replay command.",
+      "killers": [
+        "lower:TestMachineLawTables"
+      ]
+    },
+    {
+      "name": "x1b-reach-no-replay",
+      "origin": "wf10/explorer/x1b",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "\" states)\\n\"+$Replay(g.file, $strings.TrimPrefix(name, \"law \"), \"--states \"+itoa(budget)))",
+      "to": "\" states)\")",
+      "rule": "$ExploreAll: a reaches law that no run of the whole graph reaches prints its replay command.",
+      "killers": [
+        "lower:TestMachineLawTables"
+      ],
+      "anchor": {
+        "file": "internal/sketch/lower/tests.go",
+        "text": "Replace(harnessGo + harnessReachGo)"
+      }
+    },
+    {
+      "name": "x1b-skip-ignored",
+      "origin": "wf10/explorer/x1b",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\t\tb.WriteString(\"\\tif \" + skip + \" == \" + title + \" {\\n\")",
+      "to": "\t\tb.WriteString(\"\\tif false && \" + skip + \" == \" + title + \" {\\n\")",
+      "rule": "testRunner: --skip-law NAME leaves that law out, with its skip line.",
+      "killers": [
+        "lower:TestMachineLawRuns"
+      ]
+    },
+    {
+      "name": "x1b-unknown-law-passes",
+      "origin": "wf10/explorer/x1b",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\tb.WriteString(\"\\tif \" + picked + \" && !\" + matched + \" {\\n\")",
+      "to": "\tb.WriteString(\"\\tif false && \" + picked + \" && !\" + matched + \" {\\n\")",
+      "rule": "testRunner: a --law that names no law fails.",
+      "killers": [
+        "lower:TestMachineLawRuns"
+      ]
+    },
+    {
+      "name": "x1b-source-ignored",
+      "origin": "wf10/explorer/x1b",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\tif v, given := $Flag(\"source\"); given {",
+      "to": "\tif v, given := $Flag(\"source\"); given && false {",
+      "rule": "$Source: the replay command names the source as ergo test was given it (--source).",
+      "killers": [],
+      "gap": "killed by cmd/ergo TestTestCommand (the CLI passes --source), which is no suite of scripts/mutants",
+      "anchor": {
+        "file": "internal/sketch/lower/tests.go",
+        "text": "Replace(harnessGo + harnessReachGo)"
+      }
     }
   ]
 }

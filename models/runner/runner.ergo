@@ -962,6 +962,10 @@ func stepDesign2(s St, a Act) Decision[St, string] { stepWith(design(2), s, a) }
 func stepDesign3(s St, a Act) Decision[St, string] { stepWith(design(3), s, a) }
 
 // The design keeps every invariant in the scope, with 2 senders and with 3.
+// Design2 is the proof. Design3's search stops at its budget ("not
+// proved") and refutes no mutant Design2's scope does not, as every
+// mutant and witness has 2 senders; the gate leaves it out (--skip-law),
+// and it runs by `ergo test models/runner --law Design3.Safe --states N`.
 type Design2 machine[St, Act] {
 	initial: first(),
 	step:    stepDesign2,

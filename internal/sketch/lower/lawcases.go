@@ -194,7 +194,7 @@ func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, b
 		vals = append(vals, listedValue{v.Name, t})
 	}
 	at := strconv.Quote(l.siteText(law.Decl))
-	return l.listedRun(b, label, law.Decl, vals, true, scope, env, failed, func(inner *namer, vs []string) string {
+	return l.listedRun(b, label, law.Decl, vals, true, scope, env, failed, l.replayLine(law, `""`), func(inner *namer, vs []string) string {
 		e, held, err := inner.alloc("e"), inner.alloc("held"), inner.alloc("err")
 		fc := newFuncCtx(l, inner, false)
 		fc.site = law.Decl
@@ -240,7 +240,7 @@ func (l *lowerer) listedTest(b *strings.Builder, t *check.Test, scope *namer, en
 	for i, v := range t.Params {
 		vals[i] = listedValue{v.Name, v.Type}
 	}
-	return l.listedRun(b, t.Name, t.Decl, vals, false, scope, env, failed, func(_ *namer, bound []string) string {
+	return l.listedRun(b, t.Name, t.Decl, vals, false, scope, env, failed, "", func(_ *namer, bound []string) string {
 		return "return " + l.testFunc(t) + "(" + strings.Join(append([]string{env}, bound...), ", ") + ")"
 	})
 }
@@ -250,9 +250,10 @@ func (l *lowerer) listedTest(b *strings.Builder, t *check.Test, scope *namer, en
 // number at most enumCases, and reports whether it did. call is the body
 // of a case's function, given the case's namer and the bound values. The
 // run prints `ok label (proved: …)` when every case holds, and stops at
-// its first case that fails. A law's run adds its receipt entry ($Record): proved,
-// or refuted with its case (L10).
-func (l *lowerer) listedRun(b *strings.Builder, label string, site syntax.Node, vals []listedValue, law bool, scope *namer, env, failed string, call func(inner *namer, bound []string) string) bool {
+// its first case that fails, then prints replay, the command that reruns
+// it, when replay is not empty. A law's run adds its receipt entry
+// ($Record): proved, or refuted with its case (L10).
+func (l *lowerer) listedRun(b *strings.Builder, label string, site syntax.Node, vals []listedValue, law bool, scope *namer, env, failed, replay string, call func(inner *namer, bound []string) string) bool {
 	types := make([]check.Type, len(vals))
 	for i, v := range vals {
 		types[i] = v.t
@@ -319,7 +320,11 @@ func (l *lowerer) listedRun(b *strings.Builder, label string, site syntax.Node, 
 		b.WriteString(ind + "}\n")
 	}
 	b.WriteString("\t\tif " + ok1 + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+label+" ("+provedText(cases)+")") + ")\n")
-	b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n")
+	b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n")
+	if replay != "" {
+		b.WriteString("\t\t\t" + replay + "\n")
+	}
+	b.WriteString("\t\t}\n")
 	if law {
 		n := "1"
 		if len(vals) > 0 {

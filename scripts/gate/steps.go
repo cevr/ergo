@@ -397,22 +397,22 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		return nil, err
 	}
 	for _, model := range models {
-		argv := []string{"./bin/ergo", "test", model}
-		if states, ok := modelStates[model]; ok {
-			argv = append(argv, "--states", states)
-		}
+		argv := append([]string{"./bin/ergo", "test", model}, modelFlags[model]...)
 		add(&Step{Name: "ergo test " + model, Needs: []string{buildCLIStep}, Argv: argv, Class: classHeavy, MemoryHeavy: true})
 	}
 
 	return steps, nil
 }
 
-// modelStates is the search budget of a model whose scope needs more than
-// ergo test's default of 1,000,000 states (wf10 X4). models/runner:
-// Design2's whole graph is just over 1,000,000 states; Design3 stops at the budget,
-// "not proved".
-var modelStates = map[string]string{
-	"models/runner": "1200000",
+// modelFlags are the ergo test flags of a model step beyond the defaults
+// (wf10 X4, X1b). models/runner: Design2's whole graph is just over
+// 1,000,000 states, ergo test's default budget. Its Design3, the design
+// with 3 senders, is left out (--skip-law): its search stops at any budget
+// the gate can pay, "not proved", and it refutes no mutant that Design2's
+// scope does not (every mutant and witness machine has 2 senders). It is
+// opt-in: ergo test models/runner --law Design3.Safe --states N.
+var modelFlags = map[string][]string{
+	"models/runner": {"--states", "1200000", "--skip-law", "Design3.Safe"},
 }
 
 // designModels are the folders of models/, each one design model: a

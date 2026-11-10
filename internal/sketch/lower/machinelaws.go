@@ -224,9 +224,13 @@ func (l *lowerer) reachRuns(b *strings.Builder, law *check.Law, scope *namer, en
 	b.WriteString("\t\t\tfile: " + strconv.Quote(file) + ",\n")
 	b.WriteString("\t\t}\n")
 	b.WriteString("\t\tvar " + how + ", " + where + " string\n")
-	b.WriteString("\t\tif " + run + "(" + taskOf(env) + ", " + strconv.Quote(label) + ", " + at + ", func() string { return " + where + " }, func() error { " + how + " = " + l.helper("Explore") + "(" + g + ", " + strconv.Quote(law.Decl.Reach.Kind()) + ", " + seed + ", " + l.helper("States") + "(), " + strconv.Quote(label) + ", " + at + ", &" + where + "); return nil }) {\n")
+	held := inner.alloc("held")
+	b.WriteString("\t\t" + held + " := " + run + "(" + taskOf(env) + ", " + strconv.Quote(label) + ", " + at + ", func() string { return " + where + " }, func() error { " + how + " = " + l.helper("Explore") + "(" + g + ", " + strconv.Quote(law.Decl.Reach.Kind()) + ", " + seed + ", " + l.helper("States") + "(), " + strconv.Quote(label) + ", " + at + ", &" + where + "); return nil })\n")
+	b.WriteString("\t\tif " + held + " {\n")
 	b.WriteString("\t\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+label+" (") + " + " + how + " + \")\")\n")
-	b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n\t}\n")
+	b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n")
+	// The law receipt has one entry per law run (L10), a search's too.
+	b.WriteString("\t\t" + l.helper("RecordSearch") + "(" + strconv.Quote(label) + ", " + held + ", " + how + ", " + where + ")\n\t}\n")
 }
 
 // importAs is the name the root package's files import path under, and
@@ -613,7 +617,7 @@ func $Block[S, E any](g $Graph[S, E], name string, m int, start S, sigs []E, rep
 			"\t\t}\n" +
 			"\t}"
 	}
-	return text + "\n\treplay: ergo test " + g.file + " " + replay
+	return text + "\n" + $Replay(g.file, $strings.TrimPrefix(name, "law "), replay)
 }
 
 func $Refute(at, text string) { panic($Assertion{at: at, text: text, what: "law refuted"}) }
@@ -640,7 +644,7 @@ func $ExploreAll[S, E any](g $Graph[S, E], kind string, budget int, name, at str
 		}
 		if r.Complete {
 			*where = itoa(r.States) + " states, every run"
-			$Refute(at, "no run follows the path ["+$strings.Join(g.names, ", ")+"]")
+			$Refute(at, "no run follows the path ["+$strings.Join(g.names, ", ")+"]\n"+$Replay(g.file, $strings.TrimPrefix(name, "law "), "--states "+itoa(budget)))
 		}
 		return "no run follows the path in " + itoa(r.States) + " states", false
 	}
@@ -660,7 +664,7 @@ func $ExploreAll[S, E any](g $Graph[S, E], kind string, budget int, name, at str
 	if r.Complete {
 		if kind == "reaches" {
 			*where = itoa(r.States) + " states, every run"
-			$Refute(at, "no run reaches "+g.names[0]+" ("+itoa(r.States)+" states)")
+			$Refute(at, "no run reaches "+g.names[0]+" ("+itoa(r.States)+" states)\n"+$Replay(g.file, $strings.TrimPrefix(name, "law "), "--states "+itoa(budget)))
 		}
 		return "proved: " + itoa(r.States) + " states, " + itoa(r.Edges) + " edges, longest shortest run " + itoa(r.Depth), true
 	}
@@ -746,9 +750,9 @@ func $ExploreRuns[S, E any](g $Graph[S, E], kind string, seed uint64, budget int
 		*where += "; " + note
 	}
 	if kind == "path" {
-		$Refute(at, "no generated run follows the path ["+$strings.Join(g.names, ", ")+"]")
+		$Refute(at, "no generated run follows the path ["+$strings.Join(g.names, ", ")+"]\n"+$Replay(g.file, $strings.TrimPrefix(name, "law "), replay))
 	}
-	$Refute(at, "no generated run reaches "+g.names[0])
+	$Refute(at, "no generated run reaches "+g.names[0]+"\n"+$Replay(g.file, $strings.TrimPrefix(name, "law "), replay))
 	return ""
 }
 
@@ -764,33 +768,18 @@ func $Trace[S, E any](g $Graph[S, E], nodes []$Node[S, E], i int) string {
 	return "from " + g.show(nodes[i].s) + " with " + $Signals(g, sigs)
 }
 
-// $States reads --states N or --states=N, N a positive decimal, the budget
-// of states of every reachability law's search; 1,000,000 by default.
-// $Seed reports any other argument.
+// $States reads --states N, N a positive decimal, the budget of states of
+// every reachability law's search; 1,000,000 by default.
 func $States() int {
-	states := 1000000
-	args := $os.Args[1:]
-	for i := 0; i < len(args); i++ {
-		v, a := "", args[i]
-		switch {
-		case a == "--states" && i+1 < len(args):
-			i++
-			v = args[i]
-		case $strings.HasPrefix(a, "--states="):
-			v = a[len("--states="):]
-		case a == "--seed" || a == "--receipt" || a == "--source" || a == "--revision":
-			i++
-			continue
-		default:
-			continue
-		}
-		n, err := $strconv.Atoi(v)
-		if err != nil || n <= 0 {
-			$fmt.Fprintln($os.Stderr, "usage: [--states N], N a positive number, not "+v)
-			$os.Exit(2)
-		}
-		states = n
+	v, given := $Flag("states")
+	if !given {
+		return 1000000
 	}
-	return states
+	n, err := $strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		$fmt.Fprintln($os.Stderr, "usage: [--states N], N a positive number, not "+v)
+		$os.Exit(2)
+	}
+	return n
 }
 `

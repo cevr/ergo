@@ -107,7 +107,11 @@ type fileOptions struct {
 	states string
 	// receipt is test's --receipt FILE: the law receipt to write (L10).
 	receipt string
-	file    string
+	// law is test's --law, the one law to run, by its report's title
+	// (Design.Safe); skipLaw is test's --skip-law, a law not to run. Each
+	// is empty when not given.
+	law, skipLaw string
+	file         string
 	// args are run's program arguments: every word after the source, as
 	// go run passes them, less one "--" right after the source.
 	args []string
@@ -115,7 +119,7 @@ type fileOptions struct {
 
 // parseFileOptions reads the options of command. --strict and --json belong
 // to diagnostics, -o to build, -work to build and test, and --seed N (or
-// --seed=N) and --states N to test; any other option is unknown. A target other than Go is
+// --seed=N), --states N, --law NAME and --skip-law NAME to test; any other option is unknown. A target other than Go is
 // the EF110 refusal. For run, the options stand before the source, and the
 // words after it are the program's arguments (`ergo run FILE|DIR [--]
 // ARGS...`, as `go run`).
@@ -124,6 +128,7 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 	var positional []string
 	seeded := false
 	budgeted := false
+	selected := false
 	for i := 0; i < len(args); i++ {
 		if command == "run" && len(positional) == 1 {
 			opts.args = args[i:]
@@ -140,8 +145,16 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 			opts.states, budgeted = value, true
 			continue
 		}
+		if value, ok := strings.CutPrefix(args[i], "--law="); ok {
+			opts.law, selected = value, true
+			continue
+		}
+		if value, ok := strings.CutPrefix(args[i], "--skip-law="); ok {
+			opts.skipLaw, selected = value, true
+			continue
+		}
 		switch args[i] {
-		case "--target", "-o", "--seed", "--states", "--receipt":
+		case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law":
 			if i+1 == len(args) {
 				return opts, fmt.Errorf("%s requires a value", args[i])
 			}
@@ -154,6 +167,10 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 				opts.states, budgeted = args[i+1], true
 			case "--receipt":
 				opts.receipt = args[i+1]
+			case "--law":
+				opts.law, selected = args[i+1], true
+			case "--skip-law":
+				opts.skipLaw, selected = args[i+1], true
 			default:
 				opts.seed, seeded = args[i+1], true
 			}
@@ -195,6 +212,10 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--states is only supported by test")
 	case budgeted && !validStates(opts.states):
 		return opts, fmt.Errorf("--states takes a positive decimal number of states, not %q", opts.states)
+	case selected && command != "test":
+		return opts, fmt.Errorf("--law and --skip-law are only supported by test")
+	case selected && (!validLaw(opts.law) || !validLaw(opts.skipLaw) || opts.law+opts.skipLaw == ""):
+		return opts, fmt.Errorf("--law and --skip-law take a law's name, as a report shows it (Design.Safe)")
 	case len(positional) != 1:
 		return opts, fmt.Errorf("incorrect arguments for %s", command)
 	}
