@@ -1962,6 +1962,28 @@
       "killers": [
         "lower:TestExternValuesRun"
       ]
+    },
+    {
+      "name": "d3-std-lets-unnamed",
+      "origin": "wf10 defects D3",
+      "file": "internal/sketch/lower/naming.go",
+      "from": "\tl.eachStdLet(func(d *syntax.VarDecl) { l.declareName(d) })",
+      "to": "\t_ = l.eachStdLet",
+      "rule": "A std package's top-level let has a Go name, so its bodies and the program read it.",
+      "killers": [
+        "lower:TestStdPackageLet"
+      ]
+    },
+    {
+      "name": "d3-std-lets-after-root",
+      "origin": "wf10 defects D3",
+      "file": "internal/sketch/lower/decls.go",
+      "from": "\tpkgs := append(slices.Clone(l.stdLetPkgs()), l.sourcedLibs()...)\n\tfor _, p := range append(pkgs, l.pkg) {",
+      "to": "\tpkgs := append(slices.Clone(l.sourcedLibs()), l.pkg)\n\tfor _, p := range append(pkgs, l.stdLetPkgs()...) {",
+      "rule": "A std package's lets initialize before every program let that reads them (Go's initialization order).",
+      "killers": [
+        "lower:TestStdPackageLet"
+      ]
     }
   ]
 }

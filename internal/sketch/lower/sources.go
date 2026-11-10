@@ -244,14 +244,89 @@ func (l *lowerer) sourcedLibs() []*check.Package {
 			todo = append(todo, p)
 		}
 	}
+	l.initPkgs = importOrder(todo)
+	return l.initPkgs
+}
+
+// stdLetPkgs are the reached std packages that declare a top-level let,
+// in initialization order (importOrder). A std package imports no user
+// package, so each initializes before every sourced package (wf10 D3).
+func (l *lowerer) stdLetPkgs() []*check.Package {
+	if l.stdInits != nil {
+		return *l.stdInits
+	}
+	var todo []*check.Package
+	for _, p := range l.libraries() {
+		if !p.Std() || l.isSourced(p) {
+			continue
+		}
+		lets := false
+		for _, f := range p.Files() {
+			for _, d := range f.Decls {
+				if _, ok := d.(*syntax.VarDecl); ok {
+					lets = true
+				}
+			}
+		}
+		if lets {
+			todo = append(todo, p)
+		}
+	}
+	out := importOrder(todo)
+	l.stdInits = &out
+	return out
+}
+
+// eachStdLet runs f on each top-level let of the std packages with lets,
+// in initialization order, each guarded, with its package's Info and
+// stdLets set: the naming pass names them, and the program lowers them,
+// as it does a sourced library's (wf10 defects D3).
+func (l *lowerer) eachStdLet(f func(*syntax.VarDecl)) {
+	for _, p := range l.stdLetPkgs() {
+		for _, file := range p.Files() {
+			for _, d := range file.Decls {
+				d, ok := d.(*syntax.VarDecl)
+				if !ok {
+					continue
+				}
+				l.guard(func() {
+					saved, savedStd := l.info, l.stdLets
+					l.info, l.stdLets = p.Info, true
+					defer func() { l.info, l.stdLets = saved, savedStd }()
+					f(d)
+				})
+			}
+		}
+	}
+}
+
+// importOrder orders todo for initialization: each package after every
+// package of todo it imports, directly or through other packages, else in
+// path order (Go 1.21).
+func importOrder(todo []*check.Package) []*check.Package {
+	todo = slices.Clone(todo)
 	sort.Slice(todo, func(i, j int) bool { return todo[i].Path < todo[j].Path })
 	deps := map[*check.Package][]*check.Package{}
 	for _, p := range todo {
-		for _, o := range p.Info.Uses {
-			if pn, ok := o.(*check.PkgName); ok && l.isSourced(pn.Pkg) && pn.Pkg != p && !slices.Contains(deps[p], pn.Pkg) {
-				deps[p] = append(deps[p], pn.Pkg)
+		seen := map[*check.Package]bool{p: true}
+		var walk func(q *check.Package)
+		walk = func(q *check.Package) {
+			if q.Info == nil {
+				return // a Go package of import go
+			}
+			for _, o := range q.Info.Uses {
+				pn, ok := o.(*check.PkgName)
+				if !ok || seen[pn.Pkg] {
+					continue
+				}
+				seen[pn.Pkg] = true
+				if slices.Contains(todo, pn.Pkg) {
+					deps[p] = append(deps[p], pn.Pkg)
+				}
+				walk(pn.Pkg)
 			}
 		}
+		walk(p)
 	}
 	done := map[*check.Package]bool{}
 	out := []*check.Package{}
@@ -278,7 +353,6 @@ func (l *lowerer) sourcedLibs() []*check.Package {
 			break // an import cycle, which the checker refuses
 		}
 	}
-	l.initPkgs = out
 	return out
 }
 

@@ -242,6 +242,12 @@ type lowerer struct {
 	// program's types name (text.go, instancesOf), computed once.
 	instances map[*check.TypeName][]check.Type
 
+	// stdInits are the reached std packages with lets (stdLetPkgs),
+	// computed once; stdLets is set while their lets are named and lowered
+	// (wf10 defects D3).
+	stdInits *[]*check.Package
+	stdLets  bool
+
 	// noEntry lowers a package with an empty Go main instead of a call of
 	// its main: the corpus test lowers library-shaped fixtures this way.
 	noEntry bool
@@ -399,7 +405,9 @@ func (l *lowerer) program() ([]byte, error) {
 	// Every initializer of every sourced package is lowered here, before
 	// the entry decides whether it calls ergoInit: a library's lets, and
 	// its machines' initial values (F13). A library's other declarations
-	// are lowered where they are used.
+	// are lowered where they are used. A std package's lets come first: no
+	// std package imports a sourced one (wf10 defects D3).
+	l.eachStdLet(l.packageLet)
 	for _, p := range l.sourcedLibs() {
 		l.eachDecl(p, func(d syntax.Decl) {
 			switch d := d.(type) {

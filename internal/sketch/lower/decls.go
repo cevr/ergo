@@ -1184,7 +1184,15 @@ func (l *lowerer) packageLet(d *syntax.VarDecl) {
 // stmts and then assigns.
 func (l *lowerer) addInit(x syntax.Expr, at syntax.Node, stmts string, assigns []string) {
 	var b strings.Builder
-	b.WriteString(l.directive(at))
+	if l.stdLets {
+		// initFunc follows the program's declarations, so a std let's
+		// initializer names its own place in std's tree (locate), or its
+		// lines would take the last program directive's.
+		path, line, column := l.locate(at, at.Pos())
+		b.WriteString(Directive(path, line, column))
+	} else {
+		b.WriteString(l.directive(at))
+	}
 	b.WriteString("\t{\n" + stmts)
 	for _, a := range assigns {
 		b.WriteString("\t\t" + a + "\n")
@@ -1207,14 +1215,16 @@ func (l *lowerer) hasInits() bool {
 }
 
 // initOrder is the program's package-level initializers in Go's order:
-// each sourced library's, in initialization order (sources.go), then the
-// root package's, each package's in its Info.InitOrder.
+// each std package's with lets, then each sourced library's, each in
+// initialization order (sources.go), then the root package's, each
+// package's in its Info.InitOrder.
 func (l *lowerer) initOrder() []*check.Initializer {
 	var out []*check.Initializer
-	for _, p := range l.sourcedLibs() {
+	pkgs := append(slices.Clone(l.stdLetPkgs()), l.sourcedLibs()...)
+	for _, p := range append(pkgs, l.pkg) {
 		out = append(out, l.canon.initOrder(p)...)
 	}
-	return append(out, l.canon.initOrder(l.pkg)...)
+	return out
 }
 
 // initFunc is the Go function that runs the package-level initializers in
@@ -1275,7 +1285,7 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	if !ok && (id.Name != "_" || x == nil) {
 		ice(id, "the let %s has no Defs entry", id.Name)
 	}
-	fc := newFuncCtx(l, newNamer(l.names), true)
+	fc := newFuncCtx(l, newNamer(l.names), !l.stdLets)
 	fc.depth = 2
 	fc.env = fc.scope.alloc("env") // initFunc's parameter (initEnv)
 	name, goType := "_", ""
@@ -1291,13 +1301,12 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	if x != nil {
 		fc.frame.polls = framePolls(l.info, spec)
 	}
-	l.recordDecl(fc.owner, spec)
+	l.recordLet(fc.owner, spec)
 	if x == nil {
-		l.user.WriteString(l.directive(id))
 		if def := fc.defaultValue(v.Type); def != "" {
-			l.user.WriteString("var " + name + " " + goType + " = " + def + "\n\n")
+			l.letDecl(id, "var "+name+" "+goType+" = "+def+"\n\n")
 		} else {
-			l.user.WriteString("var " + name + " " + goType + "\n\n")
+			l.letDecl(id, "var "+name+" "+goType+"\n\n")
 		}
 		return
 	}
@@ -1305,15 +1314,34 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	l.analyzeValues(x, l.info)
 	val := fc.assigned(x)
 	if _, constant := l.info.Values[x]; constant && fc.out.Len() == 0 {
-		l.user.WriteString(l.directive(id))
-		l.user.WriteString("var " + name + " " + goType + " = " + val + "\n\n")
+		l.letDecl(id, "var "+name+" "+goType+" = "+val+"\n\n")
 		return
 	}
 	if name != "_" {
-		l.user.WriteString(l.directive(id))
-		l.user.WriteString("var " + name + " " + goType + "\n\n")
+		l.letDecl(id, "var "+name+" "+goType+"\n\n")
 	}
 	l.addInit(x, id, fc.out.String(), []string{name + " = " + val})
+}
+
+// letDecl writes the Go declaration text of a package let: a program
+// let's after its //line directive among the program's declarations, a
+// std package's among the library declarations with no directive, as a
+// std body is lowered (wf10 defects D3).
+func (l *lowerer) letDecl(at syntax.Node, text string) {
+	if l.stdLets {
+		l.gen.WriteString(text)
+		return
+	}
+	l.user.WriteString(l.directive(at))
+	l.user.WriteString(text)
+}
+
+// recordLet records a program let in the declaration table (#230); a std
+// let, like a std body, has no entry.
+func (l *lowerer) recordLet(owner string, spec *syntax.VarSpec) {
+	if !l.stdLets {
+		l.recordDecl(owner, spec)
+	}
 }
 
 // packagePattern lowers a package-level let that destructures one value
@@ -1323,7 +1351,7 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 // variable, from it.
 func (l *lowerer) packagePattern(spec *syntax.VarSpec) {
 	x := spec.Values[0]
-	fc := newFuncCtx(l, newNamer(l.names), true)
+	fc := newFuncCtx(l, newNamer(l.names), !l.stdLets)
 	fc.depth = 2
 	fc.env = fc.scope.alloc("env") // initFunc's parameter (initEnv)
 	t := fc.typeOf(x)
@@ -1339,7 +1367,7 @@ func (l *lowerer) packagePattern(spec *syntax.VarSpec) {
 	}
 	fc.frame = newFrame(t, false, framePolls(l.info, spec))
 	fc.entryPoll(l.info, spec)
-	l.recordDecl(fc.owner, spec)
+	l.recordLet(fc.owner, spec)
 	var at syntax.Node = spec
 	if len(spec.Names) > 0 {
 		at = spec.Names[0]
@@ -1375,16 +1403,17 @@ func (l *lowerer) packagePattern(spec *syntax.VarSpec) {
 	if len(binds) == 0 {
 		assigns = append(assigns, "_ = "+init)
 	}
-	if len(binds) > 0 {
-		l.user.WriteString(l.directive(at))
-	}
+	var decl strings.Builder
 	for _, b := range binds {
 		name, ok := l.vars[b.v]
 		if !ok {
 			ice(spec, "the let binding %s has no Go name", b.v.Name)
 		}
-		l.user.WriteString("var " + name + " " + fc.goType(b.v.Type) + "\n\n")
+		decl.WriteString("var " + name + " " + fc.goType(b.v.Type) + "\n\n")
 		assigns = append(assigns, name+" = "+b.val)
+	}
+	if len(binds) > 0 {
+		l.letDecl(at, decl.String())
 	}
 	l.addInit(x, at, fc.out.String(), assigns)
 }

@@ -100,6 +100,9 @@ func (l *lowerer) nameAll() {
 			}
 		})
 	}
+	// A std package's lets, which its bodies and the program read (wf10
+	// defects D3): named as a sourced library's are.
+	l.eachStdLet(func(d *syntax.VarDecl) { l.declareName(d) })
 	// A std package's named contexts have no source in the program; the
 	// builders of those a with of the program names are std bodies,
 	// named here by package, then context name (lower-gaps G2, batch 11).
