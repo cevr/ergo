@@ -87,6 +87,39 @@ func TestStaticReleaseAgrees(t *testing.T) {
 		cases = append(cases, pair{seed: seed, src: src, want: want, static: static.name, list: list.name})
 		programs = append(programs, static, list)
 	}
+	// Smallest missed behavior found by the kept-return mutants: a
+	// sibling's Close fails after the return value was handed off. Generate
+	// the sibling stack and defects; the failed exit must close the kept
+	// result too, rather than leaking it or returning it to the caller.
+	for seed := first; seed < first+n; seed++ {
+		r := rand.New(rand.NewPCG(uint64(seed), 198))
+		var src, want strings.Builder
+		src.WriteString("type R { ID int, Bad bool }\nfunc Close(r R) needs Console { Console.Println(\"close \\(r.ID)\"); if r.Bad { Unreachable(\"close failed\") } }\nfunc give() R needs Console {\nlet result = R{ID: 0, Bad: false}\n")
+		count := 1 + r.IntN(5)
+		failed := false
+		for id := 1; id <= count; id++ {
+			bad := r.IntN(2) == 0
+			failed = failed || bad
+			fmt.Fprintf(&src, "let cleanup%d = R{ID: %d, Bad: %t}\n", id, id, bad)
+		}
+		src.WriteString("return result\n}\nfunc main() needs Console { let value = give(); Console.Println(\"received\") }\n")
+		for id := count; id > 0; id-- {
+			fmt.Fprintf(&want, "close %d\n", id)
+		}
+		if !failed {
+			want.WriteString("received\n")
+		}
+		want.WriteString("close 0\n")
+		if failed {
+			want.WriteString("defect\n")
+		}
+		static := mustLower(t, fmt.Sprintf("keptstatic_%d", seed), src.String())
+		prev := SetReleaseLoweringForTest("scope")
+		list := mustLower(t, fmt.Sprintf("keptlist_%d", seed), src.String())
+		SetReleaseLoweringForTest(prev)
+		cases = append(cases, pair{seed: seed, src: src.String(), want: want.String(), static: static.name, list: list.name})
+		programs = append(programs, static, list)
+	}
 	for _, branch := range []string{"StaticBegin(", "ReturnStatic(", "HandStatic(", "&^= 1"} {
 		if !reached[branch] && n > 1 {
 			t.Errorf("the generated programs reach no %q of the static form; widen the seeds", branch)
