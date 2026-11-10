@@ -92,30 +92,49 @@ func openType(types map[string]*TypeDecl, name string, depth int) bool {
 	}
 	switch s := d.Spec.(type) {
 	case *StructType:
-		for _, f := range s.Fields.List {
-			for _, n := range f.Names {
-				if !isExportedName(n.Name) {
-					return false
-				}
-			}
-			if len(f.Names) == 0 {
-				return false
-			}
-		}
-		return true
+		return openFields(s.Fields)
 	case *InterfaceType:
 		if len(s.Union) == 0 {
 			return len(s.Methods) == 0 && len(s.Laws) == 0
 		}
 		for _, v := range s.Union {
-			id, ok := v.(*Ident)
-			if !ok || !openType(types, id.Name, depth+1) {
+			switch v := v.(type) {
+			case *Ident:
+				if !openType(types, v.Name, depth+1) {
+					return false
+				}
+			case *VariantSpec:
+				// An inline variant is a record of the file, as a named
+				// one is (types.md Codecs 7).
+				if v.TypeArgs != nil || !openFields(v.Fields) {
+					return false
+				}
+			default:
 				return false
 			}
 		}
 		return true
 	}
 	return false
+}
+
+// openFields reports a record's fields that any package may write: each
+// named and exported.
+func openFields(fields *FieldList) bool {
+	if fields == nil {
+		return false
+	}
+	for _, f := range fields.List {
+		for _, n := range f.Names {
+			if !isExportedName(n.Name) {
+				return false
+			}
+		}
+		if len(f.Names) == 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // isExportedName reports a name that starts with an upper-case letter.
