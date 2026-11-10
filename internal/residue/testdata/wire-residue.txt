@@ -296,6 +296,11 @@ docs/spec/types.md	6. **Generic codecs.** `func Decode[T wire](r Reader) T fails
 docs/spec/types.md	7. **Round-trip law of a pair.** A file that declares both `ParseX(b B) X` and `Wire(x X) B` (no failure, no `needs`) gets the law the parser derives, `law XRoundTrips(b B) { let x = ParseX(b) catch { case _: return true } try ParseX(Wire(x)) == x }`, which `ergo test` runs as any law. A value of `X` is drawn through `ParseX`, as a decode meets it, so the law needs no generator under `X`'s authority, and a `ParseX` that normalises its input satisfies it. When the file declares `X` open (a record of exported fields, or a union of such records of the file), every value is a valid `X`, so the law draws `x` itself and reaches every value: `law XRoundTrips(x X) { try ParseX(Wire(x)) == x }` (confparse's `LevelRoundTrips`, proved over the four levels). `X` must be comparable; the formatter does not print the law. A pair whose halves are in two files derives none.
 internal/sketch/check/bindings.go	// constraint wire is not one: a declaration named wire shadows it, so wire
 internal/sketch/lower/std_json_test.go	*
+internal/sketch/lower/json_fields_test.go	*
+internal/sketch/lower/wirefields.go	*
+internal/sketch/std/json/field_laws.ergo	*
+internal/sketch/lower/testdata/mutants.json	"from": "f.wires[tp] = wit + \".Field\"",
+internal/sketch/lower/testdata/mutants.json	"to": "f.wires[tp] = wit",
 internal/sketch/syntax/testdata/refuse/49-wire-let.ergo	// want: S108 3 cannot write a composite literal of wire
 docs/spec/stdlib.md	| `Codec` | `Codec[T wire] { MaxBytes int, MaxDepth int }` | Ergo |
 docs/spec/stdlib.md	| `Encode` | `Encode[T wire](c Codec[T], v T) string` | Ergo over `JSONTake`, `JSONGive` |
