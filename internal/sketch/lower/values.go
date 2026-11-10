@@ -121,7 +121,7 @@ type valueFacts struct {
 	owned    map[*syntax.FuncDecl][]ownedParam
 	ownCall  map[*syntax.CallExpr]bool     // calls that pass owned arguments unshared (V5)
 	refSites map[*syntax.CallExpr]*refSite // Update and Modify calls whose literal owns the held value (V6)
-	goShare  map[*syntax.CallExpr]bool     // Go calls whose Map or slice result another Go call takes as Go returned it (H4)
+	goShare  map[syntax.Expr]bool          // Go calls and Go field reads whose Map or slice value only Go takes, as Go holds it (H4, H5)
 }
 
 // ownedParam is an owned parameter (V5): its index, counting a dot call's
@@ -143,7 +143,7 @@ func (l *lowerer) valueFacts() *valueFacts {
 			owned:    map[*syntax.FuncDecl][]ownedParam{},
 			ownCall:  map[*syntax.CallExpr]bool{},
 			refSites: map[*syntax.CallExpr]*refSite{},
-			goShare:  map[*syntax.CallExpr]bool{},
+			goShare:  map[syntax.Expr]bool{},
 		}
 	}
 	return l.vals
@@ -739,15 +739,22 @@ func (w *valueWalk) decide() {
 	// An operand of a Go call (import go) that holds a Map or slice goes
 	// where Go may write or keep it: copied unless fresh or a local dead
 	// after the call, and always under the reference lowering (gocall.go).
+	goOnly := w.goOnlyLets()
 	for _, a := range w.goArgs {
-		// A Go call's result that is an operand of another Go call (a
-		// receiver: w.Header().Set(k, v)) is never an Ergo value: Go's map
-		// goes on to Go uncopied, as hand Go passes it, so a write reaches
-		// the map Go keeps (interop.md, Lowering 3). Under both lowerings:
-		// a copy here would lose the write, not keep a value.
-		if inner, ok := unparen(a).(*syntax.CallExpr); ok {
-			if c := w.info.Calls[inner]; c != nil && goImportCall(c, w.typeOf) {
-				vf.goShare[inner] = true
+		// Go's own Map or slice (a Go call's result or a Go struct's
+		// field) that is an operand of a Go call (a receiver:
+		// w.Header().Set(k, v), r.Header.Set(k, v)) is never an Ergo
+		// value: it goes on to Go uncopied, as hand Go passes it, so a
+		// write reaches the map Go keeps (interop.md, Lowering 3). Under
+		// both lowerings: a copy here would lose the write, not keep a
+		// value.
+		if inner := unparen(a); w.goHeld(inner) {
+			vf.goShare[inner] = true
+			continue
+		}
+		// So is a let that holds one and that only Go calls use (H5).
+		if id, ok := unparen(a).(*syntax.Ident); ok {
+			if v, ok := w.info.Uses[id].(*check.Var); ok && goOnly[w.vars[v]] {
 				continue
 			}
 		}
@@ -759,6 +766,66 @@ func (w *valueWalk) decide() {
 	}
 	// Owned Ref sites (V6), once every copy is decided.
 	w.decideSites()
+}
+
+// goHeld reports x, unparenthesized, as Go's own Map or slice: the result
+// of a Go call (import go) or a field of a Go struct, which Go may keep
+// and write (gocall.go, goResult).
+func (w *valueWalk) goHeld(x syntax.Expr) bool {
+	if !goShared(w.typeOf(x)) {
+		return false
+	}
+	switch x := x.(type) {
+	case *syntax.CallExpr:
+		return goImportCall(w.info.Calls[x], w.typeOf)
+	case *syntax.SelectorExpr:
+		// A field read through a go.Ref lowers through goResult (expr.go,
+		// selector); a method value has a function type, so goShared
+		// refused it. A field of a Go struct value is part of an Ergo
+		// value, so it keeps the value rule.
+		_, ref := check.GoRefElem(w.typeOf(x.X))
+		return ref
+	}
+	return false
+}
+
+// goOnlyLets is the immutable lets of this body that hold Go's own Map or
+// slice (goHeld) and whose every use is a whole operand of a Go call (let
+// h = w.Header(); h.Set(k, v)). Such a let is never an Ergo value: as for
+// w.Header().Set(k, v), Go's map is not copied where it is bound (goShare)
+// nor where Go takes it, so a write reaches the map Go keeps (interop.md,
+// Lowering 3; H5). A let that the program also uses another way is an
+// Ergo value and is copied, by the value rule.
+func (w *valueWalk) goOnlyLets() map[*vvar]bool {
+	operand := map[syntax.Expr]bool{}
+	for _, a := range w.goArgs {
+		operand[unparen(a)] = true
+	}
+	out := map[*vvar]bool{}
+	for _, vv := range w.order {
+		if !vv.local || vv.root() || vv.init == nil {
+			continue
+		}
+		init := unparen(vv.init)
+		if t, ok := init.(*syntax.TryExpr); ok {
+			init = unparen(t.X)
+		}
+		if !w.goHeld(init) {
+			continue
+		}
+		only := true
+		for _, o := range vv.occs {
+			if w.info.Defs[o.id] == nil && !operand[o.id] {
+				only = false
+				break
+			}
+		}
+		if only {
+			out[vv] = true
+			w.vf.goShare[init] = true
+		}
+	}
+	return out
 }
 
 // valueOwned reports whether owned parameters (V5) lower this build: the

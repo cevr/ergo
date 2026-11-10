@@ -140,7 +140,7 @@
       "name": "go-share-result",
       "origin": "wf10 H4",
       "file": "internal/sketch/lower/values.go",
-      "from": "\t\t\t\tvf.goShare[inner] = true\n\t\t\t\tcontinue\n",
+      "from": "\t\t\tvf.goShare[inner] = true\n\t\t\tcontinue\n",
       "to": "",
       "rule": "interop.md Lowering 3 (G2): a Go call's Map result that another Go call takes is Go's own, so w.Header().Set reaches Go.",
       "killers": ["lower:TestImportGoHeaderWriteReachesGo"]
@@ -152,6 +152,42 @@
       "from": "valueRule() && !fc.goShares(x):",
       "to": "valueRule():",
       "rule": "interop.md Lowering 3 (G2): the shared result is not copied where it is bound.",
+      "killers": ["lower:TestImportGoHeaderWriteReachesGo"]
+    },
+    {
+      "name": "go-let-operand",
+      "origin": "wf10 H5",
+      "file": "internal/sketch/lower/values.go",
+      "from": "ok && goOnly[w.vars[v]] {\n\t\t\t\tcontinue\n",
+      "to": "ok && goOnly[w.vars[v]] {\n",
+      "rule": "interop.md Lowering 3 (H5): a let that only Go calls use is Go's map where Go takes it, so h.Set reaches Go.",
+      "killers": ["lower:TestImportGoHeaderWriteReachesGo"]
+    },
+    {
+      "name": "go-let-bind",
+      "origin": "wf10 H5",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\tw.vf.goShare[init] = true\n",
+      "to": "",
+      "rule": "interop.md Lowering 3 (H5): a let that only Go calls use is not copied where it is bound.",
+      "killers": ["lower:TestImportGoHeaderWriteReachesGo"]
+    },
+    {
+      "name": "go-let-mixed",
+      "origin": "wf10 H5",
+      "file": "internal/sketch/lower/values.go",
+      "from": "if w.info.Defs[o.id] == nil && !operand[o.id] {",
+      "to": "if o == nil {",
+      "rule": "interop.md Lowering 3 (H5): a let that the program also uses as an Ergo value is copied, so a later Go write does not reach it.",
+      "killers": ["lower:TestImportGoHeaderWriteReachesGo"]
+    },
+    {
+      "name": "go-field-ref",
+      "origin": "wf10 H5",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t_, ref := check.GoRefElem(w.typeOf(x.X))\n\t\treturn ref\n",
+      "to": "\t\treturn false\n",
+      "rule": "interop.md Lowering 3 (H5): a Go struct's field read through a go.Ref that only Go calls take is Go's map, so r.Header.Set reaches Go.",
       "killers": ["lower:TestImportGoHeaderWriteReachesGo"]
     },
     {

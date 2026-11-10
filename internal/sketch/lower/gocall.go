@@ -256,10 +256,11 @@ func isGoRef(t check.Type) bool {
 	return ok
 }
 
-// goShares reports a Go call whose Map or slice result another Go call
-// takes as Go returned it (values.go, goShare): w.Header() in
-// w.Header().Set(k, v), where a copy would lose the write.
+// goShares reports a Go call or Go field read whose Map or slice only Go
+// takes, as Go holds it (values.go, goShare): w.Header() in
+// w.Header().Set(k, v), r.Header in r.Header.Set(k, v), or the value of
+// let h = w.Header() when only Go calls use h; a copy would lose the write.
 func (fc *funcCtx) goShares(x syntax.Node) bool {
-	call, ok := x.(*syntax.CallExpr)
-	return ok && fc.l.valueFacts().goShare[call]
+	e, ok := x.(syntax.Expr)
+	return ok && fc.l.valueFacts().goShare[e]
 }
