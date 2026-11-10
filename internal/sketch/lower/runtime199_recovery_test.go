@@ -34,6 +34,13 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 			return
 		}
 		calls[owner] = map[string]bool{}
+		if owner == "methodText" {
+			// rt.Text writes a panic of a value's Error or String method
+			// into the value's text, as fmt's %v did before binsize BS2;
+			// it ends no task and makes no defect, so it is no recovery
+			// API.
+			return
+		}
 		// A recover whose value is kept (assigned or passed on) records a
 		// panic; one only compared with nil, as the trace's sink guard
 		// does, drops it and makes no defect.

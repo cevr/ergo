@@ -30,7 +30,7 @@ func UseHostText(f func(v any, typed bool) string) (prev func(v any, typed bool)
 
 // unknownText is the text of a value Text does not know when no host text
 // is linked.
-const unknownText = "(a Go value; its text needs fmt, which only a program with import go links)"
+const unknownText = "(a Go value whose text only fmt writes; a program that imports go links fmt)"
 
 // Text is v's text as fmt's %v writes it.
 func Text(v any) string {
