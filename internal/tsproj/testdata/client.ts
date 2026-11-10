@@ -1,6 +1,6 @@
 import { Effect, Option } from "effect"
 import { RpcClient } from "effect/rpc"
-import { API, Draft, View } from "./domain/contract.ergo"
+import { API, Draft, Snapshot, Snapshots, View } from "./domain/contract.ergo"
 
 export const program = Effect.gen(function* () {
   const client = yield* RpcClient.make(API)
@@ -15,6 +15,10 @@ export const program = Effect.gen(function* () {
 const draft: Draft = { name: "a" }
 const view: View = { ended: null }
 export const wireForms = [draft, view]
+const snapshots: Snapshot[] = [{}, { body: null }, { body: { k: [1.5, "s", true, null, {}] } }]
+// @ts-expect-error a function is not a JSON value
+const hostValue: Snapshot = { body: () => 1 }
+export const values = [snapshots, hostValue, Snapshots]
 import { Point, Status, Écho } from "./plain/point.ergo"
 const point: Point = { x: 1, y: 2 }
 const status: Status = { _tag: "Ready", at: point }

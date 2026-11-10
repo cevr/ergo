@@ -53,6 +53,17 @@ compose for a three-state field. Outside a record field, Optional keeps
 the codec's tagged Absent/Present form. Instantiated generic fields follow
 the same rule.
 
+Std `json.Value` is `Schema.Json`: its wire form is the JSON value itself,
+not the six-kind union. The schema admits only JSON values (null, booleans,
+finite numbers, strings, arrays and string-keyed objects, at any depth). It
+refuses undefined, functions, dates, maps and other host objects at decode
+and at encode. A TypeScript peer sees parsed JSON, so it does not keep what
+`json.Value` keeps in Go: a number's spelling (and digits beyond a
+JavaScript number's precision), a repeated key (the last one stays), and
+the order of integer-like keys. A number spelling beyond the float64 range
+is a valid `json.Value` in Go, but JavaScript parses it as an infinity,
+which `Schema.Json` refuses.
+
 No source body runs in TypeScript. Laws stay in Ergo. Each mapped file
 exposes its package's operation types and every exported wire record and
 closed union, even when no operation reaches it. A non-wire type (a machine,

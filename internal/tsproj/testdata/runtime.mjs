@@ -1,7 +1,7 @@
 import { Cause, Effect, Exit, Layer, Option, Schema } from "effect"
 import { FetchHttpClient } from "effect/http"
 import { RpcClient, RpcSerialization } from "effect/rpc"
-import { API, Bundle, Draft, View } from "./domain/contract.ergo"
+import { API, Bundle, Draft, Snapshot, View } from "./domain/contract.ergo"
 import { readFileSync } from "node:fs"
 import { Point, Status, Écho } from "./plain/point.ergo"
 
@@ -18,6 +18,16 @@ Schema.decodeUnknownSync(View)({ ended: null })
 let missingNullableRefused = false
 try { Schema.decodeUnknownSync(View)({}) } catch { missingNullableRefused = true }
 if (!missingNullableRefused) throw new Error("Nullable incorrectly made its key optional")
+// json.Value is any JSON value (the generated values below hold every
+// kind); a host value JSON cannot write is refused at decode and at encode.
+const snapshot = Schema.toCodecJson(Snapshot)
+for (const body of [undefined, () => 1, new Date(0), new Map(), NaN, [undefined], { a: Symbol("s") }]) {
+  for (const run of [() => Schema.decodeUnknownSync(Snapshot)({ body }), () => Schema.encodeSync(snapshot)({ body })]) {
+    let refused = false
+    try { run() } catch { refused = true }
+    if (!refused) throw new Error(`json.Value admitted a host value: ${String(body)}`)
+  }
+}
 const canonical = value => JSON.stringify(value, (_key, value) =>
   value !== null && typeof value === "object" && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))

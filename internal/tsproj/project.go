@@ -212,6 +212,11 @@ func (g *emitter) schema(t check.Type) string {
 	if arg := jsonArgument(t, "Nullable"); arg != nil {
 		return "$Schema.NullOr(" + g.schema(arg) + ")"
 	}
+	// std json.Value is written as the JSON value itself, untagged, so its
+	// wire projection is any JSON value, not the six-variant union.
+	if stdJSON(t, "Value", 0) != nil {
+		return "$Schema.Json"
+	}
 	switch u := t.(type) {
 	case *check.Basic:
 		switch u.Kind {
@@ -391,9 +396,17 @@ func (g *emitter) fieldSchema(t check.Type) string {
 }
 
 func jsonArgument(t check.Type, name string) check.Type {
-	n, ok := t.(*check.Named)
-	if ok && n.Obj != nil && n.Obj.Pkg != nil && n.Obj.Pkg.Std() && n.Obj.Pkg.Path == "json" && n.Obj.Name == name && len(n.TArgs) == 1 {
+	if n := stdJSON(t, name, 1); n != nil {
 		return n.TArgs[0]
+	}
+	return nil
+}
+
+// stdJSON is t when it is std json's type name with args type arguments.
+func stdJSON(t check.Type, name string, args int) *check.Named {
+	n, ok := t.(*check.Named)
+	if ok && n.Obj != nil && n.Obj.Pkg != nil && n.Obj.Pkg.Std() && n.Obj.Pkg.Path == "json" && n.Obj.Name == name && len(n.TArgs) == args {
+		return n
 	}
 	return nil
 }

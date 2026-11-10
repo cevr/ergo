@@ -37,6 +37,8 @@ import (
 // E1 also kills e1-optional, e1-nullable and e1-position: no old mapper
 // fixture carries std json's absent-key/null forms or Optional as a value.
 // E2 kills e2-roots: old mapper fixtures import only records reached by API.
+// E6 kills e6-value and e6-json: no old fixture carries a json.Value, and
+// only a real Effect schema can show which host values it refuses.
 func TestTsProjectionAgrees(t *testing.T) {
 	if os.Getenv("ERGO_TS_TEST") != "1" {
 		t.Skip("select the TS leg with ERGO_TS_TEST=1 (requires pinned offline dependencies)")
@@ -305,8 +307,10 @@ type Schema { Value int }
 type Draft { Name string, Priority json.Optional[int] }
 type View { Ended json.Nullable[string] }
 type Box[T] { Value T }
+type Snapshot { Body json.Optional[json.Value] }
+type Snapshots { Get() Snapshot }
 `
-	contract = strings.Replace(contract, "Label shared.Label", "Draft Draft, View View, Nested json.Optional[json.Nullable[int]], Raw []json.Optional[int], Box Box[json.Optional[int]], Label shared.Label", 1)
+	contract = strings.Replace(contract, "Label shared.Label", "Draft Draft, View View, Nested json.Optional[json.Nullable[int]], Raw []json.Optional[int], Box Box[json.Optional[int]], Snap Snapshot, Label shared.Label", 1)
 	provider := `import bridge/domain
 type Memory {}
 func Take(_ Memory, key string, cost int) domain.Reply fails domain.Limited | domain.Unknown {
@@ -322,7 +326,13 @@ func Reset(_ Memory) {}
 func Echo(_ Memory, value domain.Bundle) domain.Bundle { value }
 `
 	var vals strings.Builder
-	for i := 0; i < 6+r.IntN(5); i++ {
+	for i := 0; i < 7+r.IntN(5); i++ {
+		// Every sequence has an absent body and each of the six JSON kinds
+		// at the top; the payloads below them are drawn from the seed.
+		body := "json.Absent"
+		if i%7 > 0 {
+			body = "json.Present[json.Value]{Value: " + jsonValue(r, i%7-1, 3) + "}"
+		}
 		maybe := "None"
 		if i%2 == 0 {
 			maybe = "Some[domain.Level]{Value: domain.Partial{Tokens: " + fmt.Sprint(r.IntN(100)) + "}}"
@@ -338,7 +348,7 @@ func Echo(_ Memory, value domain.Bundle) domain.Bundle { value }
 		if i%3 == 2 {
 			nested = fmt.Sprintf("json.Present[json.Nullable[int]]{Value: json.NonNull[int]{Value: %d}}", r.IntN(100))
 		}
-		fmt.Fprintf(&vals, "domain.Bundle{Count: %d, Name: \"café 🧭 \\xff\", Ready: %t, Maybe: %s, Levels: []domain.Level{domain.Full, domain.Partial{Tokens: %d}, domain.Empty{RetryAfterMs: 17}}, Labels: labels, Draft: domain.Draft{Name: \"a\", Priority: %s}, View: domain.View{Ended: %s}, Nested: %s, Raw: []json.Optional[int]{json.Absent, json.Present[int]{Value: 7}}, Box: domain.Box[json.Optional[int]]{Value: %s}, Label: shared.Label{Text: \"tag\"}%s},\n", int64(r.Uint64()%100000)-50000, i%2 == 0, maybe, r.IntN(100), priority, ended, nested, priority, extras.String())
+		fmt.Fprintf(&vals, "domain.Bundle{Count: %d, Name: \"café 🧭 \\xff\", Ready: %t, Maybe: %s, Levels: []domain.Level{domain.Full, domain.Partial{Tokens: %d}, domain.Empty{RetryAfterMs: 17}}, Labels: labels, Draft: domain.Draft{Name: \"a\", Priority: %s}, View: domain.View{Ended: %s}, Nested: %s, Raw: []json.Optional[int]{json.Absent, json.Present[int]{Value: 7}}, Box: domain.Box[json.Optional[int]]{Value: %s}, Snap: domain.Snapshot{Body: %s}, Label: shared.Label{Text: \"tag\"}%s},\n", int64(r.Uint64()%100000)-50000, i%2 == 0, maybe, r.IntN(100), priority, ended, nested, priority, body, extras.String())
 	}
 	main := `import bridge/domain
 import bridge/domain/domainrpc
@@ -349,6 +359,7 @@ import json
 import os
 import rpc
 func enc[T wire](v T) string { json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, v) }
+func num(text string) json.Num { json.ParseNum(text) catch { case json.Malformed: Unreachable("generated number spelling") } }
 func values() []domain.Bundle {
  let mut labels = Map[string, string]{}
  labels["x"] = "one"
@@ -377,4 +388,38 @@ func main() fails http.ListenFailed | http.InvalidLimits needs Console | Ambient
 }
 `
 	return contract, provider, main
+}
+
+// jsonValue is an Ergo json.Value of the given kind (null, boolean, number,
+// string, array, object) whose members are drawn from r to depth. Numbers
+// use JavaScript's spelling: TypeScript keeps the number, not its text.
+func jsonValue(r *rand.Rand, kind, depth int) string {
+	switch kind {
+	case 0:
+		return "json.Null"
+	case 1:
+		return fmt.Sprintf("json.Boolean{Value: %t}", r.IntN(2) == 0)
+	case 2:
+		spellings := []string{"0", "1.5", "-0.25", "1e+21", "1e-7", "123.456", fmt.Sprint(r.IntN(2000) - 1000)}
+		return "num(\"" + spellings[r.IntN(len(spellings))] + "\")"
+	case 3:
+		texts := []string{"", "a", "café", "🧭", "x y"}
+		return "json.Str{Value: \"" + texts[r.IntN(len(texts))] + "\"}"
+	}
+	var items []string
+	n := 0
+	if depth > 0 {
+		n = 1 + r.IntN(3)
+	}
+	for i := 0; i < n; i++ {
+		item := jsonValue(r, r.IntN(6), depth-1)
+		if kind == 5 {
+			item = fmt.Sprintf("json.Member{Key: \"k%d\", Value: %s}", i, item)
+		}
+		items = append(items, item)
+	}
+	if kind == 4 {
+		return "json.Array{Items: []json.Value{" + strings.Join(items, ", ") + "}}"
+	}
+	return "json.Object{Members: []json.Member{" + strings.Join(items, ", ") + "}}"
 }

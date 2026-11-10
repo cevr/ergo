@@ -80,6 +80,8 @@ The schemas follow std json's field and value forms: a record field of
 `Schema.NullOr(T)` in every position, and nesting composes these rules.
 Optional outside a record field stays the tagged Absent/Present union.
 The instantiated field type selects its form, including a generic field.
+Std `json.Value` uses `Schema.Json`, its untagged JSON form; the tool
+README lists what a JavaScript peer does not keep of it.
 
 Measured acceptance: `ERGO_TS_TEST=1 go test -count=1 -timeout 10m
 ./internal/tsproj` checks a seeded codec round trip, stock RpcClient
