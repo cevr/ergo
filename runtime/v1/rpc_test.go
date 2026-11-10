@@ -149,6 +149,12 @@ func TestRPCWireFacts(t *testing.T) {
 		}()
 		_, _ = RPCCall(task, h.url, "Die", `{}`)
 	}()
+	// A Die the server's rpc layer raises for a call it cannot read
+	// (RpcError) is the wire's failure, Transport, not the server's defect
+	// (R-chk mutant rchk-m1: no other test sends a call a server refuses).
+	if _, err := RPCCall(task, h.url, "Nope", `{}`); err == nil || err.Error() != (RPCTransport{Reason: "the server refused the call: no operation Nope"}).Error() {
+		t.Errorf("Call Nope = %v, want Transport", err)
+	}
 }
 
 // TestRPCAbortStopsTheCall is R1's interruption fact, both ways: a client

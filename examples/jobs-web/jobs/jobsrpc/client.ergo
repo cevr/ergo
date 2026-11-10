@@ -5,112 +5,147 @@ import rpc
 import jobsweb/jobs
 
 // Client is jobs.Jobs over the wire: each operation is one call to the
-// server its Conn names. A failure the row does not name, a value the
-// contract does not hold, an int the wire cannot carry and a lost
-// server are defects, which the operation's row cannot name.
+// server its Conn names. <Op>Checked fails the wire's failures as typed
+// failures: rpc.Unrepresentable for an int the wire cannot carry (an
+// operation that carries one), rpc.Transport for a lost server, a refused
+// call or an answer that is not the contract's. <Op> provides the
+// operation type, whose row cannot name them, so there they are defects.
 type Client { conn rpc.Conn }
 
 // NewClient is the jobs.Jobs that conn serves.
 func NewClient(conn rpc.Conn) Client { Client{conn: conn} }
 
-// Submit calls jobs.Jobs's Submit on the server.
-func Submit(client Client, spec jobs.Spec) int fails jobs.Rejected {
+// SubmitChecked calls jobs.Jobs's Submit on the server; the wire's failures are
+// typed failures.
+func SubmitChecked(client Client, spec jobs.Spec) int fails jobs.Rejected | rpc.Unrepresentable | rpc.Transport {
 	let p = SubmitRequest{Spec: spec}
-	exactSubmitRequest(p) catch {
-	case rpc.Unrepresentable as u:
-		return rpc.Refuse[int](u)
-	}
-	let text = rpc.Call(client.conn, "Submit", rpc.Encode(p)) catch {
+	try exactSubmitRequest(p)
+	let text = try rpc.Call(client.conn, "Submit", rpc.Encode(p)) catch {
 	case rpc.Failed as f:
 		match rpc.TagOf(f.Text) {
 		case "Rejected":
-			let e = rpc.Decode[jobs.Rejected]("failure", f.Text)
+			let e = try rpc.Decode[jobs.Rejected]("failure", f.Text)
 			return e
 		case _:
-			return rpc.Die[int]("RpcError", "Submit failed with a failure the contract does not name: \(f.Text)")
+			return rpc.Transport{Reason: "Submit failed with a failure the contract does not name: \(f.Text)"}
 		}
 	}
-	let v = rpc.Decode[int]("value", text)
-	exactInt(v) catch {
-	case rpc.Unrepresentable as u:
-		return rpc.Refuse[int](u)
-	}
+	let v = try rpc.Decode[int]("value", text)
+	try exactInt(v)
 	v
 }
 
-// Cancel calls jobs.Jobs's Cancel on the server.
-func Cancel(client Client, id int) fails jobs.NoSuchJob | jobs.AlreadyDone {
-	let p = CancelRequest{Id: id}
-	exactCancelRequest(p) catch {
+// Submit calls jobs.Jobs's Submit on the server, as SubmitChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func Submit(client Client, spec jobs.Spec) int fails jobs.Rejected {
+	try SubmitChecked(client, spec) catch {
 	case rpc.Unrepresentable as u:
-		rpc.Refuse[string](u)
+		return rpc.Refuse[int](u)
+	case rpc.Transport as t:
+		return rpc.Lost[int](t)
 	}
-	let _ = rpc.Call(client.conn, "Cancel", rpc.Encode(p)) catch {
+}
+
+// CancelChecked calls jobs.Jobs's Cancel on the server; the wire's failures are
+// typed failures.
+func CancelChecked(client Client, id int) fails jobs.NoSuchJob | jobs.AlreadyDone | rpc.Unrepresentable | rpc.Transport {
+	let p = CancelRequest{Id: id}
+	try exactCancelRequest(p)
+	let _ = try rpc.Call(client.conn, "Cancel", rpc.Encode(p)) catch {
 	case rpc.Failed as f:
 		match rpc.TagOf(f.Text) {
 		case "NoSuchJob":
-			let e = rpc.Decode[jobs.NoSuchJob]("failure", f.Text)
-			exactJobsNoSuchJob(e) catch {
-			case rpc.Unrepresentable as u:
-				rpc.Refuse[string](u)
-			}
+			let e = try rpc.Decode[jobs.NoSuchJob]("failure", f.Text)
+			try exactJobsNoSuchJob(e)
 			return e
 		case "AlreadyDone":
-			let e = rpc.Decode[jobs.AlreadyDone]("failure", f.Text)
-			exactJobsAlreadyDone(e) catch {
-			case rpc.Unrepresentable as u:
-				rpc.Refuse[string](u)
-			}
+			let e = try rpc.Decode[jobs.AlreadyDone]("failure", f.Text)
+			try exactJobsAlreadyDone(e)
 			return e
 		case _:
-			rpc.Die[string]("RpcError", "Cancel failed with a failure the contract does not name: \(f.Text)")
+			return rpc.Transport{Reason: "Cancel failed with a failure the contract does not name: \(f.Text)"}
 		}
 	}
 }
 
-// Status calls jobs.Jobs's Status on the server.
-func Status(client Client, id int) Option[jobs.Job] {
-	let p = StatusRequest{Id: id}
-	exactStatusRequest(p) catch {
-	case rpc.Unrepresentable as u:
-		return rpc.Refuse[Option[jobs.Job]](u)
-	}
-	let text = rpc.Call(client.conn, "Status", rpc.Encode(p)) catch {
-	case rpc.Failed as f:
-		return rpc.Die[Option[jobs.Job]]("RpcError", "Status failed with a failure the contract does not name: \(f.Text)")
-	}
-	let v = rpc.Decode[Option[jobs.Job]]("value", text)
-	exactOptionJobsJob(v) catch {
-	case rpc.Unrepresentable as u:
-		return rpc.Refuse[Option[jobs.Job]](u)
-	}
-	v
-}
-
-// List calls jobs.Jobs's List on the server.
-func List(client Client) []jobs.Job {
-	let p = ListRequest
-	let text = rpc.Call(client.conn, "List", rpc.Encode(p)) catch {
-	case rpc.Failed as f:
-		return rpc.Die[[]jobs.Job]("RpcError", "List failed with a failure the contract does not name: \(f.Text)")
-	}
-	let v = rpc.Decode[[]jobs.Job]("value", text)
-	exactSliceJobsJob(v) catch {
-	case rpc.Unrepresentable as u:
-		return rpc.Refuse[[]jobs.Job](u)
-	}
-	v
-}
-
-// Work calls jobs.Jobs's Work on the server.
-func Work(client Client, ticks int) {
-	let p = WorkRequest{Ticks: ticks}
-	exactWorkRequest(p) catch {
+// Cancel calls jobs.Jobs's Cancel on the server, as CancelChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func Cancel(client Client, id int) fails jobs.NoSuchJob | jobs.AlreadyDone {
+	try CancelChecked(client, id) catch {
 	case rpc.Unrepresentable as u:
 		rpc.Refuse[string](u)
+	case rpc.Transport as t:
+		rpc.Lost[string](t)
 	}
-	let _ = rpc.Call(client.conn, "Work", rpc.Encode(p)) catch {
+}
+
+// StatusChecked calls jobs.Jobs's Status on the server; the wire's failures are
+// typed failures.
+func StatusChecked(client Client, id int) Option[jobs.Job] fails rpc.Unrepresentable | rpc.Transport {
+	let p = StatusRequest{Id: id}
+	try exactStatusRequest(p)
+	let text = try rpc.Call(client.conn, "Status", rpc.Encode(p)) catch {
 	case rpc.Failed as f:
-		rpc.Die[string]("RpcError", "Work failed with a failure the contract does not name: \(f.Text)")
+		return rpc.Transport{Reason: "Status failed with a failure the contract does not name: \(f.Text)"}
+	}
+	let v = try rpc.Decode[Option[jobs.Job]]("value", text)
+	try exactOptionJobsJob(v)
+	v
+}
+
+// Status calls jobs.Jobs's Status on the server, as StatusChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func Status(client Client, id int) Option[jobs.Job] {
+	StatusChecked(client, id) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[Option[jobs.Job]](u)
+	case rpc.Transport as t:
+		return rpc.Lost[Option[jobs.Job]](t)
+	}
+}
+
+// ListChecked calls jobs.Jobs's List on the server; the wire's failures are
+// typed failures.
+func ListChecked(client Client) []jobs.Job fails rpc.Unrepresentable | rpc.Transport {
+	let p = ListRequest
+	let text = try rpc.Call(client.conn, "List", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		return rpc.Transport{Reason: "List failed with a failure the contract does not name: \(f.Text)"}
+	}
+	let v = try rpc.Decode[[]jobs.Job]("value", text)
+	try exactSliceJobsJob(v)
+	v
+}
+
+// List calls jobs.Jobs's List on the server, as ListChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func List(client Client) []jobs.Job {
+	ListChecked(client) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Refuse[[]jobs.Job](u)
+	case rpc.Transport as t:
+		return rpc.Lost[[]jobs.Job](t)
+	}
+}
+
+// WorkChecked calls jobs.Jobs's Work on the server; the wire's failures are
+// typed failures.
+func WorkChecked(client Client, ticks int) fails rpc.Unrepresentable | rpc.Transport {
+	let p = WorkRequest{Ticks: ticks}
+	try exactWorkRequest(p)
+	let _ = try rpc.Call(client.conn, "Work", rpc.Encode(p)) catch {
+	case rpc.Failed as f:
+		return rpc.Transport{Reason: "Work failed with a failure the contract does not name: \(f.Text)"}
+	}
+}
+
+// Work calls jobs.Jobs's Work on the server, as WorkChecked does; an int the
+// wire cannot carry and a failure of the wire are defects.
+func Work(client Client, ticks int) {
+	WorkChecked(client, ticks) catch {
+	case rpc.Unrepresentable as u:
+		rpc.Refuse[string](u)
+	case rpc.Transport as t:
+		rpc.Lost[string](t)
 	}
 }

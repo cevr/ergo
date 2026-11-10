@@ -354,6 +354,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"RPCTagged":    {},
 	"RPCTagOf":     {},
 	"RPCDie":       {},
+	"RPCRefuse":    {},
 	"RPCExact":     {},
 	"RPCExactUint": {},
 	// std os (G2; stdlib.md, host packages): bodies that read the host

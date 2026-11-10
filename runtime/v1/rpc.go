@@ -57,11 +57,22 @@ func (e RPCUnrepresentable) Error() string {
 	return "rpc.Unrepresentable{Path:" + e.Path + " Value:" + e.Value + "}"
 }
 
-// rpcDefect is the defect of a call that the peer ended with a Die cause,
-// or that broke the protocol: Name and Message are the Die's.
+// RPCTransport is rpc.Transport: a call the wire did not carry, with why.
+type RPCTransport struct {
+	Reason string
+}
+
+// Error is the failure's text.
+func (e RPCTransport) Error() string { return "rpc.Transport{Reason:" + e.Reason + "}" }
+
+// rpcDefect is the defect of a call that the peer ended with a Die cause:
+// Name and Message are the Die's. A refused int (Name "Unrepresentable")
+// also carries its Path and Value, so a checking client reads it back as
+// the typed Unrepresentable.
 type rpcDefect struct {
 	Name    string
 	Message string
+	Wide    *RPCUnrepresentable
 }
 
 // Error is the defect's text, as a JavaScript Error prints.
@@ -70,6 +81,20 @@ func (e rpcDefect) Error() string { return e.Name + ": " + e.Message }
 // RPCDie raises the defect {name, message}: a server answers it as a Die
 // cause with that name and message.
 func RPCDie[T any](name string, message string) T { panic(rpcDefect{Name: name, Message: message}) }
+
+// rpcWideName is the Die name of an int the wire cannot carry.
+const rpcWideName = "Unrepresentable"
+
+// RPCRefuse raises the defect of u: a Die named Unrepresentable whose
+// defect also carries u's path and value.
+func RPCRefuse[T any](u RPCUnrepresentable) T {
+	panic(rpcDefect{Name: rpcWideName, Message: "the int " + u.Value + " at " + u.Path + " is beyond +-(2^53-1), which a JavaScript number holds exactly", Wide: &u})
+}
+
+// rpcRefused are the Die names a server's rpc layer gives a call it could
+// not read (the generated Handle's request decode): a checking client
+// reads such a Die as Transport, not as the server's defect.
+const rpcRefused = "RpcError"
 
 // rpcMaxSafe is 2^53-1, JavaScript's Number.MAX_SAFE_INTEGER: the largest
 // integer an Effect Schema.Int holds exactly.
@@ -273,10 +298,10 @@ func RPCRequest(id, tag, payload string) string {
 
 // RPCReadExit finds the Exit of request id in an answer of status and
 // content type and returns its outcome as RPCCall does; a status other
-// than 200 is the defect RpcClientError.
+// than 200 is Transport.
 func RPCReadExit(id string, status int, contentType string, body string) (string, error) {
 	if status != http.StatusOK {
-		panic(rpcDefect{Name: "RpcClientError", Message: fmt.Sprintf("status %d: %s", status, strings.TrimSpace(body))})
+		return "", RPCTransport{Reason: fmt.Sprintf("status %d: %s", status, strings.TrimSpace(body))}
 	}
 	return rpcReadExit([]byte(body), strings.HasPrefix(contentType, rpcNDJSON), id)
 }
@@ -327,6 +352,9 @@ func rpcExit(v string, err error) string {
 				p = pv.Value
 			}
 			if d, ok := p.(rpcDefect); ok {
+				if d.Wide != nil {
+					return rpcWideExit(d)
+				}
 				name, message = d.Name, d.Message
 			} else {
 				message = fmt.Sprint(p)
@@ -342,6 +370,21 @@ func rpcDieExit(name, message string) string {
 	b = JSONAppendString(b, name)
 	b = append(b, `,"message":`...)
 	b = JSONAppendString(b, message)
+	b = append(b, `}}]}`...)
+	return string(b)
+}
+
+// rpcWideExit is the Die of a refused int: {name, message} as Effect's
+// Schema.Defect reads it, then the int's path and value.
+func rpcWideExit(d rpcDefect) string {
+	b := []byte(`{"_tag":"Failure","cause":[{"_tag":"Die","defect":{"name":`)
+	b = JSONAppendString(b, d.Name)
+	b = append(b, `,"message":`...)
+	b = JSONAppendString(b, d.Message)
+	b = append(b, `,"path":`...)
+	b = JSONAppendString(b, d.Wide.Path)
+	b = append(b, `,"value":`...)
+	b = JSONAppendString(b, d.Wide.Value)
 	b = append(b, `}}]}`...)
 	return string(b)
 }
@@ -412,10 +455,10 @@ var rpcIDs atomic.Uint64
 var rpcClient = &http.Client{}
 
 // RPCCall posts one Request for the operation tag with payload, a JSON
-// object's text, to url, and returns the Success value's text. A Fail
-// cause is Failed with the error's text; a Die cause, a protocol error and
-// a transport error are defects. A stop of t aborts the request and ends
-// the call with the stop.
+// object's text, to url, and returns the Success value's text, as
+// rpcReadExit reads it. A URL the request cannot be made of and a lost
+// or refused connection are Transport. A stop of t aborts the request and
+// ends the call with the stop.
 //
 //ergo:host
 func RPCCall(t *rt.Task, url string, tag string, payload string) (string, error) {
@@ -425,7 +468,7 @@ func RPCCall(t *rt.Task, url string, tag string, payload string) (string, error)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(url, "/")+"/", strings.NewReader(RPCRequest(id, tag, payload)))
 	if err != nil {
-		panic(rpcDefect{Name: "RpcClientError", Message: err.Error()})
+		return "", RPCTransport{Reason: err.Error()}
 	}
 	req.Header.Set("Content-Type", rpcJSON)
 	got := make(chan rpcResult, 1)
@@ -439,7 +482,7 @@ func RPCCall(t *rt.Task, url string, tag string, payload string) (string, error)
 		panic(rt.Interrupted)
 	}
 	if res.err != nil {
-		panic(rpcDefect{Name: "RpcClientError", Message: res.err.Error()})
+		return "", RPCTransport{Reason: res.err.Error()}
 	}
 	return rpcReadExit(res.body, strings.HasPrefix(res.ct, rpcNDJSON), id)
 }
@@ -461,7 +504,12 @@ type rpcReply struct {
 }
 
 // rpcReadExit finds the Exit of request id in a response body and returns
-// its outcome as RPCCall does.
+// its outcome: a Success's value text; a Fail's error as Failed; a Die
+// named Unrepresentable as Unrepresentable (its path and value); a Die the
+// server's rpc layer raised for a call it could not read (RpcError), an
+// Interrupt, a server-wide Defect, a refusal and a body that is not Effect
+// RPC's as Transport; any other Die is raised again as the server's
+// defect, which no client row names.
 func rpcReadExit(body []byte, framed bool, id string) (string, error) {
 	var replies []rpcReply
 	if framed {
@@ -471,7 +519,7 @@ func rpcReadExit(body []byte, framed bool, id string) (string, error) {
 			}
 			var r rpcReply
 			if err := json.Unmarshal(line, &r); err != nil {
-				panic(rpcDefect{Name: "RpcClientError", Message: "malformed response: " + err.Error()})
+				return "", RPCTransport{Reason: "malformed response: " + err.Error()}
 			}
 			replies = append(replies, r)
 		}
@@ -486,15 +534,16 @@ func rpcReadExit(body []byte, framed bool, id string) (string, error) {
 			replies = append(replies, r)
 		}
 		if err != nil {
-			panic(rpcDefect{Name: "RpcClientError", Message: "malformed response: " + err.Error()})
+			return "", RPCTransport{Reason: "malformed response: " + err.Error()}
 		}
 	}
 	for _, r := range replies {
 		switch r.Tag {
 		case "Defect":
-			panic(rpcDefectOf(r.Defect))
+			d := rpcDefectOf(r.Defect)
+			return "", RPCTransport{Reason: "the server failed: " + d.Error()}
 		case "ClientProtocolError":
-			panic(rpcDefect{Name: "RpcClientError", Message: "the server refused the request"})
+			return "", RPCTransport{Reason: "the server refused the request"}
 		case "Exit":
 		default:
 			continue
@@ -515,29 +564,47 @@ func rpcReadExit(body []byte, framed bool, id string) (string, error) {
 				}
 			}
 			for _, c := range r.Exit.Cause {
-				if c.Tag == "Die" {
-					panic(rpcDefectOf(c.Defect))
+				if c.Tag != "Die" {
+					continue
 				}
+				d := rpcDefectOf(c.Defect)
+				switch {
+				case d.Name == rpcWideName:
+					u := RPCUnrepresentable{}
+					if d.Wide != nil {
+						u = *d.Wide
+					}
+					return "", u
+				case d.Name == rpcRefused:
+					return "", RPCTransport{Reason: "the server refused the call: " + d.Message}
+				}
+				panic(d)
 			}
-			panic(rpcDefect{Name: "RpcInterrupted", Message: "the server interrupted the call"})
+			return "", RPCTransport{Reason: "the server interrupted the call"}
 		}
 	}
-	panic(rpcDefect{Name: "RpcClientError", Message: "no Exit for request " + id})
+	return "", RPCTransport{Reason: "no Exit for request " + id}
 }
 
-// rpcDefectOf reads a Die's defect: {name, message}, or any other value
-// as its text.
+// rpcDefectOf reads a Die's defect: {name, message} (with the path and
+// value of a refused int), or any other value as its text.
 func rpcDefectOf(raw json.RawMessage) rpcDefect {
 	var d struct {
 		Name    *string `json:"name"`
 		Message *string `json:"message"`
+		Path    *string `json:"path"`
+		Value   *string `json:"value"`
 	}
 	if json.Unmarshal(raw, &d) == nil && d.Message != nil {
 		name := "Error"
 		if d.Name != nil {
 			name = *d.Name
 		}
-		return rpcDefect{Name: name, Message: *d.Message}
+		out := rpcDefect{Name: name, Message: *d.Message}
+		if name == rpcWideName && d.Path != nil && d.Value != nil {
+			out.Wide = &RPCUnrepresentable{Path: *d.Path, Value: *d.Value}
+		}
+		return out
 	}
 	var s string
 	if json.Unmarshal(raw, &s) == nil {

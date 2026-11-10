@@ -9,7 +9,10 @@
 //     exhaustively and calls the operation on the provider the caller
 //     binds, answering a typed failure as its tagged JSON;
 //   - client.ergo: Client, a provider of the operation type whose
-//     functions call the server.
+//     functions call the server, and beside each operation <Op>Checked,
+//     the same call with the wire's failures (rpc.Unrepresentable,
+//     rpc.Transport) in its row; the provider's function is the checked
+//     one with those failures raised as defects.
 //
 // Each file carries the contract's digest, and `ergo gen rpc --check`
 // regenerates and compares. No compiler special case: like `ergo bind
@@ -715,14 +718,6 @@ func (g *gen) check(b *strings.Builder, name, x, res string) {
 	fmt.Fprintf(b, "%s(%s) catch {\ncase rpc.Unrepresentable as u:\nreturn rpc.Refuse[%s](u)\n}\n", name, x, res)
 }
 
-// unitOr is res, or "" for an operation with no value.
-func unitOr(op Op, res string) string {
-	if op.Result == nil {
-		return ""
-	}
-	return res
-}
-
 func (g *gen) walkerName(t check.Type) string {
 	if w := g.walkerOf(t); w != nil {
 		return w.name
@@ -736,7 +731,7 @@ func (g *gen) serverFile(ops []Op) fileText {
 	var b strings.Builder
 	fmt.Fprintf(&b, "// Handle runs one call of %s on the provider the caller binds: tag\n// names the operation and payload is its Request's JSON. Its value is the\n// result's JSON; a typed failure is Failed with the failure's tagged JSON.\n// A request the contract does not hold and an int the wire cannot carry\n// are defects, which the server answers as Die.\n", capName)
 	fmt.Fprintf(&b, "func Handle(tag string, payload string) string fails rpc.Failed needs %s {\n", capName)
-	b.WriteString("let req = rpc.Decode[Request](\"request\", rpc.Tagged(tag + \"Request\", payload))\n")
+	b.WriteString("let req = rpc.Decode[Request](\"request\", rpc.Tagged(tag + \"Request\", payload)) catch {\ncase rpc.Transport as t:\nreturn rpc.Die[string](\"RpcError\", t.Reason)\n}\n")
 	b.WriteString("match req {\n")
 	for _, op := range ops {
 		rn := requestName(op.Name)
@@ -780,11 +775,30 @@ func (g *gen) serverFile(ops []Op) fileText {
 	return fileText{text: b.String()}
 }
 
-// clientFile is client.ergo: Client and its operations.
+// wideOp reports whether op carries an int the wire may refuse: in an
+// argument, its value or a failure. Only such an operation's checked
+// function names rpc.Unrepresentable.
+func (g *gen) wideOp(op Op) bool {
+	if g.requests[op.Name] != "" || (op.Result != nil && g.walkerName(op.Result) != "") {
+		return true
+	}
+	for _, f := range op.Fails {
+		if g.walkerName(f) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// clientFile is client.ergo: Client and, per operation, its checked
+// function and its providing function. One path writes the call: the
+// checked function, whose row adds the wire's failures to the
+// operation's; the providing function has the operation's own signature
+// and raises those failures as defects (rpc.Refuse, rpc.Lost).
 func (g *gen) clientFile(ops []Op) fileText {
 	capName := g.importOf(g.pkg) + "." + g.op
 	var b strings.Builder
-	fmt.Fprintf(&b, "// Client is %s over the wire: each operation is one call to the\n// server its Conn names. A failure the row does not name, a value the\n// contract does not hold, an int the wire cannot carry and a lost\n// server are defects, which the operation's row cannot name.\n", capName)
+	fmt.Fprintf(&b, "// Client is %s over the wire: each operation is one call to the\n// server its Conn names. <Op>Checked fails the wire's failures as typed\n// failures: rpc.Unrepresentable for an int the wire cannot carry (an\n// operation that carries one), rpc.Transport for a lost server, a refused\n// call or an answer that is not the contract's. <Op> provides the\n// operation type, whose row cannot name them, so there they are defects.\n", capName)
 	b.WriteString("type Client { conn rpc.Conn }\n\n")
 	fmt.Fprintf(&b, "// NewClient is the %s that conn serves.\n", capName)
 	b.WriteString("func NewClient(conn rpc.Conn) Client { Client{conn: conn} }\n")
@@ -793,45 +807,57 @@ func (g *gen) clientFile(ops []Op) fileText {
 		if op.Result != nil {
 			res = g.expr(op.Result)
 		}
-		var params, fields []string
+		wide := g.wideOp(op)
+		var params, fields, args []string
 		for _, p := range op.Params {
 			params = append(params, p.Name+" "+g.expr(p.Type))
 			fields = append(fields, FieldName(p.Name)+": "+p.Name)
+			args = append(args, p.Name)
 		}
-		sig := fmt.Sprintf("func %s(client Client", op.Name)
-		if len(params) > 0 {
-			sig += ", " + strings.Join(params, ", ")
+		var fs []string
+		for _, f := range op.Fails {
+			fs = append(fs, g.expr(f))
 		}
-		sig += ")"
-		if op.Result != nil {
-			sig += " " + res
-		}
-		if len(op.Fails) > 0 {
-			var fs []string
-			for _, f := range op.Fails {
-				fs = append(fs, g.expr(f))
+		head := func(name string, fails []string) string {
+			sig := fmt.Sprintf("func %s(client Client", name)
+			if len(params) > 0 {
+				sig += ", " + strings.Join(params, ", ")
 			}
-			sig += " fails " + strings.Join(fs, " | ")
+			sig += ")"
+			if op.Result != nil {
+				sig += " " + res
+			}
+			if len(fails) > 0 {
+				sig += " fails " + strings.Join(fails, " | ")
+			}
+			return sig
 		}
-		fmt.Fprintf(&b, "\n// %s calls %s's %s on the server.\n%s {\n", op.Name, capName, op.Name, sig)
+		checked := op.Name + "Checked"
+		wireFails := append([]string{}, fs...)
+		if wide {
+			wireFails = append(wireFails, "rpc.Unrepresentable")
+		}
+		wireFails = append(wireFails, "rpc.Transport")
+
+		// The checked function: the call itself.
+		fmt.Fprintf(&b, "\n// %s calls %s's %s on the server; the wire's failures are\n// typed failures.\n%s {\n", checked, capName, op.Name, head(checked, wireFails))
 		rn := requestName(op.Name)
 		if len(op.Params) == 0 {
 			fmt.Fprintf(&b, "let p = %s\n", rn)
 		} else {
 			fmt.Fprintf(&b, "let p = %s{%s}\n", rn, strings.Join(fields, ", "))
-			g.check(&b, g.requests[op.Name], "p", unitOr(op, res))
+			if w := g.requests[op.Name]; w != "" {
+				fmt.Fprintf(&b, "try %s(p)\n", w)
+			}
 		}
 		lead := "let text = "
 		if op.Result == nil {
 			lead = "let _ = "
 		}
-		fmt.Fprintf(&b, "%srpc.Call(client.conn, %s, rpc.Encode(p)) catch {\ncase rpc.Failed as f:\n", lead, quote(op.Name))
-		ret := "return "
-		if op.Result == nil {
-			ret = "" // a function with no value returns none
-		}
+		unnamed := fmt.Sprintf("return rpc.Transport{Reason: \"%s failed with a failure the contract does not name: \\(f.Text)\"}\n", op.Name)
+		fmt.Fprintf(&b, "%stry rpc.Call(client.conn, %s, rpc.Encode(p)) catch {\ncase rpc.Failed as f:\n", lead, quote(op.Name))
 		if len(op.Fails) == 0 {
-			fmt.Fprintf(&b, "%srpc.Die[%s](\"RpcError\", \"%s failed with a failure the contract does not name: \\(f.Text)\")\n", ret, res, op.Name)
+			b.WriteString(unnamed)
 		} else {
 			b.WriteString("match rpc.TagOf(f.Text) {\n")
 			for _, f := range op.Fails {
@@ -840,19 +866,43 @@ func (g *gen) clientFile(ops []Op) fileText {
 					cases = append(cases, quote(tag))
 				}
 				fmt.Fprintf(&b, "case %s:\n", strings.Join(cases, ", "))
-				fmt.Fprintf(&b, "let e = rpc.Decode[%s](\"failure\", f.Text)\n", g.expr(f))
-				g.check(&b, g.walkerName(f), "e", unitOr(op, res))
+				fmt.Fprintf(&b, "let e = try rpc.Decode[%s](\"failure\", f.Text)\n", g.expr(f))
+				if w := g.walkerName(f); w != "" {
+					fmt.Fprintf(&b, "try %s(e)\n", w)
+				}
 				b.WriteString("return e\n")
 			}
-			fmt.Fprintf(&b, "case _:\n%srpc.Die[%s](\"RpcError\", \"%s failed with a failure the contract does not name: \\(f.Text)\")\n}\n", ret, res, op.Name)
+			fmt.Fprintf(&b, "case _:\n%s}\n", unnamed)
+		}
+		if !wide {
+			// A contract with no int: a server that refuses one is not
+			// this contract's.
+			fmt.Fprintf(&b, "case rpc.Unrepresentable as u:\nreturn rpc.Transport{Reason: \"%s: the server refused the int \\(u.Value) at \\(u.Path), which the contract does not carry\"}\n", op.Name)
 		}
 		b.WriteString("}\n")
 		if op.Result != nil {
-			fmt.Fprintf(&b, "let v = rpc.Decode[%s](\"value\", text)\n", res)
-			g.check(&b, g.walkerName(op.Result), "v", res)
+			fmt.Fprintf(&b, "let v = try rpc.Decode[%s](\"value\", text)\n", res)
+			if w := g.walkerName(op.Result); w != "" {
+				fmt.Fprintf(&b, "try %s(v)\n", w)
+			}
 			b.WriteString("v\n")
 		}
 		b.WriteString("}\n")
+
+		// The providing function: the operation's signature.
+		fmt.Fprintf(&b, "\n// %s calls %s's %s on the server, as %s does; an int the\n// wire cannot carry and a failure of the wire are defects.\n%s {\n", op.Name, capName, op.Name, checked, head(op.Name, fs))
+		ret := "return "
+		if op.Result == nil {
+			ret = "" // a function with no value returns none
+		}
+		if len(op.Fails) > 0 {
+			b.WriteString("try ")
+		}
+		fmt.Fprintf(&b, "%s(%s) catch {\n", checked, strings.Join(append([]string{"client"}, args...), ", "))
+		if wide {
+			fmt.Fprintf(&b, "case rpc.Unrepresentable as u:\n%srpc.Refuse[%s](u)\n", ret, res)
+		}
+		fmt.Fprintf(&b, "case rpc.Transport as t:\n%srpc.Lost[%s](t)\n}\n}\n", ret, res)
 	}
 	return fileText{text: b.String()}
 }

@@ -249,6 +249,7 @@ var stdRecords = map[string]string{
 	"rpc.Malformed":        "RPCMalformed",
 	"rpc.Envelope":         "RPCEnvelope",
 	"rpc.Unrepresentable":  "RPCUnrepresentable",
+	"rpc.Transport":        "RPCTransport",
 	"strconv.Malformed":    "Malformed",
 	"strconv.OutOfRange":   "OutOfRange",
 	"csv.ParseError":       "CSVParseError",

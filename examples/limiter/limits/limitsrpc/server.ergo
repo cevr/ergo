@@ -10,7 +10,10 @@ import limiter/limits
 // A request the contract does not hold and an int the wire cannot carry
 // are defects, which the server answers as Die.
 func Handle(tag string, payload string) string fails rpc.Failed needs limits.Limiter {
-	let req = rpc.Decode[Request]("request", rpc.Tagged(tag+"Request", payload))
+	let req = rpc.Decode[Request]("request", rpc.Tagged(tag+"Request", payload)) catch {
+	case rpc.Transport as t:
+		return rpc.Die[string]("RpcError", t.Reason)
+	}
 	match req {
 	case TakeRequest as r:
 		exactTakeRequest(r) catch {

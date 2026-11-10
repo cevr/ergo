@@ -30,6 +30,76 @@
       "rule": "Answer answers the mount with a trailing slash, where Effect's RpcClient (and Call) posts.",
       "killers": ["rpcgen:TestRpcLoopbackAgrees"],
       "pkg": "./internal/rpcgen"
+    },
+    {
+      "name": "rchk-wide-die-defect",
+      "origin": "wf10 R-chk",
+      "file": "runtime/v1/rpc.go",
+      "from": "\t\t\t\tcase d.Name == rpcWideName:\n",
+      "to": "\t\t\t\tcase false:\n",
+      "rule": "A Die named Unrepresentable (an int the server would not send) is the typed rpc.Unrepresentable for a client (rpc.md, Call and the int rule).",
+      "killers": ["rpcgen:TestRpcLoopbackAgrees"],
+      "pkg": "./internal/rpcgen"
+    },
+    {
+      "name": "rchk-wide-die-path",
+      "origin": "wf10 R-chk",
+      "file": "runtime/v1/rpc.go",
+      "from": "\tb = JSONAppendString(b, d.Wide.Path)\n",
+      "to": "\tb = JSONAppendString(b, \"\")\n",
+      "rule": "The Die of a refused int carries its path, so the client's Unrepresentable names where the int is.",
+      "killers": ["rpcgen:TestRpcLoopbackAgrees"],
+      "pkg": "./internal/rpcgen"
+    },
+    {
+      "name": "rchk-lost-defect",
+      "origin": "wf10 R-chk",
+      "file": "runtime/v1/rpc.go",
+      "from": "\t\treturn \"\", RPCTransport{Reason: res.err.Error()}\n",
+      "to": "\t\tpanic(rpcDefect{Name: \"RpcClientError\", Message: res.err.Error()})\n",
+      "rule": "A lost or refused connection and a status other than 200 are rpc.Transport, a typed failure of Call.",
+      "killers": ["rpcgen:TestRpcLoopbackAgrees"],
+      "pkg": "./internal/rpcgen"
+    },
+    {
+      "name": "rchk-unnamed-defect",
+      "origin": "wf10 R-chk",
+      "file": "internal/rpcgen/rpcgen.go",
+      "from": "\t\t\tfmt.Fprintf(&b, \"case _:\\n%s}\\n\", unnamed)\n",
+      "to": "\t\t\tfmt.Fprintf(&b, \"case _:\\n%s}\\n\", \"rpc.Die[string](\\\"RpcError\\\", f.Text)\\n\")\n",
+      "rule": "In the checked call, a failure the row does not name is rpc.Transport, not a defect.",
+      "killers": ["rpcgen:TestRpcLoopbackAgrees"],
+      "pkg": "./internal/rpcgen"
+    },
+    {
+      "name": "rchk-bad-value-defect",
+      "origin": "wf10 R-chk",
+      "file": "internal/sketch/std/rpc/rpc.ergo",
+      "from": "\t\treturn Transport{Reason: \"the \\(what) is not the contract's: \\(text)\"}\n",
+      "to": "\t\tDie[T](\"RpcError\", \"the \\(what) is not the contract's: \\(text)\")\n",
+      "rule": "A value or failure that is not the contract's fails rpc.Transport in rpc.Decode, so the checked call names it.",
+      "killers": ["rpcgen:TestRpcLoopbackAgrees"],
+      "pkg": "./internal/rpcgen"
+    },
+    {
+      "name": "rchk-row-no-wide",
+      "origin": "wf10 R-chk",
+      "file": "internal/rpcgen/rpcgen.go",
+      "from": "func (g *gen) wideOp(op Op) bool {\n",
+      "to": "func (g *gen) wideOp(op Op) bool {\n\tif true {\n\t\treturn false\n\t}\n",
+      "rule": "The checked row of an operation that carries an int names rpc.Unrepresentable.",
+      "killers": ["rpcgen:TestRpcLoopbackAgrees"],
+      "pkg": "./internal/rpcgen"
+    },
+    {
+      "name": "rchk-provider-wide-lost",
+      "origin": "wf10 R-chk",
+      "file": "internal/rpcgen/rpcgen.go",
+      "from": "\t\t\tfmt.Fprintf(&b, \"case rpc.Unrepresentable as u:\\n%srpc.Refuse[%s](u)\\n\", ret, res)\n",
+      "to": "\t\t\tfmt.Fprintf(&b, \"case rpc.Unrepresentable as u:\\n%srpc.Lost[%s](rpc.Transport{Reason: u.Path})\\n\", ret, res)\n",
+      "rule": "The provider raises a refused int as the Unrepresentable defect (rpc.Refuse), as R1 did.",
+      "killers": ["rpcgen:TestRpcLoopbackAgrees"],
+      "pkg": "./internal/rpcgen"
     }
   ]
 }

@@ -28,6 +28,12 @@ type Failed { Text string }
 // not hold exactly: beyond +-(2^53-1).
 type Unrepresentable { Path string, Value string }
 
+// Transport is a call the wire did not carry: a server that cannot be
+// reached or that dropped the connection, a call the server refused or
+// could not read, an answer that is not Effect RPC's or not the
+// contract's, and a call the server interrupted. Reason says which.
+type Transport { Reason string }
+
 // Malformed is a request body that is not Effect RPC's: not a JSON
 // envelope or an array of them (json), or a line that is not one
 // (ndjson).
@@ -117,12 +123,12 @@ extern go ergo.local/prototype/runtime/v1.RPCExitLines func exitLines[R](envelop
 // Conn is an Effect RPC server, for Call: one at a URL (Dial) or one
 // served in this process (Loopback). Its field is unexported: only this
 // package builds a Conn, so only code that holds Ambient reaches the host.
-type Conn { post func(tag string, payload string) string fails Failed }
+type Conn { post func(tag string, payload string) string fails Failed | Unrepresentable | Transport }
 
 // Dial is the server at url, the URL its mount answers (no request is
 // made until a Call).
 func Dial(url string) Conn needs Ambient {
-	Conn{post: func(tag string, payload string) string fails Failed { try call(url, tag, payload) }}
+	Conn{post: func(tag string, payload string) string fails Failed | Unrepresentable | Transport { try call(url, tag, payload) }}
 }
 
 // Loopback is handle served in this process, as Serve serves it: each
@@ -133,7 +139,7 @@ func Dial(url string) Conn needs Ambient {
 // ran. A test binds the generated Client of a contract over a Loopback of
 // its server, so the contract's laws hold through the wire.
 func Loopback(handle escaping func(tag string, payload string) string fails Failed) Conn {
-	Conn{post: func(tag string, payload string) string fails Failed {
+	Conn{post: func(tag string, payload string) string fails Failed | Unrepresentable | Transport {
 		let id = nextID()
 		let r = http.Request{Method: "POST", Path: "/rpc/", Query: []http.Field{}, Header: []http.Field{http.Field{Name: "Content-Type", Value: "application/json"}}, Body: http.Buffered{Text: request(id, tag, payload)}}
 		let answer = with context { http.Streaming: http.NewRecorder() } {
@@ -157,19 +163,23 @@ extern go ergo.local/prototype/runtime/v1.RPCNextID func nextID() string
 extern go ergo.local/prototype/runtime/v1.RPCRequest func request(id string, tag string, payload string) string
 
 // readExit finds the Exit of request id in an answer and is its outcome,
-// as Call says; a status other than 200 is the defect RpcClientError.
-extern go ergo.local/prototype/runtime/v1.RPCReadExit func readExit(id string, status int, contentType string, body string) string fails Failed
+// as Call says; a status other than 200 is Transport.
+extern go ergo.local/prototype/runtime/v1.RPCReadExit func readExit(id string, status int, contentType string, body string) string fails Failed | Unrepresentable | Transport
 
 // Call posts one Request for the operation tag with payload, a JSON
 // object's text, and is the Success value's text. A Fail cause fails
-// Failed with the error's text. A Die cause, a transport error and a
-// response that breaks the protocol are defects. A stop of the caller
-// aborts the request.
-func Call(c Conn, tag string, payload string) string fails Failed {
+// Failed with the error's text. A Die named Unrepresentable (an int the
+// server would not send, Refuse) fails Unrepresentable with its path and
+// value. A lost or refused connection, a status other than 200, a Die
+// the server's rpc layer raised for a call it could not read (RpcError),
+// an interrupted call and a response that breaks the protocol fail
+// Transport. Any other Die is the server's defect, raised again. A stop
+// of the caller aborts the request.
+func Call(c Conn, tag string, payload string) string fails Failed | Unrepresentable | Transport {
 	try c.post(tag, payload)
 }
 
-extern go ergo.local/prototype/runtime/v1.RPCCall func call(url string, tag string, payload string) string fails Failed
+extern go ergo.local/prototype/runtime/v1.RPCCall func call(url string, tag string, payload string) string fails Failed | Unrepresentable | Transport
 
 // Tagged is object, a JSON object's text, with "_tag": tag as its first
 // member: the wire form of a typed failure and of a request.
@@ -196,22 +206,28 @@ func Under(prefix string, u Unrepresentable) Unrepresentable {
 	Unrepresentable{Path: prefix + "." + u.Path, Value: u.Value}
 }
 
-// Refuse raises the defect of an int the wire cannot carry: the generated
-// code calls it where the operation's row cannot name Unrepresentable.
-func Refuse[T](u Unrepresentable) T {
-	Die[T]("Unrepresentable", "the int \(u.Value) at \(u.Path) is beyond +-(2^53-1), which a JavaScript number holds exactly")
-}
+// Refuse raises the defect of an int the wire cannot carry: the Die
+// {name: "Unrepresentable", message, path, value}, which Call reads back
+// as Unrepresentable. The generated code calls it where the operation's
+// row cannot name Unrepresentable: the server before it answers, the
+// providing client.
+extern go ergo.local/prototype/runtime/v1.RPCRefuse func Refuse[T](u Unrepresentable) T
+
+// Lost raises the defect of a call the wire did not carry, the Die
+// RpcClientError with t's reason: the providing client calls it, since
+// the operation's row cannot name Transport.
+func Lost[T](t Transport) T { Die[T]("RpcClientError", t.Reason) }
 
 // Encode is v's JSON text.
 func Encode[T wire](v T) string {
 	json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, v)
 }
 
-// Decode is the T a peer's text writes; a text that is not one is a
-// defect, as the peer broke the contract.
-func Decode[T wire](what string, text string) T {
+// Decode is the T a peer's text writes; a text that is not one fails
+// Transport, as the peer broke the contract.
+func Decode[T wire](what string, text string) T fails Transport {
 	json.Decode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, text) catch {
 	case _:
-		Die[T]("RpcError", "the \(what) is not the contract's: \(text)")
+		return Transport{Reason: "the \(what) is not the contract's: \(text)"}
 	}
 }

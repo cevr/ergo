@@ -18,6 +18,7 @@ import (
 
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/sketch/build"
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketchfront"
 )
 
@@ -34,8 +35,12 @@ const seedVariable = "ERGO_RPC_SEED"
 // defect agree (an odd seed ends in one). Then, for each argument, value
 // and failure of each operation that reaches an int, a call that carries
 // 2^53 or -2^53 there runs alone: directly it ends with its outcome, on
-// the wire in the Unrepresentable defect (the int rule). A failing seed
-// prints the Ergo source, both outputs and the replay command.
+// the wire in the Unrepresentable defect (the int rule). The checked
+// functions (<Op>Checked, R-chk) run the same sequence to the same output,
+// fail the typed rpc.Unrepresentable with the int's path and value for
+// each wide call, and fail rpc.Transport for every call to a URL with no
+// RPC mount and to a stopped server. A failing seed prints the Ergo
+// source, both outputs and the replay command.
 //
 // It builds Go because the wire is runtime behaviour: the HTTP server, the
 // task per call and the client run only in a built program; go/types on
@@ -93,14 +98,75 @@ func loopback(t *testing.T, seed uint64) {
 	srv := startServer(t, exe)
 	viaRPC := runOnce(t, exe, "http://"+srv.addr+"/rpc")
 	srv.stop(t)
-	agree := direct.stdout == viaRPC.stdout && direct.code == viaRPC.code
-	if p.dies {
-		// Both end in the provider's defect.
-		agree = agree && strings.Contains(direct.stderr, p.boom()) && strings.Contains(viaRPC.stderr, p.boom())
+	// A fresh server for the checked run: the provider counts its calls.
+	srv = startServer(t, exe)
+	checked := runOnce(t, exe, "checked", "http://"+srv.addr+"/rpc")
+	refused := runOnce(t, exe, "checked", "http://"+srv.addr+"/nope")
+	srv.stop(t)
+	lost := runOnce(t, exe, "checked", "http://"+srv.addr+"/rpc")
+	// Servers that answer what no contract holds: a failure the row does
+	// not name, and a value that is not the operation's.
+	liar := startServer(t, exe, "lie-fail")
+	unnamed := runOnce(t, exe, "checked", "http://"+liar.addr+"/rpc")
+	liar.stop(t)
+	liar = startServer(t, exe, "lie-value")
+	badValue := runOnce(t, exe, "checked", "http://"+liar.addr+"/rpc")
+	liar.stop(t)
+	for _, run := range []struct {
+		name string
+		o    outcome
+	}{{"the client and the server", viaRPC}, {"the checked functions and the server", checked}} {
+		agree := direct.stdout == run.o.stdout && direct.code == run.o.code
+		if p.dies {
+			// Both end in the provider's defect: a defect of the provider
+			// is no failure of the wire, so the checked form raises it too.
+			agree = agree && strings.Contains(direct.stderr, p.boom()) && strings.Contains(run.o.stderr, p.boom())
+		}
+		if !agree {
+			t.Errorf("seed %d: the call sequence differs through the wire\n%s\n--- direct (exit %d)\n%s%s--- through %s (exit %d)\n%s%s--- server stderr\n%s\n%s",
+				seed, sources(files), direct.code, direct.stdout, direct.stderr, run.name, run.o.code, run.o.stdout, run.o.stderr, srv.stderr.String(), replay)
+		}
 	}
-	if !agree {
-		t.Errorf("seed %d: the call sequence differs through the wire\n%s\n--- direct (exit %d)\n%s%s--- through the client and the server (exit %d)\n%s%s--- server stderr\n%s\n%s",
-			seed, sources(files), direct.code, direct.stdout, direct.stderr, viaRPC.code, viaRPC.stdout, viaRPC.stderr, srv.stderr.String(), replay)
+	// A URL that names no RPC mount (a refused call, 404) and a server
+	// that is gone: through the checked functions every call, the
+	// provider's defect's included, fails rpc.Transport.
+	calls := len(p.order) + len(p.contracts)
+	for _, run := range []struct {
+		name string
+		o    outcome
+	}{{"a URL with no RPC mount", refused}, {"a stopped server", lost}, {"a server that fails what no row names", unnamed}} {
+		lines := strings.Split(strings.TrimSuffix(run.o.stdout, "\n"), "\n")
+		ok := run.o.code == 0 && len(lines) == calls
+		for _, l := range lines {
+			ok = ok && strings.HasSuffix(l, " transport")
+		}
+		if !ok {
+			t.Errorf("seed %d: through the checked functions to %s, %d calls do not each fail rpc.Transport (exit %d)\n%s%s\n%s\n%s",
+				seed, run.name, calls, run.o.code, run.o.stdout, run.o.stderr, sources(files), replay)
+		}
+	}
+	// A value that is not the operation's is rpc.Transport; an operation
+	// with no value reads none, so it ends as unit.
+	var want strings.Builder
+	line := func(o *op) {
+		if o.result == nil {
+			fmt.Fprintf(&want, "%s is unit\n", o.name)
+		} else {
+			fmt.Fprintf(&want, "%s transport\n", o.name)
+		}
+	}
+	for _, cl := range p.order[:p.scripted()] {
+		line(cl.op)
+	}
+	for _, c := range p.contracts {
+		fmt.Fprintf(&want, "C%dLog transport\n", c.i)
+	}
+	if p.dies {
+		line(p.order[len(p.order)-1].op)
+	}
+	if badValue.code != 0 || badValue.stdout != want.String() {
+		t.Errorf("seed %d: through the checked functions to a server that answers values no operation holds (exit %d)\n%s%swant\n%s\n%s\n%s",
+			seed, badValue.code, badValue.stdout, badValue.stderr, want.String(), sources(files), replay)
 	}
 	if !strings.Contains(direct.stdout, "is ") && !strings.Contains(direct.stdout, "fails ") {
 		t.Errorf("seed %d: the sequence made no call:\n%s", seed, direct.stdout)
@@ -130,6 +196,13 @@ func loopback(t *testing.T, seed uint64) {
 			if err != nil || !bytes.Contains(answer, []byte(`"_tag":"Die","defect":{"name":"Unrepresentable"`)) {
 				t.Errorf("seed %d: the server sends the wide %s of %s (call %s): %s %v\nrequest %s\n%s\n%s", seed, w.where, w.call.op.name, key, answer, err, body, sources(files), replay)
 			}
+		}
+		// Through the checked function the refusal is the typed
+		// rpc.Unrepresentable, with the int's path and value.
+		chk := runOnce(t, exe, "checked", "http://"+srv.addr+"/rpc", key)
+		if want := fmt.Sprintf("%s unrepresentable %s %s\n", w.call.op.name, w.path, w.value); chk.code != 0 || chk.stdout != want {
+			t.Errorf("seed %d: the wide call %s (in its %s of %s) through the checked function: exit %d\n%s%swant %s\n%s\n%s",
+				seed, key, w.where, w.call.op.name, chk.code, chk.stdout, chk.stderr, want, sources(files), replay)
 		}
 		srv.stop(t)
 		if direct.code != 0 || strings.Count(direct.stdout, "\n") != 1 || viaRPC.code != 2 || viaRPC.stdout != "" || !strings.Contains(viaRPC.stderr, "Unrepresentable") {
@@ -633,24 +706,27 @@ func newProgram(seed uint64) *program {
 			// The edges, 2^53 and -2^53, alternate.
 			w := func() string { return []string{"9007199254740992", "-9007199254740992"}[len(p.wides)%2] }
 			for i, prm := range o.params {
-				if s, ok := p.wideLit(prm.t, q, w()); ok {
+				n := w()
+				if s, at, ok := p.wideLit(prm.t, q, n); ok {
 					cl := normal()
 					cl.args[i] = s
-					p.wides = append(p.wides, wideCall{c: c, call: cl, where: "argument " + prm.name})
+					p.wides = append(p.wides, wideCall{c: c, call: cl, where: "argument " + prm.name, path: under(prm.name, at), value: n})
 				}
 			}
 			if o.result != nil {
-				if s, ok := p.wideLit(o.result, "", w()); ok {
+				n := w()
+				if s, at, ok := p.wideLit(o.result, "", n); ok {
 					cl := normal()
 					cl.value = s
-					p.wides = append(p.wides, wideCall{c: c, call: cl, where: "value"})
+					p.wides = append(p.wides, wideCall{c: c, call: cl, where: "value", path: at, value: n})
 				}
 			}
 			for i, f := range o.fails {
-				if s, ok := p.wideLit(f, "", w()); ok {
+				n := w()
+				if s, at, ok := p.wideLit(f, "", n); ok {
 					cl := normal()
 					cl.outcome, cl.value = i, s
-					p.wides = append(p.wides, wideCall{c: c, call: cl, where: "failure " + f.name})
+					p.wides = append(p.wides, wideCall{c: c, call: cl, where: "failure " + f.name, path: at, value: n})
 				}
 			}
 		}
@@ -663,6 +739,8 @@ type wideCall struct {
 	c     *contract
 	call  *call
 	where string
+	// path and value are the rpc.Unrepresentable the checked call fails.
+	path, value string
 }
 
 // anyWideOp reports an operation, of any contract, whose arguments, value
@@ -711,26 +789,27 @@ func reachesInt(t *ty) bool {
 }
 
 // wideLit is a value of t that holds the int w, one beyond +-(2^53-1),
-// when t reaches an int.
-func (p *program) wideLit(t *ty, q, w string) (string, bool) {
+// when t reaches an int, and the int's path in t as rpc.Unrepresentable
+// names it: wire keys and positions joined by ".", "" for t itself.
+func (p *program) wideLit(t *ty, q, w string) (string, string, bool) {
 	switch t.kind {
 	case "int":
-		return w, true
+		return w, "", true
 	case "slice":
-		if s, ok := p.wideLit(t.elem, q, w); ok {
-			return t.src(q) + "{" + s + "}", true
+		if s, at, ok := p.wideLit(t.elem, q, w); ok {
+			return t.src(q) + "{" + s + "}", under("0", at), true
 		}
 	case "map":
-		if s, ok := p.wideLit(t.elem, q, w); ok {
-			return t.src(q) + `{"w": ` + s + "}", true
+		if s, at, ok := p.wideLit(t.elem, q, w); ok {
+			return t.src(q) + `{"w": ` + s + "}", under("w", at), true
 		}
 	case "option":
-		if s, ok := p.wideLit(t.elem, q, w); ok {
-			return "Some[" + t.elem.src(q) + "]{Value: " + s + "}", true
+		if s, at, ok := p.wideLit(t.elem, q, w); ok {
+			return "Some[" + t.elem.src(q) + "]{Value: " + s + "}", under("value", at), true
 		}
 	case "record":
 		for i, f := range t.fields {
-			if s, ok := p.wideLit(f.t, q, w); ok {
+			if s, at, ok := p.wideLit(f.t, q, w); ok {
 				var fs []string
 				for j, g := range t.fields {
 					v := s
@@ -739,20 +818,56 @@ func (p *program) wideLit(t *ty, q, w string) (string, bool) {
 					}
 					fs = append(fs, g.name+": "+v)
 				}
-				return q + t.name + "{" + strings.Join(fs, ", ") + "}", true
+				return q + t.name + "{" + strings.Join(fs, ", ") + "}", under(check.WireFieldName(f.name), at), true
 			}
 		}
 	case "union":
 		for _, v := range t.variants {
-			if s, ok := p.wideLit(v, q, w); ok {
-				return s, true
+			if s, at, ok := p.wideLit(v, q, w); ok {
+				return s, at, true
 			}
 		}
 	}
-	return "", false
+	return "", "", false
+}
+
+// under is the path at inside the value at prefix, as rpc.Under joins it.
+func under(prefix, at string) string {
+	if at == "" {
+		return prefix
+	}
+	return prefix + "." + at
 }
 
 func (p *program) boom() string { return fmt.Sprintf("boom %d", p.seed) }
+
+// scripted is the number of calls before the logs: every call, or all
+// but the last when the sequence ends in the provider's defect.
+func (p *program) scripted() int {
+	if p.dies {
+		return len(p.order) - 1
+	}
+	return len(p.order)
+}
+
+// opWide reports an operation whose arguments, value or failures reach an
+// int: its checked function's row names rpc.Unrepresentable.
+func opWide(o *op) bool {
+	for _, prm := range o.params {
+		if reachesInt(prm.t) {
+			return true
+		}
+	}
+	if o.result != nil && reachesInt(o.result) {
+		return true
+	}
+	for _, f := range o.fails {
+		if reachesInt(f) {
+			return true
+		}
+	}
+	return false
+}
 
 func (p *program) basic() *ty {
 	return &ty{kind: []string{"int", "string", "bool", "float64"}[p.r.IntN(4)]}
@@ -1054,12 +1169,56 @@ func (p *program) mainSource() string {
 			fmt.Fprintf(&b, "\n\t\"%s is unit\"\n}\n", cl.op.name)
 		}
 	}
+	// checkedFunc is the call through the generated checked function: the
+	// same line for a value or a failure of the row, and a line for each
+	// failure of the wire.
+	checkedFunc := func(name string, c *contract, cl *call) {
+		q := fmt.Sprintf("c%d.", c.i)
+		fmt.Fprintf(&b, "\nfunc %s(conn rpc.Conn) string {\n\t", name)
+		args := append([]string{fmt.Sprintf("c%drpc.NewClient(conn)", c.i)}, cl.args...)
+		if cl.op.result != nil {
+			b.WriteString("let v = ")
+		}
+		fmt.Fprintf(&b, "c%drpc.%sChecked(%s) catch {\n", c.i, cl.op.name, strings.Join(args, ", "))
+		for _, f := range cl.op.fails {
+			fmt.Fprintf(&b, "\tcase %s%s as e:\n\t\treturn \"%s fails %s \" + enc(e)\n", q, f.name, cl.op.name, f.name)
+		}
+		if opWide(cl.op) {
+			fmt.Fprintf(&b, "\tcase rpc.Unrepresentable as u:\n\t\treturn \"%s unrepresentable \\(u.Path) \\(u.Value)\"\n", cl.op.name)
+		}
+		fmt.Fprintf(&b, "\tcase rpc.Transport:\n\t\treturn \"%s transport\"\n\t}", cl.op.name)
+		if cl.op.result != nil {
+			fmt.Fprintf(&b, "\n\t\"%s is \" + enc(v)\n}\n", cl.op.name)
+		} else {
+			fmt.Fprintf(&b, "\n\t\"%s is unit\"\n}\n", cl.op.name)
+		}
+	}
 	for k, cl := range p.order {
 		callFunc(fmt.Sprintf("call%d", k), p.contractOf(cl), cl)
+		checkedFunc(fmt.Sprintf("checked%d", k), p.contractOf(cl), cl)
 	}
 	for k, w := range p.wides {
 		callFunc(fmt.Sprintf("wide%d", k), w.c, w.call)
+		checkedFunc(fmt.Sprintf("checkedWide%d", k), w.c, w.call)
 	}
+	// checkedScript is script through the checked functions: the same
+	// lines, the provider's defect included, over conn.
+	b.WriteString("\nfunc checkedScript(conn rpc.Conn) needs Console {\n")
+	for k := 0; k < p.scripted(); k++ {
+		fmt.Fprintf(&b, "\tConsole.Println(checked%d(conn))\n", k)
+	}
+	for _, c := range p.contracts {
+		fmt.Fprintf(&b, "\tlet log%[1]d = c%[1]drpc.C%[1]dLogChecked(c%[1]drpc.NewClient(conn)) catch {\n\tcase rpc.Transport:\n\t\t[]string{\"C%[1]dLog transport\"}\n\t}\n\tfor l in log%[1]d {\n\t\tConsole.Println(l)\n\t}\n", c.i)
+	}
+	if p.dies {
+		fmt.Fprintf(&b, "\tConsole.Println(checked%d(conn))\n", p.scripted())
+	}
+	b.WriteString("}\n")
+	b.WriteString("\nfunc checkedWide(conn rpc.Conn, key string) needs Console {\n\tmatch key {\n")
+	for k := range p.wides {
+		fmt.Fprintf(&b, "\tcase \"w%d\":\n\t\tConsole.Println(checkedWide%d(conn))\n", k, k)
+	}
+	b.WriteString("\tcase _:\n\t\tUnreachable(\"no such wide call\")\n\t}\n}\n")
 	fmt.Fprintf(&b, "\nfunc script() needs Console | %s {\n", needs)
 	last := len(p.order)
 	if p.dies {
@@ -1109,13 +1268,27 @@ func (p *program) mainSource() string {
 		fmt.Fprintf(&b, "\tif strings.HasPrefix(tag, \"C%d\") {\n\t\tlet s = try c%drpc.Handle(tag, payload)\n\t\treturn s\n\t}\n", c.i, c.i)
 	}
 	b.WriteString("\trpc.Die[string](\"RpcError\", \"no contract has \\(tag)\")\n}\n")
+	// The lying servers: lieFail answers every call with a failure no
+	// contract names; lieValue answers every call with a value that is not
+	// its operation's (0 for a bool, true for any other type).
+	b.WriteString("\nfunc lieFail(tag string, payload string) string fails rpc.Failed {\n\treturn rpc.Failed{Text: \"{\\\"_tag\\\":\\\"Unnamed\\\"}\"}\n}\n")
+	b.WriteString("\nfunc lieValue(tag string, payload string) string fails rpc.Failed {\n\tmatch tag {\n")
+	for _, c := range p.contracts {
+		for _, o := range c.ops {
+			if o.result != nil && o.result.kind == "bool" {
+				fmt.Fprintf(&b, "\tcase %q:\n\t\t\"0\"\n", o.name)
+			}
+		}
+	}
+	b.WriteString("\tcase _:\n\t\t\"true\"\n\t}\n}\n")
 	var refs, clients []string
 	for _, c := range p.contracts {
 		refs = append(refs, fmt.Sprintf("c%d.Svc: c%d.NewRef(key)", c.i, c.i))
 		clients = append(clients, fmt.Sprintf("c%d.Svc: c%drpc.NewClient(conn)", c.i, c.i))
 	}
-	// Modes: serve [KEY]; direct [KEY]; URL [KEY]. A KEY ("w3") runs
-	// that wide call alone; the server's provider gives its outcome.
+	// Modes: serve [KEY]; direct [KEY]; URL [KEY]; checked URL [KEY]
+	// (through the checked functions). A KEY ("w3") runs that wide call
+	// alone; the server's provider gives its outcome.
 	fmt.Fprintf(&b, `
 func main() fails http.ListenFailed | http.InvalidLimits needs Console | Ambient {
 	let args = os.NewHost().Args()
@@ -1125,6 +1298,15 @@ func main() fails http.ListenFailed | http.InvalidLimits needs Console | Ambient
 	case "serve":
 		let l = try http.Listen("127.0.0.1:0")
 		Console.Println("listening \(l.Addr())")
+		let limits = http.Limits{MaxBodyBytes: 16777216, MaxHeaderBytes: 1048576}
+		if key == "lie-fail" {
+			try rpc.Serve(l, limits, "/rpc", lieFail)
+			return
+		}
+		if key == "lie-value" {
+			try rpc.Serve(l, limits, "/rpc", lieValue)
+			return
+		}
 		with context { %[1]s } {
 			try rpc.Serve(l, http.Limits{MaxBodyBytes: 16777216, MaxHeaderBytes: 1048576}, "/rpc", handle)
 		}
@@ -1136,6 +1318,9 @@ func main() fails http.ListenFailed | http.InvalidLimits needs Console | Ambient
 		with context { %[1]s } {
 			if key == "" { script() } else { wide(key) }
 		}
+	case "checked":
+		let conn = rpc.Dial(key)
+		if len(args) > 2 { checkedWide(conn, args[2]) } else { checkedScript(conn) }
 	case _:
 		let conn = rpc.Dial(mode)
 		with context { %[2]s } {
