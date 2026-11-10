@@ -41,7 +41,11 @@ func (r *Stream) charge(n int64) {
 }
 
 // Start begins case i: its size is i/4, its world and its tape are empty.
-func (r *Stream) Start(i int) { r.size, r.world, r.tape = i/4, nil, r.tape[:0] }
+func (r *Stream) Start(i int) {
+	r.size = i / 4
+	r.world = nil
+	r.tape = r.tape[:0]
+}
 
 // SetSize serves native context runners that own their case-world boundary.
 func (r *Stream) SetSize(n int) { r.size = n }

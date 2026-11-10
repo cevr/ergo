@@ -18,6 +18,15 @@
       "to": "_ = r.world",
       "rule": "A builder's value is shared within one case, never across cases.",
       "killers": ["internal/sketch/eval:TestStreamCaseLaws"]
+    },
+    {
+      "name": "l10b-integer-no-narrowing",
+      "origin": "wf10/L10b round 1 (moved from the lower ledger with the stream, wf10/l7-eval/EV4)",
+      "file": "runtime/testgen/stream.go",
+      "from": "mask := ^uint64(0) >> (64 - width)",
+      "to": "mask := ^uint64(0)",
+      "rule": "Record magnitude after narrowing, so a smaller integer width shrinks by value rather than wrapping.",
+      "killers": ["internal/sketch/lower:TestIntegerShrinksReachBoundary"]
     }
   ]
 }

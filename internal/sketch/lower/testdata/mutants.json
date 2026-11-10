@@ -24,21 +24,11 @@
       "anchor": {"text": "Replace(harnessGo + harnessReachGo)"}
     },
     {
-      "name": "l10b-integer-no-narrowing",
-      "origin": "wf10/L10b round 1",
-      "file": "internal/sketch/lower/tests.go",
-      "from": "mask := ^uint64(0) >> (64 - bits)",
-      "to": "mask := ^uint64(0)",
-      "rule": "Record magnitude after narrowing, so a smaller integer width shrinks by value rather than wrapping.",
-      "killers": ["lower:TestIntegerShrinksReachBoundary"],
-      "anchor": {"text": "Replace(harnessGo + harnessReachGo)"}
-    },
-    {
       "name": "native-case-stream-wrong",
       "origin": "wf10/l7-eval/EV3",
       "file": "internal/sketch/lower/tests.go",
-      "from": "return &$Rand{stream: $testgen.New(seed, name)}",
-      "to": "return &$Rand{stream: $testgen.New(seed+1, name)}",
+      "from": "return &$Rand{stream: $testgen.New(seed, name), seed: seed}",
+      "to": "return &$Rand{stream: $testgen.New(seed+1, name), seed: seed}",
       "rule": "Native and interpreted adapters receive the identical seed and full binding label.",
       "killers": ["lower:TestCasePlansAgreeWithGo"],
       "anchor": {"tests": ["lower:TestCasePlansAgreeWithGo"]}
