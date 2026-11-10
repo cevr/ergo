@@ -22,7 +22,14 @@
 type Config { Name string, Listen Listen, Log Level, Upstreams []Upstream }
 
 // Listen is where the proxy listens.
-type Listen { Host string, Port int }
+type Listen { Host string, Port Port }
+
+// Port is a TCP port. Decode reads it through ParsePort, which the where
+// derives, so a Config never holds port 0 (types.md, Refinements).
+type Port int where 1 <= it && it <= 65535
+
+// Weight is an upstream's share of the requests.
+type Weight int where 1 <= it && it <= 100
 
 // Level is how much the proxy logs.
 type Level = Debug | Info | Warn | Error
@@ -66,4 +73,4 @@ func LevelNamed(name string) Option[Level] {
 }
 
 // Upstream is a server the proxy sends requests to.
-type Upstream { Name string, Addr string, Weight int, Backup bool }
+type Upstream { Name string, Addr string, Weight Weight, Backup bool }

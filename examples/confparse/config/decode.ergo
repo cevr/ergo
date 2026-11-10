@@ -18,8 +18,9 @@ type MissingKey { At toml.Pos, Table string, Key string }
 // WrongType is a value of another kind than its key takes.
 type WrongType { From Origin, Key string, Want string, Got string }
 
-// OutOfRange is an integer outside the range its key takes.
-type OutOfRange { From Origin, Key string, N int, Min int, Max int }
+// OutOfRange is an integer that its key's refined type refuses: Type is
+// the type, Where its predicate.
+type OutOfRange { From Origin, Key string, N int, Type string, Where string }
 
 // UnknownKey is a key that its table does not have ("" is the root):
 // a misspelling, most often.
@@ -118,36 +119,55 @@ func text(src Source, key string, def Option[string]) string fails MissingKey | 
 	}
 }
 
-// whole is the integer of key in src, in min..max, or def when it is not
-// there and def is a value.
-func whole(src Source, key string, min int, max int, def Option[int]) int fails MissingKey | WrongType | OutOfRange {
-	let found (int, Origin) = match find(src, key) {
+// whole is the integer of key in src and where it came from, if src has
+// the key.
+func whole(src Source, key string) Option[(int, Origin)] fails WrongType {
+	match find(src, key) {
 	case FromEnv as e:
 		let n = strconv.Atoi(e.Text) catch {
 		case strconv.Malformed, strconv.OutOfRange:
 			return WrongType{From: InEnv{Name: e.Name}, Key: key, Want: "an integer", Got: strconv.Quote(e.Text)}
 		}
-		(n, InEnv{Name: e.Name})
+		Some{Value: (n, InEnv{Name: e.Name})}
 	case FromFile as f:
 		match f.Value {
 		case toml.Int as i:
-			(i.N, InFile{At: f.At})
+			Some{Value: (i.N, InFile{At: f.At})}
 		case toml.Str, toml.Bool, toml.Arr:
-			return WrongType{From: InFile{At: f.At}, Key: key, Want: "an integer", Got: toml.Kind(f.Value)}
+			WrongType{From: InFile{At: f.At}, Key: key, Want: "an integer", Got: toml.Kind(f.Value)}
 		}
 	case Absent:
-		match def {
-		case Some as d:
-			return d.Value
-		case None:
-			return missing(src, key)
+		None
+	}
+}
+
+// port is the Port of key in src, which src must have. ParsePort, which
+// Port's where derives, is the only range check.
+func port(src Source, key string) Port fails MissingKey | WrongType | OutOfRange {
+	match try whole(src, key) {
+	case Some as w:
+		let (n, from) = w.Value
+		ParsePort(n) catch {
+		case Unsatisfied as u:
+			return OutOfRange{From: from, Key: key, N: n, Type: u.Type, Where: u.Where}
 		}
+	case None:
+		missing(src, key)
 	}
-	let (n, from) = found
-	if n < min || n > max {
-		return OutOfRange{From: from, Key: key, N: n, Min: min, Max: max}
+}
+
+// weight is the Weight of key in src, 1 when src does not have it.
+func weight(src Source, key string) Weight fails WrongType | OutOfRange {
+	match try whole(src, key) {
+	case Some as w:
+		let (n, from) = w.Value
+		ParseWeight(n) catch {
+		case Unsatisfied as u:
+			return OutOfRange{From: from, Key: key, N: n, Type: u.Type, Where: u.Where}
+		}
+	case None:
+		1
 	}
-	n
 }
 
 // truth is the boolean of key in src, or def when it is not there.
@@ -252,7 +272,7 @@ func Decode(d toml.Doc, env Map[string, string]) Config fails Problem {
 	}
 	let listen = Source{name: "listen", table: listenT, env: env}
 	let host = try text(listen, "host", Some{Value: "127.0.0.1"})
-	let port = try whole(listen, "port", 1, 65535, None)
+	let p = try port(listen, "port")
 	let log = try level(Source{name: "log", table: logT, env: env}, "level")
 	let mut ups = []Upstream{}
 	let mut seen = []toml.Table{}
@@ -262,7 +282,7 @@ func Decode(d toml.Doc, env Map[string, string]) Config fails Problem {
 		let u = Upstream{
 			Name:   try text(src, "name", None),
 			Addr:   try text(src, "addr", None),
-			Weight: try whole(src, "weight", 1, 100, Some{Value: 1}),
+			Weight: try weight(src, "weight"),
 			Backup: try truth(src, "backup", false),
 		}
 		for i, old in ups {
@@ -273,5 +293,5 @@ func Decode(d toml.Doc, env Map[string, string]) Config fails Problem {
 		ups = ups.Append(u)
 		seen = seen.Append(t)
 	}
-	Config{Name: name, Listen: Listen{Host: host, Port: port}, Log: log, Upstreams: ups}
+	Config{Name: name, Listen: Listen{Host: host, Port: p}, Log: log, Upstreams: ups}
 }

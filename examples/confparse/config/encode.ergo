@@ -3,14 +3,14 @@ import confparse/toml
 // Encode is c as a document that Decode reads back as c when c is Valid.
 func Encode(c Config) toml.Doc {
 	let mut tables = []toml.Table{
-		table("listen", false, []toml.Entry{entry("host", toml.Str{S: c.Listen.Host}), entry("port", toml.Int{N: c.Listen.Port})}),
+		table("listen", false, []toml.Entry{entry("host", toml.Str{S: c.Listen.Host}), entry("port", toml.Int{N: int(c.Listen.Port)})}),
 		table("log", false, []toml.Entry{entry("level", toml.Str{S: LevelName(c.Log)})}),
 	}
 	for u in c.Upstreams {
 		tables = tables.Append(table("upstream", true, []toml.Entry{
 			entry("name", toml.Str{S: u.Name}),
 			entry("addr", toml.Str{S: u.Addr}),
-			entry("weight", toml.Int{N: u.Weight}),
+			entry("weight", toml.Int{N: int(u.Weight)}),
 			entry("backup", toml.Bool{B: u.Backup}),
 		}))
 	}
@@ -27,16 +27,11 @@ func table(name string, many bool, entries []toml.Entry) toml.Table {
 	toml.Table{Name: name, Many: many, At: nowhere(), Entries: entries}
 }
 
-// Valid reports whether Decode takes c: the port in 1..65535, each
-// weight in 1..100, and the upstreams' names distinct.
+// Valid reports whether Decode takes c: the upstreams' names are
+// distinct. The port and the weights need no check: their refined types
+// hold only values Decode takes.
 func Valid(c Config) bool {
-	if c.Listen.Port < 1 || c.Listen.Port > 65535 {
-		return false
-	}
 	for i, u in c.Upstreams {
-		if u.Weight < 1 || u.Weight > 100 {
-			return false
-		}
 		for j in 0..i {
 			if c.Upstreams[j].Name == u.Name {
 				return false
