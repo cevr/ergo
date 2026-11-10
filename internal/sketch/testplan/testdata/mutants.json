@@ -1,0 +1,14 @@
+{
+  "about": "Shared case-plan guards, run through the public evaluator and native emitter seams.",
+  "mutants": [
+    {
+      "name": "finite-cap-overflow",
+      "origin": "wf10/l7-eval/EV3",
+      "file": "internal/sketch/testplan/plan.go",
+      "from": "TypeCap = 256",
+      "to": "TypeCap = 257",
+      "rule": "A 257-value type is sampled, not listed or proved.",
+      "killers": ["internal/sketch/eval:TestCasePlansRun"]
+    }
+  ]
+}

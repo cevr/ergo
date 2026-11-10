@@ -680,7 +680,7 @@ func (in *interp) callExpr(fr *frame, x *syntax.CallExpr) (Value, *abrupt) {
 	case check.CallWith, check.CallProviderOp:
 		return nil, fr.unsupported(x, "a with or a capability, which check-time evaluation never runs")
 	case check.CallOp, check.CallLawOp:
-		return nil, fr.unsupported(x, "a call of an operation yet")
+		return in.operationCall(fr, x, c)
 	}
 	return nil, fr.unsupported(x, "this call (kind %d)", c.Kind)
 }
@@ -708,7 +708,7 @@ func (in *interp) args(fr *frame, x *syntax.CallExpr, c *check.Call) ([]Value, *
 // callLiteral runs a function literal called where it is written: its
 // body reads and writes the slots of the frame around it, in place.
 func (in *interp) callLiteral(fr *frame, at *syntax.CallExpr, lit *syntax.FuncLit, args []Value) (Value, *abrupt) {
-	callee := &frame{pkg: fr.pkg, info: fr.info, decl: fr.decl, vars: fr.vars, env: fr.env, owner: fr.owner}
+	callee := &frame{pkg: fr.pkg, info: fr.info, decl: fr.decl, vars: fr.vars, env: fr.env, owner: fr.owner, lawOwn: fr.lawOwn}
 	var params []*check.Var
 	for _, field := range lit.Type.Params.List {
 		if len(field.Names) == 0 {
@@ -823,9 +823,8 @@ func (in *interp) option(fr *frame, x *syntax.CallExpr, v Value, found bool) (Va
 // a defined type and the type it is defined over, or a record to another
 // record type over the same fields.
 func (in *interp) convert(fr *frame, x *syntax.CallExpr, v Value, from, to rtype) (Value, *abrupt) {
-	if check.RefinementOf(to.t) != nil {
-		return nil, fr.unsupported(x, "a conversion to the refined type %s, whose where runs at the conversion", to.t)
-	}
+	// Refined conversions are admitted only for checked constants or inside
+	// the derived parser, whose ordinary predicate runs before this cast.
 	if b := to.basic(); b != nil {
 		if from.basic() == nil {
 			return nil, fr.unsupported(x, "a conversion from %s yet", from.t)

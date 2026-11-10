@@ -92,7 +92,7 @@
     {
       "name": "absent-fact-pure",
       "origin": "wf10/l7-eval/EV1",
-      "file": "internal/sketch/eval/eval.go",
+      "file": "internal/sketch/eval/preflight.go",
       "from": "\tif !ok {\n\t\tice(\"no footprint",
       "to": "\tif !ok && false {\n\t\tice(\"no footprint",
       "rule": "An absent footprint is not an empty one (rows.md, Footprints 2): an internal error, never a pure frame.",
@@ -136,13 +136,49 @@
     {
       "name": "skip-as-pass",
       "origin": "wf10/l7-eval/EV1",
-      "file": "internal/sketch/eval/eval.go",
-      "from": "\t\tres.Status, res.Reason = Skipped, \"a law takes generated cases",
-      "to": "\t\tres.Status, res.Reason = Passed, \"a law takes generated cases",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\t\tres.Status, res.Reason = Skipped, why",
+      "to": "\t\tres.Status, res.Reason = Passed, why",
       "rule": "A skipped law is never a pass (runtime.md, Tests 7; L7 plan, section 5).",
       "killers": [
-        "internal/sketch/eval:TestRunStopsTheRun"
+        "internal/sketch/eval:TestCasePlansRun"
       ]
+    },
+    {
+      "name": "reseed-per-case",
+      "origin": "wf10/l7-eval/EV3",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\t\tr.Start(k + 1)",
+      "to": "\t\tr = testgen.New(in.budget.Seed, res.Name)\n\t\tr.Start(k + 1)",
+      "rule": "Cases advance one binding-local stream; starting a case does not reseed it.",
+      "killers": ["internal/sketch/eval:TestCasePlansRun"]
+    },
+    {
+      "name": "provider-case-reused",
+      "origin": "wf10/l7-eval/EV3",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\t\t\t\tv = mustValue(in.call(cf, nil, ctor, nil, vs))",
+      "to": "\t\t\t\tfixed := testgen.New(in.budget.Seed, res.Name)\n\t\t\t\tfor i, param := range ctor.Sig.Params { vs[i] = in.generate(cf, fixed, param.Type, testplan.Depth, nil) }\n\t\t\t\tv = mustValue(in.call(cf, nil, ctor, nil, vs))",
+      "rule": "A pure provider is rebuilt from this case's arguments, not the first case's provider value.",
+      "killers": ["internal/sketch/eval:TestCasePlansRun"]
+    },
+    {
+      "name": "imported-provider-wrong",
+      "origin": "wf10/l7-eval/EV3",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\tfn := op.conv.Table[c.Op.Name]",
+      "to": "\tfn := op.conv.Table[c.Op.Name]\n\tif ps := imports(in.root); len(ps) > 0 { for _, other := range ps[0].Funcs { if other.Name == fn.Name { fn = other; break } } }",
+      "rule": "The binding's checked conversion selects its method; short names from another package cannot replace it.",
+      "killers": ["internal/sketch/eval:TestCaseProviderIdentity"]
+    },
+    {
+      "name": "generator-fuel-ignored",
+      "origin": "wf10/l7-eval/EV3",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\tr.Charge = func(n int64) { mustCharge(in, fr, n) }",
+      "to": "\tr.Charge = func(n int64) {}",
+      "rule": "Every generator draw and sized string allocation consumes work before it happens.",
+      "killers": ["internal/sketch/eval:TestCaseBudgetStopsGeneration"]
     },
     {
       "name": "slice-write-shared",
@@ -211,8 +247,8 @@
       "name": "literal-frame-copies",
       "origin": "wf10/l7-eval/EV2",
       "file": "internal/sketch/eval/expr.go",
-      "from": "\tcallee := &frame{pkg: fr.pkg, info: fr.info, decl: fr.decl, vars: fr.vars, env: fr.env, owner: fr.owner}",
-      "to": "\tvars := map[*check.Var]*slot{}; for k, v := range fr.vars { vars[k] = &slot{v: v.v} }; callee := &frame{pkg: fr.pkg, info: fr.info, decl: fr.decl, vars: vars, env: fr.env, owner: fr.owner}",
+      "from": "\tcallee := &frame{pkg: fr.pkg, info: fr.info, decl: fr.decl, vars: fr.vars, env: fr.env, owner: fr.owner, lawOwn: fr.lawOwn}",
+      "to": "\tvars := map[*check.Var]*slot{}; for k, v := range fr.vars { vars[k] = &slot{v: v.v} }; callee := &frame{pkg: fr.pkg, info: fr.info, decl: fr.decl, vars: vars, env: fr.env, owner: fr.owner, lawOwn: fr.lawOwn}",
       "rule": "An immediately called literal writes its enclosing mutable locals (Function values 2).",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
     },

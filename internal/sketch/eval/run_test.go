@@ -23,10 +23,9 @@ func checked(t *testing.T, src string) *check.Package {
 // TestRunStopsTheRun is the smallest repro of the run's stop rules: a
 // defect stops the run and every later obligation is reported not run
 // (runtime.md, Tests 3); a loop that never ends exhausts the step budget
-// and is incomplete, never passed, and the rest is not run; a law that
-// needs generated cases is a visible skip, never a pass. Mutants:
+// and is incomplete, never passed, and the rest is not run. Mutants:
 // defect-continues, fuel-ignored (the loop never ends: the test's
-// deadline kills it), incomplete-continues, skip-as-pass.
+// deadline kills it), incomplete-continues.
 func TestRunStopsTheRun(t *testing.T) {
 	pkg := checked(t, `func half(x int) int { x / x }
 
@@ -78,11 +77,6 @@ law Sampled(n int) { n == n }
 		t.Fatalf("used %d steps of %d", rep.Steps, rep.Limit)
 	}
 
-	pkg = checked(t, "law Sampled(n int) { n == n }\n")
-	rep, err = Run(pkg, DefaultBudget())
-	if err != nil || len(rep.Results) != 1 || rep.Results[0].Status != Skipped || rep.Results[0].Reason == "" {
-		t.Fatalf("a sampled law: %+v %v", rep.Results, err)
-	}
 }
 
 // TestRunRefusesAnAbsentFootprint: a frame with no footprint is an

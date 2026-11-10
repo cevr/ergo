@@ -41,12 +41,13 @@ import (
 type Budget struct {
 	Steps int64
 	Depth int
+	Seed  uint64
 }
 
 // DefaultBudget is the editor budget the plan proposes (section 5): one
 // million steps and a call depth of 1024. It is a work bound, not a time
 // bound.
-func DefaultBudget() Budget { return Budget{Steps: 1_000_000, Depth: 1024} }
+func DefaultBudget() Budget { return Budget{Steps: 1_000_000, Depth: 1024, Seed: 1} }
 
 // Status is one obligation's verdict.
 type Status string
@@ -91,7 +92,16 @@ type Result struct {
 	Site Site
 	// Steps is the work this obligation used.
 	Steps int64
+	// Cases is the number executed, Case the first bad case (1 based).
+	// Evidence is evaluated, proved (a whole finite domain), or tested.
+	Cases, Case int
+	TotalCases  int
+	Evidence    string
+	Seed        uint64
+	Arguments   []Argument
 }
+
+type Argument struct{ Name, Value string }
 
 // Report is the evaluation of one checked package.
 type Report struct {
@@ -129,7 +139,7 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 	if pkg == nil || pkg.Info == nil {
 		return Report{}, errors.New("eval: no checked package")
 	}
-	in := &interp{budget: b, files: map[syntax.Decl]*syntax.File{}}
+	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}}
 	rep.Limit = b.Steps
 	defer func() {
 		if r := recover(); r != nil {
@@ -172,12 +182,14 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 		add(in.runTest(pkg, t))
 	}
 	for _, run := range pkg.LawRuns {
-		res := Result{Name: lawName(run.Law), Site: in.site(run.Law.Pkg, run.Law.Decl, run.Law.Decl.Pos())}
-		if stopped != "" || initFail != nil {
-			add(res)
-			continue
+		for _, target := range lawTargets(pkg, run) {
+			res := Result{Name: target.name, Site: in.site(run.Law.Pkg, run.Law.Decl, run.Law.Decl.Pos())}
+			if stopped != "" || initFail != nil {
+				add(res)
+				continue
+			}
+			add(in.runLawTarget(run.Law, target, res))
 		}
-		add(in.runLaw(pkg, run, res))
 	}
 	rep.Steps = in.steps
 	return rep, nil
@@ -207,41 +219,7 @@ func ice(format string, args ...any) {
 // parameters) takes generated cases, which EV3 brings.
 func (in *interp) runTest(pkg *check.Package, t *check.Test) Result {
 	res := Result{Name: t.Name, Site: in.site(pkg, t.Decl, t.Decl.Pos())}
-	if len(t.Params) > 0 {
-		res.Status, res.Reason = Skipped, "a property takes generated cases, which check-time evaluation does not draw yet"
-		return res
-	}
-	if why := in.impure(pkg, t.Decl); why != "" {
-		res.Status, res.Reason = Skipped, why
-		return res
-	}
-	return in.runBody(pkg, t.Decl, t.Decl.Body, false, res)
-}
-
-// runLaw runs a law run that needs no generated value: a top-level law
-// with no parameters, one case. Every other law waits for generated cases
-// (EV3) or the explorer (EV4), and is a visible skip.
-func (in *interp) runLaw(pkg *check.Package, run check.LawRun, res Result) Result {
-	l := run.Law
-	switch {
-	case l.Unrun != "":
-		res.Status, res.Reason = Skipped, l.Unrun
-	case l.Machine != nil:
-		res.Status, res.Reason = Skipped, "a machine law runs on the explorer, which check-time evaluation does not drive yet"
-	case len(run.Bindings) == 0:
-		res.Status, res.Reason = Skipped, "no binding of the law runs in this package"
-	case len(l.Params) > 0 || len(l.Slots) > 0 || l.Pkg != pkg:
-		res.Status, res.Reason = Skipped, "a law takes generated cases, which check-time evaluation does not draw yet"
-	case l.Decl.Body == nil:
-		ice("the law %s has no body", l.Name)
-	default:
-		if why := in.impure(l.Pkg, l.Decl); why != "" {
-			res.Status, res.Reason = Skipped, why
-			return res
-		}
-		return in.runBody(l.Pkg, l.Decl, l.Decl.Body, true, res)
-	}
-	return res
+	return in.testCases(pkg, t, res)
 }
 
 // impure is why the frame key's footprint forbids running it, "" when it
@@ -266,8 +244,13 @@ func (in *interp) impure(pkg *check.Package, key syntax.Node) string {
 // runBody runs one obligation's body as a frame and turns its outcome into
 // the result.
 func (in *interp) runBody(pkg *check.Package, decl syntax.Decl, body *syntax.BlockStmt, law bool, res Result) Result {
-	start := in.steps
 	fr := in.newFrame(pkg, decl)
+	return in.runBodyFrame(fr, body, law, res)
+}
+
+func (in *interp) runBodyFrame(fr *frame, body *syntax.BlockStmt, law bool, res Result) Result {
+	pkg, decl := fr.pkg, fr.decl
+	start := in.steps
 	var val Value
 	var ab *abrupt
 	if law {

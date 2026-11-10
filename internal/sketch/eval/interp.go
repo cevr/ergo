@@ -10,6 +10,7 @@ import (
 // interp is one evaluation request: its budget and the work it used.
 type interp struct {
 	budget Budget
+	root   *check.Package
 	steps  int64
 	depth  int
 	files  map[syntax.Decl]*syntax.File
@@ -34,7 +35,8 @@ type frame struct {
 	env *tenv
 	// owner is the fact owner of the body (test, law or production): an
 	// error type only a test's row names is a failure in a test body.
-	owner check.FactOwner
+	owner  check.FactOwner
+	lawOwn *operation
 }
 
 func (in *interp) newFrame(pkg *check.Package, decl syntax.Decl) *frame {
@@ -145,7 +147,7 @@ func (in *interp) call(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []c
 		if len(targs) != len(fn.Sig.TParams) {
 			ice("the generic call of %s has %d type arguments for %d parameters", fn.Name, len(targs), len(fn.Sig.TParams))
 		}
-		if inst := fr.info.Instances[at]; inst != nil && len(inst.Witnesses) > 0 {
+		if at != nil && fr.info.Instances[at] != nil && len(fr.info.Instances[at].Witnesses) > 0 {
 			return nil, fr.unsupported(at, "a generic call whose type parameter an operation type constrains (%s) yet", fn.Name)
 		}
 		// Each type argument is read in the caller's substitution.

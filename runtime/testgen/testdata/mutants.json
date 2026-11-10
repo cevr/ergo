@@ -1,0 +1,23 @@
+{
+  "about": "Case boundary laws of the compiler-independent stream.",
+  "mutants": [
+    {
+      "name": "case-reseeds-stream",
+      "origin": "wf10/l7-eval/EV3",
+      "file": "runtime/testgen/stream.go",
+      "from": "r.size = i / 4",
+      "to": "r.size = i / 4; r.s = 0",
+      "rule": "Case boundaries do not change the draw sequence.",
+      "killers": ["internal/sketch/eval:TestStreamCaseLaws"]
+    },
+    {
+      "name": "case-retains-world",
+      "origin": "wf10/l7-eval/EV3",
+      "file": "runtime/testgen/stream.go",
+      "from": "r.world = nil",
+      "to": "// case world retained",
+      "rule": "A builder's value is shared within one case, never across cases.",
+      "killers": ["internal/sketch/eval:TestStreamCaseLaws"]
+    }
+  ]
+}

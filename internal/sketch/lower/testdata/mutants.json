@@ -2,6 +2,15 @@
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
+      "name": "native-case-stream-wrong",
+      "origin": "wf10/l7-eval/EV3",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "return &$Rand{stream: $testgen.New(seed, name)}",
+      "to": "return &$Rand{stream: $testgen.New(seed+1, name)}",
+      "rule": "Native and interpreted adapters receive the identical seed and full binding label.",
+      "killers": ["lower:TestCasePlansAgreeWithGo"]
+    },
+    {
       "name": "eval-conversion-drift",
       "origin": "wf10/l7-eval/EV2",
       "file": "internal/sketch/eval/expr.go",
@@ -249,16 +258,14 @@
     {
       "name": "existing-19-v-stream-ignores-name",
       "origin": "lower-v1/verify-s4a/mutants-extra.json",
-      "file": "internal/sketch/lower/tests.go",
+      "file": "runtime/testgen/stream.go",
       "from": "\t\tr.s = r.s*31 + uint64(name[i])\n",
       "to": "\t\tr.s = r.s*1 + 0*uint64(name[i])\n",
       "rule": "$NewRand: $NewRand is the generator of the test name under seed: each property draws its own stream, so adding a test changes no other test's cases.",
       "killers": [
-        "lower:TestGeneratorsReachEveryClass"
-      ],
-      "anchor": {
-        "text": "Replace(harnessGo + harnessReachGo)"
-      }
+        "lower:TestGeneratorsReachEveryClass",
+        "internal/sketch/eval:TestStreamCaseLaws"
+      ]
     },
     {
       "name": "existing-20-v-map-unsorted2",
@@ -1528,8 +1535,8 @@
     {
       "name": "b14-generic-listed-own-types",
       "origin": "wf10/batch-14 integration (L4 x MU6b)",
-      "file": "internal/sketch/lower/lawcases.go",
-      "from": "\t\tif generic {\n\t\t\tt = bd[0].Params[i]\n\t\t}",
+      "file": "internal/sketch/testplan/plan.go",
+      "from": "\t\tif GenericOwner(l) != nil {\n\t\t\tt = bd[0].Params[i]\n\t\t}",
       "to": "\t\tif false {\n\t\t\tt = bd[0].Params[i]\n\t\t}",
       "rule": "types.md Laws 10: a law of a generic operation type runs at the provider's instance by the one rule; values that can be listed are listed and the run is proved.",
       "killers": [
