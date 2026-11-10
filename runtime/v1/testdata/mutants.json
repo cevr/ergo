@@ -208,6 +208,24 @@
       "to": "if x.Name == \"GraphOfX\" {",
       "rule": "binsize BS7: GraphOf is a hidden parameter that the lowering supplies.",
       "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7b-variant-self",
+      "origin": "wf10 binsize BS7b",
+      "file": "runtime/v1/actor_trace.go",
+      "from": "if n, ok := v.(interface{ ErgoVariant() string }); ok {",
+      "to": "if n, ok := v.(interface{ ErgoVariant() string }); ok && false {",
+      "rule": "binsize BS7b: a value that names its own variant (a flat union) is traced by that name.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7b-arm-once",
+      "origin": "wf10 binsize BS7b",
+      "file": "runtime/v1/actor_trace.go",
+      "from": "if a.Site != last {",
+      "to": "if a.Site != last || true {",
+      "rule": "binsize BS7b: the patterns of one case are one arm, so a decision names its site once.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
     }
   ]
 }

@@ -1812,6 +1812,24 @@
       "to": "stateOf, signalOf := names(append(append([]machinegraph.Variant{}, g.States...), g.Signals...)), names(g.Signals)",
       "rule": "binsize BS7: a state and a signal variant of one Ergo name keep their own Go names in the graph.",
       "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7b-flat-name",
+      "origin": "wf10 binsize BS7b",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\") ErgoVariant() string { return [...]string{\"",
+      "to": "\") ergoVariant() string { return [...]string{\"",
+      "rule": "binsize BS7b: a traced flat signal union is named by its variant, not by its union.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7b-alts-lowered",
+      "origin": "wf10 binsize BS7b",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "alts := a.Alts",
+      "to": "alts := []machinegraph.Alt(nil)",
+      "rule": "binsize BS7b: a case of several tuple patterns is one runtime arm per pattern, not the product of their variants.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
     }
   ]
 }
