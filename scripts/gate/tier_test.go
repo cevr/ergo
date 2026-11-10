@@ -274,8 +274,9 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	check, cpu := reach("internal/sketch/check/check.go")
 	// scripts/examples builds on the checker since d3-lawcheck-model
 	// (batch 9): its examples runner imports the checker. internal/gobind
-	// (IG1-IG3) and internal/sketch/machinegraph (batch 13) import it too.
-	want := []string{"cmd/ergo", "internal/bindc", "internal/gobind", "internal/migrate196", "internal/residue", "internal/sketch/check", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "scripts/examples"}
+	// (IG1-IG3), internal/sketch/machinegraph (batch 13) and the check-time
+	// evaluator internal/sketch/eval (L7 EV1) import it too.
+	want := []string{"cmd/ergo", "internal/bindc", "internal/gobind", "internal/migrate196", "internal/residue", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "scripts/examples"}
 	if !slices.Equal(check, want) {
 		t.Errorf("a checker edit reaches %v; want %v", check, want)
 	}
