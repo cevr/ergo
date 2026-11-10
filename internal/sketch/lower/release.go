@@ -458,6 +458,19 @@ func (g *glueGen) parts(d *check.Drop, x, taken string) string {
 			ice(g.site, "a generated release of %s, which has elements but is no slice or Map", d.Type)
 		}
 	}
+	if d.Drain != nil {
+		// A std queue of resources (Q7, R13): Drain ends admission and
+		// gives the values left, oldest first; they are released last
+		// entered first.
+		xs, i, e := g.fc.temp("left"), g.fc.temp("i"), g.fc.temp("e")
+		n, _ := d.Type.(*check.Named)
+		if n == nil {
+			ice(g.site, "a drain of %s, which is no named operation type", d.Type)
+		}
+		name := n.Obj.Name + ".Drain"
+		drain := g.fc.runtimeCall(name, g.fc.ownBinding(name, g.site), "", x, nil, "", nil, nil, g.site)
+		b.WriteString(xs + " := " + drain + "; for " + i + " := len(" + xs + ") - 1; " + i + " >= 0; " + i + "-- { " + e + " := " + xs + "[" + i + "]; " + g.release(d.Drain, e) + "}; ")
+	}
 	if len(d.Variants) > 0 {
 		if fu := g.fc.l.flatUnionOf(d.Type); fu != nil {
 			flatBail(g.site, fu)
@@ -575,11 +588,77 @@ func (fc *funcCtx) ownTemp(x syntax.Expr, o operand) operand {
 	return o
 }
 
+// holdTaken finds the owned locals that x, a call of a bodiless std
+// operation that takes them (queue Push, D-C), hands off: their entries
+// stay on the frame until the call returns (handoff skips them), so a
+// Push that fails releases its value and a stopped one leaves it to the
+// frame's End (Q7, plan 1.4). It returns their Go entries.
+func (fc *funcCtx) holdTaken(x *syntax.CallExpr, c *check.Call) []string {
+	if c.Kind != check.CallOp || c.Op == nil || c.Op.Sig == nil || len(c.Op.Sig.Takes) == 0 || !fc.stdOp(c) {
+		return nil
+	}
+	var held []string
+	for _, i := range c.Op.Sig.Takes {
+		if i >= len(x.Args) {
+			continue
+		}
+		id, ok := unparen(x.Args[i]).(*syntax.Ident)
+		if !ok || fc.l.info.Handoffs[id] == nil {
+			continue
+		}
+		h := fc.l.owned[fc.l.info.Handoffs[id]]
+		if h == "" {
+			continue
+		}
+		if fc.held == nil {
+			fc.held = map[*syntax.Ident]bool{}
+		}
+		fc.held[id] = true
+		held = append(held, h)
+	}
+	return held
+}
+
+// stdOp reports a call of a std operation type's operation, whose body is
+// runtime/v1's.
+func (fc *funcCtx) stdOp(c *check.Call) bool {
+	if c.Recv == nil {
+		return false
+	}
+	n, ok := fc.typeOf(c.Recv).(*check.Named)
+	return ok && n.Obj != nil && n.Obj.Pkg.Std()
+}
+
+// settleTaken writes the call text and settles the held entries: on
+// success the values left with the call (v1.Hand), on a failure each is
+// released now, in the call's own step (D-C).
+func (fc *funcCtx) settleTaken(held []string, text string, failsHere bool, site syntax.Node) operand {
+	e := fc.temp("err")
+	fc.line(e + " := " + text)
+	fc.line("if " + e + " == nil {")
+	for _, h := range held {
+		fc.line("\t" + fc.runtimeCall("Hand", fc.ownBinding("Hand", site), "[struct{}]", "", []string{h, "struct{}{}"}, "", nil, nil, site))
+	}
+	fc.line("} else {")
+	for _, h := range held {
+		fc.line("\t" + fc.runtimeCall("Owned.Release", fc.ownBinding("Owned.Release", site), "", h, nil, "", nil, nil, site))
+	}
+	fc.line("}")
+	if !failsHere {
+		fc.line("_ = " + e)
+		return operand{}
+	}
+	return operand{err: e}
+}
+
 // handoff is the Go value of id, a use of an owned value: as it is, or, at
 // a hand-off, with its entry removed (v1.Hand), or kept until the frame's
 // exit is known when the frame returns it (v1.Returned).
 func (fc *funcCtx) handoff(id *syntax.Ident, val string, returned bool) string {
 	v := fc.l.info.Handoffs[id]
+	if fc.held[id] {
+		return val // settled after the call (holdTaken)
+	}
 	if v == nil {
 		return val
 	}

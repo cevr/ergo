@@ -1666,6 +1666,28 @@
       "killers": [
         "lower:TestDropGlueModel"
       ]
+    },
+    {
+      "name": "L8-B3 a queue's values released first entered first",
+      "origin": "wf10 L8 B3 (#197)",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\"; for \" + i + \" := len(\" + xs + \") - 1; \" + i + \" >= 0; \" + i + \"-- { \"",
+      "to": "\"; for \" + i + \" := 0; \" + i + \" < len(\" + xs + \"); \" + i + \"++ { \"",
+      "rule": "plan 1.4, R13: a queue's release releases the values left, last entered first.",
+      "killers": [
+        "lower:TestDropGlueModel"
+      ]
+    },
+    {
+      "name": "L8-B3 a failed Push keeps its value",
+      "origin": "wf10 L8 B3 (#197)",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\t\tfc.line(\"\\t\" + fc.runtimeCall(\"Owned.Release\", fc.ownBinding(\"Owned.Release\", site), \"\", h, nil, \"\", nil, nil, site))",
+      "to": "\t\tfc.line(\"\\t_ = \" + h)",
+      "rule": "plan 1.4, D-C: a Push that fails releases its value at once.",
+      "killers": [
+        "lower:TestDropGlueModel"
+      ]
     }
   ]
 }

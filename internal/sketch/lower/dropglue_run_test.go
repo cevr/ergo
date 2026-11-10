@@ -366,6 +366,9 @@ func genDropGlue(seed int) *dgCase {
 		// A tuple (a local, not a record field: a field type is no tuple).
 		top = &dgType{kind: dgTuple, fields: []*dgType{top, {kind: dgRes}}}
 	}
+	if r.IntN(4) == 0 {
+		return g.queueCase(top)
+	}
 	lit, rel := g.value(top, false, 0)
 	var body strings.Builder
 	fmt.Fprintf(&body, "\tlet v %s = %s\n", top.text(), lit)
@@ -414,5 +417,55 @@ func (g *dgGen) reached(want []string) []int {
 }
 
 func dgSource(g *dgGen, body string) string {
-	return dgPrelude + g.decls.String() + "func main() needs Console {\n" + body + "\tConsole.Println(\"end\")\n}\n"
+	imports := ""
+	if strings.Contains(body, "queue.") {
+		imports = "import queue\n\n"
+	}
+	return imports + dgPrelude + g.decls.String() + "func main() needs Console {\n" + body + "\tConsole.Println(\"end\")\n}\n"
+}
+
+// queueCase is a program that owns a queue of values of type t (#197 L8
+// B3; Q7, R13): each value is pushed (Push takes it); some seeds end the
+// queue and push once more, and that failed Push releases its value at
+// once; the queue's release ends admission and releases the values left,
+// last entered first.
+func (g *dgGen) queueCase(t *dgType) *dgCase {
+	n := g.r.IntN(4)
+	var body strings.Builder
+	fmt.Fprintf(&body, "\tlet q = queue.New[%s](%d)\n", t.text(), n+1)
+	var left [][]int
+	for k := 0; k < n; k++ {
+		lit, rel := g.value(t, false, 1)
+		fmt.Fprintf(&body, "\tlet e%d %s = %s\n\tq.Push(e%d) catch {\n\tcase queue.Closed:\n\t\tConsole.Println(\"closed\")\n\t}\n", k, t.text(), lit, k)
+		left = append(left, rel)
+	}
+	var want []string
+	closes := func(rel []int) {
+		for _, id := range rel {
+			want = append(want, fmt.Sprintf("close %d", id))
+		}
+	}
+	if g.r.IntN(2) == 0 {
+		lit, rel := g.value(t, false, 1)
+		fmt.Fprintf(&body, "\tq.End()\n\tlet late %s = %s\n\tq.Push(late) catch {\n\tcase queue.Closed:\n\t\tConsole.Println(\"closed\")\n\t}\n", t.text(), lit)
+		closes(rel)
+		if len(g.reached(want)) > 0 {
+			// The failed Push's release had a defect: it ends main, and
+			// the queue's release still runs.
+			for k := len(left) - 1; k >= 0; k-- {
+				closes(left[k])
+			}
+			want = append(want, "defect")
+			return &dgCase{src: dgSource(g, body.String()), want: want, unordered: g.unordered, defects: g.reached(want)}
+		}
+		want = append(want, "closed")
+	}
+	want = append(want, "end")
+	for k := len(left) - 1; k >= 0; k-- {
+		closes(left[k])
+	}
+	if len(g.reached(want)) > 0 {
+		want = append(want, "defect")
+	}
+	return &dgCase{src: dgSource(g, body.String()), want: want, unordered: g.unordered, defects: g.reached(want)}
 }

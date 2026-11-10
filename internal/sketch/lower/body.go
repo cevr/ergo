@@ -108,10 +108,13 @@ type loopCtx struct {
 // funcCtx writes one Go function body.
 type funcCtx struct {
 	typeCtx
-	scope      *namer
-	out        *strings.Builder
-	depth      int
-	locals     map[*check.Var]string
+	scope  *namer
+	out    *strings.Builder
+	depth  int
+	locals map[*check.Var]string
+	// held are the owned locals a bodiless taking call hands off only once
+	// it returns (release.go, holdTaken).
+	held       map[*syntax.Ident]bool
 	frame      *frame
 	acquiring  *acquireFlow     // a native acquisition callback, in this same source frame
 	stmtCall   *syntax.CallExpr // the call callStmt lowers, whose value is dropped (update.go)

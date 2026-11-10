@@ -82,7 +82,10 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Queue.End":    {},
 	"Queue.Poll":   {},
 	"Queue.Len":    {},
-	"Go":           {},
+	// The release of a queue of resources (release.go, B3; Q7): ends
+	// admission and gives the values left; never waits.
+	"Queue.Drain": {},
+	"Go":          {},
 	// timeout.After joins its body and deadline children, whichever ends
 	// first, as their parent (runtime.md, Timeouts).
 	"After":        {wait: childWait},

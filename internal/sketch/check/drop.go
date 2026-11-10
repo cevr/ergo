@@ -1,5 +1,7 @@
 package check
 
+import v1 "ergo.local/prototype/runtime/v1"
+
 // Generated release (#197 L8 B2; resources R3, R23, R37, R39, Gap 36): the
 // release of a value whose type holds a resource in its parts. The checker
 // derives it from the one property of resource.go (holdsResource), so the
@@ -34,6 +36,10 @@ type Drop struct {
 	// Variants are the union's variants that hold a resource; the active
 	// one is released.
 	Variants []*Drop
+	// Drain is the release of each value a std queue holds (Q7, R13): its
+	// runtime body's Drain ends admission and gives the values left,
+	// released last entered first; nil for none.
+	Drain *Drop
 }
 
 // DropField is one part of a record or tuple: its index into the
@@ -55,7 +61,7 @@ type FieldTake struct {
 // Glue reports whether d is more than its type's own Close: the lowering
 // then writes the generated release, else it calls the Close.
 func (d *Drop) Glue() bool {
-	return d != nil && (d.Close == nil || len(d.Fields) > 0 || d.Elem != nil || len(d.Variants) > 0)
+	return d != nil && (d.Close == nil || len(d.Fields) > 0 || d.Elem != nil || len(d.Variants) > 0 || d.Drain != nil)
 }
 
 // dropOf is the generated release of t, a type that holds a resource, or
@@ -74,6 +80,44 @@ type dropWalk struct {
 	c    *checker
 	seen map[int32]*Drop
 	bad  string
+}
+
+// drain is the release of the values an operation type t holds through a
+// taking operation (Q7, R13): only a std operation type whose runtime body
+// declares Drain (a reviewed body, as v1.MovesOnly: `queue.Queue[T]`'s
+// Drain ends admission and gives the values left); nil for any other.
+func (w *dropWalk) drain(t Type, it *Interface) *Drop {
+	n, ok := t.(*Named)
+	if !ok || n.origin().Obj == nil || !n.origin().Obj.Pkg.Std() {
+		return nil
+	}
+	if _, err := v1.BodyOf(n.origin().Obj.Name + ".Drain"); err != nil {
+		return nil
+	}
+	sub := map[*TypeParam]Type{}
+	for i, tp := range n.origin().TParams {
+		if i < len(n.TArgs) {
+			sub[tp] = n.TArgs[i]
+		}
+	}
+	for _, m := range it.Methods {
+		if m.Sig == nil {
+			continue
+		}
+		for _, i := range m.Sig.Takes {
+			if i < 0 || i >= len(m.Sig.Params) {
+				continue
+			}
+			pt := m.Sig.Params[i].Type
+			if len(sub) > 0 {
+				pt = w.c.subst(pt, sub)
+			}
+			if p := w.visit(pt); p != nil {
+				return p
+			}
+		}
+	}
+	return nil
 }
 
 // visit returns t's release, nil when t crosses.
@@ -122,10 +166,13 @@ func (w *dropWalk) visit(t Type) *Drop {
 			d.Close = w.c.closeOperation(t, nil, "Close")
 		}
 		if d.Close == nil {
+			d.Drain = w.drain(t, u)
+		}
+		if d.Close == nil && d.Drain == nil {
 			w.bad = t.String()
 		}
 	}
-	if d.Close == nil && len(d.Fields) == 0 && d.Elem == nil && len(d.Variants) == 0 && w.bad == "" {
+	if d.Close == nil && len(d.Fields) == 0 && d.Elem == nil && len(d.Variants) == 0 && d.Drain == nil && w.bad == "" {
 		// Holds a resource the walk cannot reach: a phantom type argument
 		// or a part no rule above releases.
 		w.bad = t.String()
