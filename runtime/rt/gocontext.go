@@ -29,17 +29,13 @@ type taskContext struct{ t *Task }
 func (taskContext) Deadline() (time.Time, bool) { return time.Time{}, false }
 
 // Done is the task's stop channel, made on first use (Interrupt closes it).
+// A Go goroutine may make it while the task runs; makeStop publishes it
+// through the made flag, which the task's own Done reads first.
 func (c taskContext) Done() <-chan struct{} {
 	t := c.t
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.stop == nil {
-		t.stop = make(chan struct{})
-		if t.stopped.Load() {
-			close(t.stop)
-		}
-	}
-	return t.stop
+	return t.makeStop()
 }
 
 // Err is context.Canceled once a stop is requested. Interrupt sets the

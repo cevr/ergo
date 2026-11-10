@@ -15,8 +15,9 @@ var nextID atomic.Uint64
 // that masks it, reads its context values or starts children from it; any
 // goroutine may interrupt it.
 type Task struct {
-	// stopped is the stop flag, set by Interrupt from any goroutine.
-	stopped atomic.Bool
+	// stopped is the stop flag, set by Interrupt from any goroutine, and in
+	// the same word the flag that publishes stop (stopFlags).
+	stopped stopFlags
 	// shielded is fixed before t is linked: t was started while its owner was
 	// inside a masked region, so the owner's ambient stop does not cascade
 	// into it. The cascade reads only this field, never the owner's mask. It
@@ -40,9 +41,13 @@ type Task struct {
 	// makes an auto clock, which sets its own.
 	member atomic.Pointer[member]
 
-	mu    sync.Mutex
-	stop  chan struct{} // made by Done on first use, closed by Interrupt
-	first *Task         // first child, guarded by mu
+	mu sync.Mutex
+	// stop is made on first use under mu, by the task's Done or by its Go
+	// context's Done from any goroutine (gocontext.go), and is never
+	// replaced; Interrupt closes it under mu. A read under mu sees it; a
+	// read without mu must first see stopped.made (makeStop).
+	stop  chan struct{}
+	first *Task // first child, guarded by mu
 
 	prev, next *Task // siblings, guarded by parent.mu
 }
@@ -82,7 +87,7 @@ func (t *Task) init(parent *Task, span string, masked, shield bool) {
 		if t.trace != nil {
 			t.traceTask(TraceCancelRequest, nil) // born stopped: the request precedes its start
 		}
-		t.stopped.Store(true)
+		t.stopped.set()
 	}
 	t.next = parent.first
 	if t.next != nil {
@@ -157,7 +162,7 @@ func (t *Task) Interrupt() {
 		// A wait that ends on the stop is unparked in the step that makes
 		// the stop visible (idle.go).
 		m := t.waking(stopSource{})
-		t.stopped.Store(true)
+		t.stopped.set()
 		if t.stop != nil {
 			close(t.stop)
 		}
@@ -247,23 +252,53 @@ func (t *Task) Done() <-chan struct{} {
 	if t.regions.top != interruptible {
 		return nil
 	}
-	// Only this goroutine writes t.stop (below), so it reads it without
-	// the lock once it is made; Interrupt only reads it, under the lock
-	// (MU18: an actor's runner and askers wait on it at every park).
-	if ch := t.stop; ch != nil {
-		return ch
+	// Once stop is made, a wait reads it with one atomic load and no lock
+	// (MU18: an actor's runner and askers wait on it at every park). A Go
+	// goroutine may make it (taskContext.Done), so the load of the made
+	// flag, not this goroutine's own write, orders the read.
+	if t.stopped.made() {
+		return t.stop
 	}
 	t.mu.Lock()
+	ch := t.makeStop()
+	t.mu.Unlock()
+	return ch
+}
+
+// makeStop returns t's stop channel, made now if no Done made it: closed
+// when a stop was requested already. It sets the made flag after the
+// write, so a read that sees the flag sees the channel. Hold t.mu.
+func (t *Task) makeStop() chan struct{} {
 	if t.stop == nil {
 		t.stop = make(chan struct{})
 		if t.stopped.Load() {
 			close(t.stop)
 		}
+		t.stopped.setMade()
 	}
-	ch := t.stop
-	t.mu.Unlock()
-	return ch
+	return t.stop
 }
+
+// stopFlags is one word of two flags: stopped (Load, set) and made, which
+// publishes Task.stop to a read without the lock. It is the size of the
+// atomic.Bool it replaced, so a Task keeps its size class
+// (TestTraceHookKeepsTaskSize).
+type stopFlags struct{ v atomic.Uint32 }
+
+const (
+	flagStopped uint32 = 1 << iota
+	flagMade
+)
+
+// Load reports whether a stop was requested.
+func (f *stopFlags) Load() bool { return f.v.Load()&flagStopped != 0 }
+
+// set requests the stop; a stop is never withdrawn.
+func (f *stopFlags) set() { f.v.Or(flagStopped) }
+
+func (f *stopFlags) made() bool { return f.v.Load()&flagMade != 0 }
+
+func (f *stopFlags) setMade() { f.v.Or(flagMade) }
 
 // waitHooks holds the hooks of WhenWaiting, keyed by task, and how many
 // there are. A hook lives from WhenWaiting to the task's first wait, so the
