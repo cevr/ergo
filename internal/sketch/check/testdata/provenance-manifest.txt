@@ -57,3 +57,9 @@ site (*checker).variantParams Field variantConstrainedFixture
 site (*checker).variantParams FieldList variantEarlyFixture
 site (*checker).varDecl VarSpec patternFixture
 site (*checker).assignStmt BinaryExpr compoundFixture
+# arrayType (arrays.go, L1 196y) makes the BasicLit of an array's length,
+# a node the parser keeps only as text and a position (ArrayType.Len,
+# LenPos), so the diagnostic "the array length ... is larger than" lies
+# on the length itself. Its origin is the ArrayType, so it lies in that file.
+# Every [N]T reaches it; TestArrayDiagnostics reports at it.
+site (*checker).arrayType BasicLit arrayFixture
