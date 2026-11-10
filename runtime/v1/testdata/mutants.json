@@ -134,7 +134,17 @@
       "from": "n := time.Unix(0, int64(l.v.Now()))",
       "to": "n := time.Unix(0, int64(l.v.Now())/1000)",
       "rule": "stdlib.md Types 4 (binsize BS3): a manual or virtual clock's rt.Instant is nanoseconds since the Unix epoch; time.Manual reads it as that time.",
-      "killers": []
+      "killers": [
+        "runtime/v1:TestManualAdvanceOneAtATime",
+        "runtime/v1:TestTestingLaws",
+        "runtime/v1:TestTransformModel",
+        "runtime/v1:TestTimeLaws",
+        "runtime/v1:TestRaceModel",
+        "runtime/v1:TestVirtualClockModel",
+        "runtime/v1:TestSetModel",
+        "runtime/v1:TestTasksLaws",
+        "runtime/v1:TestManualClockModel"
+      ]
     }
   ]
 }

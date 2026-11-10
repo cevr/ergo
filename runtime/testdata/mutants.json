@@ -106,7 +106,12 @@
       "rule": "The type-graph walk follows method signatures, as the Go linker does for a type used in an interface.",
       "killers": [
         "runtime:TestWalkTypesFollowsEveryEdge"
-      ]
+      ],
+      "anchor": {
+        "tests": [
+          "runtime:TestWalkTypesFollowsEveryEdge"
+        ]
+      }
     }
   ]
 }
