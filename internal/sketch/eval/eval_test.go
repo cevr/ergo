@@ -250,7 +250,11 @@ func (g *gen) boolExpr(d int) *node {
 			return &node{op: "!", kids: []*node{g.boolExpr(d - 1)}}
 		}
 	}
-	return &node{op: cmpOps[g.r.IntN(len(cmpOps))], kids: []*node{g.intExpr(max(d-1, 0)), g.intExpr(max(d-1, 0))}}
+	// A comparison takes operands of depth 1 at least, so that one under
+	// && or || can defect or fail: only short-circuit evaluation keeps it
+	// from running.
+	k := max(d-1, 1)
+	return &node{op: cmpOps[g.r.IntN(len(cmpOps))], kids: []*node{g.intExpr(k), g.intExpr(k)}}
 }
 
 // src writes n as Ergo source.
