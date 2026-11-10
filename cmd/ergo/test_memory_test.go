@@ -15,7 +15,10 @@ import (
 // TestTestProgramCollectsWithinItsLimit builds Go because only the emitted
 // program's Go collector under RLIMIT_DATA can reproduce the inherited-GC
 // failure (batch-15 r7). The fixture has bounded work and at most two live
-// 64MiB strings; it is not an unbounded allocation or a timing check.
+// 128MiB strings; it is not an unbounded allocation or a timing check.
+// A 512MiB cap leaves mapping headroom for Go's heap index and GC queues;
+// the old 256MiB cap could exhaust a Green Tea queue's unchecked mmap (r9).
+// Scaling the chunks too keeps inherited GOGC=400 red, with similar total work.
 // Mutants: inherit both GC settings, drop either child setting. Existing
 // test-command checks allocate no substantial transient heap.
 func TestTestProgramCollectsWithinItsLimit(t *testing.T) {
@@ -25,19 +28,19 @@ func TestTestProgramCollectsWithinItsLimit(t *testing.T) {
 	source := smokeWrite(t, root, "memory.ergo", `import go strings
 
 test Collects {
-	let mut previous = strings.Repeat("x", 64 * 1024 * 1024)
-	for _ in 0..12 {
-		let next = strings.Repeat("y", 64 * 1024 * 1024)
-		assert len(previous) == 64 * 1024 * 1024
+	let mut previous = strings.Repeat("x", 128 * 1024 * 1024)
+	for _ in 0..6 {
+		let next = strings.Repeat("y", 128 * 1024 * 1024)
+		assert len(previous) == 128 * 1024 * 1024
 		previous = next
 	}
-	assert len(previous) == 64 * 1024 * 1024
+	assert len(previous) == 128 * 1024 * 1024
 }
 
 `)
 	command := exec.Command(binary, "test", source)
 	command.Dir = root
-	command.Env = append(os.Environ(), "ERGO_PROGRAM_MEMORY=256MiB", "GOGC=400", "GOMEMLIMIT=6GiB", "XDG_CACHE_HOME="+t.TempDir())
+	command.Env = append(os.Environ(), "ERGO_PROGRAM_MEMORY=512MiB", "GOGC=400", "GOMEMLIMIT=6GiB", "XDG_CACHE_HOME="+t.TempDir())
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	t.Cleanup(func() {
 		if command.Process != nil && command.Process.Pid > 1 {
@@ -46,7 +49,22 @@ test Collects {
 	})
 	stdout, stderr, code := runSmokeCommand(t, command)
 	if code != 0 || !strings.Contains(string(stdout), "PASS (1 tests)") {
-		t.Fatalf("bounded transient allocations: exit %d\n%s%s", code, stdout, stderr)
+		lines := strings.Split(string(stderr), "\n")
+		for _, line := range lines {
+			if strings.HasPrefix(line, "SIG") || strings.HasPrefix(line, "PC=") {
+				t.Logf("child signal: %s", line)
+			}
+		}
+		// The sweep retains file:line messages and the output's tail. Give
+		// the head file:line messages, so the faulting stack survives even
+		// when idle goroutines fill the tail. Pair source lines to fit the
+		// sweep's forty-message budget alongside the signal and exit code.
+		head := lines[:min(40, len(lines))]
+		for i := 0; i < len(head); i += 2 {
+			end := min(i+2, len(head))
+			t.Logf("child stderr %02d-%02d: %s", i+1, end, strings.Join(head[i:end], " | "))
+		}
+		t.Fatalf("bounded transient allocations: exit %d\nstdout: %s", code, stdout)
 	}
 }
 
