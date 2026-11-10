@@ -70,7 +70,7 @@ func main() {
 			}
 			return struct{}{}, c.Err()
 		}
-		return rt.Scoped(t0, func(s *rt.Scope) (struct{}, error) {
+		return rt.Scoped(t0, nil, func(s *rt.Scope) (struct{}, error) {
 			var hs [2]*rt.Handle[struct{}]
 			for i := range hs {
 				hs[i] = rt.Go(s, mainDef, func(ct *rt.Task) (struct{}, error) {

@@ -16,7 +16,7 @@ func TestExitKeepsEveryCause(t *testing.T) {
 	s := NewScope(root)
 	ready, proceed := make(chan struct{}), make(chan struct{})
 	h := Go(&s, "worker", func(task *Task) (int, error) {
-		return Scoped(task, func(s *Scope) (int, error) {
+		return Scoped(task, nil, func(s *Scope) (int, error) {
 			s.Defer(func() { panic("close a") })
 			s.Defer(func() { panic("close b") })
 			close(ready)
@@ -64,7 +64,7 @@ func TestExitKeepsEveryCause(t *testing.T) {
 
 func TestReleaseDefectDoesNotSkipLaterReleases(t *testing.T) {
 	var closed []string
-	_, err := Scoped(Root("main"), func(s *Scope) (int, error) {
+	_, err := Scoped(Root("main"), nil, func(s *Scope) (int, error) {
 		_, _ = Acquire(s, func() (string, error) { return "a", nil }, func(r string) { closed = append(closed, r) })
 		_, _ = Acquire(s, func() (string, error) { return "b", nil }, func(string) { panic("close b") })
 		_, _ = Acquire(s, func() (string, error) { return "c", nil }, func(r string) { closed = append(closed, r) })
@@ -108,7 +108,7 @@ func TestScopeReleasesReverseOnEveryExit(t *testing.T) {
 			var released []string
 			acquired := make(chan struct{})
 			h := Go(&s, tc.name, func(task *Task) (int, error) {
-				return Scoped(task, func(s *Scope) (int, error) {
+				return Scoped(task, nil, func(s *Scope) (int, error) {
 					for _, name := range []string{"a", "b", "c"} {
 						_, _ = Acquire(s, func() (string, error) { return name, nil }, func(r string) {
 							mu.Lock()
@@ -145,7 +145,7 @@ func TestAcquireHasNoInterruptionWindow(t *testing.T) {
 		var opens, closes int
 		var maskedInOpen, stoppedAfter bool
 		h := Go(&s, "acquirer", func(task *Task) (int, error) {
-			return Scoped(task, func(s *Scope) (int, error) {
+			return Scoped(task, nil, func(s *Scope) (int, error) {
 				_, _ = Acquire(s, func() (int, error) {
 					root.Interrupt() // the stop lands inside the acquisition
 					maskedInOpen = !task.Stopped() && task.StopRequested()
@@ -177,7 +177,7 @@ func TestAcquireHasNoInterruptionWindow(t *testing.T) {
 			var opens, closes atomic.Int64
 			running := make(chan struct{})
 			h := Go(&s, "acquirer", func(task *Task) (int, error) {
-				return Scoped(task, func(s *Scope) (int, error) {
+				return Scoped(task, nil, func(s *Scope) (int, error) {
 					for i := 0; ; i++ {
 						if i == 8 {
 							close(running)
@@ -210,7 +210,7 @@ func TestTaskDrainsBeforeLentResourceCloses(t *testing.T) {
 			var log []string
 			record := func(s string) { mu.Lock(); log = append(log, s); mu.Unlock() }
 			var closed atomic.Bool
-			_, err := Scoped(Root("main"), func(s *Scope) (int, error) {
+			_, err := Scoped(Root("main"), nil, func(s *Scope) (int, error) {
 				_, _ = Acquire(s, func() (*atomic.Bool, error) { return &closed, nil },
 					func(r *atomic.Bool) { r.Store(true); record("resource closed") })
 				lending := make(chan struct{})
@@ -247,7 +247,7 @@ func TestTaskDrainsBeforeLentResourceCloses(t *testing.T) {
 }
 
 func TestScopeKeepsDefectOfDrainedTask(t *testing.T) {
-	_, err := Scoped(Root("main"), func(s *Scope) (int, error) {
+	_, err := Scoped(Root("main"), nil, func(s *Scope) (int, error) {
 		started := make(chan struct{})
 		Go(s, "crasher", func(task *Task) (int, error) {
 			close(started)

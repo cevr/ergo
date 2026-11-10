@@ -15,7 +15,7 @@ func TestChildDefectCarriesChain(t *testing.T) {
 	var handleID, workerID uint64
 	h := Go(&s, "handle", func(task *Task) (int, error) {
 		handleID = task.ID()
-		return Scoped(task, func(s *Scope) (int, error) {
+		return Scoped(task, nil, func(s *Scope) (int, error) {
 			w := Go(s, "worker", func(task *Task) (int, error) {
 				workerID = task.ID()
 				var xs []int
@@ -65,7 +65,7 @@ func TestWaitIsAnInterruptionPoint(t *testing.T) {
 	s := NewScope(root)
 	var drained bool
 	waiter := Go(&s, "waiter", func(task *Task) (int, error) {
-		return Scoped(task, func(s *Scope) (int, error) {
+		return Scoped(task, nil, func(s *Scope) (int, error) {
 			child := Go(s, "child", func(task *Task) (int, error) {
 				<-task.Done()
 				drained = true

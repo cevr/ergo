@@ -33,7 +33,7 @@ func TestTypedNilCausePanicInReleaseKeepsCleanup(t *testing.T) {
 	root := Root("main")
 	closed := false
 	_, err := Run(root, func(task *Task) (int, error) {
-		return Scoped(task, func(s *Scope) (int, error) {
+		return Scoped(task, nil, func(s *Scope) (int, error) {
 			s.Defer(func() { closed = true })
 			s.Defer(func() { panic((*Cause)(nil)) })
 			return 0, errBody
@@ -67,7 +67,7 @@ func TestTypedNilCausePanicInTimerStillDrains(t *testing.T) {
 	var childDrained atomic.Bool
 	drainedBeforeRelease := false
 	_, err := Run(root, func(task *Task) (int, error) {
-		return Scoped(task, func(s *Scope) (int, error) {
+		return Scoped(task, nil, func(s *Scope) (int, error) {
 			s.Defer(func() { drainedBeforeRelease = childDrained.Load() })
 			return After(task, nilCauseScheduler{started}, time.Hour, func(child *Task) (int, error) {
 				close(started)

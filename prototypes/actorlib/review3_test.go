@@ -184,10 +184,9 @@ func TestR3LibraryResourceResultControl(t *testing.T) {
 	}
 }
 
-// The three probes below pin Gap 47 (A13), the open runtime prerequisite: a
-// boundary that discards a successful result by stop-wins does not release
-// it. Each asserts today's count, 0, so that the fix in #13/#207 (and the
-// general result lowering of #190/#197) fails them; then each must assert 1.
+// These Gap 47 regressions use Scoped's explicit result release. A raw
+// rt.Run or deferred Scope.End has no generic result release transport;
+// callers with owned results must use the result-aware boundary.
 
 // m1: rt.Run zeros a taken answer when the asker is stopped before its
 // boundary.
@@ -200,52 +199,33 @@ func TestR3Gap47TaskBoundaryDropsTakenAnswer(t *testing.T) {
 			return Continue(n), nil
 		})
 		asker := rt.Go(s, "taken-answer", func(ct *rt.Task) (lease, error) {
-			v, err := Ask(ct, a.Address(), func(r Reply[lease, Never]) leaseRequest { return leaseRequest{r} })
-			if err != nil {
-				return v, err
-			}
-			ct.Interrupt()
-			return v, nil
+			return rt.Scoped(ct, lease.Close, func(*rt.Scope) (lease, error) {
+				v, err := Ask(ct, a.Address(), func(r Reply[lease, Never]) leaseRequest { return leaseRequest{r} })
+				if err != nil {
+					return v, err
+				}
+				ct.Interrupt()
+				return v, nil
+			})
 		})
 		if _, err := asker.Wait(); !errors.Is(err, rt.Interrupted) {
 			t.Errorf("asker exit: %v", err)
 		}
 		return a.Stop()
 	})
-	if got := closed.Load(); got != 0 {
-		t.Errorf("Gap 47: task boundary released the taken answer %d times; update A13 and assert 1", got)
+	if got := closed.Load(); got != 1 {
+		t.Errorf("Gap 47: scoped task body released the taken answer %d times; want 1", got)
 	}
 }
 
-// m1: the `defer Scope.End(&err)` spelling leaves the zero-or-candidate value
-// beside an interruption. Call does not close a failed function's value.
+// m1: use Scoped instead of a bare deferred End so Call never receives an
+// owned candidate beside an interruption. Call must not close failed values.
 func TestR3Gap47AgentInterruptedCallbackResult(t *testing.T) {
 	var closed atomic.Int32
 	within(t, func(task *rt.Task, s *rt.Scope) error {
 		ag := StartAgent(s, "interrupted-result", 0, 1)
-		_, err := Call(task, ag.Address(), func(at *rt.Task, _ *int) (v lease, err error) {
-			local := rt.NewScope(at)
-			defer local.End(&err)
-			local.Defer(func() { at.Interrupt() })
-			return lease{&closed}, nil
-		})
-		if !failureIs[Stopped](err) {
-			t.Errorf("caller: %v", err)
-		}
-		return ag.Stop()
-	})
-	if got := closed.Load(); got != 0 {
-		t.Errorf("Gap 47: interrupted callback result released %d times; update A13 and assert 1", got)
-	}
-}
-
-// m1: rt.Scoped zeros a candidate result when a release requests a stop.
-func TestR3Gap47CanonicalScopedDropsResultOnStop(t *testing.T) {
-	var closed atomic.Int32
-	within(t, func(task *rt.Task, s *rt.Scope) error {
-		ag := StartAgent(s, "scoped-result", 0, 1)
 		_, err := Call(task, ag.Address(), func(at *rt.Task, _ *int) (lease, error) {
-			return rt.Scoped(at, func(local *rt.Scope) (lease, error) {
+			return rt.Scoped(at, lease.Close, func(local *rt.Scope) (lease, error) {
 				local.Defer(func() { at.Interrupt() })
 				return lease{&closed}, nil
 			})
@@ -255,8 +235,29 @@ func TestR3Gap47CanonicalScopedDropsResultOnStop(t *testing.T) {
 		}
 		return ag.Stop()
 	})
-	if got := closed.Load(); got != 0 {
-		t.Errorf("Gap 47: rt.Scoped discarded result released %d times; update A13 and assert 1", got)
+	if got := closed.Load(); got != 1 {
+		t.Errorf("Gap 47: interrupted callback result released %d times; want 1", got)
+	}
+}
+
+// m1: rt.Scoped zeros a candidate result when a release requests a stop.
+func TestR3Gap47CanonicalScopedDropsResultOnStop(t *testing.T) {
+	var closed atomic.Int32
+	within(t, func(task *rt.Task, s *rt.Scope) error {
+		ag := StartAgent(s, "scoped-result", 0, 1)
+		_, err := Call(task, ag.Address(), func(at *rt.Task, _ *int) (lease, error) {
+			return rt.Scoped(at, lease.Close, func(local *rt.Scope) (lease, error) {
+				local.Defer(func() { at.Interrupt() })
+				return lease{&closed}, nil
+			})
+		})
+		if !failureIs[Stopped](err) {
+			t.Errorf("caller: %v", err)
+		}
+		return ag.Stop()
+	})
+	if got := closed.Load(); got != 1 {
+		t.Errorf("Gap 47: rt.Scoped discarded result released %d times; want 1", got)
 	}
 }
 

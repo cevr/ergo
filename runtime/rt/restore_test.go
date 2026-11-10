@@ -35,7 +35,7 @@ func TestRestoreChildCancellation(t *testing.T) {
 					var err error
 					m.Interruptible(func() {
 						sawMasked.Store(task.Masked())
-						_, err = Scoped(task, func(local *Scope) (int, error) {
+						_, err = Scoped(task, nil, func(local *Scope) (int, error) {
 							if timing == "stop before child start" {
 								root.Interrupt()
 							}
@@ -74,14 +74,14 @@ func TestRestoreChildCancellation(t *testing.T) {
 							return operation(task)
 						}
 						acquire := func() (int, error) {
-							return Scoped(task, func(s *Scope) (int, error) {
+							return Scoped(task, nil, func(s *Scope) (int, error) {
 								return Acquire(s, func() (int, error) { return operation(task) }, func(int) {})
 							})
 						}
 						if !tc.outerCleanup {
 							return acquire()
 						}
-						return Scoped(task, func(s *Scope) (int, error) {
+						return Scoped(task, nil, func(s *Scope) (int, error) {
 							s.Defer(func() {
 								if _, exit := acquire(); exit != nil {
 									panic(exit)

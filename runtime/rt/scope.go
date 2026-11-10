@@ -234,15 +234,31 @@ func Release(t *Task, c *Cause, f func(), classify func(p any) (defect any, carr
 }
 
 // Scoped runs body with a fresh scope owned by t and ends the scope on every
-// exit, returning the body's value or the combined exit.
-func Scoped[T any](t *Task, body func(*Scope) (T, error)) (v T, err error) {
+// exit, returning the body's value or the combined exit. If body succeeds
+// but scope shutdown fails (including stop-wins), release owns the returned
+// value and runs once, masked; its defects join that exit. Pass nil only for
+// a result that needs no release. A failed or panicking body gives no value.
+func Scoped[T any](t *Task, release func(T), body func(*Scope) (T, error)) (v T, err error) {
 	s := NewScope(t)
+	returned := false
 	defer func() {
 		if err != nil {
+			left := v
 			var zero T
 			v = zero
+			if returned && release != nil {
+				var c Cause
+				c.Add(err)
+				m := t.Mask()
+				s.runRelease(entry{run: closeWith[T]{release}, v: left}, &c)
+				m.Unmask()
+				t.settle(&c, nil)
+				err = c.Err()
+			}
 		}
 	}()
 	defer s.End(&err)
-	return body(&s)
+	v, err = body(&s)
+	returned = err == nil
+	return
 }
