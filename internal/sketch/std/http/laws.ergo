@@ -12,6 +12,7 @@ func noteFilePath(p filesProbe, path string) {
 	sync.Modify(p.paths, func(ps []string) (bool, []string) { (true, ps.Append(path)) })
 }
 
+func Name(_ filesProbe) string { "probe" }
 func ReadFile(p filesProbe, path string) string fails fs.Escapes {
 	noteFilePath(p, path)
 	fs.Escapes{Path: path}

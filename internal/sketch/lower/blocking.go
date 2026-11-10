@@ -356,6 +356,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"HostRoot.ReadFile": {task: true},
 	"HostRoot.ReadDir":  {task: true},
 	"HostRoot.Stat":     {task: true},
+	"HostRoot.Name":     {task: true},
 	// std io (S1b; stdlib.md, io): bodies that write or read a standard
 	// stream of the host process; none releases. A read of standard input
 	// waits on the caller's task (batch-12 C3, decision O15): a stop of that

@@ -243,6 +243,13 @@ type Root {
 	// Stat describes the file at path, after symbolic links. Its Name is
 	// the last element of path as it was given (filepath.Base).
 	Stat(path string) Info fails NotFound | Denied | Failed | Escapes,
+	// Name is the directory the root was opened at, as OpenRoot was given
+	// it (Go's os.Root.Name); a Root in memory names itself. It is also
+	// what makes a Root more than its reads: without it every Files
+	// provider, whose reads have the same form and fewer failures, would
+	// implement Root, so a reader that looks outside (fs.Host through a
+	// link) would pass where a confined Root is asked for.
+	Name() string,
 
 	// LeavingEscapes: a path that starts with ".." or "/" leaves the root
 	// before any lookup, so every operation on it fails Escapes, whatever
@@ -282,6 +289,7 @@ type HostRoot {
 	ReadFile(path string) string fails NotFound | Denied | Failed | Escapes,
 	ReadDir(path string) []string fails NotFound | Denied | Failed | Escapes,
 	Stat(path string) Info fails NotFound | Denied | Failed | Escapes,
+	Name() string,
 	hostRooted(),
 }
 

@@ -116,6 +116,9 @@ func Stat(t Tree, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed
 	}
 }
 
+// Name is ".": a Tree was opened at no directory of a disk.
+func Name(_ Tree) string { "." }
+
 // parentOf is the key of the directory that holds the node at key k.
 func parentOf(k string) string {
 	let i = strings.LastIndex(k, "/")

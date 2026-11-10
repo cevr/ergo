@@ -1984,6 +1984,18 @@
       "killers": [
         "lower:TestStdPackageLet"
       ]
+    },
+    {
+      "name": "d4-root-is-files",
+      "origin": "wf10 defects D4",
+      "file": "internal/sketch/std/fs/fs.ergo",
+      "from": "\tName() string,\n\n\t// LeavingEscapes:",
+      "to": "\n\t// LeavingEscapes:",
+      "rule": "An fs.Files provider is no fs.Root: Root has an operation Files lacks, so a reader that looks outside (fs.Host) never passes as a confined Root, and Root's law never runs on a Files provider.",
+      "killers": [
+        "examples:csvreport",
+        "examples:ledger"
+      ]
     }
   ]
 }

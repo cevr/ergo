@@ -22,6 +22,10 @@ func note(r Recorder, path string) {
 	sync.Modify(r.paths, func(ps []string) (bool, []string) { (true, ps.Append(path)) })
 }
 
+// Name is "recorder": a Recorder names itself, as a Root in memory does,
+// and notes no path.
+func Name(_ Recorder) string { "recorder" }
+
 // ReadFile is the inner Root's ReadFile of path, after noting path.
 func ReadFile(r Recorder, path string) string fails fs.NotFound | fs.Denied | fs.Failed | fs.Escapes {
 	note(r, path)

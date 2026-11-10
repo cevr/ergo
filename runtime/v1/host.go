@@ -211,6 +211,9 @@ func FSOpenRoot(s *Scope, dir string) (*HostRoot, error) {
 // hostRooted marks the runtime's type as the one fs.HostRoot.
 func (r *HostRoot) hostRooted() {}
 
+// Name is the directory given to FSOpenRoot (os.Root.Name).
+func (r *HostRoot) Name(_ *rt.Task) string { return r.root.Name() }
+
 // rootErrEscapes is the text of os.Root's unexported errPathEscapes; the
 // host agreement tests pin it, so a Go release that changes it fails them.
 const rootErrEscapes = "path escapes from parent"
