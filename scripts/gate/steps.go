@@ -265,7 +265,6 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// reuse one compilation instead of racing to repeat it.
 	add(&Step{Name: fullBuildStep, Argv: []string{"go", "test", "-run", "^$", "./..."}, Class: classHeavy})
 	add(&Step{Name: "go vet", Needs: []string{"go test build"}, Argv: []string{"go", "vet", "./..."}, Class: classFast})
-	add(&Step{Name: "explored scheduler", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeout, "./runtime/rt"}, Class: classHeavy})
 	// The analyzer's controls are a go test of another module, uncached,
 	// and its run builds and loads the checker with x/tools: full tier.
 	add(&Step{Name: "provenance analyzer", Argv: provenanceAnalyzer(root), Class: classHeavy})
@@ -274,6 +273,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	if err != nil {
 		return nil, err
 	}
+	add(&Step{Name: "explored scheduler", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeout, "./runtime/rt"}, Weight: packageSeconds(durations[modulePath(root)+"/runtime/rt"]), Class: classHeavy})
 	var unsharded, hermetic []string
 	for _, pkg := range packages {
 		relative := strings.TrimPrefix(pkg, modulePath(root)+"/")
