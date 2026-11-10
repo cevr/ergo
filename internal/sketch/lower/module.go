@@ -437,9 +437,11 @@ func (l *lowerer) program() ([]byte, error) {
 	if len(l.flatBails) > 0 {
 		return l.lowerAgain()
 	}
-	if l.hasInits() && !l.entryInits && (l.tests != nil || (!l.noEntry && main != nil)) {
+	if len(l.refusals) == 0 && l.hasInits() && !l.entryInits && (l.tests != nil || (!l.noEntry && main != nil)) {
 		// An initializer lowered after the entry was written would never
 		// run: a value would start as Go's zero value (F13).
+		// A refused entry emits no program, so it promises no init call;
+		// keep its diagnostic instead of adding a follow-on internal error.
 		l.guard(func() { ice(l.file, "a package initializer was lowered after the entry, which does not call ergoInit") })
 	}
 	if len(l.refusals) > 0 {
