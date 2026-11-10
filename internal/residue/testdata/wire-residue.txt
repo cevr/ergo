@@ -15,6 +15,15 @@
 !internal/migrate196/oldsyntax/
 
 # network sense: wire formats, wire keys and forms of a codec, codec functions named Wire, bytes on the wire (decision 4)
+cmd/ergo/tsmap.go	*
+internal/tsproj/accept_test.go	*
+internal/tsproj/project.go	*
+internal/tsproj/project_test.go	*
+internal/tsproj/testdata/mutants.json	*
+tools/ts/README.md	*
+tools/ts/bun.mjs	*
+tools/ts/esbuild.mjs	*
+tools/ts/vite.mjs	*
 CHANGELOG.md	done: true }`, `todo.done`), so wire keys such as `"done"` keep working,
 CHANGELOG.md	a derived codec can carry the wire key `"done"`), and a form where
 CHANGELOG.md	`TestHTTPWireVectors` runs the shared wire vectors in `conformance/http/`

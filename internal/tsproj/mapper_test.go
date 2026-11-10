@@ -90,6 +90,7 @@ func TestMapperFailsClosed(t *testing.T) {
 		{"Content-Length: 16777217\r\n\r\n", "invalid mapper Content-Length"},
 		{"Content-Length: 1\r\nContent-Length: 1\r\n\r\nx", "duplicate mapper Content-Length"},
 		{"Content-Length: 10\r\n\r\n{}", "unexpected EOF"},
+		{"Content-Length: 10", "mapper header: EOF"},
 	} {
 		if err := Serve(strings.NewReader(row.input), &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), row.want) {
 			t.Fatalf("frame %q: %v, want %s", row.input, err, row.want)

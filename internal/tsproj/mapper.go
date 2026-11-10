@@ -159,7 +159,7 @@ func readFrame(r *bufio.Reader) ([]byte, error) {
 	for used := 0; ; {
 		line, err := r.ReadSlice('\n')
 		if err != nil {
-			if err == io.EOF && used == 0 {
+			if err == io.EOF && used == 0 && len(line) == 0 {
 				return nil, io.EOF
 			}
 			return nil, fmt.Errorf("mapper header: %w", err)
