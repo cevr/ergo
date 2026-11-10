@@ -1,5 +1,5 @@
 {
-  "reason": "Ceilings are the Ergo-only bytes (fixture minus the Go hello control, default and stripped builds) measured on linux/amd64 with go1.27.0, plus 2 %, rounded up; Go package ceilings likewise. BS0 set them at main f6802de7; BS1 (runtime/v1 leaves), BS2 (core without fmt and reflect), BS3 (no time type in the task's type graph) and BS5 (frontend reachability: unused equals hello) lowered them. A unit that shrinks a fixture lowers its ceilings to its measured value plus 2 %; a unit that grows one past a ceiling raises it only with the reason in its request. Forbid lists facts: patterns of linked symbol names that must stay absent.",
+  "reason": "Ceilings are the Ergo-only bytes (fixture minus the Go hello control, default and stripped builds) measured on linux/amd64 with go1.27.0, plus 2 %, rounded up; Go package ceilings likewise. BS0 set them at main f6802de7; BS1 (runtime/v1 leaves), BS2 (core without fmt and reflect), BS3 (no time type in the task's type graph), BS5 (frontend reachability: unused equals hello) and BS6 (relative paths and compact call tables) lowered them. A unit that shrinks a fixture lowers its ceilings to its measured value plus 2 %; a unit that grows one past a ceiling raises it only with the reason in its request. Forbid lists facts: patterns of linked symbol names that must stay absent.",
   "fixtures": {
     "hello": {
       "ergoOnly": 262784,
@@ -68,7 +68,7 @@
       ]
     },
     "relay": {
-      "ergoOnly": 295470,
+      "ergoOnly": 295353,
       "ergoOnlyStripped": 204719,
       "goPackages": 69,
       "forbid": [
@@ -89,8 +89,8 @@
       ]
     },
     "kvstore": {
-      "ergoOnly": 874448,
-      "ergoOnlyStripped": 593265,
+      "ergoOnly": 871282,
+      "ergoOnlyStripped": 589087,
       "goPackages": 70,
       "forbid": [
         "^fmt\\.",
@@ -106,8 +106,8 @@
       ]
     },
     "deploys": {
-      "ergoOnly": 601921,
-      "ergoOnlyStripped": 421970,
+      "ergoOnly": 594272,
+      "ergoOnlyStripped": 413615,
       "goPackages": 69,
       "forbid": [
         "^time\\.Time\\.(String|Format|GoString)$",
