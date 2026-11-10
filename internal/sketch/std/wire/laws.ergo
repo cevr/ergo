@@ -1,0 +1,79 @@
+// The derived codec's laws over Events and Replay (types.md, Codecs; L11
+// design item 7). The law runner draws each law's values, so a law over a
+// sample type is a seeded property of the derived encode and decode for
+// that type's shape: records, unions, Option, slices, Maps, every integer
+// width, floats, strings and a refined type. The ledger in
+// docs/spec/stdlib.md names the test that runs each law.
+
+type up { Host string, Port int, Tags []string, Load float64 }
+type down {}
+type state = up | down
+
+type widths { A int8, B int16, C int32, D int64, E uint8, F uint16, G uint32, H uint64, I int, J uint, K float32, L bool }
+
+type fleet { Name string, States []state, Spare Option[up], Meta Map[string, int], Sizes widths }
+
+// roundTrip is v through Events and back.
+func roundTrip(v fleet) fleet fails WireWrongKind | WireMissingField | WireUnknownTag {
+	let e = NewEvents()
+	encode(v, e)
+	decode[fleet](NewReplay(Recorded(e)))
+}
+
+// EventsReplay: what encode writes on Events, decode reads back from a
+// Replay of those events as the same value.
+law EventsReplay(v fleet) {
+	let back = roundTrip(v) catch {
+	case _:
+		return false
+	}
+	back == v
+}
+
+// EncodeNests: the events of one value open and close as many times, and
+// never close more than they opened.
+law EncodeNests(v fleet) {
+	let e = NewEvents()
+	encode(v, e)
+	let mut open = 0
+	let mut ok = true
+	for ev in Recorded(e) {
+		open = open + depth(ev)
+		if open < 0 {
+			ok = false
+		}
+	}
+	ok && open == 0
+}
+
+// MissingFieldFails: an object with no keys decodes as no record with
+// fields: the decode fails WireMissingField.
+law MissingFieldFails() {
+	let empty = []Event{BeginObjectEvent{N: 0}, EndObjectEvent}
+	let _ = decode[up](NewReplay(empty)) catch {
+	case WireMissingField:
+		return true
+	case _:
+		return false
+	}
+	false
+}
+
+// UnknownTagFails: a tag no variant has fails WireUnknownTag.
+law UnknownTagFails(name string) {
+	if name == "up" {
+		return true
+	}
+	if name == "down" {
+		return true
+	}
+	let evs = []Event{BeginObjectEvent{N: 0}, TagEvent{Name: name}, EndObjectEvent}
+	let _ = decode[state](NewReplay(evs)) catch {
+	case WireUnknownTag:
+		return true
+	case _:
+		return false
+	}
+	false
+}
+

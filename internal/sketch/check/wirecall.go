@@ -10,12 +10,11 @@ import "ergo.local/prototype/internal/sketch/syntax"
 
 // The prelude names the codec reads, each spelled here once.
 const (
-	wireWriterName  = "Writer"
-	wireReaderName  = "Reader"
-	wireKindName    = "WireWrongKind"
-	wireMissingName = "WireMissingField"
-	wireTagName     = "WireUnknownTag"
-	wireParsePrefix = "Parse"
+	WireWriterName  = "Writer"
+	WireReaderName  = "Reader"
+	WireKindName    = "WireWrongKind"
+	WireMissingName = "WireMissingField"
+	WireTagName     = "WireUnknownTag"
 	wireMethodName  = "Wire"
 )
 
@@ -35,7 +34,7 @@ func (c *checker) wirePair(t Type) *WirePair {
 	if !ok || n.Obj == nil || n.Obj.Pkg == nil || len(n.TArgs) > 0 || len(n.origin().TParams) > 0 {
 		return nil
 	}
-	parse, _ := n.Obj.Pkg.Scope.names[wireParsePrefix+n.Obj.Name].(*Func)
+	parse, _ := n.Obj.Pkg.Scope.names[syntax.ParseName(n.Obj.Name)].(*Func)
 	wire := n.method(wireMethodName)
 	if parse == nil || wire == nil {
 		return nil
@@ -63,6 +62,30 @@ func (i *Info) WirePairOf(t Type) *WirePair {
 	return nil
 }
 
+// PreludeType is the prelude's named type name, or nil: the lowering reads
+// the codec's Writer, Reader and failure types through it.
+func PreludeType(name string) *Named { return preludeType(name) }
+
+// RefinedParse is the derived ParseN of the refined type t, or nil.
+func RefinedParse(t Type) *Func {
+	n, ok := t.(*Named)
+	if !ok || RefinementOf(t) == nil || n.Obj == nil || n.Obj.Pkg == nil {
+		return nil
+	}
+	f, _ := n.Obj.Pkg.Scope.names[syntax.ParseName(n.Obj.Name)].(*Func)
+	return f
+}
+
+// WireFieldName is a field's key on the wire (Q8): the field's name with
+// its first letter lowered, Port as port and Some's Value as value, which
+// is Effect Schema.Option's encoded form.
+func WireFieldName(name string) string {
+	if name == "" || name[0] < 'A' || name[0] > 'Z' {
+		return name
+	}
+	return string(name[0]-'A'+'a') + name[1:]
+}
+
 // builtinKind is the call kind of a call of b.
 func builtinKind(b *Builtin) CallKind {
 	switch b.Name {
@@ -78,12 +101,12 @@ func builtinKind(b *Builtin) CallKind {
 // no value and fails nothing: a Writer's events do not fail.
 func (c *checker) encodeCall(x *syntax.CallExpr) operand {
 	if len(x.Args) != 2 {
-		c.errorf(x, CodeType, "encode takes a value and a %s: encode(v, w) (types.md, Codecs)", wireWriterName)
+		c.errorf(x, CodeType, "encode takes a value and a %s: encode(v, w) (types.md, Codecs)", WireWriterName)
 		c.silentArgs(x)
 		return bad(x)
 	}
 	v, ok := c.argValue(x.Args[0], nil, x)
-	okW := c.argument(x.Args[1], preludeType(wireWriterName), x)
+	okW := c.argument(x.Args[1], preludeType(WireWriterName), x)
 	if !ok || !okW || v.invalid() {
 		return bad(x)
 	}
@@ -105,11 +128,11 @@ func (c *checker) decodeCall(x *syntax.CallExpr, t Type) operand {
 		return bad(x)
 	}
 	if len(x.Args) != 1 {
-		c.errorf(x, CodeType, "decode[%s] takes a %s: decode[%s](r) (types.md, Codecs)", t, wireReaderName, t)
+		c.errorf(x, CodeType, "decode[%s] takes a %s: decode[%s](r) (types.md, Codecs)", t, WireReaderName, t)
 		c.silentArgs(x)
 		return bad(x)
 	}
-	if !c.argument(x.Args[0], preludeType(wireReaderName), x) {
+	if !c.argument(x.Args[0], preludeType(WireReaderName), x) {
 		return bad(x)
 	}
 	if !c.codableOperand(x, t, "decode") {
@@ -126,8 +149,14 @@ func (c *checker) decodeCall(x *syntax.CallExpr, t Type) operand {
 // S108 at n. A type parameter waits for generic codecs: its walk is not
 // known until the instance, and its row has no spelling yet (Q7).
 func (c *checker) codableOperand(n syntax.Node, t Type, what string) bool {
-	if tp, ok := t.(*TypeParam); ok {
-		c.errorf(n, CodeType, "%s of the type parameter %s is not supported yet: write the concrete type (L11, generic codecs wait for the row former, Q7)", what, tp.Name)
+	var tp *TypeParam
+	c.wireEach(t, func(t Type) {
+		if p, ok := t.(*TypeParam); ok && tp == nil {
+			tp = p
+		}
+	})
+	if tp != nil {
+		c.errorf(n, CodeType, "%s of a type that holds the type parameter %s is not supported yet: write the concrete type (L11, generic codecs wait for the row former, Q7)", what, tp.Name)
 		return false
 	}
 	if r := c.wireReason(t); r != "" {
@@ -211,7 +240,7 @@ func (c *checker) firstInferredParse(t Type) *Func {
 // union, Unsatisfied when it reaches a refined type, and the row of each
 // by-name ParseX it reaches.
 func (c *checker) wireRow(t Type) *Row {
-	row := newRow().with(c.types, preludeType(wireKindName))
+	row := newRow().with(c.types, preludeType(WireKindName))
 	add := func(name string) { row = row.with(c.types, preludeType(name)) }
 	c.wireEach(t, func(t Type) {
 		if RefinementOf(t) != nil {
@@ -225,11 +254,11 @@ func (c *checker) wireRow(t Type) *Row {
 		switch u := under(t).(type) {
 		case *Struct:
 			if len(u.Fields) > 0 {
-				add(wireMissingName)
+				add(WireMissingName)
 			}
 		case *Union:
-			add(wireMissingName)
-			add(wireTagName)
+			add(WireMissingName)
+			add(WireTagName)
 		}
 	})
 	return row

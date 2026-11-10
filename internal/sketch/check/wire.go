@@ -1,6 +1,10 @@
 package check
 
-import "fmt"
+import (
+	"fmt"
+
+	"ergo.local/prototype/internal/sketch/syntax"
+)
 
 // Codecs (types.md, Codecs; L11 design). A type has a wire form when the
 // predeclared constraint codable admits it (spelled once, SetWire.String(); the owner keeps wire an ordinary identifier, 196w): the checker decides it from the
@@ -74,7 +78,7 @@ func (c *checker) wireWalk(t Type, seen map[Type]bool) (string, *wireFault) {
 	case *Struct:
 		for _, f := range u.Fields {
 			if !isExported(f.Name) {
-				return "", &wireFault{t, fmt.Sprintf("is built only by its package (its field %s is unexported), which declares no Parse%s and Wire pair", f.Name, typeBaseName(t))}
+				return "", &wireFault{t, fmt.Sprintf("is built only by its package (its field %s is unexported), which declares no %s and Wire pair", f.Name, syntax.ParseName(typeBaseName(t)))}
 			}
 		}
 		for _, f := range u.Fields {
@@ -94,6 +98,9 @@ func (c *checker) wireWalk(t Type, seen map[Type]bool) (string, *wireFault) {
 		p, bad := c.wireWalk(u.Elem, seen)
 		return "[_]" + p, bad
 	case *Map:
+		if RefinementOf(u.Key) != nil {
+			return "", &wireFault{t, fmt.Sprintf("has the refined key type %s, which a decode would have to parse key by key (not yet: write Map[string, V])", u.Key)}
+		}
 		if !isString(u.Key) {
 			return "", &wireFault{t, fmt.Sprintf("has the key type %s, which is not a string", u.Key)}
 		}
