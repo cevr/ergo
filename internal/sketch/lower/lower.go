@@ -24,8 +24,8 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Source is one admitted source file: the absolute path that diagnostics and
-// //line directives name, and the bytes the checker read from it.
+// Source is one admitted source file: its absolute path and the bytes the
+// checker read from it. emitName derives the emitted name from that path.
 type Source struct {
 	Path string
 	Text string

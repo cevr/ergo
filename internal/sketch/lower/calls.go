@@ -1567,13 +1567,18 @@ func (l *lowerer) recordDecl(name string, n syntax.Node) {
 // function that registers it with the runtime (v1.RegisterCalls), written
 // for every program, its tables empty or not (stage C round 2 review m1):
 // the declaration table, each source declaration's name and lines, and the
-// call table, in source order. A call's Func is the source declaration that
-// makes it, Callee what it calls, and File, Line and Column its position,
-// which the //line directive before the call also names. The entry types
-// are aliases of the structs v1.RegisterCalls takes; registered, the tables
+// call table, in source order. The compact table interns the function,
+// callee and file strings once and holds their indices plus line and
+// column in five uint32 words. The wide table stays selectable as the
+// reference. Registered, the tables
 // name the Ergo frames of a defect in its report and no Go frame
 // (runtime.md, Exit causes). It is written after the entry, so it may name
 // the runtime package.
+
+// callLowering selects the old wide table as the reference. It changes
+// metadata only, never an executable call: -ldflags=-X=.../lower.callLowering=wide.
+var callLowering string
+
 func (l *lowerer) callTable() string {
 	// Source order: by source file (sources.go), then by offset.
 	sort.SliceStable(l.decls, func(i, j int) bool {
@@ -1588,6 +1593,7 @@ func (l *lowerer) callTable() string {
 	declTable := l.pkgName(pkgKey{"decls", nil}, "ergoDecls")
 	entry := l.pkgName(pkgKey{"call", nil}, "ergoCall")
 	table := l.pkgName(pkgKey{"calls", nil}, "ergoCalls")
+	names := l.pkgName(pkgKey{"callnames", nil}, "ergoCallNames")
 	file := func(src int) string { return strconv.Quote(l.srcs[src].path) }
 	var b strings.Builder
 	b.WriteString("// " + declEntry + " is one source declaration and its lines (#230).\n")
@@ -1599,13 +1605,37 @@ func (l *lowerer) callTable() string {
 	}
 	b.WriteString("}\n\n")
 	b.WriteString("// " + entry + " is the Ergo identity of one lowered call (#230).\n")
-	b.WriteString("type " + entry + " = struct {\n\tFunc, Callee string\n\tFile         string\n\tLine, Column int\n}\n\n")
-	b.WriteString("// " + table + " lists the identity of each call of the program, in source order.\n")
-	b.WriteString("var " + table + " = [...]" + entry + "{\n")
-	for _, c := range l.calls {
-		fmt.Fprintf(&b, "\t{Func: %s, Callee: %s, File: %s, Line: %d, Column: %d},\n", strconv.Quote(c.fn), strconv.Quote(c.callee), file(c.src), c.line, c.column)
+	if callLowering == "wide" {
+		b.WriteString("type " + entry + " = struct {\n\tFunc, Callee string\n\tFile         string\n\tLine, Column int\n}\n\n")
+		b.WriteString("// " + table + " lists the identity of each call of the program, in source order.\n")
+		b.WriteString("var " + table + " = [...]" + entry + "{\n")
+		for _, c := range l.calls {
+			fmt.Fprintf(&b, "\t{Func: %s, Callee: %s, File: %s, Line: %d, Column: %d},\n", strconv.Quote(c.fn), strconv.Quote(c.callee), file(c.src), c.line, c.column)
+		}
+		b.WriteString("}\n\n")
+		b.WriteString("func init() {\n\t" + l.rt() + ".RegisterCalls(" + declTable + "[:], " + table + "[:])\n}\n\n")
+	} else {
+		b.WriteString("type " + entry + " = " + l.rt() + ".SourceCall\n\n")
+		var texts []string
+		indices := map[string]int{}
+		intern := func(text string) int {
+			if i, ok := indices[text]; ok {
+				return i
+			}
+			i := len(texts)
+			indices[text] = i
+			texts = append(texts, text)
+			return i
+		}
+		b.WriteString("var " + table + " = [...]" + entry + "{\n")
+		for _, c := range l.calls {
+			fmt.Fprintf(&b, "\t{Func: %d, Callee: %d, File: %d, Line: %d, Column: %d},\n", intern(c.fn), intern(c.callee), intern(l.srcs[c.src].path), c.line, c.column)
+		}
+		b.WriteString("}\n\nvar " + names + " = [...]string{\n")
+		for _, text := range texts {
+			fmt.Fprintf(&b, "\t%s,\n", strconv.Quote(text))
+		}
+		b.WriteString("}\n\nfunc init() {\n\t" + l.rt() + ".RegisterCompactCalls(" + declTable + "[:], " + names + "[:], " + table + "[:])\n}\n\n")
 	}
-	b.WriteString("}\n\n")
-	b.WriteString("func init() {\n\t" + l.rt() + ".RegisterCalls(" + declTable + "[:], " + table + "[:])\n}\n\n")
 	return b.String()
 }

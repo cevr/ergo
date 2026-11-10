@@ -190,12 +190,47 @@ var (
 		File      string
 		Line, End int
 	}
-	calls []struct {
-		Func, Callee string
-		File         string
-		Line, Column int
-	}
+	calls        []sourceCall // reference representation
+	compactCalls []SourceCall
+	callNames    []string
 )
+
+type sourceCall = struct {
+	Func, Callee string
+	File         string
+	Line, Column int
+}
+
+// SourceCall is one compact call-table entry (binsize BS6). Func, Callee
+// and File index the table's shared strings. Positions are one-based.
+// Five uint32 words use 20 bytes per site on every Go target.
+type SourceCall struct {
+	Func, Callee, File uint32
+	Line, Column       uint32
+}
+
+// RegisterCompactCalls installs a source map whose call sites share their
+// names and file paths. Like RegisterCalls, it runs only before main.
+func RegisterCompactCalls(declTable []struct {
+	Name      string
+	File      string
+	Line, End int
+}, names []string, table []SourceCall) {
+	registered, decls, calls = true, declTable, nil
+	callNames, compactCalls = names, table
+}
+
+// callAt expands one site only while reporting a defect. No allocation or
+// lookup is added to a successful application's call path.
+func callAt(i int) sourceCall {
+	if compactCalls == nil {
+		return calls[i]
+	}
+	c := compactCalls[i]
+	return sourceCall{Func: callNames[c.Func], Callee: callNames[c.Callee], File: callNames[c.File], Line: int(c.Line), Column: int(c.Column)}
+}
+
+func callCount() int { return len(calls) + len(compactCalls) }
 
 // RegisterCalls registers the program's source map (#230). decls has one
 // entry per source declaration (a function, a package-level let, a context):
@@ -208,12 +243,9 @@ func RegisterCalls(declTable []struct {
 	Name      string
 	File      string
 	Line, End int
-}, table []struct {
-	Func, Callee string
-	File         string
-	Line, Column int
-}) {
+}, table []sourceCall) {
 	registered, decls, calls = true, declTable, table
+	callNames, compactCalls = nil, nil
 }
 
 // taskEntry starts the traceback line of guarded, the boundary of every
@@ -257,7 +289,8 @@ func ergoStack(stack []byte) []string {
 	for _, d := range decls {
 		files[d.File] = true
 	}
-	for _, c := range calls {
+	for i := 0; i < callCount(); i++ {
+		c := callAt(i)
 		files[c.File] = true
 	}
 	var frames []site
@@ -354,7 +387,8 @@ func ergoStack(stack []byte) []string {
 		}
 		var here []int
 		if i > 0 {
-			for j, c := range calls {
+			for j := 0; j < callCount(); j++ {
+				c := callAt(j)
 				if c.File == f.file && c.Line == f.line {
 					here = append(here, j)
 				}
@@ -373,7 +407,7 @@ func ergoStack(stack []byte) []string {
 			// the declaration of the frame inside it.
 			var made []int
 			for _, j := range here {
-				if calls[j].Callee == owner(frames[i-1]) {
+				if callAt(j).Callee == owner(frames[i-1]) {
 					made = append(made, j)
 				}
 			}
@@ -381,10 +415,10 @@ func ergoStack(stack []byte) []string {
 				here = made
 			}
 		}
-		c := calls[here[0]]
+		c := callAt(here[0])
 		callees := []string{c.Callee}
 		for _, j := range here[1:] {
-			callees = append(callees, calls[j].Callee)
+			callees = append(callees, callAt(j).Callee)
 		}
 		add(c.Func+" calls "+strings.Join(callees, " or ")+" at "+c.File+":"+strconv.Itoa(c.Line)+":"+strconv.Itoa(c.Column), f.fn)
 	}

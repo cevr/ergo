@@ -354,6 +354,11 @@ func main() fails queue.Closed | timeout.Expired needs Console | Ambient {
 // ERGO_STDLAWS_GOLDEN=write writes the golden file instead (run at the
 // base only).
 func TestStdLawsAddNoGo(t *testing.T) {
+	// Keep the metadata representation of the pre-law baseline: this
+	// golden guards law erasure, not the compact call-table representation.
+	before := callLowering
+	callLowering = "wide"
+	defer func() { callLowering = before }()
 	got := mustLower(t, "stdlawszero", stdLawsZeroCost).mainGo()
 	golden := filepath.Join("testdata", "stdlaws", "zero_cost.go.golden")
 	if os.Getenv("ERGO_STDLAWS_GOLDEN") == "write" {

@@ -256,9 +256,8 @@ var lineDirective = regexp.MustCompile(`(?m)^//line (.+?):\d+(?::\d+)?$`)
 // symbolic link to its directory, by a relative spelling from the linked
 // directory (with and without a shell's PWD) or by an absolute spelling
 // through the link, the //line directives of the published module name an
-// absolute path that is the source file itself (os.SameFile), and the
-// program runs. Which spelling the directive uses follows
-// receipt.LocateSource; the property is that it opens the source. The
+// relative path that, from the source's root, is the source file itself
+// (os.SameFile), and the program runs. The
 // links are made here, so the case runs on Linux whatever TMPDIR is.
 func TestBuildWorkMapsASymlinkedSource(t *testing.T) {
 	binary := buildTestCLI(t)
@@ -306,8 +305,8 @@ func TestBuildWorkMapsASymlinkedSource(t *testing.T) {
 				t.Fatalf("main.go has no //line directive:\n%s", mainGo)
 			}
 			target := string(found[1])
-			targetInfo, err := os.Stat(target)
-			if err != nil || !filepath.IsAbs(target) || !os.SameFile(targetInfo, sourceInfo) {
+			targetInfo, err := os.Stat(filepath.Join(real, target))
+			if err != nil || filepath.IsAbs(target) || !os.SameFile(targetInfo, sourceInfo) {
 				t.Fatalf("//line names %s (%v), which is not the source %s", target, err, source)
 			}
 			if out, err := exec.Command(output).Output(); err != nil || string(out) != "ok\n" {
@@ -319,8 +318,8 @@ func TestBuildWorkMapsASymlinkedSource(t *testing.T) {
 
 // TestBuildWorkNamesTheCachedModule: build -work prints the executable on
 // stdout and exactly one WORK= line on stderr naming the published module
-// under $XDG_CACHE_HOME/ergo, whose //line directives name the admitted
-// source path. An unchanged build names the same module and rewrites none
+// under $XDG_CACHE_HOME/ergo, whose //line directives name the source
+// relative to its root. An unchanged build names the same module and rewrites none
 // of its files; an edit names another module and changes the executable's
 // behavior; a build without -work prints no WORK line; and only build
 // takes -work. Spec D7, #224.
@@ -356,7 +355,7 @@ func TestBuildWorkNamesTheCachedModule(t *testing.T) {
 	write("one")
 	cold := build("one\n")
 	mainGo, err := os.ReadFile(filepath.Join(cold, "main.go"))
-	if err != nil || !strings.Contains(string(mainGo), "//line "+source+":") {
+	if err != nil || !strings.Contains(string(mainGo), "//line main.ergo:") {
 		t.Fatalf("main.go of %s does not map to %s (%v)", cold, source, err)
 	}
 	before := moduleState(t, cold)

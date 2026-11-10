@@ -206,7 +206,7 @@ func originOf(obj types.Object) types.Object {
 func TestRuntime199BlockingOwner(t *testing.T) {
 	helpers := map[string]bool{
 		"Append": true, "Delete": true, "Put": true, "NewScope": true, "Site": true,
-		"RegisterCalls": true, "TextBool": true, "TextDuration": true,
+		"RegisterCalls": true, "RegisterCompactCalls": true, "TextBool": true, "TextDuration": true,
 		"TextInt": true, "TextUint": true, "TextFloat": true, "TextList": true,
 		"Main": true, "Println": true, "End": true,
 		// Unreachable's defect (defect.go): a panic value, no wait.

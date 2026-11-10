@@ -76,6 +76,7 @@ func (l *lowerer) nameAll() {
 	l.pkgName(pkgKey{"is", nil}, "ergoIs")
 	l.pkgName(pkgKey{"call", nil}, "ergoCall")
 	l.pkgName(pkgKey{"calls", nil}, "ergoCalls")
+	l.pkgName(pkgKey{"callnames", nil}, "ergoCallNames")
 	l.pkgName(pkgKey{"decl", nil}, "ergoDecl")
 	l.pkgName(pkgKey{"decls", nil}, "ergoDecls")
 	l.pkgName(pkgKey{"init", nil}, "ergoInit")

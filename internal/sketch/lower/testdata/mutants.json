@@ -1668,6 +1668,33 @@
       "killers": [
         "lower:TestReachLowersNoUnreachableDeclaration"
       ]
+    },
+    {
+      "name": "bs6-abs-path",
+      "origin": "wf10 binsize BS6",
+      "file": "internal/sketch/lower/lower.go",
+      "from": "return filepath.ToSlash(rel)",
+      "to": "return path",
+      "rule": "binsize BS6: emitted modules do not depend on the checkout directory.",
+      "killers": ["lower:TestLoweringIsTheSameInAnyDirectory"]
+    },
+    {
+      "name": "bs6-file-index",
+      "origin": "wf10 binsize BS6",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "intern(l.srcs[c.src].path)",
+      "to": "intern(l.srcs[0].path)",
+      "rule": "binsize BS6: a compact call site names its own source file in a multi-file program.",
+      "killers": ["lower:TestDefectReportNamesErgoCallSites"]
+    },
+    {
+      "name": "bs6-site-column",
+      "origin": "wf10 binsize BS6",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "intern(l.srcs[c.src].path), c.line, c.column)",
+      "to": "intern(l.srcs[c.src].path), c.line, 0)",
+      "rule": "binsize BS6: compact call sites preserve the source column.",
+      "killers": ["lower:TestDefectReportNamesErgoCallSites"]
     }
   ]
 }

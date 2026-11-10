@@ -145,6 +145,33 @@
         "runtime/v1:TestTasksLaws",
         "runtime/v1:TestManualClockModel"
       ]
+    },
+    {
+      "name": "bs6-trim-off",
+      "origin": "wf10 binsize BS6",
+      "file": "runtime/v1/exit.go",
+      "from": "loc = strings.TrimPrefix(loc, ProgramModule+\"/\")",
+      "to": "loc = strings.TrimPrefix(loc, \"not-the-program/\")",
+      "rule": "binsize BS6: trimmed Go frames match module-relative source names.",
+      "killers": ["runtime/v1:TestDefectReportReadsTrimmedFrames"]
+    },
+    {
+      "name": "bs6-site-wide",
+      "origin": "wf10 binsize BS6",
+      "file": "runtime/v1/exit.go",
+      "from": "Func, Callee, File uint32\n\tLine, Column       uint32",
+      "to": "Func, Callee, File uint32\n\tLine, Column       uint32\n\tunused [8]byte",
+      "rule": "binsize BS6: a call site uses at most 24 bytes.",
+      "killers": ["runtime/v1:TestCompactCallsAgree"]
+    },
+    {
+      "name": "bs6-decode-file",
+      "origin": "wf10 binsize BS6",
+      "file": "runtime/v1/exit.go",
+      "from": "File: callNames[c.File]",
+      "to": "File: callNames[c.Func]",
+      "rule": "binsize BS6: the report decodes each compact site's file index, not its function index.",
+      "killers": ["runtime/v1:TestCompactCallsAgree"]
     }
   ]
 }

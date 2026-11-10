@@ -70,8 +70,7 @@ type loadedFile struct {
 	// rel is the slash-separated path relative to the module root: the
 	// File of its diagnostics.
 	rel string
-	// abs is the admitted absolute path: //line directives and the build
-	// key name it.
+	// abs is the admitted absolute path, which the build key names.
 	abs  string
 	text string
 	// syntax is nil when the file does not parse.
