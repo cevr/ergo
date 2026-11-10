@@ -25,7 +25,7 @@
       "name": "rpc-mount-exact",
       "origin": "wf10 Rm (R1 rpc-m4, moved into Answer)",
       "file": "internal/sketch/std/rpc/rpc.ergo",
-      "from": "if r.Path != base && r.Path != base + \"/\" {",
+      "from": "if r.Path != base && r.Path != base+\"/\" {",
       "to": "if r.Path != base {",
       "rule": "Answer answers the mount with a trailing slash, where Effect's RpcClient (and Call) posts.",
       "killers": ["rpcgen:TestRpcLoopbackAgrees"],

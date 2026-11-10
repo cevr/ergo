@@ -68,7 +68,7 @@ func Serve[R](l http.Listener, limits http.Limits, mount string, handle func(tag
 // call starts.
 func Answer[R](r http.Request, mount string, handle func(tag string, payload string) string fails Failed needs R) http.Response needs R | http.Streaming {
 	let base = strings.TrimSuffix(mount, "/")
-	if r.Path != base && r.Path != base + "/" {
+	if r.Path != base && r.Path != base+"/" {
 		return refusal(404, "rpc: no RPC at \(r.Path)")
 	}
 	if r.Method != "POST" {
