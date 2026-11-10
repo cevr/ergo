@@ -158,7 +158,7 @@ func (l *lowerer) nameTests() {
 	for _, r := range l.runLaws() {
 		if law := r.Law; lawLowered(r) && law.Machine != nil && law.Decl.Reach != nil {
 			state := law.Machine.Type.(*check.Named).Underlying().(*check.MachineType).State
-			if l.keyWhy(state, map[string]bool{}) == "" {
+			if l.keyWhy(state) == "" {
 				l.keyTypes(state, map[string]bool{}, func(t check.Type) {
 					key, base, _ := l.keyName(t)
 					l.pkgName(key, base)

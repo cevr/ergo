@@ -6,6 +6,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/sketch/testplan"
 )
 
 // Machine laws (MU6, X1; types.md, Laws 13). A law with a body in a
@@ -183,7 +184,7 @@ func (l *lowerer) reachRuns(b *strings.Builder, law *check.Law, scope *namer, en
 	showE := "func(" + e + " " + signal + ") string { return " + l.litExpr(md.signal, e, site) + " }"
 
 	// The key of the state, or why it has none.
-	key, keyless := "nil", l.keyWhy(md.state, map[string]bool{})
+	key, keyless := "nil", l.keyWhy(md.state)
 	if keyless == "" {
 		k := inner.alloc("k")
 		key = "func(" + k + " *" + l.helper("explore") + ".Key, " + s + " " + state + ") { " + l.keyStmt(md.state, k, s, site) + " }"
@@ -277,71 +278,13 @@ func (l *lowerer) importAs(path string) (string, bool) {
 // by its bits, so 0 and -0 are apart and a NaN is one state (batch-15 X1
 // M1: a merge of states a step can tell apart is a false proof). A type that
 // holds a function, an operation type's value, a Go type or a runtime
-// handle has no key: its law runs over generated runs and says why.
+// handle has no key: its law runs over generated runs and says why. The
+// rule and the basic encodings are testplan's (encoding.go), which
+// check-time evaluation reads too (L7 EV4).
 
 // keyWhy is why values of t have no key, or "" when they have one.
-func (l *lowerer) keyWhy(t check.Type, seen map[string]bool) string {
-	switch u := t.(type) {
-	case *check.Basic:
-		return ""
-	case *check.Slice:
-		return l.keyWhy(u.Elem, seen)
-	case *check.Map:
-		if why := l.keyWhy(u.Key, seen); why != "" {
-			return why
-		}
-		return l.keyWhy(u.Elem, seen)
-	case *check.Tuple:
-		for _, e := range u.Types {
-			if why := l.keyWhy(e, seen); why != "" {
-				return why
-			}
-		}
-		return ""
-	case *check.Union:
-		if u.Row == nil {
-			for _, v := range u.Variants {
-				if why := l.keyWhy(v, seen); why != "" {
-					return why
-				}
-			}
-			return ""
-		}
-	case *check.Named:
-		k := l.typeKey(t)
-		if seen[k] {
-			return ""
-		}
-		seen[k] = true
-		if _, ok := check.GoRefElem(u); ok || u.Obj.Decl == nil || u.Obj.Pkg == nil || u.Obj.Pkg.Host() || check.IsGoError(u) {
-			return l.ergoType(t) + " is a Go type"
-		}
-		if isOps(u) {
-			return l.ergoType(t) + " is an operation type"
-		}
-		if l.isRuntimeType(u, nil) {
-			return l.ergoType(t) + " is a runtime handle"
-		}
-		switch under := u.Underlying().(type) {
-		case *check.Struct:
-			for _, f := range under.Fields {
-				if why := l.keyWhy(f.Type, seen); why != "" {
-					return why
-				}
-			}
-			return ""
-		case *check.Union:
-			for _, v := range under.Variants {
-				if why := l.keyWhy(v, seen); why != "" {
-					return why
-				}
-			}
-			return ""
-		case *check.Basic, *check.Slice, *check.Map, *check.Tuple:
-			return l.keyWhy(under, seen)
-		}
-	}
-	return l.ergoType(t) + " holds a value with no key"
+func (l *lowerer) keyWhy(t check.Type) string {
+	return testplan.KeyWhy(t, func(n *check.Named) bool { return l.isRuntimeType(n, nil) }, l.ergoType)
 }
 
 // keyName is the package-scope key of the key function of t and its
@@ -408,18 +351,18 @@ func (l *lowerer) keyTypes(t check.Type, seen map[string]bool, visit func(check.
 // the *explore.Key k.
 func (l *lowerer) keyStmt(t check.Type, k, val string, site syntax.Node) string {
 	if b, ok := t.(*check.Basic); ok {
-		switch {
-		case b.Kind == check.Bool:
+		switch testplan.ScalarOf(b.Kind) {
+		case testplan.ScalarBool:
 			return k + ".Bool(" + val + ")"
-		case b.Kind == check.String:
+		case testplan.ScalarString:
 			return k + ".String(" + val + ")"
-		case b.Kind == check.Duration, b.Kind >= check.Int && b.Kind <= check.Int64:
+		case testplan.ScalarInt:
 			return k + ".Int(int64(" + val + "))"
-		case b.Kind >= check.Uint && b.Kind <= check.Uintptr:
+		case testplan.ScalarUint:
 			return k + ".Uint(uint64(" + val + "))"
-		case b.Kind == check.Float32, b.Kind == check.Float64:
+		case testplan.ScalarFloat:
 			return k + ".Float(float64(" + val + "))"
-		case b.Kind == check.Complex64, b.Kind == check.Complex128:
+		case testplan.ScalarComplex:
 			return k + ".Complex(complex128(" + val + "))"
 		}
 		ice(site, "a state of type %s, which has no key", t)
