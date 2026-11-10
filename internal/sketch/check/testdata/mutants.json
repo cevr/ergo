@@ -2194,6 +2194,51 @@
       "killers": [
         "check:TestArrayOwnership"
       ]
+    },
+    {
+      "name": "c4-script-borrow-admitted",
+      "origin": "wf10 L8 C4 (#197; batch-15 fix-r2 Script note)",
+      "file": "internal/sketch/check/script.go",
+      "from": "\t\t\tcase *Pointer:\n",
+      "to": "\t\t\tcase *Map:\n",
+      "rule": "stdlib.md Testing 7: a Script's record of calls keeps each argument past the call, so an operation that takes a borrow (*T) makes no Script.",
+      "killers": [
+        "check:TestScriptDiagnostics"
+      ]
+    },
+    {
+      "name": "c4-script-resource-admitted",
+      "origin": "wf10 L8 C4 (#197; batch-15 fix-r2 Script note)",
+      "file": "internal/sketch/check/script.go",
+      "from": "\t\t\tif c.holdsResource(p.Type) {",
+      "to": "\t\t\tif false && c.holdsResource(p.Type) {",
+      "rule": "stdlib.md Testing 7, resources Lending: an operation that takes a value holding a resource makes no Script; the record would be a second owner.",
+      "killers": [
+        "check:TestScriptDiagnostics"
+      ]
+    },
+    {
+      "name": "c4-script-site-unrecorded",
+      "origin": "wf10 L8 C4 (#197)",
+      "file": "internal/sketch/check/script.go",
+      "from": "\t\tc.scriptSites = append(c.scriptSites, resourceSite{file: c.cur, at: at, t: s})",
+      "to": "\t\t_ = resourceSite{file: c.cur, at: at, t: s}",
+      "rule": "stdlib.md Testing 7: every admitted Script's capability reaches the late resource pass.",
+      "killers": [
+        "check:TestScriptDiagnostics"
+      ]
+    },
+    {
+      "name": "c4-script-kept-early",
+      "origin": "wf10 L8 C4 (#197)",
+      "file": "internal/sketch/check/script.go",
+      "from": "\t\tc.scriptSites = append(c.scriptSites, resourceSite{file: c.cur, at: at, t: s})",
+      "to": "\t\tif why := c.scriptKept(s); why != \"\" {\n\t\t\tc.errorf(at, CodeType, \"testing.Script[%s]: %s (stdlib.md, Testing 7)\", s, why)\n\t\t}",
+      "rule": "stdlib.md Testing 7: the resource argument is decided in the late pass, after closeFacts, as the map key and takes sites are (resource.go).",
+      "killers": [
+        "check:TestScriptDiagnostics"
+      ],
+      "gap": "survives (C4 mutants-2.log): a Close declared after the Script is already known when the type argument is checked, and an exported Close writes its row, so no program found tells the two passes apart; the late pass keeps the one timing of every resource-type site"
     }
   ]
 }

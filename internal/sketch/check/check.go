@@ -190,6 +190,10 @@ type checker struct {
 	resourceSites []resourceSite
 	takesSeen     map[*syntax.TakesClause]bool
 	mapKeysSeen   map[syntax.Expr]bool
+	// scriptSites are the written capabilities of the admitted Scripts,
+	// whose resource arguments the late pass decides (script.go, rule 1).
+	scriptSites []resourceSite
+	scriptsSeen map[syntax.Node]bool
 	// typeNodes are the expressions checked as types (a conversion's
 	// callee, a composite literal's type): the Task use rule skips them.
 	typeNodes map[syntax.Expr]bool
