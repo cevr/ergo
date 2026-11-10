@@ -113,8 +113,8 @@
       "name": "http-serve-row",
       "origin": "wf10 G1",
       "file": "internal/sketch/std/http/http.ergo",
-      "from": "func Serve[R](l Listener, limits Limits, handle func(Request) Response needs R) fails InvalidLimits needs R",
-      "to": "func Serve[R](l Listener, limits Limits, handle func(Request) Response needs R) fails InvalidLimits",
+      "from": "func Serve[R](l Listener, limits Limits, handle func(Request) Response needs R | Streaming) fails InvalidLimits needs R",
+      "to": "func Serve[R](l Listener, limits Limits, handle func(Request) Response needs R | Streaming) fails InvalidLimits",
       "rule": "The function handler's capability row reaches the serving caller.",
       "killers": ["lower:TestHTTPHandlerRows"]
     },
@@ -610,8 +610,8 @@
       "name": "existing-26-verify-impure-step-nil-env",
       "origin": "lower-v1/verify-s4b/mutants-verify.json",
       "file": "internal/sketch/lower/machine.go",
-      "from": "\"(\" + env + \", \" + s + \", \" + e + \")\\n}\\n\\n\")",
-      "to": "\"(nil, \" + s + \", \" + e + \")\\n}\\n\\n\")",
+      "from": "call([]string{env})",
+      "to": "call([]string{\"nil\"})",
       "rule": "machinePlan: machinePlan writes the plan of the machine td and records its initial value for the initializer.",
       "killers": [
         "lower:TestMachinePlanValues"
@@ -1472,8 +1472,8 @@
       "name": "t5-9-eq-ne-canon.go:281",
       "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 1)",
       "file": "internal/sketch/lower/canon.go",
-      "from": "\t\tif p.Type.Obj.Decl == nil {",
-      "to": "\t\tif p.Type.Obj.Decl != nil {",
+      "from": "\tif p.Type.Obj.Decl == nil {",
+      "to": "\tif p.Type.Obj.Decl != nil {",
       "rule": "lawProviders: lawProviders are law's providers in canonical order: by the source file and offset of each provider's declaration name.",
       "killers": [],
       "gap": "survives at the T5 base too (cb1f7522): no kept or deleted test kills it (T5 base.log); a gap of the suite, not a loss of the cut"
@@ -1493,8 +1493,8 @@
       "name": "t5-11-negate-if-expr.go:388",
       "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 1)",
       "file": "internal/sketch/lower/expr.go",
-      "from": "\t\t\t\tcase *check.Var:\n\t\t\t\t\tif o.Name == x.Sel.Name {\n\t\t\t\t\t\t// An imported package's let, lowered with the",
-      "to": "\t\t\t\tcase *check.Var:\n\t\t\t\t\tif !(o.Name == x.Sel.Name) {\n\t\t\t\t\t\t// An imported package's let, lowered with the",
+      "from": "\t\t\t\t\tif o.Name == x.Sel.Name {\n\t\t\t\t\t\t// An imported package's let, lowered with the",
+      "to": "\t\t\t\t\tif !(o.Name == x.Sel.Name) {\n\t\t\t\t\t\t// An imported package's let, lowered with the",
       "rule": "selector: selector lowers x.f: a record's field, or a package's declaration.",
       "killers": [
         "lower:TestLowerPackages"
@@ -1674,8 +1674,8 @@
       "name": "t5-28-eq-ne-values.go:1142",
       "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
       "file": "internal/sketch/lower/values.go",
-      "from": "\t\treturn w.frameOfReturn(p) == o.frame",
-      "to": "\t\treturn w.frameOfReturn(p) != o.frame",
+      "from": "\t\tif o.frame.node != nil && w.frameOfReturn(p) == o.frame {",
+      "to": "\t\tif o.frame.node != nil && w.frameOfReturn(p) != o.frame {",
       "rule": "isReturn: isReturn reports whether the use o is the value its frame returns.",
       "killers": [],
       "gap": "survives at the T5 base too (cb1f7522): no kept or deleted test kills it (T5 base.log); a gap of the suite, not a loss of the cut"
@@ -1805,8 +1805,8 @@
       "name": "l11-l1",
       "origin": "wf10 v1-lang-B L11",
       "file": "internal/sketch/lower/wire.go",
-      "from": "b.WriteString(\"if !\" + seen[i] + \" {\\nreturn \"",
-      "to": "b.WriteString(\"if false && !\" + seen[i] + \" {\\nreturn \"",
+      "from": "b.WriteString(\"if !\" + seen[i] + \" {\\n\" + missing + \"}\\n\")",
+      "to": "b.WriteString(\"if false && !\" + seen[i] + \" {\\n\" + missing + \"}\\n\")",
       "rule": "types.md, Codecs 3: a field the object lacks fails WireMissingField.",
       "killers": [
         "lower:TestStdCodecLawsRun"
@@ -1827,8 +1827,8 @@
       "name": "l11-l3",
       "origin": "wf10 v1-lang-B L11",
       "file": "internal/sketch/lower/wire.go",
-      "from": "\t\t\tb.WriteString(w + \".Tag(\" + task + \", \" + strconv.Quote(vn.Obj.Name) + \")\\n\")",
-      "to": "\t\t\t_ = vn",
+      "from": "\t\t\tb.WriteString(em.tag(vn.Obj.Name, task, w))",
+      "to": "\t\t\tb.WriteString(\"\")",
       "rule": "types.md, Codecs 2: a union value writes its variant's Tag first.",
       "killers": [
         "lower:TestStdCodecLawsRun"
@@ -1849,11 +1849,11 @@
       "name": "l11-l5",
       "origin": "wf10 v1-lang-B L11",
       "file": "internal/sketch/check/wirecall.go",
-      "from": "\treturn string(name[0]-'A'+'a') + name[1:]",
-      "to": "\treturn name",
+      "from": "\treturn string(b)\n}",
+      "to": "\treturn name\n}",
       "rule": "types.md, Codecs 2: a field's key is its name with the first letter lowered (Effect's Schema.Option value).",
       "killers": [
-        "examples:deploys"
+        "check:TestWireKeysFollowTheRule"
       ]
     },
     {
