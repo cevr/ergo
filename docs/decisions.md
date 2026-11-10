@@ -4,6 +4,12 @@ This file is the dated log of the owner's decisions for Ergo, newest first. A de
 
 ## Owner direction, 2026-11-10
 
+- **A checked call beside the provider (2026-11-10, q90).** Asked where the int rule's typed failure surfaces, since the generated client's operation functions have the operation type's own row, the owner chose both: "defect at the provider (as built) PLUS a checked function per operation in the generated client whose row adds the rpc failures (e.g. TakeChecked ... fails Limited | UnknownBucket | rpc.Unrepresentable | rpc.Transport)". Decided:
+  - `ergo gen rpc` writes `<Op>Checked` per operation: the operation's row, then `rpc.Unrepresentable` when the operation carries an int, then `rpc.Transport` (a lost server, a refused call, an answer that is not the contract's). The providing `<Op>` is the checked call with those two raised as defects, so one generated path writes the call ([rpc.md](spec/rpc.md#ergo-gen-rpc)).
+  - A defect of the server's provider stays a defect in both forms. A refused int's `Die` carries its path and value, so a client reads it back typed.
+
+  Principles: explicit contracts (a caller that can name the wire's failures gets them in its row; the operation type's row stays the contract's). Prior art: Effect's `RpcClient` puts `RpcClientError` in every call's error channel, since a TypeScript Effect has no second signature; gRPC's stubs return a status per call; Elixir's `:erpc.call` raises on a dead node and `:erpc.receive_response` returns it.
+
 - **Effect RPC as a wire projection, not a target (2026-11-10, q73-q75).** Asked whether Ergo services should be callable from TypeScript at work, the owner put RPC into v1, right after the codecs (q73), chose Effect RPC alone for now, no tRPC (q74), and for the TypeScript side chose a TypeScript 7.1 content mapper first (q75: "Mapper first"). Decided:
   - Ergo speaks Effect RPC's HTTP protocol (json and ndjson) natively, in std `rpc` ([rpc.md](spec/rpc.md)); a stock `RpcClient` calls an Ergo server with no adapter. `ergo gen rpc` writes a contract's Ergo server and Ergo client from the operation type, so the client provides the type and its laws run against a remote provider.
   - Go stays the only target (2026-10-26). TypeScript is a peer on the wire: no Ergo source lowers to JavaScript, and no `ergo build`, `check` or `test` starts Node, Bun, a TypeScript checker or the mapper. The TypeScript view of a contract is a projection of its checked types, which the mapper (R3') serves; `ergo gen ts` is the unscheduled fallback.
