@@ -2,11 +2,20 @@
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
+      "name": "http-imports-fstest",
+      "origin": "wf10 G1f r2",
+      "file": "internal/sketch/std/http/laws.ergo",
+      "from": "import fs",
+      "to": "import fs\nimport fstest\nfunc unexpectedTestDependency() fstest.Tree { fstest.NewTree([]fstest.Node{}) }",
+      "rule": "A production http import does not depend on fstest, even through law helpers.",
+      "killers": ["lower:TestHTTPHasNoTestProviderDependency"]
+    },
+    {
       "name": "root-host-joins",
       "origin": "wf10 G1f",
       "file": "runtime/v1/host.go",
       "from": "data, err := root.ReadFile(path)",
-      "to": "data, err := os.ReadFile(filepath.Join(r.dir, path))",
+      "to": "data, err := os.ReadFile(filepath.Join(r.root.Name(), path))",
       "rule": "HostRoot reads through os.Root, so a link or a .. never leads outside the root.",
       "killers": ["lower:TestFSRootTreeAgreesWithHost"]
     },

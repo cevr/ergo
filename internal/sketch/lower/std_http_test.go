@@ -38,6 +38,33 @@ func direct() http.Response {
 	typecheckGo(t, []*lowered{o})
 }
 
+// TestHTTPHasNoTestProviderDependency catches a law-only import retaining
+// fstest in a production HTTP program. Functional HTTP tests import fstest
+// on purpose and cannot catch this dependency regression.
+func TestHTTPHasNoTestProviderDependency(t *testing.T) {
+	pkg, err := check.Std.Import("http")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[*check.Package]bool{}
+	var visit func(*check.Package)
+	visit = func(p *check.Package) {
+		if seen[p] {
+			return
+		}
+		seen[p] = true
+		if p.Path == "fstest" {
+			t.Error("http imports fstest in a non-test build")
+		}
+		for _, obj := range p.Info.Uses {
+			if dep, ok := obj.(*check.PkgName); ok {
+				visit(dep.Pkg)
+			}
+		}
+	}
+	visit(pkg)
+}
+
 const stdHTTPLawsProbe = `import fs
 import fstest
 import http
@@ -196,4 +223,4 @@ func TestStdHTTPLawsRun(t *testing.T) {
 	lawledger.Run(t, lawsPassed(t, statements, lawLabel, stdHTTPLawsProbe, stdout, "RouterRefusalsAndHead", "HandlerUnderManual", "FilesAnswersByTheRule"))
 }
 
-const httpFilesStatement = `FilesAsksBeneath(steps []int, prefixed bool) { let mut rest = "" let mut dotdot = false for i, s in steps { let e = fileSegment(s) dotdot = dotdot || e == ".." rest = if i == 0 { e } else { rest + "/" + e } } let path = if prefixed { "/static/" + rest } else { "/" + rest } let method = if len(steps)%2 == 0 { "GET" } else { "HEAD" } let root = fstest.NewRecorder(fstest.NewTree([]fstest.Node{ fstest.File{Path: "a.txt", Text: "A"}, fstest.File{Path: "sub/b.txt", Text: "B"}, fstest.Link{Path: "out", Target: "../outside"}, fstest.Link{Path: "in", Target: "sub"}, })) let response = Files(root, "/static/", Request{Method: method, Path: path, Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}) let asked = root.Paths() if len(asked) > 1 || (dotdot || !prefixed) && len(asked) != 0 { return false } for p in asked { if strings.HasPrefix(p, "/") { return false } for e in strings.Split(p, "/") { if e == "" || e == "." || e == ".." { return false } } } response.Status == 200 || response.Status == 403 || response.Status == 404 }`
+const httpFilesStatement = `FilesAsksBeneath(steps []int, prefixed bool) { let mut rest = "" let mut dotdot = false for i, s in steps { let e = fileSegment(s) dotdot = dotdot || e == ".." rest = if i == 0 { e } else { rest + "/" + e } } let path = if prefixed { "/static/" + rest } else { "/" + rest } let method = if len(steps)%2 == 0 { "GET" } else { "HEAD" } let root = filesProbe{paths: sync.NewRef[[]string]([]string{})} let response = Files(root, "/static/", Request{Method: method, Path: path, Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}) let asked = root.paths.Get() if len(asked) > 1 || (dotdot || !prefixed) && len(asked) != 0 { return false } for p in asked { if strings.HasPrefix(p, "/") { return false } for e in strings.Split(p, "/") { if e == "" || e == "." || e == ".." { return false } } } response.Status == 200 || response.Status == 403 || response.Status == 404 }`

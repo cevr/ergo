@@ -178,26 +178,34 @@ type Escapes struct{ Path string }
 // Error is the failure's text, as NotFound's is.
 func (e Escapes) Error() string { return "fs.Escapes{Path:" + e.Path + "}" }
 
-// HostRoot is fs.HostRoot, the host's fs.Root: the directory dir, as
-// FSOpenRoot was given it. It holds no descriptor between operations:
-// each one opens dir with os.OpenRoot, resolves path below it and closes
-// it, so no file stays open after a call returns. os.Root resolves every
+// HostRoot is fs.HostRoot, the host's fs.Root: the directory opened once
+// by FSOpenRoot, held until the acquiring frame ends. A rename or a
+// replacement of its original name never changes that directory.
+// os.Root resolves every
 // element with openat below the root's descriptor and reads each link
 // itself, so a path or a link that leads out is refused in the same host
 // operation that reads, never by a check before an ordinary read.
-type HostRoot struct{ dir string }
+type HostRoot struct{ root *os.Root }
 
-// FSOpenRoot is the body of fs.OpenRoot: the root at dir, after checking
-// that dir is a directory the process may open.
+// FSOpenRoot is the body of fs.OpenRoot. Acquisition and registration on
+// the caller's frame are one masked step. Until local resource tracking
+// (#197), the handle may be used only while this frame is alive.
 //
 //ergo:host
-func FSOpenRoot(dir string) (*HostRoot, error) {
-	r, err := os.OpenRoot(dir)
-	if err != nil {
-		return nil, fsErr(dir, err)
+func FSOpenRoot(s *Scope, dir string) (*HostRoot, error) {
+	s = s.current()
+	if s.ended {
+		panic("fs.OpenRoot: the acquiring frame has returned")
 	}
-	_ = r.Close()
-	return &HostRoot{dir: dir}, nil
+	return rt.AcquireInto(s.s.Task(), func() (*HostRoot, error) {
+		r, err := os.OpenRoot(dir)
+		if err != nil {
+			return nil, fsErr(dir, err)
+		}
+		return &HostRoot{root: r}, nil
+	}, func(r *HostRoot) {
+		OnExit(s, func() { _ = r.root.Close() })
+	})
 }
 
 // hostRooted marks the runtime's type as the one fs.HostRoot.
@@ -217,14 +225,9 @@ func rootErr(path string, err error) error {
 	return fsErr(path, err)
 }
 
-// in runs f on the open root, then closes it.
+// in runs f on the held root. Only the acquisition opens the directory.
 func (r *HostRoot) in(path string, f func(*os.Root) error) error {
-	root, err := os.OpenRoot(r.dir)
-	if err != nil {
-		return fsErr(path, err)
-	}
-	defer root.Close()
-	if err := f(root); err != nil {
+	if err := f(r.root); err != nil {
 		return rootErr(path, err)
 	}
 	return nil
