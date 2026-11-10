@@ -1,0 +1,112 @@
+// The scope laws of Raw and NoEcho, over a Script. The host's terminal
+// state is checked by the pty model TestTermModesRestore (lower).
+
+import io
+
+// failed is the failure a law's block raises to leave by a failure.
+type failed {}
+
+// RawRestores: after Raw ends, by a value or by a failure of its block,
+// the script holds no mode, and inside it holds RawMode alone.
+law RawRestores(fail bool) {
+	let s = NewScript([]Key{}, Window{Cols: 80, Rows: 24})
+	let mut inside = 0
+	let got = with context { Terminal: s } {
+		Raw() {
+			inside = len(s.Modes())
+			try failWhen(fail)
+		} catch {
+		case failed:
+			-1
+		case NotTerminal:
+			-2
+		}
+	}
+	inside == 1 && len(s.Modes()) == 0 && got == (if fail { -1 } else { 0 })
+}
+
+// NestedRestoresInOrder: a NoEcho inside a Raw holds both modes, the
+// outer first, and each block's end drops its own mode alone.
+law NestedRestoresInOrder() {
+	let s = NewScript([]Key{}, Window{Cols: 80, Rows: 24})
+	let mut seen = ""
+	with context { Terminal: s } {
+		Raw() {
+			try NoEcho() { seen = seen + names(s.Modes()) }
+			seen = seen + "|" + names(s.Modes())
+		} catch {
+		case NotTerminal:
+			seen = "not a terminal"
+		}
+	}
+	seen == "raw,noecho|raw" && len(s.Modes()) == 0
+}
+
+// ScriptPlaysKeys: a script's ReadKey gives its keys in order, then
+// EndOfInput.
+law ScriptPlaysKeys(texts []string) {
+	let mut keys []Key = []Key{}
+	for t in texts {
+		keys = keys.Append(Char{Text: t})
+	}
+	let s = NewScript(keys, Window{Cols: 1, Rows: 1})
+	let mut ok = true
+	with context { Terminal: s } {
+		for t in texts {
+			match Terminal.ReadKey() catch {
+			case io.ReadFailed:
+				EndOfInput
+			} {
+			case Char as c:
+				ok = ok && c.Text == t
+			case _:
+				ok = false
+			}
+		}
+		match Terminal.ReadKey() catch {
+		case io.ReadFailed:
+			Return
+		} {
+		case EndOfInput:
+			ok = ok
+		case _:
+			ok = false
+		}
+	}
+	ok
+}
+
+// DecodeNamesControls: a token that starts with a control byte is never a
+// Char, and a token that does not is a Char unless it is the delete byte.
+law DecodeNamesControls(token string) {
+	match Decode(token) {
+	case Char as c:
+		c.Text == token && token >= " " && token != "\x7f"
+	case _:
+		token < " " || token == "\x7f" || token == ""
+	}
+}
+
+// failWhen fails when fail is true and is 0 otherwise.
+func failWhen(fail bool) int fails failed {
+	if fail {
+		return failed
+	}
+	0
+}
+
+func names(modes []Mode) string {
+	let mut out = ""
+	for m in modes {
+		if out != "" {
+			out = out + ","
+		}
+		match m {
+		case RawMode:
+			out = out + "raw"
+		case NoEchoMode:
+			out = out + "noecho"
+		}
+	}
+	out
+}

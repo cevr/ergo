@@ -105,7 +105,7 @@ func Churn(ops int) int {
 }
 
 func main() fails os.Exit needs Console | Ambient {
-	with context { os.Process: os.NewHost(), io.Stdin: io.NewHost() } {
+	with context { os.Process: os.NewHost(), io.Stdin: io.NewStdin() } {
 		match try Parse(os.Process.Args()) {
 		case Lookup as q:
 			let table = memory.Parse(Ports) catch {

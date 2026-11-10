@@ -8,7 +8,7 @@ import io
 import todoshell/shell
 
 func main() needs Console | Ambient {
-	with context { io.Stdin: io.NewHost(), io.Stdout: io.NewHost() } {
+	with context { io.Stdin: io.NewStdin(), io.Stdout: io.NewHost() } {
 		let l = shell.Run()
 		Console.Println("bye: \(l.Open()) open of \(l.Count())")
 	}

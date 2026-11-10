@@ -388,11 +388,21 @@ var runtimeBindings = map[string]runtimeBinding{
 	// stream of the host process; none releases. A read of standard input
 	// waits on the caller's task (batch-12 C3, decision O15): a stop of that
 	// task ends the wait, and the line read after it stays for the next read.
-	"IOPrint":      {},
-	"IOEprint":     {},
-	"IOIsTerminal": {},
-	"IOReadAll":    {wait: callerWait},
-	"IOLines":      {wait: callerWait},
+	"IOPrint":            {},
+	"IOEprint":           {},
+	"IOIsTerminal":       {},
+	"IOReadAll":          {wait: callerWait},
+	"IOLines":            {wait: callerWait},
+	"IOStdinIsTerminal":  {},
+	"IOStderrIsTerminal": {},
+	// std term (CU2; stdlib.md, term): a mode change and a size read are
+	// one ioctl each; ReadKey waits on the caller's task through io's
+	// shared reader, as IOLines does.
+	"TermEnterRaw":    {},
+	"TermEnterNoEcho": {},
+	"TermLeave":       {},
+	"TermGetSize":     {},
+	"TermReadKey":     {wait: callerWait},
 	// std actor (MU3; runtime.md, Machines and actors 11): MachineSupervise
 	// (MachineStart with a restart budget, MU7)
 	// starts the actor's task as a child of the caller's task (a stop of

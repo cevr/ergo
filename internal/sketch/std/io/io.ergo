@@ -6,11 +6,12 @@
 // operations, Eprint and Eprintln, have names that Stdout does not have, so
 // a provider of one stream does not satisfy the other: binding the wrong
 // stream is a check error, not a write to the wrong place. Host is the
-// host's Stdout and Stdin provider and Errors its Stderr provider: each
-// has an unexported field, so only this package builds one (S114), and
-// NewHost and NewErrors need the prelude's Ambient, which only the entry
-// provides. So main binds
-// `context { io.Stdout: io.NewHost(), io.Stderr: io.NewErrors(), io.Stdin: io.NewHost() }`.
+// host's Stdout provider, Errors its Stderr provider and In its Stdin
+// provider: each has an unexported field, so only this package builds one
+// (S114), and NewHost, NewErrors and NewStdin need the prelude's Ambient,
+// which only the entry provides. Each answers IsTerminal for its own
+// stream. So main binds
+// `context { io.Stdout: io.NewHost(), io.Stderr: io.NewErrors(), io.Stdin: io.NewStdin() }`.
 // The externs are unexported. A test binds the recording providers
 // instead: Recorder for Stdout and Stderr, Input for Stdin.
 //
@@ -49,6 +50,8 @@ type Stderr {
 	Eprint(text string),
 	// Eprintln writes line and a line feed.
 	Eprintln(line string),
+	// IsTerminal reports whether standard error is a terminal.
+	IsTerminal() bool,
 }
 
 // Stdin reads the host's standard input.
@@ -64,18 +67,29 @@ type Stdin {
 	// use ReadAll to handle it.
 	// seq-exempt: Stdin is law-exempt (a read of the host takes what it reads), so no law over its own operations can drive Lines twice; Input's Lines carries the stop law (InputLinesStops).
 	Lines() Seq[string],
+	// IsTerminal reports whether standard input is a terminal, so a
+	// program may ask a person (std prompt) or must not.
+	IsTerminal() bool,
 }
 
-// Host is the host's Stdout and Stdin provider. Its field gives
-// this package the construction authority (types.md, Zero values 6).
+// Host is the host's Stdout provider. Its field gives this package the
+// construction authority (types.md, Zero values 6).
 type Host { live hostOnly }
 
 // hostOnly is the zero-size type of Host's field, so Host stays zero size.
 type hostOnly {}
 
-// NewHost is the host's provider of Stdout and Stdin. It needs Ambient:
-// only code whose row holds the authority to choose the host makes one.
+// NewHost is the host's provider of Stdout. It needs Ambient: only code
+// whose row holds the authority to choose the host makes one.
 func NewHost() Host needs Ambient { Host{live: hostOnly} }
+
+// In is the host's Stdin provider. It is a type of its own, not Host,
+// because each stream answers IsTerminal for itself: `prog < file` has a
+// terminal on standard output and a file on standard input.
+type In { live hostOnly }
+
+// NewStdin is the host's provider of Stdin. It needs Ambient.
+func NewStdin() In needs Ambient { In{live: hostOnly} }
 
 // Print writes text to standard output.
 func Print(_ Host, text string) { hostPrint(text) }
@@ -87,11 +101,14 @@ func Println(_ Host, line string) { hostPrint(line + "\n") }
 func IsTerminal(_ Host) bool { hostIsTerminal() }
 
 // ReadAll is the rest of standard input.
-func ReadAll(_ Host) string fails ReadFailed { try hostReadAll() }
+func ReadAll(_ In) string fails ReadFailed { try hostReadAll() }
 
 // Lines is the rest of standard input, one line at a time.
 // seq-exempt: it reads the host's standard input, which a law cannot generate or read twice; TestIOStdinRest (lower) holds a break on the host, and Input's Lines carries the stop law (InputLinesStops).
-func Lines(_ Host) Seq[string] { hostLines() }
+func Lines(_ In) Seq[string] { hostLines() }
+
+// IsTerminal reports whether standard input is a terminal.
+func IsTerminal(_ In) bool { hostStdinIsTerminal() }
 
 // Errors is the host's Stderr provider. It has no Print, so it is not a
 // Stdout provider, and Host has no Eprint, so it is not a Stderr provider.
@@ -99,6 +116,9 @@ type Errors { live hostOnly }
 
 // NewErrors is the host's Stderr provider. It needs Ambient.
 func NewErrors() Errors needs Ambient { Errors{live: hostOnly} }
+
+// IsTerminal reports whether standard error is a terminal.
+func IsTerminal(_ Errors) bool { hostStderrIsTerminal() }
 
 // Eprint writes text to standard error.
 func Eprint(_ Errors, text string) { hostEprint(text) }
@@ -147,6 +167,9 @@ type Input { Text string }
 // NewInput is the Input whose reads see text. It is io.Stdin's builder, so
 // a generated record that holds a Stdin reads an Input (check/builders.go).
 func NewInput(text string) Input { Input{Text: text} }
+
+// IsTerminal is false: an Input is not a terminal.
+func IsTerminal(_ Input) bool { false }
 
 // ReadAll is input.Text.
 func ReadAll(input Input) string fails ReadFailed { input.Text }
@@ -231,5 +254,7 @@ law InputLinesStops(s string) {
 extern go ergo.local/prototype/runtime/v1.IOPrint func hostPrint(text string)
 extern go ergo.local/prototype/runtime/v1.IOEprint func hostEprint(text string)
 extern go ergo.local/prototype/runtime/v1.IOIsTerminal func hostIsTerminal() bool
+extern go ergo.local/prototype/runtime/v1.IOStdinIsTerminal func hostStdinIsTerminal() bool
+extern go ergo.local/prototype/runtime/v1.IOStderrIsTerminal func hostStderrIsTerminal() bool
 extern go ergo.local/prototype/runtime/v1.IOReadAll func hostReadAll() string fails ReadFailed
 extern go ergo.local/prototype/runtime/v1.IOLines func hostLines() Seq[string]

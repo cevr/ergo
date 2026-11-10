@@ -688,6 +688,10 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `io` | `InputLinesStops` | `InputLinesStops(s string) { let lines = Input{Text: s}.Lines() let mut n = 0 lines(func(line string) bool { n = n + 1 true }) for k in 1..n+2 { let mut calls = 0 lines(func(line string) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }` | `TestIOLaws` | tested |
 | `io` | `LinesSplitInput` | `LinesSplitInput(s string) { let mut joined = "" let mut first = true let input = Input{Text: s} for line in input.Lines() { if !first { joined = joined + "\n" } joined = joined + line first = false } if strings.HasSuffix(s, "\n") { joined = joined + "\n" } joined == s }` | `TestIOLaws` | tested |
 | `io` | `PrintsConcatenate` | `PrintsConcatenate(a string, b string) { let r = NewRecorder() r.Print(a) r.Eprint(b) r.Print(b) r.Text() == a+b+b }` | `TestIOLaws` | tested |
+| `term` | `DecodeNamesControls` | `DecodeNamesControls(token string) { match Decode(token) { case Char as c: c.Text == token && token >= " " && token != "\x7f" case _: token < " " \|\| token == "\x7f" \|\| token == "" } }` | `TestTermLaws` | tested |
+| `term` | `NestedRestoresInOrder` | `NestedRestoresInOrder() { let s = NewScript([]Key{}, Window{Cols: 80, Rows: 24}) let mut seen = "" with context { Terminal: s } { Raw() { try NoEcho() { seen = seen + names(s.Modes()) } seen = seen + "\|" + names(s.Modes()) } catch { case NotTerminal: seen = "not a terminal" } } seen == "raw,noecho\|raw" && len(s.Modes()) == 0 }` | `TestTermLaws` | tested |
+| `term` | `RawRestores` | `RawRestores(fail bool) { let s = NewScript([]Key{}, Window{Cols: 80, Rows: 24}) let mut inside = 0 let got = with context { Terminal: s } { Raw() { inside = len(s.Modes()) try failWhen(fail) } catch { case failed: -1 case NotTerminal: -2 } } inside == 1 && len(s.Modes()) == 0 && got == (if fail { -1 } else { 0 }) }` | `TestTermLaws` | tested |
+| `term` | `ScriptPlaysKeys` | `ScriptPlaysKeys(texts []string) { let mut keys []Key = []Key{} for t in texts { keys = keys.Append(Char{Text: t}) } let s = NewScript(keys, Window{Cols: 1, Rows: 1}) let mut ok = true with context { Terminal: s } { for t in texts { match Terminal.ReadKey() catch { case io.ReadFailed: EndOfInput } { case Char as c: ok = ok && c.Text == t case _: ok = false } } match Terminal.ReadKey() catch { case io.ReadFailed: Return } { case EndOfInput: ok = ok case _: ok = false } } ok }` | `TestTermLaws` | tested |
 | `journal` | `Codec.RoundTrips` | `RoundTrips(v T) { let text = Encode(v) let back = Decode(text) catch { case Failed: return false } Encode(back) == text }` | `TestStdJournalLawsRun` | tested |
 | `journal` | `Journal.AppendAddsOne` | `AppendAddsOne(e E) { let before = Load() catch { case Failed: return true } Append(e) catch { case Failed: return true } let after = Load() catch { case Failed: return false } len(after.Signals) == len(before.Signals)+1 && same(after.Snapshot, before.Snapshot) }` | `TestStdJournalLawsRun` | tested |
 | `journal` | `Journal.SnapshotDropsSignals` | `SnapshotDropsSignals(s S) { Snapshot(s) catch { case Failed: return true } let after = Load() catch { case Failed: return false } len(after.Signals) == 0 && same(after.Snapshot, Some[S]{Value: s}) }` | `TestStdJournalLawsRun` | tested |
@@ -891,6 +895,7 @@ The table has one row per std package, the prelude included. The Effect module i
 | `fs` | `FileSystem.ts` | W4, W5, W6, W14 | the operation types `Files` and `Writes` with laws, `NotFound \| Denied \| Failed` in the row, host authority, and a file mode as the record `Mode` of the union `Access`, not an octal number ([Host packages](#host-packages); [rows.md, Capability rows](rows.md#capability-rows); [types.md, Unions](types.md#unions)) | none: each operation is one call of a `runtime/v1` body over Go's `os`; no benchmark yet |
 | `fstest` | `FileSystem.ts` (`layerNoop` and test layers) | W4, W5, W6, W14 | a provider of the operation types `fs.Files` and `fs.Writes`, bound by `context` as `fs.Host` is, with the same laws; its tree in a `sync.Ref`; the failures of fs's row; the place of a path a union matched exhaustively ([fs](#fs) 17 to 19; [rows.md, Capability rows](rows.md#capability-rows); [types.md, Unions](types.md#unions)) | none: a test provider; each operation is one `sync.Modify` over a `Map`, with no host call |
 | `hex` | `Encoding.ts` | W5, W14 | pure functions over byte strings; `Malformed` with the offset of the first bad byte in the row, where Effect's `decodeHex` returns an `Either` ([Encodings and digests](#encodings-and-digests) 1; [rows.md, Catch](rows.md#catch)) | `runtime/v1.BenchmarkDigest` (`HexEncode` against Go's `EncodeToString`): pending in `wf10/batch-12/G/bench-pending.md` (expected equal but the string-to-bytes copy) |
+| `term` | `Terminal.ts` | W4, W6, W11, W14 | the operation type `Terminal`, the union `Key` matched exhaustively, and the block forms `Raw` and `NoEcho`, which restore on every exit through `scope.OnExit` ([term](#term)) | none: a mode change is one ioctl, as x/term's `MakeRaw`; no benchmark |
 | `io` | `Stdio.ts`, `Terminal.ts` | W4, W14 | the operation types `Stdout`, `Stderr` and `Stdin`, with recording providers that carry the laws ([io](#io); [rows.md, Capability rows](rows.md#capability-rows)) | `runtime/v1.BenchmarkIOPrint`: 1.26 ms against `fmt.Fprint` 1.56 ms and a `bufio.Writer` 0.07 ms (run dir `wf10/batch-10/s1/s1b/bench-head.txt`); S4c buffers; `runtime/v1.BenchmarkIOLines`: 0.61 ms against `bufio.Scanner` 0.60 ms, load 20 (run dir `wf10/batch-10/s1/s1b/r2/bench-lines.txt`) |
 | `journal` | effect-machine `lifecycle.recovery`, `durability.save` and the cluster journal (outside `packages/effect/src`; no module of the pin persists a machine) | W4, W5, W7, W14 | the operation types `Journal` and `Codec` with laws, `journal.Start` over a machine whose pure step the checker holds (S108), `Failed \| Diverged` in the row ([runtime.md, Machines and actors](runtime.md#machines-and-actors) 17) | none: `Start` adds one call of the save per commit to `actor.StartMachine`'s step; the save is the provider's; no benchmark yet |
 | `journal/file` | `KeyValueStore.ts` (`layerFileSystem`) | W4, W7 | a `journal.Journal` provider over an `fs.Host` that the entry makes, each write a whole-file replace ([runtime.md, Machines and actors](runtime.md#machines-and-actors) 17) | none: each `Append` rewrites the file (no append in std `fs` yet); snapshots keep it short; no benchmark yet |
@@ -1214,33 +1219,75 @@ func echo() needs io.Stdout | io.Stderr | io.Stdin {
 }
 
 func main() needs Ambient {
-	with context { io.Stdout: io.NewHost(), io.Stderr: io.NewErrors(), io.Stdin: io.NewHost() } { echo() }
+	with context { io.Stdout: io.NewHost(), io.Stderr: io.NewErrors(), io.Stdin: io.NewStdin() } { echo() }
 }
 ```
 
 | Declaration | Meaning |
 | --- | --- |
 | `type Stdout { Print(text string), Println(line string), IsTerminal() bool }` | Standard output. |
-| `type Stderr { Eprint(text string), Eprintln(line string) }` | Standard error. |
-| `type Stdin { ReadAll() string fails ReadFailed, Lines() Seq[string] }` | Standard input. |
+| `type Stderr { Eprint(text string), Eprintln(line string), IsTerminal() bool }` | Standard error. |
+| `type Stdin { ReadAll() string fails ReadFailed, Lines() Seq[string], IsTerminal() bool }` | Standard input. |
 | `type ReadFailed { Reason string }` | The failure of a read. |
-| `type Host { live hostOnly }`; `func NewHost() Host needs Ambient` | The host's `Stdout` and `Stdin` provider. |
+| `type Host { live hostOnly }`; `func NewHost() Host needs Ambient` | The host's `Stdout` provider. |
+| `type In { live hostOnly }`; `func NewStdin() In needs Ambient` | The host's `Stdin` provider. |
 | `type Errors { live hostOnly }`; `func NewErrors() Errors needs Ambient` | The host's `Stderr` provider. |
 | `type Recorder`; `func NewRecorder() Recorder`; `Print`, `Println`, `Eprint`, `Eprintln`, `IsTerminal` (false), `Text() string` | A `Stdout` and `Stderr` provider for tests that keeps what is written to both, in order. |
-| `type Input { Text string }`; `func NewInput(text string) Input`; `ReadAll`, `Lines` | A `Stdin` provider for tests. `NewInput` is `Stdin`'s builder: a generated record that holds a `Stdin` reads an `Input` ([runtime.md](runtime.md), Tests 6, Capabilities). |
+| `type Input { Text string }`; `func NewInput(text string) Input`; `ReadAll`, `Lines`, `IsTerminal` (false) | A `Stdin` provider for tests. `NewInput` is `Stdin`'s builder: a generated record that holds a `Stdin` reads an `Input` ([runtime.md](runtime.md), Tests 6, Capabilities). |
 | `law PrintsConcatenate(a string, b string)`, `law LinesSplitInput(s string)` | The laws of the recording providers ([Std laws](#std-laws)). |
 
 1. `Print` and `Eprint` write their text as it is; `Println` and `Eprintln` write the line and a line feed in one write. Each write is one unbuffered `WriteString`, as `Console.Println` is, so writes of `Console` and of `io.Stdout` appear in program order.
 2. `Lines` gives each line without its line feed. A last line with no line feed is a line, an empty input has no lines, and a carriage return stays in its line, so the lines joined by line feeds, plus the final line feed if any, are the input (`LinesSplitInput`). A line has no length limit. A `Seq` has no failure row, so a read failure inside `Lines` is a defect; `ReadAll` returns it as `ReadFailed`. A `break` stops the read; the rest of the input stays unread. Every `Stdin` operation of `Host` reads through one buffered reader of the process, so the next `Lines` or `ReadAll` starts at the line after the break (`TestIOStdinRest`, `TestIOStdinShared`).
 3. A read of standard input is an interruption point of the reading task (batch 12 C3; [decisions.md](../decisions.md), 2026-11-08, O15). A stop of the task that waits in `Lines` or `ReadAll` of `Host` ends the wait and raises the interruption; no input is lost. One read of the host's input runs at a time, on a goroutine of its own, and the line it lands after the stop stays for the next `Lines` or `ReadAll`. A `ReadAll` that a stop ends puts back what it had read. A masked task's read runs to its end. So rule 2's "the next `Lines` starts at the line after the break" holds after a stop too (`TestIOStdinStopModel`, runtime/v1; lower `TestStdinStopRuns`). The task is the iterating task for `Lines` (Hidden arguments, rule 5), and each body has one `runtimeBindings` row that waits on it. A read of a file is still an uninterruptible host wait.
-4. `IsTerminal` reports whether standard output is a character device (Go's `os.ModeCharDevice`).
-5. The Go bodies are `v1.IOPrint`, `v1.IOEprint`, `v1.IOIsTerminal`, `v1.IOReadAll` and `v1.IOLines` (host.go). `ReadFailed` is the `runtime/v1` struct `v1.ReadFailed` (Types 4); its name is not `Failed` because `v1.Failed` is `fs.Failed`.
+4. `IsTerminal` of each stream reports whether that stream is a terminal: whether its terminal state can be read (`isatty`; the `TCGETS` or `TIOCGETA` ioctl), so `/dev/null`, a character device, is not one. Each host stream has its own provider, so each answers for itself: `prog < file` has a terminal on standard output and a file on standard input. So `Host` is not the `Stdin` provider; `io.Stdin: io.NewStdin()` is a check error at the binding (CU2).
+5. The Go bodies are `v1.IOPrint`, `v1.IOEprint`, `v1.IOIsTerminal`, `v1.IOStdinIsTerminal`, `v1.IOStderrIsTerminal`, `v1.IOReadAll` and `v1.IOLines` (host.go). Every read of standard input, `term`'s keys included, goes through one byte buffer of the process, so a key read after a line read loses no byte. `ReadFailed` is the `runtime/v1` struct `v1.ReadFailed` (Types 4); its name is not `Failed` because `v1.Failed` is `fs.Failed`.
 6. The capabilities are open: a program implements them, and a test binds `io.NewRecorder()` or `io.Input{Text: …}` in the same place as `main` binds the host. `Stdout`, `Stderr` and `Stdin` are exempt from the law rule, each with its reason: the first two have no read, and a read of the host's input takes what it reads.
 7. A `Recorder` keeps its writes in a `sync.Ref[[]string]` ([Sync and STM](#sync-and-stm) 1), so every copy of it keeps the same writes, and tasks may write to one `Recorder` at once: each write is kept whole, in the order the writes took the `Ref` (lower `TestIORecorderBehavesAsBefore`). No std code keeps state through a `Map` or slice that two bindings share.
 8. `Stderr`'s operations are `Eprint` and `Eprintln`, names that `Stdout` does not have, so a `Stdout` provider is not a `Stderr` provider and the reverse: `io.Stderr: io.NewHost()` and `io.Stdout: io.NewErrors()` are check errors at the binding (`TestIOStreamsAreDistinct`). A program binds `Errors` to `io.Stderr`. The names follow Rust's `eprint!` and `eprintln!` and Gleam's `print_error`.
 9. A std package may import another std package: `io` imports `strings` and `sync`. The std importer checks each package once, and the std has no import cycle (`TestStdImportsAreAcyclic`).
 
 *Prior art:* Effect's `Stdio` gives `stdout` and `stderr` sinks and a `stdin` stream in one service, and `Terminal` gives `readLine` and `display`; Go writes `os.Stdout` directly and reads lines with `bufio.Scanner`, which has a 64 KiB line limit; Gleam's `gleam/io` has `print`, `println` and `print_error`, and `stdin` reading is a separate package; Elixir's `IO.puts(:stderr, …)` and `IO.stream(:stdio, :line)` keep the line feed; Roc's basic-cli gives `Stdout`, `Stderr` and `Stdin` as platform effects. Ergo takes Roc's three capabilities and Effect's guarantee that a test replaces each one.
+
+### term
+
+Std `term` is the terminal of standard input (CU2): a mode for the length of a block, one key at a time, and the window's size. It is what a prompt needs (`prompt`). Effect's `Terminal` service has `readInput` (a stream of key events) and `display`; its purpose is to read keys from a person. Ergo takes that purpose: a key is a union, matched exhaustively, and a mode is a resource with a block form, so no program can leave the terminal raw. It does not take the `Terminal` service tag (W4), the `Effect` value per read (W14) or the `Scope` value a raw mode needs in Effect (W11).
+
+```go
+import term
+
+func secret() string fails term.NotTerminal | io.ReadFailed needs term.Terminal {
+	term.Raw() {
+		let mut text = ""
+		for _ in 0..1000 {
+			match try term.Terminal.ReadKey() {
+			case term.Char as c: text = text + c.Text
+			case term.Return: return text
+			case _: text = text
+			}
+		}
+		text
+	}
+}
+```
+
+| Declaration | Meaning |
+| --- | --- |
+| `type Terminal { SetMode(m Mode) fails NotTerminal, Restore(), ReadKey() Key fails io.ReadFailed, Size() Window fails NotTerminal }` | The terminal of standard input. |
+| `func Raw[T, E, R](body func() T fails E needs R) T fails E \| NotTerminal needs R \| Terminal` | `body` with the terminal in `RawMode`; the state before is restored on every exit of `body`. |
+| `func NoEcho[T, E, R](…)` | The same, with `NoEchoMode`. |
+| `type Mode = RawMode{} \| NoEchoMode{}` | A mode. Raw reads each key as it comes, with no echo, no line editing and no signal keys; output processing stays on. NoEcho keeps line editing and hides what is typed. |
+| `type Key = Char{Text string} \| Return{} \| Backspace{} \| Tab{} \| Escape{} \| Up{} \| Down{} \| Left{} \| Right{} \| Interrupt{} \| EndOfInput{} \| Other{Bytes string}` | A key. `Interrupt` is Ctrl-C; `EndOfInput` is Ctrl-D or the end of the input. |
+| `type Window { Cols int, Rows int }`; `type NotTerminal {}` | The size, and the failure when the stream is not a terminal. |
+| `type Host`; `func NewHost() Host needs Ambient` | The host's provider. |
+| `type Script`; `func NewScript(keys []Key, window Window) Script`; `Modes() []Mode` | A provider for tests: it plays `keys`, then `EndOfInput`, and keeps the modes set and not restored. |
+| `func Decode(token string) Key` | The key of the bytes of one key. |
+
+1. **A mode is a resource.** `Raw` and `NoEcho` call `SetMode`, then register `Restore` with `scope.OnExit`, so the restore runs on every exit of the block: a value, a failure, a defect and a stop. The host keeps a stack: each `SetMode` saves the state before it, and `Restore` sets back the latest saved state. A program calls the block forms; `SetMode` and `Restore` are the provider's halves.
+2. **Keys.** `ReadKey` reads through `io`'s one byte buffer of standard input. A key is one byte, one UTF-8 rune, or an escape sequence (ESC `[` or ESC `O`, parameters, a final byte). An ESC with nothing after it in the bytes read is `Escape`, since a terminal writes a sequence in one write. A carriage return and a line feed are `Return`; delete and backspace are `Backspace`. A stop of the reading task ends the wait; the bytes read stay for the next read.
+3. **Laws.** `Terminal` is law-exempt: no law over its operations can read the host's state. `RawRestores`, `NestedRestoresInOrder`, `ScriptPlaysKeys` and `DecodeNamesControls` hold the scope and the decoding over `Script`. Lower `TestTermModesRestore` is the model of the host: a built program on a pseudo-terminal runs generated sequences of raw, no-echo, read, leave and stop; at each read the terminal's state is the model's, and after the program the state is the state before it.
+4. **Go bodies.** `v1.TermEnterRaw`, `v1.TermEnterNoEcho`, `v1.TermLeave`, `v1.TermReadKey` and `v1.TermGetSize` (term.go). The ioctls go through one `unsafe` function, `ioctl` in term_unix.go, with its invariant in its comment: the FFI edge of the 2026-11-02 rule, since Go's standard library has no safe form.
+
+*Prior art:* Go's `golang.org/x/term` (`MakeRaw`, `Restore`, `GetSize`) does the same ioctls and leaves the restore to the caller's `defer`; Elixir's `IO.gets` reads a line, and OTP 26 adds a raw shell mode (`shell:start_interactive({noshell, raw})`) that the caller sets back; Gleam's standard library has no terminal module (`gleam_erlang` neither); Roc basic-cli's `Tty` has `enable_raw_mode!` and `disable_raw_mode!` with no pairing. Each lowers to its host's call with no scope; Ergo's block form lowers to one `OnExit` registration on the frame scope.
 
 ### flag
 

@@ -22,7 +22,7 @@ import strconv
 import strings
 
 func main() fails io.ReadFailed needs Console | Ambient {
-	let all = with context { io.Stdin: io.NewHost() } { try io.Stdin.ReadAll() }
+	let all = with context { io.Stdin: io.NewStdin() } { try io.Stdin.ReadAll() }
 	for quoted in strings.Lines(all) {
 		let text = strconv.Unquote(strings.TrimSuffix(quoted, "\n")) catch {
 		case strconv.Malformed:

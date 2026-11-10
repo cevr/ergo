@@ -1,0 +1,171 @@
+// Package term is the terminal of standard input (docs/spec/stdlib.md,
+// term): a mode that reads each key as it comes (Raw) or that hides what is
+// typed (NoEcho), one key at a time, and the window's size. It is what a
+// prompt needs; io.Stdin.IsTerminal says whether a program may ask.
+//
+// A mode is a resource. Raw and NoEcho set it for the length of a block
+// and restore the state before it on every exit of the block: a return, a
+// failure, a defect and a stop alike, since the restore is an exit action
+// (scope.OnExit), which runs masked. Terminal's SetMode and Restore are
+// its two halves, for a provider; a program calls Raw or NoEcho.
+//
+// Host is the host's provider (needs Ambient); Script is a provider for
+// tests that plays a list of keys and keeps the modes set and not
+// restored. Go: golang.org/x/term (MakeRaw, Restore, GetSize) leaves the
+// restore to the caller's defer; here the block form makes it the only
+// way. Effect's Terminal service reads keys as a stream of KeyEvents.
+
+import io
+import scope
+import sync
+
+// NotTerminal is the failure of a mode change or a size read when
+// standard input or output is not a terminal.
+type NotTerminal {}
+
+// Mode is a terminal mode: RawMode reads each key as it comes, with no
+// echo, no line editing and no signal keys (Ctrl-C is the key Interrupt);
+// NoEchoMode keeps line editing and hides what is typed.
+type Mode = RawMode{} | NoEchoMode{}
+
+// Window is the terminal's size, in columns and rows.
+type Window { Cols int, Rows int }
+
+// Key is one key a person pressed. Char is a printable character, one
+// rune. Interrupt is Ctrl-C, which a raw mode passes as a key. EndOfInput
+// is Ctrl-D or the end of the input. Other is a key with no name here, by
+// its bytes (a function key, Alt and a letter).
+type Key = Char{Text string} | Return{} | Backspace{} | Tab{} | Escape{} | Up{} | Down{} | Left{} | Right{} | Interrupt{} | EndOfInput{} | Other{Bytes string}
+
+// Terminal is the terminal of standard input.
+// law-exempt: SetMode and Restore change the host's terminal, which no law over the operations alone can read back; Script carries the scope laws (RawRestores, NestedRestoresInOrder) and the pty model TestTermModesRestore (lower) checks the host's state.
+type Terminal {
+	// SetMode sets m and keeps the state before it, for Restore.
+	SetMode(m Mode) fails NotTerminal,
+	// Restore sets back the state before the latest SetMode not yet
+	// restored; with none, it does nothing.
+	Restore(),
+	// ReadKey is the next key of standard input. At the end of the input
+	// it is EndOfInput.
+	ReadKey() Key fails io.ReadFailed,
+	// Size is the window's size.
+	Size() Window fails NotTerminal,
+}
+
+// Raw runs body with the terminal in RawMode and restores the state
+// before it when body ends, however it ends.
+func Raw[T, E, R](body func() T fails E needs R) T fails E | NotTerminal needs R | Terminal {
+	try Terminal.SetMode(RawMode)
+	scope.OnExit() { Terminal.Restore() }
+	try body()
+}
+
+// NoEcho runs body with the terminal in NoEchoMode and restores the state
+// before it when body ends, however it ends.
+func NoEcho[T, E, R](body func() T fails E needs R) T fails E | NotTerminal needs R | Terminal {
+	try Terminal.SetMode(NoEchoMode)
+	scope.OnExit() { Terminal.Restore() }
+	try body()
+}
+
+// Host is the host's Terminal provider. Its field gives this package the
+// construction authority (types.md, Zero values 6).
+type Host { live hostOnly }
+
+// hostOnly is the zero-size type of Host's field.
+type hostOnly {}
+
+// NewHost is the host's Terminal provider. It needs Ambient.
+func NewHost() Host needs Ambient { Host{live: hostOnly} }
+
+// SetMode sets m on standard input's terminal.
+func SetMode(_ Host, m Mode) fails NotTerminal {
+	match m {
+	case RawMode:
+		try hostEnterRaw()
+	case NoEchoMode:
+		try hostEnterNoEcho()
+	}
+}
+
+// Restore sets back the state before the latest SetMode.
+func Restore(_ Host) { hostLeave() }
+
+// ReadKey is the next key of standard input.
+func ReadKey(_ Host) Key fails io.ReadFailed { Decode(try hostReadKey()) }
+
+// Size is the window's size.
+func Size(_ Host) Window fails NotTerminal { try hostSize() }
+
+// Decode is the key of a token, the bytes of one key as the host reads
+// them: "" is the end of the input; a carriage return is Return; an arrow
+// is ESC [ and its letter; a printable rune is a Char; any other control
+// byte or escape sequence is Other.
+func Decode(token string) Key {
+	if token == "" || token == "\x04" {
+		EndOfInput
+	} else if token == "\r" {
+		Return
+	} else if token == "\x7f" {
+		Backspace
+	} else if token == "\t" {
+		Tab
+	} else if token == "\x1b" {
+		Escape
+	} else if token == "\x03" {
+		Interrupt
+	} else if token == "\x1b[A" {
+		Up
+	} else if token == "\x1b[B" {
+		Down
+	} else if token == "\x1b[C" {
+		Right
+	} else if token == "\x1b[D" {
+		Left
+	} else if token < " " {
+		Other{Bytes: token}
+	} else {
+		Char{Text: token}
+	}
+}
+
+// Script is a Terminal provider for tests: ReadKey plays Keys in order,
+// then EndOfInput; Size is Window; SetMode and Restore keep the modes set
+// and not restored, for Modes. Its state is in sync.Refs, so every copy of
+// a Script (the one a context binds, the one the test reads) shares it.
+type Script { keys []Key, window Window, at sync.Ref[int], modes sync.Ref[[]Mode] }
+
+// NewScript is the Script that plays keys and has the size window.
+func NewScript(keys []Key, window Window) Script {
+	Script{keys: keys, window: window, at: sync.NewRef[int](0), modes: sync.NewRef[[]Mode]([]Mode{})}
+}
+
+// SetMode keeps m.
+func SetMode(s Script, m Mode) fails NotTerminal {
+	s.modes.Update(func(modes []Mode) []Mode { modes.Append(m) })
+}
+
+// Restore drops the latest mode kept.
+func Restore(s Script) {
+	s.modes.Update(func(modes []Mode) []Mode {
+		if len(modes) == 0 { modes } else { modes[0 : len(modes)-1] }
+	})
+}
+
+// ReadKey is the next key of the script, or EndOfInput after the last.
+func ReadKey(s Script) Key fails io.ReadFailed {
+	let i = sync.Modify(s.at, func(i int) (int, int) { (i, i + 1) })
+	if i < len(s.keys) { s.keys[i] } else { EndOfInput }
+}
+
+// Size is the script's window.
+func Size(s Script) Window fails NotTerminal { s.window }
+
+// Modes is the modes set on s and not restored, oldest first.
+func Modes(s Script) []Mode { s.modes.Get() }
+
+extern go ergo.local/prototype/runtime/v1.TermEnterRaw func hostEnterRaw() fails NotTerminal
+extern go ergo.local/prototype/runtime/v1.TermEnterNoEcho func hostEnterNoEcho() fails NotTerminal
+extern go ergo.local/prototype/runtime/v1.TermLeave func hostLeave()
+extern go ergo.local/prototype/runtime/v1.TermReadKey func hostReadKey() string fails io.ReadFailed
+extern go ergo.local/prototype/runtime/v1.TermGetSize func hostSize() Window fails NotTerminal

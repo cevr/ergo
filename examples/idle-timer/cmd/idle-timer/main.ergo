@@ -20,7 +20,7 @@ let Live = context { kiosk.Policies: memory.Fixed }
 func main() fails os.Exit needs Console | Ambient {
 	let c = testing.NewVirtualClock(0)
 	let status = with Live {
-		with context { io.Stdin: io.NewHost(), time.Clock: c, Scheduler: c } {
+		with context { io.Stdin: io.NewStdin(), time.Clock: c, Scheduler: c } {
 			script.Run()
 		}
 	}

@@ -11,7 +11,7 @@ import till/memory
 
 func main() needs Console | Ambient {
 	let clock = time.NewManual(0)
-	with context { io.Stdin: io.NewHost(), till.Payments: memory.Gateway, Scheduler: clock } {
+	with context { io.Stdin: io.NewStdin(), till.Payments: memory.Gateway, Scheduler: clock } {
 		counter.Run(clock)
 	}
 }

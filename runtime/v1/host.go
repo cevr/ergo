@@ -1,7 +1,6 @@
 package v1
 
 import (
-	"bufio"
 	"bytes"
 	"errors"
 	"io"
@@ -597,12 +596,27 @@ func IOEprint(text string) {
 }
 
 // IOIsTerminal is the body of io.Host's IsTerminal: whether standard
-// output is a character device, a terminal.
+// output is a terminal.
 //
 //ergo:host
 func IOIsTerminal() bool {
-	fi, err := os.Stdout.Stat()
-	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+	return fileIsTerminal(os.Stdout)
+}
+
+// IOStdinIsTerminal is the body of io.In's IsTerminal: whether standard
+// input is a terminal.
+//
+//ergo:host
+func IOStdinIsTerminal() bool {
+	return fileIsTerminal(os.Stdin)
+}
+
+// IOStderrIsTerminal is the body of io.Errors' IsTerminal: whether
+// standard error is a terminal.
+//
+//ergo:host
+func IOStderrIsTerminal() bool {
+	return fileIsTerminal(os.Stderr)
 }
 
 // IOReadAll is the body of io.Host's ReadAll on t, the caller's task: the
@@ -631,49 +645,57 @@ func IOLines(t *rt.Task) iter.Seq[string] {
 }
 
 // lineReader is one buffered reader that every read of its input goes
-// through, so a read starts where the one before it stopped: the bytes
-// that the buffer read ahead stay for the next read.
+// through, lines, the whole rest and term's keys alike, so a read starts
+// where the one before it stopped: the bytes read ahead stay in buf for
+// the next read, whatever its kind.
 //
 // A read that may wait on the host runs on a goroutine of its own, at most
 // one at a time (reading), so the waiting task can leave on a stop while
-// the read goes on: the line it lands goes to pending, which the next read
-// takes first, so no byte is lost and the order holds. A line that the
-// buffer holds whole is read in place, since that read cannot wait. Its
-// lock makes each line whole when two tasks read at once. Prior art: Go's
+// the read goes on: the bytes it lands go to buf, and the next read takes
+// them first, so no byte is lost and the order holds. A read that buf
+// already holds whole takes it in place, since it cannot wait. Its lock
+// makes each read whole when two tasks read at once. Prior art: Go's
 // reader goroutine with a select on its channel and ctx.Done(); Effect's
 // Terminal.readInput, a stream that interruption ends.
 type lineReader struct {
 	mu      sync.Mutex
-	br      *bufio.Reader // read by the reading goroutine alone while reading
-	pending []string      // the lines read and not taken, each with its line feed if it had one
-	err     error         // the read error after pending, taken once (io.EOF at the end)
+	r       io.Reader
+	chunk   []byte        // the read goroutine's buffer, used by it alone while reading
+	buf     []byte        // the bytes read and not taken
+	err     error         // the read error after buf (io.EOF at the end), taken once
 	reading bool          // a read goroutine is out
 	landed  chan struct{} // closed when the read out lands
 }
 
 func newLineReader(r io.Reader) *lineReader {
-	return &lineReader{br: bufio.NewReader(r)}
+	return &lineReader{r: r, chunk: make([]byte, 4096)}
 }
 
-// next is the next line, with its line feed if it has one, or the read
-// error (io.EOF at the end of the input). ok is false when stop closes
-// first: then nothing is taken.
-func (l *lineReader) next(stop <-chan struct{}) (line string, err error, ok bool) {
+// take is the next item at the front of the input, as cut finds it, or
+// the read error once the bytes before it are taken (io.EOF at the end).
+// cut(b, end) is the length of the item at the front of b, or -1 when b
+// holds only its start and more input may come; when end is true no more
+// comes, and cut takes what b holds. ok is false when stop closes first:
+// then nothing is taken.
+func (l *lineReader) take(stop <-chan struct{}, cut func(b []byte, end bool) int) (item []byte, err error, ok bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for {
-		switch {
-		case len(l.pending) > 0:
-			line = l.pending[0]
-			l.pending = l.pending[1:]
-			return line, nil, true
-		case l.err != nil:
+		if len(l.buf) > 0 {
+			if n := cut(l.buf, l.err != nil); n > 0 {
+				item = l.buf[:n:n]
+				l.buf = l.buf[n:]
+				if len(l.buf) == 0 {
+					l.buf = nil
+				}
+				return item, nil, true
+			}
+		}
+		if l.err != nil {
 			err, l.err = l.err, nil
-			return "", err, true
-		case !l.reading && l.whole():
-			line, err = l.br.ReadString('\n')
-			return line, err, true
-		case !l.reading:
+			return nil, err, true
+		}
+		if !l.reading {
 			l.reading = true
 			l.landed = make(chan struct{})
 			go l.read()
@@ -684,51 +706,44 @@ func (l *lineReader) next(stop <-chan struct{}) (line string, err error, ok bool
 		case <-landed:
 		case <-stop:
 			l.mu.Lock()
-			return "", nil, false
+			return nil, nil, false
 		}
 		l.mu.Lock()
 	}
 }
 
-// whole reports whether the buffer holds a whole line, so a read cannot
-// wait. l.mu is held and no read is out.
-func (l *lineReader) whole() bool {
-	b, _ := l.br.Peek(l.br.Buffered())
-	return bytes.IndexByte(b, '\n') >= 0
-}
-
-// read is the read goroutine: it reads one line, which may wait on the
-// host, and lands it.
+// read is the read goroutine: it reads once, which may wait on the host,
+// and lands what it read.
 func (l *lineReader) read() {
-	line, err := l.br.ReadString('\n')
+	n, err := l.r.Read(l.chunk)
 	l.mu.Lock()
-	if line != "" {
-		l.pending = append(l.pending, line)
+	l.buf = append(l.buf, l.chunk[:n]...)
+	if err != nil {
+		l.err = err
 	}
-	l.err = err
 	l.reading = false
 	close(l.landed)
 	l.mu.Unlock()
 }
 
-// unread puts text, read and not delivered, back in front of the lines
-// not taken, one line each.
-func (l *lineReader) unread(text string) {
-	if text == "" {
-		return
+// lineLen is the length of the first line of b with its line feed, as
+// take's cut: the rest of b at the end of the input.
+func lineLen(b []byte, end bool) int {
+	if i := bytes.IndexByte(b, '\n'); i >= 0 {
+		return i + 1
 	}
-	var lines []string
-	for text != "" {
-		i := strings.IndexByte(text, '\n') + 1
-		if i == 0 {
-			i = len(text)
-		}
-		lines = append(lines, text[:i])
-		text = text[i:]
+	if end {
+		return len(b)
 	}
-	l.mu.Lock()
-	l.pending = append(lines, l.pending...)
-	l.mu.Unlock()
+	return -1
+}
+
+// restLen is the whole of b at the end of the input, as take's cut.
+func restLen(b []byte, end bool) int {
+	if end {
+		return len(b)
+	}
+	return -1
 }
 
 // stdin is the process's one lineReader over os.Stdin, and stdinFile the
@@ -750,26 +765,25 @@ func stdinReader() *lineReader {
 	return stdin
 }
 
-// readAll is the rest of the input, read on t. A stop of t puts back what
-// it read and raises rt.Interrupted.
+// readAll is the rest of the input, read on t. A stop of t leaves what it
+// read in the buffer and raises rt.Interrupted.
 func (l *lineReader) readAll(t *rt.Task) (string, error) {
 	t.Check()
-	stop := t.Done()
-	var b strings.Builder
-	for {
-		line, err, ok := l.next(stop)
-		if !ok {
-			l.unread(b.String())
-			panic(rt.Interrupted)
-		}
-		b.WriteString(line)
-		switch {
-		case err == io.EOF:
-			return b.String(), nil
-		case err != nil:
-			return "", ReadFailed{Reason: fsReason(err)}
-		}
+	rest, err, ok := l.take(t.Done(), restLen)
+	switch {
+	case !ok:
+		panic(rt.Interrupted)
+	case err == io.EOF:
+		return "", nil
+	case err != nil:
+		return "", ReadFailed{Reason: fsReason(err)}
 	}
+	// The end of the input follows the rest: take it now, so the next
+	// read starts after it, as the old line loop did.
+	if _, err, _ := l.take(nil, restLen); err != nil && err != io.EOF {
+		return "", ReadFailed{Reason: fsReason(err)}
+	}
+	return string(rest), nil
 }
 
 // lines is the rest of the input, as IOLines gives it, read on t.
@@ -777,7 +791,7 @@ func (l *lineReader) lines(t *rt.Task) iter.Seq[string] {
 	return func(yield func(string) bool) {
 		for {
 			t.Check()
-			line, err, ok := l.next(t.Done())
+			line, err, ok := l.take(t.Done(), lineLen)
 			switch {
 			case !ok:
 				panic(rt.Interrupted)
@@ -786,7 +800,7 @@ func (l *lineReader) lines(t *rt.Task) iter.Seq[string] {
 			case err != nil:
 				panic("io.Stdin.Lines: " + err.Error())
 			}
-			if !yield(strings.TrimSuffix(line, "\n")) {
+			if !yield(strings.TrimSuffix(string(line), "\n")) {
 				return
 			}
 		}

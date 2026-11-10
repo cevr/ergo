@@ -245,6 +245,8 @@ var stdRecords = map[string]string{
 	"http.WriteFailed":     "HTTPWriteFailed",
 	"json.Malformed":       "JSONMalformed",
 	"io.ReadFailed":        "ReadFailed",
+	"term.NotTerminal":     "TermNotTerminal",
+	"term.Window":          "TermWindow",
 	"os.Exit":              "Exit",
 	"queue.Closed":         "Closed",
 	"rpc.Failed":           "RPCFailed",

@@ -43,7 +43,7 @@ func TestIOStdinRest(t *testing.T) {
 	const rest = `import io
 
 func main() fails io.ReadFailed needs Console | Ambient {
-	with context { io.Stdin: io.NewHost() } {
+	with context { io.Stdin: io.NewStdin() } {
 		for line in io.Stdin.Lines() {
 			Console.Println("first=\(line)")
 			break

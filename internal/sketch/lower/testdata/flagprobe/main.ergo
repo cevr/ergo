@@ -59,5 +59,5 @@ func probe() needs io.Stdout | io.Stdin {
 }
 
 func main() needs Ambient {
-	with context { io.Stdout: io.NewHost(), io.Stdin: io.NewHost() } { probe() }
+	with context { io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } { probe() }
 }

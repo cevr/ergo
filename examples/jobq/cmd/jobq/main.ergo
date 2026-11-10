@@ -98,7 +98,7 @@ func Parse(text string) []jobs.Job fails BadJob {
 }
 
 func main() fails os.Exit needs Ambient {
-	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewHost(), jobs.Worker: jobs.Script, Scheduler: NewLiveScheduler() } { try run(os.Process.Args()) }
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin(), jobs.Worker: jobs.Script, Scheduler: NewLiveScheduler() } { try run(os.Process.Args()) }
 }
 
 // run is the program after main binds its providers. The Scheduler paces

@@ -107,7 +107,7 @@ func BenchProgram(rounds int) []vm.Instr {
 
 // main does what the arguments ask, on the host's arguments and input.
 func main() fails os.Exit needs Console | Ambient {
-	with context { os.Process: os.NewHost(), io.Stdin: io.NewHost() } {
+	with context { os.Process: os.NewHost(), io.Stdin: io.NewStdin() } {
 		match try Parse(os.Process.Args()) {
 		case Exec:
 			try Execute(try Assembled(), Fuel)

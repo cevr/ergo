@@ -36,7 +36,7 @@ func read(args []string) Option[string] fails os.Exit needs io.Stdout {
 
 func main() fails os.Exit needs Ambient {
 	let disk = fs.NewHost()
-	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewHost() } { try run(os.Process.Args(), disk, disk) }
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } { try run(os.Process.Args(), disk, disk) }
 }
 
 // run is the program after main binds the host. The disk is a parameter,

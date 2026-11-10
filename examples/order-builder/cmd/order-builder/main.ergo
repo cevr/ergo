@@ -11,7 +11,7 @@ import orderbuilder/order
 import orderbuilder/screen
 
 func main() needs Console | Ambient {
-	with context { io.Stdin: io.NewHost(), Scheduler: time.NewManual(0), order.Kitchen: memory.Kitchen } {
+	with context { io.Stdin: io.NewStdin(), Scheduler: time.NewManual(0), order.Kitchen: memory.Kitchen } {
 		screen.Run(menu.Sample())
 	}
 }

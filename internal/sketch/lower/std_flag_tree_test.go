@@ -124,7 +124,7 @@ func outcome(root flag.Root[Parsed, Refused], args []string) string {
 	out
 }
 func main() needs Ambient {
-	with context { io.Stdout: io.NewHost(), io.Stdin: io.NewHost() } {
+	with context { io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
 		let trees = forest()
 		for line in io.Stdin.Lines() {
 			let fields = strings.Split(line, "\x1f")

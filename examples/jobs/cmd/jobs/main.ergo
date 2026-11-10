@@ -34,7 +34,7 @@ let usage = "usage: jobs [-addr ADDR] [-site DIR] [-replay]"
 let limits = http.Limits{MaxBodyBytes: api.MaxBody, MaxHeaderBytes: 1 << 20}
 
 func main() fails os.Exit needs Ambient {
-	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewHost() } {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
 		let v = flag.Parse(set, os.Process.Args()) catch {
 		case err:
 			try flag.Exit(err, usage)

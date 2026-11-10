@@ -45,7 +45,7 @@ func run(args []string) fails os.Exit needs io.Stdin | io.Stdout | Scheduler {
 }
 
 func main() fails os.Exit needs Ambient {
-	with context { os.Process: os.NewHost(), io.Stdin: io.NewHost(), io.Stdout: io.NewHost(), Scheduler: NewLiveScheduler() } {
+	with context { os.Process: os.NewHost(), io.Stdin: io.NewStdin(), io.Stdout: io.NewHost(), Scheduler: NewLiveScheduler() } {
 		try run(os.Process.Args())
 	}
 }

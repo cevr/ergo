@@ -76,7 +76,7 @@ func toInt(s string) int {
 }
 
 func main() fails io.ReadFailed needs Console | Ambient {
-	let all = with context { io.Stdin: io.NewHost() } { try io.Stdin.ReadAll() }
+	let all = with context { io.Stdin: io.NewStdin() } { try io.Stdin.ReadAll() }
 	for line in strings.Lines(all) {
 		let fields = strings.Split(strings.TrimSuffix(line, "\n"), "|")
 		let x = toInt(fields[0])
