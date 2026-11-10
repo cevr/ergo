@@ -461,7 +461,7 @@ func maskNative(t *testing.T, p maskProgram, o *lowered) {
 			from := "func (q *Queue[T]) Close() {"
 			data = replace(data, from, from+"\n\tMaskEnter(\"Queue.Close\", nil, 0)")
 		case "ergo/runtime/rt/clock.go":
-			data = replace(data, "return liveTimer{time.NewTimer(d)}", "return BlockingClock.NewTimer(d)")
+			data = replace(data, "return newLiveTimer(d)", "return BlockingClock.NewTimer(d)")
 		}
 		write(f.Path, data)
 	}
@@ -574,7 +574,7 @@ func observe(t *testing.T, worker *rt.Task, p plan, call func() error) (*trace, 
  quit, pumped := make(chan struct{}), make(chan struct{})
  go func() {
   defer close(pumped)
-  for { select { case <-quit: return; default: }; if clock.Pending() > 0 { clock.Advance(24 * time.Hour) }; runtime.Gosched() }
+  for { select { case <-quit: return; default: }; if clock.Pending() > 0 { clock.Advance(rt.Span(24 * time.Hour)) }; runtime.Gosched() }
  }()
  type result struct { err error; p any }
  done := make(chan result, 1)

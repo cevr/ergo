@@ -45,7 +45,9 @@ func (Live) Now() Instant { return Instant(time.Now().UnixNano()) }
 // NewTimer arms a host timer. time.AfterFunc's goroutine sends on its
 // channel, so liveTimer holds no *time.Timer, whose C is a channel of
 // time.Time (binsize BS3).
-func (Live) NewTimer(d Span) Timer {
+func (Live) NewTimer(d Span) Timer { return newLiveTimer(d) }
+
+func newLiveTimer(d Span) liveTimer {
 	c := make(chan Instant, 1)
 	t := time.AfterFunc(time.Duration(d), func() { c <- Instant(time.Now().UnixNano()) })
 	return liveTimer{c: c, stop: t.Stop}
