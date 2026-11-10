@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync } from "node:fs"
 import { spawnSync } from "node:child_process"
 const root = process.cwd()
 const prefix = process.env.PREFIX ?? "sq-"
-const ledgers = ["internal/sketch/lower/testdata/mutants.json"]
+const ledgers = ["internal/sketch/lower/testdata/mutants.json", "runtime/v1/testdata/mutants.json"]
 const mutants = ledgers.flatMap(path => JSON.parse(readFileSync(`${root}/${path}`, "utf8")).mutants).filter(m => m.name.startsWith(prefix))
 for (const m of mutants) {
   const source = readFileSync(`${root}/${m.file}`, "utf8")
@@ -17,7 +17,7 @@ for (const m of mutants) {
   const path = `${root}/${m.file}`, source = readFileSync(path, "utf8")
   try {
     writeFileSync(path, source.replace(m.from, m.to))
-    const pkg = m.killers[0].startsWith("v1:") ? "./runtime/v1" : "./internal/sketch/lower"
+    const pkg = m.killers[0].startsWith("runtime/v1:") ? "./runtime/v1" : "./internal/sketch/lower"
     const run = m.killers[0].split(":")[1]
     const p = spawnSync("go", ["test", "-p", "2", "-count=1", "-timeout", "10m", "-run", `^${run}$`, pkg], { cwd: root, encoding: "utf8", detached: true, timeout: 12 * 60_000 })
     if (p.pid > 1) {

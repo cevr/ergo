@@ -298,6 +298,9 @@ internal/sketch/std/codec/laws.ergo	func many[T wire](vs []T) ([]T, Option[T]) f
 internal/sketch/std/json/json.ergo	*
 internal/sketch/std/http/query.ergo	// record follows the codec's rules: a field's key is its wire name, an
 internal/sketch/std/http/query.ergo	func DecodeQuery[T wire](fields []Field) T fails QueryRepeated | wired[T] {
+tmp/orchestrate/wf10/s-query/brief.md	*
+tmp/orchestrate/wf10/s-query/state.md	*
+tmp/orchestrate/wf10/s-query/S-query/round-1-request.md	*
 docs/spec/stdlib.md	**Typed query** (S-query). `DecodeQuery[T wire](fields) T fails QueryRepeated | wired[T]`
 docs/spec/stdlib.md	follows the codec's one rule: a field's key is its wire name, an
 internal/sketch/std/json/laws.ergo	func viaWriter[T wire](v T) string {
