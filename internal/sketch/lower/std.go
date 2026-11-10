@@ -56,7 +56,11 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 		if !ok {
 			return ""
 		}
-		if _, err := v1.StructFields(goName); err != nil {
+		origin := n
+		if n.Orig != nil {
+			origin = n.Orig
+		}
+		if _, err := v1.StructFieldsOf(goName, len(origin.TParams)); err != nil {
 			ice(site, "the std record %s.%s binds v1.%s: %v", obj.Pkg.Path, obj.Name, goName, err)
 		}
 		return l.rt() + "." + goName

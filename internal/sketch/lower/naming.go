@@ -92,15 +92,19 @@ func (l *lowerer) nameAll() {
 	}
 	l.reserveOwned(append([]*check.Package{l.pkg}, libs...)) // values.go, V5
 	l.reserveOk(append([]*check.Package{l.pkg}, libs...))    // update.go
-	// A sourced library's lets, which the program lowers, used or not
+	// A library's lets (user or embedded std), which the program lowers, used or not
 	// (sources.go), and the builders of its named contexts, one for each
 	// set of providers a with of the program acquires (196b U4), in its
 	// source order.
-	for _, p := range l.sourcedLibs() {
+	for _, p := range l.initLibraries() {
 		l.eachDecl(p, func(d syntax.Decl) {
 			switch d.(type) {
-			case *syntax.VarDecl, *syntax.ContextDecl:
+			case *syntax.VarDecl:
 				l.declareName(d)
+			case *syntax.ContextDecl:
+				if !p.Std() {
+					l.declareName(d)
+				}
 			}
 		})
 	}

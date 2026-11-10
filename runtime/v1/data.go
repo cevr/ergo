@@ -25,6 +25,26 @@ package v1
 // slice.Repeat). A negative n is a defect, Go's own makeslice panic.
 func WithCapacity[T any](n int) []T { return make([]T, 0, n) }
 
+// ArenaValue is the physical storage of arena's private stored[T]. It is
+// not a public Ergo type: only arena can name or obtain a cell. Its zero
+// is allowed only in a freed slot, which no live Ref permits Get to read.
+type ArenaValue[T any] struct{ Value T }
+
+// ArenaTake removes the value from an arena storage cell and clears it.
+// The caller validates the Ref, advances its generation, and puts the
+// slot on the free list before returning; no callback can observe the
+// intermediate slot. Put initializes the cell before publishing a Ref.
+// This boundary keeps host zero storage private, not a zero[T]() value
+// that could bypass Ergo's initialization or construction authority.
+//
+//ergo:pure
+func ArenaTake[T any](s *ArenaValue[T]) T {
+	v := s.Value
+	var zero T
+	s.Value = zero
+	return v
+}
+
 // Append is the prelude's xs.Append(x): xs with x added at the end. Like
 // Go's append, the result may share xs's array; the lowering passes a
 // clipped xs where xs is still seen elsewhere.

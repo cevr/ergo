@@ -24,18 +24,27 @@ type Stale {}
 
 // slot is one cell of the store. gen is the generation of the value in
 // it, or of the next value when the slot is free: no Ref with that
-// generation exists until Put reuses the slot, so a Ref names a value
-// exactly when its generation is its slot's. next links the free slots;
-// -1 ends the list (a literal: a package let read from a generic std body
-// has no Go name yet, the follow-up in this unit's state).
-type slot[T] { value T, gen int, next int }
+// generation exists in this store until Put reuses the slot. next links
+// the free slots; none ends the list, and occupied marks a live slot. The
+// mark also keeps a Ref from another store out of cleared free storage.
+type slot[T] { value stored[T], gen int, next int }
+
+// stored is the private host storage cell. takeValue clears its physical
+// storage after removing the value. No zero T is made available to callers:
+// only a live Ref permits a read, and Free invalidates it before returning.
+type stored[T] { Value T }
+
+extern go ergo.local/prototype/runtime/v1.ArenaTake func takeValue[T](s *stored[T]) T
+
+let none = -1
+let occupied = -2
 
 // Of is the store. Its fields are unexported, so only New and the
 // operations make one. Change it through a *Of borrow.
 type Of[T] { slots []slot[T], free int, live int }
 
 // New is an empty store.
-func New[T]() Of[T] { Of[T]{slots: []slot[T]{}, free: -1, live: 0} }
+func New[T]() Of[T] { Of[T]{slots: []slot[T]{}, free: none, live: 0} }
 
 // Null is the Ref that never names a value: Has is false and Get, Set and
 // Free fail with Stale. It is the "no link" of a linked structure. Slot
@@ -48,18 +57,18 @@ func Put[T](a *Of[T], v T) Ref[T] {
 	a.live = a.live + 1
 	let at = a.free
 	if at == -1 {
-		a.slots = a.slots.Append(slot[T]{value: v, gen: 1, next: -1})
+		a.slots = a.slots.Append(slot[T]{value: stored[T]{Value: v}, gen: 1, next: occupied})
 		return Ref[T]{index: len(a.slots) - 1, gen: 1}
 	}
 	a.free = a.slots[at].next
-	a.slots[at].value = v
-	a.slots[at].next = -1
+	a.slots[at].value = stored[T]{Value: v}
+	a.slots[at].next = occupied
 	Ref[T]{index: at, gen: a.slots[at].gen}
 }
 
 // Has reports whether r names a value of a.
 func Has[T](a Of[T], r Ref[T]) bool {
-	r.index >= 0 && r.index < len(a.slots) && a.slots[r.index].gen == r.gen
+	r.index >= 0 && r.index < len(a.slots) && a.slots[r.index].gen == r.gen && a.slots[r.index].next == occupied
 }
 
 // Get is the value r names. It fails with Stale when r's value was freed.
@@ -70,7 +79,7 @@ func Get[T](a *Of[T], r Ref[T]) T fails Stale {
 	if !Has(*a, r) {
 		return Stale
 	}
-	a.slots[r.index].value
+	a.slots[r.index].value.Value
 }
 
 // Set replaces the value r names. It fails with Stale when r's value was
@@ -79,7 +88,7 @@ func Set[T](a *Of[T], r Ref[T], v T) fails Stale {
 	if !Has(*a, r) {
 		return Stale
 	}
-	a.slots[r.index].value = v
+	a.slots[r.index].value.Value = v
 }
 
 // Update changes the value r names in place: f gets a borrow of it. It
@@ -89,18 +98,18 @@ func Update[T](a *Of[T], r Ref[T], f func(v *T)) fails Stale {
 	if !Has(*a, r) {
 		return Stale
 	}
-	f(&a.slots[r.index].value)
+	f(&a.slots[r.index].value.Value)
 }
 
 // Free removes the value r names and returns it. Every Ref to it is stale
 // from now on. It fails with Stale when the value was freed already, and
-// then changes nothing. The slot keeps the old value until Put reuses it:
-// a type parameter has no zero value to clear it with (G-ex-f-4).
+// then changes nothing. The private host cell clears the removed storage,
+// so a freed pointerful value is no longer kept alive by the arena.
 func Free[T](a *Of[T], r Ref[T]) T fails Stale {
 	if !Has(*a, r) {
 		return Stale
 	}
-	let v = a.slots[r.index].value
+	let v = takeValue(&a.slots[r.index].value)
 	a.slots[r.index].gen = r.gen + 1
 	a.slots[r.index].next = a.free
 	a.free = r.index

@@ -198,6 +198,19 @@ func (l *lowerer) locate(n syntax.Node, pos syntax.Pos) (path string, line, colu
 // eachDecl runs f on each top-level declaration of p's files, in file
 // order, each guarded and within its file.
 func (l *lowerer) eachDecl(p *check.Package, f func(syntax.Decl)) {
+	if p.Std() {
+		for _, file := range p.Files() {
+			for _, d := range file.Decls {
+				l.guard(func() {
+					saved := l.info
+					l.info = p.Info
+					defer func() { l.info = saved }()
+					f(d)
+				})
+			}
+		}
+		return
+	}
 	for i, s := range l.srcs {
 		if s.pkg != p {
 			continue
@@ -235,12 +248,25 @@ func (l *lowerer) missingImport() error {
 // initialization order: each after every sourced package it imports, else
 // in path order (Go 1.21).
 func (l *lowerer) sourcedLibs() []*check.Package {
+	var out []*check.Package
+	for _, p := range l.initLibraries() {
+		if l.isSourced(p) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// initLibraries includes std source as well as user source: a let has the
+// same initialization contract in either package. Std declarations have
+// no source directive, but their checked InitOrder is authoritative too.
+func (l *lowerer) initLibraries() []*check.Package {
 	if l.initPkgs != nil {
 		return l.initPkgs
 	}
 	var todo []*check.Package
 	for _, p := range l.libraries() {
-		if l.isSourced(p) {
+		if l.isSourced(p) || p.Std() {
 			todo = append(todo, p)
 		}
 	}
@@ -248,7 +274,7 @@ func (l *lowerer) sourcedLibs() []*check.Package {
 	deps := map[*check.Package][]*check.Package{}
 	for _, p := range todo {
 		for _, o := range p.Info.Uses {
-			if pn, ok := o.(*check.PkgName); ok && l.isSourced(pn.Pkg) && pn.Pkg != p && !slices.Contains(deps[p], pn.Pkg) {
+			if pn, ok := o.(*check.PkgName); ok && pn.Pkg != p && !slices.Contains(deps[p], pn.Pkg) {
 				deps[p] = append(deps[p], pn.Pkg)
 			}
 		}

@@ -219,6 +219,7 @@ type goDecls map[string]goDecl
 // distinct, so no Go type is two records (TestStdRecordTable). A std record
 // with no row is a declaration of the program, as strings.Halves is.
 var stdRecords = map[string]string{
+	"arena.stored":         "ArenaValue",
 	"base64.Malformed":     "Base64Malformed",
 	"actor.Stopped":        "ActorStopped",
 	"exec.Denied":          "ExecDenied",
@@ -262,20 +263,31 @@ func StdRecords() map[string]string { return maps.Clone(stdRecords) }
 // of the binding table names (StdRecord), so its fields are the record's.
 // It fails when there is no such struct type.
 func StructFields(name string) ([]string, error) {
+	return StructFieldsOf(name, 0)
+}
+
+// StructFieldsOf is StructFields for a declaration with arity type
+// parameters. A generic std storage record binds a generic Go record;
+// matching arity prevents accidentally binding an instance to a plain type.
+func StructFieldsOf(name string, arity int) ([]string, error) {
 	decls, err := sourceDecls()
 	if err != nil {
 		return nil, err
 	}
-	return decls.structFields(name)
+	return decls.structFieldsOf(name, arity)
 }
 
 func (d goDecls) structFields(name string) ([]string, error) {
+	return d.structFieldsOf(name, 0)
+}
+
+func (d goDecls) structFieldsOf(name string, arity int) ([]string, error) {
 	g, ok := d[name]
 	if !ok || g.typ == nil {
 		return nil, fmt.Errorf("runtime/v1: no exported Go type %s", name)
 	}
 	st, ok := g.typ.Type.(*ast.StructType)
-	if !ok || g.typ.TypeParams != nil || g.typ.Assign.IsValid() {
+	if !ok || g.typ.Assign.IsValid() || g.typ.TypeParams.NumFields() != arity {
 		return nil, fmt.Errorf("runtime/v1: %s is not a non-generic struct type", name)
 	}
 	fields := []string{}

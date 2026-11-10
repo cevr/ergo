@@ -1217,7 +1217,7 @@ func (l *lowerer) packageLet(d *syntax.VarDecl) {
 // stmts and then assigns.
 func (l *lowerer) addInit(x syntax.Expr, at syntax.Node, stmts string, assigns []string) {
 	var b strings.Builder
-	b.WriteString(l.directive(at))
+	b.WriteString(l.letDirective(at))
 	b.WriteString("\t{\n" + stmts)
 	for _, a := range assigns {
 		b.WriteString("\t\t" + a + "\n")
@@ -1240,11 +1240,11 @@ func (l *lowerer) hasInits() bool {
 }
 
 // initOrder is the program's package-level initializers in Go's order:
-// each sourced library's, in initialization order (sources.go), then the
+// each user or std library's, in initialization order (sources.go), then the
 // root package's, each package's in its Info.InitOrder.
 func (l *lowerer) initOrder() []*check.Initializer {
 	var out []*check.Initializer
-	for _, p := range l.sourcedLibs() {
+	for _, p := range l.initLibraries() {
 		out = append(out, l.canon.initOrder(p)...)
 	}
 	return append(out, l.canon.initOrder(l.pkg)...)
@@ -1300,6 +1300,15 @@ func initEnv(l *lowerer) string {
 	return newNamer(l.names).alloc("env")
 }
 
+// letDirective locates user source only. Embedded std lets use exactly
+// the same lowering, with no user-file directive or call-table entry.
+func (l *lowerer) letDirective(n syntax.Node) string {
+	if _, ok := l.sourceOf(n); ok {
+		return l.directive(n)
+	}
+	return ""
+}
+
 // packageVar lowers one name of a package-level let, with its initializer
 // x (nil for none). A name the checker gave no object, `_`, keeps its
 // initializer's evaluation.
@@ -1308,7 +1317,8 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	if !ok && (id.Name != "_" || x == nil) {
 		ice(id, "the let %s has no Defs entry", id.Name)
 	}
-	fc := newFuncCtx(l, newNamer(l.names), true)
+	_, sourced := l.sourceOf(spec)
+	fc := newFuncCtx(l, newNamer(l.names), sourced)
 	fc.depth = 2
 	fc.env = fc.scope.alloc("env") // initFunc's parameter (initEnv)
 	name, goType := "_", ""
@@ -1324,7 +1334,9 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	if x != nil {
 		fc.frame.polls = framePolls(l.info, spec)
 	}
-	l.recordDecl(fc.owner, spec)
+	if sourced {
+		l.recordDecl(fc.owner, spec)
+	}
 	if call, ok := x.(*syntax.CallExpr); ok {
 		if c := l.info.Calls[call]; c != nil && c.Kind == check.CallEmbed {
 			fc.packageEmbed(c, name, goType, id)
@@ -1332,7 +1344,7 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 		}
 	}
 	if x == nil {
-		l.user.WriteString(l.directive(id))
+		l.user.WriteString(l.letDirective(id))
 		if def := fc.defaultValue(v.Type); def != "" {
 			l.user.WriteString("var " + name + " " + goType + " = " + def + "\n\n")
 		} else {
@@ -1344,12 +1356,12 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	l.analyzeValues(x, l.info)
 	val := fc.assigned(x)
 	if _, constant := l.info.Values[x]; constant && fc.out.Len() == 0 {
-		l.user.WriteString(l.directive(id))
+		l.user.WriteString(l.letDirective(id))
 		l.user.WriteString("var " + name + " " + goType + " = " + val + "\n\n")
 		return
 	}
 	if name != "_" {
-		l.user.WriteString(l.directive(id))
+		l.user.WriteString(l.letDirective(id))
 		l.user.WriteString("var " + name + " " + goType + "\n\n")
 	}
 	l.addInit(x, id, fc.out.String(), []string{name + " = " + val})
@@ -1362,7 +1374,8 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 // variable, from it.
 func (l *lowerer) packagePattern(spec *syntax.VarSpec) {
 	x := spec.Values[0]
-	fc := newFuncCtx(l, newNamer(l.names), true)
+	_, sourced := l.sourceOf(spec)
+	fc := newFuncCtx(l, newNamer(l.names), sourced)
 	fc.depth = 2
 	fc.env = fc.scope.alloc("env") // initFunc's parameter (initEnv)
 	t := fc.typeOf(x)
@@ -1378,7 +1391,9 @@ func (l *lowerer) packagePattern(spec *syntax.VarSpec) {
 	}
 	fc.frame = newFrame(t, false, framePolls(l.info, spec))
 	fc.entryPoll(l.info, spec)
-	l.recordDecl(fc.owner, spec)
+	if sourced {
+		l.recordDecl(fc.owner, spec)
+	}
 	var at syntax.Node = spec
 	if len(spec.Names) > 0 {
 		at = spec.Names[0]
@@ -1415,7 +1430,7 @@ func (l *lowerer) packagePattern(spec *syntax.VarSpec) {
 		assigns = append(assigns, "_ = "+init)
 	}
 	if len(binds) > 0 {
-		l.user.WriteString(l.directive(at))
+		l.user.WriteString(l.letDirective(at))
 	}
 	for _, b := range binds {
 		name, ok := l.vars[b.v]

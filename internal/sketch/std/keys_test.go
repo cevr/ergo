@@ -14,9 +14,9 @@ import (
 )
 
 // TestStdRecordTable holds the binding table of std records (v1.StdRecord;
-// docs/spec/stdlib.md, Types 4; std-align S3b). Each row names an exported
-// record of its std package and an exported struct of runtime/v1 with the
-// record's fields in order; no two rows name one struct; and every struct
+// docs/spec/stdlib.md, Types 4; std-align S3b). Each row names a record of
+// its std package (a private storage record too) and an exported struct of
+// runtime/v1 with the record's fields in order; no two rows name one struct; and every struct
 // of runtime/v1 with an Error method, a failure a body can return, is the
 // struct of a row, so a catch arm can name it.
 func TestStdRecordTable(t *testing.T) {
@@ -44,6 +44,7 @@ func TestStdRecordTable(t *testing.T) {
 			continue
 		}
 		var want []string
+		arity := 0
 		found := false
 		for _, tn := range pkg.Types {
 			if tn.Name != name {
@@ -52,9 +53,10 @@ func TestStdRecordTable(t *testing.T) {
 			var st *check.Struct
 			if n, ok := tn.Type.(*check.Named); ok {
 				st, _ = n.Underlying().(*check.Struct)
+				arity = len(n.TParams)
 			}
-			if st == nil || !isExportedName(name) {
-				t.Errorf("row %s: %s.%s is not an exported record", key, path, name)
+			if st == nil {
+				t.Errorf("row %s: %s.%s is not a record", key, path, name)
 				break
 			}
 			found = true
@@ -66,7 +68,7 @@ func TestStdRecordTable(t *testing.T) {
 			t.Errorf("row %s names no record of std %s", key, path)
 			continue
 		}
-		got, err := v1.StructFields(goName)
+		got, err := v1.StructFieldsOf(goName, arity)
 		if err != nil {
 			t.Errorf("row %s: %v", key, err)
 			continue

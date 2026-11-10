@@ -229,7 +229,7 @@ type lowerer struct {
 	libsDone bool
 	goPkgs   []*check.Package        // the Go packages the program reaches (import go; libraryPackages)
 	stdSrc   map[syntax.Node]stdFile // each node of a reached std package's files (locate)
-	initPkgs []*check.Package        // the sourced libraries in initialization order
+	initPkgs []*check.Package        // the user and std libraries in initialization order
 
 	names    *namer // the Go package scope
 	pkgNames map[pkgKey]string
@@ -467,11 +467,11 @@ func (l *lowerer) program() ([]byte, error) {
 	l.nameAll()
 	main := l.mainFunc()
 	l.eachDecl(l.pkg, l.decl)
-	// Every initializer of every sourced package is lowered here, before
+	// Every initializer of every user or std package is lowered here, before
 	// the entry decides whether it calls ergoInit: a library's lets, and
 	// its machines' initial values (F13). A library's other declarations
 	// are lowered where they are used.
-	for _, p := range l.sourcedLibs() {
+	for _, p := range l.initLibraries() {
 		l.eachDecl(p, func(d syntax.Decl) {
 			switch d := d.(type) {
 			case *syntax.VarDecl:

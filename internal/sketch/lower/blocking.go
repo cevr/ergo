@@ -110,6 +110,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Release":      {release: callerRelease},
 	"New":          {},
 	"WithCapacity": {},
+	"ArenaTake":    {}, // private arena storage removal; never waits
 	// tasks.Transform joins its children, whichever ends first, as their
 	// parent (stdlib.md, Tasks; rt.MapSpan).
 	"TasksTransform": {wait: childWait},
