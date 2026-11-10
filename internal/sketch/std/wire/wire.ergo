@@ -45,17 +45,17 @@ func Recorded(e Events) []Event { e.log.Get() }
 func record(e Events, ev Event) { e.log.Update(func(xs []Event) []Event { xs.Append(ev) }) }
 
 // The Writer's operations.
-func Bool(e Events, b bool) { record(e, BoolEvent{V: b}) }
-func Int(e Events, n int64) { record(e, IntEvent{V: n}) }
-func Uint(e Events, n uint64) { record(e, UintEvent{V: n}) }
-func Float(e Events, f float64) { record(e, FloatEvent{V: f}) }
-func String(e Events, s string) { record(e, StringEvent{V: s}) }
-func BeginList(e Events, n int) { record(e, BeginListEvent{N: n}) }
-func EndList(e Events) { record(e, EndListEvent) }
+func Bool(e Events, b bool)       { record(e, BoolEvent{V: b}) }
+func Int(e Events, n int64)       { record(e, IntEvent{V: n}) }
+func Uint(e Events, n uint64)     { record(e, UintEvent{V: n}) }
+func Float(e Events, f float64)   { record(e, FloatEvent{V: f}) }
+func String(e Events, s string)   { record(e, StringEvent{V: s}) }
+func BeginList(e Events, n int)   { record(e, BeginListEvent{N: n}) }
+func EndList(e Events)            { record(e, EndListEvent) }
 func BeginObject(e Events, n int) { record(e, BeginObjectEvent{N: n}) }
-func Tag(e Events, name string) { record(e, TagEvent{Name: name}) }
-func Key(e Events, k string) { record(e, KeyEvent{K: k}) }
-func EndObject(e Events) { record(e, EndObjectEvent) }
+func Tag(e Events, name string)   { record(e, TagEvent{Name: name}) }
+func Key(e Events, k string)      { record(e, KeyEvent{K: k}) }
+func EndObject(e Events)          { record(e, EndObjectEvent) }
 
 // Replay reads back a list of events.
 type Replay { events []Event, at sync.Ref[int] }
@@ -82,9 +82,12 @@ func peek(r Replay) Event {
 // depth is how an event changes the nesting: +1 opens, -1 closes.
 func depth(e Event) int {
 	match e {
-	case BeginListEvent, BeginObjectEvent: 1
-	case EndListEvent, EndObjectEvent: -1
-	case _: 0
+	case BeginListEvent, BeginObjectEvent:
+		1
+	case EndListEvent, EndObjectEvent:
+		-1
+	case _:
+		0
 	}
 }
 
@@ -93,62 +96,78 @@ func Path(r Replay) string { "event " + strconv.Itoa(r.at.Get()) }
 
 func Bool(r Replay) bool fails WireWrongKind {
 	match next(r) {
-	case BoolEvent as b: b.V
-	case _: return WireWrongKind{Path: Path(r), Want: "bool"}
+	case BoolEvent as b:
+		b.V
+	case _:
+		return WireWrongKind{Path: Path(r), Want: "bool"}
 	}
 }
 
 func Int(r Replay) int64 fails WireWrongKind {
 	match next(r) {
-	case IntEvent as n: n.V
+	case IntEvent as n:
+		n.V
 	case UintEvent as n:
 		if n.V > 9223372036854775807 {
 			return WireWrongKind{Path: Path(r), Want: "int"}
 		}
 		int64(n.V)
-	case _: return WireWrongKind{Path: Path(r), Want: "int"}
+	case _:
+		return WireWrongKind{Path: Path(r), Want: "int"}
 	}
 }
 
 func Uint(r Replay) uint64 fails WireWrongKind {
 	match next(r) {
-	case UintEvent as n: n.V
+	case UintEvent as n:
+		n.V
 	case IntEvent as n:
 		if n.V < 0 {
 			return WireWrongKind{Path: Path(r), Want: "uint"}
 		}
 		uint64(n.V)
-	case _: return WireWrongKind{Path: Path(r), Want: "uint"}
+	case _:
+		return WireWrongKind{Path: Path(r), Want: "uint"}
 	}
 }
 
 func Float(r Replay) float64 fails WireWrongKind {
 	match next(r) {
-	case FloatEvent as f: f.V
-	case IntEvent as n: float64(n.V)
-	case UintEvent as n: float64(n.V)
-	case _: return WireWrongKind{Path: Path(r), Want: "float"}
+	case FloatEvent as f:
+		f.V
+	case IntEvent as n:
+		float64(n.V)
+	case UintEvent as n:
+		float64(n.V)
+	case _:
+		return WireWrongKind{Path: Path(r), Want: "float"}
 	}
 }
 
 func String(r Replay) string fails WireWrongKind {
 	match next(r) {
-	case StringEvent as s: s.V
-	case _: return WireWrongKind{Path: Path(r), Want: "string"}
+	case StringEvent as s:
+		s.V
+	case _:
+		return WireWrongKind{Path: Path(r), Want: "string"}
 	}
 }
 
 func BeginList(r Replay) fails WireWrongKind {
 	match next(r) {
-	case BeginListEvent as b: _ = b
-	case _: return WireWrongKind{Path: Path(r), Want: "list"}
+	case BeginListEvent as b:
+		_ = b
+	case _:
+		return WireWrongKind{Path: Path(r), Want: "list"}
 	}
 }
 
 func BeginObject(r Replay) fails WireWrongKind {
 	match next(r) {
-	case BeginObjectEvent as b: _ = b
-	case _: return WireWrongKind{Path: Path(r), Want: "object"}
+	case BeginObjectEvent as b:
+		_ = b
+	case _:
+		return WireWrongKind{Path: Path(r), Want: "object"}
 	}
 }
 
@@ -157,7 +176,8 @@ func Tag(r Replay) string fails WireMissingField {
 	case TagEvent as t:
 		_ = next(r)
 		t.Name
-	case _: return WireMissingField{Path: Path(r), Field: "_tag"}
+	case _:
+		return WireMissingField{Path: Path(r), Field: "_tag"}
 	}
 }
 
@@ -165,8 +185,10 @@ func More(r Replay) bool { depth(peek(r)) >= 0 }
 
 func Key(r Replay) string {
 	match next(r) {
-	case KeyEvent as k: k.K
-	case _: ""
+	case KeyEvent as k:
+		k.K
+	case _:
+		""
 	}
 }
 

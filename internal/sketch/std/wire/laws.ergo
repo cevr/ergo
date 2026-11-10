@@ -76,4 +76,3 @@ law UnknownTagFails(name string) {
 	}
 	false
 }
-

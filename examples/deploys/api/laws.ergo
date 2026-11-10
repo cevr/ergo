@@ -37,7 +37,7 @@ func EveryRequestHasAStatusHolds(store deploys.Store, method string, path string
 // CreateThenShowHolds checks CreateThenShow.
 func CreateThenShowHolds(store deploys.Store, d deploys.Draft) bool {
 	with context { deploys.Store: store } {
-		let created = Handle(Request{Method: "POST", Path: "/deploys", Headers: []Header{}, Body: jsontext.Encode(DraftJSON(d))})
+		let created = Handle(Request{Method: "POST", Path: "/deploys", Headers: []Header{}, Body: DraftText(d)})
 		deploys.Validate(d) catch {
 		case deploys.Invalid:
 			return created.Status == 422
