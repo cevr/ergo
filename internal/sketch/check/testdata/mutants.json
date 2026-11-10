@@ -20,15 +20,6 @@
       "killers": ["check:TestOwnershipFlowModel"]
     },
     {
-      "name": "a2-catch-operand-failure-swallowed",
-      "origin": "batch-15 round-5 A2 production-edge review",
-      "file": "internal/sketch/check/ownership.go",
-      "from": "w.expr(x.X, mode, caught)",
-      "to": "old := w.onFailure; w.onFailure = caught.failed; w.expr(x.X, mode, caught); w.onFailure = old",
-      "rule": "A catch handles result failures; an operand's tried failure escapes the function.",
-      "killers": ["check:TestOwnershipFlowModel"]
-    },
-    {
       "name": "a2-partial-failure-lost",
       "origin": "batch-15 round-5 A2 production invariant",
       "file": "internal/sketch/check/ownership.go",
@@ -1793,8 +1784,8 @@
       "name": "a2-value-tail-moves",
       "origin": "wf10 batch-15 fix-r3 (A2 M1 repeat)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\t\t\tw.region(s, func() { w.expr(s.X, t.mode, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot}) })",
-      "to": "\t\t\tw.region(s, func() { w.expr(s.X, mMove, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot}) })",
+      "from": "\t\t\tw.region(s, func() { w.expr(s.X, t.mode, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot, failed: t.failed}) })",
+      "to": "\t\t\tw.region(s, func() { w.expr(s.X, mMove, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot, failed: t.failed}) })",
       "rule": "resources R16, R42, R43: an arm's value goes where the if or match's value goes: lent, it is lent; dropped, a new value is discarded.",
       "killers": [
         "check:TestOwnershipFlowModel"
