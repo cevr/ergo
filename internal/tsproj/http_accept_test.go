@@ -133,6 +133,18 @@ await Effect.runPromise(program.pipe(Effect.provide(FetchHttpClient.layer)));
 	if code == 0 || !bytes.Contains(out, []byte("client.ts(9,")) {
 		t.Fatalf("path-parameter drift did not fail at the call site (exit %d):\n%s", code, out)
 	}
+	// Choose the test clock in the copied binary, as the model law does.
+	// Otherwise a slow host could finish the job before the client cancels
+	// it: this check must depend on requests, not elapsed wall time. Handle,
+	// Queue, the route table and all codecs remain the real example's.
+	entry, err := os.ReadFile(filepath.Join(dir, "cmd/jobs/main.ergo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(entry), "time.NewHost()") != 1 {
+		t.Fatal("jobs clock binding not found")
+	}
+	put(t, dir, "cmd/jobs/main.ergo", strings.Replace(string(entry), "time.NewHost()", "time.NewManual(0)", 1))
 	exe := filepath.Join(dir, "jobs-server")
 	runCheck(t, command(cli, "build", "cmd/jobs", "-o", exe))
 	srv := command(exe, "-addr", "127.0.0.1:0")
