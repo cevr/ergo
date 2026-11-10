@@ -17,8 +17,8 @@
       "file": "runtime/v1/rpc.go",
       "from": "\tdefer s.stopAll()",
       "to": "",
-      "rule": "A stop of the request stops every call left and waits for its release before the request (or a Loopback Call) ends; no call outlives its request.",
-      "killers": ["v1:TestRPCCallsStopWithTheCaller"],
+      "rule": "A failed emit (a WriteFailed of the ndjson stream) stops every call of the batch still held and waits for its release before RPCExitLines returns; no call outlives its request. (A stop of the request also reaches each call by the task tree, so TestRPCCallsStopWithTheCaller does not catch this.)",
+      "killers": ["v1:TestRPCFailedEmitStopsTheCallsLeft"],
       "pkg": "./runtime/v1"
     },
     {

@@ -254,3 +254,48 @@ func TestRPCCallsStopWithTheCaller(t *testing.T) {
 		t.Fatal("the stopped caller's loopback call did not end")
 	}
 }
+
+// TestRPCFailedEmitStopsTheCallsLeft is rpc.md rule 1's "no call outlives
+// its request" on the path where the request is not stopped: an ndjson
+// line that cannot be written (a WriteFailed of the stream) ends
+// RPCExitLines with that failure, and the calls of the batch still held
+// are stopped and their releases have run before it returns. Only this
+// path leaves the request's task running, so only it catches
+// rpc-calls-join (no join of the calls left): a held call that nothing
+// stops would never release. It waits on events.
+func TestRPCFailedEmitStopsTheCallsLeft(t *testing.T) {
+	held := make(chan struct{})
+	var released atomic.Bool
+	handle := func(ct *rt.Task, tag, payload string) (string, error) {
+		if tag == "Hold" {
+			defer released.Store(true)
+			close(held)
+			<-ct.Done()
+			panic(rt.Interrupted)
+		}
+		<-held // the Hold is running before the Echo's line is emitted
+		return payload, nil
+	}
+	body := RPCRequest("0", "Hold", `{}`) + "\n" + RPCRequest("1", "Echo", `{}`) + "\n"
+	envs, err := RPCParse(body, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused := HTTPWriteFailed{Reason: "the client went away"}
+	request := rt.Root("rpc request")
+	done := make(chan error, 1)
+	go func() {
+		done <- RPCExitLines("rpc emit test", request, envs, handle, func(*rt.Task, string) error { return refused })
+	}()
+	select {
+	case err := <-done:
+		if err != refused {
+			t.Errorf("RPCExitLines ended with %v, want the emit's failure", err)
+		}
+		if !released.Load() {
+			t.Error("RPCExitLines returned while a call of its batch was still held")
+		}
+	case <-testwait.After(t):
+		t.Fatal("RPCExitLines did not end after its emit failed")
+	}
+}
