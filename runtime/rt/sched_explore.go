@@ -152,11 +152,17 @@ var (
 // their goroutines stay until the process ends. One explored run is active at
 // a time in a process; a second panics with ErrExploreBusy.
 func Explore(start time.Time, s Strategy, body func(*Task) error) Result {
+	return ExploreTraced(start, s, nil, body)
+}
+
+// ExploreTraced is Explore with a root whose tree reports its events to tr
+// (TracedRoot): the explorer's laws read a run's machine events (X7).
+func ExploreTraced(start time.Time, s Strategy, tr Tracer, body func(*Task) error) Result {
 	if !exploreMu.TryLock() {
 		panic(ErrExploreBusy)
 	}
 	defer exploreMu.Unlock()
-	root := Root("explore")
+	root := TracedRoot("explore", tr)
 	v := NewAuto(root, start)
 	e := &explorer{v: v, strategy: s, tasks: map[*Task]*xtask{}, handles: map[any]int{}, over: make(chan struct{})}
 	e.running = e.add(root, "0")

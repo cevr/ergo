@@ -32,19 +32,31 @@ func exploreMain(body func(*rt.Task) error) error {
 	return res.Exit
 }
 
-// exploreRun is one explored run of body under p.
-func exploreRun(body func(*rt.Task) error, p sched.Picker) rt.Result {
+// explored is one explored run: rt's result and the first children law
+// it broke (explore_laws.go), "" when none.
+type explored struct {
+	rt.Result
+	law string
+}
+
+// exploreRun is one explored run of body under p, traced for the
+// children laws.
+func exploreRun(body func(*rt.Task) error, p sched.Picker) explored {
 	s := &strategy{p: p}
-	return rt.Explore(time.Unix(0, 0).UTC(), s, func(t *rt.Task) error {
+	laws := newChildLaws()
+	res := rt.ExploreTraced(time.Unix(0, 0).UTC(), s, laws, func(t *rt.Task) error {
 		_, err := guarded(t, func(t *rt.Task) (struct{}, error) { return struct{}{}, body(t) })
 		return err
 	})
+	return explored{res, laws.verdict()}
 }
 
 // exploreDefect is the text of a run that did not end as a program does,
-// or "".
-func exploreDefect(res rt.Result) string {
+// or broke a children law, or "".
+func exploreDefect(res explored) string {
 	switch {
+	case res.law != "":
+		return res.law
 	case res.Escape != "":
 		return "explore: " + res.Escape + " (a step outside the scheduler: the run does not replay)"
 	case res.Stopped != nil:
@@ -78,7 +90,7 @@ func workerServe(in io.Reader, out io.Writer, body func(*rt.Task) error) error {
 // outcomeOf is a run's outcome for the search. A run that did not end
 // with every task ended (a deadlock, a stop, an escape) is abandoned: its
 // worker serves no more runs.
-func outcomeOf(res rt.Result) sched.Outcome {
+func outcomeOf(res explored) sched.Outcome {
 	o := sched.Outcome{Failure: exploreDefect(res)}
 	if o.Failure == "" && res.Exit != nil {
 		o.Failure = res.Exit.Error()
