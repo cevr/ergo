@@ -62,8 +62,8 @@ func TestOwnershipFlowModel(t *testing.T) {
 		ofYieldLifetimes(t, seed)
 		g := &ofGen{r: rand.New(rand.NewPCG(seed, 0x197a2))}
 		body := g.program(12)
-		src, first := ofPrint(body)
-		wantD, wantR := ofReference(body)
+		src, first := ofPrint(body, g.bare)
+		wantD, wantR := ofReference(body, g.bare)
 		c, diags := checkFor(src)
 		var gotD []string
 		for _, d := range diags {
@@ -601,6 +601,7 @@ const (
 	ofTry
 	ofShort
 	ofRun
+	ofCatch // let _ = fail(n) catch { case Bad: …; 0 }: the arm runs on the failure path
 	ofValue // an if or match used as a value (batch-15 A2 M1)
 	ofTail  // the last line of a value arm: where the arm's value comes from
 )
@@ -638,7 +639,7 @@ type ofStmt struct {
 	body, els []*ofStmt
 	// Filled by ofPrint: the statement's line, the else line, and columns.
 	line, elseLine int
-	armLine        int // ofValue match: the first clause's line
+	armLine        int // ofValue match: the first clause's line; ofCatch: the arm's
 	col, col2      int // y's column (both: the lent y); the taken y in both
 }
 
@@ -652,11 +653,20 @@ type ofGen struct {
 	r    *rand.Rand
 	n    int
 	vars []ofVar
+	// bare: the function has no resource parameters, and its first
+	// statement is a branch, loop, catch or value if/match, reached with
+	// no live value (batch-15 A2 M1 r5: such a point went unchecked).
+	bare, lead bool
 }
 
 func (g *ofGen) program(size int) []*ofStmt {
 	g.vars = []ofVar{{name: "p", depth: 1}, {name: "q", depth: 1}}
-	body := g.block(size, 1, 0, false)
+	var body []*ofStmt
+	if g.r.IntN(3) == 0 {
+		g.bare, g.lead, g.vars = true, true, nil
+		body = []*ofStmt{g.stmt(1, 0, false)}
+	}
+	body = append(body, g.block(size, 1, 0, false)...)
 	// A let mut that is never assigned is S110: write it as a let.
 	assigned := map[string]bool{}
 	var walk func([]*ofStmt, func(*ofStmt))
@@ -720,8 +730,14 @@ func (g *ofGen) arm(form, depth, nest int, inLoop bool) []*ofStmt {
 		if t.tk == tNested && nest >= 2 {
 			t.tk = tTake
 		}
+		if t.tk == tTake && len(g.vars) == 0 {
+			t.tk = tCond
+		}
 	} else {
 		t.tk = []int{tName, tOpen}[g.r.IntN(2)]
+		if len(g.vars) == 0 {
+			t.tk = tOpen
+		}
 	}
 	switch t.tk {
 	case tTake, tName:
@@ -735,6 +751,16 @@ func (g *ofGen) arm(form, depth, nest int, inLoop bool) []*ofStmt {
 func (g *ofGen) stmt(depth, nest int, inLoop bool) *ofStmt {
 	for {
 		k := g.r.IntN(ofValue + 1)
+		if g.lead {
+			g.lead = false
+			k = []int{ofIf, ofMatch, ofLoop, ofCatch, ofValue}[g.r.IntN(5)]
+		}
+		switch k {
+		case ofDeclMove, ofLend, ofClose, ofKeep, ofBoth, ofShort:
+			if len(g.vars) == 0 {
+				continue // nothing live to name
+			}
+		}
 		switch k {
 		case ofValue:
 			if nest >= 3 {
@@ -749,7 +775,7 @@ func (g *ofGen) stmt(depth, nest int, inLoop bool) *ofStmt {
 			return s
 		case ofBreak, ofContinue, ofReturn:
 			continue // only as an if body's last statement
-		case ofIf, ofMatch, ofLoop, ofRun:
+		case ofIf, ofMatch, ofLoop, ofRun, ofCatch:
 			if nest >= 3 {
 				continue
 			}
@@ -816,6 +842,8 @@ func (g *ofGen) stmt(depth, nest int, inLoop bool) *ofStmt {
 			s.els = g.block(3, depth, nest+1, inLoop)
 		case ofLoop:
 			s.body = g.block(4, depth, nest+1, true)
+		case ofCatch:
+			s.body = g.block(3, depth, nest+1, inLoop)
 		case ofRun:
 			s.body = g.block(3, depth+1, nest+1, false)
 		}
@@ -834,14 +862,15 @@ func (g *ofGen) leave(depth int, inLoop bool) *ofStmt {
 		ks = append(ks, ofBreak, ofContinue)
 	}
 	if len(ks) == 0 {
-		return &ofStmt{kind: ofLend, y: "p"}
+		return &ofStmt{kind: ofTemp}
 	}
 	return &ofStmt{kind: ks[g.r.IntN(len(ks))]}
 }
 
 // ofPrint writes body as the function body of `body` after the prelude;
-// it returns the source and the body's first line.
-func ofPrint(body []*ofStmt) (string, int) {
+// it returns the source and the body's first line. A bare body's function
+// has no resource parameters.
+func ofPrint(body []*ofStmt, bare bool) (string, int) {
 	var b strings.Builder
 	b.WriteString(ofPrelude)
 	line := strings.Count(ofPrelude, "\n") + 1
@@ -957,6 +986,13 @@ func ofPrint(body []*ofStmt) (string, int) {
 				emit(depth, "run() {")
 				walk(s.body, depth+1)
 				emit(depth, "}")
+			case ofCatch:
+				emit(depth, "let _ = fail(n) catch {")
+				s.armLine = line
+				emit(depth, "case Bad:")
+				walk(s.body, depth+1)
+				emit(depth+1, "0")
+				emit(depth, "}")
 			case ofValue:
 				prefix, suffix := "", ""
 				switch s.form {
@@ -1015,7 +1051,11 @@ func ofPrint(body []*ofStmt) (string, int) {
 		walk(s.els, depth+1)
 		emit(depth, "}"+suffix)
 	}
-	emit(0, "func body(n int, p Res, q Res) fails Bad takes q {")
+	if bare {
+		emit(0, "func body(n int) fails Bad {")
+	} else {
+		emit(0, "func body(n int, p Res, q Res) fails Bad takes q {")
+	}
 	walk(body, 1)
 	emit(0, "}")
 	b.WriteString("\nfunc main() {}\n")
@@ -1063,9 +1103,12 @@ const (
 	rvDiscard
 )
 
-func ofReference(body []*ofStmt) ([]string, []string) {
+func ofReference(body []*ofStmt, bare bool) ([]string, []string) {
 	r := &rfRun{diags: map[string]bool{}, rel: map[string]string{}, depth: 1}
 	r.st = []rfSlot{{name: "p", st: rfOwned, lent: true, depth: 1}, {name: "q", st: rfOwned, depth: 1}}
+	if bare {
+		r.st = []rfSlot{} // reached, nothing live
+	}
 	r.block(body, "block", 0, 0)
 	var d, rs []string
 	for k := range r.diags {
@@ -1273,6 +1316,13 @@ func (r *rfRun) stmt(s *ofStmt) {
 		r.st = rfJoin(a, r.st, n)
 	case ofLoop:
 		r.loop(s)
+	case ofCatch:
+		// The arm runs when fail(n) fails, from the state before it; the
+		// paths meet after the catch.
+		n := len(r.st)
+		saved := rfCopy(r.st)
+		r.block(s.body, "*syntax.CatchArm", s.armLine, 0)
+		r.st = rfJoin(saved, r.st, n)
 	case ofBreak, ofContinue:
 		lp := r.loops[len(r.loops)-1]
 		r.record(fmt.Sprintf("branch@%d", s.line), r.releases(lp.first))
@@ -1340,8 +1390,11 @@ func (r *rfRun) stmt(s *ofStmt) {
 			r.move(s.y, s.line, s.col)
 		case tName:
 			if r.vmode == rvLend && r.vslot >= 0 && r.find(s.y) >= r.vfirst {
+				// The temporary owns the value only when the name did: a
+				// name already handed off (S108) gives it nothing.
+				owned := r.st != nil && r.st[r.find(s.y)].st == rfOwned
 				r.move(s.y, s.line, s.col)
-				if r.st != nil {
+				if owned && r.st[r.find(s.y)].st == rfMoved {
 					r.st[r.vslot].st = rfOwned
 				}
 			} else if r.vmode == rvMove {

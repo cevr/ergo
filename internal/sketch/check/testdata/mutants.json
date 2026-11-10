@@ -176,7 +176,7 @@
       "name": "a2-yield-named-result-unowned",
       "origin": "batch-15 round-4 A2 M1",
       "file": "internal/sketch/check/ownership.go",
-      "from": "w.st[w.tail.slot] = ownSlot{st: ownOwned}",
+      "from": "w.st.slots[w.tail.slot] = ownSlot{st: ownOwned}",
       "to": "_ = owned",
       "rule": "Transferring a named result activates the consumer's owner slot.",
       "killers": ["check:TestOwnershipFlowModel"]
@@ -1432,7 +1432,7 @@
       "name": "L8-A2 the loop body visited once",
       "origin": "wf10 L8 A2 (#197)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\t\tif entry == nil || sameState(next, entry) {",
+      "from": "\t\tif !entry.reached || sameState(next, entry) {",
       "to": "\t\tif true {",
       "rule": "resources R6, R15: a later iteration sees what an earlier one handed off (the loop's fixpoint).",
       "killers": [
@@ -1685,7 +1685,7 @@
       "name": "a2-short-temp-unflagged",
       "origin": "wf10 batch-15 fix-r2 (A2 M1)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\t\t\tw.st[i] = ownSlot{st: ownMaybe, at: x.Y, how: \"its operand did not run\"}",
+      "from": "\t\t\tw.st.slots[i] = ownSlot{st: ownMaybe, at: x.Y, how: \"its operand did not run\"}",
       "to": "\t\t\t_ = i",
       "rule": "resources R43, R21: a temporary of the right operand of && or || exists on some paths only; its release at the statement's end has a flag.",
       "killers": [
@@ -1795,7 +1795,7 @@
       "name": "a2-value-temp-unflagged",
       "origin": "wf10 batch-15 fix-r3 (A2 M1 repeat)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\t\tw.st[t.slot] = ownSlot{st: ownMoved, at: x, how: \"no arm made it\"}",
+      "from": "\t\tw.st.slots[t.slot] = ownSlot{st: ownMoved, at: x, how: \"no arm made it\"}",
       "to": "\t\t_ = x",
       "rule": "resources R21, R43: a lent if or match's new value is a temporary on the paths whose arm made it; released under a flag unless every arm made it.",
       "killers": [
@@ -1806,7 +1806,7 @@
       "name": "a2-value-temp-unowned",
       "origin": "wf10 batch-15 fix-r3 (A2 M1 repeat)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\t\t\tw.st[i] = ownSlot{st: ownOwned}",
+      "from": "\t\t\tw.st.slots[i] = ownSlot{st: ownOwned}",
       "to": "\t\t\t_ = i",
       "rule": "resources R43: a new value an arm of a lent if or match makes is owned by the statement and released at its end.",
       "killers": [
@@ -1822,6 +1822,17 @@
       "rule": "The ownership flow names every kind of expression (no default): a new kind, which may hold a block, has no silent skip.",
       "killers": [
         "check:TestMintFormNamesEveryKind"
+      ]
+    },
+    {
+      "name": "a2-empty-copy-unreachable",
+      "origin": "wf10 batch-15 fix-r6 (A2 M1 of round 5)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "return ownState{reached: true, slots: append([]ownSlot(nil), s.slots...)}",
+      "to": "return ownState{reached: len(s.slots) > 0, slots: append([]ownSlot(nil), s.slots...)}",
+      "rule": "The old nil encoding: a copied state with no live slot read as unreachable. A loop, match or catch arm reached with nothing live yet is still checked and planned (resources R4, R5, R20).",
+      "killers": [
+        "check:TestOwnershipFlowModel"
       ]
     }
   ]
