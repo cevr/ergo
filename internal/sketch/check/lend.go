@@ -114,7 +114,7 @@ func (w *ownWalk) placeRoot(x syntax.Expr) (*Var, int, bool) {
 	case *syntax.Ident:
 		v, _ := w.info.Uses[x].(*Var)
 		i, ok := w.slot[v]
-		if ok && w.vars[i].root != nil {
+		for ok && w.vars[i].root != nil {
 			v = w.vars[i].root
 			i, ok = w.slot[v]
 		}
@@ -128,7 +128,7 @@ func (w *ownWalk) point(v *Var, i int) lendPoint {
 	if w.vars[i].lent || w.vars[i].depth != w.depth {
 		return lendPoint{scope: w.lendFrame, order: -1, v: v}
 	}
-	if p.scope == nil && v != nil && v.param {
+	if v != nil && v.param {
 		return lendPoint{scope: w.lendFrame, order: 0, v: v}
 	}
 	return p
@@ -140,7 +140,26 @@ func (w *ownWalk) placePoint(x syntax.Expr) lendPoint {
 		return lendPoint{}
 	}
 	p := w.lending.points[v]
+	if sel, ok := unparen(x).(*syntax.SelectorExpr); ok {
+		if k := w.fieldIndex(sel); k >= 0 {
+			p.path = append(slices.Clone(p.path), k)
+		}
+	}
 	return p
+}
+
+func (w *ownWalk) argument(x *syntax.CallExpr, index int) syntax.Expr {
+	c := w.info.Calls[x]
+	if c != nil && c.Kind == CallFunc && c.Recv != nil {
+		if index == 0 {
+			return c.Recv
+		}
+		index--
+	}
+	if index >= 0 && index < len(x.Args) {
+		return x.Args[index]
+	}
+	return nil
 }
 
 // destination follows value transport only. An ordinary call does not
@@ -208,8 +227,8 @@ func (w *ownWalk) destination(n syntax.Node) lendPoint {
 					if k < 0 {
 						return w.destination(p)
 					}
-					if k < len(p.Args) {
-						return w.placePoint(p.Args[k])
+					if a := w.argument(p, k); a != nil {
+						return w.placePoint(a)
 					}
 				}
 			}
@@ -254,7 +273,7 @@ func (w *ownWalk) literalRoot(key syntax.Node, v *Var, before bool) (lendPoint, 
 }
 
 func callbackKeeper(c *Call) (int, bool) {
-	if c == nil || c.Kind != CallFunc || c.Func == nil || c.Func.Decl == nil || c.Func.Decl.Extern == nil {
+	if c == nil || c.Kind != CallFunc || c.Func == nil || c.Func.Pkg == nil || !c.Func.Pkg.Std() || c.Func.Decl == nil || c.Func.Decl.Extern == nil {
 		return 0, false
 	}
 	path, name := c.Func.Decl.Extern.Split()
@@ -285,8 +304,8 @@ func (w *ownWalk) keepCallbackLoans(key syntax.Node) {
 		if !ok {
 			return
 		}
-		if k >= 0 && k < len(call.Args) && w.st != nil {
-			if _, i, ok := w.placeRoot(call.Args[k]); ok {
+		if k >= 0 && w.st != nil {
+			if _, i, ok := w.placeRoot(w.argument(call, k)); ok {
 				w.st[i].loans = mergeLoans(w.st[i].loans, w.lending.loans[key])
 			}
 		}
@@ -340,6 +359,10 @@ func (w *ownWalk) valueLoans(n syntax.Node) []resourceLoan {
 		return w.valueLoans(x.X)
 	case *syntax.TryExpr:
 		return w.valueLoans(x.X)
+	case *syntax.SelectorExpr:
+		return w.selectedLoans(x.X, w.fieldIndex(x))
+	case *syntax.IndexExpr:
+		return w.selectedLoans(x.X, -1)
 	case *syntax.CompositeLit:
 		for _, e := range x.Elts {
 			if kv, ok := e.(*syntax.KeyValueExpr); ok {
@@ -362,6 +385,58 @@ func (w *ownWalk) valueLoans(n syntax.Node) []resourceLoan {
 		}
 	}
 	return out
+}
+
+// selectedLoans keeps function-valued fields and elements from erasing
+// the lifetime of their captures. An internal field lend becomes a borrow
+// of the aggregate when a callable is read out of it.
+func (w *ownWalk) selectedLoans(base syntax.Expr, field int) []resourceLoan {
+	v, i, ok := w.placeRoot(base)
+	if !ok || w.st == nil {
+		return nil
+	}
+	var out []resourceLoan
+	for _, loan := range w.st[i].loans {
+		if field >= 0 && len(loan.keeper) > 0 && loan.keeper[0] != field {
+			continue
+		}
+		if loan.internal {
+			loan.internal, loan.root, loan.end = false, v, w.point(v, i)
+		}
+		loan.keeper = nil
+		out = mergeLoans(out, []resourceLoan{loan})
+	}
+	return out
+}
+
+func (w *ownWalk) checkLoanValue(x syntax.Expr) {
+	if w.tracked(w.info.Types[x]) {
+		return
+	} // resource hand-offs use handLoans
+	dest := w.destination(x)
+	for _, loan := range w.valueLoans(x) {
+		if !loan.internal && !w.releasesBefore(dest, loan.end) {
+			w.refuseLoan(loan, x, "a callable outlives its captured root", "this function value holds a lend of %s and this use may outlive it (resources R31, R33); call it here or keep it inside the root's lifetime", loan.root.Name)
+		}
+	}
+}
+
+// keepArgumentLoans handles named callback values, whose literal may have
+// been checked in an earlier statement, and both dot and ordinary calls.
+func (w *ownWalk) keepArgumentLoans(x *syntax.CallExpr) {
+	c := w.info.Calls[x]
+	p, _, moving := movingBody(c)
+	k, known := callbackKeeper(c)
+	if !moving || !known || k < 0 || w.st == nil {
+		return
+	}
+	a := w.argument(x, p)
+	if a == nil {
+		return
+	} // trailing literals already attach at taskFrame
+	if _, i, ok := w.placeRoot(w.argument(x, k)); ok {
+		w.st[i].loans = mergeLoans(w.st[i].loans, w.valueLoans(a))
+	}
 }
 
 // loanTake guards an early root release, including assignment and partial
@@ -407,7 +482,7 @@ func (w *ownWalk) handLoans(i int, x *syntax.Ident, h hand) {
 			updated[k] = loan
 		}
 		if !w.releasesBefore(d, loan.end) {
-			w.refuse(i, x, "a keeper outlives its borrow", "%s holds a structured lend of %s; this hand-off would outlive that borrow (resources R27, R31); drain it here instead", x.Name, loan.root.Name)
+			w.refuseLoan(loan, x, "a keeper outlives its borrow", "%s holds a structured lend of %s; this hand-off would outlive that borrow (resources R27, R31); drain it here instead", x.Name, loan.root.Name)
 		}
 	}
 	w.st[i].loans = updated
@@ -466,6 +541,19 @@ func (w *ownWalk) literalCaptures(key syntax.Node, body *syntax.BlockStmt, captu
 			return true
 		}
 		seen[v] = true
+		if w.vars[i].loanOnly {
+			if w.st == nil || len(w.st[i].loans) == 0 {
+				return true
+			}
+			for _, loan := range w.st[i].loans {
+				if !w.releasesBefore(dest, loan.end) {
+					w.refuseLoan(loan, id, "a captured function outlives its loans", "%s holds a structured lend which this capture would outlive (resources R31, R33); keep the callback inside the borrowed root's lifetime", v.Name)
+				}
+			}
+			capture.Borrowed = append(capture.Borrowed, v)
+			w.addLoans(key, w.st[i].loans)
+			return true
+		}
 		root, ri, found := w.placeRoot(id)
 		if !found {
 			return true
@@ -485,7 +573,7 @@ func (w *ownWalk) literalCaptures(key syntax.Node, body *syntax.BlockStmt, captu
 				loan.internal = true
 			}
 			w.addLoans(key, []resourceLoan{loan})
-		} else if moving {
+		} else if moving && !w.borrowedPlaceUse(id) {
 			w.move(i, id, hand{at: key, how: "it is captured by a moving task (resources R12)"})
 			delete(w.info.Handoffs, id)
 			capture.Vars = append(capture.Vars, v)
@@ -496,6 +584,44 @@ func (w *ownWalk) literalCaptures(key syntax.Node, body *syntax.BlockStmt, captu
 	})
 	if len(capture.Vars)+len(capture.Borrowed) > 0 {
 		w.info.TaskCaptures[key] = capture
+	}
+}
+
+func (w *ownWalk) refuseLoan(loan resourceLoan, at syntax.Node, what, format string, args ...any) {
+	if w.genericOnly(loan.root.Type) {
+		w.copySite(loan.root.Type, at, what, false)
+		return
+	}
+	w.report(at, format, args...)
+}
+
+// A resource reached through an index or field is borrowed from its root.
+// A task whose keeper does not qualify cannot turn that element borrow
+// into an implicit move of the entire container or aggregate (R27/R35).
+func (w *ownWalk) borrowedPlaceUse(id *syntax.Ident) bool {
+	var n syntax.Node = id
+	for {
+		p := w.lending.parent[n]
+		switch x := p.(type) {
+		case *syntax.ParenExpr:
+		case *syntax.SelectorExpr:
+			if x.X != n {
+				return false
+			}
+			if w.fieldIndex(x) >= 0 && w.tracked(w.info.Types[x]) {
+				return true
+			}
+		case *syntax.IndexExpr:
+			if x.X != n {
+				return false
+			}
+			if w.tracked(w.info.Types[x]) {
+				return true
+			}
+		default:
+			return false
+		}
+		n = p
 	}
 }
 
@@ -514,7 +640,8 @@ func (w *ownWalk) aggregateLoans(v *Var) []resourceLoan {
 	}
 	var loans []resourceLoan
 	for i, keeper := range s.Fields {
-		if w.c.running(keeper.Type) == nil {
+		_, callable := under(keeper.Type).(*Signature)
+		if w.c.running(keeper.Type) == nil && !callable {
 			continue
 		}
 		for j, root := range s.Fields[:i] {

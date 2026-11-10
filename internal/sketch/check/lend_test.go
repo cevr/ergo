@@ -26,6 +26,8 @@ func TestStructuredLendModel(t *testing.T) {
 		r := rand.New(rand.NewSource(int64(seed)))
 		checkLendFields(t, seed, r)
 		checkLendRoots(t, seed, r)
+		checkKeptFunctions(t, seed, r)
+		checkContainerKeeper(t, seed, r)
 		incoming, container, nested := r.Intn(2) == 0, r.Intn(2) == 0, r.Intn(2) == 0
 		set, earlier := r.Intn(2) == 0, r.Intn(2) == 0
 		event := r.Intn(5) // lend, early release, drain/release, escape keeper, move keeper locally
@@ -116,6 +118,61 @@ func TestStructuredLendModel(t *testing.T) {
 	}
 }
 
+func checkContainerKeeper(t *testing.T, seed int, r *rand.Rand) {
+	earlier := r.Intn(2) == 0
+	decl := "let mut running = Map[int, Task[int, Fault]]{}\n"
+	src := "import task\ntype Fault {}\ntype R { N int }\nfunc Close(r R) {}\nfunc use(r R) {}\nfunc Probe() {\n"
+	if earlier {
+		src += decl
+	}
+	src += "with context {} {\nlet xs = []R{R{N: 1}}\n"
+	if !earlier {
+		src += decl
+	}
+	src += "running[0] = task.Go(func() int fails Fault { use(xs[0]); 1 })\n}\n}\n"
+	_, ds := checkFor(src)
+	if (len(ds) != 0) != earlier {
+		t.Fatalf("container keeper seed %d; replay ERGO_SEED=%d go test -p 2 -run '^TestStructuredLendModel$' ./internal/sketch/check\n%s\nchecker: %v\nmodel refusal: %t", seed, seed, src, ds, earlier)
+	}
+}
+
+func checkKeptFunctions(t *testing.T, seed int, r *rand.Rand) {
+	escape, parenthesized := r.Intn(2) == 0, r.Intn(2) == 0
+	call := "tasks.Go(s, f)"
+	if parenthesized {
+		call = "tasks.Go(s, (f))"
+	}
+	result, end := "", "s.Stop()"
+	if escape {
+		result, end = " tasks.Set[Fault]", "return s"
+	}
+	src := "import tasks\ntype Fault {}\ntype R { N int }\nfunc Close(r R) {}\nfunc use(r R) {}\nfunc Probe(p R)" + result + " fails tasks.Closed { let s = tasks.NewSet[Fault](tasks.FailFast)\nlet f = func() fails Fault { use(p) }\ntry " + call + "\n" + end + "\n}\n"
+	_, ds := checkFor(src)
+	if (len(ds) != 0) != escape {
+		t.Fatalf("kept function seed %d; replay ERGO_SEED=%d go test -p 2 -run '^TestStructuredLendModel$' ./internal/sketch/check\n%s\nchecker: %v\nmodel refusal: %t", seed, seed, src, ds, escape)
+	}
+	// A callable field inherits the root lifetime even after construction
+	// was hidden behind a function. Reading it out cannot erase the loan.
+	result, end = "", "b.Fn()"
+	if escape {
+		result, end = " func()", "return b.Fn"
+	}
+	src = "type R { N int }\nfunc Close(r R) {}\nfunc use(r R) {}\ntype Box { Root R, Fn func() }\nfunc Make() Box { let p = R{N: 1}; return Box{Root: p, Fn: func() { use(p) }} }\nfunc Probe()" + result + " { let b = Make(); " + end + " }\n"
+	_, ds = checkFor(src)
+	if (len(ds) != 0) != escape {
+		t.Fatalf("callable field seed %d; replay ERGO_SEED=%d go test -p 2 -run '^TestStructuredLendModel$' ./internal/sketch/check\n%s\nchecker: %v\nmodel refusal: %t", seed, seed, src, ds, escape)
+	}
+	result, end = "", "each() { use(p) }"
+	if escape {
+		result, end = " func()", "return keep() { use(p) }"
+	}
+	src = "type R { N int }\nfunc Close(r R) {}\nfunc use(r R) {}\nfunc each(f func()) { f() }\nfunc keep(f escaping func()) func() { f }\nfunc Probe(p R)" + result + " { " + end + " }\n"
+	_, ds = checkFor(src)
+	if (len(ds) != 0) != escape {
+		t.Fatalf("trailing callback seed %d; replay ERGO_SEED=%d go test -p 2 -run '^TestStructuredLendModel$' ./internal/sketch/check\n%s\nchecker: %v\nmodel refusal: %t", seed, seed, src, ds, escape)
+	}
+}
+
 func checkLendRoots(t *testing.T, seed int, r *rand.Rand) {
 	drain, nestedClosure, escape := r.Intn(2) == 0, r.Intn(2) == 0, r.Intn(2) == 0
 	use := "use(item)"
@@ -144,6 +201,7 @@ func checkLendRoots(t *testing.T, seed int, r *rand.Rand) {
 // task. The release-event model closes the task field before its root field.
 func checkLendFields(t *testing.T, seed int, r *rand.Rand) {
 	poolFirst, evalFirst, bound := r.Intn(2) == 0, r.Intn(2) == 0, r.Intn(2) == 0
+	consume, drain := r.Intn(2) == 0, r.Intn(2) == 0
 	fields := "Pool R, Worker Task[int, Fault]"
 	if !poolFirst {
 		fields = "Worker Task[int, Fault], Pool R"
@@ -158,8 +216,15 @@ func checkLendFields(t *testing.T, seed int, r *rand.Rand) {
 		elts = "Worker: " + task + ", Pool: p"
 	}
 	src := "import task\ntype Fault {}\ntype R { N int }\nfunc Close(r R) {}\nfunc use(r R) {}\ntype Pair { " + fields + " }\nfunc Make() Pair { let p = R{N: 1}\n" + prefix + "return Pair{" + elts + "}\n}\n"
+	if consume {
+		src += "func Probe() { let pair = Make()\n"
+		if drain {
+			src += "pair.Worker.Stop()\n"
+		}
+		src += "pair.Pool.Close()\n}\n"
+	}
 	_, ds := checkFor(src)
-	wantBad := !poolFirst || !bound && !evalFirst
+	wantBad := !poolFirst || !bound && !evalFirst || consume && !drain
 	if (len(ds) != 0) != wantBad {
 		t.Fatalf("field graph seed %d; replay ERGO_SEED=%d go test -p 2 -run '^TestStructuredLendModel$' ./internal/sketch/check\n%s\nchecker: %v\nmodel refusal: %t", seed, seed, src, ds, wantBad)
 	}

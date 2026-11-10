@@ -2,6 +2,51 @@
   "about": "The mutant ledger of internal/sketch/check: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants check; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
+      "name": "L8-C1-trailing-callback-erases-loan",
+      "origin": "L8 C1 R31 R33",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "} else if w.literalEscapes(x.Trailing) {",
+      "to": "} else if false && w.literalEscapes(x.Trailing) {",
+      "rule": "A trailing callback has the same escape and capture rules as an explicit literal.",
+      "killers": ["check:TestStructuredLendModel"]
+    },
+    {
+      "name": "L8-C1-index-borrow-moves-container",
+      "origin": "L8 C1 R27 R35",
+      "file": "internal/sketch/check/lend.go",
+      "from": "moving && !w.borrowedPlaceUse(id)",
+      "to": "moving",
+      "rule": "An index borrow cannot escape into an earlier keeper by moving its entire container implicitly.",
+      "killers": ["check:TestStructuredLendModel"]
+    },
+    {
+      "name": "L8-C1-diagnostic-at-take",
+      "origin": "L8 C1 R28 diagnostic span",
+      "file": "internal/sketch/check/lend.go",
+      "from": "w.refuse(i, at, \"a resource is taken while lent\"",
+      "to": "w.refuse(i, w.vars[i].v.id, \"a resource is taken while lent\"",
+      "rule": "The early-take diagnostic points at the take, not the root declaration.",
+      "killers": ["check:TestV1Fixtures"]
+    },
+    {
+      "name": "L8-C1-named-callback-loses-keeper",
+      "origin": "L8 C1 R31",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.keepArgumentLoans(x)",
+      "to": "// named callback loan omitted",
+      "rule": "A named callback carries its existing loans into the Set that keeps it.",
+      "killers": ["check:TestStructuredLendModel"]
+    },
+    {
+      "name": "L8-C1-callable-field-erases-loan",
+      "origin": "L8 C1 R31 R33",
+      "file": "internal/sketch/check/lend.go",
+      "from": "return w.selectedLoans(x.X, w.fieldIndex(x))",
+      "to": "return nil",
+      "rule": "Selecting a callable field does not erase its root lifetime.",
+      "killers": ["check:TestStructuredLendModel"]
+    },
+    {
       "name": "L8-C1-keeper-order",
       "origin": "L8 C1 R27 R31",
       "file": "internal/sketch/check/lend.go",

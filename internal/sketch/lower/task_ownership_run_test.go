@@ -65,7 +65,7 @@ func TestTaskOwnershipRunModel(t *testing.T) {
 
 // taskOwnModes counts the program shapes: task, restart, Closed, stop,
 // slice, Map, panic, crossing, unread result, std boundaries.
-const taskOwnModes = 14
+const taskOwnModes = 15
 
 func taskOwnProgram(seed int) (string, string) {
 	n := 1 + (seed/taskOwnModes)%4
@@ -266,6 +266,14 @@ func taskOwnProgram(seed int) (string, string) {
 		for i := n - 1; i >= 0; i-- {
 			fmt.Fprintf(&afterEnd, "close %d\n", i)
 		}
+	case 14:
+		// Lossless wrapping: the helper has only an incoming borrow, not
+		// an owning handle for p. Its child must drain before it returns.
+		src.WriteString("borrowOnce(r0)\n")
+		want.WriteString("borrowed 0\n")
+		for i := n - 1; i >= 0; i-- {
+			fmt.Fprintf(&afterEnd, "close %d\n", i)
+		}
 	}
 	src.WriteString("Console.Println(\"end\")\n}\n")
 	if mode != 6 {
@@ -276,10 +284,13 @@ func taskOwnProgram(seed int) (string, string) {
 	if mode == 13 {
 		text += "type Pair { Root R, Worker Task[int, Fault] }\n"
 	}
+	if mode == 14 {
+		text += "func borrowOnce(p R) needs Console { let t = task.Go() { Console.Println(\"borrowed \" + strconv.Itoa(p.N)); 1 }; let _ = t.Wait() }\n"
+	}
 	if mode != 10 {
 		text = strings.ReplaceAll(text, "import scope\n", "")
 	}
-	if mode != 0 && mode != 3 && mode != 8 && mode != 10 && mode != 12 && mode != 13 {
+	if mode != 0 && mode != 3 && mode != 8 && mode != 10 && mode != 12 && mode != 13 && mode != 14 {
 		text = strings.ReplaceAll(text, "import task\n", "")
 	}
 	if mode != 1 {

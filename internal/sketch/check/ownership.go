@@ -355,7 +355,7 @@ func (w *ownWalk) acquire(l ownLocal) int {
 	l.depth = w.depth
 	w.vars = append(w.vars, l)
 	if w.st != nil {
-		w.st = append(w.st, ownSlot{st: ownOwned})
+		w.st = append(w.st, ownSlot{st: ownOwned, loans: w.aggregateLoans(l.v)})
 	}
 	i := len(w.vars) - 1
 	if l.v != nil {
@@ -852,8 +852,11 @@ func (w *ownWalk) letSpec(s syntax.Stmt, spec *syntax.VarSpec) {
 	})
 	_ = s
 	for _, id := range spec.Names {
-		if v, ok := w.info.Defs[id].(*Var); ok && (w.tracked(v.Type) || len(loans[v]) > 0) {
-			bound = append(bound, v)
+		if v, ok := w.info.Defs[id].(*Var); ok {
+			_, callable := under(v.Type).(*Signature)
+			if w.tracked(v.Type) || callable || len(loans[v]) > 0 {
+				bound = append(bound, v)
+			}
 		}
 	}
 	for _, v := range bound {
@@ -936,6 +939,7 @@ func (w *ownWalk) assign(s *syntax.AssignStmt) {
 		}
 		return
 	}
+	replacementLoans := map[int][]resourceLoan{}
 	for i, x := range s.Rhs {
 		mode := mLend
 		if i < len(s.Lhs) && w.tracked(w.info.Types[s.Lhs[i]]) || len(s.Lhs) > 1 {
@@ -943,9 +947,12 @@ func (w *ownWalk) assign(s *syntax.AssignStmt) {
 		}
 		w.expr(x, mode, hand{at: x, how: "it is assigned"})
 		if i < len(s.Lhs) {
-			if v, k, ok := w.placeRoot(s.Lhs[i]); ok && w.st != nil {
-				_ = v
-				w.st[k].loans = mergeLoans(w.st[k].loans, w.valueLoans(x))
+			if _, k, ok := w.placeRoot(s.Lhs[i]); ok && w.st != nil {
+				if _, direct := unparen(s.Lhs[i]).(*syntax.Ident); direct {
+					replacementLoans[k] = w.valueLoans(x)
+				} else {
+					w.st[k].loans = mergeLoans(w.st[k].loans, w.valueLoans(x))
+				}
 			}
 		}
 	}
@@ -974,7 +981,7 @@ func (w *ownWalk) assign(s *syntax.AssignStmt) {
 			w.refuse(i, id, fmt.Sprintf("%s replaces %s, which may run more than once", w.nestedText(), v.Name), "%s belongs to the enclosing function; %s cannot replace it (resources R4)", v.Name, w.nestedText())
 			continue
 		}
-		w.st[i] = ownSlot{st: ownOwned, loans: w.st[i].loans}
+		w.st[i] = ownSlot{st: ownOwned, loans: mergeLoans(replacementLoans[i], w.aggregateLoans(v))}
 	}
 }
 
@@ -1153,10 +1160,14 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 			}
 		}
 		if mode == mMove {
+			w.checkLoanValue(x)
 			w.placeMove(x, "an element", "it is an element of %s, lent by the index; an element cannot be moved or taken out by index (resources R35, R36); hand off %s whole, or lend the element")
 		}
 		w.children(x)
 	case *syntax.SelectorExpr:
+		if mode == mMove {
+			w.checkLoanValue(x)
+		}
 		if w.info.Closes[x] != nil {
 			// A method value of a checked Close would own its receiver,
 			// and no function value owns a resource (plan 1.2 rule 4,
@@ -1561,9 +1572,7 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 		}
 		w.expr(a, mLend, hand{})
 		if len(w.valueLoans(a)) > 0 && !nonEscaping(pt) {
-			if id, i, ok := w.rootSlot(a); ok && w.vars[i].loanOnly {
-				w.handLoans(i, id, hand{})
-			}
+			w.checkLoanValue(a)
 		}
 	}
 	pname := func(i int) string {
@@ -1629,6 +1638,10 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 		}
 		if p, repeated, moving := movingBody(call); moving && p == len(x.Args)+off {
 			w.taskFrame(x.Trailing, x.Trailing, nil, takes, repeated)
+		} else if w.literalEscapes(x.Trailing) {
+			capture := &TaskCapture{}
+			w.literalCaptures(x.Trailing, x.Trailing, capture, false)
+			w.frameCaptured(x.Trailing, takes, nil, w.name, fmt.Sprintf("the block passed to %s", calleeText(x)), false, capture)
 		} else {
 			w.frame(x.Trailing, takes, nil, w.name, fmt.Sprintf("the block passed to %s", calleeText(x)), false)
 		}
@@ -1636,6 +1649,7 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 	if drains && call.Recv != nil && w.st != nil {
 		w.drainLoans(call.Recv)
 	}
+	w.keepArgumentLoans(x)
 	return false
 }
 
