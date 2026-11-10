@@ -314,7 +314,66 @@ A std extern whose `runtime/v1` Go body is marked pure is transparent in footpri
 
 *Prior art:* GHC trusts a foreign import's declared type: an import whose result is not in `IO` is pure on the author's word. Gleam's and ReScript's externals carry no effect fact, and Elixir's compiler sees a remote call as unknown code. Koka infers effects only for code it can see, and its externs state their effect in the declared type. Ergo keeps the claim on the Go body, where a reviewer reads it, and checks its mechanical part: what the file can reach.
 
+## http
+
+G1's buffered HTTP server uses Go `net/http`. Streaming bodies, TLS and
+HTTP/2 configuration are outside this core.
+
+1. `Listen(addr) Listener fails ListenFailed needs Ambient` binds TCP;
+   port zero is valid, and `l.Addr()` reports the bound address. The
+   transport has no HTTP policy. `l.Close()` releases an unused listener.
+2. `Serve[R](l, limits Limits, handle func(Request) Response needs R)`
+   has `fails InvalidLimits needs R`. `Limits{MaxBodyBytes, MaxHeaderBytes}`
+   is required. Both values must be positive; a refusal leaves the listener
+   open. The header budget has Go `http.Server.MaxHeaderBytes` semantics,
+   including its request-line accounting.
+3. `Request{Method, Path, Query, Header, Body}` is buffered. Header and
+   query values are slices of `Field{Name, Value}`, retaining repeated
+   values. `Header(fields, name)` ignores case; `Query` uses exact names.
+   Both return `Option[string]`, keeping a missing and an empty value apart.
+   `Path` is Go's decoded URL path; matching does not clean it.
+4. `Body` is `Buffered{Text} | BodyTooLarge{Limit} | BodyReadFailed{Reason}`.
+   No partial body is passed as a success. The application chooses a status
+   for each refusal. Header parse errors remain Go's HTTP protocol refusals.
+5. `Response{Status, Header, Body}` is buffered. An empty body has no
+   content type. Go suppresses the body of HEAD while preserving the
+   buffered response's headers. Status codes and response header validity
+   have Go `net/http` semantics.
+6. Every handler invocation is a child task of Serve. A client disconnect
+   after a buffered read stops its child. A failed read still reaches the
+   handler, since a peer may have closed only its write half. A serving
+   stop closes the listener and connections,
+   stops all live children and joins their releases and transport workers.
+   A handler defect ends Serve and keeps the defect cause; it is not an
+   undeclared typed failure or an invented application status.
+7. `Match(routes, method, path)` returns `Found{Route, Params}`, `NotFound`
+   or `MethodNotAllowed`. Routes are `Route{Name, Method, Path}`. Literal
+   segments match exactly; `:name` captures one non-empty segment. Order
+   breaks ties. An explicit HEAD route precedes the GET fallback. There
+   is no automatic trailing-slash redirect. `BuiltPathMatches` is the
+   construction law for parameter segments.
+
+Prior art (source/documentation inspected, not measured): Mist 6.0.3 uses
+`fn(Request) -> Response` and a required size at `read_body`; its buffered
+adapter chooses a failure response. Wisp 2.2.2 exposes body-read helpers and
+[`handle_head`](https://hexdocs.pm/wisp/2.2.2/wisp.html#handle_head).
+Mist's [body API](https://hexdocs.pm/mist/6.0.3/mist.html#read_body)
+reads lazily unless its buffered adapter is selected.
+Plug 1.20.3 [passes a connection through functions](https://hexdocs.pm/plug/1.20.3/Plug.Conn.html)
+and reads
+bodies lazily. These run on BEAM processes; Ergo lowers to net/http and
+owned Go task children. ReScript instead binds the host server through FFI;
+its uncurried callbacks need no effect interpreter, but have no service
+row or owned request task. MoonBit's task groups are the relevant ownership
+comparison, not an HTTP implementation claim. Effect HttpServer supplies
+the scoped-server intent; Ergo takes ordinary functions and checked rows
+instead of runtime tags, Effect instructions and middleware composition.
+
 ## Std laws
+
+HTTP's transport lifetime runs in `runtime/v1.TestHTTPConcurrentRequestsAndStop`
+and `TestHTTPDisconnectAndDefects`; its buffered requests run against a map
+model in `TestHTTPServerMatchesModel`. These are socket tests, not proofs.
 
 The std states its guarantees as laws (owner, 2026-11-06; std-align S1a). The rule:
 
@@ -328,6 +387,7 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 
 | Package | Law | Statement | Runner | State |
 | --- | --- | --- | --- | --- |
+| `http` | `BuiltPathMatches` | `BuiltPathMatches(a string, b string) { if a == "" \|\| b == "" \|\| strings.Contains(a, "/") \|\| strings.Contains(b, "/") { return true } let route = Route{Name: "pair", Method: "GET", Path: "/:a/:b"} match Match([]Route{route}, "GET", "/"+a+"/"+b) { case Found as f: f.Route == route && f.Params.Get("a") == Some{a} && f.Params.Get("b") == Some{b} case NotFound, MethodNotAllowed: false } }` | `TestStdHTTPLawsRun` | tested |
 | `actor` | `Actor.ChangesStops` | `ChangesStops(k int) { if k < 1 { return true } Stop() catch { case _: } let mut calls = 0 let s = Changes() s(func(v S) bool { calls = calls + 1 calls < k }) calls == 1 }` | `TestStdActorLawsRun` | tested |
 | `actor` | `Actor.StopIsFinal` | `StopIsFinal(e E) { Stop() catch { case _: } Send(e) catch { case Stopped: return true } false }` | `TestStdActorLawsRun` | tested |
 | `actor` | `CanIsTheStep` | `CanIsTheStep(signals []int, e int) { with context { Scheduler: time.NewManual(0) } { can(signals, e) } }` | `TestStdActorLawsRun` | tested |
@@ -547,6 +607,12 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 
 ## Std strengths over Effect
 
+HTTP takes `HttpServer`'s purpose: serve a function with its service row,
+and close its listener and request tasks at the serving scope's end.
+It does not take middleware builders, runtime service tags, or Effect
+instruction values. Ordinary functions, rows and child tasks state this
+contract directly. No HTTP-specific checker rule is added.
+
 The std takes the behaviour and the guarantees of Effect's modules, not an Effect API shape that exists only because TypeScript has no construct for the job (owner, 2026-11-08; [decision](../decisions.md#owner-direction-2026-11-08)). Each such shape is a **workaround**, with an id:
 
 - **W1** `Effect.gen` and `yield*`: plain statements, `try`, `catch` and the error row ([rows.md, Error rows](rows.md#error-rows)).
@@ -574,6 +640,7 @@ The table has one row per std package, the prelude included. The Effect module i
 
 | Package | Effect module | Workarounds not copied | Ergo construct | Lowering against hand Go |
 | --- | --- | --- | --- | --- |
+| `http` | `HttpServer` (platform) | W1, W4, W5, W6, W11, W14 | function handlers retain `needs R`; typed body results and pure route matches are closed unions; Serve owns child tasks ([http](#http); [runtime.md, Tasks](runtime.md#tasks)) | pending: `runtime/v1.BenchmarkHTTPServer` alternates the buffered adapter and net/http with request contexts, shutdown cancellation and joined workers; tracing is off. Quiet-host command: `wf10/g1-http/bench-pending.md`. No parity claim yet. |
 | `prelude` | `Option.ts`, `Console.ts`, `Random.ts`, `Fiber.ts` | W4, W10, W14, W18 | prelude unions and operation types bound by `context` ([types.md, Prelude types](types.md#prelude-types); [rows.md, Capability rows](rows.md#capability-rows)) | none: `Append`, `Get` and `Delete` are Go's `append`, map index and `delete`; the box of `Get`'s `Some` waits on union-repr R1 (docs/research/union-repr.md §10, measured there: 0.49 allocations per lookup) |
 | `actor` | effect-machine `Machine.spawn` and its `ActorRef` (outside `packages/effect/src`; no module of the pin has an actor) | W1, W4, W5, W6, W14 | `actor.StartMachine` runs the prelude `Machine[S, E, O, F, R, W]`: `Ask` returns the step's `Decision` matched exhaustively, the step's row `F` and `Stopped` are in `Ask`'s row, the timers sleep on the `Scheduler` the caller binds, and outputs go to a typed `sink` function ([runtime.md, Machines and actors](runtime.md#machines-and-actors) 11) | pending: `runtime/v1.BenchmarkActorAsk` against a hand goroutine with a channel and a `switch` (`runtime/v1.BenchmarkActorAskHandGo`); the command is in `wf10/batch-13/MU3/bench-pending.md` |
 | `base64` | `Encoding.ts` | W3, W5, W6, W14 | the alphabet as the union `Encoding`, matched by `Encode` and `Decode`, where Effect has `encodeBase64` and `encodeBase64Url`; `Malformed` in the row, where Effect's `decodeBase64` returns an `Either` ([Encodings and digests](#encodings-and-digests) 2; [types.md, Unions](types.md#unions); [rows.md, Catch](rows.md#catch)) | `runtime/v1.BenchmarkDigest` (`Base64StdEncode` against Go's `EncodeToString`): pending in `wf10/batch-12/G/bench-pending.md` (expected equal but the string-to-bytes copy) |

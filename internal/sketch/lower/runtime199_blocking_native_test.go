@@ -100,7 +100,9 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 // TestRPCLocalStopRunsTheRelease that a stop of a Loopback caller stops
 // the call, runs its release and ends the call with the stop.
 var childWaitLaws = map[string]bool{"After": true, "TasksTransform": true, "TasksRace": true, "Set.Wait": true, "Set.Stop": true, "MachineSupervise": true, "MachineChild": true,
-	"RPCServe": true, "RPCLocal": true}
+	"RPCServe": true, "RPCLocal": true, "HTTPServe": true}
+// HTTPServe's stop and drain laws are TestHTTPConcurrentRequestsAndStop
+// and TestHTTPDisconnectAndDefects in runtime/v1/http_test.go.
 
 // actorWaitLaws are the waiting bindings of std actor (MU3): each waits on
 // the actor's own runner (for room in its inbox, an answer, a state, a

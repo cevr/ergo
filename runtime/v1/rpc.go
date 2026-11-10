@@ -132,23 +132,11 @@ func RPCTagOf(text string) string {
 	return m.Tag
 }
 
-// Listener is rpc.Listener: a bound TCP listener that Serve serves.
-type Listener struct {
-	ln   net.Listener
-	addr string
-}
-
 // RPCListenerOn is a Listener over ln, which Go code makes: an in-process
 // transport for a benchmark of Serve. Ergo source has only Listen.
 func RPCListenerOn(ln net.Listener) *Listener {
-	return &Listener{ln: ln, addr: ln.Addr().String()}
+	return &Listener{ln: ln}
 }
-
-// bound is rpc.Listener's unexported operation, which seals the type.
-func (l *Listener) bound() {}
-
-// Addr is the address the listener is bound to, with its port.
-func (l *Listener) Addr() string { return l.addr }
 
 // RPCListen binds addr, host:port, on TCP; port 0 picks a free port.
 //
@@ -162,7 +150,7 @@ func RPCListen(addr string) (*Listener, error) {
 		}
 		return nil, RPCListenFailed{Addr: addr, Reason: reason}
 	}
-	return &Listener{ln: ln, addr: ln.Addr().String()}, nil
+	return &Listener{ln: ln}, nil
 }
 
 // rpcMaxBody bounds a request body: Effect's ndjson line cap, 16 MiB.

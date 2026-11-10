@@ -37,6 +37,7 @@ import (
 //go:embed testing/*.ergo
 //go:embed tasks/*.ergo
 //go:embed schedule/*.ergo
+//go:embed http/*.ergo
 //go:embed actor/*.ergo
 //go:embed journal/*.ergo journal/memory/*.ergo journal/file/*.ergo
 var sources embed.FS

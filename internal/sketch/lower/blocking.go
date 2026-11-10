@@ -186,9 +186,13 @@ var runtimeBindings = map[string]runtimeBinding{
 	"TimeSub":     {},
 	"TimeSubMono": {},
 	// std-csv: pure bodies over encoding/csv on a string.
-	"CSVReadAll": {},
-	"CSVScan":    {},
-	"CSVFormat":  {},
+	"CSVReadAll":     {},
+	"CSVScan":        {},
+	"CSVFormat":      {},
+	"HTTPListen":     {},
+	"Listener.Addr":  {},
+	"Listener.Close": {},
+	"HTTPServe":      {wait: childWait},
 	// std machines (fs2): the defect of a timer that is not positive.
 	"MachineTimerNotPositiveAt": {},
 	// std-duration: pure bodies of duration text and arithmetic.

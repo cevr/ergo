@@ -2,6 +2,42 @@
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
+      "name": "http-serve-row",
+      "origin": "wf10 G1",
+      "file": "internal/sketch/std/http/http.ergo",
+      "from": "func Serve[R](l Listener, limits Limits, handle func(Request) Response needs R) fails InvalidLimits needs R",
+      "to": "func Serve[R](l Listener, limits Limits, handle func(Request) Response needs R) fails InvalidLimits",
+      "rule": "The function handler's capability row reaches the serving caller.",
+      "killers": ["lower:TestHTTPHandlerRows"]
+    },
+    {
+      "name": "http-route-parameters",
+      "origin": "wf10 G1",
+      "file": "internal/sketch/std/http/router.ergo",
+      "from": "params[strings.TrimPrefix(part, \":\")] = got[i]",
+      "to": "params[strings.TrimPrefix(part, \":\")] = \"wrong\"",
+      "rule": "A path built from a route and parameter values recovers those values.",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
+      "name": "http-head-fallback",
+      "origin": "wf10 G1",
+      "file": "internal/sketch/std/http/router.ergo",
+      "from": "if method == \"HEAD\"",
+      "to": "if method == \"NEVER\"",
+      "rule": "HEAD uses a GET route only when no explicit HEAD route matches.",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
+      "name": "http-header-case",
+      "origin": "wf10 G1",
+      "file": "internal/sketch/std/http/http.ergo",
+      "from": "strings.EqualFold(f.Name, name)",
+      "to": "strings.Compare(f.Name, name) == 0",
+      "rule": "Header lookup ignores case and preserves absence.",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
       "name": "existing-2-unit-h",
       "origin": "lower-v1/verify-s4a/r2/mutants-r2.json",
       "file": "internal/sketch/lower/tests.go",
