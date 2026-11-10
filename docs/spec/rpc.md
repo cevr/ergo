@@ -6,26 +6,25 @@ Std `rpc` serves and calls an operation type over Effect RPC's HTTP protocol, so
 
 | Name | Signature | Go body |
 | --- | --- | --- |
-| `Listen` | `Listen(addr string) Listener fails ListenFailed needs Ambient` | `RPCListen` |
-| `Listener` | `Addr() string`: the bound address with its port | `Listener` |
-| `Serve` | `Serve[R](l Listener, mount string, handle func(tag string, payload string) string fails Failed needs R) needs R` | `RPCServe` |
+| `Answer` | `Answer[R](r http.Request, mount string, handle func(tag string, payload string) string fails Failed needs R) http.Response needs R \| http.Streaming` | Ergo over `RPCParse`, `RPCExits`, `RPCExitLines` |
+| `Serve` | `Serve[R](l http.Listener, limits http.Limits, mount string, handle …) fails http.InvalidLimits needs R` | Ergo: `http.Serve` with `Answer` |
 | `Dial` | `Dial(url string) Conn needs Ambient` | Ergo |
-| `Loopback` | `Loopback(handle escaping func(tag string, payload string) string fails Failed) Conn`: `handle` served in this process | Ergo over `RPCLocal` |
-| `Call` | `Call(c Conn, tag string, payload string) string fails Failed` | `RPCCall` (Dial), `RPCLocal` (Loopback) |
+| `Loopback` | `Loopback(handle escaping func(tag string, payload string) string fails Failed) Conn`: `handle` served in this process | Ergo: `Answer` under `http.NewRecorder()` |
+| `Call` | `Call(c Conn, tag string, payload string) string fails Failed` | `RPCCall` (Dial); Ergo (Loopback) |
 | `Failed` | `Failed { Text string }`: a typed failure's tagged JSON | `RPCFailed` |
-| `ListenFailed` | `ListenFailed { Addr string, Reason string }` | `RPCListenFailed` |
+| `Malformed`, `Envelope` | a body that is not Effect RPC's; one parsed envelope | `RPCMalformed`, `RPCEnvelope` |
 | `Unrepresentable` | `Unrepresentable { Path string, Value string }` | `RPCUnrepresentable` |
 | `Encode`, `Decode` | `Encode[T wire](v T) string`; `Decode[T wire](what string, text string) T` (a text that is not a `T` is a defect) | Ergo over `json` |
 | `Tagged`, `TagOf` | `Tagged(tag, object string) string` adds `"_tag"`; `TagOf(text string) string` reads it | `RPCTagged`, `RPCTagOf` |
 | `Exact`, `ExactUint`, `Under`, `Refuse` | the int rule (below) | `RPCExact`, `RPCExactUint`; Ergo |
 | `Die` | `Die[T](name, message string) T`: a defect Effect reads as `{name, message}` | `RPCDie` |
 
-1. **Serve.** `Serve` answers `POST mount` and `POST mount/` (Effect's `RpcClient` posts to its URL with a trailing slash) until the calling task is stopped. Each `Request` envelope runs `handle(tag, payload)` on a task of its own below the caller's, inside the caller's `needs R`, so the providers a `context` binds around `Serve` serve every call. A client that abandons its request stops the call's task, and the answer waits until the call's releases ran. A stop of the caller closes the listener, stops every call and waits for each.
-2. **Serializations.** `Content-Type: application/json` is a body of one envelope or an array of them, answered with an array of `Exit` envelopes, each carrying its request's id (not its position); `application/x-ndjson` is a line per envelope, answered with one flushed `Exit` line per call as it ends.
+1. **Answer and Serve** (Rm). RPC is an ordinary handler of the std http core ([stdlib http](stdlib.md#http)): `Answer(r, mount, handle)` answers `POST mount` and `POST mount/` (Effect's `RpcClient` posts to its URL with a trailing slash), so a program that serves a page or other routes beside RPC calls `Answer` from its own `http.Serve` handler on one listener. `Serve(l, limits, mount, handle)` is `http.Serve` with `Answer` as its only handler. Before any call starts, another path is 404, another method 405 with `Allow: POST`, a body over `limits.MaxBodyBytes` 413 (`http.Limits` is required; R1's fixed 16 MiB cap is gone), a failed read or a body that is not Effect RPC's (`Malformed`) 400. Each `Request` envelope runs `handle(tag, payload)` on a task of its own below the request's task, inside the caller's `needs R`, so the providers a `context` binds around `Serve` serve every call. A client that goes away stops the request's task, which stops every call left, and the request ends after their releases ran. A stop of `Serve`'s caller is `http.Serve`'s: the listener closes, every request and call stops, and each is joined.
+2. **Serializations.** `Content-Type: application/json` is a body of one envelope or an array of them, answered with an array of `Exit` envelopes, each carrying its request's id (not its position), once every call ended; `application/x-ndjson` is a line per envelope, answered through `http.Stream` with one flushed `Exit` line per call as it ends, so a fast call's Exit reaches the client while another call of the batch is held (`TestRpcFramedExitFlowsWhileHeld`). The stream is http's streamed body ([stdlib http](stdlib.md#http) 9): status and header are fixed before the first line, and a failed write stops the calls left.
 3. **Exit.** A value is `{"_tag":"Success","value":V}`, `null` for an operation with no value; `handle`'s `Failed{Text}` is `{"_tag":"Failure","cause":[{"_tag":"Fail","error":Text}]}`; a defect is `{"_tag":"Failure","cause":[{"_tag":"Die","defect":{"name":N,"message":M}}]}`. `requestId` is the request's id token as sent, a number or a string.
 4. **Call.** `Call` posts one `Request` (`application/json`, ids counted from 0) and reads its `Exit`: a value's text, `Failed` with a `Fail`'s error text, and a `Die` raised again as the server's defect. A lost server is the defect `RpcClientError`. A stop of the calling task aborts the request, which stops the call on the server.
 5. **The int rule** (orchestrator 2026-11-10, Q3). A JavaScript number holds an integer exactly only within ±(2^53−1), so the Effect RPC profile refuses a larger one at encode and at decode: `Exact` and `ExactUint` fail with `Unrepresentable{Path, Value}`, and `Under` prefixes its path as a walker descends. The `json` codec itself writes every int's exact digits. A field that needs the full range uses a string type.
-6. **Loopback.** `Loopback(handle)` is a `Conn` to `handle` served in this process: each `Call` is answered by the same server as `Serve`'s (its envelopes, its json answer, a `net/http` request and response) in memory, with no socket and no connection, so it reaches no host and needs no `Ambient`, and `handle` runs on a task below the caller, as a call of `Serve` runs. A stop of the caller stops that task, and `Call` ends after its releases ran (`TestRPCLocalStopRunsTheRelease`). A row-free constructor can build a generated `Client` over it, so `ergo test` runs a contract's laws through the wire: `examples/limiter/loopback`.
+6. **Loopback.** `Loopback(handle)` is a `Conn` to `handle` served in this process: each `Call` is an `http.Request` that `Answer`, `Serve`'s own handler, answers (its envelopes, its json answer) under `http.NewRecorder()`, in memory, with no socket and no connection, so it reaches no host and needs no `Ambient`, and `handle` runs on a task below the caller, as a call of `Serve` runs. A stop of the caller stops that task, and `Call` ends after its releases ran (`TestRPCCallsStopWithTheCaller`). A row-free constructor can build a generated `Client` over it, so `ergo test` runs a contract's laws through the wire: `examples/limiter/loopback`.
 
 ## ergo gen rpc
 
@@ -81,5 +80,4 @@ source and source spans; the loaders supply its missing runtime emit.
 
 ## Not yet
 
-- `Listener` has no `Close`: `Serve` closes it, and a listener never served stays bound until the program exits.
 - Streams (`RpcSchema.Stream`, `Chunk` envelopes) are not served and a stream operation is not generated. Envelopes other than `Request` (`Ack`, `Ping`, `Eof`, `Interrupt`) are skipped: over HTTP a client's abort is the request's end. Request headers are not read.
