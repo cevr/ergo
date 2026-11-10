@@ -37,8 +37,45 @@ Std `rpc` serves and calls an operation type over Effect RPC's HTTP protocol, so
 
 Prior art: Effect's `RpcGroup` and `RpcClient` (`effect/src/rpc`, `RpcMessage.ts` for the envelopes, `RpcSerialization.ts` for json and ndjson); Go's `net/rpc` and gRPC's generated stubs; Elixir's `:erpc` over Erlang distribution (a call is a process; a dead node is an error, not a typed failure); Gleam and ReScript generate no RPC layer: their users write JSON encoders and decoders by hand (`gleam/json`) or bind a TypeScript client (tRPC). Ergo's contract is the operation type itself, so the server and the client are derived, not declared twice.
 
+## TypeScript content mapper and loaders
+
+`ergo tsmap` serves TypeScript 7.1.0-beta's content mapper protocol on
+stdio. It reads the checked package with the editor buffer as a read-only
+overlay. The mapper and `ergo tsmap --emit-js FILE.ergo` share
+`internal/tsproj`: one walk of the checked types emits Effect RPC groups
+and schemas, with TS declarations for checking or JS values for loading.
+No Ergo function body is translated to JavaScript. No generated `.ts`
+file is checked in.
+
+The private local package [tools/ts](../../tools/ts/README.md) provides
+Bun, Node and Vite loaders (and an esbuild adapter), the pinned TypeScript
+and Effect versions, and setup instructions. Run `tsc --runExternalCode`;
+without that explicit permission TypeScript refuses to start the mapper.
+Content-mapped files are not emitted as JS by TypeScript, so a runtime
+loader is required. Source diagnostics use `ergo`; positions support
+UTF-8 and UTF-16. Renamed wire fields use Alias spans, not Verbatim spans.
+
+Supported wire shapes are listed in the tool README. An unsupported
+shape is a projection diagnostic, never an unchecked `any`. Each mapped
+file exports its package's wire declarations; reachable imported types
+use private schema names. Cross-file watch registration is not provided
+yet: restart TypeScript watch after changing another Ergo file in the
+package or an imported package. Runtime loads do not cache the projection.
+
+Measured acceptance: `ERGO_TS_TEST=1 go test -count=1 -timeout 10m
+./internal/tsproj` checks a seeded codec round trip, stock RpcClient
+against an Ergo server under Bun/Node/Vite with json and ndjson, and four
+signature mutations reported at TypeScript call sites. It is opt-in;
+the Go-only gate starts no TypeScript tool.
+
+Prior art: Gleam emits TypeScript declarations beside JS modules;
+ReScript genType emits type adapters, with codecs supplied separately.
+Ergo emits only the checked wire view: Go remains the target and the
+schemas are for the peer. Elixir/Phoenix sends JSON events without a
+shared static client contract. The TypeScript 7.1 mapper adds virtual
+source and source spans; the loaders supply its missing runtime emit.
+
 ## Not yet
 
 - `Listener` has no `Close`: `Serve` closes it, and a listener never served stays bound until the program exits.
 - Streams (`RpcSchema.Stream`, `Chunk` envelopes) are not served and a stream operation is not generated. Envelopes other than `Request` (`Ack`, `Ping`, `Eof`, `Interrupt`) are skipped: over HTTP a client's abort is the request's end. Request headers are not read.
-- The TypeScript side (the `ergo tsmap` content mapper and its loaders) is the R3' unit.

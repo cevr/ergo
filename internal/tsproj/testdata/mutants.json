@@ -1,0 +1,20 @@
+{
+  "about": "R3' projection/mapper/loader mutants. The focused judge runs the named tests with ERGO_TS_TEST=1 for stock-client mutants. The generic scripts/mutants runner does not yet select tsproj; the R3' request records the judge and results.",
+  "mutants": [
+    { "name": "r3-int", "file": "internal/tsproj/project.go", "from": "return \"$Schema.Int\"", "to": "return \"$Schema.Number\"", "rule": "An int schema refuses fractional input.", "killers": ["tsproj:TestTsProjectionAgrees"] },
+    { "name": "r3-case", "file": "internal/tsproj/project.go", "from": "g.name(check.WireFieldName(f.Name), f.Name, f.Pos, local)", "to": "g.name(f.Name, f.Name, f.Pos, local)", "rule": "Field keys are the codec's wire names.", "killers": ["tsproj:TestTsProjectionAgrees"] },
+    { "name": "r3-tag", "file": "internal/tsproj/project.go", "from": "strconv.Quote(vn.Obj.Name)", "to": "strconv.Quote(strings.ToLower(vn.Obj.Name))", "rule": "Union tags retain the variant's case.", "killers": ["tsproj:TestTsProjectionAgrees"] },
+    { "name": "r3-option", "file": "internal/tsproj/project.go", "from": "return \"$Schema.Option(\"", "to": "return \"$Schema.NullOr(\"", "rule": "Option uses the tagged wire form, not null.", "killers": ["tsproj:TestTsProjectionAgrees"] },
+    { "name": "r3-error", "file": "internal/tsproj/project.go", "from": "return g.names[n]\n", "to": "return \"$value\" + g.names[n]\n", "rule": "A failure row is tagged in catchTag's type and codec.", "killers": ["tsproj:TestTsProjectionAgrees"] },
+    { "name": "r3-span", "file": "internal/tsproj/project.go", "from": "return len(utf16.Encode([]rune(s)))", "to": "return len(s) + 0*len(utf16.Encode([]rune(s)))", "rule": "UTF-16 spans count code units, not UTF-8 bytes.", "killers": ["tsproj:TestProjectionSourceSpans", "tsproj:TestMapperOverlayDiagnostics"] },
+    { "name": "r3-alias", "file": "internal/tsproj/project.go", "from": "kind = 2", "to": "kind = 0", "rule": "A changed wire name is Alias, never Verbatim.", "killers": ["tsproj:TestProjectionSourceSpans"] },
+    { "name": "r3-overlay", "file": "internal/tsproj/mapper.go", "from": "sketchfront.CheckDirOverlay(filepath.Dir(abs), map[string]string{abs: content})", "to": "sketchfront.CheckDir(filepath.Dir(abs))", "rule": "An unsaved editor buffer is authoritative for its transform.", "killers": ["tsproj:TestMapperOverlayDiagnostics"] },
+    { "name": "r3-frame", "file": "internal/tsproj/mapper.go", "from": "n > maxFrame", "to": "n > maxFrame*2", "rule": "A frame is rejected before a payload larger than 16 MiB is allocated/read.", "killers": ["tsproj:TestMapperFailsClosed"] },
+    { "name": "r3-project", "file": "internal/tsproj/mapper.go", "from": "if !projects[p.ProjectHandle] {", "to": "if false {", "rule": "A transform requires an open project.", "killers": ["tsproj:TestMapperFailsClosed"] },
+    { "name": "r3-refusal", "file": "internal/tsproj/project.go", "from": "if g.err != nil {", "to": "if false {", "rule": "An unsupported projection cannot publish incomplete schemas.", "killers": ["tsproj:TestProjectionRefusesUnsupported"] },
+    { "name": "r3-bun", "file": "tools/ts/bun.mjs", "from": "filter: /\\.ergo$/", "to": "filter: /\\.not-ergo$/", "rule": "Bun loads mapped contract runtime schemas.", "killers": ["tsproj:TestTsProjectionAgrees"] },
+    { "name": "r3-node", "file": "tools/ts/node.mjs", "from": ".pathname.endsWith(\".ergo\")", "to": ".pathname.endsWith(\".not-ergo\")", "rule": "Node loads mapped contract runtime schemas.", "killers": ["tsproj:TestTsProjectionAgrees"] },
+    { "name": "r3-vite", "file": "tools/ts/vite.mjs", "from": "if (fileName.endsWith(\".ergo\"))", "to": "if (fileName.endsWith(\".not-ergo\"))", "rule": "Vite bundles the contract, not a raw Ergo file.", "killers": ["tsproj:TestTsProjectionAgrees"] },
+    { "name": "r3-esbuild", "file": "tools/ts/esbuild.mjs", "from": "filter: /\\.ergo$/", "to": "filter: /\\.not-ergo$/", "rule": "esbuild loads the same contract schemas as the other adapters.", "killers": ["tsproj:TestTsProjectionAgrees"] }
+  ]
+}

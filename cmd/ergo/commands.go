@@ -55,6 +55,7 @@ var commands = []cliCommand{
 	{name: "test", usage: "test FILE|DIR [--seed N] [-work] [--json] [--target go]", run: testCommand},
 	{name: "bind", usage: "bind go [-o DIR] PACKAGE...", help: bindHelp, run: bindCommand},
 	{name: "gen", usage: "gen rpc [--check] DIR.OPTYPE", help: genHelp, run: genCommand},
+	{name: "tsmap", usage: "tsmap [--emit-js FILE.ergo]", help: tsmapHelp, run: tsmapCommand},
 	{name: "edition", fate: removed, reason: "there is one language and no editions", ticket: ticketEditions},
 	{name: "lint", fate: removed, reason: "linting returns on the new checker", ticket: ticketTooling},
 	{name: "lint rules", fate: removed, reason: "linting returns on the new checker", ticket: ticketTooling},
