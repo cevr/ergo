@@ -1488,6 +1488,9 @@
     "TestTimeoutWithWorkWinnerRetainsAcquireReleaseCleanupDefect": 0,
     "TestUnmanagedJoinerCancellationIsAnInterruption": 0
   },
+  "ergo.local/prototype/runtime/explore": {
+    "TestSearchAgreesWithReference": 0.04
+  },
   "ergo.local/prototype/runtime/rt": {
     "TestAcquireHasNoInterruptionWindow": 0,
     "TestAcquireInsideProtectedCleanup": 0,
