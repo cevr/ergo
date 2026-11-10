@@ -23,7 +23,7 @@ The program is a module of packages (`ergo.mod`: `module jobs`), in the Go layou
 | --- | --- |
 | `jobs/` | The domain package, with no HTTP and no JSON. `job.ergo`: `State`, `Signal`, `Job`, the failures `NotFound` and `Conflict`, `Step`, `Timer`, the machine `Lifecycle`, `Settle` and `Apply`. `store.ergo`: the contract `Store` with five laws, and the failure `Stale`. `queue.ergo`: `Submit`, `Find`, `List`, `CancelJob` and `Remove`, over the `Store` and the `time.Clock` in the context. `laws.ergo`: the lifecycle laws. |
 | `memory/` | `Table`, a `jobs.Store` in a `sync.Ref`. `ergo test` runs the `Store` laws here. |
-| `api/` | The HTTP layer: `routes.ergo` (`Jobs`, `Endpoint`, the constant route table and its coverage law), `endpoint/` (empty endpoint variants), `queue.ergo` (`Queue`, the served Jobs provider), `body.ergo` (the JSON records `Draft`, `View`, `Listing`, `Problem`), `handle.ergo` (`Handle`, the one catch from failure to status, and `WithSite`), `laws.ergo` (the model law), `tests.ergo` (fresh worlds for the model and provider laws). |
+| `api/` | The HTTP layer: `routes.ergo` (`Jobs`, `Endpoint`, the constant route table and its coverage law), `failure.ergo` (the constant failure-status table and coverage law), `endpoint/` (empty endpoint variants), `queue.ergo` (`Queue`, the served Jobs provider), `body.ergo` (the JSON records `Draft`, `View`, `Listing`, `Problem`), `handle.ergo` (`Handle`, its total catch and table-driven contract failures, and `WithSite`), `laws.ergo` (the model law), `tests.ergo` (fresh worlds for the model and provider laws). |
 | `cmd/jobs/` | The binary. It binds `api.Jobs` to a Queue over a `memory.Table` and the host's clock (or, under `-replay`, a manual one and `http.Net` to a client of its own listener), the listener to `-addr` and the site's root to `-site`. It is the only place that chooses live providers. |
 
 ## What it shows
@@ -47,6 +47,7 @@ The program is a module of packages (`ergo.mod`: `module jobs`), in the Go layou
 | `AgreesWithModel` | api, with `memory.Table` | generated request sequences, with clock moves between them, get the model's status, body, `Location` and `Allow` at each step | a done job that is not ended; `ended` never set; a missing priority that is not 0; an `Allow` of one method; a lost `Location`; a delete of a running job; 409 given as 400 |
 | `RoutesCoverEndpoints` | api | every generated Endpoint has exactly one route | a missing or repeated route |
 | `Jobs.EmptyNameIsBadBody` | contract, run against `Queue` | a direct SubmitJob call refuses an empty name, without the HTTP decoder | a provider that relies on DraftOf for name validation |
+| `FailuresCoverContract` | HTTP failure table | each failure tag has exactly one valid status | a missing or repeated entry |
 
 Two mutants no law sees are caught elsewhere: a `case _` in `Handle`'s catch by `TestJobsFailureNeedsAStatus`, and an id with a leading zero (`/jobs/01`) taken as job 1 by the case `refusals`. Each mutant was applied once and killed by an assertion (measured).
 

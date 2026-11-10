@@ -1,0 +1,34 @@
+import http
+import jobs/jobs
+import json
+
+// A row can name failures from several packages. A declared union cannot:
+// its variants belong to its own package. This private carrier lets the law
+// generate the row value without wrapping or copying any domain failure.
+type failureCase[F] { Error F }
+type contractFailure = failureCase[BadBody | jobs.NotFound | jobs.Conflict]
+
+let Failures = []http.FailureStatus{
+	http.FailureStatus{Tag: "BadBody", Status: 422},
+	http.FailureStatus{Tag: "NotFound", Status: 404},
+	http.FailureStatus{Tag: "Conflict", Status: 409},
+}
+
+// Check table coverage before a model run can reach an invalid table and
+// raise a defect. Generated row values cover nominal failures and payloads.
+law FailuresCoverContract(f contractFailure) {
+	let body = json.Encode(json.Codec[BadBody | jobs.NotFound | jobs.Conflict]{MaxBytes: 0, MaxDepth: 0}, f.Error)
+	let r = json.Open(body, 0, 0) catch {
+	case _:
+		return false
+	}
+	json.BeginObject(r) catch {
+	case _:
+		return false
+	}
+	let tag = json.Tag(r) catch {
+	case _:
+		return false
+	}
+	http.StatusOf(Failures, tag) != None
+}

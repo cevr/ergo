@@ -140,6 +140,7 @@ await Effect.runPromise(program.pipe(Effect.provide(FetchHttpClient.layer)));
 	if err != nil {
 		t.Fatal(err)
 	}
+	runCheck(t, command(cli, "check", "api"))
 	out, code = runResult(t, tsc())
 	for _, path := range renamed {
 		b, err := os.ReadFile(path)
