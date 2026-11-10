@@ -67,7 +67,7 @@ No process of this worktree remained after each check.
 ## Known gaps
 - float32 is a projection diagnostic: Go decodes into float64 and rounds
   or overflows to an infinity, which a JavaScript number cannot show, so
-  a TS peer would hold a different value (inferred from lower/wire.go).
+  a TS peer would hold a different value (inferred from the lowered decode).
   Decided by simpler-reversible: a later unit can admit it.
 - A JavaScript -0 is written as `0` by JSON.stringify, while std json
   writes `-0`; the property does not draw -0 (inferred).
