@@ -254,6 +254,7 @@ go build -o bin/ergo ./cmd/ergo
 
 ./bin/ergo run examples/checkout/cmd/checkout      # prints: paid
 ./bin/ergo test examples/checkout/cmd/checkout     # prints: PASS (2 tests)
+./bin/ergo test examples/checkout/...              # tests each package, dependencies first
 ./bin/ergo run examples/editions/sketch/main.ergo  # prints: hello, Ada / no friend named Bob
 ./bin/ergo fmt --check examples/editions/sketch/main.ergo
 go run ./scripts/examples                          # builds and runs the example programs against their recorded cases

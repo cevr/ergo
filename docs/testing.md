@@ -1,6 +1,6 @@
 # Testing
 
-`ergo test FILE [--seed N]` builds the tests of one `.ergo` file and runs them. A test is a top-level declaration of the file, beside its functions. The rules are in [grammar.md](spec/grammar.md#declarations) (declarations 11) and [runtime.md](spec/runtime.md); this page shows how to use them.
+`ergo test FILE|DIR [--seed N]` builds the tests of one `.ergo` file or package and runs them. A test is a top-level declaration, beside its functions. The rules are in [grammar.md](spec/grammar.md#declarations) (declarations 11) and [runtime.md](spec/runtime.md); this page shows how to use them.
 
 ## Tests
 
@@ -54,6 +54,23 @@ FAIL (1 of 3 tests)
 ```
 
 `--seed N` (a decimal `uint64`, default 1) selects the cases, so a failure reproduces with the same seed.
+
+### A module of packages
+
+From a directory in a module, run `ergo test ./...` to select every package
+below it, in dependency order. `ergo check ./...` and `ergo fmt --check ./...`
+use the same selection. A prefix such as `ergo test lib/...` selects only that
+subtree; dependencies outside it are checked as usual but their tests are not
+selected. The nearest `ergo.mod` sets the module boundary. Nested modules,
+`testdata`, hidden/underscore directories and directory symlinks are not walked.
+An empty selection is an error.
+
+Test output names each package by its module import path. An assertion or law
+failure does not hide later packages: the command exits 1 if any selected package
+failed. A defect or signal stops the run and keeps its status. `--seed`, `-work`
+and target options keep their per-package meaning. Recursive check writes one
+JSON check envelope per package, one per line, and exits 1 if any failed.
+Formatting still uses syntax only; a type error does not prevent formatting.
 
 ## Exit status
 

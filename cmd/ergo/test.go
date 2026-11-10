@@ -29,6 +29,13 @@ func testCommand(args []string) error {
 	if err != nil {
 		return invalidInvocation(err)
 	}
+	if recursivePattern(opts.file) {
+		return recursiveCommand(opts, testPackage)
+	}
+	return testPackage(opts)
+}
+
+func testPackage(opts fileOptions) error {
 	l, err := load(opts.file, opts.target)
 	if err != nil {
 		return err
