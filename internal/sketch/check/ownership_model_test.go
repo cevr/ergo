@@ -71,6 +71,9 @@ func TestOwnershipFlowModel(t *testing.T) {
 		}
 		gotR := ofReleases(c, first)
 		slices.Sort(gotD)
+		// The model counts positions: a place handed off is refused as a
+		// place and for its root at one position (keep(b.r) after b moved).
+		gotD = slices.Compact(gotD)
 		slices.Sort(wantD)
 		if !slices.Equal(gotD, wantD) || !slices.Equal(gotR, wantR) {
 			var full []string
@@ -92,10 +95,10 @@ func ofYieldProjections(t *testing.T, seed uint64) {
 	rng := rand.New(rand.NewPCG(seed, 0x197a205))
 	for origin := range 5 {
 		arm := []string{
-			"let b = box()\nb.R",
-			"box().R",
+			"let b = pair()\nb.R",
+			"pair().R",
 			"outer.R",
-			"let b = box()\n(with context {} { b }).R",
+			"let b = pair()\n(with context {} { b }).R",
 			"(if cond(n) { outer } else { outer }).R",
 		}[origin]
 		var x string
@@ -111,7 +114,7 @@ func ofYieldProjections(t *testing.T, seed uint64) {
 		case 4:
 			x = "tryOpen(n) catch {\ncase Bad:\n" + arm + "\n}"
 		}
-		src := ofPrelude + "type Box { R Res }\nfunc box() Box { Box{R: open(1)} }\nfunc tryOpen(n int) Res fails Bad { if n > 0 { return Bad }; open(n) }\nfunc body(n int, outer Box) { lend(" + x + ") }\nfunc main() {}\n"
+		src := ofPrelude + "type Pair { R Res }\nfunc pair() Pair { Pair{R: open(1)} }\nfunc tryOpen(n int) Res fails Bad { if n > 0 { return Bad }; open(n) }\nfunc body(n int, outer Pair) { lend(" + x + ") }\nfunc main() {}\n"
 		_, ds := checkFor(src)
 		want := origin == 0 || origin == 1 || origin == 3
 		if (len(ds) > 0) != want {
@@ -541,13 +544,15 @@ func TestOwnershipMessages(t *testing.T) {
 		}
 	}
 	// A return hands off (R10): the generated bodies return no value.
-	_, diags := checkFor(ofPrelude + "func give(p Res) Res {\n\treturn p\n}\n\nfunc main() {}\n")
-	if want := "p is lent to give, so it cannot hand p off (it is returned)"; len(diags) != 1 || !strings.Contains(diags[0].Message, want) {
+	_, diags := checkFor(ofPrelude + "func Give(p Res) Res {\n\treturn p\n}\n\nfunc main() {}\n")
+	if want := "p is lent to Give, so it cannot hand p off (it is returned)"; len(diags) != 1 || !strings.Contains(diags[0].Message, want) {
 		t.Errorf("return p: got %v, want one S108 containing %q", diags, want)
 	}
 }
 
-const ofPrelude = `type Res { id int }
+const ofPrelude = `import queue
+
+type Res { id int }
 
 type Bad {}
 
@@ -578,6 +583,28 @@ func cond(n int) bool { n > 2 }
 
 func run(f func()) { f() }
 
+type Box { r Res, n int }
+
+type Empty {}
+
+type Held = Res | Empty
+
+type Closer { Close() }
+
+type Store { Get() int }
+
+func Get(r Res) int { r.id }
+
+func lendBox(b Box) {}
+
+func keepBox(b Box) takes b {}
+
+func lendCloser(c Closer) {}
+
+let shared = Res{id: 0}
+
+func newQueue() queue.Queue[Res] { queue.New[Res](2) }
+
 `
 
 const (
@@ -603,7 +630,28 @@ const (
 	ofRun
 	ofCatch // let _ = fail(n) catch { case Bad: …; 0 }: the arm runs on the failure path
 	ofValue // an if or match used as a value (batch-15 A2 M1)
-	ofTail  // the last line of a value arm: where the arm's value comes from
+	ofTail  // the last line of a value arm: where the arm's value comes from (never drawn by stmt)
+	// Aggregates, containers, unions, conversions and with providers (L8
+	// A4): a Box{r Res, n int}, a []Res, a Held = Res | Empty.
+	ofBoxNew     // let bN = Box{r: Y, n: 1}: Y moves into the literal (R14)
+	ofBoxLend    // lendBox(B): B is used whole (R39 after a field take)
+	ofBoxKeep    // keepBox(B)
+	ofFieldClose // B.r.Close(): the field is taken in place (Gap 38)
+	ofFieldLend  // lend(B.r)
+	ofFieldKeep  // keep(B.r): a field moved out (R39, S108)
+	ofListNew    // let lN = []Res{Y}
+	ofIndexLend  // lend(L[0]): the index lends (R35)
+	ofIndexClose // L[0].Close(): a take by index (R35, S108)
+	ofForIn      // for eN in L { keep(eN) } or { lend(eN) }: lent elements
+	ofHeldNew    // let hN Held = Y
+	ofMatchHeld  // match H { case Res as vN: keep(vN) or lend(vN); case Empty: }
+	ofWithMove   // with context { Store: Y } { … }: Y moves into the with (R11)
+	ofConvert    // lendCloser(Y): a conversion to Closer moves (R23)
+	ofLitLend    // lendBox(Box{r: Y, n: 0}): a lent literal moves its parts
+	ofWithShared // with context { Store: shared } { … }: a package let has no owner (R11)
+	ofQueueNew   // let uN = newQueue()
+	ofQueueLoop  // for eN in U.Values() { keep(eN) } or { lend(eN) }: owned elements (Q7)
+	ofLast
 )
 
 // Where an ofValue's if or match stands (form) and what its arms yield.
@@ -629,6 +677,8 @@ const (
 type ofStmt struct {
 	kind      int
 	x, y      string // x: the declared or assigned name; y: the operand
+	z         string // the binding of a for-in or a match arm
+	alt       bool   // keep, not lend, the binding
 	mut       bool
 	op        string // ofShort: && or ||
 	left      bool   // ofShort: the take is the left operand, which always runs
@@ -647,6 +697,7 @@ type ofVar struct {
 	name  string
 	mut   bool
 	depth int
+	kind  string // "" a Res, "box", "list", "held"
 }
 
 type ofGen struct {
@@ -686,7 +737,31 @@ func (g *ofGen) program(size int) []*ofStmt {
 	return body
 }
 
-func (g *ofGen) pick() string { return g.vars[g.r.IntN(len(g.vars))].name }
+func (g *ofGen) pick() string { return g.pickKind("") }
+
+// hasRes reports a live Res name to pick.
+func (g *ofGen) hasRes() bool {
+	for _, v := range g.vars {
+		if v.kind == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// pickKind is a live name of a kind, or "" when there is none.
+func (g *ofGen) pickKind(kind string) string {
+	var names []string
+	for _, v := range g.vars {
+		if v.kind == kind {
+			names = append(names, v.name)
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	return names[g.r.IntN(len(names))]
+}
 
 // block generates up to size statements at frame depth, inLoop loops
 // deep. The last statement of an if body may leave (return, break or
@@ -730,12 +805,12 @@ func (g *ofGen) arm(form, depth, nest int, inLoop bool) []*ofStmt {
 		if t.tk == tNested && nest >= 2 {
 			t.tk = tTake
 		}
-		if t.tk == tTake && len(g.vars) == 0 {
+		if t.tk == tTake && !g.hasRes() {
 			t.tk = tCond
 		}
 	} else {
 		t.tk = []int{tName, tOpen}[g.r.IntN(2)]
-		if len(g.vars) == 0 {
+		if !g.hasRes() {
 			t.tk = tOpen
 		}
 	}
@@ -750,14 +825,17 @@ func (g *ofGen) arm(form, depth, nest int, inLoop bool) []*ofStmt {
 
 func (g *ofGen) stmt(depth, nest int, inLoop bool) *ofStmt {
 	for {
-		k := g.r.IntN(ofValue + 1)
+		k := g.r.IntN(ofLast)
+		if k == ofTail {
+			continue // only as a value arm's last line
+		}
 		if g.lead {
 			g.lead = false
 			k = []int{ofIf, ofMatch, ofLoop, ofCatch, ofValue}[g.r.IntN(5)]
 		}
 		switch k {
-		case ofDeclMove, ofLend, ofClose, ofKeep, ofBoth, ofShort:
-			if len(g.vars) == 0 {
+		case ofDeclMove, ofLend, ofClose, ofKeep, ofBoth, ofShort, ofBoxNew, ofListNew, ofHeldNew, ofWithMove, ofConvert, ofLitLend:
+			if !g.hasRes() {
 				continue // nothing live to name
 			}
 		}
@@ -846,6 +924,45 @@ func (g *ofGen) stmt(depth, nest int, inLoop bool) *ofStmt {
 			s.body = g.block(3, depth, nest+1, inLoop)
 		case ofRun:
 			s.body = g.block(3, depth+1, nest+1, false)
+		case ofQueueNew:
+			g.n++
+			s.x = fmt.Sprintf("u%d", g.n)
+			g.vars = append(g.vars, ofVar{name: s.x, depth: depth, kind: "queue"})
+		case ofQueueLoop:
+			if s.y = g.pickKind("queue"); s.y == "" {
+				continue
+			}
+		case ofBoxNew, ofListNew, ofHeldNew:
+			s.y = g.pick()
+			kind := map[int]string{ofBoxNew: "box", ofListNew: "list", ofHeldNew: "held"}[k]
+			g.n++
+			s.x = fmt.Sprintf("%c%d", kind[0], g.n)
+			g.vars = append(g.vars, ofVar{name: s.x, depth: depth, kind: kind})
+		case ofBoxLend, ofBoxKeep, ofFieldClose, ofFieldLend, ofFieldKeep:
+			if s.y = g.pickKind("box"); s.y == "" {
+				continue
+			}
+		case ofIndexLend, ofIndexClose, ofForIn:
+			if s.y = g.pickKind("list"); s.y == "" {
+				continue
+			}
+		case ofMatchHeld:
+			if s.y = g.pickKind("held"); s.y == "" {
+				continue
+			}
+		case ofWithShared:
+			s.y = "shared"
+		case ofWithMove, ofConvert, ofLitLend:
+			s.y = g.pick()
+		}
+		if k == ofForIn || k == ofMatchHeld || k == ofQueueLoop {
+			g.n++
+			prefix := "e"
+			if k == ofMatchHeld {
+				prefix = "v"
+			}
+			s.z = fmt.Sprintf("%s%d", prefix, g.n)
+			s.alt = g.r.IntN(2) == 0
 		}
 		return s
 	}
@@ -1025,6 +1142,71 @@ func ofPrint(body []*ofStmt, bare bool) (string, int) {
 				case tNested:
 					value(s.body[0], depth, "", "")
 				}
+			case ofBoxNew, ofListNew, ofHeldNew, ofWithMove, ofConvert, ofLitLend, ofWithShared:
+				p := map[int]string{
+					ofBoxNew:     fmt.Sprintf("let %s = Box{r: ", s.x),
+					ofListNew:    fmt.Sprintf("let %s = []Res{", s.x),
+					ofHeldNew:    fmt.Sprintf("let %s Held = ", s.x),
+					ofWithMove:   "with context { Store: ",
+					ofWithShared: "with context { Store: ",
+					ofConvert:    "lendCloser(",
+					ofLitLend:    "lendBox(Box{r: ",
+				}[s.kind]
+				q := map[int]string{ofBoxNew: ", n: 1}", ofListNew: "}", ofHeldNew: "", ofWithMove: " } {", ofWithShared: " } {", ofConvert: ")", ofLitLend: ", n: 0})"}[s.kind]
+				s.col = col(depth, p)
+				emit(depth, p+s.y+q)
+				if s.kind == ofWithMove || s.kind == ofWithShared {
+					emit(depth+1, "let _ = Store.Get()")
+					emit(depth, "}")
+				}
+			case ofBoxLend, ofBoxKeep, ofFieldLend, ofFieldKeep, ofIndexLend:
+				p := map[int]string{ofBoxLend: "lendBox(", ofBoxKeep: "keepBox(", ofFieldLend: "lend(", ofFieldKeep: "keep(", ofIndexLend: "lend("}[s.kind]
+				q := map[int]string{ofBoxLend: ")", ofBoxKeep: ")", ofFieldLend: ".r)", ofFieldKeep: ".r)", ofIndexLend: "[0])"}[s.kind]
+				s.col = col(depth, p)
+				s.col2 = s.col + len(s.y) + 1
+				emit(depth, p+s.y+q)
+			case ofFieldClose, ofIndexClose:
+				s.col = col(depth, "")
+				s.col2 = s.col + len(s.y) + 1
+				if s.kind == ofFieldClose {
+					emit(depth, s.y+".r.Close()")
+				} else {
+					emit(depth, s.y+"[0].Close()")
+				}
+			case ofQueueNew:
+				emit(depth, fmt.Sprintf("let %s = newQueue()", s.x))
+			case ofQueueLoop:
+				use := "lend("
+				if s.alt {
+					use = "keep("
+				}
+				p := fmt.Sprintf("for %s in ", s.z)
+				s.col = col(depth, p)
+				emit(depth, p+s.y+".Values() {")
+				s.col2 = col(depth+1, use)
+				emit(depth+1, use+s.z+")")
+				emit(depth, "}")
+			case ofForIn, ofMatchHeld:
+				use := "lend("
+				if s.alt {
+					use = "keep("
+				}
+				if s.kind == ofForIn {
+					p := fmt.Sprintf("for %s in ", s.z)
+					s.col = col(depth, p)
+					emit(depth, p+s.y+" {")
+					s.col2 = col(depth+1, use)
+					emit(depth+1, use+s.z+")")
+					emit(depth, "}")
+				} else {
+					s.col = col(depth, "match ")
+					emit(depth, "match "+s.y+" {")
+					emit(depth, "case Res as "+s.z+":")
+					s.col2 = col(depth+1, use)
+					emit(depth+1, use+s.z+")")
+					emit(depth, "case Empty:")
+					emit(depth, "}")
+				}
 			}
 		}
 	}
@@ -1075,7 +1257,11 @@ type rfSlot struct {
 	st    int
 	lent  bool
 	depth int
+	// A Box's field r taken in place: on every path (ft), on some (fm).
+	ft, fm bool
 }
+
+func (s rfSlot) live() bool { return s.st == rfOwned || s.st == rfMaybe }
 
 type rfLoop struct {
 	first        int
@@ -1153,6 +1339,12 @@ func (r *rfRun) releases(first int) string {
 		if s.st == rfMaybe {
 			n += "?"
 		}
+		if s.ft {
+			n += "-0"
+		}
+		if s.fm {
+			n += "~0"
+		}
 		out = append(out, n)
 	}
 	return strings.Join(out, ",")
@@ -1168,8 +1360,47 @@ func (r *rfRun) use(name string, line, col int) {
 	if r.st == nil {
 		return
 	}
+	if s := r.st[r.find(name)]; s.st == rfMoved || s.st == rfMaybe || s.live() && (s.ft || s.fm) {
+		r.diag(line, col) // handed off, or a field taken (R39)
+	}
+}
+
+// useRoot is a use of name as a place's root: x.r, x[0].
+func (r *rfRun) useRoot(name string, line, col int) {
+	if r.st == nil {
+		return
+	}
 	if s := r.st[r.find(name)].st; s == rfMoved || s == rfMaybe {
 		r.diag(line, col)
+	}
+}
+
+// field is a use of B.r: its root, then the field (at col2).
+func (r *rfRun) field(name string, line, col, col2 int) {
+	r.useRoot(name, line, col)
+	if r.st == nil {
+		return
+	}
+	if s := r.st[r.find(name)]; s.live() && (s.ft || s.fm) {
+		r.diag(line, col2)
+	}
+}
+
+// fieldTake is B.r.Close(): the field is taken in place.
+func (r *rfRun) fieldTake(name string, line, col, col2 int) {
+	r.useRoot(name, line, col)
+	if r.st == nil {
+		return
+	}
+	s := &r.st[r.find(name)]
+	switch {
+	case !s.live():
+	case s.ft || s.fm:
+		r.diag(line, col2)
+	case s.depth != r.depth:
+		r.diag(line, col)
+	default:
+		s.ft = true
 	}
 }
 
@@ -1181,14 +1412,14 @@ func (r *rfRun) move(name string, line, col int) {
 	i := r.find(name)
 	s := &r.st[i]
 	if s.st != rfOwned {
-		s.st = rfMoved
+		s.st, s.ft, s.fm = rfMoved, false, false
 		return
 	}
 	if s.depth != r.depth || s.lent {
 		r.diag(line, col)
 		return
 	}
-	s.st = rfMoved
+	s.st, s.ft, s.fm = rfMoved, false, false
 	if r.movers != nil {
 		r.movers[name] = true
 	}
@@ -1213,8 +1444,15 @@ func rfJoin(a, b []rfSlot, n int) []rfSlot {
 		return a
 	}
 	for i := range a {
-		if a[i].st != b[i].st {
+		x, y := a[i], b[i]
+		if x.st != y.st {
 			a[i].st = rfMaybe
+		}
+		switch {
+		case x.live() && y.live():
+			a[i].ft, a[i].fm = x.ft && y.ft, x.ft != y.ft || x.fm || y.fm
+		case y.live():
+			a[i].ft, a[i].fm = y.ft, y.fm
 		}
 	}
 	return a
@@ -1225,7 +1463,7 @@ func rfSame(a, b []rfSlot) bool {
 		return false
 	}
 	for i := range a {
-		if a[i].st != b[i].st {
+		if a[i].st != b[i].st || a[i].ft != b[i].ft || a[i].fm != b[i].fm {
 			return false
 		}
 	}
@@ -1412,6 +1650,73 @@ func (r *rfRun) stmt(s *ofStmt) {
 		case tNested:
 			r.stmt(s.body[0])
 		}
+	case ofBoxNew, ofListNew, ofHeldNew:
+		r.move(s.y, s.line, s.col)
+		r.acquire(s.x)
+	case ofWithMove, ofConvert, ofBoxKeep:
+		r.move(s.y, s.line, s.col)
+	case ofWithShared:
+		r.diag(s.line, s.col) // withown.go: the package let has no owner
+	case ofLitLend:
+		r.move(s.y, s.line, s.col)
+		r.record(fmt.Sprintf("stmt@%d", s.line), "tmp")
+	case ofBoxLend, ofIndexLend:
+		r.use(s.y, s.line, s.col)
+	case ofFieldLend:
+		r.field(s.y, s.line, s.col, s.col2)
+	case ofFieldKeep:
+		r.diag(s.line, s.col) // a field moved out (R39)
+		r.field(s.y, s.line, s.col, s.col2)
+	case ofFieldClose:
+		r.fieldTake(s.y, s.line, s.col, s.col2)
+	case ofIndexClose:
+		r.diag(s.line, s.col) // a take by index (R35)
+		r.use(s.y, s.line, s.col)
+	case ofQueueNew:
+		r.acquire(s.x)
+	case ofQueueLoop:
+		// Each element is the body's own: kept, or released at the
+		// body's end (Q7). The body changes nothing outside it.
+		r.use(s.y, s.line, s.col)
+		if r.st == nil {
+			return
+		}
+		n := len(r.st)
+		r.acquire(s.z)
+		if s.alt {
+			r.move(s.z, s.line+1, s.col2)
+		}
+		r.record(fmt.Sprintf("block@%d", s.line), r.releases(n))
+		r.st = r.st[:n]
+	case ofForIn:
+		r.use(s.y, s.line, s.col)
+		if s.alt {
+			r.diag(s.line+1, s.col2) // an element is lent from the list
+		}
+	case ofMatchHeld:
+		r.use(s.y, s.line, s.col)
+		if r.st == nil {
+			return
+		}
+		n := len(r.st)
+		entry := rfCopy(r.st)
+		// The Res arm: an owned subject of this frame moves into the
+		// binding; one of an enclosing frame is lent to it.
+		if r.st[r.find(s.y)].depth == r.depth {
+			r.move(s.y, s.line, s.col)
+			r.acquire(s.z)
+		} else {
+			r.st = append(r.st, rfSlot{name: s.z, st: rfOwned, lent: true, depth: r.depth})
+		}
+		if s.alt {
+			r.move(s.z, s.line+2, s.col2)
+		} else {
+			r.use(s.z, s.line+2, s.col2)
+		}
+		r.record(fmt.Sprintf("case@%d", s.line+1), r.releases(n))
+		arm := rfCopy(r.st[:n])
+		r.st = entry
+		r.st = rfJoin(arm, r.st, n)
 	case ofRun:
 		saved := rfCopy(r.st)
 		loops, first := r.loops, r.first
@@ -1532,6 +1837,14 @@ func ofReleases(c *checker, first int) []string {
 			}
 			if r.Flag {
 				s += "?"
+			}
+			for k := range 64 {
+				if r.Fields&(1<<k) != 0 {
+					s += fmt.Sprintf("-%d", k)
+				}
+				if r.MaybeFields&(1<<k) != 0 {
+					s += fmt.Sprintf("~%d", k)
+				}
 			}
 			names = append(names, s)
 		}

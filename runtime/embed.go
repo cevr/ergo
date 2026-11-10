@@ -32,6 +32,7 @@ import (
 //go:embed v1/path.go v1/numbers.go v1/digest.go v1/goerror.go v1/gocall.go v1/gocallback.go v1/csv.go
 //go:embed v1/exec.go v1/exec_exit_kqueue.go v1/exec_exit_linux.go
 //go:embed explore/explore.go
+//go:embed v1/moves.go
 var sources embed.FS
 
 // Module is the path of the runtime's Go module, which an emitted module
@@ -57,7 +58,7 @@ var packages = map[string]pkg{
 		files: []string{"cause.go", "clock.go", "doc.go", "gocontext.go", "handle.go", "idle.go", "machine.go", "regions.go", "run.go", "scope.go", "task.go", "tasks.go", "timeout.go", "trace.go", "values.go"},
 	},
 	"runtime/v1": {
-		files:   []string{"actor.go", "actor_host.go", "actor_trace.go", "collections.go", "context.go", "csv.go", "data.go", "digest.go", "exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exit.go", "gocall.go", "gocallback.go", "goerror.go", "host.go", "mailbox.go", "numbers.go", "path.go", "queue.go", "rand.go", "runtime.go", "script.go", "set.go", "shrink.go", "sync.go", "task.go", "text.go", "time.go", "timetext.go", "trace.go", "wire.go"},
+		files:   []string{"actor.go", "actor_host.go", "actor_trace.go", "collections.go", "context.go", "csv.go", "data.go", "digest.go", "exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exit.go", "gocall.go", "gocallback.go", "goerror.go", "host.go", "mailbox.go", "moves.go", "numbers.go", "path.go", "queue.go", "rand.go", "runtime.go", "script.go", "set.go", "shrink.go", "sync.go", "task.go", "text.go", "time.go", "timetext.go", "trace.go", "wire.go"},
 		imports: []string{"runtime/rt", "runtime/rt/rttrace"},
 	},
 	"runtime/rt/rttrace": {

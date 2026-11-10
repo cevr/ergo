@@ -24,11 +24,12 @@ import (
 //     owns, as a statement or bound to _ (R42, D4).
 //
 // A hand-off is: `let q = r`, an assignment `x = r`, `return r` or the
-// block's value, an argument for a parameter the callee's written takes
-// clause names, the value an operation with a bare takes is called on,
-// and the receiver of a checked Close (R1, R19). Every other use lends
-// (R16). The takes clause of an unexported function is inferred in A3;
-// here a parameter is taken only when the clause is written.
+// block's value, a part of a tuple or composite literal that is handed
+// off (R14), an argument for a parameter the callee's takes clause names
+// (written, or inferred: takes.go), the value an operation with a bare
+// takes is called on, and the receiver of a checked Close (R1, R19).
+// Every other use lends (R16). A value of a type parameter is tracked
+// too; a refusal of one is a copy site (takes.go), not a diagnostic.
 //
 // The pass records the release plan in Info.Releases: at each scope's end,
 // each statement's end (its temporaries, R43), each exit edge (return,
@@ -65,6 +66,11 @@ type ownSlot struct {
 	at    syntax.Node // the hand-off (moved, maybe)
 	how   string
 	loans []ownLoan // result origins still lent to calls being evaluated
+	// The fields of an owned record taken in place (`b.r.Close()`, R39,
+	// Gap 38), by field index: on every path (fields), on some (maybe);
+	// fieldAt is the first such take, for the diagnostics.
+	fields, maybe uint64
+	fieldAt       syntax.Node
 }
 
 // ownState is the flow state at one program point. Whether a path reaches
@@ -108,12 +114,46 @@ func liveLoans(lists ...[]ownLoan) []ownLoan {
 	return out
 }
 
+// live reports an owned or maybe-moved slot: one whose fields count.
+func (s ownSlot) live() bool { return s.st == ownOwned || s.st == ownMaybe }
+
 // ownLocal is what a slot holds: a local, a parameter or a temporary.
 type ownLocal struct {
 	v     *Var
 	temp  syntax.Expr
 	lent  bool // a parameter the function does not take
 	depth int  // the frame that owns it
+	param int  // the declaration's parameter index plus 1; 0 for none
+	// from names what a lent binding is lent from: a for-in's container
+	// (R35) or a match subject that is lent (Gap 36).
+	from string
+}
+
+// typ is the type of the value l holds.
+func (w *ownWalk) typ(l ownLocal) Type {
+	if l.v != nil {
+		return l.v.Type
+	}
+	return w.info.Types[l.temp]
+}
+
+// genericOnly reports a type that holds a resource only through a type
+// parameter: a refusal on such a value is a copy site (takes.go).
+func (w *ownWalk) genericOnly(t Type) bool {
+	return t != nil && !w.c.holdsResource(t)
+}
+
+// refuse reports a refusal on slot i, or records it as a copy site when
+// the slot's value is a resource only through a type parameter.
+func (w *ownWalk) refuse(i int, at syntax.Node, what string, format string, args ...any) {
+	if !w.st.reached {
+		return
+	}
+	if t := w.typ(w.vars[i]); w.genericOnly(t) {
+		w.copySite(t, at, what, false)
+		return
+	}
+	w.report(at, format, args...)
 }
 
 type ownScope struct {
@@ -143,8 +183,9 @@ type ownFrameSave struct {
 }
 
 type ownDiag struct {
-	at  syntax.Node
-	msg string
+	at   syntax.Node
+	code string
+	msg  string
 }
 
 type ownWalk struct {
@@ -169,16 +210,30 @@ type ownWalk struct {
 	// call's operands and before its result exists. A catch handles only
 	// result failures (hand.failed), never an operand's tried failure.
 	onFailure func()
+	// Takes inference (takes.go): infer is the silent pass that promotes
+	// fn's lent parameters (promote) and records its copy sites (copies);
+	// fn is the declaration walked.
+	infer   bool
+	fn      *Func
+	top     *syntax.BlockStmt // the declaration's body
+	promote map[int]bool
+	copies  map[*TypeParam]CopySite
 }
 
-// checkOwnership runs the flow pass over every body of the package.
+func (c *checker) newOwnWalk() *ownWalk {
+	return &ownWalk{c: c, info: c.pkg.Info, slot: map[*Var]int{}, loopMemo: map[syntax.Node]*ownLoopMemo{}}
+}
+
+// checkOwnership runs the flow pass over every body of the package, after
+// the takes clauses and copy sites are inferred.
 func (c *checker) checkOwnership() {
 	saved := c.cur
 	defer func() { c.cur = saved }()
+	c.inferTakes()
 	for _, fi := range c.files {
 		c.cur = fi
 		for _, d := range fi.syntax.Decls {
-			w := &ownWalk{c: c, info: c.pkg.Info, slot: map[*Var]int{}, loopMemo: map[syntax.Node]*ownLoopMemo{}}
+			w := c.newOwnWalk()
 			switch d := d.(type) {
 			case *syntax.FuncDecl:
 				if d.Body == nil || d.Extern != nil {
@@ -188,7 +243,8 @@ func (c *checker) checkOwnership() {
 				if f == nil || f.Sig == nil {
 					continue
 				}
-				w.frame(d.Body, f.Sig, w.paramVars(d.Recv, d.Type.Params), d.Name.Name, "", f.Name == "Close" && c.pkg.Info.Closes[d] != nil)
+				w.fn = f
+				w.frame(d.Body, takesOf(f), w.paramVars(d.Recv, d.Type.Params), d.Name.Name, "", f.Name == "Close" && c.pkg.Info.Closes[d] != nil)
 			case *syntax.TestDecl:
 				w.frame(d.Body, nil, w.paramVars(nil, d.Params), d.Name.Name, "", false)
 			case *syntax.LawDecl:
@@ -202,7 +258,7 @@ func (c *checker) checkOwnership() {
 			for _, g := range w.diags {
 				if !seen[g] {
 					seen[g] = true
-					c.errorf(g.at, CodeType, "%s", g.msg)
+					c.errorf(g.at, g.code, "%s", g.msg)
 				}
 			}
 		}
@@ -233,10 +289,14 @@ func (w *ownWalk) paramVars(lists ...*syntax.FieldList) []*Var {
 func (w *ownWalk) step(n int) { w.c.ownSteps += n }
 
 func (w *ownWalk) report(at syntax.Node, format string, args ...any) {
-	if !w.st.reached {
+	w.reportCode(at, CodeType, format, args...)
+}
+
+func (w *ownWalk) reportCode(at syntax.Node, code, format string, args ...any) {
+	if !w.st.reached || w.infer {
 		return
 	}
-	w.diags = append(w.diags, ownDiag{at: at, msg: fmt.Sprintf(format, args...)})
+	w.diags = append(w.diags, ownDiag{at: at, code: code, msg: fmt.Sprintf(format, args...)})
 }
 
 func (w *ownWalk) pos(n syntax.Node) string {
@@ -244,9 +304,10 @@ func (w *ownWalk) pos(n syntax.Node) string {
 	return fmt.Sprintf("%d:%d", line, col)
 }
 
-// tracked reports whether a value of type t has an owner here.
+// tracked reports whether a value of type t has an owner here: a value of
+// a type parameter counts, so a generic body's copies are found (A3).
 func (w *ownWalk) tracked(t Type) bool {
-	return t != nil && !isInvalid(t) && w.c.holdsResource(t)
+	return t != nil && !isInvalid(t) && w.c.mayHoldResource(t)
 }
 
 // copyState copies s; a reached state stays reached, however few slots
@@ -286,6 +347,21 @@ func (w *ownWalk) join(as, bs ownState, n int) ownState {
 			a[i] = ownSlot{st: ownMaybe, at: x.at, how: x.how}
 		}
 		a[i].loans = liveLoans(x.loans, y.loans)
+		// The fields taken in place: on every path where the record is
+		// still held, or on some (a drop flag each, B2).
+		switch {
+		case x.live() && y.live():
+			all := x.fields & y.fields
+			a[i].fields, a[i].maybe = all, (x.fields|y.fields|x.maybe|y.maybe)&^all
+		case x.live():
+			a[i].fields, a[i].maybe = x.fields, x.maybe
+		case y.live():
+			a[i].fields, a[i].maybe = y.fields, y.maybe
+		}
+		a[i].fieldAt = x.fieldAt
+		if a[i].fieldAt == nil {
+			a[i].fieldAt = y.fieldAt
+		}
 	}
 	return as
 }
@@ -310,7 +386,7 @@ func sameState(as, bs ownState) bool {
 		return false
 	}
 	for i := range a {
-		if a[i].st != b[i].st {
+		if a[i].st != b[i].st || a[i].fields != b[i].fields || a[i].maybe != b[i].maybe {
 			return false
 		}
 		x, y := liveLoans(a[i].loans), liveLoans(b[i].loans)
@@ -355,7 +431,7 @@ func (w *ownWalk) releases(first int) []Release {
 		if l.lent {
 			continue // its owner releases it
 		}
-		out = append(out, Release{Var: l.v, Temp: l.temp, Flag: s == ownMaybe})
+		out = append(out, Release{Var: l.v, Temp: l.temp, Flag: s == ownMaybe, Fields: w.st.slots[i].fields, MaybeFields: w.st.slots[i].maybe})
 	}
 	return out
 }
@@ -392,11 +468,11 @@ func (w *ownWalk) close() {
 }
 
 // frame checks one body: a declaration's (depth 1) or a nested function
-// literal's or trailing block's. params are its parameters in sig's order;
-// a parameter sig's takes clause names is owned, any other is lent. A
-// nested frame starts from the enclosing state (its captures are lent)
-// and leaves it unchanged.
-func (w *ownWalk) frame(body *syntax.BlockStmt, sig *Signature, params []*Var, name, nested string, lendAll bool) {
+// literal's or trailing block's. params are its parameters in its
+// signature's order; a parameter its takes clause (takes) names is owned,
+// any other is lent. A nested frame starts from the enclosing state (its
+// captures are lent) and leaves it unchanged.
+func (w *ownWalk) frame(body *syntax.BlockStmt, takes []int, params []*Var, name, nested string, lendAll bool) {
 	saved := ownFrameSave{loops: w.loops, catches: w.catches, first: w.first, name: w.name, nested: w.nested, tail: w.tail, onFailure: w.onFailure}
 	w.tail = frameTail
 	w.onFailure = nil
@@ -404,6 +480,9 @@ func (w *ownWalk) frame(body *syntax.BlockStmt, sig *Signature, params []*Var, n
 	nvars := len(w.vars)
 	w.loops, w.catches = nil, nil
 	w.depth++
+	if w.depth == 1 {
+		w.top = body
+	}
 	w.first = len(w.vars)
 	w.name = name
 	w.nested = nested
@@ -413,14 +492,16 @@ func (w *ownWalk) frame(body *syntax.BlockStmt, sig *Signature, params []*Var, n
 	}
 	w.open(body)
 	taken := map[int]bool{}
-	if sig != nil {
-		for _, i := range sig.Takes {
-			taken[i] = true
-		}
+	for _, i := range takes {
+		taken[i] = true
 	}
 	for i, v := range params {
 		if v != nil && w.tracked(v.Type) {
-			w.acquire(ownLocal{v: v, lent: lendAll || !taken[i]})
+			p := 0
+			if w.depth == 1 {
+				p = i + 1
+			}
+			w.acquire(ownLocal{v: v, lent: lendAll || !taken[i], param: p})
 		}
 	}
 	w.stmts(body.List, true)
@@ -518,12 +599,16 @@ func (w *ownWalk) stmt(s syntax.Stmt) {
 		for _, g := range s.Subjects {
 			w.region(g, func() { w.expr(g.X, mLend, hand{}) })
 		}
-		w.clauses(s.Clauses)
+		var subj syntax.Expr
+		if len(s.Subjects) == 1 {
+			subj = s.Subjects[0].X
+		}
+		w.matchClauses(s.Clauses, subj)
 	case *syntax.ForStmt:
-		w.loop(s, s.Cond, s.Body)
+		w.loop(s, s.Cond, s.Body, nil)
 	case *syntax.RangeStmt:
 		w.region(s.X, func() { w.expr(s.X, mLend, hand{}) })
-		w.loop(s, nil, s.Body)
+		w.loop(s, nil, s.Body, w.rangeBinds(s))
 	case *syntax.AssertStmt:
 		w.region(s, func() { w.expr(s.X, mLend, hand{}) })
 	}
@@ -542,6 +627,101 @@ func (w *ownWalk) clauses(cs []*syntax.CaseClause) {
 		out = w.join(out, w.st, n)
 	}
 	w.st = out
+}
+
+// matchClauses checks a match's arms (Gap 36). An arm that binds a value
+// holding a resource, on an owned local subject, moves the subject into
+// the binding: the arm's scope owns the variant. On a lent subject (a
+// parameter not taken, a field, a call) the binding is lent from it. An
+// arm that binds nothing leaves the subject with its owner.
+func (w *ownWalk) matchClauses(cs []*syntax.CaseClause, subj syntax.Expr) {
+	if len(cs) == 0 {
+		return
+	}
+	n := len(w.vars)
+	entry := w.copyState(w.st)
+	var out ownState
+	id, si, owned := w.rootSlot(subj)
+	from := ""
+	if subj != nil {
+		from = exprText(subj)
+	}
+	for _, cl := range cs {
+		w.st = w.copyState(entry)
+		var binds []*Var
+		for _, e := range cl.List {
+			syntax.Inspect(e, func(x syntax.Node) bool {
+				if b, ok := x.(*syntax.Ident); ok {
+					if v, ok := w.info.Defs[b].(*Var); ok && w.tracked(v.Type) {
+						binds = append(binds, v)
+					}
+				}
+				return true
+			})
+		}
+		w.open(cl)
+		if len(binds) > 0 {
+			l := ownLocal{}
+			switch {
+			case owned && !w.vars[si].lent && w.vars[si].depth == w.depth:
+				w.move(si, id, hand{at: id, how: fmt.Sprintf("the match moves it into %s", binds[0].Name)})
+			case owned:
+				// Lent from a lent local: a hand-off of the binding is
+				// one of the subject (inferred, or refused as its own).
+				l = ownLocal{lent: true, param: w.vars[si].param, from: from}
+			default:
+				l = ownLocal{lent: true, from: from}
+			}
+			for _, v := range binds {
+				l.v = v
+				w.acquire(l)
+			}
+		}
+		w.stmts(cl.Body, false)
+		w.close()
+		out = w.join(out, w.st, n)
+	}
+	w.st = out
+}
+
+// rangeBinds is a for-in's bindings that hold a resource: an element of a
+// queue's Values() is the body's own (Q7); any other is lent from the
+// container (R35).
+func (w *ownWalk) rangeBinds(s *syntax.RangeStmt) []ownLocal {
+	lp := w.info.Loops[s]
+	if lp == nil {
+		return nil
+	}
+	owned := false
+	if call, ok := unparen(s.X).(*syntax.CallExpr); ok && lp.Domain == LoopSeq {
+		if k := w.info.Calls[call]; k != nil && k.Kind == CallOp && k.Op != nil && k.Op.Name == "Values" {
+			if sel, ok := call.Fun.(*syntax.SelectorExpr); ok && isQueue(w.info.Types[sel.X]) {
+				owned = true
+			}
+		}
+	}
+	var out []ownLocal
+	for _, v := range lp.Bindings {
+		if v == nil || !w.tracked(v.Type) {
+			continue
+		}
+		if owned {
+			out = append(out, ownLocal{v: v})
+		} else {
+			out = append(out, ownLocal{v: v, lent: true, from: exprText(s.X)})
+		}
+	}
+	return out
+}
+
+// isQueue reports std queue.Queue[T] or an instance of it.
+func isQueue(t Type) bool {
+	n, ok := t.(*Named)
+	if !ok {
+		return false
+	}
+	o := n.origin().Obj
+	return o != nil && o.Pkg != nil && o.Pkg.std && o.Pkg.Path == "queue" && o.Name == "Queue"
 }
 
 // ownLoopMemo is a loop's last fixpoint: its entry state, its exit state
@@ -572,7 +752,7 @@ func sameExact(as, bs ownState) bool {
 // loop runs a loop body to its fixpoint. A for-in's body runs zero or
 // more times, as a for with a condition does; a bare for ends only by
 // break.
-func (w *ownWalk) loop(n syntax.Node, cond syntax.Expr, body *syntax.BlockStmt) {
+func (w *ownWalk) loop(n syntax.Node, cond syntax.Expr, body *syntax.BlockStmt, binds []ownLocal) {
 	first := len(w.vars)
 	entry := w.st
 	if m := w.loopMemo[n]; m != nil && entry.reached {
@@ -598,7 +778,12 @@ func (w *ownWalk) loop(n syntax.Node, cond syntax.Expr, body *syntax.BlockStmt) 
 		} else if ranged {
 			exits = w.copyState(w.st)
 		}
-		w.block(body, body.List)
+		w.open(body)
+		for _, b := range binds {
+			w.acquire(b) // each iteration's binding (R35, Q7)
+		}
+		w.stmts(body.List, false)
+		w.close()
 		back := w.st
 		for _, c := range lp.cont {
 			back = w.join(back, c, first)
@@ -636,7 +821,7 @@ func (w *ownWalk) letSpec(s syntax.Stmt, spec *syntax.VarSpec) {
 		if len(spec.Values) == 1 && len(spec.Names) > 1 {
 			if tup, ok := w.info.Types[spec.Values[0]].(*Tuple); ok {
 				for i, id := range spec.Names {
-					if id.Name == "_" && i < len(tup.Types) && w.tracked(tup.Types[i]) {
+					if id.Name == "_" && i < len(tup.Types) && w.c.holdsResource(tup.Types[i]) {
 						w.report(id, "the %s bound to _ is discarded, and a resource has one owner; bind it to a name, so its scope releases it, or hand it off (resources R42)", tup.Types[i])
 					}
 				}
@@ -690,7 +875,7 @@ func (w *ownWalk) assign(s *syntax.AssignStmt) {
 		}
 		w.record(id, rs)
 		if w.vars[i].depth != w.depth {
-			w.report(id, "%s belongs to the enclosing function; %s cannot replace it (resources R4)", v.Name, w.nestedText())
+			w.refuse(i, id, fmt.Sprintf("%s replaces %s, which may run more than once", w.nestedText(), v.Name), "%s belongs to the enclosing function; %s cannot replace it (resources R4)", v.Name, w.nestedText())
 			continue
 		}
 		w.st.slots[i] = ownSlot{st: ownOwned}
@@ -733,6 +918,13 @@ type hand struct {
 	lend      func(int, *syntax.Ident) // the root owners lent by this result
 	yieldRoot bool                     // this root is projected into an enclosing block result
 	failed    func()                   // the result's catch, not its operands' propagation target
+	// provider marks a with's provider: a package let there is reported
+	// by withown.go, once per entry.
+	provider bool
+	// root marks the root of a field place (x in x.f): its use is checked
+	// as a root (useRoot), so a field taken in place does not refuse the
+	// record's other fields (R39).
+	root bool
 }
 
 func (w *ownWalk) nestedText() string {
@@ -742,17 +934,29 @@ func (w *ownWalk) nestedText() string {
 	return "this function literal"
 }
 
-// use checks a lend of slot i at x.
+// use checks a lend of slot i at x: of the whole value, so none of its
+// fields may be taken (R39).
 func (w *ownWalk) use(i int, x *syntax.Ident) {
+	w.useRoot(i, x)
+	if !w.st.reached {
+		return
+	}
+	if s := w.st.slots[i]; s.live() && s.fields|s.maybe != 0 {
+		w.refuse(i, x, fmt.Sprintf("%s is used whole after a field is taken at %s", x.Name, w.pos(s.fieldAt)), "a field of %s was taken at %s, so %s cannot be used whole (resources R39, Gap 38); use its other fields", x.Name, w.pos(s.fieldAt), x.Name)
+	}
+}
+
+// useRoot checks a use of slot i at x as the root of a place (x.f, x[i]).
+func (w *ownWalk) useRoot(i int, x *syntax.Ident) {
 	if !w.st.reached {
 		return
 	}
 	s := w.st.slots[i]
 	switch s.st {
 	case ownMoved:
-		w.report(x, "%s was handed off at %s (%s) and cannot be used after that (resources R15, R20); use %s before it is handed off", x.Name, w.pos(s.at), s.how, x.Name)
+		w.refuse(i, x, fmt.Sprintf("%s is used after it is handed off at %s", x.Name, w.pos(s.at)), "%s was handed off at %s (%s) and cannot be used after that (resources R15, R20); use %s before it is handed off", x.Name, w.pos(s.at), s.how, x.Name)
 	case ownMaybe:
-		w.report(x, "%s may have been handed off at %s (%s) on one path, and cannot be used after that (resources R21); hand it off on every path or on none", x.Name, w.pos(s.at), s.how)
+		w.refuse(i, x, fmt.Sprintf("%s is used after it may be handed off at %s", x.Name, w.pos(s.at)), "%s may have been handed off at %s (%s) on one path, and cannot be used after that (resources R21); hand it off on every path or on none", x.Name, w.pos(s.at), s.how)
 	}
 }
 
@@ -770,14 +974,22 @@ func (w *ownWalk) move(i int, x *syntax.Ident, h hand) {
 	l := w.vars[i]
 	switch {
 	case l.depth != w.depth:
-		w.report(x, "%s cannot hand off %s (%s): %s belongs to the enclosing function, which releases it, and the block may run at another time or more than once (resources R4, R30)", w.nestedText(), x.Name, h.how, x.Name)
+		w.refuse(i, x, fmt.Sprintf("%s hands off %s, which may run more than once", w.nestedText(), x.Name), "%s cannot hand off %s (%s): %s belongs to the enclosing function, which releases it, and the block may run at another time or more than once (resources R4, R30)", w.nestedText(), x.Name, h.how, x.Name)
+		return
+	case l.lent && w.infer && l.param > 0 && w.c.infersTakes(w.fn):
+		// Inference (takes.go): the parameter is taken.
+		w.promote[l.param-1] = true
+	case l.lent && l.from != "":
+		w.refuse(i, x, fmt.Sprintf("%s, lent from %s, is handed off (%s)", x.Name, l.from, h.how), "%s is lent from %s, so it cannot be handed off (%s) (resources R35, Gap 36); hand off %s whole", x.Name, l.from, h.how, l.from)
 		return
 	case l.lent:
 		fn := w.name
 		if w.nested != "" {
 			fn = w.nested
 		}
-		w.report(x, "%s is lent to %s, so it cannot hand %s off (%s) (resources R10, R17); write takes %s in the signature", x.Name, fn, x.Name, h.how, x.Name)
+		// A lent T handed off is a copy of it (the caller keeps its own):
+		// a mode, not a mark, so a call with a resource is refused (q56).
+		w.refuse(i, x, fmt.Sprintf("%s is lent and handed off (%s); write takes %s to take it", x.Name, h.how, x.Name), "%s is lent to %s, so it cannot hand %s off (%s) (resources R10, R17); write takes %s in the signature", x.Name, fn, x.Name, h.how, x.Name)
 		return
 	}
 	w.loanConflict(i, h)
@@ -791,7 +1003,7 @@ func (w *ownWalk) move(i int, x *syntax.Ident, h hand) {
 func (w *ownWalk) loanConflict(i int, h hand) {
 	for _, l := range w.st.slots[i].loans {
 		if l.call.active {
-			w.report(l.id, "%s is lent to %s here and handed off at %s (%s) in the same call (resources R17); hand it off in a statement of its own", l.id.Name, l.call.name, w.pos(h.at), h.how)
+			w.refuse(i, l.id, fmt.Sprintf("%s is lent and handed off in one call", l.id.Name), "%s is lent to %s here and handed off at %s (%s) in the same call (resources R17); hand it off in a statement of its own", l.id.Name, l.call.name, w.pos(h.at), h.how)
 		}
 	}
 }
@@ -818,16 +1030,8 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		return
 	case *syntax.ContextLit:
 		// Its providers are built and owned by the with that discharges it
-		// (Context ownership as built): a name is lent, a new value is no
-		// temporary of the statement.
-		if x.Body != nil {
-			saved := w.tail
-			w.tail = ownTail{mode: mHold, slot: -1}
-			for _, e := range x.Body.Entries {
-				w.expr(e.Value, mHold, hand{})
-			}
-			w.tail = saved
-		}
+		// (Context ownership as built): each with that builds it evaluates
+		// them (withProviders), so the literal evaluates nothing.
 		return
 	case *syntax.BasicLit, *syntax.ArrayType, *syntax.MapType, *syntax.FuncType, *syntax.StructType,
 		*syntax.InterfaceType, *syntax.ErrorRow, *syntax.MachineType, *syntax.VariantSpec, *syntax.AsPattern:
@@ -837,9 +1041,22 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		lend(x.Key, x.Value)
 		return
 	case *syntax.SelectorExpr:
+		if w.selector(x, mode, h) {
+			return
+		}
 		w.lendRoot(x.X, w.info.Types[x], mode, h)
 		return
 	case *syntax.IndexExpr:
+		if id, ok := unparen(x.X).(*syntax.Ident); ok {
+			if _, fn := w.info.Uses[id].(*Func); fn {
+				w.funcValue(id, w.info.Types[x]) // f[T] as a value
+				lend(x.Indices...)
+				return
+			}
+		}
+		if mode == mMove {
+			w.placeMove(x, "an element", "it is an element of %s, lent by the index; an element cannot be moved or taken out by index (resources R35, R36); hand off %s whole, or lend the element")
+		}
 		w.lendRoot(x.X, w.info.Types[x], mode, h)
 		lend(x.Indices...)
 		return
@@ -864,6 +1081,11 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		lend(x.X, x.Y)
 		return
 	case *syntax.TupleExpr:
+		if mode == mMove {
+			// R14: a value built to be handed off moves its parts.
+			w.parts(x, h)
+			return
+		}
 		for _, e := range x.Elts {
 			w.lendRoot(e, w.info.Types[x], mode, h)
 		}
@@ -872,14 +1094,29 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		lend(x.Exprs...)
 		return
 	case *syntax.CompositeLit:
-		lend(x.Base)
-		lend(x.Elts...)
+		switch {
+		case mode == mMove:
+			// R14: a value built to be handed off moves its parts.
+			w.parts(x, h)
+			return
+		case w.tracked(w.info.Types[x]):
+			// R14: a literal moves its parts, also one lent where it is
+			// made: its statement owns it (R43).
+			w.parts(x, hand{at: x, how: "it moves into the literal"})
+		default:
+			lend(x.Base)
+			lend(x.Elts...)
+		}
 		w.produced(x, mode, h)
 		return
 	case *syntax.Ident:
 		v, _ := w.info.Uses[x].(*Var)
 		i, ok := w.slot[v]
 		if v == nil || !ok {
+			if v != nil && v.pkg && mode == mMove && !h.provider && w.c.holdsResource(v.Type) {
+				w.report(x, "%s is a package let, which has no owner to hand it off (%s) (resources R11, R15); lend it, or make a new value", v.Name, h.how)
+			}
+			w.funcValue(x, w.info.Types[x])
 			return
 		}
 		if mode == mHold && w.tail.slot >= 0 && i >= w.tail.first && !h.yieldRoot {
@@ -894,7 +1131,11 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		} else if mode == mMove {
 			w.move(i, x, h)
 		} else {
-			w.use(i, x)
+			if h.root {
+				w.useRoot(i, x) // the root of a field: R39 checks the field
+			} else {
+				w.use(i, x)
+			}
 			if h.yieldRoot && w.tail.slot >= 0 && i >= w.tail.first {
 				w.report(x, "the yielded resource is rooted at %s, whose owner ends before its consumer; yield the whole owner instead of a part (resources R43)", x.Name)
 			}
@@ -925,16 +1166,17 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		}
 		return
 	case *syntax.FuncLit:
-		var sig *Signature
+		var takes []int
 		if s, ok := w.info.Literals[x]; ok {
-			sig = s
+			takes = s.Takes
 		}
 		var params *syntax.FieldList
 		if x.Type != nil {
 			params = x.Type.Params
 		}
-		w.frame(x.Body, sig, w.paramVars(params), w.name, "this function literal", false)
+		w.frame(x.Body, takes, w.paramVars(params), w.name, "this function literal", false)
 		return
+
 	}
 	panic(fmt.Sprintf("check: internal compiler error: the ownership flow has no rule for a %T (ownWalk.expr)", x))
 }
@@ -1006,7 +1248,175 @@ func (w *ownWalk) lendRoot(root syntax.Expr, result Type, mode ownMode, h hand) 
 	} else if mode == mHold && w.tail.slot >= 0 {
 		h.yieldRoot = true
 	}
-	w.expr(root, mLend, hand{lend: h.lend, yieldRoot: h.yieldRoot})
+	w.expr(root, mLend, hand{lend: h.lend, yieldRoot: h.yieldRoot, root: h.root})
+}
+
+// fieldIndex is the index of the record field x selects, or -1 when x is
+// no field of a record value (a method, an operation, a package member).
+func (w *ownWalk) fieldIndex(x *syntax.SelectorExpr) int {
+	t := w.info.Types[x.X]
+	if t == nil {
+		return -1
+	}
+	s, ok := under(t).(*Struct)
+	if !ok {
+		return -1
+	}
+	for k, f := range s.Fields {
+		if f.Name == x.Sel.Name {
+			return k
+		}
+	}
+	return -1
+}
+
+// rootSlot is the slot of the local a place x.f is selected from.
+func (w *ownWalk) rootSlot(x syntax.Expr) (*syntax.Ident, int, bool) {
+	id, ok := unparen(x).(*syntax.Ident)
+	if !ok {
+		return nil, 0, false
+	}
+	v, _ := w.info.Uses[id].(*Var)
+	i, ok := w.slot[v]
+	if v == nil || !ok {
+		return nil, 0, false
+	}
+	return id, i, true
+}
+
+// placeMove refuses a hand-off of a place that holds a resource: a field
+// (R39) or an element (R35). A generic-only one is a copy site (A3).
+func (w *ownWalk) placeMove(x syntax.Expr, what, format string) {
+	t := w.info.Types[x]
+	if !w.tracked(t) {
+		return
+	}
+	var root syntax.Expr
+	switch p := x.(type) {
+	case *syntax.IndexExpr:
+		switch under(w.info.Types[p.X]).(type) {
+		case *Slice, *Map:
+		default:
+			return
+		}
+		root = p.X
+	case *syntax.SelectorExpr:
+		root = p.X
+	}
+	if w.genericOnly(t) {
+		w.copySite(t, x, fmt.Sprintf("%s %s is handed off", what, placeText(x)), false)
+		return
+	}
+	w.report(x, "%s cannot be handed off: "+format, placeText(x), exprText(root), exprText(root))
+}
+
+// placeText is a place for a message: b.r, xs[…].
+func placeText(x syntax.Expr) string {
+	if ix, ok := unparen(x).(*syntax.IndexExpr); ok {
+		return exprText(ix.X) + "[…]"
+	}
+	return exprText(x)
+}
+
+// selector evaluates a field x.f of a record; it reports false for any
+// other selector. The field is lent from its root, and a field taken in
+// place cannot be used again (R39, Gap 38).
+func (w *ownWalk) selector(x *syntax.SelectorExpr, mode ownMode, h hand) bool {
+	k := w.fieldIndex(x)
+	if k < 0 {
+		return false
+	}
+	if mode == mMove {
+		w.placeMove(x, "a field", "it is a field of %s; a field cannot be moved out of its record (resources R39); move %s whole, or lend the field")
+	}
+	h.root = true
+	w.lendRoot(x.X, w.info.Types[x], mode, h)
+	_, i, ok := w.rootSlot(x.X)
+	if !ok || !w.st.reached || k >= 64 {
+		return true
+	}
+	if s := w.st.slots[i]; s.live() && (s.fields|s.maybe)&(1<<k) != 0 {
+		w.refuse(i, x.Sel, fmt.Sprintf("%s is used after it is taken", exprText(x)), "%s was taken in place (on this path or another) and cannot be used after that (resources R39, R20)", exprText(x))
+	}
+	return true
+}
+
+// fieldTake takes the field x.f of an owned record in place, as the value
+// a consuming call is on (`b.r.Close()`): the field is marked, and the
+// record's release skips it (R39, Gap 38). It reports false when x is no
+// field of a local; the caller then hands x off as a whole value.
+func (w *ownWalk) fieldTake(x syntax.Expr, h hand) bool {
+	sel, ok := unparen(x).(*syntax.SelectorExpr)
+	if !ok {
+		return false
+	}
+	k := w.fieldIndex(sel)
+	id, i, ok := w.rootSlot(sel.X)
+	if k < 0 || !ok || !w.tracked(w.info.Types[sel]) {
+		return false
+	}
+	w.useRoot(i, id)
+	if !w.st.reached {
+		return true
+	}
+	s := w.st.slots[i]
+	l := w.vars[i]
+	switch {
+	case !s.live():
+		return true // reported by useRoot
+	case k >= 64:
+		w.report(sel, "%s has more than 64 fields, so its field %s cannot be taken in place; take %s whole", id.Name, sel.Sel.Name, id.Name)
+	case (s.fields|s.maybe)&(1<<k) != 0:
+		w.refuse(i, sel.Sel, fmt.Sprintf("%s is taken twice", exprText(sel)), "%s was taken in place (on this path or another) and cannot be taken again (resources R39, R20)", exprText(sel))
+	case l.depth != w.depth:
+		w.refuse(i, sel, fmt.Sprintf("%s takes %s, which may run more than once", w.nestedText(), exprText(sel)), "%s cannot take %s (%s): %s belongs to the enclosing function, which releases it, and the block may run at another time or more than once (resources R4, R30)", w.nestedText(), exprText(sel), h.how, id.Name)
+	case l.lent && w.infer && l.param > 0 && w.c.infersTakes(w.fn):
+		w.promote[l.param-1] = true
+	case l.lent:
+		w.refuse(i, sel, fmt.Sprintf("%s is lent and its field is taken", id.Name), "%s is lent to %s, so its field %s cannot be taken (%s) (resources R10, R17, R39); write takes %s in the signature", id.Name, w.name, sel.Sel.Name, h.how, id.Name)
+	default:
+		w.st.slots[i].fields |= 1 << k
+		if w.st.slots[i].fieldAt == nil {
+			w.st.slots[i].fieldAt = sel
+		}
+	}
+	return true
+}
+
+// children lends each operand of x.
+func (w *ownWalk) children(x syntax.Expr) {
+	syntax.Inspect(x, func(n syntax.Node) bool {
+		if n == syntax.Node(x) {
+			return true
+		}
+		if e, ok := n.(syntax.Expr); ok && !w.c.typeNodes[e] {
+			w.expr(e, mLend, hand{})
+		}
+		return false
+	})
+}
+
+// parts moves the parts of a tuple or composite literal that is handed
+// off: a field's or element's value (not a field name or a map key, which
+// is plain, R40), and a `..base`.
+func (w *ownWalk) parts(x syntax.Expr, h hand) {
+	var elts []syntax.Expr
+	switch x := x.(type) {
+	case *syntax.TupleExpr:
+		elts = x.Elts
+	case *syntax.CompositeLit:
+		w.expr(x.Base, mMove, h)
+		elts = x.Elts
+	}
+	for _, e := range elts {
+		if kv, ok := e.(*syntax.KeyValueExpr); ok {
+			if _, field := kv.Key.(*syntax.Ident); !field {
+				w.expr(kv.Key, mLend, hand{})
+			}
+			e = kv.Value
+		}
+		w.expr(e, mMove, h)
+	}
 }
 
 // produced owns or refuses a new value x of a resource type: a call's
@@ -1025,6 +1435,9 @@ func (w *ownWalk) produced(x syntax.Expr, mode ownMode, h hand) {
 	case mLend:
 		w.acquire(ownLocal{temp: x})
 	case mDiscard:
+		if w.genericOnly(t) {
+			return // a generic body may drop a T (plan 1.3); B2 releases it
+		}
 		w.report(x, "the %s this produces is discarded, and a resource has one owner; bind it with let, so its scope releases it, or hand it off (resources R42)", t)
 	case mHold:
 		if i := w.tail.slot; i >= 0 && i < len(w.st.slots) {
@@ -1190,6 +1603,12 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 	switch call.Kind {
 	case CallConversion:
 		for _, a := range x.Args {
+			if mode != mMove && w.converts(a, w.info.Types[x]) {
+				// R23: the interface value owns it; the statement owns
+				// the interface value (R43).
+				w.expr(a, mMove, hand{at: a, how: fmt.Sprintf("converting it to %s moves it", w.info.Types[x])})
+				continue
+			}
 			w.expr(a, mode, h)
 		}
 		return true
@@ -1198,6 +1617,7 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 			for _, a := range x.Args {
 				w.expr(a, mLend, hand{})
 			}
+			w.withProviders(x)
 			if x.Trailing != nil {
 				w.block(x.Trailing, x.Trailing.List)
 			}
@@ -1223,11 +1643,18 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 	}
 	taken := map[int]bool{}
 	selfTaken := false
+	takes := []int(nil)
 	if sig != nil {
-		for _, i := range sig.Takes {
-			taken[i] = true
+		takes, selfTaken = sig.Takes, sig.TakesSelf
+	}
+	if call.Kind == CallFunc && call.Func != nil {
+		takes = takesOf(call.Func)
+		if len(call.TypeArgs) > 0 {
+			w.instance(x, call.Func, call.TypeArgs)
 		}
-		selfTaken = sig.TakesSelf
+	}
+	for _, i := range takes {
+		taken[i] = true
 	}
 	closes := w.info.Closes[x] != nil || w.info.Closes[x.Fun] != nil
 	if closes {
@@ -1242,13 +1669,22 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 			loan.active = false
 		}
 	}()
-	operand := func(a syntax.Expr, take bool, pname string) {
+	operand := func(a syntax.Expr, take, recv bool, pname string, pt Type) {
 		if take {
 			how := fmt.Sprintf("%s takes %s", name, pname)
 			if pname == "" || closes {
 				how = fmt.Sprintf("%s takes it", name)
 			}
+			if recv && w.fieldTake(a, hand{at: a, how: how}) {
+				return // a field taken in place (R39, Gap 38)
+			}
 			w.expr(a, mMove, hand{at: a, how: how})
+			return
+		}
+		if w.converts(a, pt) {
+			// R23: a resource converted to an operation type with Close
+			// moves into the interface value.
+			w.expr(a, mMove, hand{at: a, how: fmt.Sprintf("converting it to %s moves it", pt)})
 			return
 		}
 		w.expr(a, mLend, hand{lend: func(i int, id *syntax.Ident) {
@@ -1264,27 +1700,83 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 		}
 		return ""
 	}
+	ptype := func(i int) Type {
+		if sig != nil && i < len(sig.Params) {
+			return sig.Params[i].Type
+		}
+		return nil
+	}
 	off := 0
 	switch {
 	case call.Recv != nil && call.Kind == CallFunc:
-		operand(call.Recv, taken[0], pname(0))
+		operand(call.Recv, taken[0], true, pname(0), nil)
 		off = 1
 	case call.Recv != nil:
-		operand(call.Recv, selfTaken, "")
+		operand(call.Recv, selfTaken, true, "", nil)
+	case call.Kind == CallFunc:
+		// The callee is a function's name: no value of its own.
 	default:
 		w.expr(x.Fun, mLend, hand{})
 	}
 	for i, a := range x.Args {
-		operand(a, taken[i+off], pname(i+off))
+		operand(a, taken[i+off], closes, pname(i+off), ptype(i+off))
 	}
+
 	if x.Trailing != nil {
-		var tsig *Signature
+		var takes []int
 		if s, ok := w.info.Literals[x.Trailing]; ok {
-			tsig = s
+			takes = s.Takes
 		}
-		w.frame(x.Trailing, tsig, nil, w.name, fmt.Sprintf("the block passed to %s", calleeText(x)), false)
+		w.frame(x.Trailing, takes, nil, w.name, fmt.Sprintf("the block passed to %s", calleeText(x)), false)
 	}
 	return false
+}
+
+// withProviders evaluates the provider expressions with x builds that lie
+// in this body (an inline or a local context's): a resource provider
+// moves into the with, which releases it at the block's end (R11); any
+// other is lent. A context literal itself evaluates nothing: each with
+// that builds it does (expr). A package let provider is withown.go's.
+func (w *ownWalk) withProviders(x *syntax.CallExpr) {
+	if w.top == nil {
+		return
+	}
+	for f := w.info.Withs[x]; f != nil; f = f.Next {
+		for _, a := range f.Acquired {
+			if a == nil || a.Entry == nil || a.Entry.Provider == nil {
+				continue
+			}
+			p := a.Entry.Provider
+			if owner := w.c.contextOwners.of[a.Entry]; owner == nil || owner.file != w.c.cur || p.Pos() < w.top.Pos() || p.End() > w.top.End() {
+				continue
+			}
+			if a.Close != nil {
+				w.expr(p, mMove, hand{at: p, how: "the with owns it", provider: true})
+			} else {
+				w.expr(p, mLend, hand{})
+			}
+		}
+	}
+}
+
+// converts reports whether a, a value that holds a resource and is no
+// interface value, is converted to the operation type t (R23).
+func (w *ownWalk) converts(a syntax.Expr, t Type) bool {
+	if t == nil {
+		return false
+	}
+	if _, tp := t.(*TypeParam); tp {
+		return false
+	}
+	if _, ok := under(t).(*Interface); !ok || !w.tracked(t) {
+		return false
+	}
+	at := w.info.Types[a]
+	if !w.tracked(at) {
+		return false
+	}
+	_, iface := under(at).(*Interface)
+	return !iface
 }
 
 // calleeText is the written callee of x, for a message.

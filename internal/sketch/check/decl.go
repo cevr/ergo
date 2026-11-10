@@ -96,9 +96,11 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.closeFacts,
 		// After closeFacts: every Close and failure row is final.
 		c.checkResourceTypes,
-		// After the resource types: who owns each resource (ownership.go).
-		c.checkOwnership,
+		// After the resource types: what each with builds (withown.go),
+		// then who owns each resource (ownership.go), which moves a local
+		// provider into the with that builds it (R11).
 		c.withOwnership,
+		c.checkOwnership,
 		// Laws under a context read the acquisitions (lawcontexts.go).
 		c.planLawContexts,
 		c.checkFrames,

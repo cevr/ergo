@@ -93,31 +93,6 @@ func (c *checker) withOwnership() {
 	}
 	owners := c.contextOwners.of
 	c.contextValueOwnership(owners)
-	roots := append([]*Func(nil), c.pkg.Funcs...)
-	// A context provider can call an imported constructor without any local
-	// function calling it. Those calls also root the freshness graph.
-	for _, call := range c.pkg.Info.Calls {
-		if call != nil && call.Kind == CallFunc {
-			roots = append(roots, call.Func)
-		}
-	}
-	for e, owner := range owners {
-		if info := providerInfo(owner); info != nil && owner.pkg != c.pkg && e.Provider != nil {
-			syntax.Inspect(e.Provider, func(n syntax.Node) bool {
-				if x, ok := n.(*syntax.CallExpr); ok {
-					if call := info.Calls[x]; call != nil && call.Kind == CallFunc {
-						roots = append(roots, call.Func)
-					}
-				}
-				return true
-			})
-		}
-	}
-	// A failure return yields no value. Decide it by the rule the return
-	// and tail checks use, which reads this package's error types before
-	// they are published and imported ones from their packages.
-	fresh := providerFreshFunctions(roots, func(t Type) bool { return c.errorValueRow(t) != nil })
-	c.pkg.providerFresh = fresh
 	// A body checked twice records its sites twice: the last record of each
 	// operand is the one Info holds.
 	type operandKey struct {
@@ -173,7 +148,10 @@ func (c *checker) withOwnership() {
 				}
 				continue
 			}
-			if (owner.pkg != c.pkg || !refused[a.Entry]) && !fresh.expression(info, a.Entry.Provider) {
+			if name := packageRoot(info, a.Entry.Provider); name != "" && (owner.pkg != c.pkg || !refused[a.Entry]) {
+				// R11: a package let has no owner to give it to the with;
+				// a local moves into it (ownership.go), a made value is
+				// the with's own.
 				var at syntax.Node = a.Entry.Provider
 				c.cur = owner.file
 				if owner.pkg != c.pkg {
@@ -181,7 +159,7 @@ func (c *checker) withOwnership() {
 				} else {
 					refused[a.Entry] = true
 				}
-				c.errorf(at, CodeOutside, "this resource provider names an existing value or cannot be proved fresh; a with owns and releases only a provider it makes (a call of a function whose every result is made, a composite literal or a unit value, and a record update only when its base is made; an extern's result is never proved), and a borrowed or reused resource is #197's (resources.md, Context ownership)")
+				c.errorf(at, CodeType, "this resource provider names the package let %s, which has no owner to hand it to the with; a with owns and releases the providers it builds (resources R11); make the value in the provider", name)
 			}
 			c.cur = s.file
 			for _, cap := range c.releaseNeeds(a.Close) {
@@ -402,138 +380,32 @@ func (w *With) discharge(cap Type, e *ContextEntry) {
 	}
 }
 
-// providerFreshness is the per-function proof that every value-return
-// path makes its result. It is private to the ownership pass: no other
-// pass derives ownership from the spelling of a call.
-type providerFreshness map[*Func]bool
-
-// providerFreshFunctions solves the greatest fixpoint over the call graph,
-// including imported declarations. Start with every function fresh, then
-// remove any function with an unproved result and revisit its callers.
-// Recursion that only yields new values therefore stays fresh; a borrowed
-// result poisons every caller in its component. A bodiless extern, std or
-// user, is never proved: the trusted base is what the checker can prove,
-// and ownership facts for externs are #197's.
-func providerFreshFunctions(roots []*Func, failure func(Type) bool) providerFreshness {
-	fresh := providerFreshness{}
-	results := map[*Func][]syntax.Expr{}
-	users := map[*Func][]*Func{}
-	var funcs []*Func
-	var add func(*Func)
-	add = func(f *Func) {
-		if f == nil {
-			return
-		}
-		if _, seen := fresh[f]; seen {
-			return
-		}
-		fresh[f] = true
-		funcs = append(funcs, f)
-	}
-	for _, f := range roots {
-		add(f)
-	}
-	for i := 0; i < len(funcs); i++ {
-		f := funcs[i]
-		if f.Decl == nil || f.Decl.Body == nil || f.Pkg == nil || f.Pkg.Info == nil {
-			continue
-		}
-		results[f] = providerResults(f, failure)
-		syntax.Inspect(f.Decl.Body, func(n syntax.Node) bool {
-			if x, ok := n.(*syntax.CallExpr); ok {
-				if call := f.Pkg.Info.Calls[x]; call != nil && call.Kind == CallFunc && call.Func != nil {
-					add(call.Func)
-					users[call.Func] = append(users[call.Func], f)
-				}
+// packageRoot is the package let a provider expression names, itself or
+// through a field or an element (R11: it has no owner to hand it to the
+// with), or "". Any other provider is made by it (a call's result is the
+// caller's, q62) or is a local, which the ownership pass moves into the
+// with.
+func packageRoot(info *Info, x syntax.Expr) string {
+	for {
+		switch e := unparen(x).(type) {
+		case *syntax.TryExpr:
+			x = e.X
+		case *syntax.SelectorExpr:
+			if _, ok := info.Uses[e.Sel].(*Var); ok && info.Types[e.X] == nil {
+				return e.Sel.Name // pkg.v, an imported package let
 			}
-			return true
-		})
-	}
-	proved := func(f *Func) bool {
-		if f.Decl == nil || f.Sig == nil || len(f.Sig.Results) != 1 || f.Pkg == nil || f.Pkg.Info == nil {
-			return false
-		}
-		if f.Decl.Body == nil {
-			// No declaration says what a bodiless extern returns: Delete
-			// returns its argument. Its call proves nothing (#197).
-			return false
-		}
-		for _, x := range results[f] {
-			if !fresh.expression(f.Pkg.Info, x) {
-				return false
+			x = e.X
+		case *syntax.IndexExpr:
+			x = e.X
+		case *syntax.Ident:
+			if v, ok := info.Uses[e].(*Var); ok && v.pkg {
+				return v.Name
 			}
-		}
-		return true
-	}
-	var removed []*Func
-	remove := func(f *Func) {
-		if fresh[f] && !proved(f) {
-			fresh[f] = false
-			removed = append(removed, f)
+			return ""
+		default:
+			return ""
 		}
 	}
-	for _, f := range funcs {
-		remove(f)
-	}
-	for i := 0; i < len(removed); i++ {
-		for _, f := range users[removed[i]] {
-			remove(f)
-		}
-	}
-	return fresh
-}
-
-// providerResults collects explicit value returns in this frame and its
-// implicit result tails. A failure return or tail (failure reports an
-// error value) has no value. Literals and trailing blocks run in their
-// own frames, so their returns are excluded.
-func providerResults(f *Func, failure func(Type) bool) []syntax.Expr {
-	info := f.Pkg.Info
-	var out []syntax.Expr
-	inspectFrame(info, f.Decl.Body, func(n syntax.Node, _ []*syntax.CallExpr) bool {
-		switch n := n.(type) {
-		case *syntax.ReturnStmt:
-			if len(n.Results) == 1 {
-				if failure(info.Types[n.Results[0]]) {
-					return false
-				}
-				out = append(out, n.Results[0])
-			} else if len(n.Results) > 1 {
-				out = append(out, nil) // not one newly made result
-			}
-		}
-		return true
-	})
-	var tail func([]syntax.Stmt)
-	var stmt func(syntax.Stmt)
-	tail = func(list []syntax.Stmt) {
-		if len(list) != 0 {
-			stmt(list[len(list)-1])
-		}
-	}
-	stmt = func(s syntax.Stmt) {
-		switch s := s.(type) {
-		case *syntax.ExprStmt:
-			if t := info.Tails[s]; t != nil && !failure(t) {
-				out = append(out, s.X)
-			}
-		case *syntax.BlockStmt:
-			tail(s.List)
-		case *syntax.IfStmt:
-			tail(s.Body.List)
-			stmt(s.Else)
-		case *syntax.SwitchStmt:
-			for _, arm := range s.Clauses {
-				tail(arm.Body)
-			}
-		case *syntax.TypeSwitchStmt:
-			for _, arm := range s.Clauses {
-				tail(arm.Body)
-			}
-		}
-	}
-	tail(f.Decl.Body.List)
-	return out
 }
 
 // providerInfo is the semantic model of an entry's defining context, never
@@ -543,36 +415,6 @@ func providerInfo(w *Context) *Info {
 		return nil
 	}
 	return w.pkg.Info
-}
-
-func (fresh providerFreshness) expression(info *Info, x syntax.Expr) bool {
-	if x == nil {
-		return false
-	}
-	switch x := unparen(x).(type) {
-	case *syntax.CompositeLit:
-		// A record update copies every field it does not name from its
-		// base, so it is fresh only when its base is.
-		return x.Base == nil || fresh.expression(info, x.Base)
-	case *syntax.CallExpr:
-		if call := info.Calls[x]; call != nil {
-			switch call.Kind {
-			case CallConversion:
-				return len(x.Args) == 1 && fresh.expression(info, x.Args[0])
-			case CallFunc:
-				return fresh[call.Func]
-			}
-		}
-	case *syntax.TryExpr:
-		return fresh.expression(info, x.X)
-	case *syntax.Ident:
-		_, ok := info.Uses[x].(*TypeName)
-		return ok
-	case *syntax.SelectorExpr:
-		_, ok := info.Uses[x.Sel].(*TypeName)
-		return ok
-	}
-	return false
 }
 
 // ownedBlock reports, in the block of x, an owning with, the exit actions
