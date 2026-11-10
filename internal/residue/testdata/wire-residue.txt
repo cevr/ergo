@@ -91,6 +91,7 @@ runtime/v1/wire.go	*
 internal/sketch/check/info.go	// WirePairs are the by-name wire forms (types.md, Codecs 1) that this
 internal/sketch/check/testdata/fixtures/negative/codec-rows.ergo	*
 internal/sketch/check/wire.go	*
+internal/sketch/check/wirekeys_test.go	*
 internal/sketch/check/wirecall.go	*
 internal/sketch/lower/calls.go	// A codec call writes its own statements (wire.go).
 internal/sketch/lower/module.go	wires    map[pkgKey]bool          // generated codec functions emitted (wire.go)
