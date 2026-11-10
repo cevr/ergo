@@ -1,0 +1,27 @@
+{
+  "about": "The mutant ledger of cmd/ergo: edits of the command line that some cmd/ergo test must kill. Run it with go run ./scripts/mutants ./cmd/ergo (docs/tooling.md, \"Mutant ledger\"). Seeded by binsize BS4.",
+  "mutants": [
+    {
+      "name": "bs4-default-unstripped",
+      "origin": "wf10 binsize BS4",
+      "file": "cmd/ergo/build.go",
+      "from": "tc.Strip = opts.command == \"build\" && !opts.debug",
+      "to": "tc.Strip = false && opts.command == \"build\" && !opts.debug",
+      "rule": "binsize plan 3 (e): ergo build links without the symbol table and DWARF by default.",
+      "killers": [
+        "cmd/ergo:TestBuildStripsUnlessDebug"
+      ]
+    },
+    {
+      "name": "bs4-debug-stripped",
+      "origin": "wf10 binsize BS4",
+      "file": "cmd/ergo/build.go",
+      "from": "tc.Strip = opts.command == \"build\" && !opts.debug",
+      "to": "tc.Strip = opts.command == \"build\"",
+      "rule": "binsize plan 3 (e): ergo build --debug keeps the symbol table and DWARF.",
+      "killers": [
+        "cmd/ergo:TestBuildStripsUnlessDebug"
+      ]
+    }
+  ]
+}

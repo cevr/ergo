@@ -99,7 +99,7 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 		Source:    l.source.Admitted(),
 		Output:    output.Path(),
 		Cache:     build.Cache{Root: root},
-		Toolchain: build.HostToolchain(),
+		Toolchain: toolchain(opts),
 		Stderr:    os.Stderr,
 	})
 	if opts.work && module.Dir != "" {
@@ -109,6 +109,16 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 		return receipt.Location{}, err
 	}
 	return output, nil
+}
+
+// toolchain is the Go build action of opts' command: `ergo build` strips
+// the symbol table and DWARF unless --debug is given; `ergo run` keeps
+// them, as its binary is not shipped. The emitted module is the same
+// either way; Go's action cache keys the link on the flags.
+func toolchain(opts fileOptions) build.Toolchain {
+	tc := build.HostToolchain()
+	tc.Strip = opts.command == "build" && !opts.debug
+	return tc
 }
 
 // outputPath is the executable a build writes: -o, or dist/NAME, NAME

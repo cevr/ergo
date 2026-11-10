@@ -100,6 +100,8 @@ type fileOptions struct {
 	command            string
 	target, output     string
 	strict, json, work bool
+	// debug is build's --debug: link with the symbol table and DWARF.
+	debug bool
 	// seed is test's --seed, a decimal uint64; empty when not given.
 	seed string
 	file string
@@ -109,7 +111,7 @@ type fileOptions struct {
 }
 
 // parseFileOptions reads the options of command. --strict and --json belong
-// to diagnostics, -o to build, -work to build and test, and --seed N (or
+// to diagnostics, -o and --debug to build, -work to build and test, and --seed N (or
 // --seed=N) to test; any other option is unknown. A target other than Go is
 // the EF110 refusal. For run, the options stand before the source, and the
 // words after it are the program's arguments (`ergo run FILE|DIR [--]
@@ -150,6 +152,8 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 			opts.json = true
 		case "-work":
 			opts.work = true
+		case "--debug":
+			opts.debug = true
 		default:
 			if strings.HasPrefix(args[i], "-") {
 				return opts, fmt.Errorf("unknown option %s", args[i])
@@ -171,6 +175,8 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("-o is only supported by build")
 	case opts.work && command != "build" && command != "test":
 		return opts, fmt.Errorf("-work is only supported by build and test")
+	case opts.debug && command != "build":
+		return opts, fmt.Errorf("--debug is only supported by build")
 	case seeded && command != "test":
 		return opts, fmt.Errorf("--seed is only supported by test")
 	case seeded && !validSeed(opts.seed):

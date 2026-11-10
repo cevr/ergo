@@ -1,9 +1,10 @@
 // Command sizes is the size receipt of the gate's full tier (binsize plan,
-// BS0; scripts/gate step "sizes"). It builds each fixture as `ergo build`
-// does, default and stripped, and a Go hello control with the same
-// toolchain and flags, prints one JSON receipt per fixture on standard
+// BS0; scripts/gate step "sizes"). It builds each fixture as `ergo build
+// --debug` and `ergo build` (stripped, the default) do, and a Go hello
+// control with the same toolchain and flags, prints one JSON receipt per fixture on standard
 // output, and checks the receipts against internal/sizes/budgets.json:
 // each problem is a line on standard error, and any problem exits 1.
+// It also checks that a defect report is the same in both builds.
 //
 //	go run ./internal/sizes/cmd/sizes [-root DIR]
 //
@@ -15,6 +16,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -24,6 +26,7 @@ import (
 	"runtime"
 	"strings"
 
+	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/receipt"
 	"ergo.local/prototype/internal/sizes"
 	"ergo.local/prototype/internal/sketch/build"
@@ -43,6 +46,13 @@ var fixtures = []struct{ name, dir string }{
 
 // controlDir is the Go hello control.
 const controlDir = "internal/sizes/testdata/gohello"
+
+// defectDir is the program whose defect report must not change when the
+// build strips its symbols; defectMemory bounds each of its runs.
+const (
+	defectDir    = "internal/sizes/testdata/defect"
+	defectMemory = 256 << 20
+)
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -113,34 +123,20 @@ func measure(rootSpelled string) ([]sizes.Receipt, error) {
 		}
 		receipts = append(receipts, sizes.Receipt{Fixture: f.name, Binary: b, Control: control})
 	}
+	if err := sameDefectReport(root, work, cache); err != nil {
+		return nil, err
+	}
 	return receipts, nil
 }
 
-// measureErgo builds the program in dir as `ergo build` does, then again
-// stripped from the same generated module, and measures the pair.
+// measureErgo builds the program in dir as `ergo build --debug` does, then
+// as `ergo build` does (stripped) from the same generated module, and
+// measures the pair: the symbols come from the first, the stripped size
+// is the second's.
 func measureErgo(dir, work, name string, cache build.Cache) (sizes.Binary, error) {
-	analysis, err := sketchfront.CheckDir(dir)
+	paths, module, err := buildBoth(dir, work, name, cache)
 	if err != nil {
 		return sizes.Binary{}, err
-	}
-	if len(analysis.Diagnostics) > 0 {
-		return sizes.Binary{}, fmt.Errorf("%s does not check: %+v", dir, analysis.Diagnostics)
-	}
-	paths := [2]string{filepath.Join(work, name), filepath.Join(work, name+".stripped")}
-	var module build.Module
-	for i, goflags := range []string{"", "-ldflags=-s"} {
-		var stderr bytes.Buffer
-		module, err = sketchfront.Build(analysis, sketchfront.BuildRequest{
-			Mode:      build.ModeBuild,
-			Source:    dir,
-			Output:    paths[i],
-			Cache:     cache,
-			Toolchain: build.Toolchain{Go: "go", GOFLAGS: goflags},
-			Stderr:    &stderr,
-		})
-		if err != nil {
-			return sizes.Binary{}, fmt.Errorf("build %s: %w\n%s", dir, err, stderr.String())
-		}
 	}
 	b, err := sizes.MeasureBinary(paths[0], paths[1])
 	if err != nil {
@@ -148,6 +144,64 @@ func measureErgo(dir, work, name string, cache build.Cache) (sizes.Binary, error
 	}
 	b.GoPackages, err = goPackages(module.Dir)
 	return b, err
+}
+
+// buildBoth builds the program in dir to work/name with the symbols
+// (`--debug`) and to work/name.stripped as `ergo build` does by default.
+func buildBoth(dir, work, name string, cache build.Cache) ([2]string, build.Module, error) {
+	paths := [2]string{filepath.Join(work, name), filepath.Join(work, name+".stripped")}
+	analysis, err := sketchfront.CheckDir(dir)
+	if err != nil {
+		return paths, build.Module{}, err
+	}
+	if len(analysis.Diagnostics) > 0 {
+		return paths, build.Module{}, fmt.Errorf("%s does not check: %+v", dir, analysis.Diagnostics)
+	}
+	var module build.Module
+	for i, strip := range []bool{false, true} {
+		var stderr bytes.Buffer
+		module, err = sketchfront.Build(analysis, sketchfront.BuildRequest{
+			Mode:      build.ModeBuild,
+			Source:    dir,
+			Output:    paths[i],
+			Cache:     cache,
+			Toolchain: build.Toolchain{Go: "go", Strip: strip},
+			Stderr:    &stderr,
+		})
+		if err != nil {
+			return paths, module, fmt.Errorf("build %s: %w\n%s", dir, err, stderr.String())
+		}
+	}
+	return paths, module, nil
+}
+
+// sameDefectReport builds the defect fixture with and without the symbol
+// table and runs both: the report (output, exit status) must be byte for
+// byte the same, since stripping keeps the pclntab the report reads (binsize
+// BS4). It builds Go because the stripped file exists only after the linker
+// runs; each run is bounded in memory by proclimit.
+func sameDefectReport(root, work string, cache build.Cache) error {
+	paths, _, err := buildBoth(filepath.Join(root, filepath.FromSlash(defectDir)), work, "defect", cache)
+	if err != nil {
+		return err
+	}
+	var runs [2]string
+	for i, path := range paths {
+		var out bytes.Buffer
+		cmd := exec.Command(path)
+		cmd.Stdout, cmd.Stderr = &out, &out
+		err := proclimit.Run(cmd, defectMemory)
+		var exit *exec.ExitError
+		var limited *proclimit.LimitError
+		if err != nil && (!errors.As(err, &exit) || errors.As(err, &limited)) {
+			return fmt.Errorf("run %s: %w", path, err)
+		}
+		runs[i] = fmt.Sprintf("exit %d\n%s", cmd.ProcessState.ExitCode(), out.String())
+	}
+	if runs[0] != runs[1] || !strings.Contains(runs[0], "index out of range") {
+		return fmt.Errorf("the defect report differs between the --debug and the default build:\n--debug:\n%s\ndefault:\n%s", runs[0], runs[1])
+	}
+	return nil
 }
 
 // measureGo builds the Go module in dir with the flags of every native

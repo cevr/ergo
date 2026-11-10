@@ -31,10 +31,11 @@ import (
 	"strings"
 )
 
-// Binary is what one build pair of a program measures: the default build
-// (with its symbol table) and the stripped build.
+// Binary is what one build pair of a program measures: the build with its
+// symbol table (`ergo build --debug`, or a Go build with default flags)
+// and the stripped build (`ergo build`, or a Go build with -ldflags=-s).
 type Binary struct {
-	// Size is the default build's file size; Stripped the stripped one's.
+	// Size is the unstripped build's file size; Stripped the stripped one's.
 	Size     int64 `json:"size"`
 	Stripped int64 `json:"stripped"`
 	// Sections is the size of each ELF section of the default build.
