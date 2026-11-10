@@ -2,9 +2,9 @@ ready
 
 Protocol: supplied implementor worker protocol (not protocol.md or safety.md).
 Spec: `/home/exedev/.cache/baton/wf10/cli-units/brief-2.md`, C3, round 1 (the brief is the spec; no separate spec.md).
-Head: `92f1745489b36238463f2531ca4e8ecb9b2cc1ad` (implementation and forward merge of CU2).
+Head: `3111d27fe74dfedad412da9e37a20aaecd82d45b` (implementation and forward merge of CU2's accepted ioctl restriction).
 Base: `a98b130a`. Branch: `wf10/cu3`. Workspace: `/home/exedev/Developer/personal/.worktrees/ergo-v1b`.
-Measured diff: `25 files changed, 1244 insertions(+), 6 deletions(-)` (`git diff --stat a98b130a..HEAD | tail -1`).
+Measured diff: `28 files changed, 1301 insertions(+), 20 deletions(-)` (`git diff --stat a98b130a..3111d27f | tail -1`).
 
 ## Changes
 
@@ -13,6 +13,7 @@ Measured diff: `25 files changed, 1244 insertions(+), 6 deletions(-)` (`git diff
 - `internal/sketch/lower/std_prompt_test.go`: `TestPromptLaws` runs the five std laws, seeded independent reference models of all four machines, and Ask with a scripted terminal (masked frames, restoration, cancellation, non-interactive failure). Replay is `ergo test --seed N` on the probe printed by a failure.
 - `examples/starter/`: neutral project-plan CLI, flags or an interactive interview, a plan machine and laws, scripted test providers. Domain contracts are in `plan`; terminal implementation is in `terminal`; `cmd/starter` alone chooses providers.
 - `internal/sketch/std/std.go`, lower and examples mutant ledgers, `docs/spec/stdlib.md`: package listing, API, laws, intent and lowering limits.
+- Forward-merged CU2 q1: its typed ioctl boundary and `tools/provenance/runtime-unsafe-allow.txt` record the accepted host-edge exception. CU2's own request covers that change. CU3's gate was refreshed on this merged head.
 
 ## Run and evidence (measured)
 
