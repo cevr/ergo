@@ -14,7 +14,7 @@ import time
 // zero value stands for "not sent".
 type Draft { Name string, Priority json.Optional[int] }
 
-// View is a job on the wire. Ended is when the job ended, and null while
+// View is a job as a client reads it. Ended is when the job ended, and null while
 // it is queued or running: a json.Nullable field, whose key is always
 // there, so a client tells "not ended" from a missing key.
 type View { Id int, Name string, Priority int, State string, Created string, Ended json.Nullable[string] }
@@ -35,10 +35,10 @@ let MaxBody = 1 << 16
 
 func draftCodec() json.Codec[Draft] { json.Codec[Draft]{MaxBytes: MaxBody, MaxDepth: 4} }
 
-// Stamp is the wire form of a time: RFC 3339, in UTC.
+// Stamp is the JSON form of a time: RFC 3339, in UTC.
 func Stamp(t time.Time) string { t.Format(time.RFC3339) }
 
-// ViewOf is the wire form of j.
+// ViewOf is the JSON form of j.
 func ViewOf(j jobs.Job) View {
 	let ended json.Nullable[string] = if jobs.Ended(j.State) { json.NonNull{Value: Stamp(j.Since)} } else { json.Null }
 	View{Id: j.Id, Name: j.Name, Priority: j.Priority, State: jobs.Name(j.State), Created: Stamp(j.Created), Ended: ended}

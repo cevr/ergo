@@ -31,7 +31,7 @@ type Ask = Send{Request http.Request} | Wait{Ms int64}
 let started = int64(jobs.QueueFor) / 1000000
 let finished = started + int64(jobs.RunFor)/1000000
 
-// stampAt is the wire time ms after the start.
+// stampAt is the JSON form of the time ms after the start.
 func stampAt(ms int64) string { Stamp(time.Unix(0, 0).Add(duration(ms * 1000000))) }
 
 // viewOf is the model's view of the entry id at now.

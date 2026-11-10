@@ -23,7 +23,7 @@ The program is a module of packages (`ergo.mod`: `module jobs`), in the Go layou
 | --- | --- |
 | `jobs/` | The domain package, with no HTTP and no JSON. `job.ergo`: `State`, `Signal`, `Job`, the failures `NotFound` and `Conflict`, `Step`, `Timer`, the machine `Lifecycle`, `Settle` and `Apply`. `store.ergo`: the contract `Store` with five laws, and the failure `Stale`. `queue.ergo`: `Submit`, `Find`, `List`, `CancelJob` and `Remove`, over the `Store` and the `time.Clock` in the context. `laws.ergo`: the lifecycle laws. |
 | `memory/` | `Table`, a `jobs.Store` in a `sync.Ref`. `ergo test` runs the `Store` laws here. |
-| `api/` | The HTTP layer: `routes.ergo` (`Endpoint`, the route table for `http.Match`), `wire.ergo` (the JSON records `Draft`, `View`, `Listing`, `Problem`), `handle.ergo` (`Handle`, the one catch from failure to status, and `WithSite`), `laws.ergo` (the model law), `tests.ergo` (imports `memory`, so the law runs against `memory.Table`). |
+| `api/` | The HTTP layer: `routes.ergo` (`Endpoint`, the route table for `http.Match`), `body.ergo` (the JSON records `Draft`, `View`, `Listing`, `Problem`), `handle.ergo` (`Handle`, the one catch from failure to status, and `WithSite`), `laws.ergo` (the model law), `tests.ergo` (imports `memory`, so the law runs against `memory.Table`). |
 | `cmd/jobs/` | The binary. It binds `jobs.Store` to a `memory.Table`, `time.Clock` to the host's clock (or a manual one under `-replay`), the listener to `-addr` and the site's root to `-site`. It is the only place that chooses them. |
 
 ## What it shows
