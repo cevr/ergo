@@ -1,6 +1,10 @@
 package check
 
-import "ergo.local/prototype/internal/sketch/syntax"
+import (
+	"sort"
+
+	"ergo.local/prototype/internal/sketch/syntax"
+)
 
 // Non-escaping function values (check-v1 stage E2, C16 and C17; 196e;
 // types.md, Function values 2; spec Q1).
@@ -69,10 +73,13 @@ func nonEscaping(t Type) bool {
 func (c *checker) checkEscapes() {
 	for _, f := range c.files {
 		c.cur = f
-		w := &escWalk{c: c, info: c.pkg.Info, varFrame: map[*Var]int{}}
+		w := &escWalk{c: c, info: c.pkg.Info, varFrame: map[*Var]int{}, declDepth: map[*Var]int{}, writes: map[*syntax.Ident]bool{}}
 		for _, d := range f.syntax.Decls {
+			w.localFrames(d)
 			w.visit(d)
+			w.finishCaptures()
 		}
+		c.checkBorrows(f)
 	}
 }
 
@@ -87,6 +94,35 @@ type escWalk struct {
 	// varFrame is the index in frames of the frame that declares a local
 	// (-1 at the package level).
 	varFrame map[*Var]int
+
+	// The capture rule (captures below): frameNodes parallels frames;
+	// regions are the frames and loops around the node, which may run
+	// again after a capture; declDepth is len(regions) where a local is
+	// declared; writes are the root identifiers of writes; events are the
+	// uses of let mut locals in the declaration being visited.
+	frameNodes []syntax.Node
+	regions    []syntax.Node
+	declDepth  map[*Var]int
+	writes     map[*syntax.Ident]bool
+	events     map[*Var][]mutEvent
+	order      []*Var
+
+	// Local frames (localFrames below): collecting is set during the
+	// first walk of a declaration, which records the uses of each local
+	// a let binds to a function literal (litVar); local holds the
+	// literals found to be non-escaping frames.
+	collecting bool
+	litVar     map[*syntax.FuncLit]*Var
+	litUses    map[*Var][]litUse
+	localUses  map[*Var][]mutEvent
+}
+
+// litUse is a use of a local bound to a function literal: whether its
+// position keeps the value from escaping, and the frames around it.
+type litUse struct {
+	allowed bool
+	frames  []syntax.Node
+	esc     []bool
 }
 
 func (w *escWalk) visit(n syntax.Node) {
@@ -96,14 +132,45 @@ func (w *escWalk) visit(n syntax.Node) {
 	if id, ok := n.(*syntax.Ident); ok {
 		if v, ok := w.info.Defs[id].(*Var); ok {
 			w.varFrame[v] = len(w.frames) - 1
-		} else if v, ok := w.info.Uses[id].(*Var); ok && !v.pkg && nonEscaping(v.Type) {
-			w.use(id, v)
+			w.declDepth[v] = len(w.regions)
+		} else if v, ok := w.info.Uses[id].(*Var); ok && !v.pkg && w.collecting {
+			if _, ok := w.litUses[v]; ok {
+				w.litUses[v] = append(w.litUses[v], litUse{allowed: w.allowed(id, v), frames: append([]syntax.Node(nil), w.frameNodes...), esc: append([]bool(nil), w.frames...)})
+			}
+		} else if ok && !v.pkg && !w.collecting {
+			if nonEscaping(v.Type) {
+				w.use(id, v)
+			}
+			// A local of an invalid type has its own diagnostic (D3).
+			switch {
+			case v.Type == nil || isInvalid(v.Type):
+			case w.localUses != nil && w.localUses[v] != nil:
+				w.localUses[v] = append(w.localUses[v], mutEvent{id: id, regions: append([]syntax.Node(nil), w.regions...)})
+			case v.mut:
+				w.mutUse(id, v)
+			case isPointer(v.Type):
+				w.borrowUse(id, v)
+			}
 		}
 		return
+	}
+	if !w.collecting {
+		w.markWrites(n)
+	} else if s, ok := n.(*syntax.VarSpec); ok {
+		w.letLiteral(s)
 	}
 	frame, escaping := w.frame(n)
 	if frame {
 		w.frames = append(w.frames, escaping)
+		w.frameNodes = append(w.frameNodes, n)
+	}
+	region := frame
+	switch n.(type) {
+	case *syntax.ForStmt, *syntax.RangeStmt:
+		region = true
+	}
+	if region {
+		w.regions = append(w.regions, n)
 	}
 	w.stack = append(w.stack, n)
 	syntax.Inspect(n, func(m syntax.Node) bool {
@@ -116,8 +183,12 @@ func (w *escWalk) visit(n syntax.Node) {
 		return false
 	})
 	w.stack = w.stack[:len(w.stack)-1]
+	if region {
+		w.regions = w.regions[:len(w.regions)-1]
+	}
 	if frame {
 		w.frames = w.frames[:len(w.frames)-1]
+		w.frameNodes = w.frameNodes[:len(w.frameNodes)-1]
 	}
 }
 
@@ -131,7 +202,9 @@ func (w *escWalk) frame(n syntax.Node) (frame, escaping bool) {
 		parent, child := w.parentOf(n)
 		call, ok := parent.(*syntax.CallExpr)
 		if !ok {
-			return true, true
+			// A literal a let binds is a local frame when the local only
+			// runs in place (localFrames); the first walk is deciding.
+			return true, w.collecting || !w.info.LocalFrames[n]
 		}
 		if call.Fun == child {
 			return true, false
@@ -287,4 +360,282 @@ func (w *escWalk) allowed(id *syntax.Ident, v *Var) bool {
 		return true
 	}
 	return false
+}
+
+// Captures of let mut locals and of borrows by escaping frames (#197 C2;
+// types.md, Function values 3 and Borrows 1; owner q60, 2026-11-09:
+// "escaping let mut capture allowed only when no write follows").
+//
+// An escaping frame (a function literal or block that may outlive the
+// call that made it) may capture a `let mut` local of an enclosing frame
+// only when no write to that local follows the capture in either frame:
+//
+//   - the escaping frame, and every frame inside it, writes it nowhere;
+//   - outside it, every write comes before it in the source and shares no
+//     loop or frame with it that lies inside the local's scope, since such
+//     a loop or frame may run the write again after the capture (a for, a
+//     for-in, a non-escaping block that its callee may call again).
+//
+// A write is an assignment rooted at the local, a borrow `&x` of a place
+// rooted at it, and the implicit borrow of a dot call whose function takes
+// *T. Under the rule a capture by value and Go's capture by reference give
+// one result, so the lowering copies each such local when it makes the
+// literal (Info.ValueCaptures): the local stays on the stack, where Go's
+// capture by reference of a variable that is assigned moves it to the
+// heap. The rule is source order, not reachability: a write in the other
+// arm of an if after the literal is refused too (the simpler rule; write
+// it before the literal).
+//
+// A borrow (*T) is never captured by an escaping frame: it lives only as
+// long as the call that lent it (Borrows 1).
+//
+// Prior art: Swift's escaping closures capture variables by reference and
+// its exclusivity rule checks the accesses at run time; Kotlin refuses to
+// write a captured `val` and boxes a captured `var` (Ref.IntRef); Java
+// captures only effectively final locals, which is this rule without the
+// writes before the capture; Rust's `move` closures copy at creation and
+// the borrow checker refuses a later write under a borrowing closure.
+// Gleam, Elixir and ReScript have no mutable locals: every capture is a
+// value, which the rule gives Ergo for the escaping frames.
+
+const (
+	captureWriteText  = "%s is a let mut of an enclosing frame, and this function literal or block may outlive the call that made it, so it holds a copy of %s and cannot write it; declare a let mut inside it, or pass it to a non-escaping parameter (types.md, Function values 3)"
+	writeAfterText    = "%s is written here after a function literal or block captured it, and that literal may outlive the call that made it, so it would not see the write; write %s before the literal, or capture a copy that is not written: let %s = %s before it (types.md, Function values 3)"
+	borrowCaptureText = "%s is a borrow (*T), and this function literal or block may outlive the call that lent it; an escaping frame never captures a borrow: copy what it needs into a let before it (types.md, Borrows 1)"
+)
+
+// mutEvent is a use of a let mut local: whether it writes the local, the
+// outermost escaping frame between the local's frame and the use (nil
+// when there is none), and the regions around the use.
+type mutEvent struct {
+	id      *syntax.Ident
+	write   bool
+	esc     syntax.Node
+	regions []syntax.Node
+}
+
+// markWrites records the root identifiers that the node n writes, before
+// n's children are visited.
+func (w *escWalk) markWrites(n syntax.Node) {
+	mark := func(x syntax.Expr) {
+		if id, kind := w.c.assignRoot(x); kind == rootName && id != nil {
+			w.writes[id] = true
+		}
+	}
+	switch n := n.(type) {
+	case *syntax.AssignStmt:
+		for _, l := range n.Lhs {
+			mark(l)
+		}
+	case *syntax.UnaryExpr:
+		if n.Op == syntax.AND {
+			mark(n.X)
+		}
+	case *syntax.CallExpr:
+		if recv := implicitBorrow(w.info, n); recv != nil {
+			mark(recv)
+		}
+	}
+}
+
+// implicitBorrow is the receiver of a dot call whose function takes *T on
+// a receiver that is no borrow already: the call borrows it.
+func implicitBorrow(info *Info, call *syntax.CallExpr) syntax.Expr {
+	k := info.Calls[call]
+	if k == nil || k.Kind != CallFunc || k.Recv == nil || k.Func == nil || k.Func.Sig == nil {
+		return nil
+	}
+	if len(k.Func.Sig.Params) == 0 || !isPointer(k.Func.Sig.Params[0].Type) || isPointer(info.Types[k.Recv]) {
+		return nil
+	}
+	return k.Recv
+}
+
+// escapingFrom is the outermost escaping frame between the frame of v's
+// declaration and the use, or nil.
+func (w *escWalk) escapingFrom(v *Var) syntax.Node {
+	from, ok := w.varFrame[v]
+	if !ok {
+		return nil
+	}
+	for k := from + 1; k < len(w.frames); k++ {
+		if w.frames[k] {
+			return w.frameNodes[k]
+		}
+	}
+	return nil
+}
+
+// mutUse records a use of the let mut local v.
+func (w *escWalk) mutUse(id *syntax.Ident, v *Var) {
+	if w.events == nil {
+		w.events = map[*Var][]mutEvent{}
+	}
+	if _, ok := w.events[v]; !ok {
+		w.order = append(w.order, v)
+	}
+	w.events[v] = append(w.events[v], mutEvent{id: id, write: w.writes[id], esc: w.escapingFrom(v), regions: append([]syntax.Node(nil), w.regions...)})
+}
+
+// borrowUse checks a use of the borrow v.
+func (w *escWalk) borrowUse(id *syntax.Ident, v *Var) {
+	if w.escapingFrom(v) != nil {
+		w.c.errorf(id, CodeType, borrowCaptureText, id.Name)
+	}
+}
+
+// finishCaptures applies the rule to the declaration just visited and
+// records the value captures.
+func (w *escWalk) finishCaptures() {
+	for _, v := range w.order {
+		evs := w.events[v]
+		reported := map[*syntax.Ident]bool{}
+		seen := map[syntax.Node]bool{}
+		for _, ce := range evs {
+			e := ce.esc
+			if e == nil || seen[e] {
+				continue
+			}
+			seen[e] = true
+			w.info.ValueCaptures[e] = append(w.info.ValueCaptures[e], v)
+			at := indexOf(ce.regions, e)
+			for _, wr := range evs {
+				if !wr.write || reported[wr.id] {
+					continue
+				}
+				switch {
+				case indexOf(wr.regions, e) >= 0:
+					reported[wr.id] = true
+					w.c.errorf(wr.id, CodeType, captureWriteText, v.Name, v.Name)
+				case w.follows(wr, e, ce.regions[:at], w.declDepth[v]):
+					reported[wr.id] = true
+					w.c.errorf(wr.id, CodeType, writeAfterText, v.Name, v.Name, renamed(v.Name), v.Name)
+				}
+			}
+		}
+	}
+	w.events, w.order = nil, nil
+}
+
+// follows reports whether the write ev may run after the escaping frame e
+// captured its local, whose declaration is depth regions deep; before are
+// the regions around e. A write in a local frame (localFrames) runs where
+// the frame is called, so it follows when one of those calls does.
+// Otherwise it follows when it starts after e, or a loop or frame inside
+// the local's scope holds both and may run the write again.
+func (w *escWalk) follows(ev mutEvent, e syntax.Node, before []syntax.Node, depth int) bool {
+	for k := len(ev.regions) - 1; k >= depth; k-- {
+		lit, ok := ev.regions[k].(*syntax.FuncLit)
+		if !ok || !w.info.LocalFrames[lit] {
+			continue
+		}
+		for _, u := range w.localUses[w.litVar[lit]] {
+			if w.follows(u, e, before, depth) {
+				return true
+			}
+		}
+		return false
+	}
+	return ev.id.Pos() >= e.End() || commonPrefix(before, ev.regions) > depth
+}
+
+func indexOf(xs []syntax.Node, n syntax.Node) int {
+	for i, x := range xs {
+		if x == n {
+			return i
+		}
+	}
+	return -1
+}
+
+// commonPrefix is the length of the longest common prefix of a and b.
+func commonPrefix(a, b []syntax.Node) int {
+	n := 0
+	for n < len(a) && n < len(b) && a[n] == b[n] {
+		n++
+	}
+	return n
+}
+
+// Local frames (#197 C2). A function literal that a `let` binds to one
+// immutable local, `let show = func() { … }`, is a non-escaping frame when
+// the local only runs in place: each use of it is a position the
+// non-escaping rule allows (the callee of a call, an argument of a
+// non-escaping parameter), and no frame between the let and the use is
+// escaping. Such a literal cannot outlive the frame that declares it, as a
+// literal passed to a non-escaping parameter cannot, so it captures as
+// that one does: by reference, writes included. Every other literal a let
+// binds is an escaping frame.
+//
+// A frame that holds a use is a literal that starts after the let, since
+// the local is in scope only after it, so deciding the literals from the
+// last to the first decides each one after every literal it depends on:
+// one pass, linear in the uses and the frames around them.
+//
+// Prior art: Swift's local functions (`func f()` inside a function) may
+// capture an inout parameter when they are only called, and escape
+// analysis decides it; a closure stored in a local variable is escaping
+// there. Kotlin's local functions capture by reference. Go's escape
+// analysis keeps a closure that is only called on the stack.
+
+// letLiteral records s when it binds one immutable local to a function
+// literal.
+func (w *escWalk) letLiteral(s *syntax.VarSpec) {
+	if len(s.Names) != 1 || s.Pattern != nil || len(s.Values) != 1 {
+		return
+	}
+	lit, ok := unparen(s.Values[0]).(*syntax.FuncLit)
+	if !ok {
+		return
+	}
+	v, ok := w.info.Defs[s.Names[0]].(*Var)
+	if !ok || v.pkg || v.mut {
+		return
+	}
+	w.litVar[lit] = v
+	w.litUses[v] = []litUse{}
+}
+
+// localFrames decides which literals of the declaration d that a let binds
+// are local frames, before the walk that applies the rules.
+func (w *escWalk) localFrames(d syntax.Node) {
+	w.collecting = true
+	w.litVar, w.litUses = map[*syntax.FuncLit]*Var{}, map[*Var][]litUse{}
+	w.localUses = map[*Var][]mutEvent{}
+	w.visit(d)
+	w.collecting = false
+	lits := make([]*syntax.FuncLit, 0, len(w.litVar))
+	for lit := range w.litVar {
+		lits = append(lits, lit)
+	}
+	sort.Slice(lits, func(i, j int) bool { return lits[i].Pos() > lits[j].Pos() })
+	for _, lit := range lits {
+		if w.runsInPlace(w.litVar[lit]) {
+			w.info.LocalFrames[lit] = true
+			w.localUses[w.litVar[lit]] = []mutEvent{}
+		}
+	}
+}
+
+// runsInPlace reports whether every use of the local v is allowed and has
+// no escaping frame between v's frame and it.
+func (w *escWalk) runsInPlace(v *Var) bool {
+	from := w.varFrame[v]
+	for _, u := range w.litUses[v] {
+		if !u.allowed {
+			return false
+		}
+		for k := from + 1; k < len(u.frames); k++ {
+			esc := u.esc[k]
+			if lit, ok := u.frames[k].(*syntax.FuncLit); ok {
+				if _, bound := w.litVar[lit]; bound {
+					esc = !w.info.LocalFrames[lit]
+				}
+			}
+			if esc {
+				return false
+			}
+		}
+	}
+	return true
 }

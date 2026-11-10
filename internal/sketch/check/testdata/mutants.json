@@ -1323,6 +1323,127 @@
       "killers": [
         "check:TestOwnershipFlowWorkIsLinear"
       ]
+    },
+    {
+      "name": "c2-write-after-admitted",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "case w.follows(wr, e, ce.regions[:at], w.declDepth[v]):",
+      "to": "case false && w.follows(wr, e, ce.regions[:at], w.declDepth[v]):",
+      "rule": "Function values 3: a write after an escaping capture of its let mut is S108.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "c2-write-inside-admitted",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "case indexOf(wr.regions, e) >= 0:",
+      "to": "case false && indexOf(wr.regions, e) >= 0:",
+      "rule": "Function values 3: an escaping frame does not write a let mut it captures.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "c2-region-ignored",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "return ev.id.Pos() >= e.End() || commonPrefix(before, ev.regions) > depth",
+      "to": "return ev.id.Pos() >= e.End()",
+      "rule": "Function values 3: a loop or frame that holds the capture and the write runs the write again after it.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "c2-local-call-ignored",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "if !ok || !w.info.LocalFrames[lit] {",
+      "to": "if !ok || !w.info.LocalFrames[lit] || true {",
+      "rule": "Function values 3: a write in a local frame runs where the frame is called.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "c2-local-frames-off",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "\t\t\tw.info.LocalFrames[lit] = true",
+      "to": "\t\t\tw.info.LocalFrames[lit] = false",
+      "rule": "Function values 2: a let-bound literal that only runs in place is a non-escaping frame.",
+      "killers": [
+        "lower:TestCaptureRuleModel"
+      ]
+    },
+    {
+      "name": "c2-borrow-capture-admitted",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/check/escaping.go",
+      "from": "w.c.errorf(id, CodeType, borrowCaptureText, id.Name)",
+      "to": "_ = borrowCaptureText",
+      "rule": "Borrows 1: an escaping frame never captures a borrow.",
+      "killers": [
+        "check:TestV1Fixtures"
+      ]
+    },
+    {
+      "name": "c2-overlap-constant-admitted",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/check/borrows.go",
+      "from": "\t\tif constant.Compare(cx, token.EQL, cy) {\n\t\t\treturn relSame",
+      "to": "\t\tif constant.Compare(cx, token.EQL, cy) {\n\t\t\treturn relApart",
+      "rule": "Borrows 2: two borrows of one constant index overlap.",
+      "killers": [
+        "check:TestBorrowOverlapModel"
+      ]
+    },
+    {
+      "name": "c2-dynamic-unguarded-admitted",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/check/borrows.go",
+      "from": "return relMaybe",
+      "to": "return relApart",
+      "rule": "Borrows 2: two dynamic indexes need a dominating guard.",
+      "killers": [
+        "check:TestBorrowOverlapModel"
+      ]
+    },
+    {
+      "name": "c2-guard-ignored",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/check/borrows.go",
+      "from": "if w.guarded(x, y) {",
+      "to": "if false {",
+      "rule": "Borrows 2: a dominating guard keeps two dynamic indexes apart.",
+      "killers": [
+        "check:TestBorrowOverlapModel"
+      ]
+    },
+    {
+      "name": "c2-mut-guard-trusted",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/check/borrows.go",
+      "from": "if !ok || (v.mut && !mutOK) {",
+      "to": "if !ok {",
+      "rule": "Borrows 2: a guard on a let mut index proves nothing at the call.",
+      "killers": [
+        "check:TestBorrowOverlapModel"
+      ]
+    },
+    {
+      "name": "c2-fields-always-apart",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/check/borrows.go",
+      "from": "if x.field != y.field {",
+      "to": "if true {",
+      "rule": "Borrows 2: two borrows of one field overlap.",
+      "killers": [
+        "check:TestBorrowOverlapModel"
+      ]
     }
   ]
 }

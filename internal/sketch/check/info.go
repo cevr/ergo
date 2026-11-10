@@ -215,6 +215,16 @@ type Info struct {
 	// Literals is every function literal and trailing block, with its
 	// final rows (196a).
 	Literals map[syntax.Node]*Signature
+	// ValueCaptures is every escaping function literal or trailing block
+	// that captures a let mut local of an enclosing frame, with those
+	// locals in order of first capture. No write to such a local follows
+	// the capture (types.md, Function values 3; owner q60), so the
+	// lowering binds a copy of each when the literal is made.
+	ValueCaptures map[syntax.Node][]*Var
+	// LocalFrames is every function literal a let binds to a local that
+	// only runs in place: a non-escaping frame (check/escaping.go,
+	// localFrames).
+	LocalFrames map[*syntax.FuncLit]bool
 	// Loops is every for-in.
 	Loops map[*syntax.RangeStmt]*Loop
 	// Withs is every with site.
@@ -350,6 +360,8 @@ func newInfo() *Info {
 		Matches:       map[syntax.Node]*Match{},
 		Tails:         map[syntax.Stmt]Type{},
 		Literals:      map[syntax.Node]*Signature{},
+		ValueCaptures: map[syntax.Node][]*Var{},
+		LocalFrames:   map[*syntax.FuncLit]bool{},
 		Loops:         map[*syntax.RangeStmt]*Loop{},
 		Withs:         map[*syntax.CallExpr]*With{},
 		ContextValues: map[syntax.Expr]*With{},

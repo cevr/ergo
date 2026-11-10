@@ -664,8 +664,10 @@ func (g *valueGen) stmt() {
 		g.reached["pure"] = true
 	case 7:
 		// A capture: a function literal or a task reads the value now; it
-		// is called or waited for at the end.
-		b := g.pick(func(b *vbind) bool { return g.shared || !b.mut })
+		// is called or waited for at the end. A binding that may be written
+		// is not captured: a task that captures a let mut written after it
+		// is S108 (types.md, Function values 3; TestCaptureRuleModel).
+		b := g.pick(func(b *vbind) bool { return !b.mut })
 		if b == nil {
 			return
 		}

@@ -1,0 +1,37 @@
+// #197 C2 (types.md, Function values 3; owner q60): an escaping frame
+// captures a let mut only when no write follows the capture, in it or
+// outside it. Borrows 1: it never captures a borrow. Borrows 2: one call
+// takes no two overlapping borrows.
+type C { n int }
+
+func later() func() int {
+	let mut n = 0
+	let f = func() int { n }
+	n = 1 // want S108
+	f
+}
+
+func counter() func() int {
+	let mut n = 0
+	n = 2
+	func() int {
+		n = n + 1 // want S108
+		n
+	}
+}
+
+func keep(p *C) func() int {
+	func() int { p.n } // want S108
+}
+
+func two(a *C, b *C) {
+	a.n += 1
+	b.n += 2
+}
+
+func bump(i int, j int) int {
+	let mut xs = []C{C{n: 1}, C{n: 2}}
+	two(&xs[0], &xs[0]) // want S108
+	two(&xs[i], &xs[j]) // want S108
+	xs[0].n
+}

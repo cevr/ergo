@@ -1698,6 +1698,17 @@
         "file": "internal/sketch/lower/tests.go",
         "text": "Replace(harnessGo + harnessReachGo)"
       }
+    },
+    {
+      "name": "c2-capture-by-reference",
+      "origin": "wf10 #197 C2 captures-and-borrows",
+      "file": "internal/sketch/lower/closures.go",
+      "from": "if captureLowering == \"reference\" || len(vars) == 0 {",
+      "to": "if true || len(vars) == 0 {",
+      "rule": "Function values 3: an escaping frame's let mut captures lower by value (the local stays on the stack).",
+      "killers": [
+        "lower:TestCaptureLoweringAgrees"
+      ]
     }
   ]
 }

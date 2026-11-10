@@ -159,11 +159,11 @@ func TestValueRuleElides(t *testing.T) {
 	}
 }
 
-// TestValueRuleRace: the probes that send a value to two tasks and capture
-// a written let mut in a task, built with -race, report no race and print
-// the values (map-alias P6: a DATA RACE in 3 of 3 runs before the rule).
-// Only Go's race detector, in a built binary, observes the race; it guards
-// the elide-closure mutant on the task path.
+// TestValueRuleRace: the probe that sends a value to two tasks, built with
+// -race, reports no race and prints the values (map-alias P6: a DATA RACE
+// in 3 of 3 runs before the rule). Only Go's race detector, in a built
+// binary, observes the race. A task that captures a let mut written after
+// it is S108 now (types.md, Function values 3).
 //
 // It builds Go because only Go's race detector, in a built binary, sees
 // the race.
@@ -231,7 +231,7 @@ func TestValueRuleMutants(t *testing.T) {
 	if !*valueMutants {
 		t.Skip("run with -value.mutants")
 	}
-	for _, m := range []string{"never-copy", "shallow", "elide-live", "elide-escape", "elide-closure", "in-place", "consume-live", "consume-captured", "own-live", "update-none", "update-no-write", "update-ok-none", "update-ok-swap", "hand-nonliteral", "store-unfresh", "share-blind", "return-blind"} {
+	for _, m := range []string{"never-copy", "shallow", "elide-live", "elide-escape", "in-place", "consume-live", "consume-captured", "own-live", "update-none", "update-no-write", "update-ok-none", "update-ok-swap", "hand-nonliteral", "store-unfresh", "share-blind", "return-blind"} {
 		t.Run(m, func(t *testing.T) {
 			saved := valueMutant
 			valueMutant = m

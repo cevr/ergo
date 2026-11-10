@@ -15,6 +15,7 @@ import fs
 import journal
 import strconv
 import strings
+import sync
 
 // Journal is the file journal of states S and signals E. Its values are
 // copies of one journal; one process writes the file at a time.
@@ -38,24 +39,27 @@ func Open[S, E](host fs.Host, path string, states journal.Codec[S], signals jour
 		return journal.Failed{Reason: "\(path): \(f.Reason)"}
 	}
 	let log = try parse(text, states, signals)
-	let mut snap = log.Snapshot
-	let mut kept = log.Signals
-	let mut written = text
+	// The three functions share the file's text and the log it holds,
+	// which outlive Open: a Ref each, since a let mut they captured would
+	// be a copy (types.md, Function values 3).
+	let written = sync.NewRef(text)
+	let kept = sync.NewRef(log)
 	Journal[S, E]{
 		append: func(e E) fails journal.Failed {
-			let next = written + "e " + strconv.Quote(signals.Encode(e)) + "\n"
+			let next = written.Get() + "e " + strconv.Quote(signals.Encode(e)) + "\n"
 			try write(host, path, next)
-			written = next
-			kept = kept.Append(e)
+			written.Set(next)
+			kept.Update(func(l journal.Log[S, E]) journal.Log[S, E] {
+				journal.Log[S, E]{Snapshot: l.Snapshot, Signals: l.Signals.Append(e)}
+			})
 		},
 		snapshot: func(s S) fails journal.Failed {
 			let next = "s " + strconv.Quote(states.Encode(s)) + "\n"
 			try write(host, path, next)
-			written = next
-			snap = Some[S]{Value: s}
-			kept = []E{}
+			written.Set(next)
+			kept.Set(journal.Log[S, E]{Snapshot: Some[S]{Value: s}, Signals: []E{}})
 		},
-		load: func() journal.Log[S, E] { journal.Log[S, E]{Snapshot: snap, Signals: kept} },
+		load: func() journal.Log[S, E] { kept.Get() },
 	}
 }
 

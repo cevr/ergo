@@ -1,0 +1,39 @@
+// #197 C2: the writes come before the escaping capture; a local frame (a
+// let-bound literal only called) writes in place; two borrows apart, by
+// constants, by fields or under a guard.
+type C { n int }
+
+type P { a C, b C }
+
+func later() func() int {
+	let mut n = 0
+	for _ in 0..3 {
+		n = n + 1
+	}
+	let f = func() int { n }
+	f
+}
+
+func local() int {
+	let mut n = 0
+	let add = func(k int) { n = n + k }
+	add(1)
+	add(2)
+	n
+}
+
+func two(a *C, b *C) {
+	a.n += 1
+	b.n += 2
+}
+
+func bump(i int, j int) int {
+	let mut xs = []C{C{n: 1}, C{n: 2}}
+	let mut p = P{a: C{n: 0}, b: C{n: 0}}
+	two(&xs[0], &xs[1])
+	two(&p.a, &p.b)
+	if i != j {
+		two(&xs[i], &xs[j])
+	}
+	xs[0].n + p.a.n
+}

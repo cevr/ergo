@@ -15,6 +15,7 @@
 // state changes, read back at start (a write-ahead log).
 
 import actor
+import sync
 
 // Failed is the failure of a journal that could not keep or read its
 // transitions: Reason is the provider's text, such as the host's error.
@@ -135,13 +136,16 @@ func Start[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], j Journal[S, E], every
 		m.Initial
 	}
 	let state = try replay(m.Step, from, log.Signals)
-	let mut since = len(log.Signals)
+	// The save outlives Start, so its count of signals since the last
+	// snapshot is a Ref: a let mut it captured would be a copy (types.md,
+	// Function values 3).
+	let since = sync.NewRef(len(log.Signals))
 	try actor.StartDurable(m, capacity, sink, func() Option[S] { Some[S]{Value: state} }, func(prev S, next S, sig E) fails Failed {
 		try j.Append(sig)
-		since = since + 1
-		if every > 0 && since >= every {
+		since.Update(func(n int) int { n + 1 })
+		if every > 0 && since.Get() >= every {
 			try j.Snapshot(next)
-			since = 0
+			since.Set(0)
 		}
 	})
 }
