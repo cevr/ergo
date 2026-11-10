@@ -181,6 +181,33 @@
       "to": "File: intern(c.Func)",
       "rule": "binsize BS6: registering the selectable wide reference preserves its file names when normalizing the source map.",
       "killers": ["runtime/v1:TestCompactCallsAgree"]
+    },
+    {
+      "name": "bs7-graph-ignored",
+      "origin": "wf10 binsize BS7",
+      "file": "runtime/v1/actor_trace.go",
+      "from": "\treturn a.graph()\n",
+      "to": "\treturn nil\n",
+      "rule": "binsize BS7: a traced actor names its arms from the graph its start received.",
+      "killers": ["runtime/v1:TestActorModelAgreesWithTimedFold"]
+    },
+    {
+      "name": "bs7-timer-lookup",
+      "origin": "wf10 binsize BS7",
+      "file": "runtime/v1/actor_trace.go",
+      "from": "if tm.State == s {",
+      "to": "if tm.Signal == s {",
+      "rule": "binsize BS7: a timer's signal is the one the graph gives the state its entry opened in.",
+      "killers": ["runtime/v1:TestActorModelAgreesWithTimedFold"]
+    },
+    {
+      "name": "bs7-hidden-graph",
+      "origin": "wf10 binsize BS7",
+      "file": "runtime/v1/files.go",
+      "from": "if x.Name == \"GraphOf\" {",
+      "to": "if x.Name == \"GraphOfX\" {",
+      "rule": "binsize BS7: GraphOf is a hidden parameter that the lowering supplies.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
     }
   ]
 }

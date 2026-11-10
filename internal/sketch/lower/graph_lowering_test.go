@@ -29,9 +29,10 @@ import (
 // It builds Go because the names under test are the Go runtime's type
 // strings of the variants, which only a running program gives, and the
 // graph reaches the runner only through the built program's hidden
-// argument. It builds one binary per program, not the dispatcher: the
-// dispatcher renames package main, and the runtime spells a type argument
-// with its package's path.
+// argument. It builds one binary per program with one go build, not the
+// dispatcher: the dispatcher renames package main, and the runtime spells
+// a type argument with its package's path. Every run is bounded in memory
+// (runProgram).
 func TestGraphLoweringsTraceAlike(t *testing.T) {
 	needsBuild(t)
 	seeds := []int64{1, 2, 3, 4, 5, 6}
@@ -59,9 +60,18 @@ func TestGraphLoweringsTraceAlike(t *testing.T) {
 			programs = append(programs, mustLower(t, fmt.Sprintf("graph%d%s", seed, mode), src))
 		}
 	}
-	exes := buildSeparate(t, programs)
-	if exes == nil {
+	m := newGoModuleDir(t)
+	for _, p := range programs {
+		m.program(p, p.mainGo())
+	}
+	bin := filepath.Join(m.root, "bin")
+	if out, ok := m.goCommand("build", "-trimpath", "-o", bin+string(filepath.Separator), "./p/..."); !ok {
+		m.report("build", out)
 		t.FailNow()
+	}
+	exes := map[string]string{}
+	for _, p := range programs {
+		exes[p.name] = filepath.Join(bin, p.name)
 	}
 	for i, r := range runs {
 		var traces [2]map[int][]string
@@ -178,11 +188,13 @@ var graphArgs = []graphArg{
 // none.
 type graphVariant struct{ typ, val, pat, partial string }
 
-// genGraphProgram writes a program of three machines, each run as an
-// actor that asks it signals, and reports for each actor whether its
-// machine shares its state and signal types with another machine. Machine
-// k's states hold Box of graphArgs[first+k], so the seeds 1 to 6 (first
-// 3*(seed-1)) hold every argument form; the other instances draw theirs.
+// genGraphProgram writes a program of three machines, and at times a
+// fourth with a twin over the same types, each run as an actor that asks
+// it signals, and reports for each actor whether its machine shares its
+// state and signal types with another machine. Machine k starts in Box of
+// graphArgs[first+k], a state with a timer, so the seeds 1 to 6 (first
+// 3*(seed-1)) name every argument form at the start of an actor whose
+// graph is its own; the other instances draw their arguments.
 func genGraphProgram(r *rand.Rand, first int) (string, []bool) {
 	var b strings.Builder
 	b.WriteString("import actor\nimport queue\nimport time\n\n")
@@ -207,12 +219,16 @@ func genGraphProgram(r *rand.Rand, first int) (string, []bool) {
 			{fmt.Sprintf("%s%d{N int}", prefix, k), fmt.Sprintf("%s%d{N: 1}", prefix, k), fmt.Sprintf("%s%d", prefix, k), fmt.Sprintf("%s%d{N: 1}", prefix, k)},
 			{fmt.Sprintf("%sb%d{}", prefix, k), fmt.Sprintf("%sb%d", prefix, k), fmt.Sprintf("%sb%d", prefix, k), ""},
 		}
-		from := 0
+		// A signal union holds a generic variant, so it never lowers flat
+		// (flatunion.go): a flat signal's runtime name is its union's, the
+		// same under both lowerings, and no arm that names a signal is
+		// found for it.
+		from, more := 0, 1+r.Intn(2)
 		if prefix == "A" {
 			vs = append(vs, generics[0](graphArgs[((first+k)%len(graphArgs)+len(graphArgs))%len(graphArgs)], graphArg{}))
-			from = 1
+			from, more = 1, r.Intn(3)
 		}
-		for _, i := range r.Perm(len(generics) - from)[:r.Intn(3-from)] {
+		for _, i := range r.Perm(len(generics) - from)[:more] {
 			vs = append(vs, generics[from+i](graphArgs[r.Intn(len(graphArgs))], graphArgs[r.Intn(len(graphArgs))]))
 		}
 		return vs
@@ -224,7 +240,9 @@ func genGraphProgram(r *rand.Rand, first int) (string, []bool) {
 		}
 		return strings.Join(out, " | ")
 	}
-	n := 3
+	// Machines 0 to 2 have types of their own; machine 3, when there is
+	// one, shares its types with a twin.
+	n := 3 + r.Intn(2)
 	var shared []bool
 	var mains []string
 	for k := range n {
@@ -302,15 +320,17 @@ func genGraphProgram(r *rand.Rand, first int) (string, []bool) {
 		}
 		b.WriteString("\t}\n}\n\n")
 		fmt.Fprintf(&b, "func after%d(s %s) Option[Timeout[%s]] {\n\tmatch s {\n", k, st, sg)
-		for _, v := range states {
-			if r.Intn(2) == 0 {
+		// The Box state, the first state, always has a timer, so the start
+		// names its variant and its timer's signal from the graph.
+		for i, v := range states {
+			if i == 2 || r.Intn(2) == 0 {
 				fmt.Fprintf(&b, "\tcase %s:\n\t\tSome[Timeout[%s]]{Value: Timeout[%s]{In: 5s, Signal: %s}}\n", v.pat, sg, sg, signals[r.Intn(len(signals))].val)
 			} else {
 				fmt.Fprintf(&b, "\tcase %s:\n\t\tNone\n", v.pat)
 			}
 		}
 		b.WriteString("\t}\n}\n\n")
-		fmt.Fprintf(&b, "type M%d machine[%s, %s] { initial: %s, step: step%d, after: after%d }\n\n", k, st, sg, states[r.Intn(len(states))].val, k, k)
+		fmt.Fprintf(&b, "type M%d machine[%s, %s] { initial: %s, step: step%d, after: after%d }\n\n", k, st, sg, states[2].val, k, k)
 		var asks strings.Builder
 		for range r.Intn(6) + 2 {
 			fmt.Fprintf(&asks, "\t\ta%d.Ask(%s) catch {\n\t\tcase actor.Stopped:\n\t\t}\n", k, signals[r.Intn(len(signals))].val)
@@ -318,7 +338,7 @@ func genGraphProgram(r *rand.Rand, first int) (string, []bool) {
 		run := func(m string) string {
 			return fmt.Sprintf("\t\tlet a%d = actor.StartMachine(%s{}, 0, func(o int) {})\n%s\t\ta%d.Stop()\n", k, m, asks.String(), k)
 		}
-		twin := r.Intn(2) == 0
+		twin := k == 3
 		mains = append(mains, run(fmt.Sprintf("M%d", k)))
 		shared = append(shared, twin)
 		if twin {

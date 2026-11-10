@@ -1695,6 +1695,123 @@
       "to": "intern(l.srcs[c.src].path), c.line, 0)",
       "rule": "binsize BS6: compact call sites preserve the source column.",
       "killers": ["lower:TestDefectReportNamesErgoCallSites"]
+    },
+    {
+      "name": "bs7-graph-nil",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/std.go",
+      "from": "out = append(out, fc.graphArg(c, site))",
+      "to": "out = append(out, \"nil\")",
+      "rule": "binsize BS7: an actor's start receives its machine's graph as the hidden graph argument.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-main-qualifier",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "return \"main.\" + x.Name, true",
+      "to": "return x.Name, true",
+      "rule": "binsize BS7: a static variant name spells a type argument of package main as Go's runtime does (main.T).",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-arg-comma",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "strings.Join(args, \",\")",
+      "to": "strings.Join(args, \", \")",
+      "rule": "binsize BS7: Go's runtime separates type arguments by a bare comma.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-import-path",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "return paths[pkg.Name] + \".\" + x.Sel.Name, true",
+      "to": "return pkg.Name + \".\" + x.Sel.Name, true",
+      "rule": "binsize BS7: Go's runtime names another package's type argument by its import path.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-array-len",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "return elem(\"[\"+n.Value+\"]\", x.Elt)",
+      "to": "return elem(\"[]\", x.Elt)",
+      "rule": "binsize BS7: a fixed array keeps its length in a static variant name.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-star",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "return elem(\"*\", x.X)",
+      "to": "return elem(\"\", x.X)",
+      "rule": "binsize BS7: a pointer type keeps its star in a static variant name.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-map",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "v, ok2 := elem(\"]\", x.Value)",
+      "to": "v, ok2 := elem(\"] \", x.Value)",
+      "rule": "binsize BS7: a Map spells as Go's runtime spells map[K]V.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-func-results",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "results = \" (\" + results + \")\"",
+      "to": "results = \" \" + results",
+      "rule": "binsize BS7: a function type's results are parenthesised when there are several.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-struct-fields",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "return \"struct { \" + fields + \" }\", ok",
+      "to": "return \"struct {\" + fields + \"}\", ok",
+      "rule": "binsize BS7: a tuple's struct spells as Go's runtime spells it.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-struct-empty",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "return \"struct {}\", ok",
+      "to": "return \"struct{}\", ok",
+      "rule": "binsize BS7: the empty struct of a function value with no result spells as Go's runtime spells it.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-shared-case",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "if pairs[[2]string{g.state, g.signal}] != 1 {",
+      "to": "if false {",
+      "rule": "binsize BS7: a pair of state and signal types that two machines share has no graph (the runtime cannot tell their arms apart).",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-no-case",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "\"]:\\n\\t\\treturn &\" + g.name",
+      "to": "\"]:\\n\\t\\treturn nil // \" + g.name",
+      "rule": "binsize BS7: the accessor gives each machine's static graph.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-names-apart",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "stateOf, signalOf := names(g.States), names(g.Signals)",
+      "to": "stateOf, signalOf := names(append(append([]machinegraph.Variant{}, g.States...), g.Signals...)), names(g.Signals)",
+      "rule": "binsize BS7: a state and a signal variant of one Ergo name keep their own Go names in the graph.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
     }
   ]
 }
