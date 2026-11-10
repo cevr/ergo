@@ -34,9 +34,8 @@ Base: cf073cde. Diff stat cf073cde..05b8dff5: 7 files changed, 94 insertions(+),
 Acceptance (measured, at 05b8dff5): `ERGO_TS_TEST=1 GOMAXPROCS=1
 GOMEMLIMIT=6GiB go test -p 2 -count=1 -timeout 10m ./internal/tsproj`,
 exit 0 (in gate-1.log). Also green with ERGO_TS_SEED=2, 7 and 13.
-Red at base: red-1.log, `exit 1`: tsc and the loaders stop with
-`TypeScript wire projection of json.Num: by-name codecs need an explicit
-wire projection`.
+Red at base: red-1.log, `exit 1`: tsc and the loaders stop with the
+by-name diagnostic of json.Num quoted in the brief.
 Gate: /home/exedev/.cache/baton/wf10/mapper-gaps/E6/gate-1.log, last line
 `gate exit 0` (/tmp/opencode/mapper-gaps-e6-gate.sh: diff check, gofmt,
 vet, tsproj with the TS leg, residue, cache-coverage guard, closure sweep).
