@@ -940,6 +940,7 @@ func (c *checker) structLit(x *syntax.CompositeLit, t Type, s *Struct, mark int)
 				f := s.Fields[i]
 				op := c.fieldValue(e, f.Type)
 				c.assign(&op, f.Type, "field "+f.Name)
+				c.exitCodeRange(t, f.Name, op, e)
 			}
 			return !denied
 		}
@@ -980,6 +981,7 @@ func (c *checker) structLit(x *syntax.CompositeLit, t Type, s *Struct, mark int)
 		set[id.Name] = true
 		op := c.fieldValue(kv.Value, f.Type)
 		c.assign(&op, f.Type, "field "+f.Name)
+		c.exitCodeRange(t, f.Name, op, kv.Value)
 	}
 	if !ok || denied {
 		return false
@@ -1230,6 +1232,13 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 		}
 		return operand{mode: modeValue, typ: sig, method: m}
 	}
+	if n, ok := t.(*Named); ok && !isPointer(base.typ) {
+		// A function on an operation type, after its operations
+		// (types.md, Methods 1; G-ex-e-2).
+		if fn := n.opFunc(x.Sel.Name); fn != nil {
+			return c.selfCall(x, base, c.selfSig(t, fn), fn, called, index)
+		}
+	}
 	if u := under(t); u != t && c.collFunc(u, x.Sel.Name) != nil {
 		// D-D8: the first parameter's type is x's type exactly.
 		// The base is a slice or a Map, unnamed, so the value reaches it by
@@ -1255,10 +1264,9 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 
 // noMethodHint names the rule a dot call x.f(…) misses when the package
 // declares a function f on x's type that rule 1 of types.md Methods does
-// not reach (K4, G-ex-e-2, G-ex-f-5), with the plain call to write: f's
-// first parameter is an operation type, whose values reach only their
-// operations; or it is one instance of a generic type, where a dot call
-// needs the type's parameters. It is "" when no such function exists.
+// not reach (K4, G-ex-f-5), with the plain call to write: f's first
+// parameter is one instance of a generic type, where a dot call needs the
+// type's parameters. It is "" when no such function exists.
 func (c *checker) noMethodHint(t Type, x *syntax.SelectorExpr, called bool) string {
 	n, ok := t.(*Named)
 	if !ok || !called || n.Obj == nil || n.Obj.Pkg == nil {
@@ -1292,8 +1300,6 @@ func (c *checker) noMethodHint(t Type, x *syntax.SelectorExpr, called bool) stri
 			callee = f.Pkg.Name + "." + f.Name
 		}
 		switch {
-		case asInterface(n) != nil && c.identical(fn, n):
-			return fmt.Sprintf("%s is an operation type, so a dot call on its value reaches only its operations, and %s is a function on it: call %s(%s%s) (types.md, Methods 1)", c.localTypeText(n), callee, callee, recv, rest)
 		case n.Orig != nil && c.identical(fn, n):
 			star := ""
 			if ptr != "" {

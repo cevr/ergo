@@ -194,7 +194,7 @@ func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, b
 		vals = append(vals, listedValue{v.Name, t})
 	}
 	at := strconv.Quote(l.siteText(law.Decl))
-	return l.listedRun(b, label, law.Decl, vals, scope, env, failed, func(inner *namer, vs []string) string {
+	return l.listedRun(b, label, law.Decl, vals, true, scope, env, failed, func(inner *namer, vs []string) string {
 		e, held, err := inner.alloc("e"), inner.alloc("held"), inner.alloc("err")
 		fc := newFuncCtx(l, inner, false)
 		fc.site = law.Decl
@@ -240,7 +240,7 @@ func (l *lowerer) listedTest(b *strings.Builder, t *check.Test, scope *namer, en
 	for i, v := range t.Params {
 		vals[i] = listedValue{v.Name, v.Type}
 	}
-	return l.listedRun(b, t.Name, t.Decl, vals, scope, env, failed, func(_ *namer, bound []string) string {
+	return l.listedRun(b, t.Name, t.Decl, vals, false, scope, env, failed, func(_ *namer, bound []string) string {
 		return "return " + l.testFunc(t) + "(" + strings.Join(append([]string{env}, bound...), ", ") + ")"
 	})
 }
@@ -250,8 +250,9 @@ func (l *lowerer) listedTest(b *strings.Builder, t *check.Test, scope *namer, en
 // number at most enumCases, and reports whether it did. call is the body
 // of a case's function, given the case's namer and the bound values. The
 // run prints `ok label (proved: …)` when every case holds, and stops at
-// its first case that fails.
-func (l *lowerer) listedRun(b *strings.Builder, label string, site syntax.Node, vals []listedValue, scope *namer, env, failed string, call func(inner *namer, bound []string) string) bool {
+// its first case that fails. A law's run adds its receipt entry ($Record): proved,
+// or refuted with its case (L10).
+func (l *lowerer) listedRun(b *strings.Builder, label string, site syntax.Node, vals []listedValue, law bool, scope *namer, env, failed string, call func(inner *namer, bound []string) string) bool {
 	types := make([]check.Type, len(vals))
 	for i, v := range vals {
 		types[i] = v.t
@@ -270,6 +271,11 @@ func (l *lowerer) listedRun(b *strings.Builder, label string, site syntax.Node, 
 		b.WriteString("\t{\n\t\t" + ok1 + ", " + k + " := true, 0\n")
 	} else {
 		b.WriteString("\t{\n\t\t" + ok1 + " := true\n")
+	}
+	rec := ""
+	if law {
+		rec = inner.alloc("rec")
+		b.WriteString("\t\t" + rec + " := &" + l.helper("Rand") + "{}\n")
 	}
 	shown := []string{strconv.Quote("case "), conv + ".Itoa(" + k + ")", strconv.Quote(" of " + strconv.Itoa(cases) + ", every value")}
 	ind := "\t\t"
@@ -299,12 +305,29 @@ func (l *lowerer) listedRun(b *strings.Builder, label string, site syntax.Node, 
 		describe = "func() string { return " + strings.Join(shown, " + ") + " }"
 	}
 	b.WriteString(ind + "\t" + ok1 + " = " + run + "(" + taskOf(env) + ", " + strconv.Quote(label) + ", " + at + ", " + describe + ", func() error { " + body + " })\n")
+	if law {
+		// The receipt's counterexample is the refuted case's text.
+		cex := strconv.Quote("()")
+		if len(vals) > 0 {
+			cex = describe + "()"
+		}
+		b.WriteString(ind + "\tif !" + ok1 + " {\n" + ind + "\t\t" + rec + ".failure = " + cex + "\n" + ind + "\t}\n")
+	}
 	b.WriteString(ind + "}\n")
 	for range vals {
 		ind = ind[:len(ind)-1]
 		b.WriteString(ind + "}\n")
 	}
 	b.WriteString("\t\tif " + ok1 + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+label+" ("+provedText(cases)+")") + ")\n")
-	b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n\t}\n")
+	b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n")
+	if law {
+		n := "1"
+		if len(vals) > 0 {
+			n = k
+		}
+		b.WriteString("\t\t" + rec + ".cases, " + rec + ".proved = " + n + ", " + ok1 + "\n")
+		b.WriteString("\t\t" + l.helper("Record") + "(" + strconv.Quote(label) + ", " + rec + ", \"\")\n")
+	}
+	b.WriteString("\t}\n")
 	return true
 }

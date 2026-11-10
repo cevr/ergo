@@ -2,6 +2,7 @@ package syntax
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 )
@@ -583,6 +584,16 @@ func (p *parser) parseMembers() *members {
 	saved := p.exprLev
 	p.exprLev = 0
 	first := memberKind(-1)
+	// either holds the members `f (A, B)` that read as an operation with
+	// two or more unnamed parameters and no result, or as a field of a
+	// tuple type: the other members decide (grammar.md, Declarations 4),
+	// so they are fields when a field is beside them. at is each one's
+	// place among the fields.
+	type eitherMember struct {
+		op *Field
+		at int
+	}
+	var either []eitherMember
 	for p.tok.tok != RBRACE {
 		doc := p.leadComment()
 		start := p.tok
@@ -596,7 +607,12 @@ func (p *parser) parseMembers() *members {
 		case p.tok.tok == IDENT && p.peek(1).tok == LPAREN:
 			kind = memberOperation
 			name := p.parseIdent()
-			m.ops = append(m.ops, &Field{Doc: doc, Names: []*Ident{name}, Type: p.parseSignature(NoPos, ctxMember)})
+			op := &Field{Doc: doc, Names: []*Ident{name}, Type: p.parseSignature(NoPos, ctxMember)}
+			m.ops = append(m.ops, op)
+			if tupleShaped(op.Type.(*FuncType)) {
+				either = append(either, eitherMember{op, len(m.fields)})
+				kind = -1
+			}
 		case p.tok.tok == IDENT:
 			kind = memberField
 			f := p.parseFieldDecl()
@@ -613,14 +629,32 @@ func (p *parser) parseMembers() *members {
 		default:
 			p.errorf("expected a field, an operation or a law, found %s", p.found())
 		}
-		if first < 0 {
+		switch {
+		case kind < 0:
+		case first < 0:
 			first = kind
-		} else if (first == memberField) != (kind == memberField) {
+		case (first == memberField) != (kind == memberField):
 			p.errorCode(CodeMixedMembers, start.pos, int(start.end-start.pos), mixedMembers)
 		}
 		if !p.got(COMMA) {
 			break
 		}
+	}
+	if first == memberField && len(either) > 0 {
+		var fields []*Field
+		next := 0
+		for _, e := range either {
+			fields = append(fields, m.fields[next:e.at]...)
+			next = e.at
+			ft := e.op.Type.(*FuncType)
+			tup := &TupleExpr{Lparen: ft.Params.Opening, Rparen: ft.Params.Closing}
+			for _, prm := range ft.Params.List {
+				tup.Elts = append(tup.Elts, prm.Type)
+			}
+			fields = append(fields, &Field{Doc: e.op.Doc, Names: e.op.Names, Type: tup})
+			m.ops = slices.DeleteFunc(m.ops, func(f *Field) bool { return f == e.op })
+		}
+		m.fields = append(fields, m.fields[next:]...)
 	}
 	p.exprLev = saved
 	if p.tok.tok != RBRACE {
@@ -629,6 +663,21 @@ func (p *parser) parseMembers() *members {
 	m.rbrace = p.tok.pos
 	p.next()
 	return m
+}
+
+// tupleShaped reports whether an operation's signature also reads as a
+// tuple type: two or more unnamed parameters, no result, no failure row
+// and no capability row.
+func tupleShaped(ft *FuncType) bool {
+	if ft.Results != nil || ft.Needs != nil || ft.Params == nil || len(ft.Params.List) < 2 {
+		return false
+	}
+	for _, prm := range ft.Params.List {
+		if len(prm.Names) > 0 || prm.Type == nil {
+			return false
+		}
+	}
+	return true
 }
 
 // refuseSingleton refuses `(x,)` at its comma: a tuple has two or more
@@ -646,6 +695,11 @@ func (p *parser) refuseSingleton() {
 // lexical error it reports false: the field reading parses on to the error
 // (#226).
 func (p *parser) bracketsThenParen() bool {
+	if p.peek(2).tok != IDENT {
+		// A type parameter list starts with a name; `f [](A, B)` and
+		// `f [3](A, B)` are fields of a slice or array of tuples.
+		return false
+	}
 	depth := 0
 	for i := 1; ; i++ {
 		switch p.peek(i).tok {

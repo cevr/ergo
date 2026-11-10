@@ -31,8 +31,10 @@ func TestDiagnosticMessagesSayWhatHappened(t *testing.T) {
 		// call-only (K4 x G1, batch 12).
 		{"extern-value", stdNap + "func apply(f func(d duration), d duration) { f(d) }\nfunc use() { apply(Nap, 1s) }\n",
 			"Nap is an extern and is not a value; pass func(d duration) { Nap(d) }"},
-		{"dot-op-type", "type Engine { Compile(p string) bool, law L(p string) { Compile(p) == Compile(p) } }\nfunc Holds(e Engine, p string) bool { e.Compile(p) }\nfunc All(e Engine) bool { e.Holds(\"a\") }\n",
-			"Engine has no field or method Holds; Engine is an operation type, so a dot call on its value reaches only its operations, and Holds is a function on it: call Holds(e, …)"},
+		// G-ex-c-17: a constant Code outside 1..125 is found at check.
+		{"exit-code-range", "import os\nfunc main() fails os.Exit {\n\treturn os.Exit{Code: 130, Message: \"x\"}\n}\n",
+			"os.Exit code 130 is outside 1..125: 0 claims success and 126 and up are the shell's (runtime.md, Exit causes 2)"},
+		{"exit-code-zero", "import os\nfunc main() fails os.Exit {\n\treturn os.Exit{0, \"x\"}\n}\n", "os.Exit code 0 is outside 1..125"},
 		{"dot-instance", "type Box[T] { v T }\nfunc Twice(b *Box[int]) { b.v = b.v * 2 }\nfunc main() needs Console {\n\tlet mut b = Box[int]{v: 1}\n\tb.Twice()\n\tConsole.Println(\"\\(b.v)\")\n}\n",
 			"Twice takes *Box[int], one instance, and a dot call reaches a function on a generic type only when its first parameter takes the function's own type parameters: write func Twice[T](b *Box[T]), or call Twice(&b)"},
 		{"extern-value-with-a-row", stdNap + "func apply(f func(d duration) fails Late | Lost, d duration) fails Late | Lost { try f(d) }\nfunc use() fails Late | Lost { try apply(NapOr, 1s) }\n",

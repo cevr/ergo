@@ -105,7 +105,9 @@ type fileOptions struct {
 	// states is test's --states, the budget of a reachability law's
 	// search, a positive decimal; empty when not given.
 	states string
-	file   string
+	// receipt is test's --receipt FILE: the law receipt to write (L10).
+	receipt string
+	file    string
 	// args are run's program arguments: every word after the source, as
 	// go run passes them, less one "--" right after the source.
 	args []string
@@ -139,7 +141,7 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 			continue
 		}
 		switch args[i] {
-		case "--target", "-o", "--seed", "--states":
+		case "--target", "-o", "--seed", "--states", "--receipt":
 			if i+1 == len(args) {
 				return opts, fmt.Errorf("%s requires a value", args[i])
 			}
@@ -150,6 +152,8 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 				opts.output = args[i+1]
 			case "--states":
 				opts.states, budgeted = args[i+1], true
+			case "--receipt":
+				opts.receipt = args[i+1]
 			default:
 				opts.seed, seeded = args[i+1], true
 			}
@@ -181,6 +185,8 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("-o is only supported by build")
 	case opts.work && command != "build" && command != "test":
 		return opts, fmt.Errorf("-work is only supported by build and test")
+	case opts.receipt != "" && command != "test":
+		return opts, fmt.Errorf("--receipt is only supported by test")
 	case seeded && command != "test":
 		return opts, fmt.Errorf("--seed is only supported by test")
 	case seeded && !validSeed(opts.seed):

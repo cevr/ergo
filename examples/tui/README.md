@@ -63,7 +63,7 @@ Each limit is recorded with a repro in the lane's gap file (`gaps-ex-c.md`, run 
 - **G-ex-c-15: no terminal.** No raw mode, no terminal size and no read of one key, and a user extern cannot bind `golang.org/x/term`: the picker runs on a script of keys.
 - **G-ex-c-8: no read of a given length.** The keys are read to the end of input.
 - **G-ex-c-16: a machine's state must be a union, with no context.** Each mode carries the shared `View`, and `ViewOf` reads it back.
-- **G-ex-c-17: an `os.Exit` code outside 1..125 is found only on the host.** fzf exits 130 on Ctrl-C; this program exits 1, because the checker passed 130 and the host refused it.
+- **G-ex-c-17** (closed in L9): a constant `os.Exit` code outside 1..125 is S108 at check. fzf exits 130 on Ctrl-C; this program exits 1, since 126 and up are the shell's.
 - **G-ex-c-11: prelude names.** The key `Enter` cannot be declared (the prelude's `Decision` has `Enter`), so it is `Return`.
 
 Closed in batch 12: G-ex-c-10 (K3: `let placed = match …`); the machine's fixed start and hand stepping (V2 and V4: its input is the items, `machines.Start`, `machines.Next`; `picker.Run` stays because it keeps every frame); G-ex-a-1, which this program met too without citing it (S3 and L4: `keys.Decode` takes a character's size from `utf8.DecodeRuneInString`, `Typed` and `dropLast` loop over runes, where they read UTF-8 lead and continuation bytes by hand); `slices.Equal` and the test helper `join` (W3 `==` on key lists, S2 `slices.Concat`); and the property tests that restated the laws (V1: the laws run, with the tests' steering moved into them).

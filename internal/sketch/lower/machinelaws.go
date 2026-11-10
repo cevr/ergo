@@ -778,7 +778,7 @@ func $States() int {
 			v = args[i]
 		case $strings.HasPrefix(a, "--states="):
 			v = a[len("--states="):]
-		case a == "--seed":
+		case a == "--seed" || a == "--receipt" || a == "--source" || a == "--revision":
 			i++
 			continue
 		default:

@@ -190,7 +190,7 @@ test Clamped(n int, xs []int) {
 	if code != 1 || one != again || one != eq {
 		t.Errorf("the default seed is 1 and replays: exit %d\n%s\n%s\n%s", code, one, again, eq)
 	}
-	if !regexp.MustCompile(`^FAIL Clamped \(case \d+ of 100, seed 1, size \d+: n = -?\d+, xs = \[\]int\{(-?\d+(, -?\d+)*)?\}\): assert failed at main\.ergo:9:2: clamp\(n\) < 50 \|\| len\(xs\) > 3\n`).MatchString(one) {
+	if !regexp.MustCompile(`^FAIL Clamped \(case \d+ of 100, seed 1, size \d+: n = -?\d+, xs = \[\]int\{(-?\d+(, -?\d+)*)?\}(; shrunk from: n = -?\d+, xs = \[\]int\{(-?\d+(, -?\d+)*)?\})?\): assert failed at main\.ergo:9:2: clamp\(n\) < 50 \|\| len\(xs\) > 3\n`).MatchString(one) {
 		t.Errorf("the FAIL line names the case, the seed, the arguments and the assert:\n%s", one)
 	}
 	two, _, _ := runExeArgs(t, exe, "--seed", "2")

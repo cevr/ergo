@@ -2,6 +2,35 @@
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
+      "name": "l10b-law-context-keeps-world",
+      "origin": "wf10/L10b round 1; db043a7d missing guard",
+      "file": "internal/sketch/lower/lawcontexts.go",
+      "from": "+ r + \".start(\" + i + \")\\n\")",
+      "to": "+ r + \".size = \" + i + \" / 4\\n\")",
+      "rule": "A law run under a context starts each generated case with a fresh builder world.",
+      "killers": ["lower:TestLawContextStartsEachCaseFresh"]
+    },
+    {
+      "name": "l10b-integer-branch-tape",
+      "origin": "wf10/L10b round 1",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "func (r *$Rand) integer(bits uint, signed bool) uint64 {\n",
+      "to": "func (r *$Rand) integer(bits uint, signed bool) uint64 {\n\treturn uint64(r.i64())\n",
+      "rule": "Integer replay uses canonical sign and magnitude, not distribution branches.",
+      "killers": ["lower:TestIntegerShrinksReachBoundary"],
+      "anchor": {"text": "Replace(harnessGo)"}
+    },
+    {
+      "name": "l10b-integer-no-narrowing",
+      "origin": "wf10/L10b round 1",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "mask := ^uint64(0) >> (64 - bits)",
+      "to": "mask := ^uint64(0)",
+      "rule": "Record magnitude after narrowing, so a smaller integer width shrinks by value rather than wrapping.",
+      "killers": ["lower:TestIntegerShrinksReachBoundary"],
+      "anchor": {"text": "Replace(harnessGo)"}
+    },
+    {
       "name": "existing-2-unit-h",
       "origin": "lower-v1/verify-s4a/r2/mutants-r2.json",
       "file": "internal/sketch/lower/tests.go",

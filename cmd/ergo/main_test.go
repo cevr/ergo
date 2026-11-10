@@ -209,7 +209,7 @@ func TestFileCommandsRefuseOptionsTheyDoNotTake(t *testing.T) {
 		{[]string{"check", path, "--strict"}, "--strict is only supported by diagnostics"},
 		{[]string{"check", path, "--target", "js"}, "EF110: unsupported target js; the only target is go"},
 		{[]string{"run", "-o", "out", path}, "-o is only supported by build"},
-		{[]string{"build", path, "--receipt", "receipt.json"}, "unknown option --receipt"},
+		{[]string{"build", path, "--receipt", "receipt.json"}, "--receipt is only supported by test"},
 		{[]string{"build", path, "--target", "wasm"}, "EF110: unsupported target wasm; the only target is go"},
 		{[]string{"check"}, "source file required"},
 		{[]string{"build", path, path}, "incorrect arguments for build"},

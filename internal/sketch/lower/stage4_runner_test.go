@@ -222,6 +222,21 @@ var literalKinds = []literalKind{
 	{"Cel", "Celsius", "v == w"}, {"Ids", "Ids", "eqIds(v, w)"},
 }
 
+// literalSimplest is the value each kind's property shrinks to when every
+// case fails: the value of the empty tape, each draw 0 (L10; runtime.md
+// Tests 5): 0, 0.0, false, "", an empty slice or Map, a union's first
+// variant at the smallest depth.
+var literalSimplest = map[string]string{
+	"I8": "0", "I16": "0", "I32": "0", "I64": "0", "Int": "0", "U8": "0", "U16": "0", "U32": "0",
+	"U64": "0", "Uint": "0", "Uptr": "0", "F32": "0.0", "F64": "0.0", "Bool": "false",
+	"Str": `""`, "Dur": "0ns", "Ints": "[]int{}", "Strs": "[]string{}", "Points": "[]Point{}",
+	"MapSI": "Map[string, int]{}", "MapIB": "Map[int, bool]{}", "MapFS": "Map[float64, string]{}",
+	"MapShape": "Map[Shape, int]{}", "Tup": `(0, "")`, "Nest": "((0, false), Point{X: 0, Y: 0.0})",
+	"Pt": "Point{X: 0, Y: 0.0}", "Wrap": `Wrap{Items: []Point{}, Tag: ""}`, "Empty": "Empty",
+	"Shape": "Dot", "Tree": "Leaf", "Box": "Box[int]{V: 0}", "Maybe": `Just[string]{V: ""}`,
+	"MaybeBox": "Just[Box[Shape]]{V: Box[Shape]{V: Dot}}", "Cel": "Celsius(0.0)", "Ids": "Ids([]int{})",
+}
+
 const literalTypes = `type Point { X int, Y float64 }
 
 type Wrap { Items []Point, Tag string }
@@ -297,7 +312,10 @@ func eqMap[K comparable, V comparable](a Map[K, V], b Map[K, V]) bool {
 // fail at case 1 for every kind, so the text gave an equal value. The
 // second files must check with no diagnostic. Map keys print sorted.
 // Durations also round-trip from values that reach every unit, h to ns
-// (durationTextRoundTrips).
+// (durationTextRoundTrips). Each first-file case fails at every draw, so it
+// shrinks to its kind's simplest value (literalSimplest), and the FAIL
+// line shows the drawn argument after `shrunk from:`, which the second
+// files read.
 //
 // It builds Go because it runs the emitted test harness under go test: the
 // harness's verdicts and the values it prints are the output; no in-process
@@ -319,14 +337,24 @@ func TestArgumentTextRoundTrips(t *testing.T) {
 	}
 	// A kind that can be listed (bool) runs every value (mu6c): its case
 	// has no seed, and is the same under every seed.
-	line := regexp.MustCompile(`(?m)^FAIL K(\w+) \((?:case 1 of 100, seed (\d+), size 0|case 1 of \d+, every value): v = (.*)\): assert failed at main\.ergo:\d+:\d+: false$`)
+	line := regexp.MustCompile(`(?m)^FAIL K(\w+) \((?:case 1 of 100, seed (\d+), size 0|case 1 of \d+, every value): v = (.*?)(?:; shrunk from: v = (.*))?\): assert failed at main\.ergo:\d+:\d+: false$`)
 	texts := make([]map[string]string, seeds+1)
 	for s := 1; s <= seeds; s++ {
 		stdout, stderr, code := runExeArgs(t, exes["first"], "--seed", strconv.Itoa(s))
 		texts[s] = map[string]string{}
 		for _, m := range line.FindAllStringSubmatch(stdout, -1) {
 			if m[2] == strconv.Itoa(s) || m[2] == "" {
+				// The drawn case, which the FAIL line shows after the
+				// shrunk one when they differ (L10).
 				texts[s][m[1]] = m[3]
+				if m[4] != "" {
+					texts[s][m[1]] = m[4]
+				}
+				// assert false fails for every case, so the shrink reaches
+				// the empty tape: the simplest value of the kind.
+				if want := literalSimplest[m[1]]; m[3] != want {
+					t.Errorf("seed %d: %s shrank to %s, not to %s", s, m[1], m[3], want)
+				}
 			}
 		}
 		if code != 1 || len(texts[s]) != len(literalKinds) {

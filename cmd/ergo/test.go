@@ -14,7 +14,7 @@ import (
 )
 
 // testCommand runs a source's tests: `ergo test FILE [--seed N] [--states N]
-// [-work] [--target go]`. --states is the budget of states of each
+// [--receipt FILE] [-work] [--target go]`. --states is the budget of states of each
 // reachability law's search (machine laws; 1,000,000 by default). It is a transport over sketchfront's test build
 // (build.ModeTest, lower.LowerTests): it checks the source, builds the test
 // binary into a private temporary directory, never the working directory,
@@ -62,12 +62,21 @@ func testCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	var childArgs []string
+	// The binary names the source in a refuted case's replay line, and a
+	// receipt names the source and its revision (L10).
+	childArgs := []string{"--source", opts.file, "--revision", l.result.Revision}
 	if opts.seed != "" {
 		childArgs = append(childArgs, "--seed", opts.seed)
 	}
 	if opts.states != "" {
 		childArgs = append(childArgs, "--states", opts.states)
+	}
+	if opts.receipt != "" {
+		path, err := filepath.Abs(opts.receipt)
+		if err != nil {
+			return err
+		}
+		childArgs = append(childArgs, "--receipt", path)
 	}
 	// The test binary runs under a memory limit, 2 GiB unless
 	// ERGO_PROGRAM_MEMORY sets another, and its stderr passes through a

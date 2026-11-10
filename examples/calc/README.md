@@ -55,6 +55,6 @@ go run ./scripts/examples calc
 Each gap has its repro in the run dir's `examples-wave/gaps-ex-a.md`.
 
 - **G-ex-a-3 (narrowed).** `Unreachable` says that `Stuck` and `Unset` cannot happen after a check, as a defect at run time; a typed tree that rules them out statically needs indexed types (GADTs).
-- **G-ex-a-6 (bad diagnostic).** An S105 in package `syntax` named the failure `main.BadChar`, not `syntax.BadChar` (not rechecked here).
+- **G-ex-a-6** (closed by batch-12 K4, rechecked in L9): an S105 in package `syntax` names the failure `BadChar`, as the source writes it (`TestDiagnosticTypeNamesResolve`).
 
 Closed in batch 12: G-ex-a-1 (S3: `BadChar` takes its character's size from `utf8.DecodeRuneInString`, where `charAt` read continuation bytes by hand), G-ex-a-2 (L1: hex literals; the byte test is gone with it), G-ex-a-3 in part (K: `Unreachable`), G-ex-a-4 (L2: named rows `syntax.Failure`, `typing.Failure`; `Answer`'s row of eight is three), G-ex-a-5 (`Lookup(s, "x") == Some{Value: BoolT}` checks), G-ex-a-7 and G-ex-a-8 (T1: `ergo run DIR -- ARGS`, no `dist/`), and the property tests that restated the laws (V1: the laws run; their steering moved into `ast.Samples`).

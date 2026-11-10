@@ -90,7 +90,7 @@ law EndIsDone(texts []string, title string) {
 // answer but yes gives the list back.
 law ClearAsksFirst(texts []string, answer string) {
 	let l = todo.Of(texts)
-	let asked = machines.Next[Mode, todo.List](Listing{L: l}, Tried(Listing{L: l}, Typed{Line: "clear"}))
+	let asked = machines.Next(Listing{L: l}, Tried(Listing{L: l}, Typed{Line: "clear"}))
 	let after = ListOf(machines.Next(asked, Tried(asked, Typed{Line: answer})))
 	match ParseAnswer(answer) {
 	case Yes:
@@ -105,7 +105,7 @@ law ClearAsksFirst(texts []string, answer string) {
 law NoteLinesKeepTheList(texts []string, title string, line string) {
 	let l = todo.Of(texts)
 	let composing = Composing{L: l, Title: title, Lines: []string{}}
-	let next = machines.Next[Mode, todo.List](composing, Tried(composing, Typed{Line: line}))
+	let next = machines.Next(composing, Tried(composing, Typed{Line: line}))
 	if strings.TrimSpace(line) == "." {
 		return ListOf(next).Count() == l.Count()+1 && Prompt(next) == "todo> "
 	}

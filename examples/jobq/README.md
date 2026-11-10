@@ -46,7 +46,7 @@ Each gap is in the lane's gap file (`gaps-ex-b.md`) with a repro.
 
 - **G-ex-b-16** (partly closed by K3): `let res = if … { Ok } else { rs[i] }` now joins to the union. `let mut best = None` still needs `Option[duration]`, and the checker now says so (S108 "best is typed None by its value; write let mut best Option[duration] = None").
 - **G-ex-b-17** (language; known #197): a `Task` cannot be put in a slice, so a pool of `-workers N` is `pool.crew`, a recursion of one frame per task.
-- **G-ex-b-18** (checker; soundness): found by a mutant of this program. A package `let` of a Map is global mutable state, and a function that writes it has an empty footprint, so a "pure" function gave two results for one argument. The program itself writes no package Map.
+- **G-ex-b-18** (closed by owner q26, rechecked in L9): a package `let` of a Map was global mutable state that a "pure" function wrote. Under the value rule `let mut c = calls` copies, so the write never reaches the package `let` and the function stays pure (measured: two calls print `1 1`; `TestValueRuleAgrees` holds the repro as `next`).
 - **G-ex-b-5** (closed by C1): the pool's tests and `cmd/jobq`'s now bind `testing.VirtualClock` as the `Scheduler` (the hand `memory.Instant` is gone). The laws stay `sched`'s, and the pool is held to `sched` by `AgreesWithTheVirtualRun`.
 - **G-ex-b-9** (partly closed by S4): `time.ParseDuration` now exists, but `flag` has no `Duration`, so the times stay `-backoff-ms` and `-every-ms` ints.
 - **G-ex-b-17** also meets C2: `tasks.Transform` runs work on a bounded set of tasks, but its function must give a value, and a worker gives none, so `crew` stays.

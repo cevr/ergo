@@ -42,4 +42,4 @@ New gaps (`gaps-ex-f.md`):
 - G-ex-f-5: a non-generic function on an instance (`Apply(c *Cache[int, int], …)`) is not a dot call, and the message does not say why.
 - G-ex-f-6: `match m.Get(k)` builds an `Option` interface and a type switch where Go writes comma-ok, and a function that reads a Map takes the environment and polls the task.
 
-Closed in batch 12: G-ex-b-3 (`Table` counts lookups in a `sync.Ref`; the old Map counter wrote through a copy under the value rule and counted nothing), G-ex-d-10 (`main` holds the commands and returns from inside its `with`). Also hit: G-ex-b-18, G-ex-c-11 (`number` is a prelude name), G-ex-d-13 (laws at `int`), G-exup-1.
+Closed in batch 12: G-ex-b-3 (`Table` counts lookups in a `sync.Ref`; the old Map counter wrote through a copy under the value rule and counted nothing), G-ex-d-10 (`main` holds the commands and returns from inside its `with`). Also hit: G-ex-b-18 (closed by q26, rechecked in L9), G-ex-c-11 (`number` is a prelude name), G-ex-d-13 (laws at `int`), G-exup-1.
