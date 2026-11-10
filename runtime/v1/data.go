@@ -1,5 +1,7 @@
 package v1
 
+import "slices"
+
 // The bodies of slices.WithCapacity and of the prelude's slice and Map
 // functions (docs/spec/stdlib.md, Slices and Maps); the rest of std slices
 // is in collections.go. A slice is a Go slice
@@ -52,6 +54,36 @@ func Get[K comparable, V any](m map[K]V, k K) (V, bool) {
 func Delete[K comparable, V any](m map[K]V, k K) map[K]V {
 	delete(m, k)
 	return m
+}
+
+// SlicesTake moves index i out of xs and returns the value and remainder.
+// A plain-data caller may keep xs (mode crossing), so its storage is not
+// changed. With resource elements the caller gives xs up, and copying the
+// slots moves their one ownership to the result; it creates no new owner.
+// Index validation precedes allocation and every write.
+//
+//ergo:pure
+func SlicesTake[T any](xs []T, i int) (T, []T) {
+	value := xs[i]
+	xs = slices.Clone(xs)
+	copy(xs[i:], xs[i+1:])
+	var zero T
+	xs[len(xs)-1] = zero
+	return value, xs[:len(xs)-1]
+}
+
+// MapTake is the native read-and-remove behind m.Take(k). The intrinsic
+// wraps value and found in the program's Option and returns it beside m.
+//
+//ergo:pure
+func MapTake[K comparable, V any](m map[K]V, k K) (V, bool, map[K]V) {
+	value, found := m[k]
+	rest := make(map[K]V, len(m))
+	for key, value := range m {
+		rest[key] = value
+	}
+	delete(rest, k) // Take moves the entry out of the remainder
+	return value, found, rest
 }
 
 // UnreachableDefect is the defect the prelude's Unreachable(reason)

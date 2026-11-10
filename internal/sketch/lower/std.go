@@ -457,6 +457,16 @@ func (fc *funcCtx) bindDeferred(body v1.Body, vals []string) {
 // stage D3b round 1 review M1: a hidden task is bound where the blocking
 // happens). Its operands are evaluated already (bindDeferred).
 func (fc *funcCtx) stdResult(body v1.Body, result check.Type, env string, site syntax.Node, call func(env string) string) string {
+	if tuple, ok := result.(*check.Tuple); ok && !goFallible(body) && len(body.Results) == len(tuple.Types) {
+		// A native multiple result becomes Ergo's one tuple value. Each
+		// result already has its checked element type; no element copies.
+		var vals []string
+		for range tuple.Types {
+			vals = append(vals, fc.temp("part"))
+		}
+		ind := strings.Repeat("\t", fc.depth)
+		return "func() " + fc.goType(tuple) + " {\n" + ind + "\t" + strings.Join(vals, ", ") + " := " + call(env) + "\n" + ind + "\treturn " + fc.goType(tuple) + "{" + strings.Join(vals, ", ") + "}\n" + ind + "}()"
+	}
 	if commaOk(body) {
 		// Go's comma-ok (T, bool) is the prelude's Option[T] (stdlib.md,
 		// Types 5; queue.Queue's Poll): Some of the value when ok, else

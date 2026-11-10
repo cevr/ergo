@@ -23,6 +23,12 @@
 // element; a negative n is a defect, as Go's make panics.
 extern go ergo.local/prototype/runtime/v1.WithCapacity func WithCapacity[T](n int) []T
 
+// Take gives up xs and returns its element at i and the remaining slice,
+// in order. With resource elements, the element and remainder have
+// separate owners. Plain-data xs is unchanged. An index outside
+// 0..len(xs) is a defect, as Go's index is.
+extern go ergo.local/prototype/runtime/v1.SlicesTake func Take[T](xs []T, i int) (T, []T) takes xs
+
 // Sort is a copy of xs in ascending order. A float NaN sorts first, as in
 // Go.
 extern go ergo.local/prototype/runtime/v1.SlicesSort func Sort[T ordered](xs []T) []T

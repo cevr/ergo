@@ -594,15 +594,25 @@ func (fc *funcCtx) ownTemp(x syntax.Expr, o operand) operand {
 // Push that fails releases its value and a stopped one leaves it to the
 // frame's End (Q7, plan 1.4). It returns their Go entries.
 func (fc *funcCtx) holdTaken(x *syntax.CallExpr, c *check.Call) []string {
-	if c.Kind != check.CallOp || c.Op == nil || c.Op.Sig == nil || len(c.Op.Sig.Takes) == 0 || !fc.stdOp(c) {
+	var takes []int
+	args := x.Args
+	switch {
+	case c.Kind == check.CallOp && c.Op != nil && c.Op.Sig != nil && fc.stdOp(c):
+		takes = c.Op.Sig.Takes
+	case c.Kind == check.CallFunc && c.Func != nil && c.Func.Pkg != nil && c.Func.Pkg.Std() && c.Func.Decl != nil && c.Func.Decl.Extern != nil:
+		takes = c.Func.Sig.Takes
+		if c.Recv != nil {
+			args = append([]syntax.Expr{c.Recv}, args...)
+		}
+	default:
 		return nil
 	}
 	var held []string
-	for _, i := range c.Op.Sig.Takes {
-		if i >= len(x.Args) {
+	for _, i := range takes {
+		if i >= len(args) {
 			continue
 		}
-		id, ok := unparen(x.Args[i]).(*syntax.Ident)
+		id, ok := unparen(args[i]).(*syntax.Ident)
 		if !ok || fc.l.info.Handoffs[id] == nil {
 			continue
 		}

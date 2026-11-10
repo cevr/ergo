@@ -60,6 +60,9 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 		return fc.captureCall(x, c, captures, text, result, fallible)
 	}
 	if len(held) > 0 {
+		if c.Kind == check.CallFunc {
+			return fc.captureCall(x, c, held, text, result, fallible)
+		}
 		if !fallible || result {
 			ice(x, "a bodiless call that takes an owned value and is not a fallible call with no result")
 		}

@@ -96,6 +96,8 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Release":      {release: callerRelease},
 	"New":          {},
 	"WithCapacity": {},
+	"SlicesTake":   {},
+	"MapTake":      {},
 	// tasks.Transform joins its children, whichever ends first, as their
 	// parent (stdlib.md, Tasks; rt.MapSpan).
 	"TasksTransform": {wait: childWait},

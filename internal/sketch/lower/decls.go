@@ -774,6 +774,20 @@ func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) st
 		return func(fc *funcCtx, params []string) string {
 			return fc.optionReturn(s.Results[0], "\t", params[0]+"["+params[1]+"]", fc.site)
 		}
+	case f.Name == "Take" && len(s.TParams) == 2 && isMapOf(s.Params[0].Type, s.TParams[0], s.TParams[1]) && s.Params[1].Type == s.TParams[0]:
+		tuple, ok := s.Results[0].(*check.Tuple)
+		if !ok || len(tuple.Types) != 2 || !isPreludeType(tuple.Types[0], "Option") || !isMapOf(tuple.Types[1], s.TParams[0], s.TParams[1]) {
+			return nil
+		}
+		return func(fc *funcCtx, params []string) string {
+			v, found, rest, option := fc.temp("value"), fc.temp("found"), fc.temp("rest"), fc.temp("option")
+			some, none := optionVariants(tuple.Types[0], fc.site)
+			call := fc.runtimeCall("MapTake", fc.ownBinding("MapTake", fc.site), "", "", params, "", nil, nil, fc.site)
+			return "\t" + v + ", " + found + ", " + rest + " := " + call + "\n" +
+				"\tvar " + option + " " + fc.goType(tuple.Types[0]) + " = " + fc.goType(none) + "{}\n" +
+				"\tif " + found + " { " + option + " = " + fc.goType(some) + "{" + v + "} }\n" +
+				"\treturn " + fc.goType(tuple) + "{" + option + ", " + rest + "}\n"
+		}
 	}
 	return nil
 }

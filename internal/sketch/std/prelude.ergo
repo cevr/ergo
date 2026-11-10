@@ -104,6 +104,11 @@ extern go ergo.local/prototype/runtime/v1.Get func Get[K comparable, V](m Map[K,
 // dead m.
 extern go ergo.local/prototype/runtime/v1.Delete func Delete[K comparable, V](m Map[K, V], k K) Map[K, V]
 
+// Take gives up m and returns the value at k (Some, or None if absent)
+// and the map without k. Resource values and the remainder have separate
+// owners. With plain-data values, m is unchanged (mode crossing).
+extern go ergo.local/prototype/runtime/v1.MapTake func Take[K comparable, V](m Map[K, V], k K) (Option[V], Map[K, V]) takes m
+
 // Unreachable states that a path cannot run (owner q29, 2026-11-08). When
 // it runs anyway, it raises a defect that holds reason and the call's
 // source position: never a typed failure, so it is in no row and no catch

@@ -426,6 +426,20 @@ func matchSig(t *testing.T, where string, sig *check.Signature, body v1.Body) {
 		}
 	}
 	want := len(sig.Results)
+	if len(sig.Results) == 1 && !sig.Fallible {
+		if tuple, ok := sig.Results[0].(*check.Tuple); ok {
+			if len(body.Results) != len(tuple.Types) {
+				t.Errorf("%s: tuple has %d parts, Go body has %v", where, len(tuple.Types), body.Results)
+				return
+			}
+			for i, r := range tuple.Types {
+				if g, ok := goType(r); !ok || g != body.Results[i] {
+					t.Errorf("%s: tuple part %d lowers to %q, Go body returns %s", where, i, g, body.Results[i])
+				}
+			}
+			return
+		}
+	}
 	if sig.Fallible {
 		want++
 	}

@@ -17,6 +17,8 @@ var movesOnly = map[string]bool{
 	"New":            true, // queue.New: an empty queue; Push takes, Pop gives (Q7)
 	"Append":         true, // prelude Append: takes xs and x, gives one slice
 	"WithCapacity":   true, // an empty slice
+	"SlicesTake":     true, // the element and the disjoint remainder move out
+	"MapTake":        true, // a found value and the disjoint remainder move out
 	"Go":             true, // task.Go: the body's result moves to Wait
 	"TasksRace":      true, // the winner's result moves out; a loser's is released (Gap 47, B4)
 	"TasksTransform": true, // each result moves into the output once

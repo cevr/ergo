@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -19,10 +20,11 @@ import (
 // It builds Go because the subject is cross-goroutine lifetime and release
 // order; go/types cannot execute task admission, restart or shutdown.
 // Mutants unique to it: omit the child's capture registration, keep the
-// sender's capture entry, and register a Set capture on every restart.
+// sender's capture entry, register a Set capture on every restart, leave
+// a taken element in its remainder, or lose Take's input on a bounds panic.
 func TestTaskOwnershipRunModel(t *testing.T) {
 	needsBuild(t)
-	first, count := 1, 24
+	first, count := 1, 32
 	if s := os.Getenv("ERGO_SEED"); s != "" {
 		n, err := strconv.Atoi(s)
 		if err != nil {
@@ -48,17 +50,23 @@ func TestTaskOwnershipRunModel(t *testing.T) {
 		var out, errs bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &out, &errs
 		err := runProgram(t, cmd)
-		if err != nil || out.String() != c.want {
+		got := out.String()
+		if (first+i)%8 == 5 {
+			got = sortMapReleases(got)
+		}
+		wantFailure := (first+i)%8 == 6
+		if (err != nil) != wantFailure || got != c.want {
 			t.Errorf("seed %d (ERGO_SEED=%d go test -p 2 -run '^TestTaskOwnershipRunModel$' ./internal/sketch/lower)\n%s\nexit: %v\ngot:\n%s\nwant:\n%s\nstderr:\n%s", first+i, first+i, numbered(c.src), err, out.String(), c.want, errs.String())
 		}
 	}
 }
 
 func taskOwnProgram(seed int) (string, string) {
-	n := 1 + (seed/4)%4
-	mode := seed % 4 // single task, restarted member, failed admission, stop
+	n := 1 + (seed/8)%4
+	mode := seed % 8 // task, restart, Closed, stop, slice, Map, panic, crossing
 	var src, want strings.Builder
-	src.WriteString("import task\nimport tasks\nimport sync\nimport queue\nimport strconv\n")
+	var afterEnd strings.Builder
+	src.WriteString("import task\nimport tasks\nimport sync\nimport queue\nimport slices\nimport strconv\n")
 	src.WriteString("type Fault {}\ntype R { N int }\nfunc Close(r R) needs Console { Console.Println(\"close \" + strconv.Itoa(r.N)) }\n")
 	src.WriteString("func main() fails Fault | tasks.Closed needs Console {\n")
 	for i := 0; i < n; i++ {
@@ -113,9 +121,60 @@ func taskOwnProgram(seed int) (string, string) {
 		src.WriteString("}\nt.Stop()\nConsole.Println(\"stopped\")\n")
 		closes()
 		want.WriteString("stopped\n")
+	case 4:
+		var parts []string
+		for i := 0; i < n; i++ {
+			parts = append(parts, fmt.Sprintf("r%d", i))
+		}
+		index := (seed/8*3 + 1) % n
+		fmt.Fprintf(&src, "let xs = []R{%s}\nlet value, left = slices.Take(xs, %d)\nConsole.Println(\"taken \" + strconv.Itoa(value.N))\nvalue.Close()\n", strings.Join(parts, ", "), index)
+		fmt.Fprintf(&want, "taken %d\nclose %d\n", index, index)
+		for i := n - 1; i >= 0; i-- {
+			if i != index {
+				fmt.Fprintf(&afterEnd, "close %d\n", i)
+			}
+		}
+	case 5:
+		var parts []string
+		for i := 0; i < n; i++ {
+			parts = append(parts, fmt.Sprintf("%d: r%d", i, i))
+		}
+		index := (seed / 8) % n
+		if seed%12 < 6 {
+			index = n // a missing key leaves the entire remainder owned
+		}
+		fmt.Fprintf(&src, "let m = Map[int, R]{%s}\nlet found, left = m.Take(%d)\nmatch found { case Some[R] as item: Console.Println(\"taken \" + strconv.Itoa(item.Value.N)); item.Value.Close(); case None: Console.Println(\"missing\") }\n", strings.Join(parts, ", "), index)
+		if index < n {
+			fmt.Fprintf(&want, "taken %d\nclose %d\n", index, index)
+		} else {
+			want.WriteString("missing\n")
+		}
+		for i := 0; i < n; i++ {
+			if i != index {
+				fmt.Fprintf(&afterEnd, "close %d\n", i)
+			}
+		}
+	case 6:
+		var parts []string
+		for i := 0; i < n; i++ {
+			parts = append(parts, fmt.Sprintf("r%d", i))
+		}
+		fmt.Fprintf(&src, "let xs = []R{%s}\nlet value, left = slices.Take(xs, %d)\nvalue.Close()\n", strings.Join(parts, ", "), n)
+		closes() // panic occurs before the source container is handed off
+	case 7:
+		src.WriteString("let xs = []int{10, 20, 30}\nlet value, rest = slices.Take(xs, 1)\n")
+		src.WriteString("Console.Println(strconv.FormatBool(xs[1] == 20 && value == 20 && len(rest) == 2 && rest[0] == 10 && rest[1] == 30))\n")
+		src.WriteString("let m = Map[int, int]{1: 10, 2: 20}\nlet found, left = m.Take(1)\nConsole.Println(strconv.FormatBool(m.Get(1) == Some[int]{Value: 10} && found == Some[int]{Value: 10} && left.Get(1) == None && left.Get(2) == Some[int]{Value: 20}))\n")
+		want.WriteString("true\ntrue\n")
+		for i := n - 1; i >= 0; i-- {
+			fmt.Fprintf(&afterEnd, "close %d\n", i)
+		}
 	}
 	src.WriteString("Console.Println(\"end\")\n}\n")
-	want.WriteString("end\n")
+	if mode != 6 {
+		want.WriteString("end\n")
+	}
+	want.WriteString(afterEnd.String())
 	text := src.String()
 	if mode != 0 && mode != 3 {
 		text = strings.ReplaceAll(text, "import task\n", "")
@@ -126,5 +185,23 @@ func taskOwnProgram(seed int) (string, string) {
 	if mode != 3 {
 		text = strings.ReplaceAll(text, "import queue\n", "")
 	}
+	if mode != 4 && mode != 6 && mode != 7 {
+		text = strings.ReplaceAll(text, "import slices\n", "")
+	}
 	return text, want.String()
+}
+
+// A Map's release order is unspecified; only its remaining release lines
+// are a multiset. The prefix still checks admission and hand-off order.
+func sortMapReleases(trace string) string {
+	before, after, ok := strings.Cut(trace, "end\n")
+	if !ok {
+		return trace
+	}
+	lines := strings.FieldsFunc(after, func(r rune) bool { return r == '\n' })
+	sort.Strings(lines)
+	if len(lines) == 0 {
+		return before + "end\n"
+	}
+	return before + "end\n" + strings.Join(lines, "\n") + "\n"
 }
