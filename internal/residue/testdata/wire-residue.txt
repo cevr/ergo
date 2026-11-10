@@ -298,6 +298,8 @@ internal/sketch/std/codec/laws.ergo	func many[T wire](vs []T) ([]T, Option[T]) f
 internal/sketch/std/json/json.ergo	*
 internal/sketch/std/http/query.ergo	// record follows the codec's rules: a field's key is its wire name, an
 internal/sketch/std/http/query.ergo	func DecodeQuery[T wire](fields []Field) T fails QueryRepeated | wired[T] {
+runtime/v1/http_target_test.go	// this checks the bytes on the wire against it, at a raw loopback
+runtime/v1/testdata/webtarget/gen.mjs	// checks on the wire (S-target). Each row is a generated URL (or a base and
 tmp/orchestrate/wf10/s-query/brief.md	*
 tmp/orchestrate/wf10/s-query/state.md	*
 tmp/orchestrate/wf10/s-query/S-query/round-1-request.md	*
