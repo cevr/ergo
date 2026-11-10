@@ -430,7 +430,7 @@ func pass(m Mine) {
 	use(m)
 }
 `,
-	// The codec events (L11): a format provides them, as a program may.
+	// The codec events (L11): a format or a program provides each.
 	"prelude.Writer": `type Mine {}
 
 func Bool(_ Mine, b bool) {}

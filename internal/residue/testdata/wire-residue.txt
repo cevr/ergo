@@ -43,8 +43,6 @@ docs/spec/README.md	codec by the names `ParseX` and `Wire`, as Go finds `TestX`.
 docs/spec/stdlib.md	Schema, Arbitrary | `ParseX`/`Wire` by name, `json.Codec` | library
 docs/spec/stdlib.md	`Decode`, `Encode`, `ParseX`/`Wire`;
 docs/spec/stdlib.md	html.Td([]html.Child{html.Int(o.Quantity.Wire())}),
-docs/spec/types.md	1. A type's wire form is found by name: `ParseX`
-docs/spec/types.md	`ParseX` decodes into `X`, and `x.Wire()` encodes. Go's `netip.ParseAddr`
 docs/specs/absence-and-host-boundaries.md	JSON null or explicitly tagged wire data.
 docs/specs/absence-and-host-boundaries.md	## Wire and JavaScript boundaries
 docs/specs/absence-and-host-boundaries.md	JSON null is wire data. A codec may map it to None
@@ -80,6 +78,37 @@ docs/specs/semantic-tooling.md	profile](../lsp.md) records the exact wire behavi
 docs/specs/standard-library-capabilities.md	encoder; explicit secret access and wire encoding remain separate. No memory
 docs/specs/state-machines.md	derived codec therefore carries wire keys such as `"done"`, as Rust
 docs/standard-library.md	external codecs, validation and wire compatibility |
+runtime/v1/wire.go	*
+docs/spec/types.md	5. **Lowering.** One Go function per type and direction walks the structure: no reflection and no `any`; a basic value is one inline event. std `wire`'s `Events` and `Replay` record and replay the events, and its laws hold the round trip on generated values ([stdlib.md, Std laws](stdlib.md#std-laws)).
+internal/sketch/check/info.go	// WirePairs are the by-name wire forms (types.md, Codecs 1) that this
+internal/sketch/check/testdata/fixtures/negative/codable-constraint.ergo	*
+internal/sketch/check/testdata/fixtures/negative/codec-rows.ergo	*
+internal/sketch/check/testdata/mutants.json	      "file": "internal/sketch/check/wire.go",
+internal/sketch/check/types.go	// with a wire form and no operator, and it sorts below comparable, so
+internal/sketch/check/types.go	SetWire                      // codable: the types with a wire form
+internal/sketch/check/wire.go	*
+internal/sketch/check/wirecall.go	*
+internal/sketch/lower/calls.go	// A codec call writes its own statements (wire.go).
+internal/sketch/lower/module.go	wires    map[pkgKey]bool          // generated codec functions emitted (wire.go)
+internal/sketch/lower/std_wire_test.go	*
+internal/sketch/lower/testdata/mutants.json	      "file": "internal/sketch/lower/wire.go",
+internal/sketch/lower/wire.go	*
+internal/sketch/std/prelude.ergo	// Reader gives the events of a wire form back, in the order
+internal/sketch/std/prelude.ergo	// Writer takes the events of a value's wire form (types.md, Codecs):
+internal/sketch/std/prelude.ergo	// law-exempt: Writer has no read operation, so no law over its own operations can observe an event; std wire's Events records them and carries the laws (EventsReplay).
+internal/sketch/std/prelude.ergo	// law-exempt: a law over Reader alone has no events to read; std wire's Replay reads the events Events recorded and carries the laws (EventsReplay).
+internal/sketch/std/std.go	//go:embed csv/*.ergo wire/*.ergo
+internal/sketch/std/wire/wire.ergo	*
+docs/spec/stdlib.md	| `wire` | `EncodeNests` | `EncodeNests(v fleet) { let e = NewEvents() encode(v, e) let mut open = 0 let mut ok = true for ev in Recorded(e) { open = open + depth(ev) if open < 0 { ok = false } } ok && open == 0 }` | `TestStdWireLawsRun` | tested |
+docs/spec/stdlib.md	| `wire` | `EventsReplay` | `EventsReplay(v fleet) { let back = roundTrip(v) catch { case _: return false } back == v }` | `TestStdWireLawsRun` | tested |
+docs/spec/stdlib.md	| `wire` | `MissingFieldFails` | `MissingFieldFails() { let empty = []Event{BeginObjectEvent{N: 0}, EndObjectEvent} let _ = decode[up](NewReplay(empty)) catch { case WireMissingField: return true case _: return false } false }` | `TestStdWireLawsRun` | tested |
+docs/spec/stdlib.md	| `wire` | `UnknownTagFails` | `UnknownTagFails(name string) { if name == "up" { return true } if name == "down" { return true } let evs = []Event{BeginObjectEvent{N: 0}, TagEvent{Name: name}, EndObjectEvent} let _ = decode[state](NewReplay(evs)) catch { case WireUnknownTag: return true case _: return false } false }` | `TestStdWireLawsRun` | tested |
+docs/spec/stdlib.md	| `wire` | `Schema.ts` (`encode`, `decode`, `ParseResult` issues) | W5, W6, W7, W9 | no Schema value: the codec is derived from the declared type by the predeclared `encode(v, w)` and `decode[T](r)` over the prelude's `Writer` and `Reader` events ([types.md, Codecs](types.md#codecs)); decode's row is the union of what the type reaches (`WireWrongKind`, `WireMissingField`, `WireUnknownTag`, `Unsatisfied`, each `ParseX`'s row); `Events` and `Replay` record and replay the events, and its laws hold the round trip | pending: the format-specialised path is std json's, measured against Go's encoding/json once S-json lands; the reference Writer path here has no format to measure |
+docs/spec/types.md	1. **codable.** The predeclared constraint `codable` admits the types with a wire form, decided from the type's structure as `comparable` is: `bool`, the integer types but `uintptr`, the float types, `string`, a refined type (its base on the wire, its `ParseN` on decode, [Refinements](#refinements)), a record whose fields are codable and that has no unexported field, a union whose variants are codable, a slice, a Map whose key is `string` or a type over it (not a refined one), a tuple, and a type `X` with a **by-name pair**: its own package declares `ParseX(b B) X fails …` (`parseX` for an unexported `x`, the name rule of a refined type's parse function) and `Wire(x X) B` with no failure, for a codable `B`. A pair is looked up in `X`'s package only (coherence: one wire form per type). A function, an operation type, a pointer, `duration`, a complex type, a record that only its package builds and a type parameter without `codable` are not; S108 names the first part that is not, with its path (`Hook.Run`). `wire` stays an ordinary identifier (196w).
+docs/spec/types.md	2. **encode and decode.** `encode(v, w)` writes the events of `v`'s wire form on `w`, a value of the prelude's operation type `Writer`; `decode[T](r)` reads a `T` from `r`, a `Reader`. Both are predeclared, as `len` is, and take a codable concrete type: a type that holds a type parameter is S108 until generic codecs. The events: a record is `BeginObject(n)`, then `Key` and the field for each field in declaration order, then `EndObject`; a union value is its variant's record with `Tag(name)` first, the variant's name as written (`Some`, `None`); a slice or tuple is `BeginList(n)`, its elements, `EndList`; a Map is an object with its keys in order. A field's key is its name with the first letter lowered (`Port` as `port`, `Some.Value` as `value`, Effect's `Schema.Option` encoded form). An integer is `Int` or `Uint` with its exact value; JSON writes the exact digits.
+docs/spec/types.md	3. **Rows.** `decode[T]`'s error row is the union of what `T`'s wire form may fail, computed at the call: `WireWrongKind` always (an event of another kind, or an integer outside its type's range), `WireMissingField` when `T` reaches a record with fields or a union (whose tag may be missing), `WireUnknownTag` when it reaches a union, `Unsatisfied` when it reaches a refined type, and the row of each `ParseX` it reaches, which must be written. `encode` fails nothing.
+runtime/embed.go	//go:embed v1/time.go v1/timetext.go v1/wire.go
+runtime/embed.go			files:   []string{"actor.go", "actor_host.go", "actor_trace.go", "collections.go", "context.go", "csv.go", "data.go", "digest.go", "exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exit.go", "goerror.go", "host.go", "mailbox.go", "numbers.go", "path.go", "queue.go", "rand.go", "runtime.go", "set.go", "sync.go", "task.go", "text.go", "time.go", "timetext.go", "trace.go", "wire.go"},
 # a pinned upstream copy (sha256 in internal/bindc): OpenTUI's opentui.h says wire bytes and wire modifiers
 internal/bindc/testdata/opentui/opentui.h	*
 internal/sketch/check/testdata/fixtures/spec/types-laws.ergo	// Quantity.Wire become its operations.
