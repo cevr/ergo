@@ -208,20 +208,27 @@ func (l *lowerer) machineGraph(td *typeDecl, tc *typeCtx, state, signal string) 
 		return ""
 	}
 	rt := l.rt()
-	goOf := map[string]string{}
-	for _, v := range append(append([]machinegraph.Variant{}, g.States...), g.Signals...) {
-		t := tc.goType(v.Type)
-		if graphRegistry() {
-			goOf[v.Name] = rt + ".VariantOf[" + t + "]()"
-			continue
+	// The Go text of each state's and each signal's variant name, by its
+	// Ergo name: two maps, since a state and a signal variant may share
+	// an Ergo name (two instances of one generic record).
+	names := func(vs []machinegraph.Variant) map[string]string {
+		goOf := map[string]string{}
+		for _, v := range vs {
+			t := tc.goType(v.Type)
+			if graphRegistry() {
+				goOf[v.Name] = rt + ".VariantOf[" + t + "]()"
+				continue
+			}
+			name, ok := l.variantName(t)
+			if !ok {
+				ice(td.tn.Decl.Name, "the machine %s has the variant %s, whose Go type %s the lowering cannot name", td.tn.Name, v.Name, t)
+			}
+			goOf[v.Name] = strconv.Quote(name)
 		}
-		name, ok := l.variantName(t)
-		if !ok {
-			ice(td.tn.Decl.Name, "the machine %s has the variant %s, whose Go type %s the lowering cannot name", td.tn.Name, v.Name, t)
-		}
-		goOf[v.Name] = strconv.Quote(name)
+		return goOf
 	}
-	list := func(vs []string) string {
+	stateOf, signalOf := names(g.States), names(g.Signals)
+	list := func(vs []string, goOf map[string]string) string {
 		if vs == nil {
 			return "nil"
 		}
@@ -234,7 +241,7 @@ func (l *lowerer) machineGraph(td *typeDecl, tc *typeCtx, state, signal string) 
 	var b strings.Builder
 	b.WriteString(rt + ".MachineGraph{\n\tArms: []" + rt + ".MachineArm{\n")
 	for _, a := range g.Arms {
-		fmt.Fprintf(&b, "\t\t{Site: %s, States: %s, Signals: %s, Partial: %t},\n", strconv.Quote(a.Site.String()), list(a.States), list(a.Signals), a.Partial)
+		fmt.Fprintf(&b, "\t\t{Site: %s, States: %s, Signals: %s, Partial: %t},\n", strconv.Quote(a.Site.String()), list(a.States, stateOf), list(a.Signals, signalOf), a.Partial)
 	}
 	b.WriteString("\t},\n\tTimers: []" + rt + ".MachineTimer{\n")
 	keys := make([]string, 0, len(g.Timers))
@@ -244,7 +251,7 @@ func (l *lowerer) machineGraph(td *typeDecl, tc *typeCtx, state, signal string) 
 	sort.Strings(keys)
 	for _, k := range keys {
 		if sig := g.Timers[k].Signal; sig != machinegraph.Any {
-			b.WriteString("\t\t{State: " + goOf[k] + ", Signal: " + goOf[sig] + "},\n")
+			b.WriteString("\t\t{State: " + stateOf[k] + ", Signal: " + signalOf[sig] + "},\n")
 		}
 	}
 	b.WriteString("\t},\n}")
