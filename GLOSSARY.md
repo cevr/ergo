@@ -213,6 +213,8 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Law** (designed): A named behavioral obligation that types cannot state, written as `law X(…) { … }`, with a body that ends in a `bool` expression, and checked like a fuzz target. Its placement sets what it is quantified over: at top level, beside `test`, its parameters; in an operation type, its parameters and every provider of the type; in a machine (designed), the step graph. A type with laws and no operations is S108 (law-top). A refuted law refuses the build. Laws are one general construct with many clients: codecs, providers, schedules, machines and composition algebra ([#125](https://github.com/cevr/ergo/issues/125)).
 
+**Invariant law** (implemented, X2): A machine law `law L always p` or `law L sometimes p`, with `p` a pure function from the machine's state to `bool`. `always` holds when every reachable state satisfies `p`, the start included; `sometimes` holds when one does, shown by a shortest witness run. See [types](docs/spec/types.md#laws) Laws 13.
+
 **Provider law** (designed): A law with a `needs` clause. It is checked against every provider bound to that capability.
 
 **Contract** ([#170](https://github.com/cevr/ergo/issues/170)): An interface used as a constraint together with the laws stated over its methods. A type satisfies the contract when it has the methods and its laws hold.

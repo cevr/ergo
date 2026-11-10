@@ -33,6 +33,60 @@ func verdicts(stdout string) []string {
 	return out
 }
 
+// blocks are the indented lines that follow each verdict line of stdout,
+// joined, in the order of verdicts(stdout): a counterexample's or a
+// witness's test, "" for a verdict with none.
+func blocks(stdout string) []string {
+	var out []string
+	for _, line := range lines(stdout) {
+		switch {
+		case !strings.HasPrefix(line, "\t"):
+			out = append(out, "")
+		case len(out) > 0:
+			out[len(out)-1] += line + "\n"
+		}
+	}
+	return out
+}
+
+// blockRuns reports whether the test in block runs the run that line
+// names, "from S with []E{…}": its machines.From call takes the same start
+// and signals; "" when it does, else what is wrong.
+func blockRuns(line, block string) string {
+	i := strings.Index(line, "run from ")
+	j := strings.Index(line, " with []")
+	if i < 0 || j < i {
+		return "the line names no run"
+	}
+	end := strings.Index(line[j:], "}")
+	if end < 0 {
+		return "the line names no run"
+	}
+	call := ", " + line[i+len("run from "):j] + ", " + line[j+len(" with "):j+end+1] + ") {"
+	if !strings.Contains(block, call) {
+		return "its test does not run " + call
+	}
+	return ""
+}
+
+// runLength is the count of signals of the run a verdict line names, "from
+// S with []E{e1, e2}", whose signals are fieldless; -1 when it names none.
+func runLength(line string) int {
+	i := strings.Index(line, " with []")
+	if i < 0 {
+		return -1
+	}
+	rest := line[i:]
+	open, end := strings.Index(rest, "{"), strings.Index(rest, "}")
+	if open < 0 || end < open {
+		return -1
+	}
+	if list := rest[open+1 : end]; list != "" {
+		return strings.Count(list, ", ") + 1
+	}
+	return 0
+}
+
 // tableMachine is a generated machine whose step is a table over fieldless
 // states and signals: next[s][e] is the state an edge goes to, and kind is
 // the decision.
@@ -50,8 +104,9 @@ type tableMachine struct {
 
 type tableLaw struct {
 	name    string
-	kind    string // reaches, never or path
+	kind    string // reaches, never, path, always or sometimes
 	targets []int
+	pred    []bool // an invariant law's predicate, by state (X2)
 }
 
 // edge is the reference's edge of the table: the next state, and false
@@ -86,22 +141,50 @@ func (m *tableMachine) holds(l tableLaw) bool {
 		}
 		return len(layer) > 0
 	}
-	seen := map[int]bool{m.initial: true}
+	dist := m.dist()
+	switch l.kind {
+	case "reaches":
+		_, ok := dist[l.targets[0]]
+		return ok
+	case "always", "sometimes":
+		_, found := m.shortest(l)
+		return found == (l.kind == "sometimes")
+	}
+	_, ok := dist[l.targets[0]]
+	return !ok
+}
+
+// dist is the reference's breadth-first search over the table: the length
+// of a shortest run to each reachable state.
+func (m *tableMachine) dist() map[int]int {
+	dist := map[int]int{m.initial: 0}
 	queue := []int{m.initial}
 	for len(queue) > 0 {
 		s := queue[0]
 		queue = queue[1:]
 		for e := range m.signals {
-			if n, ok := m.edge(s, e); ok && !seen[n] {
-				seen[n] = true
-				queue = append(queue, n)
+			if n, ok := m.edge(s, e); ok {
+				if _, seen := dist[n]; !seen {
+					dist[n] = dist[s] + 1
+					queue = append(queue, n)
+				}
 			}
 		}
 	}
-	if l.kind == "reaches" {
-		return seen[l.targets[0]]
+	return dist
+}
+
+// shortest is the length of a shortest run to a state an invariant law
+// looks for, and whether one is reachable: a state where the predicate is
+// false for always, true for sometimes. The start counts, at length 0.
+func (m *tableMachine) shortest(l tableLaw) (int, bool) {
+	best, found := 0, false
+	for s, d := range m.dist() {
+		if l.pred[s] == (l.kind == "sometimes") && (!found || d < best) {
+			best, found = d, true
+		}
 	}
-	return !seen[l.targets[0]]
+	return best, found
 }
 
 func genTableMachine(r *rand.Rand, i int) *tableMachine {
@@ -143,7 +226,21 @@ func genTableMachine(r *rand.Rand, i int) *tableMachine {
 		random = append(random, pick())
 	}
 	m.laws = append(m.laws, tableLaw{name: "Path", kind: "path", targets: random})
+	// Invariant laws (X2) over generated predicates: mostly true for
+	// always, mostly false for sometimes, so each holds and fails.
+	for _, k := range []string{"always", "sometimes"} {
+		l := tableLaw{name: strings.ToUpper(k[:1]) + k[1:], kind: k}
+		for range m.states {
+			l.pred = append(l.pred, (r.Intn(3) == 0) == (k == "sometimes"))
+		}
+		m.laws = append(m.laws, l)
+	}
 	return m
+}
+
+// predName is the name of the predicate function of the invariant law l.
+func (m *tableMachine) predName(l tableLaw) string {
+	return strings.ToLower(m.name) + l.name
 }
 
 func (m *tableMachine) source() string {
@@ -170,6 +267,16 @@ func (m *tableMachine) source() string {
 		}
 	}
 	b.WriteString("\t}\n}\n\n")
+	for _, l := range m.laws {
+		if l.pred == nil {
+			continue
+		}
+		fmt.Fprintf(&b, "func %s(s %s) bool {\n\tmatch s {\n", m.predName(l), st)
+		for s, v := range l.pred {
+			fmt.Fprintf(&b, "\tcase %s:\n\t\t%t\n", m.states[s], v)
+		}
+		b.WriteString("\t}\n}\n\n")
+	}
 	fmt.Fprintf(&b, "type %s machine[%s, %s] {\n\tinitial: %s,\n\tstep:    %s,\n\n", m.name, st, sg, m.states[m.initial], step)
 	for _, l := range m.laws {
 		names := make([]string, len(l.targets))
@@ -177,6 +284,8 @@ func (m *tableMachine) source() string {
 			names[k] = m.states[t]
 		}
 		switch l.kind {
+		case "always", "sometimes":
+			fmt.Fprintf(&b, "\tlaw %s %s %s,\n", l.name, l.kind, m.predName(l))
 		case "reaches":
 			fmt.Fprintf(&b, "\tlaw %s reaches %s,\n", l.name, names[0])
 		case "never":
@@ -449,6 +558,16 @@ func TestMachineLawTables(t *testing.T) {
 	var src strings.Builder
 	var want []string
 	failed, total, self, beyond := 0, 0, 0, 0
+	// runs holds, by the index of a want line, the length of a shortest
+	// run the line names: an always law's counterexample, a sometimes
+	// law's witness (X2). shapes counts the runs at the start, the runs
+	// past it, and sometimes laws with no witness.
+	type namedRun struct {
+		n      int    // its length
+		assert string // its test's check
+	}
+	runs := map[int]namedRun{}
+	var shapes [3]int
 	for i := 0; i < 24; i++ {
 		m := genTableMachine(r, i)
 		src.WriteString(m.source())
@@ -458,7 +577,14 @@ func TestMachineLawTables(t *testing.T) {
 		for _, l := range m.laws {
 			total++
 			label := "law " + m.name + "." + l.name
-			if l.kind != "never" && l.targets[len(l.targets)-1] != m.initial && m.holds(l) {
+			if l.pred != nil {
+				if n, found := m.shortest(l); found {
+					runs[len(want)] = namedRun{n, "\t\t\tassert " + m.predName(l) + "(r.State)\n"}
+					shapes[min(n, 1)]++
+				} else if l.kind == "sometimes" {
+					shapes[2]++
+				}
+			} else if l.kind != "never" && l.targets[len(l.targets)-1] != m.initial && m.holds(l) {
 				beyond++
 			}
 			if m.holds(l) {
@@ -482,8 +608,18 @@ func TestMachineLawTables(t *testing.T) {
 	if self == 0 || beyond == 0 {
 		t.Fatalf("seed %d: the generated tables have %d paths through Reject and %d laws past the start", seed, self, beyond)
 	}
+	// An invariant law's run is the start alone, and past it, and a
+	// sometimes law finds no witness.
+	if shapes[0] == 0 || shapes[1] == 0 || shapes[2] == 0 {
+		t.Fatalf("seed %d: the invariant laws have %d runs at the start, %d past it and %d with no witness; want each", seed, shapes[0], shapes[1], shapes[2])
+	}
 	g := genListedLaws(r)
 	src.WriteString(g.src.String())
+	shifted := map[int]namedRun{}
+	for k, n := range runs {
+		shifted[k+len(g.tests)] = n
+	}
+	runs = shifted
 	want = append(append(g.tests, want...), g.want...)
 	failed += g.failed
 	total += g.total
@@ -501,13 +637,24 @@ func TestMachineLawTables(t *testing.T) {
 		return
 	}
 	stdout, stderr, code := runExe(t, exes["machinelaw_tables"])
-	got := verdicts(stdout)
+	got, tests := verdicts(stdout), blocks(stdout)
 	want = append(want, fmt.Sprintf("FAIL (%d of %d tests)", failed, total))
 	ok := code == 1 && len(got) == len(want)
 	for k := 0; ok && k < len(got); k++ {
 		ok = strings.HasPrefix(got[k], want[k])
 		if !ok {
 			t.Errorf("line %d is %q, want a line that begins %q", k+1, got[k], want[k])
+		}
+		// An invariant law's counterexample or witness is a shortest run,
+		// and its test runs that run and checks the predicate.
+		if r, named := runs[k]; ok && named {
+			if c := runLength(got[k]); c != r.n {
+				ok = false
+				t.Errorf("line %d is %q, whose run has %d signals; a shortest run has %d", k+1, got[k], c, r.n)
+			} else if why := blockRuns(got[k], tests[k]); why != "" || !strings.Contains(tests[k], r.assert) {
+				ok = false
+				t.Errorf("line %d is %q: %s; its test, which must check %q:\n%s", k+1, got[k], why, r.assert, tests[k])
+			}
 		}
 	}
 	if !ok {
@@ -592,6 +739,29 @@ type Road machine[Lane, Nudge] {
 
 	law NeverFar never reaches Far,
 	law NeverGone never reaches Gone,
+	law NotGone always notGone,
+	law SomeFar sometimes isFar,
+	law SomeGone sometimes isGone,
+}
+
+func notGone(l Lane) bool { !isGone(l) }
+
+func isGone(l Lane) bool {
+	match l {
+	case Gone:
+		true
+	case _:
+		false
+	}
+}
+
+func isFar(l Lane) bool {
+	match l {
+	case Far:
+		true
+	case _:
+		false
+	}
 }
 
 func main() {}
@@ -611,7 +781,7 @@ func TestMachineLawRuns(t *testing.T) {
 	}
 	stdout, stderr, code := runExeArgs(t, exes["machinelaw_runs"], "--seed", "7", "--states", "5")
 	got := verdicts(stdout)
-	if code != 1 || len(got) != 6 {
+	if code != 1 || len(got) != 9 {
 		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
 	}
 	if !strings.HasPrefix(got[0], "FAIL law Meter.NeverHigh (run ") || !strings.Contains(got[0], ", seed 7, size ") ||
@@ -634,7 +804,21 @@ func TestMachineLawRuns(t *testing.T) {
 	if got[4] != "ok law Road.NeverGone (no counterexample in runs of at most 4 signals; 5 states; 100 runs; not proved)" {
 		t.Errorf("line 5 is %q", got[4])
 	}
-	if got[5] != "FAIL (2 of 5 tests)" {
-		t.Errorf("the summary is %q", got[5])
+	// The invariant laws (X2) past the budget: always is not proved; a
+	// sometimes law holds by a generated witness, which prints as a test,
+	// and with none it is not found, which fails.
+	if got[5] != "ok law Road.NotGone (no counterexample in runs of at most 4 signals; 5 states; 100 runs; not proved)" {
+		t.Errorf("line 6 is %q", got[5])
+	}
+	tests := blocks(stdout)
+	if !strings.HasPrefix(got[6], "ok law Road.SomeFar (proved by the run from At{N: 0} with []Nudge{") || blockRuns(got[6], tests[6]) != "" || !strings.Contains(tests[6], "\t\t\tassert isFar(r.State)\n") {
+		t.Errorf("line 7 is %q, its test:\n%s", got[6], tests[6])
+	}
+	if !strings.HasPrefix(got[7], "FAIL law Road.SomeGone (100 runs, seed 7; no run of at most 4 signals reaches a state where isGone holds; 5 states): law refuted at main.ergo:") ||
+		!strings.HasSuffix(got[7], ": not found: no generated run reaches a state where isGone holds") {
+		t.Errorf("line 8 is %q", got[7])
+	}
+	if got[8] != "FAIL (3 of 8 tests)" {
+		t.Errorf("the summary is %q", got[8])
 	}
 }

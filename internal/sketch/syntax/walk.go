@@ -69,6 +69,9 @@ func Inspect(n Node, f func(Node) bool) {
 		walk(n.Name, n.Params, n.Body)
 		if n.Reach != nil {
 			idents(n.Reach.Targets)
+			if n.Reach.Pred != nil {
+				walk(n.Reach.Pred)
+			}
 		}
 	case *AssertStmt:
 		walk(n.X)

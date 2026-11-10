@@ -830,8 +830,10 @@ func (p *parser) parseMachineType() *MachineType {
 
 // parseMachineLaw parses a law of a machine (MU6): `law Name(params) {
 // body }` as any law, or a reachability law `law Name reaches V`, `law
-// Name never reaches V` or `law Name path [V1, V2, …]`. reaches, never and
-// path are words only here, after a machine law's name.
+// Name never reaches V` or `law Name path [V1, V2, …]`, or an invariant law
+// `law Name always p` or `law Name sometimes p` (X2), p a function's name.
+// reaches, never, path, always and sometimes are words only here, after a
+// machine law's name.
 func (p *parser) parseMachineLaw(doc *CommentGroup) *LawDecl {
 	if p.peek(1).tok != IDENT || p.peek(2).tok != IDENT {
 		return p.parseLawDecl(doc, true)
@@ -852,6 +854,13 @@ func (p *parser) parseMachineLaw(doc *CommentGroup) *LawDecl {
 	case "reaches":
 		p.next()
 		r.Targets = []*Ident{p.parseIdent()}
+	case "always", "sometimes":
+		if r.Never != NoPos {
+			p.errorf("expected reaches after never, found %s", p.found())
+		}
+		r.Invariant = p.tok.lit
+		p.next()
+		r.Pred = p.parseIdent()
 	case "path":
 		if r.Never != NoPos {
 			p.errorf("expected reaches after never, found %s", p.found())
@@ -867,7 +876,7 @@ func (p *parser) parseMachineLaw(doc *CommentGroup) *LawDecl {
 		}
 		r.Rbrack = p.want(RBRACK)
 	default:
-		p.errorf("expected (, reaches, never reaches or path after a machine law's name, found %s", p.found())
+		p.errorf("expected (, reaches, never reaches, path, always or sometimes after a machine law's name, found %s", p.found())
 	}
 	return d
 }

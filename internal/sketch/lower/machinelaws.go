@@ -31,6 +31,13 @@ import (
 //     `reaches` and `path` hold only when a generated run is a witness. A
 //     witness proves an existential law in both modes. A counterexample
 //     prints as an Ergo test that fails by itself, and a replay command.
+//   - An invariant law (X2) is decided the same way, with its predicate as
+//     the target: `always p` as a never law whose target is a state where
+//     p is false, `sometimes p` as a reaches law whose target is a state
+//     where p holds. A sometimes law's witness, a shortest run when the
+//     graph is decided, prints after its verdict as an Ergo test that passes
+//     by itself; with no witness in a search the budget stopped and in the
+//     generated runs, the law fails as "not found".
 //
 // Prior art: effect-machine's assertPath, assertReaches and
 // assertNeverReaches test hand-picked event lists; here they are laws over
@@ -179,6 +186,24 @@ func (l *lowerer) reachRuns(b *strings.Builder, law *check.Law, scope *namer, en
 		targets = append(targets, "func("+s+" "+state+") bool { _, ok := any("+s+").("+tc.goType(t)+"); return ok }")
 		names = append(names, t.Obj.Name)
 	}
+	// An invariant law (X2) is decided as a never or a reaches law whose
+	// target is a predicate: always p never reaches a state where p is
+	// false, and sometimes p reaches one where p is true.
+	kind, target, pred := law.Decl.Reach.Kind(), "", ""
+	if law.Pred != nil {
+		pf := l.useFunc(law.Pred, site)
+		test := pf.callText(pf.envLead(env), []string{s})
+		if kind == "always" {
+			kind, test = "never", "!"+test
+		} else {
+			kind = "reaches"
+		}
+		pred = law.Decl.Reach.Pred.Name
+		targets = append(targets, "func("+s+" "+state+") bool { return "+test+" }")
+		names = append(names, pred)
+	} else {
+		target = l.ergoType(law.Targets[0])
+	}
 	show := "func(" + s + " " + state + ") string { return " + l.litExpr(md.state, s, site) + " }"
 	showE := "func(" + e + " " + signal + ") string { return " + l.litExpr(md.signal, e, site) + " }"
 
@@ -219,13 +244,14 @@ func (l *lowerer) reachRuns(b *strings.Builder, law *check.Law, scope *namer, en
 	b.WriteString("\t\t\tmachines: " + machines + ",\n")
 	b.WriteString("\t\t\tfrom: " + strconv.Quote(mq+".From(") + ",\n")
 	b.WriteString("\t\t\trunning: " + strconv.Quote(mq+".Running["+l.ergoType(md.state)+", "+out+"]") + ",\n")
-	b.WriteString("\t\t\ttarget: " + strconv.Quote(l.ergoType(law.Targets[0])) + ",\n")
+	b.WriteString("\t\t\ttarget: " + strconv.Quote(target) + ",\n")
+	b.WriteString("\t\t\tpred: " + strconv.Quote(pred) + ",\n")
 	b.WriteString("\t\t\tneeds: " + strconv.Quote(needs) + ",\n")
 	b.WriteString("\t\t\tfile: " + strconv.Quote(file) + ",\n")
 	b.WriteString("\t\t}\n")
 	b.WriteString("\t\tvar " + how + ", " + where + " string\n")
-	b.WriteString("\t\tif " + run + "(" + taskOf(env) + ", " + strconv.Quote(label) + ", " + at + ", func() string { return " + where + " }, func() error { " + how + " = " + l.helper("Explore") + "(" + g + ", " + strconv.Quote(law.Decl.Reach.Kind()) + ", " + seed + ", " + l.helper("States") + "(), " + strconv.Quote(label) + ", " + at + ", &" + where + "); return nil }) {\n")
-	b.WriteString("\t\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+label+" (") + " + " + how + " + \")\")\n")
+	b.WriteString("\t\tif " + run + "(" + taskOf(env) + ", " + strconv.Quote(label) + ", " + at + ", func() string { return " + where + " }, func() error { " + how + " = " + l.helper("Explore") + "(" + g + ", " + strconv.Quote(kind) + ", " + seed + ", " + l.helper("States") + "(), " + strconv.Quote(label) + ", " + at + ", &" + where + "); return nil }) {\n")
+	b.WriteString("\t\t\t" + fmtPkg + ".Println(" + l.helper("Verdict") + "(" + strconv.Quote("ok "+label) + ", " + how + "))\n")
 	b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n\t}\n")
 }
 
@@ -528,7 +554,10 @@ const harnessReachGo = `
 // the key of its state (nil, and keyless says why, when it has none), and
 // the texts a counterexample's test is written with: the machine of each
 // listed start, machines.From and machines.Running as the file names
-// them, the target, the import the test needs, and the source file.
+// them, the target, the import the test needs, and the source file. An
+// invariant law (X2) has pred, its predicate's name, and no target: its
+// targets[0] is the predicate's failure for always (decided as never) and
+// the predicate for sometimes (decided as reaches).
 type $Graph[S, E any] struct {
 	starts     []S
 	start      func(*$Rand, int) S
@@ -546,8 +575,41 @@ type $Graph[S, E any] struct {
 	from       string
 	running    string
 	target     string
+	pred       string
 	needs      string
 	file       string
+}
+
+// $Goal is the text of the law's first target: a variant's name, or the
+// states where an invariant law's predicate is false (always) or true
+// (sometimes).
+func $Goal[S, E any](g $Graph[S, E], kind string) string {
+	switch {
+	case g.pred == "":
+		return g.names[0]
+	case kind == "never":
+		return "a state where " + g.pred + " is false"
+	}
+	return "a state where " + g.pred + " holds"
+}
+
+// $Broken is what a counterexample's last state breaks: ", where p is
+// false" for an always law, else "".
+func $Broken[S, E any](g $Graph[S, E]) string {
+	if g.pred == "" {
+		return ""
+	}
+	return ", where " + g.pred + " is false"
+}
+
+// $Verdict is the line of a law that holds: the head, then how in
+// parentheses; the lines after how's first are a witness's program, which
+// follow the parentheses.
+func $Verdict(head, how string) string {
+	if i := $strings.Index(how, "\n"); i >= 0 {
+		return head + " (" + how[:i] + ")" + how[i:]
+	}
+	return head + " (" + how + ")"
 }
 
 // $Node is a state a generated run reached: from the start of its run, or
@@ -598,22 +660,40 @@ func $Signals[S, E any](g $Graph[S, E], sigs []E) string {
 // m, or none when the start was drawn), then the command that replays the
 // search.
 func $Block[S, E any](g $Graph[S, E], name string, m int, start S, sigs []E, replay string) string {
-	text := ""
-	if m >= 0 && m < len(g.machines) {
-		text = "\n" + g.needs +
-			"\ttest " + $strings.ReplaceAll($strings.TrimPrefix(name, "law "), ".", "") + "Counterexample {\n" +
-			"\t\tmatch try " + g.from + g.machines[m] + ", " + g.show(start) + ", " + $Signals(g, sigs) + ") {\n" +
-			"\t\tcase " + g.running + " as r:\n" +
-			"\t\t\tmatch r.State {\n" +
-			"\t\t\tcase " + g.target + ":\n" +
-			"\t\t\t\tassert false\n" +
-			"\t\t\tcase _:\n" +
-			"\t\t\t}\n" +
-			"\t\tcase _:\n" +
-			"\t\t}\n" +
-			"\t}"
+	check := []string{"match r.State {", "case " + g.target + ":", "\tassert false", "case _:", "}"}
+	if g.pred != "" {
+		check = []string{"assert " + g.pred + "(r.State)"}
 	}
-	return text + "\n\treplay: ergo test " + g.file + " " + replay
+	return $Program(g, name, "Counterexample", m, start, sigs, check, nil) + "\n\treplay: ergo test " + g.file + " " + replay
+}
+
+// $Witness is the witness of a sometimes law (X2) as an Ergo test that
+// passes by itself: the run ends running, in a state where the predicate
+// holds.
+func $Witness[S, E any](g $Graph[S, E], name string, m int, start S, sigs []E) string {
+	return $Program(g, name, "Witness", m, start, sigs, []string{"assert " + g.pred + "(r.State)"}, []string{"assert false"})
+}
+
+// $Program is the run from start by sigs, on the machine of the listed
+// start m, as an Ergo test named for the law name and suffix: running are
+// its statements when the run ends running (its last state is r.State),
+// other those when it does not. It is "" when the start was drawn.
+func $Program[S, E any](g $Graph[S, E], name, suffix string, m int, start S, sigs []E, running, other []string) string {
+	if m < 0 || m >= len(g.machines) {
+		return ""
+	}
+	text := "\n" + g.needs +
+		"\ttest " + $strings.ReplaceAll($strings.TrimPrefix(name, "law "), ".", "") + suffix + " {\n" +
+		"\t\tmatch try " + g.from + g.machines[m] + ", " + g.show(start) + ", " + $Signals(g, sigs) + ") {\n" +
+		"\t\tcase " + g.running + " as r:\n"
+	for _, line := range running {
+		text += "\t\t\t" + line + "\n"
+	}
+	text += "\t\tcase _:\n"
+	for _, line := range other {
+		text += "\t\t\t" + line + "\n"
+	}
+	return text + "\t\t}\n\t}"
 }
 
 func $Refute(at, text string) { panic($Assertion{at: at, text: text, what: "law refuted"}) }
@@ -648,6 +728,9 @@ func $ExploreAll[S, E any](g $Graph[S, E], kind string, budget int, name, at str
 	if r.Found >= 0 {
 		start, sigs, text := run(r)
 		if kind == "reaches" {
+			if g.pred != "" {
+				text += $Witness(g, name, start, g.starts[start], sigs)
+			}
 			return "proved by the run " + text, true
 		}
 		*where = itoa(r.States) + " states, " + itoa(len(sigs)) + " signals"
@@ -655,17 +738,17 @@ func $ExploreAll[S, E any](g $Graph[S, E], kind string, budget int, name, at str
 		for _, e := range sigs {
 			end, _ = g.step(end, e)
 		}
-		$Refute(at, "the run "+text+" reaches "+g.show(end)+$Block(g, name, start, g.starts[start], sigs, "--states "+itoa(r.States)))
+		$Refute(at, "the run "+text+" reaches "+g.show(end)+$Broken(g)+$Block(g, name, start, g.starts[start], sigs, "--states "+itoa(r.States)))
 	}
 	if r.Complete {
 		if kind == "reaches" {
 			*where = itoa(r.States) + " states, every run"
-			$Refute(at, "no run reaches "+g.names[0]+" ("+itoa(r.States)+" states)")
+			$Refute(at, "no run reaches "+$Goal(g, kind)+" ("+itoa(r.States)+" states)")
 		}
 		return "proved: " + itoa(r.States) + " states, " + itoa(r.Edges) + " edges, longest shortest run " + itoa(r.Depth), true
 	}
 	if kind == "reaches" {
-		return "no run of at most " + itoa(r.Checked) + " signals reaches " + g.names[0] + "; " + itoa(r.States) + " states", false
+		return "no run of at most " + itoa(r.Checked) + " signals reaches " + $Goal(g, kind) + "; " + itoa(r.States) + " states", false
 	}
 	return "no counterexample in runs of at most " + itoa(r.Checked) + " signals; " + itoa(r.States) + " states", false
 }
@@ -724,9 +807,17 @@ func $ExploreRuns[S, E any](g $Graph[S, E], kind string, seed uint64, budget int
 				for _, n := range nodes[1 : k+1] {
 					run = append(run, n.sig)
 				}
-				$Refute(at, "the run "+$Trace(g, nodes, k)+" reaches "+g.show(nodes[k].s)+$Block(g, name, m, nodes[0].s, run, replay))
+				$Refute(at, "the run "+$Trace(g, nodes, k)+" reaches "+g.show(nodes[k].s)+$Broken(g)+$Block(g, name, m, nodes[0].s, run, replay))
 			case kind == "reaches" && g.targets[0](nodes[k].s):
-				return "proved by the run " + $Trace(g, nodes, k)
+				text := "proved by the run " + $Trace(g, nodes, k)
+				if g.pred != "" {
+					var run []E
+					for _, n := range nodes[1 : k+1] {
+						run = append(run, n.sig)
+					}
+					text += $Witness(g, name, m, nodes[0].s, run)
+				}
+				return text
 			case kind == "path" && k == len(g.targets)-1:
 				held := true
 				for j := 0; j <= k; j++ {
@@ -747,6 +838,11 @@ func $ExploreRuns[S, E any](g $Graph[S, E], kind string, seed uint64, budget int
 	}
 	if kind == "path" {
 		$Refute(at, "no generated run follows the path ["+$strings.Join(g.names, ", ")+"]")
+	}
+	if g.pred != "" {
+		// A sometimes law with no witness in the runs is not found: the
+		// graph was not decided, so no witness is no proof either way.
+		$Refute(at, "not found: no generated run reaches "+$Goal(g, kind))
 	}
 	$Refute(at, "no generated run reaches "+g.names[0])
 	return ""

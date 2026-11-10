@@ -1834,6 +1834,39 @@
       "killers": [
         "check:TestOwnershipFlowModel"
       ]
+    },
+    {
+      "name": "x2-pred-purity-skipped",
+      "origin": "wf10/explorer/x2",
+      "file": "internal/sketch/check/machinelaw.go",
+      "from": "\tfor _, law := range c.lawPreds {",
+      "to": "\tfor _, law := range c.lawPreds[:0] {",
+      "rule": "types.md Laws 13: an invariant law's predicate is pure (an empty footprint).",
+      "killers": [
+        "check:TestMachineLawDiagnostics"
+      ]
+    },
+    {
+      "name": "x2-pred-error-row-admitted",
+      "origin": "wf10/explorer/x2",
+      "file": "internal/sketch/check/machinelaw.go",
+      "from": "\t\tbad = sig.Fallible || !c.types.resolve(sig.Errors).known(c.types).Empty() || ",
+      "to": "\t\tbad = ",
+      "rule": "types.md Laws 13: an invariant law's predicate has no error row.",
+      "killers": [
+        "check:TestMachineLawDiagnostics"
+      ]
+    },
+    {
+      "name": "x2-pred-param-type-admitted",
+      "origin": "wf10/explorer/x2",
+      "file": "internal/sketch/check/machinelaw.go",
+      "from": "\t\tbad = !c.identical(sig.Params[0].Type, state) || ",
+      "to": "\t\tbad = ",
+      "rule": "types.md Laws 13: an invariant law's predicate takes the machine's state.",
+      "killers": [
+        "check:TestMachineLawDiagnostics"
+      ]
     }
   ]
 }

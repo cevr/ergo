@@ -180,6 +180,10 @@ func (c *checker) checkReachLaw(law *Law) {
 			state, u = m.State, asUnion(m.State)
 		}
 	}
+	if law.Decl.Reach.Pred != nil {
+		c.checkLawPred(law, state)
+		return
+	}
 	for _, id := range law.Decl.Reach.Targets {
 		tn, ok := c.pkg.Scope.names[id.Name].(*TypeName)
 		if !ok {
@@ -215,7 +219,10 @@ func (c *checker) planMachineLaw(law *Law) {
 	}
 	m, ok := n.Underlying().(*MachineType)
 	spec, ok2 := law.Machine.Decl.Spec.(*syntax.MachineType)
-	if !ok || !ok2 || asUnion(m.State) == nil || asUnion(m.Signal) == nil || len(law.Targets) != len(law.Decl.Reach.Targets) {
+	// An invariant law reads its state through its predicate, so a record
+	// state serves; a reachability law names variants of a union.
+	inv := law.Decl.Reach.Pred != nil
+	if !ok || !ok2 || !(asUnion(m.State) != nil || inv && unionLike(m.State)) || asUnion(m.Signal) == nil || len(law.Targets) != len(law.Decl.Reach.Targets) || inv && law.Pred == nil {
 		law.Unrun = "its machine is invalid"
 		return
 	}

@@ -836,6 +836,10 @@ type Law struct {
 	// Targets are the variants of the machine's state that a reachability
 	// law (Decl.Reach) names, in order.
 	Targets []*Named
+	// Pred is the predicate of an invariant law (`always p`, `sometimes
+	// p`; X2): a pure package function from the machine's state to bool.
+	// nil when the law has none or the predicate was refused.
+	Pred *Func
 	// Params are its parameters, in source order; a field with no name
 	// holds one "_".
 	Params []*Var

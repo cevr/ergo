@@ -122,6 +122,9 @@ type checker struct {
 	// durableCalls are the calls of a durable runner (durable.go), which
 	// checkDurableSteps judges once the footprints are known.
 	durableCalls []durableCall
+	// lawPreds are the invariant laws whose predicate checkLawPreds judges
+	// pure once the footprints are known (machinelaw.go).
+	lawPreds []*Law
 	// withSites are the with sites the reporting pass recorded, inner
 	// before outer, for the context ownership pass (withown.go).
 	withSites []withSite

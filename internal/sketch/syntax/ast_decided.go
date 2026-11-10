@@ -106,14 +106,18 @@ func (*LawDecl) declNode() {}
 // LawReach is the graph form of a machine law (MU6). Never is the position
 // of `never` in `never reaches V`, else NoPos; Word is the position of
 // `reaches` or `path`; Targets are the variants of the machine's state the
-// law names: one for reaches, one or more for a path, in order.
+// law names: one for reaches, one or more for a path, in order. An
+// invariant law (X2), `always p` or `sometimes p`, has Invariant set to its
+// word, Word at it, Pred the predicate's name and no Targets.
 type LawReach struct {
-	Never   Pos
-	Word    Pos
-	Path    bool
-	Lbrack  Pos // a path's [, else NoPos
-	Targets []*Ident
-	Rbrack  Pos // a path's ], else NoPos
+	Never     Pos
+	Word      Pos
+	Path      bool
+	Lbrack    Pos // a path's [, else NoPos
+	Targets   []*Ident
+	Rbrack    Pos    // a path's ], else NoPos
+	Invariant string // "always" or "sometimes", else ""
+	Pred      *Ident // the predicate of an invariant law, else nil
 }
 
 func (r *LawReach) Pos() Pos {
@@ -127,16 +131,21 @@ func (r *LawReach) End() Pos {
 	if r.Path {
 		return r.Rbrack + 1
 	}
+	if r.Pred != nil {
+		return r.Pred.End()
+	}
 	if len(r.Targets) == 0 {
 		return r.Word + 1
 	}
 	return r.Targets[len(r.Targets)-1].End()
 }
 
-// ReachKind names the form of a reachability law: "reaches", "never" or
-// "path".
+// ReachKind names the form of a reachability law: "reaches", "never",
+// "path", "always" or "sometimes".
 func (r *LawReach) Kind() string {
 	switch {
+	case r.Invariant != "":
+		return r.Invariant
 	case r.Path:
 		return "path"
 	case r.Never != NoPos:

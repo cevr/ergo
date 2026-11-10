@@ -110,7 +110,8 @@ var testHelpers = []struct{ key, base string }{
 	{"Seed", "ergoSeed"}, {"Tests", "ergoTests"},
 	{"Graph", "ergoGraph"}, {"Node", "ergoNode"}, {"Explore", "ergoExplore"}, {"Signals", "ergoSignals"}, {"Block", "ergoBlock"},
 	{"ExploreAll", "ergoExploreAll"}, {"ExploreRuns", "ergoExploreRuns"}, {"Trace", "ergoTrace"}, {"Refute", "ergoRefute"},
-	{"States", "ergoStates"}, {"explore", "explore"},
+	{"States", "ergoStates"}, {"explore", "explore"}, {"Verdict", "ergoVerdict"}, {"Program", "ergoProgram"},
+	{"Goal", "ergoGoal"}, {"Witness", "ergoWitness"}, {"Broken", "ergoBroken"},
 }
 
 // helper is the Go name of the harness entity key.

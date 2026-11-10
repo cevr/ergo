@@ -68,7 +68,7 @@ func (c *checker) checkDurableSteps() {
 		if !ok || fp.Empty() {
 			continue
 		}
-		c.errorf(arg, CodeType, "%s replays the saved signals with the machine's step, so the step must be pure: %s (runtime.md, Machines and actors 17)", d.name, impureCall(step, fp))
+		c.errorf(arg, CodeType, "%s replays the saved signals with the machine's step, so the step must be pure: %s (runtime.md, Machines and actors 17)", d.name, impureCall("step", step, fp))
 	}
 }
 
@@ -144,8 +144,10 @@ func (c *checker) durableStep(arg syntax.Expr) *Func {
 
 // impureCall names the first call in step's own frame that makes its
 // footprint fp not empty, with its position; when none of its own calls
-// does (a literal it calls in place does), it names what fp holds.
-func impureCall(step *Func, fp Footprint) string {
+// does (a literal it calls in place does), it names what fp holds. role
+// names what step is to its caller: "step", or "predicate" for an
+// invariant law's (machinelaw.go).
+func impureCall(role string, step *Func, fp Footprint) string {
 	info := step.Pkg.Info
 	var found syntax.Node
 	var why string
@@ -167,15 +169,15 @@ func impureCall(step *Func, fp Footprint) string {
 	})
 	if found != nil && step.file != nil {
 		line, col := step.file.syntax.Position(found.Pos())
-		return fmt.Sprintf("step %s calls %s at %d:%d", step.Name, why, line, col)
+		return fmt.Sprintf("%s %s calls %s at %d:%d", role, step.Name, why, line, col)
 	}
 	switch {
 	case len(fp.Caps) > 0:
-		return fmt.Sprintf("step %s uses the capability %s", step.Name, fp.Caps[0])
+		return fmt.Sprintf("%s %s uses the capability %s", role, step.Name, fp.Caps[0])
 	case fp.Tasks:
-		return fmt.Sprintf("step %s starts a task", step.Name)
+		return fmt.Sprintf("%s %s starts a task", role, step.Name)
 	default:
-		return fmt.Sprintf("step %s calls code whose footprint is unknown", step.Name)
+		return fmt.Sprintf("%s %s calls code whose footprint is unknown", role, step.Name)
 	}
 }
 
