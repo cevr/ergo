@@ -5,8 +5,8 @@
       "name": "http-imports-fstest",
       "origin": "wf10 G1f r2",
       "file": "internal/sketch/std/http/laws.ergo",
-      "from": "import fs",
-      "to": "import fs\nimport fstest\nfunc unexpectedTestDependency() fstest.Tree { fstest.NewTree([]fstest.Node{}) }",
+      "from": "import sync",
+      "to": "import sync\nimport fstest\nfunc unexpectedTestDependency() fstest.Tree { fstest.NewTree([]fstest.Node{}) }",
       "rule": "A production http import does not depend on fstest, even through law helpers.",
       "killers": ["lower:TestHTTPHasNoTestProviderDependency"]
     },

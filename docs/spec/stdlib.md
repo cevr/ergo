@@ -365,8 +365,8 @@ HTTP/2 configuration are outside this core.
    directory. A file is 200 with `ContentType(name)`, the media type of its
    extension ignoring case (text types with `charset=utf-8`, an unknown one
    `application/octet-stream`); an empty file has no Content-Type. The law
-   `FilesAsksBeneath` observes, through its private law-only recorder, every path Files
-   passes the root: at most one, relative, with no "", "." or ".."
+   `FilesAsksBeneath` observes, through its private law-only recorder, every
+   path Files passes the root: at most one, relative, with no "", "." or ".."
    element, and none for a request path with a ".." element or without the
    prefix. The probe of `TestStdHTTPLawsRun` restates it and checks Files
    against a reference of the rule over a Tree with links out, in and
@@ -383,6 +383,11 @@ refuses ".." segments in the request (by its documentation, not inspected
 here) and reads the host path; ReScript binds the host server.
 Ergo keeps Files lexical and puts the confinement in the capability, so a
 test observes both halves (`FilesAsksBeneath`, `TestFSRootTreeAgreesWithHost`).
+
+Files' performance comparison with `http.FileServer(http.FS(root.FS()))`
+is pending in `wf10/g1-http/bench-pending.md`. Both use a held root; the
+comparison must match buffering, empty-file headers and HEAD handling.
+The benchmark harness is not built yet. No Files parity claim is made.
 
 Prior art (source/documentation inspected, not measured): Mist 6.0.3 uses
 `fn(Request) -> Response` and a required size at `read_body`; its buffered
