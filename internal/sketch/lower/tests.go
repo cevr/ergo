@@ -50,7 +50,9 @@ import (
 // gleeunit run test functions the build of the program never contains.
 // QuickCheck and Hypothesis derive a sized generator from the type and
 // print the seed and the failing arguments; Elixir's StreamData and Gleam's
-// qcheck shrink as well, which this first runner does not.
+// qcheck shrink as well. This runner shrinks as Hypothesis and Go's rapid
+// do (L10): on the recorded draws, not per type, so every generated type
+// shrinks with no shrinker of its own ($Prop, v1.ShrinkTape).
 
 // testCases is the number of cases a property runs.
 const testCases = 100
@@ -103,6 +105,8 @@ var testHelpers = []struct{ key, base string }{
 	{"LitFloat", "ergoLitFloat"}, {"LitComplex", "ergoLitComplex"},
 	{"LitDuration", "ergoLitDuration"}, {"LitEntries", "ergoLitEntries"},
 	{"Seed", "ergoSeed"}, {"Tests", "ergoTests"},
+	{"Try", "ergoTry"}, {"Prop", "ergoProp"}, {"Receipt", "ergoReceipt"},
+	{"Record", "ergoRecord"}, {"WriteReceipt", "ergoWriteReceipt"}, {"JSON", "ergoJSON"},
 }
 
 // helper is the Go name of the harness entity key.
@@ -708,6 +712,7 @@ func (l *lowerer) testRunner() string {
 		// The case's size grows with its number (QuickCheck's sized):
 		// case i draws collections of up to i/4 elements at the top.
 		b.WriteString("\t\t\t" + r + ".size = " + i + " / 4\n")
+		b.WriteString("\t\t\t" + ok + " = " + l.helper("Prop") + "(" + taskOf(env) + ", " + name + ", " + r + ", func() (func() string, func() error) {\n")
 		args := []string{env}
 		conv := l.helper("strconv")
 		// The case's report: its number, the seed, the size and each
@@ -728,7 +733,7 @@ func (l *lowerer) testRunner() string {
 			}
 			shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(v.Type, a, t.Decl))
 		}
-		b.WriteString("\t\t\t" + ok + " = " + run + "(" + taskOf(env) + ", " + name + ", func() string { return " + strings.Join(shown, " + ") + " }, func() error { return " + l.testFunc(t) + "(" + strings.Join(args, ", ") + ") })\n")
+		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() error { return " + l.testFunc(t) + "(" + strings.Join(args, ", ") + ") }\n\t\t\t})\n")
 		b.WriteString("\t\t}\n")
 		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", t.Name, testCases)) + ")\n")
 		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n\t}\n")
@@ -736,6 +741,8 @@ func (l *lowerer) testRunner() string {
 	for _, law := range l.runLaws() {
 		l.lawRuns(&b, law, scope, env, seed, failed)
 	}
+	werr := scope.alloc("err")
+	b.WriteString("\tif " + werr + " := " + l.helper("WriteReceipt") + "(" + seed + "); " + werr + " != nil {\n\t\treturn " + werr + "\n\t}\n")
 	b.WriteString("\tif " + failed + " > 0 {\n")
 	b.WriteString("\t\t" + fmtPkg + ".Printf(\"FAIL (%d of %d tests" + skipped + ")\\n\", " + failed + ", " + total + ")\n")
 	b.WriteString("\t\treturn " + fmtPkg + ".Errorf(\"%d of %d tests failed\", " + failed + ", " + total + ")\n\t}\n")
@@ -791,6 +798,7 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 	title := l.lawTitle(law)
 	if law.Unrun != "" {
 		b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip law "+title+": "+law.Unrun) + ")\n")
+		b.WriteString("\t" + l.helper("Record") + "(" + strconv.Quote("law "+title) + ", nil, " + strconv.Quote(law.Unrun) + ")\n")
 		return
 	}
 	// The runs under a context take the case's task from here, the one
@@ -816,6 +824,7 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 		label := l.bindingLabel(law, bd)
 		if why := bindingUnrun(bd); why != "" {
 			b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip "+label+": "+why) + ")\n")
+			b.WriteString("\t" + l.helper("Record") + "(" + strconv.Quote(label) + ", nil, " + strconv.Quote(why) + ")\n")
 			continue
 		}
 		targets = append(targets, target{label: label, b: bd})
@@ -827,9 +836,12 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 		label := "law " + title
 		e, held, err := scope.alloc("e"), scope.alloc("held"), scope.alloc("err")
 		body := e + " := *" + env + "; " + held + ", " + err + " := " + l.lawFunc(law) + "(&" + e + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
+		r := scope.alloc("r")
+		b.WriteString("\t{\n\t" + r + " := &" + l.helper("Rand") + "{cases: 1}\n")
 		b.WriteString("\tif " + run + "(" + taskOf(env) + ", " + strconv.Quote(label) + ", " + at + ", nil, func() error { " + body + " }) {\n")
 		b.WriteString("\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+label) + ")\n")
-		b.WriteString("\t} else {\n\t\t" + failed + "++\n\t}\n")
+		b.WriteString("\t} else {\n\t\t" + r + ".failure = \"()\"\n\t\t" + failed + "++\n\t}\n")
+		b.WriteString("\t" + l.helper("Record") + "(" + strconv.Quote(label) + ", " + r + ", \"\")\n\t}\n")
 		return
 	}
 	for _, tg := range targets {
@@ -842,6 +854,7 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 		b.WriteString("\t\t" + ok + " := true\n")
 		b.WriteString("\t\tfor " + i + " := 1; " + ok + " && " + i + " <= " + strconv.Itoa(testCases) + "; " + i + "++ {\n")
 		b.WriteString("\t\t\t" + r + ".size = " + i + " / 4\n")
+		b.WriteString("\t\t\t" + ok + " = " + l.helper("Prop") + "(" + taskOf(env) + ", " + name + ", " + r + ", func() (func() string, func() error) {\n")
 		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(testCases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)", strconv.Quote(", size "), conv + ".Itoa(" + i + " / 4)"}
 		sep := ": "
 		var bind []string
@@ -922,10 +935,11 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 		}
 		body := e + " := *" + env + "; " + strings.Join(append(bind, ""), "; ") +
 			held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
-		b.WriteString("\t\t\t" + ok + " = " + run + "(" + taskOf(env) + ", " + name + ", func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " })\n")
+		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " }\n\t\t\t})\n")
 		b.WriteString("\t\t}\n")
 		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", tg.label, testCases)) + ")\n")
-		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n\t}\n")
+		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n")
+		b.WriteString("\t\t" + l.helper("Record") + "(" + strconv.Quote(tg.label) + ", " + r + ", \"\")\n\t}\n")
 	}
 }
 
@@ -1029,28 +1043,171 @@ func $AssertDiff(a, b string) string {
 // included, prints a FAIL line and is raised again whole ($Runtime.Raise),
 // so the runtime reports every reason with its Ergo frames and the run
 // stops.
-func $Case(t *$Task.Task, name, at string, args func() string, body func() error) (ok bool) {
+func $Case(t *$Task.Task, name, at string, args func() string, body func() error) bool {
+	msg, kind, exit := $Try(t, at, body)
+	switch kind {
+	case 0:
+		return true
+	case 3:
+		$fmt.Println("FAIL " + name + $Where(args) + ": a defect, which stops the run")
+		$Runtime.Raise(exit)
+	}
+	$fmt.Println("FAIL " + name + $Where(args) + ": " + msg)
+	return false
+}
+
+// $Try runs one case's body on the task t and says how it ended, printing
+// nothing: kind 0 when it held, 1 for a failed assert or a refuted law
+// (msg is the assert's text), 2 for a typed failure that escaped the body
+// declared at at, 3 for any other exit (a defect), which exit holds.
+func $Try(t *$Task.Task, at string, body func() error) (msg string, kind int, exit error) {
 	done := false
 	defer func() {
 		if done {
 			return
 		}
-		exit := $Runtime.Capture(t, recover())
+		exit = $Runtime.Capture(t, recover())
 		if a, failed := $Asserted(exit); failed {
-			$fmt.Println("FAIL " + name + $Where(args) + ": " + a.String())
-			ok = false
+			msg, kind, exit = a.String(), 1, nil
 			return
 		}
-		$fmt.Println("FAIL " + name + $Where(args) + ": a defect, which stops the run")
-		$Runtime.Raise(exit)
+		kind = 3
 	}()
 	err := body()
 	done = true
 	if err != nil {
-		$fmt.Println("FAIL " + name + $Where(args) + ": a failure escaped the test at " + at + ": " + err.Error())
-		return false
+		return "a failure escaped the test at " + at + ": " + err.Error(), 2, nil
 	}
-	return true
+	return "", 0, nil
+}
+
+// $Prop runs one drawn case of the property or law name, declared at at:
+// draw draws the case's arguments from r and returns its report text and
+// its body. A case that fails (kind 1 or 2) is shrunk ($Runtime.ShrinkTape,
+// at most 500 replays): its draws are replayed from smaller tapes, quietly,
+// while it fails the same way, and the FAIL line shows the smallest case,
+// then the drawn one and the replay command. A defect is never shrunk: it
+// stops the run as $Case says.
+func $Prop(t *$Task.Task, name, at string, r *$Rand, draw func() (func() string, func() error)) bool {
+	r.tape, r.replaying = r.tape[:0], false
+	r.cases++
+	var args func() string
+	msg, kind, exit := $Try(t, at, func() error {
+		var body func() error
+		args, body = draw()
+		return body()
+	})
+	switch kind {
+	case 0:
+		return true
+	case 3:
+		$fmt.Println("FAIL " + name + $Where(args) + ": a defect, which stops the run")
+		$Runtime.Raise(exit)
+	}
+	drawn := append([]uint64(nil), r.tape...)
+	replay := func(c []uint64) (func() string, string, int) {
+		r.replay, r.pos, r.replaying, r.tape = c, 0, true, r.tape[:0]
+		var shown func() string
+		m, k, _ := $Try(t, at, func() error {
+			var body func() error
+			shown, body = draw()
+			return body()
+		})
+		return shown, m, k
+	}
+	best, _ := $Runtime.ShrinkTape(drawn, func(c []uint64) bool {
+		_, _, k := replay(c)
+		return k == kind
+	}, 500)
+	shown, smsg, skind := args, msg, kind
+	steps := len(best) != len(drawn)
+	for i := 0; !steps && i < len(best); i++ {
+		steps = best[i] != drawn[i]
+	}
+	if steps {
+		shown, smsg, skind = replay(best)
+		if skind != kind { // not deterministic: report the drawn case
+			shown, smsg, steps = args, msg, false
+		}
+	}
+	r.replaying = false
+	r.failure = shown()
+	// One line, as an unshrunk FAIL line: the smallest case, the drawn
+	// arguments when they differ, and the replay command when ergo test
+	// named the source.
+	text := r.failure
+	if drawn := args(); steps && drawn != text {
+		if i := $strings.Index(drawn, ": "); i >= 0 {
+			drawn = drawn[i+2:]
+		}
+		text += "; shrunk from: " + drawn
+	}
+	if $Receipt.source != "" {
+		text += "; replay: ergo test " + $Receipt.source + " --seed " + $strconv.FormatUint(r.seed, 10)
+	}
+	$fmt.Println("FAIL " + name + " (" + text + "): " + smsg)
+	return false
+}
+
+// $Receipt is the run's law receipt (L10): --receipt names its file, and
+// --source and --revision, which ergo test passes, name what ran. laws
+// holds one JSON object per law run, in report order.
+var $Receipt struct {
+	path, source, revision string
+	laws                   []string
+}
+
+// $Record adds the law run label to the receipt: tested, refuted with its
+// shrunk counterexample, or skipped with why (r nil).
+func $Record(label string, r *$Rand, why string) {
+	rec := "{\"run\": " + $JSON(label)
+	switch {
+	case r == nil:
+		rec += ", \"status\": \"skipped\", \"why\": " + $JSON(why)
+	case r.failure != "":
+		rec += ", \"status\": \"refuted\", \"cases\": " + $strconv.Itoa(r.cases) + ", \"counterexample\": " + $JSON(r.failure)
+	default:
+		rec += ", \"status\": \"tested\", \"cases\": " + $strconv.Itoa(r.cases)
+	}
+	$Receipt.laws = append($Receipt.laws, rec+"}")
+}
+
+// $WriteReceipt writes the receipt when --receipt asked for one: schema 1,
+// the source, its revision, the seed, the target and the law runs. A
+// passing law is tested, never proved.
+func $WriteReceipt(seed uint64) error {
+	if $Receipt.path == "" {
+		return nil
+	}
+	laws := ""
+	if len($Receipt.laws) > 0 {
+		laws = "\n    " + $strings.Join($Receipt.laws, ",\n    ") + "\n  "
+	}
+	text := "{\n  \"schema\": 1,\n  \"source\": " + $JSON($Receipt.source) + ",\n  \"revision\": " + $JSON($Receipt.revision) +
+		",\n  \"seed\": " + $strconv.FormatUint(seed, 10) + ",\n  \"target\": \"go\",\n  \"laws\": [" + laws + "]\n}\n"
+	return $os.WriteFile($Receipt.path, []byte(text), 0o644)
+}
+
+// $JSON is s as a JSON string: quotes, backslashes and control bytes
+// escaped, and a byte that is not UTF-8 written as U+FFFD.
+func $JSON(s string) string {
+	var b $strings.Builder
+	b.WriteByte('"')
+	for _, c := range s {
+		switch {
+		case c == '"' || c == '\\':
+			b.WriteByte('\\')
+			b.WriteRune(c)
+		case c < 0x20:
+			b.WriteString("\\u00")
+			b.WriteByte("0123456789abcdef"[c>>4])
+			b.WriteByte("0123456789abcdef"[c&15])
+		default:
+			b.WriteRune(c)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 // $Asserted is the first failed assert of exit, when every reason of exit is
@@ -1097,33 +1254,82 @@ func $Where(args func() string) string {
 // sized). env is the test runner's environment, which a constructor that a
 // generator calls runs in (check/tests.go rule 3): it has no rows, so it
 // reads only the task.
+//
+// Every draw goes through next, which records it on the case's tape. A
+// shrink ($Prop) replays a case from an edited tape (replay; past its end
+// a draw is 0), and each generator maps a zero draw to its simplest value:
+// 0, 0.0, false, an empty string, slice or Map, a union's first variant.
+// failure and cases are the run's report, which $Record reads.
 type $Rand struct {
-	s    uint64
-	size int
-	env  any
+	s, seed   uint64
+	size      int
+	env       any
+	tape      []uint64
+	replay    []uint64
+	replaying bool
+	pos       int
+	cases     int
+	failure   string
 }
 
 // $NewRand is the generator of the test name under seed: each property
 // draws its own stream, so adding a test changes no other test's cases.
 func $NewRand(seed uint64, name string) *$Rand {
-	r := &$Rand{s: seed}
+	r := &$Rand{s: seed, seed: seed}
 	for i := 0; i < len(name); i++ {
 		r.s = r.s*31 + uint64(name[i])
 	}
 	return r
 }
 
+// next is a draw of any 64 bits; intn records its draw reduced below n, so
+// a shrink lowering a recorded draw lowers the value it gives.
 func (r *$Rand) next() uint64 {
-	r.s += 0x9e3779b97f4a7c15
-	z := r.s
-	z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9
-	z = (z ^ (z >> 27)) * 0x94d049bb133111eb
-	return z ^ (z >> 31)
+	z := r.raw()
+	r.tape = append(r.tape, z)
+	return z
 }
 
-func (r *$Rand) intn(n int) int { return int(r.next() % uint64(n)) }
+func (r *$Rand) raw() uint64 {
+	var z uint64
+	if r.replaying {
+		if r.pos < len(r.replay) {
+			z = r.replay[r.pos]
+		}
+		r.pos++
+	} else {
+		r.s += 0x9e3779b97f4a7c15
+		z = r.s
+		z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9
+		z = (z ^ (z >> 27)) * 0x94d049bb133111eb
+		z ^= z >> 31
+	}
+	return z
+}
 
-func (r *$Rand) bool() bool { return r.next()&1 == 0 }
+func (r *$Rand) intn(n int) int {
+	z := r.raw() % uint64(n)
+	r.tape = append(r.tape, z)
+	return int(z)
+}
+
+func (r *$Rand) bool() bool { return r.intn(2) == 1 }
+
+// any64 is any int64: draws 0, 1, 2, 3, … give 0, -1, 1, -2, ….
+func (r *$Rand) any64() int64 {
+	z := r.next()
+	return int64(z>>1) ^ -int64(z&1)
+}
+
+// small is in -n..n: draws 0, 1, 2, 3, 4, … give 0, -1, 1, -2, 2, …, so a
+// smaller draw is a value nearer zero.
+func (r *$Rand) small(n int) int64 {
+	v := r.intn(2*n + 1)
+	if v%2 == 1 {
+		return -int64(v+1) / 2
+	}
+	return int64(v / 2)
+}
 
 // $Edges are the integers where code breaks: zero, one and minus one, and
 // the bounds of each Go integer width. A narrower type wraps an int64, so
@@ -1137,21 +1343,21 @@ var $Edges = []int64{0, 1, -1, 127, -128, 128, -129, 255, 256, 32767, -32768, 65
 func (r *$Rand) i64() int64 {
 	switch k := r.intn(20); {
 	case k < 8:
-		return int64(r.intn(21)) - 10
+		return r.small(10)
 	case k < 11:
 		return $Edges[r.intn(len($Edges))]
 	case k < 14:
-		return int64(r.intn(1999999)) - 999999
+		return r.small(999999)
 	}
-	return int64(r.next())
+	return r.any64()
 }
 
 // f64 is always finite: a small half-integer half the time.
 func (r *$Rand) f64() float64 {
-	if r.bool() {
-		return float64(r.intn(21)-10) / 2
+	if !r.bool() {
+		return float64(r.small(10)) / 2
 	}
-	return float64(int64(r.next())) / (1 << 32)
+	return float64(r.any64()) / (1 << 32)
 }
 
 var $Runes = []rune("abz AZ09_-é世\n")
@@ -1282,13 +1488,25 @@ func $LitEntries[K comparable, V any](typ string, m map[K]V, key func(K) string,
 }
 
 // $Seed reads --seed N or --seed=N, N a decimal uint64, the seed of every
-// property; 1 by default. Any other argument is a usage error (exit 2).
+// property; 1 by default. --receipt FILE, --source PATH and --revision R
+// fill $Receipt. Any other argument is a usage error (exit 2).
 func $Seed() uint64 {
 	seed := uint64(1)
 	args := $os.Args[1:]
 	for i := 0; i < len(args); i++ {
 		v, a := "", args[i]
 		switch {
+		case (a == "--receipt" || a == "--source" || a == "--revision") && i+1 < len(args):
+			i++
+			switch a {
+			case "--receipt":
+				$Receipt.path = args[i]
+			case "--source":
+				$Receipt.source = args[i]
+			default:
+				$Receipt.revision = args[i]
+			}
+			continue
 		case a == "--seed" && i+1 < len(args):
 			i++
 			v = args[i]

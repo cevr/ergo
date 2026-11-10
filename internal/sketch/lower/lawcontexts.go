@@ -18,12 +18,13 @@ import (
 // runner's task, which lawRuns reads (taskOf).
 func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *namer, env, task, seed, failed string) {
 	law := lr.Law
-	fmtPkg, run, conv := l.helper("fmt"), l.helper("Case"), l.helper("strconv")
+	fmtPkg, conv := l.helper("fmt"), l.helper("strconv")
 	at := strconv.Quote(l.siteText(law.Decl))
 	for _, lc := range lr.Contexts {
 		label := "law " + l.lawTitle(law) + " under " + lc.Context.Name
 		if lc.Unrun != "" {
 			b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip "+label+": "+lc.Unrun) + ")\n")
+			b.WriteString("\t" + l.helper("Record") + "(" + strconv.Quote(label) + ", nil, " + strconv.Quote(lc.Unrun) + ")\n")
 			continue
 		}
 		inner := newNamer(scope)
@@ -35,6 +36,7 @@ func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *nam
 		b.WriteString("\t\t" + ok + " := true\n")
 		b.WriteString("\t\tfor " + i + " := 1; " + ok + " && " + i + " <= " + strconv.Itoa(testCases) + "; " + i + "++ {\n")
 		b.WriteString("\t\t\t" + r + ".size = " + i + " / 4\n")
+		b.WriteString("\t\t\t" + ok + " = " + l.helper("Prop") + "(" + task + ", " + strconv.Quote(label) + ", " + at + ", " + r + ", func() (func() string, func() error) {\n")
 		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(testCases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)", strconv.Quote(", size "), conv + ".Itoa(" + i + " / 4)"}
 		sep := ": "
 		cap, isNamed := lc.With.Discharged[0].(*check.Named)
@@ -72,9 +74,10 @@ func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *nam
 		build := l.contextBuilder(lc.With, law.Decl)
 		body := e + " := *" + env + "; " + build + "(&" + e + "); " +
 			held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
-		b.WriteString("\t\t\t" + ok + " = " + run + "(" + task + ", " + strconv.Quote(label) + ", " + at + ", func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " })\n")
+		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " }\n\t\t\t})\n")
 		b.WriteString("\t\t}\n")
 		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", label, testCases)) + ")\n")
-		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n\t}\n")
+		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n")
+		b.WriteString("\t\t" + l.helper("Record") + "(" + strconv.Quote(label) + ", " + r + ", \"\")\n\t}\n")
 	}
 }

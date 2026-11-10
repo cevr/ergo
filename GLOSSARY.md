@@ -217,7 +217,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Evidence kind** ([#170](https://github.com/cevr/ergo/issues/170)): A nominal wrapper type, such as `SortedBy[S, compare]`, whose values carry the proof that a law-backed check has run on the carrier. Only the checking function mints it.
 
-**Law receipt** ([#170](https://github.com/cevr/ergo/issues/170)): The recorded outcome of running a law suite for one revision, seed and target: the status of each law, its case count and any counterexample. The build reads only the canonical receipt.
+**Law receipt** (implemented in part, L10; [#170](https://github.com/cevr/ergo/issues/170)): The recorded outcome of running a law suite for one revision, seed and target: the status of each law (tested, refuted or skipped), its case count and any counterexample, shrunk. `ergo test DIR --receipt FILE` writes one as JSON ([runtime](docs/spec/runtime.md#tests), Tests 8). A tested law is not a proved one. The build reads only the canonical receipt; no build reads one yet.
 
 **Proof tier** (designed in outline; owner direction 2026-11-02, [#162](https://github.com/cevr/ergo/issues/162)): The check-time stage that sends only decidable facts, such as index ranges, length relations, integer bounds and unreachable arms, to an SMT solver within a fixed time budget, reports "proved" only when the solver discharges the obligation and "unknown" on a timeout, and lowers a proved fact as a removed check, while everything outside it stays tested, never proved.
 
