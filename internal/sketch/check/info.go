@@ -298,6 +298,11 @@ type Release struct {
 	Var  *Var
 	Temp syntax.Expr
 	Flag bool
+	// Fields are the record's fields taken in place on every path (a bit
+	// per field index; R39, Gap 38): the generated Close skips them.
+	// MaybeFields are those taken on some paths only: each has a drop
+	// flag. Added in L8 A4 (additive).
+	Fields, MaybeFields uint64
 }
 
 // Instance is one instantiation of a generic function.
