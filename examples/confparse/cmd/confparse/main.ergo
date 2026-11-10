@@ -91,7 +91,7 @@ func environ() Map[string, string] needs os.Process {
 
 // Show is c as lines for a reader.
 func Show(c config.Config) string {
-	let mut lines = []string{"\(c.Name): listen \(c.Listen.Host):\(c.Listen.Port), log \(config.LevelName(c.Log))"}
+	let mut lines = []string{"\(c.Name): listen \(c.Listen.Host):\(c.Listen.Port), log \(config.Wire(c.Log))"}
 	for u in c.Upstreams {
 		lines = lines.Append("upstream \(u.Name) \(u.Addr) weight \(u.Weight)" + if u.Backup { " backup" } else { "" })
 	}

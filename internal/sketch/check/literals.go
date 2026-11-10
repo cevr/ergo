@@ -87,6 +87,9 @@ func (c *checker) literal(x *syntax.BasicLit, hint Type) operand {
 	if !c.representable(&op, under(op.typ).(*Basic)) {
 		return bad(x)
 	}
+	if !c.refinedConst(x, op.val, op.typ) {
+		return bad(x)
+	}
 	return op
 }
 

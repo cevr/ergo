@@ -500,7 +500,8 @@ func sameGoConstraint(a, b *check.TypeParam) bool {
 	}
 	as, am := setOf(a)
 	bs, bm := setOf(b)
-	return as == bs && !am && !bm
+	// codable takes its codec as a witness (wire.go).
+	return as == bs && !am && !bm && as != check.SetWire
 }
 
 // typeSetDecl is the Go name of the interface that lowers the predeclared

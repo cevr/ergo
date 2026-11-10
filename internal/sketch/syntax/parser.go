@@ -70,6 +70,10 @@ type parser struct {
 
 	groups   []*CommentGroup
 	groupOwn []bool // the group starts on a line with no token before it
+
+	// derived holds the declarations derived from the refinement just
+	// parsed (refine.go), which parseFile places after its type.
+	derived []Decl
 }
 
 // ---------------------------------------------------------------- tokens and errors
@@ -386,7 +390,17 @@ func (p *parser) parseFile() *File {
 		var d Decl
 		switch p.tok.tok {
 		case TYPE:
-			d = p.parseTypeDecl(doc)
+			td := p.parseTypeDecl(doc)
+			d = td
+			if td.Where != nil {
+				// The derived parse function and law follow the type
+				// (refine.go); the formatter skips them.
+				f.Decls = append(f.Decls, td)
+				p.endDecl()
+				f.Decls = append(f.Decls, p.derived...)
+				p.derived = nil
+				continue
+			}
 		case FUNC:
 			d = p.parseFuncDecl(doc)
 		case EXTERN:
@@ -406,6 +420,7 @@ func (p *parser) parseFile() *File {
 		p.endDecl()
 	}
 	f.EOF = p.tok.pos
+	p.derivePairs(f)
 	return f
 }
 
@@ -493,7 +508,11 @@ func (p *parser) parseTypeDecl(doc *CommentGroup) *TypeDecl {
 		p.next()
 		d.Spec = p.parseUnion()
 	default:
+		start := p.i
 		d.Spec = p.parseType(ctxDecl)
+		if p.atWhere() {
+			p.parseRefinement(d, start)
+		}
 	}
 	return d
 }
@@ -890,6 +909,9 @@ func (p *parser) parseExternDecl(doc *CommentGroup) Decl {
 	switch p.tok.tok {
 	case TYPE:
 		d := p.parseTypeDecl(doc)
+		if d.Where != nil {
+			p.errorAt(d.WherePos, len("where"), "a host type takes no where: Go checks nothing on it; declare a refined type over it in Ergo")
+		}
 		d.Extern = x
 		return d
 	case LET:
@@ -1152,6 +1174,9 @@ type paramEntry struct {
 	name  *Ident
 	typ   Expr
 	comma Pos // the comma before the entry, or NoPos for the first
+	// wherePos and where are a law parameter's `where P` (refine.go).
+	wherePos Pos
+	where    Expr
 }
 
 // parseParameters parses a parameter list with Go's grouping: either every
@@ -1167,6 +1192,11 @@ func (p *parser) parseParameters(mode paramMode) *FieldList {
 	for p.tok.tok != RPAREN {
 		e := p.parseParamEntry()
 		e.comma = comma
+		if e.name != nil && p.atWhere() {
+			e.wherePos = p.tok.pos
+			p.next()
+			e.where = p.parseExpr()
+		}
 		entries = append(entries, e)
 		if p.tok.tok != COMMA {
 			break
@@ -1201,7 +1231,10 @@ func (p *parser) parseParameters(mode paramMode) *FieldList {
 			pending = append(pending, id)
 			continue
 		}
-		l.List = append(l.List, &Field{Names: append(pending, e.name), Type: e.typ})
+		if e.where != nil && len(pending) > 0 {
+			p.errorAt(e.wherePos, len("where"), "a where follows a parameter of one name: give %s its own type", pending[0].Name)
+		}
+		l.List = append(l.List, &Field{Names: append(pending, e.name), Type: e.typ, WherePos: e.wherePos, Where: e.where})
 		pending = nil
 	}
 	if len(pending) > 0 {

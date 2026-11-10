@@ -55,6 +55,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 		// expands instances (round-2 M1, M5).
 		c.checkInstantiationCycles,
 		c.completeDefinedTypes,
+		c.checkRefinements,
 		c.collectSelfFuncs,
 		func() {
 			for _, f := range c.funcs {
@@ -1709,6 +1710,9 @@ func (c *checker) namedRow(x syntax.Expr, t Type) (vs []Type, isRow bool) {
 }
 
 func (c *checker) rowElem(x syntax.Expr, kind Kind, ctx *typeCtx) Type {
+	if t, ok := c.wiredElem(x, kind, ctx); ok {
+		return t
+	}
 	var t Type
 	switch x := x.(type) {
 	case *syntax.Ident:
@@ -2200,7 +2204,10 @@ func (c *checker) collectSelfFuncs() {
 		}
 		for _, g := range f.same {
 			c.cur = g.file
-			if g.Name == "main" {
+			if d := derivedOf(f, g); d != nil {
+				// One is a refinement's parse function (refine.go).
+				c.errorf(g.Decl.Name, CodeType, "%s is already declared in this package: the where of %s derives it (types.md, Refinements 4)", g.Name, d.Name.Name)
+			} else if g.Name == "main" {
 				// main is never a member (types.md, Methods 3).
 				c.errorf(g.Decl.Name, CodeType, "%s is already declared in this package", g.Name)
 			} else {

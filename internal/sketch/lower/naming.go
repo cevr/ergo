@@ -219,6 +219,9 @@ func (l *lowerer) nameAll() {
 	l.reserveClones(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, t check.Type) {
 		generated = append(generated, entry{key, "clone " + key.obj.(string), cloneBase(t)})
 	})
+	l.reserveWires(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, base, sort string) {
+		generated = append(generated, entry{key, sort, base})
+	})
 	for _, e := range sortGenerated(generated) {
 		l.pkgName(e.key, e.base)
 	}

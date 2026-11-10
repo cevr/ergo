@@ -47,6 +47,8 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 		return operand{val: "len(" + fc.value(x.Args[0]) + ")"}
 	case check.CallGoError:
 		return fc.goErrorCall(x, c) // gocall.go
+	case check.CallEncode, check.CallDecode:
+		return fc.wireCall(x, c)
 	}
 	if check.IsUnreachable(c) {
 		return fc.unreachableValue(x)
@@ -131,6 +133,15 @@ func (fc *funcCtx) callStmt(x *syntax.CallExpr) string {
 			op = fc.goCall(x, c)
 		}
 		if op.err != "" {
+			ice(x, "an untried fallible call in a statement")
+		} else if op.val != "" {
+			return "_ = " + op.val
+		}
+		return ""
+	}
+	if c.Kind == check.CallEncode || c.Kind == check.CallDecode {
+		// A codec call writes its own statements (wire.go).
+		if op := fc.wireCall(x, c); op.err != "" {
 			ice(x, "an untried fallible call in a statement")
 		} else if op.val != "" {
 			return "_ = " + op.val

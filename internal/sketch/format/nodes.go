@@ -7,10 +7,15 @@ import (
 // ---------------------------------------------------------------- file and declarations
 
 func (p *printer) printFile(f *syntax.File) {
-	for i, d := range f.Decls {
-		if i > 0 {
+	printed := 0
+	for _, d := range f.Decls {
+		if syntax.IsDerived(d) {
+			continue // the parser derives it again from its refined type
+		}
+		if printed > 0 {
 			p.newline()
 		}
+		printed++
 		p.decl(d)
 	}
 }
@@ -50,6 +55,12 @@ func (p *printer) decl(d syntax.Decl) {
 			}
 		}
 		p.expr(d.Spec)
+		if d.Where != nil {
+			p.space()
+			p.token(d.WherePos, "where")
+			p.space()
+			p.expr(d.Where)
+		}
 	case *syntax.FuncDecl:
 		p.externSpec(d.Extern)
 		p.token(d.Func, "func")
@@ -298,6 +309,12 @@ func (p *printer) fieldList(l *syntax.FieldList, open, close string) {
 				p.space()
 			}
 			p.typ(f.Type)
+		}
+		if f.Where != nil {
+			p.space()
+			p.token(f.WherePos, "where")
+			p.space()
+			p.expr(f.Where)
 		}
 	}, l.Closing, close)
 }

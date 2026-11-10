@@ -1,0 +1,94 @@
+// The derived codec's laws over Events and Replay (types.md, Codecs; L11
+// design item 7). The law runner draws each law's values, so a law over a
+// sample type is a seeded property of the derived encode and decode for
+// that type's shape: records, unions, Option, slices, Maps, every integer
+// width, floats, strings and a refined type. The ledger in
+// docs/spec/stdlib.md names the test that runs each law.
+
+type up { Host string, Port int, Tags []string, Load float64 }
+type down {}
+type state = up | down
+
+type widths { A int8, B int16, C int32, D int64, E uint8, F uint16, G uint32, H uint64, I int, J uint, K float32, L bool }
+
+type fleet { Name string, States []state, Spare Option[up], Meta Map[string, int], Sizes widths }
+
+// EventsReplay: what encode writes on Events, decode reads back from a
+// Replay of those events as the same value. RoundTrip is generic, so the
+// law runs the codec through its witness too.
+law EventsReplay(v fleet) {
+	let back = RoundTrip(v) catch {
+	case _:
+		return false
+	}
+	back == v
+}
+
+// many is vs through Events and back as one list, so the codec of []T and
+// Option[T] runs inside a generic function, on T's witness.
+func many[T codable](vs []T) ([]T, Option[T]) fails wired[Option[T]] {
+	let e = NewEvents()
+	encode(vs, e)
+	let first Option[T] = if len(vs) > 0 { Some{Value: vs[0]} } else { None }
+	encode(first, e)
+	let r = NewReplay(Recorded(e))
+	(try decode[[]T](r), try decode[Option[T]](r))
+}
+
+// GenericReplay: a list of union values and its first value, encoded and
+// decoded inside a generic function, read back as they were.
+law GenericReplay(vs []state) {
+	let (back, first) = many(vs) catch {
+	case _:
+		return false
+	}
+	let want Option[state] = if len(vs) > 0 { Some{Value: vs[0]} } else { None }
+	back == vs && first == want
+}
+
+// EncodeNests: the events of one value open and close as many times, and
+// never close more than they opened.
+law EncodeNests(v fleet) {
+	let e = NewEvents()
+	encode(v, e)
+	let mut open = 0
+	let mut ok = true
+	for ev in Recorded(e) {
+		open = open + depth(ev)
+		if open < 0 {
+			ok = false
+		}
+	}
+	ok && open == 0
+}
+
+// MissingFieldFails: an object with no keys decodes as no record with
+// fields: the decode fails WireMissingField.
+law MissingFieldFails() {
+	let empty = []Event{BeginObjectEvent{N: 0}, EndObjectEvent}
+	let _ = decode[up](NewReplay(empty)) catch {
+	case WireMissingField:
+		return true
+	case _:
+		return false
+	}
+	false
+}
+
+// UnknownTagFails: a tag no variant has fails WireUnknownTag.
+law UnknownTagFails(name string) {
+	if name == "up" {
+		return true
+	}
+	if name == "down" {
+		return true
+	}
+	let evs = []Event{BeginObjectEvent{N: 0}, TagEvent{Name: name}, EndObjectEvent}
+	let _ = decode[state](NewReplay(evs)) catch {
+	case WireUnknownTag:
+		return true
+	case _:
+		return false
+	}
+	false
+}

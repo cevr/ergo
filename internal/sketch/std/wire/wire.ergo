@@ -1,0 +1,210 @@
+// Package wire records and replays the events of a wire form (types.md,
+// Codecs; L11). Events is a provider of the prelude's Writer that keeps
+// every event encode(v, w) writes; Replay is a provider of the Reader that
+// gives a list of events back in the order decode[T](r) asks for them. A
+// test encodes into Events and decodes from Replay to see a type's wire
+// form, and the laws of this package (laws.ergo) hold the round trip of
+// the derived codec: decode[T](Replay(encode(v))) is v.
+//
+// Replay reads integers across kinds as a format would: Int takes an
+// EUint that fits int64, Uint an EInt that is not negative, and Float any
+// number. It fails WireWrongKind for an event of another kind and
+// WireMissingField when an object starts with no tag where a union's is
+// needed. Path is the index of the next event, "event 3".
+//
+// Both keep their state in a sync.Ref, so every copy is the same record.
+
+import strconv
+import sync
+
+// The events, one record each, as the Writer's operations name them.
+type BoolEvent { V bool }
+type IntEvent { V int64 }
+type UintEvent { V uint64 }
+type FloatEvent { V float64 }
+type StringEvent { V string }
+type BeginListEvent { N int }
+type EndListEvent {}
+type BeginObjectEvent { N int }
+type TagEvent { Name string }
+type KeyEvent { K string }
+type EndObjectEvent {}
+
+// Event is one event of a wire form.
+type Event = BoolEvent | IntEvent | UintEvent | FloatEvent | StringEvent | BeginListEvent | EndListEvent | BeginObjectEvent | TagEvent | KeyEvent | EndObjectEvent
+
+// Events records the events written to it.
+type Events { log sync.Ref[[]Event] }
+
+// NewEvents is an Events with no event yet.
+func NewEvents() Events { Events{log: sync.NewRef[[]Event]([]Event{})} }
+
+// Recorded is the events written to e, in order.
+func Recorded(e Events) []Event { e.log.Get() }
+
+func record(e Events, ev Event) { e.log.Update(func(xs []Event) []Event { xs.Append(ev) }) }
+
+// The Writer's operations.
+func Bool(e Events, b bool)       { record(e, BoolEvent{V: b}) }
+func Int(e Events, n int64)       { record(e, IntEvent{V: n}) }
+func Uint(e Events, n uint64)     { record(e, UintEvent{V: n}) }
+func Float(e Events, f float64)   { record(e, FloatEvent{V: f}) }
+func String(e Events, s string)   { record(e, StringEvent{V: s}) }
+func BeginList(e Events, n int)   { record(e, BeginListEvent{N: n}) }
+func EndList(e Events)            { record(e, EndListEvent) }
+func BeginObject(e Events, n int) { record(e, BeginObjectEvent{N: n}) }
+func Tag(e Events, name string)   { record(e, TagEvent{Name: name}) }
+func Key(e Events, k string)      { record(e, KeyEvent{K: k}) }
+func EndObject(e Events)          { record(e, EndObjectEvent) }
+
+// RoundTrip is v through Events and back: decode[T] of a Replay of the
+// events encode(v) wrote. Its row is wired[T], the row of decode[T].
+func RoundTrip[T codable](v T) T fails wired[T] {
+	let e = NewEvents()
+	encode(v, e)
+	decode[T](NewReplay(Recorded(e)))
+}
+
+// Replay reads back a list of events.
+type Replay { events []Event, at sync.Ref[int] }
+
+// NewReplay reads events from the first.
+func NewReplay(events []Event) Replay { Replay{events: events, at: sync.NewRef[int](0)} }
+
+// next is the next event, which the read passes; EndObject past the end.
+func next(r Replay) Event {
+	let i = r.at.Get()
+	if i >= len(r.events) {
+		return EndObjectEvent
+	}
+	r.at.Set(i + 1)
+	r.events[i]
+}
+
+// peek is the next event, which the read leaves; EndObject past the end.
+func peek(r Replay) Event {
+	let i = r.at.Get()
+	if i >= len(r.events) { EndObjectEvent } else { r.events[i] }
+}
+
+// depth is how an event changes the nesting: +1 opens, -1 closes.
+func depth(e Event) int {
+	match e {
+	case BeginListEvent, BeginObjectEvent:
+		1
+	case EndListEvent, EndObjectEvent:
+		-1
+	case _:
+		0
+	}
+}
+
+// The Reader's operations.
+func Path(r Replay) string { "event " + strconv.Itoa(r.at.Get()) }
+
+func Bool(r Replay) bool fails WireWrongKind {
+	match next(r) {
+	case BoolEvent as b:
+		b.V
+	case _:
+		return WireWrongKind{Path: Path(r), Want: "bool"}
+	}
+}
+
+func Int(r Replay) int64 fails WireWrongKind {
+	match next(r) {
+	case IntEvent as n:
+		n.V
+	case UintEvent as n:
+		if n.V > 9223372036854775807 {
+			return WireWrongKind{Path: Path(r), Want: "int"}
+		}
+		int64(n.V)
+	case _:
+		return WireWrongKind{Path: Path(r), Want: "int"}
+	}
+}
+
+func Uint(r Replay) uint64 fails WireWrongKind {
+	match next(r) {
+	case UintEvent as n:
+		n.V
+	case IntEvent as n:
+		if n.V < 0 {
+			return WireWrongKind{Path: Path(r), Want: "uint"}
+		}
+		uint64(n.V)
+	case _:
+		return WireWrongKind{Path: Path(r), Want: "uint"}
+	}
+}
+
+func Float(r Replay) float64 fails WireWrongKind {
+	match next(r) {
+	case FloatEvent as f:
+		f.V
+	case IntEvent as n:
+		float64(n.V)
+	case UintEvent as n:
+		float64(n.V)
+	case _:
+		return WireWrongKind{Path: Path(r), Want: "float"}
+	}
+}
+
+func String(r Replay) string fails WireWrongKind {
+	match next(r) {
+	case StringEvent as s:
+		s.V
+	case _:
+		return WireWrongKind{Path: Path(r), Want: "string"}
+	}
+}
+
+func BeginList(r Replay) fails WireWrongKind {
+	match next(r) {
+	case BeginListEvent as b:
+		_ = b
+	case _:
+		return WireWrongKind{Path: Path(r), Want: "list"}
+	}
+}
+
+func BeginObject(r Replay) fails WireWrongKind {
+	match next(r) {
+	case BeginObjectEvent as b:
+		_ = b
+	case _:
+		return WireWrongKind{Path: Path(r), Want: "object"}
+	}
+}
+
+func Tag(r Replay) string fails WireMissingField {
+	match peek(r) {
+	case TagEvent as t:
+		_ = next(r)
+		t.Name
+	case _:
+		return WireMissingField{Path: Path(r), Field: "_tag"}
+	}
+}
+
+func More(r Replay) bool { depth(peek(r)) >= 0 }
+
+func Key(r Replay) string {
+	match next(r) {
+	case KeyEvent as k:
+		k.K
+	case _:
+		""
+	}
+}
+
+func Skip(r Replay) {
+	let mut open = depth(next(r))
+	for open > 0 {
+		open = open + depth(next(r))
+	}
+}
+
+func End(r Replay) { _ = next(r) }

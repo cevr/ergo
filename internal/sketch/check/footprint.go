@@ -565,8 +565,9 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 			return
 		}
 		n.opaque = true
-	case CallOp, CallLawOp:
-		// A law's operation has no body until #162 picks an implementation.
+	case CallOp, CallLawOp, CallEncode, CallDecode:
+		// A law's operation has no body until #162 picks an implementation;
+		// encode and decode call the operations of a Writer or Reader value.
 		n.opaque = true
 	case CallWith:
 		// The block's calls are walked in this frame; the with also runs

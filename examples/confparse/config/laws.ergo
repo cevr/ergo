@@ -26,9 +26,9 @@ law DecodeInvertsEncode(c Config, seed int) {
 	true
 }
 
-// EnvWins: a variable overrides the file's value of its key.
-law EnvWins(c Config, seed int, port int) {
-	let p = 1 + natural(port)%65535
+// EnvWins: a variable overrides the file's value of its key. A generated
+// Port is in its where, so p needs no clamping.
+law EnvWins(c Config, seed int, p Port) {
 	for x in []Config{c, Sample(seed)} {
 		if !Valid(x) {
 			continue

@@ -354,6 +354,12 @@ type checker struct {
 	pkgPatterns map[*syntax.VarSpec]*pkgPattern
 	// mapInstances holds `Map[K, V]` read as the package's own Map (L6).
 	mapInstances map[*syntax.MapType]*syntax.IndexExpr
+	// refining is set while checkRefinements reports; refusedWheres are
+	// the spans of the refused wheres of each file, inside which a later
+	// pass reports nothing: the derived declarations repeat the where
+	// (refine.go).
+	refining      bool
+	refusedWheres map[*fileInfo][][2]syntax.Pos
 
 	fn *funcCtx // the body being checked
 }
@@ -456,6 +462,13 @@ func (c *checker) errorIn(at syntax.Node, pos, end syntax.Pos, code, format stri
 // errorIn are its only callers, so every report has passed the owner check.
 func (c *checker) report(pos, end syntax.Pos, code, format string, args ...any) {
 	d := Diagnostic{Code: code, Message: fmt.Sprintf(format, args...)}
+	if !c.refining && c.cur != nil {
+		for _, s := range c.refusedWheres[c.cur] {
+			if pos >= s[0] && pos <= s[1] {
+				return // the derived declarations of a refused where (refine.go)
+			}
+		}
+	}
 	if c.cur != nil {
 		f := c.cur.syntax
 		d.File = c.cur.index
@@ -557,7 +570,7 @@ func universe() *Scope {
 		basic("byte", Uint8)
 		basic("rune", Int32)
 		// The predeclared constraints (D-E1): each names a type set.
-		for _, set := range []TypeSet{SetComparable, SetOrdered, SetNumber} {
+		for _, set := range []TypeSet{SetWire, SetComparable, SetOrdered, SetNumber} {
 			s.insert(set.String(), &TypeName{Name: set.String(), Pkg: u, Type: &Interface{Set: set}, id: newID()})
 		}
 		errName := &TypeName{Name: "error", Pkg: u, id: newID()}
@@ -566,7 +579,7 @@ func universe() *Scope {
 		s.insert("error", errName)
 		s.insert("true", &Const{Name: "true", Type: Typ[Bool], Val: true})
 		s.insert("false", &Const{Name: "false", Type: Typ[Bool], Val: false})
-		for _, name := range []string{"len", "with"} {
+		for _, name := range []string{"len", "with", "encode", "decode", WiredName} {
 			s.insert(name, &Builtin{Name: name})
 		}
 		// go.Foreign (a capability) and go.Error (an error type) are
