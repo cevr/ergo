@@ -1,0 +1,5 @@
+# The host provider captures an http.Remote that only main can acquire
+# under Ambient. A law generator must not forge that authority. The
+# two-peer runtime model and source-boundary property exercise this provider
+# path; the recorded cases keep its typed policy refusal visible.
+skip law domain.Downloader.EmptyURLIsRejected for Remote: its values have no generator: http.Remote is a standard library type; a func NewRemote() Remote with no rows would build one for each case

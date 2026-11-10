@@ -148,6 +148,13 @@ func HTTPDo(t *rt.Task, origin string, limits HTTPLimits, method, path string, q
 		return HTTPResponse{}, httpFailed(httpMalformed, err.Error())
 	}
 	u.Path, u.RawQuery = path, httpQuery(query)
+	return httpDoURL(t, u, limits, method, header, body)
+}
+
+// httpDoURL is the shared stopped-and-joined exchange for fixed and dynamic
+// origins. Its client never follows redirects implicitly.
+func httpDoURL(t *rt.Task, u *url.URL, limits HTTPLimits, method string, header []HTTPField, body string) (HTTPResponse, error) {
+	t.Check()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, method, u.String(), strings.NewReader(body))

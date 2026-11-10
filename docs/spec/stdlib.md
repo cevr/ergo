@@ -497,6 +497,68 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
     transport; one Go transport per header budget is shared, so idle
     connections are reused.
 
+11. **Runtime URLs and redirects (CU5).** `NewNet(policy OriginPolicy,
+    limits Limits, redirects RedirectPolicy) Remote fails InvalidClient needs Ambient`
+    delegates host authority once, without choosing one origin. `OriginPolicy`
+    is `AnyOrigin` or `Origins{Values []string}`; an empty set denies every
+    origin. `RedirectPolicy` is `NoRedirects` or `Follow{MaxHops int}`; a
+    negative MaxHops is InvalidClient, zero refuses the first redirect.
+    `Remote` has private fields and provides the replaceable operation type
+    `Network { SendURL(r URLRequest) Response fails RequestFailed | OriginRefused | RedirectLimit }`.
+    `Fetch(r URLRequest)` calls that operation through the caller's context.
+    The old fixed-origin Net, Do and Client keep their contract.
+
+    `URLRequest { URL string, Method string, Header []Field,
+    Credentials []Credential, Body string }` takes an absolute http(s) URL.
+    It does not hide a URL inside the server Request's decoded Path.
+    `ForOrigin(origin string, field Field) Credential fails InvalidClient`
+    marks one header as a credential of that origin. Its private fields
+    prevent a forged owner; no Ambient is needed to label data. Ordinary
+    Header fields are public and may cross origins: secret headers belong
+    only in Credentials, including Authorization, cookies and custom keys.
+
+    Before the initial request and every hop, the provider checks the
+    resolved origin against its policy. Refusal is `OriginRefused{Origin}`
+    and makes no request to that origin. Identity includes scheme, host and
+    effective numeric port; DNS case and default ports are normalized, IPv6
+    addresses are canonicalized, and interface-zone case is retained.
+    Credential fields are selected anew for each hop by exact origin, so
+    an A-B-A chain sends A's fields only to A, and B's only to B. User
+    information in a URL is refused, not converted to implicit credentials.
+
+    Follow handles 301, 302, 303, 307 and 308 with a Location, resolving
+    relative URLs normally. Each followed redirect consumes one hop; an
+    exhausted limit is `RedirectLimit{URL, Limit}`. NoRedirects returns
+    the redirect response. A 303 changes the method to GET except HEAD;
+    301/302 change a non-GET/HEAD method to GET. That change drops its body;
+    307/308 retain method and body. Required header/body budgets apply to
+    every response. There is no new timeout, retry or decompression. The
+    existing exchange owns cancellation and joins it before a stop returns,
+    including at a redirect target.
+
+    `TestHTTPNetworkMatchesModel` compares generated chains, cycles,
+    header sets and policies with a graph model on two loopback origins;
+    `TestHTTPNetworkStops` checks completed cancellation after a redirect.
+    `TestHTTPNetworkRuns` compares the source API and typed failure bridge
+    with a model; a failing seed prints its source, outputs and replay.
+    The Network exemption is for these external peer obligations, as Net's
+    is; finite properties are tested, not proved. `examples/download`
+    captures the delegated provider outside main and accepts runtime URLs.
+
+    Effect `HttpClient.followRedirects` supplies the intent: a bounded
+    traversal without leaking credentials. An ordinary operation type,
+    explicit policy unions, typed refusals and captured provider replace
+    service tags, layers and middleware combinators. Go's Client is the
+    transport and hand-Go control: a redirect loop with the same policy,
+    limits, header ownership and cancellation. No parity or speed claim is
+    made; the matching benchmark harness and quiet-window receipt remain
+    pending. Gleam httpc 5.0.0 exposes follow_redirects (off by default),
+    lowering through its Erlang client; Elixir Req exposes redirect and
+    redirect_trusted through BEAM library code. ReScript uses its host HTTP
+    client. Go's auth-copy rule permits same-host/subdomain redirects;
+    Ergo's explicitly marked credentials use the stricter exact origin,
+    including the port, not Go's host-only trust rule.
+
 Prior art for Files (source inspected, not measured): Wisp's `serve_static`
 (main branch) drops every ".." substring from the decoded path, joins it to
 the directory and reads through `simplifile`, so the guard is lexical and a
@@ -815,7 +877,7 @@ The table has one row per std package, the prelude included. The Effect module i
 
 | Package | Effect module | Workarounds not copied | Ergo construct | Lowering against hand Go |
 | --- | --- | --- | --- | --- |
-| `http` | `HttpServer` (platform) | W1, W4, W5, W6, W11, W14 | function handlers retain `needs R`; typed body results and pure route matches are closed unions; Serve owns child tasks ([http](#http); [runtime.md, Tasks](runtime.md#tasks)) | pending: `runtime/v1.BenchmarkHTTPServer` alternates the buffered adapter and net/http with request contexts, shutdown cancellation and joined workers; tracing is off. Quiet-host command: `wf10/g1-http/bench-pending.md`. No parity claim yet. |
+| `http` | `HttpServer` (platform), `HttpClient.followRedirects` | W1, W4, W5, W6, W11, W14 | function handlers retain `needs R`; typed body results and pure route matches are closed unions; Serve owns child tasks; Net and Network are replaceable operation types, origin/redirect policies are unions and credentials have construction authority ([http](#http); [runtime.md, Tasks](runtime.md#tasks)) | pending: `runtime/v1.BenchmarkHTTPServer` alternates the buffered adapter and net/http with request contexts, shutdown cancellation and joined workers; tracing is off. Quiet-host command: `wf10/g1-http/bench-pending.md`. CU5's matched redirect/policy harness is also pending. No parity claim yet. |
 | `prelude` | `Option.ts`, `Console.ts`, `Random.ts`, `Fiber.ts` | W4, W10, W14, W18 | prelude unions and operation types bound by `context` ([types.md, Prelude types](types.md#prelude-types); [rows.md, Capability rows](rows.md#capability-rows)) | none: `Append`, `Get` and `Delete` are Go's `append`, map index and `delete`; the box of `Get`'s `Some` waits on union-repr R1 (docs/research/union-repr.md §10, measured there: 0.49 allocations per lookup) |
 | `actor` | effect-machine `Machine.spawn` and its `ActorRef` (outside `packages/effect/src`; no module of the pin has an actor) | W1, W4, W5, W6, W14 | `actor.StartMachine` runs the prelude `Machine[S, E, O, F, R, W]`: `Ask` returns the step's `Decision` matched exhaustively, the step's row `F` and `Stopped` are in `Ask`'s row, the timers sleep on the `Scheduler` the caller binds, and outputs go to a typed `sink` function ([runtime.md, Machines and actors](runtime.md#machines-and-actors) 11) | pending: `runtime/v1.BenchmarkActorAsk` against a hand goroutine with a channel and a `switch` (`runtime/v1.BenchmarkActorAskHandGo`); the command is in `wf10/batch-13/MU3/bench-pending.md` |
 | `base64` | `Encoding.ts` | W3, W5, W6, W14 | the alphabet as the union `Encoding`, matched by `Encode` and `Decode`, where Effect has `encodeBase64` and `encodeBase64Url`; `Malformed` in the row, where Effect's `decodeBase64` returns an `Either` ([Encodings and digests](#encodings-and-digests) 2; [types.md, Unions](types.md#unions); [rows.md, Catch](rows.md#catch)) | `runtime/v1.BenchmarkDigest` (`Base64StdEncode` against Go's `EncodeToString`): pending in `wf10/batch-12/G/bench-pending.md` (expected equal but the string-to-bytes copy) |

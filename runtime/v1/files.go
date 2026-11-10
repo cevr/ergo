@@ -237,6 +237,8 @@ var stdRecords = map[string]string{
 	"http.InvalidLimits":   "HTTPInvalidLimits",
 	"http.InvalidClient":   "HTTPInvalidClient",
 	"http.SendFailed":      "HTTPSendFailed",
+	"http.OriginRefused":   "HTTPOriginRefused",
+	"http.RedirectLimit":   "HTTPRedirectLimit",
 	"http.Limits":          "HTTPLimits",
 	"http.Field":           "HTTPField",
 	"http.Response":        "HTTPResponse",
