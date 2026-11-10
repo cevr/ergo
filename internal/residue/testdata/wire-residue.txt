@@ -303,6 +303,7 @@ runtime/v1/testdata/webtarget/gen.mjs	// checks on the wire (S-target). Each row
 tmp/orchestrate/wf10/s-query/brief.md	*
 tmp/orchestrate/wf10/s-query/state.md	*
 tmp/orchestrate/wf10/s-query/S-query/round-1-request.md	*
+tmp/orchestrate/wf10/s-query/S-target/round-1-request.md	*
 docs/spec/stdlib.md	**Typed query** (S-query). `DecodeQuery[T wire](fields) T fails QueryRepeated | wired[T]`
 docs/spec/stdlib.md	follows the codec's one rule: a field's key is its wire name, an
 internal/sketch/std/json/laws.ergo	func viaWriter[T wire](v T) string {
