@@ -1709,6 +1709,20 @@
       "killers": [
         "lower:TestCaptureLoweringAgrees"
       ]
+    },
+    {
+      "name": "ig11-init-failure-forgotten",
+      "origin": "wf10 batch-15 fix-r2 (IG11 M1)",
+      "file": "internal/sketch/lower/library.go",
+      "from": "b.WriteString(\"\\tif p := \" + failed + \"; p != nil {",
+      "to": "b.WriteString(\"\\tif p := \" + failed + \"; false && p != nil {",
+      "rule": "interop.md Go calls Ergo 2: when the package-level lets end in a defect, every later call fails with it.",
+      "killers": [
+        "lower:TestGoCallsErgo"
+      ],
+      "anchor": {
+        "text": "runInits := l.initOnce(b)"
+      }
     }
   ]
 }

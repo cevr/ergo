@@ -75,6 +75,15 @@ func Wait(ready fmt.Stringer) needs Console | Ambient | go.Foreign {
 func Unwrap(p Pair) int { return p.A }
 `
 
+// goExportFailing is a second library, whose package-level let has a
+// defect: every call fails with it, the first and the later ones.
+const goExportFailing = `func zero() int { return 0 }
+
+let Bad = 10 / zero()
+
+func Get() int { return Bad + 1 }
+`
+
 // goExportHost is the Go program that calls the library.
 const goExportHost = `package main
 
@@ -85,6 +94,7 @@ import (
 	"runtime"
 	"strings"
 
+	"example.com/bad"
 	"example.com/greet"
 )
 
@@ -132,6 +142,10 @@ func main() {
 	err = <-done
 	fmt.Println(errors.Is(err, context.Canceled))
 	fmt.Println("leaked", runtime.NumGoroutine()-before)
+	for range 2 {
+		v, err := bad.Get(ctx)
+		fmt.Println("bad", v, err != nil && strings.Contains(err.Error(), "divide by zero"))
+	}
 }
 `
 
@@ -151,26 +165,32 @@ func main() {
 // test's deadline names it); Call returns the interruption instead of
 // ctx.Err(); the body runs on a new goroutine (the goroutine ids differ);
 // the adapter passes the Ergo value as is (go build fails); the package
-// lets never run (Hello prints "go"); a slice result not copied (nums 99).
+// lets never run (Hello prints "go"); a slice result not copied (nums 99);
+// the once forgets that the lets failed (the second bad.Get returns 1,
+// nil: batch-15 IG11 M1).
 //
 // It builds Go because the subject is a Go program calling emitted Go: only
 // go build and a run show the exported functions, the adapter and the
 // cancellation.
 func TestGoCallsErgo(t *testing.T) {
 	needsBuild(t)
-	file, err := syntax.Parse(goExportLibrary)
-	if err != nil {
-		t.Fatal(err)
+	lower := func(src, name string) []File {
+		file, err := syntax.Parse(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pkg, diags := check.Check("main", []*syntax.File{file}, nil)
+		if len(diags) > 0 {
+			t.Fatalf("check: %v", diags)
+		}
+		u := Unit{Package: pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: src}}}
+		files, err := LowerLibrary(u, "example.com/"+name, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return files
 	}
-	pkg, diags := check.Check("main", []*syntax.File{file}, nil)
-	if len(diags) > 0 {
-		t.Fatalf("check: %v", diags)
-	}
-	u := Unit{Package: pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: goExportLibrary}}}
-	files, err := LowerLibrary(u, "example.com/greet", "greet")
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := lower(goExportLibrary, "greet")
 	root := t.TempDir()
 	write := func(rel string, data []byte) {
 		p := filepath.Join(root, filepath.FromSlash(rel))
@@ -191,7 +211,10 @@ func TestGoCallsErgo(t *testing.T) {
 	if !strings.Contains(lib, "// Not exported to Go: Unwrap: parameter 1 has the type main.Pair.") {
 		t.Errorf("the library does not list Unwrap as not exported:\n%s", lib)
 	}
-	write("host/go.mod", []byte("module host\n\ngo "+goVersion+"\n\nrequire example.com/greet v0.0.0\n\nrequire "+runtimeModule+" v0.0.0\n\nreplace example.com/greet => ../greet\n\nreplace "+runtimeModule+" => ../greet/"+runtimeDir+"\n"))
+	for _, f := range lower(goExportFailing, "bad") {
+		write("bad/"+f.Path, f.Data)
+	}
+	write("host/go.mod", []byte("module host\n\ngo "+goVersion+"\n\nrequire example.com/greet v0.0.0\n\nrequire example.com/bad v0.0.0\n\nrequire "+runtimeModule+" v0.0.0\n\nreplace example.com/greet => ../greet\n\nreplace example.com/bad => ../bad\n\nreplace "+runtimeModule+" => ../greet/"+runtimeDir+"\n"))
 	write("host/main.go", []byte(goExportHost))
 	exe := filepath.Join(root, "host.exe")
 	build := exec.Command("go", "build", "-o", exe, ".")
@@ -206,7 +229,7 @@ func TestGoCallsErgo(t *testing.T) {
 	if err := runProgram(t, cmd); err != nil {
 		t.Fatalf("host: %v\n%s%s", err, stdout.String(), stderr.String())
 	}
-	want := "hello go <nil>\n6 <nil>\ntrue\nnums 1\n5 <nil>\nsame goroutine true <nil>\nreleased\ntrue\nleaked 0\n"
+	want := "hello go <nil>\n6 <nil>\ntrue\nnums 1\n5 <nil>\nsame goroutine true <nil>\nreleased\ntrue\nleaked 0\nbad 0 true\nbad 0 true\n"
 	if got := stdout.String(); got != want {
 		t.Errorf("host output:\n%s\nwant:\n%s\nstderr:\n%s", got, want, stderr.String())
 	}

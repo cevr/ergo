@@ -163,6 +163,8 @@ func (l *lowerer) nameExports() {
 	l.pkgName(pkgKey{"import", "context"}, "context")
 	l.pkgName(pkgKey{"import", "sync"}, "sync")
 	l.pkgName(pkgKey{"once", nil}, "ergoInitOnce")
+	l.pkgName(pkgKey{"once", "failed"}, "ergoInitFailed")
+	l.pkgName(pkgKey{"once", "run"}, "ergoInitRun")
 }
 
 // exports writes the exported Go functions of a library and the host's
@@ -242,12 +244,18 @@ func (l *lowerer) exports(b *strings.Builder) {
 }
 
 // initOnce declares the sync.Once that runs a library's package-level lets
-// once, in the task of the first call, and returns the statement that runs
-// them given the root Env's name ("" when the package has none). It is
-// apart from exports, which emits runtime calls: Once.Do is sync's, not a
-// runtime binding (TestRuntime199BlockingOwner).
+// once, in the task of the first call, and the function every exported
+// function calls first, and returns the statement that calls it given the
+// root Env's name ("" when the package has none). The once keeps how the
+// lets ended: a panic out of them (a defect, or the first call's
+// interruption) is kept and raised again in every later call, so no call
+// reads a let they did not set (interop.md, Go calls Ergo 2). It is apart
+// from exports, which emits runtime calls: Once.Do is sync's, not a runtime
+// binding (TestRuntime199BlockingOwner).
 func (l *lowerer) initOnce(b *strings.Builder) func(env string) string {
 	once := l.pkgName(pkgKey{"once", nil}, "ergoInitOnce")
+	failed := l.pkgName(pkgKey{"once", "failed"}, "ergoInitFailed")
+	run := l.pkgName(pkgKey{"once", "run"}, "ergoInitRun")
 	if !l.hasInits() {
 		return func(string) string { return "" }
 	}
@@ -257,7 +265,14 @@ func (l *lowerer) initOnce(b *strings.Builder) func(env string) string {
 	sync := l.pkgName(pkgKey{"import", "sync"}, "sync")
 	l.libImports = append(l.libImports, sync+` "sync"`)
 	b.WriteString("// " + once + " runs the package-level lets once, in the task of the first call.\nvar " + once + " " + sync + ".Once\n\n")
+	b.WriteString("// " + failed + " is the panic that ended the package-level lets, nil when\n// they ran to the end. " + once + " writes it before any reader runs.\nvar " + failed + " any\n\n")
+	b.WriteString("// " + run + " runs the package-level lets in the first call, and raises the\n// panic that ended them again in every later call.\n")
+	b.WriteString("func " + run + "(env *" + l.env() + ") {\n")
+	b.WriteString("\t" + once + ".Do(func() {\n")
+	b.WriteString("\t\tdefer func() {\n\t\t\tif p := recover(); p != nil {\n\t\t\t\t" + failed + " = p\n\t\t\t\tpanic(p)\n\t\t\t}\n\t\t}()\n")
+	b.WriteString("\t\t" + l.pkgName(pkgKey{"init", nil}, "ergoInit") + "(env)\n\t})\n")
+	b.WriteString("\tif p := " + failed + "; p != nil {\n\t\tpanic(p)\n\t}\n}\n\n")
 	return func(env string) string {
-		return "\t\t" + once + ".Do(func() { " + l.pkgName(pkgKey{"init", nil}, "ergoInit") + "(" + env + ") })\n"
+		return "\t\t" + run + "(" + env + ")\n"
 	}
 }
