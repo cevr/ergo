@@ -225,7 +225,7 @@ const corpusGcPackage = "internal/sketch/lower"
 var corpusGcEnvironment = []string{"ERGO_TEST_CORPUS_GC=1"}
 
 // gofmtDirectories are the Go trees the gate requires to be gofmt-clean.
-var gofmtDirectories = []string{"cmd", "internal", "runtime", "scripts/gate", "scripts/conformance", "scripts/examples", "examples/go-interop", "tools/provenance"}
+var gofmtDirectories = []string{"cmd", "internal", "runtime", "scripts/gate", "scripts/conformance", "scripts/examples", "tools/provenance"}
 
 // provenanceManifest lists the checker functions that may make syntax nodes;
 // the provenance analyzer flags a node made anywhere else in the checker.

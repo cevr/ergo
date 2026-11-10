@@ -98,14 +98,6 @@ internal/sketch/syntax/testdata/corpus/sketch-eval-9/http-endpoints.ergo	Directo
 internal/sketch/syntax/testdata/corpus/sketch-eval-9/http-endpoints.ergo	func Wire(m Member) string { return m.ID
 internal/sketch/syntax/testdata/corpus/sketch-eval-9/http-endpoints.ergo	func Wire(t Total) int64 fails Unpublishable
 internal/sketch/syntax/testdata/corpus/sketch-eval-9/http-endpoints.ergo	stored-data caller decodes with the same wire forms outside HTTP.
-runtime/ergo/codec.go	// of its own: the wire form is the representation's.
-runtime/ergo/codec.go	// CodecField names a wire key and the node decoding its
-runtime/ergo/codec.go	// profile the wire key is the source field name.
-runtime/ergo/codec.go	closed alternative, selected by its wire Tag.
-runtime/ergo/codec_transform_test.go	is a nominal domain value whose wire representation is a
-runtime/ergo/http_admission_test.go	it, after the bytes are on the wire.
-runtime/ergo/http_transport_test.go	would put its first bytes on the wire before cleanup.
-runtime/ergo/http_transport_test.go	t.Fatalf("response bytes reached the wire before cleanup completed: %v",
 
 # the old-spelling list: grammar.md's old Ergo-only spellings and its copies
 CHANGELOG.md	Ergo spellings: `error[…]` rows, `wire Name { A = x }`, `catch e { …

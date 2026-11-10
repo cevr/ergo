@@ -227,7 +227,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 ## Runtime and providers
 
-**Effect runtime provider** (direction): An implementation of the lawful runtime contract that executes Ergo effects on a target. `runtime/ergo` is the native Go provider of the earlier language, and the prototype's `rt` package is the first provider of the Go-shaped language. Pinned Effect as the JavaScript provider went with the JavaScript target on 2026-10-26.
+**Effect runtime provider** (direction): An implementation of the lawful runtime contract that executes Ergo effects on a target. `runtime/ergo` was the native Go provider of the earlier language (removed in batch 14), and the prototype's `rt` package is the first provider of the Go-shaped language. Pinned Effect as the JavaScript provider went with the JavaScript target on 2026-10-26.
 
 **Lawful runtime contract** (specified research): The host operations and laws an effect runtime provider must satisfy, with each obligation's evidence classified as nominally checked, trusted decision, tested law, refuted or unresolved/unavailable.
 

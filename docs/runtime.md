@@ -1,6 +1,8 @@
 # Managed Go runtime
 
-The prototype uses `runtime/ergo`, a Go-standard-library runtime with typed lazy closures and managed goroutines. Go is the only target (owner, 2026-10-26); the JavaScript target on pinned Effect was removed. Conformance tests establish child-before-parent cleanup, unobserved failure propagation, and timeout cleanup-defect preservation. This is a tested lifecycle subset, not a complete provider contract.
+Status: **retired**. This page records the runtime of the earlier `.ef` language. Its package `runtime/ergo` and the Go example `examples/go-interop` were removed in batch 14 (D2): nothing imported them. The runtime of the decided language is `runtime/rt` and `runtime/v1` ([spec/runtime.md](spec/runtime.md)); Go interop is `import go` ([spec/interop.md](spec/interop.md), and the `examples/gointerop` program).
+
+The prototype used `runtime/ergo`, a Go-standard-library runtime with typed lazy closures and managed goroutines. Go is the only target (owner, 2026-10-26); the JavaScript target on pinned Effect was removed. Conformance tests establish child-before-parent cleanup, unobserved failure propagation, and timeout cleanup-defect preservation. This is a tested lifecycle subset, not a complete provider contract.
 
 ## Lifecycle contract
 
@@ -73,15 +75,6 @@ Try `./bin/ergo run examples/lifecycle.ef`. Each provider remains explicit and r
 At the Go runtime interface, `FromGo(func(context.Context) (A,error))` constructs a deferred call. It passes the managed context and preserves both returned values in `GoResult[A]`; a returned error is initially native data. The adapter must honestly state whether its API observes context. No goroutine is spawned just to hide a blocking call, and no signature is treated as proof of cancellation or purity.
 
 `OrFail(recipe)` explicitly adapts the returned error to GoError. Its payload contains both the native error and partial value. A panic remains a defect; observed context cancellation remains interruption. Resource-owning APIs use `AcquireRelease`, whose acquisition error is currently classified as IoError in this prototype; more general domain acquisition policies remain future work. APIs needing an abort hook register `OnCancel` before admission to blocking work.
-
-The runnable [Go example](../examples/go-interop/main.go) calls real `io.ReadFull`, retaining its partial count and `unexpected EOF`, then demonstrates explicit error adaptation and a context-aware cancellation boundary:
-
-```sh
-go run ./examples/go-interop
-# raw: count=3 data="abc" error=unexpected EOF
-# adapted: GoError partial=3 error=unexpected EOF
-# cancelled SDK: Timeout
-```
 
 Automatic source imports now consume Go export data for primitive package functions. Foreign/Host is the explicit capability for these deferred calls. See [interop](interop.md) and [imports example](https://github.com/cevr/ergo/blob/dbf135bff09901e85385945593113f35b300199c/examples/imports.ef). Imported methods follow Go's method sets (see [interop](interop.md) and [host types example](https://github.com/cevr/ergo/blob/dbf135bff09901e85385945593113f35b300199c/examples/host-types.ef)); native fields, method values and persistent signature caches remain unsupported.
 

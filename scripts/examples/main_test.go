@@ -448,10 +448,9 @@ func TestLayoutErrorsNameTheFolder(t *testing.T) {
 	f.write("examples/README.md", "# examples\n")
 	f.write("examples/editions/sketch/main.ergo", "#!/bin/sh\n# UNFORMATTED BUILDFAIL\n")
 	f.write("examples/editions/sketch/expected.out", "nothing\n")
-	f.write("examples/go-interop/main.go", "package main\n\nfunc main() {}\n")
 	code, out := f.run()
 	if oks, _ := verdicts(out); code != 0 || !oks["good/basic"] {
-		t.Fatalf("a root with editions, go-interop and a tty program: exit %d\n%s", code, out)
+		t.Fatalf("a root with editions and a tty program: exit %d\n%s", code, out)
 	}
 }
 

@@ -48,8 +48,6 @@ var nonPrograms = map[string]string{
 	// editions/sketch is pinned by cmd/ergo's and the sketch packages' Go
 	// tests and by README.md; the unit that retires those tests adopts it.
 	"editions": "edition fixtures that Go tests pin",
-	// go-interop is a Go program: go vet and go test build check it.
-	"go-interop": "a Go program the Go steps build",
 }
 
 // caseFiles are the files a case folder may hold.
