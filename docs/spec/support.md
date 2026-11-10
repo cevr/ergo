@@ -10,6 +10,8 @@ This page lists what `ergo build`, `ergo run` and `ergo test` do with each const
 
 A construct that the checker refuses never reaches the build. Its diagnostic is in [diagnostics.md](diagnostics.md). The status of each construct of the language, the designed ones included, is in the [specification's status table](README.md#status-per-construct).
 
+`ergo check` builds nothing. When the source checks, it runs the pure tests and laws in the checker's process, with no Go build, and lists each one that it does not run with the reason: a capability, a task, Go code, or a form that the evaluator does not run yet ([testing](../testing.md#check-time-evaluation)). This table is about the builds only.
+
 | Family | What it is | Status | Owner |
 | --- | --- | --- | --- |
 | `ArrayType` | the `ArrayType` syntax node | Checked; runs |  |

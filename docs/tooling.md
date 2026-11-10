@@ -4,7 +4,7 @@ Every `ergo` command reads one `.ef` source through one front end, `internal/ske
 
 | Command | Fate | Output and exit |
 | --- | --- | --- |
-| `check FILE\|DIR [--target go]` | Runs | The check envelope as JSON; exit 0 when the source checks, 1 when it does not |
+| `check FILE\|DIR [--seed N] [--eval-steps N] [--eval-bytes N] [--target go]` | Runs | The check envelope as JSON. A source that checks also has its pure tests and laws run in process, with no Go build ([testing](testing.md#check-time-evaluation)), and the envelope carries the `evaluation`. Exit 1 when the source does not check or an obligation is refuted, 2 when a defect stopped the evaluation, else 0 (a skipped or incomplete obligation leaves 0) |
 | `diagnostics FILE\|DIR [--strict] [--json] [--target go]` | Runs | One finding per line, or the diagnostic report as JSON; exit 0 when policy passes, 1 when it fails, 2 for an invalid invocation |
 | `build FILE\|DIR [-o PATH] [-work] [--target go]` | Runs | Builds a native executable, `dist/NAME` by default (NAME is the file's name without `.ergo`, or the folder's name), and prints its path; a source that does not check prints its check envelope and builds nothing |
 | `run [--json] [--target go] FILE\|DIR [--] [ARGS...]` | Runs | A source that does not check prints one `file:line:col: error CODE: message` line per finding on stderr, as `diagnostics` does, then `check failed`, and exits 1 (`--json`: the check envelope on stdout). Else it builds into a private temporary directory (no `dist/`, removed after the run), then runs the program with ARGS: as `go run`, every word after the source is the program's, less one `--` right after it, so `ergo`'s options stand before the source; SIGINT and SIGTERM are forwarded and the program's exit status passes through; a program that a forwarded signal ends exits 128 plus the signal number (130 for SIGINT, 143 for SIGTERM), with no message of `ergo`'s own |
@@ -20,7 +20,7 @@ Every `ergo` command reads one `.ef` source through one front end, `internal/ske
 
 A command that does not run prints one line to stderr, `ergo NAME: ` and the text in the table, prints nothing to stdout and exits 1, before it reads its arguments: `ergo graph --help` prints the stub too. `ergo --help` lists only the commands that run. An unknown word is `unknown command X; use ergo --help`, exit 1. The [retirement record](receipts/retire-ef.md) lists what [#203](https://github.com/cevr/ergo/issues/203) restores.
 
-Go is the only target. `--target` accepts only `go`, the default; any other value is the EF110 refusal. `--strict` and `--json` belong to `diagnostics`, `-o` to `build`, `-work` to `build` and `test`, and `--seed` to `test`; any other option is unknown: exit 2 for `diagnostics`, `fmt` and `test`, exit 1 for `check`, `build` and `run`.
+Go is the only target. `--target` accepts only `go`, the default; any other value is the EF110 refusal. `--strict` and `--json` belong to `diagnostics`, `-o` to `build`, `-work` to `build` and `test`, `--seed` to `check` and `test`, and `--eval-steps` and `--eval-bytes` to `check`; any other option is unknown: exit 2 for `diagnostics`, `fmt` and `test`, exit 1 for `check`, `build` and `run`.
 
 ## Source admission
 
@@ -41,6 +41,13 @@ Not followed: a call of a function value or of an operation of an operation-type
 ## Check envelope
 
 `ergo check` prints one JSON object: `schemaVersion` (10), `checked`, `target`, `revision` (a SHA-256 digest that identifies the source), `diagnostics` (at most 100, each with `code`, `message` and a UTF-8 byte `span` with one-based line and column), `diagnosticsTruncated`, the `producer` that made the facts, and the `snapshot` that binds the schema, revision, target and producer together. Producer identity follows the executing artifact: its digest when the executable can be read, and a process-scoped qualifier when it cannot. `ergo build` and `ergo run` acquire a producer identity only when they refuse a source. The emission cache keys on its own digest of the compiler executable, which needs no producer identity ([runtime.md](spec/runtime.md), Host and lowering notes).
+
+When the source checks, the envelope also has `evaluation`, the result of running its pure tests and laws at check time ([testing](testing.md#check-time-evaluation)). A source that does not check has no `evaluation` key. The object has:
+
+- `schemaVersion` (1), and `revision`, the digest of the text that the evaluation ran on, which equals the envelope's `revision`;
+- `status`, the worst status of its obligations: `defect`, `refuted`, `incomplete` (a budget ran out), `skipped`, `passed`, or `none` when there is no obligation;
+- `steps` and `stepsLimit`, `bytes` and `bytesLimit`: the work and the value bytes used, of their budgets (`--eval-steps`, `--eval-bytes`). They are counts, not times;
+- `obligations`, one record per test or law run, in the order `ergo test` runs them. Each has `name` (`BurstThenWait`, `law RefillNeverOverfills`, `law Router.CanStop`), `status` (`passed`, `refuted`, `defect`, `skipped`, `incomplete` or `not run`), `site` (`file`, one-based `line` and byte `column`: where it was refuted, hit its defect or stopped, else its declaration), `steps` and `cases`. Then, when they apply: `reason` (why it did not pass, or what decided a machine law), `evidence` (`evaluated` for an example, `tested` for sampled cases, `proved` for every value of a listed domain or a decided machine law), `totalCases`, `seed`, `case` (the first bad case, one-based) with `arguments` (each `name` and `value` as an Ergo literal), `replay` (the `ergo test` command that runs the same cases, on each record that did not pass), and `machine` for a reachability law: the search's `states`, `edges`, `depth` (the longest shortest run of a state seen), `checked` (the run length up to which every run was checked), `complete` (the search saw the whole graph it searched), `steps` (the step calls, replays included), `runs` (the generated runs, when the graph could not be listed) and `run` (the run that decided the law).
 
 ## Diagnostic reports
 
