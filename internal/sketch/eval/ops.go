@@ -39,7 +39,7 @@ func (in *interp) binop(fr *frame, at syntax.Node, op syntax.Token, a, b Value) 
 	}
 	if s, ok := a.(string); ok && op == syntax.ADD {
 		t := b.(string)
-		if ab := in.charge(fr, at, int64(len(s))+int64(len(t))); ab != nil {
+		if ab := in.build(fr, at, int64(len(s))+int64(len(t)), 0, int64(len(s))+int64(len(t))); ab != nil {
 			return nil, ab
 		}
 		return s + t, nil

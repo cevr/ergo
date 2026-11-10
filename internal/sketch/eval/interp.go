@@ -12,6 +12,7 @@ type interp struct {
 	budget Budget
 	root   *check.Package
 	steps  int64
+	bytes  int64 // value bytes allocated, of budget.Bytes
 	depth  int
 	files  map[syntax.Decl]*syntax.File
 	// globals are the package-level lets, bound once by the packages'
@@ -114,6 +115,30 @@ func (in *interp) charge(fr *frame, at syntax.Node, n int64) *abrupt {
 	}
 	in.steps += n
 	return nil
+}
+
+// allocate spends n bytes of the byte budget before the allocation they
+// pay for; it returns the exhaustion when the budget cannot pay. Like a
+// step stop, a byte stop is incomplete, never passed.
+func (in *interp) allocate(fr *frame, at syntax.Node, n int64) *abrupt {
+	if n < 0 || in.bytes > in.budget.Bytes-n {
+		in.bytes = in.budget.Bytes
+		return fr.abrupt(ctlExhausted, at, nil, fmt.Sprintf("the evaluation allocated its %d bytes", in.budget.Bytes))
+	}
+	in.bytes += n
+	return nil
+}
+
+// build charges both budgets of an allocation of slots collection slots
+// and raw bytes: steps for the work, bytes for the values.
+func (in *interp) build(fr *frame, at syntax.Node, steps, slots, raw int64) *abrupt {
+	if ab := in.charge(fr, at, steps); ab != nil {
+		return ab
+	}
+	if slots > (1<<62)/valueBytes {
+		return in.allocate(fr, at, -1)
+	}
+	return in.allocate(fr, at, slots*valueBytes+raw)
 }
 
 // typeOf is x's checked type; a missing entry is an internal error.

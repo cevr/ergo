@@ -45,15 +45,30 @@ type Budget struct {
 	// States is the explorer's budget of states for a machine law's
 	// search, the test build's --states; 0 is its default, 1,000,000.
 	States int
+	// Bytes bounds the bytes the evaluation allocates for values (ergo
+	// check --eval-bytes); 0 is its default, 64 MiB. It is a conservative
+	// allocation count, charged before each allocation: every string byte
+	// and valueBytes per collection slot it builds, never freed. It is
+	// not a measure of the process's memory.
+	Bytes int64
 }
 
 // DefaultBudget is the editor budget the plan proposes (section 5): one
-// million steps and a call depth of 1024. It is a work bound, not a time
-// bound.
-func DefaultBudget() Budget { return Budget{Steps: 1_000_000, Depth: 1024, Seed: 1} }
+// million steps, 64 MiB of values and a call depth of 1024. It is a work
+// bound, not a time bound.
+func DefaultBudget() Budget {
+	return Budget{Steps: 1_000_000, Depth: 1024, Seed: 1, Bytes: defaultBytes}
+}
 
 // defaultStates is the test build's --states default ($States).
 const defaultStates = 1_000_000
+
+// defaultBytes is the default byte budget, 64 MiB.
+const defaultBytes = 64 << 20
+
+// valueBytes is what one collection slot costs of the byte budget: a Go
+// interface value, two words.
+const valueBytes = 16
 
 // Status is one obligation's verdict.
 type Status string
@@ -116,6 +131,8 @@ type Report struct {
 	Results []Result
 	// Steps is the work used, of Limit.
 	Steps, Limit int64
+	// Bytes is the value bytes allocated, of BytesLimit.
+	Bytes, BytesLimit int64
 }
 
 // Refuted reports whether some obligation was refuted.
@@ -147,14 +164,17 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 	if pkg == nil || pkg.Info == nil {
 		return Report{}, errors.New("eval: no checked package")
 	}
-	if b.States < 0 {
+	if b.States < 0 || b.Bytes < 0 {
 		return Report{}, ErrBudget
 	}
 	if b.States == 0 {
 		b.States = defaultStates
 	}
+	if b.Bytes == 0 {
+		b.Bytes = defaultBytes
+	}
 	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}}
-	rep.Limit = b.Steps
+	rep.Limit, rep.BytesLimit = b.Steps, b.Bytes
 	defer func() {
 		if r := recover(); r != nil {
 			ie, ok := r.(internalError)
@@ -205,7 +225,7 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 			add(in.runLawTarget(run.Law, target, res))
 		}
 	}
-	rep.Steps = in.steps
+	rep.Steps, rep.Bytes = in.steps, in.bytes
 	return rep, nil
 }
 

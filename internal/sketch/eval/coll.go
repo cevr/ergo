@@ -105,7 +105,7 @@ func (in *interp) ownSlice(fr *frame, at syntax.Node, s sliceV, tok *token) (sli
 	if tok != nil && s.b.owner == tok {
 		return s, nil
 	}
-	if ab := in.charge(fr, at, int64(s.n)+1); ab != nil {
+	if ab := in.build(fr, at, int64(s.n)+1, int64(s.n), 0); ab != nil {
 		return s, ab
 	}
 	data := append([]Value(nil), s.elems()...)
@@ -117,7 +117,7 @@ func (in *interp) ownMap(fr *frame, at syntax.Node, m mapV, tok *token) (mapV, *
 	if tok != nil && m.b.owner == tok {
 		return m, nil
 	}
-	if ab := in.charge(fr, at, int64(len(m.b.m))+1); ab != nil {
+	if ab := in.build(fr, at, int64(len(m.b.m))+1, 2*int64(len(m.b.m)+1), 0); ab != nil {
 		return m, ab
 	}
 	out := make(map[Value]Value, len(m.b.m)+1)
@@ -140,7 +140,7 @@ func (in *interp) appendTo(fr *frame, at syntax.Node, xs sliceV, x Value, own *t
 	}
 	if xs.off+xs.n == len(xs.b.data) {
 		if len(xs.b.data) == cap(xs.b.data) {
-			if ab := in.charge(fr, at, int64(len(xs.b.data))); ab != nil {
+			if ab := in.build(fr, at, int64(len(xs.b.data)), 2*int64(len(xs.b.data))+1, 0); ab != nil {
 				return nil, ab
 			}
 		}
@@ -153,7 +153,7 @@ func (in *interp) appendTo(fr *frame, at syntax.Node, xs sliceV, x Value, own *t
 		xs.b.data = append(xs.b.data, x)
 		return sliceV{b: xs.b, off: xs.off, n: xs.n + 1}, nil
 	}
-	if ab := in.charge(fr, at, int64(xs.n)+1); ab != nil {
+	if ab := in.build(fr, at, int64(xs.n)+1, int64(xs.n)+1+int64(xs.n)/2, 0); ab != nil {
 		return nil, ab
 	}
 	data := make([]Value, xs.n, xs.n+1+xs.n/2)

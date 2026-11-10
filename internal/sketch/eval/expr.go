@@ -415,7 +415,7 @@ func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) 
 		return in.listLit(fr, x, int(u.Len), true)
 	case *check.Map:
 		m := newMap()
-		if ab := in.charge(fr, x, int64(len(x.Elts))); ab != nil {
+		if ab := in.build(fr, x, int64(len(x.Elts)), 2*int64(len(x.Elts)), 0); ab != nil {
 			return nil, ab
 		}
 		for _, e := range x.Elts {
@@ -507,7 +507,7 @@ func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) 
 // listLit builds a slice literal, or an array literal that lists all its
 // elements.
 func (in *interp) listLit(fr *frame, x *syntax.CompositeLit, n int, array bool) (Value, *abrupt) {
-	if ab := in.charge(fr, x, int64(len(x.Elts))); ab != nil {
+	if ab := in.build(fr, x, int64(len(x.Elts)), int64(len(x.Elts)), 0); ab != nil {
 		return nil, ab
 	}
 	elems := make([]Value, 0, len(x.Elts))
@@ -536,7 +536,7 @@ func (in *interp) zero(fr *frame, at syntax.Node, t rtype) (Value, *abrupt) {
 	if !ok {
 		return nil, fr.unsupported(at, "the default value of %s yet", t.t)
 	}
-	if ab := in.charge(fr, at, size); ab != nil {
+	if ab := in.build(fr, at, size, size, 0); ab != nil {
 		return nil, ab
 	}
 	z, ok := zeroOf(t)
@@ -886,7 +886,7 @@ func (in *interp) interpolated(fr *frame, x *syntax.InterpolatedString) (Value, 
 		}
 		b.WriteString(text)
 	}
-	if ab := in.charge(fr, x, int64(b.Len())); ab != nil {
+	if ab := in.build(fr, x, int64(b.Len()), 0, int64(b.Len())); ab != nil {
 		return nil, ab
 	}
 	return b.String(), nil
