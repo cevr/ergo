@@ -42,12 +42,14 @@ func (fc *funcCtx) taskSnapshot(n syntax.Node, build func() string) string {
 func (fc *funcCtx) taskCaptureRoot(n syntax.Node, c *check.TaskCapture) string {
 	inner := fc.innerFuncCtx()
 	return fc.envClosure(childEnv, "rootEnv", n, func(env string) ([]string, string, string) {
-		inner.env, inner.site = env, n
+		// env is &copy; a release that passes the task selects through it
+		// (taskOf), so the root names it parenthesized.
+		inner.env, inner.site = "("+env+")", n
 		inner.depth = fc.depth + 1
 		inner.frame = newFrame(nil, true, false)
 		fs := fc.temp("root")
 		inner.frame.scope = fs
-		inner.line(fs + " := " + fc.l.rt() + ".NewOwnerScope(" + taskOf("("+env+")") + ")")
+		inner.line(fs + " := " + fc.l.rt() + ".NewOwnerScope(" + taskOf(inner.env) + ")")
 		for _, v := range c.Vars {
 			inner.ownVar(v, n)
 		}

@@ -30,6 +30,41 @@ import scope
 import trace
 import log
 
+type releaseCount { Seen queue.Queue[int] }
+
+func Close(r releaseCount) {
+	r.Seen.Push(1) catch {
+	case queue.Closed:
+		return
+	}
+}
+
+test QueuePushAfterEndReleases {
+	let seen = queue.New[int](8)
+	let q = queue.New[releaseCount](1)
+	q.End()
+	let r = releaseCount{Seen: seen}
+	q.Push(r) catch {
+	case queue.Closed:
+		assert seen.Len() == 1
+		return
+	}
+	assert false
+}
+
+test QueueDrainReleasesLeft(n int) {
+	let k = (n%8 + 8) % 8
+	let seen = queue.New[int](8)
+	if true {
+		let q = queue.New[releaseCount](k)
+		for _ in 0..k {
+			let r = releaseCount{Seen: seen}
+			try q.Push(r)
+		}
+	}
+	assert seen.Len() == k
+}
+
 // small is a capacity in 0..2 drawn from n.
 func small(n int) int {
 	let c = n % 3
@@ -238,6 +273,8 @@ var stdLawsStatements = map[string]string{
 	"log InnerAnnotationShadows":    `InnerAnnotationShadows(key string, outer string, inner string) { with Annotate(key, outer) { with Annotate(key, inner) { Annotation(key) == Some[string]{Value: inner} } } }`,
 	"prelude Task.StopIsIdempotent": `StopIsIdempotent() { Stop() Stop() true }`,
 	"queue EndKeepsValues":          `EndKeepsValues(v int) { let q = New[int](1) try q.Push(v) q.End() try q.Pop() == v }`,
+	"queue PushAfterEndReleases":    `PushAfterEndReleases() { let seen = New[int](8) let q = New[releaseCount](1) q.End() let r = releaseCount{Seen: seen} q.Push(r) catch { case Closed: return seen.Len() == 1 } false }`,
+	"queue DrainReleasesLeft":       `DrainReleasesLeft(n int) { let k = (n%8 + 8) % 8 let seen = New[int](8) if true { let q = New[releaseCount](k) for _ in 0..k { let r = releaseCount{Seen: seen} try q.Push(r) } } seen.Len() == k }`,
 	"queue FirstInFirstOut":         `FirstInFirstOut(a int, b int) { let q = New[int](2) try q.Push(a) try q.Push(b) let first = try q.Pop() let second = try q.Pop() first == a && second == b }`,
 	"queue Queue.EndIsIdempotent":   `EndIsIdempotent() { End() End() true }`,
 	"queue Queue.PushAfterEndFails": `PushAfterEndFails(v T) { End() Push(v) catch { case Closed: return true } false }`,

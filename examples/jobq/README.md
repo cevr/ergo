@@ -45,11 +45,11 @@ go run ./scripts/examples jobq
 Each gap is in the lane's gap file (`gaps-ex-b.md`) with a repro.
 
 - **G-ex-b-16** (partly closed by K3): `let res = if … { Ok } else { rs[i] }` now joins to the union. `let mut best = None` still needs `Option[duration]`, and the checker now says so (S108 "best is typed None by its value; write let mut best Option[duration] = None").
-- **G-ex-b-17** (language; known #197): a `Task` cannot be put in a slice, so a pool of `-workers N` is `pool.crew`, a recursion of one frame per task.
+- **Owned workers.** `pool.crew` holds its workers in a slice of tasks. `slices.Take` removes each task before `Wait`; a failure drains the tasks left in the slice.
 - **G-ex-b-18** (checker; soundness): found by a mutant of this program. A package `let` of a Map is global mutable state, and a function that writes it has an empty footprint, so a "pure" function gave two results for one argument. The program itself writes no package Map.
 - **G-ex-b-5** (closed by C1): the pool's tests and `cmd/jobq`'s now bind `testing.VirtualClock` as the `Scheduler` (the hand `memory.Instant` is gone). The laws stay `sched`'s, and the pool is held to `sched` by `AgreesWithTheVirtualRun`.
 - **G-ex-b-9** (partly closed by S4): `time.ParseDuration` now exists, but `flag` has no `Duration`, so the times stay `-backoff-ms` and `-every-ms` ints.
-- **G-ex-b-17** also meets C2: `tasks.Transform` runs work on a bounded set of tasks, but its function must give a value, and a worker gives none, so `crew` stays.
+- A worker block returns `true` so its slice has the writable element type `Task[bool, queue.Closed]`; the result only records completion.
 - By design, and still friction: `Task[T, E]` needs an error type, and there is no empty row to write for a task that cannot fail. A worker in the pool holds its worker for its backoff (a sleep), as a simple Go pool does, where `sched` frees it; both runs agree on each outcome, not on the times.
 
 Closed in batch 12: **G-ex-b-1** (K2: `duration(if … { -b } else { b })` with no `let` first), the hand `Next` (V2: `machines.Next`), and the property tests that restated the laws (V1 runs the laws). The pool's and the queue's `Emit` arms are `Unreachable`: `jobs.Step` never emits.

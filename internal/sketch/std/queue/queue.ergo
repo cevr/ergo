@@ -125,6 +125,46 @@ law LenCountsUntaken(xs []int) {
 	full && drained && q.Len() == 0
 }
 
+// releaseCount records a release in Seen, with no capability row: a release
+// that has no needs row can still change shared state and must run. queue
+// observes it with a queue, since sync imports task, which imports queue.
+type releaseCount { Seen Queue[int] }
+
+func Close(r releaseCount) {
+	r.Seen.Push(1) catch {
+	case Closed:
+		return
+	}
+}
+
+// PushAfterEndReleases: rejected admission releases the taken value in
+// the call's step, not at the end of its caller's scope.
+law PushAfterEndReleases() {
+	let seen = New[int](8)
+	let q = New[releaseCount](1)
+	q.End()
+	let r = releaseCount{Seen: seen}
+	q.Push(r) catch {
+	case Closed:
+		return seen.Len() == 1
+	}
+	false
+}
+
+// DrainReleasesLeft: ending the queue's owner releases every value left.
+law DrainReleasesLeft(n int) {
+	let k = (n%8 + 8) % 8
+	let seen = New[int](8)
+	if true {
+		let q = New[releaseCount](k)
+		for _ in 0..k {
+			let r = releaseCount{Seen: seen}
+			try q.Push(r)
+		}
+	}
+	seen.Len() == k
+}
+
 // New makes an open, empty queue that holds up to capacity values no Pop
 // has taken yet; 0 makes each Push wait for its Pop. A negative capacity
 // is a defect.

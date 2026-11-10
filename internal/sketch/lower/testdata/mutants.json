@@ -2,6 +2,24 @@
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
     {
+      "name": "L8-B3t-capture-root-env-unparenthesized",
+      "origin": "L8 B3t chat Set rewrite",
+      "file": "internal/sketch/lower/taskcapture.go",
+      "from": "inner.env, inner.site = \"(\"+env+\")\", n",
+      "to": "inner.env, inner.site = env, n",
+      "rule": "A Set member's root releases a captured resource whose Close needs the task through the root's environment copy; its task selects through the copy's pointer (&copy.task is a **Task).",
+      "killers": ["examples:chat"]
+    },
+    {
+      "name": "L8-B3t-release-empty-needs-is-not-pure",
+      "origin": "L8 B3t std queue release laws",
+      "file": "internal/sketch/lower/release.go",
+      "from": "cl := a.Close\n\tif cl.Func == nil {",
+      "to": "cl := a.Close\n\tif cl.Func != nil && len(rowElems(cl.Func.Sig.Uses)) == 0 { return \"\" }\n\tif cl.Func == nil {",
+      "rule": "A Close with no capability row may still change synchronized state and must run. The queue release laws observe a Close that pushes to a queue; the earlier release models observe closes through Console, a capability.",
+      "killers": ["lower:TestStdLawsRun"]
+    },
+    {
       "name": "L8-B3t-take-writes-crossing-slice",
       "origin": "L8 B3t mode crossing",
       "file": "runtime/v1/data.go",
