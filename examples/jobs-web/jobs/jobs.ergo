@@ -13,17 +13,17 @@ type Spec { Name string, Steps int, FailAt int }
 type State = Queued{} | Running{Step int, Of int} | Finished{} | Failed{Why string} | Cancelled{}
 
 // Job is one job as a client sees it.
-type Job { Number int, Name string, State State }
+type Job { ID int, Name string, State State }
 
 // Rejected: the spec cannot run; Reason says why.
 type Rejected { Reason string }
 
 // NoSuchJob: no job has the number.
-type NoSuchJob { Number int }
+type NoSuchJob { ID int }
 
 // AlreadyDone: the job is in the terminal State, so a cancel has
 // nothing to stop.
-type AlreadyDone { Number int, State State }
+type AlreadyDone { ID int, State State }
 
 // Jobs is the service the page and the client call. Work moves every
 // job on by ticks steps: the server's worker is driven, so a client that
@@ -103,7 +103,7 @@ func CancelOfTerminalFails(steps int, failAt int) bool needs Jobs {
 	}
 	Jobs.Cancel(id) catch {
 	case AlreadyDone as a:
-		return a.State == ended && a.Number == id && stateOf(id) == Some[State]{Value: ended}
+		return a.State == ended && a.ID == id && stateOf(id) == Some[State]{Value: ended}
 	case NoSuchJob:
 		return false
 	}

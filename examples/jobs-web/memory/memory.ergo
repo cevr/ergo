@@ -71,9 +71,9 @@ func Cancel(m Memory, id int) fails jobs.NoSuchJob | jobs.AlreadyDone {
 	match found {
 	case Stopped:
 	case Missing:
-		return jobs.NoSuchJob{Number: id}
+		return jobs.NoSuchJob{ID: id}
 	case Ended as e:
-		return jobs.AlreadyDone{Number: id, State: e.State}
+		return jobs.AlreadyDone{ID: id, State: e.State}
 	}
 }
 

@@ -23,7 +23,7 @@ func TestProjectionSourceSpans(t *testing.T) {
 		}
 		found := false
 		for _, m := range o.Mappings {
-			if sliceUnits(o.Text, m[0], m[1], enc) != "uRL" {
+			if sliceUnits(o.Text, m[0], m[1], enc) != "url" {
 				continue
 			}
 			found = true

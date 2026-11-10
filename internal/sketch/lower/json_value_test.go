@@ -131,7 +131,7 @@ func kinds(v json.Value) int {
 }
 
 test JsonValueField(d doc, id int) {
-	let text = "{\"iD\":" + strconv.Itoa(id) + ",\"meta\":" + spell(d, "") + "}"
+	let text = "{\"id\":" + strconv.Itoa(id) + ",\"meta\":" + spell(d, "") + "}"
 	let e = json.Decode(c[envelope](), text) catch { case _: assert false; return }
 	assert e.ID == id
 	assert json.Encode(c[envelope](), e) == text

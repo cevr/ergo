@@ -53,7 +53,7 @@ func end(r Run, s jobs.State) Decision[Run, jobs.State] {
 }
 
 // View is the job id as a client sees it.
-func View(id int, r Run) jobs.Job { jobs.Job{Number: id, Name: r.Spec.Name, State: r.State} }
+func View(id int, r Run) jobs.Job { jobs.Job{ID: id, Name: r.Spec.Name, State: r.State} }
 
 // Lifecycle is a job as a machine: it starts queued from its spec.
 type Lifecycle machine[Run, Signal] {

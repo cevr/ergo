@@ -27,7 +27,7 @@ export const describe = (s: State): string => {
   }
 }
 
-const line = (j: Job): string => `#${j.number} ${j.name}: ${describe(j.state)}`
+const line = (j: Job): string => `#${j.id} ${j.name}: ${describe(j.state)}`
 
 // protocol is Effect RPC over HTTP at url, ndjson framed: the server
 // streams each call's Exit as it ends.
@@ -54,8 +54,8 @@ export const session = (print: (line: string) => void) =>
     const cancel = (id: number) =>
       jobs.Cancel({ id }).pipe(
         Effect.tap(() => Effect.sync(() => print(`cancelled #${id}`))),
-        Effect.catchTag("AlreadyDone", e => Effect.sync(() => print(`#${e.number} is already ${describe(e.state)}`))),
-        Effect.catchTag("NoSuchJob", e => Effect.sync(() => print(`no job #${e.number}`))),
+        Effect.catchTag("AlreadyDone", e => Effect.sync(() => print(`#${e.id} is already ${describe(e.state)}`))),
+        Effect.catchTag("NoSuchJob", e => Effect.sync(() => print(`no job #${e.id}`))),
       )
     const work = (ticks: number) =>
       jobs.Work({ ticks }).pipe(Effect.tap(() => Effect.sync(() => print(`worked ${ticks}`))))

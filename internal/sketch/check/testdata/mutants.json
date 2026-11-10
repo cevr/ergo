@@ -1053,10 +1053,37 @@
       "name": "rpc-c2 wire keys keep their case",
       "origin": "wf10 r-ts-rpc R1",
       "file": "internal/sketch/check/wirecall.go",
-      "from": "\treturn string(name[0]-'A'+'a') + name[1:]\n}",
-      "to": "\treturn name\n}",
-      "rule": "stdlib.md, json 1 (owner q81): a record's keys are its field names with the first letter lowered, Option's value as value, which Effect's Schemas read.",
-      "gap": "the check, lower and std suites miss it: an encode and its decode change together. internal/rpcgen TestRpcLoopbackAgrees (effectView: the payloads and answers in Effect's form) kills it, outside this runner's suites (measured with a focused run, R1)"
+      "from": "\t\tb[i] += 'a' - 'A'",
+      "to": "\t\t_ = b[i]",
+      "rule": "stdlib.md, json 1 (owner q81; types.md Codecs 2, H3): a record's keys are its field names with the leading capitals lowered, Option's value as value, which Effect's Schemas read.",
+      "killers": ["check:TestWireKeysFollowTheRule"]
+    },
+    {
+      "name": "wire-initialism-last-capital",
+      "origin": "wf10 H3",
+      "file": "internal/sketch/check/wirecall.go",
+      "from": "\t\tn-- // the run's last capital starts the next word",
+      "to": "",
+      "rule": "types.md Codecs 2: a capital run that a lower-case letter follows keeps its last capital (HTTPStatus as httpStatus).",
+      "killers": ["check:TestWireKeysFollowTheRule"]
+    },
+    {
+      "name": "wire-initialism-whole-run",
+      "origin": "wf10 H3",
+      "file": "internal/sketch/check/wirecall.go",
+      "from": "\tfor i := 0; i < n; i++ {",
+      "to": "\tfor i := 0; i < n && i < 1; i++ {",
+      "rule": "types.md Codecs 2: the whole leading initialism is lowered (ID as id, URL as url).",
+      "killers": ["check:TestWireKeysFollowTheRule"]
+    },
+    {
+      "name": "wire-key-clash",
+      "origin": "wf10 H3",
+      "file": "internal/sketch/check/wire.go",
+      "from": "\t\t\tif other, ok := keys[k]; ok {",
+      "to": "\t\t\tif other, ok := keys[k]; ok && false {",
+      "rule": "types.md Codecs 2: a record whose fields share a wire key has no wire form; the S108 names both fields and the key.",
+      "killers": ["check:TestWireKeysFollowTheRule"]
     }
   ]
 }

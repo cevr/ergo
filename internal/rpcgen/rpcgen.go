@@ -38,7 +38,9 @@ type Files struct {
 
 // FieldName is the Request field of an operation parameter: the name with
 // its first letter raised, so its wire key (check.WireFieldName) is the
-// parameter's name, as Effect's payload struct names it.
+// parameter's name, as Effect's payload struct names it, for a parameter
+// whose second letter is lower case or a digit (id, userID); a parameter
+// such as xID has the key xid, on both ends, since both call WireFieldName.
 func FieldName(param string) string {
 	if param == "" || param[0] < 'a' || param[0] > 'z' {
 		return param
