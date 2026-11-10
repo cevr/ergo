@@ -30,11 +30,12 @@ import (
 // and both results.
 //
 // Mutants it kills that no other test does (ledger: ownership.go): a join
-// of owned and moved is owned; the loop body visited once; return does not
-// move; assignment does not release the old value; a temporary has no
-// owner; a written takes call does not move; a lend counts as a move; a
-// hand-off inside a trailing block admitted (the scope.OnExit rule); a
-// lend and a take in one call admitted; a lent parameter handed off.
+// of owned and moved is owned; the loop body visited once; assignment
+// does not release the old value; a temporary has no owner; a written
+// takes call does not move; a lend counts as a move; a hand-off inside a
+// trailing block admitted (the scope.OnExit rule); a lend and a take in
+// one call admitted; a lent parameter handed off; a local held only for
+// its release reported S110.
 func TestOwnershipFlowModel(t *testing.T) {
 	seeds := make([]uint64, 0, 400)
 	if s := os.Getenv("ERGO_SEED"); s != "" {
@@ -75,8 +76,8 @@ func TestOwnershipFlowModel(t *testing.T) {
 // TestOwnershipFlowWorkIsLinear bounds the flow pass's work: n copies of a
 // body that nests loops, branches, temporaries and blocks cost n times one
 // copy, counted in visited nodes and copied state slots (no timing). It
-// kills the mutant "a loop's entry state is not kept between visits of an
-// enclosing loop" (work doubles with each nested loop's visits).
+// kills the mutant "a loop's fixpoint not reused for an unchanged entry"
+// (the work of nested loops grows as d²).
 func TestOwnershipFlowWorkIsLinear(t *testing.T) {
 	unit := "\tfor _ in 0..n {\n\t\tfor _ in 0..n {\n\t\t\tfor _ in 0..n {\n\t\t\t\tif cond(n) {\n\t\t\t\t\tlet r = open(1)\n\t\t\t\t\tlend(open(2))\n\t\t\t\t\tkeep(r)\n\t\t\t\t\tcontinue\n\t\t\t\t}\n\t\t\t\tlend(q)\n\t\t\t}\n\t\t}\n\t}\n"
 	steps := func(n int) int {
@@ -92,27 +93,28 @@ func TestOwnershipFlowWorkIsLinear(t *testing.T) {
 	}
 	t.Logf("flow work %d, %d, %d at 8, 16, 32", s8, s16, s32)
 	// Loops nested d deep, the innermost handing off a local of the
-	// outermost frame on one path: each loop runs its body twice at its
-	// first visit and once at each later one (the kept entry state), so the
-	// work grows about linearly in d, never
-	// as 2^d.
+	// outermost frame on one path: each loop runs its body to its fixpoint
+	// once, and an enclosing loop's later pass reuses it (the loop memo),
+	// so the work is linear in d, not d² (a rerun per enclosing pass) nor
+	// 2^d (no memo).
 	nested := func(d int) int {
-		src := "\tlet r = open(1)\n" + strings.Repeat("\tfor _ in 0..n {\n", d) + "\tif cond(n) {\n\tkeep(r)\n\treturn\n\t}\n" + strings.Repeat("\t}\n", d)
-		c, diags := checkFor(ofPrelude + "func body(n int, p Res, q Res) fails Bad takes q {\n" + src + "}\n\nfunc main() {}\n")
-		if len(diags) != 0 {
-			t.Fatalf("diagnostics: %v", diags)
-		}
+		// The innermost hand-off changes every loop's entry state (and is
+		// S108 at its second iteration); the diagnostics do not matter here.
+		src := "\tlet r = open(1)\n" + strings.Repeat("\tfor _ in 0..n {\n", d) + "\tif cond(n) {\n\tkeep(r)\n\t}\n" + strings.Repeat("\t}\n", d)
+		c, _ := checkFor(ofPrelude + "func body(n int, p Res, q Res) fails Bad takes q {\n" + src + "}\n\nfunc main() {}\n")
 		return c.ownSteps
 	}
 	n8, n16 := nested(8), nested(16)
-	if n16 > 3*n8 {
+	if n16 > 2*n8 {
 		t.Fatalf("nested-loop work grows faster than linear: %d at depth 8, %d at depth 16", n8, n16)
 	}
 	t.Logf("nested-loop work %d, %d at depth 8, 16", n8, n16)
 }
 
 // TestOwnershipMessages fixes the text of each flow diagnostic (rows for
-// text only; the property owns the verdicts).
+// text only; the property owns the verdicts). Its return row kills the
+// mutant "return does not move", which the property cannot reach: its
+// generated bodies return no value.
 func TestOwnershipMessages(t *testing.T) {
 	for _, row := range []struct{ body, want string }{
 		{"let a = open(1)\n\tlet b = a\n\tlend(a)\n\tkeep(b)", "a was handed off at +2:10 (let moves it) and cannot be used after that"},
@@ -133,6 +135,11 @@ func TestOwnershipMessages(t *testing.T) {
 		if len(diags) != 1 || !strings.Contains(diags[0].Message, row.want) {
 			t.Errorf("%q: got %v, want one S108 containing %q", row.body, diags, row.want)
 		}
+	}
+	// A return hands off (R10): the generated bodies return no value.
+	_, diags := checkFor(ofPrelude + "func give(p Res) Res {\n\treturn p\n}\n\nfunc main() {}\n")
+	if want := "p is lent to give, so it cannot hand p off (it is returned)"; len(diags) != 1 || !strings.Contains(diags[0].Message, want) {
+		t.Errorf("return p: got %v, want one S108 containing %q", diags, want)
 	}
 }
 

@@ -991,7 +991,7 @@
       "to": "w.expr(r, mLend, hand{at: r, how: \"it is returned\"})",
       "rule": "resources R10: return moves the value to the caller.",
       "killers": [
-        "check:TestOwnershipFlowModel"
+        "check:TestOwnershipMessages"
       ]
     },
     {
@@ -1083,12 +1083,12 @@
       ]
     },
     {
-      "name": "L8-A2 a loop's entry state not kept between visits",
+      "name": "L8-A2 a loop's fixpoint not reused for an unchanged entry",
       "origin": "wf10 L8 A2 (#197)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\tif c := w.loopEntry[n]; c != nil && entry != nil {",
-      "to": "\tif c := w.loopEntry[n]; false && c != nil && entry != nil {",
-      "rule": "compile speed (plan 7): nested loops cost about linear work, never 2^depth.",
+      "from": "\t\tif sameExact(entry, m.entry) {",
+      "to": "\t\tif false && sameExact(entry, m.entry) {",
+      "rule": "compile speed (plan 7): nested loops cost linear work in the nesting depth.",
       "killers": [
         "check:TestOwnershipFlowWorkIsLinear"
       ]

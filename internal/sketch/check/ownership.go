@@ -38,9 +38,10 @@ import (
 //
 // A loop body runs to its fixpoint: the lattice per value is owned,
 // moved < maybe, so a body runs at most twice per change of its entry
-// state, and each loop keeps its entry state between visits of an
-// enclosing loop, so nesting does not multiply the work. Diagnostics and
-// releases of a pass that is not the last are dropped. ownSteps counts
+// state, and each loop memoizes its last fixpoint (entry, exit state,
+// diagnostics), so an enclosing loop's later pass reuses it and nesting
+// does not multiply the work. Diagnostics of a pass that is not the last
+// are dropped; a later pass overwrites its releases. ownSteps counts
 // visited nodes and copied state slots.
 //
 // Prior art: Rust's move checker and drop elaboration (drop flags,
@@ -116,7 +117,7 @@ type ownWalk struct {
 	scopes       []ownScope
 	loops        []*ownLoop
 	catches      []*ownCatch
-	loopEntry    map[syntax.Node][]ownSlot
+	loopMemo     map[syntax.Node]*ownLoopMemo
 	diags        []ownDiag
 }
 
@@ -127,7 +128,7 @@ func (c *checker) checkOwnership() {
 	for _, fi := range c.files {
 		c.cur = fi
 		for _, d := range fi.syntax.Decls {
-			w := &ownWalk{c: c, info: c.pkg.Info, slot: map[*Var]int{}, loopEntry: map[syntax.Node][]ownSlot{}}
+			w := &ownWalk{c: c, info: c.pkg.Info, slot: map[*Var]int{}, loopMemo: map[syntax.Node]*ownLoopMemo{}}
 			switch d := d.(type) {
 			case *syntax.FuncDecl:
 				if d.Body == nil || d.Extern != nil {
@@ -469,14 +470,45 @@ func (w *ownWalk) clauses(cs []*syntax.CaseClause) {
 	w.st = out
 }
 
+// ownLoopMemo is a loop's last fixpoint: its entry state, its exit state
+// and the diagnostics of its final pass. An enclosing loop's later pass
+// that reaches the loop with the same entry reuses it, so each loop body
+// runs a bounded number of times in all (the lattice height), however
+// deep it nests.
+type ownLoopMemo struct {
+	entry, out []ownSlot
+	diags      []ownDiag
+}
+
+// sameExact reports equal states, hand-offs included (they name the
+// diagnostics).
+func sameExact(a, b []ownSlot) bool {
+	if !sameState(a, b) {
+		return false
+	}
+	for i := range a {
+		if a[i].at != b[i].at || a[i].how != b[i].how {
+			return false
+		}
+	}
+	return true
+}
+
 // loop runs a loop body to its fixpoint. A for-in's body runs zero or
 // more times, as a for with a condition does; a bare for ends only by
 // break.
 func (w *ownWalk) loop(n syntax.Node, cond syntax.Expr, body *syntax.BlockStmt) {
 	first := len(w.vars)
 	entry := w.st
-	if c := w.loopEntry[n]; c != nil && entry != nil {
-		entry = w.join(w.copyState(entry), c, first)
+	if m := w.loopMemo[n]; m != nil && entry != nil {
+		entry = w.join(w.copyState(entry), m.entry, first)
+		if sameExact(entry, m.entry) {
+			// The fixpoint from this entry is known: its exit state and
+			// its diagnostics; its release plan is already recorded.
+			w.diags = append(w.diags, m.diags...)
+			w.st = w.copyState(m.out)
+			return
+		}
 	}
 	_, ranged := n.(*syntax.RangeStmt)
 	for {
@@ -499,10 +531,12 @@ func (w *ownWalk) loop(n syntax.Node, cond syntax.Expr, body *syntax.BlockStmt) 
 		w.loops = w.loops[:len(w.loops)-1]
 		next := w.join(w.copyState(entry), back, first)
 		if entry == nil || sameState(next, entry) {
-			w.loopEntry[n] = entry
 			out := exits
 			for _, b := range lp.breaks {
 				out = w.join(out, b, first)
+			}
+			if entry != nil {
+				w.loopMemo[n] = &ownLoopMemo{entry: entry, out: w.copyState(out), diags: append([]ownDiag(nil), w.diags[mark:]...)}
 			}
 			w.st = out
 			return
