@@ -1903,6 +1903,116 @@
       "killers": [
         "lower:TestHostResourceVerdicts"
       ]
+    },
+    {
+      "name": "P-L8 OwnStatic sets no bit",
+      "origin": "wf10 P-L8 (#197)",
+      "file": "runtime/v1/static.go",
+      "from": "\t*slot = v\n\t*live |= bit",
+      "to": "\t*slot = v\n\t_ = bit",
+      "rule": "resources R5, R8: an owned value is released at its scope's end.",
+      "killers": [
+        "lower:TestStaticReleaseAgrees"
+      ]
+    },
+    {
+      "name": "P-L8 HandStatic keeps the bit",
+      "origin": "wf10 P-L8 (#197)",
+      "file": "runtime/v1/static.go",
+      "from": "func HandStatic[T any](live *uint64, bit uint64, v T) T {\n\t*live &^= bit",
+      "to": "func HandStatic[T any](live *uint64, bit uint64, v T) T {\n\t_ = bit",
+      "rule": "resources R10, R19: a value handed off is not released by its old owner.",
+      "killers": [
+        "lower:TestStaticReleaseAgrees"
+      ]
+    },
+    {
+      "name": "P-L8 ReturnStatic keeps no kept bit",
+      "origin": "wf10 P-L8 (#197)",
+      "file": "runtime/v1/static.go",
+      "from": "\t*live &^= bit\n\t*kept |= bit",
+      "to": "\t*live &^= bit\n\t_ = kept",
+      "rule": "resources R10: a value being returned is released when the frame's exit fails.",
+      "killers": [
+        "lower:TestStaticReleaseAgrees"
+      ]
+    },
+    {
+      "name": "P-L8 StaticBegin drops the frame's panic",
+      "origin": "wf10 P-L8 (#197)",
+      "file": "runtime/v1/static.go",
+      "from": "\tif p != nil {\n\t\ts.e = join(s.e, capture(t, p))",
+      "to": "\tif false {\n\t\ts.e = join(s.e, capture(t, p))",
+      "rule": "resources R9: a defect, a stop or a carried exit of the frame stays its exit.",
+      "killers": [
+        "lower:TestStaticReleaseAgrees"
+      ]
+    },
+    {
+      "name": "P-L8 a release defect stops the rest",
+      "origin": "wf10 P-L8 (#197)",
+      "file": "runtime/v1/static.go",
+      "from": "func (s *Static) Part(rel func()) {\n\tdefer func() {",
+      "to": "func (s *Static) Part(rel func()) {\n\tfunc() {",
+      "rule": "resources R9: each release runs after an earlier one's defect.",
+      "killers": [
+        "lower:TestStaticReleaseAgrees"
+      ]
+    },
+    {
+      "name": "P-L8 Failed never fails",
+      "origin": "wf10 P-L8 (#197)",
+      "file": "runtime/v1/static.go",
+      "from": "\treturn s.e != nil\n}",
+      "to": "\treturn false\n}",
+      "rule": "resources R10: a value being returned is released when the frame's exit fails.",
+      "killers": [
+        "lower:TestStaticReleaseAgrees"
+      ]
+    },
+    {
+      "name": "P-L8 End drops the release defects",
+      "origin": "wf10 P-L8 (#197)",
+      "file": "runtime/v1/static.go",
+      "from": "\te := s.e\n\tif len(s.exits.Reasons) > 0 {",
+      "to": "\te := s.e\n\tif false {",
+      "rule": "resources R9: every release defect joins the exit.",
+      "killers": [
+        "lower:TestStaticReleaseAgrees"
+      ]
+    },
+    {
+      "name": "P-L8 a scope end keeps the bit",
+      "origin": "wf10 P-L8 (#197)",
+      "file": "internal/sketch/lower/static.go",
+      "from": "\tfc.line(\"\\t\" + st.live + \" &^= \" + b)",
+      "to": "\t_ = b",
+      "rule": "resources R5, R6: a value released at its scope's end is not released again.",
+      "killers": [
+        "lower:TestStaticReleaseAgrees"
+      ]
+    },
+    {
+      "name": "P-L8 the frame releases first acquired first",
+      "origin": "wf10 P-L8 (#197)",
+      "file": "internal/sketch/lower/static.go",
+      "from": "\tfor k := len(st.slots) - 1; k >= 0; k-- {\n\t\tpart(st.live, k)",
+      "to": "\tfor k := range st.slots {\n\t\tpart(st.live, k)",
+      "rule": "resources R5: a frame releases last acquired first.",
+      "killers": [
+        "lower:TestStaticReleaseAgrees"
+      ]
+    },
+    {
+      "name": "P-L8 no release at a scope end inside the frame",
+      "origin": "wf10 P-L8 (#197)",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\t\t\t\tfc.staticRelease(key)\n\t\t\t\tcontinue",
+      "to": "\t\t\t\tcontinue",
+      "rule": "resources R5, R6: a block's or an iteration's values are released at its end.",
+      "killers": [
+        "lower:TestStaticReleaseAgrees"
+      ]
     }
   ]
 }

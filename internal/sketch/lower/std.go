@@ -186,6 +186,10 @@ func (l *lowerer) bodyNeedsScope(list []syntax.Stmt) bool {
 // first statement and first defer (runtime/v1 Scope): End gets the frame's
 // named error result, or nil in a frame with no error result.
 func (fc *funcCtx) openFrame(errName string) {
+	if fc.frame.static != nil {
+		fc.openStatic() // the static release form (static.go, P-L8)
+		return
+	}
 	fs := fc.scope.alloc("fs")
 	fc.frame.scope = fs
 	ctor := ".NewScope("
