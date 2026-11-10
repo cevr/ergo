@@ -193,6 +193,13 @@ func (l *lowerer) withsOf(w *check.Context) []*check.With {
 			}
 		}
 	}
+	// The test build also builds a context for each law run under it
+	// (LawRun.Contexts), in the runs' order.
+	for _, lc := range l.lawContexts() {
+		if lc.Context == w {
+			out = append(out, lc.With)
+		}
+	}
 	return out
 }
 

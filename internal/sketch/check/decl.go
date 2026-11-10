@@ -93,6 +93,8 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.finishInfo,
 		c.closeFacts,
 		c.withOwnership,
+		// Laws under a context read the acquisitions (lawcontexts.go).
+		c.planLawContexts,
 		c.checkFrames,
 		c.checkEscapes,
 		c.footprints,

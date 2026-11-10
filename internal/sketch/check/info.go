@@ -797,6 +797,9 @@ type LawRun struct {
 	// Bindings each hold one provider per slot of Law.Slots, in order. A
 	// law with no slots that runs has one empty binding.
 	Bindings [][]LawProvider
+	// Contexts are the named contexts of this package that bind the
+	// law's owner, each a run of its own (lawcontexts.go).
+	Contexts []LawContext
 }
 
 // LawProvider is a provider bound to a law's slot (LawRun.Bindings). Unrun

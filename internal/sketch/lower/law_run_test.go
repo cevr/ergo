@@ -353,7 +353,9 @@ func TestLawRunLeastPackage(t *testing.T) {
 }
 
 // TestLawRunSkips: a law that cannot run says why, and the summary counts
-// it as skipped, never as a test (fs4).
+// it as skipped, never as a test (fs4); so does a run under a context
+// whose build acquires a provider with a Close (L5; mutant
+// lawctx-close-runs).
 func TestLawRunSkips(t *testing.T) {
 	src := `type Shape {
 	Area() int,
@@ -390,6 +392,16 @@ func Put(_ Fns, v func(int) int) {}
 
 law Calls(f func(int) int) { f(1) == f(1) }
 
+type Res { n int }
+
+func Area(_ Res) int { 1 }
+
+func Close(_ Res) {}
+
+func openRes() Res { Res{n: 1} }
+
+let Held = context { Shape: openRes() }
+
 func main() {}
 `
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_skips", src)}, true)
@@ -399,11 +411,13 @@ func main() {}
 	stdout, stderr, code := runExe(t, exes["lawrun_skips"])
 	want := []string{
 		"skip law Shape.Positive for Fn: its values have no generator: func(int) int is a function type; a func NewFn() Fn with no rows would build one for each case",
+		"ok law Shape.Positive for Res (100 cases)",
+		"skip law Shape.Positive under Held: its build acquires a provider with a Close, which a law case does not release",
 		"skip law Box.Keeps for Fns: its parameter v has no generator at Box[func(int) int]: func(int) int is a function type",
 		"skip law Runner.Runs: its operation type Runner has the row parameter E, and a run binds only type parameters",
 		"skip law Ranked.Same: its operation type Ranked constrains T by operations, and a run passes no witness",
 		"skip law Calls: its parameter f has no generator: func(int) int is a function type",
-		"PASS (0 tests, 5 skipped)",
+		"PASS (1 tests, 6 skipped)",
 	}
 	if code != 0 || !slices.Equal(lines(stdout), want) {
 		t.Errorf("exit %d, stdout:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, strings.Join(want, "\n"), firstLines(stderr, 8))
@@ -464,7 +478,9 @@ func main() {}
 // is broken: it breaks the law for n above a threshold, so it fails at some
 // case. Half the laws reach the operation through a helper that needs the
 // type (the b13 binding); each program also has a top-level law, true or
-// false. want are the lines the test binary prints, in order, and exit its
+// false. Half the providers are also bound by a named context, under
+// which the law runs too (L5), and fails exactly when the provider is the
+// broken one. want are the lines the test binary prints, in order, and exit its
 // status.
 type lawRunProgram struct {
 	name, src string
@@ -499,6 +515,8 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 	providers := r.Intn(3) + 1
 	broken := r.Intn(providers + 1) // == providers: none is broken
 	var want []string
+	var ctxs strings.Builder
+	var under []string
 	failed := 0
 	for p := 0; p < providers; p++ {
 		name := fmt.Sprintf("P%d", p)
@@ -517,7 +535,25 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 			failed++
 		}
 		want = append(want, line)
+		if r.Intn(2) == 0 {
+			// A named context that binds the provider: the law also runs
+			// under it (L5), after the provider runs.
+			key := "Op"
+			if generic {
+				key = "Op[" + elem + "]"
+			}
+			fmt.Fprintf(&ctxs, "let C%d = context { %s: %s{tag: 1} }\n\n", p, key, name)
+			line := "ok law Op.Linear under C" + fmt.Sprint(p) + " (100 cases)"
+			if p == broken {
+				line = "FAIL law Op.Linear under C" + fmt.Sprint(p) + " (case "
+				failed++
+			}
+			under = append(under, line)
+		}
 	}
+	b.WriteString(ctxs.String())
+	want = append(want, under...)
+	providers += len(under)
 	top := r.Intn(2) == 0
 	if top {
 		b.WriteString("law Top(a int, b int) { a + b == b + a }\n\n")
