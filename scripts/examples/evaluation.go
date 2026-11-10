@@ -13,7 +13,7 @@ import (
 // checkTarget uses the same package and default seed as the native test
 // leg. A skipped or bounded obligation is visible, never called agreement.
 func (r *runner) checkTarget(p *program, target, leg string) *report.Evaluation {
-	o, err := r.tool(r.cfg.timeout, "check", target, "--json")
+	o, err := r.tool(r.cfg.timeout, "check", target)
 	if err != nil || !o.passed() {
 		r.toolFailed(p, leg, o, err)
 		return nil

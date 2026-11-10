@@ -28,10 +28,10 @@ tick() {
 }
 case "$1" in
 check)
-  [ $# -eq 3 ] && [ "$3" = "--json" ] || { echo "fake ergo: want check FILE --json" >&2; exit 64; }
+  [ $# -eq 2 ] || { echo "fake ergo: want check FILE" >&2; exit 64; }
   if [ -d "$2" ]; then
     cat "$2"/*.ergo > "$tools/check-package.ergo" || exit 1
-    set -- "$1" "$tools/check-package.ergo" "$3"
+    set -- "$1" "$tools/check-package.ergo"
   fi
   if grep -q '^# CHECKJSON ' "$2"; then
     sed -n 's/^# CHECKJSON //p' "$2"

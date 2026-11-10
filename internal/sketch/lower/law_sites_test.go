@@ -56,8 +56,10 @@ law Caught() {
 law Compared() {
 	(if true { false } else { true }) == true
 }
+type Other {}
+func partly() bool fails Fault | Other { Fault }
 law Tried() {
-	try bad() catch {
+	try partly() catch {
 	case Fault:
 		false
 	}
@@ -83,8 +85,8 @@ law Paren() {
 		"law Nested": {9, 3, 7, 1}, "law Probe.Member for Zero": {17, 3, 16, 2},
 		"law Choice": {27, 3, 22, 1}, "law Caught": {35, 3, 32, 1},
 		"law Compared": {39, 2, 38, 1},
-		"law Tried":    {44, 3, 41, 1},
-		"law Paren":    {48, 3, 47, 1},
+		"law Tried":    {46, 3, 43, 1},
+		"law Paren":    {50, 3, 49, 1},
 	}
 	for _, res := range rep.Results {
 		pos, ok := want[res.Name]
