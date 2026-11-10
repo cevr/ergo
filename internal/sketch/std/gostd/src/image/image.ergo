@@ -620,7 +620,7 @@ extern go image.Rectangle.Sub func (r Rectangle) Sub(p Point) Rectangle needs go
 extern go image.Rectangle.Union func (r Rectangle) Union(s Rectangle) Rectangle needs go.Foreign
 
 // ergo:go func RegisterFormat(name string, magic string, decode func(io.Reader) (Image, error), decodeConfig func(io.Reader) (Config, error))
-extern go image.RegisterFormat func RegisterFormat(name string, magic string, decode escaping func(io.Reader) Image fails go.Error, decodeConfig escaping func(io.Reader) Config fails go.Error) needs go.Foreign
+extern go image.RegisterFormat func RegisterFormat(name string, magic string, p2 escaping func(io.Reader) Image fails go.Error, decodeConfig escaping func(io.Reader) Config fails go.Error) needs go.Foreign
 
 // ergo:go var Transparent *Uniform
 // ergo:refused Transparent: a Go variable is host state; call a function
