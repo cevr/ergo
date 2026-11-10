@@ -78,16 +78,6 @@ func main() needs Console {
 	Console.Println("\(a) \(b) \(len(m))")
 }
 `, "1 1 0\n"},
-	{"P5capture", `func main() needs Console {
-	let mut c = Map[int, int]{}
-	let g = func() int { len(c) }
-	c[1] = 1
-	let mut out = []int{}
-	let h = func() int { len(out) }
-	out = out.Append(1)
-	Console.Println("\(g()) \(h()) \(len(c)) \(len(out))")
-}
-`, "0 0 1 1\n"},
 	{"P6tasks", `import task
 
 func fill(m Map[int, int], base int) int {
@@ -107,16 +97,6 @@ func main() needs Console {
 	Console.Println("\(x) \(y) \(len(m))")
 }
 `, "2000 2000 0\n"},
-	{"P6capture", `import task
-
-func main() needs Console {
-	let mut c = Map[int, int]{}
-	let a = task.Go() { len(c) }
-	c[1] = 1
-	let x = a.Wait()
-	Console.Println("\(x) \(len(c))")
-}
-`, "0 1\n"},
 	{"P7slice", `func main() needs Console {
 	let ms = []Map[int, int]{Map[int, int]{}}
 	let mut c = ms[0]

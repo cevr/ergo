@@ -43,10 +43,11 @@ import (
 //     was never shared; elsewhere Append appends to a clipped slice (a new
 //     array when it grows) and Delete deletes from a copy of the Map;
 //   - captures (V4): a function literal or block that may outlive its call
-//     (an escaping frame, types.md Function values 2) takes a copy of each
-//     captured `let mut` whose value holds a Map or slice, when it does not
-//     write it and a write can follow its creation (runtime.md, Tasks 6:
-//     values copy into a task);
+//     (an escaping frame, types.md Function values 2 and 3) captures a
+//     `let mut` only when no write to it follows (the checker refuses the
+//     rest, owner q60), so it takes the value, not a copy of the storage
+//     (closures.go, snapshot; runtime.md, Tasks 6: values copy into a
+//     task);
 //   - owned parameters (V5, ownedParams): a parameter that a function
 //     takes into a let mut once and never reads after is copied by the
 //     caller that shares it, not by the callee, and a rebinding p = f(…,
@@ -95,7 +96,7 @@ var valueLowering string
 // valueMutant switches off one rule of the analysis, for the mutant runs
 // of TestValueRuleMutants only: "never-copy", "shallow", "elide-live" (a
 // live local moves), "elide-escape" (a kept read of a root written later
-// shares), "elide-closure" (an escaping frame shares its captures) and
+// shares) and
 // "in-place" (Append and Delete always write their source), and for owned
 // parameters (V5) "consume-live" (an argument that stays live is passed
 // uncopied), "consume-captured" (a rebinding hands over a binding another
@@ -112,12 +113,11 @@ func valueRule() bool { return valueLowering != "alias" }
 
 // valueFacts are the decisions of the analysis, keyed by syntax node.
 type valueFacts struct {
-	clone    map[syntax.Expr]bool         // values copied where they are lowered
-	inPlace  map[*syntax.CallExpr]bool    // Append and Delete calls that write their source
-	snap     map[syntax.Node][]*check.Var // escaping frames and the captures they copy
-	roots    map[syntax.Node]*valueWalk   // analyzed bodies
-	fresh    map[*check.Func]int8         // 1 deciding, 2 fresh, 3 not fresh
-	consumed map[syntax.Expr]bool         // arguments an owned parameter takes in place (V5)
+	clone    map[syntax.Expr]bool       // values copied where they are lowered
+	inPlace  map[*syntax.CallExpr]bool  // Append and Delete calls that write their source
+	roots    map[syntax.Node]*valueWalk // analyzed bodies
+	fresh    map[*check.Func]int8       // 1 deciding, 2 fresh, 3 not fresh
+	consumed map[syntax.Expr]bool       // arguments an owned parameter takes in place (V5)
 	owned    map[*syntax.FuncDecl][]ownedParam
 	ownCall  map[*syntax.CallExpr]bool     // calls that pass owned arguments unshared (V5)
 	refSites map[*syntax.CallExpr]*refSite // Update and Modify calls whose literal owns the held value (V6)
@@ -135,7 +135,6 @@ func (l *lowerer) valueFacts() *valueFacts {
 		l.vals = &valueFacts{
 			clone:    map[syntax.Expr]bool{},
 			inPlace:  map[*syntax.CallExpr]bool{},
-			snap:     map[syntax.Node][]*check.Var{},
 			roots:    map[syntax.Node]*valueWalk{},
 			fresh:    map[*check.Func]int8{},
 			consumed: map[syntax.Expr]bool{},
@@ -445,7 +444,7 @@ func (w *valueWalk) opens(n syntax.Node) (frame, escaping bool) {
 		parent, child := w.unparenParent(n)
 		call, ok := parent.(*syntax.CallExpr)
 		if !ok {
-			return true, true
+			return true, !w.info.LocalFrames[n]
 		}
 		if call.Fun == child {
 			return true, false
@@ -654,17 +653,6 @@ func (w *valueWalk) decide() {
 			w.classify(vv, o)
 			if o.kind == occWrite {
 				vv.writes = append(vv.writes, o)
-			}
-		}
-	}
-	// Captures (V4).
-	if valueMutant != "elide-closure" {
-		for _, vv := range w.order {
-			if !vv.mut || !vv.local || !w.l.holdsValue(vv.v.Type) {
-				continue
-			}
-			for _, f := range w.capturing(vv) {
-				vf.snap[f.node] = append(vf.snap[f.node], vv.v)
 			}
 		}
 	}
@@ -1307,61 +1295,19 @@ func (w *valueWalk) needsCopy(vv *vvar, o *vocc) bool {
 }
 
 // snapshotted reports whether frame f sees a copy of vv taken when an
-// enclosing frame was created.
+// enclosing escaping frame was made (the checker's value captures,
+// Info.ValueCaptures; types.md, Function values 3): no write to vv
+// follows that capture, so a read of the copy keeps a value no write
+// changes.
 func (w *valueWalk) snapshotted(vv *vvar, f *vframe) bool {
 	for ; f != nil && f != vv.frame; f = f.parent {
-		for _, s := range w.vf.snap[f.node] {
+		for _, s := range w.info.ValueCaptures[f.node] {
 			if s == vv.v {
 				return true
 			}
 		}
 	}
 	return false
-}
-
-// capturing are the outermost escaping frames that capture vv, write it
-// nowhere, and can see a write of vv made after their creation.
-func (w *valueWalk) capturing(vv *vvar) []*vframe {
-	var out []*vframe
-	seen := map[*vframe]bool{}
-	for _, o := range vv.occs {
-		f := w.outermostEscaping(o.frame, vv.frame)
-		if f == nil || seen[f] {
-			continue
-		}
-		seen[f] = true
-		writes, after := false, false
-		for _, wr := range vv.writes {
-			if wr.frame.inside(f) {
-				writes = true
-				break
-			}
-			if wr.frame != vv.frame || wr.at > w.pre[f.node] {
-				after = true
-			}
-			for _, l := range wr.loops {
-				if !containsNode(vv.loops, l) && w.pre[l] < w.pre[f.node] && w.post[l] > w.post[f.node] {
-					after = true
-				}
-			}
-		}
-		if !writes && after {
-			out = append(out, f)
-		}
-	}
-	return out
-}
-
-// outermostEscaping is the outermost escaping frame between from and the
-// frame decl that declares the variable, or nil.
-func (w *valueWalk) outermostEscaping(from, decl *vframe) *vframe {
-	var out *vframe
-	for f := from; f != nil && f != decl; f = f.parent {
-		if f.escaping {
-			out = f
-		}
-	}
-	return out
 }
 
 // freshen makes the value e, which enters a root, unshared: nothing when
@@ -1798,29 +1744,4 @@ func (l *lowerer) reserveClones(pkgs []*check.Package, reserve func(key pkgKey, 
 			}
 		}
 	}
-}
-
-// snapshot lowers the escaping frame n with build, which returns its Go
-// function literal. When the analysis listed captures to copy, each copy
-// is bound to a new Go variable in the statement before, in the frame that
-// creates the literal (a task's block runs its literal in the new task, so
-// a copy inside it would race with the creator's writes), and the literal
-// is lowered with each capture's Go name bound to its copy.
-func (fc *funcCtx) snapshot(n syntax.Node, build func() string) string {
-	if fc.l.vals == nil || len(fc.l.vals.snap[n]) == 0 {
-		return build()
-	}
-	vars := fc.l.vals.snap[n]
-	saved := make([]string, len(vars))
-	for i, v := range vars {
-		saved[i] = fc.locals[v]
-		name := fc.scope.alloc(v.Name)
-		fc.line(name + " := " + fc.cloneValue(v.Type, saved[i], n))
-		fc.locals[v] = name
-	}
-	closure := build()
-	for i, v := range vars {
-		fc.locals[v] = saved[i]
-	}
-	return closure
 }

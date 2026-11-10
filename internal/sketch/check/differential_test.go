@@ -1029,6 +1029,11 @@ func inferProgram(rng *rand.Rand, wrap int) twin {
 			return name(values[rng.Intn(len(values))])
 		}
 		v, w := arg(), arg()
+		if w == v && pointerArg.MatchString(v) {
+			// Two borrows of one place in one call are S108 in Ergo
+			// (types.md, Borrows 2), where Go aliases them.
+			w = "n"
+		}
 		lit := func() string {
 			t := []string{"int", "int8", "int32", "string"}[rng.Intn(4)]
 			return fmt.Sprintf("func(v %s) %s { return v }", t, t)
@@ -1082,6 +1087,9 @@ func inferProgram(rng *rand.Rand, wrap int) twin {
 	b.both("}\n")
 	return b.twin()
 }
+
+// pointerArg matches a generated *S parameter's name.
+var pointerArg = regexp.MustCompile(`^p[0-9]+$`)
 
 // The nestings of a generated call: flat, as the argument of Id, or as the
 // first argument of a second generic call, Pair.
