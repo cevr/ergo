@@ -395,7 +395,7 @@ extern go net/http.NewResponseController func NewResponseController(rw ResponseW
 extern go net/http.NewServeMux func NewServeMux() Option[go.Ref[ServeMux]] needs go.Foreign
 
 // ergo:go var NoBody noBody
-// ergo:refused NoBody: a Go variable is host state; call a function
+// ergo:refused NoBody: type noBody is refused: unexported
 
 // ergo:go func NotFound(w ResponseWriter, r *Request)
 extern go net/http.NotFound func NotFound(w ResponseWriter, r *Request) needs go.Foreign
