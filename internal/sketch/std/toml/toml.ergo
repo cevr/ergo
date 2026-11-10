@@ -26,7 +26,9 @@ extern go ergo.local/prototype/runtime/v1.TOMLParse func parse(text string, maxB
 // limit and depth 10000, as json.Open does.
 func Open(text string, maxBytes int, maxDepth int) json.Reader fails Malformed {
 	let encoded = try parse(text, maxBytes, maxDepth)
-	json.Open(encoded, 0, 0) catch {
+	// Parsing already checked MaxDepth. A table array has extra JSON
+	// containers, so the Reader must not impose its default depth again.
+	json.Open(encoded, 0, len(encoded)) catch {
 	case json.Malformed:
 		Unreachable("validated TOML produced invalid JSON")
 	}

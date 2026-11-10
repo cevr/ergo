@@ -629,7 +629,8 @@ func (p *tomlParser) atom() *tomlNode {
 		}
 	}
 	if layout != "" {
-		v, err := time.Parse(layout, s)
+		// An offset must not consult the host's local timezone (Parse does).
+		v, err := time.ParseInLocation(layout, s, time.UTC)
 		if err != nil {
 			p.fail("invalid date or time")
 		}
