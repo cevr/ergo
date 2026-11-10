@@ -613,10 +613,7 @@ func (l *lowerer) testEntry(b *strings.Builder) {
 	b.WriteString("\t" + seed + " := " + l.helper("Seed") + "()\n")
 	b.WriteString("\t" + rt + ".Main(func(" + task + " *" + l.taskPkg() + ".Task) error {\n")
 	b.WriteString("\t\t" + env + " := &" + l.env() + "{" + envTask + ": " + task + "}\n")
-	if l.hasInits() {
-		l.entryInits = true
-		b.WriteString("\t\t" + l.pkgName(pkgKey{"init", nil}, "ergoInit") + "(" + env + ")\n")
-	}
+	b.WriteString(l.initSlot(env))
 	b.WriteString("\t\treturn " + l.helper("Tests") + "(" + env + ", " + seed + ")\n")
 	b.WriteString("\t})\n}\n\n")
 	for _, r := range l.runLaws() {

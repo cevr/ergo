@@ -367,6 +367,7 @@ func (fc *funcCtx) ident(id *syntax.Ident) string {
 			return name
 		}
 		if name, ok := fc.l.vars[o]; ok {
+			fc.l.reachStdLet(o)
 			return name
 		}
 		ice(id, "the variable %s has no Go name", id.Name)
@@ -413,6 +414,7 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 						// An imported package's let, lowered with the
 						// program (sources.go).
 						if name, ok := fc.l.vars[o]; ok {
+							fc.l.reachStdLet(o)
 							return name
 						}
 						ice(x, "the let %s.%s has no Go name", id.Name, x.Sel.Name)

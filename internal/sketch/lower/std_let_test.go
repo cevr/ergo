@@ -13,6 +13,12 @@ import (
 // name": the naming pass named the lets of the program's own packages
 // only. The lowered Go type-checks in process (typecheckGo).
 //
+// The fixture also has a let that only its law reads, through a function
+// (wf10 defects D6: std flag's lawText ran in every program that imports
+// flag). A std let is lowered where a body of the build reaches it, so
+// the build lowers the two lets the program reaches and not the third: a
+// count of the std let declarations lowered (stdLetInits), not a time.
+//
 // In the full tier it also runs the program: it builds Go because the
 // other half of the defect is when the let gets its value: a std let must
 // be set before a program let that reads it, and Go's types do not show
@@ -25,6 +31,12 @@ let lines = Framing{Sep: "+"}
 let Default = Framing{Sep: lines.Sep + lines.Sep}
 
 func Join(a string, b string) string { a + lines.Sep + b }
+
+let lawFraming = Framing{Sep: Join("x", "y")}
+
+func lawSep() string { lawFraming.Sep }
+
+law SepIsKept(s string) { lawSep() == "x+y" || s == "" }
 `
 	imp := pkgImporter{"fixturelet": stdFixture(t, "fixturelet", fixture)}
 	const src = `import fixturelet
@@ -44,9 +56,13 @@ func main() needs Console {
 	if len(out.diags) != 0 {
 		t.Fatalf("diagnostics: %v", out.diags)
 	}
-	code, err := lowerPackage(Unit{Package: out.pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: src}}}, false)
+	l := newLowerer(Unit{Package: out.pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: src}}})
+	code, err := l.program()
 	if err != nil {
 		t.Fatalf("lowering: %v", err)
+	}
+	if l.stdLetInits != 2 {
+		t.Errorf("%d std let declarations lowered, want 2 (lines and Default; lawFraming only a law reads)", l.stdLetInits)
 	}
 	out.files = []File{{Path: "go.mod", Data: []byte(goMod)}, {Path: "main.go", Data: code}}
 	typecheckGo(t, []*lowered{out})

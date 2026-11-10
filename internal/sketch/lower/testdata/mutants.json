@@ -1967,7 +1967,7 @@
       "name": "d3-std-lets-unnamed",
       "origin": "wf10 defects D3",
       "file": "internal/sketch/lower/naming.go",
-      "from": "\tl.eachStdLet(func(d *syntax.VarDecl) { l.declareName(d) })",
+      "from": "\tl.eachStdLet(l.nameStdLet)",
       "to": "\t_ = l.eachStdLet",
       "rule": "A std package's top-level let has a Go name, so its bodies and the program read it.",
       "killers": [
@@ -1995,6 +1995,17 @@
       "killers": [
         "examples:csvreport",
         "examples:ledger"
+      ]
+    },
+    {
+      "name": "d6-std-lets-eager",
+      "origin": "wf10 defects D6",
+      "file": "internal/sketch/lower/naming.go",
+      "from": "\tl.eachStdLet(l.nameStdLet)",
+      "to": "\tl.eachStdLet(func(s stdLet) { l.nameStdLet(s); l.reachStdLet(l.info.Defs[s.decl.Specs[0].Names[0]].(*check.Var)) })",
+      "rule": "A std let is lowered only where a body of the build reaches it, so a let that only std's laws read is not initialized in a program's build.",
+      "killers": [
+        "lower:TestStdPackageLet"
       ]
     }
   ]
