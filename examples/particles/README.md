@@ -47,7 +47,7 @@ Each gap is in the lane's gap file (`gaps-ex-b.md`) with a repro.
 - **G-ex-b-4** (partly closed by S4): `d / 4` on a `duration` is still refused with "write a duration literal such as 4s", but `time.Divide(d, 4)` and `time.Count(elapsed, d)` now do the clock's arithmetic.
 - **G-ex-b-5** (partly closed by C1): `testing.VirtualClock` jumps when every task waits, but it sleeps exactly; `memory.Clock` stays, because it makes every third frame late, which the fixed-step loop must carry.
 - **G-exup-1** (closed in batch 13): `sim.Screen`'s law runs in `memory` against `NewTape()`. `term.Screen` (it holds an `io.Stdout`) has no constructor, so it is skipped (`expected-skips`). Since L5b, `sim`'s laws and tests use `recorded()`, a `testing.Script[Screen]` that the checker derives from `Screen`: its `Show.Calls()` are the frames shown, and its `Shown` answers their count. The hand screens `tape` and `blind` (each a `sync.Ref` and the two functions) are gone.
-- **G-exup-2** (checker; type inference): `machines.Next(Running{G: g}, d)` is S108, since inference takes `S` from the variant; `PauseResumeRoundTrips` writes `let running Phase = Running{G: g}` first.
+- **G-exup-2** (closed in L9): inference now takes the union a later argument names, so `machines.Next(Running{G: g}, d)` checks; `PauseResumeRoundTrips` keeps its `running` binding, which it passes twice.
 - **G-exup-4** (`ergo test`): a law runs for the program's provider types only, so `sim/tests.ergo` restates `ShowCountsOne` for the recorded Screen.
 - By design, and still friction: a `try` inside a `with` block leaves the function (rows.md, Error rows 4), so the test calls `game` to catch the exit. `os.Exit` takes 1 to 125, so `read` returns `Option[Options]` and help is `None`.
 
