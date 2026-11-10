@@ -189,6 +189,7 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"lowerer.emitBody":         "a declared function's header: func name(env *Env, ...), and a flat machine step's (MU8)",
 		"flatRun.runText":          "the flat machine run's declared header: func ergoRunX(env *Env, ...) (MU8)",
 		"lowerer.initFunc":         "the package initializer's declared header",
+		"lowerer.initOnce":         "a library's init runner's declared header: func ergoInitRun(env *Env) (IG11)",
 		"lowerer.emitContext":      "a context builder's declared header",
 		"lowerer.envField":         "names the type before its first field",
 		"lowerer.rootTask":         "the root Env value of a root task: main's, the test build's main's (196l), an exported function's (IG11)",
@@ -216,6 +217,7 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 	// A reader that writes a Go closure whose parameter is not an Env.
 	otherClosure := map[string]string{
 		"lowerer.rootTask": "a root task's body takes the task and builds the root Env inside",
+		"lowerer.initOnce": "the Once.Do body and its recover take no parameter; they run in the caller's task, on ergoInitRun's env",
 	}
 	src.owners(func(owner string, decl ast.Decl) {
 		if !readers[owner] || owner == "funcCtx.envClosure" || otherClosure[owner] != "" {

@@ -111,6 +111,7 @@ internal/sketch/std/prelude.ergo	// law-exempt: Writer has no read operation, so
 internal/sketch/std/prelude.ergo	// law-exempt: a law over Reader alone has no events to read; std wire's Replay reads the events Events recorded and carries the laws (EventsReplay).
 internal/sketch/std/std.go	//go:embed csv/*.ergo wire/*.ergo
 internal/sketch/std/wire/wire.ergo	*
+docs/spec/stdlib.md	| `wire` | `BasicReplay` |
 docs/spec/stdlib.md	| `wire` | `EncodeNests` | `EncodeNests(v fleet) { let e = NewEvents() encode(v, e) let mut open = 0 let mut ok = true for ev in Recorded(e) { open = open + depth(ev) if open < 0 { ok = false } } ok && open == 0 }` | `TestStdWireLawsRun` | tested |
 docs/spec/stdlib.md	| `wire` | `MissingFieldFails` | `MissingFieldFails() { let empty = []Event{BeginObjectEvent{N: 0}, EndObjectEvent} let _ = decode[up](NewReplay(empty)) catch { case WireMissingField: return true case _: return false } false }` | `TestStdWireLawsRun` | tested |
 docs/spec/stdlib.md	| `wire` | `UnknownTagFails` | `UnknownTagFails(name string) { if name == "up" { return true } if name == "down" { return true } let evs = []Event{BeginObjectEvent{N: 0}, TagEvent{Name: name}, EndObjectEvent} let _ = decode[state](NewReplay(evs)) catch { case WireUnknownTag: return true case _: return false } false }` | `TestStdWireLawsRun` | tested |
