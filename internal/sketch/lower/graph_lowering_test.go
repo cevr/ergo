@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -23,7 +24,10 @@ import (
 // traced actor under both lowerings. Each actor's machine events must be
 // the same under both, and must name an arm for every decision and the
 // timer's signal of every armed timer, except the actors of a shared pair,
-// which name none. ERGO_GRAPH_SEED replays one seed; a failure prints the
+// which name none. The arm a decision names must give that decision's
+// kind, and no event may name a union instead of its variant (a flat
+// signal union; two instances of one generic in one union, which have one
+// declaration). ERGO_GRAPH_SEED replays one seed; a failure prints the
 // seed, the Ergo source and both traces.
 //
 // It builds Go because the names under test are the Go runtime's type
@@ -46,15 +50,15 @@ func TestGraphLoweringsTraceAlike(t *testing.T) {
 	before := graphLowering
 	defer func() { graphLowering = before }()
 	type run struct {
-		seed   int64
-		src    string
-		shared []bool
+		seed int64
+		src  string
+		gen  graphProgram
 	}
 	var runs []run
 	var programs []*lowered
 	for _, seed := range seeds {
-		src, shared := genGraphProgram(rand.New(rand.NewSource(seed)), 3*int(seed-1))
-		runs = append(runs, run{seed, src, shared})
+		src, gen := genGraphProgram(rand.New(rand.NewSource(seed)), 3*int(seed-1))
+		runs = append(runs, run{seed, src, gen})
 		for _, mode := range []string{"", "registry"} {
 			graphLowering = mode
 			programs = append(programs, mustLower(t, fmt.Sprintf("graph%d%s", seed, mode), src))
@@ -73,6 +77,7 @@ func TestGraphLoweringsTraceAlike(t *testing.T) {
 	for _, p := range programs {
 		exes[p.name] = filepath.Join(bin, p.name)
 	}
+seeds:
 	for i, r := range runs {
 		var traces [2]map[int][]string
 		var order [2][]int
@@ -87,24 +92,40 @@ func TestGraphLoweringsTraceAlike(t *testing.T) {
 			fail("the static graphs' trace is not the registry's")
 			continue
 		}
-		if len(order[0]) != len(r.shared) {
-			fail("%d actors ran, want %d", len(order[0]), len(r.shared))
+		shared := r.gen.shared
+		if len(order[0]) != len(shared) {
+			fail("%d actors ran, want %d", len(order[0]), len(shared))
 			continue
 		}
 		for k, task := range order[0] {
 			for _, line := range traces[0][task] {
 				f := fields(line)
+				// A value is named by its variant, never by its union
+				// (a flat signal union's Go type is the union's).
+				for _, key := range []string{"state", "signal", "next"} {
+					if unionName.MatchString(f[key]) {
+						fail("actor %d names the union %s, not a variant: %q", k, f[key], line)
+						continue seeds
+					}
+				}
 				named := ""
 				switch f["what"] {
 				case "decide":
-					named = f["arm"]
+					named = armOf(line)
+					// The arm named is one whose decision is the one taken:
+					// a misnamed variant names another arm, or none.
+					if named != "" && !r.gen.armGives(k, named, f["decision"]) {
+						fail("actor %d: the arm %s gives no %s: %q", k, named, f["decision"], line)
+						continue seeds
+					}
 				case "timer-armed":
 					named = f["signal"]
 				default:
 					continue
 				}
-				if (named == "") != r.shared[k] {
-					fail("actor %d (shared pair %t): %q", k, r.shared[k], line)
+				if (named == "") != shared[k] {
+					fail("actor %d (shared pair %t): %q", k, shared[k], line)
+					continue seeds
 				}
 			}
 		}
@@ -146,6 +167,42 @@ func graphTrace(t *testing.T, exe string) (map[int][]string, []int) {
 		byTask[l.Task] = append(byTask[l.Task], l.Machine)
 	}
 	return byTask, order
+}
+
+// unionName is the name of a generated state or signal union.
+var unionName = regexp.MustCompile(`^(St|Sg)[0-9]+$`)
+
+// armOf is the arm a decide event names: the text after "arm=" up to the
+// next field, since an arm after a partial one is "f:3 or f:5".
+func armOf(line string) string {
+	_, rest, ok := strings.Cut(line, " arm=")
+	if !ok {
+		return ""
+	}
+	arm, _, _ := strings.Cut(rest, " next=")
+	return arm
+}
+
+// graphProgram is what the generator knows of a program's actors, in the
+// order they start: whether each one's machine shares its types with
+// another, and the decision kind of each arm of its step, by the arm's
+// line.
+type graphProgram struct {
+	shared []bool
+	arms   []map[int]string
+}
+
+// armGives reports whether one of the arms of actor k that arm names
+// ("f:3", or "f:3 or f:5") gives the decision kind.
+func (p graphProgram) armGives(k int, arm, kind string) bool {
+	for _, site := range strings.Split(arm, " or ") {
+		i := strings.LastIndexByte(site, ':')
+		line, err := strconv.Atoi(site[i+1:])
+		if err == nil && p.arms[k][line] == kind {
+			return true
+		}
+	}
+	return false
 }
 
 func showTrace(byTask map[int][]string, order []int) string {
@@ -191,14 +248,17 @@ type graphVariant struct{ typ, val, pat, partial string }
 // genGraphProgram writes a program of three machines, and at times a
 // fourth with a twin over the same types, each run as an actor that asks
 // it signals, and reports for each actor whether its machine shares its
-// state and signal types with another machine. Machine k starts in Box of
+// state and signal types with another machine, and its arms' decision
+// kinds. A union may hold two instances of one generic record (Dup), and a
+// signal union may hold no generic record, so that it lowers flat. Machine
+// k starts in Box of
 // graphArgs[first+k], a state with a timer, so the seeds 1 to 6 (first
 // 3*(seed-1)) name every argument form at the start of an actor whose
 // graph is its own; the other instances draw their arguments.
-func genGraphProgram(r *rand.Rand, first int) (string, []bool) {
+func genGraphProgram(r *rand.Rand, first int) (string, graphProgram) {
 	var b strings.Builder
 	b.WriteString("import actor\nimport queue\nimport time\n\n")
-	b.WriteString("type Item { N int }\ntype Box[T] { V T }\ntype Pair[A, B] { L A, R B }\ntype Wrap[T] { W T }\n\n")
+	b.WriteString("type Item { N int }\ntype Box[T] { V T }\ntype Pair[A, B] { L A, R B }\ntype Wrap[T] { W T }\ntype Dup[T] { D T }\n\n")
 	b.WriteString("// queue is imported for its Queue, which a variant may hold.\nfunc queued() queue.Queue[int] { queue.New[int](1) }\n\n")
 	generics := []func(graphArg, graphArg) graphVariant{
 		func(a, _ graphArg) graphVariant {
@@ -219,17 +279,25 @@ func genGraphProgram(r *rand.Rand, first int) (string, []bool) {
 			{fmt.Sprintf("%s%d{N int}", prefix, k), fmt.Sprintf("%s%d{N: 1}", prefix, k), fmt.Sprintf("%s%d", prefix, k), fmt.Sprintf("%s%d{N: 1}", prefix, k)},
 			{fmt.Sprintf("%sb%d{}", prefix, k), fmt.Sprintf("%sb%d", prefix, k), fmt.Sprintf("%sb%d", prefix, k), ""},
 		}
-		// A signal union holds a generic variant, so it never lowers flat
-		// (flatunion.go): a flat signal's runtime name is its union's, the
-		// same under both lowerings, and no arm that names a signal is
-		// found for it.
-		from, more := 0, 1+r.Intn(2)
+		// A signal union with no generic variant lowers flat
+		// (flatunion.go): a Go struct named after the union, whose value
+		// must still be named by its variant.
+		from, more := 0, r.Intn(3)
 		if prefix == "A" {
 			vs = append(vs, generics[0](graphArgs[((first+k)%len(graphArgs)+len(graphArgs))%len(graphArgs)], graphArg{}))
 			from, more = 1, r.Intn(3)
 		}
 		for _, i := range r.Perm(len(generics) - from)[:more] {
 			vs = append(vs, generics[from+i](graphArgs[r.Intn(len(graphArgs))], graphArgs[r.Intn(len(graphArgs))]))
+		}
+		if more > 0 && r.Intn(2) == 0 {
+			// Two instances of one generic record: their variants have
+			// one declaration, so only their type arguments tell them apart.
+			i := r.Perm(len(graphArgs))
+			for _, a := range []graphArg{graphArgs[i[0]], graphArgs[i[1]]} {
+				typ := "Dup[" + a.typ + "]"
+				vs = append(vs, graphVariant{typ, typ + "{D: " + a.val + "}", typ, ""})
+			}
 		}
 		return vs
 	}
@@ -243,7 +311,7 @@ func genGraphProgram(r *rand.Rand, first int) (string, []bool) {
 	// Machines 0 to 2 have types of their own; machine 3, when there is
 	// one, shares its types with a twin.
 	n := 3 + r.Intn(2)
-	var shared []bool
+	var p graphProgram
 	var mains []string
 	for k := range n {
 		st, sg := fmt.Sprintf("St%d", k), fmt.Sprintf("Sg%d", k)
@@ -273,6 +341,15 @@ func genGraphProgram(r *rand.Rand, first int) (string, []bool) {
 			return vs[i].pat
 		}
 		fmt.Fprintf(&b, "func step%d(s %s, e %s) Decision[%s, int] {\n\tmatch (s, e) {\n", k, st, sg, st)
+		kinds := map[int]string{}
+		// arm writes a case of the patterns pats and records its line's
+		// decision kind.
+		arm := func(pats string) {
+			d := dec()
+			kind, _, _ := strings.Cut(d, "[")
+			kinds[strings.Count(b.String(), "\n")+1] = kind
+			fmt.Fprintf(&b, "\tcase %s:\n\t\t%s\n", pats, d)
+		}
 		// covered holds the cells a pattern took, a cell a variant and
 		// whether its field is the partial patterns' literal: the checker
 		// refuses a pattern whose cells are all covered.
@@ -312,11 +389,11 @@ func genGraphProgram(r *rand.Rand, first int) (string, []bool) {
 				alts = append(alts, "("+pat(states, i, ip)+", "+pat(signals, j, jp)+")")
 			}
 			if len(alts) > 0 {
-				fmt.Fprintf(&b, "\tcase %s:\n\t\t%s\n", strings.Join(alts, ", "), dec())
+				arm(strings.Join(alts, ", "))
 			}
 		}
 		if len(covered) < 4*len(states)*len(signals) {
-			fmt.Fprintf(&b, "\tcase (_, _):\n\t\t%s\n", dec())
+			arm("(_, _)")
 		}
 		b.WriteString("\t}\n}\n\n")
 		fmt.Fprintf(&b, "func after%d(s %s) Option[Timeout[%s]] {\n\tmatch s {\n", k, st, sg)
@@ -340,18 +417,20 @@ func genGraphProgram(r *rand.Rand, first int) (string, []bool) {
 		}
 		twin := k == 3
 		mains = append(mains, run(fmt.Sprintf("M%d", k)))
-		shared = append(shared, twin)
+		p.shared = append(p.shared, twin)
+		p.arms = append(p.arms, kinds)
 		if twin {
 			// A second machine over the same types: its own step, whose one
 			// arm the runtime could not tell from the first machine's.
 			fmt.Fprintf(&b, "func twin%d(s %s, e %s) Decision[%s, int] {\n\tmatch (s, e) {\n\tcase (_, _):\n\t\tIgnore\n\t}\n}\n\n", k, st, sg, st)
 			fmt.Fprintf(&b, "type T%d machine[%s, %s] { initial: %s, step: twin%d, after: after%d }\n\n", k, st, sg, states[0].val, k, k)
 			mains = append(mains, strings.ReplaceAll(run(fmt.Sprintf("T%d", k)), fmt.Sprintf("a%d", k), fmt.Sprintf("t%d", k)))
-			shared = append(shared, true)
+			p.shared = append(p.shared, true)
+			p.arms = append(p.arms, nil)
 		}
 	}
 	b.WriteString("func main() {\n\twith context { Scheduler: time.NewManual(0) } {\n")
 	b.WriteString(strings.Join(mains, ""))
 	b.WriteString("\t}\n}\n")
-	return b.String(), shared
+	return b.String(), p
 }
