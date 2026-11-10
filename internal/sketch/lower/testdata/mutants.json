@@ -2224,6 +2224,26 @@
       "rule": "A value the body returned is kept past rt's stop-wins, so the Task's release releases it.",
       "killers": ["lower:TestTaskOwnershipRunModel"],
       "anchor": {"tests": ["lower:TestTaskOwnershipRunModel"]}
+    },
+    {
+      "name": "L8-C1-incoming-capture-owner-map",
+      "origin": "L8 C1 lossless wrapping",
+      "file": "internal/sketch/lower/taskcapture.go",
+      "from": "if fc.l.owned != nil {",
+      "to": "if true {",
+      "rule": "A borrowed-only frame need not have an owning-handle map.",
+      "killers": ["lower:TestTaskOwnershipRunModel"],
+      "anchor": {"tests": ["lower:TestTaskOwnershipRunModel"]}
+    },
+    {
+      "name": "L8-C1-lend-owned-by-child",
+      "origin": "L8 C1 R27 capture transport",
+      "file": "internal/sketch/check/lend.go",
+      "from": "capture.Borrowed = append(capture.Borrowed, v)\n\t\t\tloan := resourceLoan",
+      "to": "capture.Vars = append(capture.Vars, v)\n\t\t\tloan := resourceLoan",
+      "rule": "A lent capture never enters the child's owning list.",
+      "killers": ["lower:TestTaskOwnershipRunModel"],
+      "anchor": {"tests": ["lower:TestTaskOwnershipRunModel"]}
     }
   ]
 }

@@ -62,15 +62,16 @@ const (
 
 // ownSlot is one value's state at a program point.
 type ownSlot struct {
-	st    ownSt
-	at    syntax.Node // the hand-off (moved, maybe)
-	how   string
-	loans []ownLoan // result origins still lent to calls being evaluated
+	st        ownSt
+	at        syntax.Node // the hand-off (moved, maybe)
+	how       string
+	callLoans []ownLoan // result origins still lent to calls being evaluated
 	// The fields of an owned record taken in place (`b.r.Close()`, R39,
 	// Gap 38), by field index: on every path (fields), on some (maybe);
 	// fieldAt is the first such take, for the diagnostics.
 	fields, maybe uint64
 	fieldAt       syntax.Node
+	loans         []resourceLoan
 }
 
 // ownState is the flow state at one program point. Whether a path reaches
@@ -126,7 +127,9 @@ type ownLocal struct {
 	param int  // the declaration's parameter index plus 1; 0 for none
 	// from names what a lent binding is lent from: a for-in's container
 	// (R35) or a match subject that is lent (Gap 36).
-	from string
+	from     string
+	root     *Var
+	loanOnly bool
 }
 
 // typ is the type of the value l holds.
@@ -220,7 +223,9 @@ type ownWalk struct {
 	copies  map[*TypeParam]CopySite
 	// borrow maps a let-bound borrow `let p = &h` of an owned local to
 	// that local: a Close called through p takes h (R19).
-	borrow map[*Var]*Var
+	borrow    map[*Var]*Var
+	lending   *lendWalk
+	lendFrame syntax.Node
 }
 
 func (c *checker) newOwnWalk() *ownWalk {
@@ -349,7 +354,7 @@ func (w *ownWalk) join(as, bs ownState, n int) ownState {
 		case y.st == ownOwned || y.st == ownMaybe:
 			a[i] = ownSlot{st: ownMaybe, at: x.at, how: x.how}
 		}
-		a[i].loans = liveLoans(x.loans, y.loans)
+		a[i].callLoans = liveLoans(x.callLoans, y.callLoans)
 		// The fields taken in place: on every path where the record is
 		// still held, or on some (a drop flag each, B2).
 		switch {
@@ -362,6 +367,7 @@ func (w *ownWalk) join(as, bs ownState, n int) ownState {
 			a[i].fields, a[i].maybe = y.fields, y.maybe
 		}
 		a[i].fieldAt = x.fieldAt
+		a[i].loans = mergeLoans(x.loans, y.loans)
 		if a[i].fieldAt == nil {
 			a[i].fieldAt = y.fieldAt
 		}
@@ -392,7 +398,7 @@ func sameState(as, bs ownState) bool {
 		if a[i].st != b[i].st || a[i].fields != b[i].fields || a[i].maybe != b[i].maybe {
 			return false
 		}
-		x, y := liveLoans(a[i].loans), liveLoans(b[i].loans)
+		x, y := liveLoans(a[i].callLoans), liveLoans(b[i].callLoans)
 		if len(x) != len(y) {
 			return false
 		}
@@ -400,6 +406,9 @@ func sameState(as, bs ownState) bool {
 			if x[j] != y[j] {
 				return false
 			}
+		}
+		if len(mergeLoans(a[i].loans, b[i].loans)) != len(a[i].loans) || len(a[i].loans) != len(b[i].loans) {
+			return false
 		}
 	}
 	return true
@@ -410,13 +419,13 @@ func (w *ownWalk) acquire(l ownLocal) int {
 	l.depth = w.depth
 	w.vars = append(w.vars, l)
 	if w.st.reached {
-		w.st.slots = append(w.st.slots, ownSlot{st: ownOwned})
+		w.st.slots = append(w.st.slots, ownSlot{st: ownOwned, loans: w.aggregateLoans(l.v)})
 	}
 	i := len(w.vars) - 1
 	if l.v != nil {
 		w.slot[l.v] = i
 	}
-	if !l.lent {
+	if !l.lent && !l.loanOnly {
 		w.owned(l)
 	}
 	return i
@@ -468,7 +477,7 @@ func (w *ownWalk) releases(first int) []Release {
 			continue
 		}
 		l := w.vars[i]
-		if l.lent {
+		if l.lent || l.loanOnly {
 			continue // its owner releases it
 		}
 		if t := w.typ(l); w.copies != nil && w.genericOnly(t) {
@@ -533,6 +542,10 @@ func (w *ownWalk) frame(body *syntax.BlockStmt, takes []int, params []*Var, name
 }
 
 func (w *ownWalk) frameCaptured(body *syntax.BlockStmt, takes []int, params []*Var, name, nested string, lendAll bool, captures *TaskCapture) {
+	w.initLends(body)
+	previousFrame := w.lendFrame
+	w.lendFrame = body
+	defer func() { w.lendFrame = previousFrame }()
 	saved := ownFrameSave{loops: w.loops, catches: w.catches, first: w.first, name: w.name, nested: w.nested, tail: w.tail, onFailure: w.onFailure}
 	w.tail = frameTail
 	w.onFailure = nil
@@ -556,6 +569,10 @@ func (w *ownWalk) frameCaptured(body *syntax.BlockStmt, takes []int, params []*V
 		for _, v := range captures.Vars {
 			oldSlots[v] = w.slot[v]
 			w.acquire(ownLocal{v: v, lent: captures.Repeated})
+		}
+		for _, v := range captures.Borrowed {
+			oldSlots[v] = w.slot[v]
+			w.acquire(ownLocal{v: v, lent: true})
 		}
 	}
 	taken := map[int]bool{}
@@ -738,7 +755,7 @@ func (w *ownWalk) matchClauses(cs []*syntax.CaseClause, subj syntax.Expr) {
 			case owned:
 				// Lent from a lent local: a hand-off of the binding is
 				// one of the subject (inferred, or refused as its own).
-				l = ownLocal{lent: true, param: w.vars[si].param, from: from}
+				l = ownLocal{lent: true, param: w.vars[si].param, from: from, root: w.vars[si].v}
 			default:
 				l = ownLocal{lent: true, from: from}
 			}
@@ -778,7 +795,8 @@ func (w *ownWalk) rangeBinds(s *syntax.RangeStmt) []ownLocal {
 		if owned {
 			out = append(out, ownLocal{v: v})
 		} else {
-			out = append(out, ownLocal{v: v, lent: true, from: exprText(s.X)})
+			root, _, _ := w.placeRoot(s.X)
+			out = append(out, ownLocal{v: v, lent: true, from: exprText(s.X), root: root})
 		}
 	}
 	return out
@@ -879,6 +897,7 @@ func (w *ownWalk) loop(n syntax.Node, cond syntax.Expr, body *syntax.BlockStmt, 
 // letSpec binds a let's names; the values move into them.
 func (w *ownWalk) letSpec(s syntax.Stmt, spec *syntax.VarSpec) {
 	var bound []*Var
+	loans := map[*Var][]resourceLoan{}
 	w.region(spec, func() {
 		pair := len(spec.Values) == len(spec.Names) && spec.Pattern == nil
 		for i, x := range spec.Values {
@@ -887,6 +906,10 @@ func (w *ownWalk) letSpec(s syntax.Stmt, spec *syntax.VarSpec) {
 				mode = mDiscard
 			}
 			w.expr(x, mode, hand{at: x, how: "let moves it"})
+			if pair {
+				v, _ := w.info.Defs[spec.Names[i]].(*Var)
+				loans[v] = w.valueLoans(x)
+			}
 		}
 		if len(spec.Values) == 1 && len(spec.Names) > 1 {
 			if tup, ok := w.info.Types[spec.Values[0]].(*Tuple); ok {
@@ -900,12 +923,18 @@ func (w *ownWalk) letSpec(s syntax.Stmt, spec *syntax.VarSpec) {
 	})
 	_ = s
 	for _, id := range spec.Names {
-		if v, ok := w.info.Defs[id].(*Var); ok && w.tracked(v.Type) {
-			bound = append(bound, v)
+		if v, ok := w.info.Defs[id].(*Var); ok {
+			_, callable := under(v.Type).(*Signature)
+			if w.tracked(v.Type) || callable || len(loans[v]) > 0 {
+				bound = append(bound, v)
+			}
 		}
 	}
 	for _, v := range bound {
-		w.acquire(ownLocal{v: v})
+		i := w.acquire(ownLocal{v: v, loanOnly: !w.tracked(v.Type)})
+		if w.st.reached {
+			w.st.slots[i].loans = mergeLoans(loans[v], w.aggregateLoans(v))
+		}
 	}
 	w.letBorrow(spec)
 }
@@ -981,16 +1010,29 @@ func (w *ownWalk) assign(s *syntax.AssignStmt) {
 		}
 		return
 	}
+	replacementLoans := map[int][]resourceLoan{}
 	for i, x := range s.Rhs {
 		mode := mLend
 		if i < len(s.Lhs) && w.tracked(w.info.Types[s.Lhs[i]]) || len(s.Lhs) > 1 {
 			mode = mMove
 		}
 		w.expr(x, mode, hand{at: x, how: "it is assigned"})
+		if i < len(s.Lhs) {
+			if _, k, ok := w.placeRoot(s.Lhs[i]); ok && w.st.reached {
+				if _, direct := unparen(s.Lhs[i]).(*syntax.Ident); direct {
+					replacementLoans[k] = w.valueLoans(x)
+				} else {
+					w.st.slots[k].loans = mergeLoans(w.st.slots[k].loans, w.valueLoans(x))
+				}
+			}
+		}
 	}
 	for _, x := range s.Lhs {
 		id, ok := unparen(x).(*syntax.Ident)
 		if !ok {
+			if _, i, found := w.placeRoot(x); found {
+				w.loanTake(i, x, -1)
+			}
 			w.lhsPlace(x)
 			continue
 		}
@@ -1000,6 +1042,7 @@ func (w *ownWalk) assign(s *syntax.AssignStmt) {
 			continue
 		}
 		// R41: the old value is released, where it is still owned.
+		w.loanTake(i, id, -1)
 		var rs []Release
 		if st := w.st.slots[i].st; st == ownOwned || st == ownMaybe {
 			w.loanConflict(i, hand{at: id, how: "it is replaced"})
@@ -1010,7 +1053,7 @@ func (w *ownWalk) assign(s *syntax.AssignStmt) {
 			w.refuse(i, id, fmt.Sprintf("%s replaces %s, which may run more than once", w.nestedText(), v.Name), "%s belongs to the enclosing function; %s cannot replace it (resources R4)", v.Name, w.nestedText())
 			continue
 		}
-		w.st.slots[i] = ownSlot{st: ownOwned}
+		w.st.slots[i] = ownSlot{st: ownOwned, loans: mergeLoans(replacementLoans[i], w.aggregateLoans(v))}
 	}
 }
 
@@ -1056,7 +1099,8 @@ type hand struct {
 	// root marks the root of a field place (x in x.f): its use is checked
 	// as a root (useRoot), so a field taken in place does not refuse the
 	// record's other fields (R39).
-	root bool
+	root     bool
+	endLoans bool
 }
 
 func (w *ownWalk) nestedText() string {
@@ -1098,6 +1142,13 @@ func (w *ownWalk) move(i int, x *syntax.Ident, h hand) {
 		return
 	}
 	w.use(i, x)
+	w.handLoans(i, x, h)
+	if w.vars[i].loanOnly {
+		return
+	}
+	if w.loanTake(i, x, -1) {
+		return
+	}
 	if s := w.st.slots[i]; s.st != ownOwned {
 		// Reported by use; the first hand-off stays the one named.
 		w.st.slots[i] = ownSlot{st: ownMoved, at: s.at, how: s.how}
@@ -1125,7 +1176,7 @@ func (w *ownWalk) move(i int, x *syntax.Ident, h hand) {
 		return
 	}
 	w.loanConflict(i, h)
-	w.st.slots[i] = ownSlot{st: ownMoved, at: h.at, how: h.how}
+	w.st.slots[i] = ownSlot{st: ownMoved, at: h.at, how: h.how, loans: w.st.slots[i].loans}
 	w.info.Handoffs[x] = l.v
 }
 
@@ -1134,7 +1185,7 @@ func (w *ownWalk) move(i int, x *syntax.Ident, h hand) {
 // path that does both. A lend that survives the join is checked if a later
 // operand moves or replaces that owner.
 func (w *ownWalk) loanConflict(i int, h hand) {
-	for _, l := range w.st.slots[i].loans {
+	for _, l := range w.st.slots[i].callLoans {
 		if l.call.active {
 			w.refuse(i, l.id, fmt.Sprintf("%s is lent and handed off in one call", l.id.Name), "%s is lent to %s here and handed off at %s (%s) in the same call (resources R17); hand it off in a statement of its own", l.id.Name, l.call.name, w.pos(h.at), h.how)
 		}
@@ -1174,6 +1225,9 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		lend(x.Key, x.Value)
 		return
 	case *syntax.SelectorExpr:
+		if mode == mMove {
+			w.checkLoanValue(x)
+		}
 		if w.info.Closes[x] != nil {
 			// A method value of a checked Close would own its receiver,
 			// and no function value owns a resource (plan 1.2 rule 4,
@@ -1204,6 +1258,7 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 			}
 		}
 		if mode == mMove {
+			w.checkLoanValue(x)
 			w.placeMove(x, "an element", "it is an element of %s, lent by the index; an element cannot be moved or taken out by index (resources R35, R36); hand off %s whole, or lend the element")
 		}
 		w.lendRoot(x.X, w.info.Types[x], mode, h)
@@ -1323,7 +1378,13 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		if x.Type != nil {
 			params = x.Type.Params
 		}
-		w.frame(x.Body, takes, w.paramVars(params), w.name, "this function literal", false)
+		if w.literalEscapes(x) {
+			capture := &TaskCapture{}
+			w.literalCaptures(x, x.Body, capture, false)
+			w.frameCaptured(x.Body, takes, w.paramVars(params), w.name, "this function literal", false, capture)
+		} else {
+			w.frame(x.Body, takes, w.paramVars(params), w.name, "this function literal", false)
+		}
 		return
 
 	}
@@ -1524,6 +1585,9 @@ func (w *ownWalk) fieldTake(x syntax.Expr, h hand) bool {
 	}
 	w.useRoot(i, id)
 	if !w.st.reached {
+		return true
+	}
+	if w.loanTake(i, sel, k) {
 		return true
 	}
 	s := w.st.slots[i]
@@ -1825,6 +1889,7 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 		taken[i] = true
 	}
 	closes := w.info.Closes[x] != nil || w.info.Closes[x.Fun] != nil
+	drains := w.drainsLends(call)
 	if closes {
 		selfTaken = true
 		if call.Kind == CallFunc {
@@ -1852,7 +1917,7 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 			if recv && w.fieldTake(a, hand{at: a, how: how}) {
 				return // a field taken in place (R39, Gap 38)
 			}
-			w.expr(a, mMove, hand{at: a, how: how})
+			w.expr(a, mMove, hand{at: a, how: how, endLoans: drains})
 			return
 		}
 		if w.converts(a, pt) {
@@ -1865,8 +1930,11 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 			if loan == nil {
 				loan = &ownLoanCall{name: name, active: true}
 			}
-			w.st.slots[i].loans = append(liveLoans(w.st.slots[i].loans), ownLoan{loan, id})
+			w.st.slots[i].callLoans = append(liveLoans(w.st.slots[i].callLoans), ownLoan{loan, id})
 		}})
+		if len(w.valueLoans(a)) > 0 && !nonEscaping(pt) {
+			w.checkLoanValue(a)
+		}
 	}
 	pname := func(i int) string {
 		if sig != nil && i < len(sig.Params) {
@@ -1923,10 +1991,18 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 		}
 		if p, repeated, moving := movingBody(call); moving && p == len(x.Args)+off {
 			w.taskFrame(x.Trailing, x.Trailing, nil, takes, repeated)
+		} else if w.literalEscapes(x.Trailing) {
+			capture := &TaskCapture{}
+			w.literalCaptures(x.Trailing, x.Trailing, capture, false)
+			w.frameCaptured(x.Trailing, takes, nil, w.name, fmt.Sprintf("the block passed to %s", calleeText(x)), false, capture)
 		} else {
 			w.frame(x.Trailing, takes, nil, w.name, fmt.Sprintf("the block passed to %s", calleeText(x)), false)
 		}
 	}
+	if drains && call.Recv != nil && w.st.reached {
+		w.drainLoans(call.Recv)
+	}
+	w.keepArgumentLoans(x)
 	return false
 }
 

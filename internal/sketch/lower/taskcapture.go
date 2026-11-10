@@ -8,7 +8,8 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// taskSnapshot binds a moving body's captures by value in the sender.
+// taskSnapshot binds captures to stable Go locals in the sender. Both
+// moves and lends retain resource identity; only moves gain child owners.
 // Ownership handles are lexical to a frame, even when two frames use the
 // same source Var, so lowering the child restores the sender's handles.
 func (fc *funcCtx) taskSnapshot(n syntax.Node, build func() string) string {
@@ -17,21 +18,25 @@ func (fc *funcCtx) taskSnapshot(n syntax.Node, build func() string) string {
 		return build()
 	}
 	names, owners := map[*check.Var]string{}, map[*check.Var]string{}
-	for _, v := range c.Vars {
+	vars := append(slices.Clone(c.Vars), c.Borrowed...)
+	for _, v := range vars {
 		names[v], owners[v] = fc.locals[v], fc.l.owned[v]
 		name := fc.temp(v.Name)
 		fc.line(name + " := " + fc.locals[v])
 		fc.locals[v] = name
 	}
-	if c.Repeated {
+	if c.Repeated && len(c.Vars) > 0 {
 		if fc.l.captureRoots == nil {
 			fc.l.captureRoots = map[syntax.Node]string{}
 		}
 		fc.l.captureRoots[n] = fc.taskCaptureRoot(n, c)
 	}
 	text := build()
-	for _, v := range c.Vars {
-		fc.locals[v], fc.l.owned[v] = names[v], owners[v]
+	for _, v := range vars {
+		fc.locals[v] = names[v]
+		if fc.l.owned != nil {
+			fc.l.owned[v] = owners[v]
+		}
 	}
 	return text
 }

@@ -113,8 +113,8 @@
       "name": "a2-loan-join-lost",
       "origin": "batch-15 round-4 A2 origin invariant",
       "file": "internal/sketch/check/ownership.go",
-      "from": "a[i].loans = liveLoans(x.loans, y.loans)",
-      "to": "a[i].loans = nil",
+      "from": "a[i].callLoans = liveLoans(x.callLoans, y.callLoans)",
+      "to": "a[i].callLoans = nil",
       "rule": "A result loan on one path remains live at its later consuming call.",
       "killers": ["check:TestOwnershipFlowModel"]
     },
@@ -2125,7 +2125,7 @@
     {
       "name": "L8-B3t-capture-keeps-sender",
       "origin": "L8 B3t R12",
-      "file": "internal/sketch/check/taskcapture.go",
+      "file": "internal/sketch/check/lend.go",
       "from": "w.move(i, id, hand{at: key, how: \"it is captured by a moving task (resources R12)\"})",
       "to": "w.use(i, id)",
       "rule": "A moving task capture hands the sender's resource off (R12).",
@@ -2194,6 +2194,96 @@
       "killers": [
         "check:TestArrayOwnership"
       ]
+    },
+    {
+      "name": "L8-C1-trailing-callback-erases-loan",
+      "origin": "L8 C1 R31 R33",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "} else if w.literalEscapes(x.Trailing) {",
+      "to": "} else if false && w.literalEscapes(x.Trailing) {",
+      "rule": "A trailing callback has the same escape and capture rules as an explicit literal.",
+      "killers": ["check:TestStructuredLendModel"]
+    },
+    {
+      "name": "L8-C1-index-borrow-moves-container",
+      "origin": "L8 C1 R27 R35",
+      "file": "internal/sketch/check/lend.go",
+      "from": "moving && !w.borrowedPlaceUse(id)",
+      "to": "moving",
+      "rule": "An index borrow cannot escape into an earlier keeper by moving its entire container implicitly.",
+      "killers": ["check:TestStructuredLendModel"]
+    },
+    {
+      "name": "L8-C1-diagnostic-at-take",
+      "origin": "L8 C1 R28 diagnostic span",
+      "file": "internal/sketch/check/lend.go",
+      "from": "w.refuse(i, at, \"a resource is taken while lent\"",
+      "to": "w.refuse(i, w.vars[i].v.id, \"a resource is taken while lent\"",
+      "rule": "The early-take diagnostic points at the take, not the root declaration.",
+      "killers": ["check:TestV1Fixtures"]
+    },
+    {
+      "name": "L8-C1-named-callback-loses-keeper",
+      "origin": "L8 C1 R31",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.keepArgumentLoans(x)",
+      "to": "// named callback loan omitted",
+      "rule": "A named callback carries its existing loans into the Set that keeps it.",
+      "killers": ["check:TestStructuredLendModel"]
+    },
+    {
+      "name": "L8-C1-callable-field-erases-loan",
+      "origin": "L8 C1 R31 R33",
+      "file": "internal/sketch/check/lend.go",
+      "from": "return w.selectedLoans(x.X, w.fieldIndex(x))",
+      "to": "return nil",
+      "rule": "Selecting a callable field does not erase its root lifetime.",
+      "killers": ["check:TestStructuredLendModel"]
+    },
+    {
+      "name": "L8-C1-keeper-order",
+      "origin": "L8 C1 R27 R31",
+      "file": "internal/sketch/check/lend.go",
+      "from": "return keeper.order > root.order",
+      "to": "return true",
+      "rule": "A keeper must release before the resource root.",
+      "killers": ["check:TestStructuredLendModel"]
+    },
+    {
+      "name": "L8-C1-incoming-return-bound",
+      "origin": "L8 C1 R27",
+      "file": "internal/sketch/check/lend.go",
+      "from": "return lendPoint{scope: w.lendFrame, order: -1, v: v}",
+      "to": "return lendPoint{}",
+      "rule": "An incoming borrow lasts until this frame returns, not until an invented local release.",
+      "killers": ["check:TestStructuredLendModel"]
+    },
+    {
+      "name": "L8-C1-field-release-order",
+      "origin": "L8 C1 R29",
+      "file": "internal/sketch/check/lend.go",
+      "from": "return k > root.path[i]",
+      "to": "return true",
+      "rule": "A literal's fields release in reverse declaration order, not evaluation order.",
+      "killers": ["check:TestStructuredLendModel"]
+    },
+    {
+      "name": "L8-C1-root-inheritance",
+      "origin": "L8 C1 R27 R35",
+      "file": "internal/sketch/check/lend.go",
+      "from": "v = w.vars[i].root",
+      "to": "return nil, 0, false",
+      "rule": "An iteration binding keeps its container's root owner.",
+      "killers": ["check:TestStructuredLendModel"]
+    },
+    {
+      "name": "L8-C1-take-while-lent",
+      "origin": "L8 C1 R28 R32",
+      "file": "internal/sketch/check/lend.go",
+      "from": "if blocks {",
+      "to": "if false && blocks {",
+      "rule": "A root cannot be taken while its keeper may still run.",
+      "killers": ["check:TestStructuredLendModel"]
     }
   ]
 }

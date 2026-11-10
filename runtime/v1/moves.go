@@ -57,3 +57,27 @@ func MovingBody(name string) (param int, repeated, ok bool) {
 	}
 	return 0, false, false
 }
+
+// CallbackKeeper is the reviewed owner of a MovingBody's callback. -1 is
+// the result; any other index is a parameter. Go's Task drains its body;
+// TasksGo's Set drains every member, including restart runs.
+func CallbackKeeper(name string) (int, bool) {
+	switch name {
+	case "Go":
+		return -1, true
+	case "TasksGo":
+		return 0, true
+	}
+	return 0, false
+}
+
+// DrainsLends names operations which cannot return while their keeper's
+// callback still runs. These facts describe the reviewed runtime bodies;
+// no user operation is trusted from its spelling alone.
+func DrainsLends(name string) bool {
+	switch name {
+	case "Task.Wait", "Task.Stop", "Task.Close", "Set.Wait", "Set.Stop", "Set.Close":
+		return true
+	}
+	return false
+}

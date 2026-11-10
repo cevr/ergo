@@ -1,0 +1,24 @@
+// Diagnostic positions for R28, R27 and R33. Runtime controls are the
+// borrowed-task and incoming-borrow cases of TestTaskOwnershipRunModel.
+import task
+
+type Fault {}
+type R { N int }
+func Close(r R) {}
+func use(r R) {}
+
+func early() {
+	let p = R{N: 1}
+	let t = task.Go() { use(p) }
+	p.Close() // want S108
+	t.Stop()
+}
+
+func leak(p R) Task[int, Fault] {
+	let t = task.Go(func() int fails Fault { use(p); 1 })
+	return t // want S108
+}
+
+func erase(p R) func() {
+	return func() { use(p) } // want S108
+}
