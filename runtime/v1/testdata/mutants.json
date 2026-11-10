@@ -1,0 +1,11 @@
+{
+  "about": "G1 HTTP server mutants. Runtime tests run in process; scripts/mutants does not yet register a runtime/v1 suite, so the round request records the focused mutation runs.",
+  "mutants": [
+    {"name":"http-body-budget", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"in.TooLarge = true", "to":"in.Body = string(body)", "rule":"A body over the required limit is a typed body value, not a partial body.", "killers":["runtime/v1:TestHTTPServerMatchesModel"]},
+    {"name":"http-empty-content-type", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"w.Header()[\"Content-Type\"] = nil", "to":"w.Header().Set(\"Content-Type\", \"text/plain\")", "rule":"An empty response has no content type.", "killers":["runtime/v1:TestHTTPServerMatchesModel"]},
+    {"name":"http-stop-listener", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"causes.AddInterruption()\n\t\t\tcauses.Add(shutdown())", "to":"causes.AddInterruption()", "rule":"A serving stop closes its listener before return.", "killers":["runtime/v1:TestHTTPServerMatchesModel"]},
+    {"name":"http-truncated-body", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"gone = nil", "to":"gone = r.Context().Done()", "rule":"A half-closed input still delivers the typed read refusal.", "killers":["runtime/v1:TestHTTPServerMatchesModel"]},
+    {"name":"http-shutdown-skips-drain", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"err = c.h.Stop()", "to":"err = nil", "rule":"Serve returns only after every request's release completed.", "killers":["runtime/v1:TestHTTPConcurrentRequestsAndStop"]},
+    {"name":"http-disconnect-ignored", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"c.cancel()\n\t\t<-c.done", "to":"<-c.done", "rule":"A client abort stops its handler task and drains its cleanup.", "killers":["runtime/v1:TestHTTPDisconnectAndDefects"]}
+  ]
+}

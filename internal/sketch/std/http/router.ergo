@@ -1,0 +1,63 @@
+import strings
+
+// Route matches exact path segments; :name captures one non-empty segment.
+// Routes are considered in slice order. An explicit HEAD route wins over
+// a GET fallback. There is no path cleaning or implicit trailing slash.
+type Route { Name string, Method string, Path string }
+type Found { Route Route, Params Map[string, string] }
+type NotFound {}
+type MethodNotAllowed {}
+type MatchResult = Found | NotFound | MethodNotAllowed
+
+func parameters(pattern string, path string) Option[Map[string, string]] {
+	let want = strings.Split(pattern, "/")
+	let got = strings.Split(path, "/")
+	if len(want) != len(got) { return None }
+	let mut params = Map[string, string]{}
+	for i, part in want {
+		if strings.HasPrefix(part, ":") && len(part) > 1 {
+			if got[i] == "" { return None }
+			params[strings.TrimPrefix(part, ":")] = got[i]
+		} else if part != got[i] {
+			return None
+		}
+	}
+	Some{params}
+}
+
+func Match(routes []Route, method string, path string) MatchResult {
+	let mut pathFound = false
+	for route in routes {
+		match parameters(route.Path, path) {
+		case Some as p:
+			pathFound = true
+			if route.Method == method { return Found{Route: route, Params: p.Value} }
+		case None:
+		}
+	}
+	if method == "HEAD" {
+		for route in routes {
+			if route.Method == "GET" {
+				match parameters(route.Path, path) {
+				case Some as p:
+					return Found{Route: route, Params: p.Value}
+				case None:
+				}
+			}
+		}
+	}
+	if pathFound { MethodNotAllowed } else { NotFound }
+}
+
+// BuiltPathMatches is the route-construction law for two path segments.
+// Empty strings and strings with a slash are not one path segment.
+law BuiltPathMatches(a string, b string) {
+	if a == "" || b == "" || strings.Contains(a, "/") || strings.Contains(b, "/") { return true }
+	let route = Route{Name: "pair", Method: "GET", Path: "/:a/:b"}
+	match Match([]Route{route}, "GET", "/"+a+"/"+b) {
+	case Found as f:
+		f.Route == route && f.Params.Get("a") == Some{a} && f.Params.Get("b") == Some{b}
+	case NotFound, MethodNotAllowed:
+		false
+	}
+}

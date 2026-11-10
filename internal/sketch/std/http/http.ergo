@@ -1,0 +1,69 @@
+// Package http serves buffered requests with ordinary function handlers.
+// Effect HttpServer's purpose is a scoped server whose handlers keep their
+// service requirements; here rows and child tasks supply those guarantees,
+// without service tags, Effect values or middleware builders. Go net/http
+// owns HTTP parsing and connections. Match is independent of the server.
+
+import strings
+
+type ListenFailed { Addr string, Reason string }
+type InvalidLimits { MaxBodyBytes int, MaxHeaderBytes int }
+
+// Limits are required positive budgets. Zero never means unbounded.
+type Limits { MaxBodyBytes int, MaxHeaderBytes int }
+
+// Listener is transport-only, shared by server protocols. Close releases a
+// bound listener that the program does not hand to Serve.
+// law-exempt: only Listen creates a bound transport; socket lifetime is checked by the loopback server property.
+type Listener { Addr() string, Close(), bound() }
+
+extern go ergo.local/prototype/runtime/v1.HTTPListen func Listen(addr string) Listener fails ListenFailed needs Ambient
+
+// Field is one header or query pair. Repeated names keep all their values.
+type Field { Name string, Value string }
+type Buffered { Text string }
+type BodyTooLarge { Limit int }
+type BodyReadFailed { Reason string }
+type Body = Buffered | BodyTooLarge | BodyReadFailed
+type Request { Method string, Path string, Query []Field, Header []Field, Body Body }
+type Response { Status int, Header []Field, Body string }
+
+// Header returns the first value of name, ignoring ASCII case. A missing
+// name is None, distinct from a header with an empty value.
+func Header(fields []Field, name string) Option[string] {
+	for f in fields {
+		if strings.EqualFold(f.Name, name) { return Some{f.Value} }
+	}
+	None
+}
+
+// Query returns the first query value with the exact name.
+func Query(fields []Field, name string) Option[string] {
+	for f in fields {
+		if f.Name == name { return Some{f.Value} }
+	}
+	None
+}
+
+// Serve owns l until the calling task stops. Every handle invocation runs
+// on a child task; a disconnect after a buffered read stops that child.
+// A failed read still reaches the handler (a peer may have half-closed).
+// Serve closes the
+// listener and drains every child, including releases, before it ends.
+// InvalidLimits leaves l open so the caller may retry or Close it.
+// Body refusals reach handle as values; the program chooses their status.
+func Serve[R](l Listener, limits Limits, handle func(Request) Response needs R) fails InvalidLimits needs R {
+	return serve(l, limits, func(method string, path string, query []Field, header []Field, text string, tooLarge bool, readError string) Response needs R {
+		let body Body = if tooLarge {
+			BodyTooLarge{Limit: limits.MaxBodyBytes}
+		} else if readError != "" {
+			BodyReadFailed{Reason: readError}
+		} else {
+			Buffered{Text: text}
+		}
+		handle(Request{Method: method, Path: path, Query: query, Header: header, Body: body})
+	})
+}
+
+// The transport's scalar arguments become a closed body value above.
+extern go ergo.local/prototype/runtime/v1.HTTPServe func serve[R](l Listener, limits Limits, handle func(string, string, []Field, []Field, string, bool, string) Response needs R) fails InvalidLimits needs R
