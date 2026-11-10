@@ -10,9 +10,12 @@ import (
 // jsonValueProbe restates std json's ValueRoundTrips over generated text
 // (deep nesting, long numbers, exponents, strings of any text) and holds
 // json.Value as a record field, through Writer and through codec's events.
-// Mutants g4-members, g4-number, g4-peek and g4-replay-tag have no killer
-// in the earlier json laws: those draw no Value. JsonValueRepeatedKey is
-// the stated rule's one row: a repeated key is kept, in order.
+// Mutants g4-members and g4-number (the ledger), and the std mutants
+// g4-peek (json Peek maps 2 to WireString) and g4-replay-tag (Replay's Key
+// consumes a tag), judged by hand because the mutant tool maps Go coverage
+// only, have no killer in the earlier json laws: those draw no Value.
+// JsonValueRepeatedKey is the stated rule's one row: a repeated key is
+// kept, in order.
 const jsonValueProbe = `import codec
 import json
 import strconv
