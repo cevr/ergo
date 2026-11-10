@@ -8,7 +8,8 @@
       "from": "TypeCap = 256",
       "to": "TypeCap = 257",
       "rule": "A 257-value type is sampled, not listed or proved.",
-      "killers": ["internal/sketch/eval:TestCasePlansRun"]
+      "killers": ["internal/sketch/eval:TestCasePlansRun"],
+      "anchor": {"tests": ["internal/sketch/eval:TestCasePlansRun"]}
     }
   ]
 }

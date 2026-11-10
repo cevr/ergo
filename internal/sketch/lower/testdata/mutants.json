@@ -8,7 +8,8 @@
       "from": "return &$Rand{stream: $testgen.New(seed, name)}",
       "to": "return &$Rand{stream: $testgen.New(seed+1, name)}",
       "rule": "Native and interpreted adapters receive the identical seed and full binding label.",
-      "killers": ["lower:TestCasePlansAgreeWithGo"]
+      "killers": ["lower:TestCasePlansAgreeWithGo"],
+      "anchor": {"tests": ["lower:TestCasePlansAgreeWithGo"]}
     },
     {
       "name": "eval-conversion-drift",

@@ -15,7 +15,7 @@
       "origin": "wf10/l7-eval/EV3",
       "file": "runtime/testgen/stream.go",
       "from": "r.world = nil",
-      "to": "// case world retained",
+      "to": "_ = r.world",
       "rule": "A builder's value is shared within one case, never across cases.",
       "killers": ["internal/sketch/eval:TestStreamCaseLaws"]
     }
