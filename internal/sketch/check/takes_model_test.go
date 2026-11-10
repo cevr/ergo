@@ -88,6 +88,8 @@ func use(f func(n int, a Res, b Res, g func(r Res) takes r)) {}
 
 func first[T](a T, b T) T takes a, b { a }
 
+func keyed[K comparable](m Map[K, int], x K) K takes x { x }
+
 `
 
 // tkStmt kinds of a generated function's body.
@@ -113,7 +115,8 @@ type tkFunc struct {
 }
 
 // tkGeneric is h<i>[T](x T) T: body 0 moves x, 1 copies it
-// (first(x, x)), 2 calls h<callee>(x).
+// (first(x, x)), 2 calls h<callee>(x), 3 keys a map by T (resources R40:
+// S112 at a call with a resource).
 type tkGeneric struct {
 	body, callee int
 	callLine     int // the line of `let v<i> = h<i>(open(…))`
@@ -141,7 +144,7 @@ func tkGen(r *rand.Rand) *tkModel {
 	}
 	k := 1 + r.IntN(4)
 	for range k {
-		m.generics = append(m.generics, &tkGeneric{body: r.IntN(3), callee: r.IntN(k)})
+		m.generics = append(m.generics, &tkGeneric{body: r.IntN(4), callee: r.IntN(k)})
 	}
 	return m
 }
@@ -216,10 +219,12 @@ func (m *tkModel) print() string {
 			body = "x"
 		case 1:
 			body = "first(x, x)"
-		default:
+		case 2:
 			body = fmt.Sprintf("h%d(x)", h.callee)
+		default:
+			body = "keyed(Map[T, int]{}, x)"
 		}
-		emit(fmt.Sprintf("func h%d[T](x T) T { %s }", i, body))
+		emit(fmt.Sprintf("func h%d[T comparable](x T) T { %s }", i, body))
 		emit("")
 	}
 	emit("func callers() {")
@@ -276,20 +281,22 @@ func (m *tkModel) handsOff(s *tkStmt, cl [][2]bool) bool {
 	return false
 }
 
-// copies is the reference fixpoint of plan 1.3 over the generic functions.
-func (m *tkModel) copies() []bool {
-	out := make([]bool, len(m.generics))
+// copies is the reference fixpoint of plan 1.3 over the generic functions;
+// key marks a copy site that is a map key (S112 at the call, R40).
+func (m *tkModel) copies() (out, key []bool) {
+	out, key = make([]bool, len(m.generics)), make([]bool, len(m.generics))
 	for changed := true; changed; {
 		changed = false
 		for i, h := range m.generics {
-			c := h.body == 1 || h.body == 2 && out[h.callee]
+			c := h.body == 1 || h.body == 3 || h.body == 2 && out[h.callee]
 			if c && !out[i] {
 				out[i] = true
+				key[i] = h.body == 3 || h.body == 2 && key[h.callee]
 				changed = true
 			}
 		}
 	}
-	return out
+	return out, key
 }
 
 // reference is every diagnostic's position and code: the flow of each
@@ -339,9 +346,12 @@ func (m *tkModel) reference() []string {
 			}
 		}
 	}
-	cp := m.copies()
+	cp, key := m.copies()
 	for i, h := range m.generics {
-		if cp[i] {
+		switch {
+		case key[i]:
+			at(h.callLine, 11, "S112")
+		case cp[i]:
 			at(h.callLine, 11, "S108")
 		}
 	}
@@ -364,7 +374,8 @@ func (m *tkModel) inferred() []string {
 		}
 		out = append(out, m.name(i)+" takes "+strings.Join(ix, ","))
 	}
-	for i, c := range m.copies() {
+	cp, _ := m.copies()
+	for i, c := range cp {
 		if c {
 			out = append(out, fmt.Sprintf("h%d copies T", i))
 		}
@@ -405,7 +416,7 @@ func tkInferred(c *checker) []string {
 		out = append(out, f.Name+" takes "+strings.Join(s, ","))
 	}
 	for f, cs := range c.pkg.Info.Copies {
-		if f.Name == "first" {
+		if f.Name == "first" || f.Name == "keyed" {
 			continue
 		}
 		for _, s := range cs {

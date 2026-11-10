@@ -194,7 +194,7 @@ The 2026-10-26 sketch bound `set` before `b`; that order is an error under R31, 
 2. **R35.** Copying such a container moves it (R15). Indexing it, `xs[i]`, lends the element; the element's borrow keeps the root owner of `xs` (R27). Calling a consuming method through an index (`xs[i].Close()`, `running[j].Wait()`, `ts[k].Stop()`) is an error.
 3. **R36.** A standard-library removal moves the element out: `slices.Take(xs, i)` for a slice, and the map's delete-and-return (`m.Take(k)`). The element then has the caller's scope as owner.
 4. **R37.** Releasing a container releases its remaining elements: a slice or array in reverse index order, a map in unspecified order. Each release runs even when an earlier one had a defect (R9).
-5. **R40. Resource map keys.** A map whose key type is a resource is an error in v0 (S112, **checked** at a written `Map[K, V]` by L8 A1; a key that is a type parameter is decided at the instantiation, L8 A3). Only map values may be resources. README Gap 32 records a later owned-key rule.
+5. **R40. Resource map keys.** A map whose key type is a resource is an error in v0 (S112, **checked** at a written `Map[K, V]` by L8 A1; a key that is a type parameter is decided at the instantiation, **checked** by L8 A3: a call that binds it to a resource is S112, also through a generic callee). Only map values may be resources. README Gap 32 records a later owned-key rule.
 
 ```go
 func moves(f File) {

@@ -1108,8 +1108,8 @@
       "name": "L8-A3 mutual recursion stops after one round",
       "origin": "wf10 L8 A3 (#197)",
       "file": "internal/sketch/check/takes.go",
-      "from": "\t\t\tif !changed {\n\t\t\t\tbreak\n\t\t\t}",
-      "to": "\t\t\tbreak",
+      "from": "\t\t\tif !changed || !cyclic {\n\t\t\t\tbreak\n\t\t\t}",
+      "to": "\t\t\tif !changed || !cyclic || cyclic {\n\t\t\t\tbreak\n\t\t\t}",
       "rule": "plan 1.1: the takes fixpoint runs per component until nothing changes (Lean 4).",
       "killers": [
         "check:TestTakesInferenceModel"
@@ -1118,9 +1118,9 @@
     {
       "name": "L8-A3 an exported function that takes without the clause admitted",
       "origin": "wf10 L8 A3 (#197)",
-      "file": "internal/sketch/check/ownership.go",
-      "from": "\tcase l.lent && w.infer && l.param > 0 && w.c.infersTakes(w.fn):",
-      "to": "\tcase l.lent && w.infer && l.param > 0:",
+      "file": "internal/sketch/check/takes.go",
+      "from": "!writesTakes(f) && !isExported(f.Name) && f.Name != \"main\"",
+      "to": "!writesTakes(f) && f.Name != \"main\"",
       "rule": "plan 1.1: an exported function writes its takes clause; a body that takes more is S108.",
       "killers": [
         "check:TestTakesInferenceModel"
@@ -1152,8 +1152,8 @@
       "name": "L8-A3 a copy site not propagated through a generic callee",
       "origin": "wf10 L8 A3 (#197)",
       "file": "internal/sketch/check/takes.go",
-      "from": "\t\tcase w.c.mayHoldResource(t):",
-      "to": "\t\tcase false:",
+      "from": "\t\t\tw.copySite(t, x, what, s.Key)\n",
+      "to": "\t\t\t_ = what\n",
       "rule": "plan 1.3: a call that binds a copying callee's type parameter to the caller's is the caller's copy site.",
       "killers": [
         "check:TestTakesInferenceModel"
@@ -1163,8 +1163,8 @@
       "name": "L8-A3 a copy site reported at a call with plain data",
       "origin": "wf10 L8 A3 (#197)",
       "file": "internal/sketch/check/takes.go",
-      "from": "\t\tcase w.c.holdsResource(t):",
-      "to": "\t\tcase w.c.mayHoldResource(t) || !isInvalid(t):",
+      "from": "\t\twhere := \"\"\n\t\tif s.Where != \"\" {\n\t\t\twhere = \" at \" + s.Where\n\t\t}\n\t\tswitch {\n\t\tcase w.c.holdsResource(t):",
+      "to": "\t\twhere := \"\"\n\t\tif s.Where != \"\" {\n\t\t\twhere = \" at \" + s.Where\n\t\t}\n\t\tswitch {\n\t\tcase w.c.mayHoldResource(t) || !isInvalid(t):",
       "rule": "plan 1.3, q56: a crossing type argument is checked as today (dup(1) stays legal).",
       "killers": [
         "check:TestTakesInferenceModel"
@@ -1175,7 +1175,7 @@
       "origin": "wf10 L8 A3 (#197)",
       "file": "internal/sketch/check/takes.go",
       "from": "\t\tif path, name := f.Decl.Extern.Split(); path == runtimeModule+\"/v1\" && v1.MovesOnly(name) {",
-      "to": "\t\tif true {",
+      "to": "\t\tif path, name := f.Decl.Extern.Split(); path != \"\" || name != \"\" || v1.MovesOnly(name) {",
       "rule": "plan 1.3, D-B: a generic extern copies its type parameters unless runtime/v1 lists it.",
       "killers": [
         "check:TestTakesInferenceModel"
@@ -1186,8 +1186,30 @@
       "origin": "wf10 L8 A3 (#197)",
       "file": "internal/sketch/check/takes.go",
       "from": "\tif !held {\n\t\treturn\n\t}",
-      "to": "\treturn",
+      "to": "\tif held || !held {\n\t\treturn\n\t}",
       "rule": "Gap 39: a function used as a value writes a takes clause that takes something.",
+      "killers": [
+        "check:TestTakesInferenceModel"
+      ]
+    },
+    {
+      "name": "L8-A3 a type parameter used as a map key is no copy site",
+      "origin": "wf10 L8 A3 (#197)",
+      "file": "internal/sketch/check/takes.go",
+      "from": "\tc.mapKeyCopies()\n",
+      "to": "\n",
+      "rule": "resources R40: a generic that keys a map by its T cannot take a resource; the call is S112.",
+      "killers": [
+        "check:TestTakesInferenceModel"
+      ]
+    },
+    {
+      "name": "L8-A3 a map-key copy site reported as S108, not S112",
+      "origin": "wf10 L8 A3 (#197)",
+      "file": "internal/sketch/check/takes.go",
+      "from": "\t\t\tif s.Key {\n\t\t\t\tw.reportCode(x, \"S112\"",
+      "to": "\t\t\tif false {\n\t\t\t\tw.reportCode(x, \"S112\"",
+      "rule": "resources R40: the instantiation of a map key at a resource is S112 (diagnostics.md).",
       "killers": [
         "check:TestTakesInferenceModel"
       ]

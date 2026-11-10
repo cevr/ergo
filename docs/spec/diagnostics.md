@@ -22,7 +22,7 @@ A diagnostic has a position, a code and a message: `file:line:col: CODE message`
 | S109 | A construct another ticket owns is refused, naming that ticket; at build only, a form the lowering does not lower yet, naming its owner. | README Gaps 6 and 33, [runtime: G1](runtime.md) | `context-constructor-is-37` |
 | S110 | A declared local, binding or import must be read, and an expression statement must be a call, a receive, `try` or `catch`, as in Go. | [grammar: statements](grammar.md#statements) | `probes/unused-expression.ergo` |
 | S111 | A context must not have two entries for one capability, except a `replace` of an embedded entry. | [rows: context](rows.md#context), README Gap 28 | `duplicate-context-entry` |
-| S112 | A map's key type must not be a resource in v0. | [resources: containers](resources.md#containers), README Gap 32 | `TestResourceTypeModel` (generated) |
+| S112 | A map's key type must not be a resource in v0. | [resources: containers](resources.md#containers), README Gap 32 | `TestResourceTypeModel` (generated); at an instantiation, `TestTakesInferenceModel` (generated) |
 | S113 | The entry function `main` takes no parameters, returns no value (an error row is allowed) and is not called. | [rows: capability rows](rows.md#capability-rows), README Gap 4 | `main-parameter`, `main-called`, `main-value-result` |
 | S114 | Outside its package, a record with an unexported field is not built by a literal, a record update or an implicit zero value. | [types: zero values](types.md#zero-values-and-definite-initialisation) 6, [grammar: visibility](grammar.md#visibility) 3 | `TestConstructionAuthority`, `TestConstructionAuthorityShapes` |
 
