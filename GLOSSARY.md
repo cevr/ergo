@@ -121,7 +121,11 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Borrow** (designed): A `*T` parameter or receiver. It is never nil, stored, returned, sent or captured by `go`, and two mutable borrows of one value must not overlap.
 
-**Resource** (designed): A value whose type has a `Close()` method, a struct with a resource field, or a slice, array or map with a resource element type. A task and an actor handle are resources. Its owner scope releases it. See [resources](docs/spec/resources.md).
+**Resource** (checked; release designed): A value whose type has a checked `Close()`, an operation type with a `Close()` operation or with an operation that takes a resource, or a record, union, tuple, slice, `Map` or `Option` that holds one (resources R1, R34). A task is owned by its frame; an actor handle is a shared handle, not a resource. Its owner scope releases it. See [resources](docs/spec/resources.md).
+
+**Crossing type** (checked): A type that holds no resource, so the ownership rules mean nothing for its values: they copy freely. Plain data and shared handles cross; a generic type crosses with its arguments (`Stack[int]` crosses, `Stack[File]` does not). The term is OxCaml's mode crossing. See [resources](docs/spec/resources.md) R1.
+
+**Takes clause** (checked syntax): `takes p` after a signature's rows: the call hands the parameter `p` off, and the caller cannot use it after the call. A bare `takes` on an operation names the value the operation is called on. See [grammar](docs/spec/grammar.md) Declarations 13.
 
 **Owner scope** (designed): The block that owns a resource: the block that acquired it, or the scope it moved to. A loop body is its own owner scope for each iteration.
 

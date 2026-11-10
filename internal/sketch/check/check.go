@@ -178,6 +178,18 @@ type checker struct {
 	// for the linear-growth tests.
 	taskMemo  map[int32]bool
 	taskSteps int
+	// resMemo caches holdsResource (0) and mayHoldResource (1) by interned
+	// type id; resSteps counts the walk's visits (resource.go).
+	resMemo  [2]map[int32]bool
+	resSteps int
+	// providing is set while a provider is checked against its capability
+	// (providerAssignability): R22 does not apply there.
+	providing bool
+	// resourceSites are the map keys and taken parameters A1's late pass
+	// decides (resource.go); the seen sets keep one site per syntax node.
+	resourceSites []resourceSite
+	takesSeen     map[*syntax.TakesClause]bool
+	mapKeysSeen   map[syntax.Expr]bool
 	// typeNodes are the expressions checked as types (a conversion's
 	// callee, a composite literal's type): the Task use rule skips them.
 	typeNodes map[syntax.Expr]bool

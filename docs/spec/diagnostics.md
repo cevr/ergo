@@ -22,7 +22,7 @@ A diagnostic has a position, a code and a message: `file:line:col: CODE message`
 | S109 | A construct another ticket owns is refused, naming that ticket; at build only, a form the lowering does not lower yet, naming its owner. | README Gaps 6 and 33, [runtime: G1](runtime.md) | `context-constructor-is-37` |
 | S110 | A declared local, binding or import must be read, and an expression statement must be a call, a receive, `try` or `catch`, as in Go. | [grammar: statements](grammar.md#statements) | `probes/unused-expression.ergo` |
 | S111 | A context must not have two entries for one capability, except a `replace` of an embedded entry. | [rows: context](rows.md#context), README Gap 28 | `duplicate-context-entry` |
-| S112 (designed) | A map's key type must not be a resource in v0. | [resources: containers](resources.md#containers), README Gap 32 | none yet: negative example `Map[Key, string]{openKey(): "v"}` in resources.md |
+| S112 | A map's key type must not be a resource in v0. | [resources: containers](resources.md#containers), README Gap 32 | `TestResourceTypeModel` (generated) |
 | S113 | The entry function `main` takes no parameters, returns no value (an error row is allowed) and is not called. | [rows: capability rows](rows.md#capability-rows), README Gap 4 | `main-parameter`, `main-called`, `main-value-result` |
 | S114 | Outside its package, a record with an unexported field is not built by a literal, a record update or an implicit zero value. | [types: zero values](types.md#zero-values-and-definite-initialisation) 6, [grammar: visibility](grammar.md#visibility) 3 | `TestConstructionAuthority`, `TestConstructionAuthorityShapes` |
 
@@ -212,6 +212,7 @@ The checker refuses a construct that another ticket owns, and names it, instead 
 - An `as` binding is read in no case (`unused-type-switch-binding`).
 - An expression statement is not a call, `try`, `catch` or `with` (`unused-expression`, `probes/unused-expression.ergo`).
 - An import is not used (Go's rule).
+- A `takes` clause names a parameter whose type crosses: "takes n has no effect: int is not a resource" (L8 A1; [grammar](grammar.md) Declarations 13; `TestResourceTypeModel`).
 - A `let mut` local is never reassigned: "n is never reassigned; write let n". An assignment through a field or an index, and a borrow, count, the implicit one of a call `x.f(…)` in every spelling (`(x.f)(…)`, `x.f[T](…)`) included, also inside a callback the checker could not type, and a dot call S104 names with a plain call (K4); a `let mut` read nowhere keeps only its unused diagnostic (check-v1 Q3; `D10-mut-reassigned.neg`, `TestLetMutNeverReassigned`).
 
 *Prior art:* Go rejects unused locals, imports and unused expression values; Rust and Gleam warn instead. Ergo keeps Go's errors because its output is Go and because an unread value usually hides a dropped result.
@@ -226,7 +227,7 @@ The checker refuses a construct that another ticket owns, and names it, instead 
 
 ### S112: resource map key
 
-Designed: a map's key type must not be a resource in v0 ([resources: containers](resources.md#containers), README Gap 32). It is emitted when [#197](https://github.com/cevr/ergo/issues/197) implements resources.
+Implemented (L8 A1, [#197](https://github.com/cevr/ergo/issues/197)): a map's key type must not be a resource in v0 ([resources: containers](resources.md#containers) R40, README Gap 32), at the key of a written `Map[K, V]`: "map key type Res holds a resource, and a map key has no owner to release it (resources R40); key the map by a plain value, such as an id". A key that is a type parameter is decided at the instantiation (L8 A3). `TestResourceTypeModel`.
 
 ### S113: entry and test functions
 

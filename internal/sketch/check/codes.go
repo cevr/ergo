@@ -46,7 +46,7 @@ var Codes = []Code{
 	{CodeOutside, "owned by another ticket", "implemented", "s109-owned-by-another-ticket"},
 	{CodeUnused, "unused", "implemented", "s110-unused"},
 	{CodeDuplicateCap, "duplicate context entry", "implemented", "s111-duplicate-context-entry"},
-	{"S112", "resource map key", "designed", "s112-resource-map-key"},
+	{"S112", "resource map key", "implemented", "s112-resource-map-key"},
 	{CodeEntry, "entry and test functions", "implemented", "s113-entry-and-test-functions"},
 	{CodeAuthority, "construction authority", "implemented", "s114-construction-authority"},
 }

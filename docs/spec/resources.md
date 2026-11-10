@@ -14,7 +14,7 @@ func copyFile(src, dst string) fails NotFound | WriteFailed needs FS {
 
 ## What is a resource
 
-1. **R1.** A type is a resource when it has a method `Close()`, when it is a struct with a resource field, or when it is a slice, array or map with a resource element type (R34). A `Task` and an actor handle are resources ([runtime.md](runtime.md#tasks)).
+1. **R1.** A type is a resource when it has a checked `Close()` (one parameter, its receiver; no result; no failure row), when it is an operation type with a `Close()` operation, or an operation type whose operation takes (`takes`, [grammar](grammar.md) Declarations 13) a parameter whose type is a resource at that instance (`queue.Queue[File]`), and when a record, union, tuple, slice, `Map` or `Option` holds one (R34). Every other type **crosses**: ownership means nothing for it, and it copies freely (owner, 2026-11-09, q55/q56: mode crossing, no type mark). A generic declaration carries no mark: `Stack[int]` crosses and `Stack[File]` does not. A recursive type holds a resource only when a member of its cycle holds one directly. A function value, a borrow `*T` and an operation type with no `Close` and no taking operation (a shared handle: `queue.Queue[int]`, `actor.Actor`, owner Q6) cross. A `Task` and a `tasks.Set` are owned by their frame by the D3a rules ([runtime.md](runtime.md#tasks)) until L8 B3 declares their `Close`; an actor handle is a shared handle, not a resource (Q6). A resource has no zero value: `let f File` is S108. Status: **checked** (L8 A1, `check/resource.go`, `TestResourceTypeModel`); the flow rules (R4 on) are L8 A2 to A4.
 2. **R2.** `Close` must not declare an error row (decision #6). Status: **implemented in the checker**: a `Close` method or an operation type's `Close` with a nonempty failure row is a type error (#199 stage 3a). A defect in `Close` joins the exit cause ([runtime.md](runtime.md#exit-causes)). A fallible cleanup handles its failure inside `Close`: `p.conn.Close() catch { case CloseFailed: log.Warn("close failed") }`. *Prior art:* Effect's release has error type `never`; Go's `io.Closer` returns an error that callers routinely drop.
 3. **R3. Generated `Close`.** A struct whose fields include resources gets a generated `Close` that closes those fields in reverse declaration order. A hand-written `Close` on such a struct adds behaviour that runs first; the generated field releases still run after it.
 
@@ -190,11 +190,11 @@ The 2026-10-26 sketch bound `set` before `b`; that order is an error under R31, 
 
 ## Containers
 
-1. **R34.** A slice, array or map whose element type is a resource is itself a resource.
+1. **R34.** A slice, array or map whose element type is a resource is itself a resource. Status: **checked** (L8 A1; R1).
 2. **R35.** Copying such a container moves it (R15). Indexing it, `xs[i]`, lends the element; the element's borrow keeps the root owner of `xs` (R27). Calling a consuming method through an index (`xs[i].Close()`, `running[j].Wait()`, `ts[k].Stop()`) is an error.
 3. **R36.** A standard-library removal moves the element out: `slices.Take(xs, i)` for a slice, and the map's delete-and-return (`m.Take(k)`). The element then has the caller's scope as owner.
 4. **R37.** Releasing a container releases its remaining elements: a slice or array in reverse index order, a map in unspecified order. Each release runs even when an earlier one had a defect (R9).
-5. **R40. Resource map keys.** A map whose key type is a resource is an error in v0 (S112, designed). Only map values may be resources. README Gap 32 records a later owned-key rule.
+5. **R40. Resource map keys.** A map whose key type is a resource is an error in v0 (S112, **checked** at a written `Map[K, V]` by L8 A1; a key that is a type parameter is decided at the instantiation, L8 A3). Only map values may be resources. README Gap 32 records a later owned-key rule.
 
 ```go
 func moves(f File) {
@@ -227,7 +227,7 @@ func keys() Map[Key, string] {
 
 ## Conversions
 
-1. **R22 (README Gap 14).** Converting a resource to an interface type that has no `Close` is an error. Ownership is never erased by a conversion.
+1. **R22 (README Gap 14).** Converting a resource to an interface type that has no `Close` is an error. Ownership is never erased by a conversion. Status: **checked** (L8 A1: S108 "Res is a resource and Named has no Close, so the value would never be released"). A provider that implements a capability is not this conversion: the `with` that builds it owns and releases it (R24, R25).
 2. **R23.** Converting a resource to an interface type that has `Close` moves it. The interface value is a resource with the same owner scope.
 
 ## Context

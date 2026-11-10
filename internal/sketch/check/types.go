@@ -221,6 +221,12 @@ type Signature struct {
 	// at the top level and escaping.go refuses the use instead. Added in
 	// check-v1 stage E2 (additive).
 	NonEscaping bool
+	// Takes lists the parameters a written `takes` clause names, by index
+	// into Params, in the clause's order; TakesSelf is a bare `takes` of an
+	// operation: the value the operation is called on (#197 A1; resources
+	// R19). Function-type identity reads them in A3 (Gap 39).
+	Takes     []int
+	TakesSelf bool
 }
 
 // Kind is the kind of a type parameter (rows-and-constraints §3: by

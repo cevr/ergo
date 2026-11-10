@@ -817,6 +817,149 @@
       "killers": [
         "check:TestCheckerScalePart0"
       ]
+    },
+    {
+      "name": "L8-A1 a union crosses whatever its variants hold",
+      "origin": "wf10 L8 A1 (#197)",
+      "file": "internal/sketch/check/resource.go",
+      "from": "\tcase *Union:\n\t\tfor _, v := range t.Variants {\n\t\t\tedge(v)\n\t\t}",
+      "to": "\tcase *Union:",
+      "rule": "resources R34, Gap 36: a union crosses exactly when every variant crosses (plan 1.2 rule 2).",
+      "killers": [
+        "check:TestResourceTypeModel"
+      ]
+    },
+    {
+      "name": "L8-A1 a back edge counts as a resource",
+      "origin": "wf10 L8 A1 (#197)",
+      "file": "internal/sketch/check/resource.go",
+      "from": "\t\tif n.onStack {\n\t\t\treturn n.holds, n.index\n\t\t}",
+      "to": "\t\tif n.onStack {\n\t\t\treturn true, n.index\n\t\t}",
+      "rule": "plan 1.2 rule 3: a back edge counts as no resource yet (least fixpoint).",
+      "killers": [
+        "check:TestResourceTypeModel"
+      ]
+    },
+    {
+      "name": "L8-A1 a Close with a result counts",
+      "origin": "wf10 L8 A1 (#197)",
+      "file": "internal/sketch/check/resource.go",
+      "from": "len(sig.Params) != 1 || len(sig.Results) != 0 || sig.Fallible",
+      "to": "len(sig.Params) != 1 || sig.Fallible",
+      "rule": "resources R1: a checked Close has no result.",
+      "killers": [
+        "check:TestResourceTypeModel"
+      ]
+    },
+    {
+      "name": "L8-A1 a Close with a written failure row counts",
+      "origin": "wf10 L8 A1 (#197)",
+      "file": "internal/sketch/check/resource.go",
+      "from": "len(sig.Params) != 1 || len(sig.Results) != 0 || sig.Fallible",
+      "to": "len(sig.Params) != 1 || len(sig.Results) != 0",
+      "rule": "resources R1, R2: a Close with a failure row is R2's error and makes no resource.",
+      "killers": [
+        "check:TestResourceTypeModel"
+      ]
+    },
+    {
+      "name": "L8-A1 a Close with a parameter counts",
+      "origin": "wf10 L8 A1 (#197)",
+      "file": "internal/sketch/check/resource.go",
+      "from": "len(sig.Params) != 1 || len(sig.Results) != 0 || sig.Fallible",
+      "to": "len(sig.Params) < 1 || len(sig.Results) != 0 || sig.Fallible",
+      "rule": "resources R1: a checked Close's one parameter is its receiver.",
+      "killers": [
+        "check:TestResourceTypeModel"
+      ]
+    },
+    {
+      "name": "L8-A1 a resource map key admitted",
+      "origin": "wf10 L8 A1 (#197)",
+      "file": "internal/sketch/check/resource.go",
+      "from": "\t\t\tif c.holdsResource(s.t) {",
+      "to": "\t\t\tif false {",
+      "rule": "resources R40: a map key type holds no resource (S112).",
+      "killers": [
+        "check:TestResourceTypeModel"
+      ]
+    },
+    {
+      "name": "L8-A1 a taking operation ignored",
+      "origin": "wf10 L8 A1 (#197)",
+      "file": "internal/sketch/check/resource.go",
+      "from": "\t\t\t\t\tedge(pt)",
+      "to": "\t\t\t\t\t_ = pt",
+      "rule": "plan 1.2 rule 1: an operation type whose operation takes a non-crossing parameter does not cross (queue.Queue[Res]).",
+      "killers": [
+        "check:TestResourceTypeModel"
+      ]
+    },
+    {
+      "name": "L8-A1 a taking operation read at the declaration, not the instance",
+      "origin": "wf10 L8 A1 (#197)",
+      "file": "internal/sketch/check/resource.go",
+      "from": "\t\t\t\t\t\tpt = c.subst(pt, sub)",
+      "to": "\t\t\t\t\t\t_ = sub",
+      "rule": "plan 1.2 rule 1: the taken parameter's type is read at the instance (Box[int] crosses, Box[Res] does not).",
+      "killers": [
+        "check:TestResourceTypeModel"
+      ]
+    },
+    {
+      "name": "L8-A1 the generic walk counts a declaration's own type parameters",
+      "origin": "wf10 L8 A1 (#197)",
+      "file": "internal/sketch/check/resource.go",
+      "from": "\t\t\t\t\tn.holds = n.holds || c.holdsResource(o.underlying())",
+      "to": "\t\t\t\t\tedge(o.underlying())",
+      "rule": "plan 1.2 rule 2: a generic record crosses with its arguments; G[string] crosses inside a generic body too.",
+      "killers": [
+        "check:TestResourceTypeModel"
+      ]
+    },
+    {
+      "name": "L8-A1 a conversion to a crossing operation type admitted",
+      "origin": "wf10 L8 A1 (#197)",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "if !c.providing && c.holdsResource(v) && !c.holdsResource(t) {",
+      "to": "if false && !c.providing && c.holdsResource(v) && !c.holdsResource(t) {",
+      "rule": "resources R22: a resource converted to an operation type with no Close is S108.",
+      "killers": [
+        "check:TestResourceTypeModel"
+      ]
+    },
+    {
+      "name": "L8-A1 takes on a crossing parameter admitted silently",
+      "origin": "wf10 L8 A1 (#197)",
+      "file": "internal/sketch/check/resource.go",
+      "from": "\t\tif !c.mayHoldResource(s.t) {",
+      "to": "\t\tif false {",
+      "rule": "grammar.md Declarations 13: takes on a parameter whose type crosses is S110.",
+      "killers": [
+        "check:TestResourceTypeModel"
+      ]
+    },
+    {
+      "name": "L8-A1 takes naming no parameter admitted",
+      "origin": "wf10 L8 A1 (#197)",
+      "file": "internal/sketch/check/resource.go",
+      "from": "\t\t\t\tc.errorf(made(c, id, syntax.Node(u)), CodeType, \"takes %s names no parameter\", id.Name)",
+      "to": "\t\t\t\t_ = id",
+      "rule": "grammar.md Declarations 13: a takes name is a parameter (S108).",
+      "killers": [
+        "check:TestResourceTypeModel"
+      ]
+    },
+    {
+      "name": "L8-A1 a resource's zero value admitted",
+      "origin": "wf10 L8 A1 (#197)",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "\tif c.zeroHoldsResource(declared) {",
+      "to": "\tif false {",
+      "rule": "resources R1: a resource comes only from its acquisition; it has no zero value.",
+      "killers": [
+        "check:TestResourceTypeModel"
+      ]
     }
   ]
 }

@@ -92,6 +92,8 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"NBracket":    {why: "a count of TParams"},
 		"Fallible":    {why: "whether a row is written; Errors holds it"},
 		"NonEscaping": {why: "a lifetime mark of a parameter's function type"},
+		"Takes":       {why: "parameter indexes of a takes clause (#197)"},
+		"TakesSelf":   {why: "a bare takes of an operation (#197)"},
 	},
 	"Var": {
 		"Type":        {sel: "Type"},

@@ -93,6 +93,8 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.checkTaskUses,
 		c.finishInfo,
 		c.closeFacts,
+		// After closeFacts: every Close and failure row is final.
+		c.checkResourceTypes,
 		c.withOwnership,
 		c.checkFrames,
 		c.checkEscapes,
@@ -1235,6 +1237,7 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 			c.errorf(x.Key, CodeType, "map key type %s is not comparable", k)
 			return invalid
 		}
+		c.mapKeySite(x.Key, k)
 		return &Map{Key: k, Elem: v}
 	case *syntax.StarExpr:
 		if ctx == nil || !ctx.param {
@@ -1963,6 +1966,9 @@ func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
 	}
 	if ft.Needs != nil {
 		sig.Uses = c.rowExpr(ft.Needs.Names, KindUses, &rctx)
+	}
+	if ft.Takes != nil {
+		c.takesClause(ft.Takes, sig, ctx.method)
 	}
 	return sig
 }

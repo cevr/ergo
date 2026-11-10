@@ -109,7 +109,7 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 	case *Pointer:
 		return &Pointer{Elem: c.subst(t.Elem, m)}
 	case *Signature:
-		s := &Signature{Fallible: t.Fallible, NonEscaping: t.NonEscaping}
+		s := &Signature{Fallible: t.Fallible, NonEscaping: t.NonEscaping, Takes: t.Takes, TakesSelf: t.TakesSelf}
 		for _, p := range t.Params {
 			s.Params = append(s.Params, &Var{Name: p.Name, Type: c.subst(p.Type, m), Pos: p.Pos, id: p.id, param: true})
 		}
@@ -342,6 +342,10 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		// failure (cmd/compile assignOp's diagnostic order).
 		if c.holdsTask(v) && !c.holdsTask(t) {
 			return assignment{}, taskEscapeText
+		}
+		if !c.providing && c.holdsResource(v) && !c.holdsResource(t) {
+			// R22: the operation value would never be released.
+			return assignment{}, resourceIntoCrossingText(v, t)
 		}
 		if s := sealedStd(t); s != nil && sealedStd(v) == nil {
 			// A program value, or a program operation type's value, never
@@ -925,6 +929,11 @@ func (c *checker) letZero(name *syntax.Ident, declared Type) {
 	}
 	if !defaultable(declared) {
 		c.errorf(name, CodeType, "let %s of type %s needs a value: %s has no zero value (types.md, Zero values 3)", name.Name, declared, declared)
+		return
+	}
+	if c.zeroHoldsResource(declared) {
+		// A resource comes only from its acquisition (resources R1).
+		c.errorf(name, CodeType, "let %s of type %s needs a value: %s is a resource, and a resource has no zero value (resources R1)", name.Name, declared, declared)
 	}
 }
 

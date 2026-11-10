@@ -549,7 +549,7 @@ func (c *checker) contextEntry(e *syntax.ContextEntry, made *ContextEntry) ([]Ty
 		// The provider goes into the capability by assignability (types.md,
 		// Assignability), whose conversion holds its operations' functions
 		// (196m); the lowering reads it and never re-derives it.
-		a, why := c.assignability(pt, cap)
+		a, why := c.providerAssignability(pt, cap)
 		if c.sealedRefused(e.Value, a) {
 			continue
 		}
