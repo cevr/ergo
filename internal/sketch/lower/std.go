@@ -73,9 +73,14 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 		// runtime's struct or a declaration of the program by the rule
 		// above.
 		return ""
+	case *syntax.MachineType:
+		// A std machine declaration, such as prompt.Picker (CU3): a
+		// declaration of the program, as a user package's machine is. Std
+		// is ordinary code (std.go), so its machines lower by the same
+		// rule.
+		return ""
 	}
-	// Every std type is a record, a union or an operation type
-	// (TestStdTypesHaveRuntimeForms).
+	// Every other std type is a record, a union or an operation type.
 	ice(site, "the std type %s.%s is neither a record nor an operation type", obj.Pkg.Path, obj.Name)
 	return ""
 }

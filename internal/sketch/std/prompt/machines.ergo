@@ -1,0 +1,224 @@
+// The prompt machines: each one's state, its step over term keys and its
+// frame. A step is pure; Ask draws the frames.
+
+import strings
+import term
+import utf8
+
+// Text is a question whose answer is a line of text. Default is the
+// answer to a Return on an empty line. Masked hides what is typed: the
+// frame shows one * per character (Secret).
+type Text { Message string, Default string, Masked bool }
+
+// Typing is the state of a text prompt: the question and what is typed.
+type Typing { Ask Text, Typed string }
+
+// Choice is a question whose answer is one of Options (Select), or some
+// of them (MultiSelect).
+type Choice { Message string, Options []string }
+
+// Picking is the state of a select: the question and the option under the
+// cursor, an index into its options (0 when there are none).
+type Picking { Ask Choice, At int }
+
+// Marking is the state of a multi-select: the question, the cursor, and
+// for each option whether it is marked.
+type Marking { Ask Choice, At int, Marked []bool }
+
+// Question is a yes or no question; Default is the answer to Return.
+type Question { Message string, Default bool }
+
+// Asking is the state of a confirm: the question.
+type Asking { Ask Question }
+
+// TypingStep is a text prompt's step: a Char adds itself, Backspace drops
+// the last character, Return ends with the text (or the default when
+// nothing is typed), and a cancel key ends with None.
+func TypingStep(s Typing, k term.Key) Decision[Typing, Option[string]] {
+	match k {
+	case term.Char as c:
+		Stay[Typing]{Next: Typing{Ask: s.Ask, Typed: s.Typed + c.Text}}
+	case term.Backspace:
+		if s.Typed == "" {
+			return Ignore
+		}
+		Stay[Typing]{Next: Typing{Ask: s.Ask, Typed: dropLast(s.Typed)}}
+	case term.Return:
+		Done[Option[string]]{Output: Some[string]{Value: if s.Typed == "" { s.Ask.Default } else { s.Typed }}}
+	case term.Escape, term.Interrupt, term.EndOfInput:
+		Done[Option[string]]{Output: None}
+	case term.Tab, term.Up, term.Down, term.Left, term.Right, term.Other:
+		Ignore
+	}
+}
+
+// TypingFrame is a text prompt's frame: the message, then what is typed,
+// or one * per character when the prompt is masked. A masked frame
+// depends on the count of characters typed and never on what they are.
+func TypingFrame(s Typing) string {
+	let shown = if s.Ask.Masked { strings.Repeat("*", utf8.RuneCount(s.Typed)) } else { s.Typed }
+	let hint = if s.Ask.Default != "" && !s.Ask.Masked { " (" + s.Ask.Default + ")" } else { "" }
+	"? " + s.Ask.Message + hint + " " + shown
+}
+
+// Typer is the text and secret prompt as a machine: its input is the
+// question, and it starts with nothing typed.
+type Typer machine[Typing, term.Key] {
+	initial: startTyping,
+	step:    TypingStep,
+}
+
+func startTyping(t Text) Typing { Typing{Ask: t, Typed: ""} }
+
+// PickingStep is a select's step: Up and Down move the cursor and stop at
+// the ends, Return ends with the option's index, and a cancel key ends
+// with None. With no options, Return is refused.
+func PickingStep(s Picking, k term.Key) Decision[Picking, Option[int]] {
+	let n = len(s.Ask.Options)
+	match k {
+	case term.Up:
+		if s.At == 0 {
+			return Ignore
+		}
+		Stay[Picking]{Next: Picking{Ask: s.Ask, At: s.At - 1}}
+	case term.Down, term.Tab:
+		if s.At+1 >= n {
+			return Ignore
+		}
+		Stay[Picking]{Next: Picking{Ask: s.Ask, At: s.At + 1}}
+	case term.Return:
+		if n == 0 {
+			return Reject
+		}
+		Done[Option[int]]{Output: Some[int]{Value: s.At}}
+	case term.Escape, term.Interrupt, term.EndOfInput:
+		Done[Option[int]]{Output: None}
+	case term.Char, term.Backspace, term.Left, term.Right, term.Other:
+		Ignore
+	}
+}
+
+// PickingFrame is a select's frame: the message, then one line per
+// option, the one under the cursor marked with >.
+func PickingFrame(s Picking) string {
+	let mut out = "? " + s.Ask.Message
+	for i, o in s.Ask.Options {
+		out = out + "\n" + (if i == s.At { "> " } else { "  " }) + o
+	}
+	out
+}
+
+// Picker is the select prompt as a machine: its input is the question,
+// and it starts on the first option.
+type Picker machine[Picking, term.Key] {
+	initial: startPicking,
+	step:    PickingStep,
+}
+
+func startPicking(c Choice) Picking { Picking{Ask: c, At: 0} }
+
+// MarkingStep is a multi-select's step: Up and Down move the cursor as a
+// select's do, a space marks or unmarks the option under it, Return ends
+// with the marked indexes in order, and a cancel key ends with None.
+func MarkingStep(s Marking, k term.Key) Decision[Marking, Option[[]int]] {
+	let n = len(s.Ask.Options)
+	match k {
+	case term.Up:
+		if s.At == 0 {
+			return Ignore
+		}
+		Stay[Marking]{Next: Marking{Ask: s.Ask, At: s.At - 1, Marked: s.Marked}}
+	case term.Down, term.Tab:
+		if s.At+1 >= n {
+			return Ignore
+		}
+		Stay[Marking]{Next: Marking{Ask: s.Ask, At: s.At + 1, Marked: s.Marked}}
+	case term.Char as c:
+		if c.Text != " " || n == 0 {
+			return Ignore
+		}
+		let mut marked = []bool{}
+		for i, m in s.Marked {
+			marked = marked.Append(if i == s.At { !m } else { m })
+		}
+		Stay[Marking]{Next: Marking{Ask: s.Ask, At: s.At, Marked: marked}}
+	case term.Return:
+		let mut chosen = []int{}
+		for i, m in s.Marked {
+			if m {
+				chosen = chosen.Append(i)
+			}
+		}
+		Done[Option[[]int]]{Output: Some[[]int]{Value: chosen}}
+	case term.Escape, term.Interrupt, term.EndOfInput:
+		Done[Option[[]int]]{Output: None}
+	case term.Backspace, term.Left, term.Right, term.Other:
+		Ignore
+	}
+}
+
+// MarkingFrame is a multi-select's frame: the message, then one line per
+// option with its mark, the one under the cursor marked with >.
+func MarkingFrame(s Marking) string {
+	let mut out = "? " + s.Ask.Message
+	for i, o in s.Ask.Options {
+		out = out + "\n" + (if i == s.At { ">" } else { " " }) + (if s.Marked[i] { "[x] " } else { "[ ] " }) + o
+	}
+	out
+}
+
+// Marker is the multi-select prompt as a machine: its input is the
+// question, and it starts on the first option with none marked.
+type Marker machine[Marking, term.Key] {
+	initial: startMarking,
+	step:    MarkingStep,
+}
+
+func startMarking(c Choice) Marking {
+	let mut marked = []bool{}
+	for _ in c.Options {
+		marked = marked.Append(false)
+	}
+	Marking{Ask: c, At: 0, Marked: marked}
+}
+
+// AskingStep is a confirm's step: y or Y ends with true, n or N with
+// false, Return with the default, and a cancel key with None.
+func AskingStep(s Asking, k term.Key) Decision[Asking, Option[bool]] {
+	match k {
+	case term.Char as c:
+		if c.Text == "y" || c.Text == "Y" {
+			return Done[Option[bool]]{Output: Some[bool]{Value: true}}
+		}
+		if c.Text == "n" || c.Text == "N" {
+			return Done[Option[bool]]{Output: Some[bool]{Value: false}}
+		}
+		Ignore
+	case term.Return:
+		Done[Option[bool]]{Output: Some[bool]{Value: s.Ask.Default}}
+	case term.Escape, term.Interrupt, term.EndOfInput:
+		Done[Option[bool]]{Output: None}
+	case term.Backspace, term.Tab, term.Up, term.Down, term.Left, term.Right, term.Other:
+		Ignore
+	}
+}
+
+// AskingFrame is a confirm's frame: the message and the answers, the
+// default in upper case.
+func AskingFrame(s Asking) string {
+	"? " + s.Ask.Message + (if s.Ask.Default { " (Y/n) " } else { " (y/N) " })
+}
+
+// Asker is the confirm prompt as a machine: its input is the question.
+type Asker machine[Asking, term.Key] {
+	initial: startAsking,
+	step:    AskingStep,
+}
+
+func startAsking(q Question) Asking { Asking{Ask: q} }
+
+// dropLast is s without its last rune.
+func dropLast(s string) string {
+	let runes = strings.Split(s, "")
+	strings.Join(runes[0:len(runes)-1], "")
+}

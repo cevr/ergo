@@ -1,0 +1,39 @@
+// Package cli reads a plan from flags, for a run with no person to ask.
+
+import flag
+import starter/plan
+
+let name = flag.OptionalString("name", "the project's name").WithAlias("n")
+let license = flag.Choice("license", "mit", []string{"mit", "apache", "none"}, "the license")
+let features = flag.Choice("feature", "tests", []string{"tests", "docs", "workflow"}, "a feature").Repeated().WithAlias("f")
+let git = flag.Bool("git", false, "start a Git repository")
+
+// Set is the starter's flags.
+func Set() flag.Set {
+	flag.Set{Name: "starter", Usage: "start a project", Flags: []flag.Flag{name, license, features, git}, Args: []flag.ArgSpec{}}
+}
+
+// FromFlags is the plan the flags give, or None when they give no name:
+// then a person is asked.
+func FromFlags(v flag.Values) Option[plan.Plan] {
+	match name.Get(v) {
+	case Some[string] as n:
+		let mut chosen = []plan.Feature{}
+		for f in features.Get(v) {
+			for each in plan.Features {
+				if plan.FeatureName(each) == f {
+					chosen = chosen.Append(each)
+				}
+			}
+		}
+		let mut l plan.License = plan.MIT
+		for each in plan.Licenses {
+			if plan.LicenseName(each) == license.Get(v) {
+				l = each
+			}
+		}
+		Some[plan.Plan]{Value: plan.Plan{Name: n.Value, License: l, Features: chosen, Git: git.Get(v)}}
+	case None:
+		None
+	}
+}

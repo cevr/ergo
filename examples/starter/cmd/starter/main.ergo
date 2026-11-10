@@ -1,0 +1,33 @@
+import flag
+import io
+import os
+import prompt
+import starter/cli
+import starter/plan
+import starter/terminal
+import term
+
+func main() fails os.Exit needs Ambient | Console {
+	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
+	let v = flag.Parse(cli.Set(), args) catch {
+	case flag.Help as h:
+		Console.Println(h.Text)
+		return
+	case err:
+		return os.Exit{Code: 2, Message: flag.Describe(err)}
+	}
+	let p = match cli.FromFlags(v) {
+	case Some[plan.Plan] as given:
+		given.Value
+	case None:
+		with context { term.Terminal: term.NewHost(), io.Stderr: io.NewErrors() } { terminal.Interview("demo") } catch {
+		case prompt.NotInteractive:
+			return os.Exit{Code: 2, Message: "starter: standard input is not a terminal; give --name"}
+		case prompt.Cancelled:
+			return os.Exit{Code: 1, Message: "starter: cancelled"}
+		case io.ReadFailed as f:
+			return os.Exit{Code: 1, Message: "starter: " + f.Reason}
+		}
+	}
+	Console.Println(plan.Describe(p))
+}
