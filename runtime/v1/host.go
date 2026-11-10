@@ -231,6 +231,8 @@ func (r *HostRoot) in(path string, f func(*os.Root) error) error {
 }
 
 // ReadFile is the whole file at path below the root.
+//
+//ergo:host
 func (r *HostRoot) ReadFile(_ *rt.Task, path string) (string, error) {
 	var text string
 	err := r.in(path, func(root *os.Root) error {
@@ -243,6 +245,8 @@ func (r *HostRoot) ReadFile(_ *rt.Task, path string) (string, error) {
 
 // ReadDir is the names of the entries of the directory path below the
 // root, sorted by name.
+//
+//ergo:host
 func (r *HostRoot) ReadDir(_ *rt.Task, path string) ([]string, error) {
 	var names []string
 	err := r.in(path, func(root *os.Root) error {
@@ -267,6 +271,8 @@ func (r *HostRoot) ReadDir(_ *rt.Task, path string) ([]string, error) {
 
 // Stat is the file at path below the root, after symbolic links; its Name
 // is the last element of path as given.
+//
+//ergo:host
 func (r *HostRoot) Stat(_ *rt.Task, path string) (Info, error) {
 	var info Info
 	err := r.in(path, func(root *os.Root) error {

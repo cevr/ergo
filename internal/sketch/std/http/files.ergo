@@ -1,0 +1,98 @@
+import filepath
+import fs
+import strings
+
+// Files answers r with a file of root: the file whose name is r.Path
+// after prefix, such as "/static/" for "/static/site.css". It reads the
+// file through root, an fs.Root, so the name resolves below the root in
+// the provider (fs.OpenRoot on the host), links and all: Files' own work
+// is lexical, and the provider's is the confinement.
+//
+//   - A method other than GET and HEAD is 405 with "Allow: GET, HEAD".
+//     Serve sends no body for HEAD, so HEAD gets GET's headers.
+//   - The name is the path after prefix, its elements between "/" kept
+//     but for empty ones and ".". A path without prefix, or with no
+//     element left, is 404.
+//   - One rule parts 403 from 404: 403 when the name is refused, by Files
+//     (a ".." element) or by the root (fs.Denied or fs.Escapes); 404 when
+//     nothing servable is at it (fs.NotFound, or fs.Failed: a directory,
+//     a link loop). So a client learns no more about a refused name than
+//     that it is refused, and Files never lists a directory.
+//   - A file is 200 with its text and the Content-Type of its extension
+//     (ContentType); an empty file has no Content-Type, as Serve sends
+//     none for an empty body. Refusals have empty bodies.
+func Files(root fs.Root, prefix string, r Request) Response {
+	if r.Method != "GET" && r.Method != "HEAD" {
+		return Response{Status: 405, Header: []Field{Field{Name: "Allow", Value: "GET, HEAD"}}, Body: ""}
+	}
+	match fileName(prefix, r.Path) {
+	case unserved:
+		return refusal(404)
+	case refused:
+		return refusal(403)
+	case named as n:
+		let text = root.ReadFile(n.Path) catch {
+		case fs.NotFound, fs.Failed:
+			return refusal(404)
+		case fs.Denied, fs.Escapes:
+			return refusal(403)
+		}
+		if text == "" {
+			return Response{Status: 200, Header: []Field{}, Body: ""}
+		}
+		Response{Status: 200, Header: []Field{Field{Name: "Content-Type", Value: ContentType(n.Path)}}, Body: text}
+	}
+}
+
+// refusal is a response of status with no header and no body.
+func refusal(status int) Response { Response{Status: status, Header: []Field{}, Body: ""} }
+
+// lexical is what Files makes of a request path before any read: a name
+// below the root, a name it refuses, or nothing to serve.
+type named { Path string }
+type refused {}
+type unserved {}
+type lexical = named | refused | unserved
+
+// fileName is the name below the root that path asks for after prefix:
+// its elements but for empty ones and ".", joined by "/".
+func fileName(prefix string, path string) lexical {
+	if !strings.HasPrefix(path, prefix) {
+		return unserved
+	}
+	let mut name = ""
+	for e in strings.Split(strings.TrimPrefix(path, prefix), "/") {
+		if e == ".." {
+			return refused
+		}
+		if e == "" || e == "." {
+			continue
+		}
+		name = if name == "" { e } else { name + "/" + e }
+	}
+	if name == "" { unserved } else { named{Path: name} }
+}
+
+// ContentType is the media type of a file by the extension of name,
+// ignoring case: text types say UTF-8, and an extension not in the table
+// is application/octet-stream, so a browser never guesses one.
+func ContentType(name string) string {
+	let ext = strings.ToLower(filepath.Ext(name))
+	if ext == ".html" || ext == ".htm" { return "text/html; charset=utf-8" }
+	if ext == ".css" { return "text/css; charset=utf-8" }
+	if ext == ".js" || ext == ".mjs" { return "text/javascript; charset=utf-8" }
+	if ext == ".json" { return "application/json" }
+	if ext == ".txt" { return "text/plain; charset=utf-8" }
+	if ext == ".md" { return "text/markdown; charset=utf-8" }
+	if ext == ".xml" { return "application/xml" }
+	if ext == ".svg" { return "image/svg+xml" }
+	if ext == ".png" { return "image/png" }
+	if ext == ".jpg" || ext == ".jpeg" { return "image/jpeg" }
+	if ext == ".gif" { return "image/gif" }
+	if ext == ".webp" { return "image/webp" }
+	if ext == ".ico" { return "image/x-icon" }
+	if ext == ".wasm" { return "application/wasm" }
+	if ext == ".pdf" { return "application/pdf" }
+	if ext == ".woff2" { return "font/woff2" }
+	"application/octet-stream"
+}
