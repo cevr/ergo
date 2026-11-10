@@ -1,0 +1,4 @@
+# cancel a file at its first wait; the server still counts that call,
+# so the next fetch of the same file times out once only
+get slow.iso cancel
+get slow.iso

@@ -57,7 +57,7 @@ const (
 	// members covers this path and each path directly in it, with any
 	// access, and nothing deeper. It is one entry, so it is used when any
 	// of them is read, and no member must be: a path that is a file in one
-	// checkout layout and a directory read one level deep in another (.git
+	// working-tree layout and a directory read one level deep in another (.git
 	// in a worktree and in a clone) gets one verdict in both.
 	members
 	// program names the directory of a package of the module whose
@@ -108,7 +108,6 @@ var declared = map[string][]allowance{
 		glob("examples/*/*/*.ergo", "round19 checks every example program"),
 		glob("docs/research/ef-migrate/*.ergo", "round19 checks the migrated examples"),
 		[]allowance{{"docs/spec/diagnostics.md", file, "TestRegistry: the spec's code rows and the code table agree"}},
-		glob("internal/sketch/lower/*.go", "TestTupleAssertionsUnwrap (C45) parses the lowering's sources for type assertions to *Tuple"),
 	),
 	"internal/sketch/lower": declare(
 		[]allowance{
@@ -117,11 +116,6 @@ var declared = map[string][]allowance{
 			{"internal/sketch/testdata", subtree, "the accepted and refusal inventories and TestCorpusProbesRun walk the shared corpus (filepath.WalkDir), lowering each"},
 			{"examples", subtree, "the accepted and refusal inventories walk the example programs (filepath.WalkDir), lowering each"},
 			{"docs/spec/support.md", file, "TestSupportTableIsCurrent compares the support table with the one the family inventory generates"},
-			// TestNoStageERefusal (C43) walks internal/sketch, skipping
-			// testdata, and parses each source: the packages lower builds
-			// on are its inputs already; these are the rest, at the depths
-			// the walk reads them.
-			{"internal/sketch", listing, "TestNoStageERefusal (C43) walks the compiler's code below internal/sketch"},
 			{"docs/spec/stdlib.md", file, "the std law runners pass their laws to lawledger.Run, which reads the Std laws ledger to hold each restatement to its row (fu-ledger-runner)"},
 		},
 	),
@@ -153,7 +147,7 @@ var declared = map[string][]allowance{
 	),
 	"cmd/ergo": {
 		{"README.md", file, "the README smoke test runs the README's go blocks and commands"},
-		{"examples/checkout", subtree, "the README smoke test compares the README's first two go blocks with the checkout example's files and copies the program, a module of packages, into a workspace (smokeWorkspace walks it)"},
+		{"examples/lookup", subtree, "the README smoke test compares the README's first two go blocks with the lookup example's files and copies the program, a module of packages, into a workspace (smokeWorkspace walks it)"},
 		{"examples/editions/sketch", listing, "the process and README smoke tests copy the 2026 example into a workspace (smokeWorkspace)"},
 		{"examples/editions/sketch/*", files, "smokeWorkspace copies each file of the 2026 example; it has no subdirectory, so the copy reads one level"},
 		{"scripts/examples", program, "the package-folder test runs `go run ./scripts/examples` with the CLI under test (packages_test.go, tidewalk-replay)"},
@@ -180,7 +174,7 @@ var declared = map[string][]allowance{
 		{"conformance/effect-cases.json", file, "the mapping reads the Effect case list"},
 		{"conformance/upstream/foldkit-d21db423", subtree, "the mapping walks the pinned foldkit evidence at every depth (follow-up: outside this unit's Owns)"},
 		// git reads the repository's metadata. In a worktree .git is a file
-		// that names a git directory outside the checkout; in a clone (the
+		// that names a git directory outside the working tree; in a clone (the
 		// merge tier's export, scripts/gate exportCommit) .git is that
 		// directory, and git reads HEAD, config, commondir and the index in
 		// it and stats objects and refs: one level below .git, measured in
@@ -233,7 +227,7 @@ func exactly(reason string, paths ...string) []allowance {
 
 // unobservable are the test packages the observer cannot observe, with the
 // reason: the sweep gives them no identity file, so each recorded input of
-// theirs in the checkout fails closed (unidentified) unless an exact
+// theirs in the working tree fails closed (unidentified) unless an exact
 // declared entry covers it.
 var unobservable = map[string]string{
 	// Measured: under testinputs.Main, its tests' own observers fail with
@@ -616,7 +610,7 @@ type listed struct {
 
 // TestEveryPackageRecordsOnlyItsClosure is the closure rule: it builds the
 // test binary of every test package of the module, runs it as cmd/go does
-// with a test log, and fails on each recorded input inside the checkout
+// with a test log, and fails on each recorded input inside the working tree
 // that lies outside the package's closure, and on each declared entry no
 // input uses. Run it unobserved and uncached, so each binary observes its
 // own child processes:
@@ -936,7 +930,7 @@ func modulePackages(t *testing.T, root string) (map[string]closure, []string) {
 }
 
 // runPackage builds the test binary of the package in dir (outside the
-// sandbox, which leaves the checkout writable for the go command) and
+// sandbox, which leaves the working tree writable for the go command) and
 // runs it (runTests), in the runs planRuns splits it into over costs, its
 // recorded test times. The build and each run hold a slot of sem, and the
 // runs take their slots heaviest first. It returns the recorded inputs of
@@ -1047,7 +1041,7 @@ func sweepEnvironment() []string { return testenv.Environment(os.Environ()) }
 // runTests runs a test binary the way cmd/go runs a cacheable test: from
 // the package directory, with the environment a cached test may receive
 // (and extra) and a test log. It runs it in a sandbox (runProtected) whose
-// checkout is protect and whose scratch directories are fresh for this
+// working tree is protect and whose scratch directories are fresh for this
 // run, and returns the recorded inputs inside the roots. pkg names the
 // package in a violation. The test log and the output are kept in
 // stem.log and stem.out.
@@ -1146,7 +1140,7 @@ func runObserved(protect, pkg, pkgDir, stem, cache string, extra []string, class
 	switch {
 	case unobserved:
 		// No access has an identity, so each recorded input in the
-		// checkout fails closed: only an exact declared entry covers it.
+		// working tree fails closed: only an exact declared entry covers it.
 		id = testinputs.Identity{}
 	case err != nil:
 		if bytes.HasSuffix(data, []byte("\n")) {

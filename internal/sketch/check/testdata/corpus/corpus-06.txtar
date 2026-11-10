@@ -1,0 +1,9397 @@
+-- 03000.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type S = Idle
+type Idle {}
+type M machine[S, @Upper] { initial: Idle, step: step }
+func step(s S, e int) Decision[S, int] { return Ignore }
+-- 03001.ergo --
+func f(m Map[@Upper, int]) {}
+-- 03002.ergo --
+func Upper(s string) string { s }
+func f(m Map[@Upper, int]) {}
+-- 03003.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func f(m Map[@Upper, int]) {}
+-- 03004.ergo --
+func f(m Map[int, @Upper]) {}
+-- 03005.ergo --
+func Upper(s string) string { s }
+func f(m Map[int, @Upper]) {}
+-- 03006.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func f(m Map[int, @Upper]) {}
+-- 03007.ergo --
+func f() needs @Upper {}
+-- 03008.ergo --
+func Upper(s string) string { s }
+func f() needs @Upper {}
+-- 03009.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func f() needs @Upper {}
+-- 03010.ergo --
+type C { M() }
+type P {}
+func M(_ P) {}
+func f() { with context provides @Upper { C: P } { C.M() } }
+-- 03011.ergo --
+func Upper(s string) string { s }
+type C { M() }
+type P {}
+func M(_ P) {}
+func f() { with context provides @Upper { C: P } { C.M() } }
+-- 03012.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type C { M() }
+type P {}
+func M(_ P) {}
+func f() { with context provides @Upper { C: P } { C.M() } }
+-- 03013.ergo --
+func f(p *@Upper) {}
+-- 03014.ergo --
+func Upper(s string) string { s }
+func f(p *@Upper) {}
+-- 03015.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func f(p *@Upper) {}
+-- 03016.ergo --
+type T = @Upper
+-- 03017.ergo --
+func Upper(s string) string { s }
+type T = @Upper
+-- 03018.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type T = @Upper
+-- 03019.ergo --
+func main() {
+	let v @Upper
+	_ = v
+}
+-- 03020.ergo --
+func Upper(s string) string { s }
+func main() {
+	let v @Upper
+	_ = v
+}
+-- 03021.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	let v @Upper
+	_ = v
+}
+-- 03022.ergo --
+type Bang {}
+func load() int fails Bang { 1 }
+func f() int {
+	load() catch {
+	case @Upper: 0
+	}
+}
+-- 03023.ergo --
+func Upper(s string) string { s }
+type Bang {}
+func load() int fails Bang { 1 }
+func f() int {
+	load() catch {
+	case @Upper: 0
+	}
+}
+-- 03024.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type Bang {}
+func load() int fails Bang { 1 }
+func f() int {
+	load() catch {
+	case @Upper: 0
+	}
+}
+-- 03025.ergo --
+func main() {
+	let f = upper
+	let m = match f {
+	case @Upper: 1
+	case _: 2
+	}
+	_ = m
+}
+-- 03026.ergo --
+func Upper(s string) string { s }
+func main() {
+	let f = upper
+	let m = match f {
+	case @Upper: 1
+	case _: 2
+	}
+	_ = m
+}
+-- 03027.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	let f = upper
+	let m = match f {
+	case @Upper: 1
+	case _: 2
+	}
+	_ = m
+}
+-- 03028.ergo --
+func Upper(s string) string { s }
+func upper(s string) string { s }
+-- 03029.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func upper(s string) string { s }
+-- 03030.ergo --
+func main() {
+	let f = upper
+	let m = match f {
+	case @Upper as g: g("x")
+	case _: "y"
+	}
+	_ = m
+}
+-- 03031.ergo --
+func Upper(s string) string { s }
+func main() {
+	let f = upper
+	let m = match f {
+	case @Upper as g: g("x")
+	case _: "y"
+	}
+	_ = m
+}
+-- 03032.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	let f = upper
+	let m = match f {
+	case @Upper as g: g("x")
+	case _: "y"
+	}
+	_ = m
+}
+-- 03033.ergo --
+func main() {
+	_ = "x".@Upper
+}
+-- 03034.ergo --
+func Upper(s string) string { s }
+func main() {
+	_ = "x".@Upper
+}
+-- 03035.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	_ = "x".@Upper
+}
+-- 03036.ergo --
+type A {}
+type B {}
+type U = A | B
+func f(u U) string {
+	match u {
+	case A: "a"
+	case _ as @Upper: "b"
+	}
+}
+-- 03037.ergo --
+func Upper(s string) string { s }
+type A {}
+type B {}
+type U = A | B
+func f(u U) string {
+	match u {
+	case A: "a"
+	case _ as @Upper: "b"
+	}
+}
+-- 03038.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type A {}
+type B {}
+type U = A | B
+func f(u U) string {
+	match u {
+	case A: "a"
+	case _ as @Upper: "b"
+	}
+}
+-- 03039.ergo --
+type C { M() }
+type P {}
+func M(_ P) {}
+let @Upper = context { C: P }
+-- 03040.ergo --
+func Upper(s string) string { s }
+type C { M() }
+type P {}
+func M(_ P) {}
+let @Upper = context { C: P }
+-- 03041.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type C { M() }
+type P {}
+func M(_ P) {}
+let @Upper = context { C: P }
+-- 03042.ergo --
+func f(@Upper int) int { Upper }
+-- 03043.ergo --
+func Upper(s string) string { s }
+func f(@Upper int) int { Upper }
+-- 03044.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func f(@Upper int) int { Upper }
+-- 03045.ergo --
+func main() {
+	_ = "@Upper \(1)"
+}
+-- 03046.ergo --
+func Upper(s string) string { s }
+func main() {
+	_ = "@Upper \(1)"
+}
+-- 03047.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	_ = "@Upper \(1)"
+}
+-- 03048.ergo --
+type C {
+	Get() int,
+
+	law @Upper(v int) {
+		Get() == v
+	},
+}
+-- 03049.ergo --
+func Upper(s string) string { s }
+type C {
+	Get() int,
+
+	law @Upper(v int) {
+		Get() == v
+	},
+}
+-- 03050.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type C {
+	Get() int,
+
+	law @Upper(v int) {
+		Get() == v
+	},
+}
+-- 03051.ergo --
+func main() {
+	for @Upper, v in []int{1} { _ = Upper + v }
+}
+-- 03052.ergo --
+func Upper(s string) string { s }
+func main() {
+	for @Upper, v in []int{1} { _ = Upper + v }
+}
+-- 03053.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	for @Upper, v in []int{1} { _ = Upper + v }
+}
+-- 03054.ergo --
+func main() {
+	for i, @Upper in []int{1} { _ = i + Upper }
+}
+-- 03055.ergo --
+func Upper(s string) string { s }
+func main() {
+	for i, @Upper in []int{1} { _ = i + Upper }
+}
+-- 03056.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	for i, @Upper in []int{1} { _ = i + Upper }
+}
+-- 03057.ergo --
+type @Upper {}
+-- 03058.ergo --
+func Upper(s string) string { s }
+type @Upper {}
+-- 03059.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type @Upper {}
+-- 03060.ergo --
+func main() {
+	let @Upper = 1
+	_ = Upper
+}
+-- 03061.ergo --
+func Upper(s string) string { s }
+func main() {
+	let @Upper = 1
+	_ = Upper
+}
+-- 03062.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	let @Upper = 1
+	_ = Upper
+}
+-- 03063.ergo --
+func main() {
+	let (@Upper, b) = (1, 2)
+	_ = Upper + b
+}
+-- 03064.ergo --
+func Upper(s string) string { s }
+func main() {
+	let (@Upper, b) = (1, 2)
+	_ = Upper + b
+}
+-- 03065.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	let (@Upper, b) = (1, 2)
+	_ = Upper + b
+}
+-- 03066.ergo --
+type U = @Upper{ ID string } | Pending{}
+-- 03067.ergo --
+func Upper(s string) string { s }
+type U = @Upper{ ID string } | Pending{}
+-- 03068.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type U = @Upper{ ID string } | Pending{}
+-- 03069.ergo --
+type S = Idle
+type Idle {}
+type E = Ping
+type Ping {}
+type M machine[S, E] {
+	
+-- 03070.ergo --
+func Upper(s string) string { s }
+type S = Idle
+type Idle {}
+type E = Ping
+type Ping {}
+type M machine[S, E] {
+	
+-- 03071.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type S = Idle
+type Idle {}
+type E = Ping
+type Ping {}
+type M machine[S, E] {
+	
+-- 03072.ergo --
+func step(s S, e E) Decision[S, int] { return Ignore }
+-- 03073.ergo --
+func Upper(s string) string { s }
+func step(s S, e E) Decision[S, int] { return Ignore }
+-- 03074.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func step(s S, e E) Decision[S, int] { return Ignore }
+-- 03075.ergo --
+func Upper(s string) string { s }
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+-- 03076.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+-- 03077.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+-- 03078.ergo --
+import queue
+
+func main() needs Console {
+	let mk = queue.New[int] // want S108
+	let q = mk(1)
+	q.Close()
+	Console.Println("made")
+}
+-- 03079.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import queue
+
+func main() needs Console {
+	let mk = queue.New[int] // want S108
+	let q = mk(1)
+	q.Close()
+	Console.Println("made")
+}
+-- 03080.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import queue
+
+func main() needs Console {
+	let mk = queue.New[int] // want S108
+	let q = mk(1)
+	q.Close()
+	Console.Println("made")
+}
+-- 03081.ergo --
+import queue
+
+func main() {
+	let mk = queue.New // want S108
+	_ = mk
+}
+-- 03082.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import queue
+
+func main() {
+	let mk = queue.New // want S108
+	_ = mk
+}
+-- 03083.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import queue
+
+func main() {
+	let mk = queue.New // want S108
+	_ = mk
+}
+-- 03084.ergo --
+extern go strings.ToUpper func Upper(s string) string
+
+func main() needs Console {
+	let b = (Upper)("x")
+	let e = "abc".Upper // want S104
+	let g = "abc".Upper() // want S104
+	Console.Println(b)
+}
+-- 03085.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+extern go strings.ToUpper func Upper(s string) string
+
+func main() needs Console {
+	let b = (Upper)("x")
+	let e = "abc".Upper // want S104
+	let g = "abc".Upper() // want S104
+	Console.Println(b)
+}
+-- 03086.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+extern go strings.ToUpper func Upper(s string) string
+
+func main() needs Console {
+	let b = (Upper)("x")
+	let e = "abc".Upper // want S104
+	let g = "abc".Upper() // want S104
+	Console.Println(b)
+}
+-- 03087.ergo --
+import scope
+
+func main() needs Console {
+	let xs = []int{1}
+	let f = xs.Append // want S104
+	let g = scope.OnExit[Console] // want S108
+	let h = Sleep // want S104
+	Console.Println("\(len(f(2)))")
+	g(func() { Console.Println("x") })
+	Console.Println("\(h == h)")
+}
+-- 03088.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import scope
+
+func main() needs Console {
+	let xs = []int{1}
+	let f = xs.Append // want S104
+	let g = scope.OnExit[Console] // want S108
+	let h = Sleep // want S104
+	Console.Println("\(len(f(2)))")
+	g(func() { Console.Println("x") })
+	Console.Println("\(h == h)")
+}
+-- 03089.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import scope
+
+func main() needs Console {
+	let xs = []int{1}
+	let f = xs.Append // want S104
+	let g = scope.OnExit[Console] // want S108
+	let h = Sleep // want S104
+	Console.Println("\(len(f(2)))")
+	g(func() { Console.Println("x") })
+	Console.Println("\(h == h)")
+}
+-- 03090.ergo --
+import scope
+
+func main() needs Console {
+	let f = scope.OnExit[Console] // want S108
+	_ = f
+}
+-- 03091.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import scope
+
+func main() needs Console {
+	let f = scope.OnExit[Console] // want S108
+	_ = f
+}
+-- 03092.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import scope
+
+func main() needs Console {
+	let f = scope.OnExit[Console] // want S108
+	_ = f
+}
+-- 03093.ergo --
+func main() {
+	let h = Sleep // want S104
+	_ = h
+}
+-- 03094.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+func main() {
+	let h = Sleep // want S104
+	_ = h
+}
+-- 03095.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+func main() {
+	let h = Sleep // want S104
+	_ = h
+}
+-- 03096.ergo --
+import slices
+
+extern go strings.ToUpper func Upper(s string) string
+
+func main() needs Console {
+	let f = func() string { Upper("x") }
+	let g = func(n int) []int { slices.WithCapacity[int](n) }
+	Console.Println(f())
+	_ = g
+}
+-- 03097.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import slices
+
+extern go strings.ToUpper func Upper(s string) string
+
+func main() needs Console {
+	let f = func() string { Upper("x") }
+	let g = func(n int) []int { slices.WithCapacity[int](n) }
+	Console.Println(f())
+	_ = g
+}
+-- 03098.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import slices
+
+extern go strings.ToUpper func Upper(s string) string
+
+func main() needs Console {
+	let f = func() string { Upper("x") }
+	let g = func(n int) []int { slices.WithCapacity[int](n) }
+	Console.Println(f())
+	_ = g
+}
+-- 03099.ergo --
+import queue
+
+extern go strings.ToUpper func Upper(s string) string
+
+func main() needs Console {
+	let a = Upper("x")
+	let b = (Upper)("x")
+	let c = ((Upper))("x")
+	let q = queue.New[int](1)
+	let r = (queue.New[int])(1)
+	q.Close()
+	r.Close()
+	Console.Println(a + b + c)
+}
+-- 03100.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import queue
+
+extern go strings.ToUpper func Upper(s string) string
+
+func main() needs Console {
+	let a = Upper("x")
+	let b = (Upper)("x")
+	let c = ((Upper))("x")
+	let q = queue.New[int](1)
+	let r = (queue.New[int])(1)
+	q.Close()
+	r.Close()
+	Console.Println(a + b + c)
+}
+-- 03101.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import queue
+
+extern go strings.ToUpper func Upper(s string) string
+
+func main() needs Console {
+	let a = Upper("x")
+	let b = (Upper)("x")
+	let c = ((Upper))("x")
+	let q = queue.New[int](1)
+	let r = (queue.New[int])(1)
+	q.Close()
+	r.Close()
+	Console.Println(a + b + c)
+}
+-- 03102.ergo --
+func main() {
+	let xs = []int{1}
+	let f = xs.Append // want S104
+	_ = f
+}
+-- 03103.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+func main() {
+	let xs = []int{1}
+	let f = xs.Append // want S104
+	_ = f
+}
+-- 03104.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+func main() {
+	let xs = []int{1}
+	let f = xs.Append // want S104
+	_ = f
+}
+-- 03105.ergo --
+func wait(s Scheduler) { s.Sleep(1s) }
+
+func main() needs Ambient {
+	wait(NewLiveScheduler())
+}
+-- 03106.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+func wait(s Scheduler) { s.Sleep(1s) }
+
+func main() needs Ambient {
+	wait(NewLiveScheduler())
+}
+-- 03107.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+func wait(s Scheduler) { s.Sleep(1s) }
+
+func main() needs Ambient {
+	wait(NewLiveScheduler())
+}
+-- 03108.ergo --
+import task
+
+func main() needs Console {
+	let t = task.Go() { 1 }
+	Console.Println("\(t.Wait())")
+}
+-- 03109.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import task
+
+func main() needs Console {
+	let t = task.Go() { 1 }
+	Console.Println("\(t.Wait())")
+}
+-- 03110.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import task
+
+func main() needs Console {
+	let t = task.Go() { 1 }
+	Console.Println("\(t.Wait())")
+}
+-- 03111.ergo --
+import scope
+
+func main() needs Console {
+	scope.OnExit() { Console.Println("bye") }
+}
+-- 03112.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import scope
+
+func main() needs Console {
+	scope.OnExit() { Console.Println("bye") }
+}
+-- 03113.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import scope
+
+func main() needs Console {
+	scope.OnExit() { Console.Println("bye") }
+}
+-- 03114.ergo --
+import slices
+
+func main() needs Console {
+	let xs = slices.WithCapacity[int](2)
+	Console.Println("\(len(xs))")
+}
+-- 03115.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import slices
+
+func main() needs Console {
+	let xs = slices.WithCapacity[int](2)
+	Console.Println("\(len(xs))")
+}
+-- 03116.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import slices
+
+func main() needs Console {
+	let xs = slices.WithCapacity[int](2)
+	Console.Println("\(len(xs))")
+}
+-- 03117.ergo --
+import queue
+
+func main() needs Console {
+	let q = queue.New[int](1)
+	q.Close()
+	Console.Println("ok")
+}
+-- 03118.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import queue
+
+func main() needs Console {
+	let q = queue.New[int](1)
+	q.Close()
+	Console.Println("ok")
+}
+-- 03119.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import queue
+
+func main() needs Console {
+	let q = queue.New[int](1)
+	q.Close()
+	Console.Println("ok")
+}
+-- 03120.ergo --
+func Shadow() int { 1 }
+-- 03121.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+func Shadow() int { 1 }
+-- 03122.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+func Shadow() int { 1 }
+-- 03123.ergo --
+
+
+func f() int { 
+-- 03124.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+
+
+func f() int { 
+-- 03125.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+
+
+func f() int { 
+-- 03126.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+-- 03127.ergo --
+
+func use(q queue.Queue[int]) { q.Close() }
+
+func main() {
+	use(Mine)
+}
+-- 03128.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+
+func use(q queue.Queue[int]) { q.Close() }
+
+func main() {
+	use(Mine)
+}
+-- 03129.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+
+func use(q queue.Queue[int]) { q.Close() }
+
+func main() {
+	use(Mine)
+}
+-- 03130.ergo --
+import sync
+
+type Mine {}
+
+func Get(_ Mine) int { 0 }
+func Set(_ Mine, v int) {}
+func Update(_ Mine, f func(v int) int) {}
+
+func use(r sync.Ref[int]) { _ = r.Get() }
+
+func main() {
+	use(Mine)
+}
+-- 03131.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import sync
+
+type Mine {}
+
+func Get(_ Mine) int { 0 }
+func Set(_ Mine, v int) {}
+func Update(_ Mine, f func(v int) int) {}
+
+func use(r sync.Ref[int]) { _ = r.Get() }
+
+func main() {
+	use(Mine)
+}
+-- 03132.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import sync
+
+type Mine {}
+
+func Get(_ Mine) int { 0 }
+func Set(_ Mine, v int) {}
+func Update(_ Mine, f func(v int) int) {}
+
+func use(r sync.Ref[int]) { _ = r.Get() }
+
+func main() {
+	use(Mine)
+}
+-- 03133.ergo --
+import time
+
+type Mine {}
+
+func Read(_ Mine) time.Reading { time.Reading{Sec: 0, Nsec: 0, Mono: 0} }
+func Wait(_ Mine, d duration) {}
+func Advance(_ Mine, d duration) {}
+func Sleepers(_ Mine) int { 0 }
+
+func use(l time.Timeline) { _ = l.Sleepers() }
+
+func main() {
+	use(Mine)
+}
+-- 03134.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import time
+
+type Mine {}
+
+func Read(_ Mine) time.Reading { time.Reading{Sec: 0, Nsec: 0, Mono: 0} }
+func Wait(_ Mine, d duration) {}
+func Advance(_ Mine, d duration) {}
+func Sleepers(_ Mine) int { 0 }
+
+func use(l time.Timeline) { _ = l.Sleepers() }
+
+func main() {
+	use(Mine)
+}
+-- 03135.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import time
+
+type Mine {}
+
+func Read(_ Mine) time.Reading { time.Reading{Sec: 0, Nsec: 0, Mono: 0} }
+func Wait(_ Mine, d duration) {}
+func Advance(_ Mine, d duration) {}
+func Sleepers(_ Mine) int { 0 }
+
+func use(l time.Timeline) { _ = l.Sleepers() }
+
+func main() {
+	use(Mine)
+}
+-- 03136.ergo --
+import rand
+
+type Mine {}
+
+func Uint64(_ Mine) uint64 { 0 }
+func IntN(_ Mine, n int) int { 0 }
+func Float64(_ Mine) float64 { 0.5 }
+
+func use(s rand.Stream) { _ = s.Uint64() }
+
+func main() {
+	use(Mine)
+}
+-- 03137.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import rand
+
+type Mine {}
+
+func Uint64(_ Mine) uint64 { 0 }
+func IntN(_ Mine, n int) int { 0 }
+func Float64(_ Mine) float64 { 0.5 }
+
+func use(s rand.Stream) { _ = s.Uint64() }
+
+func main() {
+	use(Mine)
+}
+-- 03138.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import rand
+
+type Mine {}
+
+func Uint64(_ Mine) uint64 { 0 }
+func IntN(_ Mine, n int) int { 0 }
+func Float64(_ Mine) float64 { 0.5 }
+
+func use(s rand.Stream) { _ = s.Uint64() }
+
+func main() {
+	use(Mine)
+}
+-- 03139.ergo --
+type Fault {}
+type Mine {}
+
+func Wait(_ Mine) int fails Fault { 0 }
+func Stop(_ Mine) {}
+
+func use(t Task[int, Fault]) { t.Stop() }
+
+func main() {
+	use(Mine)
+}
+-- 03140.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+type Fault {}
+type Mine {}
+
+func Wait(_ Mine) int fails Fault { 0 }
+func Stop(_ Mine) {}
+
+func use(t Task[int, Fault]) { t.Stop() }
+
+func main() {
+	use(Mine)
+}
+-- 03141.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+type Fault {}
+type Mine {}
+
+func Wait(_ Mine) int fails Fault { 0 }
+func Stop(_ Mine) {}
+
+func use(t Task[int, Fault]) { t.Stop() }
+
+func main() {
+	use(Mine)
+}
+-- 03142.ergo --
+type Mine {}
+
+func Println(_ Mine, line string) {}
+
+func use(c Console) { c.Println("x") }
+
+func main() {
+	use(Mine)
+}
+-- 03143.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+type Mine {}
+
+func Println(_ Mine, line string) {}
+
+func use(c Console) { c.Println("x") }
+
+func main() {
+	use(Mine)
+}
+-- 03144.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+type Mine {}
+
+func Println(_ Mine, line string) {}
+
+func use(c Console) { c.Println("x") }
+
+func main() {
+	use(Mine)
+}
+-- 03145.ergo --
+type Mine { Sleep(d duration) }
+
+func use(s Scheduler) { s.Sleep(1ms) }
+
+func pass(m Mine) {
+	use(m)
+}
+-- 03146.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+type Mine { Sleep(d duration) }
+
+func use(s Scheduler) { s.Sleep(1ms) }
+
+func pass(m Mine) {
+	use(m)
+}
+-- 03147.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+type Mine { Sleep(d duration) }
+
+func use(s Scheduler) { s.Sleep(1ms) }
+
+func pass(m Mine) {
+	use(m)
+}
+-- 03148.ergo --
+import time
+
+type Mine {}
+
+func Now(_ Mine) time.Time { time.Unix(0, 0) }
+
+func use(c time.Clock) { _ = c.Now() }
+
+func main() {
+	use(Mine)
+}
+-- 03149.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import time
+
+type Mine {}
+
+func Now(_ Mine) time.Time { time.Unix(0, 0) }
+
+func use(c time.Clock) { _ = c.Now() }
+
+func main() {
+	use(Mine)
+}
+-- 03150.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import time
+
+type Mine {}
+
+func Now(_ Mine) time.Time { time.Unix(0, 0) }
+
+func use(c time.Clock) { _ = c.Now() }
+
+func main() {
+	use(Mine)
+}
+-- 03151.ergo --
+type Mine {}
+
+func Uint64(_ Mine) uint64 { 0 }
+func IntN(_ Mine, n int) int { 0 }
+func Float64(_ Mine) float64 { 0.5 }
+
+func use(r Random) { _ = r.IntN(1) }
+
+func main() {
+	use(Mine)
+}
+-- 03152.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+type Mine {}
+
+func Uint64(_ Mine) uint64 { 0 }
+func IntN(_ Mine, n int) int { 0 }
+func Float64(_ Mine) float64 { 0.5 }
+
+func use(r Random) { _ = r.IntN(1) }
+
+func main() {
+	use(Mine)
+}
+-- 03153.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+type Mine {}
+
+func Uint64(_ Mine) uint64 { 0 }
+func IntN(_ Mine, n int) int { 0 }
+func Float64(_ Mine) float64 { 0.5 }
+
+func use(r Random) { _ = r.IntN(1) }
+
+func main() {
+	use(Mine)
+}
+-- 03154.ergo --
+import os
+
+type Mine {}
+
+func Args(_ Mine) []string { []string{} }
+func Getenv(_ Mine, key string) Option[string] { None }
+
+func use(p os.Process) { _ = p.Args() }
+
+func main() {
+	use(Mine)
+}
+-- 03155.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import os
+
+type Mine {}
+
+func Args(_ Mine) []string { []string{} }
+func Getenv(_ Mine, key string) Option[string] { None }
+
+func use(p os.Process) { _ = p.Args() }
+
+func main() {
+	use(Mine)
+}
+-- 03156.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import os
+
+type Mine {}
+
+func Args(_ Mine) []string { []string{} }
+func Getenv(_ Mine, key string) Option[string] { None }
+
+func use(p os.Process) { _ = p.Args() }
+
+func main() {
+	use(Mine)
+}
+-- 03157.ergo --
+import fs
+
+type Mine {}
+
+func ReadFile(_ Mine, path string) string fails fs.NotFound | fs.Denied | fs.Failed { "" }
+func ReadDir(_ Mine, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{} }
+func Stat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	fs.Info{Name: path, Size: 0, Dir: false}
+}
+
+func use(f fs.Files) { _ = f.ReadFile("a") catch { case fs.NotFound, fs.Denied, fs.Failed: "" } }
+
+func main() {
+	use(Mine)
+}
+-- 03158.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import fs
+
+type Mine {}
+
+func ReadFile(_ Mine, path string) string fails fs.NotFound | fs.Denied | fs.Failed { "" }
+func ReadDir(_ Mine, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{} }
+func Stat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	fs.Info{Name: path, Size: 0, Dir: false}
+}
+
+func use(f fs.Files) { _ = f.ReadFile("a") catch { case fs.NotFound, fs.Denied, fs.Failed: "" } }
+
+func main() {
+	use(Mine)
+}
+-- 03159.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import fs
+
+type Mine {}
+
+func ReadFile(_ Mine, path string) string fails fs.NotFound | fs.Denied | fs.Failed { "" }
+func ReadDir(_ Mine, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{} }
+func Stat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	fs.Info{Name: path, Size: 0, Dir: false}
+}
+
+func use(f fs.Files) { _ = f.ReadFile("a") catch { case fs.NotFound, fs.Denied, fs.Failed: "" } }
+
+func main() {
+	use(Mine)
+}
+-- 03160.ergo --
+import fs
+
+type Mine {}
+
+func WriteFile(_ Mine, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func MkdirAll(_ Mine, path string) fails fs.Denied | fs.Failed {}
+func WriteFileMode(_ Mine, path string, text string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {}
+func MkdirAllMode(_ Mine, path string, mode fs.Mode) fails fs.Denied | fs.Failed {}
+func AppendFile(_ Mine, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Chmod(_ Mine, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Rename(_ Mine, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Remove(_ Mine, path string) fails fs.NotFound | fs.Denied | fs.Failed {}
+
+func use(w fs.Writes) { w.MkdirAll("a") catch { case fs.Denied, fs.Failed: } }
+
+func main() {
+	use(Mine)
+}
+-- 03161.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import fs
+
+type Mine {}
+
+func WriteFile(_ Mine, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func MkdirAll(_ Mine, path string) fails fs.Denied | fs.Failed {}
+func WriteFileMode(_ Mine, path string, text string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {}
+func MkdirAllMode(_ Mine, path string, mode fs.Mode) fails fs.Denied | fs.Failed {}
+func AppendFile(_ Mine, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Chmod(_ Mine, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Rename(_ Mine, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Remove(_ Mine, path string) fails fs.NotFound | fs.Denied | fs.Failed {}
+
+func use(w fs.Writes) { w.MkdirAll("a") catch { case fs.Denied, fs.Failed: } }
+
+func main() {
+	use(Mine)
+}
+-- 03162.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import fs
+
+type Mine {}
+
+func WriteFile(_ Mine, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func MkdirAll(_ Mine, path string) fails fs.Denied | fs.Failed {}
+func WriteFileMode(_ Mine, path string, text string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {}
+func MkdirAllMode(_ Mine, path string, mode fs.Mode) fails fs.Denied | fs.Failed {}
+func AppendFile(_ Mine, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Chmod(_ Mine, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Rename(_ Mine, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Remove(_ Mine, path string) fails fs.NotFound | fs.Denied | fs.Failed {}
+
+func use(w fs.Writes) { w.MkdirAll("a") catch { case fs.Denied, fs.Failed: } }
+
+func main() {
+	use(Mine)
+}
+-- 03163.ergo --
+import io
+
+type Mine {}
+
+func Print(_ Mine, text string) {}
+func Println(_ Mine, line string) {}
+func IsTerminal(_ Mine) bool { false }
+
+func use(o io.Stdout) { o.Print("x") }
+
+func main() {
+	use(Mine)
+}
+-- 03164.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import io
+
+type Mine {}
+
+func Print(_ Mine, text string) {}
+func Println(_ Mine, line string) {}
+func IsTerminal(_ Mine) bool { false }
+
+func use(o io.Stdout) { o.Print("x") }
+
+func main() {
+	use(Mine)
+}
+-- 03165.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import io
+
+type Mine {}
+
+func Print(_ Mine, text string) {}
+func Println(_ Mine, line string) {}
+func IsTerminal(_ Mine) bool { false }
+
+func use(o io.Stdout) { o.Print("x") }
+
+func main() {
+	use(Mine)
+}
+-- 03166.ergo --
+import io
+
+type Mine {}
+
+func Eprint(_ Mine, text string) {}
+func Eprintln(_ Mine, line string) {}
+
+func use(e io.Stderr) { e.Eprintln("x") }
+
+func main() {
+	use(Mine)
+}
+-- 03167.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import io
+
+type Mine {}
+
+func Eprint(_ Mine, text string) {}
+func Eprintln(_ Mine, line string) {}
+
+func use(e io.Stderr) { e.Eprintln("x") }
+
+func main() {
+	use(Mine)
+}
+-- 03168.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import io
+
+type Mine {}
+
+func Eprint(_ Mine, text string) {}
+func Eprintln(_ Mine, line string) {}
+
+func use(e io.Stderr) { e.Eprintln("x") }
+
+func main() {
+	use(Mine)
+}
+-- 03169.ergo --
+import io
+
+type Mine {}
+
+func ReadAll(_ Mine) string fails io.ReadFailed { "" }
+func Lines(_ Mine) Seq[string] { io.Input{Text: ""}.Lines() }
+
+func use(i io.Stdin) { _ = i.ReadAll() catch { case io.ReadFailed: "" } }
+
+func main() {
+	use(Mine)
+}
+-- 03170.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import io
+
+type Mine {}
+
+func ReadAll(_ Mine) string fails io.ReadFailed { "" }
+func Lines(_ Mine) Seq[string] { io.Input{Text: ""}.Lines() }
+
+func use(i io.Stdin) { _ = i.ReadAll() catch { case io.ReadFailed: "" } }
+
+func main() {
+	use(Mine)
+}
+-- 03171.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import io
+
+type Mine {}
+
+func ReadAll(_ Mine) string fails io.ReadFailed { "" }
+func Lines(_ Mine) Seq[string] { io.Input{Text: ""}.Lines() }
+
+func use(i io.Stdin) { _ = i.ReadAll() catch { case io.ReadFailed: "" } }
+
+func main() {
+	use(Mine)
+}
+-- 03172.ergo --
+import exec
+
+type Mine {}
+
+func Run(_ Mine, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
+	exec.Result{Status: 0, Stdout: "", Stderr: ""}
+}
+
+func use(r exec.Runner) { _ = r.Run(exec.New("true", []string{})) catch { case exec.NotFound, exec.Denied, exec.Failed: exec.Result{Status: 0, Stdout: "", Stderr: ""} } }
+
+func main() {
+	use(Mine)
+}
+-- 03173.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import exec
+
+type Mine {}
+
+func Run(_ Mine, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
+	exec.Result{Status: 0, Stdout: "", Stderr: ""}
+}
+
+func use(r exec.Runner) { _ = r.Run(exec.New("true", []string{})) catch { case exec.NotFound, exec.Denied, exec.Failed: exec.Result{Status: 0, Stdout: "", Stderr: ""} } }
+
+func main() {
+	use(Mine)
+}
+-- 03174.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import exec
+
+type Mine {}
+
+func Run(_ Mine, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
+	exec.Result{Status: 0, Stdout: "", Stderr: ""}
+}
+
+func use(r exec.Runner) { _ = r.Run(exec.New("true", []string{})) catch { case exec.NotFound, exec.Denied, exec.Failed: exec.Result{Status: 0, Stdout: "", Stderr: ""} } }
+
+func main() {
+	use(Mine)
+}
+-- 03175.ergo --
+type Mine {}
+
+func ambient(_ Mine) {}
+
+func use(_ Ambient) {}
+
+func main() {
+	use(Mine)
+}
+-- 03176.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+type Mine {}
+
+func ambient(_ Mine) {}
+
+func use(_ Ambient) {}
+
+func main() {
+	use(Mine)
+}
+-- 03177.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+type Mine {}
+
+func ambient(_ Mine) {}
+
+func use(_ Ambient) {}
+
+func main() {
+	use(Mine)
+}
+-- 03178.ergo --
+
+func use(q queue.Queue[int]) {
+	q.Close()
+}
+
+func main() needs Console {
+	use(Mine) // want S109
+	Console.Println("converted")
+}
+-- 03179.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+
+func use(q queue.Queue[int]) {
+	q.Close()
+}
+
+func main() needs Console {
+	use(Mine) // want S109
+	Console.Println("converted")
+}
+-- 03180.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+
+func use(q queue.Queue[int]) {
+	q.Close()
+}
+
+func main() needs Console {
+	use(Mine) // want S109
+	Console.Println("converted")
+}
+-- 03181.ergo --
+
+func main() {
+	let q = queue.Queue[int](Mine) // want S109
+	q.Close()
+}
+-- 03182.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+
+func main() {
+	let q = queue.Queue[int](Mine) // want S109
+	q.Close()
+}
+-- 03183.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+
+func main() {
+	let q = queue.Queue[int](Mine) // want S109
+	q.Close()
+}
+-- 03184.ergo --
+
+func main() {
+	let q queue.Queue[int] = Mine // want S109
+	q.Close()
+}
+-- 03185.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+
+func main() {
+	let q queue.Queue[int] = Mine // want S109
+	q.Close()
+}
+-- 03186.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+
+func main() {
+	let q queue.Queue[int] = Mine // want S109
+	q.Close()
+}
+-- 03187.ergo --
+
+func make() queue.Queue[int] {
+	Mine // want S109
+}
+-- 03188.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+
+func make() queue.Queue[int] {
+	Mine // want S109
+}
+-- 03189.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+
+func make() queue.Queue[int] {
+	Mine // want S109
+}
+-- 03190.ergo --
+
+func pair() (Mine, Mine) { (Mine, Mine) }
+
+func main() {
+	let a, b queue.Queue[int] = pair() // want S109
+	a.Close()
+	b.Close()
+}
+-- 03191.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+
+func pair() (Mine, Mine) { (Mine, Mine) }
+
+func main() {
+	let a, b queue.Queue[int] = pair() // want S109
+	a.Close()
+	b.Close()
+}
+-- 03192.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+
+func pair() (Mine, Mine) { (Mine, Mine) }
+
+func main() {
+	let a, b queue.Queue[int] = pair() // want S109
+	a.Close()
+	b.Close()
+}
+-- 03193.ergo --
+
+func same(q queue.Queue[int]) bool {
+	q == Mine // want S109
+}
+-- 03194.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+
+func same(q queue.Queue[int]) bool {
+	q == Mine // want S109
+}
+-- 03195.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+
+func same(q queue.Queue[int]) bool {
+	q == Mine // want S109
+}
+-- 03196.ergo --
+import queue
+
+type Mine {
+	Push(v int) fails queue.Closed,
+	Pop() int fails queue.Closed,
+	Close(),
+	Values() Seq[int],
+	Poll() Option[int],
+	Len() int,
+}
+
+func use(q queue.Queue[int]) { q.Close() }
+
+func pass(m Mine) {
+	use(m) // want S109
+}
+-- 03197.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import queue
+
+type Mine {
+	Push(v int) fails queue.Closed,
+	Pop() int fails queue.Closed,
+	Close(),
+	Values() Seq[int],
+	Poll() Option[int],
+	Len() int,
+}
+
+func use(q queue.Queue[int]) { q.Close() }
+
+func pass(m Mine) {
+	use(m) // want S109
+}
+-- 03198.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import queue
+
+type Mine {
+	Push(v int) fails queue.Closed,
+	Pop() int fails queue.Closed,
+	Close(),
+	Values() Seq[int],
+	Poll() Option[int],
+	Len() int,
+}
+
+func use(q queue.Queue[int]) { q.Close() }
+
+func pass(m Mine) {
+	use(m) // want S109
+}
+-- 03199.ergo --
+type Fault {}
+type Mine {}
+
+func Wait(_ Mine) int fails Fault { 0 }
+func Stop(_ Mine) {}
+
+func use(t Task[int, Fault]) { t.Stop() }
+
+func main() {
+	use(Mine) // want S109
+}
+-- 03200.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+type Fault {}
+type Mine {}
+
+func Wait(_ Mine) int fails Fault { 0 }
+func Stop(_ Mine) {}
+
+func use(t Task[int, Fault]) { t.Stop() }
+
+func main() {
+	use(Mine) // want S109
+}
+-- 03201.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+type Fault {}
+type Mine {}
+
+func Wait(_ Mine) int fails Fault { 0 }
+func Stop(_ Mine) {}
+
+func use(t Task[int, Fault]) { t.Stop() }
+
+func main() {
+	use(Mine) // want S109
+}
+-- 03202.ergo --
+import queue
+
+func use(q queue.Queue[int]) { q.Close() }
+
+func main() {
+	use(queue.New[int](1))
+}
+-- 03203.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import queue
+
+func use(q queue.Queue[int]) { q.Close() }
+
+func main() {
+	use(queue.New[int](1))
+}
+-- 03204.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import queue
+
+func use(q queue.Queue[int]) { q.Close() }
+
+func main() {
+	use(queue.New[int](1))
+}
+-- 03205.ergo --
+type Quiet {}
+
+func Println(_ Quiet, line string) {}
+
+let W = context { Console: Quiet }
+
+func main() {
+	with W { Console.Println("x") }
+}
+-- 03206.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+type Quiet {}
+
+func Println(_ Quiet, line string) {}
+
+let W = context { Console: Quiet }
+
+func main() {
+	with W { Console.Println("x") }
+}
+-- 03207.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+type Quiet {}
+
+func Println(_ Quiet, line string) {}
+
+let W = context { Console: Quiet }
+
+func main() {
+	with W { Console.Println("x") }
+}
+-- 03208.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+-- 03209.ergo --
+
+func run() needs os.Process { _ = os.Process.Args() }
+
+func main() {
+	with context { os.Process: FakeEnv{Argv: []string{}} } { run() }
+}
+-- 03210.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+
+func run() needs os.Process { _ = os.Process.Args() }
+
+func main() {
+	with context { os.Process: FakeEnv{Argv: []string{}} } { run() }
+}
+-- 03211.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+
+func run() needs os.Process { _ = os.Process.Args() }
+
+func main() {
+	with context { os.Process: FakeEnv{Argv: []string{}} } { run() }
+}
+-- 03212.ergo --
+import os
+
+func run() needs os.Process { _ = os.Process.Args() }
+
+func main() needs Ambient {
+	let live = context { os.Process: os.NewHost() }
+	with live { run() }
+}
+-- 03213.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+import os
+
+func run() needs os.Process { _ = os.Process.Args() }
+
+func main() needs Ambient {
+	let live = context { os.Process: os.NewHost() }
+	with live { run() }
+}
+-- 03214.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+import os
+
+func run() needs os.Process { _ = os.Process.Args() }
+
+func main() needs Ambient {
+	let live = context { os.Process: os.NewHost() }
+	with live { run() }
+}
+-- 03215.ergo --
+
+func use(p os.Process) { _ = p.Args() }
+
+func main() needs Ambient {
+	use(FakeEnv{Argv: []string{}})
+	let p os.Process = os.NewHost()
+	use(p)
+}
+-- 03216.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+
+func use(p os.Process) { _ = p.Args() }
+
+func main() needs Ambient {
+	use(FakeEnv{Argv: []string{}})
+	let p os.Process = os.NewHost()
+	use(p)
+}
+-- 03217.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+
+func use(p os.Process) { _ = p.Args() }
+
+func main() needs Ambient {
+	use(FakeEnv{Argv: []string{}})
+	let p os.Process = os.NewHost()
+	use(p)
+}
+-- 03218.ergo --
+
+func use(q queue.Queue[int]) { q.Close() }
+
+func main() {
+	use(Mine) // want S109
+	let q queue.Queue[int] = Mine // want S109
+	q.Close()
+}
+-- 03219.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+
+func use(q queue.Queue[int]) { q.Close() }
+
+func main() {
+	use(Mine) // want S109
+	let q queue.Queue[int] = Mine // want S109
+	q.Close()
+}
+-- 03220.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+
+func use(q queue.Queue[int]) { q.Close() }
+
+func main() {
+	use(Mine) // want S109
+	let q queue.Queue[int] = Mine // want S109
+	q.Close()
+}
+-- 03221.ergo --
+type A { Use() }
+type Releaser { Use(), Close() }
+type R {}
+func Use(_ R) {}
+func Close(_ R) {}
+func make() Releaser { R }
+let W = context { A: make() }
+func main() { with W { A.Use() } }
+-- 03222.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+type A { Use() }
+type Releaser { Use(), Close() }
+type R {}
+func Use(_ R) {}
+func Close(_ R) {}
+func make() Releaser { R }
+let W = context { A: make() }
+func main() { with W { A.Use() } }
+-- 03223.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+type A { Use() }
+type Releaser { Use(), Close() }
+type R {}
+func Use(_ R) {}
+func Close(_ R) {}
+func make() Releaser { R }
+let W = context { A: make() }
+func main() { with W { A.Use() } }
+-- 03224.ergo --
+type A { Use() }
+type G[T] { Value T }
+func Use[T](_ G[T]) {}
+func Close[T](_ G[T]) {}
+let W = context { A: G[int]{Value: 1} }
+func main() { with W { A.Use() } }
+-- 03225.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+type A { Use() }
+type G[T] { Value T }
+func Use[T](_ G[T]) {}
+func Close[T](_ G[T]) {}
+let W = context { A: G[int]{Value: 1} }
+func main() { with W { A.Use() } }
+-- 03226.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+type A { Use() }
+type G[T] { Value T }
+func Use[T](_ G[T]) {}
+func Close[T](_ G[T]) {}
+let W = context { A: G[int]{Value: 1} }
+func main() { with W { A.Use() } }
+-- 03227.ergo --
+type A { Use() }
+type P {}
+func Use(_ P) {}
+func Close(_ *P) {}
+let W = context { A: P }
+func main() { with W { A.Use() } }
+-- 03228.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+type A { Use() }
+type P {}
+func Use(_ P) {}
+func Close(_ *P) {}
+let W = context { A: P }
+func main() { with W { A.Use() } }
+-- 03229.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+type A { Use() }
+type P {}
+func Use(_ P) {}
+func Close(_ *P) {}
+let W = context { A: P }
+func main() { with W { A.Use() } }
+-- 03230.ergo --
+type A { Use() }
+type P {}
+func Use(_ P) {}
+func Close(_ P) {}
+let W = context { A: P }
+func main() { with W { A.Use() } }
+-- 03231.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+type A { Use() }
+type P {}
+func Use(_ P) {}
+func Close(_ P) {}
+let W = context { A: P }
+func main() { with W { A.Use() } }
+-- 03232.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+type A { Use() }
+type P {}
+func Use(_ P) {}
+func Close(_ P) {}
+let W = context { A: P }
+func main() { with W { A.Use() } }
+-- 03233.ergo --
+type A { Use() }
+type Named { Name() string }
+type N {}
+func Name(_ N) string { "n" }
+type G[T] { Value T }
+func Use[T Named](_ G[T]) {}
+func Close[T Named](_ G[T]) {}
+let W = context { A: G[N]{Value: N} } // want S109
+func main() { with W { A.Use() } }
+-- 03234.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+type A { Use() }
+type Named { Name() string }
+type N {}
+func Name(_ N) string { "n" }
+type G[T] { Value T }
+func Use[T Named](_ G[T]) {}
+func Close[T Named](_ G[T]) {}
+let W = context { A: G[N]{Value: N} } // want S109
+func main() { with W { A.Use() } }
+-- 03235.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+type A { Use() }
+type Named { Name() string }
+type N {}
+func Name(_ N) string { "n" }
+type G[T] { Value T }
+func Use[T Named](_ G[T]) {}
+func Close[T Named](_ G[T]) {}
+let W = context { A: G[N]{Value: N} } // want S109
+func main() { with W { A.Use() } }
+-- 03236.ergo --
+type A { Use() }
+type Named { Name() string }
+type N {}
+func Name(_ N) string { "n" }
+type G[T] { Value T }
+func Use[T Named](_ G[T]) {}
+func Close[T Named](_ G[T]) {}
+let W = context { A: G[N]{Value: N} } // want S109
+func main() {
+	with W { A.Use() }
+	with W { A.Use() }
+}
+-- 03237.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+type A { Use() }
+type Named { Name() string }
+type N {}
+func Name(_ N) string { "n" }
+type G[T] { Value T }
+func Use[T Named](_ G[T]) {}
+func Close[T Named](_ G[T]) {}
+let W = context { A: G[N]{Value: N} } // want S109
+func main() {
+	with W { A.Use() }
+	with W { A.Use() }
+}
+-- 03238.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+type A { Use() }
+type Named { Name() string }
+type N {}
+func Name(_ N) string { "n" }
+type G[T] { Value T }
+func Use[T Named](_ G[T]) {}
+func Close[T Named](_ G[T]) {}
+let W = context { A: G[N]{Value: N} } // want S109
+func main() {
+	with W { A.Use() }
+	with W { A.Use() }
+}
+-- 03239.ergo --
+type R {}
+extern go strings.F func Close(r R) // want S109
+-- 03240.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+type R {}
+extern go strings.F func Close(r R) // want S109
+-- 03241.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+type R {}
+extern go strings.F func Close(r R) // want S109
+-- 03242.ergo --
+func f(c Console) { c.Println("x") }
+-- 03243.ergo --
+import queue
+
+type Mine {}
+
+func Push(_ Mine, v int) fails queue.Closed {}
+
+func Pop(_ Mine) int fails queue.Closed {
+	0
+}
+
+func Close(_ Mine) {}
+
+func Values(_ Mine) Seq[int] {
+	queue.New[int](0).Values()
+}
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
+func f(c Console) { c.Println("x") }
+-- 03244.ergo --
+import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+func f(c Console) { c.Println("x") }
+-- 03245.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+-- 03246.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+-- 03247.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+-- 03248.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+import log
+let x = with log.Annotate("k", "v") { 1 }
+-- 03249.ergo --
+type B { Next A }
+-- 03250.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+type B { Next A }
+-- 03251.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+type B { Next A }
+-- 03252.ergo --
+
+// The first name is in this file.
+type A { Next B }
+-- 03253.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+
+// The first name is in this file.
+type A { Next B }
+-- 03254.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+
+// The first name is in this file.
+type A { Next B }
+-- 03255.ergo --
+type Z A
+-- 03256.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+type Z A
+-- 03257.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+type Z A
+-- 03258.ergo --
+
+type A Z
+-- 03259.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+
+type A Z
+-- 03260.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+
+type A Z
+-- 03261.ergo --
+type Tuple (Link, int)
+-- 03262.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+type Tuple (Link, int)
+-- 03263.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+type Tuple (Link, int)
+-- 03264.ergo --
+
+type Link Tuple
+-- 03265.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+
+type Link Tuple
+-- 03266.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+
+type Link Tuple
+-- 03267.ergo --
+type H[T] { Next G[T] }
+-- 03268.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+type H[T] { Next G[T] }
+-- 03269.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+type H[T] { Next G[T] }
+-- 03270.ergo --
+
+type G[T] { Next H[T] }
+-- 03271.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+
+type G[T] { Next H[T] }
+-- 03272.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+
+type G[T] { Next H[T] }
+-- 03273.ergo --
+type Wrapper[T] { V T }
+type Zed { W Wrapper[Alpha] }
+-- 03274.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+type Wrapper[T] { V T }
+type Zed { W Wrapper[Alpha] }
+-- 03275.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+type Wrapper[T] { V T }
+type Zed { W Wrapper[Alpha] }
+-- 03276.ergo --
+
+type Alpha { W Zed }
+-- 03277.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+
+type Alpha { W Zed }
+-- 03278.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+
+type Alpha { W Zed }
+-- 03279.ergo --
+type G[T] { Next H[int] }
+-- 03280.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+type G[T] { Next H[int] }
+-- 03281.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+type G[T] { Next H[int] }
+-- 03282.ergo --
+
+type H[U] { Next G[int] }
+-- 03283.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+
+type H[U] { Next G[int] }
+-- 03284.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+
+type H[U] { Next G[int] }
+-- 03285.ergo --
+type D2[T] { F0 D0[T], F1 D1[int] }
+type D1[T] { F0 D2[int] }
+-- 03286.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+type D2[T] { F0 D0[T], F1 D1[int] }
+type D1[T] { F0 D2[int] }
+-- 03287.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+type D2[T] { F0 D0[T], F1 D1[int] }
+type D1[T] { F0 D2[int] }
+-- 03288.ergo --
+
+type D0[T] { F0 D2[T] }
+-- 03289.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+
+type D0[T] { F0 D2[T] }
+-- 03290.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+
+type D0[T] { F0 D2[T] }
+-- 03291.ergo --
+type B A
+type C { Next D }
+-- 03292.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+type B A
+type C { Next D }
+-- 03293.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+type B A
+type C { Next D }
+-- 03294.ergo --
+
+type A B
+type D { Next C }
+-- 03295.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+
+type A B
+type D { Next C }
+-- 03296.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+
+type A B
+type D { Next C }
+-- 03297.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+type 
+-- 03298.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+type 
+-- 03299.ergo --
+let (W, W) = (1, 2)
+-- 03300.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+let (W, W) = (1, 2)
+-- 03301.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+let (W, W) = (1, 2)
+-- 03302.ergo --
+let W = context {}
+-- 03303.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+let W = context {}
+-- 03304.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+let W = context {}
+-- 03305.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+type W {}
+-- 03306.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+type W {}
+-- 03307.ergo --
+func a(x int) int { x }
+-- 03308.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+func a(x int) int { x }
+-- 03309.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+func a(x int) int { x }
+-- 03310.ergo --
+func b(y int) int { y }
+-- 03311.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+func b(y int) int { y }
+-- 03312.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+func b(y int) int { y }
+-- 03313.ergo --
+type SplitNeutral { V int }
+
+let splitNeutralZero = SplitNeutral{V: 0}
+
+func splitNeutral(n SplitNeutral) int { n.V + splitNeutralZero.V }
+func main() {}
+-- 03314.ergo --
+import log
+let x = with log.Annotate("k", "v") { 1 }
+func main() {}
+-- 03315.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+-- 03316.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+-- 03317.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+-- 03318.ergo --
+type E {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func outer() {
+	w() catch {
+	case E:
+	}
+}
+func main() {}
+-- 03319.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+type E {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func outer() {
+	w() catch {
+	case E:
+	}
+}
+func main() {}
+-- 03320.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+type E {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func outer() {
+	w() catch {
+	case E:
+	}
+}
+func main() {}
+-- 03321.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func main() {}
+-- 03322.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func main() {}
+-- 03323.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func main() {}
+-- 03324.ergo --
+func gen[T](x T) {
+	try w()
+	try quit()
+}
+func outer() {
+	gen(1) catch {
+	case G[int]:
+	case E:
+	}
+}
+func main() {}
+-- 03325.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func gen[T](x T) {
+	try w()
+	try quit()
+}
+func outer() {
+	gen(1) catch {
+	case G[int]:
+	case E:
+	}
+}
+func main() {}
+-- 03326.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+func gen[T](x T) {
+	try w()
+	try quit()
+}
+func outer() {
+	gen(1) catch {
+	case G[int]:
+	case E:
+	}
+}
+func main() {}
+-- 03327.ergo --
+func outer() {
+	let f = func() {
+		try w()
+		try quit()
+	}
+	f() catch {
+	case G[int]:
+	case E:
+	}
+}
+func main() {}
+-- 03328.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func outer() {
+	let f = func() {
+		try w()
+		try quit()
+	}
+	f() catch {
+	case G[int]:
+	case E:
+	}
+}
+func main() {}
+-- 03329.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+func outer() {
+	let f = func() {
+		try w()
+		try quit()
+	}
+	f() catch {
+	case G[int]:
+	case E:
+	}
+}
+func main() {}
+-- 03330.ergo --
+type E {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+let hook = w
+func outer() {
+	let k = w
+	k() catch {
+	case G[int]:
+	case E:
+	}
+	hook() catch {
+	case G[int]:
+	case E:
+	}
+}
+func main() {}
+-- 03331.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+type E {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+let hook = w
+func outer() {
+	let k = w
+	k() catch {
+	case G[int]:
+	case E:
+	}
+	hook() catch {
+	case G[int]:
+	case E:
+	}
+}
+func main() {}
+-- 03332.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+type E {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+let hook = w
+func outer() {
+	let k = w
+	k() catch {
+	case G[int]:
+	case E:
+	}
+	hook() catch {
+	case G[int]:
+	case E:
+	}
+}
+func main() {}
+-- 03333.ergo --
+func Outer() fails Q {
+	w() catch {
+	case G[int]:
+	case E:
+	}
+	try quit()
+}
+func main() {
+	w() catch {
+	case E:
+	}
+}
+-- 03334.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func Outer() fails Q {
+	w() catch {
+	case G[int]:
+	case E:
+	}
+	try quit()
+}
+func main() {
+	w() catch {
+	case E:
+	}
+}
+-- 03335.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+func Outer() fails Q {
+	w() catch {
+	case G[int]:
+	case E:
+	}
+	try quit()
+}
+func main() {
+	w() catch {
+	case E:
+	}
+}
+-- 03336.ergo --
+func x2() {
+	x1() catch {
+	case G[int]:
+	case E:
+	}
+}
+func x1() {
+	try w()
+	try quit()
+	try x2()
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+-- 03337.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func x2() {
+	x1() catch {
+	case G[int]:
+	case E:
+	}
+}
+func x1() {
+	try w()
+	try quit()
+	try x2()
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+-- 03338.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+func x2() {
+	x1() catch {
+	case G[int]:
+	case E:
+	}
+}
+func x1() {
+	try w()
+	try quit()
+	try x2()
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+-- 03339.ergo --
+type Cap { M() }
+type Q {}
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func quit() fails Q { return Q }
+func keep[T, F](g G[T], f F) {}
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		g.keep(func() { walk() })
+	}
+}
+func w() { try load(); try quit(); walk() }
+func main() {}
+-- 03340.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+type Cap { M() }
+type Q {}
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func quit() fails Q { return Q }
+func keep[T, F](g G[T], f F) {}
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		g.keep(func() { walk() })
+	}
+}
+func w() { try load(); try quit(); walk() }
+func main() {}
+-- 03341.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+type Cap { M() }
+type Q {}
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func quit() fails Q { return Q }
+func keep[T, F](g G[T], f F) {}
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		g.keep(func() { walk() })
+	}
+}
+func w() { try load(); try quit(); walk() }
+func main() {}
+-- 03342.ergo --
+type Cap { M() }
+type Q {}
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func quit() fails Q { return Q }
+func keep[T, F](g G[T], f F) {}
+func walk() needs Cap {
+	Cap.M()
+	w() catch {
+	case G as g:
+		g.keep(func() { walk() })
+	}
+}
+func w() { try load(); try quit(); walk() }
+func main() {}
+-- 03343.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+type Cap { M() }
+type Q {}
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func quit() fails Q { return Q }
+func keep[T, F](g G[T], f F) {}
+func walk() needs Cap {
+	Cap.M()
+	w() catch {
+	case G as g:
+		g.keep(func() { walk() })
+	}
+}
+func w() { try load(); try quit(); walk() }
+func main() {}
+-- 03344.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+type Cap { M() }
+type Q {}
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func quit() fails Q { return Q }
+func keep[T, F](g G[T], f F) {}
+func walk() needs Cap {
+	Cap.M()
+	w() catch {
+	case G as g:
+		g.keep(func() { walk() })
+	}
+}
+func w() { try load(); try quit(); walk() }
+func main() {}
+-- 03345.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func keep[T, F](g G[T], f F) {}
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		g.keep(func() { walk() })
+	}
+	try z()
+}
+func w() { try load(); walk() }
+func z() {
+	w() catch {
+	case G[int]:
+	}
+	walk()
+}
+func main() {}
+-- 03346.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func keep[T, F](g G[T], f F) {}
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		g.keep(func() { walk() })
+	}
+	try z()
+}
+func w() { try load(); walk() }
+func z() {
+	w() catch {
+	case G[int]:
+	}
+	walk()
+}
+func main() {}
+-- 03347.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func keep[T, F](g G[T], f F) {}
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		g.keep(func() { walk() })
+	}
+	try z()
+}
+func w() { try load(); walk() }
+func z() {
+	w() catch {
+	case G[int]:
+	}
+	walk()
+}
+func main() {}
+-- 03348.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func keep[T, F](g G[T], f F) {}
+func walk() needs Cap {
+	Cap.M()
+	w() catch {
+	case G as g:
+		g.keep(func() { walk() })
+	}
+	try z()
+}
+func w() { try load(); walk() }
+func z() {
+	w() catch {
+	case G[int]:
+	}
+	walk()
+}
+func main() {}
+-- 03349.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func keep[T, F](g G[T], f F) {}
+func walk() needs Cap {
+	Cap.M()
+	w() catch {
+	case G as g:
+		g.keep(func() { walk() })
+	}
+	try z()
+}
+func w() { try load(); walk() }
+func z() {
+	w() catch {
+	case G[int]:
+	}
+	walk()
+}
+func main() {}
+-- 03350.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func keep[T, F](g G[T], f F) {}
+func walk() needs Cap {
+	Cap.M()
+	w() catch {
+	case G as g:
+		g.keep(func() { walk() })
+	}
+	try z()
+}
+func w() { try load(); walk() }
+func z() {
+	w() catch {
+	case G[int]:
+	}
+	walk()
+}
+func main() {}
+-- 03351.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+	w2() catch {
+	case Q:
+	case Q:
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func w2() {
+	try walk()
+}
+func main() {}
+-- 03352.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+	w2() catch {
+	case Q:
+	case Q:
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func w2() {
+	try walk()
+}
+func main() {}
+-- 03353.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+	w2() catch {
+	case Q:
+	case Q:
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func w2() {
+	try walk()
+}
+func main() {}
+-- 03354.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func w2() {
+	try walk()
+}
+func outer() {
+	w2() catch {
+	case Q:
+	case Q:
+	}
+}
+func main() {}
+-- 03355.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func w2() {
+	try walk()
+}
+func outer() {
+	w2() catch {
+	case Q:
+	case Q:
+	}
+}
+func main() {}
+-- 03356.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func w2() {
+	try walk()
+}
+func outer() {
+	w2() catch {
+	case Q:
+	case Q:
+	}
+}
+func main() {}
+-- 03357.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+	w2() catch {
+	case E:
+	case Q:
+	case Q:
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func w2() {
+	try boom()
+	try walk()
+}
+func main() {}
+-- 03358.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+	w2() catch {
+	case E:
+	case Q:
+	case Q:
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func w2() {
+	try boom()
+	try walk()
+}
+func main() {}
+-- 03359.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+	w2() catch {
+	case E:
+	case Q:
+	case Q:
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func w2() {
+	try boom()
+	try walk()
+}
+func main() {}
+-- 03360.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func w2() {
+	try boom()
+	try walk()
+}
+func outer() {
+	w2() catch {
+	case E:
+	case Q:
+	case Q:
+	}
+}
+func main() {}
+-- 03361.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func w2() {
+	try boom()
+	try walk()
+}
+func outer() {
+	w2() catch {
+	case E:
+	case Q:
+	case Q:
+	}
+}
+func main() {}
+-- 03362.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func w2() {
+	try boom()
+	try walk()
+}
+func outer() {
+	w2() catch {
+	case E:
+	case Q:
+	case Q:
+	}
+}
+func main() {}
+-- 03363.ergo --
+type E {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func w2() {
+	try walk()
+}
+func run[R](f func() fails R) fails R {
+	try f()
+}
+func outer() {
+	run(func() { try w2() }) catch {
+	case E:
+	}
+}
+func main() {}
+-- 03364.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+type E {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func w2() {
+	try walk()
+}
+func run[R](f func() fails R) fails R {
+	try f()
+}
+func outer() {
+	run(func() { try w2() }) catch {
+	case E:
+	}
+}
+func main() {}
+-- 03365.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+type E {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func w2() {
+	try walk()
+}
+func run[R](f func() fails R) fails R {
+	try f()
+}
+func outer() {
+	run(func() { try w2() }) catch {
+	case E:
+	}
+}
+func main() {}
+-- 03366.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+	try m()
+}
+func w() {
+	try load()
+	try walk()
+}
+func w2() {
+	try walk()
+}
+func m() {
+	try w2() catch {
+	case Q:
+	}
+}
+func outer() {
+	try m()
+}
+func main() {}
+-- 03367.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+	try m()
+}
+func w() {
+	try load()
+	try walk()
+}
+func w2() {
+	try walk()
+}
+func m() {
+	try w2() catch {
+	case Q:
+	}
+}
+func outer() {
+	try m()
+}
+func main() {}
+-- 03368.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+	try m()
+}
+func w() {
+	try load()
+	try walk()
+}
+func w2() {
+	try walk()
+}
+func m() {
+	try w2() catch {
+	case Q:
+	}
+}
+func outer() {
+	try m()
+}
+func main() {}
+-- 03369.ergo --
+type E {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try load()
+	try w() catch {
+	case E:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try boom()
+	try walk()
+}
+func w2() {
+	try walk()
+}
+func outer() {
+	w2() catch {
+	case G as g:
+		_ = g
+	}
+}
+func main() {}
+-- 03370.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+type E {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try load()
+	try w() catch {
+	case E:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try boom()
+	try walk()
+}
+func w2() {
+	try walk()
+}
+func outer() {
+	w2() catch {
+	case G as g:
+		_ = g
+	}
+}
+func main() {}
+-- 03371.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+type E {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try load()
+	try w() catch {
+	case E:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try boom()
+	try walk()
+}
+func w2() {
+	try walk()
+}
+func outer() {
+	w2() catch {
+	case G as g:
+		_ = g
+	}
+}
+func main() {}
+-- 03372.ergo --
+type E {}
+type H[T] {}
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() { try walk() }
+func outer() { try w() }
+func main() {}
+-- 03373.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+type E {}
+type H[T] {}
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() { try walk() }
+func outer() { try w() }
+func main() {}
+-- 03374.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+type E {}
+type H[T] {}
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() { try walk() }
+func outer() { try w() }
+func main() {}
+-- 03375.ergo --
+type E {}
+type H[T] {}
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case E:
+	}
+}
+func w() { try walk() }
+func outer() { try w() }
+func main() {}
+-- 03376.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+type E {}
+type H[T] {}
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case E:
+	}
+}
+func w() { try walk() }
+func outer() { try w() }
+func main() {}
+-- 03377.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+type E {}
+type H[T] {}
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case E:
+	}
+}
+func w() { try walk() }
+func outer() { try w() }
+func main() {}
+-- 03378.ergo --
+type E {}
+type Q {}
+type G[T] {}
+func boom() fails E { return E }
+func load() fails G[int] { return G[int] }
+func keep[T, F](g G[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int] as g:
+		g.keep(func() { try walk() })
+	case Q:
+	}
+}
+func w() { try load(); try walk() }
+func outer() {
+	w() catch {
+	case G[int]:
+	case Q:
+	}
+}
+func main() {}
+-- 03379.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+type E {}
+type Q {}
+type G[T] {}
+func boom() fails E { return E }
+func load() fails G[int] { return G[int] }
+func keep[T, F](g G[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int] as g:
+		g.keep(func() { try walk() })
+	case Q:
+	}
+}
+func w() { try load(); try walk() }
+func outer() {
+	w() catch {
+	case G[int]:
+	case Q:
+	}
+}
+func main() {}
+-- 03380.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+type E {}
+type Q {}
+type G[T] {}
+func boom() fails E { return E }
+func load() fails G[int] { return G[int] }
+func keep[T, F](g G[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int] as g:
+		g.keep(func() { try walk() })
+	case Q:
+	}
+}
+func w() { try load(); try walk() }
+func outer() {
+	w() catch {
+	case G[int]:
+	case Q:
+	}
+}
+func main() {}
+-- 03381.ergo --
+type Q {}
+func f() {}
+func main() {
+	f() catch {
+	case Q:
+	case Q:
+	}
+}
+-- 03382.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+type Q {}
+func f() {}
+func main() {
+	f() catch {
+	case Q:
+	case Q:
+	}
+}
+-- 03383.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+type Q {}
+func f() {}
+func main() {
+	f() catch {
+	case Q:
+	case Q:
+	}
+}
+-- 03384.ergo --
+type E {}
+type Q {}
+func f() fails E { return E }
+func main() {
+	f() catch {
+	case E:
+	case Q:
+	case Q:
+	}
+}
+-- 03385.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+type E {}
+type Q {}
+func f() fails E { return E }
+func main() {
+	f() catch {
+	case E:
+	case Q:
+	case Q:
+	}
+}
+-- 03386.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+type E {}
+type Q {}
+func f() fails E { return E }
+func main() {
+	f() catch {
+	case E:
+	case Q:
+	case Q:
+	}
+}
+-- 03387.ergo --
+type E {}
+func f() fails E { return E }
+func main() {
+	f() catch {
+	case E:
+	case E:
+	}
+}
+-- 03388.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+type E {}
+func f() fails E { return E }
+func main() {
+	f() catch {
+	case E:
+	case E:
+	}
+}
+-- 03389.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+type E {}
+func f() fails E { return E }
+func main() {
+	f() catch {
+	case E:
+	case E:
+	}
+}
+-- 03390.ergo --
+type Q {}
+func main() {
+	nope() catch {
+	case Q:
+	case Q:
+	}
+}
+-- 03391.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+type Q {}
+func main() {
+	nope() catch {
+	case Q:
+	case Q:
+	}
+}
+-- 03392.ergo --
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+type Q {}
+func main() {
+	nope() catch {
+	case Q:
+	case Q:
+	}
+}
+-- 03393.ergo --
+type E {}
+type Q {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func quit() fails Q { return Q }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func both() {
+	try w()
+	try quit()
+}
+func outer() {
+	both() catch {
+	case G[int]:
+	case E:
+	}
+}
+func y1() {
+	try quit()
+	try y2()
+}
+func y2() {
+	y1() catch {
+	case E:
+	}
+}
+func main() {}
+-- 03394.ergo --
+import task
+
+type Fault {}
+
+func Start() Task[int, Fault] { task.Go() { 1 } }
+
+func Again() Task[int, Fault] { Start() }
+
+func Stops() int {
+	let t = task.Go() { 1 }
+	t.Stop()
+	0
+}
+-- 03395.ergo --
+import task
+
+type C0 { Get0() int }
+type M0 {}
+func Get0(_ M0) int { 0 }
+type C1 { Get1() int }
+type M1 {}
+func Get1(_ M1) int { 1 }
+type C2 { Get2() int }
+type M2 {}
+func Get2(_ M2) int { 2 }
+func spawn() M1 {
+	let t = task.Go() { 1 }
+	t.Stop()
+	M1
+}
+
+-- 03396.ergo --
+type C%d { Get%d() int }
+
+type M%d {}
+
+func Get%d(_ M%d) int { %d }
+
+-- 03397.ergo --
+import task
+
+type Fault {}
+
+func Start() Task[int, Fault] { task.Go() { 1 } }
+
+func Again() Task[int, Fault] { Start() }
+
+func Stops() int {
+	let t = task.Go() { 1 }
+	t.Stop()
+	0
+}
+type C%d { Get%d() int }
+
+type M%d {}
+
+func Get%d(_ M%d) int { %d }
+
+-- 03398.ergo --
+import task
+
+type C0 { Get0() int }
+type M0 {}
+func Get0(_ M0) int { 0 }
+type C1 { Get1() int }
+type M1 {}
+func Get1(_ M1) int { 1 }
+type C2 { Get2() int }
+type M2 {}
+func Get2(_ M2) int { 2 }
+func spawn() M1 {
+	let t = task.Go() { 1 }
+	t.Stop()
+	M1
+}
+
+type C%d { Get%d() int }
+
+type M%d {}
+
+func Get%d(_ M%d) int { %d }
+
+-- 03399.ergo --
+func Use%d() M%d needs C0 {
+	let _ = C0.Get0()
+	M%d
+}
+
+-- 03400.ergo --
+import task
+
+type Fault {}
+
+func Start() Task[int, Fault] { task.Go() { 1 } }
+
+func Again() Task[int, Fault] { Start() }
+
+func Stops() int {
+	let t = task.Go() { 1 }
+	t.Stop()
+	0
+}
+func Use%d() M%d needs C0 {
+	let _ = C0.Get0()
+	M%d
+}
+
+-- 03401.ergo --
+import task
+
+type C0 { Get0() int }
+type M0 {}
+func Get0(_ M0) int { 0 }
+type C1 { Get1() int }
+type M1 {}
+func Get1(_ M1) int { 1 }
+type C2 { Get2() int }
+type M2 {}
+func Get2(_ M2) int { 2 }
+func spawn() M1 {
+	let t = task.Go() { 1 }
+	t.Stop()
+	M1
+}
+
+func Use%d() M%d needs C0 {
+	let _ = C0.Get0()
+	M%d
+}
+
+-- 03402.ergo --
+func Opaque%d() M%d {
+	let f = func() M%d { M%d }
+	f()
+}
+
+-- 03403.ergo --
+import task
+
+type Fault {}
+
+func Start() Task[int, Fault] { task.Go() { 1 } }
+
+func Again() Task[int, Fault] { Start() }
+
+func Stops() int {
+	let t = task.Go() { 1 }
+	t.Stop()
+	0
+}
+func Opaque%d() M%d {
+	let f = func() M%d { M%d }
+	f()
+}
+
+-- 03404.ergo --
+import task
+
+type C0 { Get0() int }
+type M0 {}
+func Get0(_ M0) int { 0 }
+type C1 { Get1() int }
+type M1 {}
+func Get1(_ M1) int { 1 }
+type C2 { Get2() int }
+type M2 {}
+func Get2(_ M2) int { 2 }
+func spawn() M1 {
+	let t = task.Go() { 1 }
+	t.Stop()
+	M1
+}
+
+func Opaque%d() M%d {
+	let f = func() M%d { M%d }
+	f()
+}
+
+-- 03405.ergo --
+func Spawn%d() M%d {
+	let t = task.Go() { %d }
+	t.Stop()
+	M%d
+}
+
+-- 03406.ergo --
+import task
+
+type Fault {}
+
+func Start() Task[int, Fault] { task.Go() { 1 } }
+
+func Again() Task[int, Fault] { Start() }
+
+func Stops() int {
+	let t = task.Go() { 1 }
+	t.Stop()
+	0
+}
+func Spawn%d() M%d {
+	let t = task.Go() { %d }
+	t.Stop()
+	M%d
+}
+
+-- 03407.ergo --
+import task
+
+type C0 { Get0() int }
+type M0 {}
+func Get0(_ M0) int { 0 }
+type C1 { Get1() int }
+type M1 {}
+func Get1(_ M1) int { 1 }
+type C2 { Get2() int }
+type M2 {}
+func Get2(_ M2) int { 2 }
+func spawn() M1 {
+	let t = task.Go() { 1 }
+	t.Stop()
+	M1
+}
+
+func Spawn%d() M%d {
+	let t = task.Go() { %d }
+	t.Stop()
+	M%d
+}
+
+-- 03408.ergo --
+let W%d = %s
+
+-- 03409.ergo --
+import task
+
+type Fault {}
+
+func Start() Task[int, Fault] { task.Go() { 1 } }
+
+func Again() Task[int, Fault] { Start() }
+
+func Stops() int {
+	let t = task.Go() { 1 }
+	t.Stop()
+	0
+}
+let W%d = %s
+
+-- 03410.ergo --
+import task
+
+type C0 { Get0() int }
+type M0 {}
+func Get0(_ M0) int { 0 }
+type C1 { Get1() int }
+type M1 {}
+func Get1(_ M1) int { 1 }
+type C2 { Get2() int }
+type M2 {}
+func Get2(_ M2) int { 2 }
+func spawn() M1 {
+	let t = task.Go() { 1 }
+	t.Stop()
+	M1
+}
+
+let W%d = %s
+
+-- 03411.ergo --
+let X = 
+-- 03412.ergo --
+import task
+
+type Fault {}
+
+func Start() Task[int, Fault] { task.Go() { 1 } }
+
+func Again() Task[int, Fault] { Start() }
+
+func Stops() int {
+	let t = task.Go() { 1 }
+	t.Stop()
+	0
+}
+let X = 
+-- 03413.ergo --
+import task
+
+type C0 { Get0() int }
+type M0 {}
+func Get0(_ M0) int { 0 }
+type C1 { Get1() int }
+type M1 {}
+func Get1(_ M1) int { 1 }
+type C2 { Get2() int }
+type M2 {}
+func Get2(_ M2) int { 2 }
+func spawn() M1 {
+	let t = task.Go() { 1 }
+	t.Stop()
+	M1
+}
+
+let X = 
+-- 03414.ergo --
+import task
+
+type C0 { Get0() int }
+type M0 {}
+func Get0(_ M0) int { 0 }
+type C1 { Get1() int }
+type M1 {}
+func Get1(_ M1) int { 1 }
+type C2 { Get2() int }
+type M2 {}
+func Get2(_ M2) int { 2 }
+func spawn() M1 {
+	let t = task.Go() { 1 }
+	t.Stop()
+	M1
+}
+
+import task
+
+type Fault {}
+
+func Start() Task[int, Fault] { task.Go() { 1 } }
+
+func Again() Task[int, Fault] { Start() }
+
+func Stops() int {
+	let t = task.Go() { 1 }
+	t.Stop()
+	0
+}
+-- 03415.ergo --
+import lib
+
+func Later() Task[int, lib.Fault] { lib.Start() }
+-- 03416.ergo --
+import task
+
+type Fault {}
+
+func Start() Task[int, Fault] { task.Go() { 1 } }
+
+func Again() Task[int, Fault] { Start() }
+
+func Stops() int {
+	let t = task.Go() { 1 }
+	t.Stop()
+	0
+}
+import lib
+
+func Later() Task[int, lib.Fault] { lib.Start() }
+-- 03417.ergo --
+import task
+
+type C0 { Get0() int }
+type M0 {}
+func Get0(_ M0) int { 0 }
+type C1 { Get1() int }
+type M1 {}
+func Get1(_ M1) int { 1 }
+type C2 { Get2() int }
+type M2 {}
+func Get2(_ M2) int { 2 }
+func spawn() M1 {
+	let t = task.Go() { 1 }
+	t.Stop()
+	M1
+}
+
+import lib
+
+func Later() Task[int, lib.Fault] { lib.Start() }
+-- 03418.ergo --
+import task
+
+type Fault {}
+
+func Start() Task[int, Fault] { task.Go() { 1 } }
+
+func Again() Task[int, Fault] { Start() }
+
+func Stops() int {
+	let t = task.Go() { 1 }
+	t.Stop()
+	0
+}
+import task
+
+type C0 { Get0() int }
+type M0 {}
+func Get0(_ M0) int { 0 }
+type C1 { Get1() int }
+type M1 {}
+func Get1(_ M1) int { 1 }
+type C2 { Get2() int }
+type M2 {}
+func Get2(_ M2) int { 2 }
+func spawn() M1 {
+	let t = task.Go() { 1 }
+	t.Stop()
+	M1
+}
+
+-- 03419.ergo --
+let W = context { C0: M0, C1: spawn() }
+-- 03420.ergo --
+import task
+
+type Fault {}
+
+func Start() Task[int, Fault] { task.Go() { 1 } }
+
+func Again() Task[int, Fault] { Start() }
+
+func Stops() int {
+	let t = task.Go() { 1 }
+	t.Stop()
+	0
+}
+let W = context { C0: M0, C1: spawn() }
+-- 03421.ergo --
+import task
+
+type C0 { Get0() int }
+type M0 {}
+func Get0(_ M0) int { 0 }
+type C1 { Get1() int }
+type M1 {}
+func Get1(_ M1) int { 1 }
+type C2 { Get2() int }
+type M2 {}
+func Get2(_ M2) int { 2 }
+func spawn() M1 {
+	let t = task.Go() { 1 }
+	t.Stop()
+	M1
+}
+
+let W = context { C0: M0, C1: spawn() }
+-- 03422.ergo --
+let W = context { C0: M0, C2: func() M2 {
+	let _ = C0.Get0()
+	M2
+}() }
+-- 03423.ergo --
+import task
+
+type Fault {}
+
+func Start() Task[int, Fault] { task.Go() { 1 } }
+
+func Again() Task[int, Fault] { Start() }
+
+func Stops() int {
+	let t = task.Go() { 1 }
+	t.Stop()
+	0
+}
+let W = context { C0: M0, C2: func() M2 {
+	let _ = C0.Get0()
+	M2
+}() }
+-- 03424.ergo --
+import task
+
+type C0 { Get0() int }
+type M0 {}
+func Get0(_ M0) int { 0 }
+type C1 { Get1() int }
+type M1 {}
+func Get1(_ M1) int { 1 }
+type C2 { Get2() int }
+type M2 {}
+func Get2(_ M2) int { 2 }
+func spawn() M1 {
+	let t = task.Go() { 1 }
+	t.Stop()
+	M1
+}
+
+let W = context { C0: M0, C2: func() M2 {
+	let _ = C0.Get0()
+	M2
+}() }
+-- 03425.ergo --
+let X = context { replace 
+-- 03426.ergo --
+import task
+
+type Fault {}
+
+func Start() Task[int, Fault] { task.Go() { 1 } }
+
+func Again() Task[int, Fault] { Start() }
+
+func Stops() int {
+	let t = task.Go() { 1 }
+	t.Stop()
+	0
+}
+let X = context { replace 
+-- 03427.ergo --
+import task
+
+type C0 { Get0() int }
+type M0 {}
+func Get0(_ M0) int { 0 }
+type C1 { Get1() int }
+type M1 {}
+func Get1(_ M1) int { 1 }
+type C2 { Get2() int }
+type M2 {}
+func Get2(_ M2) int { 2 }
+func spawn() M1 {
+	let t = task.Go() { 1 }
+	t.Stop()
+	M1
+}
+
+let X = context { replace 
+-- 03428.ergo --
+func appends(n int) []int {
+	let mut out = []int{}
+	for i in 0..n {
+		if i % 2 == 0 {
+			out = out.Append(i)
+		}
+	}
+	out
+}
+func gets(m Map[string, int], k string) int {
+	match m.Get(k) {
+	case Some[int] as s:
+		s.Value
+	case None:
+		0
+	}
+}
+func deletes(m Map[string, int], k string) Map[string, int] { m.Delete(k) }
+-- 03429.ergo --
+import strings
+import strconv
+import slices
+type Env { Get(key string) string }
+extern go strings.TrimSpace func hostTrim(s string) string
+func nothing(s string) string { s }
+func trims(s string) string { strings.TrimSpace(s) }
+func words(s string) []string { strings.Fields(strings.ToLower(s)) }
+func cuts(s string) bool {
+	match strings.Cut(s, ":") {
+	case Some[strings.Halves]: true
+	case None: false
+	}
+}
+func parses(s string) int fails strconv.Malformed | strconv.OutOfRange { try strconv.Atoi(s) }
+func reads(key string) string needs Env { strings.TrimSpace(Env.Get(key)) }
+func loops(s string, n int) string {
+	if n == 0 {
+		return s
+	}
+	loops(strings.TrimSpace(s), n - 1)
+}
+func makes() []int { slices.WithCapacity[int](4) }
+func userTrim(s string) string { hostTrim(s) }
+-- 03430.ergo --
+func appends(n int) []int {
+	let mut out = []int{}
+	for i in 0..n {
+		if i % 2 == 0 {
+			out = out.Append(i)
+		}
+	}
+	out
+}
+func gets(m Map[string, int], k string) int {
+	match m.Get(k) {
+	case Some[int] as s:
+		s.Value
+	case None:
+		0
+	}
+}
+func deletes(m Map[string, int], k string) Map[string, int] { m.Delete(k) }
+import strings
+import strconv
+import slices
+type Env { Get(key string) string }
+extern go strings.TrimSpace func hostTrim(s string) string
+func nothing(s string) string { s }
+func trims(s string) string { strings.TrimSpace(s) }
+func words(s string) []string { strings.Fields(strings.ToLower(s)) }
+func cuts(s string) bool {
+	match strings.Cut(s, ":") {
+	case Some[strings.Halves]: true
+	case None: false
+	}
+}
+func parses(s string) int fails strconv.Malformed | strconv.OutOfRange { try strconv.Atoi(s) }
+func reads(key string) string needs Env { strings.TrimSpace(Env.Get(key)) }
+func loops(s string, n int) string {
+	if n == 0 {
+		return s
+	}
+	loops(strings.TrimSpace(s), n - 1)
+}
+func makes() []int { slices.WithCapacity[int](4) }
+func userTrim(s string) string { hostTrim(s) }
+-- 03431.ergo --
+func %s has no footprint
+-- 03432.ergo --
+func appends(n int) []int {
+	let mut out = []int{}
+	for i in 0..n {
+		if i % 2 == 0 {
+			out = out.Append(i)
+		}
+	}
+	out
+}
+func gets(m Map[string, int], k string) int {
+	match m.Get(k) {
+	case Some[int] as s:
+		s.Value
+	case None:
+		0
+	}
+}
+func deletes(m Map[string, int], k string) Map[string, int] { m.Delete(k) }
+func %s has no footprint
+-- 03433.ergo --
+func %s: footprint %q, want %q
+-- 03434.ergo --
+func appends(n int) []int {
+	let mut out = []int{}
+	for i in 0..n {
+		if i % 2 == 0 {
+			out = out.Append(i)
+		}
+	}
+	out
+}
+func gets(m Map[string, int], k string) int {
+	match m.Get(k) {
+	case Some[int] as s:
+		s.Value
+	case None:
+		0
+	}
+}
+func deletes(m Map[string, int], k string) Map[string, int] { m.Delete(k) }
+func %s: footprint %q, want %q
+-- 03435.ergo --
+import task
+extern go strings.TrimSpace func hostTrim(s string) string
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+func loud() Silent {
+	let _ = hostTrim("")
+	Silent
+}
+let Local = context { Probe: Silent }
+let Loud = context { Probe: loud() }
+func pure(a int) int { a + 1 }
+func pureCall() int { pure(1) }
+func capCall() needs Probe { Probe.Tick() }
+func trans() needs Probe { capCall() }
+func ownWith() { with Local { Probe.Tick() } }
+func loudWith() { with Loud { Probe.Tick() } }
+func even(n int) bool {
+	if n == 0 {
+		return true
+	}
+	odd(n - 1)
+}
+func odd(n int) bool {
+	if n == 0 {
+		return false
+	}
+	even(n - 1)
+}
+func ping(n int) needs Probe {
+	if n > 0 {
+		pong(n - 1)
+	}
+}
+func pong(n int) needs Probe {
+	Probe.Tick()
+	ping(n)
+}
+func value(cb func()) { cb() }
+func defines() func() needs Probe { func() { Probe.Tick() } }
+func immediate() needs Probe { func() { Probe.Tick() }() }
+func starts() {
+	let t = task.Go() { pure(1) }
+	t.Stop()
+}
+func host(s string) string { hostTrim(s) }
+func seqLoop(s Seq[int]) int {
+	let mut n = 0
+	for v in s {
+		n += v
+	}
+	n
+}
+func rangeLoop() int {
+	let mut n = 0
+	for i in 0..3 {
+		n += i
+	}
+	n
+}
+let seed = pure(1)
+let started = pureCall()
+-- 03436.ergo --
+type A { Use() }
+type B { Use() }
+type PX {}
+type PY {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func mk() PY needs A {
+	A.Use()
+	PY
+}
+let W = context { A: PX, B: mk() }
+let V = context { W }
+func idle() needs B {}
+func onlyA() needs A {}
+func named() { with W { idle() } }
+func embedded() { with context { W } { idle() } }
+func nested() { with context { V } { idle() } }
+func namedTwice() { with V { idle() } }
+func own() { with context { A: PX, B: mk() } { idle() } }
+func namedA() { with W { onlyA() } }
+func embeddedA() { with context { W } { onlyA() } }
+func nestedA() { with context { V } { onlyA() } }
+-- 03437.ergo --
+type A { Use() }
+type R { Use() }
+type Q { Use() }
+type PX {}
+type PR {}
+type PQ {}
+func Use(_ PX) {}
+func Use(_ PR) {}
+func Use(_ PQ) {}
+func Close(_ PR) needs A { A.Use() }
+func Close(_ PQ) {}
+func idle() needs R {}
+func idleQ() needs Q {}
+func onlyA() needs A {}
+let WR = context { R: PR }
+let VR = context { WR }
+let WQ = context { Q: PQ }
+func inline() needs A { with context { R: PR } { idle() } }
+func named() needs A { with WR { idle() } }
+func embedded() needs A { with context { WR } { idle() } }
+func nested() needs A { with context { VR } { idle() } }
+func pureClose() { with context { Q: PQ } { idleQ() } }
+func pureNamed() { with WQ { idleQ() } }
+func unreached() needs A { with context { WR } { onlyA() } }
+-- 03438.ergo --
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+let Local = context { Probe: Silent }
+func wide() needs Probe {}
+func hidden() { with Local { Probe.Tick() } }
+-- 03439.ergo --
+type A { Use() }
+type B { Use() }
+type PX {}
+type PY {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func mk() PY needs A {
+	A.Use()
+	PY
+}
+let W = context { A: PX, B: mk() }
+let V = context { W }
+func idle() needs B {}
+func onlyA() needs A {}
+func named() { with W { idle() } }
+func embedded() { with context { W } { idle() } }
+func nested() { with context { V } { idle() } }
+func namedTwice() { with V { idle() } }
+func own() { with context { A: PX, B: mk() } { idle() } }
+func namedA() { with W { onlyA() } }
+func embeddedA() { with context { W } { onlyA() } }
+func nestedA() { with context { V } { onlyA() } }
+import task
+extern go strings.TrimSpace func hostTrim(s string) string
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+func loud() Silent {
+	let _ = hostTrim("")
+	Silent
+}
+let Local = context { Probe: Silent }
+let Loud = context { Probe: loud() }
+func pure(a int) int { a + 1 }
+func pureCall() int { pure(1) }
+func capCall() needs Probe { Probe.Tick() }
+func trans() needs Probe { capCall() }
+func ownWith() { with Local { Probe.Tick() } }
+func loudWith() { with Loud { Probe.Tick() } }
+func even(n int) bool {
+	if n == 0 {
+		return true
+	}
+	odd(n - 1)
+}
+func odd(n int) bool {
+	if n == 0 {
+		return false
+	}
+	even(n - 1)
+}
+func ping(n int) needs Probe {
+	if n > 0 {
+		pong(n - 1)
+	}
+}
+func pong(n int) needs Probe {
+	Probe.Tick()
+	ping(n)
+}
+func value(cb func()) { cb() }
+func defines() func() needs Probe { func() { Probe.Tick() } }
+func immediate() needs Probe { func() { Probe.Tick() }() }
+func starts() {
+	let t = task.Go() { pure(1) }
+	t.Stop()
+}
+func host(s string) string { hostTrim(s) }
+func seqLoop(s Seq[int]) int {
+	let mut n = 0
+	for v in s {
+		n += v
+	}
+	n
+}
+func rangeLoop() int {
+	let mut n = 0
+	for i in 0..3 {
+		n += i
+	}
+	n
+}
+let seed = pure(1)
+let started = pureCall()
+-- 03440.ergo --
+type A { Use() }
+type R { Use() }
+type Q { Use() }
+type PX {}
+type PR {}
+type PQ {}
+func Use(_ PX) {}
+func Use(_ PR) {}
+func Use(_ PQ) {}
+func Close(_ PR) needs A { A.Use() }
+func Close(_ PQ) {}
+func idle() needs R {}
+func idleQ() needs Q {}
+func onlyA() needs A {}
+let WR = context { R: PR }
+let VR = context { WR }
+let WQ = context { Q: PQ }
+func inline() needs A { with context { R: PR } { idle() } }
+func named() needs A { with WR { idle() } }
+func embedded() needs A { with context { WR } { idle() } }
+func nested() needs A { with context { VR } { idle() } }
+func pureClose() { with context { Q: PQ } { idleQ() } }
+func pureNamed() { with WQ { idleQ() } }
+func unreached() needs A { with context { WR } { onlyA() } }
+import task
+extern go strings.TrimSpace func hostTrim(s string) string
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+func loud() Silent {
+	let _ = hostTrim("")
+	Silent
+}
+let Local = context { Probe: Silent }
+let Loud = context { Probe: loud() }
+func pure(a int) int { a + 1 }
+func pureCall() int { pure(1) }
+func capCall() needs Probe { Probe.Tick() }
+func trans() needs Probe { capCall() }
+func ownWith() { with Local { Probe.Tick() } }
+func loudWith() { with Loud { Probe.Tick() } }
+func even(n int) bool {
+	if n == 0 {
+		return true
+	}
+	odd(n - 1)
+}
+func odd(n int) bool {
+	if n == 0 {
+		return false
+	}
+	even(n - 1)
+}
+func ping(n int) needs Probe {
+	if n > 0 {
+		pong(n - 1)
+	}
+}
+func pong(n int) needs Probe {
+	Probe.Tick()
+	ping(n)
+}
+func value(cb func()) { cb() }
+func defines() func() needs Probe { func() { Probe.Tick() } }
+func immediate() needs Probe { func() { Probe.Tick() }() }
+func starts() {
+	let t = task.Go() { pure(1) }
+	t.Stop()
+}
+func host(s string) string { hostTrim(s) }
+func seqLoop(s Seq[int]) int {
+	let mut n = 0
+	for v in s {
+		n += v
+	}
+	n
+}
+func rangeLoop() int {
+	let mut n = 0
+	for i in 0..3 {
+		n += i
+	}
+	n
+}
+let seed = pure(1)
+let started = pureCall()
+-- 03441.ergo --
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+let Local = context { Probe: Silent }
+func wide() needs Probe {}
+func hidden() { with Local { Probe.Tick() } }
+import task
+extern go strings.TrimSpace func hostTrim(s string) string
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+func loud() Silent {
+	let _ = hostTrim("")
+	Silent
+}
+let Local = context { Probe: Silent }
+let Loud = context { Probe: loud() }
+func pure(a int) int { a + 1 }
+func pureCall() int { pure(1) }
+func capCall() needs Probe { Probe.Tick() }
+func trans() needs Probe { capCall() }
+func ownWith() { with Local { Probe.Tick() } }
+func loudWith() { with Loud { Probe.Tick() } }
+func even(n int) bool {
+	if n == 0 {
+		return true
+	}
+	odd(n - 1)
+}
+func odd(n int) bool {
+	if n == 0 {
+		return false
+	}
+	even(n - 1)
+}
+func ping(n int) needs Probe {
+	if n > 0 {
+		pong(n - 1)
+	}
+}
+func pong(n int) needs Probe {
+	Probe.Tick()
+	ping(n)
+}
+func value(cb func()) { cb() }
+func defines() func() needs Probe { func() { Probe.Tick() } }
+func immediate() needs Probe { func() { Probe.Tick() }() }
+func starts() {
+	let t = task.Go() { pure(1) }
+	t.Stop()
+}
+func host(s string) string { hostTrim(s) }
+func seqLoop(s Seq[int]) int {
+	let mut n = 0
+	for v in s {
+		n += v
+	}
+	n
+}
+func rangeLoop() int {
+	let mut n = 0
+	for i in 0..3 {
+		n += i
+	}
+	n
+}
+let seed = pure(1)
+let started = pureCall()
+-- 03442.ergo --
+import task
+extern go strings.TrimSpace func hostTrim(s string) string
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+func loud() Silent {
+	let _ = hostTrim("")
+	Silent
+}
+let Local = context { Probe: Silent }
+let Loud = context { Probe: loud() }
+func pure(a int) int { a + 1 }
+func pureCall() int { pure(1) }
+func capCall() needs Probe { Probe.Tick() }
+func trans() needs Probe { capCall() }
+func ownWith() { with Local { Probe.Tick() } }
+func loudWith() { with Loud { Probe.Tick() } }
+func even(n int) bool {
+	if n == 0 {
+		return true
+	}
+	odd(n - 1)
+}
+func odd(n int) bool {
+	if n == 0 {
+		return false
+	}
+	even(n - 1)
+}
+func ping(n int) needs Probe {
+	if n > 0 {
+		pong(n - 1)
+	}
+}
+func pong(n int) needs Probe {
+	Probe.Tick()
+	ping(n)
+}
+func value(cb func()) { cb() }
+func defines() func() needs Probe { func() { Probe.Tick() } }
+func immediate() needs Probe { func() { Probe.Tick() }() }
+func starts() {
+	let t = task.Go() { pure(1) }
+	t.Stop()
+}
+func host(s string) string { hostTrim(s) }
+func seqLoop(s Seq[int]) int {
+	let mut n = 0
+	for v in s {
+		n += v
+	}
+	n
+}
+func rangeLoop() int {
+	let mut n = 0
+	for i in 0..3 {
+		n += i
+	}
+	n
+}
+let seed = pure(1)
+let started = pureCall()
+func %s has no footprint
+-- 03443.ergo --
+type A { Use() }
+type B { Use() }
+type PX {}
+type PY {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func mk() PY needs A {
+	A.Use()
+	PY
+}
+let W = context { A: PX, B: mk() }
+let V = context { W }
+func idle() needs B {}
+func onlyA() needs A {}
+func named() { with W { idle() } }
+func embedded() { with context { W } { idle() } }
+func nested() { with context { V } { idle() } }
+func namedTwice() { with V { idle() } }
+func own() { with context { A: PX, B: mk() } { idle() } }
+func namedA() { with W { onlyA() } }
+func embeddedA() { with context { W } { onlyA() } }
+func nestedA() { with context { V } { onlyA() } }
+func %s has no footprint
+-- 03444.ergo --
+type A { Use() }
+type R { Use() }
+type Q { Use() }
+type PX {}
+type PR {}
+type PQ {}
+func Use(_ PX) {}
+func Use(_ PR) {}
+func Use(_ PQ) {}
+func Close(_ PR) needs A { A.Use() }
+func Close(_ PQ) {}
+func idle() needs R {}
+func idleQ() needs Q {}
+func onlyA() needs A {}
+let WR = context { R: PR }
+let VR = context { WR }
+let WQ = context { Q: PQ }
+func inline() needs A { with context { R: PR } { idle() } }
+func named() needs A { with WR { idle() } }
+func embedded() needs A { with context { WR } { idle() } }
+func nested() needs A { with context { VR } { idle() } }
+func pureClose() { with context { Q: PQ } { idleQ() } }
+func pureNamed() { with WQ { idleQ() } }
+func unreached() needs A { with context { WR } { onlyA() } }
+func %s has no footprint
+-- 03445.ergo --
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+let Local = context { Probe: Silent }
+func wide() needs Probe {}
+func hidden() { with Local { Probe.Tick() } }
+func %s has no footprint
+-- 03446.ergo --
+import task
+extern go strings.TrimSpace func hostTrim(s string) string
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+func loud() Silent {
+	let _ = hostTrim("")
+	Silent
+}
+let Local = context { Probe: Silent }
+let Loud = context { Probe: loud() }
+func pure(a int) int { a + 1 }
+func pureCall() int { pure(1) }
+func capCall() needs Probe { Probe.Tick() }
+func trans() needs Probe { capCall() }
+func ownWith() { with Local { Probe.Tick() } }
+func loudWith() { with Loud { Probe.Tick() } }
+func even(n int) bool {
+	if n == 0 {
+		return true
+	}
+	odd(n - 1)
+}
+func odd(n int) bool {
+	if n == 0 {
+		return false
+	}
+	even(n - 1)
+}
+func ping(n int) needs Probe {
+	if n > 0 {
+		pong(n - 1)
+	}
+}
+func pong(n int) needs Probe {
+	Probe.Tick()
+	ping(n)
+}
+func value(cb func()) { cb() }
+func defines() func() needs Probe { func() { Probe.Tick() } }
+func immediate() needs Probe { func() { Probe.Tick() }() }
+func starts() {
+	let t = task.Go() { pure(1) }
+	t.Stop()
+}
+func host(s string) string { hostTrim(s) }
+func seqLoop(s Seq[int]) int {
+	let mut n = 0
+	for v in s {
+		n += v
+	}
+	n
+}
+func rangeLoop() int {
+	let mut n = 0
+	for i in 0..3 {
+		n += i
+	}
+	n
+}
+let seed = pure(1)
+let started = pureCall()
+func 
+-- 03447.ergo --
+type A { Use() }
+type B { Use() }
+type PX {}
+type PY {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func mk() PY needs A {
+	A.Use()
+	PY
+}
+let W = context { A: PX, B: mk() }
+let V = context { W }
+func idle() needs B {}
+func onlyA() needs A {}
+func named() { with W { idle() } }
+func embedded() { with context { W } { idle() } }
+func nested() { with context { V } { idle() } }
+func namedTwice() { with V { idle() } }
+func own() { with context { A: PX, B: mk() } { idle() } }
+func namedA() { with W { onlyA() } }
+func embeddedA() { with context { W } { onlyA() } }
+func nestedA() { with context { V } { onlyA() } }
+func 
+-- 03448.ergo --
+type A { Use() }
+type R { Use() }
+type Q { Use() }
+type PX {}
+type PR {}
+type PQ {}
+func Use(_ PX) {}
+func Use(_ PR) {}
+func Use(_ PQ) {}
+func Close(_ PR) needs A { A.Use() }
+func Close(_ PQ) {}
+func idle() needs R {}
+func idleQ() needs Q {}
+func onlyA() needs A {}
+let WR = context { R: PR }
+let VR = context { WR }
+let WQ = context { Q: PQ }
+func inline() needs A { with context { R: PR } { idle() } }
+func named() needs A { with WR { idle() } }
+func embedded() needs A { with context { WR } { idle() } }
+func nested() needs A { with context { VR } { idle() } }
+func pureClose() { with context { Q: PQ } { idleQ() } }
+func pureNamed() { with WQ { idleQ() } }
+func unreached() needs A { with context { WR } { onlyA() } }
+func 
+-- 03449.ergo --
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+let Local = context { Probe: Silent }
+func wide() needs Probe {}
+func hidden() { with Local { Probe.Tick() } }
+func 
+-- 03450.ergo --
+let %s has no footprint
+-- 03451.ergo --
+import task
+extern go strings.TrimSpace func hostTrim(s string) string
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+func loud() Silent {
+	let _ = hostTrim("")
+	Silent
+}
+let Local = context { Probe: Silent }
+let Loud = context { Probe: loud() }
+func pure(a int) int { a + 1 }
+func pureCall() int { pure(1) }
+func capCall() needs Probe { Probe.Tick() }
+func trans() needs Probe { capCall() }
+func ownWith() { with Local { Probe.Tick() } }
+func loudWith() { with Loud { Probe.Tick() } }
+func even(n int) bool {
+	if n == 0 {
+		return true
+	}
+	odd(n - 1)
+}
+func odd(n int) bool {
+	if n == 0 {
+		return false
+	}
+	even(n - 1)
+}
+func ping(n int) needs Probe {
+	if n > 0 {
+		pong(n - 1)
+	}
+}
+func pong(n int) needs Probe {
+	Probe.Tick()
+	ping(n)
+}
+func value(cb func()) { cb() }
+func defines() func() needs Probe { func() { Probe.Tick() } }
+func immediate() needs Probe { func() { Probe.Tick() }() }
+func starts() {
+	let t = task.Go() { pure(1) }
+	t.Stop()
+}
+func host(s string) string { hostTrim(s) }
+func seqLoop(s Seq[int]) int {
+	let mut n = 0
+	for v in s {
+		n += v
+	}
+	n
+}
+func rangeLoop() int {
+	let mut n = 0
+	for i in 0..3 {
+		n += i
+	}
+	n
+}
+let seed = pure(1)
+let started = pureCall()
+let %s has no footprint
+-- 03452.ergo --
+type A { Use() }
+type B { Use() }
+type PX {}
+type PY {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func mk() PY needs A {
+	A.Use()
+	PY
+}
+let W = context { A: PX, B: mk() }
+let V = context { W }
+func idle() needs B {}
+func onlyA() needs A {}
+func named() { with W { idle() } }
+func embedded() { with context { W } { idle() } }
+func nested() { with context { V } { idle() } }
+func namedTwice() { with V { idle() } }
+func own() { with context { A: PX, B: mk() } { idle() } }
+func namedA() { with W { onlyA() } }
+func embeddedA() { with context { W } { onlyA() } }
+func nestedA() { with context { V } { onlyA() } }
+let %s has no footprint
+-- 03453.ergo --
+type A { Use() }
+type R { Use() }
+type Q { Use() }
+type PX {}
+type PR {}
+type PQ {}
+func Use(_ PX) {}
+func Use(_ PR) {}
+func Use(_ PQ) {}
+func Close(_ PR) needs A { A.Use() }
+func Close(_ PQ) {}
+func idle() needs R {}
+func idleQ() needs Q {}
+func onlyA() needs A {}
+let WR = context { R: PR }
+let VR = context { WR }
+let WQ = context { Q: PQ }
+func inline() needs A { with context { R: PR } { idle() } }
+func named() needs A { with WR { idle() } }
+func embedded() needs A { with context { WR } { idle() } }
+func nested() needs A { with context { VR } { idle() } }
+func pureClose() { with context { Q: PQ } { idleQ() } }
+func pureNamed() { with WQ { idleQ() } }
+func unreached() needs A { with context { WR } { onlyA() } }
+let %s has no footprint
+-- 03454.ergo --
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+let Local = context { Probe: Silent }
+func wide() needs Probe {}
+func hidden() { with Local { Probe.Tick() } }
+let %s has no footprint
+-- 03455.ergo --
+import task
+extern go strings.TrimSpace func hostTrim(s string) string
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+func loud() Silent {
+	let _ = hostTrim("")
+	Silent
+}
+let Local = context { Probe: Silent }
+let Loud = context { Probe: loud() }
+func pure(a int) int { a + 1 }
+func pureCall() int { pure(1) }
+func capCall() needs Probe { Probe.Tick() }
+func trans() needs Probe { capCall() }
+func ownWith() { with Local { Probe.Tick() } }
+func loudWith() { with Loud { Probe.Tick() } }
+func even(n int) bool {
+	if n == 0 {
+		return true
+	}
+	odd(n - 1)
+}
+func odd(n int) bool {
+	if n == 0 {
+		return false
+	}
+	even(n - 1)
+}
+func ping(n int) needs Probe {
+	if n > 0 {
+		pong(n - 1)
+	}
+}
+func pong(n int) needs Probe {
+	Probe.Tick()
+	ping(n)
+}
+func value(cb func()) { cb() }
+func defines() func() needs Probe { func() { Probe.Tick() } }
+func immediate() needs Probe { func() { Probe.Tick() }() }
+func starts() {
+	let t = task.Go() { pure(1) }
+	t.Stop()
+}
+func host(s string) string { hostTrim(s) }
+func seqLoop(s Seq[int]) int {
+	let mut n = 0
+	for v in s {
+		n += v
+	}
+	n
+}
+func rangeLoop() int {
+	let mut n = 0
+	for i in 0..3 {
+		n += i
+	}
+	n
+}
+let seed = pure(1)
+let started = pureCall()
+let 
+-- 03456.ergo --
+type A { Use() }
+type B { Use() }
+type PX {}
+type PY {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func mk() PY needs A {
+	A.Use()
+	PY
+}
+let W = context { A: PX, B: mk() }
+let V = context { W }
+func idle() needs B {}
+func onlyA() needs A {}
+func named() { with W { idle() } }
+func embedded() { with context { W } { idle() } }
+func nested() { with context { V } { idle() } }
+func namedTwice() { with V { idle() } }
+func own() { with context { A: PX, B: mk() } { idle() } }
+func namedA() { with W { onlyA() } }
+func embeddedA() { with context { W } { onlyA() } }
+func nestedA() { with context { V } { onlyA() } }
+let 
+-- 03457.ergo --
+type A { Use() }
+type R { Use() }
+type Q { Use() }
+type PX {}
+type PR {}
+type PQ {}
+func Use(_ PX) {}
+func Use(_ PR) {}
+func Use(_ PQ) {}
+func Close(_ PR) needs A { A.Use() }
+func Close(_ PQ) {}
+func idle() needs R {}
+func idleQ() needs Q {}
+func onlyA() needs A {}
+let WR = context { R: PR }
+let VR = context { WR }
+let WQ = context { Q: PQ }
+func inline() needs A { with context { R: PR } { idle() } }
+func named() needs A { with WR { idle() } }
+func embedded() needs A { with context { WR } { idle() } }
+func nested() needs A { with context { VR } { idle() } }
+func pureClose() { with context { Q: PQ } { idleQ() } }
+func pureNamed() { with WQ { idleQ() } }
+func unreached() needs A { with context { WR } { onlyA() } }
+let 
+-- 03458.ergo --
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+let Local = context { Probe: Silent }
+func wide() needs Probe {}
+func hidden() { with Local { Probe.Tick() } }
+let 
+-- 03459.ergo --
+func Tick
+-- 03460.ergo --
+import task
+extern go strings.TrimSpace func hostTrim(s string) string
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+func loud() Silent {
+	let _ = hostTrim("")
+	Silent
+}
+let Local = context { Probe: Silent }
+let Loud = context { Probe: loud() }
+func pure(a int) int { a + 1 }
+func pureCall() int { pure(1) }
+func capCall() needs Probe { Probe.Tick() }
+func trans() needs Probe { capCall() }
+func ownWith() { with Local { Probe.Tick() } }
+func loudWith() { with Loud { Probe.Tick() } }
+func even(n int) bool {
+	if n == 0 {
+		return true
+	}
+	odd(n - 1)
+}
+func odd(n int) bool {
+	if n == 0 {
+		return false
+	}
+	even(n - 1)
+}
+func ping(n int) needs Probe {
+	if n > 0 {
+		pong(n - 1)
+	}
+}
+func pong(n int) needs Probe {
+	Probe.Tick()
+	ping(n)
+}
+func value(cb func()) { cb() }
+func defines() func() needs Probe { func() { Probe.Tick() } }
+func immediate() needs Probe { func() { Probe.Tick() }() }
+func starts() {
+	let t = task.Go() { pure(1) }
+	t.Stop()
+}
+func host(s string) string { hostTrim(s) }
+func seqLoop(s Seq[int]) int {
+	let mut n = 0
+	for v in s {
+		n += v
+	}
+	n
+}
+func rangeLoop() int {
+	let mut n = 0
+	for i in 0..3 {
+		n += i
+	}
+	n
+}
+let seed = pure(1)
+let started = pureCall()
+func Tick
+-- 03461.ergo --
+type A { Use() }
+type B { Use() }
+type PX {}
+type PY {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func mk() PY needs A {
+	A.Use()
+	PY
+}
+let W = context { A: PX, B: mk() }
+let V = context { W }
+func idle() needs B {}
+func onlyA() needs A {}
+func named() { with W { idle() } }
+func embedded() { with context { W } { idle() } }
+func nested() { with context { V } { idle() } }
+func namedTwice() { with V { idle() } }
+func own() { with context { A: PX, B: mk() } { idle() } }
+func namedA() { with W { onlyA() } }
+func embeddedA() { with context { W } { onlyA() } }
+func nestedA() { with context { V } { onlyA() } }
+func Tick
+-- 03462.ergo --
+type A { Use() }
+type R { Use() }
+type Q { Use() }
+type PX {}
+type PR {}
+type PQ {}
+func Use(_ PX) {}
+func Use(_ PR) {}
+func Use(_ PQ) {}
+func Close(_ PR) needs A { A.Use() }
+func Close(_ PQ) {}
+func idle() needs R {}
+func idleQ() needs Q {}
+func onlyA() needs A {}
+let WR = context { R: PR }
+let VR = context { WR }
+let WQ = context { Q: PQ }
+func inline() needs A { with context { R: PR } { idle() } }
+func named() needs A { with WR { idle() } }
+func embedded() needs A { with context { WR } { idle() } }
+func nested() needs A { with context { VR } { idle() } }
+func pureClose() { with context { Q: PQ } { idleQ() } }
+func pureNamed() { with WQ { idleQ() } }
+func unreached() needs A { with context { WR } { onlyA() } }
+func Tick
+-- 03463.ergo --
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+let Local = context { Probe: Silent }
+func wide() needs Probe {}
+func hidden() { with Local { Probe.Tick() } }
+func Tick
+-- 03464.ergo --
+func loud
+-- 03465.ergo --
+import task
+extern go strings.TrimSpace func hostTrim(s string) string
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+func loud() Silent {
+	let _ = hostTrim("")
+	Silent
+}
+let Local = context { Probe: Silent }
+let Loud = context { Probe: loud() }
+func pure(a int) int { a + 1 }
+func pureCall() int { pure(1) }
+func capCall() needs Probe { Probe.Tick() }
+func trans() needs Probe { capCall() }
+func ownWith() { with Local { Probe.Tick() } }
+func loudWith() { with Loud { Probe.Tick() } }
+func even(n int) bool {
+	if n == 0 {
+		return true
+	}
+	odd(n - 1)
+}
+func odd(n int) bool {
+	if n == 0 {
+		return false
+	}
+	even(n - 1)
+}
+func ping(n int) needs Probe {
+	if n > 0 {
+		pong(n - 1)
+	}
+}
+func pong(n int) needs Probe {
+	Probe.Tick()
+	ping(n)
+}
+func value(cb func()) { cb() }
+func defines() func() needs Probe { func() { Probe.Tick() } }
+func immediate() needs Probe { func() { Probe.Tick() }() }
+func starts() {
+	let t = task.Go() { pure(1) }
+	t.Stop()
+}
+func host(s string) string { hostTrim(s) }
+func seqLoop(s Seq[int]) int {
+	let mut n = 0
+	for v in s {
+		n += v
+	}
+	n
+}
+func rangeLoop() int {
+	let mut n = 0
+	for i in 0..3 {
+		n += i
+	}
+	n
+}
+let seed = pure(1)
+let started = pureCall()
+func loud
+-- 03466.ergo --
+type A { Use() }
+type B { Use() }
+type PX {}
+type PY {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func mk() PY needs A {
+	A.Use()
+	PY
+}
+let W = context { A: PX, B: mk() }
+let V = context { W }
+func idle() needs B {}
+func onlyA() needs A {}
+func named() { with W { idle() } }
+func embedded() { with context { W } { idle() } }
+func nested() { with context { V } { idle() } }
+func namedTwice() { with V { idle() } }
+func own() { with context { A: PX, B: mk() } { idle() } }
+func namedA() { with W { onlyA() } }
+func embeddedA() { with context { W } { onlyA() } }
+func nestedA() { with context { V } { onlyA() } }
+func loud
+-- 03467.ergo --
+type A { Use() }
+type R { Use() }
+type Q { Use() }
+type PX {}
+type PR {}
+type PQ {}
+func Use(_ PX) {}
+func Use(_ PR) {}
+func Use(_ PQ) {}
+func Close(_ PR) needs A { A.Use() }
+func Close(_ PQ) {}
+func idle() needs R {}
+func idleQ() needs Q {}
+func onlyA() needs A {}
+let WR = context { R: PR }
+let VR = context { WR }
+let WQ = context { Q: PQ }
+func inline() needs A { with context { R: PR } { idle() } }
+func named() needs A { with WR { idle() } }
+func embedded() needs A { with context { WR } { idle() } }
+func nested() needs A { with context { VR } { idle() } }
+func pureClose() { with context { Q: PQ } { idleQ() } }
+func pureNamed() { with WQ { idleQ() } }
+func unreached() needs A { with context { WR } { onlyA() } }
+func loud
+-- 03468.ergo --
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+let Local = context { Probe: Silent }
+func wide() needs Probe {}
+func hidden() { with Local { Probe.Tick() } }
+func loud
+-- 03469.ergo --
+func pure
+-- 03470.ergo --
+import task
+extern go strings.TrimSpace func hostTrim(s string) string
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+func loud() Silent {
+	let _ = hostTrim("")
+	Silent
+}
+let Local = context { Probe: Silent }
+let Loud = context { Probe: loud() }
+func pure(a int) int { a + 1 }
+func pureCall() int { pure(1) }
+func capCall() needs Probe { Probe.Tick() }
+func trans() needs Probe { capCall() }
+func ownWith() { with Local { Probe.Tick() } }
+func loudWith() { with Loud { Probe.Tick() } }
+func even(n int) bool {
+	if n == 0 {
+		return true
+	}
+	odd(n - 1)
+}
+func odd(n int) bool {
+	if n == 0 {
+		return false
+	}
+	even(n - 1)
+}
+func ping(n int) needs Probe {
+	if n > 0 {
+		pong(n - 1)
+	}
+}
+func pong(n int) needs Probe {
+	Probe.Tick()
+	ping(n)
+}
+func value(cb func()) { cb() }
+func defines() func() needs Probe { func() { Probe.Tick() } }
+func immediate() needs Probe { func() { Probe.Tick() }() }
+func starts() {
+	let t = task.Go() { pure(1) }
+	t.Stop()
+}
+func host(s string) string { hostTrim(s) }
+func seqLoop(s Seq[int]) int {
+	let mut n = 0
+	for v in s {
+		n += v
+	}
+	n
+}
+func rangeLoop() int {
+	let mut n = 0
+	for i in 0..3 {
+		n += i
+	}
+	n
+}
+let seed = pure(1)
+let started = pureCall()
+func pure
+-- 03471.ergo --
+type A { Use() }
+type B { Use() }
+type PX {}
+type PY {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func mk() PY needs A {
+	A.Use()
+	PY
+}
+let W = context { A: PX, B: mk() }
+let V = context { W }
+func idle() needs B {}
+func onlyA() needs A {}
+func named() { with W { idle() } }
+func embedded() { with context { W } { idle() } }
+func nested() { with context { V } { idle() } }
+func namedTwice() { with V { idle() } }
+func own() { with context { A: PX, B: mk() } { idle() } }
+func namedA() { with W { onlyA() } }
+func embeddedA() { with context { W } { onlyA() } }
+func nestedA() { with context { V } { onlyA() } }
+func pure
+-- 03472.ergo --
+type A { Use() }
+type R { Use() }
+type Q { Use() }
+type PX {}
+type PR {}
+type PQ {}
+func Use(_ PX) {}
+func Use(_ PR) {}
+func Use(_ PQ) {}
+func Close(_ PR) needs A { A.Use() }
+func Close(_ PQ) {}
+func idle() needs R {}
+func idleQ() needs Q {}
+func onlyA() needs A {}
+let WR = context { R: PR }
+let VR = context { WR }
+let WQ = context { Q: PQ }
+func inline() needs A { with context { R: PR } { idle() } }
+func named() needs A { with WR { idle() } }
+func embedded() needs A { with context { WR } { idle() } }
+func nested() needs A { with context { VR } { idle() } }
+func pureClose() { with context { Q: PQ } { idleQ() } }
+func pureNamed() { with WQ { idleQ() } }
+func unreached() needs A { with context { WR } { onlyA() } }
+func pure
+-- 03473.ergo --
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+let Local = context { Probe: Silent }
+func wide() needs Probe {}
+func hidden() { with Local { Probe.Tick() } }
+func pure
+-- 03474.ergo --
+func pureCall
+-- 03475.ergo --
+import task
+extern go strings.TrimSpace func hostTrim(s string) string
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+func loud() Silent {
+	let _ = hostTrim("")
+	Silent
+}
+let Local = context { Probe: Silent }
+let Loud = context { Probe: loud() }
+func pure(a int) int { a + 1 }
+func pureCall() int { pure(1) }
+func capCall() needs Probe { Probe.Tick() }
+func trans() needs Probe { capCall() }
+func ownWith() { with Local { Probe.Tick() } }
+func loudWith() { with Loud { Probe.Tick() } }
+func even(n int) bool {
+	if n == 0 {
+		return true
+	}
+	odd(n - 1)
+}
+func odd(n int) bool {
+	if n == 0 {
+		return false
+	}
+	even(n - 1)
+}
+func ping(n int) needs Probe {
+	if n > 0 {
+		pong(n - 1)
+	}
+}
+func pong(n int) needs Probe {
+	Probe.Tick()
+	ping(n)
+}
+func value(cb func()) { cb() }
+func defines() func() needs Probe { func() { Probe.Tick() } }
+func immediate() needs Probe { func() { Probe.Tick() }() }
+func starts() {
+	let t = task.Go() { pure(1) }
+	t.Stop()
+}
+func host(s string) string { hostTrim(s) }
+func seqLoop(s Seq[int]) int {
+	let mut n = 0
+	for v in s {
+		n += v
+	}
+	n
+}
+func rangeLoop() int {
+	let mut n = 0
+	for i in 0..3 {
+		n += i
+	}
+	n
+}
+let seed = pure(1)
+let started = pureCall()
+func pureCall
+-- 03476.ergo --
+type A { Use() }
+type B { Use() }
+type PX {}
+type PY {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func mk() PY needs A {
+	A.Use()
+	PY
+}
+let W = context { A: PX, B: mk() }
+let V = context { W }
+func idle() needs B {}
+func onlyA() needs A {}
+func named() { with W { idle() } }
+func embedded() { with context { W } { idle() } }
+func nested() { with context { V } { idle() } }
+func namedTwice() { with V { idle() } }
+func own() { with context { A: PX, B: mk() } { idle() } }
+func namedA() { with W { onlyA() } }
+func embeddedA() { with context { W } { onlyA() } }
+func nestedA() { with context { V } { onlyA() } }
+func pureCall
+-- 03477.ergo --
+type A { Use() }
+type R { Use() }
+type Q { Use() }
+type PX {}
+type PR {}
+type PQ {}
+func Use(_ PX) {}
+func Use(_ PR) {}
+func Use(_ PQ) {}
+func Close(_ PR) needs A { A.Use() }
+func Close(_ PQ) {}
+func idle() needs R {}
+func idleQ() needs Q {}
+func onlyA() needs A {}
+let WR = context { R: PR }
+let VR = context { WR }
+let WQ = context { Q: PQ }
+func inline() needs A { with context { R: PR } { idle() } }
+func named() needs A { with WR { idle() } }
+func embedded() needs A { with context { WR } { idle() } }
+func nested() needs A { with context { VR } { idle() } }
+func pureClose() { with context { Q: PQ } { idleQ() } }
+func pureNamed() { with WQ { idleQ() } }
+func unreached() needs A { with context { WR } { onlyA() } }
+func pureCall
+-- 03478.ergo --
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+let Local = context { Probe: Silent }
+func wide() needs Probe {}
+func hidden() { with Local { Probe.Tick() } }
+func pureCall
+-- 03479.ergo --
+func capCall
+-- 03480.ergo --
+import task
+extern go strings.TrimSpace func hostTrim(s string) string
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+func loud() Silent {
+	let _ = hostTrim("")
+	Silent
+}
+let Local = context { Probe: Silent }
+let Loud = context { Probe: loud() }
+func pure(a int) int { a + 1 }
+func pureCall() int { pure(1) }
+func capCall() needs Probe { Probe.Tick() }
+func trans() needs Probe { capCall() }
+func ownWith() { with Local { Probe.Tick() } }
+func loudWith() { with Loud { Probe.Tick() } }
+func even(n int) bool {
+	if n == 0 {
+		return true
+	}
+	odd(n - 1)
+}
+func odd(n int) bool {
+	if n == 0 {
+		return false
+	}
+	even(n - 1)
+}
+func ping(n int) needs Probe {
+	if n > 0 {
+		pong(n - 1)
+	}
+}
+func pong(n int) needs Probe {
+	Probe.Tick()
+	ping(n)
+}
+func value(cb func()) { cb() }
+func defines() func() needs Probe { func() { Probe.Tick() } }
+func immediate() needs Probe { func() { Probe.Tick() }() }
+func starts() {
+	let t = task.Go() { pure(1) }
+	t.Stop()
+}
+func host(s string) string { hostTrim(s) }
+func seqLoop(s Seq[int]) int {
+	let mut n = 0
+	for v in s {
+		n += v
+	}
+	n
+}
+func rangeLoop() int {
+	let mut n = 0
+	for i in 0..3 {
+		n += i
+	}
+	n
+}
+let seed = pure(1)
+let started = pureCall()
+func capCall
+-- 03481.ergo --
+type A { Use() }
+type B { Use() }
+type PX {}
+type PY {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func mk() PY needs A {
+	A.Use()
+	PY
+}
+let W = context { A: PX, B: mk() }
+let V = context { W }
+func idle() needs B {}
+func onlyA() needs A {}
+func named() { with W { idle() } }
+func embedded() { with context { W } { idle() } }
+func nested() { with context { V } { idle() } }
+func namedTwice() { with V { idle() } }
+func own() { with context { A: PX, B: mk() } { idle() } }
+func namedA() { with W { onlyA() } }
+func embeddedA() { with context { W } { onlyA() } }
+func nestedA() { with context { V } { onlyA() } }
+func capCall
+-- 03482.ergo --
+type A { Use() }
+type R { Use() }
+type Q { Use() }
+type PX {}
+type PR {}
+type PQ {}
+func Use(_ PX) {}
+func Use(_ PR) {}
+func Use(_ PQ) {}
+func Close(_ PR) needs A { A.Use() }
+func Close(_ PQ) {}
+func idle() needs R {}
+func idleQ() needs Q {}
+func onlyA() needs A {}
+let WR = context { R: PR }
+let VR = context { WR }
+let WQ = context { Q: PQ }
+func inline() needs A { with context { R: PR } { idle() } }
+func named() needs A { with WR { idle() } }
+func embedded() needs A { with context { WR } { idle() } }
+func nested() needs A { with context { VR } { idle() } }
+func pureClose() { with context { Q: PQ } { idleQ() } }
+func pureNamed() { with WQ { idleQ() } }
+func unreached() needs A { with context { WR } { onlyA() } }
+func capCall
+-- 03483.ergo --
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+let Local = context { Probe: Silent }
+func wide() needs Probe {}
+func hidden() { with Local { Probe.Tick() } }
+func capCall
+-- 03484.ergo --
+func trans
+-- 03485.ergo --
+import task
+extern go strings.TrimSpace func hostTrim(s string) string
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+func loud() Silent {
+	let _ = hostTrim("")
+	Silent
+}
+let Local = context { Probe: Silent }
+let Loud = context { Probe: loud() }
+func pure(a int) int { a + 1 }
+func pureCall() int { pure(1) }
+func capCall() needs Probe { Probe.Tick() }
+func trans() needs Probe { capCall() }
+func ownWith() { with Local { Probe.Tick() } }
+func loudWith() { with Loud { Probe.Tick() } }
+func even(n int) bool {
+	if n == 0 {
+		return true
+	}
+	odd(n - 1)
+}
+func odd(n int) bool {
+	if n == 0 {
+		return false
+	}
+	even(n - 1)
+}
+func ping(n int) needs Probe {
+	if n > 0 {
+		pong(n - 1)
+	}
+}
+func pong(n int) needs Probe {
+	Probe.Tick()
+	ping(n)
+}
+func value(cb func()) { cb() }
+func defines() func() needs Probe { func() { Probe.Tick() } }
+func immediate() needs Probe { func() { Probe.Tick() }() }
+func starts() {
+	let t = task.Go() { pure(1) }
+	t.Stop()
+}
+func host(s string) string { hostTrim(s) }
+func seqLoop(s Seq[int]) int {
+	let mut n = 0
+	for v in s {
+		n += v
+	}
+	n
+}
+func rangeLoop() int {
+	let mut n = 0
+	for i in 0..3 {
+		n += i
+	}
+	n
+}
+let seed = pure(1)
+let started = pureCall()
+func trans
+-- 03486.ergo --
+type A { Use() }
+type B { Use() }
+type PX {}
+type PY {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func mk() PY needs A {
+	A.Use()
+	PY
+}
+let W = context { A: PX, B: mk() }
+let V = context { W }
+func idle() needs B {}
+func onlyA() needs A {}
+func named() { with W { idle() } }
+func embedded() { with context { W } { idle() } }
+func nested() { with context { V } { idle() } }
+func namedTwice() { with V { idle() } }
+func own() { with context { A: PX, B: mk() } { idle() } }
+func namedA() { with W { onlyA() } }
+func embeddedA() { with context { W } { onlyA() } }
+func nestedA() { with context { V } { onlyA() } }
+func trans
+-- 03487.ergo --
+type A { Use() }
+type R { Use() }
+type Q { Use() }
+type PX {}
+type PR {}
+type PQ {}
+func Use(_ PX) {}
+func Use(_ PR) {}
+func Use(_ PQ) {}
+func Close(_ PR) needs A { A.Use() }
+func Close(_ PQ) {}
+func idle() needs R {}
+func idleQ() needs Q {}
+func onlyA() needs A {}
+let WR = context { R: PR }
+let VR = context { WR }
+let WQ = context { Q: PQ }
+func inline() needs A { with context { R: PR } { idle() } }
+func named() needs A { with WR { idle() } }
+func embedded() needs A { with context { WR } { idle() } }
+func nested() needs A { with context { VR } { idle() } }
+func pureClose() { with context { Q: PQ } { idleQ() } }
+func pureNamed() { with WQ { idleQ() } }
+func unreached() needs A { with context { WR } { onlyA() } }
+func trans
+-- 03488.ergo --
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+let Local = context { Probe: Silent }
+func wide() needs Probe {}
+func hidden() { with Local { Probe.Tick() } }
+func trans
+-- 03489.ergo --
+func ownWith
+-- 03490.ergo --
+import task
+extern go strings.TrimSpace func hostTrim(s string) string
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+func loud() Silent {
+	let _ = hostTrim("")
+	Silent
+}
+let Local = context { Probe: Silent }
+let Loud = context { Probe: loud() }
+func pure(a int) int { a + 1 }
+func pureCall() int { pure(1) }
+func capCall() needs Probe { Probe.Tick() }
+func trans() needs Probe { capCall() }
+func ownWith() { with Local { Probe.Tick() } }
+func loudWith() { with Loud { Probe.Tick() } }
+func even(n int) bool {
+	if n == 0 {
+		return true
+	}
+	odd(n - 1)
+}
+func odd(n int) bool {
+	if n == 0 {
+		return false
+	}
+	even(n - 1)
+}
+func ping(n int) needs Probe {
+	if n > 0 {
+		pong(n - 1)
+	}
+}
+func pong(n int) needs Probe {
+	Probe.Tick()
+	ping(n)
+}
+func value(cb func()) { cb() }
+func defines() func() needs Probe { func() { Probe.Tick() } }
+func immediate() needs Probe { func() { Probe.Tick() }() }
+func starts() {
+	let t = task.Go() { pure(1) }
+	t.Stop()
+}
+func host(s string) string { hostTrim(s) }
+func seqLoop(s Seq[int]) int {
+	let mut n = 0
+	for v in s {
+		n += v
+	}
+	n
+}
+func rangeLoop() int {
+	let mut n = 0
+	for i in 0..3 {
+		n += i
+	}
+	n
+}
+let seed = pure(1)
+let started = pureCall()
+func ownWith
+-- 03491.ergo --
+type A { Use() }
+type B { Use() }
+type PX {}
+type PY {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func mk() PY needs A {
+	A.Use()
+	PY
+}
+let W = context { A: PX, B: mk() }
+let V = context { W }
+func idle() needs B {}
+func onlyA() needs A {}
+func named() { with W { idle() } }
+func embedded() { with context { W } { idle() } }
+func nested() { with context { V } { idle() } }
+func namedTwice() { with V { idle() } }
+func own() { with context { A: PX, B: mk() } { idle() } }
+func namedA() { with W { onlyA() } }
+func embeddedA() { with context { W } { onlyA() } }
+func nestedA() { with context { V } { onlyA() } }
+func ownWith
+-- 03492.ergo --
+type A { Use() }
+type R { Use() }
+type Q { Use() }
+type PX {}
+type PR {}
+type PQ {}
+func Use(_ PX) {}
+func Use(_ PR) {}
+func Use(_ PQ) {}
+func Close(_ PR) needs A { A.Use() }
+func Close(_ PQ) {}
+func idle() needs R {}
+func idleQ() needs Q {}
+func onlyA() needs A {}
+let WR = context { R: PR }
+let VR = context { WR }
+let WQ = context { Q: PQ }
+func inline() needs A { with context { R: PR } { idle() } }
+func named() needs A { with WR { idle() } }
+func embedded() needs A { with context { WR } { idle() } }
+func nested() needs A { with context { VR } { idle() } }
+func pureClose() { with context { Q: PQ } { idleQ() } }
+func pureNamed() { with WQ { idleQ() } }
+func unreached() needs A { with context { WR } { onlyA() } }
+func ownWith
+-- 03493.ergo --
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+let Local = context { Probe: Silent }
+func wide() needs Probe {}
+func hidden() { with Local { Probe.Tick() } }
+func ownWith
+-- 03494.ergo --
+func loudWith
+-- 03495.ergo --
+import task
+extern go strings.TrimSpace func hostTrim(s string) string
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+func loud() Silent {
+	let _ = hostTrim("")
+	Silent
+}
+let Local = context { Probe: Silent }
+let Loud = context { Probe: loud() }
+func pure(a int) int { a + 1 }
+func pureCall() int { pure(1) }
+func capCall() needs Probe { Probe.Tick() }
+func trans() needs Probe { capCall() }
+func ownWith() { with Local { Probe.Tick() } }
+func loudWith() { with Loud { Probe.Tick() } }
+func even(n int) bool {
+	if n == 0 {
+		return true
+	}
+	odd(n - 1)
+}
+func odd(n int) bool {
+	if n == 0 {
+		return false
+	}
+	even(n - 1)
+}
+func ping(n int) needs Probe {
+	if n > 0 {
+		pong(n - 1)
+	}
+}
+func pong(n int) needs Probe {
+	Probe.Tick()
+	ping(n)
+}
+func value(cb func()) { cb() }
+func defines() func() needs Probe { func() { Probe.Tick() } }
+func immediate() needs Probe { func() { Probe.Tick() }() }
+func starts() {
+	let t = task.Go() { pure(1) }
+	t.Stop()
+}
+func host(s string) string { hostTrim(s) }
+func seqLoop(s Seq[int]) int {
+	let mut n = 0
+	for v in s {
+		n += v
+	}
+	n
+}
+func rangeLoop() int {
+	let mut n = 0
+	for i in 0..3 {
+		n += i
+	}
+	n
+}
+let seed = pure(1)
+let started = pureCall()
+func loudWith
+-- 03496.ergo --
+type A { Use() }
+type B { Use() }
+type PX {}
+type PY {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func mk() PY needs A {
+	A.Use()
+	PY
+}
+let W = context { A: PX, B: mk() }
+let V = context { W }
+func idle() needs B {}
+func onlyA() needs A {}
+func named() { with W { idle() } }
+func embedded() { with context { W } { idle() } }
+func nested() { with context { V } { idle() } }
+func namedTwice() { with V { idle() } }
+func own() { with context { A: PX, B: mk() } { idle() } }
+func namedA() { with W { onlyA() } }
+func embeddedA() { with context { W } { onlyA() } }
+func nestedA() { with context { V } { onlyA() } }
+func loudWith
+-- 03497.ergo --
+type A { Use() }
+type R { Use() }
+type Q { Use() }
+type PX {}
+type PR {}
+type PQ {}
+func Use(_ PX) {}
+func Use(_ PR) {}
+func Use(_ PQ) {}
+func Close(_ PR) needs A { A.Use() }
+func Close(_ PQ) {}
+func idle() needs R {}
+func idleQ() needs Q {}
+func onlyA() needs A {}
+let WR = context { R: PR }
+let VR = context { WR }
+let WQ = context { Q: PQ }
+func inline() needs A { with context { R: PR } { idle() } }
+func named() needs A { with WR { idle() } }
+func embedded() needs A { with context { WR } { idle() } }
+func nested() needs A { with context { VR } { idle() } }
+func pureClose() { with context { Q: PQ } { idleQ() } }
+func pureNamed() { with WQ { idleQ() } }
+func unreached() needs A { with context { WR } { onlyA() } }
+func loudWith
+-- 03498.ergo --
+type Probe { Tick() }
+type Silent {}
+func Tick(_ Silent) {}
+let Local = context { Probe: Silent }
+func wide() needs Probe {}
+func hidden() { with Local { Probe.Tick() } }
+func loudWith
+-- 03499.ergo --
+func even

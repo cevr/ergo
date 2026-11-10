@@ -164,7 +164,11 @@ func TestValueRuleElides(t *testing.T) {
 // the values (map-alias P6: a DATA RACE in 3 of 3 runs before the rule).
 // Only Go's race detector, in a built binary, observes the race; it guards
 // the elide-closure mutant on the task path.
+//
+// It builds Go because only Go's race detector, in a built binary, sees
+// the race.
 func TestValueRuleRace(t *testing.T) {
+	needsBuild(t)
 	if testing.Short() {
 		t.Skip("-race build")
 	}
@@ -219,11 +223,15 @@ var valueMutants = flag.Bool("value.mutants", false, "run TestValueRuleMutants")
 // check passes; TestValueRuleElides guards it too.
 // It builds eleven sets of programs, so it runs only with -value.mutants:
 // go test -run '^TestValueRuleMutants$' ./internal/sketch/lower -args -value.mutants
+//
+// It builds Go because a guard of the value rule is a probe's output at
+// run time (Go's map and slice sharing), which no in-process check of the
+// emitted text observes.
 func TestValueRuleMutants(t *testing.T) {
 	if !*valueMutants {
 		t.Skip("run with -value.mutants")
 	}
-	for _, m := range []string{"never-copy", "shallow", "elide-live", "elide-escape", "elide-closure", "in-place", "consume-live", "consume-captured", "own-live", "update-none", "update-no-write", "update-ok-none", "update-ok-swap"} {
+	for _, m := range []string{"never-copy", "shallow", "elide-live", "elide-escape", "elide-closure", "in-place", "consume-live", "consume-captured", "own-live", "update-none", "update-no-write", "update-ok-none", "update-ok-swap", "hand-nonliteral", "store-unfresh", "share-blind", "return-blind"} {
 		t.Run(m, func(t *testing.T) {
 			saved := valueMutant
 			valueMutant = m

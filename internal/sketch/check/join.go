@@ -36,6 +36,68 @@ func (c *checker) unionJoin(cur, next Type) Type {
 	return cands[0]
 }
 
+// bindingJoin is the type a name binds at when the patterns of one case
+// bind it at the types ts (rows.md, Totality 1; fu8a): nil when they are
+// one type, or when they have no join. Failures of row, the caught row or
+// a matched row value, join to their row value, as `case err:` binds them,
+// in row order; other types join by the branch join to the one declared
+// union that lists each. So `case NotFound as e, Denied as e:` binds e as
+// the row value NotFound | Denied, and `case Circle as c, Square as c:`
+// binds c as the Shape that lists both.
+//
+// Prior art: OCaml and Rust require an or-pattern's sides to bind each
+// name at one type (Rust E0308); OCaml's polymorphic variants bind the
+// alias at the union of the matched tags (`#t as x`), which is the row
+// value case here; TypeScript narrows a binding to the union of the tested
+// members.
+func (c *checker) bindingJoin(ts []Type, row []Type) Type {
+	same := true
+	for _, t := range ts {
+		if t == nil || containsInvalid(t) {
+			return nil
+		}
+		if !c.identical(t, ts[0]) {
+			same = false
+		}
+	}
+	if same {
+		return nil
+	}
+	var members []Type
+	for _, e := range row {
+		for _, t := range ts {
+			if c.identical(e, t) {
+				members = append(members, e)
+				break
+			}
+		}
+	}
+	inRow := true
+	for _, t := range ts {
+		found := false
+		for _, m := range members {
+			found = found || c.identical(m, t)
+		}
+		inRow = inRow && found
+	}
+	if inRow {
+		return &Union{Variants: members}
+	}
+	j := ts[0]
+	for _, t := range ts[1:] {
+		switch {
+		case c.identical(j, t):
+		case c.declaredUnion(j) && c.inUnion(t, j):
+		default:
+			j = c.unionJoin(j, t)
+			if j == nil {
+				return nil
+			}
+		}
+	}
+	return j
+}
+
 // typedByValue reports (S108) an assignment to a `let mut` name that its
 // value typed as one variant, of another variant that joins with it to a
 // union: the let gives the name its value's type, so the message names the

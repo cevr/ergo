@@ -1,0 +1,16 @@
+screen: staging: 0 parts, 0.00
+> add index 250
+screen: staging: 1 parts, 2.50
+> add meta 125
+screen: staging: 2 parts, 3.75
+> place disk:4111:375
+screen: summary: 3.75 written to disk-4111
+> add cache 300
+(ignored)
+screen: summary: 3.75 written to disk-4111
+> touch
+screen: summary: 3.75 written to disk-4111
+> wait
+stored: 3.75 (disk-4111)
+> touch
+(the write has ended)

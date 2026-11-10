@@ -17,7 +17,7 @@ import (
 // what the tests read): cmd/ergo (the README smoke test, the context-reach
 // repro and the package-folder test), internal/sketch/lower (the accepted
 // and refusal inventories) and scripts/examples (the laws of every
-// example). Batch-10 r2 B1: an edit of examples/checkout broke a cmd/ergo
+// example). Batch-10 r2 B1: an edit of the README's opening example broke a cmd/ergo
 // test that reads the program by text, and the lane that made it did not
 // run cmd/ergo.
 var exampleReaders = []string{"cmd/ergo", "internal/sketch/lower", "scripts/examples"}
@@ -32,9 +32,6 @@ var exampleReaders = []string{"cmd/ergo", "internal/sketch/lower", "scripts/exam
 // replays, is TestPackageKeyModel's; this test holds the real table and the
 // real fast steps to it.
 func TestFastTierReachOfAnExampleEdit(t *testing.T) {
-	host := sweepOS
-	t.Cleanup(func() { sweepOS = host })
-	sweepOS = "linux"
 	root := checkoutRoot(t)
 	packages, problem, err := testPackages(root)
 	if err != nil || problem != "" {
@@ -53,10 +50,10 @@ func TestFastTierReachOfAnExampleEdit(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The tests of a package, as the fast tier runs them: its keyed go
-	// test steps, not its closure sweep.
+	// test steps.
 	stepsOf := map[string][]*Step{}
 	for _, step := range steps {
-		if step.Package == nil || step.Sweep != "" {
+		if step.Package == nil {
 			continue
 		}
 		stepsOf[step.Package.Dir] = append(stepsOf[step.Package.Dir], step)
@@ -81,14 +78,14 @@ func TestFastTierReachOfAnExampleEdit(t *testing.T) {
 	for _, file := range files {
 		// A table entry of the whole tree (internal/residue, the guard,
 		// scripts/gate) says nothing of examples/: those packages rerun on
-		// every edit (residue, guard), or are keyed on the inputs the
-		// observer checks (scripts/gate, hostPackageInputs).
+		// every edit (residue, guard), or have no fast step (scripts/gate,
+		// a host package).
 		var readers []string
 		for dir, declared := range table {
 			if slices.Contains(declared, replay.Allowance{Path: ".", Grant: replay.GrantSubtree}) {
 				continue
 			}
-			// The declared entries alone: a directory the checkout does
+			// The declared entries alone: a directory the working tree does
 			// not hold, so no file is taken for one of its sources.
 			if (&replay.Closure{Dir: "-", Declared: declared}).Covers(file) {
 				readers = append(readers, dir)

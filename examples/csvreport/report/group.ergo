@@ -4,61 +4,61 @@ import utf8
 import slices
 import strings
 
-// Keep is which sales a report counts.
-type Keep = Every{} | InRegion{Name string} | AtLeast{Units int}
+// Keep is which readings a report counts.
+type Keep = Every{} | AtSite{Name string} | AtLeast{Hours int}
 
 // Kept reports whether k keeps s.
-func Kept(k Keep, s Sale) bool {
+func Kept(k Keep, s Reading) bool {
 	match k {
 	case Every:
 		true
-	case InRegion as r:
-		s.Region == r.Name
+	case AtSite as r:
+		s.Site == r.Name
 	case AtLeast as a:
-		s.Units >= a.Units
+		s.Hours >= a.Hours
 	}
 }
 
-// Key is what a report groups sales by.
-type Key = ByRegion{} | ByProduct{}
+// Key is what a report groups readings by.
+type Key = BySite{} | ByDevice{}
 
 // KeyOf is the group of s under k.
-func KeyOf(k Key, s Sale) string {
+func KeyOf(k Key, s Reading) string {
 	match k {
-	case ByRegion:
-		s.Region
-	case ByProduct:
-		s.Product
+	case BySite:
+		s.Site
+	case ByDevice:
+		s.Device
 	}
 }
 
-// Summary is a group of sales: how many, how many units, and their
-// revenue in cents.
-type Summary { Key string, Sales int, Units int, Revenue int64 }
+// Summary is a group of readings: how many, how many hours, and their
+// energy in hundredths of a kWh.
+type Summary { Key string, Readings int, Hours int, Energy int64 }
 
-// Revenue is the cents that s brought: units times price.
-func Revenue(s Sale) int64 { int64(s.Units) * s.Cents }
+// Energy is the energy of s in hundredths of a kWh: hours times kW.
+func Energy(s Reading) int64 { int64(s.Hours) * s.Kw }
 
 // add is t with s counted.
-func add(t Summary, s Sale) Summary {
-	Summary{..t, Sales: t.Sales + 1, Units: t.Units + s.Units, Revenue: t.Revenue + Revenue(s)}
+func add(t Summary, s Reading) Summary {
+	Summary{..t, Readings: t.Readings + 1, Hours: t.Hours + s.Hours, Energy: t.Energy + Energy(s)}
 }
 
-// Total is the summary of every sale, under the key "total".
-func Total(sales []Sale) Summary {
-	slices.Fold(sales, Summary{Key: "total", Sales: 0, Units: 0, Revenue: 0}, add)
+// Total is the summary of every reading, under the key "total".
+func Total(readings []Reading) Summary {
+	slices.Fold(readings, Summary{Key: "total", Readings: 0, Hours: 0, Energy: 0}, add)
 }
 
-// Group is a summary per key of sales under k, in key order.
-func Group(sales []Sale, k Key) []Summary {
+// Group is a summary per key of readings under k, in key order.
+func Group(readings []Reading, k Key) []Summary {
 	let mut by = Map[string, Summary]{}
-	for s in sales {
+	for s in readings {
 		let key = KeyOf(k, s)
 		let t = match by.Get(key) {
 		case Some[Summary] as found:
 			found.Value
 		case None:
-			Summary{Key: key, Sales: 0, Units: 0, Revenue: 0}
+			Summary{Key: key, Readings: 0, Hours: 0, Energy: 0}
 		}
 		by[key] = add(t, s)
 	}
@@ -69,18 +69,18 @@ func Group(sales []Sale, k Key) []Summary {
 	slices.SortFunc(out, func(a Summary, b Summary) int { strings.Compare(a.Key, b.Key) })
 }
 
-// Filter is the sales that k keeps, in order.
-func Filter(sales []Sale, k Keep) []Sale { slices.Filter(sales, func(s Sale) bool { Kept(k, s) }) }
+// Filter is the readings that k keeps, in order.
+func Filter(readings []Reading, k Keep) []Reading { slices.Filter(readings, func(s Reading) bool { Kept(k, s) }) }
 
-// Table is the report of sales under k: a line per group, then the
+// Table is the report of readings under k: a line per group, then the
 // total, in aligned columns.
-func Table(sales []Sale, k Key) []string {
-	let groups = Group(sales, k)
+func Table(readings []Reading, k Key) []string {
+	let groups = Group(readings, k)
 	let name = match k {
-	case ByRegion:
-		"region"
-	case ByProduct:
-		"product"
+	case BySite:
+		"site"
+	case ByDevice:
+		"device"
 	}
 	let mut width = utf8.RuneCount(name)
 	for g in groups {
@@ -88,17 +88,17 @@ func Table(sales []Sale, k Key) []string {
 			width = utf8.RuneCount(g.Key)
 		}
 	}
-	let mut out = []string{line(name, "sales", "units", "revenue", width)}
+	let mut out = []string{line(name, "readings", "hours", "energy", width)}
 	for g in groups {
-		out = out.Append(line(g.Key, "\(g.Sales)", "\(g.Units)", Money(g.Revenue), width))
+		out = out.Append(line(g.Key, "\(g.Readings)", "\(g.Hours)", Hundredths(g.Energy), width))
 	}
-	let t = Total(sales)
-	out.Append(line("total", "\(t.Sales)", "\(t.Units)", Money(t.Revenue), width))
+	let t = Total(readings)
+	out.Append(line("total", "\(t.Readings)", "\(t.Hours)", Hundredths(t.Energy), width))
 }
 
 // line is one line of the table: the key padded to width, and three
-// columns right-aligned in 6, 7 and 12 characters, as Go's
-// fmt.Sprintf("%-*s  %6s  %7s  %12s") writes it.
-func line(key string, sales string, units string, revenue string, width int) string {
-	strings.PadRight(key, width, ' ') + "  " + strings.PadLeft(sales, 6, ' ') + "  " + strings.PadLeft(units, 7, ' ') + "  " + strings.PadLeft(revenue, 12, ' ')
+// columns right-aligned in 8, 7 and 12 characters, as Go's
+// fmt.Sprintf("%-*s  %8s  %7s  %12s") writes it.
+func line(key string, readings string, hours string, energy string, width int) string {
+	strings.PadRight(key, width, ' ') + "  " + strings.PadLeft(readings, 8, ' ') + "  " + strings.PadLeft(hours, 7, ' ') + "  " + strings.PadLeft(energy, 12, ' ')
 }

@@ -74,7 +74,7 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 	case *Struct:
 		s := &Struct{Fields: make([]*Field, len(t.Fields)), obj: t.obj}
 		for i, f := range t.Fields {
-			s.Fields[i] = &Field{Name: f.Name, Type: c.subst(f.Type, m), Pos: f.Pos}
+			s.Fields[i] = &Field{Name: f.Name, Type: c.subst(f.Type, m), Pos: f.Pos, origin: f.Origin()}
 		}
 		return s
 	case *Interface:
@@ -90,6 +90,11 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 		}
 		return it
 	case *Union:
+		if t.Row != nil {
+			// A row value's members are a row: a row parameter's binding
+			// (a RowArg) flattens into it, as in substRow (q47).
+			return c.rowValue(c.substRow(t.Row, m))
+		}
 		u := &Union{Variants: make([]Type, len(t.Variants)), Bad: t.Bad}
 		for i, v := range t.Variants {
 			u.Variants[i] = c.subst(v, m)
@@ -232,6 +237,7 @@ const (
 	assignUnion                   // 4: a variant or a row value into its union
 	assignSignature               // 5: a function value into a function type with wider rows
 	assignMachine                 // 6: a machine declaration's value into the prelude Machine
+	assignRowValue                // 7: a row's member or a narrower row value into a row value
 )
 
 // assignment is the result of assignability: the clause that admitted the
@@ -284,6 +290,11 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 	if v == NoValue {
 		return assignment{}, "it has no value"
 	}
+	if _, borrow := v.(*Pointer); borrow && refElem(t) != nil {
+		// A borrow lives no longer than its call (types.md, Borrows); a
+		// go.Ref is a Go pointer a Go function returned (q38).
+		return assignment{}, "a borrow is not kept as a go.Ref"
+	}
 	if c.sameUnderlying(v, t) {
 		return assignment{clause: assignUnderlying}, ""
 	}
@@ -299,12 +310,12 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			return assignment{}, "its initial is a value, so it is a Machine, not an InputMachine"
 		}
 		if !c.identical(view, t) {
-			k := len(view.TArgs) - 3
-			o, f, r := view.TArgs[k], view.TArgs[k+1].(*RowArg), view.TArgs[k+2].(*RowArg)
+			k := len(view.TArgs) - 4
+			o, f, r, w := view.TArgs[k], view.TArgs[k+1].(*RowArg), view.TArgs[k+2].(*RowArg), view.TArgs[k+3].(*RowArg)
 			if input {
-				return assignment{}, fmt.Sprintf("its start takes %s and its step %s gives an InputMachine with output %s, error row %s and capability row %s", view.TArgs[0], step.Name, o, rowText(f.Row), rowText(r.Row))
+				return assignment{}, fmt.Sprintf("its start takes %s and its step %s gives an InputMachine with output %s, error row %s, capability row %s and work row %s", view.TArgs[0], step.Name, o, rowText(f.Row), rowText(r.Row), rowText(w.Row))
 			}
-			return assignment{}, fmt.Sprintf("its step %s gives a Machine with output %s, error row %s and capability row %s", step.Name, o, rowText(f.Row), rowText(r.Row))
+			return assignment{}, fmt.Sprintf("its step %s gives a Machine with output %s, error row %s, capability row %s and work row %s", step.Name, o, rowText(f.Row), rowText(r.Row), rowText(w.Row))
 		}
 		table := map[string]*Func{"Step": step}
 		if input {
@@ -312,6 +323,9 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		}
 		if after := c.machineAfter(v); after != nil {
 			table["After"] = after // else every state has no timer
+		}
+		if work, _ := c.machineWork(v); work != nil {
+			table["Work"] = work // else every state has no work
 		}
 		return assignment{clause: assignMachine, conv: Conversion{Kind: ConvMachine, From: v, To: t, Table: table}}, ""
 	}
@@ -355,6 +369,22 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			}
 		}
 		return assignment{clause: assignOperations, conv: Conversion{Kind: ConvOperations, From: v, To: t, Table: table, Instances: instances}}, ""
+	}
+	if rt, ok := t.(*Union); ok && rt.Row != nil {
+		// Clause 7 (q47): into a row value goes a value of one of its
+		// members, or a row value whose members it all holds, as a failure
+		// of those types goes into the row (rows.md, Error rows 5). Both
+		// sides are a Go error, so it converts nothing.
+		if rv, isRow := v.(*Union); isRow && rv.Row != nil {
+			if !rv.Row.subsetOf(c.types, rt.Row) {
+				return assignment{}, fmt.Sprintf("it may hold an error type that %s does not list", t)
+			}
+			return assignment{clause: assignRowValue}, ""
+		}
+		if !rt.Row.has(c.types, v) {
+			return assignment{}, fmt.Sprintf("%s is not one of its error types", v)
+		}
+		return assignment{clause: assignRowValue}, ""
 	}
 	if u := asUnion(t); u != nil {
 		if _, isNamed := t.(*Named); isNamed {
@@ -643,6 +673,14 @@ func dropSelf(sig *Signature) *Signature {
 	return &out
 }
 
+// fnPkg is fn's package, or nil for no function.
+func fnPkg(fn *Func) *Package {
+	if fn == nil {
+		return nil
+	}
+	return fn.Pkg
+}
+
 // implements checks method-row compatibility: for every method of it, v has
 // a method with identical parameters and results, the same fallibility, and
 // error and capability rows that are subsets (types.md, Interface
@@ -655,6 +693,11 @@ func (c *checker) implements(v Type, it *Interface) string {
 	if p, ok := v.(*Pointer); ok {
 		v, ptr = p.Elem, true
 	}
+	// go.Ref[T] is Go's *T: a Go value implements a Go interface by Go's
+	// method sets (docs/spec/interop.md, Checking).
+	if e := refElem(v); e != nil {
+		v, ptr = e, true
+	}
 	if s := ScriptOf(v); s != nil && !ptr {
 		// A Script has the operations of its capability (script.go, rule 4).
 		if why := c.implements(s, it); why != "" {
@@ -666,6 +709,9 @@ func (c *checker) implements(v Type, it *Interface) string {
 		got, fn := c.methodOf(v, m.Name)
 		if got == nil {
 			return fmt.Sprintf("%s has no method %s", v, m.Name)
+		}
+		if h := hostOf(fnPkg(fn)); h != nil && h.recvPtr[fn] && !ptr {
+			return fmt.Sprintf("the Go method %s.%s has a pointer receiver; pass a go.Ref[%s]", v, m.Name, v)
 		}
 		if fn != nil && fn.Ptr && !ptr {
 			return fmt.Sprintf("%s.%s has a *T receiver", v, m.Name)
@@ -721,6 +767,13 @@ func comparable(t Type) bool {
 }
 
 func comparableSeen(t Type, seen map[Type]bool) bool {
+	if n, ok := t.(*Named); ok && IsGoError(n) {
+		// go.Error keeps Go's native error (IG5): Go's == would compare
+		// the error's identity, and panic on an error type Go cannot
+		// compare. Its == compares Text (equatable, not comparable), so
+		// it is no Map key.
+		return false
+	}
 	switch u := under(t).(type) {
 	case *Basic:
 		return u.Kind != Invalid
@@ -746,9 +799,8 @@ func comparableSeen(t Type, seen map[Type]bool) bool {
 		}
 		return true
 	case *Union:
-		if isRowValue(t) {
-			return false
-		}
+		// A row value compares as a union of its members does (q47): an
+		// error row parameter among them has no comparable constraint.
 		// A recursive union reaches itself through its named type.
 		if seen[t] {
 			return true
@@ -814,9 +866,8 @@ func equatableSeen(t Type, seen map[Type]bool) bool {
 		}
 		return true
 	case *Union:
-		if isRowValue(t) {
-			return false
-		}
+		// A row value compares as a union of its members does (q47): an
+		// error row parameter among them has no comparable constraint.
 		if seen[t] {
 			return true
 		}
@@ -882,42 +933,45 @@ func (c *checker) satisfies(t Type, constraint Type) string {
 	return c.implements(t, it)
 }
 
-// defaultable reports whether t has a valid zero value (types.md, Zero
-// values 1): a basic type, a slice, map or channel, or a struct of
-// defaultable fields. A union, an interface, a function type, a pointer and
-// a struct that holds any of them are not.
-func defaultable(t Type) bool {
-	return defaultableSeen(t, map[Type]bool{})
+// letZero checks `let name T` with no value (types.md, Zero values 3): T
+// must have a zero value. Another package's record that only its package
+// builds is S114 first, since its message names the function to call.
+func (c *checker) letZero(name *syntax.Ident, declared Type) {
+	if declared == nil || isInvalid(declared) {
+		return
+	}
+	if a := zeroAuthority(declared, c.pkg); a != nil {
+		c.errorf(name, CodeAuthority, "let %s of type %s needs a value: its zero value builds a new value of %s, and %s (types.md, Zero values 6)", name.Name, c.localTypeText(declared), qualifiedName(a), authorityText(a))
+		return
+	}
+	if !defaultable(declared) {
+		c.errorf(name, CodeType, "let %s of type %s needs a value: %s has no zero value (types.md, Zero values 3)", name.Name, declared, declared)
+	}
 }
 
-func defaultableSeen(t Type, seen map[Type]bool) bool {
+// defaultable reports whether t has a valid zero value (types.md, Zero
+// values 1): a basic type, a slice or Map, a record with no fields, or an
+// array or a tuple of these. A record with fields has none: it is built only by a
+// literal that names every field or by a record update (Zero values 2,
+// owner q44). A union, an interface, a function type, a pointer and a tuple
+// that holds a record with fields have none either.
+func defaultable(t Type) bool {
 	switch u := under(t).(type) {
 	case *Basic:
 		return true
 	case *Slice, *Map:
 		return true
 	case *Array:
-		return defaultableSeen(u.Elem, seen)
+		return defaultable(u.Elem)
 	case *Tuple:
 		for _, e := range u.Types {
-			if !defaultableSeen(e, seen) {
+			if !defaultable(e) {
 				return false
 			}
 		}
 		return true
 	case *Struct:
-		// A recursive struct reaches itself through a named type, the same
-		// type object (instances are cached by id).
-		if seen[t] {
-			return true
-		}
-		seen[t] = true
-		for _, f := range u.Fields {
-			if !defaultableSeen(f.Type, seen) {
-				return false
-			}
-		}
-		return true
+		return len(u.Fields) == 0
 	}
 	return false
 }

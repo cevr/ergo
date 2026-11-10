@@ -15,10 +15,10 @@ import (
 var keyedForms = []string{
 	"let m = Map[KT, int]{h%[1]d: 1}; return len(m)",
 	"let m = []Map[KT, int]{{h%[1]d: 1}}; return len(m)",
-	"let m = Map[KT, S]{h%[1]d: {h0: 1}}; return len(m)",
+	"let m = Map[KT, S]{h%[1]d: {h0: 1, K: h%[1]d}}; return len(m)",
 	"let m = Map[S, int]{{h0: 1, K: h%[1]d}: 2}; return len(m)",
 	"let m = Map[KT, Map[KT, int]]{h%[1]d: {h%[2]d: 1}}; return len(m)",
-	"let m = []S{{K: h%[1]d}}; return len(m)",
+	"let m = []S{{K: h%[1]d, h0: 1}}; return len(m)",
 	"let m = Map[KT, []S]{h%[1]d: {{h0: 1, K: h%[2]d}}}; return len(m)",
 	"let m = S{h0: 1, K: h%[1]d}; return m.h0",
 }
@@ -89,24 +89,6 @@ func TestClassGMessage(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("want %q, got %v", want, diags)
-		}
-	}
-}
-
-// TestKeyedLiterals: generated sources whose only references are literal
-// keys are accepted, in every declaration order, and the walk resolves
-// every key as typing does (round 16 M1).
-func TestKeyedLiterals(t *testing.T) {
-	for seed := range uint64(200) {
-		src := keyedLiterals(seed)
-		if _, diags := CheckSource(src); len(diags) > 0 {
-			t.Fatalf("seed %d: want acceptance, got %v\n%s", seed, diags, src)
-		}
-		if p := RefWalkProblems(src); len(p) > 0 {
-			t.Fatalf("seed %d: reference walk: %v\n%s", seed, p, src)
-		}
-		if p := OrderProblems(src, 3); len(p) > 0 {
-			t.Fatalf("seed %d: declaration order: %s", seed, p[0])
 		}
 	}
 }

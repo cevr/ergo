@@ -23,7 +23,7 @@ func TestAcquisitionIsOnceAndIdentifiesBytesRatherThanDeclarations(t *testing.T)
 			return nil, errors.New("second acquisition forbidden")
 		}
 		return io.NopCloser(strings.NewReader("compiler A")), nil
-	}, func() (*debug.BuildInfo, bool) { return &debug.BuildInfo{GoVersion: "go-test"}, true }, func() (string, error) { return "test", nil })
+	}, func() (*debug.BuildInfo, bool) { return &debug.BuildInfo{GoVersion: "go-test"}, true }, func() (string, error) { return "test", nil }, nil)
 	var wg sync.WaitGroup
 	identities := make(chan Identity, 32)
 	for range 32 {
@@ -40,7 +40,7 @@ func TestAcquisitionIsOnceAndIdentifiesBytesRatherThanDeclarations(t *testing.T)
 	if opens.Load() != 1 || first.Strength != "executing-artifact" || first.Qualifier != first.Digest || first.ReuseScope != "artifact" {
 		t.Fatal(first, opens.Load())
 	}
-	other := acquireOnce(func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("compiler B")), nil }, func() (*debug.BuildInfo, bool) { return &debug.BuildInfo{GoVersion: "go-test"}, true }, func() (string, error) { return "test", nil })()
+	other := acquireOnce(func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("compiler B")), nil }, func() (*debug.BuildInfo, bool) { return &debug.BuildInfo{GoVersion: "go-test"}, true }, func() (string, error) { return "test", nil }, nil)()
 	if other.Declaration != first.Declaration || other.Digest == first.Digest {
 		t.Fatal("declaration used as content identity")
 	}
@@ -51,13 +51,18 @@ type brokenReader struct{}
 func (brokenReader) Read([]byte) (int, error) { return 0, errors.New("private host error") }
 func (brokenReader) Close() error             { return nil }
 
+type failingReader struct{ err error }
+
+func (r failingReader) Read([]byte) (int, error) { return 0, r.err }
+func (failingReader) Close() error               { return nil }
+
 func TestUnavailableQualificationAndBoundedDeclarations(t *testing.T) {
 	fails := func(err error) func() (io.ReadCloser, error) {
 		return func() (io.ReadCloser, error) { return nil, err }
 	}
 	for _, open := range []func() (io.ReadCloser, error){fails(errors.New("private path")), func() (io.ReadCloser, error) { return brokenReader{}, nil }, fails(errUnsupported), fails(errUnverified), fails(errNoSignatureRecord), fails(errUniversal), fails(errWeakDirectory), fails(errImageTooLarge)} {
 		var count atomic.Int32
-		get := acquireOnce(func() (io.ReadCloser, error) { count.Add(1); return open() }, func() (*debug.BuildInfo, bool) { return nil, false }, func() (string, error) { return "nonce-A", nil })
+		get := acquireOnce(func() (io.ReadCloser, error) { count.Add(1); return open() }, func() (*debug.BuildInfo, bool) { return nil, false }, func() (string, error) { return "nonce-A", nil }, nil)
 		first, second := get(), get()
 		if first != second || count.Load() != 1 || first.Strength != "unavailable" || first.Digest != "" || first.ReuseScope != "process" || first.Qualifier != "process:nonce-A" || strings.Contains(first.Reason, "private") {
 			t.Fatal(first, second, count.Load())
@@ -74,12 +79,21 @@ func TestUnavailableQualificationAndBoundedDeclarations(t *testing.T) {
 		errImageTooLarge:      "executing image cannot be read within its byte limit",
 		errors.New("private"): "executing image cannot be opened",
 	} {
-		got := acquireOnce(fails(err), func() (*debug.BuildInfo, bool) { return nil, false }, func() (string, error) { return "nonce", nil })()
+		got := acquireOnce(fails(err), func() (*debug.BuildInfo, bool) { return nil, false }, func() (string, error) { return "nonce", nil }, nil)()
 		if got.Reason != reason {
 			t.Errorf("%v: reason %q, want %q", err, got.Reason, reason)
 		}
+		// Darwin verifies on the first read: the same error there says the
+		// same, and an unnamed read error is a read failure.
+		if reason == "executing image cannot be opened" {
+			reason = "executing image cannot be read within its byte limit"
+		}
+		read := acquireOnce(func() (io.ReadCloser, error) { return failingReader{err}, nil }, func() (*debug.BuildInfo, bool) { return nil, false }, func() (string, error) { return "nonce", nil }, nil)()
+		if read.Reason != reason {
+			t.Errorf("read %v: reason %q, want %q", err, read.Reason, reason)
+		}
 	}
-	none := acquireOnce(func() (io.ReadCloser, error) { return nil, errUnsupported }, func() (*debug.BuildInfo, bool) { return nil, false }, func() (string, error) { return "", errors.New("no entropy") })()
+	none := acquireOnce(func() (io.ReadCloser, error) { return nil, errUnsupported }, func() (*debug.BuildInfo, bool) { return nil, false }, func() (string, error) { return "", errors.New("no entropy") }, nil)()
 	if none.ReuseScope != "none" || none.Qualifier != "" || none.Strength != "unavailable" {
 		t.Fatal(none)
 	}

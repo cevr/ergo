@@ -4,7 +4,7 @@ A package dependency resolver. It reads a manifest (a project's own needs and th
 
 ```text
 # a comment
-project shop
+project site
   needs web ^2.1
   needs log >=1.2 <2
 

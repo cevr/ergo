@@ -647,17 +647,19 @@ func testUnionArmsLinear(t *testing.T) {
 		b.WriteString("\t}\n}\n")
 		return b.String()
 	}
+	sizes := check.GrowthSizes(t, check.GrowthMaxNodes, func(n int) int { return check.SourceNodes(t, src(n)) })
+	small, big := sizes[0], sizes[len(sizes)-1]
 	steps := map[int]int{}
-	for _, n := range []int{1000, 4000} {
+	var per []float64
+	for _, n := range sizes {
 		ts, us, d := check.SolverSteps(src(n))
 		if len(d) > 0 || len(ts) != 1 {
 			t.Fatalf("n=%d: diagnostics %s", n, describe(d))
 		}
 		steps[n] = ts[0] + us[0]
+		per = append(per, float64(steps[n])/float64(n))
 	}
-	if r := float64(steps[4000]) / float64(steps[1000]); r > 4.5 {
-		t.Errorf("4x the cases take %.2fx the solver steps (%d vs %d)", r, steps[4000], steps[1000])
-	}
+	check.GrowthBounded(t, "solver steps per variant", sizes, per)
 	bytes := func(s string) uint64 {
 		best := uint64(0)
 		for range 3 {
@@ -671,10 +673,10 @@ func testUnionArmsLinear(t *testing.T) {
 		}
 		return best
 	}
-	small, large := bytes(src(1000)), bytes(src(4000))
-	ratio := float64(large) / float64(small)
-	t.Logf("steps %v; allocated bytes: n=1000 %d, n=4000 %d, ratio %.2f", steps, small, large, ratio)
-	if ratio > 6 {
-		t.Errorf("4x the cases allocate %.2fx the bytes (%d vs %d); the check is superlinear", ratio, large, small)
+	smallBytes, largeBytes := bytes(src(small)), bytes(src(big))
+	ratio := float64(largeBytes) / float64(smallBytes)
+	t.Logf("steps %v; allocated bytes: n=%d %d, n=%d %d, ratio %.2f", steps, small, smallBytes, big, largeBytes, ratio)
+	if ratio > 1.5*float64(big)/float64(small) {
+		t.Errorf("%.1fx the cases allocate %.2fx the bytes (%d vs %d); the check is superlinear", float64(big)/float64(small), ratio, largeBytes, smallBytes)
 	}
 }

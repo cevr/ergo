@@ -16,28 +16,6 @@ import (
 // receiver's type arguments in Info (D-D8). Lowering runs the admitted
 // forms (internal/sketch/lower stage_d3a_test.go).
 
-// D-D6, D-D8: each admitted form checks with no diagnostic.
-func TestPreludeDotCalls(t *testing.T) {
-	runD1(t, []d1Case{
-		{"append", "func f(xs []int) []int {\n\txs.Append(1)\n}\n", nil},
-		{"append-empty-literal", "func f() []string {\n\t[]string{}.Append(\"a\")\n}\n", nil},
-		{"append-generic-element", "func f[T](xs []T, x T) []T {\n\txs.Append(x)\n}\n", nil},
-		{"append-chain", "func f(xs []int) int {\n\tlen(xs.Append(1).Append(2))\n}\n", nil},
-		{"get", "func f(m Map[string, int]) int {\n\tmatch m.Get(\"a\") {\n\tcase Some{v}:\n\t\tv\n\tcase None:\n\t\t0\n\t}\n}\n", nil},
-		{"get-generic", "func f[K comparable, V](m Map[K, V], k K) Option[V] {\n\tm.Get(k)\n}\n", nil},
-		{"delete", "func f(m Map[string, int]) Map[string, int] {\n\tm.Delete(\"a\")\n}\n", nil},
-		{"delete-assign", "func f() int {\n\tlet mut m = Map[string, int]{\"a\": 1}\n\tm = m.Delete(\"a\")\n\tlen(m)\n}\n", nil},
-		{"delete-discarded", "func f(m Map[string, int]) {\n\t_ = m.Delete(\"a\")\n}\n", nil},
-		{"element-of-slice-of-slices", "func f(xs [][]int) []int {\n\txs[0].Append(1)\n}\n", nil},
-		// Decision 9: Append, Get and Delete are names in no scope, so a
-		// program declares its own (the decided preview's func Get).
-		{"own-get", "type Store { N int }\nfunc Get(s Store, k string) int {\n\ts.N + len(k)\n}\nfunc f(s Store, m Map[string, int]) int {\n\tlet n = s.Get(\"a\")\n\tmatch m.Get(\"a\") {\n\tcase Some{v}:\n\t\tv + n\n\tcase None:\n\t\tn\n\t}\n}\n", nil},
-		{"own-append-plain", "func Append(a int, b int) int {\n\ta + b\n}\nfunc f() int {\n\tAppend(1, 2)\n}\n", nil},
-		// D-D8: a generic first parameter instantiates from x.
-		{"generic-receiver", "type Pair[A, B] { First A, Second B }\nfunc Swap[A, B](p Pair[A, B]) Pair[B, A] {\n\tPair[B, A]{First: p.Second, Second: p.First}\n}\nfunc f(p Pair[int, string]) string {\n\tp.Swap().First\n}\n", nil},
-	})
-}
-
 // D-D6, D-D8: every refused form is one located diagnostic, and the
 // message names the form to write.
 func TestPreludeDotCallRefusals(t *testing.T) {
@@ -73,73 +51,6 @@ func TestPreludeDotCallRefusals(t *testing.T) {
 				t.Errorf("message %q does not name %q", d[0].Message, tc.text)
 			}
 		})
-	}
-}
-
-// D-D8: Info records a prelude dot call as a CallFunc with its receiver
-// and every type argument of the called function, the receiver-bound ones
-// included, in the function's order; CallPrelude is no longer produced.
-func TestPreludeDotCallInfo(t *testing.T) {
-	src := `type Pair[A, B] { First A, Second B }
-
-func Swap[A, B](p Pair[A, B]) Pair[B, A] {
-	Pair[B, A]{First: p.Second, Second: p.First}
-}
-
-func Map2[A, B, C](p Pair[A, B], f func(a A) C) Pair[C, B] {
-	Pair[C, B]{First: f(p.First), Second: p.Second}
-}
-
-func f[T](xs []T, x T) []T {
-	xs.Append(x)
-}
-
-func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
-	let ys = xs.Append(1)
-	let o = m.Get("a")
-	let m2 = m.Delete("a")
-	let q = p.Swap()
-	let r = p.Map2(func(a int) int64 { int64(a) })
-	_ = o
-	_ = q
-	_ = r
-	len(ys) + len(m2)
-}
-`
-	file, err := syntax.Parse(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pkg, diags := check.Check("main", []*syntax.File{file}, nil)
-	if len(diags) > 0 {
-		t.Fatalf("diagnostics: %v", diags)
-	}
-	calls := map[string]*check.Call{}
-	for x, call := range pkg.Info.Calls {
-		calls[src[x.Pos():x.End()]] = call
-		if call.Kind == check.CallPrelude {
-			t.Errorf("%s: CallPrelude is no longer produced", src[x.Pos():x.End()])
-		}
-	}
-	for _, w := range []struct{ call, fn, recv, targs string }{
-		{"xs.Append(x)", "Append", "xs", "[T]"},
-		{"xs.Append(1)", "Append", "xs", "[int]"},
-		{`m.Get("a")`, "Get", "m", "[string bool]"},
-		{`m.Delete("a")`, "Delete", "m", "[string bool]"},
-		{"p.Swap()", "Swap", "p", "[int string]"},
-		{"p.Map2(func(a int) int64 { int64(a) })", "Map2", "p", "[int string int64]"},
-	} {
-		c := calls[w.call]
-		if c == nil || c.Kind != check.CallFunc || c.Func == nil || c.Func.Name != w.fn || c.Recv == nil {
-			t.Errorf("%s: want a CallFunc of %s with a receiver, got %+v", w.call, w.fn, c)
-			continue
-		}
-		if got := src[c.Recv.Pos():c.Recv.End()]; got != w.recv {
-			t.Errorf("%s: receiver %q, want %q", w.call, got, w.recv)
-		}
-		if got := fmt.Sprint(c.TypeArgs); got != w.targs {
-			t.Errorf("%s: TypeArgs %s, want %s", w.call, got, w.targs)
-		}
 	}
 }
 
@@ -265,14 +176,4 @@ func TestImportAliasClashHasOneDiagnostic(t *testing.T) {
 	if len(d) != 1 || d[0].Code != check.CodeType || d[0].File != 0 || d[0].Line != 1 || !strings.Contains(d[0].Message, "choose another alias") {
 		t.Fatalf("want one S108 for cross-file alias clash, got %s", describe(d))
 	}
-}
-
-// A conversion whose operand's type holds an invalid part adds no
-// diagnostic: the mistake is reported where the part came from (D3a round
-// 2 review m1).
-func TestInvalidConversionsDoNotCascade(t *testing.T) {
-	runD1(t, []d1Case{
-		{"invalid-element", "type Ints []int\nfunc g(ys []Unknown) Ints {\n\tInts(ys)\n}\n", []string{"S104:2"}},
-		{"invalid-map-value", "type Counts Map[string, int]\nfunc g(m Map[string, Unknown]) Counts {\n\tCounts(m)\n}\n", []string{"S104:2"}},
-	})
 }

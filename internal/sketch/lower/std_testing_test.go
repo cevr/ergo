@@ -11,6 +11,7 @@ import "testing"
 // caller's task (a fresh task would be a member that never waits, and the
 // run would hang) and binds the package's Now and Sleep as the providers.
 func TestVirtualClockRuns(t *testing.T) {
+	needsBuild(t)
 	const src = `import queue
 import task
 import testing

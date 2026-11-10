@@ -1,0 +1,8 @@
+serial
+type 0001112222
+submit
+hello
+wait
+tap T-999
+cancel
+submit

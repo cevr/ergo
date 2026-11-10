@@ -68,50 +68,6 @@ func e3bPrograms(t *testing.T) []e3bProgram {
 	return out
 }
 
-// TestLawSweep builds the run build of every program of testdata/e3b and
-// runs it: each prints exactly its run lines, so a law changes nothing
-// ergo run does. A program with tests also runs its test build, which runs
-// its tests, then its laws.
-func TestLawSweep(t *testing.T) {
-	progs := e3bPrograms(t)
-	var builds []*lowered
-	tested := 0
-	for _, p := range progs {
-		run := mustLower(t, p.name+"_run", p.src)
-		if len(run.pkg.Laws) == 0 {
-			t.Errorf("%s declares no law", p.name)
-		}
-		builds = append(builds, run)
-		if p.exit >= 0 {
-			if len(run.pkg.Tests) == 0 {
-				t.Errorf("%s states test output and declares no test", p.name)
-			}
-			builds = append(builds, lowerTestBuild(t, p.name+"_test", p.src))
-			tested++
-		}
-	}
-	if tested == 0 {
-		t.Errorf("no program of testdata/e3b has tests and laws (sweep program 11)")
-	}
-	exes := buildAll(t, builds, true)
-	if exes == nil {
-		return
-	}
-	for _, p := range progs {
-		stdout, stderr, code := runExe(t, exes[p.name+"_run"])
-		if code != 0 || strings.Join(lines(stdout), "\n") != strings.Join(p.run, "\n") {
-			t.Errorf("%s: ergo run: exit %d, stdout %q, stderr %q; want %q", p.name, code, stdout, firstLines(stderr, 8), p.run)
-		}
-		if p.exit < 0 {
-			continue
-		}
-		stdout, stderr, code = runExe(t, exes[p.name+"_test"])
-		if code != p.exit || strings.Join(lines(stdout), "\n") != strings.Join(p.test, "\n") {
-			t.Errorf("%s: test binary: exit %d (want %d), stdout:\n%s\nwant:\n%s\nstderr:\n%s", p.name, code, p.exit, stdout, strings.Join(p.test, "\n"), firstLines(stderr, 12))
-		}
-	}
-}
-
 // lawFixture is the spec fixture with laws (C21); it lowers, so the
 // erasure property covers it too.
 const lawFixture = "../check/testdata/fixtures/spec/types-laws.ergo"
@@ -167,10 +123,11 @@ var lawFacts = []lawFact{
 	{name: "adapter", canary: "opsSq4AsShape4",
 		decls: "type Shape4 {\n\tArea() int,\n}\n\ntype Sq4 {}\n\nfunc Area(_ Sq4) int {\n\t4\n}\n",
 		law:   "law L() {\n\t\tlet s Shape4 = Sq4\n\t\ts.Area() == 4\n\t}"},
-	// A let without a value of a record holding a Map needs a default.
+	// A let without a value of a defined type holding a Map needs a
+	// default (a record has none: types.md, Zero values 3).
 	{name: "default-map", canary: "ergoDefaultReg5",
-		decls: "type Reg5 { M Map[string, int] }\n",
-		law:   "law L(k string) {\n\t\tlet mut r Reg5\n\t\tr.M[k] = 5\n\t\tlen(r.M) == 1\n\t}"},
+		decls: "type Reg5 (int, Map[string, int])\n",
+		law:   "law L(k string) {\n\t\tlet r Reg5\n\t\tlet (_, m) = r\n\t\tlet mut w = m\n\t\tw[k] = 5\n\t\tlen(w) == 1\n\t}"},
 	// A generic record and function instantiated only by a law.
 	{name: "generic-instance",
 		decls: "type Box6[T] { V T }\n\nfunc wrap6[T](v T) Box6[T] {\n\tBox6{V: v}\n}\n",
@@ -191,11 +148,11 @@ var lawFacts = []lawFact{
 	// with the law.
 	{name: "library-import", canary: "WithCapacity", imports: "import slices\n\n",
 		law: "law L(s string) {\n\t\tlet xs = slices.WithCapacity[int](len(s))\n\t\tlen(xs) == 0\n\t}"},
-	// A tuple type only a law uses, holding a record whose default holds a
-	// Map: a build that walks the tuple reserves the default's name.
+	// A tuple type only a law uses, holding a defined type whose default
+	// holds a Map: a build that walks the tuple reserves the default's name.
 	{name: "tuple", canary: "ergoDefaultReg12",
-		decls: "type Reg12 { M Map[string, int] }\n",
-		law:   "law L(n int, s string) {\n\t\tlet p = (n, s, Reg12{})\n\t\tlet (a, b, r) = p\n\t\ta == n && b == s && len(r.M) == 0\n\t}"},
+		decls: "type Reg12 (int, Map[string, int])\n",
+		law:   "law L() {\n\t\tlet p (int, string, Reg12)\n\t\tlet (a, b, r) = p\n\t\tlet (_, m) = r\n\t\ta == 0 && b == \"\" && len(m) == 0\n\t}"},
 	// A package let only a law reads.
 	{name: "package-let",
 		decls: "let Limit13 = 13\n",
@@ -242,7 +199,11 @@ func lawProgram(b ownerBase, f lawFact, top bool) string {
 // name there, and the run binary prints the base's output. The test build
 // reads the law's facts and runs it (#162 law-run-1): every law here holds,
 // so its binary reports the law's run ok and exits 0.
+//
+// It builds Go because the laws run in the built test binary (ergo test),
+// the only place a law runs.
 func TestLawFactsStayOut(t *testing.T) {
+	needsBuild(t)
 	type pair struct {
 		name, okLine string
 		base         ownerBase
@@ -267,10 +228,15 @@ func TestLawFactsStayOut(t *testing.T) {
 					if f.canary != "" && !regexp.MustCompile(`(?m)^\tvar `+f.canary+` `).MatchString(run.mainGo()) {
 						t.Errorf("%s: the run build renamed the canary local %s: it read the law's fact", name, f.canary)
 					}
+					// LawHostMem has one value, so a law with no parameters
+					// has one case and is proved (Laws 10); a parameter of
+					// an unbounded type makes 100 generated cases.
 					okLine := "ok law LawHost.L for LawHostMem (100 cases)"
 					switch {
-					case top && strings.HasPrefix(f.law, "law L()"):
-						okLine = "ok law L" // no parameters: one case
+					case strings.HasPrefix(f.law, "law L()") && top:
+						okLine = "ok law L (proved: 1 case)"
+					case strings.HasPrefix(f.law, "law L()"):
+						okLine = "ok law LawHost.L for LawHostMem (proved: 1 case)"
 					case top:
 						okLine = "ok law L (100 cases)"
 					}

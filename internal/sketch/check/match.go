@@ -28,7 +28,11 @@ import (
 //  4. A tuple pattern has its subject tuple's arity (S108).
 //  5. `P as x` binds the matched value with P's type, in its arm.
 //  6. A case with several patterns binds only names that every pattern
-//     binds, each with one type (S108).
+//     binds (S108). A name the patterns bind at different types binds at
+//     their join (bindingJoin): the row value of those failures when each
+//     is a failure of the caught or matched row, else the one declared
+//     union that lists each (the branch join, Totality 3); with no join it
+//     is S108.
 //  7. Every binding is read (S110), `_` excepted.
 //
 // A match names every constructor or has a covering arm (S103 at the
@@ -661,6 +665,14 @@ func (c *checker) matchStmt(s syntax.Stmt, kw syntax.Pos, subjects []syntax.Expr
 	if valid {
 		c.match(s, &Match{Subjects: subj, Arms: len(clauses)})
 	}
+	// failures: the variants of each subject that is a row value, whose
+	// alternatives join to a row value again (rule 6).
+	var failures []Type
+	for _, t := range subj {
+		if u, ok := t.(*Union); ok {
+			failures = append(failures, u.Variants...)
+		}
+	}
 	r := c.newPatResolver()
 	r.sp.written = len(subjects)
 	for _, cl := range clauses {
@@ -756,7 +768,7 @@ func (c *checker) matchStmt(s syntax.Stmt, kw syntax.Pos, subjects []syntax.Expr
 			}
 		}
 		inner := c.openScope()
-		arm := c.declareArm(bindsOf[ci])
+		arm := c.declareArm(bindsOf[ci], failures)
 		body(cl.Body)
 		c.unusedBindings(arm)
 		inner()
@@ -883,10 +895,11 @@ type armVar struct {
 }
 
 // declareArm declares the names a case's patterns bind, in the current
-// scope. With several patterns, each binds the same names with one type
-// (rule 6, S108 otherwise); every pattern's identifier is a declaring
-// identifier of the one variable.
-func (c *checker) declareArm(all [][]patBinding) []armVar {
+// scope. With several patterns, each binds the same names, a name at the
+// join of its types (rule 6, S108 otherwise); every pattern's identifier is
+// a declaring identifier of the one variable. row holds the failures a
+// catch catches or a matched row value holds, which join to a row value.
+func (c *checker) declareArm(all [][]patBinding, row []Type) []armVar {
 	if len(all) == 0 {
 		return nil
 	}
@@ -904,6 +917,23 @@ func (c *checker) declareArm(all [][]patBinding) []armVar {
 		}
 	}
 	first := items[0]
+	// joined: the join of a name the patterns bind at different types.
+	joined := map[string]Type{}
+	if len(items) > 1 {
+		for _, b := range first {
+			ts := []Type{b.t}
+			for _, item := range items[1:] {
+				for _, o := range item {
+					if o.id.Name == b.id.Name {
+						ts = append(ts, o.t)
+					}
+				}
+			}
+			if j := c.bindingJoin(ts, row); j != nil {
+				joined[b.id.Name] = j
+			}
+		}
+	}
 	vars := map[string]*Var{}
 	types := map[string]Type{}
 	groups := map[string]*switchGroup{}
@@ -912,7 +942,11 @@ func (c *checker) declareArm(all [][]patBinding) []armVar {
 		g := &switchGroup{}
 		groups[b.id.Name] = g
 		refused := c.localBinder(b.id)
-		v := c.bindLocal(&Var{Name: b.id.Name, Type: b.t, Pos: b.id.Pos(), id: b.id, group: g, used: true, refused: refused})
+		t := b.t
+		if j, ok := joined[b.id.Name]; ok {
+			t = j
+		}
+		v := c.bindLocal(&Var{Name: b.id.Name, Type: t, Pos: b.id.Pos(), id: b.id, group: g, used: true, refused: refused})
 		if isInvalid(b.t) {
 			g.used = true // an invalid pattern adds no S110 (D3)
 		}
@@ -920,7 +954,7 @@ func (c *checker) declareArm(all [][]patBinding) []armVar {
 		c.fn.scope.insert(b.id.Name, v)
 		b.info.Var = v
 		vars[b.id.Name] = v
-		types[b.id.Name] = b.t
+		types[b.id.Name] = t
 		out = append(out, armVar{name: b.id, group: g, as: b.as})
 	}
 	for k, item := range items[1:] {
@@ -946,8 +980,11 @@ func (c *checker) declareArm(all [][]patBinding) []armVar {
 			}
 			c.def(b.id, v)
 			b.info.Var = v
+			if _, ok := joined[b.id.Name]; ok {
+				continue
+			}
 			if t := types[b.id.Name]; !isInvalid(t) && !isInvalid(b.t) && !c.identical(t, b.t) {
-				c.errorf(b.id, CodeType, "%s is bound as %s by the first pattern of its case and as %s here; every pattern of a case binds each name with one type (rows.md, Totality 1)", b.id.Name, t, b.t)
+				c.errorf(b.id, CodeType, "%s is bound as %s by the first pattern of its case and as %s here, and the two have no join: a name the patterns of a case bind at several types binds at the row value of failures of the caught row, or at the one union that lists each (rows.md, Totality 1)", b.id.Name, t, b.t)
 				groups[b.id.Name].used = true // reported: no S110 beside it (D3)
 				// The name binds with the invalid type, so its reads in the
 				// body add nothing (D3).

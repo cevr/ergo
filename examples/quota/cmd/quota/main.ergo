@@ -1,0 +1,105 @@
+// quota is a storage quota console: it reads an operator's commands on standard
+// input, one per line, and answers each. Package quota is the
+// double-entry Table and the Store contract, console the commands, memory
+// and file the two stores. This binary is the only place that chooses
+// the store: a memory one, or with -journal a journal file on the host's
+// disk, which outlives the run.
+
+import flag
+import fs
+import fstest
+import io
+import quota/file
+import quota/quota
+import quota/memory
+import quota/console
+import os
+
+let Journal = flag.String("journal", "", "keep the quota in the journal `file`; without it the quota lives in memory for one run")
+
+// Set is the command line's flags.
+func Set() flag.Set {
+	flag.Set{Name: "quota", Usage: "quota answers an operator's commands from standard input: open VOL [OVERCOMMIT], grant KEY VOL SIZE, reclaim KEY VOL SIZE, move KEY FROM TO SIZE, size VOL, volumes.", Flags: []flag.Flag{Journal}, Args: []flag.ArgSpec{}}
+}
+
+// read is the journal path of args ("" for memory), None after help, or
+// the end of the program.
+func read(args []string) Option[string] fails os.Exit needs io.Stdout {
+	let set = Set()
+	let v = flag.Parse(set, args) catch {
+	case err:
+		try flag.Exit(err, flag.Usage(set))
+		return None
+	}
+	Some[string]{Value: Journal.Get(v)}
+}
+
+func main() fails os.Exit needs Ambient {
+	let disk = fs.NewHost()
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewHost() } { try run(os.Process.Args(), disk, disk) }
+}
+
+// run is the program after main binds the host. The disk is a parameter,
+// not a capability, because only the journal store uses it, and a test
+// gives an fstest.Memory.
+func run(args []string, disk fs.Files, writes fs.Writes) fails os.Exit needs io.Stdout | io.Stdin {
+	let path = match try read(args) {
+	case Some[string] as s:
+		s.Value
+	case None:
+		return
+	}
+	let text = io.Stdin.ReadAll() catch {
+	case io.ReadFailed as r:
+		return os.Exit{Code: 1, Message: "quota: \(r.Reason)"}
+	}
+	let cs = console.ParseAll(text) catch {
+	case console.BadCommand as b:
+		return os.Exit{Code: 2, Message: "quota: line \(b.Line): \(b.Reason)"}
+	}
+	let store quota.Store = if path == "" { memory.NewStore() } else { file.At(path, disk, writes) }
+	with context { quota.Store: store } { serve(cs) } catch {
+	case quota.Unavailable as u:
+		return os.Exit{Code: 1, Message: "quota: \(u.Reason)"}
+	}
+}
+
+// serve answers each command as it is carried out, so the answers before
+// a store fails are written.
+func serve(cs []console.Command) fails quota.Unavailable needs quota.Store | io.Stdout {
+	for c in cs {
+		io.Stdout.Println(try console.Do(c))
+	}
+}
+
+// session is the output of a run of args on input, with disk as the
+// host's file system, or the exit it ends with.
+func session(args []string, input string, disk fstest.Memory) string {
+	let out = io.NewRecorder()
+	with context { io.Stdout: out, io.Stdin: io.Input{Text: input} } { run(args, disk, disk) } catch {
+	case os.Exit as e:
+		return out.Text() + "exit \(e.Code): \(e.Message)"
+	}
+	out.Text()
+}
+
+test MemoryForgets {
+	let d = fstest.NewMemory()
+	assert session([]string{}, "open home\ngrant g1 home 5\n", d) == "opened home\n#1 g1: 5.00 GB from pool to home\n"
+	assert session([]string{}, "size home\n", d) == "refused: no volume home\n"
+}
+
+test JournalRemembers {
+	let d = fstest.NewMemory()
+	let args = []string{"-journal", "quota.journal"}
+	assert session(args, "open home\ngrant g1 home 5\n", d) == "opened home\n#1 g1: 5.00 GB from pool to home\n"
+	assert session(args, "grant g1 home 5\ngrant g2 home 2.50\nsize home\n", d) == "#1 g1: 5.00 GB from pool to home\n#2 g2: 2.50 GB from pool to home\nhome 7.50 GB\n"
+	assert try d.ReadFile("quota.journal") == "open\t\"home\"\t0\npost\t\"g1\"\t\"pool\"\t\"home\"\t500\npost\t\"g2\"\t\"pool\"\t\"home\"\t250\n"
+}
+
+test RefusalsExit {
+	let d = try memory.Files(Map[string, string]{"bad.journal": "open\thome\t0\n"})
+	assert session([]string{"-journal", "bad.journal"}, "open logs\nvolumes\n", d) == "exit 1: quota: bad.journal:1: home is not a quoted word"
+	assert session([]string{}, "open\n", d) == "exit 2: quota: line 1: open is not open VOL [OVERCOMMIT], grant KEY VOL SIZE, reclaim KEY VOL SIZE, move KEY FROM TO SIZE, size VOL or volumes"
+	assert session([]string{"-h"}, "", d) == flag.Usage(Set())
+}

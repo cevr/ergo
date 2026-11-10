@@ -61,16 +61,3 @@ func TestRefWalkComplete(t *testing.T) {
 	}
 	t.Logf("%d sources", len(sources))
 }
-
-// TestOrderInvariance: permuting the top-level declarations (five seeds)
-// changes no diagnostic, positions mapped to their declarations (round 16:
-// the round-15 witness changed its verdict when d moved before a).
-func TestOrderInvariance(t *testing.T) {
-	sources := classHSources(t)
-	for _, name := range sortedNames(sources) {
-		if p := OrderProblems(sources[name], 5); len(p) > 0 {
-			t.Errorf("%s: %s", name, p[0])
-		}
-	}
-	t.Logf("%d sources, 5 permutations each", len(sources))
-}

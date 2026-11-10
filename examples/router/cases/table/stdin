@@ -1,0 +1,19 @@
+# clients change the table one request at a time; a change that would
+# send a routed topic elsewhere waits for the operator
+route 1 logs disk
+route 2 metrics socket
+route 3 logs stdout
+route 4 alerts stdout
+remove 5 metrics
+# an id is answered once
+route 3 traces disk
+abort 4
+yes
+route 6 traces nowhere
+route 7 metrics disk
+no
+abort 7
+no
+remove 8 metrics
+send logs hello
+send alerts hello

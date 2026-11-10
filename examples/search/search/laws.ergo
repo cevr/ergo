@@ -1,90 +1,31 @@
-// The rules of the search as laws over its machine, run by Drive on the
-// virtual clock with the Typical costs. Each needs the Catalog and the
-// Cart, so each is a function here, and package memory states it as a law
-// over its providers: a law needs no service. (A law of this package
-// that takes a Catalog and a Cart would now run there too.) Machines
-// carry no laws yet (M55). Each law draws its key times from integers.
+// The step's own rules, as top-level laws over Step. MU6 machine laws
+// landed beside this program; moving these into Finder is a follow-up.
+// The live laws are in memory, where the index is.
 
-import machines
-import strings
-
-// Typical is the cost of the work in the laws and the script: a search
-// takes 400ms, an add 100ms.
-let Typical = Costs{Find: 400ms, Add: 100ms}
-
-// word is what the laws type, one letter a key, at most eight keys.
-let word = "apricot "
-
-// Typed is a trace of keys: the keys at their times, the time of the last
-// key, and the text they type.
-type Typed { Trace []machines.Timed[Signal], Last duration, Text string }
-
-func millis(n int) duration { duration(int64(n) * 1000000) }
-
-// typing types the first letter of word at 0 and one more letter after
-// each gap, until the word ends: gap(g) is the time from the key before.
-func typing(gaps []int, gap func(int) duration) Typed {
-	let mut t = 0s
-	let mut trace = []machines.Timed[Signal]{machines.Timed[Signal]{At: 0s, Signal: Key{Text: word[0:1]}}}
-	let mut text = word[0:1]
-	for i, g in gaps {
-		if i+1 < len(word) {
-			t = t + gap(g)
-			let letter = word[i+1 : i+2]
-			trace = trace.Append(machines.Timed[Signal]{At: t, Signal: Key{Text: letter}})
-			text = text + letter
-		}
+// PinsHoldRoom: a hit is pinned and told, unless the
+// pins hold Room entries; then the screen shows the problem.
+law PinsHoldRoom(n int) {
+	let have = ((n % 5) + 5) % 5
+	let mut pins = []Entry{}
+	for i in 0..have {
+		pins = pins.Append(Entry{Name: "x\(i)", Size: i})
 	}
-	Typed{Trace: trace, Last: t, Text: text}
-}
-
-func drive(k Typed, end duration) Report needs Catalog | Cart {
-	Drive(machines.Start(Finder{}, []Item{}), k.Trace, end, Typical)
-}
-
-// HitsForLatestQuery: once the keys stop, the search shows the hits of
-// the whole text typed, whatever the gaps between the keys were, as soon
-// as the pause and the search have passed.
-func HitsForLatestQuery(gaps []int) bool needs Catalog | Cart {
-	let k = typing(gaps, func(g int) duration { millis(pick(g, 700)) })
-	let r = drive(k, k.Last+Pause+Typical.Find)
-	strings.HasPrefix(Name(r.Last), "showing") && QueryOf(r.Last) == k.Text
-}
-
-// AtMostOneSearch: a key stops the running search, so two searches never
-// run at once.
-func AtMostOneSearch(gaps []int) bool needs Catalog | Cart {
-	let k = typing(gaps, func(g int) duration { millis(pick(g, 700)) })
-	let r = drive(k, k.Last+2s)
-	r.MostAtOnce <= 1
-}
-
-// NoStaleHits: every show of hits shows the hits of its own query, and no
-// result of an ended entry reaches the step. Half the gaps are exactly
-// the pause and a search, so that a key comes at the very instant a
-// search ends: its result is in the inbox already, and only the epoch
-// stops it (M46).
-func NoStaleHits(gaps []int) bool needs Catalog | Cart {
-	let k = typing(gaps, func(g int) duration {
-		if g%2 == 0 { millis(pick(g, 700)) } else { Pause + Typical.Find }
-	})
-	let r = drive(k, k.Last+2s)
-	for s in r.Seen {
-		let hits = Catalog.Find(s.Query) catch {
-		case IndexDown:
-			return false
-		}
-		if Names(hits) != s.Hits {
-			return false
-		}
+	let hits = []Entry{Entry{Name: "Pear.md", Size: 150}}
+	let d = Step(Showing{Query: "pe", Hits: hits, Pins: pins}, Pin{Hit: 1}) catch {
+	case NoSuchHit:
+		return false
 	}
-	r.Late == 0
-}
-
-// DebounceCoalesces: keys that each come within 250ms of the key before
-// give one search, of the whole text.
-func DebounceCoalesces(gaps []int) bool needs Catalog | Cart {
-	let k = typing(gaps, func(g int) duration { millis(pick(g, 250)) })
-	let r = drive(k, k.Last+2s)
-	r.Searches == 1
+	match d {
+	case Emit[Search, Output] as e:
+		have < Room && len(PinsOf(e.Next)) == have+1 && e.Output == Pinned{Name: "Pear.md"}
+	case Enter[Search] as en:
+		match en.Next {
+		case Problem as p:
+			have >= Room && len(p.Pins) == have
+		case _:
+			false
+		}
+	case _:
+		false
+	}
 }

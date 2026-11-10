@@ -31,7 +31,14 @@ import (
 //     the rule, with the copying lowering "copy" (the rule without owned
 //     parameters), with maps.Update written at its site with its Option
 //     (updateLowering "option") and with it called (updateLowering
-//     "call", update.go), all four print the model's lines.
+//     "call", update.go), all four print the model's lines. After it, the
+//     program makes Refs of Maps (V6) from literals and bindings, and
+//     changes them with literals that write in place, delete, keep a
+//     share (idM), read through a pure call (sizes), call an owned helper
+//     with two returns (putPair), return from two arms, return the value
+//     twice ((m, m)) or store a binding, with the plain functions upRef and
+//     dupM, and with Get and Set; then it prints every binding and Ref. The
+//     copying lowering, which hands nothing over, is the reference.
 //   - The unshared program writes only through let mut roots bound from
 //     literals and reads them only to print, so no write is shared. Lowered
 //     with the rule and with the reference (valueLowering "alias"), both
@@ -57,7 +64,6 @@ const (
 	kMaps               // []Map[int, int]
 )
 
-var kindType = []string{"Map[int, int]", "[]int", "Box", "[]Map[int, int]"}
 var kindDigest = []string{"dm", "ds", "db", "dms"}
 
 // mval is a model value: m and s for a Map, a slice or a Box, ms for a
@@ -147,9 +153,125 @@ type valueGen struct {
 	n       int
 	reached map[string]bool
 	pending []func() // prints of closures and tasks, run at the end
+	refs    []*vref
+}
+
+// vref is a sync.Ref[Map[int, int]] of main and the model of its value.
+type vref struct {
+	name string
+	m    map[int]int
+}
+
+const refFn = "func(m Map[int, int]) "
+
+// refStmt writes one statement over the Refs (V6) and runs it on the
+// model: a Ref owns its value, so no binding outside it sees a write made
+// through it, and a value the Ref keeps is never one a binding sees
+// written. The literal sites take the value over and write it in place;
+// the functions upRef and dupM take the plain call.
+func (g *valueGen) refStmt() {
+	maps1 := func(b *vbind) bool { return b.kind == kMap }
+	r := g.refs
+	if len(r) == 0 || g.r.IntN(8) == 0 {
+		x, v, how := g.source(kMap)
+		name := g.fresh()
+		g.line(fmt.Sprintf("let %s = cell(%s)", name, x))
+		g.refs = append(g.refs, &vref{name: name, m: v.m})
+		g.reached["ref new "+how] = true
+		return
+	}
+	ref := r[g.r.IntN(len(r))]
+	k, v := g.r.IntN(9), g.r.IntN(9)
+	keep := func(kind string, m map[int]int) {
+		name := g.fresh()
+		g.binds = append(g.binds, &vbind{name: name, kind: kMap, val: mval{m: maps.Clone(m)}})
+		g.reached["ref "+kind] = true
+		_ = name
+	}
+	switch g.r.IntN(12) {
+	case 0:
+		g.line(fmt.Sprintf("%s.Update(%sMap[int, int] { let mut u = m\n\t\tu[%d] = %d\n\t\tu })", ref.name, refFn, k, v))
+		ref.m[k] = v
+		g.reached["ref own write"] = true
+	case 1:
+		g.line(fmt.Sprintf("%s.Update(%sMap[int, int] { m.Delete(%d) })", ref.name, refFn, k))
+		delete(ref.m, k)
+		g.reached["ref own delete"] = true
+	case 2:
+		g.line(fmt.Sprintf("let v%d = %s.Get()", g.n+1, ref.name))
+		keep("get", ref.m)
+	case 3:
+		b := g.pick(maps1)
+		if b == nil {
+			return
+		}
+		g.line(fmt.Sprintf("%s.Set(%s)", ref.name, b.name))
+		ref.m = maps.Clone(b.val.m)
+		g.reached["ref set"] = true
+	case 4:
+		g.line(fmt.Sprintf("let v%d = sync.Modify(%s, %s(Map[int, int], Map[int, int]) { (m, m) })", g.n+1, ref.name, refFn))
+		keep("modify both", ref.m)
+	case 5:
+		g.line(fmt.Sprintf("let v%d = sync.Modify(%s, %s(int, Map[int, int]) { let kept = idM(m)\n\t\tlet mut u = m\n\t\tu[%d] = %d\n\t\t(dm(kept), u) })", g.n+1, ref.name, refFn, k, v))
+		fmt.Fprintf(&g.want, "%d\n", dmModel(ref.m))
+		g.line(fmt.Sprintf("Console.Println(\"\\(v%d)\")", g.n+1))
+		g.n++
+		ref.m[k] = v
+		g.reached["ref kept"] = true
+	case 6:
+		g.line(fmt.Sprintf("let v%d = sync.Modify(%s, %s([]int, Map[int, int]) { let s = sizes(m)\n\t\tlet mut u = m\n\t\tu[%d] = %d\n\t\t(s, u) })", g.n+1, ref.name, refFn, k, v))
+		fmt.Fprintf(&g.want, "%d\n", dsModel([]int{len(ref.m)}))
+		g.line(fmt.Sprintf("Console.Println(\"\\(ds(v%d))\")", g.n+1))
+		g.n++
+		ref.m[k] = v
+		g.reached["ref pure read"] = true
+	case 7:
+		g.line(fmt.Sprintf("let v%d = sync.Modify(%s, %s(int, Map[int, int]) { putPair(m, %d) })", g.n+1, ref.name, refFn, k))
+		fmt.Fprintf(&g.want, "%d\n", len(ref.m))
+		g.line(fmt.Sprintf("Console.Println(\"\\(v%d)\")", g.n+1))
+		g.n++
+		if k <= 4 {
+			ref.m[k] = k + 500
+		}
+		g.reached["ref owned helper"] = true
+	case 8:
+		g.line(fmt.Sprintf("let v%d = sync.Modify(%s, %s(int, Map[int, int]) {\n\t\tif %d > 4 {\n\t\t\treturn (1, m)\n\t\t}\n\t\tlet mut u = m\n\t\tu[%d] = %d\n\t\t(2, u)\n\t})", g.n+1, ref.name, refFn, k, k, v))
+		want := 2
+		if k > 4 {
+			want = 1
+		} else {
+			ref.m[k] = v
+		}
+		fmt.Fprintf(&g.want, "%d\n", want)
+		g.line(fmt.Sprintf("Console.Println(\"\\(v%d)\")", g.n+1))
+		g.n++
+		g.reached["ref arms"] = true
+	case 9:
+		if g.r.IntN(2) == 0 {
+			g.line(fmt.Sprintf("%s.Update(upRef)", ref.name))
+			ref.m[9] = 900
+			g.reached["ref plain update"] = true
+			return
+		}
+		g.line(fmt.Sprintf("let v%d = sync.Modify(%s, dupM)", g.n+1, ref.name))
+		keep("plain modify", ref.m)
+	case 10:
+		b := g.pick(maps1)
+		if b == nil {
+			return
+		}
+		g.line(fmt.Sprintf("%s.Update(%sMap[int, int] { %s })", ref.name, refFn, b.name))
+		ref.m = maps.Clone(b.val.m)
+		g.reached["ref store outside"] = true
+	default:
+		g.line(fmt.Sprintf("Console.Println(\"\\(sync.Modify(%s, %s(int, Map[int, int]) { (dm(m), m) }))\")", ref.name, refFn))
+		fmt.Fprintf(&g.want, "%d\n", dmModel(ref.m))
+		g.reached["ref print"] = true
+	}
 }
 
 const valuePrelude = `import maps
+import sync
 import task
 
 type Box { M Map[int, int], S []int }
@@ -240,6 +362,33 @@ func peekM(m Map[int, int], k int) int {
 	c[k] = k + 300
 	dm(c) + dm(m)
 }
+
+// cell is a Ref that holds m (V6: NewRef stores a value shared outside).
+func cell(m Map[int, int]) sync.Ref[Map[int, int]] { sync.NewRef[Map[int, int]](m) }
+
+// sizes is pure, and its result reaches no Map type of its argument, so
+// its call keeps nothing of m.
+func sizes(m Map[int, int]) []int { []int{len(m)} }
+
+// putPair owns m, and returns it from two returns, as fstest's write does.
+func putPair(m Map[int, int], k int) (int, Map[int, int]) {
+	let at = len(m)
+	let mut u = m
+	if k > 4 {
+		return (at, u)
+	}
+	u[k] = k + 500
+	(at, u)
+}
+
+// upRef and dupM are Ref functions that are not literals: the plain call.
+func upRef(m Map[int, int]) Map[int, int] {
+	let mut c = m
+	c[9] = 900
+	c
+}
+
+func dupM(m Map[int, int]) (Map[int, int], Map[int, int]) { (m, m) }
 
 func apply(f func(k int)) {
 	f(3)
@@ -742,6 +891,20 @@ func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want 
 	for _, f := range g.pending {
 		f()
 	}
+	if shared {
+		// The Refs (V6), then every binding and Ref as the model has it:
+		// a write through a Ref changes no binding.
+		for range 30 {
+			g.refStmt()
+		}
+		for _, b := range g.binds {
+			g.print(b.name, b.kind, b.val.digest(b.kind))
+		}
+		for _, ref := range g.refs {
+			g.line(fmt.Sprintf("Console.Println(\"\\(dm(%s.Get()))\")", ref.name))
+			fmt.Fprintf(&g.want, "%d\n", dmModel(ref.m))
+		}
+	}
 	g.line("Console.Println(\"\\(len(calls))\")")
 	g.want.WriteString("0\n")
 	g.line("let last = task.Go() { len(calls) + 1 }")
@@ -782,7 +945,13 @@ func lowerValueMode(t *testing.T, name, src string, rule bool, mode ...string) *
 }
 
 // TestValueRuleAgrees is the seeded property (see above).
+//
+// It builds Go because it compares the runs of built programs with a
+// reference (another lowering, a fold, or Go's own package), and the
+// question is behaviour at run time; no in-process check observes that, and
+// Ergo has no reference interpreter yet (test-speed T8).
 func TestValueRuleAgrees(t *testing.T) {
+	needsBuild(t)
 	seeds := []uint64{1, 2, 3, 4, 5, 6}
 	if *valueSeed != 0 {
 		seeds = []uint64{*valueSeed}
@@ -853,4 +1022,7 @@ var valuePaths = []string{
 	"write field map", "write field slice", "append field", "write element",
 	"own rebind", "own loop", "own capture", "own slice", "own field", "own live",
 	"update rebind", "update rebind option", "update field", "update live",
+	"ref new literal", "ref new binding", "ref own write", "ref own delete", "ref get", "ref set", "ref modify both",
+	"ref kept", "ref pure read", "ref owned helper", "ref arms", "ref plain update", "ref plain modify",
+	"ref store outside", "ref print",
 }

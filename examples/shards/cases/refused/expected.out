@@ -1,0 +1,13 @@
+screen: staging: 0 parts, 0.00
+> add logs 500
+screen: staging: 1 parts, 5.00
+> place disk:0999:500
+screen: staging: 1 parts, 5.00 (disk 0999 full)
+> place disk:4111:200 tape:XZ:300
+screen: staging: 1 parts, 5.00 (tape XZ offline; 1 erased)
+> place disk:4111:300 tape:AB:200
+screen: summary: 5.00 written to disk-4111, tape-AB
+> cancel
+(ignored)
+screen: summary: 5.00 written to disk-4111, tape-AB
+left at: summary: 5.00 written to disk-4111, tape-AB

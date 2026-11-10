@@ -88,6 +88,8 @@ type ExecResult struct {
 // name with args in dir ("" is the caller's working directory), with the
 // host process's environment and env's entries over it, and with stdin as
 // its standard input.
+//
+//ergo:host
 func ExecRun(t *rt.Task, name string, args []string, env map[string]string, dir string, stdin string) (ExecResult, error) {
 	t.Check()
 	if name == "" {

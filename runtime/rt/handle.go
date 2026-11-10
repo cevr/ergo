@@ -19,7 +19,19 @@ type Handle[T any] struct {
 // unconsumed, s stops and drains it before releasing anything acquired
 // earlier: the structured-lend guarantee (resources.md R27).
 func Go[T any](s *Scope, span string, body func(*Task) (T, error)) *Handle[T] {
-	h := spawn(s.task, span, false, body)
+	h := spawn(s.task, span, false, false, body)
+	s.push(entry{run: closeResource{}, v: h})
+	return h
+}
+
+// GoShielded is Go for a child that its owner stops itself: the stop that
+// cascades from s's task does not reach it, as for a release-owned child
+// (I2), with no mask of s's task. Its handle's Stop, a timeout and s's
+// drain still interrupt it directly. An owner that must stop its children
+// in an order of its own uses it (runtime/v1's actor stops an entry's
+// children, then its work, MU5): a cascade would stop them all at once.
+func GoShielded[T any](s *Scope, span string, body func(*Task) (T, error)) *Handle[T] {
+	h := spawn(s.task, span, false, true, body)
 	s.push(entry{run: closeResource{}, v: h})
 	return h
 }
@@ -32,16 +44,16 @@ func Go[T any](s *Scope, span string, body func(*Task) (T, error)) *Handle[T] {
 // restore belongs to the body: use it only on the child's goroutine and only
 // while the body runs; it must not escape the callback.
 func GoMasked[T any](s *Scope, span string, body func(t *Task, restore Mask) (T, error)) *Handle[T] {
-	h := spawn(s.task, span, true, func(t *Task) (T, error) {
+	h := spawn(s.task, span, true, false, func(t *Task) (T, error) {
 		return body(t, Mask{t: t, index: 0})
 	})
 	s.push(entry{run: closeResource{}, v: h})
 	return h
 }
 
-func spawn[T any](parent *Task, span string, masked bool, body func(*Task) (T, error)) *Handle[T] {
+func spawn[T any](parent *Task, span string, masked, shield bool, body func(*Task) (T, error)) *Handle[T] {
 	h := &Handle[T]{owner: parent, done: make(chan struct{})}
-	h.task.init(parent, span, masked)
+	h.task.init(parent, span, masked, shield)
 	go h.run(body)
 	return h
 }

@@ -469,13 +469,11 @@ func minWithPos(info *check.Info) syntax.Pos {
 var (
 	severalSeed1 = check.NewSplit(check.Split[severalAt]{
 		Name: "TestSeveralOperandsAreNestingSeed1", Parts: 4, Short: 8,
-		Count: 2100, Digest: "633073397417c8ccaf6edbdda064d3128c69d76b328feaec0ef2f156cdc9a338",
 		Cases: severalDomain(1), Key: severalKey,
 		Run: func(t *testing.T, cases iter.Seq[severalAt]) { runSeveral(t, cases) },
 	})
 	severalDeterministic = check.NewSplit(check.Split[severalAt]{
 		Name: "TestSeveralOperandsAreNestingDeterministic", Parts: 8, Short: 8,
-		Count: 2100, Digest: "633073397417c8ccaf6edbdda064d3128c69d76b328feaec0ef2f156cdc9a338",
 		Cases: severalDomain(1), Key: severalKey,
 		Run: func(t *testing.T, cases iter.Seq[severalAt]) {
 			first := runSeveral(t, cases)
@@ -486,7 +484,6 @@ var (
 	})
 	severalSeed2 = check.NewSplit(check.Split[severalAt]{
 		Name: "TestSeveralOperandsAreNestingSeed2", Parts: 4, Short: 8,
-		Count: 2100, Digest: "0244a13daaafd92706838fb15d188d6c3bc8c9c6f32857a0b57e8978ade13c73",
 		Cases: severalDomain(2), Key: severalKey,
 		Run: func(t *testing.T, cases iter.Seq[severalAt]) { runSeveral(t, cases) },
 	})

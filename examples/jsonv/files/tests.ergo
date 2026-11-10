@@ -1,7 +1,7 @@
 // Disk's tests, over an fstest.Memory and a standard input held in
-// memory. They restate app.Documents.ReadIsRepeatable for Disk, which
-// ergo test skips (Disk holds an fs.Files and has no constructor without
-// rows; expected-skips).
+// memory. ergo test runs app.Documents.ReadIsRepeatable on a generated
+// Disk, whose io.Input gives its text to every read; ReadIsRepeatableHolds
+// restates it with an input that drains, as the host's does.
 
 import fs
 import fstest

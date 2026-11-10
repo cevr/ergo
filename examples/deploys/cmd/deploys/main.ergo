@@ -1,0 +1,44 @@
+// deploys is an HTTP/1.1 deploys server for one connection: it reads the
+// connection's requests from standard input and writes each response to
+// standard output, as a program under inetd does. Ergo has no listener
+// yet (gap G-ex-c-7), so a socket reaches it through a tool such as
+// `socat TCP-LISTEN:8080,reuseaddr,fork EXEC:./deploys`. Package api is
+// the HTTP layer as plain functions, package http1 the HTTP/1.1 text format, and
+// package deploys the domain. This binary is the only place that chooses
+// the providers: the memory Table and the host's standard streams.
+
+import io
+import deploys/http1
+import deploys/memory
+import deploys/deploys
+import os
+
+// Memory binds the in-memory Table: the deploys of one connection.
+let Memory = context { deploys.Store: memory.NewTable() }
+
+// run serves the whole of standard input. io.Stdin has no read of a
+// given length, so the requests are read to the end of the input before
+// the first answer (gap G-ex-c-8).
+func run() fails os.Exit needs io.Stdin | io.Stdout {
+	let text = io.Stdin.ReadAll() catch {
+	case io.ReadFailed as f:
+		return os.Exit{Code: 1, Message: "deploys: cannot read standard input: " + f.Reason}
+	}
+	with Memory {
+		let _ = http1.Serve(text)
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { io.Stdin: io.NewHost(), io.Stdout: io.NewHost() } {
+		try run()
+	}
+}
+
+test ServesStandardInput {
+	let out = io.NewRecorder()
+	with context { io.Stdin: io.Input{Text: "GET /deploys HTTP/1.1\r\n\r\n"}, io.Stdout: out } {
+		try run()
+	}
+	assert out.Text() == "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n[]"
+}

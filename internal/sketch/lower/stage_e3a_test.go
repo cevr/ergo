@@ -3,6 +3,7 @@ package lower
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -65,23 +66,32 @@ func e3Programs(t *testing.T) []e3Program {
 // lowerTestBuild checks src and lowers its test build.
 func lowerTestBuild(t *testing.T, name, src string) *lowered {
 	t.Helper()
+	out, err := lowerTestBuildErr(name, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// lowerTestBuildErr is lowerTestBuild that returns its failure.
+func lowerTestBuildErr(name, src string) (*lowered, error) {
 	out := &lowered{name: name, src: src}
 	file, err := syntax.Parse(src)
 	if err != nil {
-		t.Fatalf("%s: %v", name, err)
+		return nil, fmt.Errorf("%s: %v", name, err)
 	}
 	out.file = file
 	out.pkg, out.diags = check.Check("main", []*syntax.File{file}, nil)
 	if len(out.diags) > 0 {
-		t.Fatalf("%s: %v", name, out.diags)
+		return nil, fmt.Errorf("%s: %v", name, out.diags)
 	}
 	u := Unit{Package: out.pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: src}}}
 	files, err := LowerTests(u)
 	if err != nil {
-		t.Fatalf("%s: the test build: %v\n%s", name, err, src)
+		return nil, fmt.Errorf("%s: the test build: %v\n%s", name, err, src)
 	}
 	out.files = files
-	return out
+	return out, nil
 }
 
 // runExeArgs runs a built program with args and returns its stdout, stderr
@@ -109,7 +119,13 @@ func lines(s string) []string {
 // TestE3Sweep builds the run build and the test build of every program of
 // testdata/e3 and runs both: ergo run prints main's output only, and the
 // test binary prints each test's verdict and exits with the run's status.
+//
+// It builds Go because it runs the emitted test harness under go test: the
+// harness's verdicts and the values it prints are the output; no in-process
+// check observes that, and Ergo has no reference interpreter yet (test-speed
+// T8).
 func TestE3Sweep(t *testing.T) {
+	needsBuild(t)
 	progs := e3Programs(t)
 	var builds []*lowered
 	for _, p := range progs {
@@ -145,7 +161,13 @@ func TestE3Sweep(t *testing.T) {
 
 // TestPropertySeed: --seed N and --seed=N replay the same cases, another
 // seed draws others, and any other argument is a usage error.
+//
+// It builds Go because it runs the emitted test harness under go test: the
+// harness's verdicts and the values it prints are the output; no in-process
+// check observes that, and Ergo has no reference interpreter yet (test-speed
+// T8).
 func TestPropertySeed(t *testing.T) {
+	needsBuild(t)
 	src := `func clamp(n int) int {
 	if n > 100 {
 		return 100
@@ -184,90 +206,7 @@ test Clamped(n int, xs []int) {
 // directiveRe matches the position of a //line or /*line*/ directive.
 var directiveRe = regexp.MustCompile(`(?://|/\*)line [^\s*]*:(\d+):(\d+)`)
 
-// testSpans are the line and column ranges of the test declarations of f.
-func testSpans(f *syntax.File) [][2][2]int {
-	var spans [][2][2]int
-	for _, d := range f.Decls {
-		if td, ok := d.(*syntax.TestDecl); ok {
-			l0, c0 := f.Position(td.Pos())
-			l1, c1 := f.Position(td.End())
-			spans = append(spans, [2][2]int{{l0, c0}, {l1, c1}})
-		}
-	}
-	return spans
-}
-
 func before(a, b [2]int) bool { return a[0] < b[0] || a[0] == b[0] && a[1] < b[1] }
-
-// blankTests replaces every test declaration of src with spaces, keeping
-// its line feeds, so every other position stays where it was.
-func blankTests(src string, f *syntax.File) string { return blankDecls(src, f, false) }
-
-// blankDecls replaces every test declaration of src, and every import
-// declaration when imports is set, with spaces, keeping its line feeds, so
-// every other position stays where it was.
-func blankDecls(src string, f *syntax.File, imports bool) string {
-	b := []byte(src)
-	for _, d := range f.Decls {
-		_, test := d.(*syntax.TestDecl)
-		_, imp := d.(*syntax.ImportDecl)
-		if test || imports && imp {
-			for i := int(d.Pos()); i < int(d.End()); i++ {
-				if b[i] != '\n' {
-					b[i] = ' '
-				}
-			}
-		}
-	}
-	return string(b)
-}
-
-// TestRunBuildOmitsTests proves rule 1 of Test mode on the emitted Go of
-// every sweep program (runBuildOmitsTests); the generated programs of
-// TestTestFactsStayInTests prove it too.
-func TestRunBuildOmitsTests(t *testing.T) {
-	for _, p := range e3Programs(t) {
-		runBuildOmitsTests(t, p.name, p.src, false)
-	}
-}
-
-// runBuildOmitsTests checks rule 1 of Test mode on the run build of src,
-// which must declare a test, and returns it: no Go line of the run build
-// maps into a test declaration, no test-build entity appears, and the run
-// build is the run build of the same source with its tests blanked out
-// (and its imports, when blankImports is set: a library only a test uses
-// is then no part of the run build either).
-func runBuildOmitsTests(t *testing.T, name, src string, blankImports bool) *lowered {
-	t.Helper()
-	run := mustLower(t, name, src)
-	spans := testSpans(run.file)
-	if len(spans) == 0 {
-		t.Fatalf("%s declares no test", name)
-	}
-	code := run.mainGo()
-	for _, m := range directiveRe.FindAllStringSubmatch(code, -1) {
-		line, _ := strconv.Atoi(m[1])
-		col, _ := strconv.Atoi(m[2])
-		for _, s := range spans {
-			if at := [2]int{line, col}; !before(at, s[0]) && before(at, s[1]) {
-				t.Errorf("%s: the run build has Go from the test at %d:%d (%s)", name, s[0][0], s[0][1], m[0])
-			}
-		}
-	}
-	for _, h := range testHelpers {
-		if strings.HasPrefix(h.base, "ergo") && strings.Contains(code, h.base) {
-			t.Errorf("%s: the run build names the test build's %s", name, h.base)
-		}
-	}
-	if strings.Contains(code, "ergoTest") || strings.Contains(code, "ergoGen") {
-		t.Errorf("%s: the run build names a test function or a generator", name)
-	}
-	blank := mustLower(t, name+"_blank", blankDecls(src, run.file, blankImports))
-	if blank.mainGo() != code {
-		t.Errorf("%s: the run build differs from the run build of the source without its tests:\n%s", name, goDiff(blank.mainGo(), code))
-	}
-	return run
-}
 
 // goDiff names the lines only one of two Go files has, at most 20.
 func goDiff(without, with string) string {

@@ -38,7 +38,7 @@ type Declaration struct {
 // openImage, one per platform, returns the executing image's bytes: through
 // /proc/self/exe on Linux, verified against the kernel's code signature record
 // on Darwin, and nowhere else.
-var current = acquireOnce(openImage, debug.ReadBuildInfo, processNonce)
+var current = acquireOnce(openImage, debug.ReadBuildInfo, processNonce, rememberedMemo)
 
 func processNonce() (string, error) {
 	var bytes [32]byte
@@ -68,7 +68,9 @@ var (
 // streamed work, not the semantic projection's metadata budget.
 const maxImageBytes = 256 << 20
 
-func acquireOnce(open func() (io.ReadCloser, error), info func() (*debug.BuildInfo, bool), nonce func() (string, error)) func() Identity {
+// memo, when it gives a memo, recalls the image's digest by its key
+// (memo.go) instead of hashing it, and records a digest it computes.
+func acquireOnce(open func() (io.ReadCloser, error), info func() (*debug.BuildInfo, bool), nonce func() (string, error), memo func() *imageMemo) func() Identity {
 	return sync.OnceValue(func() Identity {
 		identity := Identity{Strength: "unavailable", ReuseScope: "none"}
 		fallback := func() Identity {
@@ -81,36 +83,60 @@ func acquireOnce(open func() (io.ReadCloser, error), info func() (*debug.BuildIn
 		identity.Declaration = declaration(build, ok)
 		image, err := open()
 		if err != nil {
-			switch err {
-			case errUnsupported:
-				identity.Reason = "executing image identity is unsupported on this platform"
-			case errUnverified:
-				identity.Reason = "executing image does not match the kernel's code signature record"
-			case errNoSignatureRecord:
-				identity.Reason = "executing image has no kernel code signature record"
-			case errUniversal:
-				identity.Reason = "executing image is a universal file, whose other slices the kernel check does not cover"
-			case errWeakDirectory:
-				identity.Reason = "executing image's code directory does not use full SHA-256 page hashes"
-			case errImageTooLarge:
-				identity.Reason = "executing image cannot be read within its byte limit"
-			default:
-				identity.Reason = "executing image cannot be opened"
-			}
+			identity.Reason = imageReason(err, "executing image cannot be opened")
 			return fallback()
 		}
 		defer image.Close()
-		hash := sha256.New()
-		count, err := io.Copy(hash, io.LimitReader(image, maxImageBytes+1))
-		if err != nil || count > maxImageBytes {
-			identity.Reason = "executing image cannot be read within its byte limit"
-			return fallback()
+		var m *imageMemo
+		if memo != nil {
+			m = memo()
+		}
+		key, keyed := "", false
+		if m != nil {
+			key, keyed = imageKey(image)
+		}
+		digest, recalled := "", false
+		if keyed {
+			digest, recalled = m.recall(key)
+		}
+		if !recalled {
+			hash := sha256.New()
+			count, err := io.Copy(hash, io.LimitReader(image, maxImageBytes+1))
+			if err != nil || count > maxImageBytes {
+				identity.Reason = imageReason(err, "executing image cannot be read within its byte limit")
+				return fallback()
+			}
+			digest = "sha256:" + hex.EncodeToString(hash.Sum(nil))
+			if keyed {
+				m.record(key, digest)
+			}
 		}
 		identity.Strength, identity.ReuseScope = "executing-artifact", "artifact"
-		identity.Digest = "sha256:" + hex.EncodeToString(hash.Sum(nil))
+		identity.Digest = digest
 		identity.Qualifier = identity.Digest
 		return identity
 	})
+}
+
+// imageReason says why an image is unavailable, whether opening it or
+// reading it failed (Darwin verifies on the first read); an error the
+// producer does not name gives otherwise, never its own text.
+func imageReason(err error, otherwise string) string {
+	switch err {
+	case errUnsupported:
+		return "executing image identity is unsupported on this platform"
+	case errUnverified:
+		return "executing image does not match the kernel's code signature record"
+	case errNoSignatureRecord:
+		return "executing image has no kernel code signature record"
+	case errUniversal:
+		return "executing image is a universal file, whose other slices the kernel check does not cover"
+	case errWeakDirectory:
+		return "executing image's code directory does not use full SHA-256 page hashes"
+	case errImageTooLarge:
+		return "executing image cannot be read within its byte limit"
+	}
+	return otherwise
 }
 
 func declaration(info *debug.BuildInfo, ok bool) Declaration {

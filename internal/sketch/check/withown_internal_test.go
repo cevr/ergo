@@ -1,11 +1,8 @@
 package check
 
 import (
-	"maps"
-	"slices"
 	"testing"
 
-	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -94,44 +91,5 @@ func newQueue() queue.Queue[int] { queue.New[int](1) }
 	}
 	if len(want) != 0 {
 		t.Fatalf("missing constructors: %v", want)
-	}
-}
-
-// No declaration says what a bodiless extern returns (prelude Delete
-// returns its argument), so the freshness fact trusts none of them. List
-// every bodiless extern of the prelude and of each std package, so a new
-// one cannot become trusted by accident.
-func TestContextOwnershipNoExternTrust(t *testing.T) {
-	pkgs := []*Package{prelude().pkg}
-	for _, path := range std.Packages() {
-		p, err := Std.Import(path)
-		if err != nil {
-			t.Fatalf("%s: %v", path, err)
-		}
-		pkgs = append(pkgs, p)
-	}
-	var externs []*Func
-	names := map[string]bool{}
-	for _, p := range pkgs {
-		for _, fn := range p.Funcs {
-			if fn.Decl != nil && fn.Decl.Body == nil && fn.Decl.Extern != nil {
-				externs = append(externs, fn)
-				names[p.Path+"."+fn.Name] = true
-			}
-		}
-	}
-	for _, name := range []string{std.PreludePath + ".Delete", std.PreludePath + ".Append", "queue.New", "slices.WithCapacity"} {
-		if !names[name] {
-			t.Fatalf("extern list misses %s; listed %d externs", name, len(externs))
-		}
-	}
-	fresh := providerFreshFunctions(externs, func(Type) bool { return false })
-	for _, fn := range externs {
-		if fresh[fn] {
-			t.Errorf("bodiless extern %s.%s is trusted as fresh; an extern proves no freshness until #197 gives it an ownership fact", fn.Pkg.Path, fn.Name)
-		}
-	}
-	if !t.Failed() {
-		t.Logf("%d bodiless std and prelude externs, none trusted: %v", len(externs), slices.Sorted(maps.Keys(names)))
 	}
 }

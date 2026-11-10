@@ -1,0 +1,4 @@
+add logs 500
+add blob 305
+place disk:4111:500 tape:AB:305
+wait

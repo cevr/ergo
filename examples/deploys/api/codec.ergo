@@ -1,0 +1,111 @@
+import deploys/jsontext
+import deploys/deploys
+
+// BadBody is a JSON body of the wrong shape: Field names where, as in
+// deploys.Invalid.
+type BadBody { Field string, Reason string }
+
+// DeployJSON is the JSON form of o.
+func DeployJSON(o deploys.Deploy) jsontext.Value {
+	let mut units = []jsontext.Value{}
+	for l in o.Units {
+		units = units.Append(jsontext.Obj{Fields: []jsontext.Field{
+			jsontext.Field{Name: "image", Value: jsontext.Str{V: l.Image}},
+			jsontext.Field{Name: "replicas", Value: jsontext.Number{Text: "\(l.Replicas)"}},
+			jsontext.Field{Name: "mem", Value: jsontext.Number{Text: "\(l.Mem)"}},
+		}})
+	}
+	jsontext.Obj{Fields: []jsontext.Field{
+		jsontext.Field{Name: "id", Value: jsontext.Str{V: o.ID}},
+		jsontext.Field{Name: "service", Value: jsontext.Str{V: o.Service}},
+		jsontext.Field{Name: "status", Value: jsontext.Str{V: deploys.Name(o.Status)}},
+		jsontext.Field{Name: "total", Value: jsontext.Number{Text: "\(o.Total)"}},
+		jsontext.Field{Name: "units", Value: jsontext.Arr{Items: units}},
+	}}
+}
+
+// DraftOf is the draft that the JSON body v describes:
+// {"service": "…", "units": [{"image": "…", "replicas": n, "mem": n}]}.
+// A member of another name is ignored, as Go's encoding/json ignores it.
+func DraftOf(v jsontext.Value) deploys.Draft fails BadBody {
+	let o = try object(v, "")
+	let service = try text(try member(o, "", "service"), "service")
+	let mut units = []deploys.Unit{}
+	match try member(o, "", "units") {
+	case jsontext.Arr as a:
+		for i, item in a.Items {
+			let at = "units[\(i)]"
+			let l = try object(item, at)
+			units = units.Append(deploys.Unit{
+				Image:    try text(try member(l, at, "image"), at+".image"),
+				Replicas: try integer(try member(l, at, "replicas"), at+".replicas"),
+				Mem:      try integer(try member(l, at, "mem"), at+".mem"),
+			})
+		}
+	case jsontext.Null, jsontext.Bool, jsontext.Number, jsontext.Str, jsontext.Obj:
+		return BadBody{Field: "units", Reason: "is not an array"}
+	}
+	deploys.Draft{Service: service, Units: units}
+}
+
+// object is v as an object; at names it.
+func object(v jsontext.Value, at string) jsontext.Obj fails BadBody {
+	match v {
+	case jsontext.Obj as o:
+		o
+	case jsontext.Null, jsontext.Bool, jsontext.Number, jsontext.Str, jsontext.Arr:
+		BadBody{Field: if at == "" { "body" } else { at }, Reason: "is not an object"}
+	}
+}
+
+// member is the member name of o, which at names.
+func member(o jsontext.Obj, at string, name string) jsontext.Value fails BadBody {
+	match jsontext.Member(o, name) {
+	case Some[jsontext.Value] as v:
+		v.Value
+	case None:
+		BadBody{Field: if at == "" { name } else { at + "." + name }, Reason: "is missing"}
+	}
+}
+
+// text is v as a string; at names it.
+func text(v jsontext.Value, at string) string fails BadBody {
+	match v {
+	case jsontext.Str as s:
+		s.V
+	case jsontext.Null, jsontext.Bool, jsontext.Number, jsontext.Arr, jsontext.Obj:
+		BadBody{Field: at, Reason: "is not a string"}
+	}
+}
+
+// integer is v as an int; at names it.
+func integer(v jsontext.Value, at string) int fails BadBody {
+	match v {
+	case jsontext.Number as n:
+		match jsontext.Int(n) {
+		case Some[int] as i:
+			i.Value
+		case None:
+			BadBody{Field: at, Reason: "is not an integer"}
+		}
+	case jsontext.Null, jsontext.Bool, jsontext.Str, jsontext.Arr, jsontext.Obj:
+		BadBody{Field: at, Reason: "is not a number"}
+	}
+}
+
+// DraftJSON is the JSON form of d, which DraftOf reads back: a client's
+// body, for tests.
+func DraftJSON(d deploys.Draft) jsontext.Value {
+	let mut units = []jsontext.Value{}
+	for l in d.Units {
+		units = units.Append(jsontext.Obj{Fields: []jsontext.Field{
+			jsontext.Field{Name: "image", Value: jsontext.Str{V: l.Image}},
+			jsontext.Field{Name: "replicas", Value: jsontext.Number{Text: "\(l.Replicas)"}},
+			jsontext.Field{Name: "mem", Value: jsontext.Number{Text: "\(l.Mem)"}},
+		}})
+	}
+	jsontext.Obj{Fields: []jsontext.Field{
+		jsontext.Field{Name: "service", Value: jsontext.Str{V: d.Service}},
+		jsontext.Field{Name: "units", Value: jsontext.Arr{Items: units}},
+	}}
+}

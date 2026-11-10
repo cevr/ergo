@@ -146,7 +146,9 @@ func TestCatchAlternativesBindTheSameNames(t *testing.T) {
 		{"record-then-type", "func f() int {\n\tg() catch { case E{N: x}, F: x }\n}", "S108:5"},
 		{"type-then-record", "func f() int {\n\tg() catch { case F, E{N: x}: x }\n}", "S108:5"},
 		{"as-then-type", "func f() int {\n\tg() catch { case E as e, F: 0 }\n}", "S108:5"},
-		{"as-on-both", "type V = E | F\nfunc f() V {\n\tg() catch { case E as e, F as e: return e }\n\tE{N: 1}\n}", "S108:6"},
+		// Two failures join to their row value (TestCatchTreeAgrees);
+		// two field types that no union lists both have no join.
+		{"as-no-join", "type A { N int }\ntype B {}\ntype H { X A, Y B }\nfunc h() int fails H { 1 }\nfunc f() int {\n\th() catch { case H{X: A{N: 1} as z}, H{Y: _ as z}: 0 }\n}", "S108:9"},
 		{"same-names", "type G { N int }\nfunc h() int fails E | G { 1 }\nfunc f() int {\n\th() catch { case E{N: x}, G{N: x}: x }\n}", ""},
 		{"bound-twice", "func f() int {\n\tg() catch { case E{N: x} as x: 0; case F: 1 }\n}", "S108:5"},
 	} {
@@ -181,14 +183,14 @@ func TestTryCoversACaughtExpression(t *testing.T) {
 }
 
 // Comparability is structural (stage C round 2 review M1, M2): a union
-// compares only when every variant does, a row value and an operation
-// type's value never do, and every route reads the one rule: a tuple, a
+// compares only when every variant does, an operation type's value never does, a row value compares as
+// a union of its members (q47), and every route reads the one rule: a tuple, a
 // record field, a comparable constraint and a map key. == reads
 // equatability, which adds slices and Maps (eq-structural).
 func TestComparabilityIsStructural(t *testing.T) {
 	const decls = "type E { N []int }\ntype F {}\ntype V = E | F\ntype C { N int }\ntype U = C | F\ntype Svc { Do() int }\nfunc g() int fails E { 1 }\nfunc eq[T comparable](a T, b T) bool { a == b }\n"
 	for _, tc := range []struct{ name, src, want string }{
-		{"row-tuple", "func f() int {\n\tg() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } }\n}", "S108:10"},
+		{"row-tuple", "func f() int {\n\tg() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } }\n}", ""},
 		{"row-generic", "func f() int {\n\tg() catch { case err: if eq(err, err) { 1 } else { 0 } }\n}", "S108:10"},
 		// eq-structural: V's variant E holds a slice, so V is equatable
 		// (structural ==) but not comparable (no constraint, no Map key).
@@ -200,9 +202,8 @@ func TestComparabilityIsStructural(t *testing.T) {
 		{"operation-type", "func same(a Svc, b Svc) bool { a == b }", "S108:9"},
 		{"comparable-union", "func same(a U, b U) bool { a == b && eq(a, b) && (a, 1) == (b, 1) }", ""},
 		{"comparable-union-key", "func f() int { let m = Map[U, int]{}; len(m) }", ""},
-		// A row value never compares, even when every type of its row does.
-		{"row-comparable-tuple", "func g2() int fails C { 1 }\nfunc f() int {\n\tg2() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } }\n}", "S108:11"},
-		{"row-comparable-generic", "func g2() int fails C { 1 }\nfunc f() int {\n\tg2() catch { case err: if eq(err, err) { 1 } else { 0 } }\n}", "S108:11"},
+		// A row value of comparable members is comparable (rows.md, Error rows 8).
+		{"row-comparable-generic", "func g2() int fails C { 1 }\nfunc f() int {\n\tg2() catch { case err: if eq(err, err) { 1 } else { 0 } }\n}", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			src := decls + tc.src + "\n"
@@ -215,12 +216,21 @@ func TestComparabilityIsStructural(t *testing.T) {
 }
 
 // D-C3 (review M8): a row value is returned, matched, caught or assigned
-// to a union that lists its types, and has no other operation.
+// to a union that lists its types, and compares when its members do
+// (q47); it has no other operator.
 func TestRowValueOperations(t *testing.T) {
 	const decls = "type E { N int }\ntype F {}\ntype V = E | F\nfunc g() int fails E | F { 1 }\n"
 	for _, tc := range []struct{ name, src, want string }{
-		{"equality", "func f() int {\n\tg() catch { case err: if err == err { 1 } else { 0 } }\n}", "S108:6"},
-		{"inequality", "func f() int {\n\tg() catch { case err: if err != err { 1 } else { 0 } }\n}", "S108:6"},
+		{"equality", "func f() int {\n\tg() catch { case err: if err == err { 1 } else { 0 } }\n}", ""},
+		// Row values as data (q47; rows.md, Error rows 8): a field of an
+		// error row parameter holds its members only, compares only when
+		// they are known equatable, and matches only by case _ or a name.
+		{"field-not-member", "type Box[P] { Last P }\nfunc f() Box[E | F] { Box[E | F]{Last: 3} }", "S108:6"},
+		{"field-wider", "type Box[P] { Last P }\nfunc f(b Box[E | F]) Box[E] { Box[E]{Last: b.Last} }", "S108:6"},
+		{"param-equality", "type Row[P] { Run func() int fails P, Last P }\nfunc f[P](a Row[P], b Row[P]) bool { a.Last == b.Last }", "S108:6"},
+		{"param-type-test", "type Row[P] { Run func() int fails P, Last P }\nfunc f[P](a Row[P]) int { match a.Last { case E: 1 } }", "S108:6"},
+		{"param-default", "type Row[P] { Run func() int fails P, Last P }\nfunc f[P](a Row[P]) int { match a.Last { case _: 1 } }", ""},
+		{"addition", "func f() int {\n\tg() catch { case err: if err + err == err { 1 } else { 0 } }\n}", "S108:6"},
 		{"returned", "func f() int fails E | F {\n\tg() catch { case err: return err }\n}", ""},
 		{"matched", "func f() int {\n\tg() catch { case err: match err { case E: 1; case F: 2 } }\n}", ""},
 		{"assigned", "func f() V {\n\tg() catch {\n\tcase err:\n\t\tlet v V = err\n\t\treturn v\n\t}\n\tF\n}", ""},

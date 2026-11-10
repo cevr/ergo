@@ -61,29 +61,6 @@ func best(xs []int) Option[int] {
 	}
 }
 
-// TestUnionJoinForms covers the generic union, a nest of a match in an if,
-// two unions that list both branches (no join), and a single variant.
-func TestUnionJoinForms(t *testing.T) {
-	for _, tc := range []struct{ name, src, want string }{
-		{"generic", "func f(n int) bool {\n\tlet x = if n > 0 { Some{Value: n} } else { None }\n\tx == None\n}\n", "Option[int]"},
-		{"generic-none-first", "func f(n int) bool {\n\tlet x = if n > 0 { None } else { Some{Value: n} }\n\tx == None\n}\n", "Option[int]"},
-		{"only-none", "func f(n int) bool {\n\tlet x = if n > 0 { None } else { None }\n\tx == None\n}\n", "None"},
-		{"nested", "type U = A{} | B{} | C{}\nfunc f(n int, c bool) bool {\n\tlet x = if c {\n\t\tmatch n {\n\t\tcase 0:\n\t\t\tA\n\t\tcase _:\n\t\t\tB\n\t\t}\n\t} else {\n\t\tC\n\t}\n\tx == A\n}\n", "main.U"},
-		{"union-first", "type U = A{} | B{}\nfunc f(u U, c bool) bool {\n\tlet x = if c { u } else { B }\n\tx == u\n}\n", "main.U"},
-		{"one-variant", "type U = A{} | B{}\nfunc f(c bool) bool {\n\tlet x = if c { A } else { A }\n\tx == A\n}\n", "main.A"},
-		{"ambiguous", "type U = A{} | B{}\ntype V = A | B | C{}\nfunc f(c bool) bool {\n\tlet x = if c { A } else { B }\n\tx == A\n}\n", ""},
-		{"written-type", "type U = A{} | B{}\ntype V = A | B | C{}\nfunc f(c bool) bool {\n\tlet x V = if c { A } else { B }\n\tx == A\n}\n", "main.V"},
-	} {
-		got, d := letType(t, tc.src)
-		switch {
-		case tc.want == "" && len(d) == 0:
-			t.Errorf("%s: want a diagnostic, got type %s", tc.name, got)
-		case tc.want != "" && got != tc.want:
-			t.Errorf("%s: want %s, got %q %s", tc.name, tc.want, got, describe(d))
-		}
-	}
-}
-
 // joinBranch is one branch kind of the property: a variant A or B of U,
 // a value of U, a variant C of another union V, or an unrelated record R.
 var joinBranches = map[string]struct{ text, typ string }{

@@ -1,0 +1,5265 @@
+-- 02500.ergo --
+func u(f func(int) int) int {
+	$f(1)
+}
+-- 02501.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$f(1)
+}
+-- 02502.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$f(1)
+}
+-- 02503.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$f(1)
+}
+-- 02504.ergo --
+func u(f func(int) int) int {
+	$f(1) + pass(f)
+}
+-- 02505.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$f(1) + pass(f)
+}
+-- 02506.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$f(1) + pass(f)
+}
+-- 02507.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$f(1) + pass(f)
+}
+-- 02508.ergo --
+func u(f func(int) int) int {
+	$pass(f)
+}
+-- 02509.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$pass(f)
+}
+-- 02510.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$pass(f)
+}
+-- 02511.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$pass(f)
+}
+-- 02512.ergo --
+func u(f func(int) int, k func(g func(int) int) int) int {
+	$k(f)
+}
+-- 02513.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int, k func(g func(int) int) int) int {
+	$k(f)
+}
+-- 02514.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int, k func(g func(int) int) int) int {
+	$k(f)
+}
+-- 02515.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int, k func(g func(int) int) int) int {
+	$k(f)
+}
+-- 02516.ergo --
+func u(f func(int) int, r Runner) int {
+	$r.Run(f)
+}
+-- 02517.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int, r Runner) int {
+	$r.Run(f)
+}
+-- 02518.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int, r Runner) int {
+	$r.Run(f)
+}
+-- 02519.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int, r Runner) int {
+	$r.Run(f)
+}
+-- 02520.ergo --
+func u(f func(int) int) int {
+	$take(f)
+}
+-- 02521.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$take(f)
+}
+-- 02522.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$take(f)
+}
+-- 02523.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$take(f)
+}
+-- 02524.ergo --
+func u(f func(int) int) int {
+	$gen(f)
+}
+-- 02525.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$gen(f)
+}
+-- 02526.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$gen(f)
+}
+-- 02527.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$gen(f)
+}
+-- 02528.ergo --
+func u(f func(int) int, r Runner) int {
+	$r.Keep(f)
+}
+-- 02529.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int, r Runner) int {
+	$r.Keep(f)
+}
+-- 02530.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int, r Runner) int {
+	$r.Keep(f)
+}
+-- 02531.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int, r Runner) int {
+	$r.Keep(f)
+}
+-- 02532.ergo --
+func u(f func(int) int, k func(g escaping func(int) int) int) int {
+	$k(f)
+}
+-- 02533.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int, k func(g escaping func(int) int) int) int {
+	$k(f)
+}
+-- 02534.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int, k func(g escaping func(int) int) int) int {
+	$k(f)
+}
+-- 02535.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int, k func(g escaping func(int) int) int) int {
+	$k(f)
+}
+-- 02536.ergo --
+func u(f func(int) int) F {
+	$F(f)
+}
+-- 02537.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) F {
+	$F(f)
+}
+-- 02538.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) F {
+	$F(f)
+}
+-- 02539.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) F {
+	$F(f)
+}
+-- 02540.ergo --
+func u(f func(int) int) int {
+	$len(f)
+}
+-- 02541.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$len(f)
+}
+-- 02542.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$len(f)
+}
+-- 02543.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$len(f)
+}
+-- 02544.ergo --
+func u(f func(int) int) int {
+	$(f)(1)
+}
+-- 02545.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$(f)(1)
+}
+-- 02546.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$(f)(1)
+}
+-- 02547.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$(f)(1)
+}
+-- 02548.ergo --
+func u(f func(int) int) int {
+	$take((f))
+}
+-- 02549.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$take((f))
+}
+-- 02550.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$take((f))
+}
+-- 02551.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$take((f))
+}
+-- 02552.ergo --
+func u(f func(int) int) int {
+	$let xs = []func(int) int{f}
+	xs[0](1)
+}
+-- 02553.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$let xs = []func(int) int{f}
+	xs[0](1)
+}
+-- 02554.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$let xs = []func(int) int{f}
+	xs[0](1)
+}
+-- 02555.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$let xs = []func(int) int{f}
+	xs[0](1)
+}
+-- 02556.ergo --
+func u(f func(int) int) int {
+	$Box{..Box{V: pass(f)}, V: 2}.V
+}
+-- 02557.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$Box{..Box{V: pass(f)}, V: 2}.V
+}
+-- 02558.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$Box{..Box{V: pass(f)}, V: 2}.V
+}
+-- 02559.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$Box{..Box{V: pass(f)}, V: 2}.V
+}
+-- 02560.ergo --
+func u(f func(int) int) int {
+	$Box{..Box{V: f}, V: give(f)}.V(1)
+}
+-- 02561.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$Box{..Box{V: f}, V: give(f)}.V(1)
+}
+-- 02562.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$Box{..Box{V: f}, V: give(f)}.V(1)
+}
+-- 02563.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$Box{..Box{V: f}, V: give(f)}.V(1)
+}
+-- 02564.ergo --
+func u(f func(int) int) int {
+	$Box{..f, V: 2}.V
+}
+-- 02565.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$Box{..f, V: 2}.V
+}
+-- 02566.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$Box{..f, V: 2}.V
+}
+-- 02567.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$Box{..f, V: 2}.V
+}
+-- 02568.ergo --
+func u(f func(int) int) Holder {
+	$Holder{Run: f}
+}
+-- 02569.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) Holder {
+	$Holder{Run: f}
+}
+-- 02570.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) Holder {
+	$Holder{Run: f}
+}
+-- 02571.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) Holder {
+	$Holder{Run: f}
+}
+-- 02572.ergo --
+func u(f func(int) int) int {
+	$Box{V: f}.V(1)
+}
+-- 02573.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$Box{V: f}.V(1)
+}
+-- 02574.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$Box{V: f}.V(1)
+}
+-- 02575.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$Box{V: f}.V(1)
+}
+-- 02576.ergo --
+func u(f func(int) int) func(int) int {
+	$return f
+}
+-- 02577.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) func(int) int {
+	$return f
+}
+-- 02578.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) func(int) int {
+	$return f
+}
+-- 02579.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) func(int) int {
+	$return f
+}
+-- 02580.ergo --
+func u(f func(int) int) func(int) int {
+	$f
+}
+-- 02581.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) func(int) int {
+	$f
+}
+-- 02582.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) func(int) int {
+	$f
+}
+-- 02583.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) func(int) int {
+	$f
+}
+-- 02584.ergo --
+func u(c bool, f func(int) int) func(int) int {
+	if c {
+		return give(f)
+	}
+	$f
+}
+-- 02585.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(c bool, f func(int) int) func(int) int {
+	if c {
+		return give(f)
+	}
+	$f
+}
+-- 02586.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(c bool, f func(int) int) func(int) int {
+	if c {
+		return give(f)
+	}
+	$f
+}
+-- 02587.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(c bool, f func(int) int) func(int) int {
+	if c {
+		return give(f)
+	}
+	$f
+}
+-- 02588.ergo --
+func u(f func(int) int) (func(int) int, int) {
+	$(f, 1)
+}
+-- 02589.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) (func(int) int, int) {
+	$(f, 1)
+}
+-- 02590.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) (func(int) int, int) {
+	$(f, 1)
+}
+-- 02591.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) (func(int) int, int) {
+	$(f, 1)
+}
+-- 02592.ergo --
+func u(f func(int) int) int {
+	$let (g, n) = (f, 1)
+	g(n)
+}
+-- 02593.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$let (g, n) = (f, 1)
+	g(n)
+}
+-- 02594.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$let (g, n) = (f, 1)
+	g(n)
+}
+-- 02595.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$let (g, n) = (f, 1)
+	g(n)
+}
+-- 02596.ergo --
+func u(f func(int) int, g func(int) int) int {
+	let mut h = g
+	$h = f
+	h(1)
+}
+-- 02597.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int, g func(int) int) int {
+	let mut h = g
+	$h = f
+	h(1)
+}
+-- 02598.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int, g func(int) int) int {
+	let mut h = g
+	$h = f
+	h(1)
+}
+-- 02599.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int, g func(int) int) int {
+	let mut h = g
+	$h = f
+	h(1)
+}
+-- 02600.ergo --
+func u(f func(int) int) int {
+	let mut h = func(x int) int { x }
+	$h = f
+	h(1)
+}
+-- 02601.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	let mut h = func(x int) int { x }
+	$h = f
+	h(1)
+}
+-- 02602.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	let mut h = func(x int) int { x }
+	$h = f
+	h(1)
+}
+-- 02603.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	let mut h = func(x int) int { x }
+	$h = f
+	h(1)
+}
+-- 02604.ergo --
+func u(f func(int) int) int {
+	let mut h = f
+	each(func(k func(int) int) int {
+$		h = k
+		0
+	})
+	h(1)
+}
+-- 02605.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	let mut h = f
+	each(func(k func(int) int) int {
+$		h = k
+		0
+	})
+	h(1)
+}
+-- 02606.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	let mut h = f
+	each(func(k func(int) int) int {
+$		h = k
+		0
+	})
+	h(1)
+}
+-- 02607.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	let mut h = f
+	each(func(k func(int) int) int {
+$		h = k
+		0
+	})
+	h(1)
+}
+-- 02608.ergo --
+func u(f func(int) int) int {
+	$_ = f
+	0
+}
+-- 02609.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$_ = f
+	0
+}
+-- 02610.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$_ = f
+	0
+}
+-- 02611.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$_ = f
+	0
+}
+-- 02612.ergo --
+func u(f func(int) int, g func(int) int) int {
+	$f = g
+	f(1)
+}
+-- 02613.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int, g func(int) int) int {
+	$f = g
+	f(1)
+}
+-- 02614.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int, g func(int) int) int {
+	$f = g
+	f(1)
+}
+-- 02615.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int, g func(int) int) int {
+	$f = g
+	f(1)
+}
+-- 02616.ergo --
+func u(f func(int) int) int {
+	$let g = f
+	pass(g)
+}
+-- 02617.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$let g = f
+	pass(g)
+}
+-- 02618.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$let g = f
+	pass(g)
+}
+-- 02619.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$let g = f
+	pass(g)
+}
+-- 02620.ergo --
+func u(f func(int) int) int {
+	$let _ = f
+	0
+}
+-- 02621.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$let _ = f
+	0
+}
+-- 02622.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$let _ = f
+	0
+}
+-- 02623.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$let _ = f
+	0
+}
+-- 02624.ergo --
+func u(f func(int) int) int {
+	$let g func(int) int = f
+	g(1)
+}
+-- 02625.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$let g func(int) int = f
+	g(1)
+}
+-- 02626.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$let g func(int) int = f
+	g(1)
+}
+-- 02627.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$let g func(int) int = f
+	g(1)
+}
+-- 02628.ergo --
+func u(f func(int) int) int {
+	let g = f
+	$take(g)
+}
+-- 02629.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	let g = f
+	$take(g)
+}
+-- 02630.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	let g = f
+	$take(g)
+}
+-- 02631.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	let g = f
+	$take(g)
+}
+-- 02632.ergo --
+func u(f func(int) int) int {
+	$f.pass()
+}
+-- 02633.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$f.pass()
+}
+-- 02634.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$f.pass()
+}
+-- 02635.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$f.pass()
+}
+-- 02636.ergo --
+func u(f func(int) int) int {
+	$f.V
+}
+-- 02637.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$f.V
+}
+-- 02638.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$f.V
+}
+-- 02639.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$f.V
+}
+-- 02640.ergo --
+func u(f func(int) int) int {
+	$f[0]
+}
+-- 02641.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$f[0]
+}
+-- 02642.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$f[0]
+}
+-- 02643.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$f[0]
+}
+-- 02644.ergo --
+func u(f func(int) int, xs []int) int {
+	$xs[f]
+}
+-- 02645.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int, xs []int) int {
+	$xs[f]
+}
+-- 02646.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int, xs []int) int {
+	$xs[f]
+}
+-- 02647.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int, xs []int) int {
+	$xs[f]
+}
+-- 02648.ergo --
+func u(f func(int) int) int {
+	$len(f[0:1])
+}
+-- 02649.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$len(f[0:1])
+}
+-- 02650.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$len(f[0:1])
+}
+-- 02651.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$len(f[0:1])
+}
+-- 02652.ergo --
+func u(f func(int) int, xs []int) int {
+	$len(xs[f:])
+}
+-- 02653.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int, xs []int) int {
+	$len(xs[f:])
+}
+-- 02654.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int, xs []int) int {
+	$len(xs[f:])
+}
+-- 02655.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int, xs []int) int {
+	$len(xs[f:])
+}
+-- 02656.ergo --
+func u(f func(int) int, xs []int) int {
+	$len(xs[:f])
+}
+-- 02657.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int, xs []int) int {
+	$len(xs[:f])
+}
+-- 02658.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int, xs []int) int {
+	$len(xs[:f])
+}
+-- 02659.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int, xs []int) int {
+	$len(xs[:f])
+}
+-- 02660.ergo --
+func u(f func(int) int) int {
+	$match f {
+	case _:
+		1
+	}
+}
+-- 02661.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$match f {
+	case _:
+		1
+	}
+}
+-- 02662.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$match f {
+	case _:
+		1
+	}
+}
+-- 02663.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$match f {
+	case _:
+		1
+	}
+}
+-- 02664.ergo --
+func u(f func(int) int) int {
+	$*f
+}
+-- 02665.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$*f
+}
+-- 02666.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$*f
+}
+-- 02667.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$*f
+}
+-- 02668.ergo --
+func u(f func(int) int) bool {
+	$!f
+}
+-- 02669.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) bool {
+	$!f
+}
+-- 02670.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) bool {
+	$!f
+}
+-- 02671.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) bool {
+	$!f
+}
+-- 02672.ergo --
+func u(f func(int) int) bool {
+	$f == f
+}
+-- 02673.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) bool {
+	$f == f
+}
+-- 02674.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) bool {
+	$f == f
+}
+-- 02675.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) bool {
+	$f == f
+}
+-- 02676.ergo --
+func u(f func(int) int) int {
+	$1 + f
+}
+-- 02677.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$1 + f
+}
+-- 02678.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$1 + f
+}
+-- 02679.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$1 + f
+}
+-- 02680.ergo --
+func u(f func(int) int) int {
+	$try f
+}
+-- 02681.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$try f
+}
+-- 02682.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$try f
+}
+-- 02683.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$try f
+}
+-- 02684.ergo --
+func u(f func(int) int) int {
+	$f catch {
+	case _:
+		0
+	}
+}
+-- 02685.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$f catch {
+	case _:
+		0
+	}
+}
+-- 02686.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$f catch {
+	case _:
+		0
+	}
+}
+-- 02687.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$f catch {
+	case _:
+		0
+	}
+}
+-- 02688.ergo --
+func u(f func(int) int) int {
+	$if f {
+		1
+	} else {
+		2
+	}
+}
+-- 02689.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$if f {
+		1
+	} else {
+		2
+	}
+}
+-- 02690.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$if f {
+		1
+	} else {
+		2
+	}
+}
+-- 02691.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$if f {
+		1
+	} else {
+		2
+	}
+}
+-- 02692.ergo --
+func u(f func(int) int) int {
+	$for f {
+	}
+	0
+}
+-- 02693.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$for f {
+	}
+	0
+}
+-- 02694.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$for f {
+	}
+	0
+}
+-- 02695.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$for f {
+	}
+	0
+}
+-- 02696.ergo --
+func u(f func(int) int) int {
+	$for x in f {
+	}
+	0
+}
+-- 02697.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$for x in f {
+	}
+	0
+}
+-- 02698.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$for x in f {
+	}
+	0
+}
+-- 02699.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$for x in f {
+	}
+	0
+}
+-- 02700.ergo --
+func u(f func(int) int, n int) int {
+	match n {
+	$case f:
+		1
+	case _:
+		2
+	}
+}
+-- 02701.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int, n int) int {
+	match n {
+	$case f:
+		1
+	case _:
+		2
+	}
+}
+-- 02702.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int, n int) int {
+	match n {
+	$case f:
+		1
+	case _:
+		2
+	}
+}
+-- 02703.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int, n int) int {
+	match n {
+	$case f:
+		1
+	case _:
+		2
+	}
+}
+-- 02704.ergo --
+func u(f func(int) int, n int) int {
+	match n {
+	$case f as m:
+		m
+	case _:
+		2
+	}
+}
+-- 02705.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int, n int) int {
+	match n {
+	$case f as m:
+		m
+	case _:
+		2
+	}
+}
+-- 02706.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int, n int) int {
+	match n {
+	$case f as m:
+		m
+	case _:
+		2
+	}
+}
+-- 02707.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int, n int) int {
+	match n {
+	$case f as m:
+		m
+	case _:
+		2
+	}
+}
+-- 02708.ergo --
+func g(n int) int {
+	n
+}
+
+test T {
+	$assert g
+}
+-- 02709.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func g(n int) int {
+	n
+}
+
+test T {
+	$assert g
+}
+-- 02710.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func g(n int) int {
+	n
+}
+
+test T {
+	$assert g
+}
+-- 02711.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func g(n int) int {
+	n
+}
+
+test T {
+	$assert g
+}
+-- 02712.ergo --
+func u(f func(int) int) string {
+	$"\(f)"
+}
+-- 02713.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) string {
+	$"\(f)"
+}
+-- 02714.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) string {
+	$"\(f)"
+}
+-- 02715.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) string {
+	$"\(f)"
+}
+-- 02716.ergo --
+func u(f func(int) int) int {
+	$len(Map[func(int) int, int]{f: 1})
+}
+-- 02717.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$len(Map[func(int) int, int]{f: 1})
+}
+-- 02718.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$len(Map[func(int) int, int]{f: 1})
+}
+-- 02719.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$len(Map[func(int) int, int]{f: 1})
+}
+-- 02720.ergo --
+func u(f func(int) int) int {
+	$with context { Svc: f } {
+		Svc.Get()
+	}
+}
+-- 02721.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	$with context { Svc: f } {
+		Svc.Get()
+	}
+}
+-- 02722.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	$with context { Svc: f } {
+		Svc.Get()
+	}
+}
+-- 02723.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	$with context { Svc: f } {
+		Svc.Get()
+	}
+}
+-- 02724.ergo --
+func u(f func(int) int) int {
+	let k = func() int { $f(1) }
+	k()
+}
+-- 02725.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	let k = func() int { $f(1) }
+	k()
+}
+-- 02726.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	let k = func() int { $f(1) }
+	k()
+}
+-- 02727.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	let k = func() int { $f(1) }
+	k()
+}
+-- 02728.ergo --
+func u(f func(int) int) int {
+	now(func() int { $f(1) })
+}
+-- 02729.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	now(func() int { $f(1) })
+}
+-- 02730.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	now(func() int { $f(1) })
+}
+-- 02731.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	now(func() int { $f(1) })
+}
+-- 02732.ergo --
+func u(f func(int) int) int {
+	later(func() int { $f(1) })
+}
+-- 02733.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	later(func() int { $f(1) })
+}
+-- 02734.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	later(func() int { $f(1) })
+}
+-- 02735.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	later(func() int { $f(1) })
+}
+-- 02736.ergo --
+func u(f func(int) int) int {
+	gen(func() int { $f(1) })
+}
+-- 02737.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	gen(func() int { $f(1) })
+}
+-- 02738.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	gen(func() int { $f(1) })
+}
+-- 02739.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	gen(func() int { $f(1) })
+}
+-- 02740.ergo --
+func u(f func(int) int) int {
+	(func() int { $f(1) })()
+}
+-- 02741.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	(func() int { $f(1) })()
+}
+-- 02742.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	(func() int { $f(1) })()
+}
+-- 02743.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	(func() int { $f(1) })()
+}
+-- 02744.ergo --
+func u(f func(int) int) func() int {
+	func() int { $f(1) }
+}
+-- 02745.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) func() int {
+	func() int { $f(1) }
+}
+-- 02746.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) func() int {
+	func() int { $f(1) }
+}
+-- 02747.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) func() int {
+	func() int { $f(1) }
+}
+-- 02748.ergo --
+func u(f func(int) int) int {
+	now() { $f(1) }
+}
+-- 02749.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	now() { $f(1) }
+}
+-- 02750.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	now() { $f(1) }
+}
+-- 02751.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	now() { $f(1) }
+}
+-- 02752.ergo --
+func u(f func(int) int) int {
+	later() { $f(1) }
+}
+-- 02753.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	later() { $f(1) }
+}
+-- 02754.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	later() { $f(1) }
+}
+-- 02755.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	later() { $f(1) }
+}
+-- 02756.ergo --
+type Fault {}
+func u(f func(int) int) Task[int, Fault] {
+	task.Go() { $f(1) }
+}
+-- 02757.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+type Fault {}
+func u(f func(int) int) Task[int, Fault] {
+	task.Go() { $f(1) }
+}
+-- 02758.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+type Fault {}
+func u(f func(int) int) Task[int, Fault] {
+	task.Go() { $f(1) }
+}
+-- 02759.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+type Fault {}
+func u(f func(int) int) Task[int, Fault] {
+	task.Go() { $f(1) }
+}
+-- 02760.ergo --
+type Fault {}
+func u(f func(int) int) Task[int, Fault] {
+	task.Go(func() int { $f(1) })
+}
+-- 02761.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+type Fault {}
+func u(f func(int) int) Task[int, Fault] {
+	task.Go(func() int { $f(1) })
+}
+-- 02762.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+type Fault {}
+func u(f func(int) int) Task[int, Fault] {
+	task.Go(func() int { $f(1) })
+}
+-- 02763.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+type Fault {}
+func u(f func(int) int) Task[int, Fault] {
+	task.Go(func() int { $f(1) })
+}
+-- 02764.ergo --
+func u(f func(int) int) int {
+	now() {
+		now(func() int { $f(1) })
+	}
+}
+-- 02765.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	now() {
+		now(func() int { $f(1) })
+	}
+}
+-- 02766.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	now() {
+		now(func() int { $f(1) })
+	}
+}
+-- 02767.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	now() {
+		now(func() int { $f(1) })
+	}
+}
+-- 02768.ergo --
+func u(f func(int) int) int {
+	later() {
+		now() { $f(1) }
+	}
+}
+-- 02769.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	later() {
+		now() { $f(1) }
+	}
+}
+-- 02770.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	later() {
+		now() { $f(1) }
+	}
+}
+-- 02771.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	later() {
+		now() { $f(1) }
+	}
+}
+-- 02772.ergo --
+func u(f func(int) int) int {
+	now() {
+		later() { $f(1) }
+	}
+}
+-- 02773.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u(f func(int) int) int {
+	now() {
+		later() { $f(1) }
+	}
+}
+-- 02774.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u(f func(int) int) int {
+	now() {
+		later() { $f(1) }
+	}
+}
+-- 02775.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u(f func(int) int) int {
+	now() {
+		later() { $f(1) }
+	}
+}
+-- 02776.ergo --
+func u() int {
+	let k = func(f func(int) int) int { now() { $f(1) } }
+	k(func(x int) int { x })
+}
+-- 02777.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u() int {
+	let k = func(f func(int) int) int { now() { $f(1) } }
+	k(func(x int) int { x })
+}
+-- 02778.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u() int {
+	let k = func(f func(int) int) int { now() { $f(1) } }
+	k(func(x int) int { x })
+}
+-- 02779.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u() int {
+	let k = func(f func(int) int) int { now() { $f(1) } }
+	k(func(x int) int { x })
+}
+-- 02780.ergo --
+func u() int {
+	let k = func(f func(int) int) int { $f(1) }
+	k(func(x int) int { x })
+}
+-- 02781.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u() int {
+	let k = func(f func(int) int) int { $f(1) }
+	k(func(x int) int { x })
+}
+-- 02782.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u() int {
+	let k = func(f func(int) int) int { $f(1) }
+	k(func(x int) int { x })
+}
+-- 02783.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u() int {
+	let k = func(f func(int) int) int { $f(1) }
+	k(func(x int) int { x })
+}
+-- 02784.ergo --
+func u() int {
+	each(func(k) { now() { $k(1) } })
+}
+-- 02785.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u() int {
+	each(func(k) { now() { $k(1) } })
+}
+-- 02786.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u() int {
+	each(func(k) { now() { $k(1) } })
+}
+-- 02787.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u() int {
+	each(func(k) { now() { $k(1) } })
+}
+-- 02788.ergo --
+func u() int {
+	each(func(k) { later() { $k(1) } })
+}
+-- 02789.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func u() int {
+	each(func(k) { later() { $k(1) } })
+}
+-- 02790.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func u() int {
+	each(func(k) { later() { $k(1) } })
+}
+-- 02791.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func u() int {
+	each(func(k) { later() { $k(1) } })
+}
+-- 02792.ergo --
+type H { Run escaping func() }
+func r() escaping func() { func() {} }
+func main() { let h = H{Run: r()}
+	h.Run() }
+-- 02793.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+type H { Run escaping func() }
+func r() escaping func() { func() {} }
+func main() { let h = H{Run: r()}
+	h.Run() }
+-- 02794.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+type H { Run escaping func() }
+func r() escaping func() { func() {} }
+func main() { let h = H{Run: r()}
+	h.Run() }
+-- 02795.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+type H { Run escaping func() }
+func r() escaping func() { func() {} }
+func main() { let h = H{Run: r()}
+	h.Run() }
+-- 02796.ergo --
+type B[T] { V T }
+func main() { let b = B[escaping func()]{V: func() {}}
+	b.V() }
+-- 02797.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+type B[T] { V T }
+func main() { let b = B[escaping func()]{V: func() {}}
+	b.V() }
+-- 02798.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+type B[T] { V T }
+func main() { let b = B[escaping func()]{V: func() {}}
+	b.V() }
+-- 02799.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+type B[T] { V T }
+func main() { let b = B[escaping func()]{V: func() {}}
+	b.V() }
+-- 02800.ergo --
+func keep(g escaping func()) H { H{Run: g} }
+type H { Run func() }
+func main() { let k func(g escaping func()) H = keep
+	k(func() {}).Run() }
+-- 02801.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+func keep(g escaping func()) H { H{Run: g} }
+type H { Run func() }
+func main() { let k func(g escaping func()) H = keep
+	k(func() {}).Run() }
+-- 02802.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+func keep(g escaping func()) H { H{Run: g} }
+type H { Run func() }
+func main() { let k func(g escaping func()) H = keep
+	k(func() {}).Run() }
+-- 02803.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+func keep(g escaping func()) H { H{Run: g} }
+type H { Run func() }
+func main() { let k func(g escaping func()) H = keep
+	k(func() {}).Run() }
+-- 02804.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+-- 02805.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+-- 02806.ergo --
+import task
+
+type Holder { Run escaping func(int) int }
+type Box[T] { V T }
+type F func(int) int
+type Runner {
+	Run(g func(int) int) int,
+	Keep(g escaping func(int) int) int,
+}
+type Svc { Get() int }
+
+func take(g escaping func(int) int) int { 0 }
+func pass(g func(int) int) int { g(1) }
+func gen[T](x T) int { 0 }
+func later(body escaping func() int) int { 0 }
+func now(body func() int) int { body() }
+func give(g func(int) int) func(int) int { func(x int) int { x } }
+func each(body func(k func(int) int) int) int { body(func(x int) int { x }) }
+
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+-- 02807.ergo --
+type H { Run func() }
+func keep(g escaping func()) H { H{Run: g} }
+func main() {
+	let k func(g func()) H = keep
+	k(func() {}).Run()
+}
+type Bang {}
+func mark() fails Bang { return Bang }
+func a(run func(func()), r func(func())) {
+	r(func() { a(run, r) })
+	try mark()
+}
+-- 02808.ergo --
+type T = A | B
+type A {}
+type B {}
+type Box[V] { Item V }
+func f() Option[T] { Some{Value: A} }
+func g() Option[int] { None }
+func h() Box[T] { Box{Item: B} }
+-- 02809.ergo --
+type Bad {}
+type Celsius float64
+type Count int
+func pick(n int) int fails Bad { if n < 0 { return Bad } else { n } }
+-- 02810.ergo --
+type Bad {}
+type Celsius float64
+type Count int
+func pick(n int) int fails Bad { if n < 0 { return Bad } else { n } }
+type T = A | B
+type A {}
+type B {}
+type Box[V] { Item V }
+func f() Option[T] { Some{Value: A} }
+func g() Option[int] { None }
+func h() Box[T] { Box{Item: B} }
+-- 02811.ergo --
+func ok() bool { 
+-- 02812.ergo --
+type T = A | B
+type A {}
+type B {}
+type Box[V] { Item V }
+func f() Option[T] { Some{Value: A} }
+func g() Option[int] { None }
+func h() Box[T] { Box{Item: B} }
+func ok() bool { 
+-- 02813.ergo --
+type Bad {}
+type Celsius float64
+type Count int
+func pick(n int) int fails Bad { if n < 0 { return Bad } else { n } }
+func ok() bool { 
+-- 02814.ergo --
+func bad() bool { 
+-- 02815.ergo --
+type T = A | B
+type A {}
+type B {}
+type Box[V] { Item V }
+func f() Option[T] { Some{Value: A} }
+func g() Option[int] { None }
+func h() Box[T] { Box{Item: B} }
+func bad() bool { 
+-- 02816.ergo --
+type Bad {}
+type Celsius float64
+type Count int
+func pick(n int) int fails Bad { if n < 0 { return Bad } else { n } }
+func bad() bool { 
+-- 02817.ergo --
+func f(n int) int64 { int64(if n < 0 { -n } else { n }) }
+-- 02818.ergo --
+type T = A | B
+type A {}
+type B {}
+type Box[V] { Item V }
+func f() Option[T] { Some{Value: A} }
+func g() Option[int] { None }
+func h() Box[T] { Box{Item: B} }
+func f(n int) int64 { int64(if n < 0 { -n } else { n }) }
+-- 02819.ergo --
+type Bad {}
+type Celsius float64
+type Count int
+func pick(n int) int fails Bad { if n < 0 { return Bad } else { n } }
+func f(n int) int64 { int64(if n < 0 { -n } else { n }) }
+-- 02820.ergo --
+func f(n int) int8 { int8(if n < 0 { 200 } else { n }) }
+-- 02821.ergo --
+type T = A | B
+type A {}
+type B {}
+type Box[V] { Item V }
+func f() Option[T] { Some{Value: A} }
+func g() Option[int] { None }
+func h() Box[T] { Box{Item: B} }
+func f(n int) int8 { int8(if n < 0 { 200 } else { n }) }
+-- 02822.ergo --
+type Bad {}
+type Celsius float64
+type Count int
+func pick(n int) int fails Bad { if n < 0 { return Bad } else { n } }
+func f(n int) int8 { int8(if n < 0 { 200 } else { n }) }
+-- 02823.ergo --
+type Celsius float64
+func f(n int, x float64) Celsius { Celsius(match n {
+case 0:
+	x
+case _:
+	1
+}) }
+-- 02824.ergo --
+type T = A | B
+type A {}
+type B {}
+type Box[V] { Item V }
+func f() Option[T] { Some{Value: A} }
+func g() Option[int] { None }
+func h() Box[T] { Box{Item: B} }
+type Celsius float64
+func f(n int, x float64) Celsius { Celsius(match n {
+case 0:
+	x
+case _:
+	1
+}) }
+-- 02825.ergo --
+type Bad {}
+type Celsius float64
+type Count int
+func pick(n int) int fails Bad { if n < 0 { return Bad } else { n } }
+type Celsius float64
+func f(n int, x float64) Celsius { Celsius(match n {
+case 0:
+	x
+case _:
+	1
+}) }
+-- 02826.ergo --
+type U = A{} | B{}
+type T0 (U, U)
+func f() T0 { T0((A, B)) }
+-- 02827.ergo --
+type T = A | B
+type A {}
+type B {}
+type Box[V] { Item V }
+func f() Option[T] { Some{Value: A} }
+func g() Option[int] { None }
+func h() Box[T] { Box{Item: B} }
+type U = A{} | B{}
+type T0 (U, U)
+func f() T0 { T0((A, B)) }
+-- 02828.ergo --
+type Bad {}
+type Celsius float64
+type Count int
+func pick(n int) int fails Bad { if n < 0 { return Bad } else { n } }
+type U = A{} | B{}
+type T0 (U, U)
+func f() T0 { T0((A, B)) }
+-- 02829.ergo --
+type T = A | B
+type A {}
+type B {}
+type Box[V] { Item V }
+func f() Option[T] { Some{Value: A} }
+func g() Option[int] { None }
+func h() Box[T] { Box{Item: B} }
+type Bad {}
+type Celsius float64
+type Count int
+func pick(n int) int fails Bad { if n < 0 { return Bad } else { n } }
+-- 02830.ergo --
+func conv(n int, x float64, c bool) 
+-- 02831.ergo --
+type T = A | B
+type A {}
+type B {}
+type Box[V] { Item V }
+func f() Option[T] { Some{Value: A} }
+func g() Option[int] { None }
+func h() Box[T] { Box{Item: B} }
+func conv(n int, x float64, c bool) 
+-- 02832.ergo --
+type Bad {}
+type Celsius float64
+type Count int
+func pick(n int) int fails Bad { if n < 0 { return Bad } else { n } }
+func conv(n int, x float64, c bool) 
+-- 02833.ergo --
+ func f(s string) string
+func Use() { _ = f("x") }
+-- 02834.ergo --
+extern go path/filepath.Clean func f(s string) string
+func Use() { _ = f("x") }
+-- 02835.ergo --
+type Rec { X int }
+type Length int
+type A {}
+type B {}
+type U = A | B
+type Op { M() }
+type E {}
+type R { N() }
+-- 02836.ergo --
+func Use(p 
+-- 02837.ergo --
+type Rec { X int }
+type Length int
+type A {}
+type B {}
+type U = A | B
+type Op { M() }
+type E {}
+type R { N() }
+func Use(p 
+-- 02838.ergo --
+func Use() { _ = f() }
+-- 02839.ergo --
+type Rec { X int }
+type Length int
+type A {}
+type B {}
+type U = A | B
+type Op { M() }
+type E {}
+type R { N() }
+func Use() { _ = f() }
+-- 02840.ergo --
+func Use() { let a, b = f(); _ = a; _ = b }
+-- 02841.ergo --
+type Rec { X int }
+type Length int
+type A {}
+type B {}
+type U = A | B
+type Op { M() }
+type E {}
+type R { N() }
+func Use() { let a, b = f(); _ = a; _ = b }
+-- 02842.ergo --
+extern go ergo.local/prototype/runtime/rt.Sleep func nap(d duration)
+
+func main() needs Console {
+	nap(1ms)
+	Console.Println("ok")
+}
+-- 02843.ergo --
+type Rec { X int }
+type Length int
+type A {}
+type B {}
+type U = A | B
+type Op { M() }
+type E {}
+type R { N() }
+extern go ergo.local/prototype/runtime/rt.Sleep func nap(d duration)
+
+func main() needs Console {
+	nap(1ms)
+	Console.Println("ok")
+}
+-- 02844.ergo --
+extern go ergo.local/prototype/runtime/rt.Sleep func nap(d duration, s LiveScheduler)
+
+func main() needs Console | Ambient {
+	let s = NewLiveScheduler()
+	nap(1ms, s)
+	Console.Println("ok")
+}
+-- 02845.ergo --
+type Rec { X int }
+type Length int
+type A {}
+type B {}
+type U = A | B
+type Op { M() }
+type E {}
+type R { N() }
+extern go ergo.local/prototype/runtime/rt.Sleep func nap(d duration, s LiveScheduler)
+
+func main() needs Console | Ambient {
+	let s = NewLiveScheduler()
+	nap(1ms, s)
+	Console.Println("ok")
+}
+-- 02846.ergo --
+extern go ergo.local/prototype/runtime/rt.Sleep func nap(s LiveScheduler, d duration)
+
+func main() needs Console | Ambient {
+	let s = NewLiveScheduler()
+	nap(s, 1ms)
+	Console.Println("ok")
+}
+-- 02847.ergo --
+type Rec { X int }
+type Length int
+type A {}
+type B {}
+type U = A | B
+type Op { M() }
+type E {}
+type R { N() }
+extern go ergo.local/prototype/runtime/rt.Sleep func nap(s LiveScheduler, d duration)
+
+func main() needs Console | Ambient {
+	let s = NewLiveScheduler()
+	nap(s, 1ms)
+	Console.Println("ok")
+}
+-- 02848.ergo --
+func Use() { f() }
+-- 02849.ergo --
+type Rec { X int }
+type Length int
+type A {}
+type B {}
+type U = A | B
+type Op { M() }
+type E {}
+type R { N() }
+func Use() { f() }
+-- 02850.ergo --
+type E {}
+-- 02851.ergo --
+type Rec { X int }
+type Length int
+type A {}
+type B {}
+type U = A | B
+type Op { M() }
+type E {}
+type R { N() }
+type E {}
+-- 02852.ergo --
+ func Size(x int64) uintptr
+func main() needs Console {
+	Console.Println("\(Size(1))")
+}
+-- 02853.ergo --
+type Rec { X int }
+type Length int
+type A {}
+type B {}
+type U = A | B
+type Op { M() }
+type E {}
+type R { N() }
+ func Size(x int64) uintptr
+func main() needs Console {
+	Console.Println("\(Size(1))")
+}
+-- 02854.ergo --
+.F func f(n int) int
+func Use(n int) int { f(n) }
+-- 02855.ergo --
+type Rec { X int }
+type Length int
+type A {}
+type B {}
+type U = A | B
+type Op { M() }
+type E {}
+type R { N() }
+.F func f(n int) int
+func Use(n int) int { f(n) }
+-- 02856.ergo --
+func upper(s string) string { s }
+-- 02857.ergo --
+func upper(s string) string { strings.TrimSpace(s) }
+-- 02858.ergo --
+func mk[T](n int) queue.Queue[T] { queue.New[T](n) }
+-- 02859.ergo --
+func wc[T](n int) []T { slices.WithCapacity[T](n) }
+-- 02860.ergo --
+let v = R
+	_ = v
+-- 02861.ergo --
+func take(f T) {}
+-- 02862.ergo --
+type Holder { F T }
+-- 02863.ergo --
+func get() T { R }
+-- 02864.ergo --
+func get() T { return R }
+-- 02865.ergo --
+let k = 1
+	_ = R == k
+-- 02866.ergo --
+let m = match R { case _: 1 }
+	_ = m
+-- 02867.ergo --
+let t = try R
+	_ = t
+-- 02868.ergo --
+
+func main() {
+	
+-- 02869.ergo --
+extern go unicode.ToLower func Lower(r rune) rune
+extern go unicode.IsUpper func IsUpper(r rune) bool
+extern go unicode/utf16.IsSurrogate func IsSurrogate(r rune) bool
+extern go math/bits.OnesCount func OnesCount(x uint) int
+func Use(r rune) bool { IsUpper(Lower(r)) || IsSurrogate(r) || OnesCount(uint(r)) > 3 }
+-- 02870.ergo --
+ func f(n int) int
+func Use(n int) int { f(n) }
+-- 02871.ergo --
+extern go unicode.ToLower func Lower(r rune) rune
+extern go unicode.IsUpper func IsUpper(r rune) bool
+extern go unicode/utf16.IsSurrogate func IsSurrogate(r rune) bool
+extern go math/bits.OnesCount func OnesCount(x uint) int
+func Use(r rune) bool { IsUpper(Lower(r)) || IsSurrogate(r) || OnesCount(uint(r)) > 3 }
+ func f(n int) int
+func Use(n int) int { f(n) }
+-- 02872.ergo --
+func Use(s string) int { f(s) }
+-- 02873.ergo --
+func Use(s string) int fails go.Error { try f(s) }
+-- 02874.ergo --
+func Use(s string) int { f(s) }
+func Use(s string) int fails go.Error { try f(s) }
+-- 02875.ergo --
+func Upper(s string) string { s }
+-- 02876.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+-- 02877.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func Upper(s string) string { s }
+-- 02878.ergo --
+func main() { _ = @Upper("x") }
+-- 02879.ergo --
+func Upper(s string) string { s }
+func main() { _ = @Upper("x") }
+-- 02880.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() { _ = @Upper("x") }
+-- 02881.ergo --
+func main() {
+	@Upper = upper
+}
+func upper(s string) string { s }
+-- 02882.ergo --
+func Upper(s string) string { s }
+func main() {
+	@Upper = upper
+}
+func upper(s string) string { s }
+-- 02883.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	@Upper = upper
+}
+func upper(s string) string { s }
+-- 02884.ergo --
+func main() {
+	_ = @Upper
+}
+-- 02885.ergo --
+func Upper(s string) string { s }
+func main() {
+	_ = @Upper
+}
+-- 02886.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	_ = @Upper
+}
+-- 02887.ergo --
+func main() {
+	let k = 1
+	_ = @Upper == k
+}
+-- 02888.ergo --
+func Upper(s string) string { s }
+func main() {
+	let k = 1
+	_ = @Upper == k
+}
+-- 02889.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	let k = 1
+	_ = @Upper == k
+}
+-- 02890.ergo --
+func main() {
+	let k = 1
+	_ = k == @Upper
+}
+-- 02891.ergo --
+func Upper(s string) string { s }
+func main() {
+	let k = 1
+	_ = k == @Upper
+}
+-- 02892.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	let k = 1
+	_ = k == @Upper
+}
+-- 02893.ergo --
+func take(f func(string) string) {}
+func main() {
+	take(@Upper)
+}
+-- 02894.ergo --
+func Upper(s string) string { s }
+func take(f func(string) string) {}
+func main() {
+	take(@Upper)
+}
+-- 02895.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func take(f func(string) string) {}
+func main() {
+	take(@Upper)
+}
+-- 02896.ergo --
+type Bang {}
+func main() {
+	let v = @Upper catch {
+	case Bang: return
+	}
+	_ = v
+}
+-- 02897.ergo --
+func Upper(s string) string { s }
+type Bang {}
+func main() {
+	let v = @Upper catch {
+	case Bang: return
+	}
+	_ = v
+}
+-- 02898.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type Bang {}
+func main() {
+	let v = @Upper catch {
+	case Bang: return
+	}
+	_ = v
+}
+-- 02899.ergo --
+func main() {
+	_ = []func(string) string{@Upper}
+}
+-- 02900.ergo --
+func Upper(s string) string { s }
+func main() {
+	_ = []func(string) string{@Upper}
+}
+-- 02901.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	_ = []func(string) string{@Upper}
+}
+-- 02902.ergo --
+type Box { F int }
+func main() {
+	_ = Box{..@Upper, F: 1}
+}
+-- 02903.ergo --
+func Upper(s string) string { s }
+type Box { F int }
+func main() {
+	_ = Box{..@Upper, F: 1}
+}
+-- 02904.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type Box { F int }
+func main() {
+	_ = Box{..@Upper, F: 1}
+}
+-- 02905.ergo --
+type C { M() }
+let W = context { C: @Upper }
+-- 02906.ergo --
+func Upper(s string) string { s }
+type C { M() }
+let W = context { C: @Upper }
+-- 02907.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type C { M() }
+let W = context { C: @Upper }
+-- 02908.ergo --
+func main() {
+	@Upper
+}
+-- 02909.ergo --
+func Upper(s string) string { s }
+func main() {
+	@Upper
+}
+-- 02910.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	@Upper
+}
+-- 02911.ergo --
+func main() {
+	for @Upper { }
+}
+-- 02912.ergo --
+func Upper(s string) string { s }
+func main() {
+	for @Upper { }
+}
+-- 02913.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	for @Upper { }
+}
+-- 02914.ergo --
+func main() {
+	if @Upper { }
+}
+-- 02915.ergo --
+func Upper(s string) string { s }
+func main() {
+	if @Upper { }
+}
+-- 02916.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	if @Upper { }
+}
+-- 02917.ergo --
+func main() {
+	let xs = []int{1}
+	_ = xs[@Upper]
+}
+-- 02918.ergo --
+func Upper(s string) string { s }
+func main() {
+	let xs = []int{1}
+	_ = xs[@Upper]
+}
+-- 02919.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	let xs = []int{1}
+	_ = xs[@Upper]
+}
+-- 02920.ergo --
+func main() {
+	_ = @Upper[0]
+}
+-- 02921.ergo --
+func Upper(s string) string { s }
+func main() {
+	_ = @Upper[0]
+}
+-- 02922.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	_ = @Upper[0]
+}
+-- 02923.ergo --
+func main() {
+	_ = "\(@Upper)"
+}
+-- 02924.ergo --
+func Upper(s string) string { s }
+func main() {
+	_ = "\(@Upper)"
+}
+-- 02925.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	_ = "\(@Upper)"
+}
+-- 02926.ergo --
+func main() {
+	_ = Map[string, int]{@Upper: 1}
+}
+-- 02927.ergo --
+func Upper(s string) string { s }
+func main() {
+	_ = Map[string, int]{@Upper: 1}
+}
+-- 02928.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	_ = Map[string, int]{@Upper: 1}
+}
+-- 02929.ergo --
+type Holder { F func(string) string }
+func main() {
+	_ = Holder{F: @Upper}
+}
+-- 02930.ergo --
+func Upper(s string) string { s }
+type Holder { F func(string) string }
+func main() {
+	_ = Holder{F: @Upper}
+}
+-- 02931.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type Holder { F func(string) string }
+func main() {
+	_ = Holder{F: @Upper}
+}
+-- 02932.ergo --
+func main() {
+	_ = (@Upper)
+}
+-- 02933.ergo --
+func Upper(s string) string { s }
+func main() {
+	_ = (@Upper)
+}
+-- 02934.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	_ = (@Upper)
+}
+-- 02935.ergo --
+func main() {
+	for x in @Upper { _ = x }
+}
+-- 02936.ergo --
+func Upper(s string) string { s }
+func main() {
+	for x in @Upper { _ = x }
+}
+-- 02937.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	for x in @Upper { _ = x }
+}
+-- 02938.ergo --
+func get() func(string) string { return @Upper }
+-- 02939.ergo --
+func Upper(s string) string { s }
+func get() func(string) string { return @Upper }
+-- 02940.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func get() func(string) string { return @Upper }
+-- 02941.ergo --
+func main() {
+	_ = @Upper.Len
+}
+-- 02942.ergo --
+func Upper(s string) string { s }
+func main() {
+	_ = @Upper.Len
+}
+-- 02943.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	_ = @Upper.Len
+}
+-- 02944.ergo --
+func main() {
+	_ = @Upper[0:1]
+}
+-- 02945.ergo --
+func Upper(s string) string { s }
+func main() {
+	_ = @Upper[0:1]
+}
+-- 02946.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	_ = @Upper[0:1]
+}
+-- 02947.ergo --
+func main() {
+	let xs = []int{1}
+	_ = xs[@Upper:]
+}
+-- 02948.ergo --
+func Upper(s string) string { s }
+func main() {
+	let xs = []int{1}
+	_ = xs[@Upper:]
+}
+-- 02949.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	let xs = []int{1}
+	_ = xs[@Upper:]
+}
+-- 02950.ergo --
+func main() {
+	let xs = []int{1}
+	_ = xs[:@Upper]
+}
+-- 02951.ergo --
+func Upper(s string) string { s }
+func main() {
+	let xs = []int{1}
+	_ = xs[:@Upper]
+}
+-- 02952.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	let xs = []int{1}
+	_ = xs[:@Upper]
+}
+-- 02953.ergo --
+func main() {
+	let xs = []int{1}
+	_ = xs[0:1:@Upper]
+}
+-- 02954.ergo --
+func Upper(s string) string { s }
+func main() {
+	let xs = []int{1}
+	_ = xs[0:1:@Upper]
+}
+-- 02955.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	let xs = []int{1}
+	_ = xs[0:1:@Upper]
+}
+-- 02956.ergo --
+func main() {
+	let m = match @Upper {
+	case "a": 1
+	case _: 2
+	}
+	_ = m
+}
+-- 02957.ergo --
+func Upper(s string) string { s }
+func main() {
+	let m = match @Upper {
+	case "a": 1
+	case _: 2
+	}
+	_ = m
+}
+-- 02958.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	let m = match @Upper {
+	case "a": 1
+	case _: 2
+	}
+	_ = m
+}
+-- 02959.ergo --
+func main() {
+	let t = try @Upper
+	_ = t
+}
+-- 02960.ergo --
+func Upper(s string) string { s }
+func main() {
+	let t = try @Upper
+	_ = t
+}
+-- 02961.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	let t = try @Upper
+	_ = t
+}
+-- 02962.ergo --
+func main() {
+	let t = (@Upper, 1)
+	_ = t
+}
+-- 02963.ergo --
+func Upper(s string) string { s }
+func main() {
+	let t = (@Upper, 1)
+	_ = t
+}
+-- 02964.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	let t = (@Upper, 1)
+	_ = t
+}
+-- 02965.ergo --
+func main() {
+	_ = !@Upper
+}
+-- 02966.ergo --
+func Upper(s string) string { s }
+func main() {
+	_ = !@Upper
+}
+-- 02967.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	_ = !@Upper
+}
+-- 02968.ergo --
+func main() {
+	let v = @Upper
+	_ = v
+}
+-- 02969.ergo --
+func Upper(s string) string { s }
+func main() {
+	let v = @Upper
+	_ = v
+}
+-- 02970.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	let v = @Upper
+	_ = v
+}
+-- 02971.ergo --
+func f(xs []@Upper) {}
+-- 02972.ergo --
+func Upper(s string) string { s }
+func f(xs []@Upper) {}
+-- 02973.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func f(xs []@Upper) {}
+-- 02974.ergo --
+func main() {
+	_ = @Upper{}
+}
+-- 02975.ergo --
+func Upper(s string) string { s }
+func main() {
+	_ = @Upper{}
+}
+-- 02976.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	_ = @Upper{}
+}
+-- 02977.ergo --
+type C { M() }
+type P {}
+func M(_ P) {}
+let W = context { @Upper: P }
+-- 02978.ergo --
+func Upper(s string) string { s }
+type C { M() }
+type P {}
+func M(_ P) {}
+let W = context { @Upper: P }
+-- 02979.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type C { M() }
+type P {}
+func M(_ P) {}
+let W = context { @Upper: P }
+-- 02980.ergo --
+type C { M() }
+type P {}
+func M(_ P) {}
+let W = context { C, @Upper: P }
+-- 02981.ergo --
+func Upper(s string) string { s }
+type C { M() }
+type P {}
+func M(_ P) {}
+let W = context { C, @Upper: P }
+-- 02982.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type C { M() }
+type P {}
+func M(_ P) {}
+let W = context { C, @Upper: P }
+-- 02983.ergo --
+func f() fails @Upper {}
+-- 02984.ergo --
+func Upper(s string) string { s }
+func f() fails @Upper {}
+-- 02985.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func f() fails @Upper {}
+-- 02986.ergo --
+func f(x @Upper) {}
+-- 02987.ergo --
+func Upper(s string) string { s }
+func f(x @Upper) {}
+-- 02988.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func f(x @Upper) {}
+-- 02989.ergo --
+func main() {
+	_ = func(x @Upper) {}
+}
+-- 02990.ergo --
+func Upper(s string) string { s }
+func main() {
+	_ = func(x @Upper) {}
+}
+-- 02991.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	_ = func(x @Upper) {}
+}
+-- 02992.ergo --
+type A {}
+type U = A | @Upper
+-- 02993.ergo --
+func Upper(s string) string { s }
+type A {}
+type U = A | @Upper
+-- 02994.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type A {}
+type U = A | @Upper
+-- 02995.ergo --
+type E = Ping
+type Ping {}
+type M machine[@Upper, E] { initial: 1, step: step }
+func step(s int, e E) Decision[int, int] { return Ignore }
+-- 02996.ergo --
+func Upper(s string) string { s }
+type E = Ping
+type Ping {}
+type M machine[@Upper, E] { initial: 1, step: step }
+func step(s int, e E) Decision[int, int] { return Ignore }
+-- 02997.ergo --
+type A {}
+type B {}
+func main() {
+	let m = match @Upper {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type E = Ping
+type Ping {}
+type M machine[@Upper, E] { initial: 1, step: step }
+func step(s int, e E) Decision[int, int] { return Ignore }
+-- 02998.ergo --
+type S = Idle
+type Idle {}
+type M machine[S, @Upper] { initial: Idle, step: step }
+func step(s S, e int) Decision[S, int] { return Ignore }
+-- 02999.ergo --
+func Upper(s string) string { s }
+type S = Idle
+type Idle {}
+type M machine[S, @Upper] { initial: Idle, step: step }
+func step(s S, e int) Decision[S, int] { return Ignore }

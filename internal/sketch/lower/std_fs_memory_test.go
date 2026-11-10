@@ -527,9 +527,14 @@ var fsLawStatements = map[string]string{
 // It builds and runs the program because the reference is the host itself
 // (fs.Host's Go bodies on a real directory) and Memory is Ergo source with
 // no interpreter to run it in process; one build serves every sequence.
+//
+// It builds Go because it compares the runs of built programs with a
+// reference (another lowering, a fold, or Go's own package), and the
+// question is behaviour at run time; no in-process check observes that, and
+// Ergo has no reference interpreter yet (test-speed T8).
 func TestFSMemoryAgreesWithHost(t *testing.T) {
-	p := mustLower(t, "fsMemory", fsMemoryProgram)
-	exes := buildAll(t, []*lowered{p}, true)
+	needsBuild(t)
+	exes := tableExes(t, "fsMemory")
 	if exes == nil {
 		t.Fatal("the lowered program does not build")
 	}

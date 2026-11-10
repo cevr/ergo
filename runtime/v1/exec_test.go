@@ -136,6 +136,14 @@ func genExecCase(r *rand.Rand, dir string, i int) execCase {
 // runExecCase runs c's program on a task of its own and stops the task as
 // c says. It returns what the call gave: its result, its error, and
 // whether it raised rt.Interrupted.
+//
+// It waits on events, not on time: the stop of a running or masked case
+// lands after the program wrote its pid (or not at all when Run returned
+// first, which the model's checks then report), and the call's end is Run's
+// return. A program that the stop does not end runs to its own end ("echo
+// never", an Exited outcome), so the model's check fails it by order. A
+// slow host (a late shell start, a loaded CPU) changes neither order; the
+// test's deadline (testwait) bounds a hang.
 func runExecCase(t *testing.T, c execCase) (res ExecResult, err error, interrupted bool, took time.Duration) {
 	t.Helper()
 	task := rt.Root("exec test")
@@ -172,7 +180,21 @@ func runExecCase(t *testing.T, c execCase) (res ExecResult, err error, interrupt
 	if c.stop == "running" || c.stop == "masked" {
 		// The stop lands while the program runs: after it wrote its pid,
 		// at a random point of what follows.
-		testwait.Until(t, func() bool { data, _ := os.ReadFile(c.pidfile); return len(data) > 0 })
+		// Run may return first; the model's checks then report it.
+		var early *ret
+		testwait.Until(t, func() bool {
+			select {
+			case got := <-done:
+				early = &got
+				return true
+			default:
+			}
+			data, _ := os.ReadFile(c.pidfile)
+			return len(data) > 0
+		})
+		if early != nil {
+			return early.res, early.err, early.interrupted, time.Since(begin)
+		}
 		time.Sleep(c.delay)
 		task.Interrupt()
 	}
@@ -345,12 +367,21 @@ func TestExecStopEndsAPipeline(t *testing.T) {
 	// pipeline". The program runs a pipeline of two stages, each with a
 	// process of its own; a stop of the caller ends every one of them.
 	t.Run("a stop ends every stage", func(t *testing.T) {
-		pidfile := filepath.Join(t.TempDir(), "pids")
+		// The checks are on the order of events, not on time: the stop
+		// lands after the program wrote all three pids, and the program
+		// writes "late" only when its stages end on their own, after their
+		// sleep. Run waits for the group to end before it returns, so a
+		// stop that does not end the program lets "late" reach the file
+		// first. A slow host (a late shell start, a loaded CPU) changes
+		// neither order; the test's deadline (testwait) bounds a hang.
+		dir := t.TempDir()
+		pidfile, latefile := filepath.Join(dir, "pids"), filepath.Join(dir, "late")
 		script := fmt.Sprintf(`(sleep 20 & echo $! >> %[1]s; wait) | (sleep 20 & echo $! >> %[1]s; wait) &
 while [ "$(wc -l < %[1]s)" -lt 2 ]; do sleep 0.01; done
 echo $$ >> %[1]s
 wait
-`, pidfile)
+echo late >> %[2]s
+`, pidfile, latefile)
 		task := rt.Root("exec test")
 		done := make(chan bool, 1)
 		go func() {
@@ -358,7 +389,15 @@ wait
 			_, _ = ExecRun(task, "sh", []string{"-c", script}, nil, "", "")
 		}()
 		var pids []int
-		testwait.Until(t, func() bool { pids = readPids(t, pidfile); return len(pids) >= 3 })
+		testwait.Until(t, func() bool {
+			select {
+			case <-done:
+				t.Fatalf("Run returned before the stop, with pids %v", readPids(t, pidfile))
+			default:
+			}
+			pids = readPids(t, pidfile)
+			return len(pids) >= 3
+		})
 		task.Interrupt()
 		select {
 		case interrupted := <-done:
@@ -367,6 +406,9 @@ wait
 			}
 		case <-testwait.After(t):
 			t.Fatal("Run did not return by the test's deadline after the stop")
+		}
+		if late, _ := os.ReadFile(latefile); len(late) > 0 {
+			t.Fatalf("the pipeline ran to its end (late holds %q): the stop did not end the program", late)
 		}
 		if len(pids) != 3 {
 			t.Fatalf("pids %v; want the two stages' and the program's", pids)

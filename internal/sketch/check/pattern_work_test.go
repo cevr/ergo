@@ -13,23 +13,24 @@ import (
 // TestMatchArmsLinear counts all work at the source boundary, including
 // pattern construction and irrefutable let proofs. The square matrices can
 // exhaust their proof budget; they must stop within a constant per source
-// cell and never admit an unproved match. Rect keeps 100 rows as width
-// grows; wide grows both dimensions. No host-clock assertion is used.
+// cell and never admit an unproved match. Rect keeps 16 rows as width
+// grows; wide grows both dimensions. Each shape runs at three sizes up to
+// check.GrowthMaxNodes source cells (test-speed plan T4); a shape whose
+// work is linear in its cells (linear set) also keeps its steps per cell
+// at the largest size within check.GrowthRatio times those at the
+// smallest. No host-clock assertion is used.
 //
-// The union shape and each other shape at each size are the cases of a
-// split (gate-fast T1): part k checks every seventh case from case k, as a
-// top-level test of its own, so the two largest cases (rect at 4000, tupv
-// at 320) fall in different parts. Under -short a part keeps its first
-// case.
+// The union shape and each other shape are the cases of a split (gate-fast
+// T1): part k checks case k, as a top-level test of its own. Under -short
+// a part keeps its first case.
 var matchArmsLinear = check.NewSplit(check.Split[matchArmsCase]{
 	Name: "TestMatchArmsLinear", Parts: 7, Short: 2,
-	Count: 14, Digest: "c9c71172e18f9b697e5f2e7e26b1087a3ab51b0c1bb91f01aceec66a521e354f",
 	Cases: check.SeqOf(matchArmsCases),
 	Key: func(c matchArmsCase) string {
 		if c.src == nil {
 			return c.name
 		}
-		return fmt.Sprintf("%s n=%d\n%s", c.name, c.n, c.src(c.n))
+		return fmt.Sprintf("%s\n%s", c.name, c.src(3))
 	},
 	Run: runMatchArmsLinear,
 })
@@ -42,34 +43,40 @@ func TestMatchArmsLinearPart4(t *testing.T) { matchArmsLinear.Part(t, 4) }
 func TestMatchArmsLinearPart5(t *testing.T) { matchArmsLinear.Part(t, 5) }
 func TestMatchArmsLinearPart6(t *testing.T) { matchArmsLinear.Part(t, 6) }
 
-// matchArmsCase is one shape at one size; the union shape (src nil) is
-// one case at its own sizes.
+// matchArmsCase is one shape, checked at its sizes; the union shape (src
+// nil) is one case at its own sizes. A shape with sizes nil runs at
+// check.GrowthSizes; linear marks the shapes whose work is linear in
+// their cells.
 type matchArmsCase struct {
-	name string
-	n    int
-	src  func(int) string
+	name   string
+	sizes  []int
+	linear bool
+	src    func(int) string
 }
 
 func matchArmsCases() []matchArmsCase {
-	out := []matchArmsCase{{name: "union"}}
-	for _, shape := range []struct {
-		name  string
-		sizes []int
-		src   func(int) string
-	}{
-		{"rect", []int{1000, 4000}, func(n int) string { return wideBoolMatch(n, 100) }},
-		{"wide", []int{80, 320}, func(n int) string { return wideBoolMatch(n, n) }},
-		{"tupv", []int{80, 320}, wideTupleValueMatch},
-		{"odd", []int{41}, oddCycleSwitch},
-		{"let", []int{8000, 32000}, wideLetPattern},
-		{"records", []int{100, 400}, nestedRecordPattern},
-		{"unions", []int{15, 60}, nestedUnionPatterns},
-	} {
-		for _, n := range shape.sizes {
-			out = append(out, matchArmsCase{shape.name, n, shape.src})
-		}
+	return []matchArmsCase{
+		{name: "union"},
+		{"rect", nil, true, func(n int) string { return wideBoolMatch(n, 16) }},
+		{"wide", nil, false, func(n int) string { return wideBoolMatch(n, n) }},
+		{"tupv", nil, false, wideTupleValueMatch},
+		{"odd", []int{29}, false, oddCycleSwitch},
+		{"let", nil, true, wideLetPattern},
+		{"records", nil, true, nestedRecordPattern},
+		{"unions", nil, false, nestedUnionPatterns},
 	}
-	return out
+}
+
+// sourceCells is the syntax nodes of src.
+func sourceCells(t *testing.T, src string) int {
+	t.Helper()
+	file, err := syntax.Parse(src)
+	if err != nil {
+		t.Fatalf("parse diagnostics %v", err)
+	}
+	cells := 0
+	syntax.Inspect(file, func(syntax.Node) bool { cells++; return true })
+	return cells
 }
 
 func runMatchArmsLinear(t *testing.T, cases iter.Seq[matchArmsCase]) {
@@ -78,38 +85,50 @@ func runMatchArmsLinear(t *testing.T, cases iter.Seq[matchArmsCase]) {
 			t.Run(shape.name, testUnionArmsLinear)
 			continue
 		}
-		t.Run(fmt.Sprintf("%s/n=%d", shape.name, shape.n), func(t *testing.T) {
-			n := shape.n
-			src := shape.src(n)
-			file, err := syntax.Parse(src)
-			if err != nil {
-				t.Fatalf("n=%d: parse diagnostics %v", n, err)
+		t.Run(shape.name, func(t *testing.T) {
+			sizes := shape.sizes
+			if sizes == nil {
+				sizes = check.GrowthSizes(t, check.GrowthMaxNodes, func(n int) int { return sourceCells(t, shape.src(n)) })
 			}
-			cells := 0
-			syntax.Inspect(file, func(syntax.Node) bool { cells++; return true })
-			costs, d := check.SolverCosts(src)
-			if len(costs) != 1 || costs[0].TotalSteps+costs[0].UsefulSteps == 0 {
-				t.Fatalf("n=%d: want one counted proof, got %v; %s", n, costs, describe(d))
+			var per []float64
+			for _, n := range sizes {
+				per = append(per, matchArmsWork(t, shape.name, n, shape.src(n)))
 			}
-			c := costs[0]
-			if shape.name == "odd" && c.Written != 2*n*n+3*n {
-				t.Fatalf("odd cycle written size: %+v", c)
-			}
-			for _, x := range d {
-				if (shape.name != "wide" && shape.name != "tupv") || x.Code != check.CodeNotTotal || !strings.Contains(x.Message, "too many cases") {
-					t.Fatalf("n=%d: unexpected diagnostics %s", n, describe(d))
-				}
-			}
-			work := c.TotalSteps + c.UsefulSteps
-			t.Logf("n=%d source cells=%d W=%d steps=%d/%d allocated=%d/%d workLimit=%d cellLimit=%d diagnostics=%s", n, cells, c.Written, c.TotalSteps, c.UsefulSteps, c.TotalCells, c.UsefulCells, c.Budget, c.CellBudget, describe(d))
-			if c.Written > cells || c.Budget != max(200000, 512*c.Written) || c.CellBudget != max(200000, 1024*c.Written) || c.TotalCells+c.UsefulCells <= 0 || c.TotalCells+c.UsefulCells > c.CellBudget || work > c.Budget {
-				t.Errorf("n=%d: source budget or allocation bound violated: %+v", n, c)
-			}
-			if work > 512*cells {
-				t.Errorf("n=%d: %d steps exceed 512 per source cell (%d)", n, work, 512*cells)
+			t.Logf("%s: steps per cell %.2f at sizes %v", shape.name, per, sizes)
+			if shape.linear {
+				check.GrowthBounded(t, shape.name+" solver steps per cell", sizes, per)
 			}
 		})
 	}
+}
+
+// matchArmsWork checks the shape's source at size n against the budgets
+// and returns its solver steps per source cell.
+func matchArmsWork(t *testing.T, name string, n int, src string) float64 {
+	t.Helper()
+	cells := sourceCells(t, src)
+	costs, d := check.SolverCosts(src)
+	if len(costs) != 1 || costs[0].TotalSteps+costs[0].UsefulSteps == 0 {
+		t.Fatalf("n=%d: want one counted proof, got %v; %s", n, costs, describe(d))
+	}
+	c := costs[0]
+	if name == "odd" && c.Written != 2*n*n+3*n {
+		t.Fatalf("odd cycle written size: %+v", c)
+	}
+	for _, x := range d {
+		if (name != "wide" && name != "tupv") || x.Code != check.CodeNotTotal || !strings.Contains(x.Message, "too many cases") {
+			t.Fatalf("n=%d: unexpected diagnostics %s", n, describe(d))
+		}
+	}
+	work := c.TotalSteps + c.UsefulSteps
+	t.Logf("n=%d source cells=%d W=%d steps=%d/%d allocated=%d/%d workLimit=%d cellLimit=%d diagnostics=%s", n, cells, c.Written, c.TotalSteps, c.UsefulSteps, c.TotalCells, c.UsefulCells, c.Budget, c.CellBudget, describe(d))
+	if c.Written > cells || c.Budget != max(200000, 512*c.Written) || c.CellBudget != max(200000, 1024*c.Written) || c.TotalCells+c.UsefulCells <= 0 || c.TotalCells+c.UsefulCells > c.CellBudget || work > c.Budget {
+		t.Errorf("n=%d: source budget or allocation bound violated: %+v", n, c)
+	}
+	if work > 512*cells {
+		t.Errorf("n=%d: %d steps exceed 512 per source cell (%d)", n, work, 512*cells)
+	}
+	return float64(work) / float64(cells)
 }
 
 // The reviewer's sparse-wide record writes one field per arm, then one

@@ -173,12 +173,12 @@ func TestRepoExamplesHoldTheirLaws(t *testing.T) {
 func TestLawlessReport(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	f.program("checkout", "type Payments {\n\tCharge(n int) int,\n}\n", "default\n", map[string]map[string]string{"basic": {"expected.out": "hi\n"}}, nil)
+	f.program("lookup", "type Resolver {\n\tResolve(n int) int,\n}\n", "default\n", map[string]map[string]string{"basic": {"expected.out": "hi\n"}}, nil)
 	f.write("examples/walker/ergo.mod", "module walker\n")
 	f.write("examples/walker/walk/replays.ergo", "type Library {\n\tReplays() []Replay,\n}\n\ntype Replay { Name string }\n")
 	code, out := f.run("-lawless")
 	for _, want := range []string{
-		"examples/checkout/main.ergo:1: operation type Payments has no law",
+		"examples/lookup/main.ergo:1: operation type Resolver has no law",
 		"examples/walker/walk/replays.ergo:1: operation type Library has no law",
 		"examples: 2 operation types with no law (report only)",
 	} {

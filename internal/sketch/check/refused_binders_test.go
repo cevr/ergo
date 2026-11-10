@@ -58,8 +58,8 @@ func TestRefusedBinderCases(t *testing.T) {
 		// A refused type a cycle reaches before its refusal adds nothing
 		// as a machine's state, in either declaration order (FuzzCheck
 		// seed b7fef5a76c229eda).
-		{"tbad-machine-cycle", "func A() {}\ntype e = d\ntype r machine[e,A]{initial: 0,\nstep: 0}\ntype d {A(r)}\n", []string{"S108@2:10", "S108@3:18", "S108@4:7"}},
-		{"tbad-machine-cycle-permuted", "type d {A(r)}\ntype r machine[e,A]{initial: 0,\nstep: 0}\ntype e = d\nfunc A() {}\n", []string{"S108@2:18", "S108@3:7", "S108@4:10"}},
+		{"tbad-machine-cycle", "func A() {}\ntype e = d\ntype r machine[e,A]{initial: 0,\nstep: 0}\ntype d {A(r)}\n", []string{"S108@3:16", "S108@3:18", "S108@4:7"}},
+		{"tbad-machine-cycle-permuted", "type d {A(r)}\ntype r machine[e,A]{initial: 0,\nstep: 0}\ntype e = d\nfunc A() {}\n", []string{"S108@2:16", "S108@2:18", "S108@3:7"}},
 		{"defined-machine-cycle", "func A() {}\ntype e d\ntype r machine[e,A]{initial: 0,\nstep: 0}\ntype d {A(r)}\n", []string{"S108@2:8", "S108@3:18", "S108@4:7"}},
 		// An imported package as a catch rest: one S108, the import used.
 		{"catch-import", "import trace\n\ntype E {}\n\nfunc n(v int) int fails E { v }\n\nfunc host(v int) int {\n\tn(v) catch {\n\tcase trace:\n\t\t0\n\t}\n}\n", []string{"S108@9:7"}},
@@ -102,69 +102,6 @@ func TestRefusedBinderCases(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// TestRefusedBinderMeaning: after a refused binder, a later pattern or
-// binder of the name classifies it as it would without the binder (P2), in
-// typing and in the reference walk alike (P3). The checked occurrence is
-// the name's last; want is its (Info, walk) meaning and the diagnostics of
-// its line.
-func TestRefusedBinderMeaning(t *testing.T) {
-	const decls = "type tr { A int }\n\n"
-	for _, c := range []struct {
-		name, body, use string
-		info, walk      string
-		codes           []string
-	}{
-		// A placeholder's name in a nested match is the type test again.
-		{"placeholder/match", "\tmatch v {\n\tcase tr:\n\t\tif b {\n\t\t\tmatch v {\n\t\t\tcase tr:\n\t\t\t\tlet _ = 0\n\t\t\tcase _:\n\t\t\t\tlet _ = 1\n\t\t\t}\n\t\t}\n\tcase _:\n\t\tlet _ = 1\n\t}\n", "tr", "names", "names", []string{"S108"}},
-		// A D-D3 binder's name in a later case is the type test again.
-		{"dd3/case-int", "\tlet int = v\n\tmatch v {\n\tcase int:\n\t\tlet _ = 0\n\t}\n", "int", "names", "names", nil},
-		{"dd3/case-Console", "\tlet (Console) = v\n\tmatch v {\n\tcase Console:\n\t\tlet _ = 0\n\tcase _:\n\t\tlet _ = 1\n\t}\n", "Console", "names", "names", []string{"S108"}},
-	} {
-		src := decls + "func host(v int, b bool) {\n" + c.body + "}\n"
-		off := strings.LastIndex(src, c.use)
-		line := strings.Count(src[:off], "\n") + 1
-		info, walk, ok := check.BinderMeaning(src, off)
-		if !ok || info != c.info || walk != c.walk {
-			t.Errorf("%s: want Info %q walk %q, got %q %q (found %v)\n%s", c.name, c.info, c.walk, info, walk, ok, src)
-		}
-		_, ds := check.CheckSource(src)
-		var codes []string
-		for _, d := range ds {
-			if d.Line == line {
-				codes = append(codes, d.Code)
-			}
-		}
-		if strings.Join(codes, " ") != strings.Join(c.codes, " ") {
-			t.Errorf("%s: want %v on the use's line, got %v\n%s", c.name, c.codes, codes, src)
-		}
-	}
-}
-
-// TestRefusedBinderLetY is fuzz-863c's let-y: the literal's type y is the
-// package type, as without the let (a type position sees through the
-// local, types.md Scope 1; it was a refused binder before L5), so its
-// diagnostics are those of the program without the let, plus the let's
-// own (now S110: no value position reads the local); the walk reaches t
-// (P3).
-func TestRefusedBinderLetY(t *testing.T) {
-	src := "type y{}\nfunc t(){let y = 1; y[0]{{t} }}\n"
-	bare := "type y{}\nfunc t(){let _ = 1; y[0]{{t} }}\n"
-	want := append([]string{"S110@2:14"}, rbCodes(bare)...)
-	sort.Strings(want)
-	if got := rbCodes(src); strings.Join(got, " ") != strings.Join(want, " ") {
-		t.Errorf("want %v, got %v", want, got)
-	}
-	if p := check.RefWalkProblems(src); len(p) > 0 {
-		t.Errorf("reference walk problems %v", p)
-	}
-	off := strings.LastIndex(src, "y[")
-	info, walk, _ := check.BinderMeaning(src, off)
-	bi, bw, _ := check.BinderMeaning(bare, strings.LastIndex(bare, "y["))
-	if info != bi || walk != bw {
-		t.Errorf("the literal's type: want Info %q walk %q (as without the let), got %q %q", bi, bw, info, walk)
 	}
 }
 

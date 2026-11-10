@@ -1,0 +1,17 @@
+screen: choose: serial or tag
+> serial
+screen: serial: __________
+> type 0001112222
+screen: serial: 0001112222
+> submit
+screen: sorry: cannot send a code to 0001112222
+> hello
+? unknown command: hello
+> wait
+screen: choose: serial or tag
+> tap T-999
+screen: sorry: unknown tag
+> cancel
+cancelled
+> submit
+(the pairing has ended)

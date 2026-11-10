@@ -8,6 +8,7 @@ import "testing"
 // generic union names its instance's row, and std's flag.Failure names
 // flag's failures.
 func TestErgoRunNamedRows(t *testing.T) {
+	needsBuild(t)
 	wantRun(t, `import flag
 
 type Bad { At int }

@@ -1,0 +1,69 @@
+// Package file keeps a quota in a text file: a journal of every volume
+// opened and every move posted, one per line, in order. The Table is
+// the journal replayed, so the file is the whole truth and the sizes
+// are never written down.
+
+import quota/quota
+import strconv
+import strings
+
+// Corrupt is a journal line that does not read back.
+type Corrupt { Line int, Reason string }
+
+// OpenLine is the journal line of a volume opened.
+func OpenLine(id string, floor int64) string {
+	"open\t\(strconv.Quote(id))\t\(floor)\n"
+}
+
+// PostLine is the journal line of a move posted.
+func PostLine(t quota.Move) string {
+	"post\t\(strconv.Quote(t.Key))\t\(strconv.Quote(t.From))\t\(strconv.Quote(t.To))\t\(t.Size)\n"
+}
+
+// word is the quoted word w, read.
+func word(n int, w string) string fails Corrupt {
+	strconv.Unquote(w) catch {
+	case strconv.Malformed:
+		return Corrupt{Line: n, Reason: "\(w) is not a quoted word"}
+	}
+}
+
+// size is the size w, read.
+func size(n int, w string) int64 fails Corrupt {
+	strconv.ParseInt(w, 10, 64) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return Corrupt{Line: n, Reason: "\(w) is not a size"}
+	}
+}
+
+// Replay is the Table that the journal text records. Each line must apply:
+// a line the Table refuses means the file was changed by hand.
+func Replay(text string) quota.Table fails Corrupt {
+	let mut b = quota.Empty()
+	for i, line in strings.Split(text, "\n") {
+		if line == "" {
+			continue
+		}
+		let n = i + 1
+		let w = strings.Split(line, "\t")
+		match (w[0], len(w)) {
+		case ("open", 3):
+			let id = try word(n, w[1])
+			let floor = try size(n, w[2])
+			b = quota.Open(b, id, floor) catch {
+			case quota.VolumeExists, quota.BadFloor:
+				return Corrupt{Line: n, Reason: "the volume \(id) does not open"}
+			}
+		case ("post", 5):
+			let t = quota.Move{Key: try word(n, w[1]), From: try word(n, w[2]), To: try word(n, w[3]), Size: try size(n, w[4])}
+			let next, _ = quota.Apply(b, t) catch {
+			case quota.KeyReused, quota.BadSize, quota.SameVolume, quota.UnknownVolume, quota.NoSpace:
+				return Corrupt{Line: n, Reason: "the move \(t.Key) does not post"}
+			}
+			b = next
+		case _:
+			return Corrupt{Line: n, Reason: "not an open or a post line"}
+		}
+	}
+	b
+}

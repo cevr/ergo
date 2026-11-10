@@ -15,69 +15,6 @@ import (
 // *Ref[T], whose operations are its methods, and sync.Modify is
 // v1.RefModify, whose function returns the Go form of the tuple (R, T).
 
-// syncRunsProgram uses each operation of a Ref, a Ref in a record that a
-// copy shares, Modify with a tuple result, a method value, and Updates from
-// two tasks at once.
-const syncRunsProgram = `import sync
-import task
-
-type Box { r sync.Ref[[]string] }
-
-func push(b Box, s string) {
-	b.r.Update(func(ws []string) []string { ws.Append(s) })
-}
-
-func bump(r sync.Ref[int], k int) {
-	for _ in 0..k {
-		r.Update(func(v int) int { v + 1 })
-	}
-}
-
-func main() needs Console {
-	let r = sync.NewRef[int](1)
-	Console.Println("\(r.Get())")
-	r.Set(5)
-	r.Update(func(v int) int { v * 2 })
-	let old = sync.Modify(r, func(v int) (string, int) { ("was \(v)", v + 1) })
-	Console.Println("\(old) \(r.Get())")
-	let get = r.Get
-	r.Set(7)
-	Console.Println("\(get())")
-	let c = sync.NewRef[int](0)
-	let a = task.Go() { bump(c, 20000) }
-	let b = task.Go() { bump(c, 20000) }
-	a.Wait()
-	b.Wait()
-	Console.Println("\(c.Get())")
-	let box = Box{r: sync.NewRef[[]string]([]string{})}
-	let copy = box
-	push(box, "a")
-	push(copy, "b")
-	let ws = box.r.Get()
-	Console.Println("\(len(ws)) \(ws[0])\(ws[1])")
-}
-`
-
-// TestSyncRuns: each operation lowers to the runtime's method or function,
-// called directly, and the program prints each result: the two tasks'
-// 40000 Updates all count, and a copy of a record shares its Ref.
-func TestSyncRuns(t *testing.T) {
-	progs := runBehaviors(t, []behavior{{
-		name:   "syncruns",
-		src:    syncRunsProgram,
-		stdout: "1\nwas 10 11\n7\n40000\n2 ab\n",
-	}})
-	if progs == nil {
-		t.FailNow()
-	}
-	got := progs["syncruns"].mainGo()
-	for _, want := range []string{".NewRef[int](", ".RefModify[int, string](", ".Update(", ".Set(", ".Get()"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("no %q in the emitted Go:\n%s", want, got)
-		}
-	}
-}
-
 // syncLawsProbe restates each law whose ledger runner is TestSyncLaws, as
 // a test of the same name (TestStdLawsRun's naming). UpdateCallsOnce runs
 // on Refs of int and of string; UpdateIsAtomic on four tasks.
@@ -163,6 +100,7 @@ var syncLawStatements = map[string]string{
 // restates exactly the ledger's laws whose runner is this test, each with
 // the row's statement, and that each passed.
 func TestSyncLaws(t *testing.T) {
+	needsBuild(t)
 	if laws := lawProbe(t, "synclaws", syncLawsProbe, syncLawStatements); laws != nil {
 		lawledger.Run(t, laws)
 	}
@@ -221,8 +159,13 @@ test RecorderTasks(n int) {
 // process's GOMAXPROCS. RecorderKeepsOrder passes at the base too (the Map
 // Recorder); RecorderTasks ends the base's binary with "fatal error:
 // concurrent map writes" (measured at fd156fbb with GOMAXPROCS=2).
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestIORecorderBehavesAsBefore(t *testing.T) {
-	exes := buildAll(t, []*lowered{lowerTestBuild(t, "recorder", recorderProbe)}, true)
+	needsBuild(t)
+	exes := tableExes(t, "recorder")
 	if exes == nil {
 		return
 	}

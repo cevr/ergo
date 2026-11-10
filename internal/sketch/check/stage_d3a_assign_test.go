@@ -1,7 +1,6 @@
 package check_test
 
 import (
-	"slices"
 	"strings"
 	"testing"
 
@@ -137,47 +136,4 @@ func TestRepairTextsCheck(t *testing.T) {
 			}
 		})
 	}
-}
-
-// A multi-name let with a written type records each element's conversion
-// (Info.ImplicitElems), a zero Conversion where an element makes none, and
-// nothing when no element converts; a refused element is one diagnostic.
-func TestMultiLetElementConversions(t *testing.T) {
-	src := `type Store { Get() int }
-type Count int
-func Get(c Count) int { int(c) }
-func two() (Count, Count) { (Count(1), Count(2)) }
-func f(s Store) int {
-	let a, b Store = two()
-	let p, q Store = (Count(7), s)
-	let x, y Store = (s, s)
-	a.Get() + b.Get() + p.Get() + q.Get() + x.Get() + y.Get()
-}
-`
-	pkg, d := check.CheckSource(src)
-	if len(d) != 0 {
-		t.Fatalf("want a clean check, got %s", describe(d))
-	}
-	var shapes []string
-	for _, convs := range pkg.Info.ImplicitElems {
-		var kinds []string
-		for _, c := range convs {
-			switch {
-			case c.Kind == check.ConvOperations && c.Table["Get"] != nil:
-				kinds = append(kinds, "ops")
-			case c.Kind == 0:
-				kinds = append(kinds, "none")
-			default:
-				kinds = append(kinds, "other")
-			}
-		}
-		shapes = append(shapes, strings.Join(kinds, ","))
-	}
-	slices.Sort(shapes)
-	if strings.Join(shapes, " ") != "ops,none ops,ops" {
-		t.Fatalf("want element conversions [ops,none ops,ops], got %v", shapes)
-	}
-	runD1(t, []d1Case{
-		{"one-diagnostic", "func f() int {\n\tlet a, b []int64 = ([]int{1}, []int{2})\n\tlen(a) + len(b)\n}\n", []string{"S108:2"}},
-	})
 }

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"ergo.local/prototype/internal/sketch/check"
 )
@@ -39,18 +38,12 @@ func F()                               { _ = func() fails Fault[int] { return Fa
 	{"M3", "local-error-row", "S101", `type Fault {}
 func Identity(v Fault) int { return v }
 func F()                     { _ = func() fails Fault { return Fault } }`},
-	{"M4", "error-union-rethrow", "S108", `type A {}
+	// fu8a: e binds the row value of A and B alone, not of the whole row,
+	// so a match on it is total with two cases.
+	{"M4", "catch-alternatives-join", "", `type A {}
 type B {}
-func Fail() fails A | B { return A }
-func F() fails A | B {
-	Fail() catch {
-	case A as e, B as e:
-		return e
-	}
-}`},
-	{"M4", "catch-union-switch", "S108", `type A {}
-type B {}
-func Fail() fails A | B { return A }
+type C {}
+func Fail() fails A | B | C { return A }
 func F() {
 	Fail() catch {
 	case A as e, B as e:
@@ -60,18 +53,7 @@ func F() {
 		case B:
 			return
 		}
-	}
-}`},
-	{"M4", "catch-union-switch-not-total", "S108", `type A {}
-type B {}
-func Fail() fails A | B { return A }
-func F() {
-	Fail() catch {
-	case A as e, B as e:
-		match e {
-		case A:
-			return
-		}
+	case C:
 	}
 }`},
 	{"M5", "generic-named-constraint-inferred", "S108", `type I { M() }
@@ -95,10 +77,10 @@ func F() { _ = Box{S} }`},
 	// D3a: a record field holds no Task, so the field is a function type.
 	{"M6", "bracket-row-in-generic-field", "", `type Box[T, E] { run func() T fails E }
 func Open[T, E](b Box[T, E]) T fails E { return b.run() }`},
-	{"M6", "row-kind-conflict-still-reported", "S108", `func Bad[T, E](t Task[T, E], e E) T { return t.Wait() }`},
+	{"M6", "row-kind-conflict-still-reported", "S108", `func Bad[T, R](r R, f func() T needs R) T needs R { f() }`},
 	{"M7", "generic-recursive-value", "S108", `type Wrap[T] { Value T }
 type U { Field Wrap[U] }
-func F() U { return U{} }`},
+func F(u U) U { return u }`},
 	{"M7", "generic-recursive-constraint", "S108", `type Wrap[T] { Value T }
 type U { Field Wrap[U] }`},
 	{"M7", "generic-recursive-through-slice", "", `type Wrap[T] { Values []T }
@@ -280,16 +262,16 @@ func F() {
 	main()
 }`},
 	{"M16", "with-default-hint", "", `type Box[T] { X T }
-func F() Box[int] { return with context {} { Box{} } }`},
+func F() Box[int] { return with context {} { Box{X: 0} } }`},
 	{"M17", "map-index-field-assignment", "S108", `type S { X int }
 func F(m Map[int, S]) { m[0].X = 1 }`},
 	{"M17", "map-index-assignment", "", `type S { X int }
 func F(m Map[int, S], n Map[int, int]) {
 	let mut m2 = m
 	let mut n2 = n
-	m2[0] = S{}
+	m2[0] = S{X: 0}
 	m2[1] = S{X: 2}
-	n2[3] = S{}.X
+	n2[3] = S{X: 3}.X
 }`},
 	{"M17", "map-index-field-increment", "S108", `type S { X int }
 func F(m Map[int, S]) { m[2].X += 1 }`},
@@ -494,21 +476,27 @@ func oddCycleSwitch(n int) string {
 	return check.Decided(b.String())
 }
 
-// TestTotalityCost: the odd-cycle family stays clean and cheap (M8, D16).
-// The bound is generous for a loaded gate machine; before the repair the
-// 21-subject case took about 4.9 s.
+// TestTotalityCost: the odd-cycle family stays clean and cheap (M8, D16):
+// its solver steps stay within totalityCostPerCell per written cell, a
+// counted bound (test-speed plan T4; it was 500 ms of wall time). Before
+// the repair the 21-subject case took about 4.9 s.
 func TestTotalityCost(t *testing.T) {
+	// 77 per cell measured at 41 subjects; the solver's budget is 512.
+	const totalityCostPerCell = 128
 	for _, n := range []int{11, 15, 19, 21, 41} {
 		src := oddCycleSwitch(n)
-		start := time.Now()
-		ts, us, diags := check.SolverSteps(src)
-		elapsed := time.Since(start)
-		t.Logf("subjects=%d bytes=%d elapsed=%s total=%v useful=%v budgets=%v", n, len(src), elapsed, ts, us, check.TotalityBudgets(src))
+		costs, diags := check.SolverCosts(src)
 		if len(diags) != 0 {
 			t.Fatalf("n=%d: %s", n, describe(diags))
 		}
-		if elapsed > 500*time.Millisecond {
-			t.Fatalf("n=%d: %s, want under 500ms", n, elapsed)
+		if len(costs) != 1 {
+			t.Fatalf("n=%d: want one proof, got %v", n, costs)
+		}
+		c := costs[0]
+		work := c.TotalSteps + c.UsefulSteps
+		t.Logf("subjects=%d bytes=%d written=%d steps=%d/%d (%.1f per cell)", n, len(src), c.Written, c.TotalSteps, c.UsefulSteps, float64(work)/float64(c.Written))
+		if work > totalityCostPerCell*c.Written {
+			t.Fatalf("n=%d: %d solver steps for %d written cells, want at most %d per cell", n, work, c.Written, totalityCostPerCell)
 		}
 	}
 	// An even cycle is two-colourable with unequal neighbours: not total, and

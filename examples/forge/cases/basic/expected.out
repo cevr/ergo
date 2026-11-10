@@ -1,0 +1,24 @@
+1s forge: took 100, credit 100
+2s forge: took 25, credit 125
+3s forge: took 25, credit 150
+4s forge: forged sword from A1 for 125, leftover 25
+4500ms forge: refused: busy dropping
+6s forge: A1 dropped into the tray
+9s assay: slag glass
+10s forge: took 25, credit 25
+12s forge: refused B1: costs 75, credit 25
+20s forge: took 10, credit 35
+30s light: green
+35s light: green, ends early
+41s forge: took 5, credit 40
+42s forge: refused Z9: no such slot
+50s light: yellow
+50s forge: returned 40 (douse)
+50s forge: went cold
+54s light: red
+55s forge: refused: cold
+58s forge: lit again
+70s light: flashing red
+80s light: ignored, still flashing
+95s light: red
+at 120s: forge idle, light red; in 190 = spent 125 + leftover 25 + returned 40 + credit 0

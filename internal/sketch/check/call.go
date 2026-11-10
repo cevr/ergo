@@ -67,11 +67,24 @@ func (c *checker) callOf(x *syntax.CallExpr, hint Type) operand {
 		}
 		return c.conversion(x, fun.typ)
 	case modeBuiltin:
+		if b := fun.obj.(*Builtin); goErrorBuiltin(b) {
+			return c.goErrorCall(x, b, fun.targ)
+		}
 		return c.builtin(x, fun.obj.(*Builtin))
 	case modeCapFn:
 		c.charge(x, fun.cap)
 		return c.callSig(x, fun.typ.(*Signature), fun)
 	case modeGeneric:
+		if f, _ := fun.obj.(*Func); TakesWorkSend(f) {
+			c.childRule(x, f.Name)
+		} else if TakesWorkSend(fun.fn) {
+			c.childRule(x, fun.fn.Name)
+		}
+		if f, _ := fun.obj.(*Func); TakesDurableMachine(f) {
+			c.recordDurable(x, f)
+		} else if TakesDurableMachine(fun.fn) {
+			c.recordDurable(x, fun.fn)
+		}
 		return c.callGeneric(x, fun.typ.(*Signature), nil, fun)
 	case modeExtern:
 		// The direct call of an extern, the one use P3 admits: its callee

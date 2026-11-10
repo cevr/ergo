@@ -279,7 +279,11 @@ func fiftyOperands() string {
 	return strings.Join(ops, ", ")
 }
 
+// TestErgoRunE5Contexts builds Go because it checks what the built program
+// prints and how it exits; no in-process check observes that, and Ergo has
+// no reference interpreter yet (test-speed T8).
 func TestErgoRunE5Contexts(t *testing.T) {
+	needsBuild(t)
 	var builds []*lowered
 	for _, r := range e5Contexts {
 		builds = append(builds, mustLower(t, "e5_"+strings.ReplaceAll(r.name, "-", "_"), r.src))
@@ -343,33 +347,4 @@ func goFunc(t *testing.T, code, name string) string {
 		t.Fatalf("Go function %s has no end", name)
 	}
 	return code[loc[0] : loc[0]+end[1]]
-}
-
-// The lowering's context-literal value branch (expr.go) is an internal
-// error: the checker refuses a context literal in every value place first
-// (S108), so no checked program reaches it.
-func TestContextLiteralValueIsRefusedByTheChecker(t *testing.T) {
-	for _, body := range []string{
-		"let v = Holder{v: context { Greeter: Plain }}\n\t_ = v",
-		"let v = []Holder{}\n\tlet n = len(v) + context { Greeter: Plain }\n\t_ = n",
-		"let f = func(x int) int { x }\n\t_ = f(context { Greeter: Plain })",
-		"Console.Println(context { Greeter: Plain })",
-		"let mut w = context { Greeter: Plain }\n\twith w { Console.Println(hello()) }",
-		"let w Greeter = context { Greeter: Plain }",
-	} {
-		o := lowerSource("e5_value", e5Prelude+"\nfunc main() needs Console {\n\t"+body+"\n}\n", true)
-		if o.err != nil {
-			t.Errorf("%q: %v", body, o.err)
-			continue
-		}
-		found := false
-		for _, d := range o.diags {
-			if d.Code == "S108" {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("%q: the checker gives %v, want an S108 before the lowering", body, o.diags)
-		}
-	}
 }

@@ -1,0 +1,7350 @@
+-- 05000.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f() Walk { Walk{..mk(), Turn: 1} }
+-- 05001.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f() Walk { Walk{..mk(), Turn: 1} }
+-- 05002.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f() Walk { Walk{..mk(), Turn: 1} }
+-- 05003.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f() Walk { Walk{..mk(), Turn: 1} }
+-- 05004.ergo --
+func f(w Walk) Walk { Walk{..Walk{..w, At: 1}, Turn: 2} }
+-- 05005.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(w Walk) Walk { Walk{..Walk{..w, At: 1}, Turn: 2} }
+-- 05006.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(w Walk) Walk { Walk{..Walk{..w, At: 1}, Turn: 2} }
+-- 05007.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(w Walk) Walk { Walk{..Walk{..w, At: 1}, Turn: 2} }
+-- 05008.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(w Walk) Walk { Walk{..Walk{..w, At: 1}, Turn: 2} }
+-- 05009.ergo --
+func f(p Playing) Playing { Playing{..p, W: Walk{..p.W, Turn: 1}} }
+-- 05010.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(p Playing) Playing { Playing{..p, W: Walk{..p.W, Turn: 1}} }
+-- 05011.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(p Playing) Playing { Playing{..p, W: Walk{..p.W, Turn: 1}} }
+-- 05012.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(p Playing) Playing { Playing{..p, W: Walk{..p.W, Turn: 1}} }
+-- 05013.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(p Playing) Playing { Playing{..p, W: Walk{..p.W, Turn: 1}} }
+-- 05014.ergo --
+func f(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: Walk{At: 0, Turn: 0}}
+	case Won:
+		g
+	}
+}
+-- 05015.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: Walk{At: 0, Turn: 0}}
+	case Won:
+		g
+	}
+}
+-- 05016.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: Walk{At: 0, Turn: 0}}
+	case Won:
+		g
+	}
+}
+-- 05017.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: Walk{At: 0, Turn: 0}}
+	case Won:
+		g
+	}
+}
+-- 05018.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: Walk{At: 0, Turn: 0}}
+	case Won:
+		g
+	}
+}
+-- 05019.ergo --
+func f(b Box[string]) Box[string] { Box[string]{..b, V: "z"} }
+-- 05020.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(b Box[string]) Box[string] { Box[string]{..b, V: "z"} }
+-- 05021.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(b Box[string]) Box[string] { Box[string]{..b, V: "z"} }
+-- 05022.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(b Box[string]) Box[string] { Box[string]{..b, V: "z"} }
+-- 05023.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(b Box[string]) Box[string] { Box[string]{..b, V: "z"} }
+-- 05024.ergo --
+func f(b Box[string]) Box[string] { Box{..b, V: "z"} }
+-- 05025.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(b Box[string]) Box[string] { Box{..b, V: "z"} }
+-- 05026.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(b Box[string]) Box[string] { Box{..b, V: "z"} }
+-- 05027.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(b Box[string]) Box[string] { Box{..b, V: "z"} }
+-- 05028.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(b Box[string]) Box[string] { Box{..b, V: "z"} }
+-- 05029.ergo --
+func f(b Box[int]) int {
+	let c = Box{..b, V: 2}
+	c.V
+}
+-- 05030.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(b Box[int]) int {
+	let c = Box{..b, V: 2}
+	c.V
+}
+-- 05031.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(b Box[int]) int {
+	let c = Box{..b, V: 2}
+	c.V
+}
+-- 05032.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(b Box[int]) int {
+	let c = Box{..b, V: 2}
+	c.V
+}
+-- 05033.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(b Box[int]) int {
+	let c = Box{..b, V: 2}
+	c.V
+}
+-- 05034.ergo --
+func f(w Walk) Walk fails Bad { Walk{..w, Turn: try risky(1)} }
+-- 05035.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(w Walk) Walk fails Bad { Walk{..w, Turn: try risky(1)} }
+-- 05036.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(w Walk) Walk fails Bad { Walk{..w, Turn: try risky(1)} }
+-- 05037.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(w Walk) Walk fails Bad { Walk{..w, Turn: try risky(1)} }
+-- 05038.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(w Walk) Walk fails Bad { Walk{..w, Turn: try risky(1)} }
+-- 05039.ergo --
+func f() Walk fails Bad { try Walk{..walkOrBad(1), Turn: 1} }
+-- 05040.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f() Walk fails Bad { try Walk{..walkOrBad(1), Turn: 1} }
+-- 05041.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f() Walk fails Bad { try Walk{..walkOrBad(1), Turn: 1} }
+-- 05042.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f() Walk fails Bad { try Walk{..walkOrBad(1), Turn: 1} }
+-- 05043.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f() Walk fails Bad { try Walk{..walkOrBad(1), Turn: 1} }
+-- 05044.ergo --
+func f(w Walk) Walk { Walk{..w} }
+-- 05045.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(w Walk) Walk { Walk{..w} }
+-- 05046.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(w Walk) Walk { Walk{..w} }
+-- 05047.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(w Walk) Walk { Walk{..w} }
+-- 05048.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(w Walk) Walk { Walk{..w} }
+-- 05049.ergo --
+func f(w Walk) Walk { Walk{..w,} }
+-- 05050.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(w Walk) Walk { Walk{..w,} }
+-- 05051.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(w Walk) Walk { Walk{..w,} }
+-- 05052.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(w Walk) Walk { Walk{..w,} }
+-- 05053.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(w Walk) Walk { Walk{..w,} }
+-- 05054.ergo --
+func f(o Other) Walk { Walk{..o, Turn: 1} }
+-- 05055.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(o Other) Walk { Walk{..o, Turn: 1} }
+-- 05056.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(o Other) Walk { Walk{..o, Turn: 1} }
+-- 05057.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(o Other) Walk { Walk{..o, Turn: 1} }
+-- 05058.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(o Other) Walk { Walk{..o, Turn: 1} }
+-- 05059.ergo --
+func f(g Game) Playing { Playing{..g, W: Walk{At: 0, Turn: 0}} }
+-- 05060.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(g Game) Playing { Playing{..g, W: Walk{At: 0, Turn: 0}} }
+-- 05061.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(g Game) Playing { Playing{..g, W: Walk{At: 0, Turn: 0}} }
+-- 05062.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(g Game) Playing { Playing{..g, W: Walk{At: 0, Turn: 0}} }
+-- 05063.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(g Game) Playing { Playing{..g, W: Walk{At: 0, Turn: 0}} }
+-- 05064.ergo --
+func f(w Walk) Walk { Walk{..w, Turn: 1, Turn: 2} }
+-- 05065.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(w Walk) Walk { Walk{..w, Turn: 1, Turn: 2} }
+-- 05066.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(w Walk) Walk { Walk{..w, Turn: 1, Turn: 2} }
+-- 05067.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(w Walk) Walk { Walk{..w, Turn: 1, Turn: 2} }
+-- 05068.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(w Walk) Walk { Walk{..w, Turn: 1, Turn: 2} }
+-- 05069.ergo --
+func f(w Walk) Walk { Walk{..w, Nope: 1} }
+-- 05070.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(w Walk) Walk { Walk{..w, Nope: 1} }
+-- 05071.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(w Walk) Walk { Walk{..w, Nope: 1} }
+-- 05072.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(w Walk) Walk { Walk{..w, Nope: 1} }
+-- 05073.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(w Walk) Walk { Walk{..w, Nope: 1} }
+-- 05074.ergo --
+func f(w Walk) Walk { Walk{..w, Turn: "x"} }
+-- 05075.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(w Walk) Walk { Walk{..w, Turn: "x"} }
+-- 05076.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(w Walk) Walk { Walk{..w, Turn: "x"} }
+-- 05077.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(w Walk) Walk { Walk{..w, Turn: "x"} }
+-- 05078.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(w Walk) Walk { Walk{..w, Turn: "x"} }
+-- 05079.ergo --
+func f(b Box[int]) Box[string] { Box[string]{..b, V: "z"} }
+-- 05080.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(b Box[int]) Box[string] { Box[string]{..b, V: "z"} }
+-- 05081.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(b Box[int]) Box[string] { Box[string]{..b, V: "z"} }
+-- 05082.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(b Box[int]) Box[string] { Box[string]{..b, V: "z"} }
+-- 05083.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(b Box[int]) Box[string] { Box[string]{..b, V: "z"} }
+-- 05084.ergo --
+func f(b Box[int]) Box[string] { Box{..b, V: "z"} }
+-- 05085.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(b Box[int]) Box[string] { Box{..b, V: "z"} }
+-- 05086.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(b Box[int]) Box[string] { Box{..b, V: "z"} }
+-- 05087.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(b Box[int]) Box[string] { Box{..b, V: "z"} }
+-- 05088.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(b Box[int]) Box[string] { Box{..b, V: "z"} }
+-- 05089.ergo --
+func f(w Walk) int {
+	let c = Box{..w, N: 2}
+	c.N
+}
+-- 05090.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(w Walk) int {
+	let c = Box{..w, N: 2}
+	c.N
+}
+-- 05091.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(w Walk) int {
+	let c = Box{..w, N: 2}
+	c.N
+}
+-- 05092.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(w Walk) int {
+	let c = Box{..w, N: 2}
+	c.N
+}
+-- 05093.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(w Walk) int {
+	let c = Box{..w, N: 2}
+	c.N
+}
+-- 05094.ergo --
+func f(p Pair[int]) int {
+	let c = Box{..p, N: 2}
+	c.N
+}
+-- 05095.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(p Pair[int]) int {
+	let c = Box{..p, N: 2}
+	c.N
+}
+-- 05096.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(p Pair[int]) int {
+	let c = Box{..p, N: 2}
+	c.N
+}
+-- 05097.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(p Pair[int]) int {
+	let c = Box{..p, N: 2}
+	c.N
+}
+-- 05098.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(p Pair[int]) int {
+	let c = Box{..p, N: 2}
+	c.N
+}
+-- 05099.ergo --
+func f(b Box[int]) int {
+	let c = Box{..b, V: "z"}
+	c.N
+}
+-- 05100.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(b Box[int]) int {
+	let c = Box{..b, V: "z"}
+	c.N
+}
+-- 05101.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(b Box[int]) int {
+	let c = Box{..b, V: "z"}
+	c.N
+}
+-- 05102.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(b Box[int]) int {
+	let c = Box{..b, V: "z"}
+	c.N
+}
+-- 05103.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(b Box[int]) int {
+	let c = Box{..b, V: "z"}
+	c.N
+}
+-- 05104.ergo --
+func f() Walk { Walk{..nope, Turn: 1} }
+-- 05105.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f() Walk { Walk{..nope, Turn: 1} }
+-- 05106.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f() Walk { Walk{..nope, Turn: 1} }
+-- 05107.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f() Walk { Walk{..nope, Turn: 1} }
+-- 05108.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f() Walk { Walk{..nope, Turn: 1} }
+-- 05109.ergo --
+func f() int {
+	let c = Box{..nope, N: 1}
+	c.N
+}
+-- 05110.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f() int {
+	let c = Box{..nope, N: 1}
+	c.N
+}
+-- 05111.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f() int {
+	let c = Box{..nope, N: 1}
+	c.N
+}
+-- 05112.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f() int {
+	let c = Box{..nope, N: 1}
+	c.N
+}
+-- 05113.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f() int {
+	let c = Box{..nope, N: 1}
+	c.N
+}
+-- 05114.ergo --
+func f() Walk { Walk{..Walk, Turn: 1} }
+-- 05115.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f() Walk { Walk{..Walk, Turn: 1} }
+-- 05116.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f() Walk { Walk{..Walk, Turn: 1} }
+-- 05117.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f() Walk { Walk{..Walk, Turn: 1} }
+-- 05118.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f() Walk { Walk{..Walk, Turn: 1} }
+-- 05119.ergo --
+func f(w Walk) Walk { Nope{..w, Turn: 1} }
+-- 05120.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(w Walk) Walk { Nope{..w, Turn: 1} }
+-- 05121.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(w Walk) Walk { Nope{..w, Turn: 1} }
+-- 05122.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(w Walk) Walk { Nope{..w, Turn: 1} }
+-- 05123.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(w Walk) Walk { Nope{..w, Turn: 1} }
+-- 05124.ergo --
+func f(xs Ints) Ints { Ints{..xs, Turn: 1} }
+-- 05125.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(xs Ints) Ints { Ints{..xs, Turn: 1} }
+-- 05126.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(xs Ints) Ints { Ints{..xs, Turn: 1} }
+-- 05127.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(xs Ints) Ints { Ints{..xs, Turn: 1} }
+-- 05128.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(xs Ints) Ints { Ints{..xs, Turn: 1} }
+-- 05129.ergo --
+func f(w Walk) Walk { Walk{..w, Turn: risky(1)} }
+-- 05130.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f(w Walk) Walk { Walk{..w, Turn: risky(1)} }
+-- 05131.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f(w Walk) Walk { Walk{..w, Turn: risky(1)} }
+-- 05132.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f(w Walk) Walk { Walk{..w, Turn: risky(1)} }
+-- 05133.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f(w Walk) Walk { Walk{..w, Turn: risky(1)} }
+-- 05134.ergo --
+func f() Walk { Walk{..walkOrBad(1), Turn: 1} }
+-- 05135.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func f() Walk { Walk{..walkOrBad(1), Turn: 1} }
+-- 05136.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func f() Walk { Walk{..walkOrBad(1), Turn: 1} }
+-- 05137.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func f() Walk { Walk{..walkOrBad(1), Turn: 1} }
+-- 05138.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func f() Walk { Walk{..walkOrBad(1), Turn: 1} }
+-- 05139.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+-- 05140.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+-- 05141.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+-- 05142.ergo --
+func host() {
+	let _ = 
+-- 05143.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func host() {
+	let _ = 
+-- 05144.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func host() {
+	let _ = 
+-- 05145.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func host() {
+	let _ = 
+-- 05146.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func host() {
+	let _ = 
+-- 05147.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+-- 05148.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+-- 05149.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+-- 05150.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+-- 05151.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+-- 05152.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+-- 05153.ergo --
+let V = context { A: Res{..shared, n: 3} }
+func g() { with V { A.Use() } }
+-- 05154.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+let V = context { A: Res{..shared, n: 3} }
+func g() { with V { A.Use() } }
+-- 05155.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+let V = context { A: Res{..shared, n: 3} }
+func g() { with V { A.Use() } }
+-- 05156.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+let V = context { A: Res{..shared, n: 3} }
+func g() { with V { A.Use() } }
+-- 05157.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+let V = context { A: Res{..shared, n: 3} }
+func g() { with V { A.Use() } }
+-- 05158.ergo --
+func make() Res { Res{..shared, n: 2} }
+let V = context { A: make() }
+func g() { with V { A.Use() } }
+-- 05159.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func make() Res { Res{..shared, n: 2} }
+let V = context { A: make() }
+func g() { with V { A.Use() } }
+-- 05160.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func make() Res { Res{..shared, n: 2} }
+let V = context { A: make() }
+func g() { with V { A.Use() } }
+-- 05161.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func make() Res { Res{..shared, n: 2} }
+let V = context { A: make() }
+func g() { with V { A.Use() } }
+-- 05162.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func make() Res { Res{..shared, n: 2} }
+let V = context { A: make() }
+func g() { with V { A.Use() } }
+-- 05163.ergo --
+func g() { with context { A: Res{..shared, n: 3} } { A.Use() } }
+-- 05164.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func g() { with context { A: Res{..shared, n: 3} } { A.Use() } }
+-- 05165.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func g() { with context { A: Res{..shared, n: 3} } { A.Use() } }
+-- 05166.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func g() { with context { A: Res{..shared, n: 3} } { A.Use() } }
+-- 05167.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func g() { with context { A: Res{..shared, n: 3} } { A.Use() } }
+-- 05168.ergo --
+let V = context { A: Res{..Res{n: 1}, n: 3} }
+func g() { with V { A.Use() } }
+-- 05169.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+let V = context { A: Res{..Res{n: 1}, n: 3} }
+func g() { with V { A.Use() } }
+-- 05170.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+let V = context { A: Res{..Res{n: 1}, n: 3} }
+func g() { with V { A.Use() } }
+-- 05171.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+let V = context { A: Res{..Res{n: 1}, n: 3} }
+func g() { with V { A.Use() } }
+-- 05172.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+let V = context { A: Res{..Res{n: 1}, n: 3} }
+func g() { with V { A.Use() } }
+-- 05173.ergo --
+let V = context { A: Res{..open(), n: 3} }
+func g() { with V { A.Use() } }
+-- 05174.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+let V = context { A: Res{..open(), n: 3} }
+func g() { with V { A.Use() } }
+-- 05175.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+let V = context { A: Res{..open(), n: 3} }
+func g() { with V { A.Use() } }
+-- 05176.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+let V = context { A: Res{..open(), n: 3} }
+func g() { with V { A.Use() } }
+-- 05177.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+let V = context { A: Res{..open(), n: 3} }
+func g() { with V { A.Use() } }
+-- 05178.ergo --
+func make() Res { Res{..open(), n: 2} }
+let V = context { A: make() }
+func g() { with V { A.Use() } }
+-- 05179.ergo --
+type Walk { At int, Turn int }
+
+type Other { At int, Turn int }
+
+type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Ints []int
+
+type Bad { Why string }
+
+func mk() Walk { Walk{At: 1, Turn: 2} }
+
+func risky(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	n
+}
+
+func walkOrBad(n int) Walk fails Bad {
+	if n < 0 {
+		return Bad{Why: "neg"}
+	}
+	Walk{At: n, Turn: n}
+}
+func make() Res { Res{..open(), n: 2} }
+let V = context { A: make() }
+func g() { with V { A.Use() } }
+-- 05180.ergo --
+type Rec { V int }
+type Other { V int }
+type Box[T] { V T }
+type Ints []int
+func mkRec(f func()) Rec { Rec{V: 1} }
+func fx() {}
+let pv = Rec{V: 5}
+
+func make() Res { Res{..open(), n: 2} }
+let V = context { A: make() }
+func g() { with V { A.Use() } }
+-- 05181.ergo --
+type Walk { At int, Tide int, Turn int, Shells int, Left string }
+
+type Inner { X int, Y int }
+
+type Outer { Name string, In Inner }
+
+type Box[T] { V T, N int }
+
+type Playing { W Walk }
+
+type Won { W Walk }
+
+type Game = Playing | Won
+
+type Bad { Why string }
+
+func turn(w Walk) Walk {
+	Walk{..w, Turn: w.Turn + 1}
+}
+
+func step(g Game) Game {
+	match g {
+	case Playing as p:
+		Playing{..p, W: turn(p.W)}
+	case Won:
+		g
+	}
+}
+
+func mk() Walk needs Console {
+	Console.Println("base")
+	Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+}
+
+func val(n int) int needs Console {
+	Console.Println("value \(n)")
+	n
+}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Why: "empty"}
+	}
+	len(s)
+}
+
+func tried(w Walk, s string) Walk fails Bad {
+	Walk{..w, Tide: try parse(s)}
+}
+
+func main() needs Console {
+	let w = Walk{At: 1, Tide: 2, Turn: 3, Shells: 4, Left: "abc"}
+	let o = Outer{Name: "o", In: Inner{X: 1, Y: 2}}
+	let o2 = Outer{..o, In: Inner{..o.In, Y: 9}}
+	let b = Box[string]{V: "a", N: 1}
+	let b2 = Box[string]{..b, V: "z"}
+	let e = Walk{..mk(), Turn: val(7), Shells: val(8)}
+	let ok = tried(w, "xyz") catch {
+	case Bad as x:
+		Walk{..w, Left: x.Why}
+	}
+	Console.Println("\(step(Playing{W: turn(w)}) == step(Playing{W: w})) \(o2.In.Y) \(b2.V) \(e.Turn) \(ok.Tide)")
+}
+func make() Res { Res{..open(), n: 2} }
+let V = context { A: make() }
+func g() { with V { A.Use() } }
+-- 05182.ergo --
+type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+func make() Res { Res{..open(), n: 2} }
+let V = context { A: make() }
+func g() { with V { A.Use() } }
+-- 05183.ergo --
+type tr { A int }
+
+-- 05184.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+-- 05185.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+-- 05186.ergo --
+type tn {}
+
+func host(v int) {
+	let (tn) = v
+	match v {
+	case tn:
+		let _ = 0
+	}
+}
+-- 05187.ergo --
+type tr { A int }
+
+type tn {}
+
+func host(v int) {
+	let (tn) = v
+	match v {
+	case tn:
+		let _ = 0
+	}
+}
+-- 05188.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+type tn {}
+
+func host(v int) {
+	let (tn) = v
+	match v {
+	case tn:
+		let _ = 0
+	}
+}
+-- 05189.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+type tn {}
+
+func host(v int) {
+	let (tn) = v
+	match v {
+	case tn:
+		let _ = 0
+	}
+}
+-- 05190.ergo --
+type E {}
+
+func n(v int) int fails E { v }
+
+func host(v int) int {
+	n(v) catch {
+	case int:
+		int
+	}
+}
+-- 05191.ergo --
+type tr { A int }
+
+type E {}
+
+func n(v int) int fails E { v }
+
+func host(v int) int {
+	n(v) catch {
+	case int:
+		int
+	}
+}
+-- 05192.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+type E {}
+
+func n(v int) int fails E { v }
+
+func host(v int) int {
+	n(v) catch {
+	case int:
+		int
+	}
+}
+-- 05193.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+type E {}
+
+func n(v int) int fails E { v }
+
+func host(v int) int {
+	n(v) catch {
+	case int:
+		int
+	}
+}
+-- 05194.ergo --
+type E {}
+
+func n(v int) int fails E { v }
+
+func host(v int) int {
+	n(v) catch {
+	case Console:
+		let _ = Console
+		0
+	}
+}
+-- 05195.ergo --
+type tr { A int }
+
+type E {}
+
+func n(v int) int fails E { v }
+
+func host(v int) int {
+	n(v) catch {
+	case Console:
+		let _ = Console
+		0
+	}
+}
+-- 05196.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+type E {}
+
+func n(v int) int fails E { v }
+
+func host(v int) int {
+	n(v) catch {
+	case Console:
+		let _ = Console
+		0
+	}
+}
+-- 05197.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+type E {}
+
+func n(v int) int fails E { v }
+
+func host(v int) int {
+	n(v) catch {
+	case Console:
+		let _ = Console
+		0
+	}
+}
+-- 05198.ergo --
+type tbad = Nope
+
+func host(v int) {
+	match v {
+	case tbad:
+		let _ = 0
+	case _:
+		let _ = 1
+	}
+}
+-- 05199.ergo --
+type tr { A int }
+
+type tbad = Nope
+
+func host(v int) {
+	match v {
+	case tbad:
+		let _ = 0
+	case _:
+		let _ = 1
+	}
+}
+-- 05200.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+type tbad = Nope
+
+func host(v int) {
+	match v {
+	case tbad:
+		let _ = 0
+	case _:
+		let _ = 1
+	}
+}
+-- 05201.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+type tbad = Nope
+
+func host(v int) {
+	match v {
+	case tbad:
+		let _ = 0
+	case _:
+		let _ = 1
+	}
+}
+-- 05202.ergo --
+type tbad = Nope
+
+func host(v int) int {
+	let tbad = v
+	let _ = tbad
+	0
+}
+-- 05203.ergo --
+type tr { A int }
+
+type tbad = Nope
+
+func host(v int) int {
+	let tbad = v
+	let _ = tbad
+	0
+}
+-- 05204.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+type tbad = Nope
+
+func host(v int) int {
+	let tbad = v
+	let _ = tbad
+	0
+}
+-- 05205.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+type tbad = Nope
+
+func host(v int) int {
+	let tbad = v
+	let _ = tbad
+	0
+}
+-- 05206.ergo --
+type tbad = Nope
+
+func t() int { 1 }
+
+func host() int {
+	let _ = tbad[0]{{t}}
+	0
+}
+-- 05207.ergo --
+type tr { A int }
+
+type tbad = Nope
+
+func t() int { 1 }
+
+func host() int {
+	let _ = tbad[0]{{t}}
+	0
+}
+-- 05208.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+type tbad = Nope
+
+func t() int { 1 }
+
+func host() int {
+	let _ = tbad[0]{{t}}
+	0
+}
+-- 05209.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+type tbad = Nope
+
+func t() int { 1 }
+
+func host() int {
+	let _ = tbad[0]{{t}}
+	0
+}
+-- 05210.ergo --
+type tbad = Nope
+
+type E {}
+
+func n(v int) int fails E { v }
+
+func host(v int) int {
+	n(v) catch {
+	case tbad:
+		let _ = tbad
+		0
+	case _:
+		1
+	}
+}
+-- 05211.ergo --
+type tr { A int }
+
+type tbad = Nope
+
+type E {}
+
+func n(v int) int fails E { v }
+
+func host(v int) int {
+	n(v) catch {
+	case tbad:
+		let _ = tbad
+		0
+	case _:
+		1
+	}
+}
+-- 05212.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+type tbad = Nope
+
+type E {}
+
+func n(v int) int fails E { v }
+
+func host(v int) int {
+	n(v) catch {
+	case tbad:
+		let _ = tbad
+		0
+	case _:
+		1
+	}
+}
+-- 05213.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+type tbad = Nope
+
+type E {}
+
+func n(v int) int fails E { v }
+
+func host(v int) int {
+	n(v) catch {
+	case tbad:
+		let _ = tbad
+		0
+	case _:
+		1
+	}
+}
+-- 05214.ergo --
+func A() {}
+type e = d
+type r machine[e,A]{initial: 0,
+step: 0}
+type d {A(r)}
+-- 05215.ergo --
+type tr { A int }
+
+func A() {}
+type e = d
+type r machine[e,A]{initial: 0,
+step: 0}
+type d {A(r)}
+-- 05216.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+func A() {}
+type e = d
+type r machine[e,A]{initial: 0,
+step: 0}
+type d {A(r)}
+-- 05217.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+func A() {}
+type e = d
+type r machine[e,A]{initial: 0,
+step: 0}
+type d {A(r)}
+-- 05218.ergo --
+type d {A(r)}
+type r machine[e,A]{initial: 0,
+step: 0}
+type e = d
+func A() {}
+-- 05219.ergo --
+type tr { A int }
+
+type d {A(r)}
+type r machine[e,A]{initial: 0,
+step: 0}
+type e = d
+func A() {}
+-- 05220.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+type d {A(r)}
+type r machine[e,A]{initial: 0,
+step: 0}
+type e = d
+func A() {}
+-- 05221.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+type d {A(r)}
+type r machine[e,A]{initial: 0,
+step: 0}
+type e = d
+func A() {}
+-- 05222.ergo --
+func A() {}
+type e d
+type r machine[e,A]{initial: 0,
+step: 0}
+type d {A(r)}
+-- 05223.ergo --
+type tr { A int }
+
+func A() {}
+type e d
+type r machine[e,A]{initial: 0,
+step: 0}
+type d {A(r)}
+-- 05224.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+func A() {}
+type e d
+type r machine[e,A]{initial: 0,
+step: 0}
+type d {A(r)}
+-- 05225.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+func A() {}
+type e d
+type r machine[e,A]{initial: 0,
+step: 0}
+type d {A(r)}
+-- 05226.ergo --
+import trace
+
+type E {}
+
+func n(v int) int fails E { v }
+
+func host(v int) int {
+	n(v) catch {
+	case trace:
+		0
+	}
+}
+-- 05227.ergo --
+type tr { A int }
+
+import trace
+
+type E {}
+
+func n(v int) int fails E { v }
+
+func host(v int) int {
+	n(v) catch {
+	case trace:
+		0
+	}
+}
+-- 05228.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+import trace
+
+type E {}
+
+func n(v int) int fails E { v }
+
+func host(v int) int {
+	n(v) catch {
+	case trace:
+		0
+	}
+}
+-- 05229.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+import trace
+
+type E {}
+
+func n(v int) int fails E { v }
+
+func host(v int) int {
+	n(v) catch {
+	case trace:
+		0
+	}
+}
+-- 05230.ergo --
+type tr { A int }
+
+func host(v int) int {
+	match v {
+	case tr:
+		let _ = tr
+	case _:
+		let _ = tr
+	}
+	0
+}
+-- 05231.ergo --
+type tr { A int }
+
+type tr { A int }
+
+func host(v int) int {
+	match v {
+	case tr:
+		let _ = tr
+	case _:
+		let _ = tr
+	}
+	0
+}
+-- 05232.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+type tr { A int }
+
+func host(v int) int {
+	match v {
+	case tr:
+		let _ = tr
+	case _:
+		let _ = tr
+	}
+	0
+}
+-- 05233.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+type tr { A int }
+
+func host(v int) int {
+	match v {
+	case tr:
+		let _ = tr
+	case _:
+		let _ = tr
+	}
+	0
+}
+-- 05234.ergo --
+type tr { A int }
+
+func host(xs []int) int {
+	for x in xs {
+		let tr = x
+		let _ = tr
+	}
+	let _ = tr
+	0
+}
+-- 05235.ergo --
+type tr { A int }
+
+type tr { A int }
+
+func host(xs []int) int {
+	for x in xs {
+		let tr = x
+		let _ = tr
+	}
+	let _ = tr
+	0
+}
+-- 05236.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+type tr { A int }
+
+func host(xs []int) int {
+	for x in xs {
+		let tr = x
+		let _ = tr
+	}
+	let _ = tr
+	0
+}
+-- 05237.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+type tr { A int }
+
+func host(xs []int) int {
+	for x in xs {
+		let tr = x
+		let _ = tr
+	}
+	let _ = tr
+	0
+}
+-- 05238.ergo --
+type E {}
+
+type Bang {}
+
+func n(v int) int fails E | Bang { v }
+
+func host(v int) int {
+	n(v) catch {
+	case int, Bang as b:
+		let _ = int
+		0
+	case _:
+		1
+	}
+}
+-- 05239.ergo --
+type tr { A int }
+
+type E {}
+
+type Bang {}
+
+func n(v int) int fails E | Bang { v }
+
+func host(v int) int {
+	n(v) catch {
+	case int, Bang as b:
+		let _ = int
+		0
+	case _:
+		1
+	}
+}
+-- 05240.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+type E {}
+
+type Bang {}
+
+func n(v int) int fails E | Bang { v }
+
+func host(v int) int {
+	n(v) catch {
+	case int, Bang as b:
+		let _ = int
+		0
+	case _:
+		1
+	}
+}
+-- 05241.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+type E {}
+
+type Bang {}
+
+func n(v int) int fails E | Bang { v }
+
+func host(v int) int {
+	n(v) catch {
+	case int, Bang as b:
+		let _ = int
+		0
+	case _:
+		1
+	}
+}
+-- 05242.ergo --
+func host() int {
+	let (len) = 5
+	len + 1
+}
+-- 05243.ergo --
+type tr { A int }
+
+func host() int {
+	let (len) = 5
+	len + 1
+}
+-- 05244.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+func host() int {
+	let (len) = 5
+	len + 1
+}
+-- 05245.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+func host() int {
+	let (len) = 5
+	len + 1
+}
+-- 05246.ergo --
+func host(v int) int {
+	let (int) = v
+	let fl = func(x int) int { x }
+	fl(int)
+}
+-- 05247.ergo --
+type tr { A int }
+
+func host(v int) int {
+	let (int) = v
+	let fl = func(x int) int { x }
+	fl(int)
+}
+-- 05248.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+func host(v int) int {
+	let (int) = v
+	let fl = func(x int) int { x }
+	fl(int)
+}
+-- 05249.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+func host(v int) int {
+	let (int) = v
+	let fl = func(x int) int { x }
+	fl(int)
+}
+-- 05250.ergo --
+func host(int int) int {
+	let fl = func(x int) int { x }
+	fl(int)
+}
+-- 05251.ergo --
+type tr { A int }
+
+func host(int int) int {
+	let fl = func(x int) int { x }
+	fl(int)
+}
+-- 05252.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+func host(int int) int {
+	let fl = func(x int) int { x }
+	fl(int)
+}
+-- 05253.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+func host(int int) int {
+	let fl = func(x int) int { x }
+	fl(int)
+}
+-- 05254.ergo --
+let int = 1
+
+func host(x int) int {
+	x + int
+}
+-- 05255.ergo --
+type tr { A int }
+
+let int = 1
+
+func host(x int) int {
+	x + int
+}
+-- 05256.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+let int = 1
+
+func host(x int) int {
+	x + int
+}
+-- 05257.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+let int = 1
+
+func host(x int) int {
+	x + int
+}
+-- 05258.ergo --
+type tr { A int }
+
+func host(v int, b bool) int {
+	match v {
+	case tr:
+		if b {
+			let fl = func(tr int) int { tr }
+			let _ = fl(1)
+		}
+	case _:
+		let _ = 1
+	}
+	0
+}
+-- 05259.ergo --
+type tr { A int }
+
+type tr { A int }
+
+func host(v int, b bool) int {
+	match v {
+	case tr:
+		if b {
+			let fl = func(tr int) int { tr }
+			let _ = fl(1)
+		}
+	case _:
+		let _ = 1
+	}
+	0
+}
+-- 05260.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+type tr { A int }
+
+func host(v int, b bool) int {
+	match v {
+	case tr:
+		if b {
+			let fl = func(tr int) int { tr }
+			let _ = fl(1)
+		}
+	case _:
+		let _ = 1
+	}
+	0
+}
+-- 05261.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+type tr { A int }
+
+func host(v int, b bool) int {
+	match v {
+	case tr:
+		if b {
+			let fl = func(tr int) int { tr }
+			let _ = fl(1)
+		}
+	case _:
+		let _ = 1
+	}
+	0
+}
+-- 05262.ergo --
+type tr { A int }
+
+func host(v int, b bool) int {
+	let tr = v
+	if b {
+		let fl = func(tr int) int { tr }
+		let _ = fl(1)
+	}
+	tr
+}
+-- 05263.ergo --
+type tr { A int }
+
+type tr { A int }
+
+func host(v int, b bool) int {
+	let tr = v
+	if b {
+		let fl = func(tr int) int { tr }
+		let _ = fl(1)
+	}
+	tr
+}
+-- 05264.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+type tr { A int }
+
+func host(v int, b bool) int {
+	let tr = v
+	if b {
+		let fl = func(tr int) int { tr }
+		let _ = fl(1)
+	}
+	tr
+}
+-- 05265.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+type tr { A int }
+
+func host(v int, b bool) int {
+	let tr = v
+	if b {
+		let fl = func(tr int) int { tr }
+		let _ = fl(1)
+	}
+	tr
+}
+-- 05266.ergo --
+func f() {}
+
+func host(v int) int {
+	match v {
+	case f:
+		let f = 2
+		f
+	}
+}
+-- 05267.ergo --
+type tr { A int }
+
+func f() {}
+
+func host(v int) int {
+	match v {
+	case f:
+		let f = 2
+		f
+	}
+}
+-- 05268.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+func f() {}
+
+func host(v int) int {
+	match v {
+	case f:
+		let f = 2
+		f
+	}
+}
+-- 05269.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+func f() {}
+
+func host(v int) int {
+	match v {
+	case f:
+		let f = 2
+		f
+	}
+}
+-- 05270.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+type tr { A int }
+
+-- 05271.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+type tr { A int }
+
+-- 05272.ergo --
+func host(v int, b bool) {
+-- 05273.ergo --
+type tr { A int }
+
+func host(v int, b bool) {
+-- 05274.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+func host(v int, b bool) {
+-- 05275.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+func host(v int, b bool) {
+-- 05276.ergo --
+type tr { A int }
+
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+-- 05277.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+-- 05278.ergo --
+type tr { A int }
+
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+-- 05279.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+-- 05280.ergo --
+let (@) = 1
+-- 05281.ergo --
+type tr { A int }
+
+let (@) = 1
+-- 05282.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+let (@) = 1
+-- 05283.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+let (@) = 1
+-- 05284.ergo --
+let P{X: @} = P{X: 1}
+-- 05285.ergo --
+type tr { A int }
+
+let P{X: @} = P{X: 1}
+-- 05286.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+let P{X: @} = P{X: 1}
+-- 05287.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+let P{X: @} = P{X: 1}
+-- 05288.ergo --
+let @ = 1
+-- 05289.ergo --
+type tr { A int }
+
+let @ = 1
+-- 05290.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+let @ = 1
+-- 05291.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+let @ = 1
+-- 05292.ergo --
+type P { X int }
+-- 05293.ergo --
+type tr { A int }
+
+type P { X int }
+-- 05294.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+type P { X int }
+-- 05295.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+type P { X int }
+-- 05296.ergo --
+
+func host() int {
+	@ + 1
+}
+-- 05297.ergo --
+type tr { A int }
+
+
+func host() int {
+	@ + 1
+}
+-- 05298.ergo --
+type y{}
+func t(){let y = 1; y[0]{{t} }}
+
+func host() int {
+	@ + 1
+}
+-- 05299.ergo --
+type y{}
+func t(){let _ = 1; y[0]{{t} }}
+
+func host() int {
+	@ + 1
+}
+-- 05300.ergo --
+type C { Use() }
+type S = Idle
+type Idle {}
+type E = Ping
+type Ping {}
+type M machine[S, E] { initial: initial(), step: step }
+func initial() S {
+	C.Use()
+	return Idle
+}
+func step(s S, e E) Decision[S, int] { return Ignore }
+-- 05301.ergo --
+type C { Use() string }
+let v = helper()
+func helper() string { return C.Use() }
+-- 05302.ergo --
+type Fault {}
+func Identity(v Fault) int { return v }
+let _ = func() fails Fault { return Fault }
+-- 05303.ergo --
+type Fault[T] { Value T }
+func Identity(v Fault[int]) int { return v }
+func F()                               { _ = func() fails Fault[int] { return Fault[int]{1} } }
+-- 05304.ergo --
+type Fault {}
+func Identity(v Fault) int { return v }
+func F()                     { _ = func() fails Fault { return Fault } }
+-- 05305.ergo --
+type A {}
+type B {}
+func Fail() fails A | B { return A }
+func F() fails A | B {
+	Fail() catch {
+	case A as e, B as e:
+		return e
+	}
+}
+-- 05306.ergo --
+type A {}
+type B {}
+func Fail() fails A | B { return A }
+func F() {
+	Fail() catch {
+	case A as e, B as e:
+		match e {
+		case A:
+			return
+		case B:
+			return
+		}
+	}
+}
+-- 05307.ergo --
+type A {}
+type B {}
+func Fail() fails A | B { return A }
+func F() {
+	Fail() catch {
+	case A as e, B as e:
+		match e {
+		case A:
+			return
+		}
+	}
+}
+-- 05308.ergo --
+type A {}
+type B {}
+type V = A | B
+func Fail() fails A | B { return A }
+func F() V {
+	Fail() catch {
+	case A as e, B as e:
+		return e
+	}
+	return A
+}
+-- 05309.ergo --
+type I { M() }
+type S {}
+func M(_ S) {}
+type Box[T I] { X T }
+func F() { _ = Box{1} }
+-- 05310.ergo --
+type A {}
+type B {}
+type I { M() fails A }
+type S {}
+func M(_ S) fails B { return B }
+type Box[T I] { X T }
+func F() { _ = Box{S} }
+-- 05311.ergo --
+type I { M() }
+type S {}
+func M(_ S) {}
+type Box[T I] { X T }
+func F() { _ = Box{S} }
+-- 05312.ergo --
+func Await[T, E](t Task[T, E]) T fails E { return t.Wait() }
+-- 05313.ergo --
+type Box[T, E] { run func() T fails E }
+func Open[T, E](b Box[T, E]) T fails E { return b.run() }
+-- 05314.ergo --
+func Bad[T, E](t Task[T, E], e E) T { return t.Wait() }
+-- 05315.ergo --
+type Wrap[T] { Value T }
+type U { Field Wrap[U] }
+func F() U { return U{} }
+-- 05316.ergo --
+type Wrap[T] { Value T }
+type U { Field Wrap[U] }
+-- 05317.ergo --
+type Wrap[T] { Values []T }
+type U { Field Wrap[U] }
+-- 05318.ergo --
+type L[T] { next L[T] }
+-- 05319.ergo --
+type A[T] { b B[T] }
+type B[T] { a A[T] }
+-- 05320.ergo --
+func F() {
+	let x = 1
+	let x = 2
+	_ = x
+}
+-- 05321.ergo --
+func F() int {
+	let x = 1
+	if true {
+		let x2 = "s"
+		_ = x2
+	}
+	return x
+}
+-- 05322.ergo --
+type I { M() }
+func Id[T I](x T) T    { return x }
+func F() func(int) int { return Id[int] }
+-- 05323.ergo --
+func Id[T](x T) T { return x }
+func F() func(string) string { return Id[int] }
+-- 05324.ergo --
+func Id[T](x T) T { return x }
+func F() int {
+	let f = Id[int]
+	return f(3) + Id[int](4)
+}
+-- 05325.ergo --
+func Id[T](x T) T { return x }
+func F() { Id[int] }
+-- 05326.ergo --
+func Id[T](x T) T { return x }
+func F() { Id[int]; _ = 0 }
+-- 05327.ergo --
+func Await[T, E](x T, t Task[T, E]) T fails E { return t.Wait() }
+func F() { _ = Await[int] }
+-- 05328.ergo --
+func F(xs []int) int { return xs[-1] }
+-- 05329.ergo --
+func F(xs []int) []int { return xs[3:1] }
+-- 05330.ergo --
+func F() byte { return "ab"[2] }
+-- 05331.ergo --
+func F() string { return "ab"[1:3] }
+-- 05332.ergo --
+func F(xs []int) []int { return xs[1:3] }
+-- 05333.ergo --
+func F() int { return 1 / int(float32(16777217) - float32(16777216)) }
+-- 05334.ergo --
+func F() int { return 1 / int(float32(16777216) + 1 - float32(16777216)) }
+-- 05335.ergo --
+func F() int { return 1 / int(float64(16777217) - float64(16777216)) }
+-- 05336.ergo --
+type I { M() }
+type S {}
+func M(_ S) {}
+let A = context { I: S }
+let B = context { I: S }
+let W = context { replace I: S, A, B }
+func F() { with W { I.M() } }
+-- 05337.ergo --
+type I { M() }
+type S {}
+func M(_ S) {}
+let A = context { I: S }
+let B = context { I: S }
+func F() { with context { replace I: S, A, B } { I.M() } }
+-- 05338.ergo --
+type I { M() }
+type S {}
+func M(_ S) {}
+let A = context { I: S }
+let B = context { I: S }
+let W = context { A, B }
+func F() { with W { I.M() } }
+-- 05339.ergo --
+type I { M() }
+type S {}
+func M(_ S) {}
+let Base = context { I: S }
+let W = context { replace I: S, replace I: S, Base }
+func F() { with W { I.M() } }
+-- 05340.ergo --
+type A { M() }
+type B { N() }
+type S {}
+func M(_ S) {}
+func N(_ S) {}
+func Make() B needs A {
+	A.M()
+	return S
+}
+let W = context { A: S, B: Make() }
+func F() { with W { B.N() } }
+-- 05341.ergo --
+type A { M() }
+type B { N() }
+type S {}
+func M(_ S) {}
+func N(_ S) {}
+func MakeA() A needs B {
+	B.N()
+	return S
+}
+func MakeB() B needs A {
+	A.M()
+	return S
+}
+let W = context { A: MakeA(), B: MakeB() }
+func F() { with W { B.N() } }
+-- 05342.ergo --
+type A { M() }
+type B { N() }
+type S {}
+func N(_ S) {}
+func Make() B needs A {
+	A.M()
+	return S
+}
+let W = context { B: Make() }
+func F() needs A { with W { B.N() } }
+-- 05343.ergo --
+type A { M() }
+type S {}
+func M(_ S) {}
+func MakeA() A needs A {
+	A.M()
+	return S
+}
+let W = context { A: MakeA() }
+func F() { with W { A.M() } }
+-- 05344.ergo --
+type A { M() }
+type B { N() }
+type C { O() }
+type S {}
+func M(_ S) {}
+func N(_ S) {}
+func O(_ S) {}
+func MakeA() A needs C {
+	C.O()
+	return S
+}
+func MakeB() B needs A {
+	A.M()
+	return S
+}
+func MakeC() C needs B {
+	B.N()
+	return S
+}
+let W = context { A: MakeA(), B: MakeB(), C: MakeC() }
+func F() { with W { B.N() } }
+-- 05345.ergo --
+type A { M() }
+type B { N() }
+type S {}
+func M(_ S) {}
+func N(_ S) {}
+func Make() B needs A {
+	A.M()
+	return S
+}
+let Base = context { A: S }
+let W = context { B: Make(), Base }
+func F() { with W { B.N() } }
+-- 05346.ergo --
+type A { M() }
+type B { N() }
+type S {}
+func M(_ S) {}
+func N(_ S) {}
+func Make() B needs A {
+	A.M()
+	return S
+}
+func F() { with context { A: S, B: Make() } { B.N() } }
+-- 05347.ergo --
+func main() {}
+func F() {
+	let run = main
+	run()
+}
+-- 05348.ergo --
+func main() {}
+func call(f func()) { f() }
+func F() { call(main) }
+-- 05349.ergo --
+func main() {}
+func F() func() { return main }
+-- 05350.ergo --
+func main() {}
+func F() { (main)() }
+-- 05351.ergo --
+func main() {}
+func F() {
+	let _ as main = func() {}
+	main()
+}
+-- 05352.ergo --
+type Box[T] { X T }
+func F() Box[int] { return with context {} { Box{} } }
+-- 05353.ergo --
+type S { X int }
+func F(m Map[int, S]) { m[0].X = 1 }
+-- 05354.ergo --
+type S { X int }
+func F(m Map[int, S], n Map[int, int]) {
+	let mut m2 = m
+	let mut n2 = n
+	m2[0] = S{}
+	m2[1] = S{X: 2}
+	n2[3] = S{}.X
+}
+-- 05355.ergo --
+type S { X int }
+func F(m Map[int, S]) { m[2].X += 1 }
+-- 05356.ergo --
+func F(m Map[int, int]) {
+	let mut m2 = m
+	m2[0] += 1
+	m2[1] += 2
+}
+-- 05357.ergo --
+type S { X int }
+func F(xs []S) {
+	let mut ys = xs
+	ys[0].X = 1
+}
+-- 05358.ergo --
+type S { X int }
+func G(s *S)          {}
+func F(m Map[int, S]) { G(&m[0]) }
+-- 05359.ergo --
+func F() { with(Missing) { Console.Println("x") } }
+-- 05360.ergo --
+func F() { with(context{ Missing }) { Console.Println("x") } }
+-- 05361.ergo --
+let W = context { Missing }
+func F() { with W { Console.Println("x") } }
+-- 05362.ergo --
+type I { M() }
+type S {}
+func M(s *S) {}
+func Take(x I) {}
+func F(s *S) { Take(s) }
+-- 05363.ergo --
+type I { M() }
+type S {}
+func M(s *S) {}
+func Take(x I) {}
+func F(s S) { Take(s) }
+-- 05364.ergo --
+func F() complex128 { return complex128(1) }
+func G(a, b complex64) complex64 { return a*b + a/b - b }
+func H(a complex128) bool { return a == a }
+-- 05365.ergo --
+func F(a, b complex128) bool { return a < b }
+-- 05366.ergo --
+func F(a complex128, b complex64) complex64 { return complex64(a) + b + complex64(complex128(2)) }
+-- 05367.ergo --
+func F(f float64) complex128 { return complex128(f) }
+-- 05368.ergo --
+func F(a, b complex128) complex128 { return a % b }
+-- 05369.ergo --
+func F() complex64 { return 1 << 200 }
+-- 05370.ergo --
+func F() Map[int, int] { return Map[int, int]{1: 1, 1: 2} }
+-- 05371.ergo --
+func F() Map[string, int] { return Map[string, int]{"a": 1, "a": 2} }
+-- 05372.ergo --
+func F(k int) Map[int, int] { return Map[int, int]{1: 1, 2: 2, k: 3, k: 4} }
+-- 05373.ergo --
+func F() int {
+	let mut x = 1
+	(x) = 2
+	return x
+}
+-- 05374.ergo --
+import missing
+func F() { missing.Call() }
+-- 05375.ergo --
+import m missing/deep
+func F() { m.Call() }
+-- 05376.ergo --
+import go fmt
+func F() { fmt.Println("x") }
+-- 05377.ergo --
+import missing
+func F(x missing.T) {}
+-- 05378.ergo --
+func F() { let x Missing }
+-- 05379.ergo --
+func F() int { return missing() }
+-- 05380.ergo --
+type S { X int }
+func F() S { return S{X: "x"} }
+-- 05381.ergo --
+type A {}
+type B {}
+type U = A | B
+func F(x U) int {
+	match x {
+	case A as v:
+		return 1
+	case B:
+		return 2
+	}
+}
+-- 05382.ergo --
+func f() {}
+func F() { return f() }
+-- 05383.ergo --
+func Zero[T comparable](x T) T { return 0 }
+-- 05384.ergo --
+type A {}
+type B {}
+func First() fails A { return A }
+func Second() fails B { return B }
+func Both[E](f func() fails E, g func() fails E) fails E {
+	try f()
+	return g()
+}
+func F() fails A | B { return Both(First, Second) }
+-- 05385.ergo --
+type A {}
+type B {}
+func First() fails A { return A }
+func Second() fails B { return B }
+func Both[E](f func() fails E, g func() fails E) fails E {
+	try f()
+	return g()
+}
+func F() fails A { return Both(First, Second) }
+-- 05386.ergo --
+type C { Use() }
+func f0() {
+-- 05387.ergo --
+func f%d() { f%d() }
+-- 05388.ergo --
+func F() { f%d() }
+-- 05389.ergo --
+type G[T] {}
+type V[T] {}
+type U[T] = V[T] | V[int]
+type B { F U[
+-- 05390.ergo --
+] }
+func F(x B) int {
+	
+-- 05391.ergo --
+func F%d(
+-- 05392.ergo --
+type Fault {}
+type Other {}
+type G[T] { v T }
+type Pair[A, B] {
+	a A,
+	b B,
+}
+type Box[T] { f func(T) fails Fault | Other }
+type Shape = V[int] | V[string]
+type V[T] {}
+type Store { Get(k string) int fails Fault }
+type Log { Put(s string) }
+
+func a(x G[int], y G[string], z G[int], p Pair[int, G[int]], q Pair[G[int], int])                 {}
+func b(f func(int) fails Fault | Other, g func(int) fails Other | Fault, h func(int) fails Fault) {}
+func e(m Map[string, []G[int]], n Map[string, []G[int]])                                          {}
+func f(w Box[int], v Box[int], u Box[string])                                                     {}
+func g(x Shape) int {
+	match x {
+	case V[int]:
+		return 1
+	case _:
+		return 0
+	}
+}
+func h() needs Store | Log {}
+func k() needs Log | Store {}
+func l(fn func() needs Store, gn func() needs Store, hn func() needs Log) {}
+-- 05393.ergo --
+type Bang {}
+type Fault[T] { V T }
+type Cap { M() }
+-- 05394.ergo --
+type Fault {}
+type Other {}
+type G[T] { v T }
+type Pair[A, B] {
+	a A,
+	b B,
+}
+type Box[T] { f func(T) fails Fault | Other }
+type Shape = V[int] | V[string]
+type V[T] {}
+type Store { Get(k string) int fails Fault }
+type Log { Put(s string) }
+
+func a(x G[int], y G[string], z G[int], p Pair[int, G[int]], q Pair[G[int], int])                 {}
+func b(f func(int) fails Fault | Other, g func(int) fails Other | Fault, h func(int) fails Fault) {}
+func e(m Map[string, []G[int]], n Map[string, []G[int]])                                          {}
+func f(w Box[int], v Box[int], u Box[string])                                                     {}
+func g(x Shape) int {
+	match x {
+	case V[int]:
+		return 1
+	case _:
+		return 0
+	}
+}
+func h() needs Store | Log {}
+func k() needs Log | Store {}
+func l(fn func() needs Store, gn func() needs Store, hn func() needs Log) {}
+type Bang {}
+type Fault[T] { V T }
+type Cap { M() }
+-- 05395.ergo --
+func fail() fails Bang { return Bang }
+func work() needs Cap { Cap.M() }
+func mark[T]() fails Fault[T] { try mark[T]() }
+-- 05396.ergo --
+type Fault {}
+type Other {}
+type G[T] { v T }
+type Pair[A, B] {
+	a A,
+	b B,
+}
+type Box[T] { f func(T) fails Fault | Other }
+type Shape = V[int] | V[string]
+type V[T] {}
+type Store { Get(k string) int fails Fault }
+type Log { Put(s string) }
+
+func a(x G[int], y G[string], z G[int], p Pair[int, G[int]], q Pair[G[int], int])                 {}
+func b(f func(int) fails Fault | Other, g func(int) fails Other | Fault, h func(int) fails Fault) {}
+func e(m Map[string, []G[int]], n Map[string, []G[int]])                                          {}
+func f(w Box[int], v Box[int], u Box[string])                                                     {}
+func g(x Shape) int {
+	match x {
+	case V[int]:
+		return 1
+	case _:
+		return 0
+	}
+}
+func h() needs Store | Log {}
+func k() needs Log | Store {}
+func l(fn func() needs Store, gn func() needs Store, hn func() needs Log) {}
+func fail() fails Bang { return Bang }
+func work() needs Cap { Cap.M() }
+func mark[T]() fails Fault[T] { try mark[T]() }
+-- 05397.ergo --
+func pass%d[E](f func() fails E) { return f() }
+-- 05398.ergo --
+type Fault {}
+type Other {}
+type G[T] { v T }
+type Pair[A, B] {
+	a A,
+	b B,
+}
+type Box[T] { f func(T) fails Fault | Other }
+type Shape = V[int] | V[string]
+type V[T] {}
+type Store { Get(k string) int fails Fault }
+type Log { Put(s string) }
+
+func a(x G[int], y G[string], z G[int], p Pair[int, G[int]], q Pair[G[int], int])                 {}
+func b(f func(int) fails Fault | Other, g func(int) fails Other | Fault, h func(int) fails Fault) {}
+func e(m Map[string, []G[int]], n Map[string, []G[int]])                                          {}
+func f(w Box[int], v Box[int], u Box[string])                                                     {}
+func g(x Shape) int {
+	match x {
+	case V[int]:
+		return 1
+	case _:
+		return 0
+	}
+}
+func h() needs Store | Log {}
+func k() needs Log | Store {}
+func l(fn func() needs Store, gn func() needs Store, hn func() needs Log) {}
+func pass%d[E](f func() fails E) { return f() }
+-- 05399.ergo --
+func C%d() fails Bang { return pass%d(fail) }
+-- 05400.ergo --
+type Fault {}
+type Other {}
+type G[T] { v T }
+type Pair[A, B] {
+	a A,
+	b B,
+}
+type Box[T] { f func(T) fails Fault | Other }
+type Shape = V[int] | V[string]
+type V[T] {}
+type Store { Get(k string) int fails Fault }
+type Log { Put(s string) }
+
+func a(x G[int], y G[string], z G[int], p Pair[int, G[int]], q Pair[G[int], int])                 {}
+func b(f func(int) fails Fault | Other, g func(int) fails Other | Fault, h func(int) fails Fault) {}
+func e(m Map[string, []G[int]], n Map[string, []G[int]])                                          {}
+func f(w Box[int], v Box[int], u Box[string])                                                     {}
+func g(x Shape) int {
+	match x {
+	case V[int]:
+		return 1
+	case _:
+		return 0
+	}
+}
+func h() needs Store | Log {}
+func k() needs Log | Store {}
+func l(fn func() needs Store, gn func() needs Store, hn func() needs Log) {}
+func C%d() fails Bang { return pass%d(fail) }
+-- 05401.ergo --
+func X%d() fails Bang { return pass%d[Bang](fail) }
+-- 05402.ergo --
+type Fault {}
+type Other {}
+type G[T] { v T }
+type Pair[A, B] {
+	a A,
+	b B,
+}
+type Box[T] { f func(T) fails Fault | Other }
+type Shape = V[int] | V[string]
+type V[T] {}
+type Store { Get(k string) int fails Fault }
+type Log { Put(s string) }
+
+func a(x G[int], y G[string], z G[int], p Pair[int, G[int]], q Pair[G[int], int])                 {}
+func b(f func(int) fails Fault | Other, g func(int) fails Other | Fault, h func(int) fails Fault) {}
+func e(m Map[string, []G[int]], n Map[string, []G[int]])                                          {}
+func f(w Box[int], v Box[int], u Box[string])                                                     {}
+func g(x Shape) int {
+	match x {
+	case V[int]:
+		return 1
+	case _:
+		return 0
+	}
+}
+func h() needs Store | Log {}
+func k() needs Log | Store {}
+func l(fn func() needs Store, gn func() needs Store, hn func() needs Log) {}
+func X%d() fails Bang { return pass%d[Bang](fail) }
+-- 05403.ergo --
+let saved%d = pass%d[Bang]
+func S%d() fails Bang { return saved%d(fail) }
+-- 05404.ergo --
+type Fault {}
+type Other {}
+type G[T] { v T }
+type Pair[A, B] {
+	a A,
+	b B,
+}
+type Box[T] { f func(T) fails Fault | Other }
+type Shape = V[int] | V[string]
+type V[T] {}
+type Store { Get(k string) int fails Fault }
+type Log { Put(s string) }
+
+func a(x G[int], y G[string], z G[int], p Pair[int, G[int]], q Pair[G[int], int])                 {}
+func b(f func(int) fails Fault | Other, g func(int) fails Other | Fault, h func(int) fails Fault) {}
+func e(m Map[string, []G[int]], n Map[string, []G[int]])                                          {}
+func f(w Box[int], v Box[int], u Box[string])                                                     {}
+func g(x Shape) int {
+	match x {
+	case V[int]:
+		return 1
+	case _:
+		return 0
+	}
+}
+func h() needs Store | Log {}
+func k() needs Log | Store {}
+func l(fn func() needs Store, gn func() needs Store, hn func() needs Log) {}
+let saved%d = pass%d[Bang]
+func S%d() fails Bang { return saved%d(fail) }
+-- 05405.ergo --
+func raise%d[T](x T) { return Fault{x} }
+-- 05406.ergo --
+type Fault {}
+type Other {}
+type G[T] { v T }
+type Pair[A, B] {
+	a A,
+	b B,
+}
+type Box[T] { f func(T) fails Fault | Other }
+type Shape = V[int] | V[string]
+type V[T] {}
+type Store { Get(k string) int fails Fault }
+type Log { Put(s string) }
+
+func a(x G[int], y G[string], z G[int], p Pair[int, G[int]], q Pair[G[int], int])                 {}
+func b(f func(int) fails Fault | Other, g func(int) fails Other | Fault, h func(int) fails Fault) {}
+func e(m Map[string, []G[int]], n Map[string, []G[int]])                                          {}
+func f(w Box[int], v Box[int], u Box[string])                                                     {}
+func g(x Shape) int {
+	match x {
+	case V[int]:
+		return 1
+	case _:
+		return 0
+	}
+}
+func h() needs Store | Log {}
+func k() needs Log | Store {}
+func l(fn func() needs Store, gn func() needs Store, hn func() needs Log) {}
+func raise%d[T](x T) { return Fault{x} }
+-- 05407.ergo --
+func C%d(x %s) fails Fault[%s] { return raise%d(x) }
+-- 05408.ergo --
+type Fault {}
+type Other {}
+type G[T] { v T }
+type Pair[A, B] {
+	a A,
+	b B,
+}
+type Box[T] { f func(T) fails Fault | Other }
+type Shape = V[int] | V[string]
+type V[T] {}
+type Store { Get(k string) int fails Fault }
+type Log { Put(s string) }
+
+func a(x G[int], y G[string], z G[int], p Pair[int, G[int]], q Pair[G[int], int])                 {}
+func b(f func(int) fails Fault | Other, g func(int) fails Other | Fault, h func(int) fails Fault) {}
+func e(m Map[string, []G[int]], n Map[string, []G[int]])                                          {}
+func f(w Box[int], v Box[int], u Box[string])                                                     {}
+func g(x Shape) int {
+	match x {
+	case V[int]:
+		return 1
+	case _:
+		return 0
+	}
+}
+func h() needs Store | Log {}
+func k() needs Log | Store {}
+func l(fn func() needs Store, gn func() needs Store, hn func() needs Log) {}
+func C%d(x %s) fails Fault[%s] { return raise%d(x) }
+-- 05409.ergo --
+func X%d(x %s) fails Fault[%s] { return raise%d[%s](x) }
+-- 05410.ergo --
+type Fault {}
+type Other {}
+type G[T] { v T }
+type Pair[A, B] {
+	a A,
+	b B,
+}
+type Box[T] { f func(T) fails Fault | Other }
+type Shape = V[int] | V[string]
+type V[T] {}
+type Store { Get(k string) int fails Fault }
+type Log { Put(s string) }
+
+func a(x G[int], y G[string], z G[int], p Pair[int, G[int]], q Pair[G[int], int])                 {}
+func b(f func(int) fails Fault | Other, g func(int) fails Other | Fault, h func(int) fails Fault) {}
+func e(m Map[string, []G[int]], n Map[string, []G[int]])                                          {}
+func f(w Box[int], v Box[int], u Box[string])                                                     {}
+func g(x Shape) int {
+	match x {
+	case V[int]:
+		return 1
+	case _:
+		return 0
+	}
+}
+func h() needs Store | Log {}
+func k() needs Log | Store {}
+func l(fn func() needs Store, gn func() needs Store, hn func() needs Log) {}
+func X%d(x %s) fails Fault[%s] { return raise%d[%s](x) }
+-- 05411.ergo --
+let saved%d = raise%d[%s]
+func S%d(x %s) fails Fault[%s] { return saved%d(x) }
+-- 05412.ergo --
+type Fault {}
+type Other {}
+type G[T] { v T }
+type Pair[A, B] {
+	a A,
+	b B,
+}
+type Box[T] { f func(T) fails Fault | Other }
+type Shape = V[int] | V[string]
+type V[T] {}
+type Store { Get(k string) int fails Fault }
+type Log { Put(s string) }
+
+func a(x G[int], y G[string], z G[int], p Pair[int, G[int]], q Pair[G[int], int])                 {}
+func b(f func(int) fails Fault | Other, g func(int) fails Other | Fault, h func(int) fails Fault) {}
+func e(m Map[string, []G[int]], n Map[string, []G[int]])                                          {}
+func f(w Box[int], v Box[int], u Box[string])                                                     {}
+func g(x Shape) int {
+	match x {
+	case V[int]:
+		return 1
+	case _:
+		return 0
+	}
+}
+func h() needs Store | Log {}
+func k() needs Log | Store {}
+func l(fn func() needs Store, gn func() needs Store, hn func() needs Log) {}
+let saved%d = raise%d[%s]
+func S%d(x %s) fails Fault[%s] { return saved%d(x) }
+-- 05413.ergo --
+func run%d[R](f func() needs R) { f() }
+-- 05414.ergo --
+type Fault {}
+type Other {}
+type G[T] { v T }
+type Pair[A, B] {
+	a A,
+	b B,
+}
+type Box[T] { f func(T) fails Fault | Other }
+type Shape = V[int] | V[string]
+type V[T] {}
+type Store { Get(k string) int fails Fault }
+type Log { Put(s string) }
+
+func a(x G[int], y G[string], z G[int], p Pair[int, G[int]], q Pair[G[int], int])                 {}
+func b(f func(int) fails Fault | Other, g func(int) fails Other | Fault, h func(int) fails Fault) {}
+func e(m Map[string, []G[int]], n Map[string, []G[int]])                                          {}
+func f(w Box[int], v Box[int], u Box[string])                                                     {}
+func g(x Shape) int {
+	match x {
+	case V[int]:
+		return 1
+	case _:
+		return 0
+	}
+}
+func h() needs Store | Log {}
+func k() needs Log | Store {}
+func l(fn func() needs Store, gn func() needs Store, hn func() needs Log) {}
+func run%d[R](f func() needs R) { f() }
+-- 05415.ergo --
+func C%d() needs Cap { run%d(work) }
+-- 05416.ergo --
+type Fault {}
+type Other {}
+type G[T] { v T }
+type Pair[A, B] {
+	a A,
+	b B,
+}
+type Box[T] { f func(T) fails Fault | Other }
+type Shape = V[int] | V[string]
+type V[T] {}
+type Store { Get(k string) int fails Fault }
+type Log { Put(s string) }
+
+func a(x G[int], y G[string], z G[int], p Pair[int, G[int]], q Pair[G[int], int])                 {}
+func b(f func(int) fails Fault | Other, g func(int) fails Other | Fault, h func(int) fails Fault) {}
+func e(m Map[string, []G[int]], n Map[string, []G[int]])                                          {}
+func f(w Box[int], v Box[int], u Box[string])                                                     {}
+func g(x Shape) int {
+	match x {
+	case V[int]:
+		return 1
+	case _:
+		return 0
+	}
+}
+func h() needs Store | Log {}
+func k() needs Log | Store {}
+func l(fn func() needs Store, gn func() needs Store, hn func() needs Log) {}
+func C%d() needs Cap { run%d(work) }
+-- 05417.ergo --
+func S%d() needs Cap { let g = work; run%d(g) }
+-- 05418.ergo --
+type Fault {}
+type Other {}
+type G[T] { v T }
+type Pair[A, B] {
+	a A,
+	b B,
+}
+type Box[T] { f func(T) fails Fault | Other }
+type Shape = V[int] | V[string]
+type V[T] {}
+type Store { Get(k string) int fails Fault }
+type Log { Put(s string) }
+
+func a(x G[int], y G[string], z G[int], p Pair[int, G[int]], q Pair[G[int], int])                 {}
+func b(f func(int) fails Fault | Other, g func(int) fails Other | Fault, h func(int) fails Fault) {}
+func e(m Map[string, []G[int]], n Map[string, []G[int]])                                          {}
+func f(w Box[int], v Box[int], u Box[string])                                                     {}
+func g(x Shape) int {
+	match x {
+	case V[int]:
+		return 1
+	case _:
+		return 0
+	}
+}
+func h() needs Store | Log {}
+func k() needs Log | Store {}
+func l(fn func() needs Store, gn func() needs Store, hn func() needs Log) {}
+func S%d() needs Cap { let g = work; run%d(g) }
+-- 05419.ergo --
+type G[T] {}
+type V[T] {}
+type Fault[T] {}
+-- 05420.ergo --
+type A%d {}
+-- 05421.ergo --
+type U[T] = 
+-- 05422.ergo --
+
+type B { F U[
+-- 05423.ergo --
+func F(x B) int {
+	
+-- 05424.ergo --
+type Box[T] { F T }
+func wide(
+-- 05425.ergo --
+func f%d() { _ = Box{wide} }
+-- 05426.ergo --
+type V[T] {}
+type I { 
+-- 05427.ergo --
+}
+type U = V[I] | V[int]
+func F(x U) int {
+	match x {
+	case V[int]:
+		return 1
+	case _:
+		return 0
+	}
+}
+-- 05428.ergo --
+type Bang {}
+-- 05429.ergo --
+func mark() fails Bang { return Bang }
+-- 05430.ergo --
+type Box[T] { M(T) }
+-- 05431.ergo --
+func BoxOf[T](x T) Box[T] { BoxOf(x) }
+-- 05432.ergo --
+func Choose[T](x T, y T) fails Bang { return Bang }
+-- 05433.ergo --
+func Run[E, T](x T, y T, callback func() fails E) fails E { return callback() }
+-- 05434.ergo --
+type Cap { M() }
+-- 05435.ergo --
+func Choose[T](x T, y T) needs Cap { Cap.M() }
+-- 05436.ergo --
+func Same[T](x T, y T) {}
+-- 05437.ergo --
+func Run[T, R](x T, y T, callback func() needs R) needs R { callback() }
+-- 05438.ergo --
+func f%d()%s {
+-- 05439.ergo --
+func f%d(
+-- 05440.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func f0() { try f1() }
+-- 05441.ergo --
+func f1() { try f0() }
+-- 05442.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+-- 05443.ergo --
+func f%d() { try f%d() }
+-- 05444.ergo --
+type E%d {}
+func mark%d() fails E%d { return E%d }
+-- 05445.ergo --
+func f%d() { try mark%d(); try f%d() }
+-- 05446.ergo --
+let m = Map[KT, int]{h%[1]d: 1}; return len(m)
+-- 05447.ergo --
+let m = []Map[KT, int]{{h%[1]d: 1}}; return len(m)
+-- 05448.ergo --
+let m = Map[KT, S]{h%[1]d: {h0: 1}}; return len(m)
+-- 05449.ergo --
+let m = Map[S, int]{{h0: 1, K: h%[1]d}: 2}; return len(m)
+-- 05450.ergo --
+let m = Map[KT, Map[KT, int]]{h%[1]d: {h%[2]d: 1}}; return len(m)
+-- 05451.ergo --
+let m = []S{{K: h%[1]d}}; return len(m)
+-- 05452.ergo --
+let m = Map[KT, []S]{h%[1]d: {{h0: 1, K: h%[2]d}}}; return len(m)
+-- 05453.ergo --
+let m = S{h0: 1, K: h%[1]d}; return m.h0
+-- 05454.ergo --
+type Key[T] {}
+-- 05455.ergo --
+func KeyOf[T](x T) Key[T] { Key[T] }
+-- 05456.ergo --
+type S { h0 int, K KT }
+-- 05457.ergo --
+func a%d() { try mark() }
+-- 05458.ergo --
+let h%d = KeyOf(a%d)
+-- 05459.ergo --
+func f%d() int { %s }
+-- 05460.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func keep[T](f T) {}
+-- 05461.ergo --
+func walk(n int) { try mark(); keep(func() { try walk(n) }) }
+-- 05462.ergo --
+type Bang {}
+func mark() fails Bang { return Bang }
+func walk() { try mark(); let g = walk; _ = g }
+-- 05463.ergo --
+type Cap { M() }
+func run[R](n int, body func() needs R) needs R { body() }
+-- 05464.ergo --
+func walk(n int) { Cap.M(); run(n) { walk(n) } }
+-- 05465.ergo --
+type S { a int }
+type Wrap[T] { value T }
+type Long { alpha int, beta int, gamma int, delta int }
+-- 05466.ergo --
+let W0 = context {}
+-- 05467.ergo --
+type S { a int }
+type Wrap[T] { value T }
+type Long { alpha int, beta int, gamma int, delta int }
+let W0 = context {}
+-- 05468.ergo --
+type S { a int }
+type Wrap[T] { value T }
+type Long { alpha int, beta int, gamma int, delta int }
+let W%d = context { W%d }
+-- 05469.ergo --
+func F() { with W%d {} }
+-- 05470.ergo --
+type S { a int }
+type Wrap[T] { value T }
+type Long { alpha int, beta int, gamma int, delta int }
+func F() { with W%d {} }
+-- 05471.ergo --
+type S { a int }
+type Big {
+-- 05472.ergo --
+type S { a int }
+type Wrap[T] { value T }
+type Long { alpha int, beta int, gamma int, delta int }
+type S { a int }
+type Big {
+-- 05473.ergo --
+}
+func F() { _ = Big{
+-- 05474.ergo --
+type S { a int }
+type Wrap[T] { value T }
+type Long { alpha int, beta int, gamma int, delta int }
+}
+func F() { _ = Big{
+-- 05475.ergo --
+type S { a int }
+type Wrap[T] { value T }
+-- 05476.ergo --
+type S { a int }
+type Wrap[T] { value T }
+type Long { alpha int, beta int, gamma int, delta int }
+type S { a int }
+type Wrap[T] { value T }
+-- 05477.ergo --
+type Long { alpha int, beta int, gamma int, delta int }
+-- 05478.ergo --
+type S { a int }
+type Wrap[T] { value T }
+type Long { alpha int, beta int, gamma int, delta int }
+type Long { alpha int, beta int, gamma int, delta int }
+-- 05479.ergo --
+type S { a int }
+type Wrap[T] { value T }
+type Long { alpha int, beta int, gamma int, delta int }
+func F() {
+-- 05480.ergo --
+type P {}
+func M(_ P) {}
+-- 05481.ergo --
+type C%d { M() }
+-- 05482.ergo --
+let W0 = context {
+	C0: P,
+}
+-- 05483.ergo --
+let W%d = context {
+	C%d: P,
+	W%d,
+}
+-- 05484.ergo --
+let X%d = context {
+	C%d: P,
+}
+-- 05485.ergo --
+let W = context {
+-- 05486.ergo --
+let A0 = context {
+	C0: P,
+}
+-- 05487.ergo --
+let B0 = context {
+	C%d: P,
+}
+-- 05488.ergo --
+let A%d = context {
+	C%d: P,
+	A%d,
+}
+let B%d = context {
+	C%d: P,
+	B%d,
+}
+-- 05489.ergo --
+let W%d = context {
+	A%d,
+	B%d,
+}
+-- 05490.ergo --
+let W0 = context {
+-- 05491.ergo --
+let L%d = context { W%d }
+let R%d = context { W%d }
+let W%d = context {
+	replace C0: P,
+	L%d,
+	R%d,
+}
+-- 05492.ergo --
+let W%d = context {}
+-- 05493.ergo --
+func F() { with context { C0: P } { C0.M() } }
+-- 05494.ergo --
+func F() {
+	with context {
+		replace C0: P,
+-- 05495.ergo --
+let W = context {
+	
+-- 05496.ergo --
+let Empty = context {}
+func F() {
+	with context {
+-- 05497.ergo --
+func F() { with %s { C0.M() } }
+-- 05498.ergo --
+let Dup = context {
+	A3,
+	A2,
+}
+func G() { with Dup { C0.M() } }
+-- 05499.ergo --
+let Dup = context {
+	A3,
+	A2,
+}

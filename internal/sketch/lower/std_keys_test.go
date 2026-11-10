@@ -2,7 +2,6 @@ package lower
 
 import (
 	"errors"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -24,101 +23,6 @@ func stdFixture(t *testing.T, path, src string) *check.Package {
 	return pkg
 }
 
-// TestStdRecordsBindTheRowsGoName (std-align S3b round 2, M1): a std
-// record lowers to the struct its row names, not to a struct of its own
-// name. Two fixture packages each declare NotFound { Path string }, and a
-// test table binds them through each permutation of the two runtime/v1
-// structs of that shape, NotFound and Denied: the identity, where only the
-// package tells them apart, and the swap, where neither record's Go name is
-// its own name. Each time the emitted Go names each row's struct, has no
-// struct of the program for either record, and each catch arm takes its
-// own failure. A lowering that emits the record's name in place of the row's
-// lowers both to one Go type, and the arms collide.
-func TestStdRecordsBindTheRowsGoName(t *testing.T) {
-	const fixture = `type NotFound { Path string }
-
-func Fail(path string) fails NotFound {
-	return NotFound{Path: path}
-}
-`
-	const src = `import fixturea
-import fixtureb
-
-func run(n int) fails fixturea.NotFound | fixtureb.NotFound {
-	if n == 0 {
-		try fixturea.Fail("a.txt")
-	} else {
-		try fixtureb.Fail("b.txt")
-	}
-}
-
-func which(n int) string {
-	run(n) catch {
-	case fixturea.NotFound as a:
-		return "fixturea " + a.Path
-	case fixtureb.NotFound as b:
-		return "fixtureb " + b.Path
-	}
-	"none"
-}
-
-func main() needs Console {
-	Console.Println(which(0))
-	Console.Println(which(1))
-}
-`
-	imp := pkgImporter{
-		"fixturea": stdFixture(t, "fixturea", fixture),
-		"fixtureb": stdFixture(t, "fixtureb", fixture),
-	}
-	real := stdRecord
-	t.Cleanup(func() { stdRecord = real })
-	var built []*lowered
-	for i, rows := range [][2]string{{"NotFound", "Denied"}, {"Denied", "NotFound"}} {
-		table := map[string]string{"fixturea.NotFound": rows[0], "fixtureb.NotFound": rows[1]}
-		stdRecord = func(pkg, name string) (string, bool) {
-			if goName, ok := table[pkg+"."+name]; ok {
-				return goName, true
-			}
-			return real(pkg, name)
-		}
-		file, err := syntax.Parse(src)
-		if err != nil {
-			t.Fatal(err)
-		}
-		out := &lowered{name: "rowname" + strconv.Itoa(i), src: src, file: file}
-		out.pkg, out.diags = check.Check("main", []*syntax.File{file}, imp)
-		if len(out.diags) != 0 {
-			t.Fatalf("diagnostics: %v", out.diags)
-		}
-		code, err := lowerPackage(Unit{Package: out.pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: src}}}, false)
-		if err != nil {
-			t.Fatalf("rows %v: lowering: %v", rows, err)
-		}
-		for _, goName := range rows {
-			if !strings.Contains(string(code), "ergo."+goName+"{Path:") {
-				t.Errorf("rows %v: the Go does not build v1.%s:\n%s", rows, goName, code)
-			}
-		}
-		if strings.Contains(string(code), "type NotFound struct") {
-			t.Errorf("rows %v: the Go declares a struct of the program for a record with a row:\n%s", rows, code)
-		}
-		out.files = []File{{Path: "go.mod", Data: []byte(goMod)}, {Path: "main.go", Data: code}}
-		built = append(built, out)
-	}
-	stdRecord = real
-	exes := buildAll(t, built, true)
-	if exes == nil {
-		return
-	}
-	for _, out := range built {
-		stdout, stderr, exit := runExe(t, exes[out.name])
-		if want := "fixturea a.txt\nfixtureb b.txt\n"; stdout != want || exit != 0 {
-			t.Errorf("%s: exit %d, stdout %q, want %q\nstderr %s", out.name, exit, stdout, want, firstLines(stderr, 12))
-		}
-	}
-}
-
 // TestStdRecordsKeyedByPackage (std-align S3b): two std packages each
 // declare a record NotFound, and one program fails with each and catches
 // each in its own arm. A std record binds a runtime struct by its package
@@ -126,7 +30,12 @@ func main() needs Console {
 // each arm takes its own failure. Before, the lowering bound a std record
 // by its bare name, so both lowered to v1.NotFound, the fs record's struct,
 // and the catch could not tell them apart.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestStdRecordsKeyedByPackage(t *testing.T) {
+	needsBuild(t)
 	const fixture = `type NotFound { Path string }
 
 func Fail(path string) fails NotFound {

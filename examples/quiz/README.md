@@ -21,7 +21,7 @@ The program is a module of packages (`ergo.mod`: `module quiz`), in the Go layou
 
 | folder | what it holds |
 | --- | --- |
-| `quiz/` | The domain package. `catalogue.ergo` (`Item`, `Choice`, `Question`, `Set`, `Answer`, `Left`, `Kept`, `Narrows`, the sample set `Plants`), `machine.ergo` (`Quiz`, `Settled`, `Signal`, `Picked`, the typed refusals, `Settle`, `Begin`, `Step`, the `Picker` machine), `sets.ergo` (`Sets`, the contract of a store of question sets, with two laws), `laws.ergo`, `tests.ergo`. It is pure. |
+| `quiz/` | The domain package. `catalogue.ergo` (`Item`, `Choice`, `Question`, `Set`, `Answer`, `Left`, `Kept`, `Narrows`, the sample set `Plants`), `machine.ergo` (`Quiz`, `Settled`, `Signal`, `Picked`, the typed refusals, `Settle`, `Begin`, `Step`), `sets.ergo` (`Sets`, the contract of a store of question sets, with two laws), `laws.ergo` (the `Picker` machine and its laws), `tests.ergo`. It is pure. |
 | `memory/` | `Shelf`, the in-memory provider of `quiz.Sets`: `plants` and `teas`. |
 | `script/` | The line protocol: `Parse` (fails `BadLine`), `Show` and `Run`, the only function with capabilities (`Console`, `io.Stdin`, `quiz.Sets`). |
 | `cmd/quiz/` | The binary. `main.ergo` binds `let Live = context { quiz.Sets: memory.Shelf }` and the host's standard input, and is the only place that chooses them. |
@@ -33,7 +33,8 @@ The program is a module of packages (`ergo.mod`: `module quiz`), in the Go layou
 - **History in the state.** The answers are a stack in the state. `Back` pops one and calculates again from its question, so `Back` needs no saved earlier states.
 - **Ordered guards and typed refusals.** `Step` fails `NoSuchChoice | NoMatch | NothingToUndo | NoQuestion | NotShowing | NoSuchItem`. `script.turn` catches each by name and tells it.
 - **Exhaustive `match`.** Every rule names every variant of `Quiz`, `Settled`, `Signal` and `Decision`. The only `case _` arms are over a script word or a set name, which are strings.
-- **Laws.** Five top-level laws in `laws.ergo`, run by `ergo test` (#162). They run over question sets and walks drawn from integers (`setOf`, `walk`), so that answers meet tags and questions repeat:
+- **Laws.** `Picker` declares six laws after its entries (MU6, `laws.ergo`), run by `ergo test`. `law Settles never reaches Calculating` states the settle rule over every run: no start and no signal leaves the picker in the eventless state. The five laws with a body run over question sets and walks drawn from integers (`setOf`, `walk`), so that answers meet tags and questions repeat. All six are **sampled**, none is proved: a question set holds strings and integers, which cannot be listed, so `ergo test` runs 100 generated runs or cases of each (types.md Laws 10), and the reachability law starts from generated sets.
+  - `Settles`: `ok law Picker.Settles (100 runs)`.
   - `SettleIsStable`: `Settle` asks the first question that narrows and skips only ones that do not.
   - `BackUndoes`
   - `ResultsMatchAnswers`: the items left are exactly the ones that every answer keeps.
@@ -48,7 +49,7 @@ The program is a module of packages (`ergo.mod`: `module quiz`), in the Go layou
 - **No eventless transition (M48).** The pattern above stands in for one. It costs a second union (`Settled`) and an `AsQuiz` conversion back. `Step` also settles its input itself, so that it stays total over `Quiz`.
 - **A union is not assignable to a union that holds its variants.** A `Settled` value is not a `Quiz`, so `AsQuiz` matches it to rebuild it. Clause 4 of Assignability admits a variant into its union, not a union into a wider one (inferred from the checker's S108 on the assignment; not filed as a gap, because it may be the intended rule).
 - **`==` on a state that holds slices (M29).** The laws and the test compare states through `Key`.
-- **Machine laws stand at top level (M55).**
+- **A reachability law starts from the input type's generator, not from a law's own builder (MU6b).** A generated `Set` rarely has a question that narrows, so `law AnswerShows path [Asking, Showing]` found no witness in 100 runs (measured, seeds 1 to 5) and is not declared; the laws with a body build their sets with `setOf` instead.
 - **G-ma-1** (closed in batch 13): the examples runner tests every package folder.
 - **G-ma-2** (closed in batch 13): the `Sets` laws run in `memory` against `Shelf`.
 - **`Run` needs a first state before the set is read.** `let mut q quiz.Quiz` needs a value, so it starts as `Begin(Plants())` and is replaced by the state that the script's set gives. A `let` with no value is allowed only for a type with a default, and a union has none.

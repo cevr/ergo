@@ -1,0 +1,6981 @@
+-- 01000.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func f(@w int) int { w }
+-- 01001.ergo --
+func @w() {}
+-- 01002.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func @w() {}
+-- 01003.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func @w() {}
+-- 01004.ergo --
+func main() {
+	$W
+	_ = "@w \(1)"
+}
+-- 01005.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = "@w \(1)"
+}
+-- 01006.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = "@w \(1)"
+}
+-- 01007.ergo --
+type C {
+	Get() int,
+
+	law @w(v int) {
+		Get() == v
+	},
+}
+-- 01008.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+type C {
+	Get() int,
+
+	law @w(v int) {
+		Get() == v
+	},
+}
+-- 01009.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type C {
+	Get() int,
+
+	law @w(v int) {
+		Get() == v
+	},
+}
+-- 01010.ergo --
+func main() {
+	for @w, v in []int{1} { _ = w + v }
+}
+-- 01011.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	for @w, v in []int{1} { _ = w + v }
+}
+-- 01012.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	for @w, v in []int{1} { _ = w + v }
+}
+-- 01013.ergo --
+func main() {
+	for i, @w in []int{1} { _ = i + w }
+}
+-- 01014.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	for i, @w in []int{1} { _ = i + w }
+}
+-- 01015.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	for i, @w in []int{1} { _ = i + w }
+}
+-- 01016.ergo --
+type @w {}
+-- 01017.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+type @w {}
+-- 01018.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type @w {}
+-- 01019.ergo --
+func main() {
+	let @w = context { Greeter: Plain }
+	_ = with w { Greeter.Greet("x") }
+}
+-- 01020.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	let @w = context { Greeter: Plain }
+	_ = with w { Greeter.Greet("x") }
+}
+-- 01021.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	let @w = context { Greeter: Plain }
+	_ = with w { Greeter.Greet("x") }
+}
+-- 01022.ergo --
+func main() {
+	let (@w, b) = (1, 2)
+	_ = w + b
+}
+-- 01023.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	let (@w, b) = (1, 2)
+	_ = w + b
+}
+-- 01024.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	let (@w, b) = (1, 2)
+	_ = w + b
+}
+-- 01025.ergo --
+type U = @w{ ID string } | Pending{}
+-- 01026.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+type U = @w{ ID string } | Pending{}
+-- 01027.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type U = @w{ ID string } | Pending{}
+-- 01028.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+-- 01029.ergo --
+let w = context { Greeter: Plain }
+-- 01030.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+let w = context { Greeter: Plain }
+-- 01031.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+let w = context { Greeter: Plain }
+-- 01032.ergo --
+let w = 1
+-- 01033.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+let w = 1
+-- 01034.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+let w = 1
+-- 01035.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+-- 01036.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+-- 01037.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+-- 01038.ergo --
+func main() needs Console {
+	let quiet = context { Greeter: Plain }
+	Console.Println(with quiet { Greeter.Greet("ada") })
+}
+-- 01039.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func main() needs Console {
+	let quiet = context { Greeter: Plain }
+	Console.Println(with quiet { Greeter.Greet("ada") })
+}
+-- 01040.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func main() needs Console {
+	let quiet = context { Greeter: Plain }
+	Console.Println(with quiet { Greeter.Greet("ada") })
+}
+-- 01041.ergo --
+func main() needs Console {
+	with Stored, context { Greeter: Plain, Store: Holder{v: read()} } {
+		Console.Println("\(Greeter.Greet("ada")) \(Store.Get())")
+	}
+}
+-- 01042.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func main() needs Console {
+	with Stored, context { Greeter: Plain, Store: Holder{v: read()} } {
+		Console.Println("\(Greeter.Greet("ada")) \(Store.Get())")
+	}
+}
+-- 01043.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func main() needs Console {
+	with Stored, context { Greeter: Plain, Store: Holder{v: read()} } {
+		Console.Println("\(Greeter.Greet("ada")) \(Store.Get())")
+	}
+}
+-- 01044.ergo --
+func main() needs Console {
+	let w = context { Greeter: Plain }
+	let v = w // want S108
+	let mut m = context { Greeter: Plain } // want S108
+	Console.Println(with context { w } { Greeter.Greet("ada") })
+	Console.Println(with m { Greeter.Greet("bo") })
+	_ = v
+}
+-- 01045.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func main() needs Console {
+	let w = context { Greeter: Plain }
+	let v = w // want S108
+	let mut m = context { Greeter: Plain } // want S108
+	Console.Println(with context { w } { Greeter.Greet("ada") })
+	Console.Println(with m { Greeter.Greet("bo") })
+	_ = v
+}
+-- 01046.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func main() needs Console {
+	let w = context { Greeter: Plain }
+	let v = w // want S108
+	let mut m = context { Greeter: Plain } // want S108
+	Console.Println(with context { w } { Greeter.Greet("ada") })
+	Console.Println(with m { Greeter.Greet("bo") })
+	_ = v
+}
+-- 01047.ergo --
+func main() needs Console {
+	Console.Println(with context { Greeter: Plain } { Greeter.Greet("ada") })
+	Console.Println(with (Live) { Greeter.Greet("bo") })
+}
+-- 01048.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func main() needs Console {
+	Console.Println(with context { Greeter: Plain } { Greeter.Greet("ada") })
+	Console.Println(with (Live) { Greeter.Greet("bo") })
+}
+-- 01049.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func main() needs Console {
+	Console.Println(with context { Greeter: Plain } { Greeter.Greet("ada") })
+	Console.Println(with (Live) { Greeter.Greet("bo") })
+}
+-- 01050.ergo --
+func f() string {
+	let w Greeter = context { Greeter: Plain } // want S108
+	with w { Greeter.Greet("a") }
+}
+-- 01051.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() string {
+	let w Greeter = context { Greeter: Plain } // want S108
+	with w { Greeter.Greet("a") }
+}
+-- 01052.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() string {
+	let w Greeter = context { Greeter: Plain } // want S108
+	with w { Greeter.Greet("a") }
+}
+-- 01053.ergo --
+func f() {
+	let w = context { Greeter: Plain }
+	w = 1 // want S108
+	with w { Greeter.Greet("a") }
+}
+-- 01054.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() {
+	let w = context { Greeter: Plain }
+	w = 1 // want S108
+	with w { Greeter.Greet("a") }
+}
+-- 01055.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() {
+	let w = context { Greeter: Plain }
+	w = 1 // want S108
+	with w { Greeter.Greet("a") }
+}
+-- 01056.ergo --
+func f() int {
+	use(context { Greeter: Plain }) // want S108
+}
+-- 01057.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() int {
+	use(context { Greeter: Plain }) // want S108
+}
+-- 01058.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() int {
+	use(context { Greeter: Plain }) // want S108
+}
+-- 01059.ergo --
+func f() int {
+	let (a, b) = (context { Greeter: Plain }, 1) // want S108
+	_ = a
+	b
+}
+-- 01060.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() int {
+	let (a, b) = (context { Greeter: Plain }, 1) // want S108
+	_ = a
+	b
+}
+-- 01061.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() int {
+	let (a, b) = (context { Greeter: Plain }, 1) // want S108
+	_ = a
+	b
+}
+-- 01062.ergo --
+func f() string {
+	let w = context { Greeter: context { Greeter: Plain } } // want S108
+	with w { Greeter.Greet("a") }
+}
+-- 01063.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() string {
+	let w = context { Greeter: context { Greeter: Plain } } // want S108
+	with w { Greeter.Greet("a") }
+}
+-- 01064.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() string {
+	let w = context { Greeter: context { Greeter: Plain } } // want S108
+	with w { Greeter.Greet("a") }
+}
+-- 01065.ergo --
+func f() {
+	let _ = context { Greeter: Plain } // want S108
+}
+-- 01066.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() {
+	let _ = context { Greeter: Plain } // want S108
+}
+-- 01067.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() {
+	let _ = context { Greeter: Plain } // want S108
+}
+-- 01068.ergo --
+func f() string {
+	let Live = context { Store: Holder{v: "x"} }
+	with Live { Store.Get() }
+}
+-- 01069.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() string {
+	let Live = context { Store: Holder{v: "x"} }
+	with Live { Store.Get() }
+}
+-- 01070.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() string {
+	let Live = context { Store: Holder{v: "x"} }
+	with Live { Store.Get() }
+}
+-- 01071.ergo --
+func f(b bool) string {
+	let w = context { Greeter: Plain }
+	if b {
+		let w = context { Greeter: Loud } // want S108
+		_ = with w { Greeter.Greet("a") }
+	}
+	with w { Greeter.Greet("b") }
+}
+-- 01072.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f(b bool) string {
+	let w = context { Greeter: Plain }
+	if b {
+		let w = context { Greeter: Loud } // want S108
+		_ = with w { Greeter.Greet("a") }
+	}
+	with w { Greeter.Greet("b") }
+}
+-- 01073.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f(b bool) string {
+	let w = context { Greeter: Plain }
+	if b {
+		let w = context { Greeter: Loud } // want S108
+		_ = with w { Greeter.Greet("a") }
+	}
+	with w { Greeter.Greet("b") }
+}
+-- 01074.ergo --
+func f() string {
+	let w = context { Greeter: Plain }
+	let w = context { Greeter: Loud } // want S108
+	with w { Greeter.Greet("b") }
+}
+-- 01075.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() string {
+	let w = context { Greeter: Plain }
+	let w = context { Greeter: Loud } // want S108
+	with w { Greeter.Greet("b") }
+}
+-- 01076.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() string {
+	let w = context { Greeter: Plain }
+	let w = context { Greeter: Loud } // want S108
+	with w { Greeter.Greet("b") }
+}
+-- 01077.ergo --
+func f(b bool) string {
+	if b {
+		let w = context { Greeter: Plain }
+		with w { Greeter.Greet("a") }
+	} else {
+		let w = context { Store: Holder{v: "x"} }
+		with context { w } { Store.Get() }
+	}
+}
+-- 01078.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f(b bool) string {
+	if b {
+		let w = context { Greeter: Plain }
+		with w { Greeter.Greet("a") }
+	} else {
+		let w = context { Store: Holder{v: "x"} }
+		with context { w } { Store.Get() }
+	}
+}
+-- 01079.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f(b bool) string {
+	if b {
+		let w = context { Greeter: Plain }
+		with w { Greeter.Greet("a") }
+	} else {
+		let w = context { Store: Holder{v: "x"} }
+		with context { w } { Store.Get() }
+	}
+}
+-- 01080.ergo --
+func f() string {
+	let w = context { Greeter: Plain }
+	with context { Store: Holder{v: "x"}, w } { Greeter.Greet(Store.Get()) }
+}
+-- 01081.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() string {
+	let w = context { Greeter: Plain }
+	with context { Store: Holder{v: "x"}, w } { Greeter.Greet(Store.Get()) }
+}
+-- 01082.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() string {
+	let w = context { Greeter: Plain }
+	with context { Store: Holder{v: "x"}, w } { Greeter.Greet(Store.Get()) }
+}
+-- 01083.ergo --
+func f() string {
+	let w = context { Greeter: Plain }
+	let v = context { Store: Holder{v: "x"}, w }
+	with v { Greeter.Greet(Store.Get()) }
+}
+-- 01084.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() string {
+	let w = context { Greeter: Plain }
+	let v = context { Store: Holder{v: "x"}, w }
+	with v { Greeter.Greet(Store.Get()) }
+}
+-- 01085.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() string {
+	let w = context { Greeter: Plain }
+	let v = context { Store: Holder{v: "x"}, w }
+	with v { Greeter.Greet(Store.Get()) }
+}
+-- 01086.ergo --
+func f() string {
+	let a = context { Greeter: Plain }
+	let b = context { a }
+	let c = context { replace Greeter: Loud, b, Live }
+	with c { Greeter.Greet("x") }
+}
+-- 01087.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() string {
+	let a = context { Greeter: Plain }
+	let b = context { a }
+	let c = context { replace Greeter: Loud, b, Live }
+	with c { Greeter.Greet("x") }
+}
+-- 01088.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() string {
+	let a = context { Greeter: Plain }
+	let b = context { a }
+	let c = context { replace Greeter: Loud, b, Live }
+	with c { Greeter.Greet("x") }
+}
+-- 01089.ergo --
+func f() string {
+	let w = context { Greeter: Plain }
+	with context { Greeter: Loud, w } { Greeter.Greet("x") } // want S111
+}
+-- 01090.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() string {
+	let w = context { Greeter: Plain }
+	with context { Greeter: Loud, w } { Greeter.Greet("x") } // want S111
+}
+-- 01091.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() string {
+	let w = context { Greeter: Plain }
+	with context { Greeter: Loud, w } { Greeter.Greet("x") } // want S111
+}
+-- 01092.ergo --
+func f() string {
+	let w = context { Greeter: Plain }
+	with context { replace Store: Holder{v: "x"}, w } { Store.Get() } // want S108
+}
+-- 01093.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() string {
+	let w = context { Greeter: Plain }
+	with context { replace Store: Holder{v: "x"}, w } { Store.Get() } // want S108
+}
+-- 01094.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() string {
+	let w = context { Greeter: Plain }
+	with context { replace Store: Holder{v: "x"}, w } { Store.Get() } // want S108
+}
+-- 01095.ergo --
+func f() string {
+	let a = context { Greeter: Plain }
+	let b = context { Greeter: Loud }
+	with context { a, b } { Greeter.Greet("x") } // want S111
+}
+-- 01096.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() string {
+	let a = context { Greeter: Plain }
+	let b = context { Greeter: Loud }
+	with context { a, b } { Greeter.Greet("x") } // want S111
+}
+-- 01097.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() string {
+	let a = context { Greeter: Plain }
+	let b = context { Greeter: Loud }
+	with context { a, b } { Greeter.Greet("x") } // want S111
+}
+-- 01098.ergo --
+func f() string {
+	let w = context { Store: Holder{v: read()} }
+	with context { Greeter: Plain, w } { Store.Get() } // want S102
+}
+
+func g() string needs Store {
+	let w = context { Store: Holder{v: read()} }
+	let v = context { Greeter: Plain, w }
+	with v { Store.Get() }
+}
+-- 01099.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() string {
+	let w = context { Store: Holder{v: read()} }
+	with context { Greeter: Plain, w } { Store.Get() } // want S102
+}
+
+func g() string needs Store {
+	let w = context { Store: Holder{v: read()} }
+	let v = context { Greeter: Plain, w }
+	with v { Store.Get() }
+}
+-- 01100.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() string {
+	let w = context { Store: Holder{v: read()} }
+	with context { Greeter: Plain, w } { Store.Get() } // want S102
+}
+
+func g() string needs Store {
+	let w = context { Store: Holder{v: read()} }
+	let v = context { Greeter: Plain, w }
+	with v { Store.Get() }
+}
+-- 01101.ergo --
+func f() string {
+	let w = context { w, Greeter: Plain } // want S104
+	with w { Greeter.Greet("x") }
+}
+-- 01102.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() string {
+	let w = context { w, Greeter: Plain } // want S104
+	with w { Greeter.Greet("x") }
+}
+-- 01103.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() string {
+	let w = context { w, Greeter: Plain } // want S104
+	with w { Greeter.Greet("x") }
+}
+-- 01104.ergo --
+func f() string {
+	let w = context { Greeter: Plain }
+	with w { Greeter.Greet("x") }
+}
+
+let P = context { w } // want S104
+-- 01105.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() string {
+	let w = context { Greeter: Plain }
+	with w { Greeter.Greet("x") }
+}
+
+let P = context { w } // want S104
+-- 01106.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() string {
+	let w = context { Greeter: Plain }
+	with w { Greeter.Greet("x") }
+}
+
+let P = context { w } // want S104
+-- 01107.ergo --
+func f() string needs Store {
+	let w = context { Greeter: Loud, Store: Holder{v: read()} }
+	with w { Greeter.Greet("x") }
+}
+-- 01108.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() string needs Store {
+	let w = context { Greeter: Loud, Store: Holder{v: read()} }
+	with w { Greeter.Greet("x") }
+}
+-- 01109.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() string needs Store {
+	let w = context { Greeter: Loud, Store: Holder{v: read()} }
+	with w { Greeter.Greet("x") }
+}
+-- 01110.ergo --
+func f() string {
+	let w = context { Store: Holder{v: read()} }
+	with w { Store.Get() } // want S102
+}
+-- 01111.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() string {
+	let w = context { Store: Holder{v: read()} }
+	with w { Store.Get() } // want S102
+}
+-- 01112.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() string {
+	let w = context { Store: Holder{v: read()} }
+	with w { Store.Get() } // want S102
+}
+-- 01113.ergo --
+func f() string {
+	let w = context { Greeter: Loud, Store: Holder{v: read()} }
+	with Stored {
+		with w { Greeter.Greet("x") }
+	}
+}
+-- 01114.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() string {
+	let w = context { Greeter: Loud, Store: Holder{v: read()} }
+	with Stored {
+		with w { Greeter.Greet("x") }
+	}
+}
+-- 01115.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() string {
+	let w = context { Greeter: Loud, Store: Holder{v: read()} }
+	with Stored {
+		with w { Greeter.Greet("x") }
+	}
+}
+-- 01116.ergo --
+func f() string {
+	with Stored {
+		let w = context { Greeter: Loud, Store: Holder{v: read()} }
+		let g = func() string {
+			with w { Greeter.Greet("x") } // want S102
+		}
+		g()
+	}
+}
+-- 01117.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() string {
+	with Stored {
+		let w = context { Greeter: Loud, Store: Holder{v: read()} }
+		let g = func() string {
+			with w { Greeter.Greet("x") } // want S102
+		}
+		g()
+	}
+}
+-- 01118.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() string {
+	with Stored {
+		let w = context { Greeter: Loud, Store: Holder{v: read()} }
+		let g = func() string {
+			with w { Greeter.Greet("x") } // want S102
+		}
+		g()
+	}
+}
+-- 01119.ergo --
+func f() string needs Store {
+	let w = context { Store: Holder{v: read()} }
+	let a = with w { Store.Get() }
+	let b = with w { Store.Get() }
+	a + b
+}
+
+func g() string {
+	let w = context { Store: Holder{v: read()} }
+	with Stored {
+		let a = with w { Store.Get() }
+		_ = a
+	}
+	with w { Store.Get() } // want S102
+}
+-- 01120.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() string needs Store {
+	let w = context { Store: Holder{v: read()} }
+	let a = with w { Store.Get() }
+	let b = with w { Store.Get() }
+	a + b
+}
+
+func g() string {
+	let w = context { Store: Holder{v: read()} }
+	with Stored {
+		let a = with w { Store.Get() }
+		_ = a
+	}
+	with w { Store.Get() } // want S102
+}
+-- 01121.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() string needs Store {
+	let w = context { Store: Holder{v: read()} }
+	let a = with w { Store.Get() }
+	let b = with w { Store.Get() }
+	a + b
+}
+
+func g() string {
+	let w = context { Store: Holder{v: read()} }
+	with Stored {
+		let a = with w { Store.Get() }
+		_ = a
+	}
+	with w { Store.Get() } // want S102
+}
+-- 01122.ergo --
+func f() int {
+	let w = context { Store: Holder{v: read()} }
+	let g = func() string needs Store {
+		with w { Store.Get() }
+	}
+	_ = g
+	1
+}
+
+func h() escaping func() string {
+	let w = context { Store: Holder{v: read()} }
+	func() string {
+		with w { Store.Get() } // want S102
+	}
+}
+-- 01123.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() int {
+	let w = context { Store: Holder{v: read()} }
+	let g = func() string needs Store {
+		with w { Store.Get() }
+	}
+	_ = g
+	1
+}
+
+func h() escaping func() string {
+	let w = context { Store: Holder{v: read()} }
+	func() string {
+		with w { Store.Get() } // want S102
+	}
+}
+-- 01124.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() int {
+	let w = context { Store: Holder{v: read()} }
+	let g = func() string needs Store {
+		with w { Store.Get() }
+	}
+	_ = g
+	1
+}
+
+func h() escaping func() string {
+	let w = context { Store: Holder{v: read()} }
+	func() string {
+		with w { Store.Get() } // want S102
+	}
+}
+-- 01125.ergo --
+func f() string {
+	let w = context provides Greeter { Greeter: Plain } // want S109
+	with w { Greeter.Greet("x") }
+}
+-- 01126.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() string {
+	let w = context provides Greeter { Greeter: Plain } // want S109
+	with w { Greeter.Greet("x") }
+}
+-- 01127.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() string {
+	let w = context provides Greeter { Greeter: Plain } // want S109
+	with w { Greeter.Greet("x") }
+}
+-- 01128.ergo --
+func mk() Plain {
+	Plain
+}
+
+func f() string {
+	let w = context { Greeter: mk } // want S109
+	with w { Greeter.Greet("x") }
+}
+-- 01129.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func mk() Plain {
+	Plain
+}
+
+func f() string {
+	let w = context { Greeter: mk } // want S109
+	with w { Greeter.Greet("x") }
+}
+-- 01130.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func mk() Plain {
+	Plain
+}
+
+func f() string {
+	let w = context { Greeter: mk } // want S109
+	with w { Greeter.Greet("x") }
+}
+-- 01131.ergo --
+let u = w // want S108
+	_ = u
+-- 01132.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+let u = w // want S108
+	_ = u
+-- 01133.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+let u = w // want S108
+	_ = u
+-- 01134.ergo --
+let g = func() int { w } // want S108
+	_ = g
+-- 01135.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+let g = func() int { w } // want S108
+	_ = g
+-- 01136.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+let g = func() int { w } // want S108
+	_ = g
+-- 01137.ergo --
+let xs = []int{1}
+	_ = xs[w] // want S108
+-- 01138.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+let xs = []int{1}
+	_ = xs[w] // want S108
+-- 01139.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+let xs = []int{1}
+	_ = xs[w] // want S108
+-- 01140.ergo --
+func f() {
+-- 01141.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() {
+-- 01142.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() {
+-- 01143.ergo --
+func f() {
+	let run = func() {
+-- 01144.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() {
+	let run = func() {
+-- 01145.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() {
+	let run = func() {
+-- 01146.ergo --
+type Law {
+	Op(v int) int,
+
+	law Holds(v int) {
+-- 01147.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+type Law {
+	Op(v int) int,
+
+	law Holds(v int) {
+-- 01148.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+type Law {
+	Op(v int) int,
+
+	law Holds(v int) {
+-- 01149.ergo --
+func f() int {
+	let w = context { Greeter: Plain }
+	return w // want S108
+}
+-- 01150.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() int {
+	let w = context { Greeter: Plain }
+	return w // want S108
+}
+-- 01151.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() int {
+	let w = context { Greeter: Plain }
+	return w // want S108
+}
+-- 01152.ergo --
+func f() int {
+	let w = context { Greeter: Plain }
+	w // want S108
+}
+-- 01153.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() int {
+	let w = context { Greeter: Plain }
+	w // want S108
+}
+-- 01154.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() int {
+	let w = context { Greeter: Plain }
+	w // want S108
+}
+-- 01155.ergo --
+func f() int {
+-- 01156.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() int {
+-- 01157.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() int {
+-- 01158.ergo --
+type Out { O() int }
+type Po { v int }
+func O(p Po) int { p.v }
+-- 01159.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+type Out { O() int }
+type Po { v int }
+func O(p Po) int { p.v }
+-- 01160.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+type Out { O() int }
+type Po { v int }
+func O(p Po) int { p.v }
+-- 01161.ergo --
+type %s {}
+func fail%s(b bool) int fails %s {
+	if b {
+		return %s
+	}
+	0
+}
+-- 01162.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+type %s {}
+func fail%s(b bool) int fails %s {
+	if b {
+		return %s
+	}
+	0
+}
+-- 01163.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+type %s {}
+func fail%s(b bool) int fails %s {
+	if b {
+		return %s
+	}
+	0
+}
+-- 01164.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+-- 01165.ergo --
+func f() string
+-- 01166.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() string
+-- 01167.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() string
+-- 01168.ergo --
+func f() string {
+-- 01169.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Store {
+	Get() string,
+}
+
+type Timer {
+	Now() int,
+}
+
+type Plain {}
+type Loud {}
+type Holder { v string }
+type Fixed {}
+type Tag { s string }
+type Box { w int }
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func Greet(_ Loud, name string) string {
+	name
+}
+
+func Get(h Holder) string {
+	h.v
+}
+
+func Now(_ Fixed) int {
+	1
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+func contextKey(t Tag) string {
+	"tag"
+}
+
+func contextText(t Tag) string {
+	t.s
+}
+
+func use(n int) int {
+	n
+}
+
+let Live = context { Greeter: Plain }
+
+let Stored = context { Store: Holder{v: "pkg"} }
+
+func f() string {
+-- 01170.ergo --
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func f() string {
+-- 01171.ergo --
+type Store { Get() string }
+type Log { Say(s string) }
+type Mem { V string }
+func Get(m Mem) string { m.V }
+func read() string needs Log {
+	Log.Say("read")
+	"x"
+}
+type Quiet {}
+func Say(_ Quiet, s string) {}
+let W = context { Log: Quiet, Store: Mem{V: read()} }
+let w = context { Log: Quiet }
+-- 01172.ergo --
+import lib
+
+type Box { Peek() int }
+type Lid {}
+func Peek(_ Lid) int { 1 }
+type Mine {}
+func Get(_ Mine) string { "mine" }
+
+func inline() string {
+	with context { lib.W } { lib.Store.Get() }
+}
+
+func mixed() int {
+	with context { Box: Lid, lib.W } { Box.Peek() }
+}
+
+let Over = context { lib.W, replace lib.Store: Mine }
+
+func over() string {
+	with Over { lib.Store.Get() }
+}
+
+let Plain = context { lib.W }
+
+func plain() string {
+	with Plain { lib.Store.Get() }
+}
+
+func local() string {
+	let x = context { lib.W }
+	with x { lib.Store.Get() }
+}
+-- 01173.ergo --
+import lib
+
+type Box { Peek() int }
+type Lid {}
+func Peek(_ Lid) int { 1 }
+type Mine {}
+func Get(_ Mine) string { "mine" }
+
+func inline() string {
+	with context { lib.W } { lib.Store.Get() }
+}
+
+func mixed() int {
+	with context { Box: Lid, lib.W } { Box.Peek() }
+}
+
+let Over = context { lib.W, replace lib.Store: Mine }
+
+func over() string {
+	with Over { lib.Store.Get() }
+}
+
+let Plain = context { lib.W }
+
+func plain() string {
+	with Plain { lib.Store.Get() }
+}
+
+func local() string {
+	let x = context { lib.W }
+	with x { lib.Store.Get() }
+}
+type Store { Get() string }
+type Log { Say(s string) }
+type Mem { V string }
+func Get(m Mem) string { m.V }
+func read() string needs Log {
+	Log.Say("read")
+	"x"
+}
+type Quiet {}
+func Say(_ Quiet, s string) {}
+let W = context { Log: Quiet, Store: Mem{V: read()} }
+let w = context { Log: Quiet }
+-- 01174.ergo --
+type Store { Get() string }
+type Log { Say(s string) }
+type Mem { V string }
+func Get(m Mem) string { m.V }
+func read() string needs Log {
+	Log.Say("read")
+	"x"
+}
+type Quiet {}
+func Say(_ Quiet, s string) {}
+let W = context { Log: Quiet, Store: Mem{V: read()} }
+let w = context { Log: Quiet }
+import lib
+
+type Box { Peek() int }
+type Lid {}
+func Peek(_ Lid) int { 1 }
+type Mine {}
+func Get(_ Mine) string { "mine" }
+
+func inline() string {
+	with context { lib.W } { lib.Store.Get() }
+}
+
+func mixed() int {
+	with context { Box: Lid, lib.W } { Box.Peek() }
+}
+
+let Over = context { lib.W, replace lib.Store: Mine }
+
+func over() string {
+	with Over { lib.Store.Get() }
+}
+
+let Plain = context { lib.W }
+
+func plain() string {
+	with Plain { lib.Store.Get() }
+}
+
+func local() string {
+	let x = context { lib.W }
+	with x { lib.Store.Get() }
+}
+-- 01175.ergo --
+import lib
+let X = context { lib.W }
+func main() { with X { } }
+-- 01176.ergo --
+type Store { Get() string }
+type Log { Say(s string) }
+type Mem { V string }
+func Get(m Mem) string { m.V }
+func read() string needs Log {
+	Log.Say("read")
+	"x"
+}
+type Quiet {}
+func Say(_ Quiet, s string) {}
+let W = context { Log: Quiet, Store: Mem{V: read()} }
+let w = context { Log: Quiet }
+import lib
+let X = context { lib.W }
+func main() { with X { } }
+-- 01177.ergo --
+import lib
+
+type Box { Peek() int }
+type Lid {}
+func Peek(_ Lid) int { 1 }
+type Mine {}
+func Get(_ Mine) string { "mine" }
+
+func inline() string {
+	with context { lib.W } { lib.Store.Get() }
+}
+
+func mixed() int {
+	with context { Box: Lid, lib.W } { Box.Peek() }
+}
+
+let Over = context { lib.W, replace lib.Store: Mine }
+
+func over() string {
+	with Over { lib.Store.Get() }
+}
+
+let Plain = context { lib.W }
+
+func plain() string {
+	with Plain { lib.Store.Get() }
+}
+
+func local() string {
+	let x = context { lib.W }
+	with x { lib.Store.Get() }
+}
+import lib
+let X = context { lib.W }
+func main() { with X { } }
+-- 01178.ergo --
+import lib
+func main() { with context { lib.W } { } }
+-- 01179.ergo --
+type Store { Get() string }
+type Log { Say(s string) }
+type Mem { V string }
+func Get(m Mem) string { m.V }
+func read() string needs Log {
+	Log.Say("read")
+	"x"
+}
+type Quiet {}
+func Say(_ Quiet, s string) {}
+let W = context { Log: Quiet, Store: Mem{V: read()} }
+let w = context { Log: Quiet }
+import lib
+func main() { with context { lib.W } { } }
+-- 01180.ergo --
+import lib
+
+type Box { Peek() int }
+type Lid {}
+func Peek(_ Lid) int { 1 }
+type Mine {}
+func Get(_ Mine) string { "mine" }
+
+func inline() string {
+	with context { lib.W } { lib.Store.Get() }
+}
+
+func mixed() int {
+	with context { Box: Lid, lib.W } { Box.Peek() }
+}
+
+let Over = context { lib.W, replace lib.Store: Mine }
+
+func over() string {
+	with Over { lib.Store.Get() }
+}
+
+let Plain = context { lib.W }
+
+func plain() string {
+	with Plain { lib.Store.Get() }
+}
+
+func local() string {
+	let x = context { lib.W }
+	with x { lib.Store.Get() }
+}
+import lib
+func main() { with context { lib.W } { } }
+-- 01181.ergo --
+func main() { b() }
+-- 01182.ergo --
+type Store { Get() string }
+type Log { Say(s string) }
+type Mem { V string }
+func Get(m Mem) string { m.V }
+func read() string needs Log {
+	Log.Say("read")
+	"x"
+}
+type Quiet {}
+func Say(_ Quiet, s string) {}
+let W = context { Log: Quiet, Store: Mem{V: read()} }
+let w = context { Log: Quiet }
+func main() { b() }
+-- 01183.ergo --
+import lib
+
+type Box { Peek() int }
+type Lid {}
+func Peek(_ Lid) int { 1 }
+type Mine {}
+func Get(_ Mine) string { "mine" }
+
+func inline() string {
+	with context { lib.W } { lib.Store.Get() }
+}
+
+func mixed() int {
+	with context { Box: Lid, lib.W } { Box.Peek() }
+}
+
+let Over = context { lib.W, replace lib.Store: Mine }
+
+func over() string {
+	with Over { lib.Store.Get() }
+}
+
+let Plain = context { lib.W }
+
+func plain() string {
+	with Plain { lib.Store.Get() }
+}
+
+func local() string {
+	let x = context { lib.W }
+	with x { lib.Store.Get() }
+}
+func main() { b() }
+-- 01184.ergo --
+import lib
+func b() { with context { lib.W } {
+	let _ = lib.Store.Get()
+	Console.Println("x")
+} }
+-- 01185.ergo --
+type Store { Get() string }
+type Log { Say(s string) }
+type Mem { V string }
+func Get(m Mem) string { m.V }
+func read() string needs Log {
+	Log.Say("read")
+	"x"
+}
+type Quiet {}
+func Say(_ Quiet, s string) {}
+let W = context { Log: Quiet, Store: Mem{V: read()} }
+let w = context { Log: Quiet }
+import lib
+func b() { with context { lib.W } {
+	let _ = lib.Store.Get()
+	Console.Println("x")
+} }
+-- 01186.ergo --
+import lib
+
+type Box { Peek() int }
+type Lid {}
+func Peek(_ Lid) int { 1 }
+type Mine {}
+func Get(_ Mine) string { "mine" }
+
+func inline() string {
+	with context { lib.W } { lib.Store.Get() }
+}
+
+func mixed() int {
+	with context { Box: Lid, lib.W } { Box.Peek() }
+}
+
+let Over = context { lib.W, replace lib.Store: Mine }
+
+func over() string {
+	with Over { lib.Store.Get() }
+}
+
+let Plain = context { lib.W }
+
+func plain() string {
+	with Plain { lib.Store.Get() }
+}
+
+func local() string {
+	let x = context { lib.W }
+	with x { lib.Store.Get() }
+}
+import lib
+func b() { with context { lib.W } {
+	let _ = lib.Store.Get()
+	Console.Println("x")
+} }
+-- 01187.ergo --
+import lib
+func main() { with context { lib.w } { } }
+-- 01188.ergo --
+type Store { Get() string }
+type Log { Say(s string) }
+type Mem { V string }
+func Get(m Mem) string { m.V }
+func read() string needs Log {
+	Log.Say("read")
+	"x"
+}
+type Quiet {}
+func Say(_ Quiet, s string) {}
+let W = context { Log: Quiet, Store: Mem{V: read()} }
+let w = context { Log: Quiet }
+import lib
+func main() { with context { lib.w } { } }
+-- 01189.ergo --
+import lib
+
+type Box { Peek() int }
+type Lid {}
+func Peek(_ Lid) int { 1 }
+type Mine {}
+func Get(_ Mine) string { "mine" }
+
+func inline() string {
+	with context { lib.W } { lib.Store.Get() }
+}
+
+func mixed() int {
+	with context { Box: Lid, lib.W } { Box.Peek() }
+}
+
+let Over = context { lib.W, replace lib.Store: Mine }
+
+func over() string {
+	with Over { lib.Store.Get() }
+}
+
+let Plain = context { lib.W }
+
+func plain() string {
+	with Plain { lib.Store.Get() }
+}
+
+func local() string {
+	let x = context { lib.W }
+	with x { lib.Store.Get() }
+}
+import lib
+func main() { with context { lib.w } { } }
+-- 01190.ergo --
+import lib
+func main() { with context { lib.Nope } { } }
+-- 01191.ergo --
+type Store { Get() string }
+type Log { Say(s string) }
+type Mem { V string }
+func Get(m Mem) string { m.V }
+func read() string needs Log {
+	Log.Say("read")
+	"x"
+}
+type Quiet {}
+func Say(_ Quiet, s string) {}
+let W = context { Log: Quiet, Store: Mem{V: read()} }
+let w = context { Log: Quiet }
+import lib
+func main() { with context { lib.Nope } { } }
+-- 01192.ergo --
+import lib
+
+type Box { Peek() int }
+type Lid {}
+func Peek(_ Lid) int { 1 }
+type Mine {}
+func Get(_ Mine) string { "mine" }
+
+func inline() string {
+	with context { lib.W } { lib.Store.Get() }
+}
+
+func mixed() int {
+	with context { Box: Lid, lib.W } { Box.Peek() }
+}
+
+let Over = context { lib.W, replace lib.Store: Mine }
+
+func over() string {
+	with Over { lib.Store.Get() }
+}
+
+let Plain = context { lib.W }
+
+func plain() string {
+	with Plain { lib.Store.Get() }
+}
+
+func local() string {
+	let x = context { lib.W }
+	with x { lib.Store.Get() }
+}
+import lib
+func main() { with context { lib.Nope } { } }
+-- 01193.ergo --
+import lib
+let X = context { lib.w }
+func main() { with X { } }
+-- 01194.ergo --
+type Store { Get() string }
+type Log { Say(s string) }
+type Mem { V string }
+func Get(m Mem) string { m.V }
+func read() string needs Log {
+	Log.Say("read")
+	"x"
+}
+type Quiet {}
+func Say(_ Quiet, s string) {}
+let W = context { Log: Quiet, Store: Mem{V: read()} }
+let w = context { Log: Quiet }
+import lib
+let X = context { lib.w }
+func main() { with X { } }
+-- 01195.ergo --
+import lib
+
+type Box { Peek() int }
+type Lid {}
+func Peek(_ Lid) int { 1 }
+type Mine {}
+func Get(_ Mine) string { "mine" }
+
+func inline() string {
+	with context { lib.W } { lib.Store.Get() }
+}
+
+func mixed() int {
+	with context { Box: Lid, lib.W } { Box.Peek() }
+}
+
+let Over = context { lib.W, replace lib.Store: Mine }
+
+func over() string {
+	with Over { lib.Store.Get() }
+}
+
+let Plain = context { lib.W }
+
+func plain() string {
+	with Plain { lib.Store.Get() }
+}
+
+func local() string {
+	let x = context { lib.W }
+	with x { lib.Store.Get() }
+}
+import lib
+let X = context { lib.w }
+func main() { with X { } }
+-- 01196.ergo --
+type Q {}
+let X = context { Q.W }
+func main() { with X { } }
+-- 01197.ergo --
+type Store { Get() string }
+type Log { Say(s string) }
+type Mem { V string }
+func Get(m Mem) string { m.V }
+func read() string needs Log {
+	Log.Say("read")
+	"x"
+}
+type Quiet {}
+func Say(_ Quiet, s string) {}
+let W = context { Log: Quiet, Store: Mem{V: read()} }
+let w = context { Log: Quiet }
+type Q {}
+let X = context { Q.W }
+func main() { with X { } }
+-- 01198.ergo --
+import lib
+
+type Box { Peek() int }
+type Lid {}
+func Peek(_ Lid) int { 1 }
+type Mine {}
+func Get(_ Mine) string { "mine" }
+
+func inline() string {
+	with context { lib.W } { lib.Store.Get() }
+}
+
+func mixed() int {
+	with context { Box: Lid, lib.W } { Box.Peek() }
+}
+
+let Over = context { lib.W, replace lib.Store: Mine }
+
+func over() string {
+	with Over { lib.Store.Get() }
+}
+
+let Plain = context { lib.W }
+
+func plain() string {
+	with Plain { lib.Store.Get() }
+}
+
+func local() string {
+	let x = context { lib.W }
+	with x { lib.Store.Get() }
+}
+type Q {}
+let X = context { Q.W }
+func main() { with X { } }
+-- 01199.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+-- 01200.ergo --
+func g()
+-- 01201.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func g()
+-- 01202.ergo --
+func g() needs A | Log {
+	let w = context { A: Res }
+	with w { A.Use() }
+}
+-- 01203.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func g() needs A | Log {
+	let w = context { A: Res }
+	with w { A.Use() }
+}
+-- 01204.ergo --
+func g() {
+	let w = context { A: Res }
+	with context { Log: Quiet } {
+		with w { A.Use() }
+	}
+}
+-- 01205.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func g() {
+	let w = context { A: Res }
+	with context { Log: Quiet } {
+		with w { A.Use() }
+	}
+}
+-- 01206.ergo --
+type C%s { %s() int }
+type P%s { v int }
+func %s(p P%s) int { p.v }
+-- 01207.ergo --
+func need%s() int needs C%s { C%s.%s() }
+-- 01208.ergo --
+type Tag { s string }
+func contextKey(t Tag) string { "tag" }
+func contextText(t Tag) string { t.s }
+-- 01209.ergo --
+let N%d = context { %s }
+-- 01210.ergo --
+func F() int%s {
+-- 01211.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+-- 01212.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+-- 01213.ergo --
+let W = context { A: Quiet }
+-- 01214.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+-- 01215.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+-- 01216.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+-- 01217.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+-- 01218.ergo --
+let W = context { A: Quiet }type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+-- 01219.ergo --
+let W = context { A: Quiet }
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+-- 01220.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+-- 01221.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+-- 01222.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+-- 01223.ergo --
+func f() int { let W = Tag{Text: "local"}; with %s { 1 } }
+-- 01224.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f() int { let W = Tag{Text: "local"}; with %s { 1 } }
+-- 01225.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f() int { let W = Tag{Text: "local"}; with %s { 1 } }
+-- 01226.ergo --
+let W = context { A: Quiet }func f() int { let W = Tag{Text: "local"}; with %s { 1 } }
+-- 01227.ergo --
+let W = context { A: Quiet }
+func f() int { let W = Tag{Text: "local"}; with %s { 1 } }
+-- 01228.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f() int { let W = Tag{Text: "local"}; with %s { 1 } }
+-- 01229.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f() int { let W = Tag{Text: "local"}; with %s { 1 } }
+-- 01230.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f() int { let W = Tag{Text: "local"}; with %s { 1 } }
+-- 01231.ergo --
+func f(W Tag) int { with %s { 1 } }
+-- 01232.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f(W Tag) int { with %s { 1 } }
+-- 01233.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f(W Tag) int { with %s { 1 } }
+-- 01234.ergo --
+let W = context { A: Quiet }func f(W Tag) int { with %s { 1 } }
+-- 01235.ergo --
+let W = context { A: Quiet }
+func f(W Tag) int { with %s { 1 } }
+-- 01236.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f(W Tag) int { with %s { 1 } }
+-- 01237.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f(W Tag) int { with %s { 1 } }
+-- 01238.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f(W Tag) int { with %s { 1 } }
+-- 01239.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+-- 01240.ergo --
+let W = context { A: Quiet }type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+-- 01241.ergo --
+let W = context { A: Quiet }
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+-- 01242.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+-- 01243.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+-- 01244.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+-- 01245.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+let W = context { A: Quiet }
+-- 01246.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+let W = context { A: Quiet }
+-- 01247.ergo --
+let W = context { A: Quiet }
+let W = context { A: Quiet }
+-- 01248.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+let W = context { A: Quiet }
+-- 01249.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+let W = context { A: Quiet }
+-- 01250.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+let W = context { A: Quiet }
+-- 01251.ergo --
+let W = Tag{Text: "pkg"}
+-- 01252.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+let W = Tag{Text: "pkg"}
+-- 01253.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+let W = Tag{Text: "pkg"}
+-- 01254.ergo --
+let W = context { A: Quiet }let W = Tag{Text: "pkg"}
+-- 01255.ergo --
+let W = context { A: Quiet }
+let W = Tag{Text: "pkg"}
+-- 01256.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+let W = Tag{Text: "pkg"}
+-- 01257.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+let W = Tag{Text: "pkg"}
+-- 01258.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+let W = Tag{Text: "pkg"}
+-- 01259.ergo --
+func W() int { 1 }
+-- 01260.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func W() int { 1 }
+-- 01261.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func W() int { 1 }
+-- 01262.ergo --
+let W = context { A: Quiet }func W() int { 1 }
+-- 01263.ergo --
+let W = context { A: Quiet }
+func W() int { 1 }
+-- 01264.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func W() int { 1 }
+-- 01265.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func W() int { 1 }
+-- 01266.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func W() int { 1 }
+-- 01267.ergo --
+let Tag{Text: W} = Tag{Text: "pkg"}
+-- 01268.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+let Tag{Text: W} = Tag{Text: "pkg"}
+-- 01269.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+let Tag{Text: W} = Tag{Text: "pkg"}
+-- 01270.ergo --
+let W = context { A: Quiet }let Tag{Text: W} = Tag{Text: "pkg"}
+-- 01271.ergo --
+let W = context { A: Quiet }
+let Tag{Text: W} = Tag{Text: "pkg"}
+-- 01272.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+let Tag{Text: W} = Tag{Text: "pkg"}
+-- 01273.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+let Tag{Text: W} = Tag{Text: "pkg"}
+-- 01274.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+let Tag{Text: W} = Tag{Text: "pkg"}
+-- 01275.ergo --
+let Outer{In: W} = Outer{In: Tag{Text: "pkg"}}
+-- 01276.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+let Outer{In: W} = Outer{In: Tag{Text: "pkg"}}
+-- 01277.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+let Outer{In: W} = Outer{In: Tag{Text: "pkg"}}
+-- 01278.ergo --
+let W = context { A: Quiet }let Outer{In: W} = Outer{In: Tag{Text: "pkg"}}
+-- 01279.ergo --
+let W = context { A: Quiet }
+let Outer{In: W} = Outer{In: Tag{Text: "pkg"}}
+-- 01280.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+let Outer{In: W} = Outer{In: Tag{Text: "pkg"}}
+-- 01281.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+let Outer{In: W} = Outer{In: Tag{Text: "pkg"}}
+-- 01282.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+let Outer{In: W} = Outer{In: Tag{Text: "pkg"}}
+-- 01283.ergo --
+let q, W = (1, Tag{Text: "pkg"})
+-- 01284.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+let q, W = (1, Tag{Text: "pkg"})
+-- 01285.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+let q, W = (1, Tag{Text: "pkg"})
+-- 01286.ergo --
+let W = context { A: Quiet }let q, W = (1, Tag{Text: "pkg"})
+-- 01287.ergo --
+let W = context { A: Quiet }
+let q, W = (1, Tag{Text: "pkg"})
+-- 01288.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+let q, W = (1, Tag{Text: "pkg"})
+-- 01289.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+let q, W = (1, Tag{Text: "pkg"})
+-- 01290.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+let q, W = (1, Tag{Text: "pkg"})
+-- 01291.ergo --
+type W {}
+-- 01292.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type W {}
+-- 01293.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+type W {}
+-- 01294.ergo --
+let W = context { A: Quiet }type W {}
+-- 01295.ergo --
+let W = context { A: Quiet }
+type W {}
+-- 01296.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+type W {}
+-- 01297.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+type W {}
+-- 01298.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+type W {}
+-- 01299.ergo --
+type S = W{} | Paid{ n int }
+-- 01300.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type S = W{} | Paid{ n int }
+-- 01301.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+type S = W{} | Paid{ n int }
+-- 01302.ergo --
+let W = context { A: Quiet }type S = W{} | Paid{ n int }
+-- 01303.ergo --
+let W = context { A: Quiet }
+type S = W{} | Paid{ n int }
+-- 01304.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+type S = W{} | Paid{ n int }
+-- 01305.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+type S = W{} | Paid{ n int }
+-- 01306.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+type S = W{} | Paid{ n int }
+-- 01307.ergo --
+func g() { with %s { A.Use() } }
+-- 01308.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func g() { with %s { A.Use() } }
+-- 01309.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func g() { with %s { A.Use() } }
+-- 01310.ergo --
+let W = context { A: Quiet }func g() { with %s { A.Use() } }
+-- 01311.ergo --
+let W = context { A: Quiet }
+func g() { with %s { A.Use() } }
+-- 01312.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func g() { with %s { A.Use() } }
+-- 01313.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func g() { with %s { A.Use() } }
+-- 01314.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func g() { with %s { A.Use() } }
+-- 01315.ergo --
+type W { n int }
+-- 01316.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type W { n int }
+-- 01317.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+type W { n int }
+-- 01318.ergo --
+let W = context { A: Quiet }type W { n int }
+-- 01319.ergo --
+let W = context { A: Quiet }
+type W { n int }
+-- 01320.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+type W { n int }
+-- 01321.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+type W { n int }
+-- 01322.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+type W { n int }
+-- 01323.ergo --
+type W { Use() }
+-- 01324.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type W { Use() }
+-- 01325.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+type W { Use() }
+-- 01326.ergo --
+let W = context { A: Quiet }type W { Use() }
+-- 01327.ergo --
+let W = context { A: Quiet }
+type W { Use() }
+-- 01328.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+type W { Use() }
+-- 01329.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+type W { Use() }
+-- 01330.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+type W { Use() }
+-- 01331.ergo --
+
+func g() { with W { A.Use() } }
+-- 01332.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+
+func g() { with W { A.Use() } }
+-- 01333.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+
+func g() { with W { A.Use() } }
+-- 01334.ergo --
+let W = context { A: Quiet }
+func g() { with W { A.Use() } }
+-- 01335.ergo --
+let W = context { A: Quiet }
+
+func g() { with W { A.Use() } }
+-- 01336.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+
+func g() { with W { A.Use() } }
+-- 01337.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+
+func g() { with W { A.Use() } }
+-- 01338.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+
+func g() { with W { A.Use() } }
+-- 01339.ergo --
+
+func g() { with (W) { A.Use() } }
+-- 01340.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+
+func g() { with (W) { A.Use() } }
+-- 01341.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+
+func g() { with (W) { A.Use() } }
+-- 01342.ergo --
+let W = context { A: Quiet }
+func g() { with (W) { A.Use() } }
+-- 01343.ergo --
+let W = context { A: Quiet }
+
+func g() { with (W) { A.Use() } }
+-- 01344.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+
+func g() { with (W) { A.Use() } }
+-- 01345.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+
+func g() { with (W) { A.Use() } }
+-- 01346.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+
+func g() { with (W) { A.Use() } }
+-- 01347.ergo --
+let W = context { A: Quiet }let W = context { A: Quiet }
+-- 01348.ergo --
+func g
+-- 01349.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func g
+-- 01350.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func g
+-- 01351.ergo --
+let W = context { A: Quiet }func g
+-- 01352.ergo --
+let W = context { A: Quiet }
+func g
+-- 01353.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func g
+-- 01354.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func g
+-- 01355.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func g
+-- 01356.ergo --
+let log = context { A: Quiet }
+func g() { with log { A.Use() } }
+-- 01357.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+let log = context { A: Quiet }
+func g() { with log { A.Use() } }
+-- 01358.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+let log = context { A: Quiet }
+func g() { with log { A.Use() } }
+-- 01359.ergo --
+let W = context { A: Quiet }let log = context { A: Quiet }
+func g() { with log { A.Use() } }
+-- 01360.ergo --
+let W = context { A: Quiet }
+let log = context { A: Quiet }
+func g() { with log { A.Use() } }
+-- 01361.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+let log = context { A: Quiet }
+func g() { with log { A.Use() } }
+-- 01362.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+let log = context { A: Quiet }
+func g() { with log { A.Use() } }
+-- 01363.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+let log = context { A: Quiet }
+func g() { with log { A.Use() } }
+-- 01364.ergo --
+let l = context { A: Quiet }
+func g() { with l { A.Use() } }
+-- 01365.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+let l = context { A: Quiet }
+func g() { with l { A.Use() } }
+-- 01366.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+let l = context { A: Quiet }
+func g() { with l { A.Use() } }
+-- 01367.ergo --
+let W = context { A: Quiet }let l = context { A: Quiet }
+func g() { with l { A.Use() } }
+-- 01368.ergo --
+let W = context { A: Quiet }
+let l = context { A: Quiet }
+func g() { with l { A.Use() } }
+-- 01369.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+let l = context { A: Quiet }
+func g() { with l { A.Use() } }
+-- 01370.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+let l = context { A: Quiet }
+func g() { with l { A.Use() } }
+-- 01371.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+let l = context { A: Quiet }
+func g() { with l { A.Use() } }
+-- 01372.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f() int { let W = Tag{Text: "local"}; with W { 1 } }
+-- 01373.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f() int { let W = Tag{Text: "local"}; with W { 1 } }
+-- 01374.ergo --
+let W = context { A: Quiet }func f() int { let W = Tag{Text: "local"}; with W { 1 } }
+-- 01375.ergo --
+let W = context { A: Quiet }
+func f() int { let W = Tag{Text: "local"}; with W { 1 } }
+-- 01376.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f() int { let W = Tag{Text: "local"}; with W { 1 } }
+-- 01377.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f() int { let W = Tag{Text: "local"}; with W { 1 } }
+-- 01378.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f() int { let W = Tag{Text: "local"}; with W { 1 } }
+-- 01379.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f(W Tag) int { with ((W)) { 1 } }
+-- 01380.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f(W Tag) int { with ((W)) { 1 } }
+-- 01381.ergo --
+let W = context { A: Quiet }func f(W Tag) int { with ((W)) { 1 } }
+-- 01382.ergo --
+let W = context { A: Quiet }
+func f(W Tag) int { with ((W)) { 1 } }
+-- 01383.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f(W Tag) int { with ((W)) { 1 } }
+-- 01384.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f(W Tag) int { with ((W)) { 1 } }
+-- 01385.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f(W Tag) int { with ((W)) { 1 } }
+-- 01386.ergo --
+func f() { with W { A.Use() } }
+-- 01387.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f() { with W { A.Use() } }
+-- 01388.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f() { with W { A.Use() } }
+-- 01389.ergo --
+let W = context { A: Quiet }func f() { with W { A.Use() } }
+-- 01390.ergo --
+let W = context { A: Quiet }
+func f() { with W { A.Use() } }
+-- 01391.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f() { with W { A.Use() } }
+-- 01392.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f() { with W { A.Use() } }
+-- 01393.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f() { with W { A.Use() } }
+-- 01394.ergo --
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+-- 01395.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+-- 01396.ergo --
+let W = context { A: Quiet }type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+-- 01397.ergo --
+let W = context { A: Quiet }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+-- 01398.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+-- 01399.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+-- 01400.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+-- 01401.ergo --
+func f() int { let W = Tag{Text: "l"}; with W { 1 } }
+-- 01402.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f() int { let W = Tag{Text: "l"}; with W { 1 } }
+-- 01403.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f() int { let W = Tag{Text: "l"}; with W { 1 } }
+-- 01404.ergo --
+let W = context { A: Quiet }func f() int { let W = Tag{Text: "l"}; with W { 1 } }
+-- 01405.ergo --
+let W = context { A: Quiet }
+func f() int { let W = Tag{Text: "l"}; with W { 1 } }
+-- 01406.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f() int { let W = Tag{Text: "l"}; with W { 1 } }
+-- 01407.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f() int { let W = Tag{Text: "l"}; with W { 1 } }
+-- 01408.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f() int { let W = Tag{Text: "l"}; with W { 1 } }
+-- 01409.ergo --
+func f(W Tag) int { with W { 1 } }
+-- 01410.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f(W Tag) int { with W { 1 } }
+-- 01411.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f(W Tag) int { with W { 1 } }
+-- 01412.ergo --
+let W = context { A: Quiet }func f(W Tag) int { with W { 1 } }
+-- 01413.ergo --
+let W = context { A: Quiet }
+func f(W Tag) int { with W { 1 } }
+-- 01414.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f(W Tag) int { with W { 1 } }
+-- 01415.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f(W Tag) int { with W { 1 } }
+-- 01416.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f(W Tag) int { with W { 1 } }
+-- 01417.ergo --
+func f() int { let mut n = 0; for W in two(Tag{Text: "a"}, Tag{Text: "b"}) { n = n + with W { 1 } }; n }
+-- 01418.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f() int { let mut n = 0; for W in two(Tag{Text: "a"}, Tag{Text: "b"}) { n = n + with W { 1 } }; n }
+-- 01419.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f() int { let mut n = 0; for W in two(Tag{Text: "a"}, Tag{Text: "b"}) { n = n + with W { 1 } }; n }
+-- 01420.ergo --
+let W = context { A: Quiet }func f() int { let mut n = 0; for W in two(Tag{Text: "a"}, Tag{Text: "b"}) { n = n + with W { 1 } }; n }
+-- 01421.ergo --
+let W = context { A: Quiet }
+func f() int { let mut n = 0; for W in two(Tag{Text: "a"}, Tag{Text: "b"}) { n = n + with W { 1 } }; n }
+-- 01422.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f() int { let mut n = 0; for W in two(Tag{Text: "a"}, Tag{Text: "b"}) { n = n + with W { 1 } }; n }
+-- 01423.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f() int { let mut n = 0; for W in two(Tag{Text: "a"}, Tag{Text: "b"}) { n = n + with W { 1 } }; n }
+-- 01424.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f() int { let mut n = 0; for W in two(Tag{Text: "a"}, Tag{Text: "b"}) { n = n + with W { 1 } }; n }
+-- 01425.ergo --
+func f() int { let W = Tag{Text: "c"}; let g = func() int { with W { 1 } }; g() }
+-- 01426.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f() int { let W = Tag{Text: "c"}; let g = func() int { with W { 1 } }; g() }
+-- 01427.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f() int { let W = Tag{Text: "c"}; let g = func() int { with W { 1 } }; g() }
+-- 01428.ergo --
+let W = context { A: Quiet }func f() int { let W = Tag{Text: "c"}; let g = func() int { with W { 1 } }; g() }
+-- 01429.ergo --
+let W = context { A: Quiet }
+func f() int { let W = Tag{Text: "c"}; let g = func() int { with W { 1 } }; g() }
+-- 01430.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f() int { let W = Tag{Text: "c"}; let g = func() int { with W { 1 } }; g() }
+-- 01431.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f() int { let W = Tag{Text: "c"}; let g = func() int { with W { 1 } }; g() }
+-- 01432.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f() int { let W = Tag{Text: "c"}; let g = func() int { with W { 1 } }; g() }
+-- 01433.ergo --
+func f() int { let g = func(W Tag) int { with W { 1 } }; g(Tag{Text: "p"}) }
+-- 01434.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f() int { let g = func(W Tag) int { with W { 1 } }; g(Tag{Text: "p"}) }
+-- 01435.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f() int { let g = func(W Tag) int { with W { 1 } }; g(Tag{Text: "p"}) }
+-- 01436.ergo --
+let W = context { A: Quiet }func f() int { let g = func(W Tag) int { with W { 1 } }; g(Tag{Text: "p"}) }
+-- 01437.ergo --
+let W = context { A: Quiet }
+func f() int { let g = func(W Tag) int { with W { 1 } }; g(Tag{Text: "p"}) }
+-- 01438.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f() int { let g = func(W Tag) int { with W { 1 } }; g(Tag{Text: "p"}) }
+-- 01439.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f() int { let g = func(W Tag) int { with W { 1 } }; g(Tag{Text: "p"}) }
+-- 01440.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f() int { let g = func(W Tag) int { with W { 1 } }; g(Tag{Text: "p"}) }
+-- 01441.ergo --
+func f(b Box) int { match b { case Box{W: W}: with W { 1 } } }
+-- 01442.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f(b Box) int { match b { case Box{W: W}: with W { 1 } } }
+-- 01443.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f(b Box) int { match b { case Box{W: W}: with W { 1 } } }
+-- 01444.ergo --
+let W = context { A: Quiet }func f(b Box) int { match b { case Box{W: W}: with W { 1 } } }
+-- 01445.ergo --
+let W = context { A: Quiet }
+func f(b Box) int { match b { case Box{W: W}: with W { 1 } } }
+-- 01446.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f(b Box) int { match b { case Box{W: W}: with W { 1 } } }
+-- 01447.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f(b Box) int { match b { case Box{W: W}: with W { 1 } } }
+-- 01448.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f(b Box) int { match b { case Box{W: W}: with W { 1 } } }
+-- 01449.ergo --
+func f(b Box) int { let Box{W: W} = b; with W { 1 } }
+-- 01450.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f(b Box) int { let Box{W: W} = b; with W { 1 } }
+-- 01451.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f(b Box) int { let Box{W: W} = b; with W { 1 } }
+-- 01452.ergo --
+let W = context { A: Quiet }func f(b Box) int { let Box{W: W} = b; with W { 1 } }
+-- 01453.ergo --
+let W = context { A: Quiet }
+func f(b Box) int { let Box{W: W} = b; with W { 1 } }
+-- 01454.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f(b Box) int { let Box{W: W} = b; with W { 1 } }
+-- 01455.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f(b Box) int { let Box{W: W} = b; with W { 1 } }
+-- 01456.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f(b Box) int { let Box{W: W} = b; with W { 1 } }
+-- 01457.ergo --
+func f() int { let t = mk() catch { case Boom{Tag: W}: with W { Tag{Text: "r"} } }; with t { 1 } }
+-- 01458.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f() int { let t = mk() catch { case Boom{Tag: W}: with W { Tag{Text: "r"} } }; with t { 1 } }
+-- 01459.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f() int { let t = mk() catch { case Boom{Tag: W}: with W { Tag{Text: "r"} } }; with t { 1 } }
+-- 01460.ergo --
+let W = context { A: Quiet }func f() int { let t = mk() catch { case Boom{Tag: W}: with W { Tag{Text: "r"} } }; with t { 1 } }
+-- 01461.ergo --
+let W = context { A: Quiet }
+func f() int { let t = mk() catch { case Boom{Tag: W}: with W { Tag{Text: "r"} } }; with t { 1 } }
+-- 01462.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f() int { let t = mk() catch { case Boom{Tag: W}: with W { Tag{Text: "r"} } }; with t { 1 } }
+-- 01463.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f() int { let t = mk() catch { case Boom{Tag: W}: with W { Tag{Text: "r"} } }; with t { 1 } }
+-- 01464.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f() int { let t = mk() catch { case Boom{Tag: W}: with W { Tag{Text: "r"} } }; with t { 1 } }
+-- 01465.ergo --
+func f() int { let a = with W { A.Use(); 1 }; let W = Tag{Text: "z"}; a + with W { 1 } }
+-- 01466.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f() int { let a = with W { A.Use(); 1 }; let W = Tag{Text: "z"}; a + with W { 1 } }
+-- 01467.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f() int { let a = with W { A.Use(); 1 }; let W = Tag{Text: "z"}; a + with W { 1 } }
+-- 01468.ergo --
+let W = context { A: Quiet }func f() int { let a = with W { A.Use(); 1 }; let W = Tag{Text: "z"}; a + with W { 1 } }
+-- 01469.ergo --
+let W = context { A: Quiet }
+func f() int { let a = with W { A.Use(); 1 }; let W = Tag{Text: "z"}; a + with W { 1 } }
+-- 01470.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f() int { let a = with W { A.Use(); 1 }; let W = Tag{Text: "z"}; a + with W { 1 } }
+-- 01471.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f() int { let a = with W { A.Use(); 1 }; let W = Tag{Text: "z"}; a + with W { 1 } }
+-- 01472.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f() int { let a = with W { A.Use(); 1 }; let W = Tag{Text: "z"}; a + with W { 1 } }
+-- 01473.ergo --
+func f() int { if true { let W = Tag{Text: "i"}; return with W { 1 } }; with W { A.Use(); 2 } }
+-- 01474.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f() int { if true { let W = Tag{Text: "i"}; return with W { 1 } }; with W { A.Use(); 2 } }
+-- 01475.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f() int { if true { let W = Tag{Text: "i"}; return with W { 1 } }; with W { A.Use(); 2 } }
+-- 01476.ergo --
+let W = context { A: Quiet }func f() int { if true { let W = Tag{Text: "i"}; return with W { 1 } }; with W { A.Use(); 2 } }
+-- 01477.ergo --
+let W = context { A: Quiet }
+func f() int { if true { let W = Tag{Text: "i"}; return with W { 1 } }; with W { A.Use(); 2 } }
+-- 01478.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f() int { if true { let W = Tag{Text: "i"}; return with W { 1 } }; with W { A.Use(); 2 } }
+-- 01479.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f() int { if true { let W = Tag{Text: "i"}; return with W { 1 } }; with W { A.Use(); 2 } }
+-- 01480.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f() int { if true { let W = Tag{Text: "i"}; return with W { 1 } }; with W { A.Use(); 2 } }
+-- 01481.ergo --
+func f[W](x W) { with W { A.Use() } }
+-- 01482.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f[W](x W) { with W { A.Use() } }
+-- 01483.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f[W](x W) { with W { A.Use() } }
+-- 01484.ergo --
+let W = context { A: Quiet }func f[W](x W) { with W { A.Use() } }
+-- 01485.ergo --
+let W = context { A: Quiet }
+func f[W](x W) { with W { A.Use() } }
+-- 01486.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f[W](x W) { with W { A.Use() } }
+-- 01487.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f[W](x W) { with W { A.Use() } }
+-- 01488.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f[W](x W) { with W { A.Use() } }
+-- 01489.ergo --
+func f[W](x W) { with (W) { A.Use() } }
+-- 01490.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+func f[W](x W) { with (W) { A.Use() } }
+-- 01491.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+func f[W](x W) { with (W) { A.Use() } }
+-- 01492.ergo --
+let W = context { A: Quiet }func f[W](x W) { with (W) { A.Use() } }
+-- 01493.ergo --
+let W = context { A: Quiet }
+func f[W](x W) { with (W) { A.Use() } }
+-- 01494.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T](a T, b T) []T { []T{a, b} }
+func f[W](x W) { with (W) { A.Use() } }
+-- 01495.ergo --
+type Log { Say(s string) }
+type Tag { Key string, Text string }
+func contextKey(t Tag) string { t.Key }
+func contextText(t Tag) string { t.Text }
+func tag(k string, v string) Tag { Tag{Key: k, Text: v} }
+func f[W](x W) { with (W) { A.Use() } }
+-- 01496.ergo --
+type Fault {}
+func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
+func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
+func f[W](x W) { with (W) { A.Use() } }
+-- 01497.ergo --
+let A = context { A: Quiet }
+func f() needs A { with A { A.Use() } }
+-- 01498.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = context { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+let A = context { A: Quiet }
+func f() needs A { with A { A.Use() } }
+-- 01499.ergo --
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
+let A = context { A: Quiet }
+func f() needs A { with A { A.Use() } }

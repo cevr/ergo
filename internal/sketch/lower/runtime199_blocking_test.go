@@ -39,9 +39,13 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.callText":      "a capability operation through the Env's provider field",
 			"funcCtx.openFrame":     "the frame scope's parent task (NewScope)",
 			"funcCtx.poll":          "the interruption point (Check)",
+			"flatRun.runText":       "the flat machine run's task, read once for its per-signal interruption point (Check; MU8)",
 			"funcCtx.envClosure":    "a task callback's Env copy",
+			"funcCtx.goContext":     "rt.GoContext, the task as the hidden context.Context of a Go call; it neither waits nor releases (IG10)",
 			"lowerer.testRunner":    "a test case's task, which the case's Capture classifies its unwinding against (E3a M3)",
 			"lowerer.lawRuns":       "a law case's task, which the case's Capture classifies its unwinding against (#162)",
+			"lowerer.listedRun":     "a listed law or property case's task, which the case's Capture classifies its unwinding against (MU6b, mu6c)",
+			"lowerer.reachRuns":     "a reachability law's task, which its case's Capture classifies its unwinding against (MU6)",
 		}},
 		{"memberName", map[string]string{
 			"funcCtx.runtimeCall":       "the runtime binding emitter",
@@ -57,6 +61,8 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"lowerer.envField":          "a capability's Env field",
 			"lowerer.funcDecl":          "a declared function's Go name",
 			"funcCtx.optionReturn":      "the Value field of Some, for Get and a std body's comma-ok (S3d)",
+			"funcCtx.goResult":          "the Value field of Some, for a non-nil Go pointer or interface of import go (IG3)",
+			"funcCtx.someWhen":          "the Value field of Some, built from Go's (v, ok) or error by a Level 2 adapter (IG4)",
 			"funcCtx.getArmsLower":      "the Value field of Some, bound in a comma-ok match on Get (lw-get-commaok) or in a callback's comma-ok variant (fs7)",
 			"funcCtx.updateFused":       "the Value field of Some, built from a comma-ok read in maps.Update at its call (vr-elide-2)",
 			"lowerer.methodReceiver":    "a declared method's receiver",
@@ -136,7 +142,7 @@ func TestRuntime199NoWaitBindings(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if hasHidden(body.Hidden, v1.CallerTask) && b.release != callerRelease && !b.reads {
+		if hasHidden(body.Hidden, v1.CallerTask) && b.release != callerRelease && !b.reads && !b.task {
 			t.Errorf("%s takes a hidden task and declares no wait", name)
 		}
 		seen := map[types.Object]bool{}
@@ -211,6 +217,13 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// L5b: a Script operation's record of a call (script.go): one
 		// lock for one append, no wait, no release.
 		"Call": true,
+		// IG5: go.Error built, passed to Go, and read by go.Is; none waits
+		// or releases. intn is the generator's Rand, beside GoErrorText
+		// in genFunc.
+		"GoErrorText": true, "Native": true, "GoErrorsNative": true, "GoIs": true, "intn": true,
+		// IG6: a callback's failure handed to Go, and the call's error
+		// untunnelled; neither waits nor releases.
+		"GoCallbackError": true, "GoUntunnel": true, "GoUntunnelEager": true,
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}

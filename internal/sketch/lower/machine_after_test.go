@@ -25,6 +25,7 @@ import (
 // After wrapper and of std machines' Ergo body, and the loop it replaces is
 // visible only in a run; the repository has no reference interpreter.
 func TestMachineTimerNotPositive(t *testing.T) {
+	needsBuild(t)
 	seed := int64(9)
 	if s := os.Getenv("ERGO_MACHINETIMER_SEED"); s != "" {
 		n, err := strconv.ParseInt(s, 10, 64)
@@ -96,7 +97,7 @@ const machineTimerEnd = 100
 func machineTimerProgram(in int64, parts bool) string {
 	m := "Loop{}"
 	if parts {
-		m = "Machine[St, Sig, int]{Initial: Idle{n: 0}, Step: step, After: timer}"
+		m = "Machine[St, Sig, int]{Initial: Idle{n: 0}, Step: step, After: timer, Work: noWork}"
 	}
 	return fmt.Sprintf(`import machines
 import testing
@@ -126,6 +127,8 @@ func timer(s St) Option[Timeout[Sig]] {
 		None
 	}
 }
+
+func noWork(s St) Option[func(send func(e Sig))] { None }
 
 type Loop machine[St, Sig] {
 	initial: Idle{n: 0},

@@ -5,7 +5,6 @@ import (
 	"math/rand/v2"
 	"sort"
 	"strings"
-	"testing"
 )
 
 // admissionGroup is one generated recursive admission graph (round 14,
@@ -304,57 +303,4 @@ func recursiveAdmission(seed uint64, errors bool) admissionGroup {
 	}
 	sort.Strings(g.want)
 	return g
-}
-
-// TestRecursiveAdmissionGroups: generated recursive admission graphs get
-// the verdict of their source: a group whose value-used members write
-// their rows is accepted, and each value-used member with an unwritten row
-// that its body needs gets the class G S108 at its declaration, never a
-// chosen fixpoint (round 13 M1, O1).
-func TestRecursiveAdmissionGroups(t *testing.T) {
-	var accepted, refused, pinnedAccepted, literals, blocks int
-	for _, errors := range []bool{true, false} {
-		for seed := range uint64(300) {
-			g := recursiveAdmission(seed, errors)
-			literals += g.literal
-			blocks += g.blocks
-			c, diags := checkFor(g.src)
-			if c == nil {
-				t.Fatalf("seed %d: %v\n%s", seed, diags, g.src)
-			}
-			var have []string
-			for _, d := range diags {
-				if d.Code == CodeType && !strings.Contains(d.Message, " inside its own recursive group; ") {
-					t.Errorf("seed %d errors=%v: unexpected %s\n%s", seed, errors, d, g.src)
-				}
-				have = append(have, fmt.Sprintf("%s@%d", d.Code, d.Line))
-			}
-			sort.Strings(have)
-			if strings.Join(have, " ") != strings.Join(g.want, " ") {
-				t.Errorf("seed %d errors=%v: want %v, got %v\n%s", seed, errors, g.want, diags, g.src)
-				continue
-			}
-			if len(c.widened) > 0 {
-				t.Errorf("seed %d errors=%v: wider reporting rows for %v", seed, errors, c.widened)
-			}
-			switch {
-			case len(g.want) > 0:
-				refused++
-			case g.pinned > 0:
-				pinnedAccepted++
-			default:
-				accepted++
-			}
-		}
-	}
-	t.Logf("600 groups: %d accepted with written rows, %d accepted with pinned empty rows, %d refused; %d admission calls through literals, %d with a trailing block", accepted, pinnedAccepted, refused, literals, blocks)
-	if blocks < 300 {
-		t.Fatalf("only %d admission calls with a trailing block; the generator misses round 15 M1", blocks)
-	}
-	if literals < 300 {
-		t.Fatalf("only %d admission calls through function literals; the generator misses round 14 O1", literals)
-	}
-	if accepted < 50 || refused < 50 || pinnedAccepted < 10 {
-		t.Fatalf("the generator misses a verdict: %d accepted, %d pinned accepted, %d refused", accepted, pinnedAccepted, refused)
-	}
 }

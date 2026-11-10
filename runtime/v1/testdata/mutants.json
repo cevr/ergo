@@ -1,0 +1,93 @@
+{
+  "about": "The mutant ledger of runtime/v1: edits of the runtime's source (runtime/v1 and the runtime/rt clock it parks on) that some runtime/v1 test must kill. Run it with go run ./scripts/mutants ./runtime/v1; the runner judges it by runtime/v1's own tests (docs/tooling.md, \"Mutant ledger\"). Seeded in batch 14 from the mutants batch 13 killed by hand (fua-b round 2 and its verifier, /home/exedev/.cache/baton/wf10/batch-13/verify/verdicts-2.md).",
+  "mutants": [
+    {
+      "name": "b13-stop-unparked",
+      "origin": "wf10/batch-13 fua-b round 2 (B1), verifier r2",
+      "file": "runtime/v1/actor.go",
+      "from": "\ta.task.Interrupt()\n\ta.inbox.Close()\n\ta.waitEnd(t, nil)\n",
+      "to": "\ta.task.Interrupt()\n\ta.inbox.Close()\n\t<-a.done\n",
+      "rule": "runtime.md Machines and actors 11.16: a member's Stop of an actor waits parked, so a manual clock's Advance settles while it waits.",
+      "killers": [
+        "runtime/v1:TestManualAdvanceSettles"
+      ]
+    },
+    {
+      "name": "b13-drain-unparked",
+      "origin": "wf10/batch-13 fua-b round 2 (B1), verifier r2",
+      "file": "runtime/v1/actor.go",
+      "from": "\t}\n\ta.inbox.Close()\n\ta.waitEnd(t, nil)\n",
+      "to": "\t}\n\ta.inbox.Close()\n\t<-a.done\n",
+      "rule": "runtime.md Machines and actors 11.16: a member's Drain of an actor waits parked.",
+      "killers": [
+        "runtime/v1:TestManualAdvanceSettles"
+      ]
+    },
+    {
+      "name": "b13-await-unparked",
+      "origin": "wf10/batch-13 fua-b round 2 (B1), verifier r2",
+      "file": "runtime/v1/actor.go",
+      "from": "\tif t.InDomain() {\n\t\tp = rt.Park(t, reply,",
+      "to": "\tif false && t.InDomain() {\n\t\tp = rt.Park(t, reply,",
+      "rule": "runtime.md Machines and actors 11.16: an Ask's or a State's wait for the answer is parked.",
+      "killers": [
+        "runtime/v1:TestManualAdvanceSettles"
+      ]
+    },
+    {
+      "name": "b13-exitof-unparked",
+      "origin": "wf10/batch-13 fua-b round 2 (B1), verifier r2",
+      "file": "runtime/v1/actor.go",
+      "from": "func (a *Actor[S, E, D]) waitDone(t *rt.Task) { a.waitEnd(t, t.Done()) }",
+      "to": "func (a *Actor[S, E, D]) waitDone(t *rt.Task) { <-a.done }",
+      "rule": "runtime.md Machines and actors 11.16: ExitOf's wait for the actor's end is parked.",
+      "killers": [
+        "runtime/v1:TestManualAdvanceSettles"
+      ]
+    },
+    {
+      "name": "b13-send-unparked",
+      "origin": "wf10/batch-13 fua-b round 2 (B1), verifier r2",
+      "file": "runtime/v1/mailbox.go",
+      "from": "\t\tif inDomain {\n\t\t\tp = rt.Park(t, s, stop, nil)",
+      "to": "\t\tif false && inDomain {\n\t\t\tp = rt.Park(t, s, stop, nil)",
+      "rule": "runtime.md Machines and actors 11.16: a Send's wait for room in a full mailbox is parked.",
+      "killers": [
+        "runtime/v1:TestManualAdvanceSettles"
+      ]
+    },
+    {
+      "name": "b13-advancing-check-removed",
+      "origin": "wf10/batch-13 fua-b round 2 (B1), verifier r2",
+      "file": "runtime/rt/clock.go",
+      "from": "\tif v.advancing {\n\t\tv.mu.Unlock()",
+      "to": "\tif false && v.advancing {\n\t\tv.mu.Unlock()",
+      "rule": "runtime.md 16: one Advance of a clock runs at a time; a second is a defect in its caller, not a wait.",
+      "killers": [
+        "runtime/v1:TestManualAdvanceOneAtATime"
+      ]
+    },
+    {
+      "name": "b14-settle-hostget",
+      "origin": "wf10/batch-14 integration apply 6 (verdicts-2 follow-up)",
+      "file": "runtime/v1/actor_host.go",
+      "from": "\t\tinDomain := t.InDomain()\n",
+      "to": "\t\tinDomain := false\n",
+      "rule": "stdlib.md actor 7 Hosts, runtime.md 11.16: a Host.Get waiting on an empty host is parked.",
+      "killers": [
+        "runtime/v1:TestManualAdvanceSettles"
+      ]
+    },
+    {
+      "name": "b14-settle-nested-advance",
+      "origin": "wf10/batch-14 integration apply 6 (verdicts-2 follow-up)",
+      "file": "runtime/rt/handle.go",
+      "from": "\t\tm := h.park(owner, stop)\n",
+      "to": "\t\tm := (*member)(nil)\n",
+      "rule": "runtime.md 11.16: a task's Wait for another task is parked, so the task it waits for may Advance the clock.",
+      "killers": [
+        "runtime/v1:TestManualAdvanceSettles"
+      ]
+    }
+  ]
+}

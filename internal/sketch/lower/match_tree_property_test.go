@@ -148,6 +148,22 @@ type gPat struct {
 	fields  map[int]*gPat
 	inner   *gPat // pAs
 	val     gVal  // pConst
+	// joined: a pAs of an or-pattern whose alternatives test different
+	// variants, so its name binds at their join (rows.md, Totality 1).
+	joined bool
+}
+
+// gJoinedAs is `V as name` for the variant v of t, in an or-pattern whose
+// alternatives bind name at their join.
+func gJoinedAs(t *gType, v int, name string) *gPat {
+	return &gPat{kind: pAs, t: t, name: name, variant: v, joined: true, inner: &gPat{kind: pTest, t: t, variant: v}}
+}
+
+// gTwoVariants is two different variants of the union t, in either order.
+func gTwoVariants(g *treeGen, t *gType) (int, int) {
+	n := len(t.union.variants)
+	v := g.r.IntN(n)
+	return v, (v + 1 + g.r.IntN(n-1)) % n
 }
 
 // gArm is an arm: one or two alternatives, each a pattern per subject.
@@ -510,6 +526,12 @@ func (g *treeGen) arm1(m *gMatch) *gArm {
 		alts[0][i] = &gPat{kind: pBind, t: t, name: "b0"}
 		alts[1][j] = &gPat{kind: pBind, t: t, name: "b0"}
 		a.names = []string{"b0"}
+	case k == 2 && t.kind == gUnionKind && g.r.IntN(2) == 0 && len(t.union.variants) > 1:
+		// Two variants bound by one name: it binds at their union
+		// (rows.md, Totality 1; fu8a).
+		v, w := gTwoVariants(g, t)
+		alts[0][i], alts[1][j] = gJoinedAs(t, v, "b0"), gJoinedAs(t, w, "b0")
+		a.names = []string{"b0"}
 	case k == 2 && t.kind == gUnionKind:
 		v := g.r.IntN(len(t.union.variants))
 		alts[0][i] = &gPat{kind: pAs, t: t, name: "b0", inner: &gPat{kind: pTest, t: t, variant: v}}
@@ -618,7 +640,7 @@ func (p *gPat) ergo() string {
 
 // showCall is the Ergo text that shows the binding x of p's bound type.
 func showCall(p *gPat, x string) string {
-	if p.kind == pAs {
+	if p.kind == pAs && !p.joined {
 		return "show" + p.t.union.variants[p.inner.variant].name + "(" + x + ")"
 	}
 	switch p.t.kind {
@@ -1231,7 +1253,12 @@ func lowerSourceMode(name, src string, flat bool) loweredMode {
 	return loweredMode{out, hook}
 }
 
+// TestMatchTreeAgrees builds Go because it compares the runs of built
+// programs with a reference (another lowering, a fold, or Go's own package),
+// and the question is behaviour at run time; no in-process check observes
+// that, and Ergo has no reference interpreter yet (test-speed T8).
 func TestMatchTreeAgrees(t *testing.T) {
+	needsBuild(t)
 	if matchLowering == "flat" {
 		t.Skip("matchLowering=flat: the build has no tree to compare")
 	}
@@ -1249,6 +1276,7 @@ func TestMatchTreeAgrees(t *testing.T) {
 	var runs []string
 	fns := map[string]string{} // match id to its function, for failures
 	generated, dropped, matches, regenerated := 0, 0, 0, 0
+	joinedArms := 0 // kept or-patterns that bind one name at two variants
 	for _, seed := range seeds {
 		g := &treeGen{r: rand.New(rand.NewPCG(seed, 0x6d31)), seed: seed}
 		for gi := range treeGroups {
@@ -1274,6 +1302,11 @@ func TestMatchTreeAgrees(t *testing.T) {
 					regenerated++
 				}
 				matches++
+				for _, a := range m.arms {
+					if len(a.alts) == 2 && slices.ContainsFunc(a.alts[0], func(p *gPat) bool { return p.joined }) {
+						joinedArms++
+					}
+				}
 				fn := m.fn()
 				fns[id] = fn
 				src.WriteString(fn + "\n")
@@ -1309,6 +1342,10 @@ func TestMatchTreeAgrees(t *testing.T) {
 	// pass 50% (a replay with -match.seed checks the outputs only).
 	if rate > 0.5 && *treeSeed == 0 {
 		t.Errorf("drop rate %.0f%% is over 50%%: a generator defect", 100*rate)
+	}
+	t.Logf("or-patterns that bind one name at two variants: %d", joinedArms)
+	if joinedArms == 0 && *treeSeed == 0 {
+		t.Errorf("no kept or-pattern binds one name at two variants (their union)")
 	}
 
 	tree := lowerSourceMode("tree", src.String(), false)

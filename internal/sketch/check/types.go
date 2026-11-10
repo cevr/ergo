@@ -69,12 +69,27 @@ type Named struct {
 	state   int // 0 unresolved, 1 resolving, 2 resolved
 	foreign bool
 	ctx     *checker // the checker that created an instance; it substitutes the body lazily
+	// alias is the type that `type A = B` names when B is an existing type
+	// (types.md, Unions 7): every use of A resolves to it, so no type
+	// holds this Named (resolvedType, aliasOf).
+	alias        Type
+	aliasShallow bool // the alias's target is being read shallowly (aliasOf)
+}
+
+// Alias returns the type a declaration `type A = B` names when its one
+// variant is an existing type, and nil for every other declaration.
+func (n *Named) Alias() Type {
+	return n.origin().alias
 }
 
 // Struct is a struct type.
 type Struct struct {
 	Fields []*Field
 	index  map[string]int
+	// includes are the `..R` members of a record declaration, in source
+	// order, until expandIncludes splices R's fields in (include.go).
+	includes  []*include
+	expanding bool // its includes are being spliced in (an inclusion cycle)
 	// obj is the record declaration whose body this is (an instance keeps
 	// its origin's), so its package owns the fields: a defined type over the
 	// record shares this body and so the package (authority.go).
@@ -86,6 +101,22 @@ type Field struct {
 	Name string
 	Type Type
 	Pos  syntax.Pos
+	// origin is the field of the record declaration that declares this
+	// field: the field itself in its own record, the included record's
+	// field in a record that includes it with `..R` (types.md, Structs 7),
+	// and the generic declaration's field in an instance. nil means the
+	// field itself.
+	origin *Field
+}
+
+// Origin is the declaration of f: two fields have the same declaration
+// when their origins are one field. A spread copies a field only from a
+// field of the same declaration (types.md, Structs 3).
+func (f *Field) Origin() *Field {
+	if f.origin != nil {
+		return f.origin
+	}
+	return f
 }
 
 // Interface is an interface: method signatures (an operation type when it
@@ -151,6 +182,12 @@ type Union struct {
 	// Bad: a variant failed to resolve (reported), so a case that names no
 	// listed variant may name the lost one: no case diagnostic follows (D3).
 	Bad bool
+	// Row is set for a row value, the value type of an error row: the type
+	// of a `case err:` binding and of an error row parameter in a type
+	// position (rows.md, Catch 7; types.md, Generics 1; q47). Variants are
+	// its elements. Its identity is the row's set, and it lowers to a Go
+	// error. A declared union's underlying type has no Row.
+	Row *Row
 }
 
 // MachineType is a `machine[S, E]` declaration's type.
@@ -217,6 +254,20 @@ func (k Kind) String() string {
 		return "a capability row"
 	}
 	return "a type"
+}
+
+// joinKinds is the kind of a parameter seen in positions of kinds a and b
+// (types.md, Generics 1; q47). An error row parameter may also stand in a
+// type position, where it names the row's value type, so a type and an
+// error row join to the error row. Any other two kinds conflict.
+func joinKinds(a, b Kind) (Kind, bool) {
+	switch {
+	case a == b:
+		return a, true
+	case a == KindType && b == KindErrors, a == KindErrors && b == KindType:
+		return KindErrors, true
+	}
+	return a, false
 }
 
 // TypeParam is a type or row parameter.
@@ -711,6 +762,15 @@ func under(t Type) Type {
 
 func (n *Named) underlying() Type {
 	if n.under == nil {
+		if n.Orig == nil && n.Obj != nil && n.Obj.Pkg.Host() && n.state == 0 {
+			// A host type resolves when it is first read (lazy per
+			// declaration; gobinding.go).
+			n.Obj.Pkg.host.c.resolveNamed(n)
+			if n.under != nil {
+				return n.under
+			}
+			return invalid
+		}
 		if n.Orig != nil {
 			n.under = n.Orig.instanceUnder(n)
 		} else {
@@ -864,6 +924,11 @@ func isCapability(t Type) bool {
 	}
 	if n.foreign {
 		return true
+	}
+	if n.Obj != nil && n.Obj.Pkg.Host() {
+		// A Go interface (io.Reader) is a host type: a value, not an
+		// authority (docs/spec/interop.md).
+		return false
 	}
 	if len(n.origin().TParams) > 0 {
 		// A generic operation type is a capability once its type

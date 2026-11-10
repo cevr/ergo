@@ -1,0 +1,25 @@
+// Package memory holds an in-memory provider of the write's Targets.
+
+import strings
+import shards/shards
+
+// Targets approves every share except a disk whose number starts with 0
+// and a tape whose code starts with X. It keeps no state.
+type Targets {}
+
+func Write(_ Targets, t shards.Share) shards.Ref fails shards.Refused {
+	match t {
+	case shards.Disk as c:
+		if strings.HasPrefix(c.Device, "0") {
+			return shards.Refused{Why: "disk \(c.Device) full"}
+		}
+		shards.Ref{ID: "disk-\(c.Device)", Size: c.Size}
+	case shards.Tape as v:
+		if strings.HasPrefix(v.Label, "X") {
+			return shards.Refused{Why: "tape \(v.Label) offline"}
+		}
+		shards.Ref{ID: "tape-\(v.Label)", Size: v.Size}
+	}
+}
+
+func Erase(_ Targets, r shards.Ref) int { r.Size }

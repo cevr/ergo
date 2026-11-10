@@ -1,0 +1,79 @@
+// The desk runs the backup service: it sends each command to the backups, starts a
+// saga for each planned backup, feeds every event and every minute to the
+// running sagas, and sends the commands the sagas end with.
+
+import backups/backup
+
+// Desk is the running sagas and the minute it is.
+type Desk { Running []Running, Now int }
+
+// Outcome is what came of one command: the events it recorded, or the
+// rejection that refused it, as text.
+type Outcome = Recorded{C backup.Command, Events []backup.Event} | Refused{C backup.Command, Why string}
+
+// Open is a desk at minute 0 with no saga running.
+func Open() Desk { Desk{Running: []Running{}, Now: 0} }
+
+// Submit is the desk after command c, and the outcome of c and of each
+// command a saga sent because of it, in the order they ran.
+func Submit(d Desk, c backup.Command) (Desk, []Outcome) needs backup.Backups {
+	drain(d, []backup.Command{c})
+}
+
+// Advance is the desk after the clock moves on by minutes, and the
+// outcomes of the commands the sagas sent at the new minute.
+func Advance(d Desk, minutes int) (Desk, []Outcome) needs backup.Backups {
+	let now = d.Now + minutes
+	let still, sends = Feed(d.Running, Tick{Now: now})
+	drain(Desk{Running: still, Now: now}, sends)
+}
+
+// drain sends the queued commands in turn, and queues what the sagas
+// send in reply.
+func drain(d Desk, queued []backup.Command) (Desk, []Outcome) needs backup.Backups {
+	let mut desk = d
+	let mut queue = queued
+	let mut outcomes = []Outcome{}
+	let mut i = 0
+	for i < len(queue) {
+		let c = queue[i]
+		i = i + 1
+		let outcome = send(c)
+		outcomes = outcomes.Append(outcome)
+		match outcome {
+		case Recorded as r:
+			for e in r.Events {
+				let mut running = desk.Running
+				match Starts(e, desk.Now) {
+				case Some[Running] as s:
+					running = running.Append(s.Value)
+				case None:
+				}
+				let still, sends = Feed(running, Saw{E: e})
+				desk = Desk{..desk, Running: still}
+				for s in sends {
+					queue = queue.Append(s)
+				}
+			}
+		case Refused:
+		}
+	}
+	(desk, outcomes)
+}
+
+// send is the outcome of sending c to the backups.
+func send(c backup.Command) Outcome needs backup.Backups {
+	let events = backup.Backups.Send(c) catch {
+	case backup.UnknownBackup:
+		return Refused{C: c, Why: "no such backup"}
+	case backup.AlreadyPlanned:
+		return Refused{C: c, Why: "already planned"}
+	case backup.InvalidFile as l:
+		return Refused{C: c, Why: "bad file " + l.Path + ": " + l.Reason}
+	case backup.WrongSize as w:
+		return Refused{C: c, Why: "due \(w.Due), stored \(w.Got)"}
+	case backup.NotAllowed as n:
+		return Refused{C: c, Why: "cannot " + n.Action + " a backup that is " + n.Status}
+	}
+	Recorded{C: c, Events: events}
+}

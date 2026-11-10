@@ -5,6 +5,7 @@
 // which no package redeclares (#196). Race is Effect's raceAll. Set is
 // runtime.md G4's.
 
+import schedule
 import scope
 import sync
 import testing
@@ -28,6 +29,137 @@ func Race[T, E, R](blocks []func() T fails E needs R) T fails E needs R {
 
 extern go ergo.local/prototype/runtime/v1.TasksRace func race[T, E, R](n int, f func(i int) T fails E needs R) T fails E needs R
 
+// Retry runs block until it gives a value or s stops (Effect retry): after
+// the n-th run fails, s decides by n and the time since the first run
+// began on the context's time.Clock; Continue sleeps its delay on the
+// context's Scheduler and runs block again, and Stop fails with that run's
+// failure. A defect or a stop of the task ends Retry at once. s does not
+// read the failure: a failure that must not be retried is caught in block
+// and given as a value of block's result.
+func Retry[T, E, R](s schedule.Schedule, block func() T fails E needs R) T fails E needs R | Scheduler | time.Clock {
+	let start = time.Clock.Now()
+	let mut runs = 0
+	for {
+		runs = runs + 1
+		let v = block() catch {
+		case err:
+			match schedule.Decide(s, runs, time.Clock.Now().Sub(start)) {
+			case schedule.Continue as c:
+				Scheduler.Sleep(c.After)
+				continue
+			case schedule.Stop:
+				return err
+			}
+		}
+		return v
+	}
+}
+
+// Repeat runs block, and again while s continues (Effect repeat): after
+// the n-th run gives a value, s decides by n and the time since the first
+// run began; Continue sleeps its delay, and Stop gives the last value. A
+// failure of block is Repeat's at once.
+func Repeat[T, E, R](s schedule.Schedule, block func() T fails E needs R) T fails E needs R | Scheduler | time.Clock {
+	let start = time.Clock.Now()
+	let mut runs = 0
+	for {
+		runs = runs + 1
+		let v = try block()
+		match schedule.Decide(s, runs, time.Clock.Now().Sub(start)) {
+		case schedule.Continue as c:
+			Scheduler.Sleep(c.After)
+		case schedule.Stop:
+			return v
+		}
+	}
+}
+
+// lawFailed is the failure of the retry laws' block: the run that failed.
+type lawFailed { Run int }
+
+// lawSchedule is an exponential backoff from 10ms, at most 1 to 6
+// retries, up to a limit of 1ms to 5s, drawn from k and limit.
+func lawSchedule(k int, limit int) schedule.Schedule {
+	let retries = schedule.Recurs(1 + (k%6+6)%6)
+	let l = duration(int64(1+(limit%5000+5000)%5000) * 1000000)
+	schedule.Exponential(10ms, 2.0, 1s).And(retries).UpTo(l)
+}
+
+// RetryFollowsDecide: on a VirtualClock, Retry runs block as often as
+// Decide says, sleeps the delays it gives, and ends with the run the fold
+// of Decide ends with: the first run that does not fail, or the failure
+// of the run after which Decide stops. Each run takes w.
+law RetryFollowsDecide(failing int, work int, k int, limit int) {
+	let s = lawSchedule(k, limit)
+	let w = duration(int64((work%300+300)%300) * 1000000)
+	let n = (failing%10 + 10) % 10
+	let mut runs = 0
+	let mut at = 0s
+	let mut want = 0
+	for want == 0 {
+		runs = runs + 1
+		at = at + w
+		if runs > n {
+			want = runs
+		} else {
+			match schedule.Decide(s, runs, at) {
+			case schedule.Continue as c:
+				at = at + c.After
+			case schedule.Stop:
+				want = 0 - runs
+			}
+		}
+	}
+	let c = testing.NewVirtualClock(0)
+	let calls = sync.NewRef[int](0)
+	with context { Scheduler: c, time.Clock: c } {
+		let start = time.Clock.Now()
+		let got = Retry(s, func() int fails lawFailed needs Scheduler {
+			Scheduler.Sleep(w)
+			let i = sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) })
+			if i <= n {
+				return lawFailed{Run: i}
+			}
+			i
+		}) catch {
+		case lawFailed as f:
+			0 - f.Run
+		}
+		got == want && calls.Get() == runs && time.Clock.Now().Sub(start) == at
+	}
+}
+
+// RepeatFollowsDecide: on a VirtualClock, Repeat runs block until Decide
+// stops, sleeps the delays it gives, and gives the last run's value. Each
+// run takes w.
+law RepeatFollowsDecide(work int, k int, limit int) {
+	let s = lawSchedule(k, limit)
+	let w = duration(int64((work%300+300)%300) * 1000000)
+	let mut runs = 0
+	let mut at = 0s
+	let mut more = true
+	for more {
+		runs = runs + 1
+		at = at + w
+		match schedule.Decide(s, runs, at) {
+		case schedule.Continue as c:
+			at = at + c.After
+		case schedule.Stop:
+			more = false
+		}
+	}
+	let c = testing.NewVirtualClock(0)
+	let calls = sync.NewRef[int](0)
+	with context { Scheduler: c, time.Clock: c } {
+		let start = time.Clock.Now()
+		let got = Repeat(s, func() int needs Scheduler {
+			Scheduler.Sleep(w)
+			sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) })
+		})
+		got == runs && calls.Get() == runs && time.Clock.Now().Sub(start) == at
+	}
+}
+
 // Transform is f of each element of xs, in the order of xs, with each
 // call on a task of its own and at most limit calls running at once. It
 // waits for whichever call ends first: when one fails, no call starts
@@ -37,6 +169,190 @@ extern go ergo.local/prototype/runtime/v1.TasksRace func race[T, E, R](n int, f 
 // is a defect. The calls share f's providers, which the caller's row
 // binds.
 extern go ergo.local/prototype/runtime/v1.TasksTransform func Transform[A, B, E, R](xs []A, limit int, f func(x A) B fails E needs R) []B fails E needs R
+
+// Closed is the failure of Go on a Set that admits no more tasks: FailFast
+// ended it, or it was stopped. Like queue.Closed, it is a normal end of
+// the protocol, not a stop of the caller.
+type Closed {}
+
+// FailFast is the policy under which the first failure or defect of a
+// member ends the Set: admission closes, the other members are stopped,
+// and Wait gives it.
+type FailFast {}
+
+// LogFailures is the policy under which a member's failure or defect is
+// written to the program's standard error, as main's exit report writes
+// it, and dropped; the Set goes on. A server's handlers use it: one
+// handler's end is not the server's.
+type LogFailures {}
+
+// Restart is the policy under which a member's defect runs its body again,
+// on the same task, up to Limit times for each Go. A typed failure, and
+// the defect after the last restart, end the Set as under FailFast. A
+// negative Limit is a defect.
+type Restart {
+	Limit int,
+}
+
+// Policy is what a member's failure or defect does to its Set. A member
+// stopped by its Set or by its owner has no failure under any policy.
+type Policy = FailFast | LogFailures | Restart
+
+// Set owns any number of tasks, each started by Go and dropped when it
+// ends (docs/spec/runtime.md, G4). The frame that made it owns it, as a
+// frame owns a Task: the frame's end stops every member and waits for
+// it, a return moves the Set to the caller, and no block or other task
+// may hold it. Only the task that made it calls its operations.
+type Set[E] {
+	// Wait waits until no member runs. It fails with the failure that
+	// ended the Set, at this Wait and at each later one, and raises the
+	// defects of members that no Wait or Stop raised yet. A stop of the
+	// caller ends the wait.
+	Wait() fails E,
+	// Stop closes admission, stops every member and waits until each has
+	// ended, its exit actions included. It raises the members' defects
+	// and drops their failures.
+	Stop(),
+	// Len is how many members run now.
+	Len() int,
+
+	// StopEndsEveryMember: after Stop no member runs, and a second Stop
+	// returns and changes nothing.
+	law StopEndsEveryMember() {
+		Stop()
+		Stop()
+		Len() == 0
+	},
+}
+
+// NewSet is an empty Set with the policy p, owned by the calling frame.
+func NewSet[E](p Policy) Set[E] {
+	match p {
+	case FailFast:
+		newSet(0, 0)
+	case LogFailures:
+		newSet(1, 0)
+	case Restart as r:
+		newSet(2, r.Limit)
+	}
+}
+
+extern go ergo.local/prototype/runtime/v1.TasksNewSet func newSet[E](kind int, limit int) Set[E]
+
+// Go starts body as a member of set, on a task of its own below the
+// caller's, and returns at once. The body keeps running after Go returns,
+// so it is escaping. It fails with Closed, and starts nothing, when set
+// admits no more tasks.
+extern go ergo.local/prototype/runtime/v1.TasksGo func Go[E, R](set Set[E], body escaping func() fails E needs R) fails Closed needs R
+
+// setFailed is the failure of a member in the Set laws.
+type setFailed {}
+
+// sleepers starts k members of a Set it owns, each counting itself in,
+// counting itself out in an exit action and sleeping an hour, and
+// returns after a second: its frame's end stops them.
+func sleepers(k int, started sync.Ref[int], running sync.Ref[int]) needs Scheduler {
+	let set = NewSet(FailFast)
+	for _ in 0..k {
+		Go(set, func() needs Scheduler {
+			started.Update(func(v int) int { v + 1 })
+			running.Update(func(v int) int { v + 1 })
+			scope.OnExit() { running.Update(func(v int) int { v - 1 }) }
+			Scheduler.Sleep(1h)
+		}) catch {
+		case Closed:
+		}
+	}
+	Scheduler.Sleep(1s)
+}
+
+// NoMemberOutlivesItsFrame: when the function that made a Set returns,
+// every member has ended, its exit actions included, though each would
+// sleep an hour; the return does not wait the hour out.
+law NoMemberOutlivesItsFrame(n int) {
+	let k = limitOf(n)
+	let c = testing.NewVirtualClock(0)
+	let started = sync.NewRef[int](0)
+	let running = sync.NewRef[int](0)
+	with context { Scheduler: c, time.Clock: c } {
+		let start = time.Clock.Now()
+		sleepers(k, started, running)
+		started.Get() == k && running.Get() == 0 && time.Clock.Now().Sub(start) == 1s
+	}
+}
+
+// FinishedAreDropped: a member that ends leaves its Set with no Wait: Len
+// counts the members running, and is 0 once each has ended.
+law FinishedAreDropped(n int) {
+	let k = limitOf(n)
+	let c = testing.NewVirtualClock(0)
+	with context { Scheduler: c, time.Clock: c } {
+		let set = NewSet(FailFast)
+		for i in 0..k {
+			Go(set, func() needs Scheduler { Scheduler.Sleep(duration(int64(i + 1))) }) catch {
+			case Closed:
+			}
+		}
+		let before = set.Len()
+		Scheduler.Sleep(duration(int64(k + 1)))
+		before == k && set.Len() == 0
+	}
+}
+
+// FailFastStopsTheRest: under FailFast, the first failure stops the other
+// members, and Wait fails with it at its instant, not after the others'
+// sleeps; then Go fails Closed.
+law FailFastStopsTheRest(n int) {
+	let k = limitOf(n)
+	let c = testing.NewVirtualClock(0)
+	with context { Scheduler: c, time.Clock: c } {
+		let set = NewSet[setFailed](FailFast)
+		let start = time.Clock.Now()
+		for _ in 0..k {
+			Go(set, func() needs Scheduler { Scheduler.Sleep(1h) }) catch {
+			case Closed:
+			}
+		}
+		Go(set, func() fails setFailed needs Scheduler {
+			Scheduler.Sleep(1s)
+			return setFailed
+		}) catch {
+		case Closed:
+		}
+		set.Wait() catch {
+		case setFailed:
+			return time.Clock.Now().Sub(start) == 1s && set.Len() == 0 && closedNow(set)
+		}
+		false
+	}
+}
+
+// closedNow reports whether Go on set fails Closed.
+func closedNow(set Set[setFailed]) bool {
+	Go(set, func() {}) catch {
+	case Closed:
+		return true
+	}
+	false
+}
+
+// RestartRunsAgain: under Restart, a member whose body has a defect runs
+// again, Limit times, and the run after them ends it.
+law RestartRunsAgain(n int) {
+	let limit = limitOf(n) - 1
+	let runs = sync.NewRef[int](0)
+	let set = NewSet(Restart{Limit: limit})
+	Go(set, func() {
+		let r = sync.Modify(runs, func(v int) (int, int) { (v + 1, v + 1) })
+		if r <= limit {
+			Unreachable("a defect the Set restarts")
+		}
+	}) catch {
+	case Closed:
+	}
+	set.Wait()
+	runs.Get() == limit + 1
+}
 
 // limitOf is a limit from 1 to 4, drawn from k.
 func limitOf(k int) int { 1 + (k%4+4)%4 }

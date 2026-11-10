@@ -36,6 +36,10 @@ type TypeName struct {
 	// plans it, 1 while it is planned and 2 once planned.
 	ctor      *Func
 	ctorState uint8
+	// newOp and provides are an operation type's builders that its own
+	// package declares (builders.go rules 1 and 2), planned with ctor.
+	newOp    *Builder
+	provides []*Builder
 }
 
 // Constructor is the function a generator builds the type's values with
@@ -80,6 +84,9 @@ type Func struct {
 	overloaded bool
 	// size is the declaration's syntax nodes (bodySize), once known.
 	size int
+	// goExtern is a user extern's admitted adapter of its Go target's
+	// binding (extern.go, Level 2), once checkExterns admits it.
+	goExtern *GoExtern
 }
 
 // Var is a variable: a parameter, a local or a package-level let.

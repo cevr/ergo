@@ -1,0 +1,172 @@
+// The rules of the forge as laws over its machine.
+
+import machines
+import time
+
+// Tally is the ore of a run: what the ores brought in, what the forged
+// items took, the leftover given back and the returns.
+type Tally { In int, Spent int, Leftover int, Returned int }
+
+// Kept is tally with the ore of the events es.
+func Kept(tally Tally, es []Event) Tally {
+	let mut b = tally
+	for e in es {
+		match e {
+		case Accepted as a:
+			b = Tally{..b, In: b.In + a.Worth}
+		case Forged as s:
+			b = Tally{..b, Spent: b.Spent + s.Cost, Leftover: b.Leftover + s.Leftover}
+		case Returned as r:
+			b = Tally{..b, Returned: b.Returned + r.Worth}
+		case Dropped:
+		case WentCold:
+		case CameBack:
+		}
+	}
+	b
+}
+
+// Run is the state after the signals sigs from s, and its tally. A signal
+// the machine refuses changes nothing, as Tried says.
+func Run(s State, sigs []Signal) (State, Tally) {
+	let mut now = s
+	let mut tally = Tally{In: 0, Spent: 0, Leftover: 0, Returned: 0}
+	for sig in sigs {
+		let es = Decide(now, sig) catch {
+		case Refusal:
+			[]Event{}
+		}
+		tally = Kept(tally, es)
+		now = machines.Next(now, Apply(now, AtOf(sig), es))
+	}
+	(now, tally)
+}
+
+// Generated slots and signals seldom meet (a key names no slot, an ore
+// is no grade), so the run laws also run over Rack with the
+// mostly valid signals Ores draws from ns.
+
+// Rack is two slots: A1 sword at 125 with 2 left, B2 arrows at 75 with
+// none left.
+func Rack() []Slot {
+	[]Slot{Slot{Name: "A1", Item: "sword", Cost: 125, Count: 2}, Slot{Name: "B2", Item: "arrows", Cost: 75, Count: 0}}
+}
+
+// Ores is a run of mostly valid signals over Rack: each n picks a
+// signal, 7 seconds apart.
+func Ores(ns []int) []Signal {
+	let mut out = []Signal{}
+	for i, n in ns {
+		let at = time.Times(7s, i)
+		let k = if n < 0 { -(n % 6) } else { n % 6 }
+		out = out.Append(match k {
+		case 0:
+			Ore{At: at, Worth: 25}
+		case 1:
+			Ore{At: at, Worth: 100}
+		case 2:
+			Select{At: at, Slot: "A1"}
+		case 3:
+			Tick{At: at}
+		case 4:
+			Cancel{At: at}
+		case _:
+			Ore{At: at, Worth: 10}
+		})
+	}
+	out
+}
+
+// OreIsKept: every unit an ore brought in is in a forged item, in leftover,
+// in a return, or still in the credit. No signal makes or loses ore.
+law OreIsKept(slots []Slot, sigs []Signal, ns []int) { kept(slots, sigs) && kept(Rack(), Ores(ns)) }
+
+// kept checks OreIsKept for one run.
+func kept(slots []Slot, sigs []Signal) bool {
+	let end, b = Run(Start(slots), sigs)
+	b.In == b.Spent+b.Leftover+b.Returned+CreditOf(end)
+}
+
+// LeftoverIsNeverNegative: a forge never asks for more than the credit.
+law LeftoverIsNeverNegative(slots []Slot, sigs []Signal, ns []int) {
+	leftovers(slots, sigs) && leftovers(Rack(), Ores(ns))
+}
+
+// leftovers checks LeftoverIsNeverNegative for one run.
+func leftovers(slots []Slot, sigs []Signal) bool {
+	let mut s = Start(slots)
+	for sig in sigs {
+		let es = Decide(s, sig) catch {
+		case Refusal:
+			continue
+		}
+		for e in es {
+			match e {
+			case Forged as d:
+				if d.Leftover < 0 {
+					return false
+				}
+			case Accepted, Returned, Dropped, WentCold, CameBack:
+			}
+		}
+		s = machines.Next(s, Apply(s, AtOf(sig), es))
+	}
+	true
+}
+
+// ForgeTakesOne: a forge leaves one fewer in its slot, and only a slot
+// with something in it is forged. On Rack, a key of A1 or B2 (by n) is
+// refused only for B2, which is empty, or for a credit under 125.
+law ForgeTakesOne(slots []Slot, credit int, name string, n int) {
+	let rackName = if n%2 == 0 { "A1" } else { "B2" }
+	let rackRefused = rackName == "B2" || credit < 125
+	forged(slots, credit, name, true) && forged(Rack(), credit, rackName, rackRefused)
+}
+
+// forged checks ForgeTakesOne for one key; refused is whether a Reject is
+// right.
+func forged(slots []Slot, credit int, name string, refused bool) bool {
+	let s = Heating{Slots: slots, Credit: credit, Until: 30s}
+	match Tried(s, Select{At: 1s, Slot: name}) {
+	case Enter[State] as e:
+		let before = find(slots, name) catch {
+		case NoSuchSlot:
+			return false
+		}
+		let after = find(SlotsOf(e.Next), name) catch {
+		case NoSuchSlot:
+			return false
+		}
+		before.Count > 0 && after.Count == before.Count-1 && before.Cost <= credit
+	case Reject:
+		refused
+	case Stay[State], Emit[State, []Slot], Ignore, Done[[]Slot]:
+		false
+	}
+}
+
+// TimeoutReturns: a credit with no ore or key for Wait is returned in
+// full and the machine is idle; a tick before then changes nothing.
+law TimeoutReturns(slots []Slot, credit int, until duration, at duration) {
+	let s State = Heating{Slots: slots, Credit: credit, Until: until}
+	let es = Decide(s, Tick{At: at}) catch {
+	case Refusal:
+		return false
+	}
+	if at < until {
+		return len(es) == 0
+	}
+	Kept(Tally{In: 0, Spent: 0, Leftover: 0, Returned: 0}, es).Returned == credit && Name(machines.Next(s, Apply(s, at, es))) == "idle"
+}
+
+// ColdTakesNoOre: a machine that is cold refuses every ore and key.
+law ColdTakesNoOre(slots []Slot, sig Signal) {
+	let s = Cold{Slots: slots}
+	let es = Decide(s, sig) catch {
+	case Unlit:
+		return true
+	case NotEnough, NoStock, NoSuchSlot, Busy, BadOre:
+		return false
+	}
+	Kept(Tally{In: 0, Spent: 0, Leftover: 0, Returned: 0}, es).In == 0
+}

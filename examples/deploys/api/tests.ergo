@@ -1,0 +1,86 @@
+// Handle's tests run over a memory.Table, with no socket. ergo test
+// runs the laws that take an deploys.Store here, with a memory.Table; these
+// properties check them again with steered methods, paths, bodies and
+// valid drafts, which generated ones seldom reach.
+
+import deploys/memory
+import deploys/deploys
+import strings
+
+let json = []Header{Header{Name: "Content-Type", Value: "application/json; charset=utf-8"}}
+
+// call is Handle of method, path and body, with a JSON content type.
+func call(method string, path string, body string) Response needs deploys.Store {
+	Handle(Request{Method: method, Path: path, Headers: json, Body: body})
+}
+
+// line is the status and body of r, one line.
+func line(r Response) string { "\(r.Status) \(r.Body)" }
+
+test AConversation {
+	with context { deploys.Store: memory.NewTable() } {
+		assert line(call("GET", "/deploys", "")) == "200 []"
+		let created = call("POST", "/deploys", "{\"service\":\"web\",\"units\":[{\"image\":\"app\",\"replicas\":2,\"mem\":450}]}")
+		assert line(created) == "201 {\"id\":\"dep-1\",\"service\":\"web\",\"status\":\"pending\",\"total\":900,\"units\":[{\"image\":\"app\",\"replicas\":2,\"mem\":450}]}"
+		assert HeaderOf(created.Headers, "location") == Some[string]{Value: "/deploys/dep-1"}
+		assert call("GET", "/deploys/dep-1", "").Body == created.Body
+		assert line(call("POST", "/deploys/dep-1/approve", "")) == "200 {\"id\":\"dep-1\",\"service\":\"web\",\"status\":\"approved\",\"total\":900,\"units\":[{\"image\":\"app\",\"replicas\":2,\"mem\":450}]}"
+		assert strings.HasPrefix(call("GET", "/deploys", "").Body, "[{\"id\":\"dep-1\"")
+	}
+}
+
+test EachFailureHasItsStatus {
+	with context { deploys.Store: memory.NewTable() } {
+		assert line(call("POST", "/deploys", "{\"service\":")) == "400 {\"error\":\"the body is not JSON: a value is missing at byte 11\"}"
+		assert line(call("POST", "/deploys", "[]")) == "422 {\"error\":\"is not an object\",\"field\":\"body\"}"
+		assert line(call("POST", "/deploys", "{\"service\":\"web\",\"units\":[{\"image\":\"app\",\"replicas\":1.5,\"mem\":1}]}")) == "422 {\"error\":\"is not an integer\",\"field\":\"units[0].replicas\"}"
+		assert line(call("POST", "/deploys", "{\"service\":\"web\",\"units\":[]}")) == "422 {\"error\":\"a deploy has at least one unit\",\"field\":\"units\"}"
+		assert line(call("GET", "/deploys/dep-7", "")) == "404 {\"error\":\"no deploy dep-7\"}"
+		assert line(call("GET", "/users", "")) == "404 {\"error\":\"no route GET /users\"}"
+		let wrong = call("DELETE", "/deploys", "")
+		assert line(wrong) == "405 {\"error\":\"DELETE is not allowed here\"}"
+		assert HeaderOf(wrong.Headers, "Allow") == Some[string]{Value: "GET, POST"}
+		let text = Handle(Request{Method: "POST", Path: "/deploys", Headers: []Header{Header{Name: "content-type", Value: "text/plain"}}, Body: "{}"})
+		assert line(text) == "415 {\"error\":\"the body is text/plain, not application/json\"}"
+		let _ = call("POST", "/deploys", "{\"service\":\"web\",\"units\":[{\"image\":\"app\",\"replicas\":1,\"mem\":1}]}")
+		assert line(call("POST", "/deploys/dep-1/release", "")) == "409 {\"error\":\"deploy dep-1 is pending and cannot release\"}"
+	}
+}
+
+test RoutesOfEachPath {
+	assert RouteOf("GET", "/deploys") == List
+	assert RouteOf("POST", "/deploys") == Create
+	assert RouteOf("GET", "/deploys/a") == Show{ID: "a"}
+	assert RouteOf("POST", "/deploys/a/cancel") == Act{ID: "a", Event: deploys.Cancel}
+	assert RouteOf("GET", "/deploys/a/cancel") == Wrong{Allow: "POST"}
+	assert RouteOf("POST", "/deploys/a/rollback") == Nowhere
+	assert RouteOf("GET", "/deploys/") == Nowhere
+	assert RouteOf("GET", "deploys") == Nowhere
+}
+
+// pick is the element of xs that n names, for any n.
+func pick(xs []string, n int) string { xs[(if n < 0 { -(n + 1) } else { n })%len(xs)] }
+
+let paths = []string{"/deploys", "/deploys/dep-1", "/deploys/dep-1/approve", "/deploys/dep-1/release", "/deploys/dep-2/cancel", "/deploys/x/y", "/", "/deploys/"}
+let bodies = []string{"", "{}", "[]", "{\"service\":\"web\",\"units\":[{\"image\":\"app\",\"replicas\":1,\"mem\":5}]}", "{\"service\":1}", "{"}
+
+test EveryRequestHasAStatusHolds(m int, p int, b int, body string) {
+	let store = memory.NewTable()
+	// Create one deploy first, so the paths of dep-1 reach a deploy.
+	let _ = with context { deploys.Store: store } { call("POST", "/deploys", pick(bodies, 3)) }
+	assert EveryRequestHasAStatusHolds(store, pick(Methods, m), pick(paths, p), pick(bodies, b))
+	assert EveryRequestHasAStatusHolds(store, pick(Methods, m), pick(paths, p), body)
+}
+
+// A generated draft is mostly invalid (an empty service, replicas out
+// of range), so this property makes it valid first, to reach the 201.
+test CreateThenShowHoldsForValidDrafts(d deploys.Draft, n int) {
+	let mut units = []deploys.Unit{deploys.Unit{Image: "image", Replicas: 1, Mem: 0}}
+	for l in d.Units {
+		units = units.Append(deploys.Unit{Image: "s" + l.Image, Replicas: 1 + (if l.Replicas < 0 { -(l.Replicas + 1) } else { l.Replicas })%1000, Mem: (if l.Mem < 0 { -(l.Mem + 1) } else { l.Mem }) % (deploys.MaxMem + 1)})
+	}
+	let valid = deploys.Draft{Service: "c" + d.Service, Units: units}
+	let store = memory.NewTable()
+	assert CreateThenShowHolds(store, valid)
+	assert with context { deploys.Store: store } { deploys.Store.Count() } == 1
+}

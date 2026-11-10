@@ -1,0 +1,176 @@
+// Package journal keeps the transitions of a durable machine actor, so a
+// new process recovers the actor's state (MU9; docs/spec/runtime.md,
+// Machines and actors 17). Journal is the contract: the signals that the
+// actor committed, in order, after the last snapshot of its state. The
+// providers live in packages named after what they keep the journal in:
+// journal/memory (the process's memory, for tests and for a restart in one
+// process) and journal/file (a file of the host). Start runs a machine as
+// an actor over a journal: it replays the journal with the machine's pure
+// step, then keeps each new transition before anyone sees it.
+//
+// Effect: effect-machine's persistence (lifecycle.recovery.resolve at
+// spawn, durability.save after each commit, and the cluster's journal of
+// accepted events); Akka Persistence (an event journal with snapshots,
+// replayed at start). Go control: an append-only log written before the
+// state changes, read back at start (a write-ahead log).
+
+import actor
+
+// Failed is the failure of a journal that could not keep or read its
+// transitions: Reason is the provider's text, such as the host's error.
+type Failed { Reason string }
+
+// Diverged is the failure of a Start whose journal does not fit the
+// machine: the machine's step, given the journal's signal At in the state
+// before it, does not commit a state (it ignores, rejects, ends or fails),
+// though a step committed it when it was kept. The journal is of another
+// machine, or of a step that has changed since.
+type Diverged { At int }
+
+// Log is what a journal holds: the last snapshot of the state, if there is
+// one, and the signals kept after it, in order.
+type Log[S, E] {
+	Snapshot Option[S],
+	Signals  []E,
+}
+
+// Journal keeps the committed signals of one machine actor and snapshots
+// of its state. One actor writes it at a time.
+type Journal[S, E] {
+	// Append keeps e after the signals kept before it. Once it returns,
+	// Load gives e.
+	Append(e E) fails Failed,
+	// Snapshot keeps s as the state after every signal kept so far and
+	// drops those signals: Load gives s and no signals.
+	Snapshot(s S) fails Failed,
+	// Load is the last snapshot and the signals after it.
+	Load() Log[S, E] fails Failed,
+
+	// AppendAddsOne: Append adds one signal to what Load gives, and keeps
+	// the snapshot.
+	law AppendAddsOne(e E) {
+		let before = Load() catch {
+		case Failed:
+			return true
+		}
+		Append(e) catch {
+		case Failed:
+			return true
+		}
+		let after = Load() catch {
+		case Failed:
+			return false
+		}
+		len(after.Signals) == len(before.Signals)+1 && same(after.Snapshot, before.Snapshot)
+	},
+	// SnapshotDropsSignals: after Snapshot, Load gives a snapshot and no
+	// signals.
+	law SnapshotDropsSignals(s S) {
+		Snapshot(s) catch {
+		case Failed:
+			return true
+		}
+		let after = Load() catch {
+		case Failed:
+			return false
+		}
+		len(after.Signals) == 0 && same(after.Snapshot, Some[S]{Value: s})
+	},
+}
+
+// same is whether a and b are both None or both Some: a law of Journal
+// cannot compare two states of an unknown type.
+func same[S](a Option[S], b Option[S]) bool {
+	match (a, b) {
+	case (Some[S], Some[S]):
+		true
+	case (None, None):
+		true
+	case (_, _):
+		false
+	}
+}
+
+// Codec turns a value into text and back, for a provider that keeps the
+// journal outside the process (journal/file). States and signals are not
+// codecs by themselves (em-parity M64): the program gives one for each.
+type Codec[T] {
+	// Encode is the text of v.
+	Encode(v T) string,
+	// Decode is the value whose text is text. It fails when text is not
+	// the text of any value.
+	Decode(text string) T fails Failed,
+
+	// RoundTrips: the value Decode gives back from Encode(v) has the text
+	// Encode(v), so a journal read back holds the values it kept.
+	law RoundTrips(v T) {
+		let text = Encode(v)
+		let back = Decode(text) catch {
+		case Failed:
+			return false
+		}
+		Encode(back) == text
+	},
+}
+
+// Start runs m as an actor whose committed transitions j keeps (Machines
+// and actors 17). It loads j and replays its signals from its snapshot,
+// or from m's initial state, with m's step; the actor starts in the state
+// that gives. It fails Diverged when a signal of j does not commit in that
+// replay, and Failed when j cannot be read. The actor then runs as
+// actor.StartDurable runs it, with the save j.Append(sig): each commit is
+// kept before anyone sees it, and a failure to keep it is a defect that
+// ends the actor (actor.StartDurable). After every `every` signals the
+// save also takes a snapshot of the state (none when every is 0 or less),
+// so a recovery replays fewer signals.
+//
+// The step of m must be pure (the checker's rule, S108): the replay steps
+// the signals again, so a step with an effect would act twice.
+func Start[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], j Journal[S, E], every int, capacity int, sink func(o O) needs R) actor.Actor[S, E, Decision[S, O], F] fails Failed | Diverged needs R | W | Scheduler {
+	let log = try j.Load()
+	let from = match log.Snapshot {
+	case Some[S] as s:
+		s.Value
+	case None:
+		m.Initial
+	}
+	let state = try replay(m.Step, from, log.Signals)
+	let mut since = len(log.Signals)
+	try actor.StartDurable(m, capacity, sink, func() Option[S] { Some[S]{Value: state} }, func(prev S, next S, sig E) fails Failed {
+		try j.Append(sig)
+		since = since + 1
+		if every > 0 && since >= every {
+			try j.Snapshot(next)
+			since = 0
+		}
+	})
+}
+
+// replay steps signals from s with step, as machines.From does, and is the
+// state after them. Each signal was committed when it was kept, so a step
+// that does not commit it (Ignore, Reject, Done, a failure) fails
+// Diverged at its index.
+func replay[S, E, O, F, R](step func(s S, e E) Decision[S, O] fails F needs R, s S, signals []E) S fails Diverged needs R {
+	let mut at = s
+	for i, e in signals {
+		let d = step(at, e) catch {
+		case _:
+			return Diverged{At: i}
+		}
+		match d {
+		case Enter[S] as en:
+			at = en.Next
+		case Stay[S] as st:
+			at = st.Next
+		case Emit[S, O] as em:
+			at = em.Next
+		case Ignore:
+			return Diverged{At: i}
+		case Reject:
+			return Diverged{At: i}
+		case Done[O]:
+			return Diverged{At: i}
+		}
+	}
+	at
+}

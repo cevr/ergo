@@ -21,12 +21,9 @@ import (
 // checkoutRoot is the real checkout's root, for a test that reads what the
 // gate declares of it: its packages and their closures (go list, which reads
 // every Go file of the module), the test names of the sharded packages, the
-// declared steps. Under -short (the fast tier) it skips: the fast tier keys
-// this package on its compiled closure and hostPackageInputs, and its input
-// observer (Step.ObserveInputs) fails the step on any read outside them;
-// keyed on every Go file of the module, the package would rerun (about 250 s)
-// on every edit. These tests run in the full tier, uncached, on every batch
-// head.
+// declared steps. Under -short it skips, so a lane's focused -short run
+// of this package stays short. The gate runs this host package only in
+// the full tier (classHeavy), uncached, on every batch head.
 func checkoutRoot(t *testing.T) string {
 	t.Helper()
 	if testing.Short() {
@@ -141,10 +138,9 @@ func fastPackageSteps(t *testing.T, root string) map[string][]*Step {
 // their full-tier step builds them; the nested modules' steps are the full
 // tier's own; no full-tier test step is left, the hermetic one included
 // (it relinks its test binaries on every run to find Go's cached result),
-// and neither is the build of every test binary, nor a need on it. A host
-// package (hostPackageInputs) is keyed on its declared list and runs under
-// the input observer only where the observer exists (observable, Linux);
-// elsewhere it is keyed on its closure table entry and is not observed.
+// and neither is the build of every test binary, nor a need on it, nor a
+// closure sweep. Each package is keyed on its closure table entry, and no
+// host package has a step (classHeavy).
 func TestFastStepsKeyEveryTestPackage(t *testing.T) {
 	root := checkoutRoot(t)
 	steps, err := fastSteps(root)
@@ -165,22 +161,18 @@ func TestFastStepsKeyEveryTestPackage(t *testing.T) {
 			t.Errorf("%s needs %q, which the fast tier does not run", step.Name, fullBuildStep)
 		}
 		switch {
-		case step.Sweep != "":
-			// The closure sweep's steps (TestClosureSweepTier).
 		case step.Package != nil:
 			keyed++
 			if !runsGoTest(step) || !slices.Contains(step.Argv, fastFlag) {
 				t.Errorf("%s: a package step that does not run go test -short: %q", step.Name, step.Argv)
 			}
-			declared, host := hostPackageInputs[step.Package.Dir]
-			observed := host && observable
-			if !observed {
-				declared = table[step.Package.Dir]
+			if slices.Contains(hostTestPackages, step.Package.Dir) {
+				t.Errorf("%s: a host package's tests are heavy (classHeavy); the fast tier runs none", step.Name)
 			}
-			if step.ObserveInputs != observed || !slices.Equal(step.Package.Declared, declared) {
-				t.Errorf("%s: observed %t, declared %v; on %s (observer: %t) want observed %t, declared %v: a package keyed on its declared inputs (hostPackageInputs) runs under the input observer, no other does, and without the observer a host package keeps its closure table entry", step.Name, step.ObserveInputs, step.Package.Declared, runtime.GOOS, observable, observed, declared)
+			if !slices.Equal(step.Package.Declared, table[step.Package.Dir]) {
+				t.Errorf("%s: declared %v; want its closure table entry %v", step.Name, step.Package.Declared, table[step.Package.Dir])
 			}
-			hermetic := strings.HasPrefix(step.Package.Dir, hermeticTestRoot) && !slices.Contains(hostTestPackages, step.Package.Dir)
+			hermetic := strings.HasPrefix(step.Package.Dir, hermeticTestRoot)
 			if hermetic != slices.Equal(step.Env, hermeticEnvironment) {
 				t.Errorf("%s: environment %q; a hermetic package's step builds with %q, no other step does", step.Name, step.Env, hermeticEnvironment)
 			}
@@ -193,46 +185,6 @@ func TestFastStepsKeyEveryTestPackage(t *testing.T) {
 	}
 	if keyed < 30 {
 		t.Errorf("%d keyed package steps; want one per test package", keyed)
-	}
-}
-
-// A step that runs under the input observer (Step.ObserveInputs) gets the
-// test log flag and passes only when the log is a complete observation
-// whose checkout reads its package key covers: a read outside the key, an
-// observation the observer could not complete, and no log at all fail the
-// step, so a declared list (hostPackageInputs) that misses an input goes red
-// instead of making a stale pass. The step here stands in for go test: it
-// writes the log the observer would.
-func TestObservedStepFailsOnAReadOutsideItsKey(t *testing.T) {
-	// $0 is the checkout root; the gate appends -args -test.testlogfile=<log>.
-	writer := func(log string) string {
-		return `for a; do case $a in -test.testlogfile=*) log=${a#*=};; esac; done; [ -n "$log" ] || exit 9; ` + log
-	}
-	cases := []struct {
-		name, script string
-		want         []string
-	}{
-		{"covered reads", writer(`printf '# test log\nopen %s/src/input.txt\nstat %s/src/missing\ngetenv HOME\nopen ../go.mod\nopen /etc/hostname\n' "$0" "$0" > "$log"`),
-			[]string{"== observed: ok"}},
-		{"a read outside the key", writer(`printf '# test log\nopen %s/src/input.txt\nopen %s/docs/notes.md\nstat ../docs/other.md\n' "$0" "$0" > "$log"`),
-			[]string{"== observed: FAILED", "its tests read 2 checkout paths its package key does not cover", "  docs/notes.md\n", "  docs/other.md\n"}},
-		{"an incomplete observation", writer(`printf '# test log\nopen %s/src/input.txt\ntestinputs: unobserved: clone' "$0" > "$log"`),
-			[]string{"== observed: FAILED", "the input observer could not observe the tests, so its declared key cannot be checked"}},
-		{"no log", writer(`:`),
-			[]string{"== observed: FAILED", "the tests wrote no input log"}},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			root := fixture(t)
-			step := &Step{Name: "observed", Argv: []string{"sh", "-c", c.script, root}, ObserveInputs: true,
-				Package: &replay.Closure{Dir: "src", Deps: []string{"src"}}}
-			_, out := runGate(t, root, t.TempDir(), []*Step{step})
-			for _, want := range c.want {
-				if !strings.Contains(out, want) {
-					t.Errorf("output lacks %q:\n%s", want, out)
-				}
-			}
-		})
 	}
 }
 
@@ -283,7 +235,7 @@ func TestTheClosureTableParses(t *testing.T) {
 
 // What a one-line edit reaches in the fast tier (gate-fast acceptance legs
 // 2 and 3, the deterministic part): a docs edit only the packages that read
-// every file; an edit of the checker's source the nine packages that build
+// every file; an edit of the checker's source the eleven packages that build
 // on it and those two. The fast set of the checker edit is measured
 // against a pinned CPU budget: the recorded CPU of the reached packages'
 // fast steps (fastCPUFile), which bounds the wall from below at a CPU
@@ -299,45 +251,33 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 		t.Fatal(err)
 	}
 	// What a reached package costs in the fast tier: the recorded CPU of
-	// its fast steps. A package with no row cannot be budgeted, where the
-	// fast set has a budget (observable, below).
+	// its fast steps. A package with no row cannot be budgeted. A host
+	// package has no fast step (classHeavy), so no edit reaches it here.
 	reach := func(file string) (dirs []string, cpu float64) {
 		for _, p := range packages {
-			if !p.closure.Covers(file) {
+			if !p.closure.Covers(file) || slices.Contains(hostTestPackages, p.dir) {
 				continue
 			}
 			dirs = append(dirs, p.dir)
 			recorded, ok := fastCPU[p.importPath]
-			if !ok && observable {
+			if !ok {
 				t.Errorf("%s has no row in %s: run go run ./scripts/gate -record-durations -fast ./%s", p.dir, fastCPUFile, p.dir)
 			}
 			cpu += recorded
 		}
 		return dirs, cpu
 	}
-	// Without the input observer (observable) the host package keeps its
-	// closure table entry, the whole checkout (TestFastStepsKeyEveryTestPackage):
-	// every edit reaches it, and it runs on every fast gate there. The CPU
-	// budget is the lane host's (Linux), where the observer keys it on its
-	// declared inputs; off Linux the fast set is not budgeted.
-	var everyEdit []string
-	if !observable {
-		everyEdit = []string{"scripts/gate"}
-	}
 	docs, _ := reach("docs/tooling.md")
-	if want := append([]string{"internal/residue", "internal/testinputs/guard"}, everyEdit...); !slices.Equal(docs, want) {
-		t.Errorf("a docs edit reaches %v; want %v (%s, observer: %t)", docs, want, runtime.GOOS, observable)
+	if want := []string{"internal/residue", "internal/testinputs/guard"}; !slices.Equal(docs, want) {
+		t.Errorf("a docs edit reaches %v; want %v", docs, want)
 	}
 	check, cpu := reach("internal/sketch/check/check.go")
 	// scripts/examples builds on the checker since d3-lawcheck-model
-	// (batch 9): its examples runner imports the checker.
-	want := append([]string{"cmd/ergo", "internal/bindc", "internal/migrate196", "internal/residue", "internal/sketch/check", "internal/sketch/lower", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "scripts/examples"}, everyEdit...)
+	// (batch 9): its examples runner imports the checker. internal/gobind
+	// (IG1-IG3) and internal/sketch/machinegraph (batch 13) import it too.
+	want := []string{"cmd/ergo", "internal/bindc", "internal/gobind", "internal/migrate196", "internal/residue", "internal/sketch/check", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "scripts/examples"}
 	if !slices.Equal(check, want) {
-		t.Errorf("a checker edit reaches %v; want %v (%s, observer: %t)", check, want, runtime.GOOS, observable)
-	}
-	if !observable {
-		t.Logf("%s has no input observer: the host package scripts/gate runs on every edit, and the fast set has no CPU budget here", runtime.GOOS)
-		return
+		t.Errorf("a checker edit reaches %v; want %v", check, want)
 	}
 	t.Logf("the checker edit's fast set: %.1f CPU-s recorded, target %.0f, gap %.1f", cpu, fastCPUTarget, cpu-fastCPUTarget)
 	if fastCPUKnownGap != 0 {

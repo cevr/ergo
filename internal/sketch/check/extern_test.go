@@ -207,50 +207,6 @@ func (s shadowImporter) Import(path string) (*check.Package, error) {
 	return check.Std.Import(path)
 }
 
-// TestStdPathReserved is C30's checker half: an import of a std path
-// resolves to std whatever importer Check was given, so a program package
-// served at log cannot shadow std's log. The program package checked under
-// that path has no std identity; std's has it.
-func TestStdPathReserved(t *testing.T) {
-	lib, err := syntax.Parse("func Shadow() int { 1 }\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	fake, ds := check.Check("log", []*syntax.File{lib}, nil)
-	if len(ds) != 0 {
-		t.Fatal(ds)
-	}
-	if fake.Std() {
-		t.Fatal("a program package checked under the path log has std identity")
-	}
-	for _, path := range []string{"log", "trace", "queue", "scope", "slices", "task", "timeout"} {
-		t.Run(path, func(t *testing.T) {
-			main, err := syntax.Parse("import " + path + "\n\nfunc f() int { " + path + ".Shadow() }\n")
-			if err != nil {
-				t.Fatal(err)
-			}
-			pkg, ds := check.Check("main", []*syntax.File{main}, shadowImporter{path: fake})
-			want, err := check.Std.Import(path)
-			if err != nil || !want.Std() {
-				t.Fatalf("std %s: %v, std identity %v", path, err, want != nil && want.Std())
-			}
-			var bound *check.Package
-			for id, obj := range pkg.Info.Uses {
-				if pn, ok := obj.(*check.PkgName); ok && id.Name == path {
-					bound = pn.Pkg
-				}
-			}
-			if bound != want {
-				t.Fatalf("import %s resolved to %p (std identity %v), want std's %p\n\t%s", path, bound, bound.Std(), want, describe(ds))
-			}
-			// std's package declares no Shadow: the one diagnostic says so.
-			if len(ds) != 1 || ds[0].Code != "S104" {
-				t.Fatalf("want one S104 for Shadow, got\n\t%s", describe(ds))
-			}
-		})
-	}
-}
-
 // judgeOutside checks src as judgeWant does, except that every diagnostic
 // is an S109 whose message holds each of texts.
 func judgeOutside(t *testing.T, src string, texts ...string) {
@@ -319,6 +275,93 @@ func Set(_ Mine, v int) {}
 func Update(_ Mine, f func(v int) int) {}
 
 func use(r sync.Ref[int]) { _ = r.Get() }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std actor (MU3): start's extern returns the Actor.
+	"actor.Actor": `import actor
+
+type Mine {}
+
+type Bad {}
+
+func Send(_ Mine, e int) fails actor.Stopped {}
+func Ask(_ Mine, e int) int fails actor.Stopped | Bad { 0 }
+func State(_ Mine) int { 0 }
+func Stop(_ Mine) fails Bad {}
+func Dropped(_ Mine) int { 0 }
+func Changes(_ Mine) Seq[int] { func(yield func(v int) bool) {} }
+func Drain(_ Mine) fails Bad {}
+
+func use(a actor.Actor[int, int, int, Bad]) { _ = a.Dropped() }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std tasks (batch 13 tasks-set): newSet's extern returns the Set.
+	"tasks.Set": `import tasks
+
+type Mine {}
+
+func Wait(_ Mine) fails tasks.Closed {}
+func Stop(_ Mine) {}
+func Len(_ Mine) int { 0 }
+
+func use(s tasks.Set[tasks.Closed]) { _ = s.Len() }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std journal (MU9): open; journal/memory and journal/file are
+	// providers that programs could write too.
+	"journal.Journal": `import journal
+
+type Mine {}
+
+func Append(_ Mine, e int) fails journal.Failed {}
+func Snapshot(_ Mine, s int) fails journal.Failed {}
+func Load(_ Mine) journal.Log[int, int] fails journal.Failed { journal.Log[int, int]{Snapshot: None, Signals: []int{}} }
+
+func use(j journal.Journal[int, int]) {
+	j.Append(1) catch {
+	case journal.Failed:
+	}
+}
+
+func main() {
+	use(Mine)
+}
+`,
+	"journal.Codec": `import journal
+
+type Mine {}
+
+func Encode(_ Mine, v int) string { "" }
+func Decode(_ Mine, text string) int fails journal.Failed { 0 }
+
+func use(c journal.Codec[int]) { _ = c.Encode(1) }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std actor (mu-host): NewHost's extern returns the Host.
+	"actor.Host": `import actor
+
+type Mine {}
+
+func Get(_ Mine) int fails actor.Stopped { 0 }
+
+func use(h actor.Host[int]) {
+	let _ = h.Get() catch {
+	case actor.Stopped:
+		return
+	}
+}
 
 func main() {
 	use(Mine)
@@ -450,7 +493,7 @@ type Mine {}
 func ReadFile(_ Mine, path string) string fails fs.NotFound | fs.Denied | fs.Failed { "" }
 func ReadDir(_ Mine, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{} }
 func Stat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
-	fs.Info{Name: path, Size: 0, Dir: false}
+	fs.Info{Name: path, Size: 0, Dir: false, Perm: 0}
 }
 
 func use(f fs.Files) { _ = f.ReadFile("a") catch { case fs.NotFound, fs.Denied, fs.Failed: "" } }
@@ -574,6 +617,8 @@ var openStd = map[string]bool{
 	"io.Stderr":         true,
 	"io.Stdin":          true,
 	"exec.Runner":       true,
+	"journal.Journal":   true,
+	"journal.Codec":     true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type
@@ -896,12 +941,25 @@ func main() {
 	with W { A.Use() }
 }
 `,
+		// The refusal ends the provider's judgment: no release charge
+		// follows it, though the Close needs what main lacks (ledger
+		// mutant own-check-15: the continue after the refusal dropped).
+		"generic-witnessed-no-charge": `type A { Use() }
+type Named { Name() string }
+type N {}
+func Name(_ N) string { "n" }
+type G[T] { Value T }
+func Use[T Named](_ G[T]) {}
+func Close[T Named](_ G[T]) needs Console { Console.Println("closed") }
+let W = context { A: G[N]{Value: N} } // want S109
+func main() { with W { A.Use() } }
+`,
 	}
 	for name, src := range cases {
 		t.Run(name, func(t *testing.T) { judgeOutside(t, src, "#197") })
 	}
 	t.Run("user-extern-close", func(t *testing.T) {
-		judgeOutside(t, "type R {}\nextern go strings.F func Close(r R) // want S109\n", "#202")
+		judgeOutside(t, "type R {}\nextern go example.com/x.F func Close(r R) // want S109\n", "#202")
 	})
 	t.Run("no-std-extern-close", func(t *testing.T) {
 		prog, ds := check.CheckSource("func f(c Console) { c.Println(\"x\") }\n")

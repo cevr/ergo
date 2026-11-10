@@ -28,7 +28,11 @@ import (
 // Ergo program.
 var externErrorSeed = flag.Uint64("externerror.seed", 0, "run TestExternErrorRowRuns on this seed alone")
 
+// TestExternErrorRowRuns builds Go because it checks what the built program
+// prints and how it exits; no in-process check observes that, and Ergo has
+// no reference interpreter yet (test-speed T8).
 func TestExternErrorRowRuns(t *testing.T) {
+	needsBuild(t)
 	seeds := []uint64{1, 2}
 	if *externErrorSeed != 0 {
 		seeds = []uint64{*externErrorSeed}

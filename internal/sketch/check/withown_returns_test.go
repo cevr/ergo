@@ -271,7 +271,8 @@ func TestContextOwnershipReturnCatalog(t *testing.T) {
 	// An operation type's laws have bodies, but parseMembersType builds an
 	// InterfaceType with laws only for a top-level type declaration, never
 	// inside a function body; each law body is its own frame.
-	declOnly := map[string]bool{"InterfaceType": true}
+	// So does a machine type's (MU6).
+	declOnly := map[string]bool{"InterfaceType": true, "MachineType": true}
 	for name := range exprs {
 		st := structs[name]
 		if st == nil {

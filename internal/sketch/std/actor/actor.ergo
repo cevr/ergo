@@ -1,0 +1,579 @@
+// Package actor runs a machine live, as an actor: one task of its own that
+// steps the machine over the signals of an inbox, one at a time
+// (docs/spec/runtime.md, Machines and actors 6, 7 and 11; #57, #101). The
+// pure fold of the same machine is std machines; machines.RunTimed is the
+// reference this runner keeps (rule 10 of the runner contract). The Go body
+// is runtime/v1's MachineStart and the methods of its Actor; the caller's
+// task and Scheduler are hidden arguments (docs/spec/stdlib.md, Hidden
+// arguments).
+//
+// Effect: effect-machine's Machine.spawn and its actor ref (send, call,
+// waitFor, subscribe, stop); Erlang gen_statem run by its process. Go
+// control: a goroutine with a channel and a switch on the state.
+
+import machines
+import tasks
+
+// Stopped is the failure of Send and Ask on an actor that has ended (Done,
+// a failure after a Send or a timer, a defect, Stop) or whose Stop was
+// requested, and the answer of an Ask that was queued or in a step when
+// the actor ended. An ended actor is a normal end of the protocol, not a
+// stop of the caller.
+type Stopped {}
+
+// Actor is a running machine with state S, signal E, step decision D and
+// step error row F (StartMachine gives D = Decision[S, O]). Its values are
+// copies of one handle: any task may Send, Ask, read State and Stop.
+type Actor[S, E, D, F] {
+	// Send admits e into the inbox, waiting while it is full, and returns
+	// once e is queued, before it is stepped. A sender's signals are
+	// stepped in the order it sent them. It fails Stopped when the actor
+	// has ended or its Stop was requested.
+	Send(e E) fails Stopped,
+	// Ask admits e and waits until the actor has stepped it, committed and
+	// answered: the step's decision (a Reject included), or the step's
+	// failure, after which the actor goes on. It fails Stopped when the
+	// actor ended before e was stepped.
+	Ask(e E) D fails Stopped | F,
+	// State is the state after every signal admitted before it; on an
+	// ended actor, its last state. It never fails.
+	State() S,
+	// Stop closes admission, stops the actor and waits until it has ended,
+	// its timer stopped and its queued Asks answered Stopped. It fails with
+	// the step failure that ended the actor after a Send or a timer, if
+	// one did. A second Stop does the same at once.
+	Stop() fails F,
+	// Dropped is how many timer and work signals of ended entries the
+	// actor dropped instead of stepping them (runner rules 6 and 11).
+	Dropped() int,
+	// Changes is the actor's state when the loop begins, then each state
+	// it commits (Enter, Stay, Emit), in order, once each, whatever the
+	// number of loops; it ends after the actor ends and it gave every
+	// state committed before the end, also one a stop overtook. A break
+	// ends it. A loop that does not read keeps the states.
+	Changes() Seq[S],
+	// Drain closes admission, so later Sends and Asks fail Stopped, and
+	// waits until the actor has stepped every signal queued before it, in
+	// order, its Asks answered, and then ended. A Done, a failure or a
+	// defect among them ends it there. It returns as Stop does, and a Stop
+	// overtakes it: the rest is dropped.
+	Drain() fails F,
+
+	// StopIsFinal: after Stop, no signal is admitted: Send fails Stopped.
+	law StopIsFinal(e E) {
+		Stop() catch {
+		case _:
+		}
+		Send(e) catch {
+		case Stopped:
+			return true
+		}
+		false
+	},
+	// ChangesStops: Changes is a Seq that stops (stdlib.md, Std laws 5).
+	// On a stopped actor it gives one value, its last state, so a yield
+	// that returns false at its k-th call (k of 1 or more) is called once.
+	law ChangesStops(k int) {
+		if k < 1 {
+			return true
+		}
+		Stop() catch {
+		case _:
+		}
+		let mut calls = 0
+		let s = Changes()
+		s(func(v S) bool {
+			calls = calls + 1
+			calls < k
+		})
+		calls == 1
+	},
+}
+
+// start is the Go body: the machine's first state, the state of each
+// restart (fresh; its failure is a defect of the restart) and the number
+// of restarts after a defect (limit; 0 restarts none, and fresh never
+// runs), its step, the step of a timer signal (fire), the delay of each
+// state's timer (noTimer() for none; one that is not positive is a
+// defect), each state's work (workOf gives it, hasWork says whether it is
+// one, and work runs it with the entry's send), the decision's kind
+// (Enter 0, Stay 1, Emit 2, Ignore 3, Reject 4, Done 5), the state after
+// a decision, the output of a decision, and the inbox's capacity.
+extern go ergo.local/prototype/runtime/v1.MachineSupervise func start[S, E, D, W, F, R, G](initial S, fresh func() S fails G needs R, limit int, step func(s S, e E) D fails F needs R, fire func(at S, s S) D fails F needs R, delay func(s S) duration, workOf func(s S) W, hasWork func(w W) bool, work func(w W, send func(e E)) needs R, kind func(d D) int, next func(s S, d D) S, out func(d D) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
+
+// noTimer is the delay start reads as "no timer" for a state whose After
+// is None.
+extern go ergo.local/prototype/runtime/v1.ActorNoTimer func noTimer() duration
+
+// StartMachine runs m as an actor with an inbox of capacity signals (0
+// makes each Send wait for the actor to take it; a negative capacity is a
+// defect) and returns at once. The actor steps one signal at a time, on
+// its own task, which a stop of the calling task stops: Enter, Stay and
+// Emit commit their Next; each entry (the first state, an Enter, an Emit)
+// arms m.After's timer on the caller's Scheduler, stopped and drained
+// before the next entry arms its own; a timer of an ended entry is
+// dropped. A timer whose In is not positive is a defect that ends the
+// actor, as in machines.RunTimed: it would fire at its entry's instant,
+// and a state whose timer re-enters it would never let time pass. sink gets each Emit's output and Done's output, in order, on
+// the actor's task, before any observer sees the decision or its state
+// (runtime.md, Machines and actors 11.15); Done then ends the actor. A machine with an input
+// starts as machines.Start(m, input).
+func StartMachine[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], capacity int, sink func(o O) needs R) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+	let first = m.Initial
+	launch(m, capacity, sink, func() S { first }, 0)
+}
+
+// Supervise is StartMachine for an actor that restarts after a defect
+// (MU7; runtime.md, Machines and actors 18), under the policy of
+// tasks.Restart: a defect of a step, a timer, a work, a child or a source
+// ends the actor's incarnation, and while fewer than policy.Limit
+// restarts were made, a new incarnation starts in m's initial state,
+// never in the last one. The crash ends the incarnation as an end does:
+// its children, timer and work stop, the Ask in the step and every queued
+// Ask get Stopped, queued Sends are dropped; Sends and Asks after it go
+// to the new incarnation, through the same Actor. Done, Stop, Drain and a
+// typed failure that ends the actor are final: no restart follows them.
+// The defect that finds the budget spent ends the actor, and Stop raises
+// it. Restarts counts the restarts. A negative Limit is a defect.
+func Supervise[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], capacity int, sink func(o O) needs R, policy tasks.Restart) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+	let first = m.Initial
+	launch(m, capacity, sink, func() S { first }, policy.Limit)
+}
+
+// Restarts is how many times a restarted after a defect (Supervise,
+// SuperviseDurable); 0 for an actor that never did.
+extern go ergo.local/prototype/runtime/v1.ActorRestarts func Restarts[S, E, D, F](a Actor[S, E, D, F]) int
+
+// launch is the body of StartMachine and Supervise: m as an actor whose
+// restarts (limit of them) start in fresh's state.
+func launch[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink func(o O) needs R, fresh func() S fails G needs R, limit int) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+	start(m.Initial, fresh, limit, m.Step, func(at S, s S) Decision[S, O] fails F needs R {
+		match m.After(at) {
+		case Some[Timeout[E]] as t:
+			try m.Step(s, t.Value.Signal)
+		case None:
+			Ignore
+		}
+	}, func(s S) duration {
+		match m.After(s) {
+		case Some[Timeout[E]] as t:
+			t.Value.In
+		case None:
+			noTimer()
+		}
+	}, m.Work, func(w Option[func(send func(e E)) needs W]) bool {
+		match w {
+		case Some[func(send func(e E)) needs W]:
+			true
+		case None:
+			false
+		}
+	}, func(w Option[func(send func(e E)) needs W], send func(e E)) needs W {
+		match w {
+		case Some[func(send func(e E)) needs W] as wk:
+			wk.Value(send)
+		case None:
+		}
+	}, func(d Decision[S, O]) int {
+		match d {
+		case Enter[S]:
+			0
+		case Stay[S]:
+			1
+		case Emit[S, O]:
+			2
+		case Ignore:
+			3
+		case Reject:
+			4
+		case Done[O]:
+			5
+		}
+	}, func(s S, d Decision[S, O]) S { machines.Next(s, d) }, func(d Decision[S, O]) needs R {
+		match d {
+		case Emit[S, O] as em:
+			sink(em.Output)
+		case Done[O] as dn:
+			sink(dn.Output)
+		case Enter[S]:
+		case Stay[S]:
+		case Ignore:
+		case Reject:
+		}
+	}, capacity)
+}
+
+// StartDurable is StartMachine for a machine whose transitions outlive the
+// actor (MU9; runtime.md, Machines and actors 17). recover runs once, at
+// the start: Some state is the state the actor starts in, None starts it
+// in m's initial state; a failure of recover fails StartDurable, and no
+// actor starts. save gets the state before, the state after and the
+// signal of each step that commits (Enter, Stay, Emit; a timer's and a
+// work's signal too). It runs after the step decided and before the actor
+// commits the state, opens the entry, gives an output or answers the Ask,
+// so no one sees a state that save did not keep. Ignore, Reject and Done
+// commit no state, so save does not run for them. A failure of save is a
+// defect that ends the actor (ActorSaveDefect, with the failure's text):
+// the actor cannot keep its promise that a committed state outlives it,
+// and the state does not change; an Ask in the step gets Stopped.
+//
+// The step of m must be pure: the checker refuses a machine whose step
+// has an effect (S108), because a recovery steps the saved signals again.
+// Work and timers stay: their results reach the step as signals, and save
+// keeps those the step commits. A signal of an ended entry is dropped
+// before the step (runner rule 6), so it is never saved and never
+// replayed.
+func StartDurable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink func(o O) needs R, recover func() Option[S] fails G needs R, save escaping func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
+	let initial = try recovered(recover, m.Initial)
+	StartMachine(durable(m, initial, save), capacity, sink)
+}
+
+// SuperviseDurable is Supervise for a durable machine (StartDurable): the
+// first incarnation starts as StartDurable starts, and each restart runs
+// recover again, so the new incarnation starts in the last state save
+// kept (or m's initial state on None), never in the crashed one's memory.
+// A failure of recover at the start fails SuperviseDurable; at a restart
+// it is a defect of the new incarnation (ActorFreshDefect), which the
+// budget counts like any other.
+func SuperviseDurable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink func(o O) needs R, policy tasks.Restart, recover escaping func() Option[S] fails G needs R, save escaping func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
+	let first = m.Initial
+	let initial = try recovered(recover, first)
+	launch(durable(m, initial, save), capacity, sink, func() S fails G needs R { try recovered(recover, first) }, policy.Limit)
+}
+
+// recovered is recover's state, or initial on None.
+func recovered[S, G, R](recover func() Option[S] fails G needs R, initial S) S fails G needs R {
+	match try recover() {
+	case Some[S] as s:
+		s.Value
+	case None:
+		initial
+	}
+}
+
+// durable is m starting in initial, with save run on each committed
+// transition (keep) before the actor commits it.
+func durable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], initial S, save escaping func(prev S, next S, sig E) fails G needs R) Machine[S, E, O, F, R, W] {
+	let step = m.Step
+	Machine[S, E, O, F, R, W]{Initial: initial, Step: func(s S, e E) Decision[S, O] fails F needs R {
+		let d = try step(s, e)
+		match d {
+		case Enter[S] as en:
+			keep(save, s, en.Next, e)
+		case Stay[S] as st:
+			keep(save, s, st.Next, e)
+		case Emit[S, O] as em:
+			keep(save, s, em.Next, e)
+		case Ignore:
+		case Reject:
+		case Done[O]:
+		}
+		d
+	}, After: m.After, Work: m.Work}
+}
+
+// keep is save(prev, next, sig), with its failure a defect
+// (ActorSaveDefect): the Go body ActorKeep.
+extern go ergo.local/prototype/runtime/v1.ActorKeep func keep[S, E, G, R](save func(prev S, next S, sig E) fails G needs R, prev S, next S, sig E) needs R
+
+// child is start for a child of an entry (MU5; Go body MachineChild): out
+// gets each decision with deliver, which gives a child output to the
+// parent as a signal of the entry that owns the child. host is the host
+// the child fills (ChildIn), or noHost() (Child).
+extern go ergo.local/prototype/runtime/v1.MachineChild func child[S, E, D, W, F, R, P](host Host[Actor[S, E, D, F]], initial S, step func(s S, e E) D fails F needs R, fire func(at S, s S) D fails F needs R, delay func(s S) duration, workOf func(s S) W, hasWork func(w W) bool, work func(w W, send func(e E)) needs R, kind func(d D) int, next func(s S, d D) S, out func(d D, deliver func(p P)) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
+
+// Child runs m as an actor that the entry of the calling work owns
+// (runtime.md, Machines and actors 14), with an inbox of capacity
+// signals, and returns it; call it in a machine's work, with that work's
+// send. The child runs as StartMachine runs it. Its Emit and Done outputs
+// reach the parent through toParent, as signals of the entry that started
+// the child: one that arrives after that entry ended is dropped, never
+// stepped. When the entry ends, and when the parent ends, its children
+// stop, the last started first, each one with its own children first,
+// before the parent's timer and work stop and before its next entry
+// opens; a Send to a stopped child fails Stopped. Children are kept by
+// identity: two children of one machine are two children. A child's
+// failure ends only the child (ExitOf reads it); a child's defect ends the
+// parent. send names the entry's signal type, so toParent gives the
+// parent's signals; the checker accepts a Child only with the send of the
+// Listen work that encloses the call (S108 elsewhere).
+func Child[S, E, O, F, R, W, P](send func(e P), m Machine[S, E, O, F, R, W], capacity int, toParent func(o O) P) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+	childOf(noHost[Actor[S, E, Decision[S, O], F]](), m, capacity, toParent)
+}
+
+// Hosts (mu-host; runtime.md, Machines and actors 16): a name for a child
+// before it exists.
+
+// Host is an empty slot for one A, the child that an entry's work starts.
+// A step makes it with NewHost and puts it in the state it enters; that
+// entry owns it, its work fills it once with ChildIn, and it ends with the
+// entry. The actor shows the entry only after its work filled its hosts,
+// waited, or ended, so a reader that sees the entry finds each host filled
+// unless the work waited first.
+// law-exempt: a host's answers depend on its owner entry, which only an actor's runner opens, fills and ends, and a law has no running entry; the runner's property TestActorHostAgreesWithModel holds its rules against the model host.qnt.
+type Host[A] {
+	// Get is the child once the entry's work filled the host, waiting
+	// while it is empty; it fails Stopped once the entry ended, also after
+	// the fill, so a host never gives a child of another entry.
+	Get() A fails Stopped,
+}
+
+// NewHost is an empty host. Made in a step of an actor, it belongs to the
+// entry the step enters (an Enter or an Emit; a Stay's is the current
+// entry's) and closes when the step enters no state. Made anywhere else,
+// no entry owns it: Get fails Stopped and ChildIn on it is a defect.
+extern go ergo.local/prototype/runtime/v1.NewHost func NewHost[A]() Host[A]
+
+// noHost is the host Child gives child: none.
+extern go ergo.local/prototype/runtime/v1.ActorNoHost func noHost[A]() Host[A]
+
+// ChildIn is Child that fills host with the child it starts: call it in a
+// machine's work, with that work's send, on a host that the entry of the
+// work owns and that is empty. Any other host is a defect, with no child
+// started: a host of an ended entry (a state that carried it into a new
+// entry), a filled host, or one that no entry owns.
+func ChildIn[S, E, O, F, R, W, P](send func(e P), host Host[Actor[S, E, Decision[S, O], F]], m Machine[S, E, O, F, R, W], capacity int, toParent func(o O) P) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+	childOf(host, m, capacity, toParent)
+}
+
+// childOf is the body of Child and ChildIn.
+func childOf[S, E, O, F, R, W, P](host Host[Actor[S, E, Decision[S, O], F]], m Machine[S, E, O, F, R, W], capacity int, toParent func(o O) P) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+	child(host, m.Initial, m.Step, func(at S, s S) Decision[S, O] fails F needs R {
+		match m.After(at) {
+		case Some[Timeout[E]] as t:
+			try m.Step(s, t.Value.Signal)
+		case None:
+			Ignore
+		}
+	}, func(s S) duration {
+		match m.After(s) {
+		case Some[Timeout[E]] as t:
+			t.Value.In
+		case None:
+			noTimer()
+		}
+	}, m.Work, func(w Option[func(send func(e E)) needs W]) bool {
+		match w {
+		case Some[func(send func(e E)) needs W]:
+			true
+		case None:
+			false
+		}
+	}, func(w Option[func(send func(e E)) needs W], wsend func(e E)) needs W {
+		match w {
+		case Some[func(send func(e E)) needs W] as wk:
+			wk.Value(wsend)
+		case None:
+		}
+	}, func(d Decision[S, O]) int {
+		match d {
+		case Enter[S]:
+			0
+		case Stay[S]:
+			1
+		case Emit[S, O]:
+			2
+		case Ignore:
+			3
+		case Reject:
+			4
+		case Done[O]:
+			5
+		}
+	}, func(s S, d Decision[S, O]) S { machines.Next(s, d) }, func(d Decision[S, O], deliver func(p P)) needs R {
+		match d {
+		case Emit[S, O] as em:
+			deliver(toParent(em.Output))
+		case Done[O] as dn:
+			deliver(toParent(dn.Output))
+		case Enter[S]:
+		case Stay[S]:
+		case Ignore:
+		case Reject:
+		}
+	}, capacity)
+}
+
+// Sources of an actor (MU10; runtime.md, Machines and actors 15).
+
+// feed is Feed's Go body (ActorFeed): it admits run, which the actor's
+// runner starts on a task of its own with a send of the actor's signals.
+extern go ergo.local/prototype/runtime/v1.ActorFeed func feed[S, E, D, F](a Actor[S, E, D, F], run func(send func(e E))) fails Stopped
+
+// Feed gives a the values of source as signals, in source's order, for as
+// long as a runs, and returns once the source is admitted. The source runs
+// on a task that a owns, not the caller: it ends when it ends, and when a
+// ends (a Done, a failure, a defect, Stop, Drain) its next value is not
+// sent and the source ends there; a source that waits is stopped. When
+// Stop, Drain or ExitOf returns, no source of a runs. A source's values
+// are a sender's: a full inbox makes the source wait, and Stop drops the
+// queued ones. A defect of the source ends a, as a work's defect does. It
+// fails Stopped when a has ended or its Stop was requested; the source
+// then never runs. The card reader of a sign-in screen is one: each card
+// it reads is a signal, and the reader stops with the screen.
+func Feed[S, E, D, F](a Actor[S, E, D, F], source Seq[E]) fails Stopped {
+	try feed(a, func(send func(e E)) {
+		for e in source {
+			send(e)
+		}
+	})
+}
+
+// live is a State read that fails Stopped when a has ended before it was
+// answered (ActorLiveState).
+extern go ergo.local/prototype/runtime/v1.ActorLiveState func live[S, E, D, F](a Actor[S, E, D, F]) S fails Stopped
+
+// Can is whether a would take e now: false when a has ended (no step
+// runs then), else machines.Can(step, s, e) for the state s after every
+// signal admitted before it, as State reads it. step is a's step, pure:
+// Can runs it on the caller's task and commits nothing. A screen greys a
+// key whose signal the actor cannot take.
+func Can[S, E, O, F](a Actor[S, E, Decision[S, O], F], step func(s S, e E) Decision[S, O], e E) bool {
+	let s = live(a) catch {
+	case Stopped:
+		return false
+	}
+	machines.Can(step, s, e)
+}
+
+// Observing an actor (MU12; runtime.md, Machines and actors 13). Each of
+// these is a loop over Changes, so it judges the state at its start, then
+// each committed state once, in order, and it releases its subscription
+// when it returns. No callback is registered with the actor and none runs
+// on its task.
+
+// WaitFor is the first state that pred accepts: the state when the call
+// begins, then each state the actor commits after it, in order; a state
+// committed before the actor ended counts, also when a stop overtook it.
+// It fails Stopped when the actor ends with no such state.
+func WaitFor[S, E, D, F, R](a Actor[S, E, D, F], pred func(s S) bool needs R) S fails Stopped needs R {
+	for s in a.Changes() {
+		if pred(s) {
+			return s
+		}
+	}
+	Stopped
+}
+
+// SendAndWait sends e, and is the first state that pred accepts from the
+// state before e on: it takes the actor's state, sends e, then judges
+// that state and each one the actor commits after it, as WaitFor does. So
+// a change e makes is never missed, also when another sender's signal
+// comes between. It fails Stopped when the Send does, or when the actor
+// ends with no such state.
+func SendAndWait[S, E, D, F, R](a Actor[S, E, D, F], e E, pred func(s S) bool needs R) S fails Stopped needs R {
+	let mut sent = false
+	for s in a.Changes() {
+		if !sent {
+			sent = true
+			try a.Send(e)
+		}
+		if pred(s) {
+			return s
+		}
+	}
+	Stopped
+}
+
+// Finished is an actor that its step ended with Done: its last state and
+// Done's output.
+type Finished[S, O] {
+	State S,
+	Output O,
+}
+
+// Halted is an actor that Stop, Drain or a stop of the task that started
+// it ended: its last state.
+type Halted[S] {
+	State S,
+}
+
+// Defected is an actor that a defect ended (of its step, its timer or its
+// work). The defect itself is Stop's to raise.
+type Defected {}
+
+// Failed is an actor that its step's typed failure ended, after a Send or
+// a timer: the failure, a value of the row F (owner q47; an Ask's failure
+// goes to the asker and ends nothing).
+type Failed[F] {
+	Error F,
+}
+
+// Exit is how an actor ended, as Effect's Exit is: done, stopped, failed
+// with a typed failure, or a defect.
+type Exit[S, O, F] = Finished[S, O] | Halted[S] | Failed[F] | Defected
+
+// ExitOf waits until a has ended and is how it ended. The exit is one
+// value: every caller, at any time, gets the same, and Stop and Drain
+// return the failure that Failed holds or raise the defect that Defected
+// reports. A stop of the waiting task ends the wait.
+func ExitOf[S, E, O, F](a Actor[S, E, Decision[S, O], F]) Exit[S, O, F] {
+	let k = exitKind(a)
+	if k == 0 {
+		match final(a) {
+		case Done[O] as d:
+			return Finished[S, O]{State: a.State(), Output: d.Output}
+		case _:
+		}
+	}
+	if k == 2 {
+		failure(a) catch {
+		case err:
+			return Failed[F]{Error: err}
+		}
+	}
+	if k == 3 {
+		return Defected
+	}
+	Halted[S]{State: a.State()}
+}
+
+// Latest is the decision of the last signal a stepped (a Reject and an
+// Ignore included; a dropped timer or work signal is not stepped), None
+// before the first. It does not wait.
+func Latest[S, E, D, F](a Actor[S, E, D, F]) Option[D] {
+	if hasLatest(a) {
+		Some[D]{Value: latest(a)}
+	} else {
+		None
+	}
+}
+
+// Select is f of each state of changes, with each value equal (==) to
+// the one before it dropped: a view of one part of the state that changes
+// only when that part does. Select(a.Changes(), f) gives f of the state
+// at its start first.
+func Select[S, T comparable](changes Seq[S], f escaping func(s S) T) Seq[T] {
+	SelectBy(changes, f, func(x T, y T) bool { x == y })
+}
+
+// SelectBy is Select with the equality same.
+func SelectBy[S, T](changes Seq[S], f escaping func(s S) T, same escaping func(x T, y T) bool) Seq[T] {
+	Seq[T](func(yield func(v T) bool) {
+		let mut prev = []T{}
+		for s in changes {
+			let v = f(s)
+			if len(prev) == 1 && same(prev[0], v) {
+				continue
+			}
+			prev = []T{v}
+			if !yield(v) {
+				return
+			}
+		}
+	})
+}
+
+// exitKind waits until a has ended and gives how: 0 Finished, 1 Halted,
+// 2 Failed, 3 Defected. final is the Done that ended it (kind 0), failure
+// fails with its typed failure (kind 2), and hasLatest and latest are
+// the decision of its last step.
+extern go ergo.local/prototype/runtime/v1.ActorExitKind func exitKind[S, E, D, F](a Actor[S, E, D, F]) int
+
+extern go ergo.local/prototype/runtime/v1.ActorFinal func final[S, E, D, F](a Actor[S, E, D, F]) D
+
+extern go ergo.local/prototype/runtime/v1.ActorFailure func failure[S, E, D, F](a Actor[S, E, D, F]) fails F
+
+extern go ergo.local/prototype/runtime/v1.ActorHasLatest func hasLatest[S, E, D, F](a Actor[S, E, D, F]) bool
+
+extern go ergo.local/prototype/runtime/v1.ActorLatest func latest[S, E, D, F](a Actor[S, E, D, F]) D

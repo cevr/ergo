@@ -371,6 +371,7 @@ func arrayProgram(seed uint64, reached map[string]bool) (src, want string) {
 // of an array and the copies the value rule adds are only seen by running
 // the program.
 func TestArrayValuesAgree(t *testing.T) {
+	needsBuild(t)
 	seeds := []uint64{1, 2, 3, 4}
 	if *arraySeed != 0 {
 		seeds = []uint64{*arraySeed}

@@ -1,0 +1,21 @@
+// Package memory holds in-memory providers of the hosts contract.
+
+import lookup/hosts
+
+// Two providers of hosts.Resolver: same-named functions on distinct types.
+type Static {}
+type Empty {}
+
+func Resolve(_ Static, name string) hosts.Answer fails hosts.NotFound {
+	if name == "" {
+		return hosts.NotFound{Name: name}
+	}
+	hosts.Answer{Name: name, Addr: "192.0.2.1"}
+}
+
+func Resolve(_ Empty, name string) hosts.Answer fails hosts.NotFound {
+	hosts.NotFound{Name: name}
+}
+
+// Listing binds the contract to the static resolver.
+let Listing = context { hosts.Resolver: Static }

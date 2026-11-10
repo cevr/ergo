@@ -1,4 +1,4 @@
-project shop
+project site
   needs app
 
 package app 1.0.0

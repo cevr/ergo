@@ -1,0 +1,7 @@
+# a small file, a larger one, one that times out twice, one that always
+# times out, and one the server does not have
+get a.txt
+get b.img
+get slow.iso
+get late.bin
+get gone.zip

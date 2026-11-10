@@ -1,0 +1,37 @@
+// Package memory holds the in-memory providers of the search contracts.
+
+import search/search
+import strings
+
+// Listing is a search.Index of ten fixed entries, in a fixed order. Its
+// index takes at most 12 letters: a longer query is IndexDown, so that a
+// script can show a search that fails.
+type Listing {}
+
+func All(_ Listing) []search.Entry {
+	[]search.Entry{
+		search.Entry{Name: "Apple.md", Size: 120},
+		search.Entry{Name: "Apricot-jam.md", Size: 450},
+		search.Entry{Name: "Banana.md", Size: 90},
+		search.Entry{Name: "Bread.md", Size: 300},
+		search.Entry{Name: "Cabbage.md", Size: 210},
+		search.Entry{Name: "Carrot.md", Size: 80},
+		search.Entry{Name: "Grape.md", Size: 260},
+		search.Entry{Name: "Pear.md", Size: 150},
+		search.Entry{Name: "Peach.md", Size: 170},
+		search.Entry{Name: "Pineapple.md", Size: 390},
+	}
+}
+
+func Find(s Listing, query string) []search.Entry fails search.IndexDown {
+	if len(strings.TrimSpace(query)) > 12 {
+		return search.IndexDown{Query: query}
+	}
+	let mut hits = []search.Entry{}
+	for it in All(s) {
+		if search.Matches(it, query) {
+			hits = hits.Append(it)
+		}
+	}
+	hits
+}

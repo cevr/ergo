@@ -2,9 +2,6 @@ package check
 
 import "ergo.local/prototype/internal/sketch/syntax"
 
-// TotalityBudget is the solver's step budget, for the tests' bounds.
-const TotalityBudget = totalityBudget
-
 // checkFor checks src as one package and returns the checker, for the
 // tests that read its deterministic counters.
 func checkFor(src string) (*checker, []Diagnostic) {
@@ -105,27 +102,6 @@ func LookupWork(src string) (ops, builds int, d []Diagnostic) {
 		return -1, -1, diags
 	}
 	return c.variantOps, c.types.lookupBuilds, diags
-}
-
-// SignatureWork checks src and returns the signature key fields the table
-// built (round 11 M2), with the diagnostics.
-func SignatureWork(src string) (int, []Diagnostic) {
-	c, diags := checkFor(src)
-	if c == nil {
-		return -1, diags
-	}
-	return c.types.sigBuilds, diags
-}
-
-// IndexSortWork checks src and returns the switches' variant operations
-// and the sort comparisons run while a step counter was attached (index
-// construction and case lookups; round 11 M3), with the diagnostics.
-func IndexSortWork(src string) (ops, cmps int, d []Diagnostic) {
-	c, diags := checkFor(src)
-	if c == nil {
-		return -1, -1, diags
-	}
-	return c.variantOps, c.types.sortCmps, diags
 }
 
 // InstancesMade checks src and returns the generic instances it created

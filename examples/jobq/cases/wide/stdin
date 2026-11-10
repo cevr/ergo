@@ -4,6 +4,6 @@ backup 400
 thumbnails 120 1
 mail 60 2
 report 250
-invoice 80 0 fatal
+digest 80 0 fatal
 sync 30 5
 index 200 1

@@ -9,7 +9,7 @@ go run ./scripts/examples PROGRAM              # one program folder, whatever it
 go run ./scripts/examples -tags slow,net       # the programs with either tag
 ```
 
-Two folders are not programs: `editions` (edition fixtures that Go tests pin) and `go-interop` (a Go program that the Go steps build). Any other folder that is not a program is an error.
+One folder is not a program: `editions` (edition fixtures that Go tests pin). Any other folder that is not a program is an error. Go interop is shown by `gointerop`, an `import go` program.
 
 ## Layout
 

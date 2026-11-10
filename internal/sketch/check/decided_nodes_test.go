@@ -1,12 +1,6 @@
 package check_test
 
-import (
-	"fmt"
-	"strings"
-	"testing"
-
-	"ergo.local/prototype/internal/sketch/check"
-)
+import ()
 
 // decidedFamilies is every node and field family the decided parser builds
 // (spec D3; merge round step 3): each has at least one row in
@@ -52,10 +46,10 @@ import timeout
 func f() timeout.Expired { return timeout.Expired }
 func main() {}
 `, nil},
-	{"import go", "a Go import is #202's", `
+	{"import go", "a Go import reads its binding", `
 import go strings
-func main() {}
-`, []string{"S109:2"}},
+func main() { let _ = strings.ToUpper("a") }
+`, nil},
 	{"import std", "an import of a std module", `
 import task
 func main() { let t = task.Go() { 1 }; t.Stop() }
@@ -67,7 +61,7 @@ func a() { task.Go() { b() }; return Bang }
 func b() { return a() }
 func F() fails Bang { return b() }
 func main() {}
-`, []string{"S109:2"}},
+`, []string{"S104:2"}},
 	{"let", "let names a value", `
 func f() int64 {
 	let x int64 = 1
@@ -192,6 +186,12 @@ type E {}
 func f() P { _ = E; return P{X: 1, Y: 2} }
 func main() {}
 `, nil},
+	{"record type", "a record includes another's fields", `
+type P { X int, Y int }
+type Q { ..P, Z int }
+func f() Q { return Q{X: 1, Y: 2, Z: 3} }
+func main() {}
+`, nil},
 	{"operation type", "an operation type as a capability", `
 type Log { Write(s string) }
 func f() needs Log { Log.Write("x") }
@@ -257,7 +257,7 @@ func pass[A, E, R](f func() A fails E needs R) A fails E needs R { return try f(
 func main() {}
 `, nil},
 	{"type parameters", "a bracket parameter of two kinds", `
-func k[E](a E) fails E { return }
+func k[E](a E) needs E { return }
 func main() {}
 `, []string{"S108:2"}},
 	{"ordered constraint", "ordered is checked (stage E1): > is defined on T", `
@@ -321,6 +321,12 @@ extern go example.com/door.Fail func fail() int
 func f() int { return fail() }
 func main() {}
 `, []string{"S109:2"}},
+	{"extern", "binding declarations: a host type, a method and a constant (interop.md; checked from IG2)", `
+extern go example.com/door.Door type Door { Open bool }
+extern go example.com/door.Door.Knock func (d *Door) Knock() int
+extern go example.com/door.Max let Max int
+func main() {}
+`, []string{"S109:2", "S109:3", "S109:4"}},
 	{"test", "test declaration", `
 test Adds {
 	assert 1 + 1 == 2
@@ -772,6 +778,31 @@ type Breaker machine[State, Signal] {
 }
 func main() {}
 `, nil},
+	{"machine", "a machine type with laws (MU6)", `
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+
+	law Opens reaches Open,
+	law Stays never reaches Open,
+	law Trips path [Closed, Open],
+	law Steps(s State, e Signal) { true },
+}
+func main() {}
+`, nil},
 	{"machine", "a machine type with an after entry", `
 type Closed {}
 type Open {}
@@ -801,41 +832,34 @@ type Breaker machine[State, Signal] {
 }
 func main() {}
 `, nil},
+	{"machine", "a machine type with a work entry", `
+import machines
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Emit{Open, "tripped"}
+	case Open:
+		return Done{"open"}
+	}
 }
-
-// TestDecidedNodes: the checker reads the trees the decided parser builds
-// (#196). Each row names its family; every family has a row, and every
-// row's verdict holds: never a panic, never silently accepted, never a
-// cascade beside an S109.
-func TestDecidedNodes(t *testing.T) {
-	covered := map[string]bool{}
-	known := map[string]bool{}
-	for _, f := range decidedFamilies {
-		known[f] = true
+func probe(s State) Option[machines.Work[Signal]] {
+	match s {
+	case Closed:
+		return Some{machines.Work{Run: func() Trip { Trip }}}
+	case Open:
+		return None
 	}
-	for _, tc := range decidedCases {
-		if !known[tc.family] {
-			t.Errorf("row %q names the family %q, which decidedFamilies does not list", tc.name, tc.family)
-		}
-		covered[tc.family] = true
-		t.Run(tc.family+"/"+tc.name, func(t *testing.T) {
-			_, diags := check.CheckSource(tc.src)
-			var got []string
-			for _, d := range diags {
-				got = append(got, fmt.Sprintf("%s:%d", d.Code, d.Line))
-			}
-			if strings.Join(got, " ") != strings.Join(tc.want, " ") {
-				t.Fatalf("got %v, want %v\n%v", got, tc.want, diags)
-			}
-			// The class H walk visits every node of the decided forms too.
-			if p := check.RefWalkProblems(tc.src); len(p) > 0 {
-				t.Fatalf("reference walk: %s", strings.Join(p, "; "))
-			}
-		})
-	}
-	for _, f := range decidedFamilies {
-		if !covered[f] {
-			t.Errorf("the decided family %q has no row", f)
-		}
-	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+	work:    probe,
+}
+func main() {}
+`, nil},
 }

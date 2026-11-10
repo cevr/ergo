@@ -49,9 +49,10 @@ func TestNamingWorkIsLinear(t *testing.T) {
 }
 
 // TestDefaultWorkIsLinear: a counted bound on the work and the output of
-// defaults, not a time (stage D2 round 2 review M2). A chain of n records,
-// each holding the one before and the first a Map, and a diamond, each
-// record holding the one before twice, get one holdsMap visit decision per
+// defaults, not a time (stage D2 round 2 review M2). A chain of n defined
+// tuples, each holding the one before and the first a Map, and a diamond,
+// each holding the one before twice (a record has no default: types.md,
+// Zero values 3), get one holdsMap visit decision per
 // type and one generated default function per type: the holdsMap calls and
 // the generated Go bytes stay under a fixed multiple of the type count. A
 // walk that restarts per default is quadratic on the chain; inlining each
@@ -59,18 +60,18 @@ func TestNamingWorkIsLinear(t *testing.T) {
 func TestDefaultWorkIsLinear(t *testing.T) {
 	chain := func(n int) string {
 		var src strings.Builder
-		src.WriteString("type R0 { M Map[string, int] }\n")
+		src.WriteString("type R0 (int, Map[string, int])\n")
 		for i := 1; i < n; i++ {
-			fmt.Fprintf(&src, "type R%d { V R%d }\n", i, i-1)
+			fmt.Fprintf(&src, "type R%d (int, R%d)\n", i, i-1)
 		}
 		fmt.Fprintf(&src, "func main() {\n\tlet r R%d\n\t_ = r\n}\n", n-1)
 		return src.String()
 	}
 	diamond := func(n int) string {
 		var src strings.Builder
-		src.WriteString("type R0 { M Map[string, int] }\n")
+		src.WriteString("type R0 (int, Map[string, int])\n")
 		for i := 1; i < n; i++ {
-			fmt.Fprintf(&src, "type R%d { A R%d, B R%d }\n", i, i-1, i-1)
+			fmt.Fprintf(&src, "type R%d (R%d, R%d)\n", i, i-1, i-1)
 		}
 		fmt.Fprintf(&src, "func main() {\n\tlet r R%d\n\t_ = r\n}\n", n-1)
 		return src.String()

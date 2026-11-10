@@ -57,6 +57,11 @@ const (
 	// Event.Cause is its error, nil for ok, and Event.Defect the panic value
 	// that left it. An addition to #124.
 	TraceCallExit
+	// TraceMachine: a machine actor's runner did one step of its contract
+	// (runtime/v1 actor.go; runtime.md, Machines and actors 15):
+	// Event.Machine says what. Def is the actor's span. An addition to #124
+	// (MU15).
+	TraceMachine
 )
 
 var kindNames = [...]string{
@@ -72,6 +77,7 @@ var kindNames = [...]string{
 	TraceCall:          "call",
 	TraceInterrupt:     "interrupt",
 	TraceCallExit:      "call-exit",
+	TraceMachine:       "machine",
 }
 
 // String returns the vocabulary name of k.
@@ -117,7 +123,19 @@ type Event struct {
 	Cause error
 	// Defect is the panic value of a panic event or of a call-exit a defect
 	// left.
+	// A machine event holds its *MachineEvent here (Event.Machine): a field
+	// of its own would grow Event past the 128 bytes the traced body-exit's
+	// stack budget was measured at (trace_stack_test.go).
 	Defect any
+}
+
+// Machine is what a machine event says, nil for any other kind.
+func (e *Event) Machine() *MachineEvent {
+	if e.Kind != TraceMachine {
+		return nil
+	}
+	m, _ := e.Defect.(*MachineEvent)
+	return m
 }
 
 // Tracer receives the events of one task tree. The runtime calls Event from

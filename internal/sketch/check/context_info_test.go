@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"testing"
@@ -181,63 +182,79 @@ let W = context { replace Store: Mem{V: "w"}, B, A }
 // Ci and embeds W(i-1), one with per context: at 3f5d6ac1 each with held i
 // bindings, n²/2 in all), the round-3 with chain, and the budget's entry
 // chain, large-base chain, wide fan-in and replaced diamond. Each also
-// pins its with and override counts. Timing is accept's scale leg's, not
-// go test's (round-4 ruling 4).
+// pins its with and override counts. Each runs at three sizes up to
+// GrowthMaxNodes source nodes, and its operations per unit and per log2 n
+// at the largest stay within GrowthRatio times those at the smallest.
+// Timing is accept's scale leg's, not go test's (round-4 ruling 4).
 func TestContextInfoLinear(t *testing.T) {
-	const n = 4000
+	family := func(shape string) func(int) string {
+		return func(n int) string { return contextFamily(shape, n) }
+	}
 	for _, tc := range []struct {
 		shape     string
-		src       func() string
-		withs     int
-		overrides int // summed over the contexts
+		src       func(n int) string
+		perWith   bool // one with per context, else one in all
+		overrides bool // n-1 overrides summed over the contexts, else none
 	}{
-		{"owned chain", func() string { return ownedChain(n) }, n, 0},
-		{"with chain", func() string { return withChain(n) }, n, 0},
-		{"entry chain", func() string { return contextFamily("entry chain", n) }, 1, 0},
-		{"large-base chain", func() string { return contextFamily("large-base chain", n) }, 1, 0},
-		{"wide fan-in", func() string { return contextFamily("wide fan-in", n) }, 1, 0},
-		{"replace diamond", func() string { return contextFamily("replace diamond", n) }, 1, n - 1},
+		{"owned chain", ownedChain, true, false},
+		{"with chain", withChain, true, false},
+		{"entry chain", family("entry chain"), false, false},
+		{"large-base chain", family("large-base chain"), false, false},
+		{"wide fan-in", family("wide fan-in"), false, false},
+		{"replace diamond", family("replace diamond"), false, true},
 	} {
 		t.Run(tc.shape, func(t *testing.T) {
-			src := tc.src()
-			oc := countOps(t)
-			diags, c := checkLimited(t, src, nil)
-			if len(diags) > 0 {
-				t.Fatalf("want a clean check, got %s", describeDiags(diags[:1]))
+			sizes := GrowthSizes(t, GrowthMaxNodes, func(n int) int { return sourceNodes(t, tc.src(n)) })
+			var per []float64
+			for _, n := range sizes {
+				per = append(per, contextInfoLinear(t, tc.src(n), map[bool]int{true: n, false: 1}[tc.perWith], map[bool]int{true: n - 1, false: 0}[tc.overrides])/math.Log2(float64(n)))
 			}
-			oc.bounded(t, tc.shape, src, c)
-			pkg := c.pkg
-			if len(pkg.Info.Withs) != tc.withs {
-				t.Fatalf("want %d withs, got %d", tc.withs, len(pkg.Info.Withs))
-			}
-			m := c.contexts
-			work, units := oc.repeat[m]+oc.single[m], contextNodes(t, src)+len(pkg.Info.Withs)
-			if work > contextInfoWorkPerUnit*units {
-				t.Errorf("the context pass did %d operations for %d units, over %d per unit", work, units, contextInfoWorkPerUnit)
-			}
-			size, overrides := 0, 0
-			for _, w := range pkg.Info.Withs {
-				size += len(w.Discharged) + len(w.Entries)
-				if len(w.Entries) != len(w.Discharged) || len(w.Discharged) != 1 {
-					t.Fatalf("a with of %d capabilities and %d entries; its block needs one", len(w.Discharged), len(w.Entries))
-				}
-				if e := w.Entries[0]; e == nil || !listsCap(e, w.Discharged[0]) || w.Contexts[0].Provider(w.Discharged[0]) != e {
-					t.Fatalf("the entry for %s does not provide it", typeString(w.Discharged[0]))
-				}
-			}
-			for _, w := range pkg.Contexts {
-				size += len(w.Overrides)
-				overrides += len(w.Overrides)
-			}
-			if overrides != tc.overrides {
-				t.Errorf("%d overrides, want %d", overrides, tc.overrides)
-			}
-			if nodes := syntaxNodes(t, src); size > contextInfoSizePerUnit*nodes {
-				t.Errorf("Info holds %d with bindings and overrides for %d syntax nodes, over %d per node", size, nodes, contextInfoSizePerUnit)
-			}
-			t.Logf("%d operations for %d units (%.1f each); Info size %d", work, units, float64(work)/float64(units), size)
+			GrowthBounded(t, tc.shape+" context operations per unit and log2 n", sizes, per)
 		})
 	}
+}
+
+// contextInfoLinear checks one source of TestContextInfoLinear and returns
+// the context pass's operations per unit.
+func contextInfoLinear(t *testing.T, src string, withs, wantOverrides int) float64 {
+	t.Helper()
+	oc := countOps(t)
+	diags, c := checkLimited(t, src, nil)
+	if len(diags) > 0 {
+		t.Fatalf("want a clean check, got %s", describeDiags(diags[:1]))
+	}
+	oc.bounded(t, t.Name(), src, c)
+	pkg := c.pkg
+	if len(pkg.Info.Withs) != withs {
+		t.Fatalf("want %d withs, got %d", withs, len(pkg.Info.Withs))
+	}
+	m := c.contexts
+	work, units := oc.repeat[m]+oc.single[m], contextNodes(t, src)+len(pkg.Info.Withs)
+	if work > contextInfoWorkPerUnit*units {
+		t.Errorf("the context pass did %d operations for %d units, over %d per unit", work, units, contextInfoWorkPerUnit)
+	}
+	size, overrides := 0, 0
+	for _, w := range pkg.Info.Withs {
+		size += len(w.Discharged) + len(w.Entries)
+		if len(w.Entries) != len(w.Discharged) || len(w.Discharged) != 1 {
+			t.Fatalf("a with of %d capabilities and %d entries; its block needs one", len(w.Discharged), len(w.Entries))
+		}
+		if e := w.Entries[0]; e == nil || !listsCap(e, w.Discharged[0]) || w.Contexts[0].Provider(w.Discharged[0]) != e {
+			t.Fatalf("the entry for %s does not provide it", typeString(w.Discharged[0]))
+		}
+	}
+	for _, w := range pkg.Contexts {
+		size += len(w.Overrides)
+		overrides += len(w.Overrides)
+	}
+	if overrides != wantOverrides {
+		t.Errorf("%d overrides, want %d", overrides, wantOverrides)
+	}
+	if nodes := syntaxNodes(t, src); size > contextInfoSizePerUnit*nodes {
+		t.Errorf("Info holds %d with bindings and overrides for %d syntax nodes, over %d per node", size, nodes, contextInfoSizePerUnit)
+	}
+	t.Logf("%d operations for %d units (%.1f each); Info size %d", work, units, float64(work)/float64(units), size)
+	return float64(work) / float64(units)
 }
 
 // contextInfoWorkPerUnit bounds the context pass's operations per context node and

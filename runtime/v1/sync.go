@@ -19,14 +19,31 @@ import "sync"
 //   - RefModify(r, f) is sync.Modify: it stores the second element of
 //     f(v) and returns the first, under the same lock as Update.
 //
-// The lock is a sync.Mutex held for the length of one operation. Update
-// and RefModify unlock by a defer, so a defect in f (a Go panic) leaves
-// the cell usable by the other tasks, holding the value it held before f;
-// Get and Set run no program code under the lock and unlock inline. f has
-// an empty row (the lowering's adaptPlainFunc), so it neither waits nor
-// needs a capability while the lock is held. No operation is an
-// interruption point: none waits for another task beyond the length of
-// one operation.
+// A Ref owns its value (V6, owner q46): no binding outside the cell sees a
+// later write to it. Most functions never write their parameter in place
+// (the value rule copies a parameter before a write), but a function
+// literal written at the call of Update or Modify takes the held value
+// over and may write it in place (RefUpdateOwned, RefModifyOwned), as the
+// lowering decides. The cell keeps that sound by copy on write: shared
+// records that the held value may be reached from outside the cell (NewRef,
+// Get, Set, and the plain Update and Modify, whose function may keep its
+// argument or return a shared value). An owned call copies a shared value,
+// under the lock, before its function gets it, so a value that Get handed
+// out is never written again; the copy happens at most once per share, and
+// never when nothing outside holds the value.
+//
+// A defect in an Update's or Modify's function (a Go panic) poisons the
+// cell: an owned function may have written part of the value in place, so
+// the cell no longer holds a whole value. The panic goes on to the caller
+// as it is: the cell does not recover it (only a task's boundary records a
+// defect, runtime199 DefectOwner), so the defect keeps its own stack. Every
+// later Get, Set, Update and Modify raises the defect refPoisoned, as
+// Rust's Mutex reports a lock whose holder panicked with a PoisonError.
+// The unlock is deferred, so a poisoned cell is never left locked. Get and
+// Set run no program code under the lock and unlock inline. f has an empty
+// row (the lowering's adaptPlainFunc), so it neither waits nor needs a
+// capability while the lock is held. No operation is an interruption
+// point: none waits for another task beyond the length of one operation.
 //
 // The control is a hand-written Go value guarded by a sync.Mutex
 // (sync_bench_test.go); the body is that value. A Ref built on
@@ -37,52 +54,137 @@ import "sync"
 // Prior art: Effect's Ref (an AtomicReference, whose update is a pure
 // function and whose SynchronizedRef serialises effectful updates); Go's
 // sync.Mutex and sync/atomic; Elixir's Agent, whose update runs in the
-// agent's process; Haskell's IORef and atomicModifyIORef.
+// agent's process; Haskell's IORef and atomicModifyIORef; Rust's
+// std::sync::Mutex, which a panic in a holder poisons; Swift's copy on
+// write, which tests uniqueness by a reference count where this cell keeps
+// one flag.
 type Ref[T any] struct {
-	mu sync.Mutex
-	v  T
+	mu     sync.Mutex
+	v      T
+	shared bool
+	poison bool
 }
 
-// NewRef is sync.NewRef: a new cell that holds v.
-func NewRef[T any](v T) *Ref[T] { return &Ref[T]{v: v} }
+// refPoisoned is the defect an operation of a poisoned Ref raises.
+const refPoisoned = "sync.Ref is poisoned: a defect in an earlier Update or Modify may have left its value half written"
 
-// Get is the value r holds. A copy of a T cannot panic, so the unlock
-// needs no defer.
+// NewRef is sync.NewRef: a new cell that holds v. v may be reached from
+// outside the cell, so it is shared.
+func NewRef[T any](v T) *Ref[T] { return &Ref[T]{v: v, shared: true} }
+
+// Get is the value r holds. The caller keeps it, so the cell marks it
+// shared: the next owned Update or Modify copies it first. A copy of a T
+// cannot panic, so the unlock needs no defer.
 func (r *Ref[T]) Get() T {
 	r.mu.Lock()
+	if r.poison {
+		r.mu.Unlock()
+		panic(refPoisoned)
+	}
+	r.shared = true
 	v := r.v
 	r.mu.Unlock()
 	return v
 }
 
-// Set stores v in r. A store cannot panic, so the unlock needs no defer.
+// Set stores v in r. v may be reached from outside the cell, so it is
+// shared. A store cannot panic, so the unlock needs no defer.
 func (r *Ref[T]) Set(v T) {
 	r.mu.Lock()
-	r.v = v
+	if r.poison {
+		r.mu.Unlock()
+		panic(refPoisoned)
+	}
+	r.v, r.shared = v, true
 	r.mu.Unlock()
 }
 
 // Update stores f of the value r holds, with no other operation of r
-// between the read and the store, and calls f once. The unlock is
-// deferred: f is the program's code, and a defect in it must not leave r
-// locked.
+// between the read and the store, and calls f once. f may keep its
+// argument or return a value reached from elsewhere, so the stored value
+// is shared. The unlock is deferred: f is the program's code, and a defect
+// in it poisons r and must not leave r locked.
 func (r *Ref[T]) Update(f func(v T) T) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	done := false
+	defer r.end(&done)
+	r.check()
 	r.v = f(r.v)
+	r.shared, done = true, true
 }
 
 // RefModify is sync.Modify: under r's lock, it calls f once on the value
 // r holds, stores the second element of f's result and returns the first.
 // The result is the Go form of the Ergo tuple (R, T), an unnamed struct
-// with the fields F0 and F1 (the lowering's goType of a tuple).
+// with the fields F0 and F1 (the lowering's goType of a tuple). As in
+// Update, the stored value is shared.
 func RefModify[T, R any](r *Ref[T], f func(v T) struct {
 	F0 R
 	F1 T
 }) R {
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	done := false
+	defer r.end(&done)
+	r.check()
 	out := f(r.v)
-	r.v = out.F1
+	r.v, r.shared, done = out.F1, true, true
 	return out.F0
+}
+
+// RefUpdateOwned is Ref.Update called with a function literal that takes
+// the held value over (the lowering's owned site, V6): f gets a value no
+// binding outside the cell reaches, and may write it in place. A shared
+// value is copied first, with clone, under the lock. fresh is the
+// lowering's proof that f's result is unshared too; without it the stored
+// value is shared.
+func RefUpdateOwned[T any](r *Ref[T], f func(v T) T, clone func(v T) T, fresh bool) {
+	r.mu.Lock()
+	done := false
+	defer r.end(&done)
+	r.check()
+	v := r.v
+	if r.shared {
+		v = clone(v)
+	}
+	r.v = f(v)
+	r.shared, done = !fresh, true
+}
+
+// RefModifyOwned is sync.Modify called with a function literal that takes
+// the held value over, as RefUpdateOwned is for Update. fresh is the proof
+// that both elements of f's result are unshared, so the value returned
+// reaches no part of the value stored.
+func RefModifyOwned[T, R any](r *Ref[T], f func(v T) struct {
+	F0 R
+	F1 T
+}, clone func(v T) T, fresh bool) R {
+	r.mu.Lock()
+	done := false
+	defer r.end(&done)
+	r.check()
+	v := r.v
+	if r.shared {
+		v = clone(v)
+	}
+	out := f(v)
+	r.v, r.shared, done = out.F1, !fresh, true
+	return out.F0
+}
+
+// check raises refPoisoned when r is poisoned, with r locked; end unlocks
+// it.
+func (r *Ref[T]) check() {
+	if r.poison {
+		panic(refPoisoned)
+	}
+}
+
+// end unlocks r at the end of an Update or Modify. When the operation did
+// not finish (done is false), a panic is on its way to the caller: it
+// poisons r, and is not recovered here.
+func (r *Ref[T]) end(done *bool) {
+	if !*done {
+		r.poison = true
+	}
+	r.mu.Unlock()
 }

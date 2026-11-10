@@ -54,6 +54,9 @@ func (l *lowerer) litKey(t check.Type) (key pkgKey, base string, ok bool) {
 		return pkgKey{"literal", l.typeKey(t)}, "ergoLitMap", true
 	case *check.Tuple:
 		return pkgKey{"literal", l.typeKey(t)}, "ergoLitTuple", true
+	case *check.Union:
+		// A row value (q47): its member's literal.
+		return pkgKey{"literal", l.typeKey(t)}, "ergoLitRow", true
 	}
 	return pkgKey{}, "", false
 }
@@ -133,7 +136,7 @@ func (l *lowerer) litTypes(t check.Type, seen map[string]bool, visit func(check.
 		seen[k] = true
 	}
 	visit(t)
-	if n, ok := t.(*check.Named); ok && litByConstructor(n) {
+	if n, ok := t.(*check.Named); ok && (litByConstructor(n) || isOps(n)) {
 		return
 	}
 	switch u := t.(type) {
@@ -145,6 +148,10 @@ func (l *lowerer) litTypes(t check.Type, seen map[string]bool, visit func(check.
 	case *check.Tuple:
 		for _, e := range u.Types {
 			l.litTypes(e, seen, visit)
+		}
+	case *check.Union:
+		for _, v := range u.Variants {
+			l.litTypes(v, seen, visit)
 		}
 	case *check.Named:
 		switch under := u.Underlying().(type) {
@@ -229,7 +236,20 @@ func (l *lowerer) litFunc(t check.Type, site syntax.Node) string {
 			parts[i] = l.litExpr(e, v+"."+tupleField(i), site)
 		}
 		body.WriteString("\treturn \"(\" + " + strings.Join(parts, " + \", \" + ") + " + \")\"\n")
+	case *check.Union:
+		// A row value is a Go error holding one of its members (q47).
+		x := scope.alloc("x")
+		body.WriteString("\tswitch " + x + " := " + v + ".(type) {\n")
+		for _, vt := range u.Variants {
+			body.WriteString("\tcase " + tc.goType(vt) + ":\n\t\treturn " + l.litExpr(vt, x, site) + "\n")
+		}
+		body.WriteString("\t}\n\tpanic(" + q("a value of "+l.ergoType(t)+" with no member") + ")\n")
 	case *check.Named:
+		if isOps(u) {
+			// A capability: the call of its builder (check/builders.go).
+			body.WriteString("\treturn " + q(l.builtText(u, l.opBuilder(u, site))) + "\n")
+			break
+		}
 		if litByConstructor(u) {
 			// Its fields are not all text a reader could read, or its
 			// constructor takes nothing: the call that built it.
@@ -268,6 +288,9 @@ func (l *lowerer) litFunc(t check.Type, site syntax.Node) string {
 			body.WriteString("\treturn " + q(l.ergoType(t)) + " + " + strings.Join(parts, " + ") + " + \"}\"\n")
 		case *check.Union:
 			x := scope.alloc("x")
+			if fu := l.flatUnionOf(t); fu != nil {
+				flatBail(site, fu) // a property's argument keeps its interface (flatunion.go)
+			}
 			body.WriteString("\tswitch " + x + " := " + v + ".(type) {\n")
 			for _, vt := range under.Variants {
 				body.WriteString("\tcase " + tc.goType(vt) + ":\n\t\treturn " + l.litExpr(vt, x, site) + "\n")
@@ -300,17 +323,41 @@ func (l *lowerer) ergoType(t check.Type) string {
 			parts[i] = l.ergoType(e)
 		}
 		return "(" + strings.Join(parts, ", ") + ")"
+	case *check.Union:
+		// A row value, spelled as its row (types.md, Generics 1).
+		parts := make([]string, len(u.Variants))
+		for i, v := range u.Variants {
+			parts[i] = l.ergoType(v)
+		}
+		return strings.Join(parts, " | ")
+	case *check.RowArg:
+		parts := make([]string, len(u.Row.Elems()))
+		for i, v := range u.Row.Elems() {
+			parts[i] = l.ergoType(v)
+		}
+		return strings.Join(parts, " | ")
 	case *check.Named:
 		name := u.Obj.Name
 		if p := u.Obj.Pkg; p != nil && p != l.pkg && p.Path != std.PreludePath {
 			name = l.importName(p) + "." + name
 		}
 		if len(u.TArgs) > 0 {
-			parts := make([]string, len(u.TArgs))
-			for i, a := range u.TArgs {
+			args := u.TArgs
+			for len(args) > 0 {
+				// A trailing empty row is left out, as a source may.
+				ra, ok := args[len(args)-1].(*check.RowArg)
+				if !ok || len(ra.Row.Elems()) > 0 {
+					break
+				}
+				args = args[:len(args)-1]
+			}
+			parts := make([]string, len(args))
+			for i, a := range args {
 				parts[i] = l.ergoType(a)
 			}
-			name += "[" + strings.Join(parts, ", ") + "]"
+			if len(parts) > 0 {
+				name += "[" + strings.Join(parts, ", ") + "]"
+			}
 		}
 		return name
 	}

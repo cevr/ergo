@@ -38,6 +38,14 @@ func (tc *typeCtx) goType(t check.Type) string {
 		}
 		return t.Name
 	case *check.Named:
+		// A Go type of import go is Go's own type; go.Ref[T] is Go's *T
+		// (docs/spec/interop.md, Lowering).
+		if elem, ok := check.GoRefElem(t); ok {
+			return "*" + tc.goType(elem)
+		}
+		if t.Obj.Pkg.Host() {
+			return tc.l.hostPkg(t.Obj.Pkg.Path, tc.site) + "." + t.Obj.Name
+		}
 		if check.IsContext(t) {
 			// A Context[R] writes its providers into an environment
 			// (contextvalues.go): a function value of the uniform shape
@@ -96,7 +104,9 @@ func (tc *typeCtx) goType(t check.Type) string {
 	case *check.Union:
 		// The row value of `case err:` (D-C3) is a Go error holding one of
 		// its error types.
-		if tc.l.isErrorValue(t, tc.l.buildView()) {
+		// The value type of an error row (q47) is one too, the empty row's
+		// included: a field of it never holds a value.
+		if t.Row != nil || tc.l.isErrorValue(t, tc.l.buildView()) {
 			return "error"
 		}
 		ice(tc.site, "the anonymous union %s is not a row value; the checker builds no other", t)
@@ -707,6 +717,11 @@ func (l *lowerer) isErrorValue(t check.Type, o check.FactOwner) bool {
 	if u, row := t.(*check.Union); row {
 		// A row value (D-C3): every variant is an error type.
 		for _, v := range u.Variants {
+			if tp, ok := v.(*check.TypeParam); ok && tp.Kind == check.KindErrors {
+				// An error row parameter's member: some error types of
+				// the row it is bound to (types.md, Generics 1; q47).
+				continue
+			}
 			if !l.isErrorValue(v, o) {
 				return false
 			}

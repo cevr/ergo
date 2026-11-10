@@ -132,6 +132,9 @@ func (c *checker) footprints() {
 	}
 	// So is a law body; its footprint is OwnerLaw's, which no build reads.
 	for _, l := range c.pkg.Laws {
+		if l.Decl.Body == nil {
+			continue // a machine's reachability law has no body (MU6)
+		}
 		bodies = append(bodies, body{fp.node(l.Decl), l.Decl.Body})
 	}
 	for key := range info.Literals {
@@ -534,7 +537,7 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 		return
 	}
 	switch c.Kind {
-	case CallConversion, CallLen, CallPrelude:
+	case CallConversion, CallLen, CallPrelude, CallGoError:
 		// These calls add no footprint of their own. CallPrelude is
 		// retained compatibility metadata, never produced by the checker.
 	case CallProviderOp:
@@ -620,6 +623,9 @@ var pureStdAlso func(*Func) bool
 // reviewed purity fact (v1.Body.Pure; docs/spec/stdlib.md, Pure bodies). A
 // user extern is never pure: its Go body is outside the reviewed set.
 func pureStd(f *Func) bool {
+	if pureGo(f) {
+		return true
+	}
 	if f == nil || f.Decl == nil || f.Decl.Extern == nil || f.Pkg == nil || !f.Pkg.std {
 		return false
 	}
@@ -635,6 +641,23 @@ func pureStd(f *Func) bool {
 	}
 	body, err := v1.BodyOf(name)
 	return err == nil && body.Pure
+}
+
+// pureGo reports a Go function or method of import go in the reviewed pure
+// tier (its binding charges no go.Foreign) that takes no function, so Go
+// calls back no Ergo code: its call is transparent in footprints (owner
+// q35, reversing stdlib.md Pure bodies 3 for the reviewed list), and its
+// caller needs no environment or entry poll for it, as hand Go has none.
+func pureGo(f *Func) bool {
+	if f == nil || !f.Pkg.Host() || f.Sig == nil || !f.Sig.Uses.Empty() || f.Sig.ResultIsTask() {
+		return false
+	}
+	for _, p := range f.Sig.Params {
+		if _, ok := under(p.Type).(*Signature); ok {
+			return false
+		}
+	}
+	return true
 }
 
 // PureStd reports a std extern whose runtime/v1 Go body is marked pure: the

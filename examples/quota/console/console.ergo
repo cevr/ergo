@@ -1,0 +1,73 @@
+import quota/quota
+
+// Do carries out c on the Store and says what became of it. A refusal is
+// an answer, not a failure: the operator reads it out and goes on. Only a
+// store that is unavailable stops the console.
+func Do(c Command) string fails quota.Unavailable needs quota.Store {
+	match c {
+	case OpenCmd as o:
+		quota.Store.Open(o.ID, o.Floor) catch {
+		case quota.VolumeExists as e:
+			return "refused: \(e.ID) is open already"
+		case quota.BadFloor as b:
+			return "refused: \(b.ID) cannot start below its floor \(Gigabytes(b.Floor))"
+		case quota.Unavailable as u:
+			return u
+		}
+		if o.Floor < 0 { "opened \(o.ID), overcommit \(Gigabytes(-o.Floor))" } else { "opened \(o.ID)" }
+	case Grant as d:
+		try post(quota.Move{Key: d.Key, From: quota.Pool, To: d.ID, Size: d.Size})
+	case Reclaim as w:
+		try post(quota.Move{Key: w.Key, From: w.ID, To: quota.Pool, Size: w.Size})
+	case MoveCmd as p:
+		try post(quota.Move{Key: p.Key, From: p.From, To: p.To, Size: p.Size})
+	case SizeCmd as b:
+		let v = quota.Store.SizeOf(b.ID) catch {
+		case quota.UnknownVolume as u:
+			return "refused: no volume \(u.ID)"
+		case quota.Unavailable as u:
+			return u
+		}
+		"\(b.ID) \(Gigabytes(v))"
+	case List:
+		let mut out = ""
+		for id in try quota.Store.Volumes() {
+			let v = quota.Store.SizeOf(id) catch {
+			case quota.UnknownVolume:
+				continue
+			case quota.Unavailable as u:
+				return u
+			}
+			out = out + (if out == "" { "" } else { ", " }) + "\(id) \(Gigabytes(v))"
+		}
+		out
+	}
+}
+
+// post posts t and says so, or says why the quota refused it.
+func post(t quota.Move) string fails quota.Unavailable needs quota.Store {
+	let r = quota.Store.Post(t) catch {
+	case quota.KeyReused as k:
+		return "refused \(t.Key): the key was used for \(Gigabytes(k.Was.Size)) from \(k.Was.From) to \(k.Was.To)"
+	case quota.BadSize as a:
+		return "refused \(t.Key): \(Gigabytes(a.Size)) is not a size to move"
+	case quota.SameVolume as s:
+		return "refused \(t.Key): \(s.ID) moves to itself"
+	case quota.UnknownVolume as u:
+		return "refused \(t.Key): no volume \(u.ID)"
+	case quota.NoSpace as f:
+		return "refused \(t.Key): \(f.ID) has \(Gigabytes(f.Have)), \(Gigabytes(f.Size)) would take it below \(Gigabytes(f.Floor))"
+	case quota.Unavailable as u:
+		return u
+	}
+	"#\(r.Seq) \(r.Key): \(Gigabytes(r.Size)) from \(r.From) to \(r.To)"
+}
+
+// Serve carries out each command in turn, and is the answer to each.
+func Serve(cs []Command) []string fails quota.Unavailable needs quota.Store {
+	let mut out = []string{}
+	for c in cs {
+		out = out.Append(try Do(c))
+	}
+	out
+}

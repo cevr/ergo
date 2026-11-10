@@ -29,22 +29,6 @@ func TestWireIsAnIdentifier(t *testing.T) {
 	}
 }
 
-// TestContextIsAKeyword: context is reserved, in wire's place, so the
-// keyword count stays 28 and context names nothing.
-func TestContextIsAKeyword(t *testing.T) {
-	if !syntax.IsKeyword("context") || !slices.Contains(syntax.Keywords(), "context") {
-		t.Fatal("context is not a keyword")
-	}
-	if n := len(syntax.Keywords()); n != 28 {
-		t.Fatalf("%d keywords, want 28", n)
-	}
-	for _, src := range []string{"let context = 1\n", "func f(context int) {}\n", "type context {}\n"} {
-		if _, err := syntax.Parse(src); err == nil {
-			t.Errorf("%q parsed: context is a name", src)
-		}
-	}
-}
-
 // keywordPathImporter adds a package whose path ends in a keyword to the
 // standard library.
 type keywordPathImporter struct{ pkg *check.Package }
@@ -59,8 +43,7 @@ func (k keywordPathImporter) Import(path string) (*check.Package, error) {
 // TestImportGoKeywordPath: an import path whose last element is a keyword
 // binds no name, so it needs an alias (grammar.md, Declarations rule 1).
 // Go's context package is the common case, and the message gives the fix.
-// The aliased Go import meets only #202's S109; checking and building it
-// is #202's.
+// The aliased Go import reads its binding; unused, it is S110.
 func TestImportGoKeywordPath(t *testing.T) {
 	for _, tc := range []struct {
 		name, src, code, msg string
@@ -70,8 +53,8 @@ func TestImportGoKeywordPath(t *testing.T) {
 			"context is a keyword; import the package under another name: import go gocontext context", 1, 11},
 		{"go-deep-path", "import go golang.org/x/net/context\nfunc main() {}\n", check.CodeType,
 			"context is a keyword; import the package under another name: import go gocontext golang.org/x/net/context", 1, 11},
-		{"go-aliased", "import go gocontext context\nfunc main() {}\n", check.CodeOutside,
-			`import go "context" is #202's (Go imports); it is not checked yet`, 1, 8},
+		{"go-aliased", "import go gocontext context\nfunc main() {}\n", check.CodeUnused,
+			"package gocontext is imported and not used", 1, 8},
 		{"plain-keyword-path", "import x/match\nfunc main() {}\n", check.CodeType,
 			"match is a keyword; import the package under another name: import matchpkg x/match", 1, 8},
 	} {

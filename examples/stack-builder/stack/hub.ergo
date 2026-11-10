@@ -1,0 +1,156 @@
+import actor
+import machines
+import strings
+
+// Library is the library as pages of parts.
+type Library { Pages [][]Part }
+
+// From is where an editor was opened from: the hub goes back there when
+// the editor ends (history as data).
+type From = FromList{Page int} | FromSearch{Query string, Page int}
+
+// Screen is what the hub shows. Editing keeps the open editor's host,
+// which the entry's work fills with the editor.
+type Screen =
+	| Browsing{Page int}
+	| Searching{Query string, Page int}
+	| Editing{Part Part, From From, Editor actor.Host[EditActor]}
+
+// Hub is the hub's state: the library, the plan and the screen (a record
+// with a union field: the screen is a region of the state). A machine
+// takes a record state as a union of one variant.
+type Hub { Library Library, Units []Unit, Screen Screen }
+
+type HubSignal =
+	| Next{}
+	| Prev{}
+	| Open{Index int}
+	| Search{}
+	| Type{Text string}
+	| Close{}
+	| Deploy{}
+	| UnitAdded{L Unit}
+	| EditorBack{}
+
+// Plan is the hub's end: the plan and its total.
+type Plan { Units []Unit, Total int }
+
+type Builder machine[Hub, HubSignal] { initial: Start, step: Step, work: hubWork }
+
+// HubActor is the hub's address (an alias, as EditActor is).
+type HubActor = actor.Actor[Hub, HubSignal, Decision[Hub, Plan]]
+
+func Start(m Library) Hub { Hub{Library: m, Units: []Unit{}, Screen: Browsing{Page: 0}} }
+
+// Find is the parts of the library whose name holds the query.
+func Find(m Library, query string) []Part {
+	let mut hits = []Part{}
+	for page in m.Pages {
+		for it in page {
+			if query != "" && strings.Contains(it.Name, query) {
+				hits = hits.Append(it)
+			}
+		}
+	}
+	hits
+}
+
+// Total is the size of the units.
+func Total(units []Unit) int {
+	let mut n = 0
+	for l in units {
+		n = n + l.Size*l.Count
+	}
+	n
+}
+
+// back is the screen an editor opened from.
+func back(f From) Screen {
+	match f {
+	case FromList as m:
+		Browsing{Page: m.Page}
+	case FromSearch as q:
+		Searching{Query: q.Query, Page: q.Page}
+	}
+}
+
+func show(h Hub, s Screen) Decision[Hub, Plan] { Stay[Hub]{Next: Hub{..h, Screen: s}} }
+
+func open(h Hub, s Screen) Decision[Hub, Plan] { Enter[Hub]{Next: Hub{..h, Screen: s}} }
+
+// pick opens the editor of the i-th of parts.
+func pick(h Hub, parts []Part, i int, from From) Decision[Hub, Plan] {
+	if i < 0 || i >= len(parts) {
+		return Reject
+	}
+	open(h, Editing{Part: parts[i], From: from, Editor: actor.NewHost[EditActor]()})
+}
+
+// Step is the hub's step: a match on the screen region and the signal.
+func Step(h Hub, e HubSignal) Decision[Hub, Plan] {
+	match (h.Screen, e) {
+	case (Browsing as b, Next):
+		if b.Page+1 < len(h.Library.Pages) {
+			show(h, Browsing{Page: b.Page + 1})
+		} else {
+			Reject
+		}
+	case (Browsing as b, Prev):
+		if b.Page > 0 {
+			show(h, Browsing{Page: b.Page - 1})
+		} else {
+			Reject
+		}
+	case (Browsing as b, Open as o):
+		pick(h, h.Library.Pages[b.Page], o.Index, FromList{Page: b.Page})
+	case (Browsing as b, Search):
+		open(h, Searching{Query: "", Page: b.Page})
+	case (Browsing, Deploy):
+		if len(h.Units) > 0 {
+			Done[Plan]{Output: Plan{Units: h.Units, Total: Total(h.Units)}}
+		} else {
+			Reject
+		}
+	case (Browsing, _):
+		Ignore
+	case (Searching as q, Type as t):
+		show(h, Searching{..q, Query: t.Text})
+	case (Searching as q, Open as o):
+		pick(h, Find(h.Library, q.Query), o.Index, FromSearch{Query: q.Query, Page: q.Page})
+	case (Searching as q, Close):
+		open(h, Browsing{Page: q.Page})
+	case (Searching, _):
+		Ignore
+	case (Editing as ed, UnitAdded as a):
+		Enter[Hub]{Next: Hub{..h, Units: h.Units.Append(a.L), Screen: back(ed.From)}}
+	case (Editing as ed, EditorBack):
+		open(h, back(ed.From))
+	case (Editing, _):
+		Ignore
+	}
+}
+
+// toHub is an editor's end as a hub signal.
+func toHub(o EditOut) HubSignal {
+	match o {
+	case Added as a:
+		UnitAdded{L: a.L}
+	case WentBack:
+		EditorBack
+	}
+}
+
+// hubWork: Editing hosts the part's editor, a child of the entry; the
+// same Editor machine is a child of the hub and of an editor.
+func hubWork(h Hub) Option[machines.Work[HubSignal, Scheduler]] {
+	match h.Screen {
+	case Editing as ed:
+		Some{machines.Work{Listen: func(send func(e HubSignal)) needs Scheduler {
+			let _ = actor.ChildIn(send, ed.Editor, machines.Start(Editor{}, ed.Part), 4, toHub)
+		}}}
+	case Browsing:
+		None
+	case Searching:
+		None
+	}
+}

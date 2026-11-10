@@ -1,0 +1,96 @@
+// The aggregate's stories: each command from each state and each
+// rejection with its fields. The laws run under ergo test.
+
+let small = File{Path: "a.txt", Count: 2, Size: 150}
+let large = File{Path: "b.log", Count: 1, Size: 900}
+
+// decided is the events of c after the history, as text, or the
+// rejection's name and fields.
+func decided(history []Event, c Command) string {
+	let events = Decide(Replay(history), c) catch {
+	case UnknownBackup as u:
+		return "UnknownBackup " + u.Backup
+	case AlreadyPlanned as a:
+		return "AlreadyPlanned " + a.Backup
+	case InvalidFile as l:
+		return "InvalidFile " + l.Path + ": " + l.Reason
+	case WrongSize as w:
+		return "WrongSize due \(w.Due) got \(w.Got)"
+	case NotAllowed as n:
+		return "NotAllowed " + n.Action + " " + n.Status
+	}
+	"\(len(events)) events"
+}
+
+let plannedA = []Event{Planned{Backup: "a", Host: "alpha"}, FileAdded{Backup: "a", Path: "a.txt", Count: 2, Size: 150}, FileAdded{Backup: "a", Path: "b.log", Count: 1, Size: 900}}
+
+test PlacingRecordsALineEach {
+	let events = try Decide(Absent, Plan{Backup: "a", Host: "alpha", Files: []File{small, large}})
+	assert len(events) == 3
+	assert Replay(events) == Open{S: Summary{Host: "alpha", Total: 1200, Files: 3}}
+}
+
+test ABackupLivesFromPlannedToVerified {
+	let stored = plannedA.Append(Stored{Backup: "a", Size: 1200})
+	assert Replay(stored) == Held{S: Summary{Host: "alpha", Total: 1200, Files: 3}}
+	assert decided(stored, Verify{Backup: "a"}) == "1 events"
+	assert Replay(stored.Append(Verified{Backup: "a"})) == Sound{S: Summary{Host: "alpha", Total: 1200, Files: 3}}
+}
+
+test RejectionsNameTheRule {
+	assert decided([]Event{}, Store{Backup: "a", Size: 1}) == "UnknownBackup a"
+	assert decided(plannedA, Plan{Backup: "a", Host: "alpha", Files: []File{small}}) == "AlreadyPlanned a"
+	assert decided([]Event{}, Plan{Backup: "a", Host: "alpha", Files: []File{}}) == "InvalidFile : a backup needs a file"
+	assert decided([]Event{}, Plan{Backup: "a", Host: "alpha", Files: []File{File{Path: "a.txt", Count: 100, Size: 1}}}) == "InvalidFile a.txt: count 100 is not in 1-99"
+	assert decided([]Event{}, Plan{Backup: "a", Host: "alpha", Files: []File{File{Path: "a.txt", Count: 1, Size: 0}}}) == "InvalidFile a.txt: size 0 is not positive"
+	assert decided(plannedA, Store{Backup: "a", Size: 1000}) == "WrongSize due 1200 got 1000"
+	assert decided(plannedA, Verify{Backup: "a"}) == "NotAllowed verify open"
+	let sent = plannedA.Append(Stored{Backup: "a", Size: 1200}).Append(Verified{Backup: "a"})
+	assert decided(sent, Abort{Backup: "a", Reason: "late"}) == "NotAllowed abort verified"
+	assert decided(sent, Store{Backup: "a", Size: 1200}) == "NotAllowed store verified"
+}
+
+test AbortingAStoredBackupFreesIt {
+	let stored = plannedA.Append(Stored{Backup: "a", Size: 1200})
+	let events = try Decide(Replay(stored), Abort{Backup: "a", Reason: "late"})
+	// A slice has no == (G-ex-d-5), so the test compares its one element.
+	assert len(events) == 1 && events[0] == Aborted{Backup: "a", Reason: "late", Freed: 1200}
+	assert Replay(stored.Append(events[0])) == Void{S: Summary{Host: "alpha", Total: 1200, Files: 3}, Reason: "late"}
+}
+
+// An event the state cannot follow leaves it as it is.
+test EvolveIsTotal {
+	assert Evolve(Absent, Verified{Backup: "a"}) == Absent
+	assert Replay(plannedA.Append(Verified{Backup: "a"})) == Replay(plannedA)
+}
+
+// The drawn scripts reach every state and every rejection.
+test ScriptsReachEveryRule {
+	let mut stored = 0
+	let mut verified = 0
+	let mut freed = 0
+	let mut rejected = 0
+	for seed in 0..50 {
+		let script = Script(seed, 40)
+		let log = Simulate(script)
+		for e in log {
+			match e {
+			case Stored:
+				stored = stored + 1
+			case Verified:
+				verified = verified + 1
+			case Aborted as x:
+				if x.Freed > 0 {
+					freed = freed + 1
+				}
+			case Planned, FileAdded:
+			}
+		}
+		for c in script {
+			if decided([]Event{}, c) != "1 events" {
+				rejected = rejected + 1
+			}
+		}
+	}
+	assert stored > 20 && verified > 10 && freed > 3 && rejected > 100
+}

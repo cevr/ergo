@@ -1,0 +1,47 @@
+// Policies is the contract of a store of display policies: the operation
+// type a program supplies in its context (package memory holds fixed
+// ones).
+type Policies {
+	Names() []string,
+	Policy(display string) Policy fails NoSuchDisplay,
+
+	// Every policy a store names passes Check: a store never hands out a
+	// policy whose timer would fire at once.
+	law EveryPolicyChecks() { EveryPolicyChecks() },
+
+	// A name the store does not list is NoSuchDisplay.
+	law UnlistedIsNoSuchDisplay(name string) { UnlistedIsNoSuchDisplay(name) },
+}
+
+// NoSuchDisplay is a display name that a store does not hold.
+type NoSuchDisplay { Name string }
+
+// EveryPolicyChecks is the law EveryPolicyChecks as a function, which
+// package memory's test also calls.
+func EveryPolicyChecks() bool needs Policies {
+	for n in Policies.Names() {
+		let p = Policies.Policy(n) catch {
+		case NoSuchDisplay:
+			return false
+		}
+		let _ = Check(p) catch {
+		case BadPolicy:
+			return false
+		}
+	}
+	true
+}
+
+// UnlistedIsNoSuchDisplay is the law UnlistedIsNoSuchDisplay as a function.
+func UnlistedIsNoSuchDisplay(name string) bool needs Policies {
+	for n in Policies.Names() {
+		if n == name {
+			return true
+		}
+	}
+	let _ = Policies.Policy(name) catch {
+	case NoSuchDisplay:
+		return true
+	}
+	false
+}

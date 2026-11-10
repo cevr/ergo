@@ -41,6 +41,8 @@ func (e Exit) Error() string {
 
 // OSArgs is the body of os.Host's Args: the arguments after the program
 // name, in a fresh slice. A process started with no argv at all has none.
+//
+//ergo:host
 func OSArgs() []string {
 	if len(os.Args) < 2 {
 		return []string{}
@@ -50,6 +52,8 @@ func OSArgs() []string {
 
 // OSHasEnv reports whether the environment variable key is set, even to
 // the empty string.
+//
+//ergo:host
 func OSHasEnv(key string) bool {
 	_, ok := os.LookupEnv(key)
 	return ok
@@ -57,6 +61,8 @@ func OSHasEnv(key string) bool {
 
 // OSGetenv is the value of the environment variable key; it is empty when
 // key is unset, so os.Host's Getenv asks OSHasEnv first.
+//
+//ergo:host
 func OSGetenv(key string) string { return os.Getenv(key) }
 
 // The bodies of std fs (docs/spec/stdlib.md, fs). Each reads or writes
@@ -127,6 +133,8 @@ func fsReason(err error) string {
 
 // FSReadFile is the body of fs.Host's ReadFile: the whole file at path as
 // text.
+//
+//ergo:host
 func FSReadFile(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -137,6 +145,8 @@ func FSReadFile(path string) (string, error) {
 
 // FSReadDir is the body of fs.Host's ReadDir: the names of the entries of
 // the directory at path, sorted by name (Go's os.ReadDir sorts them).
+//
+//ergo:host
 func FSReadDir(path string) ([]string, error) {
 	entries, err := os.ReadDir(path)
 	if err != nil {
@@ -151,6 +161,8 @@ func FSReadDir(path string) ([]string, error) {
 
 // FSStat is the body of fs.Host's Stat: the file at path, after symbolic
 // links.
+//
+//ergo:host
 func FSStat(path string) (Info, error) {
 	fi, err := os.Stat(path)
 	if err != nil {
@@ -177,6 +189,8 @@ var beforeRename func(tmp string) error
 // missing name makes that file; a link to a directory is Failed "is a
 // directory", as a directory is). The new file is made beside the file
 // the link names, so the rename replaces that file, not the link.
+//
+//ergo:host
 func FSWriteFile(path string, text string) error {
 	return writeFile(path, text, 0, false)
 }
@@ -186,6 +200,8 @@ func FSWriteFile(path string, text string) error {
 // when a file was there. The new file is opened with perm (the umask can
 // only narrow it), then given exactly perm before any byte is written, so
 // no reader outside perm can open it at any point.
+//
+//ergo:host
 func FSWriteFileMode(path string, text string, perm int) error {
 	return writeFile(path, text, fs.FileMode(perm)&fs.ModePerm, true)
 }
@@ -310,6 +326,8 @@ func fillSibling(f *os.File, text string, mode fs.FileMode, keep bool) error {
 // 0777, so the umask applies. Its row has no NotFound, so a missing path
 // (the empty path, or a parent removed during the call) is Failed with the
 // host's reason.
+//
+//ergo:host
 func FSMkdirAll(path string) error {
 	err := os.MkdirAll(path, 0o777)
 	switch {
@@ -325,6 +343,8 @@ func FSMkdirAll(path string) error {
 // each directory it makes is made with perm (the umask can only narrow
 // it) and then given exactly perm. A directory that is there keeps its
 // mode. Its row is FSMkdirAll's.
+//
+//ergo:host
 func FSMkdirAllMode(path string, perm int) error {
 	err := mkdirAllExact(path, fs.FileMode(perm)&fs.ModePerm)
 	switch {
@@ -366,6 +386,8 @@ func mkdirAllExact(path string, perm fs.FileMode) error {
 // appends never interleave their texts on a local file system. A missing
 // file is made with mode 0666 less the umask, as Go's os.OpenFile with
 // O_CREATE makes it. The file is not synced.
+//
+//ergo:host
 func FSAppendFile(path string, text string) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
@@ -383,6 +405,8 @@ func FSAppendFile(path string, text string) error {
 
 // FSChmod is the body of fs.Host's Chmod: os.Chmod with the permission
 // bits perm. A symbolic link is followed.
+//
+//ergo:host
 func FSChmod(path string, perm int) error {
 	if err := os.Chmod(path, fs.FileMode(perm)&fs.ModePerm); err != nil {
 		return fsErr(path, err)
@@ -394,6 +418,8 @@ func FSChmod(path string, perm int) error {
 // that a name is missing, not which: NotFound names from when nothing is
 // at from, and to otherwise (a missing directory on the way to to). Every
 // other failure names from.
+//
+//ergo:host
 func FSRename(from string, to string) error {
 	err := os.Rename(from, to)
 	switch {
@@ -410,6 +436,8 @@ func FSRename(from string, to string) error {
 
 // FSRemove is the body of fs.Host's Remove: os.Remove, which removes a
 // file, a symbolic link (not what it names) or an empty directory.
+//
+//ergo:host
 func FSRemove(path string) error {
 	if err := os.Remove(path); err != nil {
 		return fsErr(path, err)
@@ -436,18 +464,24 @@ func (e ReadFailed) Error() string { return "io.ReadFailed{Reason:" + e.Reason +
 
 // IOPrint is the body of io.Host's Print: text on standard output, as it
 // is, in one write.
+//
+//ergo:host
 func IOPrint(text string) {
 	_, _ = os.Stdout.WriteString(text)
 }
 
 // IOEprint is the body of io.Errors' Eprint: text on standard error, as it
 // is, in one write.
+//
+//ergo:host
 func IOEprint(text string) {
 	_, _ = os.Stderr.WriteString(text)
 }
 
 // IOIsTerminal is the body of io.Host's IsTerminal: whether standard
 // output is a character device, a terminal.
+//
+//ergo:host
 func IOIsTerminal() bool {
 	fi, err := os.Stdout.Stat()
 	return err == nil && fi.Mode()&os.ModeCharDevice != 0
@@ -457,6 +491,8 @@ func IOIsTerminal() bool {
 // rest of standard input, from where the last read stopped. A stop of t
 // ends the wait and raises rt.Interrupted; the text it had read stays for
 // the next read (stdlib.md, io 3).
+//
+//ergo:host
 func IOReadAll(t *rt.Task) (string, error) {
 	return stdinReader().readAll(t)
 }
@@ -470,6 +506,8 @@ func IOReadAll(t *rt.Task) (string, error) {
 // reader for the next read. Each step is an interruption point of t: a
 // stop ends the wait for the next line and raises rt.Interrupted, and the
 // line read after the stop stays for the next read.
+//
+//ergo:host
 func IOLines(t *rt.Task) iter.Seq[string] {
 	return stdinReader().lines(t)
 }

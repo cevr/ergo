@@ -1,0 +1,346 @@
+// Package script plays a script of clients, the operator, messages and
+// faults against the router, and shows what it does, line by line. The
+// router (the route table) runs as a supervised durable actor over a
+// journal; the dispatcher, which carries messages by the table with a
+// courier child per route, runs as a supervised actor of its own.
+
+import actor
+import journal
+import machines
+import queue
+import router/route
+import strconv
+import strings
+import tasks
+
+// BadLine is a line the script cannot read.
+type BadLine { Line int, Why string }
+
+// Command is a line of the script: a signal to the router; a message to
+// carry; Drop, which makes the registry drop its next check (a defect
+// that restarts the router); or Restart, which stops the router and opens
+// a new one from the journal, as a new process would.
+type Command = Send{Signal route.Signal} | Post{Topic string, Body string} | Drop{} | Restart{}
+
+// Budget is how many restarts each supervisor makes after a defect.
+let Budget = 2
+
+// Read reads the lines of a script. Each line is one of
+//
+//	route ID TOPIC DEST   a client asks to route TOPIC to DEST
+//	remove ID TOPIC       a client asks to remove the route of TOPIC
+//	abort ID              the client of ID aborts it
+//	yes, no               the operator answers the question
+//	send TOPIC BODY       a message of TOPIC to carry ("crash" crashes
+//	                      its courier)
+//	drop                  the registry drops its next check
+//	restart               the router stops and opens again
+//
+// A blank line or a line that starts with # is skipped.
+func Read(lines []string) []Command fails BadLine {
+	let mut out = []Command{}
+	for i, line in lines {
+		let n = i + 1
+		let text = strings.TrimSpace(line)
+		let w = strings.Fields(text)
+		if len(w) == 0 || strings.HasPrefix(text, "#") {
+			continue
+		}
+		out = out.Append(try commandOf(n, w))
+	}
+	out
+}
+
+func commandOf(n int, w []string) Command fails BadLine {
+	match w[0] {
+	case "route":
+		if len(w) != 4 {
+			return BadLine{Line: n, Why: "route is route ID TOPIC DEST"}
+		}
+		Send{Signal: route.Submit{Request: route.Request{ID: try count(n, w[1]), Change: route.Add{Topic: w[2], Dest: w[3]}}}}
+	case "remove":
+		if len(w) != 3 {
+			return BadLine{Line: n, Why: "remove is remove ID TOPIC"}
+		}
+		Send{Signal: route.Submit{Request: route.Request{ID: try count(n, w[1]), Change: route.Remove{Topic: w[2]}}}}
+	case "abort":
+		if len(w) != 2 {
+			return BadLine{Line: n, Why: "abort takes the ID"}
+		}
+		Send{Signal: route.Abort{ID: try count(n, w[1])}}
+	case "yes":
+		Send{Signal: route.Reply{Yes: true}}
+	case "no":
+		Send{Signal: route.Reply{Yes: false}}
+	case "send":
+		if len(w) != 3 {
+			return BadLine{Line: n, Why: "send is send TOPIC BODY"}
+		}
+		Post{Topic: w[1], Body: w[2]}
+	case "drop":
+		Drop
+	case "restart":
+		Restart
+	case _:
+		BadLine{Line: n, Why: "unknown word \(w[0])"}
+	}
+}
+
+func count(n int, word string) int fails BadLine {
+	strconv.Atoi(word) catch {
+	case strconv.Malformed:
+		return BadLine{Line: n, Why: "\(word) is not a number"}
+	case strconv.OutOfRange:
+		return BadLine{Line: n, Why: "\(word) is out of range"}
+	}
+}
+
+// Recover is the router's state from the journal j: its snapshot, or the
+// router's initial state, with the signals after it replayed by the pure
+// step (machines.From), which needs the step's row only, none here
+// (fumb-e; it was the work's Registry too, finding G5). A signal that does
+// not commit is a journal of another router.
+func Recover(j journal.Journal[route.Router, route.Signal]) route.Router fails journal.Failed {
+	let log = try j.Load()
+	let from = match log.Snapshot {
+	case Some[route.Router] as s:
+		s.Value
+	case None:
+		route.Initial
+	}
+	let o = machines.From(route.Routing{}, from, log.Signals) catch {
+	case machines.Rejected as r:
+		return journal.Failed{Reason: "signal \(r.At) of the journal is rejected"}
+	}
+	match o {
+	case machines.Running[route.Router, route.Output] as r:
+		r.State
+	case machines.Finished[route.Router, route.Output]:
+		journal.Failed{Reason: "the journal ends the router"}
+	}
+}
+
+// Open runs the router as an actor under supervision over j: it starts
+// in the state j recovers, keeps each committed signal in j before anyone
+// sees it, and after a defect restarts (Budget times) in the state j
+// recovers then, never in the crashed one's memory. sink gets the
+// questions.
+func Open(j journal.Journal[route.Router, route.Signal], sink func(o route.Output)) actor.Actor[route.Router, route.Signal, Decision[route.Router, route.Output]] fails journal.Failed needs route.Registry | Scheduler {
+	try actor.SuperviseDurable(route.Routing{}, 8, sink, tasks.Restart{Limit: Budget}, func() Option[route.Router] fails journal.Failed {
+		Some[route.Router]{Value: try Recover(j)}
+	}, func(prev route.Router, next route.Router, sig route.Signal) fails journal.Failed {
+		try j.Append(sig)
+	})
+}
+
+// Play runs the commands against a router over j and a dispatcher, and is
+// what it shows: each command; each state the router commits after it
+// until one that runs no work; the questions it tells (!), the answers it
+// gives (=) and what it refuses (?); each table the dispatcher takes, and
+// each message a courier carries (->). drop runs the registry's arm.
+func Play(cmds []Command, j journal.Journal[route.Router, route.Signal], drop func()) []string fails journal.Failed needs route.Registry | Scheduler {
+	let said = queue.New[route.Output](8)
+	let sink = func(o route.Output) {
+		said.Push(o) catch {
+		case queue.Closed:
+		}
+	}
+	let mut a = try Open(j, sink)
+	let d = actor.Supervise(route.Dispatcher{}, 8, func(o route.Delivered) {}, tasks.Restart{Limit: Budget})
+	let mut lines = []string{"  \(route.Name(a.State()))"}
+	let mut told = 0
+	let mut restarts = 0
+	let mut used = "?"
+	// use gives the dispatcher the router's table when it changed since
+	// the last one it took, and waits until each route's courier runs.
+	let use = func() {
+		let t = route.BoardOf(a.State()).Table
+		if route.TableText(t) == used {
+			return
+		}
+		used = route.TableText(t)
+		let took = d.Ask(route.Use{Table: t}) catch {
+		case actor.Stopped:
+			lines = lines.Append("  ?? the dispatcher is stopped")
+			return
+		}
+		// Only a new entry starts couriers: a Use that opens none would
+		// leave its hosts empty, and Get would wait for ever.
+		match took {
+		case Enter[route.Dispatch]:
+		case _:
+			lines = lines.Append("  ?? the dispatcher opened no entry for the table")
+			return
+		}
+		match d.State() {
+		case route.Carrying as c:
+			for l in c.Lanes {
+				let _ = l.Courier.Get() catch {
+				case actor.Stopped:
+					continue
+				}
+			}
+		case route.Waiting:
+		}
+		lines = lines.Append("  dispatcher: \(used)")
+	}
+	// follow runs act, which says whether a state commits, and shows each
+	// state the router commits after it until one that runs no work, then
+	// the questions and the new answers. Changes begins before act, so no
+	// state is missed. Changes goes on across a restart: the recovered
+	// incarnation's first state is one more change, after the restart
+	// line.
+	let follow = func(act func() bool) {
+		let mut first = true
+		for st in a.Changes() {
+			if first {
+				first = false
+				if !act() {
+					break
+				}
+				continue
+			}
+			if actor.Restarts(a) > restarts {
+				restarts = actor.Restarts(a)
+				lines = lines.Append("  restarted (\(restarts) of \(Budget)) from the journal")
+			}
+			lines = lines.Append("  \(route.Name(st))")
+			if !route.Busy(st) {
+				break
+			}
+		}
+		let s = a.State()
+		let mut more = true
+		for more {
+			match said.Poll() {
+			case Some[route.Output] as o:
+				lines = lines.Append("  ! #\(o.Value.ID): \(o.Value.Text)")
+			case None:
+				more = false
+			}
+		}
+		let all = route.BoardOf(s).Answers
+		for i in told..len(all) {
+			lines = lines.Append("  = #\(all[i].ID) \(route.AnswerText(all[i].Answer))")
+		}
+		told = len(all)
+		use()
+	}
+	// post carries body on the courier of topic, which the client names
+	// by its lane's host, and waits until the dispatcher's log has it. A
+	// courier's crash ends the dispatcher's incarnation: the supervisor
+	// restarts it Waiting, and it takes the table again.
+	let post = func(topic string, body string) {
+		let lane = match route.LaneOf(d.State(), topic) {
+		case Some[route.Lane] as l:
+			l.Value
+		case None:
+			lines = lines.Append("  ? no route for \(topic)")
+			return
+		}
+		let courier = lane.Courier.Get() catch {
+		case actor.Stopped:
+			lines = lines.Append("  ? the courier of \(topic) is stopped")
+			return
+		}
+		let before = actor.Restarts(d)
+		let n = len(route.LogOf(d.State()))
+		courier.Ask(route.Message{Body: body}) catch {
+		case actor.Stopped:
+			let _ = actor.WaitFor(d, func(s route.Dispatch) bool { actor.Restarts(d) > before }) catch {
+			case actor.Stopped:
+				lines = lines.Append("  ?? the dispatcher is stopped")
+				return
+			}
+			lines = lines.Append("  the courier of \(topic) crashed; the dispatcher restarted (\(actor.Restarts(d)) of \(Budget))")
+			used = "?"
+			use()
+			return
+		}
+		let s = actor.WaitFor(d, func(s route.Dispatch) bool { len(route.LogOf(s)) > n }) catch {
+		case actor.Stopped:
+			lines = lines.Append("  ?? the dispatcher is stopped")
+			return
+		}
+		let m = route.LogOf(s)[n]
+		lines = lines.Append("  \(m.Topic) -> \(m.Dest): \(m.Body)")
+	}
+	use()
+	for c in cmds {
+		match c {
+		case Send as e:
+			lines = lines.Append("> \(SignalText(e.Signal))")
+			follow(func() bool {
+				let r = a.Ask(e.Signal) catch {
+				case actor.Stopped:
+					lines = lines.Append("  ? the router is stopped")
+					return false
+				}
+				match r {
+				case Reject:
+					lines = lines.Append("  ? \(Refusal(e.Signal))")
+					false
+				case Ignore:
+					false
+				case _:
+					true
+				}
+			})
+		case Post as p:
+			lines = lines.Append("> send \(p.Topic) \(p.Body)")
+			post(p.Topic, p.Body)
+		case Drop:
+			lines = lines.Append("> drop")
+			drop()
+		case Restart:
+			lines = lines.Append("> restart")
+			let before = route.Name(a.State())
+			a.Stop()
+			let log = try j.Load()
+			a = try Open(j, sink)
+			restarts = 0
+			let after = route.Name(a.State())
+			lines = lines.Append("  replayed \(len(log.Signals)) signals: \(after)")
+			if after != before {
+				lines = lines.Append("  ?? the replay is not the router that stopped: \(before)")
+			}
+		}
+	}
+	lines = lines.Append("end: \(route.TableText(route.BoardOf(a.State()).Table)), \(told) answers")
+	a.Stop()
+	d.Stop()
+	said.Close()
+	lines
+}
+
+// SignalText is the words of a script's signal.
+func SignalText(s route.Signal) string {
+	match s {
+	case route.Submit as r:
+		"#\(r.Request.ID) \(route.ChangeText(r.Request.Change))"
+	case route.Abort as a:
+		"abort #\(a.ID)"
+	case route.Reply as y:
+		if y.Yes { "yes" } else { "no" }
+	case route.Checked:
+		"checked"
+	case route.Unknown:
+		"unknown"
+	}
+}
+
+// Refusal is why the router rejects s.
+func Refusal(s route.Signal) string {
+	match s {
+	case route.Submit as r:
+		"#\(r.Request.ID) is taken"
+	case route.Abort as a:
+		"#\(a.ID) is not open"
+	case route.Reply:
+		"no question is open"
+	case route.Checked:
+		"no check runs"
+	case route.Unknown:
+		"no check runs"
+	}
+}

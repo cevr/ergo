@@ -81,8 +81,8 @@ test SpawnRefusesBadBoxes {
 	assert refusal(3, 3, 9, 0) == "made"
 }
 
-// Every box Sample makes has particles to move, for most seeds: the laws
+// Every box NewWorld makes has particles to move, for most seeds: the laws
 // above are not vacuous.
 test SamplesAreNotEmpty(seed uint64) {
-	assert Sample(seed, 20, 30, 0).Count() == 30
+	assert NewWorld(seed, 20, 30, 0).Count() == 30
 }

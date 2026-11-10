@@ -137,6 +137,9 @@ func stdPackageDirs(root string) ([]string, error) {
 		if err != nil || !d.IsDir() || p == root {
 			return err
 		}
+		if p == filepath.Join(root, "gostd") {
+			return filepath.SkipDir // Go's bindings, not std packages (interop.md)
+		}
 		matches, err := filepath.Glob(filepath.Join(p, "*.ergo"))
 		if err != nil {
 			return err

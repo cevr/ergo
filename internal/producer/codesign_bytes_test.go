@@ -27,7 +27,7 @@ func darwinIdentity(image, cdhash []byte) Identity {
 	open := func() (io.ReadCloser, error) { return authenticatedCode(image, cdhash) }
 	info := func() (*debug.BuildInfo, bool) { return nil, false }
 	nonce := func() (string, error) { return "nonce", nil }
-	return acquireOnce(open, info, nonce)()
+	return acquireOnce(open, info, nonce, nil)()
 }
 
 // codeDigest is the Darwin rule written out: SHA-256 over the domain tag and

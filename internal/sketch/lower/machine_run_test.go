@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"os/exec"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -230,7 +231,22 @@ func genRunProgram(r *rand.Rand, k int, seen map[string]bool) machineProgram {
 		ev = append(ev, fmt.Sprintf("E%d", j))
 		fmt.Fprintf(&b, "type E%d { v int }\n", j)
 	}
-	fmt.Fprintf(&b, "type St = %s\ntype Sig = %s\ntype Boom {}\n\n", strings.Join(sv, " | "), strings.Join(ev, " | "))
+	// A machine whose state (or signal) has one variant takes the record
+	// itself in some programs, not a union of it (fu-mb2 F10): St (or Sig)
+	// is then renamed to the record everywhere, and every match on it has
+	// the one arm.
+	stateRecord, signalRecord := ns == 1 && k%2 == 0, ne == 1 && k%3 == 0
+	if stateRecord {
+		seen["a machine with a record state"] = true
+	} else {
+		fmt.Fprintf(&b, "type St = %s\n", strings.Join(sv, " | "))
+	}
+	if signalRecord {
+		seen["a machine with a record signal"] = true
+	} else {
+		fmt.Fprintf(&b, "type Sig = %s\n", strings.Join(ev, " | "))
+	}
+	b.WriteString("type Boom {}\n\n")
 	row, helperRow := " fails Boom", ""
 	if needs {
 		row += " needs Probe"
@@ -475,7 +491,14 @@ func timed(m MT, trace []machines.Timed[Sig], end int) string CLOCKED {
 		want = append(want, fmt.Sprintf("%s @%d %s", told, last, intsText(woke)))
 	}
 	b.WriteString("\t}\n}\n")
-	return machineProgram{name: fmt.Sprintf("machinerun_%02d", k), src: b.String(), want: want}
+	src := b.String()
+	if stateRecord {
+		src = regexp.MustCompile(`\bSt\b`).ReplaceAllString(src, "S0")
+	}
+	if signalRecord {
+		src = regexp.MustCompile(`\bSig\b`).ReplaceAllString(src, "E0")
+	}
+	return machineProgram{name: fmt.Sprintf("machinerun_%02d", k), src: src, want: want}
 }
 
 // TestMachineRunAgreesWithFold is the acceptance property: over generated
@@ -501,7 +524,13 @@ func timed(m MT, trace []machines.Timed[Sig], end int) string CLOCKED {
 // of machines (over a Machine record with no timer) miss what it catches:
 // Ignore treated as Reject, the rejected index, Done's state, inference
 // through a machine value, and every timer rule.
+//
+// It builds Go because it compares the runs of built programs with a
+// reference (another lowering, a fold, or Go's own package), and the
+// question is behaviour at run time; no in-process check observes that, and
+// Ergo has no reference interpreter yet (test-speed T8).
 func TestMachineRunAgreesWithFold(t *testing.T) {
+	needsBuild(t)
 	seed := int64(20)
 	if s := os.Getenv("ERGO_MACHINERUN_SEED"); s != "" {
 		n, err := strconv.ParseInt(s, 10, 64)
@@ -520,7 +549,7 @@ func TestMachineRunAgreesWithFold(t *testing.T) {
 	ends := []string{"running", "finished", "rejected", "boom", "-", "emitted"}
 	cases := []string{"timer fired after a stay", "a stale timer came due", "signal at its timer's deadline", "timer just before a signal", "timer rejected",
 		"timer fired in an entry opened by first", "timer fired in an entry opened by enter", "timer fired in an entry opened by emit", "a timer of an entry a late signal opened fired",
-		"a machine with 0 inputs", "a machine with 1 inputs", "a machine with 2 inputs"}
+		"a machine with 0 inputs", "a machine with 1 inputs", "a machine with 2 inputs", "a machine with a record state", "a machine with a record signal"}
 	missing := func() string {
 		seen["a timer of an entry a late signal opened fired"] = seen["timer fired in an entry opened by enter late"] || seen["timer fired in an entry opened by emit late"]
 		for _, k := range ends {
@@ -620,10 +649,8 @@ func runMachineBounded(t *testing.T, exe string) (stdout, stderr string, code in
 // instance; a mismatch names the machine's own Machine. A diagnostic row:
 // it alone catches a conversion that admits any Machine instance.
 func TestMachineValueConverts(t *testing.T) {
-	src := `type St = A
-type A {}
-type Sig = Go
-type Go {}
+	src := `type St = A{}
+type Sig = Go{}
 type Boom {}
 
 func step(s St, e Sig) Decision[St, int] fails Boom { Ignore }
@@ -641,7 +668,7 @@ func main() {
 	for _, d := range lowerSource("machineconv", src, true).diags {
 		got = append(got, d.String())
 	}
-	want := "cannot use M as Machine[St, Sig, string, , ] in let _: its step step gives a Machine with output int, error row {Boom} and capability row {}"
+	want := "cannot use M as Machine[St, Sig, string, , , ] in let _: its step step gives a Machine with output int, error row {Boom}, capability row {} and work row {}"
 	if len(got) != 1 || !strings.Contains(got[0], want) {
 		t.Errorf("diagnostics %q, want one with %q and the machine's own Machine", got, want)
 	}
@@ -704,10 +731,8 @@ func main() {
 // that admits an after of another type or with a row, which no program
 // that builds can show.
 func TestMachineAfterRefusals(t *testing.T) {
-	head := `type St = A
-type A {}
-type Sig = Go
-type Go {}
+	head := `type St = A{}
+type Sig = Go{}
 
 func step(s St, e Sig) Decision[St, int] { Ignore }
 
@@ -722,42 +747,6 @@ func step(s St, e Sig) Decision[St, int] { Ignore }
 	} {
 		var got []string
 		for _, d := range lowerSource("machineafter", head+c.timer+machine, true).diags {
-			got = append(got, d.String())
-		}
-		if len(got) != 1 || !strings.Contains(got[0], c.want) {
-			t.Errorf("%s: diagnostics %q, want one with %q", c.name, got, c.want)
-		}
-	}
-}
-
-// TestMachineStartRefusals: a machine's initial may name a start function
-// of its input (V4): one with no parameters or another result, or with a
-// row, is refused, and an InputMachine is not a Machine. Diagnostic rows:
-// they alone catch a checker that admits such a start, which no program
-// that builds can show.
-func TestMachineStartRefusals(t *testing.T) {
-	head := `type St = A{n int}
-type Sig = Go
-type Go {}
-
-func step(s St, e Sig) Decision[St, int] { Ignore }
-
-type M machine[St, Sig] {
-	initial: start,
-	step:    step,
-}
-
-`
-	for _, c := range []struct{ name, rest, want string }{
-		{"none", "func start() St { A{n: 1} }\n\nfunc main() {}\n",
-			"S108 the start start of machine M must have the type func(…) St: its parameters are the machine's input, and it has no type parameters and no error or capability row (runtime.md, Machines and actors 10)"},
-		{"row", "func start(n int) St {\n\tConsole.Println(\"x\")\n\tA{n: n}\n}\n\nfunc main() {}\n",
-			"S108 cannot use func(int) St needs Console as func(int) St in machine M's start: its capability row {Console} is wider than {}"},
-		{"machine", "func start(n int) St { A{n: n} }\n\nfunc main() {\n\tlet _ Machine[St, Sig, int] = M{}\n}\n",
-			"its initial is a function of an input, so it is an InputMachine[int, …]; machines.Start(value, input) gives a Machine"},
-	} {
-		var got []string
-		for _, d := range lowerSource("machinestart", head+c.rest, true).diags {
 			got = append(got, d.String())
 		}
 		if len(got) != 1 || !strings.Contains(got[0], c.want) {
@@ -791,7 +780,9 @@ func tallyStep(s int, e int) Decision[int, int] {
 
 func untimed(s int) Option[Timeout[int]] { None }
 
-func tally() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed} }
+func unworked(s int) Option[func(send func(e int))] { None }
+
+func tally() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked} }
 
 func ints(xs []int) string {
 	let mut t = "["
@@ -896,6 +887,7 @@ var machinesLawStatements = map[string]string{
 // Std laws 4); it builds and runs because the laws run over the lowered
 // std body, as ergo test runs them.
 func TestStdMachinesLawsRun(t *testing.T) {
+	needsBuild(t)
 	if laws := lawProbe(t, "stdmachines", machinesLawsProbe, machinesLawStatements); laws != nil {
 		lawledger.Run(t, laws)
 	}

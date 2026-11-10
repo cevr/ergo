@@ -1,7 +1,0 @@
-# Skip lines `ergo test` prints for this program's packages (fs4, law-xpkg).
-# file.Journal holds an fs.Files and an fs.Writes; no constructor without
-# parameters of an operation type can build one. file/tests.ergo restates the
-# Store laws on a Journal over an fstest.Memory.
-skip law ledger.Store.TotalIsKept for Journal: its values have no generator: fs.Files is a standard library type; a func NewJournal() Journal with no rows would build one for each case
-skip law ledger.Store.PostIsIdempotent for Journal: its values have no generator: fs.Files is a standard library type; a func NewJournal() Journal with no rows would build one for each case
-skip law ledger.Store.FloorHolds for Journal: its values have no generator: fs.Files is a standard library type; a func NewJournal() Journal with no rows would build one for each case

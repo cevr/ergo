@@ -8,12 +8,23 @@ import (
 
 // The grammar requires nonempty path elements starting with a letter or
 // underscore. A following comment does not make an invalid element valid.
+// A Go import's path is one word to the parser: the checker applies Go's
+// rule (module.CheckImportPath, #231), under which 0, h~ttp and h+ttp are
+// paths (check's TestImportGoUses holds the malformed ones).
 func TestImportPathGrammar(t *testing.T) {
 	for _, form := range []struct{ prefix, suffix string }{
-		{"import ", "\n"},
 		{"import go ", "\n"},
-		{"import alias ", "\n"},
 		{"import go alias ", "\n"},
+	} {
+		for _, path := range []string{"0", "0//0", "net/http/", "net/.http", "net/h~ttp", "net/h+ttp", "github.com/0xAX/x"} {
+			if _, err := Parse(form.prefix + path + form.suffix); err != nil {
+				t.Errorf("%q: %v; a Go import path is the checker's (Go's rule)", form.prefix+path, err)
+			}
+		}
+	}
+	for _, form := range []struct{ prefix, suffix string }{
+		{"import ", "\n"},
+		{"import alias ", "\n"},
 		{"extern go ", ".F func F()\n"},
 	} {
 		for _, path := range []string{"0", "0//0", "net/http/", "net/.http", "net/h~ttp", "net/h+ttp"} {

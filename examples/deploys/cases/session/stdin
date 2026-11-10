@@ -1,0 +1,32 @@
+GET /deploys HTTP/1.1
+Host: localhost
+
+POST /deploys HTTP/1.1
+Host: localhost
+Content-Type: application/json
+Content-Length: 66
+
+{"service":"web","units":[{"image":"app","replicas":2,"mem":450}]}
+
+GET /deploys/dep-1 HTTP/1.1
+Host: localhost
+
+POST /deploys/dep-1/release HTTP/1.1
+Host: localhost
+
+POST /deploys/dep-1/approve HTTP/1.1
+Host: localhost
+
+POST /deploys HTTP/1.1
+Host: localhost
+Content-Length: 27
+
+{"service":"db","units":[]}
+
+DELETE /deploys HTTP/1.1
+Host: localhost
+
+GET /deploys/dep-9 HTTP/1.1
+Host: localhost
+Connection: close
+

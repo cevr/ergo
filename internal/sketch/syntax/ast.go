@@ -124,10 +124,11 @@ type ImportSpec struct {
 // VarDecl is `let [mut] patterns [Type] [= e]` (#196): one VarSpec, no
 // parentheses, Var at `let`. Mut is the position of `mut`, or NoPos.
 type VarDecl struct {
-	Doc   *CommentGroup
-	Var   Pos
-	Mut   Pos
-	Specs []*VarSpec
+	Doc    *CommentGroup
+	Extern *ExternSpec // a Go constant or error variable of a binding: `extern go math.Pi let Pi float64`
+	Var    Pos
+	Mut    Pos
+	Specs  []*VarSpec
 }
 
 // VarSpec is the bound part of a let. Names holds the names of `let x` and
@@ -146,6 +147,7 @@ type VarSpec struct {
 // InterfaceType or a MachineType (grammar.md, Declarations 4).
 type TypeDecl struct {
 	Doc        *CommentGroup
+	Extern     *ExternSpec // a host type of a binding: `extern go net/url.URL type URL { … }`
 	Type       Pos
 	Name       *Ident
 	TypeParams *FieldList // brackets; nil without a list
@@ -154,11 +156,14 @@ type TypeDecl struct {
 
 // FuncDecl is a function, or with Extern set and Body nil, the Go binding
 // `extern go path.F func Name(sig)`. A receiver is the first parameter
-// (#196).
+// (#196). Recv is set only on a Go method of a binding, `extern go
+// net/url.URL.Hostname func (u *URL) Hostname() string`, whose target names
+// the type and the method.
 type FuncDecl struct {
 	Doc        *CommentGroup
 	Extern     *ExternSpec
 	Func       Pos
+	Recv       *FieldList
 	Name       *Ident
 	TypeParams *FieldList
 	Type       *FuncType
@@ -191,8 +196,13 @@ func (s *ImportSpec) Pos() Pos {
 	return s.Path.Pos()
 }
 func (s *ImportSpec) End() Pos { return s.Path.End() }
-func (d *VarDecl) Pos() Pos    { return d.Var }
-func (d *VarDecl) End() Pos    { return d.Specs[0].End() }
+func (d *VarDecl) Pos() Pos {
+	if d.Extern != nil {
+		return d.Extern.Pos()
+	}
+	return d.Var
+}
+func (d *VarDecl) End() Pos { return d.Specs[0].End() }
 func (s *VarSpec) Pos() Pos {
 	if s.Pattern != nil {
 		return s.Pattern.Pos()
@@ -211,7 +221,12 @@ func (s *VarSpec) End() Pos {
 	}
 	return s.Names[len(s.Names)-1].End()
 }
-func (d *TypeDecl) Pos() Pos { return d.Type }
+func (d *TypeDecl) Pos() Pos {
+	if d.Extern != nil {
+		return d.Extern.Pos()
+	}
+	return d.Type
+}
 func (d *TypeDecl) End() Pos { return d.Spec.End() }
 func (d *FuncDecl) Pos() Pos {
 	if d.Extern != nil {
@@ -288,22 +303,36 @@ func (e *ContextEntry) End() Pos {
 
 // Field is a parameter, result, receiver, struct field, type parameter or
 // interface method. Names is empty for a type-only parameter. Type is nil
-// for type parameters written without a constraint (`type Attempt[T]`). For
-// a method of a capability interface, Names holds the method name and Type
-// is its *FuncType.
+// for type parameters written without a constraint (`type Attempt[T]`), and
+// for a group of them that `any` ends before a constrained group (`[E any,
+// K comparable]`), whose `any` is at Any (grammar.md, Declarations). Any is 0
+// when there is none: an `any` never starts a file. For a method of a
+// capability interface, Names holds the method name and Type is its
+// *FuncType. A record member `..R` that includes the fields of the record R
+// (types.md, Structs 7) has Include set, Dots at its `..`, no Names, and R
+// as its Type.
 type Field struct {
-	Doc   *CommentGroup
-	Names []*Ident
-	Type  Expr
+	Doc     *CommentGroup
+	Names   []*Ident
+	Type    Expr
+	Any     Pos
+	Include bool
+	Dots    Pos
 }
 
 func (f *Field) Pos() Pos {
+	if f.Include {
+		return f.Dots
+	}
 	if len(f.Names) > 0 {
 		return f.Names[0].Pos()
 	}
 	return f.Type.Pos()
 }
 func (f *Field) End() Pos {
+	if f.Any > 0 {
+		return f.Any + Pos(len("any"))
+	}
 	if f.Type == nil {
 		return f.Names[len(f.Names)-1].End()
 	}
@@ -556,7 +585,8 @@ type (
 	}
 
 	// MachineType is `machine[S, E] { initial x; step f }`, with an
-	// optional `after g` entry (the states' timers).
+	// optional `after g` entry (the states' timers), an optional `work w`
+	// entry (the states' work), and its laws after the entries.
 	MachineType struct {
 		Machine Pos
 		Lbrack  Pos
@@ -568,7 +598,9 @@ type (
 		Rbrace  Pos
 		Initial Expr
 		Step    Expr
-		After   Expr // nil when the machine has no after entry
+		After   Expr       // nil when the machine has no after entry
+		Work    Expr       // nil when the machine has no work entry
+		Laws    []*LawDecl // the machine's laws, in source order (MU6)
 	}
 
 	// TupleExpr is a tuple type or value `(A, B)`, or a tuple pattern; a
@@ -584,7 +616,7 @@ type (
 type MachineEntry struct {
 	Doc     *CommentGroup
 	NamePos Pos
-	Name    string // "initial", "step" or "after"
+	Name    string // "initial", "step", "after" or "work"
 	Colon   Pos
 	Value   Expr
 }

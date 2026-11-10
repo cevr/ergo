@@ -367,6 +367,9 @@ func (l *lowerer) textFunc(t check.Type, site syntax.Node) {
 				return "\treturn \"{\" + " + strings.Join(parts, " + ") + " + \"}\"\n"
 			}
 		case kindUnion:
+			if fu := l.flatUnionOf(u); fu != nil && unionMutant != "sig-bail" {
+				flatBail(site, fu) // only an error's text names a union: it keeps its interface (flatunion.go)
+			}
 			body = func() string {
 				x := scope.alloc("x")
 				var s strings.Builder

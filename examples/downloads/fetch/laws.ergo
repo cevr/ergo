@@ -1,0 +1,171 @@
+// The file's rules, as laws over Step (machine laws are top-level laws:
+// MU6 is not on this base). Each law folds generated signals from a
+// started file through the pure step; a signal the runner would not send
+// in a state (a chunk while waiting) is in the run too, and the step must
+// ignore it. The live laws are in memory, where the source is.
+
+// signal is the signal of a generated number m: a chunk (the last one
+// now and then), NotFound, TimedOut, Retry or Begin.
+func signal(m int) Signal {
+	match pick(m, 5) {
+	case 0:
+		Got{Chunk: Chunk{Bytes: pick(m/5, 900) + 1, Last: pick(m/5, 4) == 0}}
+	case 1:
+		let s Signal = NotFound{Url: "x"}
+		s
+	case 2:
+		let s Signal = TimedOut{Url: "x"}
+		s
+	case 3:
+		Retry
+	case _:
+		Begin
+	}
+}
+
+// Trace is a fold of a file: its last state, the end if one came, the
+// most timeouts any state held, and the bytes of the chunks it took.
+type Trace { Last File, End Option[End], MostTry int, Took int }
+
+// Fold steps a started file over the signals of moves, until its end.
+func Fold(moves []int) Trace {
+	let mut s File = Fetching{Url: "x", Got: 0, Try: 0}
+	let mut most = 0
+	let mut took = 0
+	for m in moves {
+		let sig = signal(m)
+		let d = Step(s, sig)
+		match d {
+		case Done[End] as e:
+			match (s, sig) {
+			case (Fetching, Got as g):
+				took = took + g.Chunk.Bytes
+			case (_, _):
+			}
+			return Trace{Last: s, End: Some[End]{Value: e.Output}, MostTry: most, Took: took}
+		case Enter[File] as e:
+			match (s, sig) {
+			case (Fetching, Got as g):
+				took = took + g.Chunk.Bytes
+			case (_, _):
+			}
+			s = e.Next
+		case _:
+		}
+		match s {
+		case Fetching as f:
+			if f.Try > most {
+				most = f.Try
+			}
+		case Waiting as w:
+			if w.Try > most {
+				most = w.Try
+			}
+		case Queued:
+		}
+	}
+	Trace{Last: s, End: None, MostTry: most, Took: took}
+}
+
+// RetryWithinBudget: a file holds Budget timeouts at most, and the one
+// after them fails it.
+law RetryWithinBudget(moves []int) {
+	let t = Fold(moves)
+	if t.MostTry > Budget {
+		return false
+	}
+	match t.End {
+	case Some[End] as e:
+		match e.Value {
+		case Failed as f:
+			f.Why == "not found" || (f.Why == "\(Budget + 1) timeouts" && tries(t.Last) == Budget)
+		case _:
+			true
+		}
+	case None:
+		true
+	}
+}
+
+func tries(s File) int {
+	match s {
+	case Fetching as f:
+		f.Try
+	case Waiting as w:
+		w.Try
+	case Queued:
+		0
+	}
+}
+
+// BytesAddUp: a saved file has the bytes of every chunk it took, and a
+// file that runs has the bytes of the chunks so far.
+law BytesAddUp(moves []int) {
+	let t = Fold(moves)
+	match t.End {
+	case Some[End] as e:
+		match e.Value {
+		case Saved as s:
+			s.Bytes == t.Took
+		case Failed:
+			GotOf(t.Last) == t.Took
+		case Cancelled:
+			false
+		}
+	case None:
+		GotOf(t.Last) == t.Took
+	}
+}
+
+// CancelAlwaysEnds: Cancel ends a file from every state, with the bytes
+// it had.
+law CancelAlwaysEnds(moves []int) {
+	let t = Fold(moves)
+	if t.End != None {
+		return true
+	}
+	match Step(t.Last, Cancel) {
+	case Done[End] as d:
+		d.Output == Cancelled{Url: UrlOf(t.Last), Got: GotOf(t.Last)}
+	case _:
+		false
+	}
+}
+
+// BudgetIsExact: n timeouts, each followed by its retry, leave a file
+// fetching while n is Budget or less; the timeout after Budget of them
+// fails it.
+law BudgetIsExact(n int) {
+	let k = pick(n, Budget+1)
+	let mut s File = Fetching{Url: "x", Got: 0, Try: 0}
+	for _ in 0..k {
+		match Step(s, TimedOut{Url: "x"}) {
+		case Enter[File] as e:
+			s = e.Next
+		case _:
+			return false
+		}
+		match Step(s, Retry) {
+		case Enter[File] as e:
+			s = e.Next
+		case _:
+			return false
+		}
+	}
+	let last = Step(s, TimedOut{Url: "x"})
+	match last {
+	case Done[End] as d:
+		k == Budget && d.Output == Failed{Url: "x", Why: "\(Budget + 1) timeouts"}
+	case Enter[File] as e:
+		k < Budget && tries(e.Next) == k+1
+	case _:
+		false
+	}
+}
+
+// BackoffDoubles: the first retry waits 100ms, and each one after it
+// twice the one before.
+law BackoffDoubles(n int) {
+	let k = pick(n, Budget) + 1
+	Backoff(1) == 100ms && Backoff(k+1) == Backoff(k)+Backoff(k)
+}

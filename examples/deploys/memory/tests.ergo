@@ -1,0 +1,49 @@
+// ergo test runs the deploys.Store laws here, against Table (NewTable);
+// these tests run the domain's Create and Apply over it.
+
+import deploys/deploys
+
+let small = deploys.Unit{Image: "app", Replicas: 2, Mem: 450}
+let big = deploys.Unit{Image: "big", Replicas: 1, Mem: 1200}
+
+test CreateNumbersAndTotals {
+	with context { deploys.Store: NewTable() } {
+		let first = try deploys.Create(deploys.Draft{Service: "web", Units: []deploys.Unit{small, big}})
+		let second = try deploys.Create(deploys.Draft{Service: "grace", Units: []deploys.Unit{big}})
+		assert first.ID == "dep-1" && first.Total == 2100 && deploys.Name(first.Status) == "pending"
+		assert second.ID == "dep-2" && deploys.Store.Count() == 2
+	}
+}
+
+test AnInvalidDraftAddsNothing {
+	with context { deploys.Store: NewTable() } {
+		deploys.Create(deploys.Draft{Service: "", Units: []deploys.Unit{small}}) catch {
+		case deploys.Invalid:
+		}
+		assert deploys.Store.Count() == 0
+	}
+}
+
+// moved is the status of the deploy after Apply, or the failure's text.
+func moved(id string, e deploys.Event) string needs deploys.Store {
+	let o = deploys.Apply(id, e) catch {
+	case deploys.NotFound as n:
+		return "no deploy " + n.ID
+	case deploys.Conflict as c:
+		return "conflict: \(c.ID) is \(c.Status), cannot \(c.Event)"
+	}
+	deploys.Name(o.Status)
+}
+
+test ApplyFollowsTheLifecycle {
+	with context { deploys.Store: NewTable() } {
+		let o = try deploys.Create(deploys.Draft{Service: "web", Units: []deploys.Unit{small}})
+		assert moved(o.ID, deploys.Release) == "conflict: dep-1 is pending, cannot release"
+		assert moved(o.ID, deploys.Approve) == "approved"
+		assert moved(o.ID, deploys.Approve) == "approved"
+		assert moved(o.ID, deploys.Release) == "live"
+		assert moved(o.ID, deploys.Cancel) == "conflict: dep-1 is live, cannot cancel"
+		assert moved("dep-9", deploys.Approve) == "no deploy dep-9"
+		assert deploys.Name((try deploys.Store.Find(o.ID)).Status) == "live"
+	}
+}

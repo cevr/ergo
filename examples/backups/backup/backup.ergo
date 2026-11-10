@@ -1,0 +1,78 @@
+// Package backup is the backup aggregate of the backup service: the commands it
+// decides, the events it records, the ways it refuses a command, and the
+// state it folds its events into. Every function here is pure: no
+// capability, no host.
+
+// File is one file of a backup: a count of copies of a path at a size
+// each, in hundredths of a GB.
+type File { Path string, Count int, Size int64 }
+
+// Command is a request to change a backup.
+type Command = Plan{Backup string, Host string, Files []File} | Store{Backup string, Size int64} | Verify{Backup string} | Abort{Backup string, Reason string}
+
+// Event is a fact a backup records. Each event carries what Decide worked
+// out (a file's size, a freed size), so Evolve copies it and repeats no rule.
+type Event = Planned{Backup string, Host string} | FileAdded{Backup string, Path string, Count int, Size int64} | Stored{Backup string, Size int64} | Verified{Backup string} | Aborted{Backup string, Reason string, Freed int64}
+
+// The rejections: each is a typed failure of Decide, so a caller that
+// sends a command names every way it can be refused.
+type UnknownBackup { Backup string }
+type AlreadyPlanned { Backup string }
+type InvalidFile { Backup string, Path string, Reason string }
+type WrongSize { Backup string, Due int64, Got int64 }
+type NotAllowed { Backup string, Action string, Status string }
+
+// Rejection is the row of every rejection.
+type Rejection = UnknownBackup | AlreadyPlanned | InvalidFile | WrongSize | NotAllowed
+
+// Summary is what a backup holds in every state after it is planned.
+type Summary { Host string, Total int64, Files int }
+
+// State is a backup's state. Absent is the state before its first event.
+type State = Absent{} | Open{S Summary} | Held{S Summary} | Sound{S Summary} | Void{S Summary, Reason string}
+
+// BackupOf is the backup a command is about.
+func BackupOf(c Command) string {
+	match c {
+	case Plan as p:
+		p.Backup
+	case Store as p:
+		p.Backup
+	case Verify as s:
+		s.Backup
+	case Abort as x:
+		x.Backup
+	}
+}
+
+// StreamOf is the backup an event belongs to.
+func StreamOf(e Event) string {
+	match e {
+	case Planned as p:
+		p.Backup
+	case FileAdded as i:
+		i.Backup
+	case Stored as p:
+		p.Backup
+	case Verified as s:
+		s.Backup
+	case Aborted as x:
+		x.Backup
+	}
+}
+
+// StatusOf is the name of a state, as a rejection reports it.
+func StatusOf(s State) string {
+	match s {
+	case Absent:
+		"absent"
+	case Open:
+		"open"
+	case Held:
+		"stored"
+	case Sound:
+		"verified"
+	case Void:
+		"aborted"
+	}
+}

@@ -147,16 +147,9 @@ type Step struct {
 	// PackageProblem says why the package's closure is keyed on the whole
 	// checkout (testPackages).
 	PackageProblem string
-	// ObserveInputs, on a fast step whose package key is a declared list
-	// (hostPackageInputs), runs its tests under the input observer
-	// (internal/testinputs) and fails the step on a checkout read its
-	// package key does not cover (readsOutsideKey).
-	ObserveInputs bool
 	// Sweep, on a step of the closure sweep (sweepStep), names what it
-	// sweeps: the directory of the one package it sweeps. A
-	// fast sweep step has a Package key of its own (sweepClosure), which
-	// is not the swept package's closure, so the package steps' checks
-	// and the fast CPU record pass it by.
+	// sweeps: the directory of the one package it sweeps. Only the full
+	// tier sweeps (classHeavy).
 	Sweep string
 	// Writes names the checkout paths, relative to the root, that the step
 	// writes: bin/ergo for the CLI's build. A closure sweep fails on a
@@ -171,6 +164,9 @@ type Step struct {
 	// slot goes to the heaviest waiting step (slotPool). It orders the
 	// steps only: no key holds it.
 	Weight float64
+	// Class says which tiers run the step (stepClass). Every declared
+	// step has one; the fast tier keeps only its classFast steps.
+	Class stepClass
 }
 
 // Inputs declares everything a cached step's result depends on.
@@ -995,15 +991,6 @@ func (g *gate) execute(step *Step) *result {
 	}
 	started := time.Now()
 	argv := step.Argv
-	inputsLog := ""
-	if step.ObserveInputs {
-		// Beside the step's temp dir, under its lock, so the step's own
-		// cleanup does not remove it before the gate reads it.
-		inputsLog = tmpDir + ".inputs"
-		_ = os.Remove(inputsLog)
-		defer os.Remove(inputsLog)
-		argv = append(slices.Clone(argv), "-args", "-test.testlogfile="+inputsLog)
-	}
 	if g.enclosure != nil {
 		argv = g.enclosure.wrap(argv, g.root)
 	}
@@ -1041,9 +1028,6 @@ func (g *gate) execute(step *Step) *result {
 		if used.processIssue != "" {
 			r.output = fmt.Appendf(r.output, "gate: %s: %s\n", step.Name, used.processIssue)
 		}
-	}
-	if inputsLog != "" && r.outcome == passed {
-		g.checkObservedInputs(step, inputsLog, r)
 	}
 	cleanupErr := emptyStepTempDir(tmpDir)
 	unlockErr := unlockStepTemp(lock)

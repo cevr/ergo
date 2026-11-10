@@ -1,0 +1,22 @@
+a: planned for alpha
+a:   2 x a.txt at 1.50
+a:   1 x b.log at 9.00
+b: planned for beta
+b:   1 x c.db at 25.00
+c: planned for gamma
+c:   4 x d.tar at 3.00
+a: refused: due 1200, stored 1100
+a: stored 12.00
+a: verified
+b: stored 25.00
+b: verified
+b: refused: cannot abort a backup that is verified
+b: refused: cannot verify a backup that is verified
+a: refused: already planned
+d: refused: bad file e.img: count 0 is not in 1-99
+planned 3, stored 2, verified 2, aborted 0, files 8, size 37.00
+-- 20 minutes later
+-- 15 minutes later
+c: aborted (not stored after 30 minutes)
+c: refused: cannot verify a backup that is aborted
+planned 3, stored 2, verified 2, aborted 1, files 8, size 37.00

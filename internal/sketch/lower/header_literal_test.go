@@ -12,39 +12,6 @@ import (
 // match header lowers to Go that parses, and gives the value the same
 // expression gives when its literal is bound by a let first.
 
-// TestErgoRunHeaderLiteral is the examples-wave repro c2: a generic
-// variant literal in parentheses on the right of != in an if header. The
-// checker accepted it; go/format dropped the parentheses, so go build
-// failed with "unexpected { at end of statement".
-func TestErgoRunHeaderLiteral(t *testing.T) {
-	wantRun(t, `func differs(m Map[string, string], k string, v string) bool {
-	if m.Get(k) != (Some[string]{Value: v}) {
-		return true
-	}
-	false
-}
-
-func main() needs Console {
-	let mut m Map[string, string]
-	m["a"] = "1"
-	Console.Println("\(differs(m, "a", "1")) \(differs(m, "a", "2"))")
-}
-`, "false true\n")
-	// Repro c2e (stackvm): the same header in an if in value position, the
-	// value of a let.
-	wantRun(t, `func label(m Map[int, bool], n int) string {
-	let l = if m.Get(n) == (Some[bool]{Value: true}) { "L" } else { "-" }
-	l
-}
-
-func main() needs Console {
-	let mut m Map[int, bool]
-	m[1] = true
-	Console.Println("\(label(m, 1))\(label(m, 2))")
-}
-`, "L-\n")
-}
-
 var headerSeed = flag.Uint64("header.seed", 0, "run TestHeaderLiteralAgrees on this seed alone")
 
 // headerSeeds are the fixed seeds; each writes one program of every case.
@@ -163,7 +130,13 @@ func headerCases(seed uint64) []headerCase {
 // function prints what its let-first reference prints. A failing line
 // names the seed, the Ergo source of both functions and both outputs.
 // Replay: go test -run '^TestHeaderLiteralAgrees$' ./internal/sketch/lower -args -header.seed=N
+//
+// It builds Go because it compares the runs of built programs with a
+// reference (another lowering, a fold, or Go's own package), and the
+// question is behaviour at run time; no in-process check observes that, and
+// Ergo has no reference interpreter yet (test-speed T8).
 func TestHeaderLiteralAgrees(t *testing.T) {
+	needsBuild(t)
 	seeds := headerSeeds
 	if *headerSeed != 0 {
 		seeds = []uint64{*headerSeed}

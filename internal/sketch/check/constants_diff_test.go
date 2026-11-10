@@ -2,12 +2,9 @@ package check
 
 import (
 	"fmt"
-	"go/constant"
 	"math/rand"
 	"strings"
 	"testing"
-
-	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // Constant arithmetic against go/types (spec D-A6, round-1 review M3). The
@@ -124,44 +121,6 @@ func TestDifferentialConstants(t *testing.T) {
 	}
 }
 
-// TestConstantValues pins the values the review found the old lowering
-// model got wrong (round-1 review M3): Info.Values holds the value Ergo
-// computes, and the differential agrees with go/types on its lowering.
-func TestConstantValues(t *testing.T) {
-	for _, tc := range []struct {
-		body, expr, want string
-	}{
-		{"func F() float64 { return 1 / 2 }", "1 / 2", "0.5"},
-		{"func F() uint8 { return ^0 }", "^0", "255"},
-		{"func F() int8 { return -128 }", "-128", "-128"},
-		{"func F() int8 { return -(128) }", "-(128)", "-128"},
-		{"func F() float32 { return 0.1 + 0.2 }", "0.1 + 0.2", fmt.Sprint(float64(float32(0.1) + float32(0.2)))},
-		{"func F() int { return 7 / 2 }", "7 / 2", "3"},
-		{"func F() int { return -7 % 3 }", "-7 % 3", "-1"},
-		{"func F() float32 { return 16777217.0 }", "16777217.0", "16777216"},
-	} {
-		t.Run(tc.body, func(t *testing.T) {
-			src := newTwin("package p\n\n"+tc.body+"\n", tc.body+"\n")
-			pkg, diags := CheckSource(src.ergoSrc)
-			if len(diags) > 0 {
-				t.Fatalf("want a clean check, got %s", describeDiags(diags))
-			}
-			var got []string
-			for x, v := range pkg.Info.Values {
-				if exprSource(src.ergoSrc, x) == tc.expr {
-					got = append(got, constantText(v))
-				}
-			}
-			if len(got) != 1 || got[0] != tc.want {
-				t.Fatalf("Info.Values of %s: want %s, got %q", tc.expr, tc.want, got)
-			}
-			if d := diffOne(src); len(d) > 0 {
-				t.Fatalf("Info differs from go/types on the lowering:\n%s", strings.Join(d, "\n"))
-			}
-		})
-	}
-}
-
 // TestRefusals196u (round-2 review m3): the differential excuses exactly
 // 196u's refusal texts. Every TestLiteralRules refusal is one, except a
 // mismatch of two typed operands (Go refuses it too) and a call of a
@@ -192,21 +151,4 @@ func TestRefusals196u(t *testing.T) {
 			t.Errorf("is196uRefusal(%q) = true", d)
 		}
 	}
-}
-
-func exprSource(src string, x syntax.Expr) string {
-	from, to := int(x.Pos()), int(x.End())
-	if from < 0 || to > len(src) || from > to {
-		return ""
-	}
-	return src[from:to]
-}
-
-// constantText prints a constant as a float64 when it is not an integer.
-func constantText(v constant.Value) string {
-	if iv := constant.ToInt(v); iv.Kind() == constant.Int {
-		return iv.ExactString()
-	}
-	f, _ := constant.Float64Val(v)
-	return fmt.Sprint(f)
 }

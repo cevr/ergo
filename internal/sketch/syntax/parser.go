@@ -499,9 +499,16 @@ func (p *parser) parseTypeDecl(doc *CommentGroup) *TypeDecl {
 	return d
 }
 
-// parseTypeParams parses `[T ordered]`, `[A, B]` or `[K comparable, V]`
-// with Go's grouping: names before a constraint share it, and names at the
-// end without one have none.
+// isAny reports the constraint name any.
+func isAny(x Expr) bool {
+	id, ok := x.(*Ident)
+	return ok && id.Name == "any"
+}
+
+// parseTypeParams parses `[T ordered]`, `[A, B]`, `[K comparable, V]` or
+// `[E any, K comparable]` with Go's grouping: names before a constraint
+// share it, names at the end without one have none, and `any` gives a group
+// none where a constrained group follows it.
 func (p *parser) parseTypeParams() *FieldList {
 	l := &FieldList{Opening: p.want(LBRACK)}
 	var pending []*Ident
@@ -517,6 +524,14 @@ func (p *parser) parseTypeParams() *FieldList {
 	}
 	if len(pending) > 0 {
 		l.List = append(l.List, &Field{Names: pending})
+	}
+	// `any` ends a group of unconstrained parameters before a constrained
+	// group: `[E any, K comparable]`. Anywhere else it is the checker's
+	// "Ergo has no any" (types.md, Generics 2).
+	for i, f := range l.List[:max(len(l.List)-1, 0)] {
+		if isAny(f.Type) && l.List[i+1].Type != nil && !isAny(l.List[i+1].Type) {
+			f.Any, f.Type = f.Type.Pos(), nil
+		}
 	}
 	if p.tok.tok != RBRACK {
 		p.errorf("expected \"]\" or \",\", found %s", p.found())
@@ -583,6 +598,14 @@ func (p *parser) parseMembers() *members {
 			kind = memberField
 			f := p.parseFieldDecl()
 			f.Doc = doc
+			m.fields = append(m.fields, f)
+		case p.tok.tok == DOTDOT:
+			// `..R` includes the fields of the record R (types.md,
+			// Structs 7).
+			kind = memberField
+			f := &Field{Doc: doc, Include: true, Dots: p.tok.pos}
+			p.next()
+			f.Type = p.parseType(ctxMember)
 			m.fields = append(m.fields, f)
 		default:
 			p.errorf("expected a field, an operation or a law, found %s", p.found())
@@ -791,12 +814,23 @@ func (p *parser) parseMachineType() *MachineType {
 	saved := p.exprLev
 	p.exprLev = 0
 	for p.tok.tok != RBRACE {
-		e := &MachineEntry{Doc: p.leadComment(), NamePos: p.tok.pos}
-		if p.tok.tok != IDENT || p.tok.lit != "initial" && p.tok.lit != "step" && p.tok.lit != "after" {
-			p.errorf("expected initial, step or after, found %s", p.found())
+		doc := p.leadComment()
+		if p.tok.tok == LAW {
+			t.Laws = append(t.Laws, p.parseMachineLaw(doc))
+			if !p.got(COMMA) {
+				break
+			}
+			continue
+		}
+		if len(t.Laws) > 0 {
+			p.errorf("a machine's entries come before its laws")
+		}
+		e := &MachineEntry{Doc: doc, NamePos: p.tok.pos}
+		if p.tok.tok != IDENT || p.tok.lit != "initial" && p.tok.lit != "step" && p.tok.lit != "after" && p.tok.lit != "work" {
+			p.errorf("expected initial, step, after or work, found %s", p.found())
 		}
 		e.Name = p.tok.lit
-		if e.Name == "initial" && t.Initial != nil || e.Name == "step" && t.Step != nil || e.Name == "after" && t.After != nil {
+		if e.Name == "initial" && t.Initial != nil || e.Name == "step" && t.Step != nil || e.Name == "after" && t.After != nil || e.Name == "work" && t.Work != nil {
 			p.errorf("%s is set twice", e.Name)
 		}
 		p.next()
@@ -807,6 +841,8 @@ func (p *parser) parseMachineType() *MachineType {
 			t.Initial = e.Value
 		case "step":
 			t.Step = e.Value
+		case "work":
+			t.Work = e.Value
 		default:
 			t.After = e.Value
 		}
@@ -825,6 +861,50 @@ func (p *parser) parseMachineType() *MachineType {
 		p.errorAt(t.Machine, len("machine"), "a machine sets initial and step")
 	}
 	return t
+}
+
+// parseMachineLaw parses a law of a machine (MU6): `law Name(params) {
+// body }` as any law, or a reachability law `law Name reaches V`, `law
+// Name never reaches V` or `law Name path [V1, V2, …]`. reaches, never and
+// path are words only here, after a machine law's name.
+func (p *parser) parseMachineLaw(doc *CommentGroup) *LawDecl {
+	if p.peek(1).tok != IDENT || p.peek(2).tok != IDENT {
+		return p.parseLawDecl(doc, true)
+	}
+	d := &LawDecl{Doc: doc, Law: p.want(LAW)}
+	d.Name = p.parseIdent()
+	r := &LawReach{Never: NoPos, Lbrack: NoPos, Rbrack: NoPos}
+	d.Reach = r
+	if p.tok.lit == "never" {
+		r.Never = p.tok.pos
+		p.next()
+		if p.tok.tok != IDENT || p.tok.lit != "reaches" {
+			p.errorf("expected reaches after never, found %s", p.found())
+		}
+	}
+	r.Word = p.tok.pos
+	switch p.tok.lit {
+	case "reaches":
+		p.next()
+		r.Targets = []*Ident{p.parseIdent()}
+	case "path":
+		if r.Never != NoPos {
+			p.errorf("expected reaches after never, found %s", p.found())
+		}
+		r.Path = true
+		p.next()
+		r.Lbrack = p.want(LBRACK)
+		for {
+			r.Targets = append(r.Targets, p.parseIdent())
+			if !p.got(COMMA) || p.tok.tok == RBRACK {
+				break
+			}
+		}
+		r.Rbrack = p.want(RBRACK)
+	default:
+		p.errorf("expected (, reaches, never reaches or path after a machine law's name, found %s", p.found())
+	}
+	return d
 }
 
 func (p *parser) parseFuncDecl(doc *CommentGroup) *FuncDecl {
@@ -847,8 +927,10 @@ func (p *parser) parseFuncDecl(doc *CommentGroup) *FuncDecl {
 	return d
 }
 
-// parseExternDecl parses `extern go path.F func Name [TypeParams] Sig`.
-func (p *parser) parseExternDecl(doc *CommentGroup) *FuncDecl {
+// parseExternDecl parses `extern go path.F func Name [TypeParams] Sig`, and
+// the binding forms of docs/spec/interop.md: `extern go path.T type T Spec`,
+// `extern go path.C let C Type` and `extern go path.T.M func (r R) M Sig`.
+func (p *parser) parseExternDecl(doc *CommentGroup) Decl {
 	x := &ExternSpec{Extern: p.want(EXTERN)}
 	x.Go = p.want(GO)
 	if p.tok.tok != PATH {
@@ -859,7 +941,26 @@ func (p *parser) parseExternDecl(doc *CommentGroup) *FuncDecl {
 		p.errorf("an extern target is an import path, a dot and a function name, found %s", p.found())
 	}
 	p.next()
+	switch p.tok.tok {
+	case TYPE:
+		d := p.parseTypeDecl(doc)
+		d.Extern = x
+		return d
+	case LET:
+		d, ok := p.parseLetDecl(doc, false).(*VarDecl)
+		if !ok || d.Mut.IsValid() || len(d.Specs[0].Names) != 1 || d.Specs[0].Type == nil || len(d.Specs[0].Values) > 0 {
+			p.errorf("an extern let names one Go constant or variable and its type: extern go math.Pi let Pi float64")
+		}
+		d.Extern = x
+		return d
+	}
 	d := &FuncDecl{Doc: doc, Extern: x, Func: p.want(FUNC)}
+	if p.tok.tok == LPAREN {
+		d.Recv = p.parseParameters(paramPlain)
+		if path, typ, name := x.SplitMethod(); path == "" || !isIdentifier(typ) || !isIdentifier(name) || len(d.Recv.List) != 1 || len(d.Recv.List[0].Names) != 1 {
+			p.errorf("an extern method has one named receiver and the target path.Type.Method")
+		}
+	}
 	d.Name = p.parseIdent()
 	if p.tok.tok == LBRACK {
 		d.TypeParams = p.parseTypeParams()
@@ -1317,6 +1418,9 @@ func (p *parser) parseType(ctx typeCtx) Expr {
 		saved := p.exprLev
 		p.exprLev = 1
 		first := p.parseType(ctxList)
+		if p.tok.tok == OR {
+			p.errorAt(p.tok.pos, 1, "a row takes no parentheses: write it bare, T[A | B]")
+		}
 		if p.tok.tok != COMMA {
 			p.exprLev = saved
 			return &ParenExpr{Lparen: lparen, X: first, Rparen: p.want(RPAREN)}
@@ -1409,15 +1513,7 @@ func (p *parser) parseTypeArgs(x Expr) Expr {
 	saved := p.exprLev
 	p.exprLev = 1
 	for p.tok.tok != RBRACK {
-		// A row argument is spelled as a row is, `A | B` (196n): the
-		// checker admits it only at a row parameter (types.md, Generics 7).
-		t := p.parseType(ctxList)
-		for p.tok.tok == OR {
-			pos := p.tok.pos
-			p.next()
-			t = &BinaryExpr{X: t, OpPos: pos, Op: OR, Y: p.parseType(ctxList)}
-		}
-		ix.Indices = append(ix.Indices, t)
+		ix.Indices = append(ix.Indices, p.parseTypeArg())
 		if !p.got(COMMA) {
 			break
 		}
@@ -1425,6 +1521,21 @@ func (p *parser) parseTypeArgs(x Expr) Expr {
 	p.exprLev = saved
 	ix.Rbrack = p.want(RBRACK)
 	return ix
+}
+
+// parseTypeArg parses one type argument: a type, or a row `A | B` of a row
+// parameter, written as a row is written after needs and fails (one rule
+// for every row position). The row is a BinaryExpr with Op OR, the shape
+// an expression's index `f[A | B]` already has, so the checker reads one
+// shape in both positions; a row for a type parameter is its error.
+func (p *parser) parseTypeArg() Expr {
+	x := p.parseType(ctxList)
+	for p.tok.tok == OR {
+		pos := p.tok.pos
+		p.next()
+		x = &BinaryExpr{X: x, OpPos: pos, Op: OR, Y: p.parseTypeName("a row")}
+	}
+	return x
 }
 
 // ---------------------------------------------------------------- contexts

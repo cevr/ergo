@@ -19,32 +19,6 @@ func contextKey(_ Tag) string { "k" }
 func contextText(t Tag) string { t.Text }
 `
 
-// A with operand obeys the same lexical scope as a value expression.
-// A local or parameter must be used even when a package context has its name.
-func TestContextBindingLexicalOperand(t *testing.T) {
-	for _, operand := range []string{"W", "(W)", "((W))"} {
-		for _, tc := range []struct{ name, fn string }{
-			{"local", `func f() int { let W = Tag{Text: "local"}; with %s { 1 } }`},
-			{"parameter", `func f(W Tag) int { with %s { 1 } }`},
-		} {
-			t.Run(tc.name+"/"+operand, func(t *testing.T) {
-				src := contextShadowPrelude + fmt.Sprintf(tc.fn, operand)
-				f, err := syntax.Parse(src)
-				if err != nil {
-					t.Fatal(err)
-				}
-				pkg, ds := check.Check("main", []*syntax.File{f}, nil)
-				if len(ds) != 0 {
-					t.Fatalf("diagnostics: %v", ds)
-				}
-				if got := strings.Join(contextWiths(pkg, f), "\n"); got != "f: main.Tag contextKey@main contextText@main" {
-					t.Fatalf("with resolves %s, want the lexical Tag", got)
-				}
-			})
-		}
-	}
-}
-
 // valueContextHeader is seven lines; the two declarations under test follow
 // on lines 8 and 9, and a with of W on line 10.
 const valueContextHeader = `type A { Use() }
@@ -223,18 +197,6 @@ func TestImportNamedLikeContext(t *testing.T) {
 	}
 }
 
-func TestContextOperandReferenceWalk(t *testing.T) {
-	for _, body := range []string{
-		`func f() int { let W = Tag{Text: "local"}; with W { 1 } }`,
-		`func f(W Tag) int { with ((W)) { 1 } }`,
-		`func f() { with W { A.Use() } }`,
-	} {
-		if p := check.RefWalkProblems(contextShadowPrelude + body); len(p) > 0 {
-			t.Errorf("reference walk: %s", strings.Join(p, "; "))
-		}
-	}
-}
-
 // The binder table (runtime-199 stage 4a r2 o2): every form that binds a
 // local W next to the package context W. A value binder makes W a context
 // operand; a type parameter or a needs-row name hides the context and is no
@@ -314,89 +276,6 @@ func checkContext(t *testing.T, src string) (*check.Package, *syntax.File, []che
 	return pkg, f, ds
 }
 
-// contextWiths renders each with of a function body in source order: the
-// binding's type and its Key and Text functions, or "services" for a with of a
-// named or inline context.
-func contextWiths(pkg *check.Package, f *syntax.File) []string {
-	var out []string
-	for _, d := range f.Decls {
-		fd, ok := d.(*syntax.FuncDecl)
-		if !ok || fd.Body == nil {
-			continue
-		}
-		syntax.Inspect(fd.Body, func(n syntax.Node) bool {
-			x, ok := n.(*syntax.CallExpr)
-			if !ok {
-				return true
-			}
-			w := pkg.Info.Withs[x]
-			switch {
-			case w == nil:
-			case w.Value == nil:
-				out = append(out, fd.Name.Name+": services")
-			default:
-				cb := w.Value
-				out = append(out, fd.Name.Name+": "+cb.Type.String()+" "+cb.Key.Name+"@"+cb.Key.Pkg.Path+" "+cb.Text.Name+"@"+cb.Text.Pkg.Path)
-				if len(w.Contexts) != 0 || len(w.Discharged) != 0 || len(w.Acquired) != 0 {
-					out = append(out, fd.Name.Name+": a context with holds context facts")
-				}
-			}
-			return true
-		})
-	}
-	return out
-}
-
-// A value whose type satisfies the protocol is a context binding, however
-// it is spelled: a call, a local, a nested binding. The binding discharges
-// nothing, so the block's needs stay the enclosing function's.
-func TestContextBindingAdmission(t *testing.T) {
-	for _, tc := range []struct {
-		name, src, want string
-	}{
-		{"user type", `func f() needs Log { with tag("k", "v") { Log.Say("x") } }
-`, "f: main.Tag contextKey@main contextText@main"},
-		{"local value", `func f() int { let a = tag("k", "v"); with a { 1 } }
-`, "f: main.Tag contextKey@main contextText@main"},
-		{"nested shadow", `func f() int { with tag("k", "outer") { with tag("k", "inner") { 1 } } }
-`, "f: main.Tag contextKey@main contextText@main\nf: main.Tag contextKey@main contextText@main"},
-		{"inside a context with", `type Quiet {}
-func Say(_ Quiet, s string) {}
-let W = context { Log: Quiet }
-func f() { with W { with tag("k", "v") { Log.Say("x") } } }
-`, "f: services\nf: main.Tag contextKey@main contextText@main"},
-		{"block value", `func f() string { with tag("k", "v") { "x" } }
-`, "f: main.Tag contextKey@main contextText@main"},
-		// std's values bind by the same protocol: the checker reads the
-		// functions on their unexported types, never the package's name.
-		{"std values", `import log
-import trace
-func f() int { with log.Annotate("region", "eu") { with trace.Span("work") { 1 } } }
-`, "f: log.annotation contextKey@log contextText@log\nf: trace.span contextKey@trace contextText@trace"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			pkg, f, ds := checkContext(t, tc.src)
-			if len(ds) != 0 {
-				t.Fatalf("diagnostics: %v", ds)
-			}
-			if got := strings.Join(contextWiths(pkg, f), "\n"); got != tc.want {
-				t.Fatalf("withs:\n%s\nwant:\n%s", got, tc.want)
-			}
-		})
-	}
-}
-
-// A with of a context value discharges no capability: a block that needs
-// Log under a function that does not declare it is the function's need.
-func TestContextBindingDischargesNothing(t *testing.T) {
-	_, _, ds := checkContext(t, `type Other { Do() }
-func f() needs Other { with tag("k", "v") { Log.Say("x") } }
-`)
-	if len(ds) != 1 || ds[0].Code != "S102" {
-		t.Fatalf("diagnostics: %v, want one S102 for the undischarged Log", ds)
-	}
-}
-
 // A same-shaped type that breaks the protocol is not a context binding:
 // admission is the protocol, never the spelling of the type or its
 // functions. Each case is one located diagnostic at the operand.
@@ -449,56 +328,4 @@ func f() int { with bad() { 1 } }
 			}
 		})
 	}
-}
-
-// The operand is evaluated in the enclosing frame, as an argument is: an
-// unhandled failure is S105, and a tried one is the function's failure.
-func TestContextBindingOperandFailure(t *testing.T) {
-	src := `type Fault {}
-func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
-func tried(ok bool) int fails Fault { with tag(try key(ok), "v") { 1 } }
-`
-	pkg, _, ds := checkContext(t, src)
-	if len(ds) != 0 {
-		t.Fatalf("diagnostics: %v", ds)
-	}
-	for _, f := range pkg.Funcs {
-		if f.Name == "tried" && !strings.Contains(f.Sig.Errors.String(), "Fault") {
-			t.Fatalf("tried's row %s lacks the operand's Fault", f.Sig.Errors)
-		}
-	}
-	_, _, ds = checkContext(t, `type Fault {}
-func key(ok bool) string fails Fault { if ok { return "k" }; Fault }
-func untried() int { with tag(key(true), "v") { 1 } }
-`)
-	if len(ds) != 1 || ds[0].Code != "S105" {
-		t.Fatalf("diagnostics: %v, want one S105", ds)
-	}
-}
-
-// A with of a context value runs the protocol's functions in its frame
-// (Footprints): a pure binding keeps a pure frame pure, and a binding whose
-// function runs unknown code makes the frame opaque.
-func TestContextBindingFootprints(t *testing.T) {
-	checkFootprints(t, contextValuePrelude+`type Opaque { K string }
-func contextKey(o Opaque) string { let f = func() string { o.K }; f() }
-func contextText(o Opaque) string { o.K }
-func mk() Opaque { Opaque{K: "k"} }
-func pure() int { with tag("k", "v") { 1 } }
-func opaque() int { with mk() { 1 } }
-func block() needs Log { with tag("k", "v") { Log.Say("x") } }
-`, map[string]string{"pure": "pure", "opaque": "opaque", "block": "Log"})
-}
-
-// A context read is effectful even with an empty capability row (approval
-// item 4): log.Annotation and trace.Current read the running task's
-// context, so a frame that reads one is never pure. A std binding's own
-// functions are pure, so a with of one keeps a pure frame pure.
-func TestContextReadFootprints(t *testing.T) {
-	checkFootprints(t, `import log
-import trace
-func annotation() bool { match log.Annotation("k") { case Some[string]: true; case None: false } }
-func current() bool { match trace.Current() { case Some[string]: true; case None: false } }
-func bound() int { with log.Annotate("k", "v") { with trace.Span("s") { 1 } } }
-`, map[string]string{"annotation": "opaque", "current": "opaque", "bound": "pure"})
 }

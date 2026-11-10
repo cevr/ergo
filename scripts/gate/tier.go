@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -35,6 +34,30 @@ import (
 // full-tier record.
 const fastTier = "fast"
 
+// stepClass says which tiers run a step. Every step the gate declares has
+// a class, and fastSteps derives the fast tier's step list from it: a step
+// with no class fails the declaration, and a heavy step stays out of the
+// fast tier. TestFastTierHoldsNoHeavyStep fails a step that does heavy work
+// and is not declared classHeavy, so the fast tier stays fast by
+// construction and not by a time limit.
+type stepClass int
+
+const (
+	classUndeclared stepClass = iota
+	// classFast steps run in every tier: in-process checks and the
+	// packages' -short tests, and the examples step with the build of the
+	// CLI it runs (test-speed decision Q1: "the fast tier keeps
+	// in-process tests + the examples step").
+	classFast
+	// classHeavy steps run only in the full and merge tiers, on every
+	// batch head: a go test without -short, a build and run of another
+	// module, a closure sweep, the host packages' tests (they start gates
+	// in systemd scopes and the merge tier's sandbox) and gc over the
+	// corpus (decision Q1: "build-and-run unit tests run on every batch
+	// head").
+	classHeavy
+)
+
 // fullBuildStep is the full tier's step that builds every test binary
 // before its test steps; the fast tier has none (fastSteps).
 const fullBuildStep = "go test build"
@@ -49,40 +72,6 @@ const sizeCutoff = 2.0
 // fastFlag is what every fast-tier test step adds: properties and growth
 // checks run their -short domain (testing.Short).
 const fastFlag = "-short"
-
-// hostPackageInputs are the inputs of a host test package's fast-tier key
-// outside its compiled closure, declared here instead of read from
-// internal/closure. That table declares scripts/gate as the whole checkout
-// ("." subtree, a placeholder its reason marks as a follow-up): keyed so,
-// the host package would run on every edit, and the fast tier could not
-// meet its 60 s target (gate-fast plan section 5, which keys the host
-// package by its compiled closure and the host fingerprint). These are the
-// reads its fast-tier tests make of the real checkout: the scripts
-// directory (the gate script, the durations, the authored example list,
-// the conformance and examples runners the parity fixture copies), the
-// observer the parity fixture copies, the Effect case list and the syntax
-// source the parity fixture reads, and the closure table
-// (TestTheClosureTableParses). The fast step runs its tests under the input
-// observer (Step.ObserveInputs) and fails on a read outside its key
-// (readsOutsideKey), so a test that reads more fails the step instead of
-// making a stale pass. The tests that read the gate's declarations of the
-// whole checkout (go list of every package) skip under -short
-// (checkoutRoot), as do those that start the merge tier's sandbox, which
-// the observer cannot observe (startsSandbox); the full tier runs every
-// test uncached on every batch head.
-var hostPackageInputs = map[string][]replay.Allowance{
-	"scripts/gate": {
-		{Path: "scripts", Grant: replay.GrantSubtree},
-		{Path: "internal/testinputs", Grant: replay.GrantSubtree},
-		{Path: "conformance/effect-cases.json", Grant: replay.GrantFile},
-		{Path: "internal/sketch/syntax/probe.go", Grant: replay.GrantFile},
-		{Path: replay.DeclaredFile, Grant: replay.GrantFile},
-	},
-}
-
-// observable says whether the input observer (internal/testinputs) can
-// check a fast step's reads here: it needs Linux's seccomp notification.
-const observable = runtime.GOOS == "linux"
 
 // tierFlags picks the run's tier from the flags: --merge keys and compares
 // the full tier, --no-cache and -record-durations run as the full tier,
@@ -201,14 +190,9 @@ func testPackages(root string) ([]testPackage, string, error) {
 			return nil, "", fmt.Errorf("go list has no test main for %s", p.ImportPath)
 		}
 		c := closureOf(dir, append([]string{p.ImportPath + " [" + p.ImportPath + ".test]", p.ImportPath + "_test [" + p.ImportPath + ".test]"}, main.Deps...))
-		switch declared, host := hostPackageInputs[dir]; {
-		case problem != "":
+		if problem != "" {
 			c.Declared = []replay.Allowance{{Path: ".", Grant: replay.GrantSubtree}}
-		case host && observable:
-			// Only the input observer (Linux) checks a declared list;
-			// elsewhere the package keeps its table entry.
-			c.Declared = declared
-		default:
+		} else {
 			c.Declared = table[dir]
 		}
 		for _, a := range c.Declared {
@@ -272,8 +256,36 @@ func fastShardArgs(groups [][]string, large []string) [][]string {
 	return args
 }
 
-// fastSteps declares the fast tier: the full tier's steps but its Go tests
-// (declareSteps), and one keyed step per test package or shard.
+// classFastSteps are the full tier's classFast steps, which the fast tier
+// keeps (stepClass); a step with no class fails. Every go test step of the
+// full tier is heavy: in the fast tier each test package gets a keyed
+// -short step instead (fastSteps). The hermetic step, kept, relinked both
+// test binaries to find Go's cached result on every run: about 20 s of a
+// 27 s docs-edit run (measured 2026-11-06, leg-docs-3.log). The full
+// tier's "go test build" links and starts every test binary of the module
+// before any test step: in the fast tier a package step builds only its
+// own test binary, and only when its key changed, so the step and the
+// needs on it are dropped. go vet still type-checks every package and its
+// tests.
+func classFastSteps(full []*Step) ([]*Step, error) {
+	var steps []*Step
+	for _, step := range full {
+		switch step.Class {
+		case classFast:
+		case classHeavy:
+			continue
+		default:
+			return nil, fmt.Errorf("step %q declares no class (stepClass): say which tiers run it", step.Name)
+		}
+		step.Needs = slices.DeleteFunc(slices.Clone(step.Needs), func(need string) bool { return need == fullBuildStep })
+		steps = append(steps, step)
+	}
+	return steps, nil
+}
+
+// fastSteps declares the fast tier: the full tier's classFast steps
+// (classFastSteps), and one keyed -short step per test package or shard
+// but the host packages'.
 func fastSteps(root string) ([]*Step, error) {
 	packages, problem, err := testPackages(root)
 	if err != nil {
@@ -292,29 +304,23 @@ func fastSteps(root string) ([]*Step, error) {
 		return nil, err
 	}
 	module := modulePath(root)
-	var steps, tests []*Step
-	for _, step := range full {
-		// Every step that is not a package's tests is the full tier's. The
-		// hermetic step is a package's tests too: its packages get a keyed
-		// step each, below. Kept, it relinked both test binaries to find
-		// Go's cached result on every run: about 20 s of a 27 s docs-edit
-		// run (measured 2026-11-06, leg-docs-3.log). The full tier's
-		// "go test build" links and starts every test binary of the module
-		// before any test step: in the fast tier a package step builds
-		// only its own test binary, and only when its key changed, so the
-		// step and the needs on it are dropped. go vet still type-checks
-		// every package and its tests.
-		if step.Hermetic || step.Name == fullBuildStep || runsGoTest(step) {
-			continue
-		}
-		step.Needs = slices.DeleteFunc(slices.Clone(step.Needs), func(need string) bool { return need == fullBuildStep })
-		steps = append(steps, step)
+	steps, err := classFastSteps(full)
+	if err != nil {
+		return nil, err
 	}
+	var tests []*Step
 	for _, p := range packages {
 		relative := strings.TrimPrefix(p.importPath, module+"/")
+		// A host package's tests are heavy (classHeavy): they start gates
+		// in systemd scopes and build in the merge tier's sandbox (754.8 s
+		// wall, 392 CPU-s under -short at 2b089097, gate-minute
+		// measure.md). The full tier runs them on every batch head.
+		if slices.Contains(hostTestPackages, relative) {
+			continue
+		}
 		// A hermetic package builds as its full-tier step builds it.
 		var env, needs []string
-		if strings.HasPrefix(relative, hermeticTestRoot) && !slices.Contains(hostTestPackages, relative) {
+		if strings.HasPrefix(relative, hermeticTestRoot) {
 			env = hermeticEnvironment
 		}
 		// A package whose tests run the CLI runs the one this run built.
@@ -330,10 +336,6 @@ func fastSteps(root string) ([]*Step, error) {
 		pkg := "./" + p.dir
 		base := []string{"go", "test", fastFlag, testTimeout}
 		name := "go test " + pkg + " (fast)"
-		if slices.Contains(hostTestPackages, relative) {
-			base = []string{"go", "test", "-count=1", fastFlag, "-parallel", hostTestParallel(), testTimeout}
-			name = "go test " + pkg + " (host, fast)"
-		}
 		n := 1
 		if slices.Contains(slowPackages, pkg) {
 			total := 0.0
@@ -345,122 +347,15 @@ func fastSteps(root string) ([]*Step, error) {
 		groups := shard(fast, measured, n)
 		selections, weights := fastShardArgs(groups, large), shardWeights(groups, measured)
 		for i, selection := range selections {
-			step := &Step{Name: name, Needs: needs, Argv: append(append(slices.Clone(base), selection...), pkg), Env: env, ToolEnv: testTools, Package: p.closure, PackageProblem: problem, Weight: weights[i]}
-			// A key from a declared list holds only while the input
-			// observer checks the reads (testPackages).
-			_, step.ObserveInputs = hostPackageInputs[p.dir]
-			step.ObserveInputs = step.ObserveInputs && observable && problem == ""
+			step := &Step{Name: name, Needs: needs, Argv: append(append(slices.Clone(base), selection...), pkg), Env: env, ToolEnv: testTools, Package: p.closure, PackageProblem: problem, Weight: weights[i], Class: classFast}
 			if len(selections) > 1 {
 				step.Name = fmt.Sprintf("go test %s [%d/%d] (fast)", pkg, i+1, len(selections))
 			}
 			tests = append(tests, step)
 		}
 	}
-	// The closure sweep of each package, keyed so that it runs only when
-	// what decides its verdict in the fast tier changes (sweepClosure);
-	// only where the sweep can run (sweepSupported).
-	for _, p := range packages {
-		if sweepSupported() {
-			step := sweepStep(p.dir)
-			step.Name = "closure sweep ./" + p.dir + " (fast)"
-			step.Package, step.PackageProblem = sweepClosure(p.dir, problem), problem
-			step.Weight = sweepWeight(durations, p.importPath)
-			tests = append(tests, step)
-		}
-	}
 	// The tests after the steps they need, in package order.
 	return append(steps, tests...), nil
-}
-
-// sweepClosure is the key of a package's fast-tier closure sweep: the
-// package's test files and the sweep's own package (internal/closure, the
-// table in sweepTable among it), with what every key holds. So the fast
-// tier sweeps every package after an edit of the table or of the sweep,
-// one package after an edit of its tests, which is where a new test input
-// comes from, and none after an edit of a non-test file: that keeps a
-// checker edit's fast set as it was (TestFastTierReachOfAnEdit). The full
-// tier sweeps every package on every run (declareSteps). A table the gate
-// cannot read keys the sweep on the whole checkout, as it keys every
-// package (testPackages).
-func sweepClosure(dir, problem string) *replay.Closure {
-	c := &replay.Closure{Dir: path.Dir(sweepTable), Declared: []replay.Allowance{{Path: dir + "/*_test.go", Grant: replay.GrantFiles}}}
-	if problem != "" {
-		c.Declared = []replay.Allowance{{Path: ".", Grant: replay.GrantSubtree}}
-	}
-	return c
-}
-
-// checkObservedInputs ends a passed step that ran under the input observer
-// (Step.ObserveInputs): a checkout path its tests read that its package key
-// does not cover fails the step, so a declared list that misses an input
-// goes red the first time a test reads it. A log the observer could not
-// complete fails the step too: its tests did something the observer
-// cannot see through (a namespace, a second seccomp listener), and a pass
-// left unrecorded would rerun the package on every gate in silence.
-func (g *gate) checkObservedInputs(step *Step, log string, r *result) {
-	outside, unobserved, err := readsOutsideKey(g.root, step.Package, log)
-	switch {
-	case err != nil:
-		r.outcome = failed
-		r.output = fmt.Appendf(r.output, "gate: %s: read the observed inputs: %v\n", step.Name, err)
-	case unobserved != "":
-		r.outcome = failed
-		r.output = fmt.Appendf(r.output, "gate: %s: %s, so its declared key cannot be checked (a test that starts the merge tier's sandbox calls startsSandbox; see the observer's reason above)\n", step.Name, unobserved)
-	case len(outside) > 0:
-		r.outcome = failed
-		const shown = 20
-		r.output = fmt.Appendf(r.output, "gate: %s: its tests read %d checkout paths its package key does not cover (add each to hostPackageInputs in scripts/gate/tier.go, or run the test only in the full tier):\n", step.Name, len(outside))
-		for _, p := range outside[:min(len(outside), shown)] {
-			r.output = fmt.Appendf(r.output, "  %s\n", p)
-		}
-	}
-}
-
-// readsOutsideKey reads a test log that the input observer wrote
-// (internal/testinputs: "open", "stat" and "chdir" lines with absolute
-// paths) and returns the checkout paths in it that the closure does not
-// cover, sorted, or why the log is not a complete observation.
-func readsOutsideKey(root string, c *replay.Closure, log string) (outside []string, unobserved string, err error) {
-	content, err := os.ReadFile(log)
-	if os.IsNotExist(err) {
-		return nil, "the tests wrote no input log", nil
-	}
-	if err != nil {
-		return nil, "", err
-	}
-	text := string(content)
-	if !strings.HasPrefix(text, "# test log\n") || !strings.HasSuffix(text, "\n") {
-		return nil, "the input observer could not observe the tests", nil
-	}
-	roots := []string{filepath.Clean(root)}
-	if resolved, err := filepath.EvalSymlinks(root); err == nil && resolved != roots[0] {
-		roots = append(roots, resolved)
-	}
-	seen := map[string]bool{}
-	for _, line := range strings.Split(strings.TrimSuffix(text, "\n"), "\n")[1:] {
-		verb, name, _ := strings.Cut(line, " ")
-		if verb != "open" && verb != "stat" && verb != "chdir" {
-			continue
-		}
-		if !filepath.IsAbs(name) {
-			name = filepath.Join(root, filepath.FromSlash(c.Dir), name)
-		}
-		name = filepath.Clean(name)
-		for _, base := range roots {
-			rel, err := filepath.Rel(base, name)
-			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-				continue
-			}
-			rel = filepath.ToSlash(rel)
-			if !c.Covers(rel) && !seen[rel] {
-				seen[rel] = true
-				outside = append(outside, rel)
-			}
-			break
-		}
-	}
-	sort.Strings(outside)
-	return outside, "", nil
 }
 
 // fastCPUFile holds, per test package, the CPU seconds (user and system,
@@ -541,7 +436,7 @@ func writeFastCPU(root string, limit limiter, packages []string) error {
 		dir := strings.TrimPrefix(path.Clean(pkg), "./")
 		cpu, ran := 0.0, 0
 		for _, step := range steps {
-			if step.Package == nil || step.Package.Dir != dir || step.Sweep != "" {
+			if step.Package == nil || step.Package.Dir != dir {
 				continue
 			}
 			for _, need := range step.Needs {
@@ -623,7 +518,7 @@ func (g *gate) recordPackages(out io.Writer, results []*result, objects []*repla
 }
 
 // packageIdentity names a package step in its key: its name, argv and
-// variables, and whether its reads are observed.
+// variables.
 func packageIdentity(step *Step) []string {
-	return []string{step.Name, fmt.Sprintf("%q", step.Argv), fmt.Sprintf("%q", step.Env), fmt.Sprintf("observed %t", step.ObserveInputs)}
+	return []string{step.Name, fmt.Sprintf("%q", step.Argv), fmt.Sprintf("%q", step.Env)}
 }

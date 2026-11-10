@@ -1,0 +1,89 @@
+// Script draws the commands the laws run: a seeded Random, two backups, and
+// a command for one of them at each step. A generated slice holds at most
+// three elements (G-ex-d-9), too few for a backup's life, so the laws
+// draw their own.
+
+import rand
+
+// Script is n commands for the backups "a" and "b", drawn from a Random
+// seeded with seed. Most are accepted: a store is for the backup's total
+// one time in two, and one file in ten is invalid.
+func Script(seed int, n int) []Command {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let mut a State = Absent
+		let mut b State = Absent
+		let mut script = []Command{}
+		for _ in 0..n {
+			let id = if Random.IntN(2) == 0 { "a" } else { "b" }
+			let s = if id == "a" { a } else { b }
+			let c = drawCommand(id, s)
+			script = script.Append(c)
+			let events = Decide(s, c) catch {
+			case Rejection:
+				[]Event{}
+			}
+			let mut next = s
+			for e in events {
+				next = Evolve(next, e)
+			}
+			if id == "a" {
+				a = next
+			} else {
+				b = next
+			}
+		}
+		script
+	}
+}
+
+// drawCommand is a command for the backup id in state s.
+func drawCommand(id string, s State) Command needs Random {
+	match Random.IntN(7) {
+	case 0:
+		Plan{Backup: id, Host: "h-" + id, Files: drawFiles()}
+	case 1:
+		Plan{Backup: id, Host: "h-" + id, Files: drawFiles()}
+	case 2:
+		Store{Backup: id, Size: dueOf(s)}
+	case 3:
+		Store{Backup: id, Size: dueOf(s) + int64(Random.IntN(3)) - 1}
+	case 4:
+		Verify{Backup: id}
+	case 5:
+		Verify{Backup: id}
+	case _:
+		Abort{Backup: id, Reason: "no longer needed"}
+	}
+}
+
+// dueOf is what a backup in state s is due: its total, or 0 when it has
+// none.
+func dueOf(s State) int64 {
+	match s {
+	case Open as o:
+		o.S.Total
+	case Held as p:
+		p.S.Total
+	case Sound as x:
+		x.S.Total
+	case Void as v:
+		v.S.Total
+	case Absent:
+		0
+	}
+}
+
+let paths = []string{"a.txt", "b.log", "c.db", "d.tar", "e.img", "f.csv", "g.bin"}
+
+// drawFiles is 0 to 3 files; a file has no path, a count of 0 or a size
+// of 0 one time in ten each.
+func drawFiles() []File needs Random {
+	let mut files = []File{}
+	for _ in 0..Random.IntN(4) {
+		let path = if Random.IntN(10) == 0 { "" } else { paths[Random.IntN(len(paths))] }
+		let count = if Random.IntN(10) == 0 { 0 } else { 1 + Random.IntN(3) }
+		let size = if Random.IntN(10) == 0 { int64(0) } else { int64(50 * (1 + Random.IntN(4))) }
+		files = files.Append(File{Path: path, Count: count, Size: size})
+	}
+	files
+}

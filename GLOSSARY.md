@@ -99,7 +99,11 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Variant** (checked): One struct type listed in a union. A variant value is assignable to every union that lists it.
 
-**Defaultable type**: A type with a valid zero value: a basic type, or a struct whose fields are all defaultable. Unions, capabilities, function types, tasks, resources and borrows are not defaultable. Outside its package, a struct with an unexported field is not defaultable either, so its only values there come from the package's exported functions (construction authority, S114).
+**Included record** (checked, sp-include): A record named by the member `..R` of another record declaration or variant, `type Visit { ..Owned, S Session }`. Its fields become the including record's own fields at that position, and each keeps its declaration, so a spread copies it between two records that include `R`. One name has one declaration: a duplicate, also through a diamond, is S108. See [types](docs/spec/types.md#structs) Structs 7.
+
+**Spread** (checked, sp-spread): A record literal `T{..s, F: v}` whose base `s` has another record type. Each field of `T` it does not name is copied from the field of `s` with the same declaration (one record type's instances, or one included record) and the same type; any other unnamed field is S108. With a base of exactly `T`, the same form is a record update. See [types](docs/spec/types.md#structs) Structs 3.
+
+**Defaultable type**: A type with a valid zero value: a basic type, a slice, a Map, a record with no fields, or a tuple of these. A record with fields is not defaultable: it is built only by a literal that names every field or by a record update (owner q44, 2026-11-09; [types](docs/spec/types.md#zero-values-and-definite-initialisation) Zero values 2). Unions, capabilities, function types, tasks, resources and borrows are not defaultable.
 
 **Definite initialisation** (checked for `var x T`; the rest designed, [#197](https://github.com/cevr/ergo/issues/197)): The rule that a variable of a non-defaultable type has a value before it is used.
 
@@ -109,7 +113,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Irrefutable pattern** (checked): A pattern that matches every value of its type, such as a name, a tuple of names or a record pattern of the value's own type. `let` and `for` take only irrefutable patterns; a partial one belongs in a `match`.
 
-**Row value** (checked): The value `case err:` binds in a `catch` arm: the failures the earlier arms leave, typed as the anonymous union of their error types. It can be returned (a failure of those types), matched, caught or assigned to a declared union that lists each of them; it has no other operation.
+**Row value** (checked): The value `case err:` binds in a `catch` arm: the failures the earlier arms leave, typed as the anonymous union of their error types. It is also the type an error row parameter names in a type position, and a row written as a type argument (q47). It can be returned (a failure of those types), matched, caught, compared when every member is equatable, held in a field, or assigned to a declared union that lists each of them; it has no other operation ([rows.md](docs/spec/rows.md#error-rows) Error rows 8).
 
 **Block**: A braced statement list. As the body of `with`, `timeout.After` or a trailing block, it yields its last expression, and `return`, `break` and `continue` are errors inside it.
 
@@ -167,7 +171,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Codec** (designed): The pair a type's wire form is found by: `ParseX` decodes and `x.Wire()` encodes. A derived codec's rows are the union of its fields' rows. In the earlier language (implemented for structural JSON), a codec is a checked witness relating a wire type and a domain type through separately contracted decoding and encoding operations.
 
-**Go import** (designed): `import go "path"`, which imports a Go package. Every call charges the predeclared `go.Foreign` capability.
+**Go import** (checked): `import go path`, which imports a Go package through its binding (an Ergo file of `extern go` declarations that `ergo bind go` generates; Go's standard library is embedded). The name it binds is the Go package name (`import go math/rand/v2` binds `rand`). A call into a package of the reviewed pure list charges nothing; any other Go call charges the predeclared `go.Foreign` capability, which only the entry provides. A Go pointer that is stored or returned is a `go.Ref[T]`; Ergo's `*T` stays a borrow.
 
 ## Constructs, contracts and laws
 
@@ -217,7 +221,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Evidence kind** ([#170](https://github.com/cevr/ergo/issues/170)): A nominal wrapper type, such as `SortedBy[S, compare]`, whose values carry the proof that a law-backed check has run on the carrier. Only the checking function mints it.
 
-**Law receipt** (implemented in part, L10; [#170](https://github.com/cevr/ergo/issues/170)): The recorded outcome of running a law suite for one revision, seed and target: the status of each law (tested, refuted or skipped), its case count and any counterexample, shrunk. `ergo test DIR --receipt FILE` writes one as JSON ([runtime](docs/spec/runtime.md#tests), Tests 8). A tested law is not a proved one. The build reads only the canonical receipt; no build reads one yet.
+**Law receipt** (implemented in part, L10; [#170](https://github.com/cevr/ergo/issues/170)): The recorded outcome of running a law suite for one revision, seed and target: the status of each law (proved, tested, refuted or skipped), its case count and any counterexample, shrunk. `ergo test DIR --receipt FILE` writes one as JSON ([runtime](docs/spec/runtime.md#tests), Tests 8). A tested law, which held for drawn cases, is not a proved one, which held for every value. The build reads only the canonical receipt; no build reads one yet.
 
 **Proof tier** (designed in outline; owner direction 2026-11-02, [#162](https://github.com/cevr/ergo/issues/162)): The check-time stage that sends only decidable facts, such as index ranges, length relations, integer bounds and unreachable arms, to an SMT solver within a fixed time budget, reports "proved" only when the solver discharges the obligation and "unknown" on a timeout, and lowers a proved fact as a removed check, while everything outside it stays tested, never proved.
 
@@ -227,7 +231,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 ## Runtime and providers
 
-**Effect runtime provider** (direction): An implementation of the lawful runtime contract that executes Ergo effects on a target. `runtime/ergo` is the native Go provider of the earlier language, and the prototype's `rt` package is the first provider of the Go-shaped language. Pinned Effect as the JavaScript provider went with the JavaScript target on 2026-10-26.
+**Effect runtime provider** (direction): An implementation of the lawful runtime contract that executes Ergo effects on a target. `runtime/ergo` was the native Go provider of the earlier language (removed in batch 14), and the prototype's `rt` package is the first provider of the Go-shaped language. Pinned Effect as the JavaScript provider went with the JavaScript target on 2026-10-26.
 
 **Lawful runtime contract** (specified research): The host operations and laws an effect runtime provider must satisfy, with each obligation's evidence classified as nominally checked, trusted decision, tested law, refuted or unresolved/unavailable.
 
@@ -253,7 +257,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 ## Earlier `.ef` language
 
-These terms describe the retired `.ef` language, with its `effect fn`, `run`, `raises` and `service` forms. [#205](https://github.com/cevr/ergo/issues/205) removed its compiler ([retirement record](docs/receipts/retire-ef.md)); its runtime, `runtime/ergo`, stays in the tree until lowering replaces it. The terms stay as design reference. The Go-shaped language replaces it; where a term has a counterpart above, the entry says so.
+These terms describe the retired `.ef` language, with its `effect fn`, `run`, `raises` and `service` forms. [#205](https://github.com/cevr/ergo/issues/205) removed its compiler ([retirement record](docs/receipts/retire-ef.md)); its runtime, `runtime/ergo`, was removed in batch 14. The terms stay as design reference. The Go-shaped language replaces it; where a term has a counterpart above, the entry says so.
 
 **Record**: A nominal data type with declared fields. Construction checks every required field and its type. Counterpart: struct.
 
@@ -375,6 +379,10 @@ These terms describe the retired `.ef` language, with its `effect fn`, `run`, `r
 
 **Actor incarnation** (proposed): One running instance associated with an address, distinguished from its predecessors and from its individual state entries.
 
+**Durable actor** (implemented, MU9): A machine actor whose committed transitions a journal keeps before anyone sees them, so a new actor recovers its state by replaying them with the machine's pure step (std `actor.StartDurable`, `journal.Start`). See [runtime](docs/spec/runtime.md#machines-and-actors) 17. A durable entity adds an address and ownership to it.
+
+**Journal** (implemented, MU9): The std operation type `journal.Journal[S, E]` that keeps a durable actor's committed signals after the last snapshot of its state, in order. Its providers are `journal/memory` and `journal/file`.
+
 **Durable entity** (proposed): An addressable actor whose provider contract preserves declared domain data and acknowledged progress across process failure, with explicit storage, codec and ownership policies.
 
 **Workflow replay** (proposed): Reconstructing execution from versioned recorded steps and outcomes under an explicit replay contract; ordinary effect recipes do not imply replay safety.
@@ -386,6 +394,8 @@ These terms describe the retired `.ef` language, with its `effect fn`, `run`, `r
 **Re-entry** (specified): Closing a state entry and starting a fresh one, including when the state tag stays the same.
 
 **Entry epoch** (specified): An identity distinguishing a state entry from prior entries so obsolete work cannot update a later entry.
+
+**Actor host** (checked; mu-host): An `actor.Host[A]`, an empty slot for one child that a step puts in the state it enters. The entry that state opens owns it, its work fills it once with `actor.ChildIn`, and it closes when the entry ends, so a reader's `Get` gives a child of that entry or fails `Stopped`. Not a host provider (see **Ambient**): it reaches no host state. See [runtime](docs/spec/runtime.md#machines-and-actors) 16.
 
 **Transition decision** (implemented syntax): The value a machine step produces for one admitted event: `enter`, `stay`, `ignore`, `reject` or `done`. Its type is the predeclared `decision<S, O>`. Counterpart: decision.
 

@@ -229,10 +229,10 @@ func (c *checker) binary(x *syntax.BinaryExpr, hint Type) operand {
 	if l.invalid() || r.invalid() {
 		return bad(x)
 	}
-	if isRowValue(l.typ) || isRowValue(r.typ) {
-		// A row value is returned, matched, caught or assigned to a union
-		// that lists its types; it has no other operation (D-C3).
-		c.errorf(x, CodeType, "a row value has no operator %s: return it, match it, catch it or assign it to a union that lists its types (rows.md, Catch 7)", x.Op)
+	if (isRowValue(l.typ) || isRowValue(r.typ)) && x.Op != syntax.EQL && x.Op != syntax.NEQ {
+		// A row value is returned, matched, caught, assigned or compared
+		// as a union is (D-C3; q47); it has no other operator.
+		c.errorf(x, CodeType, "a row value has no operator %s: return it, match it, catch it, compare it or assign it to a union that lists its types (rows.md, Catch 7)", x.Op)
 		return bad(x)
 	}
 	if !c.matchTypes(x, &l, &r) {

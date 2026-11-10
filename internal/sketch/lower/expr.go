@@ -207,9 +207,18 @@ func (fc *funcCtx) elemAt(x syntax.Expr, i int, val string) string {
 
 func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) string {
 	switch conv.Kind {
-	case 0, check.ConvVariant:
+	case 0:
 		return val
+	case check.ConvVariant:
+		// A flat union's variant goes in through its of method
+		// (flatunion.go).
+		v, _ := fc.flatVariantValue(conv.From, conv.To, val, site)
+		return v
 	case check.ConvOperations:
+		if n, ok := conv.To.(*check.Named); ok && n.Obj.Pkg.Host() {
+			// A Go value to a Go interface: Go's own implicit conversion.
+			return val
+		}
 		return fc.operations(conv, val, site)
 	case check.ConvRow:
 		// The row value holds one of the union's error variants, which
@@ -229,7 +238,7 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 			// plan value is not read; it has zero size and no effect.
 			first = "Start: " + fc.machineStart(start, site)
 		}
-		return fc.goType(conv.To) + "{" + first + ", Step: " + fc.funcValue(step, step.Sig, site, nil) + ", After: " + fc.machineAfter(conv, site) + "}"
+		return fc.goType(conv.To) + "{" + first + ", Step: " + fc.funcValue(step, step.Sig, site, nil) + ", After: " + fc.machineAfter(conv, site) + ", Work: " + fc.machineWork(conv, site) + "}"
 	}
 	ice(site, "an unknown implicit conversion")
 	return ""
@@ -277,6 +286,9 @@ func (fc *funcCtx) exprOf(x syntax.Expr) operand {
 	case *syntax.StarExpr:
 		return operand{val: fc.atSite(x, x.Pos(), "(*"+fc.value(x.X)+")")}
 	case *syntax.CompositeLit:
+		if lit := fc.l.info.Works[x]; lit != nil {
+			return operand{val: fc.workLit(x, lit, fc.typeOf(x))}
+		}
 		return operand{val: fc.composite(x, fc.typeOf(x))}
 	case *syntax.IndexExpr:
 		return operand{val: fc.atSite(x, x.Pos(), fc.index(x))}
@@ -388,6 +400,18 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 						return fc.funcValue(o, fc.typeOf(x), x, nil)
 					}
 				case *check.Var:
+					if o.Name == x.Sel.Name && pn.Pkg.Host() {
+						// A Go constant or error variable of import go
+						// is Go's own; an error is the go.Error that keeps
+						// it (IG5), a target of go.Is.
+						goName := fc.l.hostPkg(pn.Pkg.Path, x) + "." + o.Name
+						if n, ok := o.Type.(*check.Named); ok && check.IsGoError(n) {
+							return fc.l.goErrorFrom() + "(" + goName + ")"
+						}
+						// Typed as the binding says: Go's untyped constant
+						// would take its default type (math.MaxInt64 as int).
+						return fc.goType(o.Type) + "(" + goName + ")"
+					}
 					if o.Name == x.Sel.Name {
 						// An imported package's let, lowered with the
 						// program (sources.go).
@@ -405,6 +429,11 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 		return fc.methodValue(x, op)
 	}
 	recv := fc.value(x.X)
+	if hostRecv(fc.typeOf(x.X)) {
+		// A field of a Go struct is Go's field, read as a result is
+		// (gocall.go): a nil pointer is None, a Map or slice is copied.
+		return fc.goResult(x, fc.typeOf(x), fc.spill(recv+"."+x.Sel.Name), "", "")
+	}
 	return recv + "." + fc.fieldName(x)
 }
 
@@ -500,6 +529,16 @@ func (fc *funcCtx) binaryOf(x *syntax.BinaryExpr, parts []string) string {
 	if (x.Op == syntax.EQL || x.Op == syntax.NEQ) && needsEqual(fc.equalType(x)) {
 		return fc.equalOp(x, parts) // structural equality (equal.go)
 	}
+	if x.Op == syntax.EQL || x.Op == syntax.NEQ {
+		// A variant compared with a flat union goes into it first
+		// (flatunion.go), as Go converts it to an interface.
+		lt, rt := fc.typeOf(x.X), fc.typeOf(x.Y)
+		if v, ok := fc.flatVariantValue(rt, lt, parts[1], x); ok {
+			parts = []string{parts[0], v}
+		} else if v, ok := fc.flatVariantValue(lt, rt, parts[0], x); ok {
+			parts = []string{v, parts[1]}
+		}
+	}
 	return "(" + parts[0] + " " + x.Op.String() + " " + parts[1] + ")"
 }
 
@@ -583,6 +622,13 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 			set[td.fields[i].Name] = true
 		}
 		vals := fc.operands(values, true)
+		if td.goError {
+			// go.Error{Text: s}: a native error of its own (IG5).
+			if len(vals) == 0 {
+				return goType + "{}"
+			}
+			return fc.l.rt() + ".GoErrorText(" + vals[0] + ")"
+		}
 		parts := make([]string, len(keys))
 		for i := range keys {
 			parts[i] = keys[i] + ": " + vals[i]
@@ -649,6 +695,9 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 // no update expression; Borgo lowers Rust's `..rest` to a called function
 // literal that evaluates the field values first.
 func (fc *funcCtx) update(x *syntax.CompositeLit, t check.Type, td *typeDecl) string {
+	if copies, ok := fc.l.info.Spreads[x]; ok {
+		return fc.spread(x, t, td, copies)
+	}
 	u := fc.temp("u")
 	fc.line(u + " := " + fc.value(x.Base))
 	var keys []string
@@ -670,10 +719,86 @@ func (fc *funcCtx) update(x *syntax.CompositeLit, t check.Type, td *typeDecl) st
 		values = append(values, kv.Value)
 	}
 	vals := fc.operands(values, true)
+	if td.goError && len(vals) == 1 {
+		// go.Error has one field: the update is a new go.Error (IG5).
+		fc.line(u + " = " + fc.l.rt() + ".GoErrorText(" + vals[0] + ")")
+		return u
+	}
 	for i := range keys {
 		fc.line(u + "." + keys[i] + " = " + vals[i])
 	}
 	return u
+}
+
+// spread lowers a spread `T{..s, F: v}` whose base s has another record
+// type (types.md, Structs 3) to its desugaring: the base bound once,
+// first, then one literal of T with the named values, in source order, and
+// a read of the base for each field the checker recorded as copied
+// (Info.Spreads):
+//
+//	b := s
+//	T{F: v, G: b.G}
+//
+// These are field moves, as hand Go writes them; nothing is allocated. A
+// base that lowers to a Go variable or field path is read in place when no
+// named value writes statements (so none can run before the reads): the
+// literal is then T{F: v, G: s.G}, with no copy of the base.
+func (fc *funcCtx) spread(x *syntax.CompositeLit, t check.Type, td *typeDecl, copies []check.Spread) string {
+	base := fc.value(x.Base)
+	b := base
+	inPlace := isGoPath(base)
+	for _, e := range x.Elts {
+		inPlace = inPlace && !fc.emits(e.(*syntax.KeyValueExpr).Value)
+	}
+	switch {
+	case len(copies) == 0:
+		fc.line("_ = " + base)
+	case !inPlace:
+		b = fc.temp("b")
+		fc.line(b + " := " + base)
+	}
+	var parts []string
+	var values []syntax.Expr
+	for _, e := range x.Elts {
+		kv := e.(*syntax.KeyValueExpr)
+		name, ok := td.fieldName[kv.Key.(*syntax.Ident).Name]
+		if !ok {
+			ice(kv.Key, "%s has no field %s", t, kv.Key)
+		}
+		parts = append(parts, name)
+		values = append(values, kv.Value)
+	}
+	vals := fc.operands(values, true)
+	for i := range parts {
+		parts[i] += ": " + vals[i]
+	}
+	if len(copies) > 0 {
+		sn, ok := fc.typeOf(x.Base).(*check.Named)
+		if !ok {
+			ice(x.Base, "a spread base of type %s", fc.typeOf(x.Base))
+		}
+		std := fc.l.typeDecl(sn.Obj, x.Base)
+		for _, c := range copies {
+			parts = append(parts, td.fieldName[c.Field.Name]+": "+b+"."+std.fieldName[c.From.Name])
+		}
+	}
+	return fc.goType(t) + "{" + strings.Join(parts, ", ") + "}"
+}
+
+// isGoPath reports whether s is a Go variable or a field path of one,
+// `a` or `a.b.c`: reading it has no effect and no cost.
+func isGoPath(s string) bool {
+	for _, part := range strings.Split(s, ".") {
+		if part == "" || part[0] >= '0' && part[0] <= '9' {
+			return false
+		}
+		for _, r := range part {
+			if r != '_' && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // elements lowers composite elements left to right; an elided-type element
@@ -792,9 +917,17 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	if m.Partial != partial {
 		ice(x, "a catch whose Partial fact disagrees with its try")
 	}
+	plain := fc.plainCatch(x, m)
+	if plain && catchBinding(fc.l.info, x) == nil {
+		fc.rawErr = x.X
+	}
 	o := fc.expr(x.X)
+	fc.rawErr = nil
 	if o.err == "" {
 		ice(x.X, "catch on an expression that cannot fail")
+	}
+	if plain {
+		return fc.plainCatchBody(x, m, o)
 	}
 	result := ""
 	if m.Result != nil {

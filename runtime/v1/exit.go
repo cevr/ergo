@@ -386,12 +386,18 @@ func ergoStack(stack []byte) []string {
 // for a typed failure, 2 when any reason is a defect, as Go's own panic
 // report does, and 130 when every reason is an interruption. Each reason is
 // written on standard error.
+//
+//ergo:host
 func Main(body func(*rt.Task) error) {
 	os.Exit(report(os.Stderr, runMain(body)))
 }
 
 // runMain runs body as the root task and returns its canonical exit.
-func runMain(body func(*rt.Task) error) error { return runOn(rt.Root("main"), body) }
+func runMain(body func(*rt.Task) error) error {
+	root, written := rootFor()
+	defer written()
+	return runOn(root, body)
+}
 
 // runOn runs body on root, a task with no parent, and returns its canonical
 // exit. A traced root reports as an untraced one does.

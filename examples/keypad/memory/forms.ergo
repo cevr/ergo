@@ -5,12 +5,12 @@ import keypad/keypad
 // Fixed is a keypad.Forms of three fixed forms.
 type Fixed {}
 
-func Names(_ Fixed) []string { []string{"login", "address", "code"} }
+func Names(_ Fixed) []string { []string{"alarm", "address", "code"} }
 
 func Form(_ Fixed, name string) []keypad.Spec fails keypad.NoSuchForm {
 	match name {
-	case "login":
-		keypad.Login()
+	case "alarm":
+		keypad.Alarm()
 	case "address":
 		[]keypad.Spec{
 			keypad.Spec{ID: "street", Layout: keypad.AnyText, Min: 1, Max: 0},

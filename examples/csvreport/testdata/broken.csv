@@ -1,3 +1,3 @@
-region,product,units,price
-north,tea,3,2.50
-south,"tea,1,2.50
+site,device,hours,kw
+north,hub,3,2.50
+south,"hub,1,2.50

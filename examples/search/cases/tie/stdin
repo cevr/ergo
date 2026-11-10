@@ -1,0 +1,6 @@
+# "b" waits its pause until 250, and the key "r" comes at that very
+# instant: the timer goes first, so "b" is searched and shown, and then
+# the key types on from the hits
+@0 key b
+@250 key r
+@1000 end

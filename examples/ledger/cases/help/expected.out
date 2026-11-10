@@ -1,4 +1,0 @@
-Usage of ledger:
-ledger answers a teller's commands from standard input: open ID [OVERDRAFT], deposit KEY ID AMOUNT, withdraw KEY ID AMOUNT, pay KEY FROM TO AMOUNT, balance ID, accounts.
-  -journal file
-    	keep the ledger in the journal file; without it the ledger lives in memory for one run

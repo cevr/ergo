@@ -1,0 +1,4535 @@
+-- 00500.ergo --
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+func f() int fails E { try h(g()) catch { case X: 0 } }
+-- 00501.ergo --
+func F() int { try h(g()) catch { case X: 0 } }
+-- 00502.ergo --
+type E { A bool, B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+func F() int { try h(g()) catch { case X: 0 } }
+-- 00503.ergo --
+type E { B bool }
+func g() int fails E { 1 }
+func F() int { try h(g()) catch { case X: 0 } }
+-- 00504.ergo --
+type E { N int }
+type F {}
+func g() int fails E | F { 1 }
+func F() int { try h(g()) catch { case X: 0 } }
+-- 00505.ergo --
+type E {}
+type X {}
+func g() int fails E { 1 }
+func h(n int) int fails X { n }
+func F() int { try h(g()) catch { case X: 0 } }
+-- 00506.ergo --
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+func F() int { try h(g()) catch { case X: 0 } }
+-- 00507.ergo --
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+func F() int { try h(g()) catch { case X: 0 } }
+-- 00508.ergo --
+func f() int { h(g()) catch { case X: 0 } }
+-- 00509.ergo --
+type E { A bool, B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+func f() int { h(g()) catch { case X: 0 } }
+-- 00510.ergo --
+type E { B bool }
+func g() int fails E { 1 }
+func f() int { h(g()) catch { case X: 0 } }
+-- 00511.ergo --
+type E { N int }
+type F {}
+func g() int fails E | F { 1 }
+func f() int { h(g()) catch { case X: 0 } }
+-- 00512.ergo --
+type E {}
+type X {}
+func g() int fails E { 1 }
+func h(n int) int fails X { n }
+func f() int { h(g()) catch { case X: 0 } }
+-- 00513.ergo --
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+func f() int { h(g()) catch { case X: 0 } }
+-- 00514.ergo --
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+func f() int { h(g()) catch { case X: 0 } }
+-- 00515.ergo --
+type E { A bool, B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+-- 00516.ergo --
+type E { B bool }
+func g() int fails E { 1 }
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+-- 00517.ergo --
+type E { N int }
+type F {}
+func g() int fails E | F { 1 }
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+-- 00518.ergo --
+type E {}
+type X {}
+func g() int fails E { 1 }
+func h(n int) int fails X { n }
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+-- 00519.ergo --
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+-- 00520.ergo --
+func f() int {
+	g() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } }
+}
+-- 00521.ergo --
+type E { A bool, B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+func f() int {
+	g() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } }
+}
+-- 00522.ergo --
+type E { B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } }
+}
+-- 00523.ergo --
+type E { N int }
+type F {}
+func g() int fails E | F { 1 }
+func f() int {
+	g() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } }
+}
+-- 00524.ergo --
+type E {}
+type X {}
+func g() int fails E { 1 }
+func h(n int) int fails X { n }
+func f() int {
+	g() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } }
+}
+-- 00525.ergo --
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+func f() int {
+	g() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } }
+}
+-- 00526.ergo --
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+func f() int {
+	g() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } }
+}
+-- 00527.ergo --
+func f() int {
+	g() catch { case err: if eq(err, err) { 1 } else { 0 } }
+}
+-- 00528.ergo --
+type E { A bool, B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+func f() int {
+	g() catch { case err: if eq(err, err) { 1 } else { 0 } }
+}
+-- 00529.ergo --
+type E { B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch { case err: if eq(err, err) { 1 } else { 0 } }
+}
+-- 00530.ergo --
+type E { N int }
+type F {}
+func g() int fails E | F { 1 }
+func f() int {
+	g() catch { case err: if eq(err, err) { 1 } else { 0 } }
+}
+-- 00531.ergo --
+type E {}
+type X {}
+func g() int fails E { 1 }
+func h(n int) int fails X { n }
+func f() int {
+	g() catch { case err: if eq(err, err) { 1 } else { 0 } }
+}
+-- 00532.ergo --
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+func f() int {
+	g() catch { case err: if eq(err, err) { 1 } else { 0 } }
+}
+-- 00533.ergo --
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+func f() int {
+	g() catch { case err: if eq(err, err) { 1 } else { 0 } }
+}
+-- 00534.ergo --
+func f() int {
+	g() catch {
+	case err:
+		let v V = err
+		if v == v { 1 } else { 0 }
+	}
+}
+-- 00535.ergo --
+type E { A bool, B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+func f() int {
+	g() catch {
+	case err:
+		let v V = err
+		if v == v { 1 } else { 0 }
+	}
+}
+-- 00536.ergo --
+type E { B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+	case err:
+		let v V = err
+		if v == v { 1 } else { 0 }
+	}
+}
+-- 00537.ergo --
+type E { N int }
+type F {}
+func g() int fails E | F { 1 }
+func f() int {
+	g() catch {
+	case err:
+		let v V = err
+		if v == v { 1 } else { 0 }
+	}
+}
+-- 00538.ergo --
+type E {}
+type X {}
+func g() int fails E { 1 }
+func h(n int) int fails X { n }
+func f() int {
+	g() catch {
+	case err:
+		let v V = err
+		if v == v { 1 } else { 0 }
+	}
+}
+-- 00539.ergo --
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+func f() int {
+	g() catch {
+	case err:
+		let v V = err
+		if v == v { 1 } else { 0 }
+	}
+}
+-- 00540.ergo --
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+func f() int {
+	g() catch {
+	case err:
+		let v V = err
+		if v == v { 1 } else { 0 }
+	}
+}
+-- 00541.ergo --
+func same(a V, b V) bool { a == b }
+-- 00542.ergo --
+type E { A bool, B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+func same(a V, b V) bool { a == b }
+-- 00543.ergo --
+type E { B bool }
+func g() int fails E { 1 }
+func same(a V, b V) bool { a == b }
+-- 00544.ergo --
+type E { N int }
+type F {}
+func g() int fails E | F { 1 }
+func same(a V, b V) bool { a == b }
+-- 00545.ergo --
+type E {}
+type X {}
+func g() int fails E { 1 }
+func h(n int) int fails X { n }
+func same(a V, b V) bool { a == b }
+-- 00546.ergo --
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+func same(a V, b V) bool { a == b }
+-- 00547.ergo --
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+func same(a V, b V) bool { a == b }
+-- 00548.ergo --
+type H { X V }
+func same(a H, b H) bool { a == b }
+-- 00549.ergo --
+type E { A bool, B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+type H { X V }
+func same(a H, b H) bool { a == b }
+-- 00550.ergo --
+type E { B bool }
+func g() int fails E { 1 }
+type H { X V }
+func same(a H, b H) bool { a == b }
+-- 00551.ergo --
+type E { N int }
+type F {}
+func g() int fails E | F { 1 }
+type H { X V }
+func same(a H, b H) bool { a == b }
+-- 00552.ergo --
+type E {}
+type X {}
+func g() int fails E { 1 }
+func h(n int) int fails X { n }
+type H { X V }
+func same(a H, b H) bool { a == b }
+-- 00553.ergo --
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+type H { X V }
+func same(a H, b H) bool { a == b }
+-- 00554.ergo --
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+type H { X V }
+func same(a H, b H) bool { a == b }
+-- 00555.ergo --
+func same(a V, b V) bool { eq(a, b) }
+-- 00556.ergo --
+type E { A bool, B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+func same(a V, b V) bool { eq(a, b) }
+-- 00557.ergo --
+type E { B bool }
+func g() int fails E { 1 }
+func same(a V, b V) bool { eq(a, b) }
+-- 00558.ergo --
+type E { N int }
+type F {}
+func g() int fails E | F { 1 }
+func same(a V, b V) bool { eq(a, b) }
+-- 00559.ergo --
+type E {}
+type X {}
+func g() int fails E { 1 }
+func h(n int) int fails X { n }
+func same(a V, b V) bool { eq(a, b) }
+-- 00560.ergo --
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+func same(a V, b V) bool { eq(a, b) }
+-- 00561.ergo --
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+func same(a V, b V) bool { eq(a, b) }
+-- 00562.ergo --
+func f() int { let m = Map[V, int]{}; len(m) }
+-- 00563.ergo --
+type E { A bool, B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+func f() int { let m = Map[V, int]{}; len(m) }
+-- 00564.ergo --
+type E { B bool }
+func g() int fails E { 1 }
+func f() int { let m = Map[V, int]{}; len(m) }
+-- 00565.ergo --
+type E { N int }
+type F {}
+func g() int fails E | F { 1 }
+func f() int { let m = Map[V, int]{}; len(m) }
+-- 00566.ergo --
+type E {}
+type X {}
+func g() int fails E { 1 }
+func h(n int) int fails X { n }
+func f() int { let m = Map[V, int]{}; len(m) }
+-- 00567.ergo --
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+func f() int { let m = Map[V, int]{}; len(m) }
+-- 00568.ergo --
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+func f() int { let m = Map[V, int]{}; len(m) }
+-- 00569.ergo --
+func same(a Svc, b Svc) bool { a == b }
+-- 00570.ergo --
+type E { A bool, B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+func same(a Svc, b Svc) bool { a == b }
+-- 00571.ergo --
+type E { B bool }
+func g() int fails E { 1 }
+func same(a Svc, b Svc) bool { a == b }
+-- 00572.ergo --
+type E { N int }
+type F {}
+func g() int fails E | F { 1 }
+func same(a Svc, b Svc) bool { a == b }
+-- 00573.ergo --
+type E {}
+type X {}
+func g() int fails E { 1 }
+func h(n int) int fails X { n }
+func same(a Svc, b Svc) bool { a == b }
+-- 00574.ergo --
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+func same(a Svc, b Svc) bool { a == b }
+-- 00575.ergo --
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+func same(a Svc, b Svc) bool { a == b }
+-- 00576.ergo --
+func same(a U, b U) bool { a == b && eq(a, b) && (a, 1) == (b, 1) }
+-- 00577.ergo --
+type E { A bool, B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+func same(a U, b U) bool { a == b && eq(a, b) && (a, 1) == (b, 1) }
+-- 00578.ergo --
+type E { B bool }
+func g() int fails E { 1 }
+func same(a U, b U) bool { a == b && eq(a, b) && (a, 1) == (b, 1) }
+-- 00579.ergo --
+type E { N int }
+type F {}
+func g() int fails E | F { 1 }
+func same(a U, b U) bool { a == b && eq(a, b) && (a, 1) == (b, 1) }
+-- 00580.ergo --
+type E {}
+type X {}
+func g() int fails E { 1 }
+func h(n int) int fails X { n }
+func same(a U, b U) bool { a == b && eq(a, b) && (a, 1) == (b, 1) }
+-- 00581.ergo --
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+func same(a U, b U) bool { a == b && eq(a, b) && (a, 1) == (b, 1) }
+-- 00582.ergo --
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+func same(a U, b U) bool { a == b && eq(a, b) && (a, 1) == (b, 1) }
+-- 00583.ergo --
+func f() int { let m = Map[U, int]{}; len(m) }
+-- 00584.ergo --
+type E { A bool, B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+func f() int { let m = Map[U, int]{}; len(m) }
+-- 00585.ergo --
+type E { B bool }
+func g() int fails E { 1 }
+func f() int { let m = Map[U, int]{}; len(m) }
+-- 00586.ergo --
+type E { N int }
+type F {}
+func g() int fails E | F { 1 }
+func f() int { let m = Map[U, int]{}; len(m) }
+-- 00587.ergo --
+type E {}
+type X {}
+func g() int fails E { 1 }
+func h(n int) int fails X { n }
+func f() int { let m = Map[U, int]{}; len(m) }
+-- 00588.ergo --
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+func f() int { let m = Map[U, int]{}; len(m) }
+-- 00589.ergo --
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+func f() int { let m = Map[U, int]{}; len(m) }
+-- 00590.ergo --
+func g2() int fails C { 1 }
+func f() int {
+	g2() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } }
+}
+-- 00591.ergo --
+type E { A bool, B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+func g2() int fails C { 1 }
+func f() int {
+	g2() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } }
+}
+-- 00592.ergo --
+type E { B bool }
+func g() int fails E { 1 }
+func g2() int fails C { 1 }
+func f() int {
+	g2() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } }
+}
+-- 00593.ergo --
+type E { N int }
+type F {}
+func g() int fails E | F { 1 }
+func g2() int fails C { 1 }
+func f() int {
+	g2() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } }
+}
+-- 00594.ergo --
+type E {}
+type X {}
+func g() int fails E { 1 }
+func h(n int) int fails X { n }
+func g2() int fails C { 1 }
+func f() int {
+	g2() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } }
+}
+-- 00595.ergo --
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+func g2() int fails C { 1 }
+func f() int {
+	g2() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } }
+}
+-- 00596.ergo --
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+func g2() int fails C { 1 }
+func f() int {
+	g2() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } }
+}
+-- 00597.ergo --
+func g2() int fails C { 1 }
+func f() int {
+	g2() catch { case err: if eq(err, err) { 1 } else { 0 } }
+}
+-- 00598.ergo --
+type E { A bool, B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+func g2() int fails C { 1 }
+func f() int {
+	g2() catch { case err: if eq(err, err) { 1 } else { 0 } }
+}
+-- 00599.ergo --
+type E { B bool }
+func g() int fails E { 1 }
+func g2() int fails C { 1 }
+func f() int {
+	g2() catch { case err: if eq(err, err) { 1 } else { 0 } }
+}
+-- 00600.ergo --
+type E { N int }
+type F {}
+func g() int fails E | F { 1 }
+func g2() int fails C { 1 }
+func f() int {
+	g2() catch { case err: if eq(err, err) { 1 } else { 0 } }
+}
+-- 00601.ergo --
+type E {}
+type X {}
+func g() int fails E { 1 }
+func h(n int) int fails X { n }
+func g2() int fails C { 1 }
+func f() int {
+	g2() catch { case err: if eq(err, err) { 1 } else { 0 } }
+}
+-- 00602.ergo --
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+func g2() int fails C { 1 }
+func f() int {
+	g2() catch { case err: if eq(err, err) { 1 } else { 0 } }
+}
+-- 00603.ergo --
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+func g2() int fails C { 1 }
+func f() int {
+	g2() catch { case err: if eq(err, err) { 1 } else { 0 } }
+}
+-- 00604.ergo --
+type E { A bool, B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+-- 00605.ergo --
+type E { B bool }
+func g() int fails E { 1 }
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+-- 00606.ergo --
+type E { N int }
+type F {}
+func g() int fails E | F { 1 }
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+-- 00607.ergo --
+type E {}
+type X {}
+func g() int fails E { 1 }
+func h(n int) int fails X { n }
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+-- 00608.ergo --
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+-- 00609.ergo --
+func f() int {
+	g() catch { case err: if err == err { 1 } else { 0 } }
+}
+-- 00610.ergo --
+type E { A bool, B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+func f() int {
+	g() catch { case err: if err == err { 1 } else { 0 } }
+}
+-- 00611.ergo --
+type E { B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch { case err: if err == err { 1 } else { 0 } }
+}
+-- 00612.ergo --
+type E { N int }
+type F {}
+func g() int fails E | F { 1 }
+func f() int {
+	g() catch { case err: if err == err { 1 } else { 0 } }
+}
+-- 00613.ergo --
+type E {}
+type X {}
+func g() int fails E { 1 }
+func h(n int) int fails X { n }
+func f() int {
+	g() catch { case err: if err == err { 1 } else { 0 } }
+}
+-- 00614.ergo --
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+func f() int {
+	g() catch { case err: if err == err { 1 } else { 0 } }
+}
+-- 00615.ergo --
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+func f() int {
+	g() catch { case err: if err == err { 1 } else { 0 } }
+}
+-- 00616.ergo --
+func f() int {
+	g() catch { case err: if err != err { 1 } else { 0 } }
+}
+-- 00617.ergo --
+type E { A bool, B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+func f() int {
+	g() catch { case err: if err != err { 1 } else { 0 } }
+}
+-- 00618.ergo --
+type E { B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch { case err: if err != err { 1 } else { 0 } }
+}
+-- 00619.ergo --
+type E { N int }
+type F {}
+func g() int fails E | F { 1 }
+func f() int {
+	g() catch { case err: if err != err { 1 } else { 0 } }
+}
+-- 00620.ergo --
+type E {}
+type X {}
+func g() int fails E { 1 }
+func h(n int) int fails X { n }
+func f() int {
+	g() catch { case err: if err != err { 1 } else { 0 } }
+}
+-- 00621.ergo --
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+func f() int {
+	g() catch { case err: if err != err { 1 } else { 0 } }
+}
+-- 00622.ergo --
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+func f() int {
+	g() catch { case err: if err != err { 1 } else { 0 } }
+}
+-- 00623.ergo --
+func f() int fails E | F {
+	g() catch { case err: return err }
+}
+-- 00624.ergo --
+type E { A bool, B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+func f() int fails E | F {
+	g() catch { case err: return err }
+}
+-- 00625.ergo --
+type E { B bool }
+func g() int fails E { 1 }
+func f() int fails E | F {
+	g() catch { case err: return err }
+}
+-- 00626.ergo --
+type E { N int }
+type F {}
+func g() int fails E | F { 1 }
+func f() int fails E | F {
+	g() catch { case err: return err }
+}
+-- 00627.ergo --
+type E {}
+type X {}
+func g() int fails E { 1 }
+func h(n int) int fails X { n }
+func f() int fails E | F {
+	g() catch { case err: return err }
+}
+-- 00628.ergo --
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+func f() int fails E | F {
+	g() catch { case err: return err }
+}
+-- 00629.ergo --
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+func f() int fails E | F {
+	g() catch { case err: return err }
+}
+-- 00630.ergo --
+func f() int {
+	g() catch { case err: match err { case E: 1; case F: 2 } }
+}
+-- 00631.ergo --
+type E { A bool, B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+func f() int {
+	g() catch { case err: match err { case E: 1; case F: 2 } }
+}
+-- 00632.ergo --
+type E { B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch { case err: match err { case E: 1; case F: 2 } }
+}
+-- 00633.ergo --
+type E { N int }
+type F {}
+func g() int fails E | F { 1 }
+func f() int {
+	g() catch { case err: match err { case E: 1; case F: 2 } }
+}
+-- 00634.ergo --
+type E {}
+type X {}
+func g() int fails E { 1 }
+func h(n int) int fails X { n }
+func f() int {
+	g() catch { case err: match err { case E: 1; case F: 2 } }
+}
+-- 00635.ergo --
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+func f() int {
+	g() catch { case err: match err { case E: 1; case F: 2 } }
+}
+-- 00636.ergo --
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+func f() int {
+	g() catch { case err: match err { case E: 1; case F: 2 } }
+}
+-- 00637.ergo --
+func f() V {
+	g() catch {
+	case err:
+		let v V = err
+		return v
+	}
+	F
+}
+-- 00638.ergo --
+type E { A bool, B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+func f() V {
+	g() catch {
+	case err:
+		let v V = err
+		return v
+	}
+	F
+}
+-- 00639.ergo --
+type E { B bool }
+func g() int fails E { 1 }
+func f() V {
+	g() catch {
+	case err:
+		let v V = err
+		return v
+	}
+	F
+}
+-- 00640.ergo --
+type E { N int }
+type F {}
+func g() int fails E | F { 1 }
+func f() V {
+	g() catch {
+	case err:
+		let v V = err
+		return v
+	}
+	F
+}
+-- 00641.ergo --
+type E {}
+type X {}
+func g() int fails E { 1 }
+func h(n int) int fails X { n }
+func f() V {
+	g() catch {
+	case err:
+		let v V = err
+		return v
+	}
+	F
+}
+-- 00642.ergo --
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+func f() V {
+	g() catch {
+	case err:
+		let v V = err
+		return v
+	}
+	F
+}
+-- 00643.ergo --
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+func f() V {
+	g() catch {
+	case err:
+		let v V = err
+		return v
+	}
+	F
+}
+-- 00644.ergo --
+func f() V {
+	g() catch { case err: return err }
+	F
+}
+-- 00645.ergo --
+type E { A bool, B bool }
+func g() int fails E { 1 }
+func f() int {
+	g() catch {
+func f() V {
+	g() catch { case err: return err }
+	F
+}
+-- 00646.ergo --
+type E { B bool }
+func g() int fails E { 1 }
+func f() V {
+	g() catch { case err: return err }
+	F
+}
+-- 00647.ergo --
+type E { N int }
+type F {}
+func g() int fails E | F { 1 }
+func f() V {
+	g() catch { case err: return err }
+	F
+}
+-- 00648.ergo --
+type E {}
+type X {}
+func g() int fails E { 1 }
+func h(n int) int fails X { n }
+func f() V {
+	g() catch { case err: return err }
+	F
+}
+-- 00649.ergo --
+type E { N []int }
+type F {}
+type V = E | F
+type C { N int }
+type U = C | F
+type Svc { Do() int }
+func g() int fails E { 1 }
+func eq[T comparable](a T, b T) bool { a == b }
+func f() V {
+	g() catch { case err: return err }
+	F
+}
+-- 00650.ergo --
+type E { N int }
+type F {}
+type V = E | F
+func g() int fails E | F { 1 }
+func f() V {
+	g() catch { case err: return err }
+	F
+}
+-- 00651.ergo --
+type E { B bool }
+type F { B bool }
+func g() int fails E | F { 1 }
+-- 00652.ergo --
+func f() int fails E | F {
+	try g() catch {
+-- 00653.ergo --
+func f() int {
+	g() catch {
+-- 00654.ergo --
+func f() int { let W = Tag{Text: "local"}; with W { 1 } }
+-- 00655.ergo --
+func f(W Tag) int { with ((W)) { 1 } }
+-- 00656.ergo --
+let W = Tag{Text: "pkg"}
+let W = context { A: Quiet }
+func g() { with W { A.Use() } }
+-- 00657.ergo --
+let W = context { A: Quiet }
+let Tag{Text: W} = Tag{Text: "pkg"}
+func g() { with (W) { A.Use() } }
+-- 00658.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+-- 00659.ergo --
+func keep[T, F](g G[T], f F) {}
+-- 00660.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func keep[T, F](g G[T], f F) {}
+-- 00661.ergo --
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		g.keep(func() { walk() })
+	}
+}
+-- 00662.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		g.keep(func() { walk() })
+	}
+}
+-- 00663.ergo --
+func w() { try load(); walk() }
+func main() {}
+-- 00664.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func w() { try load(); walk() }
+func main() {}
+-- 00665.ergo --
+type Bang {}
+type G[T] {}
+func mark() fails Bang { return Bang }
+-- 00666.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+type Bang {}
+type G[T] {}
+func mark() fails Bang { return Bang }
+-- 00667.ergo --
+func load() fails G[int] { return G[int] }
+func keep[T, F](g G[T], f F) {}
+-- 00668.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func load() fails G[int] { return G[int] }
+func keep[T, F](g G[T], f F) {}
+-- 00669.ergo --
+func walk() {
+	try mark()
+	try w() catch {
+	case G as g:
+		g.keep(func() { try walk() })
+	}
+}
+-- 00670.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func walk() {
+	try mark()
+	try w() catch {
+	case G as g:
+		g.keep(func() { try walk() })
+	}
+}
+-- 00671.ergo --
+func w() { try load(); try walk() }
+func main() {}
+-- 00672.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func w() { try load(); try walk() }
+func main() {}
+-- 00673.ergo --
+func run[T, R](g G[T], body func() needs R) needs R { body() }
+-- 00674.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func run[T, R](g G[T], body func() needs R) needs R { body() }
+-- 00675.ergo --
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		g.run() { walk() }
+	}
+}
+-- 00676.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		g.run() { walk() }
+	}
+}
+-- 00677.ergo --
+func walk() {
+	Cap.M()
+	w() catch {
+	case G[int] as g:
+		g.keep(func() { walk() })
+	}
+}
+-- 00678.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func walk() {
+	Cap.M()
+	w() catch {
+	case G[int] as g:
+		g.keep(func() { walk() })
+	}
+}
+-- 00679.ergo --
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		keep(g, func() { walk() })
+	}
+}
+-- 00680.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		keep(g, func() { walk() })
+	}
+}
+-- 00681.ergo --
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		let h = g
+		h.keep(func() { walk() })
+	}
+}
+-- 00682.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		let h = g
+		h.keep(func() { walk() })
+	}
+}
+-- 00683.ergo --
+func keep[T, F](g G[T], f F) {}
+func id[T](x T) T { return x }
+-- 00684.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func keep[T, F](g G[T], f F) {}
+func id[T](x T) T { return x }
+-- 00685.ergo --
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		let h = id(g)
+		h.keep(func() { walk() })
+	}
+}
+-- 00686.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		let h = id(g)
+		h.keep(func() { walk() })
+	}
+}
+-- 00687.ergo --
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		g.keep(func() { let k = func() { walk() }
+			k() })
+	}
+}
+-- 00688.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		g.keep(func() { let k = func() { walk() }
+			k() })
+	}
+}
+-- 00689.ergo --
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		run(g) { walk() }
+	}
+}
+-- 00690.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		run(g) { walk() }
+	}
+}
+-- 00691.ergo --
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		keep(g, 1)
+	}
+	let x = nope
+	x.m(func() { walk() })
+}
+-- 00692.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		keep(g, 1)
+	}
+	let x = nope
+	x.m(func() { walk() })
+}
+-- 00693.ergo --
+type Cap { M() }
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+-- 00694.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+type Cap { M() }
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+-- 00695.ergo --
+func keep[T, F](g H[T], f F) {}
+-- 00696.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func keep[T, F](g H[T], f F) {}
+-- 00697.ergo --
+func walk() {
+	Cap.M()
+	w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+-- 00698.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func walk() {
+	Cap.M()
+	w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+-- 00699.ergo --
+func walk() {
+	Cap.M()
+	w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+	let k = walk
+	_ = k
+}
+-- 00700.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func walk() {
+	Cap.M()
+	w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+	let k = walk
+	_ = k
+}
+-- 00701.ergo --
+type E {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	load() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+	try w()
+}
+func w() { try walk() }
+func outer() {
+	w() catch {
+	case E:
+	}
+}
+func main() {}
+-- 00702.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+type E {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	load() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+	try w()
+}
+func w() { try walk() }
+func outer() {
+	w() catch {
+	case E:
+	}
+}
+func main() {}
+-- 00703.ergo --
+type E {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func outer() {
+	w() catch {
+	case G[int]:
+	case E:
+	}
+}
+func main() {}
+-- 00704.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+type E {}
+type G[T] {}
+type H[T] {}
+func load() fails G[int] { return G[int] }
+func boom() fails E { return E }
+func keep[T, F](g H[T], f F) {}
+func walk() {
+	try boom()
+	try w() catch {
+	case G[int]:
+	case H as h:
+		h.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	try walk()
+}
+func outer() {
+	w() catch {
+	case G[int]:
+	case E:
+	}
+}
+func main() {}
+-- 00705.ergo --
+type Cap { M() }
+func pick[T](x T) T { return x }
+func walk() {
+	Cap.M()
+	let h = pick(other)
+	h(func() { walk() })
+	w()
+}
+func other(f func()) { Cap.M(); walk() }
+func w() { walk() }
+func main() {}
+-- 00706.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+type Cap { M() }
+func pick[T](x T) T { return x }
+func walk() {
+	Cap.M()
+	let h = pick(other)
+	h(func() { walk() })
+	w()
+}
+func other(f func()) { Cap.M(); walk() }
+func w() { walk() }
+func main() {}
+-- 00707.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func keep[T, F](g G[T], f F) {}
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		g.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	walk()
+	let k = w
+	_ = k
+}
+func main() {}
+-- 00708.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func keep[T, F](g G[T], f F) {}
+func walk() {
+	Cap.M()
+	w() catch {
+	case G as g:
+		g.keep(func() { walk() })
+	}
+}
+func w() {
+	try load()
+	walk()
+	let k = w
+	_ = k
+}
+func main() {}
+-- 00709.ergo --
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func keep[T, F](g G[T], f F) {}
+func walk() {
+	w() catch {
+	case G as g:
+		g.keep(func() { w() })
+	}
+}
+func w() {
+	try load()
+	walk()
+}
+func main() {}
+-- 00710.ergo --
+type Cap { M() }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+type G[T] {}
+func load() fails G[int] { return G[int] }
+func keep[T, F](g G[T], f F) {}
+func walk() {
+	w() catch {
+	case G as g:
+		g.keep(func() { w() })
+	}
+}
+func w() {
+	try load()
+	walk()
+}
+func main() {}
+-- 00711.ergo --
+func n() int {
+	let f = n
+	Console.Println("x")
+	1
+}
+-- 00712.ergo --
+func n() int {
+	let f = n
+	Console.Println("x")
+	g()
+	1
+}
+-- 00713.ergo --
+func m() int {
+	let f = n
+	Console.Println("y")
+	n()
+}
+
+func n() int {
+	m()
+}
+-- 00714.ergo --
+func k() int { 1 }
+-- 00715.ergo --
+func k(f func()) bad.T { 1 }
+-- 00716.ergo --
+func k(f func()) int { 1 }
+-- 00717.ergo --
+%s%s
+func g() {
+	%s
+}
+-- 00718.ergo --
+type R {}
+type P {}
+type G[T] { Value T }
+type Releaser { Close() }
+type Other { Finish() }
+type Field { Close func() }
+type WithArg { Close(n int) }
+type WithResult { Close() int }
+type Extra {}
+type Returning {}
+func Close(_ R) {}
+func Close(_ *P) {}
+func Close[T](_ G[T]) {}
+func Close(_ Extra, n int) {}
+func Close(_ Returning) int { 1 }
+func Finish(_ R) {}
+func direct(r R) { r.Close() }
+func pointer(p *P) { p.Close() }
+func generic(g G[int]) { g.Close() }
+func operation(r Releaser) { r.Close() }
+func capability() needs Releaser { Releaser.Close() }
+func methodValue(r Releaser) { let f = r.Close; f() }
+func otherName(r R) { r.Finish() }
+func otherOperation(r Other) { r.Finish() }
+func field(r Field) { r.Close() }
+func withArg(r WithArg) { r.Close(1) }
+func withResult(r WithResult) int { r.Close() }
+func extra(r Extra) { r.Close(1) }
+func returning(r Returning) int { r.Close() }
+-- 00719.ergo --
+type R { Close() }
+func Close(_ R, n int) {}
+func f(r R) { r.Close() }
+-- 00720.ergo --
+type R {}
+type Fault {}
+func Close(_ R) fails Fault { return Fault }
+-- 00721.ergo --
+type R {}
+type P {}
+type G[T] { Value T }
+type Releaser { Close() }
+type Other { Finish() }
+type Field { Close func() }
+type WithArg { Close(n int) }
+type WithResult { Close() int }
+type Extra {}
+type Returning {}
+func Close(_ R) {}
+func Close(_ *P) {}
+func Close[T](_ G[T]) {}
+func Close(_ Extra, n int) {}
+func Close(_ Returning) int { 1 }
+func Finish(_ R) {}
+func direct(r R) { r.Close() }
+func pointer(p *P) { p.Close() }
+func generic(g G[int]) { g.Close() }
+func operation(r Releaser) { r.Close() }
+func capability() needs Releaser { Releaser.Close() }
+func methodValue(r Releaser) { let f = r.Close; f() }
+func otherName(r R) { r.Finish() }
+func otherOperation(r Other) { r.Finish() }
+func field(r Field) { r.Close() }
+func withArg(r WithArg) { r.Close(1) }
+func withResult(r WithResult) int { r.Close() }
+func extra(r Extra) { r.Close(1) }
+func returning(r Returning) int { r.Close() }
+type R {}
+type Fault {}
+func Close(_ R) fails Fault { return Fault }
+-- 00722.ergo --
+type R { Close() }
+func Close(_ R, n int) {}
+func f(r R) { r.Close() }
+type R {}
+type Fault {}
+func Close(_ R) fails Fault { return Fault }
+-- 00723.ergo --
+type R { Close() fails Fault }
+type Fault {}
+-- 00724.ergo --
+type R {}
+type P {}
+type G[T] { Value T }
+type Releaser { Close() }
+type Other { Finish() }
+type Field { Close func() }
+type WithArg { Close(n int) }
+type WithResult { Close() int }
+type Extra {}
+type Returning {}
+func Close(_ R) {}
+func Close(_ *P) {}
+func Close[T](_ G[T]) {}
+func Close(_ Extra, n int) {}
+func Close(_ Returning) int { 1 }
+func Finish(_ R) {}
+func direct(r R) { r.Close() }
+func pointer(p *P) { p.Close() }
+func generic(g G[int]) { g.Close() }
+func operation(r Releaser) { r.Close() }
+func capability() needs Releaser { Releaser.Close() }
+func methodValue(r Releaser) { let f = r.Close; f() }
+func otherName(r R) { r.Finish() }
+func otherOperation(r Other) { r.Finish() }
+func field(r Field) { r.Close() }
+func withArg(r WithArg) { r.Close(1) }
+func withResult(r WithResult) int { r.Close() }
+func extra(r Extra) { r.Close(1) }
+func returning(r Returning) int { r.Close() }
+type R { Close() fails Fault }
+type Fault {}
+-- 00725.ergo --
+type R { Close() }
+func Close(_ R, n int) {}
+func f(r R) { r.Close() }
+type R { Close() fails Fault }
+type Fault {}
+-- 00726.ergo --
+type R { Close() }
+func Close(_ R, n int) {}
+func f(r R) { r.Close() }
+type R {}
+type P {}
+type G[T] { Value T }
+type Releaser { Close() }
+type Other { Finish() }
+type Field { Close func() }
+type WithArg { Close(n int) }
+type WithResult { Close() int }
+type Extra {}
+type Returning {}
+func Close(_ R) {}
+func Close(_ *P) {}
+func Close[T](_ G[T]) {}
+func Close(_ Extra, n int) {}
+func Close(_ Returning) int { 1 }
+func Finish(_ R) {}
+func direct(r R) { r.Close() }
+func pointer(p *P) { p.Close() }
+func generic(g G[int]) { g.Close() }
+func operation(r Releaser) { r.Close() }
+func capability() needs Releaser { Releaser.Close() }
+func methodValue(r Releaser) { let f = r.Close; f() }
+func otherName(r R) { r.Finish() }
+func otherOperation(r Other) { r.Finish() }
+func field(r Field) { r.Close() }
+func withArg(r WithArg) { r.Close(1) }
+func withResult(r WithResult) int { r.Close() }
+func extra(r Extra) { r.Close(1) }
+func returning(r Returning) int { r.Close() }
+-- 00727.ergo --
+type R {}
+func Close(_ R) {}
+func f(r R) { Close(r); let release = Close; release(r) }
+-- 00728.ergo --
+type R {}
+type P {}
+type G[T] { Value T }
+type Releaser { Close() }
+type Other { Finish() }
+type Field { Close func() }
+type WithArg { Close(n int) }
+type WithResult { Close() int }
+type Extra {}
+type Returning {}
+func Close(_ R) {}
+func Close(_ *P) {}
+func Close[T](_ G[T]) {}
+func Close(_ Extra, n int) {}
+func Close(_ Returning) int { 1 }
+func Finish(_ R) {}
+func direct(r R) { r.Close() }
+func pointer(p *P) { p.Close() }
+func generic(g G[int]) { g.Close() }
+func operation(r Releaser) { r.Close() }
+func capability() needs Releaser { Releaser.Close() }
+func methodValue(r Releaser) { let f = r.Close; f() }
+func otherName(r R) { r.Finish() }
+func otherOperation(r Other) { r.Finish() }
+func field(r Field) { r.Close() }
+func withArg(r WithArg) { r.Close(1) }
+func withResult(r WithResult) int { r.Close() }
+func extra(r Extra) { r.Close(1) }
+func returning(r Returning) int { r.Close() }
+type R {}
+func Close(_ R) {}
+func f(r R) { Close(r); let release = Close; release(r) }
+-- 00729.ergo --
+type R { Close() }
+func Close(_ R, n int) {}
+func f(r R) { r.Close() }
+type R {}
+func Close(_ R) {}
+func f(r R) { Close(r); let release = Close; release(r) }
+-- 00730.ergo --
+type R {}
+func f(r R) { r.Close() }
+-- 00731.ergo --
+type R {}
+type P {}
+type G[T] { Value T }
+type Releaser { Close() }
+type Other { Finish() }
+type Field { Close func() }
+type WithArg { Close(n int) }
+type WithResult { Close() int }
+type Extra {}
+type Returning {}
+func Close(_ R) {}
+func Close(_ *P) {}
+func Close[T](_ G[T]) {}
+func Close(_ Extra, n int) {}
+func Close(_ Returning) int { 1 }
+func Finish(_ R) {}
+func direct(r R) { r.Close() }
+func pointer(p *P) { p.Close() }
+func generic(g G[int]) { g.Close() }
+func operation(r Releaser) { r.Close() }
+func capability() needs Releaser { Releaser.Close() }
+func methodValue(r Releaser) { let f = r.Close; f() }
+func otherName(r R) { r.Finish() }
+func otherOperation(r Other) { r.Finish() }
+func field(r Field) { r.Close() }
+func withArg(r WithArg) { r.Close(1) }
+func withResult(r WithResult) int { r.Close() }
+func extra(r Extra) { r.Close(1) }
+func returning(r Returning) int { r.Close() }
+type R {}
+func f(r R) { r.Close() }
+-- 00732.ergo --
+type R { Close() }
+func Close(_ R, n int) {}
+func f(r R) { r.Close() }
+type R {}
+func f(r R) { r.Close() }
+-- 00733.ergo --
+type R {}
+type P {}
+type G[T] { Value T }
+type Releaser { Close() }
+type Other { Finish() }
+type Field { Close func() }
+type WithArg { Close(n int) }
+type WithResult { Close() int }
+type Extra {}
+type Returning {}
+func Close(_ R) {}
+func Close(_ *P) {}
+func Close[T](_ G[T]) {}
+func Close(_ Extra, n int) {}
+func Close(_ Returning) int { 1 }
+func Finish(_ R) {}
+func direct(r R) { r.Close() }
+func pointer(p *P) { p.Close() }
+func generic(g G[int]) { g.Close() }
+func operation(r Releaser) { r.Close() }
+func capability() needs Releaser { Releaser.Close() }
+func methodValue(r Releaser) { let f = r.Close; f() }
+func otherName(r R) { r.Finish() }
+func otherOperation(r Other) { r.Finish() }
+func field(r Field) { r.Close() }
+func withArg(r WithArg) { r.Close(1) }
+func withResult(r WithResult) int { r.Close() }
+func extra(r Extra) { r.Close(1) }
+func returning(r Returning) int { r.Close() }
+type R { Close() }
+func Close(_ R, n int) {}
+func f(r R) { r.Close() }
+-- 00734.ergo --
+import queue
+func f(q queue.Queue[int]) { q.Close() }
+-- 00735.ergo --
+type R {}
+type P {}
+type G[T] { Value T }
+type Releaser { Close() }
+type Other { Finish() }
+type Field { Close func() }
+type WithArg { Close(n int) }
+type WithResult { Close() int }
+type Extra {}
+type Returning {}
+func Close(_ R) {}
+func Close(_ *P) {}
+func Close[T](_ G[T]) {}
+func Close(_ Extra, n int) {}
+func Close(_ Returning) int { 1 }
+func Finish(_ R) {}
+func direct(r R) { r.Close() }
+func pointer(p *P) { p.Close() }
+func generic(g G[int]) { g.Close() }
+func operation(r Releaser) { r.Close() }
+func capability() needs Releaser { Releaser.Close() }
+func methodValue(r Releaser) { let f = r.Close; f() }
+func otherName(r R) { r.Finish() }
+func otherOperation(r Other) { r.Finish() }
+func field(r Field) { r.Close() }
+func withArg(r WithArg) { r.Close(1) }
+func withResult(r WithResult) int { r.Close() }
+func extra(r Extra) { r.Close(1) }
+func returning(r Returning) int { r.Close() }
+import queue
+func f(q queue.Queue[int]) { q.Close() }
+-- 00736.ergo --
+type R { Close() }
+func Close(_ R, n int) {}
+func f(r R) { r.Close() }
+import queue
+func f(q queue.Queue[int]) { q.Close() }
+-- 00737.ergo --
+func Close() {}
+func f() { Close() }
+-- 00738.ergo --
+type R {}
+type P {}
+type G[T] { Value T }
+type Releaser { Close() }
+type Other { Finish() }
+type Field { Close func() }
+type WithArg { Close(n int) }
+type WithResult { Close() int }
+type Extra {}
+type Returning {}
+func Close(_ R) {}
+func Close(_ *P) {}
+func Close[T](_ G[T]) {}
+func Close(_ Extra, n int) {}
+func Close(_ Returning) int { 1 }
+func Finish(_ R) {}
+func direct(r R) { r.Close() }
+func pointer(p *P) { p.Close() }
+func generic(g G[int]) { g.Close() }
+func operation(r Releaser) { r.Close() }
+func capability() needs Releaser { Releaser.Close() }
+func methodValue(r Releaser) { let f = r.Close; f() }
+func otherName(r R) { r.Finish() }
+func otherOperation(r Other) { r.Finish() }
+func field(r Field) { r.Close() }
+func withArg(r WithArg) { r.Close(1) }
+func withResult(r WithResult) int { r.Close() }
+func extra(r Extra) { r.Close(1) }
+func returning(r Returning) int { r.Close() }
+func Close() {}
+func f() { Close() }
+-- 00739.ergo --
+type R { Close() }
+func Close(_ R, n int) {}
+func f(r R) { r.Close() }
+func Close() {}
+func f() { Close() }
+-- 00740.ergo --
+package p
+
+func Id[T any](x T) T { return x }
+
+-- 00741.ergo --
+func Id[T](x T) T { return x }
+
+-- 00742.ergo --
+func F%d() %s { return Id[%s](%s) }
+
+-- 00743.ergo --
+func F%d(x %s) %s { return x %s %s }
+
+-- 00744.ergo --
+func F%d() %s { return %s }
+
+-- 00745.ergo --
+func F() float64 { return 1 / 2 }
+-- 00746.ergo --
+func F() uint8 { return ^0 }
+-- 00747.ergo --
+func F() int8 { return -128 }
+-- 00748.ergo --
+func F() int8 { return -(128) }
+-- 00749.ergo --
+func F() float32 { return 0.1 + 0.2 }
+-- 00750.ergo --
+func F() int { return 7 / 2 }
+-- 00751.ergo --
+func F() int { return -7 % 3 }
+-- 00752.ergo --
+func F() float32 { return 16777217.0 }
+-- 00753.ergo --
+import b
+type Box { Peek() int }
+type Lid {}
+func Peek(_ Lid) int { 1 }
+func named() {
+	with b.W { b.Store.Get() }
+}
+func paren() {
+	with (b.W) { b.Store.Get() }
+}
+func several() int {
+	with b.W, context { Box: Lid } { Box.Peek() }
+}
+-- 00754.ergo --
+type Store { Get() string }
+type Log { Say(s string) }
+type Mem { V string }
+func Get(m Mem) string { m.V }
+func read() string needs Log {
+	Log.Say("read")
+	"x"
+}
+type Quiet {}
+func Say(_ Quiet, s string) {}
+let W = context { Log: Quiet, Store: Mem{V: read()} }
+-- 00755.ergo --
+import b
+type Box { Peek() int }
+type Lid {}
+func Peek(_ Lid) int { 1 }
+func named() {
+	with b.W { b.Store.Get() }
+}
+func paren() {
+	with (b.W) { b.Store.Get() }
+}
+func several() int {
+	with b.W, context { Box: Lid } { Box.Peek() }
+}
+type Store { Get() string }
+type Log { Say(s string) }
+type Mem { V string }
+func Get(m Mem) string { m.V }
+func read() string needs Log {
+	Log.Say("read")
+	"x"
+}
+type Quiet {}
+func Say(_ Quiet, s string) {}
+let W = context { Log: Quiet, Store: Mem{V: read()} }
+-- 00756.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+-- 00757.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+-- 00758.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+-- 00759.ergo --
+let Base = context { Log: Mem{V: "log"} }
+let Live = context { Store: Mem{V: "pkg"}, Base }
+-- 00760.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Base = context { Log: Mem{V: "log"} }
+let Live = context { Store: Mem{V: "pkg"}, Base }
+-- 00761.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+let Base = context { Log: Mem{V: "log"} }
+let Live = context { Store: Mem{V: "pkg"}, Base }
+-- 00762.ergo --
+let Both = context { Store, Log: Mem{V: "both"} }
+-- 00763.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Both = context { Store, Log: Mem{V: "both"} }
+-- 00764.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+-- 00765.ergo --
+let Live = context { Store: Mem{V: "live"}, Log: Mem{V: "log"} }
+let Test = context { replace Store: Mem{V: "test"}, Live }
+-- 00766.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "live"}, Log: Mem{V: "log"} }
+let Test = context { replace Store: Mem{V: "test"}, Live }
+-- 00767.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+let Live = context { Store: Mem{V: "live"}, Log: Mem{V: "log"} }
+let Test = context { replace Store: Mem{V: "test"}, Live }
+-- 00768.ergo --
+let Shared = context { Store: Mem{V: "live"} }
+let Accounts = context { Log: Mem{V: "log"}, Shared }
+let Fixture = context { replace Store: Mem{V: "fixture"}, Accounts }
+-- 00769.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Shared = context { Store: Mem{V: "live"} }
+let Accounts = context { Log: Mem{V: "log"}, Shared }
+let Fixture = context { replace Store: Mem{V: "fixture"}, Accounts }
+-- 00770.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+let Shared = context { Store: Mem{V: "live"} }
+let Accounts = context { Log: Mem{V: "log"}, Shared }
+let Fixture = context { replace Store: Mem{V: "fixture"}, Accounts }
+-- 00771.ergo --
+let Shared = context { Store: Mem{V: "live"}, Log: Mem{V: "log"} }
+let Fixture = context { replace Store: Mem{V: "fixture"}, Shared }
+let Outer = context { replace Store: Mem{V: "outer"}, Fixture }
+-- 00772.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Shared = context { Store: Mem{V: "live"}, Log: Mem{V: "log"} }
+let Fixture = context { replace Store: Mem{V: "fixture"}, Shared }
+let Outer = context { replace Store: Mem{V: "outer"}, Fixture }
+-- 00773.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+let Shared = context { Store: Mem{V: "live"}, Log: Mem{V: "log"} }
+let Fixture = context { replace Store: Mem{V: "fixture"}, Shared }
+let Outer = context { replace Store: Mem{V: "outer"}, Fixture }
+-- 00774.ergo --
+let Both = context { Store, Log: Mem{V: "both"} }
+let W = context { replace Store: Mem{V: "one"}, Both }
+-- 00775.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Both = context { Store, Log: Mem{V: "both"} }
+let W = context { replace Store: Mem{V: "one"}, Both }
+-- 00776.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+let W = context { replace Store: Mem{V: "one"}, Both }
+-- 00777.ergo --
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+func b() string {
+	return with Live { Store.Get() }
+}
+-- 00778.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+func b() string {
+	return with Live { Store.Get() }
+}
+-- 00779.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+func b() string {
+	return with Live { Store.Get() }
+}
+-- 00780.ergo --
+let Inner = context { Store: Mem{V: "inner"} }
+let Outer = context { Store: Mem{V: "outer"}, Log: Mem{V: "log"} }
+func b() string {
+	return with Outer { with Inner { Run() } }
+}
+-- 00781.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Inner = context { Store: Mem{V: "inner"} }
+let Outer = context { Store: Mem{V: "outer"}, Log: Mem{V: "log"} }
+func b() string {
+	return with Outer { with Inner { Run() } }
+}
+-- 00782.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+let Inner = context { Store: Mem{V: "inner"} }
+let Outer = context { Store: Mem{V: "outer"}, Log: Mem{V: "log"} }
+func b() string {
+	return with Outer { with Inner { Run() } }
+}
+-- 00783.ergo --
+let Base = context { Store: Mem{V: "base"} }
+let L = context { Base }
+let R = context { Base }
+let W = context { replace Store: Mem{V: "w"}, Log: Mem{V: "log"}, L, R }
+-- 00784.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Base = context { Store: Mem{V: "base"} }
+let L = context { Base }
+let R = context { Base }
+let W = context { replace Store: Mem{V: "w"}, Log: Mem{V: "log"}, L, R }
+-- 00785.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+let Base = context { Store: Mem{V: "base"} }
+let L = context { Base }
+let R = context { Base }
+let W = context { replace Store: Mem{V: "w"}, Log: Mem{V: "log"}, L, R }
+-- 00786.ergo --
+let A = context { Store: Mem{V: "a"} }
+let B = context { Store: Mem{V: "b"}, Log: Mem{V: "log"} }
+let W = context { replace Store: Mem{V: "w"}, B, A }
+-- 00787.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let A = context { Store: Mem{V: "a"} }
+let B = context { Store: Mem{V: "b"}, Log: Mem{V: "log"} }
+let W = context { replace Store: Mem{V: "w"}, B, A }
+-- 00788.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+let A = context { Store: Mem{V: "a"} }
+let B = context { Store: Mem{V: "b"}, Log: Mem{V: "log"} }
+let W = context { replace Store: Mem{V: "w"}, B, A }
+-- 00789.ergo --
+let 
+-- 00790.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let 
+-- 00791.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+let 
+-- 00792.ergo --
+func a() string {
+	return with 
+-- 00793.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+func a() string {
+	return with 
+-- 00794.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+func a() string {
+	return with 
+-- 00795.ergo --
+type Store { M() }
+type P {}
+func M(_ P) {}
+let W0 = context { Store: P }
+-- 00796.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+type Store { M() }
+type P {}
+func M(_ P) {}
+let W0 = context { Store: P }
+-- 00797.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+type Store { M() }
+type P {}
+func M(_ P) {}
+let W0 = context { Store: P }
+-- 00798.ergo --
+let W%d = context { W%d }
+-- 00799.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let W%d = context { W%d }
+-- 00800.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+let W%d = context { W%d }
+-- 00801.ergo --
+func F%d() { with W%d { Store.M() } }
+-- 00802.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+func F%d() { with W%d { Store.M() } }
+-- 00803.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+func F%d() { with W%d { Store.M() } }
+-- 00804.ergo --
+type Store { Get() string }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Run() string needs Store {
+	return Store.Get()
+}
+-- 00805.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+type Store { Get() string }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Run() string needs Store {
+	return Store.Get()
+}
+-- 00806.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+type Store { Get() string }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Run() string needs Store {
+	return Store.Get()
+}
+-- 00807.ergo --
+type C%d { Get() string }
+-- 00808.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+type C%d { Get() string }
+-- 00809.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+type C%d { Get() string }
+-- 00810.ergo --
+let W0 = context { Store: Mem{V: "w0"}, C0: Mem{V: "c0"} }
+-- 00811.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let W0 = context { Store: Mem{V: "w0"}, C0: Mem{V: "c0"} }
+-- 00812.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+let W0 = context { Store: Mem{V: "w0"}, C0: Mem{V: "c0"} }
+-- 00813.ergo --
+let W%d = context { C%d: Mem{V: "c"}, W%d }
+-- 00814.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let W%d = context { C%d: Mem{V: "c"}, W%d }
+-- 00815.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+let W%d = context { C%d: Mem{V: "c"}, W%d }
+-- 00816.ergo --
+func f%d() string {
+	return with W%d { Run() }
+}
+-- 00817.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+func f%d() string {
+	return with W%d { Run() }
+}
+-- 00818.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+func f%d() string {
+	return with W%d { Run() }
+}
+-- 00819.ergo --
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+-- 00820.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+func Get(m Mem) string { return m.V }
+func Put(m Mem, s string) {}
+func Run() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
+-- 00821.ergo --
+let wire = 1
+-- 00822.ergo --
+func f(wire int) int { wire }
+-- 00823.ergo --
+type wire { N int }
+func f(w wire) int { w.N }
+-- 00824.ergo --
+let context = 1
+-- 00825.ergo --
+func f(context int) {}
+-- 00826.ergo --
+type context {}
+-- 00827.ergo --
+import go context
+func main() {}
+-- 00828.ergo --
+import go golang.org/x/net/context
+func main() {}
+-- 00829.ergo --
+import go gocontext context
+func main() {}
+-- 00830.ergo --
+import x/match
+func main() {}
+-- 00831.ergo --
+type T { N int }
+-- 00832.ergo --
+import matchpkg x/match
+func f() matchpkg.T { matchpkg.T{N: 1} }
+-- 00833.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+-- 00834.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+-- 00835.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+-- 00836.ergo --
+func main() {
+	$W
+	_ = with @w { Greeter.Greet("x") }
+}
+-- 00837.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = with @w { Greeter.Greet("x") }
+}
+-- 00838.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = with @w { Greeter.Greet("x") }
+}
+-- 00839.ergo --
+func main() {
+	$W
+	_ = with context { @w } { Greeter.Greet("x") }
+}
+-- 00840.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = with context { @w } { Greeter.Greet("x") }
+}
+-- 00841.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = with context { @w } { Greeter.Greet("x") }
+}
+-- 00842.ergo --
+func main() {
+	$W
+	@w = 1
+}
+-- 00843.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	@w = 1
+}
+-- 00844.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	@w = 1
+}
+-- 00845.ergo --
+func main() {
+	$W
+	_ = @w
+}
+-- 00846.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = @w
+}
+-- 00847.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = @w
+}
+-- 00848.ergo --
+func main() {
+	$W
+	_ = @w == 1
+}
+-- 00849.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = @w == 1
+}
+-- 00850.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = @w == 1
+}
+-- 00851.ergo --
+func main() {
+	$W
+	_ = 1 == @w
+}
+-- 00852.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = 1 == @w
+}
+-- 00853.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = 1 == @w
+}
+-- 00854.ergo --
+func main() {
+	$W
+	_ = @w()
+}
+-- 00855.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = @w()
+}
+-- 00856.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = @w()
+}
+-- 00857.ergo --
+func main() {
+	$W
+	let v = @w catch {
+	case Bang: return
+	}
+	_ = v
+}
+-- 00858.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	let v = @w catch {
+	case Bang: return
+	}
+	_ = v
+}
+-- 00859.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	let v = @w catch {
+	case Bang: return
+	}
+	_ = v
+}
+-- 00860.ergo --
+func main() {
+	$W
+	_ = []int{@w}
+}
+-- 00861.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = []int{@w}
+}
+-- 00862.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = []int{@w}
+}
+-- 00863.ergo --
+func main() {
+	$W
+	_ = Box{..@w, F: 1}
+}
+-- 00864.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = Box{..@w, F: 1}
+}
+-- 00865.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = Box{..@w, F: 1}
+}
+-- 00866.ergo --
+func main() {
+	$W
+	_ = with context { Greeter: @w } { Greeter.Greet("x") }
+}
+-- 00867.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = with context { Greeter: @w } { Greeter.Greet("x") }
+}
+-- 00868.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = with context { Greeter: @w } { Greeter.Greet("x") }
+}
+-- 00869.ergo --
+func main() {
+	$W
+	@w
+}
+-- 00870.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	@w
+}
+-- 00871.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	@w
+}
+-- 00872.ergo --
+func main() {
+	$W
+	for @w { }
+}
+-- 00873.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	for @w { }
+}
+-- 00874.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	for @w { }
+}
+-- 00875.ergo --
+func main() {
+	$W
+	if @w { }
+}
+-- 00876.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	if @w { }
+}
+-- 00877.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	if @w { }
+}
+-- 00878.ergo --
+func main() {
+	$W
+	let xs = []int{1}
+	_ = xs[@w]
+}
+-- 00879.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	let xs = []int{1}
+	_ = xs[@w]
+}
+-- 00880.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	let xs = []int{1}
+	_ = xs[@w]
+}
+-- 00881.ergo --
+func main() {
+	$W
+	_ = @w[0]
+}
+-- 00882.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = @w[0]
+}
+-- 00883.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = @w[0]
+}
+-- 00884.ergo --
+func main() {
+	$W
+	_ = "\(@w)"
+}
+-- 00885.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = "\(@w)"
+}
+-- 00886.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = "\(@w)"
+}
+-- 00887.ergo --
+func main() {
+	$W
+	_ = Map[int, int]{@w: 1}
+}
+-- 00888.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = Map[int, int]{@w: 1}
+}
+-- 00889.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = Map[int, int]{@w: 1}
+}
+-- 00890.ergo --
+func main() {
+	$W
+	_ = Box{F: @w}
+}
+-- 00891.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = Box{F: @w}
+}
+-- 00892.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = Box{F: @w}
+}
+-- 00893.ergo --
+func main() {
+	$W
+	_ = (@w)
+}
+-- 00894.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = (@w)
+}
+-- 00895.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = (@w)
+}
+-- 00896.ergo --
+func main() {
+	$W
+	for x in @w { _ = x }
+}
+-- 00897.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	for x in @w { _ = x }
+}
+-- 00898.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	for x in @w { _ = x }
+}
+-- 00899.ergo --
+func get() int {
+	$W
+	return @w
+}
+-- 00900.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func get() int {
+	$W
+	return @w
+}
+-- 00901.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func get() int {
+	$W
+	return @w
+}
+-- 00902.ergo --
+func main() {
+	$W
+	_ = @w.Len
+}
+-- 00903.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = @w.Len
+}
+-- 00904.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = @w.Len
+}
+-- 00905.ergo --
+func main() {
+	$W
+	_ = @w[0:1]
+}
+-- 00906.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = @w[0:1]
+}
+-- 00907.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = @w[0:1]
+}
+-- 00908.ergo --
+func main() {
+	$W
+	let xs = []int{1}
+	_ = xs[@w:]
+}
+-- 00909.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	let xs = []int{1}
+	_ = xs[@w:]
+}
+-- 00910.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	let xs = []int{1}
+	_ = xs[@w:]
+}
+-- 00911.ergo --
+func main() {
+	$W
+	let xs = []int{1}
+	_ = xs[:@w]
+}
+-- 00912.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	let xs = []int{1}
+	_ = xs[:@w]
+}
+-- 00913.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	let xs = []int{1}
+	_ = xs[:@w]
+}
+-- 00914.ergo --
+func main() {
+	$W
+	let xs = []int{1}
+	_ = xs[0:1:@w]
+}
+-- 00915.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	let xs = []int{1}
+	_ = xs[0:1:@w]
+}
+-- 00916.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	let xs = []int{1}
+	_ = xs[0:1:@w]
+}
+-- 00917.ergo --
+func main() {
+	$W
+	let m = match @w {
+	case "a": 1
+	case _: 2
+	}
+	_ = m
+}
+-- 00918.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	let m = match @w {
+	case "a": 1
+	case _: 2
+	}
+	_ = m
+}
+-- 00919.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	let m = match @w {
+	case "a": 1
+	case _: 2
+	}
+	_ = m
+}
+-- 00920.ergo --
+func main() {
+	$W
+	let t = try @w
+	_ = t
+}
+-- 00921.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	let t = try @w
+	_ = t
+}
+-- 00922.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	let t = try @w
+	_ = t
+}
+-- 00923.ergo --
+func main() {
+	$W
+	let t = (@w, 1)
+	_ = t
+}
+-- 00924.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	let t = (@w, 1)
+	_ = t
+}
+-- 00925.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	let t = (@w, 1)
+	_ = t
+}
+-- 00926.ergo --
+func main() {
+	$W
+	_ = !@w
+}
+-- 00927.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = !@w
+}
+-- 00928.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = !@w
+}
+-- 00929.ergo --
+func main() {
+	$W
+	let v = @w
+	_ = v
+}
+-- 00930.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	let v = @w
+	_ = v
+}
+-- 00931.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	let v = @w
+	_ = v
+}
+-- 00932.ergo --
+func f(xs []@w) {}
+-- 00933.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func f(xs []@w) {}
+-- 00934.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func f(xs []@w) {}
+-- 00935.ergo --
+func main() {
+	$W
+	_ = @w{}
+}
+-- 00936.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = @w{}
+}
+-- 00937.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = @w{}
+}
+-- 00938.ergo --
+func main() {
+	$W
+	_ = with context { Greeter, @w: Plain } { Greeter.Greet("x") }
+}
+-- 00939.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = with context { Greeter, @w: Plain } { Greeter.Greet("x") }
+}
+-- 00940.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = with context { Greeter, @w: Plain } { Greeter.Greet("x") }
+}
+-- 00941.ergo --
+func f() fails @w {}
+-- 00942.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func f() fails @w {}
+-- 00943.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func f() fails @w {}
+-- 00944.ergo --
+func f(x @w) {}
+-- 00945.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func f(x @w) {}
+-- 00946.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func f(x @w) {}
+-- 00947.ergo --
+func main() {
+	$W
+	_ = func(x @w) {}
+}
+-- 00948.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = func(x @w) {}
+}
+-- 00949.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = func(x @w) {}
+}
+-- 00950.ergo --
+type A {}
+type U = A | @w
+-- 00951.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+type A {}
+type U = A | @w
+-- 00952.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type A {}
+type U = A | @w
+-- 00953.ergo --
+type E = Ping
+type Ping {}
+type M machine[@w, E] { initial: 1, step: step }
+func step(s int, e E) Decision[int, int] { return Ignore }
+-- 00954.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+type E = Ping
+type Ping {}
+type M machine[@w, E] { initial: 1, step: step }
+func step(s int, e E) Decision[int, int] { return Ignore }
+-- 00955.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type E = Ping
+type Ping {}
+type M machine[@w, E] { initial: 1, step: step }
+func step(s int, e E) Decision[int, int] { return Ignore }
+-- 00956.ergo --
+type S = Idle
+type Idle {}
+type M machine[S, @w] { initial: Idle, step: step }
+func step(s S, e int) Decision[S, int] { return Ignore }
+-- 00957.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+type S = Idle
+type Idle {}
+type M machine[S, @w] { initial: Idle, step: step }
+func step(s S, e int) Decision[S, int] { return Ignore }
+-- 00958.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type S = Idle
+type Idle {}
+type M machine[S, @w] { initial: Idle, step: step }
+func step(s S, e int) Decision[S, int] { return Ignore }
+-- 00959.ergo --
+func f(m Map[@w, int]) {}
+-- 00960.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func f(m Map[@w, int]) {}
+-- 00961.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func f(m Map[@w, int]) {}
+-- 00962.ergo --
+func f(m Map[int, @w]) {}
+-- 00963.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func f(m Map[int, @w]) {}
+-- 00964.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func f(m Map[int, @w]) {}
+-- 00965.ergo --
+func f() needs @w {}
+-- 00966.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func f() needs @w {}
+-- 00967.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func f() needs @w {}
+-- 00968.ergo --
+func main() {
+	$W
+	_ = with context provides @w { Greeter: Plain } { Greeter.Greet("x") }
+}
+-- 00969.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = with context provides @w { Greeter: Plain } { Greeter.Greet("x") }
+}
+-- 00970.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = with context provides @w { Greeter: Plain } { Greeter.Greet("x") }
+}
+-- 00971.ergo --
+func f(p *@w) {}
+-- 00972.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func f(p *@w) {}
+-- 00973.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func f(p *@w) {}
+-- 00974.ergo --
+type T = @w
+-- 00975.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+type T = @w
+-- 00976.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type T = @w
+-- 00977.ergo --
+func main() {
+	$W
+	let v @w
+	_ = v
+}
+-- 00978.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	let v @w
+	_ = v
+}
+-- 00979.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	let v @w
+	_ = v
+}
+-- 00980.ergo --
+func load() int fails Bang { 1 }
+func f() int {
+	$W
+	load() catch {
+	case @w: 0
+	}
+}
+-- 00981.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func load() int fails Bang { 1 }
+func f() int {
+	$W
+	load() catch {
+	case @w: 0
+	}
+}
+-- 00982.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func load() int fails Bang { 1 }
+func f() int {
+	$W
+	load() catch {
+	case @w: 0
+	}
+}
+-- 00983.ergo --
+func main() {
+	let f = 1
+	let m = match f {
+	case @w: 1
+	case _: 2
+	}
+	_ = m
+}
+-- 00984.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	let f = 1
+	let m = match f {
+	case @w: 1
+	case _: 2
+	}
+	_ = m
+}
+-- 00985.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	let f = 1
+	let m = match f {
+	case @w: 1
+	case _: 2
+	}
+	_ = m
+}
+-- 00986.ergo --
+func main() {
+	let f = 1
+	let m = match f {
+	case @w as g: g
+	case _: 2
+	}
+	_ = m
+}
+-- 00987.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	let f = 1
+	let m = match f {
+	case @w as g: g
+	case _: 2
+	}
+	_ = m
+}
+-- 00988.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	let f = 1
+	let m = match f {
+	case @w as g: g
+	case _: 2
+	}
+	_ = m
+}
+-- 00989.ergo --
+func main() {
+	$W
+	_ = "x".@w
+}
+-- 00990.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func main() {
+	$W
+	_ = "x".@w
+}
+-- 00991.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+func main() {
+	$W
+	_ = "x".@w
+}
+-- 00992.ergo --
+type A {}
+type B {}
+type U = A | B
+func f(u U) string {
+	match u {
+	case A: "a"
+	case _ as @w: "b"
+	}
+}
+-- 00993.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+type A {}
+type B {}
+type U = A | B
+func f(u U) string {
+	match u {
+	case A: "a"
+	case _ as @w: "b"
+	}
+}
+-- 00994.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+type A {}
+type B {}
+type U = A | B
+func f(u U) string {
+	match u {
+	case A: "a"
+	case _ as @w: "b"
+	}
+}
+-- 00995.ergo --
+let @w = context { Greeter: Plain }
+-- 00996.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+let @w = context { Greeter: Plain }
+-- 00997.ergo --
+type A {}
+type B {}
+func main() {
+	$W
+	let m = match @w {
+	case A: 1
+	case _: 2
+	}
+	_ = m
+}
+let @w = context { Greeter: Plain }
+-- 00998.ergo --
+func f(@w int) int { w }
+-- 00999.ergo --
+type Greeter { Greet(name string) string }
+type Plain {}
+func Greet(_ Plain, name string) string { name }
+type Bang {}
+type Box { F int }
+func f(@w int) int { w }

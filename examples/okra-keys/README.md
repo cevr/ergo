@@ -19,7 +19,7 @@ The program is a module of packages (`ergo.mod`: `module okrakeys`), in the Go l
 ## What it shows
 
 - **Typed failures for okra's error codes.** `Run` fails `Usage | NotFound | InvalidInput | StoreFailed`, one type per code where okra has one `KeysError` with a `code` string; `main` catches each by name, with no `case _`, and writes `[NOT_FOUND] …`, `[INVALID_INPUT] …` or `[STORE_FAILED] …`.
-- **A contract in the domain, providers named after their dependency.** `keys` declares `Store` with the law `LoadSeesSave`; `files.Home` and `memory.Vault` provide it, and each one's tests check the law. okra's `KeyStoreService` is an Effect `Context.Service` with a `layer` and a `layerTest`; here the service is an operation type and the layers are two records.
+- **A contract in the domain, providers named after their dependency.** `keys` declares `Store` with the law `LoadSeesSave`; `files.Home` and `memory.Vault` provide it, and `ergo test` runs the law on each (a Home over an `fstest.Memory`, a Vault from `keys.NewKeys`). okra's `KeyStoreService` is an Effect `Context.Service` with a `layer` and a `layerTest`; here the service is an operation type and the layers are two records.
 - **The original's semantics, to the byte.** `Keys` keeps a JavaScript object's key order (array-index names first, by value), so a store written by `set` is the file okra writes; `Decode` keeps a name's first place and last value, decodes `\u` escapes and surrogate pairs, and turns anything that is not an object of strings into no keys, as okra's `Schema.Record` decode does.
 - **Laws.** `keys` states five (`SetThenLookup`, `SetKeepsOthers`, `RemoveUndoesSet`, `IndexNamesComeFirst`, `MaskRevealsLittle`), `keyfile` three (`DecodeInvertsEncode`, `EncodeEscapesEveryControl`, `LastValueFirstPlace`) and `Store` one. Each package's tests restate them, and `cmd/okra-keys` checks that after a `set`, `get` shows the key's mask and `list` names it. Each law has a mutant that its own test kills.
 
@@ -49,5 +49,5 @@ Closed in batch 12: G-ex-d-15 (`Save` writes the key file with `WriteFileMode(�
 
 - **G-ex-d-6** No std json: `keyfile` is a hand codec for one shape.
 - **G-ex-d-4** Generated strings hold no quote, backslash or control byte, so the codec's laws `Spice` them.
-- **G-exup-1** (closed in batch 13): `ergo test` runs `Store.LoadSeesSave` where its providers are, but skips it for `memory.Vault` (`NewVault` takes a `keys.Keys`, which `memory` cannot generate) and for `files.Home` (it holds an `fs.Files`), both in `expected-skips`, so `memory`'s and `files`' tests restate it.
+- **G-exup-1** (closed in batch 13): `ergo test` runs `Store.LoadSeesSave` where its providers are, and, since fu7a, on both providers: `keys.NewKeys` is `Keys`' constructor, and `Home`'s `fs.Files` and `fs.Writes` hold one `fstest.Memory` per case. The restating tests are gone.
 - Known from other lanes: `try` stands only at the start of an expression, so `a + try f()` needs a `let`.

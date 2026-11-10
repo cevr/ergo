@@ -72,7 +72,11 @@ func (c unreachableCase) at(t *testing.T) string {
 	return fmt.Sprintf("main.ergo:%d:%d", line, column)
 }
 
+// TestErgoRunUnreachable builds Go because it checks what the built program
+// prints and how it exits; no in-process check observes that, and Ergo has
+// no reference interpreter yet (test-speed T8).
 func TestErgoRunUnreachable(t *testing.T) {
+	needsBuild(t)
 	var programs []*lowered
 	for _, c := range unreachableCases {
 		programs = append(programs, mustLower(t, "unreachable_"+strings.ReplaceAll(c.name, "-", "_"), c.src()))

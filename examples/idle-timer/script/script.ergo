@@ -1,8 +1,8 @@
-// Package script runs the kiosk over a script of timed lines on the
+// Package script runs the display over a script of timed lines on the
 // time.Clock and Scheduler of its context (main binds a virtual clock),
 // and shows what it does second by second.
 
-import idletimer/kiosk
+import idletimer/display
 import io
 import machines
 import strconv
@@ -14,7 +14,7 @@ type BadLine { Line int, Why string }
 
 // Script is a read script: the signals at their times, and the time the
 // run ends.
-type Script { Trace []machines.Timed[kiosk.Signal], End duration }
+type Script { Trace []machines.Timed[display.Signal], End duration }
 
 // Read reads the lines of a script after its first line. Each line is
 // `@MS WORD …`: MS is the time in milliseconds from the start, never
@@ -23,7 +23,7 @@ type Script { Trace []machines.Timed[kiosk.Signal], End duration }
 // run at MS, and must be the last. A blank line or a line that starts
 // with # is skipped.
 func Read(lines []string) Script fails BadLine {
-	let mut trace = []machines.Timed[kiosk.Signal]{}
+	let mut trace = []machines.Timed[display.Signal]{}
 	let mut last = 0s
 	for i, line in lines {
 		let n = i + 2
@@ -44,7 +44,7 @@ func Read(lines []string) Script fails BadLine {
 			return Script{Trace: trace, End: t}
 		}
 		let s = try signalOf(n, words)
-		trace = trace.Append(machines.Timed[kiosk.Signal]{At: t, Signal: s})
+		trace = trace.Append(machines.Timed[display.Signal]{At: t, Signal: s})
 	}
 	BadLine{Line: len(lines) + 1, Why: "the script has no @MS end line"}
 }
@@ -62,34 +62,34 @@ func millis(n int, word string) duration fails BadLine {
 	duration(int64(v) * 1000000)
 }
 
-func signalOf(n int, words []string) kiosk.Signal fails BadLine {
+func signalOf(n int, words []string) display.Signal fails BadLine {
 	let arg = if len(words) > 2 { words[2] } else { "" }
 	match words[1] {
 	case "touch":
-		kiosk.Touch
+		display.Touch
 	case "tap":
-		kiosk.CornerTap
+		display.CornerTap
 	case "finish":
-		kiosk.Finish
+		display.Finish
 	case "leave":
-		kiosk.Leave
+		display.Leave
 	case "assist":
 		match arg {
 		case "on":
-			kiosk.Assist{On: true}
+			display.Assist{On: true}
 		case "off":
-			kiosk.Assist{On: false}
+			display.Assist{On: false}
 		case _:
 			BadLine{Line: n, Why: "assist is on or off"}
 		}
 	case "open":
 		match arg {
 		case "home":
-			kiosk.Open{Screen: kiosk.Home}
+			display.Open{Screen: display.Home}
 		case "menu":
-			kiosk.Open{Screen: kiosk.Menu}
+			display.Open{Screen: display.Menu}
 		case "form":
-			kiosk.Open{Screen: kiosk.Form}
+			display.Open{Screen: display.Form}
 		case _:
 			BadLine{Line: n, Why: "open takes home, menu or form"}
 		}
@@ -102,8 +102,8 @@ func signalOf(n int, words []string) kiosk.Signal fails BadLine {
 // second from 1s to end, each after the script's signals of that instant.
 // The live runner would take ticks from a task that sleeps (M45); on the
 // virtual clock they are signals of the trace.
-func WithTicks(s Script) []machines.Timed[kiosk.Signal] {
-	let mut out = []machines.Timed[kiosk.Signal]{}
+func WithTicks(s Script) []machines.Timed[display.Signal] {
+	let mut out = []machines.Timed[display.Signal]{}
 	let mut i = 0
 	let mut t = 1s
 	for t <= s.End {
@@ -111,7 +111,7 @@ func WithTicks(s Script) []machines.Timed[kiosk.Signal] {
 			out = out.Append(s.Trace[i])
 			i = i + 1
 		}
-		out = out.Append(machines.Timed[kiosk.Signal]{At: t, Signal: kiosk.Tick})
+		out = out.Append(machines.Timed[display.Signal]{At: t, Signal: display.Tick})
 		t = t + 1s
 	}
 	for i < len(s.Trace) {
@@ -121,12 +121,12 @@ func WithTicks(s Script) []machines.Timed[kiosk.Signal] {
 	out
 }
 
-// View is the state and the events of a run of the kiosk.
-type View { State kiosk.Kiosk, Told []kiosk.Event }
+// View is the state and the events of a run of the display.
+type View { State display.Display, Told []display.Event }
 
 // Upto is the run of m over the first n signals of trace, until end.
-func Upto(m Machine[kiosk.Kiosk, kiosk.Signal, kiosk.Event], trace []machines.Timed[kiosk.Signal], n int, end duration) View needs time.Clock | Scheduler {
-	let mut part = []machines.Timed[kiosk.Signal]{}
+func Upto(m Machine[display.Display, display.Signal, display.Event], trace []machines.Timed[display.Signal], n int, end duration) View needs time.Clock | Scheduler {
+	let mut part = []machines.Timed[display.Signal]{}
 	for i, x in trace {
 		if i < n {
 			part = part.Append(x)
@@ -134,43 +134,43 @@ func Upto(m Machine[kiosk.Kiosk, kiosk.Signal, kiosk.Event], trace []machines.Ti
 	}
 	let o = machines.RunTimed(m, part, end) catch {
 	case machines.Rejected:
-		return View{State: m.Initial, Told: []kiosk.Event{}}
+		return View{State: m.Initial, Told: []display.Event{}}
 	}
 	match o {
-	case machines.Running[kiosk.Kiosk, kiosk.Event] as r:
+	case machines.Running[display.Display, display.Event] as r:
 		View{State: r.State, Told: r.Emitted}
-	case machines.Finished[kiosk.Kiosk, kiosk.Event] as f:
+	case machines.Finished[display.Display, display.Event] as f:
 		View{State: f.State, Told: f.Emitted}
 	}
 }
 
-// Run reads the script from io.Stdin: its first line is `kiosk NAME`,
-// the policy of kiosk.Policies to run, the machine's input. It shows each
+// Run reads the script from io.Stdin: its first line is `display NAME`,
+// the policy of display.Policies to run, the machine's input. It shows each
 // change of state and each event, at the time of the signal it follows,
 // and returns the exit status: 0, or 1 when the script or the policy is
 // refused.
-func Run() int needs Console | io.Stdin | kiosk.Policies | time.Clock | Scheduler {
+func Run() int needs Console | io.Stdin | display.Policies | time.Clock | Scheduler {
 	let mut lines = []string{}
 	for line in io.Stdin.Lines() {
 		lines = lines.Append(line)
 	}
 	if len(lines) == 0 {
-		Console.Println("? the script names no kiosk")
+		Console.Println("? the script names no display")
 		return 1
 	}
 	let first = strings.Fields(lines[0])
-	if len(first) != 2 || first[0] != "kiosk" {
-		Console.Println("? line 1: the first line is kiosk NAME")
+	if len(first) != 2 || first[0] != "display" {
+		Console.Println("? line 1: the first line is display NAME")
 		return 1
 	}
-	let p = kiosk.Policies.Policy(first[1]) catch {
-	case kiosk.NoSuchKiosk as n:
-		Console.Println("? no kiosk \(n.Name)")
+	let p = display.Policies.Policy(first[1]) catch {
+	case display.NoSuchDisplay as n:
+		Console.Println("? no display \(n.Name)")
 		return 1
 	}
-	let policy = kiosk.Check(p) catch {
-	case kiosk.BadPolicy as b:
-		Console.Println("? kiosk \(first[1]): \(b.Why)")
+	let policy = display.Check(p) catch {
+	case display.BadPolicy as b:
+		Console.Println("? display \(first[1]): \(b.Why)")
 		return 1
 	}
 	let mut rest = []string{}
@@ -184,10 +184,10 @@ func Run() int needs Console | io.Stdin | kiosk.Policies | time.Clock | Schedule
 		Console.Println("? line \(b.Line): \(b.Why)")
 		return 1
 	}
-	let m = machines.Start(kiosk.Idler{}, policy)
+	let m = machines.Start(display.Idler{}, policy)
 	let trace = WithTicks(s)
-	Console.Println("@0 \(kiosk.Name(m.Initial))")
-	let mut shown = View{State: m.Initial, Told: []kiosk.Event{}}
+	Console.Println("@0 \(display.Name(m.Initial))")
+	let mut shown = View{State: m.Initial, Told: []display.Event{}}
 	for n in 1..len(trace)+1 {
 		let t = trace[n-1].At
 		let v = Upto(m, trace, n, t)
@@ -206,23 +206,23 @@ func show(t duration, was View, now View) needs Console {
 			Console.Println("\(stamp) ! \(Word(e))")
 		}
 	}
-	if kiosk.Name(now.State) != kiosk.Name(was.State) {
-		Console.Println("\(stamp) \(kiosk.Name(now.State))")
+	if display.Name(now.State) != display.Name(was.State) {
+		Console.Println("\(stamp) \(display.Name(now.State))")
 	}
 }
 
 // Word is the word of an event.
-func Word(e kiosk.Event) string {
+func Word(e display.Event) string {
 	match e {
-	case kiosk.Began:
+	case display.Began:
 		"began"
-	case kiosk.Abandoned:
+	case display.Abandoned:
 		"abandoned"
-	case kiosk.Ended:
+	case display.Ended:
 		"ended"
-	case kiosk.AdminOpened:
+	case display.AdminOpened:
 		"admin opened"
-	case kiosk.AdminClosed:
+	case display.AdminClosed:
 		"admin closed"
 	}
 }

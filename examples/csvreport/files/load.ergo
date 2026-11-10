@@ -1,4 +1,4 @@
-// Package files reads sales files from the file system. A provider of
+// Package files reads meter files from the file system. A provider of
 // report.Source cannot need a capability that the contract's operation
 // does not write (rows.md, Context 2), so Load reads the named files once,
 // at the start, into a memory.Shelf, as okra-how's files package does.

@@ -1,0 +1,4 @@
+Usage of quota:
+quota answers an operator's commands from standard input: open VOL [OVERCOMMIT], grant KEY VOL SIZE, reclaim KEY VOL SIZE, move KEY FROM TO SIZE, size VOL, volumes.
+  -journal file
+    	keep the quota in the journal file; without it the quota lives in memory for one run

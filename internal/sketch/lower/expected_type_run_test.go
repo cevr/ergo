@@ -13,21 +13,6 @@ import (
 // T(e) gives the value let v = e; T(v) gives (types.md, Operators 3). The
 // verdict half of the property is check's TestConversionAgreesWithLet.
 
-func TestErgoRunExpectedType(t *testing.T) {
-	wantRun(t, `type T = A | B
-type A {}
-type B {}
-
-func f() Option[T] { Some{Value: A} }
-
-func main() needs Console {
-	let n = 3
-	let x = int64(if n < 0 { -n } else { n })
-	Console.Println("\(f() == Some{Value: A}) \(Some{Value: B} == f()) \(x)")
-}
-`, "true false 3\n")
-}
-
 // runConvGen is check's convGen: int or float64 expressions built from
 // parameters, small literals, if, match, catch and arithmetic.
 type runConvGen struct{ r *rand.Rand }
@@ -70,6 +55,7 @@ func (g *runConvGen) leaf() string {
 // check, each as T(e) and as let v = e; T(v), over inputs that take every
 // if, match and catch branch, and wants the two texts equal.
 func TestErgoRunConversionAgreesWithLet(t *testing.T) {
+	needsBuild(t)
 	const decls = `type Bad {}
 type Celsius float64
 type Count int

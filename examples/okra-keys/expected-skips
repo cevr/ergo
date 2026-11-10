@@ -1,6 +1,0 @@
-# Skip lines `ergo test` prints for this program's packages (fs4, law-xpkg).
-# files.Home holds an fs.Files, and memory.Vault's NewVault takes a keys.Keys,
-# which package memory cannot generate (its fields are keys'). memory's and
-# files' tests restate LoadSeesSave.
-skip law keys.Store.LoadSeesSave for Home: its values have no generator: fs.Files is a standard library type; a func NewHome() Home with no rows would build one for each case
-skip law keys.Store.LoadSeesSave for Vault: its values have no generator: sync.Ref[keys.Keys] is a standard library type; a func NewVault() Vault with no rows would build one for each case

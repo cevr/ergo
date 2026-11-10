@@ -40,7 +40,7 @@ type patBind struct {
 // an interface type, and arms of type tests, wildcards and a single `T as
 // x`.
 func (fc *funcCtx) simpleTypeMatch(s *syntax.TypeSwitchStmt) bool {
-	if len(s.Subjects) != 1 || !fc.isInterface(fc.typeOf(s.Subjects[0].X)) {
+	if len(s.Subjects) != 1 || !fc.isSum(fc.typeOf(s.Subjects[0].X)) {
 		return false
 	}
 	for _, cl := range s.Clauses {
@@ -72,7 +72,9 @@ func (fc *funcCtx) patternMatch(s syntax.Stmt, subjects []syntax.Expr, clauses [
 	types := make([]check.Type, len(subjects))
 	for i, x := range subjects {
 		types[i] = fc.typeOf(x)
-		if !fc.isConst(x) {
+		// The flat state of a machine's flat step is an immutable
+		// parameter: the match reads its tag, with no copy (machinerun.go).
+		if !fc.isConst(x) && !fc.flatSubj[vals[i]] {
 			t := fc.temp("s")
 			fc.line(t + " := " + vals[i])
 			fc.line("_ = " + t)
@@ -268,6 +270,18 @@ func (fc *funcCtx) pattern(p *check.Pattern, val string, t check.Type, site synt
 // typeTest appends the test that val, of type t, holds the type want, and
 // returns val narrowed to want. A test of t itself always holds.
 func (fc *funcCtx) typeTest(want check.Type, val string, t check.Type, tests *[]string) string {
+	if fu := fc.l.flatUnionOf(t); fu != nil && fc.goType(want) != fc.goType(t) {
+		// A flat union tests its tag (flatunion.go).
+		k := fu.tagOf(want)
+		if k < 0 {
+			flatBail(fc.site, fu)
+		}
+		*tests = append(*tests, flatTest(val, k))
+		return fu.flatNarrow(&fc.typeCtx, val, k)
+	}
+	if fu := fc.l.flatUnionOf(want); fu != nil && fc.goType(want) != fc.goType(t) {
+		flatBail(fc.site, fu) // no interface value holds a flat union
+	}
 	if !fc.isInterface(t) || fc.goType(want) == fc.goType(t) {
 		return val
 	}
@@ -281,6 +295,16 @@ func (fc *funcCtx) typeTest(want check.Type, val string, t check.Type, tests *[]
 // so `case U as u:` of a union that names a row (rows.md, Catch 9) asserts
 // too; another interface takes val as it is.
 func (fc *funcCtx) narrow(val string, t, to check.Type) string {
+	if fu := fc.l.flatUnionOf(t); fu != nil && fc.goType(to) != fc.goType(t) {
+		k := fu.tagOf(to)
+		if k < 0 {
+			flatBail(fc.site, fu)
+		}
+		return fu.flatNarrow(&fc.typeCtx, val, k)
+	}
+	if fc.l.flatUnionOf(to) != nil && fc.goType(to) != fc.goType(t) {
+		flatBail(fc.site, fc.l.flatUnionOf(to)) // an interface value narrowed to a flat union
+	}
 	if !fc.isInterface(t) || fc.goType(to) == fc.goType(t) {
 		return val
 	}

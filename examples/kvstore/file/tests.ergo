@@ -1,8 +1,7 @@
-// Log keeps the kv.Store laws: each test runs one of kv's checks on a new
-// Log over an fstest.Memory, the same checks package memory runs on a
-// Table. ergo test skips Store's laws for Log (it holds an fs.Files and
-// has no constructor without rows; expected-skips). The laws of laws.ergo
-// run as they are.
+// Log's own tests: its file's form, a corrupt line, a model check against
+// memory.Table and Open's clean-up. ergo test runs the kv.Store laws on
+// Log itself, each case on a NewLog over its own fstest.Memory, and the
+// laws of laws.ergo as they are.
 
 import fstest
 import kvstore/kv
@@ -13,42 +12,6 @@ import strings
 func fresh() Log fails kv.Broken {
 	let disk = fstest.NewMemory()
 	try Open("db", disk, disk)
-}
-
-test LogGetAfterPut(key string, value string) {
-	with context { kv.Store: try fresh() } {
-		assert try kv.GetAfterPutHolds(key, value)
-	}
-}
-
-test LogPutOverwrites(key string, first string, second string) {
-	with context { kv.Store: try fresh() } {
-		assert try kv.PutOverwritesHolds(key, first, second)
-	}
-}
-
-test LogDeleteRemoves(key string, value string) {
-	with context { kv.Store: try fresh() } {
-		assert try kv.DeleteRemovesHolds(key, value)
-	}
-}
-
-test LogPutKeepsOthers(key string, other string, a string, b string) {
-	with context { kv.Store: try fresh() } {
-		assert try kv.PutKeepsOthersHolds(key, other, a, b)
-	}
-}
-
-test LogKeysAreSortedAndDistinct(keys []string) {
-	with context { kv.Store: try fresh() } {
-		assert try kv.KeysAreSortedAndDistinctHolds(keys)
-	}
-}
-
-test LogCompactKeepsContents(puts []string, drops []int) {
-	with context { kv.Store: try fresh() } {
-		assert try kv.CompactKeepsContentsHolds(puts, drops)
-	}
 }
 
 // The log's own form: a put, an overwrite and a delete are three lines,

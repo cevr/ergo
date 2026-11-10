@@ -1,0 +1,122 @@
+// Package keeper is the backup service's keeper saga: a planned backup
+// waits for its data; once stored it is verified; not stored by its
+// deadline it is aborted. The saga is a machine over the backup events and the ticks
+// of a clock. It sends commands; it never changes a backup itself.
+
+import machines
+import backups/backup
+
+// Stage is where a backup's keeping is: waiting for its data until the
+// minute Due, or stored and waiting for the verify it asked for.
+type Stage = AwaitingStore{Backup string, Due int} | AwaitingVerify{Backup string}
+
+// Signal is what a saga reads: an event of its backup, or the minute.
+type Signal = Saw{E backup.Event} | Tick{Now int}
+
+// Reaction is what a saga does: send a command, or nothing.
+type Reaction = Send{C backup.Command} | Nothing{}
+
+// Planning is what starts a saga: its backup and the minute it was planned.
+type Planning { Backup string, At int }
+
+// Begin is the first stage of the saga of p: waiting for the data
+// until StoreWithin minutes after p.At.
+func Begin(p Planning) Stage { AwaitingStore{Backup: p.Backup, Due: p.At + StoreWithin} }
+
+// Keeper is the saga as a machine. Its input is the backup planned.
+type Keeper machine[Stage, Signal] {
+	initial: Begin,
+	step:    Step,
+}
+
+// StoreWithin is the minutes a planned backup waits for its data.
+let StoreWithin = 30
+
+// Step is the saga's transition. A store sends Verify and waits for the
+// verify, which ends it; an abort ends it with nothing; a tick at or past
+// the store's deadline ends it with an abort.
+func Step(s Stage, sig Signal) Decision[Stage, Reaction] {
+	match (s, sig) {
+	case (AwaitingStore as w, Saw as seen):
+		match seen.E {
+		case backup.Stored:
+			Emit[Stage, Reaction]{Next: AwaitingVerify{Backup: w.Backup}, Output: Send{C: backup.Verify{Backup: w.Backup}}}
+		case backup.Aborted:
+			Done[Reaction]{Output: Nothing}
+		case backup.Planned, backup.FileAdded, backup.Verified:
+			Ignore
+		}
+	case (AwaitingStore as w, Tick as t):
+		if t.Now < w.Due {
+			return Ignore
+		}
+		Done[Reaction]{Output: Send{C: backup.Abort{Backup: w.Backup, Reason: "not stored after \(StoreWithin) minutes"}}}
+	case (AwaitingVerify, Saw as seen):
+		match seen.E {
+		case backup.Verified, backup.Aborted:
+			Done[Reaction]{Output: Nothing}
+		case backup.Planned, backup.FileAdded, backup.Stored:
+			Ignore
+		}
+	case (AwaitingVerify, Tick):
+		Ignore
+	}
+}
+
+// Running is a saga that has started and not ended.
+type Running { Backup string, At Stage }
+
+// Starts is the policy that starts a saga: a Planned event at minute now.
+func Starts(e backup.Event, now int) Option[Running] {
+	match e {
+	case backup.Planned as p:
+		Some[Running]{Value: Running{Backup: p.Backup, At: machines.Initial(machines.Start(Keeper{}, Planning{Backup: p.Backup, At: now}))}}
+	case backup.FileAdded, backup.Stored, backup.Verified, backup.Aborted:
+		None
+	}
+}
+
+// Feed steps every running saga the signal is for: an event goes to its
+// backup's saga, a tick to every saga. It is the sagas still running and
+// the commands they send, in the order of the sagas.
+func Feed(running []Running, sig Signal) ([]Running, []backup.Command) {
+	let mut still = []Running{}
+	let mut sends = []backup.Command{}
+	for r in running {
+		if !isFor(sig, r.Backup) {
+			still = still.Append(r)
+			continue
+		}
+		let d = Step(r.At, sig)
+		match d {
+		case Emit[Stage, Reaction] as e:
+			sends = sent(sends, e.Output)
+		case Done[Reaction] as e:
+			sends = sent(sends, e.Output)
+			continue
+		case Enter[Stage], Stay[Stage], Ignore, Reject:
+		}
+		still = still.Append(Running{Backup: r.Backup, At: machines.Next(r.At, d)})
+	}
+	(still, sends)
+}
+
+// sent is sends with the command of the reaction r, if it has one.
+func sent(sends []backup.Command, r Reaction) []backup.Command {
+	match r {
+	case Send as s:
+		sends.Append(s.C)
+	case Nothing:
+		sends
+	}
+}
+
+// isFor reports whether sig is for the saga of the backup.
+func isFor(sig Signal, id string) bool {
+	match sig {
+	case Saw as s:
+		backup.StreamOf(s.E) == id
+	case Tick:
+		true
+	}
+}

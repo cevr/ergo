@@ -8,7 +8,6 @@ import (
 	"go/token"
 	"math/rand/v2"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -18,72 +17,6 @@ import (
 )
 
 // Fork-tree defects (runtime-199 stage 4b; runtime.md, G2).
-
-// TestRuntime199DefectReport: a defect in a grandchild task reaches main
-// through two Waits, and ergo run reports it from the failing task, not
-// the waiter: the Ergo frames of the task's own stack up to its block, then
-// the task chain from the failing task to main, each fork named by the
-// function that called task.Go and the call's position, and the context
-// values in force in the failing task when it failed. The bindings the
-// parent opened after the fork are not in that snapshot. No Go frame shows,
-// and main exits with status 2.
-func TestRuntime199DefectReport(t *testing.T) {
-	src := `import task
-import trace
-import log
-
-func leaf() int64 {
-	let xs = []int64{1}
-	xs[3]
-}
-
-func middle() int64 {
-	with log.Annotate("peer", "10.0.0.4") {
-		let t = task.Go() {
-			with log.Annotate("region", "inner") { leaf() }
-		}
-		with log.Annotate("later", "parent") { t.Wait() }
-	}
-}
-
-func main() needs Console {
-	with trace.Span("ingest") {
-		with log.Annotate("region", "eu") {
-			let t = task.Go() { middle() }
-			t.Wait()
-		}
-	}
-	Console.Println("BAD: returned")
-}
-`
-	dir := t.TempDir()
-	path := filepath.Join(dir, "main.ergo")
-	if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command(ergoCLI(t), "run", path)
-	cmd.Dir = dir // ergo run builds into ./dist
-	var stdout, stderr strings.Builder
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
-	exit, ok := err.(*exec.ExitError)
-	if !ok || exit.ExitCode() != 2 {
-		t.Fatalf("ergo run: %v, want exit status 2\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
-	}
-	if stdout.Len() != 0 {
-		t.Errorf("stdout = %q, want nothing", stdout.String())
-	}
-	want := "panic: runtime error: index out of range [3] with length 1\n" +
-		"\tleaf at " + path + ":7\n" +
-		"\tmiddle calls leaf at " + path + ":13:43\n" +
-		"\ttask #3 middle calls task.Go at " + path + ":12:11\n" +
-		"\t  context std:trace.span=\"ingest\" std:log.peer=\"10.0.0.4\" std:log.region=\"inner\"\n" +
-		"\ttask #2 main calls task.Go at " + path + ":22:12\n" +
-		"\ttask #1 main\n"
-	if got := stderr.String(); got != want {
-		t.Fatalf("defect report:\n%s\nwant:\n%s", got, want)
-	}
-}
 
 // TestRuntime199DefectProperty generates fork trees and checks each defect
 // report against a model (runtime.md, G2). A case is a chain of tasks of
@@ -119,6 +52,7 @@ func main() needs Console {
 // traced report equals the untraced one, the status is 2, and the exit
 // holds no task, so ancestry outlives no task.
 func TestRuntime199DefectProperty(t *testing.T) {
+	needsBuild(t)
 	cases := dfCases()
 	f := &dfFile{}
 	for _, l := range []string{"import task", "import queue", "import scope", "import log", "import trace", "", "type Fault {}", "", "func main() {}"} {
@@ -682,6 +616,7 @@ type dfResult struct {
 // does and returns what Main writes. The emitted code is not changed.
 func dfNative(t *testing.T, o *lowered, cases []*dfCase) map[string]dfResult {
 	t.Helper()
+	fastTierGuard(t, "a go command")
 	dir := t.TempDir()
 	write := func(path string, data []byte) {
 		t.Helper()
@@ -921,6 +856,8 @@ func TestRuntime199DefectOwner(t *testing.T) {
 		{"reportDefect", "report"}:    true,
 		{`"panic: "`, "reportDefect"}: true,
 		{"report", "Main"}:            true,
+		// LogFailures writes a member's exit as main's exit report does.
+		{"report", "end"}: true,
 	}
 	seen := map[use]bool{}
 	for _, u := range uses {

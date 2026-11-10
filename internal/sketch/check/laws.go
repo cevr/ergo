@@ -152,6 +152,110 @@ func (c *checker) collectLaws(spec *syntax.InterfaceType, tn *TypeName, fi *file
 	}
 }
 
+// collectMachineLaws records the laws of the machine tn in source order
+// (Machine laws, MU6), each owned by OwnerLaw. A machine law's name is in
+// its machine's namespace, as a member law's is in its type's.
+func (c *checker) collectMachineLaws(spec *syntax.MachineType, tn *TypeName, fi *fileInfo) {
+	names := map[string]bool{}
+	for _, d := range spec.Laws {
+		law := &Law{Name: d.Name.Name, Decl: d, Machine: tn, file: fi}
+		c.def(d.Name, law)
+		c.pkg.Laws = append(c.pkg.Laws, law)
+		if names[law.Name] {
+			c.errorf(d.Name, CodeType, "law %s is declared twice", law.Name)
+			continue
+		}
+		names[law.Name] = true
+	}
+}
+
+// checkReachLaw checks a machine's reachability law (MU6): each target
+// names a variant of the machine's state.
+func (c *checker) checkReachLaw(law *Law) {
+	n, _ := law.Machine.Type.(*Named)
+	var u *Union
+	var state Type
+	if n != nil {
+		if m, ok := n.Underlying().(*MachineType); ok {
+			state, u = m.State, asUnion(m.State)
+		}
+	}
+	for _, id := range law.Decl.Reach.Targets {
+		tn, ok := c.pkg.Scope.names[id.Name].(*TypeName)
+		if !ok {
+			c.errorf(id, CodeUnknown, "unknown type %s", id.Name)
+			continue
+		}
+		c.pkg.Info.Uses[id] = tn
+		if u == nil {
+			continue // the machine's state was refused where it is written
+		}
+		found := false
+		for _, v := range u.Variants {
+			if vn, ok := v.(*Named); ok && vn.Obj == tn {
+				law.Targets = append(law.Targets, vn)
+				found = true
+			}
+		}
+		if !found {
+			c.errorf(id, CodeType, "%s is not a variant of %s, the state of machine %s", id.Name, state, law.Machine.Name)
+		}
+	}
+}
+
+// planMachineLaw decides whether a machine's reachability law runs
+// (Machine laws, MU6): its step must need no capability, and its state,
+// its signal and its start's input must have generators, since a run
+// prints them and draws them when they cannot be listed.
+func (c *checker) planMachineLaw(law *Law) {
+	n, _ := law.Machine.Type.(*Named)
+	if n == nil {
+		law.Unrun = "its machine is invalid"
+		return
+	}
+	m, ok := n.Underlying().(*MachineType)
+	spec, ok2 := law.Machine.Decl.Spec.(*syntax.MachineType)
+	if !ok || !ok2 || asUnion(m.State) == nil || asUnion(m.Signal) == nil || len(law.Targets) != len(law.Decl.Reach.Targets) {
+		law.Unrun = "its machine is invalid"
+		return
+	}
+	// The step's checks (checkMachine) come later; a step that is not a
+	// function is refused there, and this law has nothing to run.
+	id, _ := spec.Step.(*syntax.Ident)
+	var step *Func
+	if id != nil {
+		step, _ = c.pkg.Scope.names[id.Name].(*Func)
+	}
+	if step == nil || step.Sig == nil || isExtern(step) {
+		law.Unrun = "its machine is invalid"
+		return
+	}
+	if !c.types.resolve(step.Sig.Uses).known(c.types).Empty() {
+		law.Unrun = "its step " + step.Name + " needs a capability, and a law runs a step with none"
+		return
+	}
+	for _, part := range []struct {
+		what string
+		t    Type
+	}{{"state", m.State}, {"signal", m.Signal}} {
+		if why := c.ungeneratable(part.t); why != "" {
+			law.Unrun = "its " + part.what + " type has no generator: " + why
+			return
+		}
+	}
+	if start := machineStart(c.pkg, spec); start != nil && start.Sig != nil {
+		for _, p := range start.Sig.Params {
+			if why := c.ungeneratable(p.Type); why != "" {
+				law.Unrun = "its start's input " + p.Name + " has no generator: " + why
+				return
+			}
+		}
+		if !c.types.resolve(start.Sig.Uses).known(c.types).Empty() || start.Sig.Fallible {
+			law.Unrun = "its start " + start.Name + " has a row, and a law runs a start with none"
+		}
+	}
+}
+
 // typeParams are the type parameters of the law's type (rule 6); a
 // top-level law has none.
 func (l *Law) typeParams() []*TypeParam {
@@ -200,6 +304,10 @@ func constraintMethods(tp *TypeParam) bool {
 // refused (S108), so its plan is never read.
 func (c *checker) planLaws() {
 	for _, law := range c.pkg.Laws {
+		if law.Decl.Reach != nil {
+			c.planMachineLaw(law)
+			continue
+		}
 		c.planLaw(law)
 	}
 	c.pkg.LawRuns = c.lawRuns()
@@ -510,6 +618,10 @@ func (c *checker) checkLaw(law *Law) {
 	saved := c.cur
 	c.cur = law.file
 	defer func() { c.cur = saved }()
+	if d.Reach != nil {
+		c.checkReachLaw(law)
+		return
+	}
 	defer c.beginBodyCheck(law)()
 	tparams := law.typeParams()
 	defer c.monoOwner(tparams)()

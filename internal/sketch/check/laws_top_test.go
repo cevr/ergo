@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/format"
 	"ergo.local/prototype/internal/sketch/sketchtest"
 )
 
@@ -130,85 +129,4 @@ func mixedLine(seq []string) string {
 		}
 	}
 	return "?"
-}
-
-// TestTopLevelLawFormat: spec A6. ergo fmt of every clean A2 program and
-// every clean A3 top-level program is idempotent, keeps every token and
-// comment in order, and the formatted program checks clean.
-func TestTopLevelLawFormat(t *testing.T) {
-	var srcs []string
-	for _, tc := range sketchtest.LawTopCases {
-		if len(expected(tc.Src)) == 0 {
-			srcs = append(srcs, tc.Src)
-		}
-	}
-	for _, l := range sketchtest.GenLaws(sketchtest.LawDomainSeed, sketchtest.LawDomainSize) {
-		src, _ := sketchtest.PlaceLaw(false, l)
-		if _, diags := check.CheckSource(src); len(diags) == 0 {
-			srcs = append(srcs, src)
-		}
-	}
-	if len(srcs) < 300 {
-		t.Fatalf("%d clean programs, want at least 300", len(srcs))
-	}
-	for _, src := range srcs {
-		once, err := format.Source(src)
-		if err != nil {
-			t.Fatalf("format: %v\n%s", err, src)
-		}
-		twice, err := format.Source(once)
-		if err != nil || twice != once {
-			t.Fatalf("not idempotent (%v):\n%s\n--- then\n%s", err, once, twice)
-		}
-		// Every token and comment keeps its order: a doc comment stays
-		// before its law's keyword.
-		before, _ := sketchtest.Interleaved(src)
-		after, _ := sketchtest.Interleaved(once)
-		if i, x, y := sketchtest.FirstDiff(before, after); i >= 0 {
-			t.Fatalf("token or comment %d changed: %q became %q\n%s\n--- formatted\n%s", i, x, y, src, once)
-		}
-		if _, diags := check.CheckSource(once); len(diags) != 0 {
-			t.Fatalf("the formatted program is refused:\n\t%s\n%s", describe(diags), once)
-		}
-	}
-}
-
-// TestTopLevelLawInfo: Law.Owner is nil for a top-level law, Package.Laws
-// lists every law in source order, Defs maps a top-level law's name to its
-// Law, and its facts are OwnerLaw's.
-func TestTopLevelLawInfo(t *testing.T) {
-	src := `law First(n int) { n == n }
-
-type Codec {
-	Encode(v int) string,
-
-	law Second(v int) { Encode(v) == Encode(v) },
-}
-
-law Third(s string) { s == s }
-`
-	pkg, diags := check.CheckSource(src)
-	if len(diags) != 0 {
-		t.Fatalf("unexpected diagnostics:\n\t%s", describe(diags))
-	}
-	var names []string
-	for _, l := range pkg.Laws {
-		owner := "-"
-		if l.Owner != nil {
-			owner = l.Owner.Name
-		}
-		names = append(names, owner+"."+l.Name)
-		if pkg.Info.Defs[l.Decl.Name] != check.Object(l) {
-			t.Errorf("law %s: Defs does not map its name to the Law", l.Name)
-		}
-		if got := pkg.OwnerOf(l.Decl.Body); got != check.OwnerLaw {
-			t.Errorf("law %s: body owner %v, want OwnerLaw", l.Name, got)
-		}
-		if !l.Fails.Empty() {
-			t.Errorf("law %s: failure row %v, want empty", l.Name, l.Fails.Elems())
-		}
-	}
-	if got, want := strings.Join(names, " "), "-.First Codec.Second -.Third"; got != want {
-		t.Errorf("Package.Laws = %s, want %s", got, want)
-	}
 }

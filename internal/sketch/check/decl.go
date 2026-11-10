@@ -49,6 +49,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 				c.resolveNamed(tn.Type.(*Named))
 			}
 		},
+		c.expandIncludes,
 		c.checkUnitContextNames,
 		// Expanding type instantiations are rejected before any walk
 		// expands instances (round-2 M1, M5).
@@ -98,9 +99,13 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.checkFrames,
 		c.checkEscapes,
 		c.footprints,
+		// After the footprints: a durable machine's step is pure (MU9).
+		c.checkDurableSteps,
 		// After every body: the first with operand past the with budget,
 		// silent checks included (withbudget.go).
 		c.reportWithBudget,
+		// Last: every lazy read of a binding is done (gobinding.go).
+		c.checkGoImports,
 	} {
 		c.cur = nil
 		pass()
@@ -244,6 +249,13 @@ func (c *checker) collect() {
 		c.cur = fi
 		f := fi.syntax
 		for _, d := range f.Decls {
+			if syntax.IsBindingDecl(d) {
+				// A host type, const or method comes only from a binding
+				// that ergo bind go writes (docs/spec/interop.md); the
+				// checker reads bindings with #202's import checking.
+				c.errorf(d, CodeOutside, "a binding declaration (extern go with type, let or a receiver) is #202's (Go imports); ergo bind go writes it, and it is not checked yet")
+				continue
+			}
 			switch d := d.(type) {
 			case *syntax.ImportDecl:
 				if len(d.Specs) != 1 {
@@ -274,6 +286,14 @@ func (c *checker) collect() {
 					}
 					if declared {
 						c.collectLaws(it, tn, fi)
+					}
+				}
+				if mt, ok := d.Spec.(*syntax.MachineType); ok {
+					for _, l := range mt.Laws {
+						c.ownBody(l, OwnerLaw)
+					}
+					if declared {
+						c.collectMachineLaws(mt, tn, fi)
 					}
 				}
 			case *syntax.FuncDecl:
@@ -477,10 +497,19 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 		}
 		path = p
 	}
+	if spec.Kind == syntax.ImportGo {
+		// Go's rule for an import path, before any name is read from it
+		// (#202 comment, small-fix #231).
+		if why := GoImportPathError(path); why != "" {
+			c.errorf(spec.Path, CodeType, "malformed Go import path %q: %s", path, why)
+			c.bindBrokenImport(fi, spec, path)
+			return
+		}
+	}
 	// A keyword cannot be the name an import binds, so a path whose last
 	// element is one needs an alias (grammar.md, Declarations rule 1; 196w).
 	// The message recognises Go's `import "context"` habit (#220).
-	if def := lastElement(path); spec.Name == nil && syntax.IsKeyword(def) {
+	if def := importDefault(spec, path); spec.Name == nil && syntax.IsKeyword(def) {
 		fix := "import " + def + "pkg " + path
 		if spec.Kind == syntax.ImportGo {
 			fix = "import go go" + def + " " + path
@@ -491,7 +520,7 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 	}
 	// The same rule holds for a last element that is not a name, such as
 	// the folder okra-repo (196b Q3): the import needs an alias.
-	if def := lastElement(path); spec.Name == nil && !syntax.IsKeyword(def) && !importName(def) {
+	if def := importDefault(spec, path); spec.Name == nil && !syntax.IsKeyword(def) && !importName(def) {
 		c.errorf(spec.Path, CodeType, "%s is not a name; import the package under a name: import %s %s", def, strings.ReplaceAll(def, "-", ""), path)
 		c.bindBrokenImport(fi, spec, path)
 		return
@@ -499,8 +528,7 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 	switch spec.Kind {
 	case syntax.ImportPlain, syntax.ImportNamed:
 	case syntax.ImportGo:
-		c.errorf(spec, CodeOutside, "import go %q is #202's (Go imports); it is not checked yet", path)
-		c.bindBrokenImport(fi, spec, path)
+		c.importGo(fi, spec, path)
 		return
 	default:
 		c.undecided(spec.Path, "this import form")
@@ -606,7 +634,7 @@ func (c *checker) checkImportAliases() {
 			continue
 		}
 		c.cur = a.file
-		def := lastElement(a.path)
+		def := importDefault(a.spec, a.path)
 		// A keyword, or an element that is not a name (196b Q3), is never
 		// a bound name, so its alias is needed.
 		clash := syntax.IsKeyword(def) || !importName(def)
@@ -637,6 +665,16 @@ func (c *checker) checkImportAliases() {
 // of it binds by default.
 func lastElement(path string) string {
 	return path[strings.LastIndex(path, "/")+1:]
+}
+
+// importDefault is the name an import binds with no alias: the last
+// element, or for import go the Go package name (math/rand/v2 is rand;
+// GoPackageName).
+func importDefault(spec *syntax.ImportSpec, path string) string {
+	if spec.Kind == syntax.ImportGo {
+		return GoPackageName(path)
+	}
+	return lastElement(path)
 }
 
 // importName reports whether an import path element can be the name a
@@ -769,10 +807,15 @@ func (c *checker) resolveNamed(n *Named) {
 	if n.state != 0 || n.Obj.Decl == nil {
 		return
 	}
+	if h := hostOf(n.Obj.Pkg); h != nil && h.c != c {
+		// A host type resolves in its binding (gobinding.go).
+		h.c.resolveNamed(n)
+		return
+	}
 	n.state = 1
-	saved := c.cur
-	c.cur = n.Obj.file
-	defer func() { c.cur = saved }()
+	saved, shallow := c.cur, c.shallow
+	c.cur, c.shallow = n.Obj.file, 0
+	defer func() { c.cur, c.shallow = saved, shallow }()
 	d := n.Obj.Decl
 	ctx := &typeCtx{params: map[string]*TypeParam{}, decl: true}
 	if d.TypeParams != nil {
@@ -808,8 +851,21 @@ func (c *checker) resolveNamed(n *Named) {
 		s := c.structType(spec, ctx)
 		s.obj = n.Obj
 		n.under = s
+		if c.includesExpanded {
+			c.expandInclude(n)
+		}
 	case *syntax.InterfaceType:
-		if len(spec.Union) > 0 {
+		if x := aliasTarget(d); x != nil {
+			// A union whose only variant is an existing type is that type
+			// (types.md, Unions 7; F11): every use resolves to the target.
+			n.under = invalid
+			if len(n.TParams) > 0 {
+				c.errorf(d.TypeParams, CodeType, "%s is an alias of its one variant, an existing type, and an alias takes no type parameters yet; write the type where it is used (types.md, Unions 7)", n.Obj.Name)
+				n.alias = invalid
+				break
+			}
+			n.alias = c.typExpr(x, ctx)
+		} else if len(spec.Union) > 0 {
 			n.under = c.unionType(n, spec, ctx)
 		} else {
 			it := c.interfaceType(spec, ctx)
@@ -863,6 +919,12 @@ func (c *checker) constraintExpr(f *syntax.Field) syntax.Expr {
 		c.errorf(f.Type, CodeUnknown, "error is not a constraint; write [E]: a parameter in an error row is an error row (types.md, Generics 1)")
 		return nil
 	}
+	if id, ok := f.Type.(*syntax.Ident); ok && id.Name == "any" && c.lookupType("any", nil) == nil {
+		// The parser took every `any` a constrained group follows
+		// (Field.Any); this one gives nothing (types.md, Generics 2).
+		c.errorf(f.Type, CodeUnknown, "Ergo has no any; a parameter without a constraint is written bare, [T], and any only ends such a group before a constrained one, [E any, K comparable] (types.md, Generics 2)")
+		return nil
+	}
 	return f.Type
 }
 
@@ -873,6 +935,12 @@ func (c *checker) structType(spec *syntax.StructType, ctx *typeCtx) *Struct {
 		t := c.typExpr(field.Type, ctx)
 		if c.taskRefused(field.Type, t) {
 			t = invalid
+		}
+		if field.Include {
+			if n := c.includeTarget(field, t); n != nil {
+				s.includes = append(s.includes, &include{member: field, at: len(s.Fields), target: n})
+			}
+			continue
 		}
 		for _, name := range field.Names {
 			if seen[name.Name] && name.Name != "_" {
@@ -908,7 +976,9 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx) *Inter
 			mctx.params, mctx.decl = ctx.params, ctx.decl
 		}
 		sig := c.signature(ft, mctx)
-		if ft.Needs != nil {
+		if ft.Needs != nil && c.pkg.host == nil {
+			// A Go interface's method runs Go code: its binding charges
+			// go.Foreign at the call (docs/spec/interop.md).
 			c.errorf(ft.Needs, CodeType, "an interface method writes no capability row: a provider's requirements are captured when it is built (types.md, Capabilities 4; README Gap 17)")
 			sig.Uses = newRow()
 		}
@@ -1115,6 +1185,12 @@ func (c *checker) typExpr(x syntax.Expr, ctx *typeCtx) Type {
 	if tp, ok := t.(*TypeParam); ok && tp.conflict {
 		return invalid
 	}
+	if tp, ok := t.(*TypeParam); ok && tp.Kind == KindErrors {
+		// An error row parameter in a type position names the row's value
+		// type, the type of a `case err:` binding (types.md, Generics 1;
+		// rows.md, Catch 7; q47).
+		return c.rowValue(c.types.row(tp))
+	}
 	if tp, ok := t.(*TypeParam); ok && tp.Kind != KindType {
 		c.errorf(x, CodeType, "%s is %s parameter, not a type", tp.Name, tp.Kind)
 		return invalid
@@ -1221,8 +1297,15 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 	case *syntax.AsPattern:
 		c.errorf(x, CodeType, "expected a type")
 		return invalid
+	case *syntax.BinaryExpr:
+		if x.Op == syntax.OR {
+			c.errorf(x, CodeType, "a row A | B is the argument of a row parameter; here a type is expected")
+		} else {
+			c.errorf(x, CodeType, "expected a type")
+		}
+		return invalid
 	case *syntax.BasicLit, *syntax.CompositeLit, *syntax.KeyValueExpr, *syntax.FuncLit, *syntax.SliceExpr,
-		*syntax.TypeGuard, *syntax.CallExpr, *syntax.UnaryExpr, *syntax.BinaryExpr, *syntax.TryExpr,
+		*syntax.TypeGuard, *syntax.CallExpr, *syntax.UnaryExpr, *syntax.TryExpr,
 		*syntax.CatchExpr, *syntax.ContextLit, *syntax.MachineType, *syntax.InterpolatedString,
 		*syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
 		c.errorf(x, CodeType, "expected a type")
@@ -1253,6 +1336,13 @@ func (c *checker) typeName(x *syntax.Ident, ctx *typeCtx) Type {
 		// defined base can temporarily have no body; the unified cycle
 		// pass needs this edge, rather than an invalid placeholder.
 		if n, ok := o.Type.(*Named); ok && ctx != nil && ctx.decl {
+			if aliasTarget(n.Obj.Decl) != nil {
+				c.resolveNamed(n)
+				return c.aliasOf(n, x)
+			}
+			if c.shallow > 0 {
+				return n // an alias's shallow reading (aliasOf)
+			}
 			c.resolveNamed(n)
 			if !containsInvalid(n) || pendingDefinition(n) {
 				return n
@@ -1284,11 +1374,78 @@ func (c *checker) typeName(x *syntax.Ident, ctx *typeCtx) Type {
 func (c *checker) resolvedType(t Type) Type {
 	if n, ok := t.(*Named); ok {
 		c.resolveNamed(n)
+		if n.Orig == nil && aliasTarget(n.Obj.Decl) != nil {
+			t = c.aliasOf(n, nil)
+		}
 	}
 	if containsInvalid(t) {
 		return invalid
 	}
 	return t
+}
+
+// aliasTarget returns the one variant of `type A = B` when B is an
+// existing type: such a union is that type, an alias (types.md, Unions 7;
+// F11). A variant declared in place, `type A = B{…}`, makes a new type, and
+// so does a union of two or more variants. It is nil for every other
+// declaration.
+func aliasTarget(d *syntax.TypeDecl) syntax.Expr {
+	if d == nil {
+		return nil
+	}
+	it, ok := d.Spec.(*syntax.InterfaceType)
+	if !ok || len(it.Union) != 1 || len(it.Methods) > 0 || len(it.Laws) > 0 {
+		return nil
+	}
+	if _, inline := it.Union[0].(*syntax.VariantSpec); inline {
+		return nil
+	}
+	return it.Union[0]
+}
+
+// aliasOf is the type an alias names. An alias reached again while its
+// target resolves, from a declaration body the target mentions (`type A =
+// actor.Actor[S, E, O]` with `type E = … | Opened{Sub A}`), takes its target
+// from a shallow reading of the target expression: the declarations it names
+// are their Named types, bodies unread, the edge a declaration body keeps
+// for the cycle pass (typeName). It reports nothing; the alias's own
+// resolution reads the target again and reports. An alias reached during
+// its own shallow reading names itself: S108 at the name that closes the
+// cycle.
+func (c *checker) aliasOf(n *Named, at syntax.Node) Type {
+	if n.state == 1 {
+		if n.alias != nil {
+			return n.alias
+		}
+		if at == nil {
+			return invalid
+		}
+		if n.aliasShallow {
+			silent := c.silent
+			c.silent = 0
+			c.errorf(at, CodeType, "the alias %s names itself (types.md, Unions 7)", n.Obj.Name)
+			c.silent = silent
+			return invalid
+		}
+		n.aliasShallow = true
+		saved := c.cur
+		c.cur = n.Obj.file
+		c.silent++
+		c.shallow++
+		t := c.typExpr(aliasTarget(n.Obj.Decl), &typeCtx{params: map[string]*TypeParam{}, decl: true})
+		c.shallow--
+		c.silent--
+		c.cur = saved
+		n.aliasShallow = false
+		if !isInvalid(t) {
+			n.alias = t
+		}
+		return t
+	}
+	if n.alias == nil {
+		return invalid
+	}
+	return n.alias
 }
 
 func (c *checker) qualifiedType(x *syntax.SelectorExpr) Type {
@@ -1312,9 +1469,9 @@ func (c *checker) qualifiedType(x *syntax.SelectorExpr) Type {
 	if pn.broken {
 		return invalid
 	}
-	m, ok := pn.Pkg.Scope.names[x.Sel.Name]
+	m, ok := pn.Pkg.member(x.Sel.Name)
 	if !ok || !isExported(x.Sel.Name) {
-		c.errorf(x.Sel, CodeUnknown, "%s.%s is not an exported declaration of package %s", id.Name, x.Sel.Name, pn.Pkg.Path)
+		c.unknownMember(x, pn)
 		return invalid
 	}
 	tn, ok := m.(*TypeName)
@@ -1377,6 +1534,16 @@ func (c *checker) instantiateExprs(n *Named, args []syntax.Expr, at syntax.Node,
 				return invalid
 			}
 			targs[i] = ra
+			continue
+		}
+		if b, ok := unparen(a).(*syntax.BinaryExpr); ok && b.Op == syntax.OR {
+			// A row written for a type parameter is the row's value type,
+			// as an error row parameter there is (Generics 1; q47).
+			ra := c.rowArg(a, KindErrors, ctx)
+			if ra == nil {
+				return invalid
+			}
+			targs[i] = c.rowValue(ra.Row)
 			continue
 		}
 		t := c.typExpr(a, ctx)
@@ -1477,31 +1644,23 @@ func (c *checker) rowExpr(xs []syntax.Expr, kind Kind, ctx *typeCtx) *Row {
 	return row
 }
 
-// rowArg resolves a written row argument of a generic type or function: one
-// element, as a row of one, or a named row, as the row of its variants. A
+// rowArg resolves a written row argument of a generic type or function: a
+// row `A | B` as a needs or fails row is written, one element being a row
+// of one, and an element that is a named row standing for its variants. A
 // refused element gives nil, so the instance is invalid, as an invalid type
 // argument makes it.
 func (c *checker) rowArg(x syntax.Expr, kind Kind, ctx *typeCtx) *RowArg {
 	row := newRow()
-	// A row of several elements is written as a row is, A | B (196n).
-	for _, x := range rowArgElems(x, nil) {
-		t := c.rowElem(x, kind, ctx)
+	for _, e := range orLeaves(x) {
+		t := c.rowElem(e, kind, ctx)
 		if t == nil {
 			return nil
 		}
-		for _, e := range rowMembers(t) {
-			row = row.with(c.types, e)
+		for _, m := range rowMembers(t) {
+			row = row.with(c.types, m)
 		}
 	}
 	return &RowArg{Row: row}
-}
-
-// rowArgElems is the elements of a written row argument, A | B | C.
-func rowArgElems(x syntax.Expr, out []syntax.Expr) []syntax.Expr {
-	if b, ok := unparen(x).(*syntax.BinaryExpr); ok && b.Op == syntax.OR {
-		return rowArgElems(b.Y, rowArgElems(b.X, out))
-	}
-	return append(out, x)
 }
 
 // rowMembers is the row a resolved row element t means: the variants of a
@@ -1839,6 +1998,10 @@ func (c *checker) funcSig(f *Func) *Signature {
 		}
 		return f.Sig
 	}
+	if h := hostOf(f.Pkg); h != nil && h.c != c {
+		// A host function or method resolves in its binding (gobinding.go).
+		return h.c.funcSig(f)
+	}
 	f.state = 1
 	saved := c.cur
 	c.cur = f.file
@@ -1958,10 +2121,14 @@ func (c *checker) kindBracketParams(ft *syntax.FuncType, ctx *typeCtx, unconstra
 			return
 		}
 		if prev, ok := seen[tp]; ok {
-			if prev != k {
+			j, ok := joinKinds(prev, k)
+			if !ok {
 				tp.conflict = true
 				c.errorf(id, CodeType, "%s is used as %s and as %s; a parameter has one kind (types.md, Generics 1)", id.Name, prev, k)
+				return
 			}
+			seen[tp] = j
+			tp.Kind = j
 			return
 		}
 		seen[tp] = k
@@ -2117,6 +2284,15 @@ func (c *checker) selfOwner(f *Func) (*Named, []syntax.Expr, bool) {
 		return nil, nil, false
 	}
 	n, _ := tn.Type.(*Named)
+	if n != nil && aliasTarget(n.Obj.Decl) != nil {
+		// An alias is its type (types.md, Unions 7): f is a function of
+		// the target when the target is a plain declared type, and an
+		// ordinary function when it is an instance or not a declared type.
+		n, _ = c.aliasOf(n, nil).(*Named)
+		if n == nil || n.Orig != nil {
+			return nil, nil, false
+		}
+	}
 	if n == nil || n.Obj.Pkg != c.pkg || n.method(f.Name) != nil {
 		return nil, nil, false
 	}

@@ -1,0 +1,91 @@
+import deploys/jsontext
+import deploys/deploys
+import strings
+
+// Handle answers r from the Store in the context. Each route is matched
+// by name, and each failure of the body and of the domain is caught by
+// name and given its status, with no case _: a new failure of the domain
+// stops the build until Handle gives it a status.
+//
+//	400 the body is not JSON
+//	404 no such path, or no such deploy
+//	405 a known path with another method (Allow lists the methods)
+//	409 an event the deploy's status does not allow
+//	415 a body that is not application/json
+//	422 JSON of the wrong shape, or a draft that breaks a rule
+func Handle(r Request) Response needs deploys.Store {
+	match RouteOf(r.Method, r.Path) {
+	case List:
+		let mut all = []jsontext.Value{}
+		for o in deploys.Store.All() {
+			all = all.Append(DeployJSON(o))
+		}
+		Respond(200, jsontext.Arr{Items: all})
+	case Show as s:
+		let o = deploys.Store.Find(s.ID) catch {
+		case deploys.NotFound as n:
+			return Problem(404, "no deploy "+n.ID, "")
+		}
+		Respond(200, DeployJSON(o))
+	case Create:
+		let d = draftOf(r) catch {
+		case Unsupported as u:
+			return Problem(415, "the body is "+u.Type+", not application/json", "")
+		case jsontext.Malformed as m:
+			return Problem(400, "the body is not JSON: \(m.Reason) at byte \(m.At)", "")
+		case BadBody as b:
+			return Problem(422, b.Reason, b.Field)
+		}
+		let o = deploys.Create(d) catch {
+		case deploys.Invalid as i:
+			return Problem(422, i.Reason, i.Field)
+		}
+		let created = Respond(201, DeployJSON(o))
+		Response{..created, Headers: created.Headers.Append(Header{Name: "Location", Value: "/deploys/" + o.ID})}
+	case Act as a:
+		let o = deploys.Apply(a.ID, a.Event) catch {
+		case deploys.NotFound as n:
+			return Problem(404, "no deploy "+n.ID, "")
+		case deploys.Conflict as c:
+			return Problem(409, "deploy \(c.ID) is \(c.Status) and cannot \(c.Event)", "")
+		}
+		Respond(200, DeployJSON(o))
+	case Wrong as w:
+		let p = Problem(405, r.Method+" is not allowed here", "")
+		Response{..p, Headers: p.Headers.Append(Header{Name: "Allow", Value: w.Allow})}
+	case Nowhere:
+		Problem(404, "no route "+r.Method+" "+r.Path, "")
+	}
+}
+
+// Unsupported is a body of another media type.
+type Unsupported { Type string }
+
+// draftOf is the draft r's body describes. A Content-Type header, when
+// there is one, is application/json, with any parameters.
+func draftOf(r Request) deploys.Draft fails Unsupported | jsontext.Malformed | BadBody {
+	match HeaderOf(r.Headers, "Content-Type") {
+	case Some[string] as t:
+		let media = strings.TrimSpace(strings.Split(t.Value, ";")[0])
+		if !strings.EqualFold(media, "application/json") {
+			return Unsupported{Type: media}
+		}
+	case None:
+	}
+	try DraftOf(try jsontext.Parse(r.Body))
+}
+
+// Respond is a response of status with the JSON body v.
+func Respond(status int, v jsontext.Value) Response {
+	Response{Status: status, Headers: []Header{Header{Name: "Content-Type", Value: "application/json"}}, Body: jsontext.Encode(v)}
+}
+
+// Problem is an error response: {"error": message}, and "field" when the
+// failure names one.
+func Problem(status int, message string, field string) Response {
+	let mut fields = []jsontext.Field{jsontext.Field{Name: "error", Value: jsontext.Str{V: message}}}
+	if field != "" {
+		fields = fields.Append(jsontext.Field{Name: "field", Value: jsontext.Str{V: field}})
+	}
+	Respond(status, jsontext.Obj{Fields: fields})
+}

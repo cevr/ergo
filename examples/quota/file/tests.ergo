@@ -1,0 +1,148 @@
+// The journal's tests: its lines, a corrupt file, a disk that fails, and
+// the quota.Store laws restated as property tests on a day's journal.
+// ergo test runs the laws on Journal itself, each case on a NewJournal
+// over an empty fstest.Memory, where most moves are refused; the
+// restatements start from a quota with volumes. The journal runs on an
+// fstest.Memory, never on the host.
+
+import fs
+import fstest
+import quota/quota
+import quota/memory
+
+// Broken is a disk that fails every read and write with its reason.
+type Broken { reason string }
+
+func ReadFile(b Broken, path string) string fails fs.NotFound | fs.Denied | fs.Failed { b.at(path) }
+
+func ReadDir(b Broken, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { b.at(path) }
+
+func Stat(b Broken, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { b.at(path) }
+
+func WriteFile(b Broken, path string, _ string) fails fs.NotFound | fs.Denied | fs.Failed { b.at(path) }
+
+func WriteFileMode(b Broken, path string, _ string, _ fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {
+	b.at(path)
+}
+
+func AppendFile(b Broken, path string, _ string) fails fs.NotFound | fs.Denied | fs.Failed { b.at(path) }
+
+func MkdirAll(b Broken, path string) fails fs.Denied | fs.Failed { b.at(path) }
+
+func MkdirAllMode(b Broken, path string, _ fs.Mode) fails fs.Denied | fs.Failed { b.at(path) }
+
+func Chmod(b Broken, path string, _ fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed { b.at(path) }
+
+func Rename(b Broken, from string, _ string) fails fs.NotFound | fs.Denied | fs.Failed { b.at(from) }
+
+func Remove(b Broken, path string) fails fs.NotFound | fs.Denied | fs.Failed { b.at(path) }
+
+// at is b's failure at path.
+func at(b Broken, path string) fs.Failed { fs.Failed{Path: path, Reason: b.reason} }
+
+// on is a Journal at quota.journal on d.
+func on(d fstest.Memory) Journal { NewJournal(d, d) }
+
+// day is a Journal on a fresh fstest.Memory with the volumes of quota.Sample and
+// the moves of quota.Day(ns) posted.
+func day(ns []int) quota.Store fails fs.NotFound | fs.Denied | fs.Failed {
+	let text, _ = Written(quota.Day(ns))
+	on(try memory.Files(Map[string, string]{"quota.journal": text}))
+}
+
+// total is the sum of the sizes of s.
+func total(s quota.Store) int64 fails quota.UnknownVolume | quota.Unavailable {
+	let mut sum = int64(0)
+	for id in try s.Volumes() {
+		let b = try s.SizeOf(id)
+		sum = sum + b
+	}
+	sum
+}
+
+// why is the reason s is unavailable for Volumes, or "ok".
+func why(s quota.Store) string {
+	let _ = s.Volumes() catch {
+	case quota.Unavailable as u:
+		return u.Reason
+	}
+	"ok"
+}
+
+// tried is what became of a Post of t on s.
+func tried(s quota.Store, t quota.Move) string {
+	let r = s.Post(t) catch {
+	case quota.NoSpace as f:
+		return "insufficient \(f.Have)"
+	case quota.KeyReused, quota.BadSize, quota.SameVolume, quota.UnknownVolume, quota.Unavailable:
+		return "refused"
+	}
+	"posted \(r.Seq)"
+}
+
+test WritesOneLineEach {
+	let d = fstest.NewMemory()
+	let s quota.Store = on(d)
+	try s.Open("home", 0)
+	let _ = try s.Post(quota.Move{Key: "g1", From: quota.Pool, To: "home", Size: 250})
+	let _ = try s.Post(quota.Move{Key: "g1", From: quota.Pool, To: "home", Size: 250})
+	assert try d.ReadFile("quota.journal") == "open\t\"home\"\t0\npost\t\"g1\"\t\"pool\"\t\"home\"\t250\n"
+	assert try s.SizeOf("home") == 250
+}
+
+test ARefusalWritesNothing {
+	let d = fstest.NewMemory()
+	let s quota.Store = on(d)
+	try s.Open("home", 0)
+	assert tried(s, quota.Move{Key: "p", From: "home", To: quota.Pool, Size: 1}) == "insufficient 0"
+	assert try d.ReadFile("quota.journal") == "open\t\"home\"\t0\n"
+}
+
+test CorruptIsUnavailable {
+	assert why(on(try memory.Files(Map[string, string]{"quota.journal": "open\t\"a\"\t0\nopen\t\"a\"\t0\n"}))) == "quota.journal:2: the volume a does not open"
+	assert why(on(try memory.Files(Map[string, string]{"quota.journal": "post\t\"k\"\t\"pool\"\t\"a\"\t5\n"}))) == "quota.journal:1: the move k does not post"
+	assert why(on(try memory.Files(Map[string, string]{"quota.journal": "open\thome\t0\n"}))) == "quota.journal:1: home is not a quoted word"
+	assert why(on(try memory.Files(Map[string, string]{"quota.journal": "close\t\"a\"\n"}))) == "quota.journal:1: not an open or a post line"
+	assert why(At("quota.journal", Broken{reason: "disk on fire"}, Broken{reason: "disk on fire"})) == "quota.journal: disk on fire"
+	assert why(on(fstest.NewMemory())) == "ok"
+}
+
+test TotalIsKeptHolds(ns []int, m int) {
+	let s = try day(ns)
+	let t = quota.Day([]int{m})[0]
+	let before = try total(s)
+	let _ = s.Post(t) catch {
+	case quota.KeyReused, quota.BadSize, quota.SameVolume, quota.UnknownVolume, quota.NoSpace, quota.Unavailable:
+		assert try total(s) == before
+		return
+	}
+	assert try total(s) == before
+}
+
+test PostIsIdempotentHolds(ns []int, m int) {
+	let s = try day(ns)
+	let t = quota.Day([]int{m})[0]
+	let first = s.Post(t) catch {
+	case quota.KeyReused, quota.BadSize, quota.SameVolume, quota.UnknownVolume, quota.NoSpace, quota.Unavailable:
+		return
+	}
+	let from = try s.SizeOf(t.From)
+	assert try s.Post(t) == first
+	assert try s.SizeOf(t.From) == from
+}
+
+test FloorHoldsHolds(ns []int, m int) {
+	let s = try day(ns)
+	let t = quota.Day([]int{m})[0]
+	s.Open("cache", 0) catch {
+	case quota.VolumeExists, quota.BadFloor, quota.Unavailable:
+		assert false
+		return
+	}
+	let _ = s.Post(quota.Move{..t, From: "cache"}) catch {
+	case quota.KeyReused, quota.BadSize, quota.SameVolume, quota.UnknownVolume, quota.NoSpace, quota.Unavailable:
+		assert try s.SizeOf("cache") == 0
+		return
+	}
+	assert try s.SizeOf("cache") >= 0
+}

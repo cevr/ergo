@@ -24,10 +24,10 @@ import (
 // lawRunB13 is the b13 repro of the examples wave with a provider: the law
 // calls a helper that needs its own operation type. The law relates two
 // reads, not a write and a read: under the value rule (owner q26) a
-// provider's write to its own Map is not seen by the next call, and a
-// provider whose state is a sync.Ref has no generator, so a write law has
+// provider's write to its own Map is not seen by the next call, and at b13
+// a provider whose state is a sync.Ref had no generator, so a write law had
 // no generated provider to run against (batch-12 integration, V1 x value
-// rule).
+// rule; fu7a builds a sync.Ref with sync.NewRef).
 const lawRunB13 = `type Store {
 	Count() int,
 	Doubled() int,
@@ -58,8 +58,12 @@ func main() needs Console {
 // TestLawRunB13: the b13 law checks and runs against both providers: it
 // holds for Tally and fails for Stuck, whose report names Stuck, the seed
 // and the case's provider value.
+//
+// It builds Go because the laws run in the built test binary (ergo test),
+// the only place a law runs.
 func TestLawRunB13(t *testing.T) {
-	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_b13", lawRunB13)}, true)
+	needsBuild(t)
+	exes := tableExes(t, "lawrun_b13")
 	if exes == nil {
 		return
 	}
@@ -115,7 +119,7 @@ func Add(l Lossy, n int) { l.total.Set(n) }
 
 func Total(l Lossy) int { l.total.Get() }
 
-type Plain { total sync.Ref[int] }
+type Plain { total sync.Ref[int], hook func(int) int }
 
 func Add(p Plain, n int) { p.total.Set(p.total.Get() + n) }
 
@@ -130,6 +134,7 @@ func main() needs Console {
 // builds, a provider with no constructor and no generator is a skip line
 // with the reason, and the summary counts the skip.
 func TestLawRunState(t *testing.T) {
+	needsBuild(t)
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_state", lawRunState)}, true)
 	if exes == nil {
 		return
@@ -146,7 +151,7 @@ func TestLawRunState(t *testing.T) {
 		!strings.HasSuffix(got[2], "law refuted at main.ergo:6:2: the law is false") {
 		t.Errorf("line 3 is %q", got[2])
 	}
-	if want := "skip law Counter.AddAdds for Plain: its values have no generator: sync.Ref[int] is a standard library type; a func NewPlain() Plain with no rows would build one for each case"; got[0] != want {
+	if want := "skip law Counter.AddAdds for Plain: its values have no generator: func(int) int is a function type; a func NewPlain() Plain with no rows would build one for each case"; got[0] != want {
 		t.Errorf("line 1 is %q, want %q", got[0], want)
 	}
 	if got[3] != "FAIL (1 of 2 tests, 1 skipped)" {
@@ -195,7 +200,7 @@ func Put(z Zero, k int, v int) {}
 
 func Get(z Zero, k int) int { z.n }
 
-type Plain { v sync.Ref[int] }
+type Plain { v sync.Ref[int], hook func(int) int }
 
 func Put(p Plain, k int, v int) { p.v.Set(v) }
 
@@ -214,6 +219,7 @@ func main() needs Console {
 // domain package's own test build names the laws it leaves to the
 // packages that provide Store, so none is silent there.
 func TestLawRunOtherPackage(t *testing.T) {
+	needsBuild(t)
 	kv := cxPackage(t, "kv", lawRunStore)
 	imports := cxImporter{"kv": kv}
 	f, err := syntax.Parse(lawRunProviders)
@@ -241,7 +247,7 @@ func TestLawRunOtherPackage(t *testing.T) {
 	if code != 1 || len(got) != 7 {
 		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
 	}
-	const plain = ": its values have no generator: sync.Ref[int] is a standard library type; a func NewPlain() Plain with no rows would build one for each case"
+	const plain = ": its values have no generator: func(int) int is a function type; a func NewPlain() Plain with no rows would build one for each case"
 	want := []struct{ line, prefix, suffix string }{
 		{line: "skip law kv.Store.GetAfterPut for Plain" + plain},
 		{line: "ok law kv.Store.GetAfterPut for Last (100 cases)"},
@@ -307,6 +313,7 @@ func main() needs Console {
 // imports both, the least that sees them, against providers it does not
 // declare; the provider's own package does not see the law and runs none.
 func TestLawRunLeastPackage(t *testing.T) {
+	needsBuild(t)
 	kv, mem := cxPackage(t, "kv", lawRunStore), cxPackage(t, "mem", lawRunMem)
 	imports := cxImporter{"kv": kv, "mem": mem}
 	f, err := syntax.Parse(lawRunBinder)
@@ -357,6 +364,7 @@ func TestLawRunLeastPackage(t *testing.T) {
 // whose build acquires a provider with a Close (L5; mutant
 // lawctx-close-runs).
 func TestLawRunSkips(t *testing.T) {
+	needsBuild(t)
 	src := `type Shape {
 	Area() int,
 	law Positive() { Area() >= 0 },
@@ -424,9 +432,123 @@ func main() {}
 	}
 }
 
+// lawRunCapabilities has providers that hold capabilities and no
+// constructor (fu7a, check/builders.go). Book holds an fs.Files and an
+// fs.Writes: AddReads holds only when both are one fresh disk per case.
+// Echo writes an io.Stdout and counts in a sync.Ref. Lossy forgets, so its
+// run fails with its seed. Stuck holds a queue.Queue, which has no
+// builder, so its run is a skip line with the reason.
+const lawRunCapabilities = `import fs
+import fstest
+import io
+import queue
+import sync
+
+type Notes {
+	Add(line string),
+	All() string,
+	law AddReads(line string) {
+		Add(line)
+		All() == line + "\n"
+	},
+}
+
+type Book { files fs.Files, writes fs.Writes }
+
+func Add(b Book, line string) {
+	b.writes.AppendFile("notes", line + "\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+	}
+}
+
+func All(b Book) string {
+	b.files.ReadFile("notes") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		""
+	}
+}
+
+type Lossy { files fs.Files, writes fs.Writes }
+
+func Add(l Lossy, line string) {}
+
+func All(l Lossy) string { "" }
+
+type Stuck { q queue.Queue[int] }
+
+func Add(s Stuck, line string) {}
+
+func All(s Stuck) string { "" }
+
+type Loud {
+	Shout(s string) int,
+	law CountsUp(s string) {
+		let a = Shout(s)
+		Shout(s) == a + 1
+	},
+}
+
+type Echo { out io.Stdout, n sync.Ref[int] }
+
+func Shout(e Echo, s string) int {
+	e.out.Println("echo:" + s)
+	e.n.Update(func(v int) int { v + 1 })
+	e.n.Get()
+}
+
+// The builder of fs.Files is in fstest, so the package sees fstest.
+test BookStartsEmpty {
+	let m = fstest.NewMemory()
+	assert (Book{files: m, writes: m}).All() == ""
+}
+
+func main() {}
+`
+
+// TestLawRunCapabilities: a provider that holds capabilities runs its laws
+// with no constructor, each case on its own world: a fresh fstest.Memory
+// that the provider's fs.Files and fs.Writes share, an io.Recorder for its
+// io.Stdout (nothing reaches the binary's output) and a new sync.Ref. A
+// false law fails with its seed and the provider's build.
+// It builds Go because the law runner is that binary; no interpreter runs
+// a law. Mutants it kills: one world for every case (Book fails at its
+// second case), a builder per field (Book's reads miss its writes), a host
+// provider as a builder (fs.NewHost and fstest.NewMemory are two builders,
+// so Book skips; or "echo:" reaches stdout), and a capability with no
+// builder that runs instead of its skip line.
+func TestLawRunCapabilities(t *testing.T) {
+	needsBuild(t)
+	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_caps", lawRunCapabilities)}, true)
+	if exes == nil {
+		return
+	}
+	stdout, stderr, code := runExeArgs(t, exes["lawrun_caps"], "--seed", "7")
+	got := lines(stdout)
+	want := []struct{ line, prefix, suffix string }{
+		{line: "ok BookStartsEmpty"},
+		{line: "skip law Notes.AddReads for Stuck: its values have no generator: queue.Queue[int] is an operation type with no builder: neither queue nor queuetest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewStuck() Stuck with no rows would build one for each case"},
+		{line: "ok law Notes.AddReads for Book (100 cases)"},
+		{prefix: "FAIL law Notes.AddReads for Lossy (case 1 of 100, seed 7, size 0: provider = Lossy{files: fstest.NewMemory(), writes: fstest.NewMemory()}, line = ", suffix: "law refuted at main.ergo:10:2: the law is false"},
+		{line: "ok law Loud.CountsUp for Echo (100 cases)"},
+		{line: "FAIL (1 of 4 tests, 1 skipped)"},
+	}
+	if code != 1 || len(got) != len(want) {
+		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
+	}
+	for i, w := range want {
+		switch {
+		case w.line != "" && got[i] != w.line:
+			t.Errorf("line %d is %q, want %q", i+1, got[i], w.line)
+		case w.line == "" && (!strings.HasPrefix(got[i], w.prefix) || !strings.HasSuffix(got[i], w.suffix)):
+			t.Errorf("line %d is %q, want %q … %q", i+1, got[i], w.prefix, w.suffix)
+		}
+	}
+}
+
 // TestLawRunDefinedBool: a law's result may be of a type over bool, at the
 // tail and at a return (types.md, Laws 8); its run converts it.
 func TestLawRunDefinedBool(t *testing.T) {
+	needsBuild(t)
 	src := `type Flag bool
 
 func yes() Flag { Flag(true) }
@@ -453,9 +575,47 @@ func main() {}
 	}
 }
 
+// TestLawRunGenericListed is the repro of a batch-14 merge bug: a law of a
+// generic operation type (L4) whose values can be listed at the provider's
+// instance runs by the one rule (Laws 10, MU6b), proved or refuted at its
+// first case, and its listed case passes the provider and the instance's
+// type arguments as the drawn run does. It builds Go because the subject
+// is the run's report. Mutant: listedRuns reads the law's own parameter
+// types (T), so the run draws 100 cases and is never proved.
+func TestLawRunGenericListed(t *testing.T) {
+	needsBuild(t)
+	src := `type Flip[T comparable] {
+	Not(v T) T,
+	law Moves(v T) { Not(v) != v },
+}
+
+type Turn {}
+
+func Not(_ Turn, v bool) bool { !v }
+
+type Stuck {}
+
+func Not(_ Stuck, v bool) bool { v }
+
+func main() {}
+`
+	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_generic_listed", src)}, true)
+	if exes == nil {
+		return
+	}
+	stdout, stderr, code := runExe(t, exes["lawrun_generic_listed"])
+	got := lines(stdout)
+	if code != 1 || len(got) != 3 || got[0] != "ok law Flip.Moves for Turn (proved: all 2 cases)" ||
+		!strings.HasPrefix(got[1], "FAIL law Flip.Moves for Stuck (case 1 of 2, every value: provider = Stuck, v = false)") {
+		t.Errorf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
+	}
+}
+
 // TestLawRunNoParams: a top-level law with no parameters draws nothing and
-// runs once, as an example test does; a false one fails the run.
+// runs its one case, so a run that holds is proved (Laws 10); a false one
+// fails the run.
 func TestLawRunNoParams(t *testing.T) {
+	needsBuild(t)
 	src := `law Holds() { 1 + 1 == 2 }
 
 law Breaks() { 1 + 1 == 3 }
@@ -467,7 +627,7 @@ func main() {}
 		return
 	}
 	stdout, stderr, code := runExe(t, exes["lawrun_noparams"])
-	want := []string{"ok law Holds", "FAIL law Breaks: law refuted at main.ergo:3:1: the law is false", "FAIL (1 of 2 tests)"}
+	want := []string{"ok law Holds (proved: 1 case)", "FAIL law Breaks: law refuted at main.ergo:3:1: the law is false", "FAIL (1 of 2 tests)"}
 	if code != 1 || !slices.Equal(lines(stdout), want) {
 		t.Errorf("exit %d, stdout:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, strings.Join(want, "\n"), firstLines(stderr, 8))
 	}
@@ -581,6 +741,7 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 // the top-level law runs as well. A failure prints the program's source.
 // ERGO_LAWRUN_SEED replays another seed.
 func TestLawRunFindsTheBrokenProvider(t *testing.T) {
+	needsBuild(t)
 	seed := int64(162)
 	if s := os.Getenv("ERGO_LAWRUN_SEED"); s != "" {
 		n, err := strconv.ParseInt(s, 10, 64)
@@ -638,12 +799,14 @@ func TestLawRunFindsTheBrokenProvider(t *testing.T) {
 	}
 }
 
-// lawRunFiles provides fs.Files four ways. Drifty's reads of a path both
-// fail NotFound, the second naming another path; Flaky's alternate
-// NotFound and "x"; Shifty's alternate Denied and NotFound; so none keeps
-// fs.Files.ReadIsRepeatable. Steady fails the empty path with NotFound
-// every time and reads "x" otherwise, so it keeps it, its failures
-// included (batch-12 M2, M2a).
+// lawRunFiles provides fs.Files six ways. Drifty's reads of a path both
+// fail NotFound, the second naming another path; DriftyDenied's both fail
+// Denied, the second naming another path; DriftyFailed's both fail Failed
+// with another Reason; Flaky's alternate NotFound and "x"; Shifty's
+// alternate Denied and NotFound; so none keeps fs.Files.ReadIsRepeatable.
+// Steady fails the empty path with NotFound every time and reads "x"
+// otherwise, so it keeps it, its failures included (batch-12 M2, M2a;
+// batch-13 fu8c: a same-kind arm of each kind compares the fields).
 const lawRunFiles = `import fs
 import sync
 
@@ -663,6 +826,40 @@ func ReadFile(f Drifty, path string) string fails fs.NotFound | fs.Denied | fs.F
 func ReadDir(f Drifty, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
 func Stat(f Drifty, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+type DriftyDenied { reads sync.Ref[int] }
+
+func NewDriftyDenied() DriftyDenied { DriftyDenied{reads: sync.NewRef[int](0)} }
+
+func ReadFile(f DriftyDenied, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	let n = f.reads.Get()
+	f.reads.Set(n + 1)
+	if n % 2 == 0 {
+		return fs.Denied{Path: path}
+	}
+	fs.Denied{Path: path + "/other"}
+}
+
+func ReadDir(f DriftyDenied, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+func Stat(f DriftyDenied, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+type DriftyFailed { reads sync.Ref[int] }
+
+func NewDriftyFailed() DriftyFailed { DriftyFailed{reads: sync.NewRef[int](0)} }
+
+func ReadFile(f DriftyFailed, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	let n = f.reads.Get()
+	f.reads.Set(n + 1)
+	if n % 2 == 0 {
+		return fs.Failed{Path: path, Reason: "busy"}
+	}
+	fs.Failed{Path: path, Reason: "gone"}
+}
+
+func ReadDir(f DriftyFailed, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+func Stat(f DriftyFailed, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
 type Flaky { reads sync.Ref[int] }
 
@@ -717,17 +914,19 @@ func main() {}
 // TestLawRunReadIsRepeatable: the std law fs.Files.ReadIsRepeatable
 // compares both reads' outcomes, so it refutes a provider whose reads
 // alternate a failure and a text (Flaky), two failure kinds (Shifty) or
-// one kind with other fields (Drifty), and holds for a steady one.
+// one kind with other fields (Drifty, DriftyDenied, DriftyFailed: one per
+// kind), and holds for a steady one.
 // fstest.Memory and the disk keep it in TestFSMemoryAgreesWithHost and
 // TestStdHostLawsHold. Mutants it kills: a first failed read that holds
 // the law vacuously (Flaky passes), a second failure that is not compared
 // with the first (Shifty passes), and a same-kind arm that compares no
-// field (Drifty passes). It
-// builds Go because the law runner, its provider builds and its seeded
+// field, in any of the three arms (Drifty, DriftyDenied or DriftyFailed
+// passes). It builds Go because the law runner, its provider builds and its seeded
 // cases exist only in the lowered test binary, and Flaky's state is a
 // sync.Ref that only the runtime runs; no in-process interpreter runs a
 // member law against a provider.
 func TestLawRunReadIsRepeatable(t *testing.T) {
+	needsBuild(t)
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_files", lawRunFiles)}, true)
 	if exes == nil {
 		return
@@ -736,10 +935,12 @@ func TestLawRunReadIsRepeatable(t *testing.T) {
 	got := lines(stdout)
 	want := []string{
 		"FAIL law fs.Files.ReadIsRepeatable for Drifty (case ",
+		"FAIL law fs.Files.ReadIsRepeatable for DriftyDenied (case ",
+		"FAIL law fs.Files.ReadIsRepeatable for DriftyFailed (case ",
 		"FAIL law fs.Files.ReadIsRepeatable for Flaky (case ",
 		"FAIL law fs.Files.ReadIsRepeatable for Shifty (case ",
 		"ok law fs.Files.ReadIsRepeatable for Steady (",
-		"FAIL (3 of 4 tests)",
+		"FAIL (5 of 6 tests)",
 	}
 	if code != 1 || len(got) != len(want) {
 		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))

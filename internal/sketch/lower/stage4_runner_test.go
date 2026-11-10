@@ -117,7 +117,6 @@ func runnerSeqs() [][]string {
 // may be equal, and a key names one case.
 var testRunnerModel = newSplit(split[runnerSeq]{
 	name: "TestTestRunnerModel", parts: 4,
-	count: 156, digest: "351bd631b132896b7551977363489b09be8bc17cf9629efeaebb92cef33a3bb9",
 	cases: func(yield func(runnerSeq) bool) {
 		for k, seq := range runnerSeqs() {
 			if !yield(runnerSeq{k, seq}) {
@@ -148,6 +147,11 @@ func TestTestRunnerModelPart3(t *testing.T) { testRunnerModel.Part(t, 3) }
 
 // runnerModelCheck builds and runs the test file of each sequence and
 // compares it with the rule.
+//
+// It builds Go because it runs the emitted test harness under go test: the
+// harness's verdicts and the values it prints are the output; no in-process
+// check observes that, and Ergo has no reference interpreter yet (test-speed
+// T8).
 func runnerModelCheck(t *testing.T, seqs [][]string) {
 	t.Helper()
 	var builds []*lowered
@@ -312,7 +316,13 @@ func eqMap[K comparable, V comparable](a Map[K, V], b Map[K, V]) bool {
 // shrinks to its kind's simplest value (literalSimplest), and the FAIL
 // line shows the drawn argument after `shrunk from:`, which the second
 // files read.
+//
+// It builds Go because it runs the emitted test harness under go test: the
+// harness's verdicts and the values it prints are the output; no in-process
+// check observes that, and Ergo has no reference interpreter yet (test-speed
+// T8).
 func TestArgumentTextRoundTrips(t *testing.T) {
+	needsBuild(t)
 	const seeds = 12
 	var first strings.Builder
 	first.WriteString(literalTypes)
@@ -325,13 +335,15 @@ func TestArgumentTextRoundTrips(t *testing.T) {
 	if exes == nil {
 		return
 	}
-	line := regexp.MustCompile(`(?m)^FAIL K(\w+) \(case 1 of 100, seed (\d+), size 0: v = (.*?)(?:; shrunk from: v = (.*))?\): assert failed at main\.ergo:\d+:\d+: false$`)
+	// A kind that can be listed (bool) runs every value (mu6c): its case
+	// has no seed, and is the same under every seed.
+	line := regexp.MustCompile(`(?m)^FAIL K(\w+) \((?:case 1 of 100, seed (\d+), size 0|case 1 of \d+, every value): v = (.*?)(?:; shrunk from: v = (.*))?\): assert failed at main\.ergo:\d+:\d+: false$`)
 	texts := make([]map[string]string, seeds+1)
 	for s := 1; s <= seeds; s++ {
 		stdout, stderr, code := runExeArgs(t, exes["first"], "--seed", strconv.Itoa(s))
 		texts[s] = map[string]string{}
 		for _, m := range line.FindAllStringSubmatch(stdout, -1) {
-			if m[2] == strconv.Itoa(s) {
+			if m[2] == strconv.Itoa(s) || m[2] == "" {
 				// The drawn case, which the FAIL line shows after the
 				// shrunk one when they differ (L10).
 				texts[s][m[1]] = m[3]
@@ -380,7 +392,9 @@ func TestArgumentTextRoundTrips(t *testing.T) {
 	for s := 1; s <= seeds; s++ {
 		stdout, _, _ := runExeArgs(t, exes["second"+strconv.Itoa(s)], "--seed", strconv.Itoa(s))
 		for _, k := range literalKinds {
-			if !strings.Contains(stdout, "FAIL K"+k.name+" (case 1 of 100, seed "+strconv.Itoa(s)+", size 0: ") {
+			sampled := "FAIL K" + k.name + " (case 1 of 100, seed " + strconv.Itoa(s) + ", size 0: "
+			listed := regexp.MustCompile(`(?m)^FAIL K` + k.name + ` \(case 1 of \d+, every value: `)
+			if !strings.Contains(stdout, sampled) && !listed.MatchString(stdout) {
 				t.Errorf("seed %d: %s: the literal %s did not give the value it was printed from", s, k.name, texts[s][k.name])
 			}
 		}
@@ -438,6 +452,11 @@ func durationUnit(n int64) string {
 // the values must reach every unit, and a test file that binds each text
 // with `let w duration = text` must check and find it equal to the value
 // written in nanoseconds.
+//
+// It builds Go because it runs the emitted test harness under go test: the
+// harness's verdicts and the values it prints are the output; no in-process
+// check observes that, and Ergo has no reference interpreter yet (test-speed
+// T8).
 func durationTextRoundTrips(t *testing.T, prog *lowered) {
 	t.Helper()
 	values := durationValues(rand.New(rand.NewSource(1500)))

@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode"
@@ -115,6 +116,33 @@ type diffGen struct {
 	ifaces int // generic interface types Gi0…
 	funcs  []diffFunc
 	vars   int
+	fields []tt // the type of Gt<i>'s one field F, over P
+}
+
+// gtLit writes the literal Gt<i>[arg]{F: …} in both syntaxes: an Ergo
+// record literal names every field (types.md, Zero values 2), and F is
+// always a slice, so its value is the empty slice of F's type with P
+// replaced by arg.
+func (g *diffGen) gtLit(i int, arg tt) tt {
+	f := substTT(g.fields[i], map[string]tt{"P": arg})
+	return tt{fmt.Sprintf("Gt%d[%s]{F: %s{}}", i, arg.g, f.g), fmt.Sprintf("Gt%d[%s]{F: %s{}}", i, arg.e, f.e)}
+}
+
+// zeroExpr writes a value of the type t that zeroType wrote (with its
+// parameters replaced), where Go would declare the variable with no
+// value: a record has no zero value in Ergo (types.md, Zero values 3).
+func (g *diffGen) zeroExpr(t tt) tt {
+	switch {
+	case t.e == "int":
+		return ttOf("0")
+	case t.e == "string":
+		return ttOf(`""`)
+	case strings.HasPrefix(t.e, "Gt"):
+		inner := func(s string) string { return s[strings.IndexByte(s, '[')+1 : len(s)-1] }
+		i, _ := strconv.Atoi(t.e[2:strings.IndexByte(t.e, '[')])
+		return g.gtLit(i, tt{inner(t.g), inner(t.e)})
+	}
+	return t.wrap("", "{}", "", "{}") // a slice or a Map
 }
 
 // typeExpr writes a type of depth at most d over the type parameters ps.
@@ -233,11 +261,13 @@ func (g *diffGen) stmts(ps []string, k int) {
 		case 2:
 			j := g.rng.Intn(g.types)
 			a := g.typeExpr(ps, 2)
-			g.b.each(fmt.Sprintf("\t_ = Gt%d[%s]{}\n", j, a.g), fmt.Sprintf("\t_ = Gt%d[%s]{}\n", j, a.e))
+			l := g.gtLit(j, a)
+			g.b.each(fmt.Sprintf("\t_ = %s\n", l.g), fmt.Sprintf("\t_ = %s\n", l.e))
 		case 3:
 			j := g.rng.Intn(g.types)
 			a := g.typeExpr(ps, 2)
-			g.b.each(fmt.Sprintf("\tGt%d[%s]{}.Mt%d()\n", j, a.g, j), fmt.Sprintf("\tGt%d[%s]{}.Mt%d()\n", j, a.e, j))
+			l := g.gtLit(j, a)
+			g.b.each(fmt.Sprintf("\t%s.Mt%d()\n", l.g, j), fmt.Sprintf("\t%s.Mt%d()\n", l.e, j))
 		default:
 			g.call()
 		}
@@ -260,7 +290,8 @@ func (g *diffGen) call() {
 		v := fmt.Sprintf("a%d", g.vars)
 		g.vars++
 		a := substTT(p, m)
-		g.b.each(fmt.Sprintf("\tvar %s %s\n", v, a.g), fmt.Sprintf("\tlet %s %s\n", v, a.e))
+		z := g.zeroExpr(a)
+		g.b.each(fmt.Sprintf("\tvar %s %s = %s\n", v, a.g, z.g), fmt.Sprintf("\tlet %s %s = %s\n", v, a.e, z.e))
 		args = append(args, v)
 	}
 	// occurs reports whether parameter k can be inferred from the
@@ -307,12 +338,14 @@ func (g *diffGen) program() twin {
 	g.ifaces = 1 + g.rng.Intn(2)
 	g.funcs = make([]diffFunc, 1+g.rng.Intn(3))
 	g.b.each("package p\n\n", "")
+	g.fields = make([]tt, g.types)
 	for i := range g.types {
 		field := ttOf("[]P")
 		if g.rng.Intn(4) == 0 {
 			// An instantiation inside a type declaration, behind a slice.
 			field = g.typeExpr([]string{"P"}, 2).wrap("[]", "", "[]", "")
 		}
+		g.fields[i] = field
 		g.b.each(fmt.Sprintf("type Gt%d[P any] struct{ F %s }\n\n", i, field.g), fmt.Sprintf("type Gt%d[P] { F %s }\n\n", i, field.e))
 	}
 	for i := range g.ifaces {
@@ -981,7 +1014,8 @@ func inferProgram(rng *rand.Rand, wrap int) twin {
 	b.both("func Fix(f func(int) int) int { return f(1) }\n\n")
 	b.each("func Rev[T any](x T, f func(T) T) T { return x }\n\n", "func Rev[T](x T, f func(T) T) T { return x }\n\n")
 	// P comes first: the decided list [T, P I0[T]] would give T the
-	// constraint too (one group), and the decided language has no any.
+	// constraint too (one group); [T any, P I0[T]] is the other spelling
+	// (grammar.md, Declarations 3).
 	b.each("func Dep[P I0[T], T any](v T, p P) T { return v }\n\n", "func Dep[P I0[T], T](v T, p P) T { return v }\n\n")
 	b.both("func Main(%s) {\n", strings.Join(values, ", "))
 	name := func(v string) string { return v[:strings.Index(v, " ")] }

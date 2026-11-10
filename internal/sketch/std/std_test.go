@@ -1030,7 +1030,6 @@ func Give() M { Give() }
 		{"build under an inferred Ambient", readerBase + "func mk() Host {\n\tlet h = NewHost()\n\tHost{..h, root: \"x\"}\n}\n", []string{builds("mk", "fixture.Host (a record update)")}},
 		{"build in a closure under an inferred Ambient", readerBase + "func mk() string fails Gone {\n\tlet f = func() Host {\n\t\tlet h = NewHost()\n\t\tHost{..h, root: \"x\"}\n\t}\n\ttry Read(f())\n}\n", []string{builds("mk", "fixture.Host (a record update)")}},
 		{"generated test parameter that holds a Host", readerBase + "type Box { H Host }\n\ntest T(b Box) {\n\tassert true\n}\n", []string{placeBuilds("T", "fixture.Host (a generated parameter)", "a test")}},
-		{"let's zero value of a record that holds a Host", readerBase + "type Wrap { H Host, N int }\n\nfunc F() string fails Gone {\n\tlet w Wrap\n\ttry Read(w.H)\n}\n", []string{builds("F", "fixture.Host (a let's zero value)")}},
 		{"build in a trailing block", readerBase + "func run(f func() string fails Gone) string fails Gone { try f() }\n\nfunc F() string fails Gone {\n\ttry run() {\n\t\ttry Read(Host{root: \"/\"})\n\t}\n}\n", []string{builds("F", "fixture.Host (a literal)")}},
 		// fu-ambient-ctor r7 (batch-10 r6 Unproven E1, E3): an extern has
 		// no Ergo body to ask. One whose signature mentions Host lists
@@ -1596,7 +1595,7 @@ extern go strings.ToUpper func up(s string) string
 func Get(_ Env) string { getenv("HOME") }
 
 extern go os.Getenv func getenv(k string) string
-`, "reaches the host"},
+`, "declare needs go.Foreign"},
 		{"runtime extern", `type Disk {}
 
 func Read(_ Disk) string { hostRead("x") }
@@ -1649,21 +1648,14 @@ func hostProviderTypes(pkg *check.Package) []*check.TypeName {
 	reaches := map[*check.Func]bool{}
 	for _, f := range pkg.Funcs {
 		if f.Decl != nil && f.Decl.Extern != nil {
-			// A runtime/v1 body reaches unless it is pure; any other Go
+			// A runtime/v1 body reaches when its declaration marks it
+			// //ergo:host (an impure body that is not marked, such as
+			// sync.Modify's, changes a value of the program); any other Go
 			// package unless it is in the pure allowlist (G9), which a
-			// program package's extern binds (fu-hostguard2).
-			target, name := f.Decl.Extern.Split()
-			if target == v1Path {
-				// An impure body that notHostExterns names reaches no host
-				// state (sync.Modify changes a Ref of the program); the
-				// table's own guard holds each row to a body that no host
-				// provider's function reaches (TestStdExternCallersHoldAuthority).
-				body, err := v1.BodyOf(name)
-				_, notHost := notHostExterns[pkg.Name+"."+f.Name]
-				reaches[f] = err != nil || !body.Pure && !notHost
-			} else {
-				reaches[f] = !check.PureGoPackage(target)
-			}
+			// program package's extern binds (fu-hostguard2). hostExtern
+			// is that rule; TestStdExternCallersHoldAuthority holds the
+			// marks.
+			reaches[f] = hostExtern(f)
 		}
 	}
 	for changed := true; changed; {

@@ -212,6 +212,14 @@ func (fc *funcCtx) sourceReturn(vals ...string) {
 		fc.line(fc.errReturn(vals[0]))
 		return
 	}
+	if fl := fc.frame.flat; fl != nil {
+		// The flat step (machinerun.go): a decision held as the union,
+		// returned through a with's flow, is given as a value.
+		if len(vals) != 1 {
+			ice(nil, "a return of %d results from a machine's flat step", len(vals))
+		}
+		vals = []string{fl.flat + "{}.decide(" + vals[0] + ")"}
+	}
 	fc.line("return " + strings.Join(vals, ", "))
 }
 

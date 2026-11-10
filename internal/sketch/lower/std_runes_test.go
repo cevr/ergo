@@ -11,6 +11,7 @@ import "testing"
 // writes a negative number in base 2, 16 and 36; the math and bits
 // functions give Go's answers, special cases included.
 func TestStdRunesRuns(t *testing.T) {
+	needsBuild(t)
 	runBehaviors(t, []behavior{
 		{name: "runes", src: stdRunesProgram, stdout: stdRunesOutput},
 	})

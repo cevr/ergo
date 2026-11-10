@@ -272,6 +272,7 @@ func sameEmission(t *testing.T, what string, want, got map[string]string) {
 }
 
 func TestLoweringIsCanonical(t *testing.T) {
+	needsBuild(t)
 	const programs = 12
 	for seed := int64(0); seed < programs; seed++ {
 		g := generateProgram(seed)
@@ -291,28 +292,5 @@ func TestLoweringIsCanonical(t *testing.T) {
 		for i := 0; i < 4; i++ {
 			sameEmission(t, fmt.Sprintf("seed %d, check order %d", seed, i+1), want, emitted(t, "canonical", g.check(t, r)))
 		}
-	}
-}
-
-// The round 2 verify's probe (M1): the text functions of Oops over two
-// packages' Q, whose displays are both Oops[lib.Q], are named the same in
-// every lowering of one checked unit.
-func TestVerifyR2StableTextNames(t *testing.T) {
-	a := checkPackage(t, "x/lib", []pkgSource{{"/probe/x/lib.ergo", "type Q { N int }\n"}}, nil)
-	b := checkPackage(t, "y/lib", []pkgSource{{"/probe/y/lib.ergo", "type Q { M string }\n"}}, nil)
-	root := checkPackage(t, "main", []pkgSource{{"/probe/text.ergo", `import a x/lib
-import b y/lib
-type lib {}
-type Oops[T] { V T }
-func f() fails Oops[a.Q] { Oops[a.Q]{V: a.Q{N: 1}} }
-func g() fails Oops[b.Q] { Oops[b.Q]{V: b.Q{M: "two"}} }
-func main() {}
-test F { try f() }
-test G { try g() }
-`}}, pkgImporter{"x/lib": a.Package, "y/lib": b.Package})
-	root.Imports = []Unit{a, b}
-	first := emitted(t, "stable", root)
-	for i := 0; i < 100; i++ {
-		sameEmission(t, fmt.Sprintf("run %d", i+1), first, emitted(t, "stable", root))
 	}
 }

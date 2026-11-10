@@ -1,0 +1,42 @@
+// Package forge is the forge of a small crafting game: its ores, its
+// stock, and the machine that takes ore, forges an item from a slot and
+// gives the leftover ore back, with timeouts on a clock that only the
+// signals move. It is pure; the assayer is a contract that a provider
+// keeps.
+
+import slices
+
+// Slag is a lump the assayer does not take.
+type Slag { Name string }
+
+// Grades is the value in units of each ore the machine takes.
+let Grades = []int{5, 10, 25, 100}
+
+// Assayer tells the value of an ore by its
+// name, or refuses it.
+type Assayer {
+	Value(ore string) int fails Slag,
+
+	// TakesOnlyGrades: an ore the assayer takes is worth one of
+	// the grades.
+	law TakesOnlyGrades(ore string) {
+		let v = Value(ore) catch {
+		case Slag:
+			return true
+		}
+		IsGrade(v)
+	},
+
+	// IsRepeatable: an ore is worth the same each time it is tried.
+	law IsRepeatable(ore string) {
+		let first = Value(ore) catch {
+		case Slag:
+			return true
+		}
+		try Value(ore) == first
+	},
+}
+
+// IsGrade reports whether worth is the value of an ore the machine
+// takes.
+func IsGrade(worth int) bool { slices.Contains(Grades, worth) }

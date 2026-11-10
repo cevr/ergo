@@ -107,6 +107,9 @@ type Package struct {
 	// check-v1 stage E4). Only prelude and stdImporter.Import set it, before
 	// the package is checked; Std reads it.
 	std bool
+	// host is the binding a Go package is read from (gobinding.go); nil
+	// for an Ergo package.
+	host *hostPkg
 	// owners holds the owner of every node of a body the program does not
 	// own (owners.go); OwnerOf reads it.
 	owners map[syntax.Node]FactOwner
@@ -118,6 +121,10 @@ type Package struct {
 	// providerFresh is the freshness fact the context ownership pass computed
 	// during Check, kept so its tests read the fact that decided.
 	providerFresh providerFreshness
+	// testBuilds are, in a test package (fstest), the builders it declares
+	// for each operation type of the package it tests (builders.go rule
+	// 2). Only the package's own check writes it.
+	testBuilds map[*TypeName][]*Builder
 }
 
 // Std reports a std package: the prelude or a package of the embedded
@@ -125,6 +132,10 @@ type Package struct {
 // check-v1 stage E4). A program package never has it, whatever its path,
 // so the lowering keys std's namespaces on it, not on a path string.
 func (p *Package) Std() bool { return p != nil && p.std }
+
+// Host reports whether p is a Go package read from its binding (import go;
+// docs/spec/interop.md).
+func (p *Package) Host() bool { return p != nil && p.host != nil }
 
 // Files is the package's source files in the order the checker met them.
 // A std package's files carry their embedded file name (syntax.File.Name),
@@ -174,6 +185,15 @@ type Info struct {
 	// produces it with the clause that admitted the value (types.md,
 	// Assignability); the lowering never derives a conversion again.
 	Implicit map[syntax.Expr]Conversion
+	// Spreads is, for every spread `T{..s, …}` whose base s has a record
+	// type other than T, the fields of T it copies from s, in T's order
+	// (types.md, Structs 3; owner q43). A field T names is not listed. An
+	// update with a base of exactly T has no entry: it copies the base.
+	Spreads map[*syntax.CompositeLit][]Spread
+	// Works is every Work literal of the work rule's forms (Run or Listen
+	// with their maps; work.go), which the lowering builds Start from. Nil
+	// when the package has none. Added by MU4 (additive).
+	Works map[*syntax.CompositeLit]*WorkLit
 	// ImplicitElems is, for a value of several elements that a multi-name
 	// let (`let a, b Store = pair()`) or a return of several results takes
 	// apart, each element's implicit conversion in order, a zero
@@ -300,6 +320,7 @@ func newInfo() *Info {
 		Calls:         map[*syntax.CallExpr]*Call{},
 		Closes:        map[syntax.Node]*Close{},
 		Implicit:      map[syntax.Expr]Conversion{},
+		Spreads:       map[*syntax.CompositeLit][]Spread{},
 		ImplicitElems: map[syntax.Expr][]Conversion{},
 		Patterns:      map[syntax.Expr]*Pattern{},
 		Matches:       map[syntax.Node]*Match{},
@@ -485,6 +506,9 @@ const (
 	// build lowers: laws are checked, not run (#162). Added in check-v1
 	// stage E3b (additive).
 	CallLawOp
+	// CallGoError is go.Is or go.As (Name "go.Is" or "go.As"); Type is
+	// As's type argument (IG5, goerror.go). Added in IG5 (additive).
+	CallGoError
 	// CallKindCount bounds the call kinds. Keep it last: exhaustive
 	// consumers must account for a newly admitted kind.
 	CallKindCount
@@ -542,7 +566,7 @@ const (
 	// ConvRow puts an error row's value into a union.
 	ConvRow
 	// ConvMachine puts a machine declaration's value into the prelude's
-	// Machine[S, E, O, F, R] (README Gap 46): Table["Step"] is the
+	// Machine[S, E, O, F, R, W] (README Gap 46): Table["Step"] is the
 	// machine's step function.
 	ConvMachine
 )
@@ -763,6 +787,12 @@ type Law struct {
 	Decl  *syntax.LawDecl
 	Owner *TypeName // the operation type that declares it; nil at top level
 	Pkg   *Package  // the package that declares it
+	// Machine is the machine type that declares it (MU6), with Owner nil:
+	// a machine law's body has the scope of a top-level law's.
+	Machine *TypeName
+	// Targets are the variants of the machine's state that a reachability
+	// law (Decl.Reach) names, in order.
+	Targets []*Named
 	// Params are its parameters, in source order; a field with no name
 	// holds one "_".
 	Params []*Var
@@ -877,6 +907,9 @@ func (c *checker) recordCall(x *syntax.CallExpr, fun operand) {
 		call.Kind, call.Type = CallConversion, fun.typ
 	case fun.mode == modeBuiltin:
 		call.Kind = CallLen
+		if b, _ := fun.obj.(*Builtin); b != nil && goErrorBuiltin(b) {
+			call.Kind, call.Name, call.Type = CallGoError, b.Name, fun.targ
+		}
 	case fun.mode == modeCapFn:
 		call.Kind, call.Op = CallProviderOp, fun.method
 	case fun.fn != nil:
@@ -1208,6 +1241,6 @@ func isUnion(t Type) bool {
 // isRowValue reports the type of a `case err:` binding, an anonymous union
 // of error types (D-C3).
 func isRowValue(t Type) bool {
-	_, ok := t.(*Union)
-	return ok
+	u, ok := t.(*Union)
+	return ok && u.Row != nil
 }

@@ -93,7 +93,9 @@ import "os"
 //ergo:pure
 func Getenv(k string) string { return os.Getenv(k) }
 
-// Args is not marked.
+// Args is marked host.
+//
+//ergo:host
 func Args() []string { return os.Args }
 `
 	text := `package v1
@@ -175,8 +177,8 @@ func Waits() { time.Sleep(1) }
 			t.Errorf("%s: %+v, %v; want Pure", name, b, err)
 		}
 	}
-	if b, err := decls.body("Args"); err != nil || b.Pure {
-		t.Errorf("Args: %+v, %v; want not Pure", b, err)
+	if b, err := decls.body("Args"); err != nil || b.Pure || !b.Host {
+		t.Errorf("Args: %+v, %v; want Host, not Pure", b, err)
 	}
 	bad := map[string]string{
 		"Getenv":   "its file imports os",
@@ -202,6 +204,61 @@ func Waits() { time.Sleep(1) }
 	for name, msg := range bad {
 		_, err := decls.body(name)
 		if err == nil || !strings.Contains(err.Error(), msg) || !strings.Contains(err.Error(), PureMark) {
+			t.Errorf("%s: error %v, want one containing %q", name, err, msg)
+		}
+	}
+}
+
+// TestHostMarkRefusals holds the host mark (fu4c; docs/spec/stdlib.md,
+// Host packages 7): BodyOf refuses an unmarked body that reaches a host
+// member through a helper function, a package variable or math/rand/v2's
+// global source (whose import name is rand, not v2), and a body marked
+// both pure and host; a marked body is Host, and a draw from a program's
+// own stream is not host.
+func TestHostMarkRefusals(t *testing.T) {
+	src := `package v1
+
+import (
+	"math/rand/v2"
+	"os"
+)
+
+var stdout = os.Stdout
+
+func helper() string { return os.Getenv("X") }
+
+func Helped() string { return helper() }
+
+func Held() any { return stdout }
+
+func Draws() uint64 { return rand.Uint64() }
+
+func Seeded(seed uint64) uint64 { return rand.New(rand.NewPCG(seed, 1)).Uint64() }
+
+//ergo:host
+func Marked() string { return helper() }
+
+//ergo:pure
+//ergo:host
+func Both() int { return 1 }
+`
+	decls, err := parseDecls(fstest.MapFS{"a.go": {Data: []byte(src)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, err := decls.body("Seeded"); err != nil || b.Host {
+		t.Errorf("Seeded: %+v, %v; want no error, not Host", b, err)
+	}
+	if b, err := decls.body("Marked"); err != nil || !b.Host {
+		t.Errorf("Marked: %+v, %v; want Host", b, err)
+	}
+	for name, msg := range map[string]string{
+		"Helped": "reaches host state (os.Getenv) but is not marked //ergo:host",
+		"Held":   "reaches host state (os.Stdout) but is not marked //ergo:host",
+		"Draws":  "reaches host state (math/rand/v2.Uint64) but is not marked //ergo:host",
+		"Both":   "is marked both //ergo:pure and //ergo:host",
+	} {
+		if _, err := decls.body(name); err == nil || !strings.Contains(err.Error(), msg) {
 			t.Errorf("%s: error %v, want one containing %q", name, err, msg)
 		}
 	}

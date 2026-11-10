@@ -1,0 +1,53 @@
+// Package api is the deploys server's HTTP layer as plain functions:
+// Handle takes a Request record and gives a Response record, with no
+// socket. Every failure of the domain and of the body is caught by name
+// and given its status code, so a request can never escape without one.
+// Ergo's std has no http package yet (#51): package http1 reads and
+// writes these records as HTTP/1.1 text.
+
+import strings
+
+// Header is one header field. Name is compared without case.
+type Header { Name string, Value string }
+
+// Request is an HTTP request: its method, its path (no query), its
+// headers in order, and its body.
+type Request { Method string, Path string, Headers []Header, Body string }
+
+// Response is an HTTP response.
+type Response { Status int, Headers []Header, Body string }
+
+// HeaderOf is the value of the first header of headers named name, any
+// case.
+func HeaderOf(headers []Header, name string) Option[string] {
+	for h in headers {
+		if strings.EqualFold(h.Name, name) {
+			return Some[string]{Value: h.Value}
+		}
+	}
+	None
+}
+
+// Reason is the reason phrase of status.
+func Reason(status int) string {
+	match status {
+	case 200:
+		"OK"
+	case 201:
+		"Created"
+	case 400:
+		"Bad Request"
+	case 404:
+		"Not Found"
+	case 405:
+		"Method Not Allowed"
+	case 409:
+		"Conflict"
+	case 415:
+		"Unsupported Media Type"
+	case 422:
+		"Unprocessable Entity"
+	case _:
+		"Status \(status)"
+	}
+}

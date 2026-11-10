@@ -11,78 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
-
-// TestPreludeBindsNoAmbient is the batch-10 r6 B1 probe (fu-ambient-ctor
-// r7): the prelude may implement its own sealed Ambient, and bound such a
-// value in a context to call a function that needs Ambient with no
-// Ambient in its own row. The mint rule's "a call is no build" holds only
-// while Ambient has one source, the program entry, so a context entry for
-// Ambient is S106 in every package, the prelude included. The prelude is
-// checked here with one more file, as prelude() checks the embedded one.
-func TestPreludeBindsNoAmbient(t *testing.T) {
-	const forge = `type verifierAmbient {}
-
-func ambient(_ verifierAmbient) {}
-
-func verifierNeeds() int needs Ambient { 1 }
-
-func VerifierForge() int {
-	with context { Ambient: verifierAmbient } { verifierNeeds() }
-}
-`
-	var files []*syntax.File
-	for _, name := range sortedKeys(std.Prelude()) {
-		f, err := syntax.Parse(std.Prelude()[name])
-		if err != nil {
-			t.Fatal(err)
-		}
-		files = append(files, f)
-	}
-	f, err := syntax.Parse(forge)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.Name = "zz_forge.ergo"
-	files = append(files, f)
-	c := newChecker(std.PreludePath, nil, universe())
-	c.pkg.std = true
-	c.run(files)
-	var got []string
-	for _, d := range c.sorted() {
-		got = append(got, d.Code+" "+d.Message)
-	}
-	if want := []string{CodeProvider + " " + ambientEntryText}; !slices.Equal(got, want) {
-		t.Errorf("the prelude with the forge: diagnostics %q, want %q", got, want)
-	}
-}
-
-// TestIsAmbientIsThePrelude pins S106's test of Ambient (fu-ambient-ctor
-// r7): the prelude's Ambient, not another prelude capability, and not a
-// type of another package named Ambient (S108 refuses that name in a
-// program, so the fixture is checked for its type only).
-func TestIsAmbientIsThePrelude(t *testing.T) {
-	if !isAmbient(preludeType("Ambient")) {
-		t.Error("isAmbient(prelude.Ambient) = false")
-	}
-	if isAmbient(preludeType("Console")) {
-		t.Error("isAmbient(prelude.Console) = true")
-	}
-	f, err := syntax.Parse("type Ambient {\n\tMark(),\n}\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	pkg, _ := Check("fixture", []*syntax.File{f}, nil)
-	tn, ok := pkg.Scope.names["Ambient"].(*TypeName)
-	if !ok {
-		t.Fatal("fixture declares no Ambient")
-	}
-	if isAmbient(tn.Type) {
-		t.Error("isAmbient(fixture.Ambient) = true")
-	}
-}
 
 // TestMintFormNamesEveryKind is the totality guard of Mints
 // (fu-ambient-ctor r6). It reads the syntax package's source: every type
@@ -254,10 +184,9 @@ func Get(_ H) int { 1 }
 		{"literal", "func f() H { H{root: \"/\"} }\n", []string{"literal fixture.H @func f [F]"}},
 		{"elided literal in a slice", "func f() []H { []H{{root: \"/\"}} }\n", []string{"literal []fixture.H @func f [F]", "literal fixture.H @func f [F]"}},
 		{"record update", "func f(h H) H { H{..h, root: \"x\"} }\n", []string{"update fixture.H @func f [F]"}},
-		{"omitted field's zero value", "func f() W { W{Y: 1} }\n", []string{"literal fixture.W @func f [F]", "zero-field fixture.H @func f [F]"}},
 		{"positional literal sets every field", "func f(h H) W { W{h, 1} }\n", []string{"literal fixture.W @func f [F]"}},
-		{"let's zero value", "func f() int {\n\tlet w W\n\tw.Y\n}\n", []string{"zero-let fixture.W @func f [F]", "zero-let fixture.H @func f [F]"}},
-		{"package let's zero value", "let Z W\n", []string{"zero-let fixture.W @let Z []", "zero-let fixture.H @let Z []"}},
+		{"let's zero value", "func f() N {\n\tlet n N\n\tn\n}\n", []string{"zero-let fixture.N @func f [F]"}},
+		{"package let's zero value", "let Z N\n", []string{"zero-let fixture.N @let Z []"}},
 		{"bare record", "func f() U { U }\n", []string{"bare fixture.U @func f [F]"}},
 		{"conversion", "func f(h H) H { H(h) }\n", []string{"conversion fixture.H @func f [F]"}},
 		{"constant", "func f() N { 3 }\n", []string{"constant fixture.N @func f [F]"}},

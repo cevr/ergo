@@ -1,9 +1,9 @@
 
 type Fault {}
 
-extern go fixture.external func external(n int64) string fails Fault // want S109
+extern go fixture.external func external(n int64) string fails Fault // want S104
 
-extern go strconv.Itoa func itoa(n int) string needs go.Foreign // want S109
+extern go strconv.Itoa func itoa(n int) string needs go.Foreign // want S108
 
 func Run() string fails Fault {
 	return external(1)

@@ -49,6 +49,12 @@ func Open(dir string, files fs.Files, writes fs.Writes) Log fails kv.Broken {
 	Log{path: filepath.Join([]string{dir, Name}), files: files, writes: writes}
 }
 
+// NewLog is the Log in the working directory, which is always there, so
+// it makes no directory and cannot fail. It is Log's constructor: ergo
+// test builds each Log a kv.Store law runs on with it, over the case's own
+// fstest.Memory (one per case, for files and writes alike).
+func NewLog(files fs.Files, writes fs.Writes) Log { Log{path: Name, files: files, writes: writes} }
+
 // Path is the log file of l.
 func Path(l Log) string { l.path }
 

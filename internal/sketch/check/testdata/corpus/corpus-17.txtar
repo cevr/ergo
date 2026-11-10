@@ -1,0 +1,6073 @@
+-- 08500.ergo --
+func g() int fails C | Fault { 1 }
+func f() int { g() catch {
+case C: 1
+case DU: 2
+} }
+-- 08501.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func g() int fails C | Fault { 1 }
+func f() int { g() catch {
+case C: 1
+case DU: 2
+} }
+-- 08502.ergo --
+type DStore Store
+func g() int fails C | Fault { 1 }
+func f() int { g() catch {
+case C: 1
+case DU: 2
+} }
+-- 08503.ergo --
+func g() int fails C | Fault { 1 }
+func f() int { g() catch {
+case Box[DStore], C: 1
+case Fault: 2
+} }
+-- 08504.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func g() int fails C | Fault { 1 }
+func f() int { g() catch {
+case Box[DStore], C: 1
+case Fault: 2
+} }
+-- 08505.ergo --
+type DStore Store
+func g() int fails C | Fault { 1 }
+func f() int { g() catch {
+case Box[DStore], C: 1
+case Fault: 2
+} }
+-- 08506.ergo --
+type P[K, V] { K K, V V }
+func f(p P[DStore, int]) int { p.V }
+-- 08507.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+type P[K, V] { K K, V V }
+func f(p P[DStore, int]) int { p.V }
+-- 08508.ergo --
+type DStore Store
+type P[K, V] { K K, V V }
+func f(p P[DStore, int]) int { p.V }
+-- 08509.ergo --
+func f(m Map[string, DStore]) int { len(m) }
+-- 08510.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func f(m Map[string, DStore]) int { len(m) }
+-- 08511.ergo --
+type DStore Store
+func f(m Map[string, DStore]) int { len(m) }
+-- 08512.ergo --
+func g() (DStore, int) { g() }
+func f() int { let (_, n) = g()
+n }
+-- 08513.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func g() (DStore, int) { g() }
+func f() int { let (_, n) = g()
+n }
+-- 08514.ergo --
+type DStore Store
+func g() (DStore, int) { g() }
+func f() int { let (_, n) = g()
+n }
+-- 08515.ergo --
+type U2 = A | Box[DU]
+func f(x U2) int { match x {
+case A: 1
+} }
+-- 08516.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+type U2 = A | Box[DU]
+func f(x U2) int { match x {
+case A: 1
+} }
+-- 08517.ergo --
+type DStore Store
+type U2 = A | Box[DU]
+func f(x U2) int { match x {
+case A: 1
+} }
+-- 08518.ergo --
+type U2 = A | Box[DU] | B
+func f(x U2) int { match x {
+case A: 1
+case B: 2
+} }
+-- 08519.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+type U2 = A | Box[DU] | B
+func f(x U2) int { match x {
+case A: 1
+case B: 2
+} }
+-- 08520.ergo --
+type DStore Store
+type U2 = A | Box[DU] | B
+func f(x U2) int { match x {
+case A: 1
+case B: 2
+} }
+-- 08521.ergo --
+func f() int needs Log { Log.Put() }
+func main() { with context { DStore: Mem, Log: L } { _ = f() } }
+-- 08522.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func f() int needs Log { Log.Put() }
+func main() { with context { DStore: Mem, Log: L } { _ = f() } }
+-- 08523.ergo --
+type DStore Store
+func f() int needs Log { Log.Put() }
+func main() { with context { DStore: Mem, Log: L } { _ = f() } }
+-- 08524.ergo --
+func k[E](a int) int fails E { a }
+func f() int { k[Box[DStore]](1) catch {
+case _: 2
+} }
+-- 08525.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func k[E](a int) int fails E { a }
+func f() int { k[Box[DStore]](1) catch {
+case _: 2
+} }
+-- 08526.ergo --
+type DStore Store
+func k[E](a int) int fails E { a }
+func f() int { k[Box[DStore]](1) catch {
+case _: 2
+} }
+-- 08527.ergo --
+type R[E] { Run() int fails E }
+func f(r R[Box[DStore]]) int { 1 }
+-- 08528.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+type R[E] { Run() int fails E }
+func f(r R[Box[DStore]]) int { 1 }
+-- 08529.ergo --
+type DStore Store
+type R[E] { Run() int fails E }
+func f(r R[Box[DStore]]) int { 1 }
+-- 08530.ergo --
+func f(s DStore, n int) int { n }
+func g() int { f(Mem, 2) }
+-- 08531.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func f(s DStore, n int) int { n }
+func g() int { f(Mem, 2) }
+-- 08532.ergo --
+type DStore Store
+func f(s DStore, n int) int { n }
+func g() int { f(Mem, 2) }
+-- 08533.ergo --
+type Rec { S DStore, N int }
+func f(r Rec) int { r.N }
+-- 08534.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+type Rec { S DStore, N int }
+func f(r Rec) int { r.N }
+-- 08535.ergo --
+type DStore Store
+type Rec { S DStore, N int }
+func f(r Rec) int { r.N }
+-- 08536.ergo --
+type Ops { Take(s DStore) int, N() int }
+func f(o Ops) int { o.N() }
+-- 08537.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+type Ops { Take(s DStore) int, N() int }
+func f(o Ops) int { o.N() }
+-- 08538.ergo --
+type DStore Store
+type Ops { Take(s DStore) int, N() int }
+func f(o Ops) int { o.N() }
+-- 08539.ergo --
+func f(x U) int { match x {
+case DU, A: 1
+case B: 2
+} }
+-- 08540.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func f(x U) int { match x {
+case DU, A: 1
+case B: 2
+} }
+-- 08541.ergo --
+type DStore Store
+func f(x U) int { match x {
+case DU, A: 1
+case B: 2
+} }
+-- 08542.ergo --
+func f(x U) int { match x {
+case A, DU: 1
+case B: 2
+} }
+-- 08543.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func f(x U) int { match x {
+case A, DU: 1
+case B: 2
+} }
+-- 08544.ergo --
+type DStore Store
+func f(x U) int { match x {
+case A, DU: 1
+case B: 2
+} }
+-- 08545.ergo --
+func g() int fails C | Fault { 1 }
+func f() int { g() catch {
+case C, DU: 1
+case Fault: 2
+} }
+-- 08546.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func g() int fails C | Fault { 1 }
+func f() int { g() catch {
+case C, DU: 1
+case Fault: 2
+} }
+-- 08547.ergo --
+type DStore Store
+func g() int fails C | Fault { 1 }
+func f() int { g() catch {
+case C, DU: 1
+case Fault: 2
+} }
+-- 08548.ergo --
+func g() int needs DStore | Log { Log.Put() }
+func main() { _ = g() }
+-- 08549.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func g() int needs DStore | Log { Log.Put() }
+func main() { _ = g() }
+-- 08550.ergo --
+type DStore Store
+func g() int needs DStore | Log { Log.Put() }
+func main() { _ = g() }
+-- 08551.ergo --
+func g() int fails DStore | C { 1 }
+func main() { _ = g() }
+-- 08552.ergo --
+type Store { Get() int }
+type A {}
+type B {}
+type U = A | B
+type Log { Put() int }
+type L {}
+func Put(l L) int { 1 }
+type Mem {}
+func Get(m Mem) int { 1 }
+type C {}
+type Fault {}
+type Box[T] { V T }
+func g() int fails DStore | C { 1 }
+func main() { _ = g() }
+-- 08553.ergo --
+type DStore Store
+func g() int fails DStore | C { 1 }
+func main() { _ = g() }
+-- 08554.ergo --
+type Store { Get() int }
+type DStore Store
+-- 08555.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+-- 08556.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+-- 08557.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+-- 08558.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+type Store { Get() int }
+type DStore Store
+-- 08559.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+type Store { Get() int }
+type DStore Store
+-- 08560.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+type Store { Get() int }
+type DStore Store
+-- 08561.ergo --
+type Store { Get() int }
+type DStore Store
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+-- 08562.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+-- 08563.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+-- 08564.ergo --
+func f() needs DStore {}
+-- 08565.ergo --
+type Store { Get() int }
+type DStore Store
+func f() needs DStore {}
+-- 08566.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+func f() needs DStore {}
+-- 08567.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+func f() needs DStore {}
+-- 08568.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+func f() needs DStore {}
+-- 08569.ergo --
+func f() { DStore.Get() }
+-- 08570.ergo --
+type Store { Get() int }
+type DStore Store
+func f() { DStore.Get() }
+-- 08571.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+func f() { DStore.Get() }
+-- 08572.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+func f() { DStore.Get() }
+-- 08573.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+func f() { DStore.Get() }
+-- 08574.ergo --
+type Mem {}
+func Get(m Mem) int { 1 }
+func f() { with context { DStore: Mem } {} }
+-- 08575.ergo --
+type Store { Get() int }
+type DStore Store
+type Mem {}
+func Get(m Mem) int { 1 }
+func f() { with context { DStore: Mem } {} }
+-- 08576.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+type Mem {}
+func Get(m Mem) int { 1 }
+func f() { with context { DStore: Mem } {} }
+-- 08577.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+type Mem {}
+func Get(m Mem) int { 1 }
+func f() { with context { DStore: Mem } {} }
+-- 08578.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+type Mem {}
+func Get(m Mem) int { 1 }
+func f() { with context { DStore: Mem } {} }
+-- 08579.ergo --
+func f(x DU) int { match x {
+case Mem: 1
+case Other: 2
+} }
+-- 08580.ergo --
+type Store { Get() int }
+type DStore Store
+func f(x DU) int { match x {
+case Mem: 1
+case Other: 2
+} }
+-- 08581.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+func f(x DU) int { match x {
+case Mem: 1
+case Other: 2
+} }
+-- 08582.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+func f(x DU) int { match x {
+case Mem: 1
+case Other: 2
+} }
+-- 08583.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+func f(x DU) int { match x {
+case Mem: 1
+case Other: 2
+} }
+-- 08584.ergo --
+func f(x Store) { match x {
+case DStore: _ = x
+case _: _ = x
+} }
+-- 08585.ergo --
+type Store { Get() int }
+type DStore Store
+func f(x Store) { match x {
+case DStore: _ = x
+case _: _ = x
+} }
+-- 08586.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+func f(x Store) { match x {
+case DStore: _ = x
+case _: _ = x
+} }
+-- 08587.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+func f(x Store) { match x {
+case DStore: _ = x
+case _: _ = x
+} }
+-- 08588.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+func f(x Store) { match x {
+case DStore: _ = x
+case _: _ = x
+} }
+-- 08589.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+func f(x U) { match x {
+case DStore: _ = x
+case _: _ = x
+} }
+-- 08590.ergo --
+type Store { Get() int }
+type DStore Store
+type Mem {}
+type Other {}
+type U = Mem | Other
+func f(x U) { match x {
+case DStore: _ = x
+case _: _ = x
+} }
+-- 08591.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+type Mem {}
+type Other {}
+type U = Mem | Other
+func f(x U) { match x {
+case DStore: _ = x
+case _: _ = x
+} }
+-- 08592.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+type Mem {}
+type Other {}
+type U = Mem | Other
+func f(x U) { match x {
+case DStore: _ = x
+case _: _ = x
+} }
+-- 08593.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+type Mem {}
+type Other {}
+type U = Mem | Other
+func f(x U) { match x {
+case DStore: _ = x
+case _: _ = x
+} }
+-- 08594.ergo --
+func f() fails DStore {}
+-- 08595.ergo --
+type Store { Get() int }
+type DStore Store
+func f() fails DStore {}
+-- 08596.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+func f() fails DStore {}
+-- 08597.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+func f() fails DStore {}
+-- 08598.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+func f() fails DStore {}
+-- 08599.ergo --
+func f[T DStore](x T) { _ = x }
+-- 08600.ergo --
+type Store { Get() int }
+type DStore Store
+func f[T DStore](x T) { _ = x }
+-- 08601.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+func f[T DStore](x T) { _ = x }
+-- 08602.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+func f[T DStore](x T) { _ = x }
+-- 08603.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+func f[T DStore](x T) { _ = x }
+-- 08604.ergo --
+type Store[T] { Get() T }
+type DStore[T] Store[T]
+func f(x DStore[int]) { _ = x }
+-- 08605.ergo --
+type Store { Get() int }
+type DStore Store
+type Store[T] { Get() T }
+type DStore[T] Store[T]
+func f(x DStore[int]) { _ = x }
+-- 08606.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+type Store[T] { Get() T }
+type DStore[T] Store[T]
+func f(x DStore[int]) { _ = x }
+-- 08607.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+type Store[T] { Get() T }
+type DStore[T] Store[T]
+func f(x DStore[int]) { _ = x }
+-- 08608.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+type Store[T] { Get() T }
+type DStore[T] Store[T]
+func f(x DStore[int]) { _ = x }
+-- 08609.ergo --
+type Box[T] { V T }
+func f(x Box[[]DStore]) Box[[]DStore] { x }
+-- 08610.ergo --
+type Store { Get() int }
+type DStore Store
+type Box[T] { V T }
+func f(x Box[[]DStore]) Box[[]DStore] { x }
+-- 08611.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+type Box[T] { V T }
+func f(x Box[[]DStore]) Box[[]DStore] { x }
+-- 08612.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+type Box[T] { V T }
+func f(x Box[[]DStore]) Box[[]DStore] { x }
+-- 08613.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+type Box[T] { V T }
+func f(x Box[[]DStore]) Box[[]DStore] { x }
+-- 08614.ergo --
+type Store { Get() int }
+type DStore Store
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+-- 08615.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+-- 08616.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+-- 08617.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+-- 08618.ergo --
+type Store { Get() int }
+type DStore Store
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+-- 08619.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+-- 08620.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+-- 08621.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+-- 08622.ergo --
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+-- 08623.ergo --
+type Store { Get() int }
+type DStore Store
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+-- 08624.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+-- 08625.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+-- 08626.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+-- 08627.ergo --
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+-- 08628.ergo --
+type Store { Get() int }
+type DStore Store
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+-- 08629.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+-- 08630.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+-- 08631.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+-- 08632.ergo --
+let (m, n) = pair(); return (m, n)
+-- 08633.ergo --
+type Store { Get() int }
+type DStore Store
+let (m, n) = pair(); return (m, n)
+-- 08634.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+let (m, n) = pair(); return (m, n)
+-- 08635.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+let (m, n) = pair(); return (m, n)
+-- 08636.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+let (m, n) = pair(); return (m, n)
+-- 08637.ergo --
+let (m2, n2) = pair(); return (m2, n2)
+-- 08638.ergo --
+type Store { Get() int }
+type DStore Store
+let (m2, n2) = pair(); return (m2, n2)
+-- 08639.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+let (m2, n2) = pair(); return (m2, n2)
+-- 08640.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+let (m2, n2) = pair(); return (m2, n2)
+-- 08641.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+let (m2, n2) = pair(); return (m2, n2)
+-- 08642.ergo --
+let (m, n) = pairBy(func() int { let k = 1; k }, "a;b\nc"); return (m, n)
+-- 08643.ergo --
+type Store { Get() int }
+type DStore Store
+let (m, n) = pairBy(func() int { let k = 1; k }, "a;b\nc"); return (m, n)
+-- 08644.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+let (m, n) = pairBy(func() int { let k = 1; k }, "a;b\nc"); return (m, n)
+-- 08645.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+let (m, n) = pairBy(func() int { let k = 1; k }, "a;b\nc"); return (m, n)
+-- 08646.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+let (m, n) = pairBy(func() int { let k = 1; k }, "a;b\nc"); return (m, n)
+-- 08647.ergo --
+let (m, n) = pairOf(id[int](1),  id[int](2)); return (m, n)
+-- 08648.ergo --
+type Store { Get() int }
+type DStore Store
+let (m, n) = pairOf(id[int](1),  id[int](2)); return (m, n)
+-- 08649.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+let (m, n) = pairOf(id[int](1),  id[int](2)); return (m, n)
+-- 08650.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+let (m, n) = pairOf(id[int](1),  id[int](2)); return (m, n)
+-- 08651.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+let (m, n) = pairOf(id[int](1),  id[int](2)); return (m, n)
+-- 08652.ergo --
+let (m, n) = gen[int](id[int](1)); return (m, n)
+-- 08653.ergo --
+type Store { Get() int }
+type DStore Store
+let (m, n) = gen[int](id[int](1)); return (m, n)
+-- 08654.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+let (m, n) = gen[int](id[int](1)); return (m, n)
+-- 08655.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+let (m, n) = gen[int](id[int](1)); return (m, n)
+-- 08656.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+let (m, n) = gen[int](id[int](1)); return (m, n)
+-- 08657.ergo --
+let (m, n) = k.Pair(2); return (m, n)
+-- 08658.ergo --
+type Store { Get() int }
+type DStore Store
+let (m, n) = k.Pair(2); return (m, n)
+-- 08659.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+let (m, n) = k.Pair(2); return (m, n)
+-- 08660.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+let (m, n) = k.Pair(2); return (m, n)
+-- 08661.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+let (m, n) = k.Pair(2); return (m, n)
+-- 08662.ergo --
+let (m, n) = (Mem{N: 1}).Pair(id[int](2)); return (m, n)
+-- 08663.ergo --
+type Store { Get() int }
+type DStore Store
+let (m, n) = (Mem{N: 1}).Pair(id[int](2)); return (m, n)
+-- 08664.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+let (m, n) = (Mem{N: 1}).Pair(id[int](2)); return (m, n)
+-- 08665.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+let (m, n) = (Mem{N: 1}).Pair(id[int](2)); return (m, n)
+-- 08666.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+let (m, n) = (Mem{N: 1}).Pair(id[int](2)); return (m, n)
+-- 08667.ergo --
+func f(
+-- 08668.ergo --
+type Store { Get() int }
+type DStore Store
+func f(
+-- 08669.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+func f(
+-- 08670.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+func f(
+-- 08671.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+func f(
+-- 08672.ergo --
+pairBy(func() int {
+let café = 1
+let mut n = café
+n = café
+n
+}, "s")
+-- 08673.ergo --
+type Store { Get() int }
+type DStore Store
+pairBy(func() int {
+let café = 1
+let mut n = café
+n = café
+n
+}, "s")
+-- 08674.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+pairBy(func() int {
+let café = 1
+let mut n = café
+n = café
+n
+}, "s")
+-- 08675.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+pairBy(func() int {
+let café = 1
+let mut n = café
+n = café
+n
+}, "s")
+-- 08676.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+pairBy(func() int {
+let café = 1
+let mut n = café
+n = café
+n
+}, "s")
+-- 08677.ergo --
+func f() (Store, int) { 
+-- 08678.ergo --
+type Store { Get() int }
+type DStore Store
+func f() (Store, int) { 
+-- 08679.ergo --
+type Mem {}
+type Other {}
+type U = Mem | Other
+type DU U
+func f() (Store, int) { 
+-- 08680.ergo --
+type Fault {}
+type Store { Get() int }
+func f(t Task[int, Fault]) Store {
+	t
+}
+func f() (Store, int) { 
+-- 08681.ergo --
+type Mem { N int }
+type Store { Get() int }
+func Get(m Mem) int { m.N }
+func pair() (Mem, int) { (Mem{N: 1}, 2) }
+func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }
+func pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }
+func id[T](x T) T { x }
+func gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }
+func Pair(m Mem, a int) (Mem, int) { (m, a) }
+func f() (Store, int) { 
+-- 08682.ergo --
+import task
+func work() int {
+	1
+}
+-- 08683.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+-- 08684.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+-- 08685.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+-- 08686.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+-- 08687.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+import task
+func work() int {
+	1
+}
+-- 08688.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+import task
+func work() int {
+	1
+}
+-- 08689.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+import task
+func work() int {
+	1
+}
+-- 08690.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+import task
+func work() int {
+	1
+}
+-- 08691.ergo --
+func f() int {
+	let t = task.Go() { work() }
+	t.Wait()
+}
+-- 08692.ergo --
+import task
+func work() int {
+	1
+}
+func f() int {
+	let t = task.Go() { work() }
+	t.Wait()
+}
+-- 08693.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f() int {
+	let t = task.Go() { work() }
+	t.Wait()
+}
+-- 08694.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f() int {
+	let t = task.Go() { work() }
+	t.Wait()
+}
+-- 08695.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f() int {
+	let t = task.Go() { work() }
+	t.Wait()
+}
+-- 08696.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f() int {
+	let t = task.Go() { work() }
+	t.Wait()
+}
+-- 08697.ergo --
+func f() {
+	let t = task.Go() { work() }
+	t.Stop()
+}
+-- 08698.ergo --
+import task
+func work() int {
+	1
+}
+func f() {
+	let t = task.Go() { work() }
+	t.Stop()
+}
+-- 08699.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f() {
+	let t = task.Go() { work() }
+	t.Stop()
+}
+-- 08700.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f() {
+	let t = task.Go() { work() }
+	t.Stop()
+}
+-- 08701.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f() {
+	let t = task.Go() { work() }
+	t.Stop()
+}
+-- 08702.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f() {
+	let t = task.Go() { work() }
+	t.Stop()
+}
+-- 08703.ergo --
+func f() int {
+	let t = task.Go() { work() }
+	(t.Wait)()
+}
+-- 08704.ergo --
+import task
+func work() int {
+	1
+}
+func f() int {
+	let t = task.Go() { work() }
+	(t.Wait)()
+}
+-- 08705.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f() int {
+	let t = task.Go() { work() }
+	(t.Wait)()
+}
+-- 08706.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f() int {
+	let t = task.Go() { work() }
+	(t.Wait)()
+}
+-- 08707.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f() int {
+	let t = task.Go() { work() }
+	(t.Wait)()
+}
+-- 08708.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f() int {
+	let t = task.Go() { work() }
+	(t.Wait)()
+}
+-- 08709.ergo --
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+-- 08710.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+-- 08711.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+-- 08712.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+-- 08713.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+-- 08714.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+-- 08715.ergo --
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	return t
+}
+-- 08716.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	return t
+}
+-- 08717.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	return t
+}
+-- 08718.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	return t
+}
+-- 08719.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	return t
+}
+-- 08720.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	return t
+}
+-- 08721.ergo --
+func pick[T, E](c bool, a Task[T, E], b Task[T, E]) Task[T, E] {
+	if c { a } else { b }
+}
+-- 08722.ergo --
+import task
+func work() int {
+	1
+}
+func pick[T, E](c bool, a Task[T, E], b Task[T, E]) Task[T, E] {
+	if c { a } else { b }
+}
+-- 08723.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func pick[T, E](c bool, a Task[T, E], b Task[T, E]) Task[T, E] {
+	if c { a } else { b }
+}
+-- 08724.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func pick[T, E](c bool, a Task[T, E], b Task[T, E]) Task[T, E] {
+	if c { a } else { b }
+}
+-- 08725.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func pick[T, E](c bool, a Task[T, E], b Task[T, E]) Task[T, E] {
+	if c { a } else { b }
+}
+-- 08726.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func pick[T, E](c bool, a Task[T, E], b Task[T, E]) Task[T, E] {
+	if c { a } else { b }
+}
+-- 08727.ergo --
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+func f() int {
+	wait(task.Go() { work() })
+}
+-- 08728.ergo --
+import task
+func work() int {
+	1
+}
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+func f() int {
+	wait(task.Go() { work() })
+}
+-- 08729.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+func f() int {
+	wait(task.Go() { work() })
+}
+-- 08730.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+func f() int {
+	wait(task.Go() { work() })
+}
+-- 08731.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+func f() int {
+	wait(task.Go() { work() })
+}
+-- 08732.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+func f() int {
+	wait(task.Go() { work() })
+}
+-- 08733.ergo --
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+func f[T, E](t Task[T, E], w func(t Task[T, E]) T fails E) T fails E {
+	w(t)
+}
+-- 08734.ergo --
+import task
+func work() int {
+	1
+}
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+func f[T, E](t Task[T, E], w func(t Task[T, E]) T fails E) T fails E {
+	w(t)
+}
+-- 08735.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+func f[T, E](t Task[T, E], w func(t Task[T, E]) T fails E) T fails E {
+	w(t)
+}
+-- 08736.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+func f[T, E](t Task[T, E], w func(t Task[T, E]) T fails E) T fails E {
+	w(t)
+}
+-- 08737.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+func f[T, E](t Task[T, E], w func(t Task[T, E]) T fails E) T fails E {
+	w(t)
+}
+-- 08738.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+func f[T, E](t Task[T, E], w func(t Task[T, E]) T fails E) T fails E {
+	w(t)
+}
+-- 08739.ergo --
+type Fault {}
+func f(t Task[int, Fault]) Task[int, Fault] {
+	let own Task[int, Fault] = t
+	own
+}
+-- 08740.ergo --
+import task
+func work() int {
+	1
+}
+type Fault {}
+func f(t Task[int, Fault]) Task[int, Fault] {
+	let own Task[int, Fault] = t
+	own
+}
+-- 08741.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Fault {}
+func f(t Task[int, Fault]) Task[int, Fault] {
+	let own Task[int, Fault] = t
+	own
+}
+-- 08742.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Fault {}
+func f(t Task[int, Fault]) Task[int, Fault] {
+	let own Task[int, Fault] = t
+	own
+}
+-- 08743.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Fault {}
+func f(t Task[int, Fault]) Task[int, Fault] {
+	let own Task[int, Fault] = t
+	own
+}
+-- 08744.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Fault {}
+func f(t Task[int, Fault]) Task[int, Fault] {
+	let own Task[int, Fault] = t
+	own
+}
+-- 08745.ergo --
+func f() func() int {
+	func() int {
+		let t = task.Go() { work() }
+		t.Wait()
+	}
+}
+-- 08746.ergo --
+import task
+func work() int {
+	1
+}
+func f() func() int {
+	func() int {
+		let t = task.Go() { work() }
+		t.Wait()
+	}
+}
+-- 08747.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f() func() int {
+	func() int {
+		let t = task.Go() { work() }
+		t.Wait()
+	}
+}
+-- 08748.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f() func() int {
+	func() int {
+		let t = task.Go() { work() }
+		t.Wait()
+	}
+}
+-- 08749.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f() func() int {
+	func() int {
+		let t = task.Go() { work() }
+		t.Wait()
+	}
+}
+-- 08750.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f() func() int {
+	func() int {
+		let t = task.Go() { work() }
+		t.Wait()
+	}
+}
+-- 08751.ergo --
+func f[T, E]() func(t Task[T, E]) T fails E {
+	func(t Task[T, E]) T fails E { t.Wait() }
+}
+-- 08752.ergo --
+import task
+func work() int {
+	1
+}
+func f[T, E]() func(t Task[T, E]) T fails E {
+	func(t Task[T, E]) T fails E { t.Wait() }
+}
+-- 08753.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f[T, E]() func(t Task[T, E]) T fails E {
+	func(t Task[T, E]) T fails E { t.Wait() }
+}
+-- 08754.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f[T, E]() func(t Task[T, E]) T fails E {
+	func(t Task[T, E]) T fails E { t.Wait() }
+}
+-- 08755.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f[T, E]() func(t Task[T, E]) T fails E {
+	func(t Task[T, E]) T fails E { t.Wait() }
+}
+-- 08756.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f[T, E]() func(t Task[T, E]) T fails E {
+	func(t Task[T, E]) T fails E { t.Wait() }
+}
+-- 08757.ergo --
+type Job[T, E] { start func() Task[T, E] }
+-- 08758.ergo --
+import task
+func work() int {
+	1
+}
+type Job[T, E] { start func() Task[T, E] }
+-- 08759.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Job[T, E] { start func() Task[T, E] }
+-- 08760.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Job[T, E] { start func() Task[T, E] }
+-- 08761.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Job[T, E] { start func() Task[T, E] }
+-- 08762.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Job[T, E] { start func() Task[T, E] }
+-- 08763.ergo --
+func f[T, E](t Task[T, E]) Option[Task[T, E]] {
+	let o Option[Task[T, E]] = None
+	o
+}
+-- 08764.ergo --
+import task
+func work() int {
+	1
+}
+func f[T, E](t Task[T, E]) Option[Task[T, E]] {
+	let o Option[Task[T, E]] = None
+	o
+}
+-- 08765.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f[T, E](t Task[T, E]) Option[Task[T, E]] {
+	let o Option[Task[T, E]] = None
+	o
+}
+-- 08766.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f[T, E](t Task[T, E]) Option[Task[T, E]] {
+	let o Option[Task[T, E]] = None
+	o
+}
+-- 08767.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f[T, E](t Task[T, E]) Option[Task[T, E]] {
+	let o Option[Task[T, E]] = None
+	o
+}
+-- 08768.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f[T, E](t Task[T, E]) Option[Task[T, E]] {
+	let o Option[Task[T, E]] = None
+	o
+}
+-- 08769.ergo --
+type Fault {}
+type Phantom[T] { Wait() int fails Fault }
+func f(t Task[int, Fault]) Phantom[Task[int, Fault]] {
+	t
+}
+-- 08770.ergo --
+import task
+func work() int {
+	1
+}
+type Fault {}
+type Phantom[T] { Wait() int fails Fault }
+func f(t Task[int, Fault]) Phantom[Task[int, Fault]] {
+	t
+}
+-- 08771.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Fault {}
+type Phantom[T] { Wait() int fails Fault }
+func f(t Task[int, Fault]) Phantom[Task[int, Fault]] {
+	t
+}
+-- 08772.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Fault {}
+type Phantom[T] { Wait() int fails Fault }
+func f(t Task[int, Fault]) Phantom[Task[int, Fault]] {
+	t
+}
+-- 08773.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Fault {}
+type Phantom[T] { Wait() int fails Fault }
+func f(t Task[int, Fault]) Phantom[Task[int, Fault]] {
+	t
+}
+-- 08774.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Fault {}
+type Phantom[T] { Wait() int fails Fault }
+func f(t Task[int, Fault]) Phantom[Task[int, Fault]] {
+	t
+}
+-- 08775.ergo --
+type Box[T, E] { t Task[T, E] }
+-- 08776.ergo --
+import task
+func work() int {
+	1
+}
+type Box[T, E] { t Task[T, E] }
+-- 08777.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Box[T, E] { t Task[T, E] }
+-- 08778.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Box[T, E] { t Task[T, E] }
+-- 08779.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Box[T, E] { t Task[T, E] }
+-- 08780.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Box[T, E] { t Task[T, E] }
+-- 08781.ergo --
+type U[T, E] = Running{ t Task[T, E] } | Idle{}
+-- 08782.ergo --
+import task
+func work() int {
+	1
+}
+type U[T, E] = Running{ t Task[T, E] } | Idle{}
+-- 08783.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type U[T, E] = Running{ t Task[T, E] } | Idle{}
+-- 08784.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type U[T, E] = Running{ t Task[T, E] } | Idle{}
+-- 08785.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type U[T, E] = Running{ t Task[T, E] } | Idle{}
+-- 08786.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type U[T, E] = Running{ t Task[T, E] } | Idle{}
+-- 08787.ergo --
+type Fault {}
+type Box { t Task[int, Fault] }
+-- 08788.ergo --
+import task
+func work() int {
+	1
+}
+type Fault {}
+type Box { t Task[int, Fault] }
+-- 08789.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Fault {}
+type Box { t Task[int, Fault] }
+-- 08790.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Fault {}
+type Box { t Task[int, Fault] }
+-- 08791.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Fault {}
+type Box { t Task[int, Fault] }
+-- 08792.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Fault {}
+type Box { t Task[int, Fault] }
+-- 08793.ergo --
+type Box[T, E] { o Option[Task[T, E]] }
+-- 08794.ergo --
+import task
+func work() int {
+	1
+}
+type Box[T, E] { o Option[Task[T, E]] }
+-- 08795.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Box[T, E] { o Option[Task[T, E]] }
+-- 08796.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Box[T, E] { o Option[Task[T, E]] }
+-- 08797.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Box[T, E] { o Option[Task[T, E]] }
+-- 08798.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Box[T, E] { o Option[Task[T, E]] }
+-- 08799.ergo --
+func f[T, E](ts []Task[T, E]) {}
+-- 08800.ergo --
+import task
+func work() int {
+	1
+}
+func f[T, E](ts []Task[T, E]) {}
+-- 08801.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f[T, E](ts []Task[T, E]) {}
+-- 08802.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f[T, E](ts []Task[T, E]) {}
+-- 08803.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f[T, E](ts []Task[T, E]) {}
+-- 08804.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f[T, E](ts []Task[T, E]) {}
+-- 08805.ergo --
+func f[T, E](m Map[string, Task[T, E]]) {}
+-- 08806.ergo --
+import task
+func work() int {
+	1
+}
+func f[T, E](m Map[string, Task[T, E]]) {}
+-- 08807.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f[T, E](m Map[string, Task[T, E]]) {}
+-- 08808.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f[T, E](m Map[string, Task[T, E]]) {}
+-- 08809.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f[T, E](m Map[string, Task[T, E]]) {}
+-- 08810.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f[T, E](m Map[string, Task[T, E]]) {}
+-- 08811.ergo --
+type Fault {}
+func f(p (Task[int, Fault], int)) {}
+-- 08812.ergo --
+import task
+func work() int {
+	1
+}
+type Fault {}
+func f(p (Task[int, Fault], int)) {}
+-- 08813.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Fault {}
+func f(p (Task[int, Fault], int)) {}
+-- 08814.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Fault {}
+func f(p (Task[int, Fault], int)) {}
+-- 08815.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Fault {}
+func f(p (Task[int, Fault], int)) {}
+-- 08816.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Fault {}
+func f(p (Task[int, Fault], int)) {}
+-- 08817.ergo --
+func two[T, E](t Task[T, E]) (Task[T, E], int) {
+	(t, 1)
+}
+-- 08818.ergo --
+import task
+func work() int {
+	1
+}
+func two[T, E](t Task[T, E]) (Task[T, E], int) {
+	(t, 1)
+}
+-- 08819.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func two[T, E](t Task[T, E]) (Task[T, E], int) {
+	(t, 1)
+}
+-- 08820.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func two[T, E](t Task[T, E]) (Task[T, E], int) {
+	(t, 1)
+}
+-- 08821.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func two[T, E](t Task[T, E]) (Task[T, E], int) {
+	(t, 1)
+}
+-- 08822.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func two[T, E](t Task[T, E]) (Task[T, E], int) {
+	(t, 1)
+}
+-- 08823.ergo --
+func two[T, E](t Task[T, E]) (Task[T, E], Task[T, E]) {
+	(t, t)
+}
+func f[T, E](t Task[T, E]) T fails E {
+	let a, b = two(t)
+	_ = a
+	_ = b
+	t.Wait()
+}
+-- 08824.ergo --
+import task
+func work() int {
+	1
+}
+func two[T, E](t Task[T, E]) (Task[T, E], Task[T, E]) {
+	(t, t)
+}
+func f[T, E](t Task[T, E]) T fails E {
+	let a, b = two(t)
+	_ = a
+	_ = b
+	t.Wait()
+}
+-- 08825.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func two[T, E](t Task[T, E]) (Task[T, E], Task[T, E]) {
+	(t, t)
+}
+func f[T, E](t Task[T, E]) T fails E {
+	let a, b = two(t)
+	_ = a
+	_ = b
+	t.Wait()
+}
+-- 08826.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func two[T, E](t Task[T, E]) (Task[T, E], Task[T, E]) {
+	(t, t)
+}
+func f[T, E](t Task[T, E]) T fails E {
+	let a, b = two(t)
+	_ = a
+	_ = b
+	t.Wait()
+}
+-- 08827.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func two[T, E](t Task[T, E]) (Task[T, E], Task[T, E]) {
+	(t, t)
+}
+func f[T, E](t Task[T, E]) T fails E {
+	let a, b = two(t)
+	_ = a
+	_ = b
+	t.Wait()
+}
+-- 08828.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func two[T, E](t Task[T, E]) (Task[T, E], Task[T, E]) {
+	(t, t)
+}
+func f[T, E](t Task[T, E]) T fails E {
+	let a, b = two(t)
+	_ = a
+	_ = b
+	t.Wait()
+}
+-- 08829.ergo --
+type Box[T, E] { f Task[T, E] }
+func f[T, E](t Task[T, E]) T fails E {
+	let b = Box[T, E]{f: t}
+	_ = b
+	t.Wait()
+}
+-- 08830.ergo --
+import task
+func work() int {
+	1
+}
+type Box[T, E] { f Task[T, E] }
+func f[T, E](t Task[T, E]) T fails E {
+	let b = Box[T, E]{f: t}
+	_ = b
+	t.Wait()
+}
+-- 08831.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Box[T, E] { f Task[T, E] }
+func f[T, E](t Task[T, E]) T fails E {
+	let b = Box[T, E]{f: t}
+	_ = b
+	t.Wait()
+}
+-- 08832.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Box[T, E] { f Task[T, E] }
+func f[T, E](t Task[T, E]) T fails E {
+	let b = Box[T, E]{f: t}
+	_ = b
+	t.Wait()
+}
+-- 08833.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Box[T, E] { f Task[T, E] }
+func f[T, E](t Task[T, E]) T fails E {
+	let b = Box[T, E]{f: t}
+	_ = b
+	t.Wait()
+}
+-- 08834.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Box[T, E] { f Task[T, E] }
+func f[T, E](t Task[T, E]) T fails E {
+	let b = Box[T, E]{f: t}
+	_ = b
+	t.Wait()
+}
+-- 08835.ergo --
+func f[T, E](t Task[T, E]) []Task[T, E] {
+	[]Task[T, E]{t}
+}
+-- 08836.ergo --
+import task
+func work() int {
+	1
+}
+func f[T, E](t Task[T, E]) []Task[T, E] {
+	[]Task[T, E]{t}
+}
+-- 08837.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f[T, E](t Task[T, E]) []Task[T, E] {
+	[]Task[T, E]{t}
+}
+-- 08838.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f[T, E](t Task[T, E]) []Task[T, E] {
+	[]Task[T, E]{t}
+}
+-- 08839.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f[T, E](t Task[T, E]) []Task[T, E] {
+	[]Task[T, E]{t}
+}
+-- 08840.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f[T, E](t Task[T, E]) []Task[T, E] {
+	[]Task[T, E]{t}
+}
+-- 08841.ergo --
+func f[T, E](t Task[T, E]) T fails E {
+	let p = (t, 1)
+	t.Wait()
+}
+-- 08842.ergo --
+import task
+func work() int {
+	1
+}
+func f[T, E](t Task[T, E]) T fails E {
+	let p = (t, 1)
+	t.Wait()
+}
+-- 08843.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f[T, E](t Task[T, E]) T fails E {
+	let p = (t, 1)
+	t.Wait()
+}
+-- 08844.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f[T, E](t Task[T, E]) T fails E {
+	let p = (t, 1)
+	t.Wait()
+}
+-- 08845.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f[T, E](t Task[T, E]) T fails E {
+	let p = (t, 1)
+	t.Wait()
+}
+-- 08846.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f[T, E](t Task[T, E]) T fails E {
+	let p = (t, 1)
+	t.Wait()
+}
+-- 08847.ergo --
+type Tasks[T, E] []Task[T, E]
+-- 08848.ergo --
+import task
+func work() int {
+	1
+}
+type Tasks[T, E] []Task[T, E]
+-- 08849.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Tasks[T, E] []Task[T, E]
+-- 08850.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Tasks[T, E] []Task[T, E]
+-- 08851.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Tasks[T, E] []Task[T, E]
+-- 08852.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Tasks[T, E] []Task[T, E]
+-- 08853.ergo --
+type Fault {}
+type Box[T] { v T }
+type B Box[Task[int, Fault]]
+-- 08854.ergo --
+import task
+func work() int {
+	1
+}
+type Fault {}
+type Box[T] { v T }
+type B Box[Task[int, Fault]]
+-- 08855.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Fault {}
+type Box[T] { v T }
+type B Box[Task[int, Fault]]
+-- 08856.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Fault {}
+type Box[T] { v T }
+type B Box[Task[int, Fault]]
+-- 08857.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Fault {}
+type Box[T] { v T }
+type B Box[Task[int, Fault]]
+-- 08858.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Fault {}
+type Box[T] { v T }
+type B Box[Task[int, Fault]]
+-- 08859.ergo --
+type Fault {}
+func start() Task[int, Fault] {
+	start()
+}
+let t = start()
+-- 08860.ergo --
+import task
+func work() int {
+	1
+}
+type Fault {}
+func start() Task[int, Fault] {
+	start()
+}
+let t = start()
+-- 08861.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Fault {}
+func start() Task[int, Fault] {
+	start()
+}
+let t = start()
+-- 08862.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Fault {}
+func start() Task[int, Fault] {
+	start()
+}
+let t = start()
+-- 08863.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Fault {}
+func start() Task[int, Fault] {
+	start()
+}
+let t = start()
+-- 08864.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Fault {}
+func start() Task[int, Fault] {
+	start()
+}
+let t = start()
+-- 08865.ergo --
+type Fault {}
+let o Option[Task[int, Fault]] = None
+-- 08866.ergo --
+import task
+func work() int {
+	1
+}
+type Fault {}
+let o Option[Task[int, Fault]] = None
+-- 08867.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Fault {}
+let o Option[Task[int, Fault]] = None
+-- 08868.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Fault {}
+let o Option[Task[int, Fault]] = None
+-- 08869.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Fault {}
+let o Option[Task[int, Fault]] = None
+-- 08870.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Fault {}
+let o Option[Task[int, Fault]] = None
+-- 08871.ergo --
+func f() {
+	task.Go() { work() }
+}
+-- 08872.ergo --
+import task
+func work() int {
+	1
+}
+func f() {
+	task.Go() { work() }
+}
+-- 08873.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f() {
+	task.Go() { work() }
+}
+-- 08874.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f() {
+	task.Go() { work() }
+}
+-- 08875.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f() {
+	task.Go() { work() }
+}
+-- 08876.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f() {
+	task.Go() { work() }
+}
+-- 08877.ergo --
+func f() {
+	let t = task.Go() { work() }
+	_ = t
+}
+-- 08878.ergo --
+import task
+func work() int {
+	1
+}
+func f() {
+	let t = task.Go() { work() }
+	_ = t
+}
+-- 08879.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f() {
+	let t = task.Go() { work() }
+	_ = t
+}
+-- 08880.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f() {
+	let t = task.Go() { work() }
+	_ = t
+}
+-- 08881.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f() {
+	let t = task.Go() { work() }
+	_ = t
+}
+-- 08882.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f() {
+	let t = task.Go() { work() }
+	_ = t
+}
+-- 08883.ergo --
+func f() int {
+	let mut t = task.Go() { work() }
+	t = task.Go() { work() }
+	t.Wait()
+}
+-- 08884.ergo --
+import task
+func work() int {
+	1
+}
+func f() int {
+	let mut t = task.Go() { work() }
+	t = task.Go() { work() }
+	t.Wait()
+}
+-- 08885.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f() int {
+	let mut t = task.Go() { work() }
+	t = task.Go() { work() }
+	t.Wait()
+}
+-- 08886.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f() int {
+	let mut t = task.Go() { work() }
+	t = task.Go() { work() }
+	t.Wait()
+}
+-- 08887.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f() int {
+	let mut t = task.Go() { work() }
+	t = task.Go() { work() }
+	t.Wait()
+}
+-- 08888.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f() int {
+	let mut t = task.Go() { work() }
+	t = task.Go() { work() }
+	t.Wait()
+}
+-- 08889.ergo --
+func f() {
+	let t = task.Go() { work() }
+	let _ = t
+}
+-- 08890.ergo --
+import task
+func work() int {
+	1
+}
+func f() {
+	let t = task.Go() { work() }
+	let _ = t
+}
+-- 08891.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f() {
+	let t = task.Go() { work() }
+	let _ = t
+}
+-- 08892.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f() {
+	let t = task.Go() { work() }
+	let _ = t
+}
+-- 08893.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f() {
+	let t = task.Go() { work() }
+	let _ = t
+}
+-- 08894.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f() {
+	let t = task.Go() { work() }
+	let _ = t
+}
+-- 08895.ergo --
+type Fault {}
+func f(o Option[Task[int, Fault]]) int {
+	match o {
+		case Some{_}: 1
+		case None: 0
+	}
+}
+-- 08896.ergo --
+import task
+func work() int {
+	1
+}
+type Fault {}
+func f(o Option[Task[int, Fault]]) int {
+	match o {
+		case Some{_}: 1
+		case None: 0
+	}
+}
+-- 08897.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Fault {}
+func f(o Option[Task[int, Fault]]) int {
+	match o {
+		case Some{_}: 1
+		case None: 0
+	}
+}
+-- 08898.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Fault {}
+func f(o Option[Task[int, Fault]]) int {
+	match o {
+		case Some{_}: 1
+		case None: 0
+	}
+}
+-- 08899.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Fault {}
+func f(o Option[Task[int, Fault]]) int {
+	match o {
+		case Some{_}: 1
+		case None: 0
+	}
+}
+-- 08900.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Fault {}
+func f(o Option[Task[int, Fault]]) int {
+	match o {
+		case Some{_}: 1
+		case None: 0
+	}
+}
+-- 08901.ergo --
+type Holder { f func() int }
+func f() Holder {
+	let t = task.Go() { work() }
+	Holder{f: t.Wait}
+}
+-- 08902.ergo --
+import task
+func work() int {
+	1
+}
+type Holder { f func() int }
+func f() Holder {
+	let t = task.Go() { work() }
+	Holder{f: t.Wait}
+}
+-- 08903.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Holder { f func() int }
+func f() Holder {
+	let t = task.Go() { work() }
+	Holder{f: t.Wait}
+}
+-- 08904.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Holder { f func() int }
+func f() Holder {
+	let t = task.Go() { work() }
+	Holder{f: t.Wait}
+}
+-- 08905.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Holder { f func() int }
+func f() Holder {
+	let t = task.Go() { work() }
+	Holder{f: t.Wait}
+}
+-- 08906.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Holder { f func() int }
+func f() Holder {
+	let t = task.Go() { work() }
+	Holder{f: t.Wait}
+}
+-- 08907.ergo --
+func f() func() int {
+	let t = task.Go() { work() }
+	let w = t.Wait
+	func() int { w() }
+}
+-- 08908.ergo --
+import task
+func work() int {
+	1
+}
+func f() func() int {
+	let t = task.Go() { work() }
+	let w = t.Wait
+	func() int { w() }
+}
+-- 08909.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f() func() int {
+	let t = task.Go() { work() }
+	let w = t.Wait
+	func() int { w() }
+}
+-- 08910.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f() func() int {
+	let t = task.Go() { work() }
+	let w = t.Wait
+	func() int { w() }
+}
+-- 08911.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f() func() int {
+	let t = task.Go() { work() }
+	let w = t.Wait
+	func() int { w() }
+}
+-- 08912.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f() func() int {
+	let t = task.Go() { work() }
+	let w = t.Wait
+	func() int { w() }
+}
+-- 08913.ergo --
+type Fault {}
+func g(t Task[int, Fault]) (func() int fails Fault, int) {
+	(t.Wait, 1)
+}
+-- 08914.ergo --
+import task
+func work() int {
+	1
+}
+type Fault {}
+func g(t Task[int, Fault]) (func() int fails Fault, int) {
+	(t.Wait, 1)
+}
+-- 08915.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Fault {}
+func g(t Task[int, Fault]) (func() int fails Fault, int) {
+	(t.Wait, 1)
+}
+-- 08916.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Fault {}
+func g(t Task[int, Fault]) (func() int fails Fault, int) {
+	(t.Wait, 1)
+}
+-- 08917.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Fault {}
+func g(t Task[int, Fault]) (func() int fails Fault, int) {
+	(t.Wait, 1)
+}
+-- 08918.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Fault {}
+func g(t Task[int, Fault]) (func() int fails Fault, int) {
+	(t.Wait, 1)
+}
+-- 08919.ergo --
+type Fault {}
+func f() func() int {
+	let mut o Option[Task[int, Fault]] = None
+	let g = func() int { o = Some{task.Go() { work() }}; 0 }
+	let _ = o
+	g
+}
+-- 08920.ergo --
+import task
+func work() int {
+	1
+}
+type Fault {}
+func f() func() int {
+	let mut o Option[Task[int, Fault]] = None
+	let g = func() int { o = Some{task.Go() { work() }}; 0 }
+	let _ = o
+	g
+}
+-- 08921.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Fault {}
+func f() func() int {
+	let mut o Option[Task[int, Fault]] = None
+	let g = func() int { o = Some{task.Go() { work() }}; 0 }
+	let _ = o
+	g
+}
+-- 08922.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Fault {}
+func f() func() int {
+	let mut o Option[Task[int, Fault]] = None
+	let g = func() int { o = Some{task.Go() { work() }}; 0 }
+	let _ = o
+	g
+}
+-- 08923.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Fault {}
+func f() func() int {
+	let mut o Option[Task[int, Fault]] = None
+	let g = func() int { o = Some{task.Go() { work() }}; 0 }
+	let _ = o
+	g
+}
+-- 08924.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Fault {}
+func f() func() int {
+	let mut o Option[Task[int, Fault]] = None
+	let g = func() int { o = Some{task.Go() { work() }}; 0 }
+	let _ = o
+	g
+}
+-- 08925.ergo --
+type Fault {}
+func f() func(t Task[int, Fault]) {
+	let mut o Option[Task[int, Fault]] = None
+	let g = func(t Task[int, Fault]) { o = Some{t} }
+	let _ = o
+	g
+}
+-- 08926.ergo --
+import task
+func work() int {
+	1
+}
+type Fault {}
+func f() func(t Task[int, Fault]) {
+	let mut o Option[Task[int, Fault]] = None
+	let g = func(t Task[int, Fault]) { o = Some{t} }
+	let _ = o
+	g
+}
+-- 08927.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Fault {}
+func f() func(t Task[int, Fault]) {
+	let mut o Option[Task[int, Fault]] = None
+	let g = func(t Task[int, Fault]) { o = Some{t} }
+	let _ = o
+	g
+}
+-- 08928.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Fault {}
+func f() func(t Task[int, Fault]) {
+	let mut o Option[Task[int, Fault]] = None
+	let g = func(t Task[int, Fault]) { o = Some{t} }
+	let _ = o
+	g
+}
+-- 08929.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Fault {}
+func f() func(t Task[int, Fault]) {
+	let mut o Option[Task[int, Fault]] = None
+	let g = func(t Task[int, Fault]) { o = Some{t} }
+	let _ = o
+	g
+}
+-- 08930.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Fault {}
+func f() func(t Task[int, Fault]) {
+	let mut o Option[Task[int, Fault]] = None
+	let g = func(t Task[int, Fault]) { o = Some{t} }
+	let _ = o
+	g
+}
+-- 08931.ergo --
+type Holder[T] { Value T, N int }
+func f() func() int {
+	let mut h = Holder{Value: task.Go() { work() }, N: 0}
+	let g = func() int { h.Value = task.Go() { work() }; 0 }
+	let _ = h
+	g
+}
+-- 08932.ergo --
+import task
+func work() int {
+	1
+}
+type Holder[T] { Value T, N int }
+func f() func() int {
+	let mut h = Holder{Value: task.Go() { work() }, N: 0}
+	let g = func() int { h.Value = task.Go() { work() }; 0 }
+	let _ = h
+	g
+}
+-- 08933.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Holder[T] { Value T, N int }
+func f() func() int {
+	let mut h = Holder{Value: task.Go() { work() }, N: 0}
+	let g = func() int { h.Value = task.Go() { work() }; 0 }
+	let _ = h
+	g
+}
+-- 08934.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Holder[T] { Value T, N int }
+func f() func() int {
+	let mut h = Holder{Value: task.Go() { work() }, N: 0}
+	let g = func() int { h.Value = task.Go() { work() }; 0 }
+	let _ = h
+	g
+}
+-- 08935.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Holder[T] { Value T, N int }
+func f() func() int {
+	let mut h = Holder{Value: task.Go() { work() }, N: 0}
+	let g = func() int { h.Value = task.Go() { work() }; 0 }
+	let _ = h
+	g
+}
+-- 08936.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Holder[T] { Value T, N int }
+func f() func() int {
+	let mut h = Holder{Value: task.Go() { work() }, N: 0}
+	let g = func() int { h.Value = task.Go() { work() }; 0 }
+	let _ = h
+	g
+}
+-- 08937.ergo --
+type Holder[T] { Value T, N int }
+func f() func() int {
+	let mut h = Holder{Value: task.Go() { work() }, N: 0}
+	let g = func() int { h.N += 1; 0 }
+	let _ = h
+	g
+}
+-- 08938.ergo --
+import task
+func work() int {
+	1
+}
+type Holder[T] { Value T, N int }
+func f() func() int {
+	let mut h = Holder{Value: task.Go() { work() }, N: 0}
+	let g = func() int { h.N += 1; 0 }
+	let _ = h
+	g
+}
+-- 08939.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Holder[T] { Value T, N int }
+func f() func() int {
+	let mut h = Holder{Value: task.Go() { work() }, N: 0}
+	let g = func() int { h.N += 1; 0 }
+	let _ = h
+	g
+}
+-- 08940.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Holder[T] { Value T, N int }
+func f() func() int {
+	let mut h = Holder{Value: task.Go() { work() }, N: 0}
+	let g = func() int { h.N += 1; 0 }
+	let _ = h
+	g
+}
+-- 08941.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Holder[T] { Value T, N int }
+func f() func() int {
+	let mut h = Holder{Value: task.Go() { work() }, N: 0}
+	let g = func() int { h.N += 1; 0 }
+	let _ = h
+	g
+}
+-- 08942.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Holder[T] { Value T, N int }
+func f() func() int {
+	let mut h = Holder{Value: task.Go() { work() }, N: 0}
+	let g = func() int { h.N += 1; 0 }
+	let _ = h
+	g
+}
+-- 08943.ergo --
+func keep[T](x T) []T { []T{x} }
+func f() func() int {
+	let mut ts = keep(task.Go() { work() })
+	let g = func() int { ts[0] = task.Go() { work() }; 0 }
+	let _ = len(ts)
+	g
+}
+-- 08944.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T](x T) []T { []T{x} }
+func f() func() int {
+	let mut ts = keep(task.Go() { work() })
+	let g = func() int { ts[0] = task.Go() { work() }; 0 }
+	let _ = len(ts)
+	g
+}
+-- 08945.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func keep[T](x T) []T { []T{x} }
+func f() func() int {
+	let mut ts = keep(task.Go() { work() })
+	let g = func() int { ts[0] = task.Go() { work() }; 0 }
+	let _ = len(ts)
+	g
+}
+-- 08946.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func keep[T](x T) []T { []T{x} }
+func f() func() int {
+	let mut ts = keep(task.Go() { work() })
+	let g = func() int { ts[0] = task.Go() { work() }; 0 }
+	let _ = len(ts)
+	g
+}
+-- 08947.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func keep[T](x T) []T { []T{x} }
+func f() func() int {
+	let mut ts = keep(task.Go() { work() })
+	let g = func() int { ts[0] = task.Go() { work() }; 0 }
+	let _ = len(ts)
+	g
+}
+-- 08948.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func keep[T](x T) []T { []T{x} }
+func f() func() int {
+	let mut ts = keep(task.Go() { work() })
+	let g = func() int { ts[0] = task.Go() { work() }; 0 }
+	let _ = len(ts)
+	g
+}
+-- 08949.ergo --
+type Fault {}
+func put(p *Task[int, Fault]) { *p = task.Go() { work() } }
+-- 08950.ergo --
+import task
+func work() int {
+	1
+}
+type Fault {}
+func put(p *Task[int, Fault]) { *p = task.Go() { work() } }
+-- 08951.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Fault {}
+func put(p *Task[int, Fault]) { *p = task.Go() { work() } }
+-- 08952.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Fault {}
+func put(p *Task[int, Fault]) { *p = task.Go() { work() } }
+-- 08953.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Fault {}
+func put(p *Task[int, Fault]) { *p = task.Go() { work() } }
+-- 08954.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Fault {}
+func put(p *Task[int, Fault]) { *p = task.Go() { work() } }
+-- 08955.ergo --
+func f() {
+	let mut t = task.Go() { work() }
+	_ = &t
+}
+-- 08956.ergo --
+import task
+func work() int {
+	1
+}
+func f() {
+	let mut t = task.Go() { work() }
+	_ = &t
+}
+-- 08957.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f() {
+	let mut t = task.Go() { work() }
+	_ = &t
+}
+-- 08958.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f() {
+	let mut t = task.Go() { work() }
+	_ = &t
+}
+-- 08959.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f() {
+	let mut t = task.Go() { work() }
+	_ = &t
+}
+-- 08960.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f() {
+	let mut t = task.Go() { work() }
+	_ = &t
+}
+-- 08961.ergo --
+type Fault {}
+func f() {
+	let p *Task[int, Fault]
+	_ = p
+}
+-- 08962.ergo --
+import task
+func work() int {
+	1
+}
+type Fault {}
+func f() {
+	let p *Task[int, Fault]
+	_ = p
+}
+-- 08963.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Fault {}
+func f() {
+	let p *Task[int, Fault]
+	_ = p
+}
+-- 08964.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Fault {}
+func f() {
+	let p *Task[int, Fault]
+	_ = p
+}
+-- 08965.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Fault {}
+func f() {
+	let p *Task[int, Fault]
+	_ = p
+}
+-- 08966.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Fault {}
+func f() {
+	let p *Task[int, Fault]
+	_ = p
+}
+-- 08967.ergo --
+type Fault {}
+type Box { p *Task[int, Fault] }
+-- 08968.ergo --
+import task
+func work() int {
+	1
+}
+type Fault {}
+type Box { p *Task[int, Fault] }
+-- 08969.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+type Fault {}
+type Box { p *Task[int, Fault] }
+-- 08970.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+type Fault {}
+type Box { p *Task[int, Fault] }
+-- 08971.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+type Fault {}
+type Box { p *Task[int, Fault] }
+-- 08972.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+type Fault {}
+type Box { p *Task[int, Fault] }
+-- 08973.ergo --
+func f() func() int {
+	let t = task.Go() { work() }
+	func() int { t.Wait() }
+}
+-- 08974.ergo --
+import task
+func work() int {
+	1
+}
+func f() func() int {
+	let t = task.Go() { work() }
+	func() int { t.Wait() }
+}
+-- 08975.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f() func() int {
+	let t = task.Go() { work() }
+	func() int { t.Wait() }
+}
+-- 08976.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f() func() int {
+	let t = task.Go() { work() }
+	func() int { t.Wait() }
+}
+-- 08977.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f() func() int {
+	let t = task.Go() { work() }
+	func() int { t.Wait() }
+}
+-- 08978.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f() func() int {
+	let t = task.Go() { work() }
+	func() int { t.Wait() }
+}
+-- 08979.ergo --
+func f[T, E](t Task[T, E]) func() T fails E {
+	func() T fails E { t.Wait() }
+}
+-- 08980.ergo --
+import task
+func work() int {
+	1
+}
+func f[T, E](t Task[T, E]) func() T fails E {
+	func() T fails E { t.Wait() }
+}
+-- 08981.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f[T, E](t Task[T, E]) func() T fails E {
+	func() T fails E { t.Wait() }
+}
+-- 08982.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f[T, E](t Task[T, E]) func() T fails E {
+	func() T fails E { t.Wait() }
+}
+-- 08983.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f[T, E](t Task[T, E]) func() T fails E {
+	func() T fails E { t.Wait() }
+}
+-- 08984.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f[T, E](t Task[T, E]) func() T fails E {
+	func() T fails E { t.Wait() }
+}
+-- 08985.ergo --
+func f() func() int {
+	let t = task.Go() { work() }
+	func() int {
+		let u = task.Go() { t.Wait() }
+		u.Wait()
+	}
+}
+-- 08986.ergo --
+import task
+func work() int {
+	1
+}
+func f() func() int {
+	let t = task.Go() { work() }
+	func() int {
+		let u = task.Go() { t.Wait() }
+		u.Wait()
+	}
+}
+-- 08987.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f() func() int {
+	let t = task.Go() { work() }
+	func() int {
+		let u = task.Go() { t.Wait() }
+		u.Wait()
+	}
+}
+-- 08988.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f() func() int {
+	let t = task.Go() { work() }
+	func() int {
+		let u = task.Go() { t.Wait() }
+		u.Wait()
+	}
+}
+-- 08989.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f() func() int {
+	let t = task.Go() { work() }
+	func() int {
+		let u = task.Go() { t.Wait() }
+		u.Wait()
+	}
+}
+-- 08990.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f() func() int {
+	let t = task.Go() { work() }
+	func() int {
+		let u = task.Go() { t.Wait() }
+		u.Wait()
+	}
+}
+-- 08991.ergo --
+func f() int {
+	let t = task.Go() { work() }
+	let u = task.Go() { t.Wait() + 1 }
+	u.Wait()
+}
+-- 08992.ergo --
+import task
+func work() int {
+	1
+}
+func f() int {
+	let t = task.Go() { work() }
+	let u = task.Go() { t.Wait() + 1 }
+	u.Wait()
+}
+-- 08993.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f() int {
+	let t = task.Go() { work() }
+	let u = task.Go() { t.Wait() + 1 }
+	u.Wait()
+}
+-- 08994.ergo --
+import task
+type Fault {}
+type Starts { Start() Task[int, Fault] }
+func work() int fails Fault {
+	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+func f() int {
+	let t = task.Go() { work() }
+	let u = task.Go() { t.Wait() + 1 }
+	u.Wait()
+}
+-- 08995.ergo --
+type Fault {}
+type Waiter { Wait() int fails Fault }
+func f() int {
+	let t = task.Go() { work() }
+	let u = task.Go() { t.Wait() + 1 }
+	u.Wait()
+}
+-- 08996.ergo --
+type Fault {}
+type MyTask Task[int, Fault]
+func f(t Task[int, Fault]) MyTask { let m = MyTask(t); _ = m; MyTask(t) }
+func g(t Task[int, Fault]) MyTask { MyTask(t) }
+func f() int {
+	let t = task.Go() { work() }
+	let u = task.Go() { t.Wait() + 1 }
+	u.Wait()
+}
+-- 08997.ergo --
+func f[T, E](t Task[T, E]) func() Task[T, E] {
+	func() Task[T, E] { t }
+}
+-- 08998.ergo --
+import task
+func work() int {
+	1
+}
+func f[T, E](t Task[T, E]) func() Task[T, E] {
+	func() Task[T, E] { t }
+}
+-- 08999.ergo --
+import task
+func work() int {
+	1
+}
+func keep[T, E](t Task[T, E]) Task[T, E] {
+	t
+}
+
+func maybe[T, E](t Task[T, E]) Option[T] {
+	None
+}
+
+func wait[T, E](t Task[T, E]) T fails E {
+	t.Wait()
+}
+
+func f() int {
+	wait(keep(task.Go() { work() }))
+}
+func f[T, E](t Task[T, E]) func() Task[T, E] {
+	func() Task[T, E] { t }
+}

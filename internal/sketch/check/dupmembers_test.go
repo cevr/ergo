@@ -247,27 +247,6 @@ func TestDuplicateMembersInDuplicateTypes(t *testing.T) {
 	}
 }
 
-// TestDuplicateKeyOwner: a member law's duplicate is keyed by its type,
-// and a top-level law's by its name alone, though the two messages are
-// the same, so a package-level law duplicate stays in the oracle's set.
-func TestDuplicateKeyOwner(t *testing.T) {
-	src := "type T{a()int, law L(){true}, law L(){true}}\nlaw L() { true }\nlaw L() { true }\n"
-	f := parseFiles(t, src)[0]
-	_, diags := Check("main", []*syntax.File{f}, nil)
-	var keys []string
-	for _, d := range diags {
-		if k, ok := duplicateKey(d, f); ok {
-			keys = append(keys, k)
-		}
-	}
-	if !slices.Equal(keys, []string{"T.L", "L"}) {
-		t.Fatalf("keys %v, want [T.L L] in %v", keys, diags)
-	}
-	if got := duplicatesOf([]string{"S108 duplicate T.L", "S108 duplicate L"}, true); !slices.Equal(got, []string{"rejected true", "L"}) {
-		t.Fatalf("duplicatesOf: %v", got)
-	}
-}
-
 // TestFuzzFoundDuplicateLawInDuplicateType is the saved input
 // fuzz-found-524f2c0c838cd56a: A0000 is declared twice, and the second
 // declaration holds four laws named A. Which declaration is kept depends

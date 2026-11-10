@@ -1,6 +1,0 @@
-# "b" is searched from 250, and its result is due at 650. The key at 650
-# is stepped first and ends that search's entry. The result is in the
-# inbox already, so only its epoch keeps it from the step: it is dropped
-@0 key b
-@650 key r
-@1500 end

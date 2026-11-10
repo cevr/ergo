@@ -1,0 +1,89 @@
+// Status is where a deploy is in its lifecycle.
+type Status = Pending{} | Approved{} | Live{} | Cancelled{}
+
+// Event is what a client or an operator does to a deploy.
+type Event = Approve{} | Release{} | Cancel{}
+
+// Conflict is an event that the deploy's status does not allow.
+type Conflict { ID string, Status string, Event string }
+
+// Step is the lifecycle: a pending deploy is approved or cancelled; an
+// approved one is released (live) or cancelled; a second approval is
+// ignored; a live or a cancelled deploy takes no event. The match names every pair, so a new
+// status or event stops the build until its row is written.
+func Step(s Status, e Event) Decision[Status, Status] {
+	match (s, e) {
+	case (Pending, Approve):
+		Enter[Status]{Next: Approved}
+	case (Pending, Cancel):
+		Enter[Status]{Next: Cancelled}
+	case (Pending, Release):
+		Reject
+	case (Approved, Approve):
+		Ignore
+	case (Approved, Release):
+		Enter[Status]{Next: Live}
+	case (Approved, Cancel):
+		Enter[Status]{Next: Cancelled}
+	case (Live, Approve), (Live, Release), (Live, Cancel):
+		Reject
+	case (Cancelled, Approve), (Cancelled, Release), (Cancelled, Cancel):
+		Reject
+	}
+}
+
+// Lifecycle is the lifecycle of one deploy as a machine.
+type Lifecycle machine[Status, Event] {
+	initial: Pending,
+	step:    Step,
+}
+
+// Name is the external name of s.
+func Name(s Status) string {
+	match s {
+	case Pending:
+		"pending"
+	case Approved:
+		"approved"
+	case Live:
+		"live"
+	case Cancelled:
+		"cancelled"
+	}
+}
+
+// EventName is the external name of e, the last element of its path.
+func EventName(e Event) string {
+	match e {
+	case Approve:
+		"approve"
+	case Release:
+		"release"
+	case Cancel:
+		"cancel"
+	}
+}
+
+// EventNamed is the event of an external name.
+func EventNamed(name string) Option[Event] {
+	match name {
+	case "approve":
+		Some[Event]{Value: Approve}
+	case "release":
+		Some[Event]{Value: Release}
+	case "cancel":
+		Some[Event]{Value: Cancel}
+	case _:
+		None
+	}
+}
+
+// Final reports whether s takes no event.
+func Final(s Status) bool {
+	match s {
+	case Live, Cancelled:
+		true
+	case Pending, Approved:
+		false
+	}
+}

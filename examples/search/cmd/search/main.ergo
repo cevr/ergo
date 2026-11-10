@@ -1,23 +1,25 @@
-// search is search as you type over a catalogue, with a pause before each
-// search, last-query-wins, and a cart. It runs a script of timed keys on a
-// virtual clock and shows what the search does. Package search is the
-// machine and its hand runner; package script reads the script and runs
-// it; package memory holds the catalogue and the cart. This binary is the
-// only place that chooses them: Live binds search.Catalog and search.Cart
-// to memory's providers, and io to the host.
+// search is search as you type over a index, with a pause before each
+// search, last-query-wins, and pins. It plays a script of timed keys
+// against the search, run as an actor on a manual clock, and shows what
+// the search does. Package search is the machine; package script reads
+// the script and plays it; package memory holds the index. This binary
+// is the only place that chooses them: Live binds search.Index to
+// memory's provider, and main binds the clock and io to the host.
 
 import io
 import os
+import time
 import search/memory
 import search/script
 import search/search
 
-let Live = context { search.Catalog: memory.Shelf, search.Cart: memory.Basket }
+let Live = context { search.Index: memory.Listing }
 
 func main() fails os.Exit needs Console | Ambient {
+	let clock = time.NewManual(0)
 	let status = with Live {
-		with context { io.Stdin: io.NewHost() } {
-			script.Run()
+		with context { io.Stdin: io.NewHost(), Scheduler: clock } {
+			script.Run(clock)
 		}
 	}
 	if status != 0 {

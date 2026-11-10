@@ -1,4 +1,4 @@
-kiosk lobby
+display lobby
 # a session on the menu waits 60s idle, then prompts for 10s
 @0 open menu
 @20000 touch

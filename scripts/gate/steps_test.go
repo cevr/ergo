@@ -113,6 +113,12 @@ func TestCLIPackagesRunTheCLIThisRunBuilt(t *testing.T) {
 				if !slices.Contains(step.Env, cliTestEnvironment[0]) {
 					t.Errorf("%s tier: %s does not name the built CLI to its tests (environment %q), so each test process builds its own", tier, step.Name, step.Env)
 				}
+				// TestCorpusCompilesWithGc runs only under this variable:
+				// without it on the full tier's steps, gc never compiles
+				// the corpus.
+				if tier == fullTier && relative == corpusGcPackage && !slices.Contains(step.Env, "ERGO_TEST_CORPUS_GC=1") {
+					t.Errorf("full tier: %s does not select the corpus gc check (environment %q)", step.Name, step.Env)
+				}
 				// The fast step replays under its package key, and bin/ergo
 				// is not a file of the package: the key must cover what
 				// the binary is built from, so an edit of the CLI or of

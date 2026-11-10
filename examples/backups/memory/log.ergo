@@ -1,0 +1,45 @@
+// Package memory holds an in-memory provider of backup.Backups: an event
+// log per backup and a snapshot of each backup's state, so a command is
+// decided without replaying the backup's history.
+
+import maps
+import backups/backup
+import sync
+
+// Log is the store: the streams and the snapshots, in one sync.Ref, so
+// every copy of a Log is the same store and a Send writes both at once.
+type Log { cells sync.Ref[store] }
+
+// store is what a Log holds.
+type store { streams Map[string, []backup.Event], states Map[string, backup.State] }
+
+// NewLog is an empty store.
+func NewLog() Log {
+	Log{cells: sync.NewRef[store](store{streams: Map[string, []backup.Event]{}, states: Map[string, backup.State]{}})}
+}
+
+func History(l Log, id string) []backup.Event { maps.GetOr(l.cells.Get().streams, id, []backup.Event{}) }
+
+func Current(l Log, id string) backup.State { maps.GetOr(l.cells.Get().states, id, backup.Absent) }
+
+// Send decides c against the snapshot, then appends the events to the
+// backup's stream and evolves the snapshot by each of them.
+func Send(l Log, c backup.Command) []backup.Event fails backup.Rejection {
+	let id = backup.BackupOf(c)
+	let s = l.Current(id)
+	let events = try backup.Decide(s, c)
+	let mut stream = l.History(id)
+	let mut next = s
+	for e in events {
+		stream = stream.Append(e)
+		next = backup.Evolve(next, e)
+	}
+	l.cells.Update(func(k store) store {
+		let mut streams = k.streams
+		let mut states = k.states
+		streams[id] = stream
+		states[id] = next
+		store{streams: streams, states: states}
+	})
+	events
+}

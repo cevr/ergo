@@ -86,89 +86,198 @@ func (o *lowered) mainGo() string {
 	return ""
 }
 
-// buildAll writes each program as package p/NAME of one module and runs go
-// vet and go build on them all. It returns each program's executable when
-// link is set. A program that does not compile or vet fails the test with
-// its Go diagnostics and its source.
+// needsBuild marks a test that starts a go command or a built program: the
+// fast tier (-short) skips it, and the full tier runs it (test-speed plan
+// T3; docs/decisions.md, Q1 of 2026-11-08). Call it first in the test.
+func needsBuild(t testing.TB) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("full tier: builds Go")
+	}
+}
+
+// fastTierGuard fails a test that reaches a helper that builds or runs Go
+// under -short: such a test lacks needsBuild, and would build in the fast
+// tier by accident. buildAll (with a link), runProgram and ergoCLI call it.
+// typecheckGo is in process; its one go list -export per test process is
+// not a build of a program.
+func fastTierGuard(t testing.TB, what string) {
+	t.Helper()
+	if testing.Short() {
+		t.Fatalf("%s under -short: call needsBuild(t) first in the test (the fast tier runs no Go program)", what)
+	}
+}
+
+// buildAll writes each program as package p/NAME of one module, links them
+// all into one dispatcher binary (buildDispatch; the reference path
+// buildSeparate vets and links one binary each), and returns each
+// program's executable. A program that does not compile fails the test
+// with its Go diagnostics and its source. Without link, the question is only whether
+// the Go type-checks: typecheckGo answers it in process, and
+// TestCorpusCompilesWithGc keeps gc's answer in the full tier.
 func buildAll(t *testing.T, programs []*lowered, link bool) map[string]string {
+	t.Helper()
+	if !link {
+		typecheckGo(t, programs)
+		return nil
+	}
+	fastTierGuard(t, "buildAll links Go programs")
+	return linkPrograms(t, programs)
+}
+
+// linkPrograms is buildAll's link: the dispatcher, or the path the test
+// variables select. The program tables (table_test.go) link through it too.
+func linkPrograms(t testing.TB, programs []*lowered) map[string]string {
 	t.Helper()
 	if len(programs) == 0 {
 		return nil
-	}
-	root := t.TempDir()
-	write := func(rel string, data []byte) {
-		p := filepath.Join(root, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, data, 0o644); err != nil {
-			t.Fatal(err)
-		}
 	}
 	if err := unparsedGo(programs); err != nil {
 		t.Error(err)
 		return nil
 	}
-	write("go.mod", []byte(goMod))
+	switch {
+	case separateBinaries:
+		return buildSeparate(t, programs)
+	case dispatchCheck != "":
+		return buildTwins(t, programs)
+	}
+	return buildDispatch(t, programs)
+}
+
+// goModuleDir is a temporary module that holds the runtime and the given
+// files, with the go command that builds in it.
+type goModuleDir struct {
+	t     testing.TB
+	root  string
+	byPkg map[string]*lowered
+}
+
+func newGoModuleDir(t testing.TB) *goModuleDir {
+	t.Helper()
+	m := &goModuleDir{t: t, root: t.TempDir(), byPkg: map[string]*lowered{}}
+	m.write("go.mod", []byte(goMod))
 	for _, f := range Runtime() {
-		write(f.Path, f.Data)
+		m.write(f.Path, f.Data)
 	}
-	byPkg := map[string]*lowered{}
+	return m
+}
+
+func (m *goModuleDir) write(rel string, data []byte) {
+	m.t.Helper()
+	p := filepath.Join(m.root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		m.t.Fatal(err)
+	}
+	if err := os.WriteFile(p, data, 0o644); err != nil {
+		m.t.Fatal(err)
+	}
+}
+
+// program writes p as package p/NAME with the Go source src.
+func (m *goModuleDir) program(p *lowered, src string) {
+	m.t.Helper()
+	m.write("p/"+p.name+"/main.go", []byte(src))
+	m.byPkg[p.name] = p
+}
+
+// goCommand runs go with args in the module. -trimpath (in args) keeps the
+// module's temporary directory out of the compiled runtime packages, so
+// each module reuses the build cache's runtime instead of compiling it
+// again (gate-fast plan section 4). It builds Go because it is buildAll's
+// one go command: a test that runs a program needs a real binary.
+func (m *goModuleDir) goCommand(args ...string) (string, bool) {
+	cmd := exec.Command("go", args...)
+	cmd.Dir = m.root
+	cmd.Env = append(os.Environ(), "GOWORK=off", "GOPROXY=off")
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	err := cmd.Run()
+	return out.String(), err == nil
+}
+
+// report fails the test with a go command's output, naming the programs it
+// names and showing the first three's source and Go.
+func (m *goModuleDir) report(what, output string) {
+	m.t.Helper()
+	pkgs := map[string]bool{}
+	for _, x := range regexp.MustCompile(`(?m)^# ergo\.local/program/p/(\S+)`).FindAllStringSubmatch(output, -1) {
+		pkgs[x[1]] = true
+	}
+	for _, x := range regexp.MustCompile(`(?m)p/([^/\s]+)/main\.go`).FindAllStringSubmatch(output, -1) {
+		pkgs[x[1]] = true
+	}
+	var names []string
+	for n := range pkgs {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	m.t.Errorf("go %s failed for %v:\n%s", what, names, firstLines(output, 60))
+	for i, n := range names {
+		if p := m.byPkg[n]; p != nil && i < 3 {
+			m.t.Logf("source of %s:\n%s\nGo:\n%s", n, p.src, p.mainGo())
+		}
+	}
+}
+
+// vetArgs is go vet's command line for lowered programs: Ergo has no
+// unreachable-code rule, so a checked program may keep statements after a
+// total match whose every arm returns; the vet check "unreachable" reports
+// that source, not the lowering (state.md follow-up).
+var vetArgs = []string{"vet", "-trimpath", "-unreachable=false", "./p/..."}
+
+// buildDispatch links programs into one dispatcher binary (dispatch_test.go)
+// and returns, for each program, bin/NAME: a symbolic link that starts the
+// dispatcher as that program. It does not vet: TestCorpusCompilesWithGc
+// vets the corpus once.
+func buildDispatch(t testing.TB, programs []*lowered) map[string]string {
+	t.Helper()
+	m := newGoModuleDir(t)
+	names := make([]string, 0, len(programs))
 	for _, p := range programs {
-		write("p/"+p.name+"/main.go", []byte(p.mainGo()))
-		byPkg[p.name] = p
+		src, err := asDispatchPackage(p.mainGo())
+		if err != nil {
+			t.Errorf("%s: the dispatcher cannot hold this program (a test harness defect): %v\nGo:\n%s", p.name, err, p.mainGo())
+			return nil
+		}
+		m.program(p, src)
+		names = append(names, p.name)
 	}
-	run := func(args ...string) (string, bool) {
-		cmd := exec.Command("go", args...)
-		cmd.Dir = root
-		cmd.Env = append(os.Environ(), "GOWORK=off", "GOPROXY=off")
-		var out bytes.Buffer
-		cmd.Stdout, cmd.Stderr = &out, &out
-		err := cmd.Run()
-		return out.String(), err == nil
-	}
-	report := func(what, output string) {
-		pkgs := map[string]bool{}
-		for _, m := range regexp.MustCompile(`(?m)^# ergo\.local/program/p/(\S+)`).FindAllStringSubmatch(output, -1) {
-			pkgs[m[1]] = true
-		}
-		for _, m := range regexp.MustCompile(`(?m)p/([^/\s]+)/main\.go`).FindAllStringSubmatch(output, -1) {
-			pkgs[m[1]] = true
-		}
-		var names []string
-		for n := range pkgs {
-			names = append(names, n)
-		}
-		sort.Strings(names)
-		t.Errorf("go %s failed for %v:\n%s", what, names, firstLines(output, 60))
-		for i, n := range names {
-			if p := byPkg[n]; p != nil && i < 3 {
-				t.Logf("source of %s:\n%s\nGo:\n%s", n, p.src, p.mainGo())
-			}
-		}
-	}
-	// Ergo has no unreachable-code rule, so a checked program may keep
-	// statements after a total match whose every arm returns; the vet check
-	// "unreachable" reports that source, not the lowering (state.md follow-up).
-	// -trimpath keeps the module's temporary directory out of the compiled
-	// runtime packages, so each buildAll module reuses the build cache's
-	// runtime instead of compiling it again (gate-fast plan section 4).
-	if out, ok := run("vet", "-trimpath", "-unreachable=false", "./p/..."); !ok {
-		report("vet", out)
+	m.write("cmd/dispatch/main.go", []byte(dispatcherMain(names)))
+	dispatcher := dispatchRoot(m.root)
+	if out, ok := m.goCommand("build", "-trimpath", "-o", dispatcher, "./cmd/dispatch"); !ok {
+		m.report("build", out)
 		return nil
 	}
-	if !link {
-		if out, ok := run("build", "-trimpath", "./p/..."); !ok {
-			report("build", out)
-		}
-		for _, p := range programs {
-			probeBuilt("", p.mainGo())
-		}
+	bin := filepath.Join(m.root, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	exes := map[string]string{}
+	for _, p := range programs {
+		exe := filepath.Join(bin, p.name)
+		symlinkProgram(t, dispatcher, exe)
+		exes[p.name] = exe
+		probeBuilt(exe, p.mainGo())
+	}
+	return exes
+}
+
+// buildSeparate is the reference path (ERGO_TEST_SEPARATE_BINARIES=1): go
+// vet, then one binary per program.
+func buildSeparate(t testing.TB, programs []*lowered) map[string]string {
+	t.Helper()
+	m := newGoModuleDir(t)
+	for _, p := range programs {
+		m.program(p, p.mainGo())
+	}
+	if out, ok := m.goCommand(vetArgs...); !ok {
+		m.report("vet", out)
 		return nil
 	}
-	bin := filepath.Join(root, "bin")
-	if out, ok := run("build", "-trimpath", "-o", bin+string(filepath.Separator), "./p/..."); !ok {
-		report("build", out)
+	bin := filepath.Join(m.root, "bin")
+	if out, ok := m.goCommand("build", "-trimpath", "-o", bin+string(filepath.Separator), "./p/..."); !ok {
+		m.report("build", out)
 		return nil
 	}
 	exes := map[string]string{}
@@ -234,9 +343,13 @@ func runProgram(t testing.TB, cmd *exec.Cmd) error {
 // program the limit stopped.
 func runBounded(t testing.TB, cmd *exec.Cmd) error {
 	t.Helper()
+	fastTierGuard(t, "running the program "+cmd.Path)
 	limit, err := proclimit.Limit(os.Environ(), proclimit.DefaultLimit)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if dispatchCheck != "" {
+		return runTwins(cmd, limit)
 	}
 	return proclimit.Run(cmd, limit)
 }

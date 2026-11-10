@@ -20,7 +20,7 @@ func TestChainCutAtBound(t *testing.T) {
 			tasks := make([]Task, n)
 			x := Root("main")
 			for i := 1; i < n; i++ {
-				tasks[i].init(x, fmt.Sprintf("t%d", i), false)
+				tasks[i].init(x, fmt.Sprintf("t%d", i), false, false)
 				x = &tasks[i]
 			}
 			frames, cut := x.Chain()

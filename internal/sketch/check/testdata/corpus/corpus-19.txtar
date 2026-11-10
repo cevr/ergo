@@ -1,0 +1,5446 @@
+-- 09500.ergo --
+type Valid {
+	Check(n int) bool,
+}
+
+type Card { Number string }
+
+type Box[T] { V T }
+
+func Check(c Card, n int) bool { n > 0 }
+
+func Check[T](b Box[T], n int) bool { true }
+
+func All[T Valid](x T) bool { x.Check(1) }
+
+func F() bool { All(Card{Number: "1"}) && All(Box[string]{V: "s"}) }
+func F(xs []int) int { Each(xs, func(x) { Each(xs, func(y) { x + y }) }) }
+-- 09501.ergo --
+func Each[T](xs []T, f func(T) int) int { f(xs[0]) }
+func MapOf[T, U](xs []T, f func(T) U) []U { []U{f(xs[0])} }
+func Fold[T, A](xs []T, start A, f func(A, T) A) A { f(start, xs[0]) }
+func apply(f func(int) int) int { f(1) }
+func Pick[T](f func(T) int) int { 0 }
+func F(xs []int) int { Each(xs, func(x) { Each(xs, func(y) { x + y }) }) }
+-- 09502.ergo --
+func F(xs []string) int { Each(xs, func(x) { x * 2 }) }
+-- 09503.ergo --
+type Valid {
+	Check(n int) bool,
+}
+
+type Card { Number string }
+
+type Box[T] { V T }
+
+func Check(c Card, n int) bool { n > 0 }
+
+func Check[T](b Box[T], n int) bool { true }
+
+func All[T Valid](x T) bool { x.Check(1) }
+
+func F() bool { All(Card{Number: "1"}) && All(Box[string]{V: "s"}) }
+func F(xs []string) int { Each(xs, func(x) { x * 2 }) }
+-- 09504.ergo --
+func Each[T](xs []T, f func(T) int) int { f(xs[0]) }
+func MapOf[T, U](xs []T, f func(T) U) []U { []U{f(xs[0])} }
+func Fold[T, A](xs []T, start A, f func(A, T) A) A { f(start, xs[0]) }
+func apply(f func(int) int) int { f(1) }
+func Pick[T](f func(T) int) int { 0 }
+func F(xs []string) int { Each(xs, func(x) { x * 2 }) }
+-- 09505.ergo --
+func F() int {
+	let double = func(x) { x * 2 }
+	double(2)
+}
+-- 09506.ergo --
+type Valid {
+	Check(n int) bool,
+}
+
+type Card { Number string }
+
+type Box[T] { V T }
+
+func Check(c Card, n int) bool { n > 0 }
+
+func Check[T](b Box[T], n int) bool { true }
+
+func All[T Valid](x T) bool { x.Check(1) }
+
+func F() bool { All(Card{Number: "1"}) && All(Box[string]{V: "s"}) }
+func F() int {
+	let double = func(x) { x * 2 }
+	double(2)
+}
+-- 09507.ergo --
+func Each[T](xs []T, f func(T) int) int { f(xs[0]) }
+func MapOf[T, U](xs []T, f func(T) U) []U { []U{f(xs[0])} }
+func Fold[T, A](xs []T, start A, f func(A, T) A) A { f(start, xs[0]) }
+func apply(f func(int) int) int { f(1) }
+func Pick[T](f func(T) int) int { 0 }
+func F() int {
+	let double = func(x) { x * 2 }
+	double(2)
+}
+-- 09508.ergo --
+func F() int { Pick(func(x) { 1 }) }
+-- 09509.ergo --
+type Valid {
+	Check(n int) bool,
+}
+
+type Card { Number string }
+
+type Box[T] { V T }
+
+func Check(c Card, n int) bool { n > 0 }
+
+func Check[T](b Box[T], n int) bool { true }
+
+func All[T Valid](x T) bool { x.Check(1) }
+
+func F() bool { All(Card{Number: "1"}) && All(Box[string]{V: "s"}) }
+func F() int { Pick(func(x) { 1 }) }
+-- 09510.ergo --
+func Each[T](xs []T, f func(T) int) int { f(xs[0]) }
+func MapOf[T, U](xs []T, f func(T) U) []U { []U{f(xs[0])} }
+func Fold[T, A](xs []T, start A, f func(A, T) A) A { f(start, xs[0]) }
+func apply(f func(int) int) int { f(1) }
+func Pick[T](f func(T) int) int { 0 }
+func F() int { Pick(func(x) { 1 }) }
+-- 09511.ergo --
+func F() int { apply(func(x, y) { x }) }
+-- 09512.ergo --
+type Valid {
+	Check(n int) bool,
+}
+
+type Card { Number string }
+
+type Box[T] { V T }
+
+func Check(c Card, n int) bool { n > 0 }
+
+func Check[T](b Box[T], n int) bool { true }
+
+func All[T Valid](x T) bool { x.Check(1) }
+
+func F() bool { All(Card{Number: "1"}) && All(Box[string]{V: "s"}) }
+func F() int { apply(func(x, y) { x }) }
+-- 09513.ergo --
+func Each[T](xs []T, f func(T) int) int { f(xs[0]) }
+func MapOf[T, U](xs []T, f func(T) U) []U { []U{f(xs[0])} }
+func Fold[T, A](xs []T, start A, f func(A, T) A) A { f(start, xs[0]) }
+func apply(f func(int) int) int { f(1) }
+func Pick[T](f func(T) int) int { 0 }
+func F() int { apply(func(x, y) { x }) }
+-- 09514.ergo --
+func F() {
+	let g = func(a, b) { a }
+	_ = g
+}
+-- 09515.ergo --
+type Valid {
+	Check(n int) bool,
+}
+
+type Card { Number string }
+
+type Box[T] { V T }
+
+func Check(c Card, n int) bool { n > 0 }
+
+func Check[T](b Box[T], n int) bool { true }
+
+func All[T Valid](x T) bool { x.Check(1) }
+
+func F() bool { All(Card{Number: "1"}) && All(Box[string]{V: "s"}) }
+func F() {
+	let g = func(a, b) { a }
+	_ = g
+}
+-- 09516.ergo --
+func Each[T](xs []T, f func(T) int) int { f(xs[0]) }
+func MapOf[T, U](xs []T, f func(T) U) []U { []U{f(xs[0])} }
+func Fold[T, A](xs []T, start A, f func(A, T) A) A { f(start, xs[0]) }
+func apply(f func(int) int) int { f(1) }
+func Pick[T](f func(T) int) int { 0 }
+func F() {
+	let g = func(a, b) { a }
+	_ = g
+}
+-- 09517.ergo --
+func Use%d%s(x %s) %s { x }
+-- 09518.ergo --
+func Literal%d(x %s) %s { %s{%s} }
+-- 09519.ergo --
+func Call%d(x %s) %s { x.Use%d() }
+-- 09520.ergo --
+type Aa[T] { V T, N Aa[T] }
+type Zz[T] { V Aa[Zz[T]] }
+-- 09521.ergo --
+type D0[T] { F0 D2[T] }
+type D1[T] { F0 D2[int] }
+type D2[T] { F0 D0[T], F1 D1[int] }
+-- 09522.ergo --
+import task
+type Fault {}
+type Box[T] { V T }
+func id[T](x T) T { x }
+func start() Task[int, Fault] { task.Go() { 1 } }
+func wait(t Task[int, Fault]) int { 0 }
+-- 09523.ergo --
+type Fault {}
+type Box[T] { V T }
+type R { kids []R, f func() Task[int, Fault] }
+-- 09524.ergo --
+import task
+type Fault {}
+type Box[T] { V T }
+func id[T](x T) T { x }
+func start() Task[int, Fault] { task.Go() { 1 } }
+func wait(t Task[int, Fault]) int { 0 }
+type Fault {}
+type Box[T] { V T }
+type R { kids []R, f func() Task[int, Fault] }
+-- 09525.ergo --
+func f(t Task[int, Fault], b Box[int], r R, g func(t Task[int, Fault]) int, s []int) {}
+-- 09526.ergo --
+import task
+type Fault {}
+type Box[T] { V T }
+func id[T](x T) T { x }
+func start() Task[int, Fault] { task.Go() { 1 } }
+func wait(t Task[int, Fault]) int { 0 }
+func f(t Task[int, Fault], b Box[int], r R, g func(t Task[int, Fault]) int, s []int) {}
+-- 09527.ergo --
+import task
+type Fault {}
+type Box[T] { V T }
+func id[T](x T) T { x }
+-- 09528.ergo --
+import task
+type Fault {}
+type Box[T] { V T }
+func id[T](x T) T { x }
+func start() Task[int, Fault] { task.Go() { 1 } }
+func wait(t Task[int, Fault]) int { 0 }
+import task
+type Fault {}
+type Box[T] { V T }
+func id[T](x T) T { x }
+-- 09529.ergo --
+func start() Task[int, Fault] { task.Go() { 1 } }
+func wait(t Task[int, Fault]) int { 0 }
+-- 09530.ergo --
+import task
+type Fault {}
+type Box[T] { V T }
+func id[T](x T) T { x }
+func start() Task[int, Fault] { task.Go() { 1 } }
+func wait(t Task[int, Fault]) int { 0 }
+func start() Task[int, Fault] { task.Go() { 1 } }
+func wait(t Task[int, Fault]) int { 0 }
+-- 09531.ergo --
+func use(b Box[$S]) {}
+-- 09532.ergo --
+import task
+type Fault {}
+type Box[T] { V T }
+func id[T](x T) T { x }
+func start() Task[int, Fault] { task.Go() { 1 } }
+func wait(t Task[int, Fault]) int { 0 }
+func use(b Box[$S]) {}
+-- 09533.ergo --
+func use(t Task[$S, Fault]) {}
+-- 09534.ergo --
+import task
+type Fault {}
+type Box[T] { V T }
+func id[T](x T) T { x }
+func start() Task[int, Fault] { task.Go() { 1 } }
+func wait(t Task[int, Fault]) int { 0 }
+func use(t Task[$S, Fault]) {}
+-- 09535.ergo --
+func use() {
+	let _ Option[$S] = None
+}
+-- 09536.ergo --
+import task
+type Fault {}
+type Box[T] { V T }
+func id[T](x T) T { x }
+func start() Task[int, Fault] { task.Go() { 1 } }
+func wait(t Task[int, Fault]) int { 0 }
+func use() {
+	let _ Option[$S] = None
+}
+-- 09537.ergo --
+type U = Fault | Box[$S]
+-- 09538.ergo --
+import task
+type Fault {}
+type Box[T] { V T }
+func id[T](x T) T { x }
+func start() Task[int, Fault] { task.Go() { 1 } }
+func wait(t Task[int, Fault]) int { 0 }
+type U = Fault | Box[$S]
+-- 09539.ergo --
+func use() {
+	let _ = id[$S]
+}
+-- 09540.ergo --
+import task
+type Fault {}
+type Box[T] { V T }
+func id[T](x T) T { x }
+func start() Task[int, Fault] { task.Go() { 1 } }
+func wait(t Task[int, Fault]) int { 0 }
+func use() {
+	let _ = id[$S]
+}
+-- 09541.ergo --
+func use() {
+	let _ = id[$S]($V)
+}
+-- 09542.ergo --
+import task
+type Fault {}
+type Box[T] { V T }
+func id[T](x T) T { x }
+func start() Task[int, Fault] { task.Go() { 1 } }
+func wait(t Task[int, Fault]) int { 0 }
+func use() {
+	let _ = id[$S]($V)
+}
+-- 09543.ergo --
+func use() {
+	let _ = id($V)
+}
+-- 09544.ergo --
+import task
+type Fault {}
+type Box[T] { V T }
+func id[T](x T) T { x }
+func start() Task[int, Fault] { task.Go() { 1 } }
+func wait(t Task[int, Fault]) int { 0 }
+func use() {
+	let _ = id($V)
+}
+-- 09545.ergo --
+func use() {
+	let t = task.Go() { $V }
+	t.Stop()
+}
+-- 09546.ergo --
+import task
+type Fault {}
+type Box[T] { V T }
+func id[T](x T) T { x }
+func start() Task[int, Fault] { task.Go() { 1 } }
+func wait(t Task[int, Fault]) int { 0 }
+func use() {
+	let t = task.Go() { $V }
+	t.Stop()
+}
+-- 09547.ergo --
+func use() {
+	let _ = Box{V: $V}
+}
+-- 09548.ergo --
+import task
+type Fault {}
+type Box[T] { V T }
+func id[T](x T) T { x }
+func start() Task[int, Fault] { task.Go() { 1 } }
+func wait(t Task[int, Fault]) int { 0 }
+func use() {
+	let _ = Box{V: $V}
+}
+-- 09549.ergo --
+func use() {
+	let _ = Some{$V}
+}
+-- 09550.ergo --
+import task
+type Fault {}
+type Box[T] { V T }
+func id[T](x T) T { x }
+func start() Task[int, Fault] { task.Go() { 1 } }
+func wait(t Task[int, Fault]) int { 0 }
+func use() {
+	let _ = Some{$V}
+}
+-- 09551.ergo --
+func shapes(
+-- 09552.ergo --
+import task
+type Fault {}
+type Box[T] { V T }
+func id[T](x T) T { x }
+func start() Task[int, Fault] { task.Go() { 1 } }
+func wait(t Task[int, Fault]) int { 0 }
+func shapes(
+-- 09553.ergo --
+type Fault {}
+type A[T] []B[T]
+type B[T] Map[string, A[T]]
+type R { kids []R, n int }
+func f(t Task[int, Fault], y B[int], r R) {}
+-- 09554.ergo --
+func f(x 
+-- 09555.ergo --
+type Fault {}
+type A[T] []B[T]
+type B[T] Map[string, A[T]]
+type R { kids []R, n int }
+func f(t Task[int, Fault], y B[int], r R) {}
+func f(x 
+-- 09556.ergo --
+type Fault {}
+type A[T] []B[T]
+type B[T] Map[string, A[T]]
+type R { kids []R, n int }
+func f(t Task[int, Fault], y B[int], r R) {}
+type E[T] []E[[]T]
+-- 09557.ergo --
+type E[T] Map[string, E[(T, T)]]
+-- 09558.ergo --
+type Fault {}
+type A[T] []B[T]
+type B[T] Map[string, A[T]]
+type R { kids []R, n int }
+func f(t Task[int, Fault], y B[int], r R) {}
+type E[T] Map[string, E[(T, T)]]
+-- 09559.ergo --
+
+func f(x E[int]) int { let local = x; let g = func() int { len(local) }; g() }
+-- 09560.ergo --
+type Fault {}
+type A[T] []B[T]
+type B[T] Map[string, A[T]]
+type R { kids []R, n int }
+func f(t Task[int, Fault], y B[int], r R) {}
+
+func f(x E[int]) int { let local = x; let g = func() int { len(local) }; g() }
+-- 09561.ergo --
+type Fault {}
+type A[T] []B[T]
+type B[T] Map[string, A[T]]
+type R { kids []R, n int }
+-- 09562.ergo --
+type Fault {}
+type A[T] []B[T]
+type B[T] Map[string, A[T]]
+type R { kids []R, n int }
+func f(t Task[int, Fault], y B[int], r R) {}
+type Fault {}
+type A[T] []B[T]
+type B[T] Map[string, A[T]]
+type R { kids []R, n int }
+-- 09563.ergo --
+func f(t Task[int, Fault], y B[int], r R) {}
+-- 09564.ergo --
+type Fault {}
+type A[T] []B[T]
+type B[T] Map[string, A[T]]
+type R { kids []R, n int }
+func f(t Task[int, Fault], y B[int], r R) {}
+func f(t Task[int, Fault], y B[int], r R) {}
+-- 09565.ergo --
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+type Dot {}
+type Line { N int }
+type Shape = Dot | Line
+
+-- 09566.ergo --
+let _ = risky(1) catch {
+case Bang:
+$assert true
+0
+}
+-- 09567.ergo --
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+type Dot {}
+type Line { N int }
+type Shape = Dot | Line
+
+let _ = risky(1) catch {
+case Bang:
+$assert true
+0
+}
+-- 09568.ergo --
+with context { Store: Mem } {
+let _ = risky(1) catch {
+case Bang:
+$assert Store.Get() == "ok"
+0
+}
+}
+-- 09569.ergo --
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+type Dot {}
+type Line { N int }
+type Shape = Dot | Line
+
+with context { Store: Mem } {
+let _ = risky(1) catch {
+case Bang:
+$assert Store.Get() == "ok"
+0
+}
+}
+-- 09570.ergo --
+type C {
+	Get() int,
+
+	law L(v int
+-- 09571.ergo --
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+type Dot {}
+type Line { N int }
+type Shape = Dot | Line
+
+type C {
+	Get() int,
+
+	law L(v int
+-- 09572.ergo --
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+type Dot {}
+type Line { N int }
+type Shape = Dot | Line
+
+let 
+-- 09573.ergo --
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+type Dot {}
+type Line { N int }
+type Shape = Dot | Line
+
+func f(
+-- 09574.ergo --
+func f[T](_ T
+-- 09575.ergo --
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+type Dot {}
+type Line { N int }
+type Shape = Dot | Line
+
+func f[T](_ T
+-- 09576.ergo --
+let g = func(
+-- 09577.ergo --
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+type Dot {}
+type Line { N int }
+type Shape = Dot | Line
+
+let g = func(
+-- 09578.ergo --
+let W = context {
+	Store: func() Mem {
+-- 09579.ergo --
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+type Dot {}
+type Line { N int }
+type Shape = Dot | Line
+
+let W = context {
+	Store: func() Mem {
+-- 09580.ergo --
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+type Point { X int, Y float64 }
+type Shape = Dot | Line{From Point, To Point}
+type Dot {}
+type Celsius int
+type Pair (int, string)
+type List = Nil | Cons{Head int, Tail List}
+type Nil {}
+type Tree { Kids []Tree, Tags Map[string, int] }
+type Loop = Again{Next Loop}
+type Box[T] { V T }
+type Fn func(int) int
+
+-- 09581.ergo --
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+type Point { X int, Y float64 }
+type Shape = Dot | Line{From Point, To Point}
+type Dot {}
+type Celsius int
+type Pair (int, string)
+type List = Nil | Cons{Head int, Tail List}
+type Nil {}
+type Tree { Kids []Tree, Tags Map[string, int] }
+type Loop = Again{Next Loop}
+type Box[T] { V T }
+type Fn func(int) int
+
+test A {
+	assert true
+}
+
+test B(x int, _ string) {
+	assert with context { Store: Mem } { Store.Get() } == "ok" || x == 0
+}
+-- 09582.ergo --
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+type Point { X int, Y float64 }
+type Shape = Dot | Line{From Point, To Point}
+type Dot {}
+type Celsius int
+type Pair (int, string)
+type List = Nil | Cons{Head int, Tail List}
+type Nil {}
+type Tree { Kids []Tree, Tags Map[string, int] }
+type Loop = Again{Next Loop}
+type Box[T] { V T }
+type Fn func(int) int
+
+test A {
+	assert true
+}
+
+test B(x int, _ string) {
+	assert with context { Store: Mem } { Store.Get() } == "ok" || x == 0
+}
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+type Point { X int, Y float64 }
+type Shape = Dot | Line{From Point, To Point}
+type Dot {}
+type Celsius int
+type Pair (int, string)
+type List = Nil | Cons{Head int, Tail List}
+type Nil {}
+type Tree { Kids []Tree, Tags Map[string, int] }
+type Loop = Again{Next Loop}
+type Box[T] { V T }
+type Fn func(int) int
+
+-- 09583.ergo --
+type Flag bool
+
+test T {
+	let f Flag = true
+	$assert f
+}
+-- 09584.ergo --
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+type Point { X int, Y float64 }
+type Shape = Dot | Line{From Point, To Point}
+type Dot {}
+type Celsius int
+type Pair (int, string)
+type List = Nil | Cons{Head int, Tail List}
+type Nil {}
+type Tree { Kids []Tree, Tags Map[string, int] }
+type Loop = Again{Next Loop}
+type Box[T] { V T }
+type Fn func(int) int
+
+type Flag bool
+
+test T {
+	let f Flag = true
+	$assert f
+}
+-- 09585.ergo --
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+type Point { X int, Y float64 }
+type Shape = Dot | Line{From Point, To Point}
+type Dot {}
+type Celsius int
+type Pair (int, string)
+type List = Nil | Cons{Head int, Tail List}
+type Nil {}
+type Tree { Kids []Tree, Tags Map[string, int] }
+type Loop = Again{Next Loop}
+type Box[T] { V T }
+type Fn func(int) int
+
+test A {
+	assert true
+}
+
+test B(x int, _ string) {
+	assert with context { Store: Mem } { Store.Get() } == "ok" || x == 0
+}
+type Flag bool
+
+test T {
+	let f Flag = true
+	$assert f
+}
+-- 09586.ergo --
+test T {
+	assert true
+}
+
+func f() {
+	$let g = T
+}
+-- 09587.ergo --
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+type Point { X int, Y float64 }
+type Shape = Dot | Line{From Point, To Point}
+type Dot {}
+type Celsius int
+type Pair (int, string)
+type List = Nil | Cons{Head int, Tail List}
+type Nil {}
+type Tree { Kids []Tree, Tags Map[string, int] }
+type Loop = Again{Next Loop}
+type Box[T] { V T }
+type Fn func(int) int
+
+test T {
+	assert true
+}
+
+func f() {
+	$let g = T
+}
+-- 09588.ergo --
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+type Point { X int, Y float64 }
+type Shape = Dot | Line{From Point, To Point}
+type Dot {}
+type Celsius int
+type Pair (int, string)
+type List = Nil | Cons{Head int, Tail List}
+type Nil {}
+type Tree { Kids []Tree, Tags Map[string, int] }
+type Loop = Again{Next Loop}
+type Box[T] { V T }
+type Fn func(int) int
+
+test A {
+	assert true
+}
+
+test B(x int, _ string) {
+	assert with context { Store: Mem } { Store.Get() } == "ok" || x == 0
+}
+test T {
+	assert true
+}
+
+func f() {
+	$let g = T
+}
+-- 09589.ergo --
+func T() {}
+
+test T {
+	$assert true
+}
+-- 09590.ergo --
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+type Point { X int, Y float64 }
+type Shape = Dot | Line{From Point, To Point}
+type Dot {}
+type Celsius int
+type Pair (int, string)
+type List = Nil | Cons{Head int, Tail List}
+type Nil {}
+type Tree { Kids []Tree, Tags Map[string, int] }
+type Loop = Again{Next Loop}
+type Box[T] { V T }
+type Fn func(int) int
+
+func T() {}
+
+test T {
+	$assert true
+}
+-- 09591.ergo --
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+type Point { X int, Y float64 }
+type Shape = Dot | Line{From Point, To Point}
+type Dot {}
+type Celsius int
+type Pair (int, string)
+type List = Nil | Cons{Head int, Tail List}
+type Nil {}
+type Tree { Kids []Tree, Tags Map[string, int] }
+type Loop = Again{Next Loop}
+type Box[T] { V T }
+type Fn func(int) int
+
+test A {
+	assert true
+}
+
+test B(x int, _ string) {
+	assert with context { Store: Mem } { Store.Get() } == "ok" || x == 0
+}
+func T() {}
+
+test T {
+	$assert true
+}
+-- 09592.ergo --
+func run(f func() int) int {
+	f()
+}
+
+test T {
+	let n = run() {
+		$assert true
+		1
+	}
+	assert n == 1
+}
+-- 09593.ergo --
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+type Point { X int, Y float64 }
+type Shape = Dot | Line{From Point, To Point}
+type Dot {}
+type Celsius int
+type Pair (int, string)
+type List = Nil | Cons{Head int, Tail List}
+type Nil {}
+type Tree { Kids []Tree, Tags Map[string, int] }
+type Loop = Again{Next Loop}
+type Box[T] { V T }
+type Fn func(int) int
+
+func run(f func() int) int {
+	f()
+}
+
+test T {
+	let n = run() {
+		$assert true
+		1
+	}
+	assert n == 1
+}
+-- 09594.ergo --
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+type Point { X int, Y float64 }
+type Shape = Dot | Line{From Point, To Point}
+type Dot {}
+type Celsius int
+type Pair (int, string)
+type List = Nil | Cons{Head int, Tail List}
+type Nil {}
+type Tree { Kids []Tree, Tags Map[string, int] }
+type Loop = Again{Next Loop}
+type Box[T] { V T }
+type Fn func(int) int
+
+test A {
+	assert true
+}
+
+test B(x int, _ string) {
+	assert with context { Store: Mem } { Store.Get() } == "ok" || x == 0
+}
+func run(f func() int) int {
+	f()
+}
+
+test T {
+	let n = run() {
+		$assert true
+		1
+	}
+	assert n == 1
+}
+-- 09595.ergo --
+type Pair (int, string)
+
+type Triple (int, string, bool)
+
+type Again Pair
+
+type Two[T] (T, T)
+
+type Box[T] { v T }
+
+type Bad { why string }
+
+func pair() Pair {
+	Pair((1, "a"))
+}
+
+func risky(fail bool) Pair fails Bad {
+	if fail {
+		return Bad{why: "no"}
+	}
+	Pair((2, "b"))
+}
+
+func swap(p Pair) Pair {
+	let n, s = p
+	Pair((n + 10, s + "!"))
+}
+
+let top, word = pair()
+
+let _, again = Again(Pair((3, "c")))
+
+func main() needs Console {
+	let a, b = pair()
+	Console.Println("\(a) \(b)")
+	let x, _, z = Triple((4, "d", true))
+	Console.Println("\(x) \(z)")
+	let _, m = Again(swap(pair()))
+	Console.Println(m)
+	let l, r = Two[string](("l", "r"))
+	Console.Println(l + r)
+	let i, _ = Box[Pair]{v: pair()}.v
+	Console.Println("\(i)")
+	let c, d = risky(true) catch { case Bad: Pair((0, "caught")) }
+	Console.Println("\(c) \(d)")
+	let e, f = risky(false) catch { case Bad: Pair((0, "caught")) }
+	Console.Println("\(e) \(f)")
+	match Triple((5, "e", false)) {
+	case (n, s, true):
+		Console.Println("\(n) \(s) yes")
+	case (n, s, false):
+		Console.Println("\(n) \(s) no")
+	}
+	Console.Println("\(top) \(word) \(again)")
+}
+-- 09596.ergo --
+let a, b, c = pair()
+-- 09597.ergo --
+type Pair (int, string)
+
+type Triple (int, string, bool)
+
+type Again Pair
+
+type Two[T] (T, T)
+
+type Box[T] { v T }
+
+type Bad { why string }
+
+func pair() Pair {
+	Pair((1, "a"))
+}
+
+func risky(fail bool) Pair fails Bad {
+	if fail {
+		return Bad{why: "no"}
+	}
+	Pair((2, "b"))
+}
+
+func swap(p Pair) Pair {
+	let n, s = p
+	Pair((n + 10, s + "!"))
+}
+
+let top, word = pair()
+
+let _, again = Again(Pair((3, "c")))
+
+func main() needs Console {
+	let a, b = pair()
+	Console.Println("\(a) \(b)")
+	let x, _, z = Triple((4, "d", true))
+	Console.Println("\(x) \(z)")
+	let _, m = Again(swap(pair()))
+	Console.Println(m)
+	let l, r = Two[string](("l", "r"))
+	Console.Println(l + r)
+	let i, _ = Box[Pair]{v: pair()}.v
+	Console.Println("\(i)")
+	let c, d = risky(true) catch { case Bad: Pair((0, "caught")) }
+	Console.Println("\(c) \(d)")
+	let e, f = risky(false) catch { case Bad: Pair((0, "caught")) }
+	Console.Println("\(e) \(f)")
+	match Triple((5, "e", false)) {
+	case (n, s, true):
+		Console.Println("\(n) \(s) yes")
+	case (n, s, false):
+		Console.Println("\(n) \(s) no")
+	}
+	Console.Println("\(top) \(word) \(again)")
+}
+let a, b, c = pair()
+-- 09598.ergo --
+let a, b = Triple((1, "x", true))
+-- 09599.ergo --
+type Pair (int, string)
+
+type Triple (int, string, bool)
+
+type Again Pair
+
+type Two[T] (T, T)
+
+type Box[T] { v T }
+
+type Bad { why string }
+
+func pair() Pair {
+	Pair((1, "a"))
+}
+
+func risky(fail bool) Pair fails Bad {
+	if fail {
+		return Bad{why: "no"}
+	}
+	Pair((2, "b"))
+}
+
+func swap(p Pair) Pair {
+	let n, s = p
+	Pair((n + 10, s + "!"))
+}
+
+let top, word = pair()
+
+let _, again = Again(Pair((3, "c")))
+
+func main() needs Console {
+	let a, b = pair()
+	Console.Println("\(a) \(b)")
+	let x, _, z = Triple((4, "d", true))
+	Console.Println("\(x) \(z)")
+	let _, m = Again(swap(pair()))
+	Console.Println(m)
+	let l, r = Two[string](("l", "r"))
+	Console.Println(l + r)
+	let i, _ = Box[Pair]{v: pair()}.v
+	Console.Println("\(i)")
+	let c, d = risky(true) catch { case Bad: Pair((0, "caught")) }
+	Console.Println("\(c) \(d)")
+	let e, f = risky(false) catch { case Bad: Pair((0, "caught")) }
+	Console.Println("\(e) \(f)")
+	match Triple((5, "e", false)) {
+	case (n, s, true):
+		Console.Println("\(n) \(s) yes")
+	case (n, s, false):
+		Console.Println("\(n) \(s) no")
+	}
+	Console.Println("\(top) \(word) \(again)")
+}
+let a, b = Triple((1, "x", true))
+-- 09600.ergo --
+let a, b = Box[Pair]{v: pair()}
+-- 09601.ergo --
+type Pair (int, string)
+
+type Triple (int, string, bool)
+
+type Again Pair
+
+type Two[T] (T, T)
+
+type Box[T] { v T }
+
+type Bad { why string }
+
+func pair() Pair {
+	Pair((1, "a"))
+}
+
+func risky(fail bool) Pair fails Bad {
+	if fail {
+		return Bad{why: "no"}
+	}
+	Pair((2, "b"))
+}
+
+func swap(p Pair) Pair {
+	let n, s = p
+	Pair((n + 10, s + "!"))
+}
+
+let top, word = pair()
+
+let _, again = Again(Pair((3, "c")))
+
+func main() needs Console {
+	let a, b = pair()
+	Console.Println("\(a) \(b)")
+	let x, _, z = Triple((4, "d", true))
+	Console.Println("\(x) \(z)")
+	let _, m = Again(swap(pair()))
+	Console.Println(m)
+	let l, r = Two[string](("l", "r"))
+	Console.Println(l + r)
+	let i, _ = Box[Pair]{v: pair()}.v
+	Console.Println("\(i)")
+	let c, d = risky(true) catch { case Bad: Pair((0, "caught")) }
+	Console.Println("\(c) \(d)")
+	let e, f = risky(false) catch { case Bad: Pair((0, "caught")) }
+	Console.Println("\(e) \(f)")
+	match Triple((5, "e", false)) {
+	case (n, s, true):
+		Console.Println("\(n) \(s) yes")
+	case (n, s, false):
+		Console.Println("\(n) \(s) no")
+	}
+	Console.Println("\(top) \(word) \(again)")
+}
+let a, b = Box[Pair]{v: pair()}
+-- 09602.ergo --
+let a, b = 1
+-- 09603.ergo --
+type Pair (int, string)
+
+type Triple (int, string, bool)
+
+type Again Pair
+
+type Two[T] (T, T)
+
+type Box[T] { v T }
+
+type Bad { why string }
+
+func pair() Pair {
+	Pair((1, "a"))
+}
+
+func risky(fail bool) Pair fails Bad {
+	if fail {
+		return Bad{why: "no"}
+	}
+	Pair((2, "b"))
+}
+
+func swap(p Pair) Pair {
+	let n, s = p
+	Pair((n + 10, s + "!"))
+}
+
+let top, word = pair()
+
+let _, again = Again(Pair((3, "c")))
+
+func main() needs Console {
+	let a, b = pair()
+	Console.Println("\(a) \(b)")
+	let x, _, z = Triple((4, "d", true))
+	Console.Println("\(x) \(z)")
+	let _, m = Again(swap(pair()))
+	Console.Println(m)
+	let l, r = Two[string](("l", "r"))
+	Console.Println(l + r)
+	let i, _ = Box[Pair]{v: pair()}.v
+	Console.Println("\(i)")
+	let c, d = risky(true) catch { case Bad: Pair((0, "caught")) }
+	Console.Println("\(c) \(d)")
+	let e, f = risky(false) catch { case Bad: Pair((0, "caught")) }
+	Console.Println("\(e) \(f)")
+	match Triple((5, "e", false)) {
+	case (n, s, true):
+		Console.Println("\(n) \(s) yes")
+	case (n, s, false):
+		Console.Println("\(n) \(s) no")
+	}
+	Console.Println("\(top) \(word) \(again)")
+}
+let a, b = 1
+-- 09604.ergo --
+type Pair (int, string)
+type Triple (int, string, bool)
+type Box[T] { v T }
+func pair() Pair { Pair((1, "a")) }
+func f() {
+	
+-- 09605.ergo --
+type Pair (int, string)
+
+type Triple (int, string, bool)
+
+type Again Pair
+
+type Two[T] (T, T)
+
+type Box[T] { v T }
+
+type Bad { why string }
+
+func pair() Pair {
+	Pair((1, "a"))
+}
+
+func risky(fail bool) Pair fails Bad {
+	if fail {
+		return Bad{why: "no"}
+	}
+	Pair((2, "b"))
+}
+
+func swap(p Pair) Pair {
+	let n, s = p
+	Pair((n + 10, s + "!"))
+}
+
+let top, word = pair()
+
+let _, again = Again(Pair((3, "c")))
+
+func main() needs Console {
+	let a, b = pair()
+	Console.Println("\(a) \(b)")
+	let x, _, z = Triple((4, "d", true))
+	Console.Println("\(x) \(z)")
+	let _, m = Again(swap(pair()))
+	Console.Println(m)
+	let l, r = Two[string](("l", "r"))
+	Console.Println(l + r)
+	let i, _ = Box[Pair]{v: pair()}.v
+	Console.Println("\(i)")
+	let c, d = risky(true) catch { case Bad: Pair((0, "caught")) }
+	Console.Println("\(c) \(d)")
+	let e, f = risky(false) catch { case Bad: Pair((0, "caught")) }
+	Console.Println("\(e) \(f)")
+	match Triple((5, "e", false)) {
+	case (n, s, true):
+		Console.Println("\(n) \(s) yes")
+	case (n, s, false):
+		Console.Println("\(n) \(s) no")
+	}
+	Console.Println("\(top) \(word) \(again)")
+}
+type Pair (int, string)
+type Triple (int, string, bool)
+type Box[T] { v T }
+func pair() Pair { Pair((1, "a")) }
+func f() {
+	
+-- 09606.ergo --
+func H() int { return 1 }
+func run(f func()) {}
+func F() { run(func() { _ = (H(), 1) }) }
+-- 09607.ergo --
+import timeout
+
+type A {}
+
+func G(x int) {}
+
+func Fail() fails A { return A }
+
+func F(x int, u A) {
+	G(x)
+}
+
+let V = 1
+-- 09608.ergo --
+type State = Open{} | Closed{}
+
+func parse(s string) Option[State] {
+	let state = match s {
+	case "open":
+		Open
+	case "closed":
+		Closed
+	case _:
+		return None
+	}
+	Some[State]{Value: state}
+}
+
+func best(xs []int) Option[int] {
+	let mut b = None
+	for x in xs {
+		b = Some[int]{Value: x}
+	}
+	b
+}
+-- 09609.ergo --
+type U = A{} | B{}
+type V = C{} | D{}
+type R { N int }
+-- 09610.ergo --
+type U = A{} | B{}
+type V = C{} | D{}
+type R { N int }
+type State = Open{} | Closed{}
+
+func parse(s string) Option[State] {
+	let state = match s {
+	case "open":
+		Open
+	case "closed":
+		Closed
+	case _:
+		return None
+	}
+	Some[State]{Value: state}
+}
+
+func best(xs []int) Option[int] {
+	let mut b = None
+	for x in xs {
+		b = Some[int]{Value: x}
+	}
+	b
+}
+-- 09611.ergo --
+func f(n int) bool {
+	let x = if n > 0 { Some{Value: n} } else { None }
+	x == None
+}
+-- 09612.ergo --
+type State = Open{} | Closed{}
+
+func parse(s string) Option[State] {
+	let state = match s {
+	case "open":
+		Open
+	case "closed":
+		Closed
+	case _:
+		return None
+	}
+	Some[State]{Value: state}
+}
+
+func best(xs []int) Option[int] {
+	let mut b = None
+	for x in xs {
+		b = Some[int]{Value: x}
+	}
+	b
+}
+func f(n int) bool {
+	let x = if n > 0 { Some{Value: n} } else { None }
+	x == None
+}
+-- 09613.ergo --
+type U = A{} | B{}
+type V = C{} | D{}
+type R { N int }
+func f(n int) bool {
+	let x = if n > 0 { Some{Value: n} } else { None }
+	x == None
+}
+-- 09614.ergo --
+func f(n int) bool {
+	let x = if n > 0 { None } else { Some{Value: n} }
+	x == None
+}
+-- 09615.ergo --
+type State = Open{} | Closed{}
+
+func parse(s string) Option[State] {
+	let state = match s {
+	case "open":
+		Open
+	case "closed":
+		Closed
+	case _:
+		return None
+	}
+	Some[State]{Value: state}
+}
+
+func best(xs []int) Option[int] {
+	let mut b = None
+	for x in xs {
+		b = Some[int]{Value: x}
+	}
+	b
+}
+func f(n int) bool {
+	let x = if n > 0 { None } else { Some{Value: n} }
+	x == None
+}
+-- 09616.ergo --
+type U = A{} | B{}
+type V = C{} | D{}
+type R { N int }
+func f(n int) bool {
+	let x = if n > 0 { None } else { Some{Value: n} }
+	x == None
+}
+-- 09617.ergo --
+func f(n int) bool {
+	let x = if n > 0 { None } else { None }
+	x == None
+}
+-- 09618.ergo --
+type State = Open{} | Closed{}
+
+func parse(s string) Option[State] {
+	let state = match s {
+	case "open":
+		Open
+	case "closed":
+		Closed
+	case _:
+		return None
+	}
+	Some[State]{Value: state}
+}
+
+func best(xs []int) Option[int] {
+	let mut b = None
+	for x in xs {
+		b = Some[int]{Value: x}
+	}
+	b
+}
+func f(n int) bool {
+	let x = if n > 0 { None } else { None }
+	x == None
+}
+-- 09619.ergo --
+type U = A{} | B{}
+type V = C{} | D{}
+type R { N int }
+func f(n int) bool {
+	let x = if n > 0 { None } else { None }
+	x == None
+}
+-- 09620.ergo --
+type U = A{} | B{} | C{}
+func f(n int, c bool) bool {
+	let x = if c {
+		match n {
+		case 0:
+			A
+		case _:
+			B
+		}
+	} else {
+		C
+	}
+	x == A
+}
+-- 09621.ergo --
+type State = Open{} | Closed{}
+
+func parse(s string) Option[State] {
+	let state = match s {
+	case "open":
+		Open
+	case "closed":
+		Closed
+	case _:
+		return None
+	}
+	Some[State]{Value: state}
+}
+
+func best(xs []int) Option[int] {
+	let mut b = None
+	for x in xs {
+		b = Some[int]{Value: x}
+	}
+	b
+}
+type U = A{} | B{} | C{}
+func f(n int, c bool) bool {
+	let x = if c {
+		match n {
+		case 0:
+			A
+		case _:
+			B
+		}
+	} else {
+		C
+	}
+	x == A
+}
+-- 09622.ergo --
+type U = A{} | B{}
+type V = C{} | D{}
+type R { N int }
+type U = A{} | B{} | C{}
+func f(n int, c bool) bool {
+	let x = if c {
+		match n {
+		case 0:
+			A
+		case _:
+			B
+		}
+	} else {
+		C
+	}
+	x == A
+}
+-- 09623.ergo --
+type U = A{} | B{}
+func f(u U, c bool) bool {
+	let x = if c { u } else { B }
+	x == u
+}
+-- 09624.ergo --
+type State = Open{} | Closed{}
+
+func parse(s string) Option[State] {
+	let state = match s {
+	case "open":
+		Open
+	case "closed":
+		Closed
+	case _:
+		return None
+	}
+	Some[State]{Value: state}
+}
+
+func best(xs []int) Option[int] {
+	let mut b = None
+	for x in xs {
+		b = Some[int]{Value: x}
+	}
+	b
+}
+type U = A{} | B{}
+func f(u U, c bool) bool {
+	let x = if c { u } else { B }
+	x == u
+}
+-- 09625.ergo --
+type U = A{} | B{}
+type V = C{} | D{}
+type R { N int }
+type U = A{} | B{}
+func f(u U, c bool) bool {
+	let x = if c { u } else { B }
+	x == u
+}
+-- 09626.ergo --
+type U = A{} | B{}
+func f(c bool) bool {
+	let x = if c { A } else { A }
+	x == A
+}
+-- 09627.ergo --
+type State = Open{} | Closed{}
+
+func parse(s string) Option[State] {
+	let state = match s {
+	case "open":
+		Open
+	case "closed":
+		Closed
+	case _:
+		return None
+	}
+	Some[State]{Value: state}
+}
+
+func best(xs []int) Option[int] {
+	let mut b = None
+	for x in xs {
+		b = Some[int]{Value: x}
+	}
+	b
+}
+type U = A{} | B{}
+func f(c bool) bool {
+	let x = if c { A } else { A }
+	x == A
+}
+-- 09628.ergo --
+type U = A{} | B{}
+type V = C{} | D{}
+type R { N int }
+type U = A{} | B{}
+func f(c bool) bool {
+	let x = if c { A } else { A }
+	x == A
+}
+-- 09629.ergo --
+type U = A{} | B{}
+type V = A | B | C{}
+func f(c bool) bool {
+	let x = if c { A } else { B }
+	x == A
+}
+-- 09630.ergo --
+type State = Open{} | Closed{}
+
+func parse(s string) Option[State] {
+	let state = match s {
+	case "open":
+		Open
+	case "closed":
+		Closed
+	case _:
+		return None
+	}
+	Some[State]{Value: state}
+}
+
+func best(xs []int) Option[int] {
+	let mut b = None
+	for x in xs {
+		b = Some[int]{Value: x}
+	}
+	b
+}
+type U = A{} | B{}
+type V = A | B | C{}
+func f(c bool) bool {
+	let x = if c { A } else { B }
+	x == A
+}
+-- 09631.ergo --
+type U = A{} | B{}
+type V = C{} | D{}
+type R { N int }
+type U = A{} | B{}
+type V = A | B | C{}
+func f(c bool) bool {
+	let x = if c { A } else { B }
+	x == A
+}
+-- 09632.ergo --
+type U = A{} | B{}
+type V = A | B | C{}
+func f(c bool) bool {
+	let x V = if c { A } else { B }
+	x == A
+}
+-- 09633.ergo --
+type State = Open{} | Closed{}
+
+func parse(s string) Option[State] {
+	let state = match s {
+	case "open":
+		Open
+	case "closed":
+		Closed
+	case _:
+		return None
+	}
+	Some[State]{Value: state}
+}
+
+func best(xs []int) Option[int] {
+	let mut b = None
+	for x in xs {
+		b = Some[int]{Value: x}
+	}
+	b
+}
+type U = A{} | B{}
+type V = A | B | C{}
+func f(c bool) bool {
+	let x V = if c { A } else { B }
+	x == A
+}
+-- 09634.ergo --
+type U = A{} | B{}
+type V = C{} | D{}
+type R { N int }
+type U = A{} | B{}
+type V = A | B | C{}
+func f(c bool) bool {
+	let x V = if c { A } else { B }
+	x == A
+}
+-- 09635.ergo --
+type State = Open{} | Closed{}
+
+func parse(s string) Option[State] {
+	let state = match s {
+	case "open":
+		Open
+	case "closed":
+		Closed
+	case _:
+		return None
+	}
+	Some[State]{Value: state}
+}
+
+func best(xs []int) Option[int] {
+	let mut b = None
+	for x in xs {
+		b = Some[int]{Value: x}
+	}
+	b
+}
+type U = A{} | B{}
+type V = C{} | D{}
+type R { N int }
+-- 09636.ergo --
+func f(n int, u U) int {
+	let x = 
+-- 09637.ergo --
+type State = Open{} | Closed{}
+
+func parse(s string) Option[State] {
+	let state = match s {
+	case "open":
+		Open
+	case "closed":
+		Closed
+	case _:
+		return None
+	}
+	Some[State]{Value: state}
+}
+
+func best(xs []int) Option[int] {
+	let mut b = None
+	for x in xs {
+		b = Some[int]{Value: x}
+	}
+	b
+}
+func f(n int, u U) int {
+	let x = 
+-- 09638.ergo --
+type U = A{} | B{}
+type V = C{} | D{}
+type R { N int }
+func f(n int, u U) int {
+	let x = 
+-- 09639.ergo --
+func f(n int) int {
+	if n < 0 {
+		Unreachable("negative")
+	}
+	n
+}
+-- 09640.ergo --
+func f(n int) int {
+	Unreachable("never")
+	n
+}
+-- 09641.ergo --
+func f() int {
+	let x int = Unreachable("let")
+	x
+}
+-- 09642.ergo --
+func f(c bool) int {
+	let x = if c { 1 } else { Unreachable("else") }
+	x
+}
+-- 09643.ergo --
+func f(c bool) string {
+	let x = if c { Unreachable("then") } else { "b" }
+	x
+}
+-- 09644.ergo --
+func f(o Option[int]) int {
+	match o {
+	case Some[int] as s:
+		s.Value
+	case None:
+		Unreachable("none")
+	}
+}
+-- 09645.ergo --
+func f(n int) string {
+	let s = match n {
+	case 0:
+		Unreachable("zero")
+	case _:
+		"n"
+	}
+	s
+}
+-- 09646.ergo --
+func f(n int) int {
+	if n > 0 {
+		return n
+	}
+	return Unreachable("not positive")
+}
+-- 09647.ergo --
+func f() []string { Unreachable("tail") }
+-- 09648.ergo --
+func g(s string) int { len(s) }
+func f() int { g(Unreachable("arg")) }
+-- 09649.ergo --
+type R { N int }
+func f() R { R{N: Unreachable("field")} }
+-- 09650.ergo --
+func f(n int) int { n + Unreachable("operand") }
+-- 09651.ergo --
+func first[T](xs []T) T {
+	if len(xs) > 0 {
+		return xs[0]
+	}
+	Unreachable("empty")
+}
+-- 09652.ergo --
+func zero[T]() T {
+	let v T = Unreachable("no zero")
+	v
+}
+-- 09653.ergo --
+type Missing {}
+func g(n int) int fails Missing {
+	if n < 0 {
+		return Missing
+	}
+	n
+}
+func f() int {
+	g(1) catch {
+	case Missing:
+		Unreachable("g(1) never fails")
+	}
+}
+-- 09654.ergo --
+func f(k string) int { Unreachable("no key \(k)") }
+-- 09655.ergo --
+func F(n int) int {
+	if n < 0 {
+		Unreachable("negative")
+	}
+	n
+}
+-- 09656.ergo --
+func f() int64 {
+	let x int64 = Unreachable("x")
+	x
+}
+-- 09657.ergo --
+func f() int {
+	let x = Unreachable("x")
+	x
+}
+-- 09658.ergo --
+func f() {
+	Unreachable("x") catch {
+	case _:
+		return
+	}
+}
+-- 09659.ergo --
+func f() int {
+	let Unreachable = 1
+	Unreachable
+}
+-- 09660.ergo --
+func f(Unreachable int) int { Unreachable }
+-- 09661.ergo --
+func Unreachable(reason string) int { 0 }
+-- 09662.ergo --
+func f() int { Unreachable(1) }
+-- 09663.ergo --
+func f() { panic("x") }
+-- 09664.ergo --
+func f() int {
+	let g = Unreachable
+	0
+}
+-- 09665.ergo --
+let pv = Tag{Text: "p"}
+func fn() {}
+-- 09666.ergo --
+let k = func() { with %s { 1 } }
+	k()
+-- 09667.ergo --
+func g[T]() needs A {
+	let loc = Tag{Text: "l"}
+	_ = loc
+	
+-- 09668.ergo --
+type Store { Get() string }
+type Log { Put(s string) }
+type Mem { V string }
+
+func Get(m Mem) string { return m.V }
+
+let A = context { Store: Mem{V: "a"} }
+
+func f() string needs Store {
+	let b = context { Store: Mem{V: "b"} }
+	return with A, b, context { Store: Mem{V: "c"} } { Store.Get() + g() }
+}
+
+func g() string needs Store | Log {
+	Log.Put("x")
+	return Store.Get()
+}
+-- 09669.ergo --
+let W = context { A: Get() }
+-- 09670.ergo --
+extern go example.com/x.Get func get() First
+let W = context { A: get() }
+func f() { with W { A.Use() } }
+-- 09671.ergo --
+import makers
+func f()
+-- 09672.ergo --
+extern go example.com/x.Get func get() First
+let W = context { A: get() }
+func f() { with W { A.Use() } }
+let W = context { A: Get() }
+-- 09673.ergo --
+import makers
+func f()let W = context { A: Get() }
+-- 09674.ergo --
+let Base = context { A: Get() }
+let W = context { Base }
+-- 09675.ergo --
+let W = context { A: Get() }
+let Base = context { A: Get() }
+let W = context { Base }
+-- 09676.ergo --
+extern go example.com/x.Get func get() First
+let W = context { A: get() }
+func f() { with W { A.Use() } }
+let Base = context { A: Get() }
+let W = context { Base }
+-- 09677.ergo --
+import makers
+func f()let Base = context { A: Get() }
+let W = context { Base }
+-- 09678.ergo --
+type A { Use() }
+type Conn { n int }
+func Use(_ Conn) {}
+func Close(_ Conn) {}
+let shared = Conn{n: 1}
+func Get() Conn { 
+-- 09679.ergo --
+let W = context { A: Get() }
+type A { Use() }
+type Conn { n int }
+func Use(_ Conn) {}
+func Close(_ Conn) {}
+let shared = Conn{n: 1}
+func Get() Conn { 
+-- 09680.ergo --
+extern go example.com/x.Get func get() First
+let W = context { A: get() }
+func f() { with W { A.Use() } }
+type A { Use() }
+type Conn { n int }
+func Use(_ Conn) {}
+func Close(_ Conn) {}
+let shared = Conn{n: 1}
+func Get() Conn { 
+-- 09681.ergo --
+import makers
+func f()type A { Use() }
+type Conn { n int }
+func Use(_ Conn) {}
+func Close(_ Conn) {}
+let shared = Conn{n: 1}
+func Get() Conn { 
+-- 09682.ergo --
+func f() { with 
+-- 09683.ergo --
+let W = context { A: Get() }
+func f() { with 
+-- 09684.ergo --
+extern go example.com/x.Get func get() First
+let W = context { A: get() }
+func f() { with W { A.Use() } }
+func f() { with 
+-- 09685.ergo --
+import makers
+func f()func f() { with 
+-- 09686.ergo --
+let W = context { A: Get() }
+extern go example.com/x.Get func get() First
+let W = context { A: get() }
+func f() { with W { A.Use() } }
+-- 09687.ergo --
+import makers
+func f()extern go example.com/x.Get func get() First
+let W = context { A: get() }
+func f() { with W { A.Use() } }
+-- 09688.ergo --
+type A { Use() }
+type Conn { n int }
+func Use(_ Conn) {}
+func Close(_ Conn) needs Console { Console.Println("closed") }
+func Get() Conn { Conn{n: 1} }
+let W = context { A: Get() }
+-- 09689.ergo --
+let W = context { A: Get() }
+type A { Use() }
+type Conn { n int }
+func Use(_ Conn) {}
+func Close(_ Conn) needs Console { Console.Println("closed") }
+func Get() Conn { Conn{n: 1} }
+let W = context { A: Get() }
+-- 09690.ergo --
+extern go example.com/x.Get func get() First
+let W = context { A: get() }
+func f() { with W { A.Use() } }
+type A { Use() }
+type Conn { n int }
+func Use(_ Conn) {}
+func Close(_ Conn) needs Console { Console.Println("closed") }
+func Get() Conn { Conn{n: 1} }
+let W = context { A: Get() }
+-- 09691.ergo --
+import makers
+func f()type A { Use() }
+type Conn { n int }
+func Use(_ Conn) {}
+func Close(_ Conn) needs Console { Console.Println("closed") }
+func Get() Conn { Conn{n: 1} }
+let W = context { A: Get() }
+-- 09692.ergo --
+let W = context { A: Get() }
+import makers
+func f()
+-- 09693.ergo --
+extern go example.com/x.Get func get() First
+let W = context { A: get() }
+func f() { with W { A.Use() } }
+import makers
+func f()
+-- 09694.ergo --
+func first() First { First }
+func second() Second { Second }
+func f() { with context { A: first(), B: second() } { A.Use(); B.Use() } }
+-- 09695.ergo --
+func pair() Pair { Pair }
+func f() { with context { A, B: pair() } { B.Use(); A.Use() } }
+-- 09696.ergo --
+func f() { with context { A: First, B: Second } { B.Use() } }
+-- 09697.ergo --
+let Base = context { A, B: Pair }
+func f() { with context { replace A: Other, Base } { A.Use(); B.Use() } }
+-- 09698.ergo --
+type Fault {}
+func first(ok bool) First fails Fault { if ok { return First }; return Fault }
+func f() fails Fault { with context { A: try first(true) } { A.Use() } }
+-- 09699.ergo --
+func first(n int) First { let _ = n; First }
+func f() { let n = 1; with context { A: first(n) } { A.Use() } }
+-- 09700.ergo --
+func f() { let a = First; with context { A: a } { A.Use() } }
+-- 09701.ergo --
+let old = First
+func first() First { old }
+func f() { with context { A: first() } { A.Use() } }
+-- 09702.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("close") }
+func f() { with context { A: Res } { A.Use() } }
+-- 09703.ergo --
+import scope
+func f() { with context { A: First } { scope.OnExit() { A.Use() } } }
+-- 09704.ergo --
+import queue
+type Conn { n int }
+type Fault { code int }
+type Other {}
+type GFault[T] { v T }
+let gone = Fault{code: 7}
+let ggone = GFault[int]{v: 1}
+let shared = Conn{n: 1}
+func risky() int fails Fault { return Fault{code: 1} }
+func either() int fails Fault | Other { return Other }
+func openA() Conn { Conn{n: 1} }
+func openB(ok bool) Conn fails Fault {
+	if !ok { return Fault{code: 2} }
+	openA()
+}
+func openUnit(ok bool) Conn fails Other {
+	if !ok { return Other }
+	openA()
+}
+func openGone(ok bool) Conn fails Fault {
+	if !ok { return gone }
+	openA()
+}
+func openGeneric(ok bool) Conn fails GFault[int] {
+	if !ok { return ggone }
+	openA()
+}
+func openTail(ok bool) Conn fails Fault {
+	if ok { return openA() }
+	gone
+}
+func openRethrow() Conn fails Fault {
+	let n = risky() catch { case Fault as e: return e }
+	Conn{n: n}
+}
+func openRethrowAll() Conn fails Fault | Other {
+	let n = either() catch { case e: return e }
+	Conn{n: n}
+}
+func wrap(ok bool) Conn fails Fault { try openB(ok) }
+func reuse() Conn fails Fault { let c = try openB(true); c }
+func borrowGone(ok bool) Conn fails Fault {
+	if !ok { return gone }
+	shared
+}
+func newQueue() queue.Queue[int] { queue.New[int](1) }
+-- 09705.ergo --
+type Fault {}
+type Conn { n int }
+type Box { n int }
+type Left {}
+type Right {}
+type Choice = Left | Right
+type B { Use() }
+type Silent {}
+func Use(_ Silent) {}
+let Plain = context { B: Silent }
+let choice Choice = Left
+let shared = Conn{n: 1}
+let counter = 0
+func risk[T]() T fails Fault { return Fault }
+func risky(n int) int fails Fault { n }
+func integer(n int) int { n }
+func runInt(n int, f func()) { f() }
+func runConn(f func() Conn fails Fault) fails Fault { let _ = try f() }
+-- 09706.ergo --
+let _ = func() Conn fails Fault { STMT; Conn{n: 2} }
+-- 09707.ergo --
+type Fault {}
+type Conn { n int }
+type Box { n int }
+type Left {}
+type Right {}
+type Choice = Left | Right
+type B { Use() }
+type Silent {}
+func Use(_ Silent) {}
+let Plain = context { B: Silent }
+let choice Choice = Left
+let shared = Conn{n: 1}
+let counter = 0
+func risk[T]() T fails Fault { return Fault }
+func risky(n int) int fails Fault { n }
+func integer(n int) int { n }
+func runInt(n int, f func()) { f() }
+func runConn(f func() Conn fails Fault) fails Fault { let _ = try f() }
+let _ = func() Conn fails Fault { STMT; Conn{n: 2} }
+-- 09708.ergo --
+type Fault {}
+type Conn { n int }
+type Box { n int }
+type Left {}
+type Right {}
+type Choice = Left | Right
+type B { Use() }
+type Silent {}
+func Use(_ Silent) {}
+let Plain = context { B: Silent }
+let choice Choice = Left
+let shared = Conn{n: 1}
+let counter = 0
+func risk[T]() T fails Fault { return Fault }
+func risky(n int) int fails Fault { n }
+func integer(n int) int { n }
+func runInt(n int, f func()) { f() }
+func runConn(f func() Conn fails Fault) fails Fault { let _ = try f() }
+let _ = 
+-- 09709.ergo --
+
+func get() Conn fails Fault { 
+-- 09710.ergo --
+type Fault {}
+type Conn { n int }
+type Box { n int }
+type Left {}
+type Right {}
+type Choice = Left | Right
+type B { Use() }
+type Silent {}
+func Use(_ Silent) {}
+let Plain = context { B: Silent }
+let choice Choice = Left
+let shared = Conn{n: 1}
+let counter = 0
+func risk[T]() T fails Fault { return Fault }
+func risky(n int) int fails Fault { n }
+func integer(n int) int { n }
+func runInt(n int, f func()) { f() }
+func runConn(f func() Conn fails Fault) fails Fault { let _ = try f() }
+
+func get() Conn fails Fault { 
+-- 09711.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+-- 09712.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+-- 09713.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+-- 09714.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+-- 09715.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+-- 09716.ergo --
+let W = context { A, B: Pair }
+func f() { with W { A.Use(); B.Use() } }
+-- 09717.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+let W = context { A, B: Pair }
+func f() { with W { A.Use(); B.Use() } }
+-- 09718.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A, B: Pair }
+func f() { with W { A.Use(); B.Use() } }
+-- 09719.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+let W = context { A, B: Pair }
+func f() { with W { A.Use(); B.Use() } }
+-- 09720.ergo --
+let Base = context { A: First }
+let W = context { replace A: Other, Base }
+func f() { with W { A.Use() } }
+-- 09721.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+let Base = context { A: First }
+let W = context { replace A: Other, Base }
+func f() { with W { A.Use() } }
+-- 09722.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let Base = context { A: First }
+let W = context { replace A: Other, Base }
+func f() { with W { A.Use() } }
+-- 09723.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+let Base = context { A: First }
+let W = context { replace A: Other, Base }
+func f() { with W { A.Use() } }
+-- 09724.ergo --
+let W = context { A: First, B: Second }
+func f() { with W { B.Use() } }
+-- 09725.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+let W = context { A: First, B: Second }
+func f() { with W { B.Use() } }
+-- 09726.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: First, B: Second }
+func f() { with W { B.Use() } }
+-- 09727.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+let W = context { A: First, B: Second }
+func f() { with W { B.Use() } }
+-- 09728.ergo --
+func second() Second needs A { A.Use(); Second }
+let W = context { B: second(), A: First }
+func f() { with W { B.Use() } }
+-- 09729.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+func second() Second needs A { A.Use(); Second }
+let W = context { B: second(), A: First }
+func f() { with W { B.Use() } }
+-- 09730.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+func second() Second needs A { A.Use(); Second }
+let W = context { B: second(), A: First }
+func f() { with W { B.Use() } }
+-- 09731.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+func second() Second needs A { A.Use(); Second }
+let W = context { B: second(), A: First }
+func f() { with W { B.Use() } }
+-- 09732.ergo --
+let Base = context { B: Second }
+let W = context { A: First, Base }
+let V = context { A: First, B: Second }
+func f() { with W { B.Use(); A.Use() } }
+func g() { with V { B.Use(); A.Use() } }
+-- 09733.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+let Base = context { B: Second }
+let W = context { A: First, Base }
+let V = context { A: First, B: Second }
+func f() { with W { B.Use(); A.Use() } }
+func g() { with V { B.Use(); A.Use() } }
+-- 09734.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let Base = context { B: Second }
+let W = context { A: First, Base }
+let V = context { A: First, B: Second }
+func f() { with W { B.Use(); A.Use() } }
+func g() { with V { B.Use(); A.Use() } }
+-- 09735.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+let Base = context { B: Second }
+let W = context { A: First, Base }
+let V = context { A: First, B: Second }
+func f() { with W { B.Use(); A.Use() } }
+func g() { with V { B.Use(); A.Use() } }
+-- 09736.ergo --
+let Base = context { A, B: Pair }
+let W = context { replace A: Other, Base }
+func f() { with W { A.Use(); B.Use() } }
+-- 09737.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+let Base = context { A, B: Pair }
+let W = context { replace A: Other, Base }
+func f() { with W { A.Use(); B.Use() } }
+-- 09738.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let Base = context { A, B: Pair }
+let W = context { replace A: Other, Base }
+func f() { with W { A.Use(); B.Use() } }
+-- 09739.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+let Base = context { A, B: Pair }
+let W = context { replace A: Other, Base }
+func f() { with W { A.Use(); B.Use() } }
+-- 09740.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+-- 09741.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+-- 09742.ergo --
+let W = context { A: Res }
+func f() needs Log { with W { A.Use() } }
+-- 09743.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+let W = context { A: Res }
+func f() needs Log { with W { A.Use() } }
+-- 09744.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs Log { with W { A.Use() } }
+-- 09745.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+let W = context { A: Res }
+func f() needs Log { with W { A.Use() } }
+-- 09746.ergo --
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+-- 09747.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+-- 09748.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+-- 09749.ergo --
+let Out = context { Log: Quiet, B: Second }
+let W = context { A: Res }
+func f() { with Out { with W { A.Use() } } }
+-- 09750.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+let Out = context { Log: Quiet, B: Second }
+let W = context { A: Res }
+func f() { with Out { with W { A.Use() } } }
+-- 09751.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let Out = context { Log: Quiet, B: Second }
+let W = context { A: Res }
+func f() { with Out { with W { A.Use() } } }
+-- 09752.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+let Out = context { Log: Quiet, B: Second }
+let W = context { A: Res }
+func f() { with Out { with W { A.Use() } } }
+-- 09753.ergo --
+type Sink {}
+func Say(_ Sink, s string) {}
+func Close(_ Sink) {}
+let Out = context { Log: Sink }
+let W = context { A: Res }
+func f() { with Out { with W { A.Use() } } }
+-- 09754.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+type Sink {}
+func Say(_ Sink, s string) {}
+func Close(_ Sink) {}
+let Out = context { Log: Sink }
+let W = context { A: Res }
+func f() { with Out { with W { A.Use() } } }
+-- 09755.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+type Sink {}
+func Say(_ Sink, s string) {}
+func Close(_ Sink) {}
+let Out = context { Log: Sink }
+let W = context { A: Res }
+func f() { with Out { with W { A.Use() } } }
+-- 09756.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+type Sink {}
+func Say(_ Sink, s string) {}
+func Close(_ Sink) {}
+let Out = context { Log: Sink }
+let W = context { A: Res }
+func f() { with Out { with W { A.Use() } } }
+-- 09757.ergo --
+let W = context { A: missing() }
+func f() { with W { A.Use() } }
+-- 09758.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+let W = context { A: missing() }
+func f() { with W { A.Use() } }
+-- 09759.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: missing() }
+func f() { with W { A.Use() } }
+-- 09760.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+let W = context { A: missing() }
+func f() { with W { A.Use() } }
+-- 09761.ergo --
+func f() { with context { A: missing() } { A.Use() } }
+-- 09762.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+func f() { with context { A: missing() } { A.Use() } }
+-- 09763.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+func f() { with context { A: missing() } { A.Use() } }
+-- 09764.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+func f() { with context { A: missing() } { A.Use() } }
+-- 09765.ergo --
+let shared = First
+let W = context { A: shared }
+func f() { with W { A.Use() } }
+-- 09766.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+let shared = First
+let W = context { A: shared }
+func f() { with W { A.Use() } }
+-- 09767.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let shared = First
+let W = context { A: shared }
+func f() { with W { A.Use() } }
+-- 09768.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+let shared = First
+let W = context { A: shared }
+func f() { with W { A.Use() } }
+-- 09769.ergo --
+type Box { R First }
+let box = Box{R: First}
+let W = context { A: box.R }
+func f() { with W { A.Use() } }
+-- 09770.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+type Box { R First }
+let box = Box{R: First}
+let W = context { A: box.R }
+func f() { with W { A.Use() } }
+-- 09771.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+type Box { R First }
+let box = Box{R: First}
+let W = context { A: box.R }
+func f() { with W { A.Use() } }
+-- 09772.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+type Box { R First }
+let box = Box{R: First}
+let W = context { A: box.R }
+func f() { with W { A.Use() } }
+-- 09773.ergo --
+import scope
+let W = context { A: First }
+func f() { with W { scope.OnExit() { A.Use() } } }
+-- 09774.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+import scope
+let W = context { A: First }
+func f() { with W { scope.OnExit() { A.Use() } } }
+-- 09775.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+import scope
+let W = context { A: First }
+func f() { with W { scope.OnExit() { A.Use() } } }
+-- 09776.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+import scope
+let W = context { A: First }
+func f() { with W { scope.OnExit() { A.Use() } } }
+-- 09777.ergo --
+import task
+let W = context { A: First }
+func f() {
+	let t = with W { task.Go() { A.Use() } }
+	t.Wait()
+}
+
+-- 09778.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+import task
+let W = context { A: First }
+func f() {
+	let t = with W { task.Go() { A.Use() } }
+	t.Wait()
+}
+
+-- 09779.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+import task
+let W = context { A: First }
+func f() {
+	let t = with W { task.Go() { A.Use() } }
+	t.Wait()
+}
+
+-- 09780.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+import task
+let W = context { A: First }
+func f() {
+	let t = with W { task.Go() { A.Use() } }
+	t.Wait()
+}
+
+-- 09781.ergo --
+type R { Close() }
+let W = context { R: First }
+func g() needs R { R.Close() }
+func f() { with W { g() } }
+-- 09782.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+type R { Close() }
+let W = context { R: First }
+func g() needs R { R.Close() }
+func f() { with W { g() } }
+-- 09783.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+type R { Close() }
+let W = context { R: First }
+func g() needs R { R.Close() }
+func f() { with W { g() } }
+-- 09784.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+type R { Close() }
+let W = context { R: First }
+func g() needs R { R.Close() }
+func f() { with W { g() } }
+-- 09785.ergo --
+import scope
+let W = context { A: First }
+func f() needs Log { with W { A.Use(); scope.OnExit() { Log.Say("x") } } }
+-- 09786.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+import scope
+let W = context { A: First }
+func f() needs Log { with W { A.Use(); scope.OnExit() { Log.Say("x") } } }
+-- 09787.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+import scope
+let W = context { A: First }
+func f() needs Log { with W { A.Use(); scope.OnExit() { Log.Say("x") } } }
+-- 09788.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+import scope
+let W = context { A: First }
+func f() needs Log { with W { A.Use(); scope.OnExit() { Log.Say("x") } } }
+-- 09789.ergo --
+import scope
+import task
+let W = context { A: First }
+func f() { with W { let t = task.Go() { scope.OnExit() { A.Use() } }; t.Wait() } }
+-- 09790.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+import scope
+import task
+let W = context { A: First }
+func f() { with W { let t = task.Go() { scope.OnExit() { A.Use() } }; t.Wait() } }
+-- 09791.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+import scope
+import task
+let W = context { A: First }
+func f() { with W { let t = task.Go() { scope.OnExit() { A.Use() } }; t.Wait() } }
+-- 09792.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+import scope
+import task
+let W = context { A: First }
+func f() { with W { let t = task.Go() { scope.OnExit() { A.Use() } }; t.Wait() } }
+-- 09793.ergo --
+let s = Second
+let W = context { B: s }
+func f() { with W { B.Use() } }
+-- 09794.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+let s = Second
+let W = context { B: s }
+func f() { with W { B.Use() } }
+-- 09795.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let s = Second
+let W = context { B: s }
+func f() { with W { B.Use() } }
+-- 09796.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+let s = Second
+let W = context { B: s }
+func f() { with W { B.Use() } }
+-- 09797.ergo --
+let shared = First
+func get() First { shared }
+-- 09798.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+let shared = First
+func get() First { shared }
+-- 09799.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let shared = First
+func get() First { shared }
+-- 09800.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+let shared = First
+func get() First { shared }
+-- 09801.ergo --
+let shared = First
+func id(c First) First { c }
+-- 09802.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+let shared = First
+func id(c First) First { c }
+-- 09803.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let shared = First
+func id(c First) First { c }
+-- 09804.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+let shared = First
+func id(c First) First { c }
+-- 09805.ergo --
+func get() First { let c = First; c }
+-- 09806.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+func get() First { let c = First; c }
+-- 09807.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+func get() First { let c = First; c }
+-- 09808.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+func get() First { let c = First; c }
+-- 09809.ergo --
+type Box { R First }
+let box = Box{R: First}
+func get() First { box.R }
+-- 09810.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+type Box { R First }
+let box = Box{R: First}
+func get() First { box.R }
+-- 09811.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+type Box { R First }
+let box = Box{R: First}
+func get() First { box.R }
+-- 09812.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+type Box { R First }
+let box = Box{R: First}
+func get() First { box.R }
+-- 09813.ergo --
+let values = []First{First}
+func get() First { values[0] }
+-- 09814.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+let values = []First{First}
+func get() First { values[0] }
+-- 09815.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let values = []First{First}
+func get() First { values[0] }
+-- 09816.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+let values = []First{First}
+func get() First { values[0] }
+-- 09817.ergo --
+let make = func() First { First }
+func get() First { make() }
+-- 09818.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+let make = func() First { First }
+func get() First { make() }
+-- 09819.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let make = func() First { First }
+func get() First { make() }
+-- 09820.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+let make = func() First { First }
+func get() First { make() }
+-- 09821.ergo --
+type Factory { Make() First }
+func get() First needs Factory { Factory.Make() }
+type Maker {}
+func Make(_ Maker) First { First }
+let Makers = context { Factory: Maker }
+-- 09822.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+type Factory { Make() First }
+func get() First needs Factory { Factory.Make() }
+type Maker {}
+func Make(_ Maker) First { First }
+let Makers = context { Factory: Maker }
+-- 09823.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+type Factory { Make() First }
+func get() First needs Factory { Factory.Make() }
+type Maker {}
+func Make(_ Maker) First { First }
+let Makers = context { Factory: Maker }
+-- 09824.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+type Factory { Make() First }
+func get() First needs Factory { Factory.Make() }
+type Maker {}
+func Make(_ Maker) First { First }
+let Makers = context { Factory: Maker }
+-- 09825.ergo --
+let shared = First
+func get(n int) First { if n == 0 { return shared }; other(n - 1) }
+func other(n int) First { get(n) }
+-- 09826.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+let shared = First
+func get(n int) First { if n == 0 { return shared }; other(n - 1) }
+func other(n int) First { get(n) }
+-- 09827.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let shared = First
+func get(n int) First { if n == 0 { return shared }; other(n - 1) }
+func other(n int) First { get(n) }
+-- 09828.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+let shared = First
+func get(n int) First { if n == 0 { return shared }; other(n - 1) }
+func other(n int) First { get(n) }
+-- 09829.ergo --
+let shared = First
+func get(n int) First { if n == 0 { return shared }; First }
+-- 09830.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+let shared = First
+func get(n int) First { if n == 0 { return shared }; First }
+-- 09831.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let shared = First
+func get(n int) First { if n == 0 { return shared }; First }
+-- 09832.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+let shared = First
+func get(n int) First { if n == 0 { return shared }; First }
+-- 09833.ergo --
+type Fault {}
+let shared = First
+func risky() int fails Fault { return Fault }
+func run(n int, f func()) { f() }
+func get() First {
+	run(risky() catch { case Fault: return shared }) {}
+	First
+}
+-- 09834.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+type Fault {}
+let shared = First
+func risky() int fails Fault { return Fault }
+func run(n int, f func()) { f() }
+func get() First {
+	run(risky() catch { case Fault: return shared }) {}
+	First
+}
+-- 09835.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+type Fault {}
+let shared = First
+func risky() int fails Fault { return Fault }
+func run(n int, f func()) { f() }
+func get() First {
+	run(risky() catch { case Fault: return shared }) {}
+	First
+}
+-- 09836.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+type Fault {}
+let shared = First
+func risky() int fails Fault { return Fault }
+func run(n int, f func()) { f() }
+func get() First {
+	run(risky() catch { case Fault: return shared }) {}
+	First
+}
+-- 09837.ergo --
+type Fault {}
+let shared = First
+func risky() int fails Fault { return Fault }
+func run(n int, f func()) { f() }
+func get() First {
+	run(1) {}
+	run((risky() catch { case Fault: return shared }) + 1) {}
+	First
+}
+-- 09838.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+type Fault {}
+let shared = First
+func risky() int fails Fault { return Fault }
+func run(n int, f func()) { f() }
+func get() First {
+	run(1) {}
+	run((risky() catch { case Fault: return shared }) + 1) {}
+	First
+}
+-- 09839.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+type Fault {}
+let shared = First
+func risky() int fails Fault { return Fault }
+func run(n int, f func()) { f() }
+func get() First {
+	run(1) {}
+	run((risky() catch { case Fault: return shared }) + 1) {}
+	First
+}
+-- 09840.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+type Fault {}
+let shared = First
+func risky() int fails Fault { return Fault }
+func run(n int, f func()) { f() }
+func get() First {
+	run(1) {}
+	run((risky() catch { case Fault: return shared }) + 1) {}
+	First
+}
+-- 09841.ergo --
+type Registry Map[string, int]
+func Use(_ Registry) {}
+func Close(_ Registry) {}
+let shared = Map[string, int]{"a": 1}
+-- 09842.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+type Registry Map[string, int]
+func Use(_ Registry) {}
+func Close(_ Registry) {}
+let shared = Map[string, int]{"a": 1}
+-- 09843.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+type Registry Map[string, int]
+func Use(_ Registry) {}
+func Close(_ Registry) {}
+let shared = Map[string, int]{"a": 1}
+-- 09844.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+type Registry Map[string, int]
+func Use(_ Registry) {}
+func Close(_ Registry) {}
+let shared = Map[string, int]{"a": 1}
+-- 09845.ergo --
+type Registry Map[string, int]
+func Use(_ Registry) {}
+func Close(_ Registry) {}
+-- 09846.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+type Registry Map[string, int]
+func Use(_ Registry) {}
+func Close(_ Registry) {}
+-- 09847.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+type Registry Map[string, int]
+func Use(_ Registry) {}
+func Close(_ Registry) {}
+-- 09848.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+type Registry Map[string, int]
+func Use(_ Registry) {}
+func Close(_ Registry) {}
+-- 09849.ergo --
+func openA() First { First }
+-- 09850.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+func openA() First { First }
+-- 09851.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+func openA() First { First }
+-- 09852.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+func openA() First { First }
+-- 09853.ergo --
+let shared = First
+-- 09854.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+let shared = First
+-- 09855.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let shared = First
+-- 09856.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+let shared = First
+-- 09857.ergo --
+type Conn { n int }
+func Use(_ Conn) {}
+func Close(_ Conn) {}
+func openA() Conn { Conn{n: 1} }
+-- 09858.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+type Conn { n int }
+func Use(_ Conn) {}
+func Close(_ Conn) {}
+func openA() Conn { Conn{n: 1} }
+-- 09859.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+type Conn { n int }
+func Use(_ Conn) {}
+func Close(_ Conn) {}
+func openA() Conn { Conn{n: 1} }
+-- 09860.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+type Conn { n int }
+func Use(_ Conn) {}
+func Close(_ Conn) {}
+func openA() Conn { Conn{n: 1} }
+-- 09861.ergo --
+func openA(n int) First {
+	if n == 0 { return First }
+	openB(n - 1)
+}
+func openB(n int) First { openA(n) }
+-- 09862.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+func openA(n int) First {
+	if n == 0 { return First }
+	openB(n - 1)
+}
+func openB(n int) First { openA(n) }
+-- 09863.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+func openA(n int) First {
+	if n == 0 { return First }
+	openB(n - 1)
+}
+func openB(n int) First { openA(n) }
+-- 09864.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+func openA(n int) First {
+	if n == 0 { return First }
+	openB(n - 1)
+}
+func openB(n int) First { openA(n) }
+-- 09865.ergo --
+func openA(ok bool) First {
+	if ok { First } else { First }
+}
+-- 09866.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+func openA(ok bool) First {
+	if ok { First } else { First }
+}
+-- 09867.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+func openA(ok bool) First {
+	if ok { First } else { First }
+}
+-- 09868.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+func openA(ok bool) First {
+	if ok { First } else { First }
+}
+-- 09869.ergo --
+let shared = First
+func get(ok bool) First {
+	if ok { First } else { shared }
+}
+-- 09870.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+let shared = First
+func get(ok bool) First {
+	if ok { First } else { shared }
+}
+-- 09871.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let shared = First
+func get(ok bool) First {
+	if ok { First } else { shared }
+}
+-- 09872.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+let shared = First
+func get(ok bool) First {
+	if ok { First } else { shared }
+}
+-- 09873.ergo --
+func openA(ok bool) First {
+	match ok {
+	case true: First
+	case _: First
+	}
+}
+-- 09874.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+func openA(ok bool) First {
+	match ok {
+	case true: First
+	case _: First
+	}
+}
+-- 09875.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+func openA(ok bool) First {
+	match ok {
+	case true: First
+	case _: First
+	}
+}
+-- 09876.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+func openA(ok bool) First {
+	match ok {
+	case true: First
+	case _: First
+	}
+}
+-- 09877.ergo --
+let shared = First
+func get(ok bool) First {
+	match ok {
+	case true: First
+	case _: shared
+	}
+}
+-- 09878.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+let shared = First
+func get(ok bool) First {
+	match ok {
+	case true: First
+	case _: shared
+	}
+}
+-- 09879.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let shared = First
+func get(ok bool) First {
+	match ok {
+	case true: First
+	case _: shared
+	}
+}
+-- 09880.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+let shared = First
+func get(ok bool) First {
+	match ok {
+	case true: First
+	case _: shared
+	}
+}
+-- 09881.ergo --
+
+let W = context { A: 
+-- 09882.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+
+let W = context { A: 
+-- 09883.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+
+let W = context { A: 
+-- 09884.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+
+let W = context { A: 
+-- 09885.ergo --
+ }
+func f() { with W { A.Use() } }
+-- 09886.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+ }
+func f() { with W { A.Use() } }
+-- 09887.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+ }
+func f() { with W { A.Use() } }
+-- 09888.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+ }
+func f() { with W { A.Use() } }
+-- 09889.ergo --
+
+let W = context { A: get(), Factory: Maker }
+func f() { with W { A.Use() } }
+-- 09890.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+
+let W = context { A: get(), Factory: Maker }
+func f() { with W { A.Use() } }
+-- 09891.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+
+let W = context { A: get(), Factory: Maker }
+func f() { with W { A.Use() } }
+-- 09892.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+
+let W = context { A: get(), Factory: Maker }
+func f() { with W { A.Use() } }
+-- 09893.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+type A { Use() }
+type Conn { n int }
+func Use(_ Conn) {}
+func Close(_ Conn) {}
+let shared = Conn{n: 1}
+func Get() Conn { 
+-- 09894.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+type A { Use() }
+type Conn { n int }
+func Use(_ Conn) {}
+func Close(_ Conn) {}
+let shared = Conn{n: 1}
+func Get() Conn { 
+-- 09895.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+type A { Use() }
+type Conn { n int }
+func Use(_ Conn) {}
+func Close(_ Conn) {}
+let shared = Conn{n: 1}
+func Get() Conn { 
+-- 09896.ergo --
+ }
+let W = context { A: Get() }
+-- 09897.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+ }
+let W = context { A: Get() }
+-- 09898.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+ }
+let W = context { A: Get() }
+-- 09899.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+ }
+let W = context { A: Get() }
+-- 09900.ergo --
+import makers
+let W = context { makers.A: makers.Get() }
+func f() { with W { makers.A.Use() } }
+-- 09901.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+import makers
+let W = context { makers.A: makers.Get() }
+func f() { with W { makers.A.Use() } }
+-- 09902.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+import makers
+let W = context { makers.A: makers.Get() }
+func f() { with W { makers.A.Use() } }
+-- 09903.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+import makers
+let W = context { makers.A: makers.Get() }
+func f() { with W { makers.A.Use() } }
+-- 09904.ergo --
+type Sink {}
+func Say(_ Sink, s string) {}
+func Close(_ Sink) {}
+-- 09905.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+type Sink {}
+func Say(_ Sink, s string) {}
+func Close(_ Sink) {}
+-- 09906.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+type Sink {}
+func Say(_ Sink, s string) {}
+func Close(_ Sink) {}
+-- 09907.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+type Sink {}
+func Say(_ Sink, s string) {}
+func Close(_ Sink) {}
+-- 09908.ergo --
+type Mid { Use() }
+type Middle {}
+func Use(_ Middle) {}
+func middle() Middle needs A { A.Use(); Middle }
+func quiet() Quiet needs Mid { Mid.Use(); Quiet }
+-- 09909.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+type Mid { Use() }
+type Middle {}
+func Use(_ Middle) {}
+func middle() Middle needs A { A.Use(); Middle }
+func quiet() Quiet needs Mid { Mid.Use(); Quiet }
+-- 09910.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+type Mid { Use() }
+type Middle {}
+func Use(_ Middle) {}
+func middle() Middle needs A { A.Use(); Middle }
+func quiet() Quiet needs Mid { Mid.Use(); Quiet }
+-- 09911.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+type Mid { Use() }
+type Middle {}
+func Use(_ Middle) {}
+func middle() Middle needs A { A.Use(); Middle }
+func quiet() Quiet needs Mid { Mid.Use(); Quiet }
+-- 09912.ergo --
+func quiet() Quiet needs B { B.Use(); Quiet }
+-- 09913.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+func quiet() Quiet needs B { B.Use(); Quiet }
+-- 09914.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+func quiet() Quiet needs B { B.Use(); Quiet }
+-- 09915.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+func quiet() Quiet needs B { B.Use(); Quiet }
+-- 09916.ergo --
+
+let W = context { 
+-- 09917.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+
+let W = context { 
+-- 09918.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+
+let W = context { 
+-- 09919.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+
+let W = context { 
+-- 09920.ergo --
+ }
+func f() { with W { A.Use(); scope.OnExit() { Log.Say("exit") } } }
+-- 09921.ergo --
+type A { Use() }
+type B { Use() }
+type Log { Say(s string) }
+type First {}
+type Second {}
+type Pair {}
+type Other {}
+type Quiet {}
+func Use(_ First)  {}
+func Use(_ Second) {}
+func Use(_ Pair)   {}
+func Use(_ Other)  {}
+func Say(_ Quiet, s string) {}
+func Close(_ First)  {}
+func Close(_ Pair)   {}
+func Close(_ Other)  {}
+ }
+func f() { with W { A.Use(); scope.OnExit() { Log.Say("exit") } } }
+-- 09922.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+ }
+func f() { with W { A.Use(); scope.OnExit() { Log.Say("exit") } } }
+-- 09923.ergo --
+type Res {}
+func Use(_ Res) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+let W = context { A: Res }
+func f() needs A { with W { A.Use() } }
+func g() { with W { A.Use() } }
+ }
+func f() { with W { A.Use(); scope.OnExit() { Log.Say("exit") } } }
+-- 09924.ergo --
+type A { Use() }
+type B { Use() }
+type C { Use() }
+type D { Use() }
+type PX {}
+type PY {}
+type PZ {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func Use(_ PZ) {}
+let W0 = context { A: PX, B: PY }
+let W1 = context { replace A: PZ, W0 }
+let W2 = context { replace A: PY, W1 }
+let W3 = context { W2 }
+let W4 = context { C: PX, W3 }
+let D1 = context { C: PX, W0 }
+let D2 = context { replace B: PZ, W0 }
+let Dia = context { replace A: PY, replace B: PX, D1, D2 }
+let DiaTop = context { D: PX, Dia }
+let M0 = context { A, B: PX, C: PY }
+let M1 = context { replace A: PZ, M0 }
+let M2 = context { replace B: PY, M1 }
+let M3 = context { D: PZ, M2 }
+func main() {}
+-- 09925.ergo --
+type A { Use() }
+type B { Use() }
+type C { Use() }
+type D { Use() }
+type PX {}
+type PY {}
+type PZ {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func Use(_ PZ) {}
+let W0 = context { A: PX, B: PY }
+let W1 = context { replace A: PZ, W0 }
+let W2 = context { replace A: PY, W1 }
+let W3 = context { W2 }
+let W4 = context { C: PX, W3 }
+let D1 = context { C: PX, W0 }
+let D2 = context { replace B: PZ, W0 }
+let Dia = context { replace A: PY, replace B: PX, D1, D2 }
+let DiaTop = context { D: PX, Dia }
+let M0 = context { A, B: PX, C: PY }
+let M1 = context { replace A: PZ, M0 }
+let M2 = context { replace B: PY, M1 }
+let M3 = context { D: PZ, M2 }
+func main() {}
+type C%d { Get() string }
+-- 09926.ergo --
+type Store { Get() string }
+type Mem { V string }
+
+func Get(m Mem) string { return m.V }
+
+-- 09927.ergo --
+type A { Use() }
+type B { Use() }
+type C { Use() }
+type D { Use() }
+type PX {}
+type PY {}
+type PZ {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func Use(_ PZ) {}
+let W0 = context { A: PX, B: PY }
+let W1 = context { replace A: PZ, W0 }
+let W2 = context { replace A: PY, W1 }
+let W3 = context { W2 }
+let W4 = context { C: PX, W3 }
+let D1 = context { C: PX, W0 }
+let D2 = context { replace B: PZ, W0 }
+let Dia = context { replace A: PY, replace B: PX, D1, D2 }
+let DiaTop = context { D: PX, Dia }
+let M0 = context { A, B: PX, C: PY }
+let M1 = context { replace A: PZ, M0 }
+let M2 = context { replace B: PY, M1 }
+let M3 = context { D: PZ, M2 }
+func main() {}
+type Store { Get() string }
+type Mem { V string }
+
+func Get(m Mem) string { return m.V }
+
+-- 09928.ergo --
+func all() string needs C0
+-- 09929.ergo --
+type A { Use() }
+type B { Use() }
+type C { Use() }
+type D { Use() }
+type PX {}
+type PY {}
+type PZ {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func Use(_ PZ) {}
+let W0 = context { A: PX, B: PY }
+let W1 = context { replace A: PZ, W0 }
+let W2 = context { replace A: PY, W1 }
+let W3 = context { W2 }
+let W4 = context { C: PX, W3 }
+let D1 = context { C: PX, W0 }
+let D2 = context { replace B: PZ, W0 }
+let Dia = context { replace A: PY, replace B: PX, D1, D2 }
+let DiaTop = context { D: PX, Dia }
+let M0 = context { A, B: PX, C: PY }
+let M1 = context { replace A: PZ, M0 }
+let M2 = context { replace B: PY, M1 }
+let M3 = context { D: PZ, M2 }
+func main() {}
+func all() string needs C0
+-- 09930.ergo --
+func Run() string needs Store {
+	return Store.Get()
+}
+
+-- 09931.ergo --
+type A { Use() }
+type B { Use() }
+type C { Use() }
+type D { Use() }
+type PX {}
+type PY {}
+type PZ {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func Use(_ PZ) {}
+let W0 = context { A: PX, B: PY }
+let W1 = context { replace A: PZ, W0 }
+let W2 = context { replace A: PY, W1 }
+let W3 = context { W2 }
+let W4 = context { C: PX, W3 }
+let D1 = context { C: PX, W0 }
+let D2 = context { replace B: PZ, W0 }
+let Dia = context { replace A: PY, replace B: PX, D1, D2 }
+let DiaTop = context { D: PX, Dia }
+let M0 = context { A, B: PX, C: PY }
+let M1 = context { replace A: PZ, M0 }
+let M2 = context { replace B: PY, M1 }
+let M3 = context { D: PZ, M2 }
+func main() {}
+func Run() string needs Store {
+	return Store.Get()
+}
+
+-- 09932.ergo --
+type A { Use() }
+type B { Use() }
+type C { Use() }
+type D { Use() }
+type PX {}
+type PY {}
+type PZ {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func Use(_ PZ) {}
+let W0 = context { A: PX, B: PY }
+let W1 = context { replace A: PZ, W0 }
+let W2 = context { replace A: PY, W1 }
+let W3 = context { W2 }
+let W4 = context { C: PX, W3 }
+let D1 = context { C: PX, W0 }
+let D2 = context { replace B: PZ, W0 }
+let Dia = context { replace A: PY, replace B: PX, D1, D2 }
+let DiaTop = context { D: PX, Dia }
+let M0 = context { A, B: PX, C: PY }
+let M1 = context { replace A: PZ, M0 }
+let M2 = context { replace B: PY, M1 }
+let M3 = context { D: PZ, M2 }
+func main() {}
+let W0 = context { Store: Mem{V: "w0"}, C0: Mem{V: "c0"} }
+-- 09933.ergo --
+type A { Use() }
+type B { Use() }
+type C { Use() }
+type D { Use() }
+type PX {}
+type PY {}
+type PZ {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func Use(_ PZ) {}
+let W0 = context { A: PX, B: PY }
+let W1 = context { replace A: PZ, W0 }
+let W2 = context { replace A: PY, W1 }
+let W3 = context { W2 }
+let W4 = context { C: PX, W3 }
+let D1 = context { C: PX, W0 }
+let D2 = context { replace B: PZ, W0 }
+let Dia = context { replace A: PY, replace B: PX, D1, D2 }
+let DiaTop = context { D: PX, Dia }
+let M0 = context { A, B: PX, C: PY }
+let M1 = context { replace A: PZ, M0 }
+let M2 = context { replace B: PY, M1 }
+let M3 = context { D: PZ, M2 }
+func main() {}
+let W%d = context { C%d: Mem{V: "c"}, W%d }
+-- 09934.ergo --
+func f%d() string {
+	return with W%d { Run() }
+}
+
+-- 09935.ergo --
+type A { Use() }
+type B { Use() }
+type C { Use() }
+type D { Use() }
+type PX {}
+type PY {}
+type PZ {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func Use(_ PZ) {}
+let W0 = context { A: PX, B: PY }
+let W1 = context { replace A: PZ, W0 }
+let W2 = context { replace A: PY, W1 }
+let W3 = context { W2 }
+let W4 = context { C: PX, W3 }
+let D1 = context { C: PX, W0 }
+let D2 = context { replace B: PZ, W0 }
+let Dia = context { replace A: PY, replace B: PX, D1, D2 }
+let DiaTop = context { D: PX, Dia }
+let M0 = context { A, B: PX, C: PY }
+let M1 = context { replace A: PZ, M0 }
+let M2 = context { replace B: PY, M1 }
+let M3 = context { D: PZ, M2 }
+func main() {}
+func f%d() string {
+	return with W%d { Run() }
+}
+
+-- 09936.ergo --
+type A { Use() }
+type B { Use() }
+type C { Use() }
+type D { Use() }
+type PX {}
+type PY {}
+type PZ {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func Use(_ PZ) {}
+let W0 = context { A: PX, B: PY }
+let W1 = context { replace A: PZ, W0 }
+let W2 = context { replace A: PY, W1 }
+let W3 = context { W2 }
+let W4 = context { C: PX, W3 }
+let D1 = context { C: PX, W0 }
+let D2 = context { replace B: PZ, W0 }
+let Dia = context { replace A: PY, replace B: PX, D1, D2 }
+let DiaTop = context { D: PX, Dia }
+let M0 = context { A, B: PX, C: PY }
+let M1 = context { replace A: PZ, M0 }
+let M2 = context { replace B: PY, M1 }
+let M3 = context { D: PZ, M2 }
+func main() {}
+func f() string {
+-- 09937.ergo --
+let A%d = context { C%d: Mem{V: "c"} }
+-- 09938.ergo --
+type A { Use() }
+type B { Use() }
+type C { Use() }
+type D { Use() }
+type PX {}
+type PY {}
+type PZ {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func Use(_ PZ) {}
+let W0 = context { A: PX, B: PY }
+let W1 = context { replace A: PZ, W0 }
+let W2 = context { replace A: PY, W1 }
+let W3 = context { W2 }
+let W4 = context { C: PX, W3 }
+let D1 = context { C: PX, W0 }
+let D2 = context { replace B: PZ, W0 }
+let Dia = context { replace A: PY, replace B: PX, D1, D2 }
+let DiaTop = context { D: PX, Dia }
+let M0 = context { A, B: PX, C: PY }
+let M1 = context { replace A: PZ, M0 }
+let M2 = context { replace B: PY, M1 }
+let M3 = context { D: PZ, M2 }
+func main() {}
+let A%d = context { C%d: Mem{V: "c"} }
+-- 09939.ergo --
+func f() string {
+	return with A0
+-- 09940.ergo --
+type A { Use() }
+type B { Use() }
+type C { Use() }
+type D { Use() }
+type PX {}
+type PY {}
+type PZ {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func Use(_ PZ) {}
+let W0 = context { A: PX, B: PY }
+let W1 = context { replace A: PZ, W0 }
+let W2 = context { replace A: PY, W1 }
+let W3 = context { W2 }
+let W4 = context { C: PX, W3 }
+let D1 = context { C: PX, W0 }
+let D2 = context { replace B: PZ, W0 }
+let Dia = context { replace A: PY, replace B: PX, D1, D2 }
+let DiaTop = context { D: PX, Dia }
+let M0 = context { A, B: PX, C: PY }
+let M1 = context { replace A: PZ, M0 }
+let M2 = context { replace B: PY, M1 }
+let M3 = context { D: PZ, M2 }
+func main() {}
+func f() string {
+	return with A0
+-- 09941.ergo --
+func f() string {
+	return with W0
+-- 09942.ergo --
+type A { Use() }
+type B { Use() }
+type C { Use() }
+type D { Use() }
+type PX {}
+type PY {}
+type PZ {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func Use(_ PZ) {}
+let W0 = context { A: PX, B: PY }
+let W1 = context { replace A: PZ, W0 }
+let W2 = context { replace A: PY, W1 }
+let W3 = context { W2 }
+let W4 = context { C: PX, W3 }
+let D1 = context { C: PX, W0 }
+let D2 = context { replace B: PZ, W0 }
+let Dia = context { replace A: PY, replace B: PX, D1, D2 }
+let DiaTop = context { D: PX, Dia }
+let M0 = context { A, B: PX, C: PY }
+let M1 = context { replace A: PZ, M0 }
+let M2 = context { replace B: PY, M1 }
+let M3 = context { D: PZ, M2 }
+func main() {}
+func f() string {
+	return with W0
+-- 09943.ergo --
+func f() string {
+	let w = context { Store: Mem{V: "c"} }
+	let mut s = ""
+-- 09944.ergo --
+type A { Use() }
+type B { Use() }
+type C { Use() }
+type D { Use() }
+type PX {}
+type PY {}
+type PZ {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func Use(_ PZ) {}
+let W0 = context { A: PX, B: PY }
+let W1 = context { replace A: PZ, W0 }
+let W2 = context { replace A: PY, W1 }
+let W3 = context { W2 }
+let W4 = context { C: PX, W3 }
+let D1 = context { C: PX, W0 }
+let D2 = context { replace B: PZ, W0 }
+let Dia = context { replace A: PY, replace B: PX, D1, D2 }
+let DiaTop = context { D: PX, Dia }
+let M0 = context { A, B: PX, C: PY }
+let M1 = context { replace A: PZ, M0 }
+let M2 = context { replace B: PY, M1 }
+let M3 = context { D: PZ, M2 }
+func main() {}
+func f() string {
+	let w = context { Store: Mem{V: "c"} }
+	let mut s = ""
+-- 09945.ergo --
+func f() string {
+	let w0 = context { C0: Mem{V: "c"} }
+-- 09946.ergo --
+type A { Use() }
+type B { Use() }
+type C { Use() }
+type D { Use() }
+type PX {}
+type PY {}
+type PZ {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func Use(_ PZ) {}
+let W0 = context { A: PX, B: PY }
+let W1 = context { replace A: PZ, W0 }
+let W2 = context { replace A: PY, W1 }
+let W3 = context { W2 }
+let W4 = context { C: PX, W3 }
+let D1 = context { C: PX, W0 }
+let D2 = context { replace B: PZ, W0 }
+let Dia = context { replace A: PY, replace B: PX, D1, D2 }
+let DiaTop = context { D: PX, Dia }
+let M0 = context { A, B: PX, C: PY }
+let M1 = context { replace A: PZ, M0 }
+let M2 = context { replace B: PY, M1 }
+let M3 = context { D: PZ, M2 }
+func main() {}
+func f() string {
+	let w0 = context { C0: Mem{V: "c"} }
+-- 09947.ergo --
+type K%da { Get() string }
+type K%db { Get() string }
+-- 09948.ergo --
+type A { Use() }
+type B { Use() }
+type C { Use() }
+type D { Use() }
+type PX {}
+type PY {}
+type PZ {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func Use(_ PZ) {}
+let W0 = context { A: PX, B: PY }
+let W1 = context { replace A: PZ, W0 }
+let W2 = context { replace A: PY, W1 }
+let W3 = context { W2 }
+let W4 = context { C: PX, W3 }
+let D1 = context { C: PX, W0 }
+let D2 = context { replace B: PZ, W0 }
+let Dia = context { replace A: PY, replace B: PX, D1, D2 }
+let DiaTop = context { D: PX, Dia }
+let M0 = context { A, B: PX, C: PY }
+let M1 = context { replace A: PZ, M0 }
+let M2 = context { replace B: PY, M1 }
+let M3 = context { D: PZ, M2 }
+func main() {}
+type K%da { Get() string }
+type K%db { Get() string }
+-- 09949.ergo --
+type Mem { V string }
+
+func Get(m Mem) string { return m.V }
+
+-- 09950.ergo --
+type A { Use() }
+type B { Use() }
+type C { Use() }
+type D { Use() }
+type PX {}
+type PY {}
+type PZ {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func Use(_ PZ) {}
+let W0 = context { A: PX, B: PY }
+let W1 = context { replace A: PZ, W0 }
+let W2 = context { replace A: PY, W1 }
+let W3 = context { W2 }
+let W4 = context { C: PX, W3 }
+let D1 = context { C: PX, W0 }
+let D2 = context { replace B: PZ, W0 }
+let Dia = context { replace A: PY, replace B: PX, D1, D2 }
+let DiaTop = context { D: PX, Dia }
+let M0 = context { A, B: PX, C: PY }
+let M1 = context { replace A: PZ, M0 }
+let M2 = context { replace B: PY, M1 }
+let M3 = context { D: PZ, M2 }
+func main() {}
+type Mem { V string }
+
+func Get(m Mem) string { return m.V }
+
+-- 09951.ergo --
+let %s = context { K0%s: Mem{V: "c"}
+-- 09952.ergo --
+type A { Use() }
+type B { Use() }
+type C { Use() }
+type D { Use() }
+type PX {}
+type PY {}
+type PZ {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func Use(_ PZ) {}
+let W0 = context { A: PX, B: PY }
+let W1 = context { replace A: PZ, W0 }
+let W2 = context { replace A: PY, W1 }
+let W3 = context { W2 }
+let W4 = context { C: PX, W3 }
+let D1 = context { C: PX, W0 }
+let D2 = context { replace B: PZ, W0 }
+let Dia = context { replace A: PY, replace B: PX, D1, D2 }
+let DiaTop = context { D: PX, Dia }
+let M0 = context { A, B: PX, C: PY }
+let M1 = context { replace A: PZ, M0 }
+let M2 = context { replace B: PY, M1 }
+let M3 = context { D: PZ, M2 }
+func main() {}
+let %s = context { K0%s: Mem{V: "c"}
+-- 09953.ergo --
+let Z%d = context { K%db: Mem{V: "z"}, B }
+-- 09954.ergo --
+type A { Use() }
+type B { Use() }
+type C { Use() }
+type D { Use() }
+type PX {}
+type PY {}
+type PZ {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func Use(_ PZ) {}
+let W0 = context { A: PX, B: PY }
+let W1 = context { replace A: PZ, W0 }
+let W2 = context { replace A: PY, W1 }
+let W3 = context { W2 }
+let W4 = context { C: PX, W3 }
+let D1 = context { C: PX, W0 }
+let D2 = context { replace B: PZ, W0 }
+let Dia = context { replace A: PY, replace B: PX, D1, D2 }
+let DiaTop = context { D: PX, Dia }
+let M0 = context { A, B: PX, C: PY }
+let M1 = context { replace A: PZ, M0 }
+let M2 = context { replace B: PY, M1 }
+let M3 = context { D: PZ, M2 }
+func main() {}
+let Z%d = context { K%db: Mem{V: "z"}, B }
+-- 09955.ergo --
+func f() string {
+	return with Z0
+-- 09956.ergo --
+type A { Use() }
+type B { Use() }
+type C { Use() }
+type D { Use() }
+type PX {}
+type PY {}
+type PZ {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func Use(_ PZ) {}
+let W0 = context { A: PX, B: PY }
+let W1 = context { replace A: PZ, W0 }
+let W2 = context { replace A: PY, W1 }
+let W3 = context { W2 }
+let W4 = context { C: PX, W3 }
+let D1 = context { C: PX, W0 }
+let D2 = context { replace B: PZ, W0 }
+let Dia = context { replace A: PY, replace B: PX, D1, D2 }
+let DiaTop = context { D: PX, Dia }
+let M0 = context { A, B: PX, C: PY }
+let M1 = context { replace A: PZ, M0 }
+let M2 = context { replace B: PY, M1 }
+let M3 = context { D: PZ, M2 }
+func main() {}
+func f() string {
+	return with Z0
+-- 09957.ergo --
+func f() string {
+	return with A, B
+-- 09958.ergo --
+type A { Use() }
+type B { Use() }
+type C { Use() }
+type D { Use() }
+type PX {}
+type PY {}
+type PZ {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func Use(_ PZ) {}
+let W0 = context { A: PX, B: PY }
+let W1 = context { replace A: PZ, W0 }
+let W2 = context { replace A: PY, W1 }
+let W3 = context { W2 }
+let W4 = context { C: PX, W3 }
+let D1 = context { C: PX, W0 }
+let D2 = context { replace B: PZ, W0 }
+let Dia = context { replace A: PY, replace B: PX, D1, D2 }
+let DiaTop = context { D: PX, Dia }
+let M0 = context { A, B: PX, C: PY }
+let M1 = context { replace A: PZ, M0 }
+let M2 = context { replace B: PY, M1 }
+let M3 = context { D: PZ, M2 }
+func main() {}
+func f() string {
+	return with A, B
+-- 09959.ergo --
+type A { Use() }
+type B { Use() }
+type C { Use() }
+type D { Use() }
+type PX {}
+type PY {}
+type PZ {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func Use(_ PZ) {}
+let W0 = context { A: PX, B: PY }
+let W1 = context { replace A: PZ, W0 }
+let W2 = context { replace A: PY, W1 }
+let W3 = context { W2 }
+let W4 = context { C: PX, W3 }
+let D1 = context { C: PX, W0 }
+let D2 = context { replace B: PZ, W0 }
+let Dia = context { replace A: PY, replace B: PX, D1, D2 }
+let DiaTop = context { D: PX, Dia }
+let M0 = context { A, B: PX, C: PY }
+let M1 = context { replace A: PZ, M0 }
+let M2 = context { replace B: PY, M1 }
+let M3 = context { D: PZ, M2 }
+func main() {}
+func main() {}

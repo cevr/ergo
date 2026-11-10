@@ -22,6 +22,7 @@ import (
 //   - m7: an entry that provides two capabilities is evaluated once: the
 //     two keys hold one value.
 func TestReviewRegressions(t *testing.T) {
+	needsBuild(t)
 	cases := []behavior{{
 		name: "ptrspill",
 		src: `type Counter { n int }

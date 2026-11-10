@@ -1,16 +1,14 @@
-// Unit G9 (std-1, F7): a user extern binds only a package of the pure
-// allowlist (math, math/bits, path/filepath, slices, sort, strconv,
-// strings, unicode, unicode/utf8, unicode/utf16). Any other package may
-// reach the host, and a user extern declares no capability row; so it is
-// S109: "extern go os.Getenv reaches the host; wait for std os.Process or
-// #202". Probe q02 of the std-1 plan. A pure package outside the list,
-// html, is S109 too, with the text "is not on the pure allowlist yet"
-// (lane G, G2).
-extern go os.Getenv func Getenv(k string) string // want S109
-extern go time.Sleep func Pause(d duration) // want S109
+// Unit G9 (std-1, F7), as IG4 (Level 2 adapters) leaves it: a user extern
+// names a function of a binding, and its rows are the binding's. A target
+// off the reviewed pure list runs unreviewed Go, so an extern of it with no
+// needs go.Foreign is S108; a declaration the binding refuses (fmt.Sprint
+// takes ...any) is S109 with the binding's reason; a package with no
+// binding is S104.
+extern go os.Getenv func Getenv(k string) string // want S108
+extern go time.Sleep func Pause(d duration) // want S108
 extern go fmt.Sprint func Show(n int) string // want S109
-extern go html.EscapeString func Escape(s string) string // want S109
-extern go strings/x.F func F(s string) string // want S109
+extern go html.EscapeString func Escape(s string) string // want S108
+extern go strings/x.F func F(s string) string // want S104
 
 func main() needs Console {
 	Console.Println("home=" + Getenv("HOME"))

@@ -1,0 +1,36 @@
+HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 2
+
+[]HTTP/1.1 201 Created
+Content-Type: application/json
+Location: /deploys/dep-1
+Content-Length: 110
+
+{"id":"dep-1","service":"web","status":"pending","total":900,"units":[{"image":"app","replicas":2,"mem":450}]}HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 110
+
+{"id":"dep-1","service":"web","status":"pending","total":900,"units":[{"image":"app","replicas":2,"mem":450}]}HTTP/1.1 409 Conflict
+Content-Type: application/json
+Content-Length: 54
+
+{"error":"deploy dep-1 is pending and cannot release"}HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 111
+
+{"id":"dep-1","service":"web","status":"approved","total":900,"units":[{"image":"app","replicas":2,"mem":450}]}HTTP/1.1 422 Unprocessable Entity
+Content-Type: application/json
+Content-Length: 58
+
+{"error":"a deploy has at least one unit","field":"units"}HTTP/1.1 405 Method Not Allowed
+Content-Type: application/json
+Allow: GET, POST
+Content-Length: 38
+
+{"error":"DELETE is not allowed here"}HTTP/1.1 404 Not Found
+Content-Type: application/json
+Connection: close
+Content-Length: 27
+
+{"error":"no deploy dep-9"}

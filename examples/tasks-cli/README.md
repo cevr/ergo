@@ -34,7 +34,7 @@ The program is a module of packages (`ergo.mod`: `module taskscli`; `module task
 - **Completions held to the parser.** The law `CompletionsMatchTheParser` reads each command's flags back from `flag.Usage` and compares them with the completion table.
 - **A JSON writer with a law.** `QuoteIsOneJSONString`: a quoted title holds no control byte and no unescaped quote.
 
-The laws of `cli` and `file` run as they are; the `Board` laws run in `memory` against `memory.Board`, and through `tasks/checks.ergo` in `file`'s tests, since `ergo test` skips `file.Board` (`expected-skips`).
+The laws of `cli` and `file` run as they are; the `Board` laws run in `memory` against `memory.Board` and in `file` against `file.Board` (`NewBoard`, over the case's own `fstest.Memory`).
 
 ## Run it
 
@@ -56,7 +56,7 @@ Each limit is recorded with a repro in the lane's gap file (`gaps-ex-c.md`, run 
 
 Closed in batch 12: G-ex-c-11 (the domain's type is `tasks.Task` again: a package may declare a prelude name), G-ex-c-14 (each `Build` fails `flag.Failure`, std flag's named row), G-ex-c-10 (`let state = match …` joins), G-ex-c-9 (`cli.Quote` loops over runes and writes each with `utf8.RuneText`; `pad` is `strings.PadRight`), G-ex-c-4 for the tests (`fstest.Memory`; a close rewrites a line, so the file is still written whole).
 
-- **G-exup-1** (closed in batch 13): Board's laws run in `memory`. `file.Board` holds an `fs.Files` and has no constructor without rows, so it is skipped and `file`'s tests run `tasks/checks.ergo`.
+- **G-exup-1** (closed in batch 13): Board's laws run in `memory`. Since fu7a they run on `file.Board` too: `NewBoard` takes an `fs.Files` and an `fs.Writes`, which a law run fills with one `fstest.Memory` per case.
 - **G-ex-c-12: no prompt, and `io.Stdin` cannot say whether it is a terminal.** The prompt takes the first line of `io.Stdin.Lines()`, so a piped `y` answers it too.
 - **G-ex-c-13: std flag has no short names (`-j`) and no introspection.** The completion table restates each flag, held to the parser by a law.
 - **G-ex-c-6, G-ex-c-7 (from kvstore and orders).** A `flag.Choice` reads a string, so each match on one needs `case _`; there is no std json, so `cli.Quote` escapes by hand.

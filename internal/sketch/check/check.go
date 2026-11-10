@@ -84,11 +84,13 @@ type checker struct {
 	caught   *caughtCall
 	pkg      *Package
 	imp      Importer
-	universe *Scope // the universe and the prelude
+	ownGo    *GoBindings // the Go packages of an importer that is no GoImporter
+	universe *Scope      // the universe and the prelude
 	files    []*fileInfo
 	diags    []Diagnostic
 	seen     map[string]bool
 	silent   int
+	shallow  int       // an alias's target is read with the Named types it names, bodies unread (aliasOf)
 	tests    testState // tests and assert (tests.go)
 	// refusedBinders holds the binders the reporting pass has already
 	// refused by name (a pattern name that names a package object, a
@@ -114,6 +116,12 @@ type checker struct {
 	// which declaration is kept depends on the order, so a decision that
 	// reads the kept one is a follow-on of the duplicate (collectSelfFuncs).
 	dupNames map[string]bool
+	// workSends holds the declaring identifier of each Listen work's send
+	// parameter (workLit): the one value actor.Child accepts (childRule).
+	workSends map[*syntax.Ident]bool
+	// durableCalls are the calls of a durable runner (durable.go), which
+	// checkDurableSteps judges once the footprints are known.
+	durableCalls []durableCall
 	// withSites are the with sites the reporting pass recorded, inner
 	// before outer, for the context ownership pass (withown.go).
 	withSites []withSite
@@ -139,7 +147,10 @@ type checker struct {
 	// subjects whose ids depend on an unbound row variable: the current
 	// component's inference context, discarded when it is final (class F).
 	inferInstances map[int32]*Named
-	inferSubjects  map[any]*switchUnion
+	// includesExpanded is set once expandIncludes ran: a record resolved
+	// later splices its includes in as it resolves (include.go).
+	includesExpanded bool
+	inferSubjects    map[any]*switchUnion
 	// settled marks the functions of a component that converged, whose
 	// reporting pass reads the published solutions; widened records a
 	// reporting pass that computed a wider row (an invariant the tests
@@ -524,6 +535,7 @@ var universeOnce struct {
 	scope     *Scope
 	errorName *TypeName
 	goPkg     *Package
+	ref       *Named // go.Ref
 }
 
 // universe is the predeclared block: the basic types, the constraints
@@ -559,8 +571,8 @@ func universe() *Scope {
 		}
 		// go.Foreign (a capability) and go.Error (an error type) are
 		// predeclared for extern go bindings (grammar.md, Declarations 3).
-		// go.Error { Text string } is the failure of a user extern whose Go
-		// target returns an error: Text is the error's Error() (G4, O14).
+		// go.Error { Text string } is the failure of a Go call whose last
+		// result is an error; it keeps Go's error (IG5, goerror.go).
 		goPkg := &Package{Path: "go", Name: "go", Scope: newScope(nil), qualify: true}
 		foreign := &TypeName{Name: "Foreign", Pkg: goPkg, id: newID()}
 		foreign.Type = &Named{Obj: foreign, under: &Interface{}, state: 2, foreign: true}
@@ -568,6 +580,17 @@ func universe() *Scope {
 		goErr.Type = &Named{Obj: goErr, under: &Struct{Fields: []*Field{{Name: "Text", Type: Typ[String]}}}, state: 2}
 		goPkg.Scope.insert("Foreign", foreign)
 		goPkg.Scope.insert("Error", goErr)
+		// go.Is and go.As read a go.Error's native chain (IG5, goerror.go).
+		goPkg.Scope.insert("Is", &Builtin{Name: "go.Is"})
+		goPkg.Scope.insert("As", &Builtin{Name: "go.As"})
+		// go.Ref[T] is a Go pointer that is stored, returned or held in a
+		// collection: an opaque handle, never nil (owner q32, q38;
+		// docs/spec/interop.md). Ergo's own *T stays a borrow.
+		ref := &TypeName{Name: "Ref", Pkg: goPkg, id: newID()}
+		refT := &TypeParam{Name: "T", id: newID()}
+		ref.Type = &Named{Obj: ref, TParams: []*TypeParam{refT}, under: &Pointer{Elem: refT}, state: 2}
+		goPkg.Scope.insert("Ref", ref)
+		universeOnce.ref = ref.Type.(*Named)
 		universeOnce.goPkg = goPkg
 		s.insert("go", &PkgName{Name: "go", Pkg: goPkg, used: true})
 		universeOnce.scope = s

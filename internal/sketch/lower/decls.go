@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -35,6 +36,10 @@ const (
 	// kindMachine is `type X machine[S, E] { … }` (spec D5): a plan value
 	// (machine.go).
 	kindMachine
+	// kindAlias is `type A = B` with B an existing type (types.md, Unions
+	// 7): Go's `type A = B`. No checked type holds A, so only the
+	// declaration names it.
+	kindAlias
 )
 
 // typeDecl is a lowered type declaration.
@@ -52,6 +57,7 @@ type typeDecl struct {
 	variants  []*check.TypeName
 	marker    string
 	errorType bool
+	goError   bool // go.Error: Text is a method, a value is built by v1.GoErrorText
 	library   bool
 	emitted   bool
 	queued    bool // a library type queued for emission
@@ -252,8 +258,10 @@ func (l *lowerer) typeName(tn *check.TypeName) string {
 }
 
 // goErrorDecl is the declaration of the predeclared go.Error (G4), which no
-// package declares: the runtime's record v1.GoError, never emitted, whose
-// one field Text keeps its name.
+// package declares: the runtime's v1.GoError, never emitted, which keeps
+// Go's native error (IG5). Its one field Text is read as the method
+// Text(), the error's Error() at the read; a construction calls
+// v1.GoErrorText (goErrorBuild), since no Go field holds Text.
 func (l *lowerer) goErrorDecl(tn *check.TypeName, named *check.Named, site syntax.Node) *typeDecl {
 	if td := l.types[tn]; td != nil {
 		return td
@@ -263,9 +271,9 @@ func (l *lowerer) goErrorDecl(tn *check.TypeName, named *check.Named, site synta
 		ice(site, "go.Error is not a record")
 	}
 	td := &typeDecl{tn: tn, named: named, name: l.rt() + ".GoError", kind: kindRecord, fields: st.Fields,
-		fieldName: map[string]string{}, errorType: true, library: true, emitted: true}
+		fieldName: map[string]string{}, errorType: true, library: true, emitted: true, goError: true}
 	for _, f := range st.Fields {
-		td.fieldName[f.Name] = f.Name
+		td.fieldName[f.Name] = f.Name + "()"
 	}
 	l.types[tn] = td
 	return td
@@ -312,6 +320,10 @@ func (l *lowerer) typeDecl(tn *check.TypeName, site syntax.Node) *typeDecl {
 		}
 	}
 	info := tn.Pkg.Info
+	if alias := named.Alias(); alias != nil {
+		td.kind, td.defined = kindAlias, alias
+		return td
+	}
 	switch spec := tn.Decl.Spec.(type) {
 	case *syntax.StructType:
 		td.kind = kindRecord
@@ -321,27 +333,27 @@ func (l *lowerer) typeDecl(tn *check.TypeName, site syntax.Node) *typeDecl {
 		// so they avoid its Error method too.
 		avoidError := td.errorType || l.definedErrorOver(named)
 		taken := map[string]bool{}
-		for _, f := range spec.Fields.List {
-			for _, id := range f.Names {
-				field, ok := info.Defs[id].(*check.Field)
-				if !ok {
-					ice(id, "the field %s of %s has no Defs entry", id.Name, tn.Name)
-				}
-				goName := memberName(field.Name)
-				if avoidError && goName == "Error" {
-					goName = "Error_"
-				}
-				// The renamed Error field can meet a field the source
-				// names Error_: the later field in source order takes one
-				// more underscore, until its Go name is free. Every use of
-				// a field reads its Go name from fieldName.
-				for taken[goName] {
-					goName += "_"
-				}
-				taken[goName] = true
-				td.fields = append(td.fields, field)
-				td.fieldName[field.Name] = goName
+		// The record's fields, an included record's among them in place
+		// (types.md, Structs 7): a Go struct lists them flat.
+		rec, ok := named.Underlying().(*check.Struct)
+		if !ok {
+			ice(spec, "the record %s has no struct body", tn.Name)
+		}
+		for _, field := range rec.Fields {
+			goName := memberName(field.Name)
+			if avoidError && goName == "Error" {
+				goName = "Error_"
 			}
+			// The renamed Error field can meet a field the source
+			// names Error_: the later field in source order takes one
+			// more underscore, until its Go name is free. Every use of
+			// a field reads its Go name from fieldName.
+			for taken[goName] {
+				goName += "_"
+			}
+			taken[goName] = true
+			td.fields = append(td.fields, field)
+			td.fieldName[field.Name] = goName
 		}
 	case *syntax.InterfaceType:
 		if len(spec.Union) > 0 {
@@ -560,6 +572,13 @@ func (l *lowerer) emitType(td *typeDecl) {
 		}
 		b.WriteString("}\n\n")
 	case kindUnion:
+		if fu := l.flatUnionOf(td.named); fu != nil {
+			for _, v := range td.variants {
+				l.emitType(l.useType(l.typeDecl(v, site)))
+			}
+			l.flatDecl(b, td, fu, tc)
+			break
+		}
 		l.unionMarker(td)
 		b.WriteString("type " + td.name + tparams + " interface{ " + td.marker + "() }\n\n")
 		// Two instances of one generic record, V[A] | V[B], share the
@@ -586,6 +605,8 @@ func (l *lowerer) emitType(td *typeDecl) {
 		}
 	case kindMachine:
 		l.machinePlan(b, td)
+	case kindAlias:
+		b.WriteString("type " + td.name + " = " + tc.goType(td.defined) + "\n\n")
 	}
 }
 
@@ -878,7 +899,12 @@ func (l *lowerer) emitFunc(fd *funcDecl) {
 // emitFuncBody writes fd's Go declaration, or, when variant is set, its
 // comma-ok variant fd.ok: the same body with its Option parameter taken as
 // a value and a flag (update.go, okShape).
-func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) {
+func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) { l.emitBody(fd, variant, nil) }
+
+// emitBody writes what emitFuncBody writes, or, with flat, the flat step of
+// a machine's flat run (machinerun.go): fd's body under flat's step name,
+// its state parameter flat and its decision returned as a value.
+func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
 	l.bodies++
 	f := fd.fn
 	b := &l.user
@@ -962,6 +988,13 @@ func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) {
 	if variant {
 		bodyName = fd.ok
 	}
+	flatParam := ""
+	if flat != nil {
+		if variant || owned || fd.method != nil || fd.extern != "" || fd.fallible || len(params) != 2 {
+			ice(site, "the flat step of %s is not a plain function of a state and a signal", f.Name)
+		}
+		bodyName = flat.stepName
+	}
 	if fd.method != nil {
 		tps := map[*check.TypeParam]string{}
 		var args []string
@@ -1040,6 +1073,12 @@ func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) {
 			continue
 		}
 		paramNames[i] = name(i)
+		if flat != nil && i == 0 {
+			// The state arrives flat; flatEntry puts it into paramNames[0].
+			flatParam = scope.alloc("flat")
+			parts = append(parts, flatParam+" "+flat.flat)
+			continue
+		}
 		parts = append(parts, paramNames[i]+" "+fc.goType(p.Type))
 		args = append(args, paramNames[i])
 	}
@@ -1073,6 +1112,12 @@ func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) {
 	case needsFrame && fd.fallible:
 		frameErr = scope.alloc("err")
 		results = fc.namedResults(fc.frame.result, frameErr)
+	case flat != nil:
+		if needsFrame {
+			ice(site, "the flat step of %s opens a frame scope", f.Name)
+		}
+		results = " (uint8, " + flat.flat + ", " + fc.goType(flat.out) + ")"
+		fc.frame.flat = flat
 	default:
 		results = fc.resultList(fc.frame.result, fd.fallible)
 	}
@@ -1087,6 +1132,10 @@ func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) {
 		directive = l.directive(f.Decl)
 	}
 	fc.depth = 1
+	entry := ""
+	if flat != nil {
+		entry = fc.flatEntry(flat, flatParam, paramNames[0])
+	}
 	l.analyzeValues(f.Decl, f.Pkg.Info)
 	fc.closeBody(f, site, func() {
 		if needsFrame {
@@ -1096,6 +1145,14 @@ func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) {
 		fc.entryPoll(f.Pkg.Info, f.Decl)
 		fc.body(f.Decl.Body.List)
 	})
+	if flat != nil {
+		body := fc.out.String()
+		if namesIdent(body, paramNames[0]) {
+			body = entry + body
+		}
+		b.WriteString(directive + head.String() + " {\n" + body + "}\n\n")
+		return
+	}
 	if !variant {
 		fd.lowered, fd.readsEnv = true, fc.env != "" && namesIdent(fc.out.String(), fc.env)
 	}
@@ -1189,8 +1246,9 @@ func (l *lowerer) initOrder() []*check.Initializer {
 // initOrder (Go's initialization order: a package after the packages it
 // imports; in a package, a let after every let it refers to, directly or
 // through functions, else in declaration order), then each machine's
-// initial value in the order it was lowered (machine.go), or "" when there
-// is none. The entry calls it first inside v1.Main.
+// initial value, package by package in the same order, each package's in
+// declaration order (machine.go), or "" when there is none. The entry calls
+// it first inside v1.Main.
 func (l *lowerer) initFunc() string {
 	if !l.hasInits() {
 		return ""
@@ -1201,8 +1259,27 @@ func (l *lowerer) initFunc() string {
 	for _, in := range l.initOrder() {
 		b.WriteString(l.inits[in.Value])
 	}
-	for _, x := range l.machineInits {
-		b.WriteString(l.inits[x])
+	// A library's machine can be lowered first where the root uses it, so
+	// the lowering order is not the initialization order.
+	rank := map[*check.Package]int{}
+	for i, p := range append(l.sourcedLibs(), l.pkg) {
+		rank[p] = i
+	}
+	machines := slices.Clone(l.machineInits)
+	slices.SortStableFunc(machines, func(a, b machineInitial) int {
+		if rank[a.pkg] != rank[b.pkg] {
+			return rank[a.pkg] - rank[b.pkg]
+		}
+		if l.sourceLess(a.x, b.x) {
+			return -1
+		}
+		if l.sourceLess(b.x, a.x) {
+			return 1
+		}
+		return 0
+	})
+	for _, m := range machines {
+		b.WriteString(l.inits[m.x])
 	}
 	b.WriteString("}\n\n")
 	return b.String()

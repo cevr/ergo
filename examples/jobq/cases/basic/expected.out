@@ -5,10 +5,10 @@
 180ms	mail failed try 1; again at 280ms
 200ms	worker 2 starts report, try 1
 400ms	backup is done
-400ms	worker 1 starts invoice, try 1
+400ms	worker 1 starts digest, try 1
 450ms	report is done
 450ms	worker 2 starts sync, try 1
-480ms	invoice gave up: invoice is malformed
+480ms	digest gave up: digest is malformed
 480ms	sync failed try 1; again at 580ms
 500ms	worker 1 starts index, try 1
 600ms	worker 2 starts thumbnails, try 2

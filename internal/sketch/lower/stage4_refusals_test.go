@@ -35,6 +35,9 @@ var closedOwner = regexp.MustCompile(`lower-v1|check-v1 stage|after check-v1|che
 // names an open owner or no stage.
 var namesStage = regexp.MustCompile(`(?i)\bstage\b|\b(lower|check)-v[0-9]`)
 
+// deferral matches a text that waits for later work ("until …", "not yet").
+var deferral = regexp.MustCompile(`(?i)\buntil\b|\bnot yet\b`)
+
 // namesOpenOwner reports whether text names one of openOwners as a whole
 // word, so #1970 is not #197.
 func namesOpenOwner(text string) bool {
@@ -272,8 +275,12 @@ func TestRefusalsNameOpenOwners(t *testing.T) {
 		if diagCode.MatchString(text) && len(unreachableFixtures[text]) == 0 {
 			t.Errorf("the rule %s names a code and has no negative fixture", name)
 		}
-		if closedOwner.MatchString(text) || (namesStage.MatchString(text) && !namesOpenOwner(text)) {
-			t.Errorf("the rule %s names a stage that is not an open owner %v: %q", name, openOwners, text)
+		// An unreachable site waits for no later stage (unreachable.go), so
+		// its rule names no stage and no owner, open or closed (ledger
+		// mutants existing-53 "… until #196 stage b" and existing-52
+		// "… (196b lowers packages)").
+		if closedOwner.MatchString(text) || namesStage.MatchString(text) || namesOpenOwner(text) || deferral.MatchString(text) {
+			t.Errorf("the rule %s names a stage or an owner, or waits for one: %q", name, text)
 		}
 	}
 	sort.Strings(names)
@@ -345,7 +352,12 @@ func main() { with W { A.Use() } }
 // TestErrorFieldNamesStayDistinct: an error type's field Error is the Go
 // field Error_ (its Error method keeps the name), so a field the source
 // names Error_ takes Error__; both keep their values and their text.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestErrorFieldNamesStayDistinct(t *testing.T) {
+	needsBuild(t)
 	o := mustLower(t, "error-fields", `type Bad { Error string, Error_ int }
 
 func check(n int) int fails Bad {

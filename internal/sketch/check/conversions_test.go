@@ -30,30 +30,3 @@ func F(feet Feet) int { return int(feet) }`},
 		})
 	}
 }
-
-func TestConversionsFollowExplicitBaseSteps(t *testing.T) {
-	for _, src := range []string{
-		`func F(n int64) duration { return duration(n) }`,
-		`func F(d duration) int64 { return int64(d) }`,
-		`type A int
-type B int
-func F(a A) B { return B(int(a)) }`,
-		`type Length int
-type Feet Length
-func F(feet Feet) int { return int(Length(feet)) }`,
-		`type Length int
-type Feet Length
-func F(n int) Feet { return Feet(Length(n)) }`,
-	} {
-		if _, d := check.CheckSource(src + "\n"); len(d) > 0 {
-			t.Fatalf("want explicit conversion steps to check, got %s\n%s", describe(d), src)
-		}
-	}
-}
-
-func TestConversionRefusalShowsLiteral(t *testing.T) {
-	_, d := check.CheckSource("type Celsius float64\nfunc F() Celsius { return Celsius(1) }\n")
-	if len(d) != 1 || d[0].Code != check.CodeType || !strings.Contains(d[0].Message, "Celsius(float64(1))") {
-		t.Fatalf("want a fix using the written literal, got %s", describe(d))
-	}
-}

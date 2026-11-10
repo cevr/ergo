@@ -16,6 +16,10 @@ type behavior struct {
 
 // runBehaviors lowers, builds and runs each program and compares it with its
 // expectation.
+//
+// It builds Go because its callers ask what the built program prints and how
+// it exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func runBehaviors(t *testing.T, cases []behavior) map[string]*lowered {
 	t.Helper()
 	var built []*lowered
@@ -55,6 +59,7 @@ func runBehaviors(t *testing.T, cases []behavior) map[string]*lowered {
 // zero) passes every catch and ends the program with Go's report, which the
 // //line directives point at the .ergo line.
 func TestRowsAndDefects(t *testing.T) {
+	needsBuild(t)
 	built := runBehaviors(t, rowsCases())
 	checkContextBuilds(t, built)
 }

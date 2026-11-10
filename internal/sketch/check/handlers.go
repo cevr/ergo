@@ -255,7 +255,7 @@ func (c *checker) catchValid(x *syntax.CatchExpr, hint Type, wantValue, partial 
 		}
 		saved := c.fn.scope
 		c.fn.scope = newScope(saved)
-		vars := c.declareArm(lists)
+		vars := c.declareArm(lists, row.Elems())
 		var restBind []asBinding
 		if restName != nil {
 			if b, ok := c.declareAs(restName, restType, false); ok {
@@ -713,5 +713,5 @@ func preludeType(name string) *Named {
 // can be returned (a failure of those types), matched, caught or assigned
 // to a declared union that lists each of them (ConvRow); nothing else.
 func (c *checker) rowValue(rest *Row) Type {
-	return &Union{Variants: rest.Elems()}
+	return &Union{Variants: rest.Elems(), Row: rest}
 }

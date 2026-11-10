@@ -77,38 +77,35 @@ func genShapes(depth int) []genShape {
 
 func str(s string) func(string) string { return func(string) string { return s } }
 
-// genSite makes a value of a shape at one kind of site. implicit: the site
-// makes the shape's zero value, or the zero of lib's record inside it.
+// genSite makes a value of a shape at one kind of site (genVerdict).
 type genSite struct {
-	name     string
-	implicit bool
-	explicit bool // a literal or an update of the shape's own record
-	src      func(s genShape, q string) string
+	name string
+	src  func(s genShape, q string) string
 }
 
 var genSites = []genSite{
-	{name: "let-zero", implicit: true, src: func(s genShape, q string) string {
+	{name: "let-zero", src: func(s genShape, q string) string {
 		return "func use() { let v " + s.typ(q) + "\n let _ = v }\n"
 	}},
-	{name: "package-zero", implicit: true, src: func(s genShape, q string) string {
+	{name: "package-zero", src: func(s genShape, q string) string {
 		return "let Z " + s.typ(q) + "\n"
 	}},
-	{name: "tuple-zero", implicit: true, src: func(s genShape, q string) string {
+	{name: "tuple-zero", src: func(s genShape, q string) string {
 		return "func use() { let v (" + s.typ(q) + ", int)\n let _ = v }\n"
 	}},
-	{name: "field-zero", implicit: true, src: func(s genShape, q string) string {
+	{name: "field-zero", src: func(s genShape, q string) string {
 		return "type E { X " + s.typ(q) + ", Y int }\nfunc use() { let e = E{Y: 1}\n let _ = e }\n"
 	}},
-	{name: "instance-zero", implicit: true, src: func(s genShape, q string) string {
+	{name: "instance-zero", src: func(s genShape, q string) string {
 		return "type Wz[T] { X T }\nfunc use() { let w Wz[" + s.typ(q) + "]\n let _ = w }\n"
 	}},
-	{name: "empty-literal", implicit: true, src: func(s genShape, q string) string {
+	{name: "empty-literal", src: func(s genShape, q string) string {
 		return "func use() { let v = " + s.typ(q) + "{}\n let _ = v }\n"
 	}},
-	{name: "literal", explicit: true, src: func(s genShape, q string) string {
+	{name: "literal", src: func(s genShape, q string) string {
 		return "func use() { let v = " + s.typ(q) + "{" + s.lit(q) + "}\n let _ = v }\n"
 	}},
-	{name: "update", explicit: true, src: func(s genShape, q string) string {
+	{name: "update", src: func(s genShape, q string) string {
 		return "func use() { let b = " + s.value(q) + "\n let v = " + s.typ(q) + "{..b, " + s.upd(q) + "}\n let _ = v }\n"
 	}},
 	{name: "value", src: func(s genShape, q string) string {
@@ -157,14 +154,53 @@ func split(t *testing.T, lib *check.Package, s genShape, site string) []check.Di
 	return ds
 }
 
+// genVerdict is the model of TestConstructionAuthorityShapes: the one code
+// a site gets inside lib or outside it ("" for none).
+//   - A let with no value (let-zero, package-zero, tuple-zero,
+//     instance-zero) makes lib's record from nothing: S114 outside (its
+//     message names lib's constructor), and S108 inside, since a record
+//     with fields has no zero value anywhere (types.md, Zero values 3).
+//   - A keyed literal that leaves a field out is S108 (Zero values 2):
+//     field-zero always, and an empty literal unless it is lib's own
+//     record outside lib, which is S114 first. A literal of lib's own
+//     record names only its exported fields, so inside lib it leaves the
+//     hidden one out (S108), and outside it is S114.
+//   - An update of lib's own record outside lib is S114; a value made by
+//     lib's functions copies it, and is never refused.
+func genVerdict(site genSite, own, in bool) string {
+	switch site.name {
+	case "let-zero", "package-zero", "tuple-zero", "instance-zero":
+		if in {
+			return "S108"
+		}
+		return "S114"
+	case "field-zero":
+		return "S108"
+	case "empty-literal":
+		if own && !in {
+			return "S114"
+		}
+		return "S108"
+	case "literal":
+		switch {
+		case own && in:
+			return "S108"
+		case own:
+			return "S114"
+		}
+	case "update":
+		if own && !in {
+			return "S114"
+		}
+	}
+	return ""
+}
+
 // TestConstructionAuthorityShapes is the generated property of 196b Q7:
 // for every shape of the algebra, every site and every package position,
 // the verdict comes from whether the site constructs lib's record or copies
-// one lib built. Outside lib (the shape declared in main, or in mid and
-// used from main) an implicit zero constructs it, so it is S114; a literal
-// or an update constructs it exactly when the shape's record is lib's own
-// (own); a value made by lib's functions copies it. Inside lib nothing is
-// refused.
+// one lib built (genVerdict). Outside lib is the shape declared in main, or
+// in mid and used from main.
 func TestConstructionAuthorityShapes(t *testing.T) {
 	lib := checkedLib(t)
 	shapes := genShapes(3)
@@ -174,17 +210,14 @@ func TestConstructionAuthorityShapes(t *testing.T) {
 	checks := 0
 	for _, s := range shapes {
 		for _, site := range genSites {
-			want := ""
-			if site.implicit || site.explicit && s.own {
-				want = "S114"
-			}
+			want, wantIn := genVerdict(site, s.own, false), genVerdict(site, s.own, true)
 			t.Run(s.name+"/"+site.name, func(t *testing.T) {
 				src := s.decls + site.src(s, "")
 				if got := outside(t, lib, src); sortedCodes(got) != want {
 					t.Errorf("outside lib: got %v, want %q\n%s", got, want, src)
 				}
-				if got := inside(t, src); len(got) != 0 {
-					t.Errorf("inside lib: got %v, want none\n%s", got, src)
+				if got := inside(t, src); sortedCodes(got) != wantIn {
+					t.Errorf("inside lib: got %v, want %q\n%s", got, wantIn, src)
 				}
 				if s.decls != "" {
 					main := site.src(s, "mid.")
@@ -306,7 +339,7 @@ func TestAuthorityVerifierAttacks(t *testing.T) {
 		{"empty-slice", "func f() { let x []lib.Q\n let _ = x }", ""},
 		{"generic-defined-zero", "type D[T] lib.G[T]\nfunc f() { let x D[int]\n let _ = x }", "S114"},
 		{"generic-defined-value", "type D[T] lib.G[T]\nfunc f() { let x = D[int](lib.NewG(1))\n let _ = x }", ""},
-		{"nested-tuple-zero", "type Pair (int, lib.Q)\ntype H { X Pair }\nfunc f() { let x = H{}\n let _ = x }", "S114"},
+		{"nested-tuple-zero", "type Pair (int, lib.Q)\ntype H { X Pair }\nfunc f() { let x H\n let _ = x }", "S114"},
 		{"nested-property", "type H { X []lib.Q }\ntest P(x H) { assert true }", "S108"},
 		{"generic-sealed-foreign", "type Mine {}\nfunc peek(_ Mine) int { 1 }\nfunc f() lib.Peek[int] { Mine }", "S108"},
 		{"generic-sealed-same", "func f(v lib.Impl) lib.Peek[int] { v }", ""},

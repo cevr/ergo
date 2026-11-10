@@ -98,14 +98,6 @@ internal/sketch/syntax/testdata/corpus/sketch-eval-9/http-endpoints.ergo	Directo
 internal/sketch/syntax/testdata/corpus/sketch-eval-9/http-endpoints.ergo	func Wire(m Member) string { return m.ID
 internal/sketch/syntax/testdata/corpus/sketch-eval-9/http-endpoints.ergo	func Wire(t Total) int64 fails Unpublishable
 internal/sketch/syntax/testdata/corpus/sketch-eval-9/http-endpoints.ergo	stored-data caller decodes with the same wire forms outside HTTP.
-runtime/ergo/codec.go	// of its own: the wire form is the representation's.
-runtime/ergo/codec.go	// CodecField names a wire key and the node decoding its
-runtime/ergo/codec.go	// profile the wire key is the source field name.
-runtime/ergo/codec.go	closed alternative, selected by its wire Tag.
-runtime/ergo/codec_transform_test.go	is a nominal domain value whose wire representation is a
-runtime/ergo/http_admission_test.go	it, after the bytes are on the wire.
-runtime/ergo/http_transport_test.go	would put its first bytes on the wire before cleanup.
-runtime/ergo/http_transport_test.go	t.Fatalf("response bytes reached the wire before cleanup completed: %v",
 
 # the old-spelling list: grammar.md's old Ergo-only spellings and its copies
 CHANGELOG.md	Ergo spellings: `error[…]` rows, `wire Name { A = x }`, `catch e { …
@@ -218,7 +210,6 @@ internal/sketch/check/context_keyword_test.go	"let wire = 1\n",
 internal/sketch/check/context_keyword_test.go	"func f(wire int) int { wire }\n",
 internal/sketch/check/context_keyword_test.go	"type wire { N int }\nfunc f(w wire) int
 internal/sketch/check/context_keyword_test.go	"type wire { N int }\nfunc f(w wire) int { w.N }\n",
-internal/sketch/check/context_keyword_test.go	stContextIsAKeyword: context is reserved, in wire's place, so the
 internal/residue/context_residue_test.go	outside history that still say wire, and
 internal/residue/context_residue_test.go	residueAllowlist = "testdata/wire-residue.txt"
 internal/residue/context_residue_test.go	line outside history that says wire is the network
@@ -238,3 +229,8 @@ docs/wayfinder/snapshot.json	"title": "`ef inspect` for wire graphs",
 docs/wayfinder/snapshot.json	provider laws through `needs` and wire, satisfaction per instantiation,
 docs/wayfinder/snapshot.json	MCP and LSP (rows, footprints, wires, machines)",
 docs/wayfinder/snapshot.json	to `needs`; add `provides` on wires",
+
+# the checker's corpus (test-speed T6): the frozen candidates that the corpus rule
+# enumerated from the check tests on 2026-11-09; these are the inputs that prove
+# context reserved in wire's old place (wire is an ordinary name now)
+internal/sketch/check/testdata/corpus/corpus-01.txtar	*

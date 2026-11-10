@@ -78,10 +78,14 @@ func main() needs Console | Ambient {
 // at the end, Rename moves, Chmod sets the mode, Remove removes, and each
 // failure names its path. Perm is owner*64 + group*8 + other over the
 // bits read 4, write 2, execute 1.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestFSSafeRuns(t *testing.T) {
+	needsBuild(t)
 	dir := t.TempDir()
-	p := mustLower(t, "fsSafe", fsSafeProgram)
-	exes := buildAll(t, []*lowered{p}, true)
+	exes := tableExes(t, "fsSafe")
 	if exes == nil {
 		t.Fatal("the lowered program does not build")
 	}

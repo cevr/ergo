@@ -15,7 +15,7 @@ var GrammarFixtures = []GrammarFixture{
 	{"TopLevelDecl", "type T {}\n\nfunc F() {}\n\nextern go strings.ToUpper func Upper(s string) string\n\ntest Works {\n\tassert true\n}\n\nlaw Holds(n int64) {\n\tn == n\n}\n\nlet Limit = 3\n"},
 	{"TypeDecl", "type Celsius float64\n\ntype Card { Number string }\n\ntype Payment = Pending{} | Paid{ID string}\n"},
 	{"TypeParams", "type Pair[A, B] { First A, Second B }\n\nfunc Max[T ordered](a, b T) T {\n\tif a > b { a } else { b }\n}\n"},
-	{"TypeParam", "type Table[K comparable, V] { Rows Map[K, V] }\n\ntype Both[A, B ordered] { X A, Y B }\n"},
+	{"TypeParam", "type Table[K comparable, V] { Rows Map[K, V] }\n\ntype Both[A, B ordered] { X A, Y B }\n\ntype Index[E any, K comparable] { Keys []K, Items []E }\n"},
 	{"Members", "type Card {\n\tNumber string,\n\tExpiry Date,\n}\n\ntype Empty {}\n"},
 	{"Member", "type Store {\n\tFind(id string) Order fails NotFound,\n\n\tlaw Found(id string) { try Find(id) == Find(id) },\n}\n"},
 	{"FieldDecl", "type Point { X, Y int64 }\n"},

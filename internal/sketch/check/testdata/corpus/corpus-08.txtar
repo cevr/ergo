@@ -1,0 +1,4573 @@
+-- 04000.ergo --
+func g(x int8) {}
+func f() {
+	g(77)
+}
+-- 04001.ergo --
+func Two[T](a, b T) T {
+	return a
+}
+func f(x int8) int8 {
+	return Two(x, 77)
+}
+-- 04002.ergo --
+func Two[T](a, b T) T {
+	return a
+}
+func f(x int8) int8 {
+	return Two(77, x)
+}
+-- 04003.ergo --
+func Two[T](a, b T) T {
+	return a
+}
+func f() int {
+	return Two(77, 1)
+}
+-- 04004.ergo --
+func Id[T](x T) T {
+	return x
+}
+func f() float32 {
+	return Id[float32](77)
+}
+-- 04005.ergo --
+func f() int8 {
+	return 77
+}
+-- 04006.ergo --
+func make(f func() int8) int8 {
+	return f()
+}
+func f() int8 {
+	return make() {
+		77
+	}
+}
+-- 04007.ergo --
+type P {
+	X int8,
+}
+func f() P {
+	return P{X: 77}
+}
+-- 04008.ergo --
+func f() []uint16 {
+	return []uint16{77}
+}
+-- 04009.ergo --
+func f() Map[int8, float32] {
+	return Map[int8, float32]{77: 1}
+}
+-- 04010.ergo --
+func f() Map[int8, float32] {
+	return Map[int8, float32]{1: 77}
+}
+-- 04011.ergo --
+func f(x int8) int8 {
+	return x + 77
+}
+-- 04012.ergo --
+func f(x float32) float32 {
+	return 77 * x
+}
+-- 04013.ergo --
+func f(x uint8) bool {
+	return x < 77
+}
+-- 04014.ergo --
+func f(n int16) int16 {
+	let mut s int16 = 0
+	for i in 77..n {
+		s += i
+	}
+	return s
+}
+-- 04015.ergo --
+func f() int8 {
+	let mut v int8 = 1
+	v = 77
+	return v
+}
+-- 04016.ergo --
+func f() int8 {
+	let mut v int8 = 1
+	v += 77
+	return v
+}
+-- 04017.ergo --
+func f(xs []string) string {
+	return xs[77]
+}
+-- 04018.ergo --
+func f(n uint8) int {
+	match n {
+	case 77:
+		return 1
+	case _:
+		return 0
+	}
+}
+-- 04019.ergo --
+func f(n int) int64 {
+	return 77 << n
+}
+-- 04020.ergo --
+func f() int8 {
+	return -77
+}
+-- 04021.ergo --
+func f() int8 {
+	return -(77)
+}
+-- 04022.ergo --
+let without a type
+-- 04023.ergo --
+func f() int {
+	let v = 77
+	return v
+}
+-- 04024.ergo --
+func f() float64 {
+	let v = 77.5
+	return v
+}
+-- 04025.ergo --
+func f() rune {
+	let v = 'w'
+	return v
+}
+-- 04026.ergo --
+func f() string {
+	let v = "w"
+	return v
+}
+-- 04027.ergo --
+func f() int8 {
+	return int8(77)
+}
+-- 04028.ergo --
+func f() string {
+	return "\(77)"
+}
+-- 04029.ergo --
+func f(x int8) int8 {
+	return x << 7
+}
+-- 04030.ergo --
+func f() bool {
+	return 77 < 78
+}
+-- 04031.ergo --
+func f() float64 {
+	let v = 77.0 * 2.5
+	return v
+}
+-- 04032.ergo --
+func f() int8 {
+	return 
+-- 04033.ergo --
+func f() int {
+	let c int = 2.0
+	return c
+}
+-- 04034.ergo --
+func f() duration {
+	let d duration = 5
+	return d
+}
+-- 04035.ergo --
+func g(x int) {}
+func f() {
+	g("s")
+}
+-- 04036.ergo --
+func f(n int) int {
+	return n + 1.5
+}
+-- 04037.ergo --
+let Limit = 10
+func f() int8 {
+	let b int8 = Limit
+	return b
+}
+-- 04038.ergo --
+func f() int8 {
+	let y int8 = 100 + 100
+	return y
+}
+-- 04039.ergo --
+let Max8 int8 = 300
+-- 04040.ergo --
+func f() int8 {
+	let y int8 = 100 + 100 - 100
+	return y
+}
+-- 04041.ergo --
+func f() int8 {
+	let a int8 = -(129)
+	return a
+}
+-- 04042.ergo --
+func f() int64 {
+	return -1e3
+}
+-- 04043.ergo --
+func f() int {
+	return -(-16777217.0)
+}
+-- 04044.ergo --
+func f() uint64 {
+	return uint64(18446744073709551615)
+}
+-- 04045.ergo --
+func f() float64 {
+	let d = 1 + 2.5
+	return d
+}
+-- 04046.ergo --
+func f(a int32, b int64) int64 {
+	return a + b
+}
+-- 04047.ergo --
+func f() int {
+	let v = 1 + 'a'
+	return v
+}
+-- 04048.ergo --
+func f() string {
+	let v = "a" + 'b'
+	return v
+}
+-- 04049.ergo --
+func Two[T](a, b T) T {
+	return a
+}
+func f() rune {
+	return Two(1, 'a')
+}
+-- 04050.ergo --
+type Pair[T] {
+	A T,
+	B T,
+}
+func f() {
+	let p = Pair{1, 'a'}
+	let q = p
+	q
+}
+-- 04051.ergo --
+func f(n int) float64 {
+	let v float64 = 1 << n
+	return v
+}
+-- 04052.ergo --
+func f() string {
+	return ""()
+}
+-- 04053.ergo --
+func f() int {
+	return (1)()
+}
+-- 04054.ergo --
+let K = 1
+func f() int {
+	return K()
+}
+-- 04055.ergo --
+type rec { n int }
+type alt = va{ n int } | vb{}
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+-- 04056.ergo --
+func f() int {
+	let rec = rec{n: 1}
+	rec.n
+}
+-- 04057.ergo --
+type rec { n int }
+type alt = va{ n int } | vb{}
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+func f() int {
+	let rec = rec{n: 1}
+	rec.n
+}
+-- 04058.ergo --
+func f() int {
+	let rec = rec{n: 1}
+	let w rec = rec
+	let v = rec{n: w.n}
+	v.n
+}
+-- 04059.ergo --
+type rec { n int }
+type alt = va{ n int } | vb{}
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+func f() int {
+	let rec = rec{n: 1}
+	let w rec = rec
+	let v = rec{n: w.n}
+	v.n
+}
+-- 04060.ergo --
+func f() bool {
+	let rec = rec{n: 7}
+	rec == rec{n: 7}
+}
+-- 04061.ergo --
+type rec { n int }
+type alt = va{ n int } | vb{}
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+func f() bool {
+	let rec = rec{n: 7}
+	rec == rec{n: 7}
+}
+-- 04062.ergo --
+func f() int {
+	let (rec, m) = (rec{n: 1}, 2)
+	rec.n + m
+}
+-- 04063.ergo --
+type rec { n int }
+type alt = va{ n int } | vb{}
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+func f() int {
+	let (rec, m) = (rec{n: 1}, 2)
+	rec.n + m
+}
+-- 04064.ergo --
+func f(r rec) int {
+	let rec{n: rec} = r
+	rec
+}
+-- 04065.ergo --
+type rec { n int }
+type alt = va{ n int } | vb{}
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+func f(r rec) int {
+	let rec{n: rec} = r
+	rec
+}
+-- 04066.ergo --
+func f(xs []rec) int {
+	let mut s = 0
+	for i, rec in xs {
+		s += i + rec.n
+	}
+	s
+}
+-- 04067.ergo --
+type rec { n int }
+type alt = va{ n int } | vb{}
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+func f(xs []rec) int {
+	let mut s = 0
+	for i, rec in xs {
+		s += i + rec.n
+	}
+	s
+}
+-- 04068.ergo --
+func f(rec rec) int {
+	rec.n
+}
+-- 04069.ergo --
+type rec { n int }
+type alt = va{ n int } | vb{}
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+func f(rec rec) int {
+	rec.n
+}
+-- 04070.ergo --
+func f() int {
+	let g = func(rec rec) int { rec.n }
+	g(rec{n: 2})
+}
+-- 04071.ergo --
+type rec { n int }
+type alt = va{ n int } | vb{}
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+func f() int {
+	let g = func(rec rec) int { rec.n }
+	g(rec{n: 2})
+}
+-- 04072.ergo --
+func f() int {
+	let rec = rec{n: 1}
+	let g = func() int { rec.n }
+	g()
+}
+-- 04073.ergo --
+type rec { n int }
+type alt = va{ n int } | vb{}
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+func f() int {
+	let rec = rec{n: 1}
+	let g = func() int { rec.n }
+	g()
+}
+-- 04074.ergo --
+func f(b bool) alt {
+	if b {
+		let vb = 3
+		let _ = vb
+	}
+	vb
+}
+-- 04075.ergo --
+type rec { n int }
+type alt = va{ n int } | vb{}
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+func f(b bool) alt {
+	if b {
+		let vb = 3
+		let _ = vb
+	}
+	vb
+}
+-- 04076.ergo --
+func f() alt {
+	let g = func() int {
+		let vb = 3
+		vb
+	}
+	let _ = g()
+	vb
+}
+-- 04077.ergo --
+type rec { n int }
+type alt = va{ n int } | vb{}
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+func f() alt {
+	let g = func() int {
+		let vb = 3
+		vb
+	}
+	let _ = g()
+	vb
+}
+-- 04078.ergo --
+func f() int {
+	let rec = 1
+	let w rec = rec{n: 2}
+	w.n
+}
+-- 04079.ergo --
+type rec { n int }
+type alt = va{ n int } | vb{}
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+func f() int {
+	let rec = 1
+	let w rec = rec{n: 2}
+	w.n
+}
+-- 04080.ergo --
+let rec = rec{n: 1}
+-- 04081.ergo --
+type rec { n int }
+type alt = va{ n int } | vb{}
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+let rec = rec{n: 1}
+-- 04082.ergo --
+let (rec, x) = (rec{n: 1}, 2)
+
+func f() int { x }
+-- 04083.ergo --
+type rec { n int }
+type alt = va{ n int } | vb{}
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+let (rec, x) = (rec{n: 1}, 2)
+
+func f() int { x }
+-- 04084.ergo --
+let (rec, x) = (5, 2)
+
+func f() int { x }
+-- 04085.ergo --
+type rec { n int }
+type alt = va{ n int } | vb{}
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+let (rec, x) = (5, 2)
+
+func f() int { x }
+-- 04086.ergo --
+func f() int {
+	let error = 1
+	0
+}
+-- 04087.ergo --
+type rec { n int }
+type alt = va{ n int } | vb{}
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+func f() int {
+	let error = 1
+	0
+}
+-- 04088.ergo --
+func f() int {
+	let Option = 1
+	Option
+}
+-- 04089.ergo --
+type rec { n int }
+type alt = va{ n int } | vb{}
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+func f() int {
+	let Option = 1
+	Option
+}
+-- 04090.ergo --
+func f(v int) int {
+	let Bang = 1
+	let n = risky(v) catch {
+	case Bang:
+		0
+	}
+	n + Bang
+}
+-- 04091.ergo --
+type rec { n int }
+type alt = va{ n int } | vb{}
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+func f(v int) int {
+	let Bang = 1
+	let n = risky(v) catch {
+	case Bang:
+		0
+	}
+	n + Bang
+}
+-- 04092.ergo --
+func f(a alt) int {
+	match a {
+	case va{n: rec}:
+		1
+	case vb:
+		0
+	}
+}
+-- 04093.ergo --
+type rec { n int }
+type alt = va{ n int } | vb{}
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+func f(a alt) int {
+	match a {
+	case va{n: rec}:
+		1
+	case vb:
+		0
+	}
+}
+-- 04094.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+-- 04095.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+-- 04096.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+-- 04097.ergo --
+type Ambient {
+	Mark(),
+}
+-- 04098.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+type Ambient {
+	Mark(),
+}
+-- 04099.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+type Ambient {
+	Mark(),
+}
+-- 04100.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+-- 04101.ergo --
+func f() H { H{root: "/"} }
+-- 04102.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f() H { H{root: "/"} }
+-- 04103.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f() H { H{root: "/"} }
+-- 04104.ergo --
+func f() []H { []H{{root: "/"}} }
+-- 04105.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f() []H { []H{{root: "/"}} }
+-- 04106.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f() []H { []H{{root: "/"}} }
+-- 04107.ergo --
+func f(h H) H { H{..h, root: "x"} }
+-- 04108.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f(h H) H { H{..h, root: "x"} }
+-- 04109.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f(h H) H { H{..h, root: "x"} }
+-- 04110.ergo --
+func f() W { W{Y: 1} }
+-- 04111.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f() W { W{Y: 1} }
+-- 04112.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f() W { W{Y: 1} }
+-- 04113.ergo --
+func f(h H) W { W{h, 1} }
+-- 04114.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f(h H) W { W{h, 1} }
+-- 04115.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f(h H) W { W{h, 1} }
+-- 04116.ergo --
+func f() int {
+	let w W
+	w.Y
+}
+-- 04117.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f() int {
+	let w W
+	w.Y
+}
+-- 04118.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f() int {
+	let w W
+	w.Y
+}
+-- 04119.ergo --
+let Z W
+-- 04120.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+let Z W
+-- 04121.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+let Z W
+-- 04122.ergo --
+func f() U { U }
+-- 04123.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f() U { U }
+-- 04124.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f() U { U }
+-- 04125.ergo --
+func f(h H) H { H(h) }
+-- 04126.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f(h H) H { H(h) }
+-- 04127.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f(h H) H { H(h) }
+-- 04128.ergo --
+func f() N { 3 }
+-- 04129.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f() N { 3 }
+-- 04130.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f() N { 3 }
+-- 04131.ergo --
+func f() N { -3 }
+-- 04132.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f() N { -3 }
+-- 04133.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f() N { -3 }
+-- 04134.ergo --
+func f(n N) int {
+	match n {
+	case 3: 1
+	case _: 0
+	}
+}
+-- 04135.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f(n N) int {
+	match n {
+	case 3: 1
+	case _: 0
+	}
+}
+-- 04136.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f(n N) int {
+	match n {
+	case 3: 1
+	case _: 0
+	}
+}
+-- 04137.ergo --
+func pick(h H) func() int { func() int { Get(h) } }
+
+func f() int { pick(H{root: "/"})() }
+-- 04138.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func pick(h H) func() int { func() int { Get(h) } }
+
+func f() int { pick(H{root: "/"})() }
+-- 04139.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func pick(h H) func() int { func() int { Get(h) } }
+
+func f() int { pick(H{root: "/"})() }
+-- 04140.ergo --
+func func() int @func pick [F]
+-- 04141.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func func() int @func pick [F]
+-- 04142.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func func() int @func pick [F]
+-- 04143.ergo --
+type Flag bool
+
+func f() Flag { true }
+-- 04144.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+type Flag bool
+
+func f() Flag { true }
+-- 04145.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+type Flag bool
+
+func f() Flag { true }
+-- 04146.ergo --
+func f() int {
+	with context { Rd: H{root: "/"} } { Get(H{root: "x"}) }
+}
+-- 04147.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f() int {
+	with context { Rd: H{root: "/"} } { Get(H{root: "x"}) }
+}
+-- 04148.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f() int {
+	with context { Rd: H{root: "/"} } { Get(H{root: "x"}) }
+}
+-- 04149.ergo --
+extern go ergo.local/prototype/runtime/v1.WithCapacity func zero[T](n int) []T
+
+func f() []H { zero[H](1) }
+-- 04150.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+extern go ergo.local/prototype/runtime/v1.WithCapacity func zero[T](n int) []T
+
+func f() []H { zero[H](1) }
+-- 04151.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+extern go ergo.local/prototype/runtime/v1.WithCapacity func zero[T](n int) []T
+
+func f() []H { zero[H](1) }
+-- 04152.ergo --
+extern go ergo.local/prototype/runtime/v1.FSReadFile func mk() H
+
+func f() H { mk() }
+-- 04153.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+extern go ergo.local/prototype/runtime/v1.FSReadFile func mk() H
+
+func f() H { mk() }
+-- 04154.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+extern go ergo.local/prototype/runtime/v1.FSReadFile func mk() H
+
+func f() H { mk() }
+-- 04155.ergo --
+func f(b bool) int {
+	if b { Get(H{root: "/"}) } else { 0 }
+}
+-- 04156.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f(b bool) int {
+	if b { Get(H{root: "/"}) } else { 0 }
+}
+-- 04157.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f(b bool) int {
+	if b { Get(H{root: "/"}) } else { 0 }
+}
+-- 04158.ergo --
+func f(w W) int {
+	match w {
+	case W{X: _, Y: y}: Get(H{root: "/"}) + y
+	}
+}
+-- 04159.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f(w W) int {
+	match w {
+	case W{X: _, Y: y}: Get(H{root: "/"}) + y
+	}
+}
+-- 04160.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f(w W) int {
+	match w {
+	case W{X: _, Y: y}: Get(H{root: "/"}) + y
+	}
+}
+-- 04161.ergo --
+type Oops {}
+
+func g() int fails Oops { 1 }
+
+func f() int {
+	g() catch {
+	case Oops:
+		Get(H{root: "/"})
+	}
+}
+-- 04162.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+type Oops {}
+
+func g() int fails Oops { 1 }
+
+func f() int {
+	g() catch {
+	case Oops:
+		Get(H{root: "/"})
+	}
+}
+-- 04163.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+type Oops {}
+
+func g() int fails Oops { 1 }
+
+func f() int {
+	g() catch {
+	case Oops:
+		Get(H{root: "/"})
+	}
+}
+-- 04164.ergo --
+func f(u U) U { u }
+-- 04165.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f(u U) U { u }
+-- 04166.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f(u U) U { u }
+-- 04167.ergo --
+type Z { Q U }
+
+func f(z Z) U { z.Q }
+-- 04168.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+type Z { Q U }
+
+func f(z Z) U { z.Q }
+-- 04169.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+type Z { Q U }
+
+func f(z Z) U { z.Q }
+-- 04170.ergo --
+func g() H needs Ambient { H{root: "/"} }
+
+func f() H needs Ambient { g() }
+-- 04171.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func g() H needs Ambient { H{root: "/"} }
+
+func f() H needs Ambient { g() }
+-- 04172.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func g() H needs Ambient { H{root: "/"} }
+
+func f() H needs Ambient { g() }
+-- 04173.ergo --
+type E[T] {}
+
+func f() E[H] { E[H] }
+-- 04174.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+type E[T] {}
+
+func f() E[H] { E[H] }
+-- 04175.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+type E[T] {}
+
+func f() E[H] { E[H] }
+-- 04176.ergo --
+func f(h H) (int, H) { (1, h) }
+-- 04177.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f(h H) (int, H) { (1, h) }
+-- 04178.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f(h H) (int, H) { (1, h) }
+-- 04179.ergo --
+type S string
+
+func f(n int) S { S("n \(n)") }
+-- 04180.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+type S string
+
+func f(n int) S { S("n \(n)") }
+-- 04181.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+type S string
+
+func f(n int) S { S("n \(n)") }
+-- 04182.ergo --
+func f() func() int { func() int { 1 } }
+-- 04183.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f() func() int { func() int { 1 } }
+-- 04184.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f() func() int { func() int { 1 } }
+-- 04185.ergo --
+func func() int @func f [F]
+-- 04186.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func func() int @func f [F]
+-- 04187.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func func() int @func f [F]
+-- 04188.ergo --
+func f() func() H { func() H { H{root: "/"} } }
+-- 04189.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f() func() H { func() H { H{root: "/"} } }
+-- 04190.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f() func() H { func() H { H{root: "/"} } }
+-- 04191.ergo --
+func func() fixture.H @func f [F]
+-- 04192.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func func() fixture.H @func f [F]
+-- 04193.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func func() fixture.H @func f [F]
+-- 04194.ergo --
+func f() (func() H needs Ambient) { func() H needs Ambient { H{root: "/"} } }
+-- 04195.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f() (func() H needs Ambient) { func() H needs Ambient { H{root: "/"} } }
+-- 04196.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f() (func() H needs Ambient) { func() H needs Ambient { H{root: "/"} } }
+-- 04197.ergo --
+func func() fixture.H needs Ambient @func f [F]
+-- 04198.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func func() fixture.H needs Ambient @func f [F]
+-- 04199.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func func() fixture.H needs Ambient @func f [F]
+-- 04200.ergo --
+func f() H needs Ambient { H{root: "/"} }
+-- 04201.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f() H needs Ambient { H{root: "/"} }
+-- 04202.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f() H needs Ambient { H{root: "/"} }
+-- 04203.ergo --
+func f() int { Get(H{root: "/"}) }
+-- 04204.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f() int { Get(H{root: "/"}) }
+-- 04205.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f() int { Get(H{root: "/"}) }
+-- 04206.ergo --
+func f() Rd { H{root: "/"} }
+-- 04207.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f() Rd { H{root: "/"} }
+-- 04208.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f() Rd { H{root: "/"} }
+-- 04209.ergo --
+func f() W { W{X: H{root: "/"}, Y: 1} }
+-- 04210.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f() W { W{X: H{root: "/"}, Y: 1} }
+-- 04211.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f() W { W{X: H{root: "/"}, Y: 1} }
+-- 04212.ergo --
+func f() Option[H] { Some[H]{Value: H{root: "/"}} }
+-- 04213.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f() Option[H] { Some[H]{Value: H{root: "/"}} }
+-- 04214.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f() Option[H] { Some[H]{Value: H{root: "/"}} }
+-- 04215.ergo --
+func run(f func() int) int { f() }
+
+func f() int {
+	run() {
+		Get(H{root: "/"})
+	}
+}
+-- 04216.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func run(f func() int) int { f() }
+
+func f() int {
+	run() {
+		Get(H{root: "/"})
+	}
+}
+-- 04217.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func run(f func() int) int { f() }
+
+func f() int {
+	run() {
+		Get(H{root: "/"})
+	}
+}
+-- 04218.ergo --
+func f(w W) int {
+	match w {
+	case W{X: H{root: r}, Y: y}: y
+	}
+}
+-- 04219.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+func f(w W) int {
+	match w {
+	case W{X: H{root: r}, Y: y}: y
+	}
+}
+-- 04220.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+func f(w W) int {
+	match w {
+	case W{X: H{root: r}, Y: y}: y
+	}
+}
+-- 04221.ergo --
+let L = H{root: "/"}
+-- 04222.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+let L = H{root: "/"}
+-- 04223.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+let L = H{root: "/"}
+-- 04224.ergo --
+let C = context { Rd: H{root: "/"} }
+-- 04225.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+let C = context { Rd: H{root: "/"} }
+-- 04226.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+let C = context { Rd: H{root: "/"} }
+-- 04227.ergo --
+type MS = Idle | Busy
+
+type Idle { h H }
+
+type Busy {}
+
+type E = Go | Stop
+
+type Go {}
+
+type Stop {}
+
+func step(s MS, e E) Decision[MS, int] { Ignore }
+
+type M machine[MS, E] { initial: Idle{h: H{root: "/"}}, step: step }
+-- 04228.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+type MS = Idle | Busy
+
+type Idle { h H }
+
+type Busy {}
+
+type E = Go | Stop
+
+type Go {}
+
+type Stop {}
+
+func step(s MS, e E) Decision[MS, int] { Ignore }
+
+type M machine[MS, E] { initial: Idle{h: H{root: "/"}}, step: step }
+-- 04229.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+type MS = Idle | Busy
+
+type Idle { h H }
+
+type Busy {}
+
+type E = Go | Stop
+
+type Go {}
+
+type Stop {}
+
+func step(s MS, e E) Decision[MS, int] { Ignore }
+
+type M machine[MS, E] { initial: Idle{h: H{root: "/"}}, step: step }
+-- 04230.ergo --
+type Q { Peek() int, law L(w W) { w.Y == w.Y } }
+-- 04231.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+type Q { Peek() int, law L(w W) { w.Y == w.Y } }
+-- 04232.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+type Q { Peek() int, law L(w W) { w.Y == w.Y } }
+-- 04233.ergo --
+type Q { Peek() int, law L() { Get(H{root: "/"}) == 1 } }
+-- 04234.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+type Q { Peek() int, law L() { Get(H{root: "/"}) == 1 } }
+-- 04235.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+type Q { Peek() int, law L() { Get(H{root: "/"}) == 1 } }
+-- 04236.ergo --
+import queue
+
+func f() queue.Closed { queue.Closed }
+-- 04237.ergo --
+type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+import queue
+
+func f() queue.Closed { queue.Closed }
+-- 04238.ergo --
+type H { root string }
+
+type U {}
+
+type N int
+
+type W { X H, Y int }
+
+type Rd { Get() int }
+
+func Get(_ H) int { 1 }
+
+import queue
+
+func f() queue.Closed { queue.Closed }
+-- 04239.ergo --
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+-- 04240.ergo --
+type Bad {}
+type Oops {}
+type Fail = Bad | Oops
+type Other {}
+func h() int fails Other { return Other }
+func G() int {
+	h() catch { case Other: 0; case Fail: 1 }
+}
+-- 04241.ergo --
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+func G() int {
+	return Oops{At: 1}
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+-- 04242.ergo --
+type E%d { N int }
+-- 04243.ergo --
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+type E%d { N int }
+-- 04244.ergo --
+type Bad {}
+type Oops {}
+type Fail = Bad | Oops
+type Other {}
+func h() int fails Other { return Other }
+func G() int {
+	h() catch { case Other: 0; case Fail: 1 }
+}
+type E%d { N int }
+-- 04245.ergo --
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+func G() int {
+	return Oops{At: 1}
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+type E%d { N int }
+-- 04246.ergo --
+type U = %s
+-- 04247.ergo --
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+type U = %s
+-- 04248.ergo --
+type Bad {}
+type Oops {}
+type Fail = Bad | Oops
+type Other {}
+func h() int fails Other { return Other }
+func G() int {
+	h() catch { case Other: 0; case Fail: 1 }
+}
+type U = %s
+-- 04249.ergo --
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+func G() int {
+	return Oops{At: 1}
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+type U = %s
+-- 04250.ergo --
+func f(n int) int fails ROW {
+-- 04251.ergo --
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+func f(n int) int fails ROW {
+-- 04252.ergo --
+type Bad {}
+type Oops {}
+type Fail = Bad | Oops
+type Other {}
+func h() int fails Other { return Other }
+func G() int {
+	h() catch { case Other: 0; case Fail: 1 }
+}
+func f(n int) int fails ROW {
+-- 04253.ergo --
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+func G() int {
+	return Oops{At: 1}
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+func f(n int) int fails ROW {
+-- 04254.ergo --
+func run[E](g func(int) int fails E) int fails E {
+	try g(0)
+}
+-- 04255.ergo --
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+func run[E](g func(int) int fails E) int fails E {
+	try g(0)
+}
+-- 04256.ergo --
+type Bad {}
+type Oops {}
+type Fail = Bad | Oops
+type Other {}
+func h() int fails Other { return Other }
+func G() int {
+	h() catch { case Other: 0; case Fail: 1 }
+}
+func run[E](g func(int) int fails E) int fails E {
+	try g(0)
+}
+-- 04257.ergo --
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+func G() int {
+	return Oops{At: 1}
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+func run[E](g func(int) int fails E) int fails E {
+	try g(0)
+}
+-- 04258.ergo --
+func c%d(n int) int%s {
+-- 04259.ergo --
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+func c%d(n int) int%s {
+-- 04260.ergo --
+type Bad {}
+type Oops {}
+type Fail = Bad | Oops
+type Other {}
+func h() int fails Other { return Other }
+func G() int {
+	h() catch { case Other: 0; case Fail: 1 }
+}
+func c%d(n int) int%s {
+-- 04261.ergo --
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+func G() int {
+	return Oops{At: 1}
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+func c%d(n int) int%s {
+-- 04262.ergo --
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+-- 04263.ergo --
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+-- 04264.ergo --
+type Bad {}
+type Oops {}
+type Fail = Bad | Oops
+type Other {}
+func h() int fails Other { return Other }
+func G() int {
+	h() catch { case Other: 0; case Fail: 1 }
+}
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+-- 04265.ergo --
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+func G() int {
+	return Oops{At: 1}
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+-- 04266.ergo --
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+-- 04267.ergo --
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+-- 04268.ergo --
+type Bad {}
+type Oops {}
+type Fail = Bad | Oops
+type Other {}
+func h() int fails Other { return Other }
+func G() int {
+	h() catch { case Other: 0; case Fail: 1 }
+}
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+-- 04269.ergo --
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+func G() int {
+	return Oops{At: 1}
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+-- 04270.ergo --
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+-- 04271.ergo --
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+-- 04272.ergo --
+type Bad {}
+type Oops {}
+type Fail = Bad | Oops
+type Other {}
+func h() int fails Other { return Other }
+func G() int {
+	h() catch { case Other: 0; case Fail: 1 }
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+-- 04273.ergo --
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+func G() int {
+	return Oops{At: 1}
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+-- 04274.ergo --
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+-- 04275.ergo --
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+-- 04276.ergo --
+type Bad {}
+type Oops {}
+type Fail = Bad | Oops
+type Other {}
+func h() int fails Other { return Other }
+func G() int {
+	h() catch { case Other: 0; case Fail: 1 }
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+-- 04277.ergo --
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+func G() int {
+	return Oops{At: 1}
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+-- 04278.ergo --
+func G(n int) int {
+	
+-- 04279.ergo --
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+func G(n int) int {
+	
+-- 04280.ergo --
+type Bad {}
+type Oops {}
+type Fail = Bad | Oops
+type Other {}
+func h() int fails Other { return Other }
+func G() int {
+	h() catch { case Other: 0; case Fail: 1 }
+}
+func G(n int) int {
+	
+-- 04281.ergo --
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+func G() int {
+	return Oops{At: 1}
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+func G(n int) int {
+	
+-- 04282.ergo --
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+type Bad {}
+type Oops {}
+type Fail = Bad | Oops
+type Other {}
+func h() int fails Other { return Other }
+func G() int {
+	h() catch { case Other: 0; case Fail: 1 }
+}
+-- 04283.ergo --
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+func G() int {
+	return Oops{At: 1}
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+type Bad {}
+type Oops {}
+type Fail = Bad | Oops
+type Other {}
+func h() int fails Other { return Other }
+func G() int {
+	h() catch { case Other: 0; case Fail: 1 }
+}
+-- 04284.ergo --
+func f() fails Option[int] {
+}
+-- 04285.ergo --
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+func f() fails Option[int] {
+}
+-- 04286.ergo --
+type Bad {}
+type Oops {}
+type Fail = Bad | Oops
+type Other {}
+func h() int fails Other { return Other }
+func G() int {
+	h() catch { case Other: 0; case Fail: 1 }
+}
+func f() fails Option[int] {
+}
+-- 04287.ergo --
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+func G() int {
+	return Oops{At: 1}
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+func f() fails Option[int] {
+}
+-- 04288.ergo --
+type N int
+func f() fails N {
+}
+-- 04289.ergo --
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+type N int
+func f() fails N {
+}
+-- 04290.ergo --
+type Bad {}
+type Oops {}
+type Fail = Bad | Oops
+type Other {}
+func h() int fails Other { return Other }
+func G() int {
+	h() catch { case Other: 0; case Fail: 1 }
+}
+type N int
+func f() fails N {
+}
+-- 04291.ergo --
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+func G() int {
+	return Oops{At: 1}
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+type N int
+func f() fails N {
+}
+-- 04292.ergo --
+type A {}
+type B {}
+type U = A | B
+func run[E](g func() int fails E) int fails E {
+	try g()
+}
+func f() int fails U {
+	1
+}
+func G() int fails U {
+	try run[U](f)
+}
+-- 04293.ergo --
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+type A {}
+type B {}
+type U = A | B
+func run[E](g func() int fails E) int fails E {
+	try g()
+}
+func f() int fails U {
+	1
+}
+func G() int fails U {
+	try run[U](f)
+}
+-- 04294.ergo --
+type Bad {}
+type Oops {}
+type Fail = Bad | Oops
+type Other {}
+func h() int fails Other { return Other }
+func G() int {
+	h() catch { case Other: 0; case Fail: 1 }
+}
+type A {}
+type B {}
+type U = A | B
+func run[E](g func() int fails E) int fails E {
+	try g()
+}
+func f() int fails U {
+	1
+}
+func G() int fails U {
+	try run[U](f)
+}
+-- 04295.ergo --
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+func G() int {
+	return Oops{At: 1}
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+type A {}
+type B {}
+type U = A | B
+func run[E](g func() int fails E) int fails E {
+	try g()
+}
+func f() int fails U {
+	1
+}
+func G() int fails U {
+	try run[U](f)
+}
+-- 04296.ergo --
+import flag
+func f(args []string) string fails flag.Failure {
+	let v = try flag.Parse(flag.Set{Name: "t", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, args)
+	"\(len(flag.Rest(v)))"
+}
+-- 04297.ergo --
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+import flag
+func f(args []string) string fails flag.Failure {
+	let v = try flag.Parse(flag.Set{Name: "t", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, args)
+	"\(len(flag.Rest(v)))"
+}
+-- 04298.ergo --
+type Bad {}
+type Oops {}
+type Fail = Bad | Oops
+type Other {}
+func h() int fails Other { return Other }
+func G() int {
+	h() catch { case Other: 0; case Fail: 1 }
+}
+import flag
+func f(args []string) string fails flag.Failure {
+	let v = try flag.Parse(flag.Set{Name: "t", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, args)
+	"\(len(flag.Rest(v)))"
+}
+-- 04299.ergo --
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+func G() int {
+	return Oops{At: 1}
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+import flag
+func f(args []string) string fails flag.Failure {
+	let v = try flag.Parse(flag.Set{Name: "t", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, args)
+	"\(len(flag.Rest(v)))"
+}
+-- 04300.ergo --
+import flag
+func f(args []string) string {
+	let v = flag.Parse(flag.Set{Name: "t", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, args) catch {
+	case flag.Failure as x:
+		return flag.Describe(x)
+	}
+	"\(len(flag.Rest(v)))"
+}
+-- 04301.ergo --
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+import flag
+func f(args []string) string {
+	let v = flag.Parse(flag.Set{Name: "t", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, args) catch {
+	case flag.Failure as x:
+		return flag.Describe(x)
+	}
+	"\(len(flag.Rest(v)))"
+}
+-- 04302.ergo --
+type Bad {}
+type Oops {}
+type Fail = Bad | Oops
+type Other {}
+func h() int fails Other { return Other }
+func G() int {
+	h() catch { case Other: 0; case Fail: 1 }
+}
+import flag
+func f(args []string) string {
+	let v = flag.Parse(flag.Set{Name: "t", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, args) catch {
+	case flag.Failure as x:
+		return flag.Describe(x)
+	}
+	"\(len(flag.Rest(v)))"
+}
+-- 04303.ergo --
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+func G() int {
+	return Oops{At: 1}
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+import flag
+func f(args []string) string {
+	let v = flag.Parse(flag.Set{Name: "t", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, args) catch {
+	case flag.Failure as x:
+		return flag.Describe(x)
+	}
+	"\(len(flag.Rest(v)))"
+}
+-- 04304.ergo --
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+-- 04305.ergo --
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+-- 04306.ergo --
+type Bad {}
+type Oops {}
+type Fail = Bad | Oops
+type Other {}
+func h() int fails Other { return Other }
+func G() int {
+	h() catch { case Other: 0; case Fail: 1 }
+}
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+-- 04307.ergo --
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+func G() int {
+	return Oops{At: 1}
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+-- 04308.ergo --
+func G() int {
+	return Oops{At: 1}
+}
+-- 04309.ergo --
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+func G() int {
+	return Oops{At: 1}
+}
+-- 04310.ergo --
+type Bad {}
+type Oops {}
+type Fail = Bad | Oops
+type Other {}
+func h() int fails Other { return Other }
+func G() int {
+	h() catch { case Other: 0; case Fail: 1 }
+}
+func G() int {
+	return Oops{At: 1}
+}
+-- 04311.ergo --
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+func G() int {
+	return Oops{At: 1}
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+func G() int {
+	return Oops{At: 1}
+}
+-- 04312.ergo --
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+-- 04313.ergo --
+type Bad { At int }
+type Oops { At int }
+type Other {}
+type Fail = Bad | Oops
+func f(n int) int fails Fail | Other {
+	if n == 1 {
+		return Other
+	}
+	if n == 2 {
+		return Bad{At: 2}
+	}
+	n
+}
+func only(n int) int fails Bad {
+	if n == 1 {
+		return Bad{At: 1}
+	}
+	n
+}
+func describe(x Fail) int {
+	match x {
+	case Bad{At: a}:
+		a
+	case Oops{At: a}:
+		-a
+	}
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+-- 04314.ergo --
+type Bad {}
+type Oops {}
+type Fail = Bad | Oops
+type Other {}
+func h() int fails Other { return Other }
+func G() int {
+	h() catch { case Other: 0; case Fail: 1 }
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+-- 04315.ergo --
+type Bad {}
+type Oops { At int }
+type Fail = Bad | Oops
+func G() int {
+	return Oops{At: 1}
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+func h() {
+	let k = func() int fails Fail { 1 }
+	let _ = k
+}
+-- 04316.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+-- 04317.ergo --
+func F(x []Nope) {}
+-- 04318.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F(x []Nope) {}
+-- 04319.ergo --
+func F(x U) {
+	match x {
+	case A as a:
+		_ = a
+		G(nope)
+	case B:
+	}
+}
+-- 04320.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F(x U) {
+	match x {
+	case A as a:
+		_ = a
+		G(nope)
+	case B:
+	}
+}
+-- 04321.ergo --
+func F() int8 { return 300 }
+-- 04322.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() int8 { return 300 }
+-- 04323.ergo --
+func F() int { return 1 + nope }
+-- 04324.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() int { return 1 + nope }
+-- 04325.ergo --
+func F() { G(nope) }
+-- 04326.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() { G(nope) }
+-- 04327.ergo --
+func F() {
+	Fail(1) catch {
+	case A:
+		G(nope)
+	}
+}
+-- 04328.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() {
+	Fail(1) catch {
+	case A:
+		G(nope)
+	}
+}
+-- 04329.ergo --
+func F() S { return S{nope} }
+-- 04330.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() S { return S{nope} }
+-- 04331.ergo --
+func F() fails Nope {}
+-- 04332.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() fails Nope {}
+-- 04333.ergo --
+func F() { _ = func() { G(nope) } }
+-- 04334.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() { _ = func() { G(nope) } }
+-- 04335.ergo --
+func F(f func(Nope)) {}
+-- 04336.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F(f func(Nope)) {}
+-- 04337.ergo --
+func F() int { return nope }
+-- 04338.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() int { return nope }
+-- 04339.ergo --
+func F(xs []int) int { return xs[nope] }
+-- 04340.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F(xs []int) int { return xs[nope] }
+-- 04341.ergo --
+type I { M(Nope) }
+-- 04342.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+type I { M(Nope) }
+-- 04343.ergo --
+func F() string { return "a \(nope) b" }
+-- 04344.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() string { return "a \(nope) b" }
+-- 04345.ergo --
+func F() S { return S{X: nope} }
+-- 04346.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() S { return S{X: nope} }
+-- 04347.ergo --
+type M machine[Nope, U] { initial: A, step: Step }
+func Step(s U, e U) Decision[U, int] { return Ignore }
+-- 04348.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+type M machine[Nope, U] { initial: A, step: Step }
+func Step(s U, e U) Decision[U, int] { return Ignore }
+-- 04349.ergo --
+func F(m Map[string, Nope]) {}
+-- 04350.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F(m Map[string, Nope]) {}
+-- 04351.ergo --
+func F() int { return (nope) }
+-- 04352.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() int { return (nope) }
+-- 04353.ergo --
+func F(s S) int { return s.Nope }
+-- 04354.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F(s S) int { return s.Nope }
+-- 04355.ergo --
+func F(xs []int) []int { return xs[nope:] }
+-- 04356.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F(xs []int) []int { return xs[nope:] }
+-- 04357.ergo --
+func F(p *Nope) {}
+-- 04358.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F(p *Nope) {}
+-- 04359.ergo --
+type T { X Nope }
+-- 04360.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+type T { X Nope }
+-- 04361.ergo --
+func F() fails A {
+	try Fail(nope)
+	return A
+}
+-- 04362.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() fails A {
+	try Fail(nope)
+	return A
+}
+-- 04363.ergo --
+func F() { _ = (1, nope) }
+-- 04364.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() { _ = (1, nope) }
+-- 04365.ergo --
+func F() {
+	match nope {
+	case _:
+	}
+}
+-- 04366.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() {
+	match nope {
+	case _:
+	}
+}
+-- 04367.ergo --
+func F() int { return -nope }
+-- 04368.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() int { return -nope }
+-- 04369.ergo --
+type V = A | Paid{ID Nope}
+-- 04370.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+type V = A | Paid{ID Nope}
+-- 04371.ergo --
+func F() { with context { Nope: S{} } { G(1) } }
+-- 04372.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() { with context { Nope: S{} } { G(1) } }
+-- 04373.ergo --
+func F() int {
+	let mut x = 1
+	x = nope
+	return x
+}
+-- 04374.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() int {
+	let mut x = 1
+	x = nope
+	return x
+}
+-- 04375.ergo --
+func F() { if true { G(nope) } }
+-- 04376.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() { if true { G(nope) } }
+-- 04377.ergo --
+func F() { break }
+-- 04378.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() { break }
+-- 04379.ergo --
+func F() int {
+	let x int = nope
+	return x
+}
+-- 04380.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() int {
+	let x int = nope
+	return x
+}
+-- 04381.ergo --
+func F() {
+	let mut i = 0
+	for i < nope {
+		G(i)
+		i += 1
+	}
+}
+-- 04382.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() {
+	let mut i = 0
+	for i < nope {
+		G(i)
+		i += 1
+	}
+}
+-- 04383.ergo --
+func F() { if nope { G(1) } }
+-- 04384.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() { if nope { G(1) } }
+-- 04385.ergo --
+func F() {
+	for x in nope {
+		G(x)
+	}
+}
+-- 04386.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F() {
+	for x in nope {
+		G(x)
+	}
+}
+-- 04387.ergo --
+func F(x int) {
+	match x {
+	case 1:
+		G(nope)
+	case _:
+	}
+}
+-- 04388.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F(x int) {
+	match x {
+	case 1:
+		G(nope)
+	case _:
+	}
+}
+-- 04389.ergo --
+func F(x U) {
+	match x {
+	case A:
+		G(nope)
+	case B:
+		G(1)
+	}
+}
+-- 04390.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F(x U) {
+	match x {
+	case A:
+		G(nope)
+	case B:
+		G(1)
+	}
+}
+-- 04391.ergo --
+func F(x Nope) {}
+-- 04392.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+func F(x Nope) {}
+-- 04393.ergo --
+type T = Nope
+-- 04394.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+type T = Nope
+-- 04395.ergo --
+let v int = nope
+-- 04396.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+let v int = nope
+-- 04397.ergo --
+let W = context { Nope: S{} }
+-- 04398.ergo --
+type A {}
+type B {}
+type U = A | B
+type S { X int }
+func G(x int) {}
+func Work(x int) int { return x }
+func Fail(x int) fails A { return A }
+let W = context { Nope: S{} }
+-- 04399.ergo --
+func f() []int64 {
+	return []int64{
+-- 04400.ergo --
+func f() uint8 {
+	return 0xFF
+}
+-- 04401.ergo --
+func f() uint8 {
+	return 0b1111_1111
+}
+-- 04402.ergo --
+func f() float64 {
+	return 0x10 + 2.5
+}
+-- 04403.ergo --
+func f() int {
+	return 1_000_000
+}
+-- 04404.ergo --
+func f() float64 {
+	return 1_000.000_5
+}
+-- 04405.ergo --
+func f() duration {
+	return 1_500ms
+}
+-- 04406.ergo --
+func f() int64 {
+	return 0x7FFF_FFFF_FFFF_FFFF
+}
+-- 04407.ergo --
+func f() uint64 {
+	return 0xFFFF_FFFF_FFFF_FFFF
+}
+-- 04408.ergo --
+func f() uint8 {
+	return 0x100
+}
+-- 04409.ergo --
+func f() int8 {
+	return 0o200
+}
+-- 04410.ergo --
+func f() int {
+	return 0_7
+}
+-- 04411.ergo --
+func f() int {
+	return 07
+}
+-- 04412.ergo --
+func f() duration {
+	return 0_5ms
+}
+-- 04413.ergo --
+func f() int {
+	return 0x1p4
+}
+-- 04414.ergo --
+func f() int {
+	return 0b102
+}
+-- 04415.ergo --
+func f() int {
+	return 1__0
+}
+-- 04416.ergo --
+func f() int {
+	return 0x10ms
+}
+-- 04417.ergo --
+type U[T] = | V{X T} | W{}
+-- 04418.ergo --
+type U[T number] = | V{X T} | W{}
+-- 04419.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+-- 04420.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+-- 04421.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+-- 04422.ergo --
+func unrelated() {}
+-- 04423.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)
+-- 04424.ergo --
+type U[T, T] = | V{X T} | W{}
+-- 04425.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+-- 04426.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+-- 04427.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+-- 04428.ergo --
+type U[T number] = | V{X T} | W{}
+type U[T] = | V{X T} | W{}
+-- 04429.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type U[T] = | V{X T} | W{}
+-- 04430.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type U[T] = | V{X T} | W{}
+-- 04431.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type U[T] = | V{X T} | W{}
+-- 04432.ergo --
+func unrelated() {}
+type U[T] = | V{X T} | W{}
+-- 04433.ergo --
+type parameter T is declared twicetype U[T] = | V{X T} | W{}
+-- 04434.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type U[T] = | V{X T} | W{}
+-- 04435.ergo --
+type U[T, T] = | V{X T} | W{}
+type U[T] = | V{X T} | W{}
+-- 04436.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type U[T] = | V{X T} | W{}
+-- 04437.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type U[T] = | V{X T} | W{}
+-- 04438.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type U[T] = | V{X T} | W{}
+-- 04439.ergo --
+type U[T] = | V{X T} | W{}
+type U[T number] = | V{X T} | W{}
+-- 04440.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type U[T number] = | V{X T} | W{}
+-- 04441.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type U[T number] = | V{X T} | W{}
+-- 04442.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type U[T number] = | V{X T} | W{}
+-- 04443.ergo --
+func unrelated() {}
+type U[T number] = | V{X T} | W{}
+-- 04444.ergo --
+type parameter T is declared twicetype U[T number] = | V{X T} | W{}
+-- 04445.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type U[T number] = | V{X T} | W{}
+-- 04446.ergo --
+type U[T, T] = | V{X T} | W{}
+type U[T number] = | V{X T} | W{}
+-- 04447.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type U[T number] = | V{X T} | W{}
+-- 04448.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type U[T number] = | V{X T} | W{}
+-- 04449.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type U[T number] = | V{X T} | W{}
+-- 04450.ergo --
+type U[T] = | V{X T} | W{}
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+-- 04451.ergo --
+type U[T number] = | V{X T} | W{}
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+-- 04452.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+-- 04453.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+-- 04454.ergo --
+func unrelated() {}
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+-- 04455.ergo --
+type parameter T is declared twicetype A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+-- 04456.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+-- 04457.ergo --
+type U[T, T] = | V{X T} | W{}
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+-- 04458.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+-- 04459.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+-- 04460.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+-- 04461.ergo --
+type U[T] = | V{X T} | W{}
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+-- 04462.ergo --
+type U[T number] = | V{X T} | W{}
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+-- 04463.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+-- 04464.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+-- 04465.ergo --
+func unrelated() {}
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+-- 04466.ergo --
+type parameter T is declared twicefunc f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+-- 04467.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+-- 04468.ergo --
+type U[T, T] = | V{X T} | W{}
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+-- 04469.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+-- 04470.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+-- 04471.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+-- 04472.ergo --
+type U[T] = | V{X T} | W{}
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+-- 04473.ergo --
+type U[T number] = | V{X T} | W{}
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+-- 04474.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+-- 04475.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+-- 04476.ergo --
+func unrelated() {}
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+-- 04477.ergo --
+type parameter T is declared twicetype P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+-- 04478.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+-- 04479.ergo --
+type U[T, T] = | V{X T} | W{}
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+-- 04480.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+-- 04481.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+-- 04482.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+-- 04483.ergo --
+type U[T, S] = | V{X T} | W{Y S} | Z{}
+-- 04484.ergo --
+type U[T] = | V{X T} | W{}
+type U[T, S] = | V{X T} | W{Y S} | Z{}
+-- 04485.ergo --
+type U[T number] = | V{X T} | W{}
+type U[T, S] = | V{X T} | W{Y S} | Z{}
+-- 04486.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type U[T, S] = | V{X T} | W{Y S} | Z{}
+-- 04487.ergo --
+func f() int {
+	let mut x = 1
+	x += 2
+	x
+}
+type U[T, S] = | V{X T} | W{Y S} | Z{}
+-- 04488.ergo --
+type P { A int }
+func f(p P) int {
+	let P{A: a} = p
+	a
+}
+type U[T, S] = | V{X T} | W{Y S} | Z{}
+-- 04489.ergo --
+func unrelated() {}
+type U[T, S] = | V{X T} | W{Y S} | Z{}
+-- 04490.ergo --
+type parameter T is declared twicetype U[T, S] = | V{X T} | W{Y S} | Z{}
+-- 04491.ergo --
+type parameter T is used both as a type and as a row (types.md, Generics 1)type U[T, S] = | V{X T} | W{Y S} | Z{}
+-- 04492.ergo --
+type U[T, T] = | V{X T} | W{}
+type U[T, S] = | V{X T} | W{Y S} | Z{}
+-- 04493.ergo --
+type A { S V[int, int] }
+type U[T, T] = | V{X T} | W{}
+type U[T, S] = | V{X T} | W{Y S} | Z{}
+-- 04494.ergo --
+type A { S V[int] }
+type U[string] = | V{X string} | W{}
+type U[T, S] = | V{X T} | W{Y S} | Z{}
+-- 04495.ergo --
+type U[T] = | V{X T, F func() needs T} | W{}
+type U[T, S] = | V{X T} | W{Y S} | Z{}
+-- 04496.ergo --
+type U[T, S number] = | V{X S} | W{}
+-- 04497.ergo --
+type U[T] = | V{X T} | W{}
+type U[T, S number] = | V{X S} | W{}
+-- 04498.ergo --
+type U[T number] = | V{X T} | W{}
+type U[T, S number] = | V{X S} | W{}
+-- 04499.ergo --
+type A { S V[int] }
+type U[T, S] = | V{X T} | Y{Z S, Q T} | W{}
+type U[T, S number] = | V{X S} | W{}

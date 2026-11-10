@@ -5,7 +5,12 @@ import "testing"
 // Native acquisition callbacks preserve the enclosing source frame. A
 // control transfer in a constructor argument must close prior successes
 // without constructing or registering the entry it escapes.
+//
+// It builds Go because it checks what the built program prints and how it
+// exits; no in-process check observes that, and Ergo has no reference
+// interpreter yet (test-speed T8).
 func TestRuntime199AcquireFlow(t *testing.T) {
+	needsBuild(t)
 	const prelude = `type A { Use() }
 type B { Use() }
 type First {}

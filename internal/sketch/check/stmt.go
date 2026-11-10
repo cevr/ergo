@@ -243,6 +243,8 @@ func (c *checker) unusedValue(at syntax.Expr, op operand) {
 	switch {
 	case info.Kind == CallLen:
 		c.errorf(at, CodeUnused, "the value of len is not used")
+	case info.Kind == CallGoError:
+		c.errorf(at, CodeUnused, "the value of %s is not used", info.Name)
 	case info.Kind == CallConversion && !isCapability(info.Type):
 		c.errorf(at, CodeUnused, "the conversion to %s is not used", info.Type)
 	}
@@ -296,13 +298,7 @@ func (c *checker) varDecl(d *syntax.VarDecl) {
 		}
 		switch {
 		case len(spec.Values) == 0:
-			if declared != nil && !isInvalid(declared) && !defaultable(declared) {
-				c.errorf(spec.Names[0], CodeType, "let %s of type %s needs a value: %s has no zero value (types.md, Zero values 3)", spec.Names[0].Name, declared, declared)
-			} else if declared != nil && !isInvalid(declared) {
-				if a := zeroAuthority(declared, c.pkg); a != nil {
-					c.errorf(spec.Names[0], CodeAuthority, "let %s of type %s needs a value: its zero value builds a new value of %s, and %s (types.md, Zero values 6)", spec.Names[0].Name, c.localTypeText(declared), qualifiedName(a), authorityText(a))
-				}
-			}
+			c.letZero(spec.Names[0], declared)
 			for _, n := range spec.Names {
 				if spec.Type == nil {
 					c.untypedLet(n) // D-D1; n binds with the invalid type
@@ -586,7 +582,7 @@ func (c *checker) returnStmt(s *syntax.ReturnStmt) {
 			}
 			return
 		}
-		if row := c.returnedErrorRow(s.Results[0], op.typ); row != nil && op.mode == modeValue {
+		if row := c.returnedErrorRow(s.Results[0], op.typ); row != nil && op.mode == modeValue && !c.ambiguousExit(s.Results[0], op.typ, row) {
 			c.escape(s.Results[0], row)
 			return
 		}
@@ -682,6 +678,11 @@ func (c *checker) assignElems(x syntax.Expr, types []Type, declared Type) {
 // escapes: {t} for an error type, the variants for the binding of a catch
 // arm that names several error types (rows.md, Catch 7; M4), else nil.
 func (c *checker) errorValueRow(t Type) *Row {
+	if u, ok := t.(*Union); ok && u.Row != nil {
+		// A row value is a failure of its row, error row parameters
+		// included (rows.md, Error rows 8; q47).
+		return u.Row
+	}
 	if u, ok := t.(*Union); ok {
 		row := newRow()
 		for _, v := range u.Variants {
@@ -731,6 +732,45 @@ func (c *checker) decideReturnedError(t Type) *Row {
 		}
 	}
 	return row
+}
+
+// ambiguousExit reports, at x, a value of the error type typ that ends a
+// function (a tail or a return) whose one result is a union that has typ
+// as a variant and a variant that is no error type, when the function's
+// row does not declare typ: such a value is a failure (rows.md, Tail
+// results 3), but it reads as the result's variant. The message says what
+// to write for each reading (lane MB F3). A declared row that lists typ
+// chose the failure, so it is quiet. It returns whether it reported.
+func (c *checker) ambiguousExit(x syntax.Expr, typ Type, row *Row) bool {
+	t := c.fn.t
+	if t == nil || !t.isFunc || t.law || len(t.results) != 1 {
+		return false
+	}
+	if t.declErrors != nil && (t.declErrors.unknown(c.types) || row.minus(c.types, t.declErrors).known(c.types).Empty()) {
+		return false
+	}
+	res := t.results[0]
+	if u := asUnion(res); u == nil || c.errorValueRow(u) != nil {
+		return false
+	}
+	if a, _ := c.assignability(typ, res); !a.ok() {
+		return false
+	}
+	c.errorf(x, CodeUndeclared, "%s is an error type, so a value of it that ends %s is a failure (rows.md, Tail results 3), and %s does not declare it; it is also a variant of %s: to return it as a value, write let v %s = %s and end with v; to fail with it, declare it in the error row", c.spelled(typ), t.name, t.name, c.spelled(res), c.spelled(res), exprText(x))
+	return true
+}
+
+// spelled is t as the source of the package being checked names it: a
+// type of the package by its name, an imported one as pkg.Name, any
+// other type as its text.
+func (c *checker) spelled(t Type) string {
+	if n, ok := t.(*Named); ok && n.Orig == nil && n.Obj.Pkg != nil {
+		if n.Obj.Pkg == c.pkg {
+			return n.Obj.Name
+		}
+		return n.Obj.Pkg.Name + "." + n.Obj.Name
+	}
+	return t.String()
 }
 
 // isErrorValue reports whether t is an error type in the body being

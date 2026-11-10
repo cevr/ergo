@@ -1,0 +1,55 @@
+page 1/2: 1 server 6.50, 2 drive 2.50, 3 node 1.00 | plan: 0 units, 0.00
+> open 1
+editing server | plan: 0 units, 0.00
+  server x1 6.50: add, more, less or back
+> more
+editing server | plan: 0 units, 0.00
+  server x2 6.50: add, more, less or back
+> more
+editing server | plan: 0 units, 0.00
+  server x3 6.50: add, more, less or back
+> more
+editing server | plan: 0 units, 0.00
+  server x4 6.50: add, more, less or back
+> more
+editing server | plan: 0 units, 0.00
+  server x5 6.50: add, more, less or back
+> more
+editing server | plan: 0 units, 0.00
+  server x6 6.50: add, more, less or back
+> more
+editing server | plan: 0 units, 0.00
+  server x7 6.50: add, more, less or back
+> more
+editing server | plan: 0 units, 0.00
+  server x8 6.50: add, more, less or back
+> more
+editing server | plan: 0 units, 0.00
+  server x9 6.50: add, more, less or back
+> more
+editing server | plan: 0 units, 0.00
+  server x10 6.50: add, more, less or back
+> more
+editing server | plan: 0 units, 0.00
+  server x11 6.50: add, more, less or back
+> more
+editing server | plan: 0 units, 0.00
+  server x12 6.50: add, more, less or back
+> more
+editing server | plan: 0 units, 0.00
+  server x13 6.50: add, more, less or back
+> more
+editing server | plan: 0 units, 0.00
+  server x14 6.50: add, more, less or back
+> more
+editing server | plan: 0 units, 0.00
+  server x15 6.50: add, more, less or back
+> more
+editing server | plan: 0 units, 0.00
+  server x16 6.50: add, more, less or back
+> add
+page 1/2: 1 server 6.50, 2 drive 2.50, 3 node 1.00 | plan: 1 units, 104.00
+> deploy
+plan: 104.00
+  16x server 6.50
+cluster: plans over 100.00 need a bigger cluster

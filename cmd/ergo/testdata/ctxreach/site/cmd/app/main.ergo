@@ -1,0 +1,6 @@
+import site/mem
+import site/p
+
+func main() needs Console {
+	Console.Println(with mem.Serving { p.Use() })
+}

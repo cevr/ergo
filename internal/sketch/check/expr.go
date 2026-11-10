@@ -51,6 +51,8 @@ type operand struct {
 	// method is the operation an operation-type or capability selector
 	// names (Info.Calls).
 	method *Method
+	// targ is go.As[T]'s written type argument (modeBuiltin).
+	targ Type
 }
 
 func (o *operand) invalid() bool { return o.mode == modeInvalid }
@@ -523,10 +525,10 @@ func (c *checker) ident(x *syntax.Ident) operand {
 		if o == universeOnce.errorName {
 			return operand{mode: modeType, typ: invalid, obj: o}
 		}
-		if isCapability(o.Type) {
-			return operand{mode: modeCap, typ: o.Type, cap: o.Type, obj: o}
+		if isCapability(t) {
+			return operand{mode: modeCap, typ: t, cap: t, obj: o}
 		}
-		return operand{mode: modeType, typ: o.Type, obj: o}
+		return operand{mode: modeType, typ: t, obj: o}
 	case *capBinding:
 		if isInvalid(c.resolvedType(o.tn.Type)) {
 			return bad(x)
@@ -645,6 +647,10 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 		return *walkLt
 	}
 	mark := c.undiagSeq
+	if c.workLitForm(x) {
+		// The work rule's forms of a Work literal (work.go).
+		return c.workLit(x, hint)
+	}
 	if x.Base != nil {
 		return c.recordUpdate(x, hint, mark, lt)
 	}
@@ -979,46 +985,35 @@ func (c *checker) structLit(x *syntax.CompositeLit, t Type, s *Struct, mark int)
 	if x.Base != nil {
 		return true // a record update takes every field it omits from its base
 	}
+	// A keyed literal names every field: no field takes Go's zero value
+	// in silence (types.md, Zero values 2; owner q44). go.Error{} is not
+	// such a zero: it is the nil Go error (interop.md, Errors 1 and 3),
+	// whose Text is read from Go and never stored.
+	if n, isNamed := t.(*Named); isNamed && len(x.Elts) == 0 && IsGoError(n) {
+		return true
+	}
 	var missing []string
-	var held *TypeName // the authority an omitted field's zero needs
-	var heldField string
 	for _, f := range s.Fields {
-		if set[f.Name] || isInvalid(f.Type) {
-			continue
-		}
-		if !defaultable(f.Type) {
+		if !set[f.Name] && !isInvalid(f.Type) {
 			missing = append(missing, f.Name)
-		} else if a := zeroAuthority(f.Type, c.pkg); a != nil && held == nil {
-			held, heldField = a, f.Name
 		}
 	}
 	if len(missing) > 0 {
-		c.errorf(x, CodeType, "%s must set %s: a %s has no zero value (types.md, Zero values 2)", t, strings.Join(missing, ", "), kindName(s, missing[0]))
-		return false
-	}
-	if held != nil {
-		c.errorf(x, CodeAuthority, "%s must set %s: its zero value builds a new value of %s, and %s (types.md, Zero values 6)", c.localTypeText(t), heldField, qualifiedName(held), authorityText(held))
+		c.errorf(x, CodeType, "%s", missingFieldsText(t, missing))
 		return false
 	}
 	return true
 }
 
-func kindName(s *Struct, field string) string {
-	f, _ := s.field(field)
-	if f == nil {
-		return "field"
+// missingFieldsText is the S108 text of a keyed literal of t that does not
+// set the fields missing, with the two fixes: name each one, or copy them
+// from a value with a record update.
+func missingFieldsText(t Type, missing []string) string {
+	them := "it"
+	if len(missing) > 1 {
+		them = "them"
 	}
-	switch under(f.Type).(type) {
-	case *Union:
-		return "union"
-	case *Interface:
-		return "interface value"
-	case *Signature:
-		return "function value"
-	case *Struct:
-		return "struct of non-defaultable fields"
-	}
-	return f.Type.String()
+	return fmt.Sprintf("%s{…} does not set %s: a record literal names every field; write %s: …, or copy %s from a value with %s{..v, …} (types.md, Zero values 2)", t, strings.Join(missing, ", "), missing[0], them, t)
 }
 
 // strayValue checks a value that a struct literal's refusal route skips (an
@@ -1161,6 +1156,14 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 	if p, ok := t.(*Pointer); ok {
 		t = p.Elem
 	}
+	handle := false
+	if e := refElem(t); e != nil {
+		// go.Ref[T] reaches T's fields and methods, as Go's *T does.
+		t, handle = e, true
+	}
+	if isHostNamed(t) {
+		return c.hostSelector(x, base, t.(*Named), handle)
+	}
 	if isInvalid(under(t)) {
 		// A refused declared type (`type MyQ queue.Queue[int]`) was
 		// reported at its declaration; its uses add nothing (D3).
@@ -1174,6 +1177,10 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 			if c.hiddenField(s, x.Sel.Name) {
 				c.errorf(x.Sel, CodeUnknown, "%s (grammar.md, Visibility 2)", hiddenFieldText(s, x.Sel.Name))
 				return bad(x)
+			}
+			if n, ok := t.(*Named); ok && IsGoError(n) {
+				// Text is the native error's text, read-only (IG5).
+				return operand{mode: modeValue, typ: f.Type}
 			}
 			return operand{mode: modeValue, typ: f.Type, addressable: base.addressable || isPointer(base.typ)}
 		}
@@ -1403,20 +1410,21 @@ func (c *checker) qualified(x *syntax.SelectorExpr, pn *PkgName) operand {
 	if pn.broken {
 		return bad(x)
 	}
-	o, ok := pn.Pkg.Scope.names[x.Sel.Name]
+	o, ok := pn.Pkg.member(x.Sel.Name)
 	if !ok || !isExported(x.Sel.Name) {
-		c.errorf(x.Sel, CodeUnknown, "%s.%s is not an exported declaration of package %s", pn.Name, x.Sel.Name, pn.Pkg.Path)
+		c.unknownMember(x, pn)
 		return bad(x)
 	}
 	switch o := o.(type) {
 	case *TypeName:
-		if isInvalid(c.resolvedType(o.Type)) {
+		t := c.resolvedType(o.Type) // an alias's target (types.md, Unions 7)
+		if isInvalid(t) {
 			return bad(x)
 		}
-		if isCapability(o.Type) {
-			return operand{mode: modeCap, typ: o.Type, cap: o.Type, obj: o}
+		if isCapability(t) {
+			return operand{mode: modeCap, typ: t, cap: t, obj: o}
 		}
-		return operand{mode: modeType, typ: o.Type, obj: o}
+		return operand{mode: modeType, typ: t, obj: o}
 	case *Func:
 		if o.overloaded {
 			c.errorf(x, CodeType, "%s", overloadedText(o.Name))
@@ -1431,6 +1439,8 @@ func (c *checker) qualified(x *syntax.SelectorExpr, pn *PkgName) operand {
 		return operand{mode: modeValue, typ: o.Sig, fn: o}
 	case *Var:
 		return operand{mode: modeValue, typ: o.Type}
+	case *Builtin:
+		return operand{mode: modeBuiltin, obj: o, typ: invalid} // go.Is, go.As
 	}
 	c.errorf(x, CodeUnknown, "%s.%s is not a value or a type", pn.Name, x.Sel.Name)
 	return bad(x)
@@ -1468,6 +1478,15 @@ func (c *checker) index(x *syntax.IndexExpr, hint Type) operand {
 			return bad(x)
 		}
 		return operand{mode: modeType, typ: t}
+	case modeBuiltin:
+		if b, _ := base.obj.(*Builtin); b != nil && b.Name == "go.As" && unparen(x.X) == x.X {
+			// go.As[T]: T is checked at the call (goErrorCall).
+			if len(x.Indices) != 1 {
+				c.errorf(x, CodeType, "go.As takes one type argument, not %d", len(x.Indices))
+				return bad(x)
+			}
+			return operand{mode: modeBuiltin, obj: b, typ: invalid, targ: c.typExpr(x.Indices[0], c.localTypeCtx())}
+		}
 	}
 	c.needValue(&base)
 	c.handled(&base)

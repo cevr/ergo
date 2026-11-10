@@ -15,11 +15,17 @@ import (
 	"ergo.local/prototype/internal/producer"
 	"ergo.local/prototype/internal/receipt"
 	"ergo.local/prototype/internal/report"
+	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketchfront"
 	sourcefile "ergo.local/prototype/internal/source"
 )
 
 func main() {
+	// The compiler's identity recalls its image digest from the cache root
+	// it keys, so a command does not hash the whole binary each run.
+	if root, err := build.DefaultRoot(); err == nil {
+		producer.Remember(root)
+	}
 	if err := command(os.Args[1:]); err != nil {
 		if exit, ok := err.(exitStatusError); ok {
 			if !exit.handled && exit.message != "" {

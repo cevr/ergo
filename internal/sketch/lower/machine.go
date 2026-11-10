@@ -1,12 +1,15 @@
 package lower
 
 import (
+	"fmt"
 	"go/scanner"
 	"go/token"
+	"sort"
 	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/machinegraph"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -23,8 +26,10 @@ import (
 // stored like any record value. Initial returns the value the initializer
 // computed once. The initial value is checked as a package let is (in a
 // closed context: no failure, no capability), and it runs in the program's
-// initializer inside the root task, after every package let, in
-// declaration order: no let can read a machine's initial value, so this is
+// initializer inside the root task, after every package let, package by
+// package in initialization order and each package's in declaration order
+// (a library's machines are lowered with its lets, program in module.go):
+// no let can read a machine's initial value, so this is
 // an initialization order, and a defect in it is reported at start, as a
 // let's is, even when nothing uses the machine.
 //
@@ -116,13 +121,24 @@ func (l *lowerer) machinePlan(b *strings.Builder, td *typeDecl) {
 		} else {
 			b.WriteString(l.directiveAt(td.tn.Decl.Name, td.tn.Decl.Pos()))
 		}
+		if l.isSourced(td.tn.Pkg) {
+			// Generated code: no directive maps it to the source.
+			l.gen.WriteString(l.machineGraph(td, tc, state, signal))
+		}
 		scope := newNamer(l.names)
 		s, e := scope.alloc("s"), scope.alloc("e")
+		// A step over a record state lowers to a Go method of the record
+		// (methodReceiver), so the state is its receiver (fu-mb2 F10).
+		call := func(lead []string) string {
+			if fd.method != nil {
+				return "(" + s + ")." + fd.name + "(" + strings.Join(append(lead, e), ", ") + ")"
+			}
+			return fd.name + "(" + strings.Join(append(lead, s, e), ", ") + ")"
+		}
 		if machinePure(m.step, fd, site) {
 			// A pure step function takes no environment (pure.go); another
 			// step that reads none is passed nil.
-			args := strings.Join(append(fd.envLead("nil"), s, e), ", ")
-			b.WriteString("func (" + td.name + ") Step(" + s + " " + state + ", " + e + " " + signal + ") " + result + " {\n\treturn " + fd.name + "(" + args + ")\n}\n\n")
+			b.WriteString("func (" + td.name + ") Step(" + s + " " + state + ", " + e + " " + signal + ") " + result + " {\n\treturn " + call(fd.envLead("nil")) + "\n}\n\n")
 			return
 		}
 		env := scope.alloc("env")
@@ -130,11 +146,64 @@ func (l *lowerer) machinePlan(b *strings.Builder, td *typeDecl) {
 		if fd.fallible {
 			results = "(" + result + ", error)"
 		}
-		b.WriteString("func (" + td.name + ") Step(" + env + " *" + l.env() + ", " + s + " " + state + ", " + e + " " + signal + ") " + results + " {\n\treturn " + fd.name + "(" + env + ", " + s + ", " + e + ")\n}\n\n")
+		b.WriteString("func (" + td.name + ") Step(" + env + " *" + l.env() + ", " + s + " " + state + ", " + e + " " + signal + ") " + results + " {\n\treturn " + call([]string{env}) + "\n}\n\n")
 	})
 	if m.start == nil {
 		l.machineInit(td, initial)
 	}
+}
+
+// machineGraph is the init function that registers the machine td's graph
+// with the runtime (v1.RegisterMachine; MU15): its step's arms, each with
+// its .ergo position and the Go variants of the states and signals it
+// takes, and the signal variant of each state's timer. A traced actor of
+// the machine names the arm of each decision from it (runtime.md, Machines
+// and actors 15). state and signal are the machine's Go types.
+func (l *lowerer) machineGraph(td *typeDecl, tc *typeCtx, state, signal string) string {
+	spec, ok := td.tn.Decl.Spec.(*syntax.MachineType)
+	if !ok {
+		return ""
+	}
+	g := machinegraph.Of(td.tn.Pkg, td.tn, spec, func(n syntax.Node, pos syntax.Pos) machinegraph.Site {
+		_, path, line, _ := l.at(n, pos)
+		return machinegraph.Site{File: path, Line: line}
+	})
+	if g == nil {
+		return ""
+	}
+	rt := l.rt()
+	goOf := map[string]string{}
+	for _, v := range append(append([]machinegraph.Variant{}, g.States...), g.Signals...) {
+		goOf[v.Name] = rt + ".VariantOf[" + tc.goType(v.Type) + "]()"
+	}
+	list := func(vs []string) string {
+		if vs == nil {
+			return "nil"
+		}
+		out := make([]string, len(vs))
+		for i, v := range vs {
+			out[i] = goOf[v]
+		}
+		return "[]string{" + strings.Join(out, ", ") + "}"
+	}
+	var b strings.Builder
+	b.WriteString("func init() {\n\t" + rt + ".RegisterMachine[" + state + ", " + signal + "](" + rt + ".MachineGraph{\n\t\tArms: []" + rt + ".MachineArm{\n")
+	for _, a := range g.Arms {
+		fmt.Fprintf(&b, "\t\t\t{Site: %s, States: %s, Signals: %s, Partial: %t},\n", strconv.Quote(a.Site.String()), list(a.States), list(a.Signals), a.Partial)
+	}
+	b.WriteString("\t\t},\n\t\tTimers: map[string]string{\n")
+	keys := make([]string, 0, len(g.Timers))
+	for k := range g.Timers {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if sig := g.Timers[k].Signal; sig != machinegraph.Any {
+			b.WriteString("\t\t\t" + goOf[k] + ": " + goOf[sig] + ",\n")
+		}
+	}
+	b.WriteString("\t\t},\n\t})\n}\n\n")
+	return b.String()
 }
 
 // machinePure reports a step whose plan takes no environment: no error
@@ -163,19 +232,68 @@ func (fc *funcCtx) machineAfter(conv check.Conversion, site syntax.Node) string 
 	if after := conv.Table["After"]; after != nil {
 		return fc.positiveTimers(conv, after, site)
 	}
+	return fc.machineNone(conv, "After", site)
+}
+
+// machineWork is the Work of a machine value's Machine (ConvMachine, MU4):
+// a function that calls the machine's work function and gives the Start
+// of its std machines.Work, or, when it has none, a function that gives
+// every state None (no work). The work function has no rows of its own
+// (checkMachineWork), so its error is always nil.
+//
+//	func(env *Env, s S) (Option[F], error) {
+//		o, _ := work(env, s)
+//		if w, ok := o.(Some[machines.Work[E]]); ok {
+//			return Some[F]{Value: w.Value.Start}, nil
+//		}
+//		return None{}, nil
+//	}
+func (fc *funcCtx) machineWork(conv check.Conversion, site syntax.Node) string {
+	work := conv.Table["Work"]
+	if work == nil {
+		return fc.machineNone(conv, "Work", site)
+	}
+	sig := fc.machineField(conv, "Work", site)
+	some, none := optionVariants(sig.Results[0], site)
+	wsome, _ := optionVariants(work.Sig.Results[0], site)
+	g := fc.funcValue(work, work.Sig, site, nil)
+	gv, o, w := fc.scope.alloc("work"), fc.scope.alloc("o"), fc.scope.alloc("w")
+	return fc.envClosure(callerEnv, "env", site, func(env string) ([]string, string, string) {
+		s := fc.scope.alloc("s")
+		ind := strings.Repeat("\t", fc.depth+1)
+		return []string{s + " " + fc.goType(sig.Params[0].Type)}, fc.valueResults(sig.Results[0]),
+			ind + gv + " := " + g + "\n" +
+				ind + o + ", _ := " + gv + "(" + env + ", " + s + ")\n" +
+				ind + "if " + w + ", ok := " + o + ".(" + fc.goType(wsome) + "); ok {\n" +
+				ind + "\treturn " + fc.goType(some) + "{Value: " + w + ".Value.Start}, nil\n" +
+				ind + "}\n" +
+				ind + "return " + fc.goType(none) + "{}, nil\n"
+	})
+}
+
+// machineField is the type of the prelude Machine's field name, a
+// function func(S) Option[…].
+func (fc *funcCtx) machineField(conv check.Conversion, name string, site syntax.Node) *check.Signature {
 	var sig *check.Signature
 	if n, ok := conv.To.(*check.Named); ok {
 		if st, ok := n.Underlying().(*check.Struct); ok {
 			for _, f := range st.Fields {
-				if f.Name == "After" {
+				if f.Name == name {
 					sig, _ = f.Type.(*check.Signature)
 				}
 			}
 		}
 	}
 	if sig == nil || len(sig.Params) != 1 || len(sig.Results) != 1 {
-		ice(site, "the prelude Machine has no After func(S) Option[Timeout[E]]")
+		ice(site, "the prelude Machine has no %s func(S) Option[…]", name)
 	}
+	return sig
+}
+
+// machineNone is a function of the Machine field name, of the type
+// func(S) Option[…], that gives every state None.
+func (fc *funcCtx) machineNone(conv check.Conversion, name string, site syntax.Node) string {
+	sig := fc.machineField(conv, name, site)
 	_, none := optionVariants(sig.Results[0], site)
 	return fc.envClosure(callerEnv, "_", site, func(string) ([]string, string, string) {
 		ind := strings.Repeat("\t", fc.depth+1)
@@ -272,5 +390,11 @@ func (l *lowerer) machineInit(td *typeDecl, initial string) {
 	l.analyzeValues(x, l.info)
 	val := fc.assigned(x)
 	l.addInit(x, x, fc.out.String(), []string{initial + " = " + val})
-	l.machineInits = append(l.machineInits, x)
+	l.machineInits = append(l.machineInits, machineInitial{pkg: td.tn.Pkg, x: x})
+}
+
+// machineInitial is a machine's initial value and the package it is declared in.
+type machineInitial struct {
+	pkg *check.Package
+	x   syntax.Expr
 }

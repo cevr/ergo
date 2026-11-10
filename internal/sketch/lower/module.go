@@ -55,8 +55,62 @@ func Runtime() []File {
 	return files
 }
 
-// goMod is the emitted module's go.mod.
-const goMod = "module " + programModule + "\n\ngo " + goVersion + "\n\nrequire " + runtimeModule + " v0.0.0\n\nreplace " + runtimeModule + " => ./" + runtimeDir + "\n"
+// GoModule is what the emitted module needs from the go.mod and go.sum
+// beside ergo.mod (IG7, owner q37; docs/spec/interop.md, Go modules): the
+// Go modules a program's import go packages come from.
+type GoModule struct {
+	// Require are go.mod's require lines, "path version", in its order.
+	Require []string
+	// Replace are its replace lines, "old [version] => new [version]",
+	// a local directory made absolute, since the emitted module lives
+	// elsewhere.
+	Replace []string
+	// Sum is go.sum's text, copied as it is.
+	Sum string
+	// Modules are the module paths a Go import of the program may name
+	// outside Go's standard library: each required module, and the module
+	// of go.mod itself, which Require and Replace then hold.
+	Modules []string
+}
+
+// covers reports whether a Go import path is a package of one of m's
+// modules.
+func (m GoModule) covers(path string) bool {
+	for _, mod := range m.Modules {
+		if path == mod || strings.HasPrefix(path, mod+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// goModFile is the emitted module's go.mod: the runtime's requirement and
+// replacement (the ergo directory), then the program's Go requirements.
+func goModFile(m GoModule) []byte {
+	var b strings.Builder
+	b.WriteString("module " + programModule + "\n\ngo " + goVersion + "\n\nrequire " + runtimeModule + " v0.0.0\n")
+	for _, r := range m.Require {
+		b.WriteString("\nrequire " + r + "\n")
+	}
+	b.WriteString("\nreplace " + runtimeModule + " => ./" + runtimeDir + "\n")
+	for _, r := range m.Replace {
+		b.WriteString("\nreplace " + r + "\n")
+	}
+	return []byte(b.String())
+}
+
+// goMod is the go.mod of a program with no Go requirements.
+var goMod = string(goModFile(GoModule{}))
+
+// moduleFiles are the emitted module's files: go.mod, go.sum when the
+// program has one, and main.go.
+func moduleFiles(m GoModule, code []byte) []File {
+	files := []File{{Path: "go.mod", Data: goModFile(m)}}
+	if m.Sum != "" {
+		files = append(files, File{Path: "go.sum", Data: []byte(m.Sum)})
+	}
+	return append(files, File{Path: "main.go", Data: code})
+}
 
 // Refusal is a checked program that this lowering cannot lower yet: a form
 // whose checker stage has not landed, or an extern with no Go body. It is
@@ -91,6 +145,9 @@ type refusal struct {
 	// a leave has located it (sources.go).
 	src     int
 	located bool
+	// flat is a flat union that met a form it does not lower (flatBail):
+	// the program is lowered again with it an interface (flatunion.go).
+	flat *check.TypeName
 }
 
 // Lower lowers the checked unit to the generated files of a Go module,
@@ -107,7 +164,7 @@ func Lower(u Unit) ([]File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []File{{Path: "go.mod", Data: []byte(goMod)}, {Path: "main.go", Data: code}}, nil
+	return moduleFiles(u.Go, code), nil
 }
 
 // lowerPackage lowers the unit's package once: program runs the naming
@@ -152,17 +209,20 @@ type lowerer struct {
 	// canon is the checked unit in canonical form (canon.go): the only
 	// place the lowering reads the unit's and the checker's lists from.
 	canon *canonical
-	pkg   *check.Package
-	info  *check.Info
-	file  *syntax.File // the current source file (sources.go)
-	src   string       // its admitted path, which //line directives name
-	cur   int          // its index in srcs
+	// goModule is the root unit's Go requirements (hostPkg).
+	goModule GoModule
+	pkg      *check.Package
+	info     *check.Info
+	file     *syntax.File // the current source file (sources.go)
+	src      string       // its admitted path, which //line directives name
+	cur      int          // its index in srcs
 
 	srcs     []srcFile                // every source file in canonical order (canon.srcs)
 	tpSrc    map[*check.TypeParam]int // each type parameter's source file (paramFile)
 	nodeIDs  map[syntax.Node]int      // node identities for keys (nodeID)
 	libs     []*check.Package         // the libraries the program reaches (libraries)
 	libsDone bool
+	goPkgs   []*check.Package        // the Go packages the program reaches (import go; libraryPackages)
 	stdSrc   map[syntax.Node]stdFile // each node of a reached std package's files (locate)
 	initPkgs []*check.Package        // the sourced libraries in initialization order
 
@@ -218,9 +278,22 @@ type lowerer struct {
 	// inits is the Go code of each package-level initializer, by its
 	// value, which initFunc runs in Info.InitOrder (review m1).
 	inits map[syntax.Expr]string
-	// machineInits are the initial values of the package's machines, in
-	// declaration order, which initFunc runs after every let (machine.go).
-	machineInits []syntax.Expr
+	// machineInits are the initial values of the sourced packages'
+	// machines, in the order they were lowered; initFunc runs them after
+	// every let, in package initialization order (machine.go).
+	machineInits []machineInitial
+	// entryInits records that the entry calls ergoInit; program checks it
+	// against hasInits once every declaration is lowered (F13).
+	entryInits bool
+	// flatRuns are the flat runs of the machines, by machine, made at
+	// their first run (machinerun.go); nil for one whose step takes none.
+	flatRuns map[*check.TypeName]*flatRun
+	// flatSet are the program's flat unions (flatunion.go), decided at the
+	// first question; flatOff the unions an earlier lowering of the
+	// program bailed on, and flatBails those this lowering bails on.
+	flatSet   map[*check.TypeName]*flatUnion
+	flatOff   map[*check.TypeName]bool
+	flatBails []*check.TypeName
 	// instances are the concrete instances of each generic type that the
 	// program's types name (text.go, instancesOf), computed once.
 	instances map[*check.TypeName][]check.Type
@@ -264,12 +337,18 @@ func newLowerer(u Unit) *lowerer { return newBuildLowerer(u, nil) }
 // newBuildLowerer is the lowerer of u for the run build (tests nil) or the
 // test build, which decides the facts it reads (owners.go).
 func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
-	c := canonicalize(u)
+	return lowererOf(canonicalize(u), u.Package, u.Go, tests)
+}
+
+// lowererOf is the lowerer of the canonical unit c of the package pkg, whose
+// root unit requires the Go modules goModule.
+func lowererOf(c *canonical, pkg *check.Package, goModule GoModule, tests *testLowering) *lowerer {
 	l := &lowerer{
 		tests:     tests,
 		canon:     c,
-		pkg:       u.Package,
-		info:      u.Package.Info,
+		goModule:  goModule,
+		pkg:       pkg,
+		info:      pkg.Info,
 		file:      c.srcs[0].file,
 		src:       c.srcs[0].path,
 		srcs:      c.srcs,
@@ -347,6 +426,9 @@ func (l *lowerer) guard(f func()) {
 			if !ok {
 				panic(r)
 			}
+			if ref.flat != nil {
+				l.flatBails = append(l.flatBails, ref.flat)
+			}
 			// The refusal's node locates its file; else the file current
 			// where it was raised (leave), else the current one.
 			src := l.cur
@@ -373,10 +455,23 @@ func (l *lowerer) program() ([]byte, error) {
 	l.nameAll()
 	main := l.mainFunc()
 	l.eachDecl(l.pkg, l.decl)
+	// Every initializer of every sourced package is lowered here, before
+	// the entry decides whether it calls ergoInit: a library's lets, and
+	// its machines' initial values (F13). A library's other declarations
+	// are lowered where they are used.
 	for _, p := range l.sourcedLibs() {
 		l.eachDecl(p, func(d syntax.Decl) {
-			if vd, ok := d.(*syntax.VarDecl); ok {
-				l.packageLet(vd)
+			switch d := d.(type) {
+			case *syntax.VarDecl:
+				l.packageLet(d)
+			case *syntax.TypeDecl:
+				if _, ok := d.Spec.(*syntax.MachineType); ok {
+					tn, ok := p.Info.Defs[d.Name].(*check.TypeName)
+					if !ok {
+						ice(d.Name, "the type %s has no Defs entry", d.Name.Name)
+					}
+					l.emitType(l.useType(l.typeDecl(tn, d.Name)))
+				}
 			}
 		})
 	}
@@ -397,6 +492,14 @@ func (l *lowerer) program() ([]byte, error) {
 		next := l.pending[0]
 		l.pending = l.pending[1:]
 		l.guard(next)
+	}
+	if len(l.flatBails) > 0 {
+		return l.lowerAgain()
+	}
+	if l.hasInits() && !l.entryInits && (l.tests != nil || (!l.noEntry && main != nil)) {
+		// An initializer lowered after the entry was written would never
+		// run: a value would start as Go's zero value (F13).
+		l.guard(func() { ice(l.file, "a package initializer was lowered after the entry, which does not call ergoInit") })
 	}
 	if len(l.refusals) > 0 {
 		return nil, &Refused{Refusals: sortedRefusals(l.refusals)}
@@ -551,6 +654,12 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 		if ok && n.Obj.Pkg != nil && n.Obj.Pkg.Path == "prelude" {
 			prelude = n.Obj.Name
 		}
+		if ok && check.IsGoForeign(n) {
+			// go.Foreign (import go) has no operation, so no code reads it
+			// from the environment: the checker's row is the authority
+			// (rows.md, Entry 4), and the environment holds nothing for it.
+			continue
+		}
 		switch prelude {
 		case "Console":
 			// The runtime's Console prints a line; the capability's
@@ -581,6 +690,7 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 	b.WriteString("\t\t" + env + " := &" + l.env() + "{" + strings.Join(fields, ", ") + "}\n")
 	if l.hasInits() {
 		// The package-level lets run first, in the root task (review m1).
+		l.entryInits = true
 		b.WriteString("\t\t" + l.pkgName(pkgKey{"init", nil}, "ergoInit") + "(" + env + ")\n")
 	}
 	if fd.fallible {
