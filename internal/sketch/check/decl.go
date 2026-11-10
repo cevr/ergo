@@ -94,6 +94,8 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.finishInfo,
 		c.closeFacts,
 		c.withOwnership,
+		// Laws under a context read the acquisitions (lawcontexts.go).
+		c.planLawContexts,
 		c.checkFrames,
 		c.checkEscapes,
 		c.footprints,
@@ -1554,6 +1556,9 @@ func (c *checker) instantiateExprs(n *Named, args []syntax.Expr, at syntax.Node,
 		return invalid
 	}
 	inst := c.instantiate(n, targs)
+	if len(args) > 0 && !c.scriptWritten(inst, args[0]) {
+		return invalid
+	}
 	for i, tp := range n.TParams {
 		if tp.Kind == KindType && tp.Constraint != nil && n.state == 2 {
 			cons := c.subst(tp.Constraint, paramMap(n.TParams, targs))
@@ -1604,6 +1609,10 @@ func (c *checker) instantiate(orig *Named, targs []Type) *Named {
 func (n *Named) instanceUnder(inst *Named) Type {
 	if n.under == nil || inst.ctx == nil {
 		return invalid
+	}
+	if _, ok := scriptArg(inst); ok {
+		// A Script's record is derived from its capability (script.go).
+		return inst.ctx.scriptUnder(inst)
 	}
 	m := map[*TypeParam]Type{}
 	for i, tp := range n.TParams {

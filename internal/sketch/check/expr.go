@@ -261,6 +261,13 @@ func exprText(x syntax.Expr) string {
 }
 
 func (c *checker) expr0(x syntax.Expr, hint Type) operand {
+	if row, ok := contextRow(hint); ok {
+		// A context where a Context[R] is expected converts to it
+		// (contextvalues.go).
+		if op, ok := c.contextConversion(x, hint.(*Named), row); ok {
+			return op
+		}
+	}
 	switch x := x.(type) {
 	case *syntax.Ident:
 		return c.boolLiteral(c.ident(x), hint)
@@ -673,6 +680,11 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 			return bad(x)
 		}
 	}
+	if _, isContext := contextRow(t); isContext && !c.pkg.std {
+		// Only a conversion makes a Context value (contextvalues.go).
+		c.errorf(x, CodeType, "a Context value is made from a context: let v %s = context { … } (rows.md, Context values)", t)
+		t = invalid
+	}
 	if isInvalid(t) {
 		c.orphanElements(x, mark, lt())
 		return bad(x)
@@ -885,6 +897,19 @@ func instanceFromHint(orig *Named, hint Type) Type {
 // review M4).
 func (c *checker) structLit(x *syntax.CompositeLit, t Type, s *Struct, mark int) bool {
 	ok := true
+	if _, script := scriptArg(t); script {
+		// A Script is made empty (script.go, rule 3).
+		if !c.scriptLit(x, t) {
+			for _, e := range x.Elts {
+				if kv, isKV := e.(*syntax.KeyValueExpr); isKV {
+					e = kv.Value
+				}
+				c.strayValue(e, mark, true)
+			}
+			return false
+		}
+		return true
+	}
 	// A literal or record update of a record with another package's
 	// unexported field builds a new value of it: S114 (types.md, Zero
 	// values 6). Its values are still typed.

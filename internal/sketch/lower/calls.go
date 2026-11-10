@@ -873,6 +873,10 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 		fc.contextWith(arg, w.Value, inner) // the context owner (context.go)
 		return
 	}
+	if w.Installs != nil {
+		fc.installWith(arg, inner) // a Context value (contextvalues.go)
+		return
+	}
 	if len(w.Contexts) == 0 {
 		ice(arg, "a with operand with neither a context nor a context binding (With.Contexts, With.Value)")
 	}
@@ -1206,6 +1210,9 @@ func (l *lowerer) unsourced(w *check.Context) bool {
 // methods call the witness (witness.go).
 func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Node) string {
 	l := fc.l
+	if check.ScriptOf(conv.From) != nil {
+		return fc.scriptOperations(conv, val, site) // a Script's derived methods (script.go)
+	}
 	// A *T source (types.md, Methods 5) holds the pointer: a table function
 	// on T reads *v, one on *T takes v (stage C round 4 review T1).
 	key, base, ok := l.adapterName(conv)

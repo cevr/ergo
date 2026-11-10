@@ -170,10 +170,18 @@ func (l *lowerer) declareName(d syntax.Decl) {
 // those of every sourced package, since a context of an imported package
 // is built at its importers' withs too (196b U4).
 func (l *lowerer) withsOf(w *check.Context) []*check.With {
-	var xs []*syntax.CallExpr
-	facts := map[*syntax.CallExpr]*check.With{}
+	var xs []syntax.Node
+	facts := map[syntax.Node]*check.With{}
 	for _, p := range l.sourcedPkgs() {
 		for x, with := range p.Info.Withs {
+			if l.readsFact(p, x) {
+				xs = append(xs, x)
+				facts[x] = with
+			}
+		}
+		// A conversion to a Context value builds as a with does
+		// (contextvalues.go).
+		for x, with := range p.Info.ContextValues {
 			if l.readsFact(p, x) {
 				xs = append(xs, x)
 				facts[x] = with
@@ -189,6 +197,13 @@ func (l *lowerer) withsOf(w *check.Context) []*check.With {
 			if len(with.Contexts) > 0 && with.Contexts[0] == w {
 				out = append(out, with)
 			}
+		}
+	}
+	// The test build also builds a context for each law run under it
+	// (LawRun.Contexts), in the runs' order.
+	for _, lc := range l.lawContexts() {
+		if lc.Context == w {
+			out = append(out, lc.With)
 		}
 	}
 	return out

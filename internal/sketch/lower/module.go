@@ -242,6 +242,7 @@ type lowerer struct {
 	vars     map[*check.Var]string // package-level lets
 	contexts map[contextSet]string
 	adapters map[string]string        // operation-table adapters by source and target Go types
+	scripts  map[string]bool          // Script structs emitted, by instance key (script.go)
 	texts    map[pkgKey]bool          // generated text functions emitted
 	defaults map[pkgKey]bool          // generated default functions emitted (types.go, Defaults)
 	equals   map[pkgKey]bool          // generated equality functions emitted (equal.go)
@@ -365,6 +366,7 @@ func lowererOf(c *canonical, pkg *check.Package, goModule GoModule, tests *testL
 		vars:      map[*check.Var]string{},
 		contexts:  map[contextSet]string{},
 		adapters:  map[string]string{},
+		scripts:   map[string]bool{},
 		texts:     map[pkgKey]bool{},
 		defaults:  map[pkgKey]bool{},
 		equals:    map[pkgKey]bool{},

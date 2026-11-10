@@ -28,6 +28,7 @@ var GrammarFixtures = []GrammarFixture{
 	{"TypeName", "func f(a Order, b time.Duration, c go.Error) {}\n"},
 	{"TypeArgs", "func f(r Result[Order, string], xs []Pair[int64, bool]) {}\n"},
 	{"SliceType", "func f(xs [][]byte) []string {\n\t[]string{}\n}\n"},
+	{"TypeArg", "func f(w Context[Store | Log], t Task[int, NotFound | Declined]) {}\n"},
 	{"ArrayType", "type Grid { cells [81]int }\n\nfunc f(xs [2][3]byte) [2]string {\n\tlet a [4]int = [4]int{}\n\t[2]string{\"a\", \"b\"}\n}\n"},
 	{"PointerType", "func bump(p *Counter) {\n\tp.N += 1\n}\n"},
 	{"CapName", "func f() needs Store[Job] | Log {\n\twith context { Store[Job], Tally[Job]: b } {\n\t\tStore[Job].Put(j)\n\t}\n}\n"},

@@ -46,6 +46,16 @@ func (tc *typeCtx) goType(t check.Type) string {
 		if t.Obj.Pkg.Host() {
 			return tc.l.hostPkg(t.Obj.Pkg.Path, tc.site) + "." + t.Obj.Name
 		}
+		if check.IsContext(t) {
+			// A Context[R] writes its providers into an environment
+			// (contextvalues.go): a function value of the uniform shape
+			// with no parameters and no result.
+			return tc.funcType(&check.Signature{})
+		}
+		if check.ScriptOf(t) != nil {
+			// A Script is a struct of its own (script.go).
+			return tc.l.scriptType(t, tc.site)
+		}
 		// A std type is the runtime's Go type (stage D3b; std.go).
 		name := tc.l.runtimeType(t, tc.site)
 		if name == "" {

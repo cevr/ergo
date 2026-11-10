@@ -1,31 +1,20 @@
 // The game's tests: scripted games. `ergo test` runs the laws.
 
 import particles/world
-import sync
 import time
 
 // played is a game of box(seed, 8) played with keys for frames frames on
-// a clock with a late frame every third frame, and the frames shown.
+// a clock with a late frame every third frame, and the frames shown: the
+// Show calls the recorded Screen got (package memory has the Tape of the
+// program; it imports sim).
 func played(seed uint64, keys string, frames int) (Game, []Frame) {
 	let m = time.NewManual(0)
-	let screen = tape{frames: sync.NewRef[[]Frame]([]Frame{})}
+	let screen = recorded()
 	let g = with context { Scheduler: lateEvery{m: m, every: 3}, time.Clock: m, Screen: screen } {
 		Play(box(seed, 8), keys, frames, Pace{Frame: 50ms, Dt: 20ms})
 	}
-	(g, screen.All())
+	(g, screen.Show.Calls())
 }
-
-// tape is a Screen that keeps its frames, for the tests of this package
-// (package memory has the Tape of the program; it imports sim).
-type tape { frames sync.Ref[[]Frame] }
-
-func Show(t tape, f Frame) {
-	t.frames.Update(func(fs []Frame) []Frame { fs.Append(f) })
-}
-
-func Shown(t tape) int { len(t.frames.Get()) }
-
-func All(t tape) []Frame { t.frames.Get() }
 
 // phases is the phase of each frame, one letter each: r running, p
 // paused, q quit.

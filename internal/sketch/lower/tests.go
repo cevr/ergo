@@ -259,7 +259,32 @@ func lawLowered(r check.LawRun) bool {
 			return true
 		}
 	}
+	for _, lc := range r.Contexts {
+		if lc.Unrun == "" {
+			return true
+		}
+	}
 	return false
+}
+
+// lawContexts are the contexts the test build runs laws under
+// (LawRun.Contexts), in the runs' order; none in a run build.
+func (l *lowerer) lawContexts() []check.LawContext {
+	if l.tests == nil {
+		return nil
+	}
+	var out []check.LawContext
+	for _, r := range l.runLaws() {
+		if r.Law.Unrun != "" {
+			continue
+		}
+		for _, lc := range r.Contexts {
+			if lc.Unrun == "" {
+				out = append(out, lc)
+			}
+		}
+	}
+	return out
 }
 
 // bindingUnrun is why a binding does not run: its first provider's, "" when
@@ -687,6 +712,13 @@ func (l *lowerer) testRunner() string {
 				skips++
 			}
 		}
+		for _, lc := range r.Contexts {
+			if lc.Unrun == "" {
+				runs++
+			} else {
+				skips++
+			}
+		}
 	}
 	// A skip is never silent (fs4): each prints its skip line, and the
 	// summary counts them.
@@ -808,7 +840,15 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 		b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip law "+title+": "+law.Unrun) + ")\n")
 		return
 	}
+	// A machine's reachability law has no operation-type slot, so no
+	// context binds it: it runs before the context runs are deferred.
 	if l.machineLawRuns(b, law, scope, env, seed, failed) {
+		return
+	}
+	// The runs under a context take the case's task from here, the one
+	// classified reader of a law case's task (TestRuntime199TaskReaders).
+	defer l.lawContextRuns(b, lr, scope, env, taskOf(env), seed, failed)
+	if len(lr.Bindings) == 0 && len(lr.Contexts) > 0 {
 		return
 	}
 	if len(lr.Bindings) == 0 {

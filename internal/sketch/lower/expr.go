@@ -267,6 +267,9 @@ func (fc *funcCtx) exprOf(x syntax.Expr) operand {
 	if val, ok := fc.bareRecord(x); ok {
 		return operand{val: val}
 	}
+	if w := fc.l.info.ContextValues[x]; w != nil {
+		return operand{val: fc.contextValue(x, w)}
+	}
 	switch x := x.(type) {
 	case *syntax.ParenExpr:
 		return fc.expr(x.X)
@@ -486,6 +489,9 @@ func (fc *funcCtx) fieldName(x *syntax.SelectorExpr) string {
 	if !ok {
 		ice(x, "a field selection on %s", t)
 	}
+	if check.ScriptOf(n) != nil {
+		return memberName(x.Sel.Name) // a Script's field is its operation's (script.go)
+	}
 	td := fc.l.typeDecl(n.Obj, x)
 	name, ok := td.fieldName[x.Sel.Name]
 	if !ok {
@@ -579,6 +585,9 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 	}
 	switch u := shape.(type) {
 	case *check.Named:
+		if check.ScriptOf(u) != nil {
+			return fc.scriptLit(u, x) // a Script sets no field (script.go)
+		}
 		td := fc.l.typeDecl(u.Obj, x)
 		if td.kind == kindMachine {
 			// A machine value has no fields (the checker refuses any): the

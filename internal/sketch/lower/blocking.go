@@ -231,6 +231,11 @@ var runtimeBindings = map[string]runtimeBinding{
 	// copy of a shared value under the same lock.
 	"RefUpdateOwned": {},
 	"RefModifyOwned": {},
+	// std testing Scripts (stdlib.md, Testing 7 to 12): each operation of
+	// an Op holds its mutex for one step and calls no program code.
+	"NewOp":     {},
+	"Op.Answer": {},
+	"Op.Calls":  {},
 	// std filepath (std-align S3a; stdlib.md, filepath): pure bodies that
 	// neither wait nor release.
 	"FilepathJoin":  {},

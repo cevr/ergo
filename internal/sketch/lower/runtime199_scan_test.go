@@ -185,21 +185,23 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 	src := typedPackage(t, ".")
 	readers := src.users(src.method(t, "lowerer", "env"))
 	classified := map[string]string{
-		"funcCtx.envClosure":     "the closure owner",
-		"lowerer.emitBody":       "a declared function's header: func name(env *Env, ...), and a flat machine step's (MU8)",
-		"flatRun.runText":        "the flat machine run's declared header: func ergoRunX(env *Env, ...) (MU8)",
-		"lowerer.initFunc":       "the package initializer's declared header",
-		"lowerer.emitContext":    "a context builder's declared header",
-		"lowerer.envField":       "names the type before its first field",
-		"lowerer.rootTask":       "the root Env value of a root task: main's, the test build's main's (196l), an exported function's (IG11)",
-		"lowerer.testDecl":       "a test's declared header: func ergoTestName(env *Env, ...)",
-		"lowerer.lawDecl":        "a law's declared header: func ergoLawName(env *Env, ...) (bool, error) (#162)",
-		"lowerer.testRunnerHead": "the test runner's declared header: func ergoTests(env *Env, seed uint64)",
-		"funcCtx.operations":     "an Env value of the caller's task for an operation table",
-		"funcCtx.witnessMethod":  "an Env value of the caller's task for a witness adapter",
-		"typeCtx.funcType":       "a function type, which has no body",
-		"lowerer.machinePlan":    "a machine plan's declared Step header: func (X) Step(env *Env, ...)",
-		"lowerer.genFunc":        "a generator's assertion of the runner's Env that a constructor or a builder runs in (fu6a, fu7a)",
+		"funcCtx.envClosure":       "the closure owner",
+		"lowerer.emitBody":         "a declared function's header: func name(env *Env, ...), and a flat machine step's (MU8)",
+		"flatRun.runText":          "the flat machine run's declared header: func ergoRunX(env *Env, ...) (MU8)",
+		"lowerer.initFunc":         "the package initializer's declared header",
+		"lowerer.emitContext":      "a context builder's declared header",
+		"lowerer.envField":         "names the type before its first field",
+		"lowerer.rootTask":         "the root Env value of a root task: main's, the test build's main's (196l), an exported function's (IG11)",
+		"lowerer.testDecl":         "a test's declared header: func ergoTestName(env *Env, ...)",
+		"lowerer.lawDecl":          "a law's declared header: func ergoLawName(env *Env, ...) (bool, error) (#162)",
+		"lowerer.testRunnerHead":   "the test runner's declared header: func ergoTests(env *Env, seed uint64)",
+		"funcCtx.operations":       "an Env value of the caller's task for an operation table",
+		"funcCtx.witnessMethod":    "an Env value of the caller's task for a witness adapter",
+		"funcCtx.scriptOperations": "an Env value of the caller's task for a Script adapter (script.go)",
+		"funcCtx.contextValue":     "the zero Env a Context value's providers build into where no environment is bound: a variable, no closure (its closure is envClosure's)",
+		"typeCtx.funcType":         "a function type, which has no body",
+		"lowerer.machinePlan":      "a machine plan's declared Step header: func (X) Step(env *Env, ...)",
+		"lowerer.genFunc":          "a generator's assertion of the runner's Env that a constructor or a builder runs in (fu6a, fu7a)",
 	}
 	for _, owner := range sortedKeys(readers) {
 		if _, ok := classified[owner]; !ok {

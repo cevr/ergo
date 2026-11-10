@@ -367,6 +367,20 @@ func main() {
 	use(Mine)
 }
 `,
+	// std testing (L5b): newOp's extern returns the Op of a Script.
+	"testing.Op": `import testing
+
+type Mine {}
+
+func Answer(_ Mine, f escaping func() int) {}
+func Calls(_ Mine) []testing.NoArgs { []testing.NoArgs{} }
+
+func use(o testing.Op[testing.NoArgs, func() int]) { _ = o.Calls() }
+
+func main() {
+	use(Mine)
+}
+`,
 	// std time (S2b): NewManual's extern returns the Timeline.
 	"time.Timeline": `import time
 

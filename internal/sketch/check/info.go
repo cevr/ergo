@@ -216,6 +216,11 @@ type Info struct {
 	Loops map[*syntax.RangeStmt]*Loop
 	// Withs is every with site.
 	Withs map[*syntax.CallExpr]*With
+	// ContextValues is every conversion of a context to a Context[R] value
+	// (rows.md, Context values), keyed by the converted expression without
+	// its parentheses. Its With fact builds the providers of R: Contexts,
+	// Discharged (R, sorted), Entries and Acquired, and it has no Next.
+	ContextValues map[syntax.Expr]*With
 	// InitOrder is every package-level let with an initializer, in Go's
 	// initialization order (go/types Info.InitOrder): a let comes after
 	// every let its initializer refers to, directly or through functions,
@@ -323,6 +328,7 @@ func newInfo() *Info {
 		Literals:      map[syntax.Node]*Signature{},
 		Loops:         map[*syntax.RangeStmt]*Loop{},
 		Withs:         map[*syntax.CallExpr]*With{},
+		ContextValues: map[syntax.Expr]*With{},
 		TaskResults:   map[*Func]bool{},
 		Footprints:    map[syntax.Node]Footprint{},
 		Instances:     map[syntax.Expr]*Instance{},
@@ -681,6 +687,11 @@ type With struct {
 	// (runtime.md, G1), nil for a with of a context. Such a with has no Contexts
 	// and discharges nothing.
 	Value *ContextBinding
+	// Installs is the Context[R] type of a with whose operand is a context
+	// value made by a conversion (rows.md, Context values), nil otherwise.
+	// Such a with builds nothing: it installs the value's providers, and
+	// Discharged lists what its block charges of R, with no Entries.
+	Installs *Named
 	// Next is the fact of the with's next operand, nil for the last:
 	// Info.Withs holds the first operand's, and `with A, B { b }` has the
 	// facts `with A { with B { b } }` would have, A's Next being B's
@@ -816,6 +827,9 @@ type LawRun struct {
 	// Bindings each hold one provider per slot of Law.Slots, in order. A
 	// law with no slots that runs has one empty binding.
 	Bindings [][]LawProvider
+	// Contexts are the named contexts of this package that bind the
+	// law's owner, each a run of its own (lawcontexts.go).
+	Contexts []LawContext
 }
 
 // LawProvider is a provider bound to a law's slot (LawRun.Bindings). Unrun
@@ -931,7 +945,7 @@ func (c *checker) recordWith(x *syntax.CallExpr, frames []*withFrame) {
 	}
 	withs := make([]*With, len(frames))
 	for i, f := range frames {
-		w := &With{Value: f.value}
+		w := &With{Value: f.value, Installs: f.installs}
 		if f.context != nil {
 			w.Contexts = []*Context{f.context}
 		}

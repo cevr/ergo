@@ -125,6 +125,8 @@ type checker struct {
 	// withSites are the with sites the reporting pass recorded, inner
 	// before outer, for the context ownership pass (withown.go).
 	withSites []withSite
+	// contextValueSites are the conversions to Context[R] (contextvalues.go).
+	contextValueSites []contextValueSite
 	// contextOwners is the one index from an entry to the context that declares
 	// it, shared by the ownership and footprint passes (withown.go).
 	contextOwners contextOwners

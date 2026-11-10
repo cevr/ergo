@@ -89,6 +89,13 @@ type Range[T ordered] { Start T, End T }
 // (types.md, Call sites).
 type CallSite { File string, Line int, Column int }
 
+// Context is a context as a value: the providers of the capability row R,
+// built where a context converts to it (`let w Context[Store | Log] =
+// context { … }`, an argument, a return). `with w { … }` installs them and
+// discharges R; it builds nothing (rows.md, Context values). Only that
+// conversion makes one: its field is the compiler's.
+type Context[R] { install func() needs R }
+
 // The functions on slices and Maps (#196, fourth round, item 2; spec
 // D-D6). Each is reached only by the dot form on a value of exactly its
 // first parameter's type, xs.Append(x), m.Get(k), m.Delete(k) (D-D8): it

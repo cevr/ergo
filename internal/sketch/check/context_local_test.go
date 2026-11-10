@@ -92,7 +92,7 @@ func localRules() []localRule {
 		{"probe-inline", "func main() needs Console {\n\tConsole.Println(with context { Greeter: Plain } { Greeter.Greet(\"ada\") })\n\tConsole.Println(with (Live) { Greeter.Greet(\"bo\") })\n}\n"},
 
 		// The other placements of a context.
-		{"let-typed", "func f() string {\n\tlet w Greeter = context { Greeter: Plain } // want S108\n\twith w { Greeter.Greet(\"a\") }\n}\n"},
+		{"let-typed", "func f() string {\n\tlet w Greeter = context { Greeter: Plain } // want S108\n\tw.Greet(\"a\")\n}\n"},
 		{"assign", "func f() {\n\tlet w = context { Greeter: Plain }\n\tw = 1 // want S108\n\twith w { Greeter.Greet(\"a\") }\n}\n"},
 		{"literal-argument", "func f() int {\n\tuse(context { Greeter: Plain }) // want S108\n}\n"},
 		{"literal-tuple", "func f() int {\n\tlet (a, b) = (context { Greeter: Plain }, 1) // want S108\n\t_ = a\n\tb\n}\n"},

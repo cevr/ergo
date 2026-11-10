@@ -25,11 +25,12 @@ func TestRuntime199TaskReaders(t *testing.T) {
 		classified map[string]string
 	}{
 		{"envTask", map[string]string{
-			"taskOf":                "the only reader",
-			"lowerer.envType":       "declares the field",
-			"funcCtx.operations":    "an operation table's Env literal for the caller's task",
-			"funcCtx.witnessMethod": "a witness adapter's Env literal for the caller's task",
-			"lowerer.rootTask":      "the root Env literal of a root task: main's, the test build's main's (196l), an exported function's (IG11)",
+			"taskOf":                   "the only reader",
+			"lowerer.envType":          "declares the field",
+			"funcCtx.operations":       "an operation table's Env literal for the caller's task",
+			"funcCtx.witnessMethod":    "a witness adapter's Env literal for the caller's task",
+			"lowerer.rootTask":         "the root Env literal of a root task: main's, the test build's main's (196l), an exported function's (IG11)",
+			"funcCtx.scriptOperations": "a Script adapter's Env literal for the caller's task, as an operation table's (script.go)",
 		}},
 		{"taskOf", map[string]string{
 			"funcCtx.hiddenArgs":    "runtimeCall's hidden CallerTask argument",
@@ -68,6 +69,10 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"lowerer.protocolFreeName":  "the Go names already taken on a pure method's type (Q-S5-6)",
 			"lowerer.typeDecl":          "a declared type's members",
 			"lowerer.hostDecl":          "the host provider's Println and ambient",
+			"funcCtx.fieldName":         "a Script's field, its operation's name (script.go)",
+			"funcCtx.scriptLit":         "a Script literal's fields (script.go)",
+			"funcCtx.scriptOperations":  "a Script adapter's methods and the fields they call (script.go)",
+			"lowerer.scriptType":        "a Script's struct fields (script.go)",
 		}},
 	} {
 		obj := scope.Lookup(c.obj)
@@ -201,7 +206,9 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		"TextInt": true, "TextUint": true, "TextFloat": true, "TextList": true,
 		"Main": true, "Println": true, "End": true,
 		// IG11: an exported function's root task, as Main is main's; Go's
-		// caller waits on it, no Ergo task does.
+		// caller waits on it, no Ergo task does. L5b: a Script operation's
+		// record of a call (script.go): one lock for one append, no wait,
+		// no release. The key is the method name, so one row holds both.
 		"Call": true,
 		// Unreachable's defect (defect.go): a panic value, no wait.
 		"UnreachableAt": true,

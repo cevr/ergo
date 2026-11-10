@@ -3,6 +3,7 @@ package check
 import (
 	"math/bits"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -122,6 +123,12 @@ type capKey struct{ path, name string }
 
 // keyOf returns t's key; ok is false when t is not a declared named type.
 func keyOf(t Type) (k capKey, ok bool) {
+	if tp, isParam := t.(*TypeParam); isParam && tp.Kind == KindUses {
+		// A capability row parameter, which a with of a Context[R] value
+		// discharges (rows.md, Context values). No declared name has a
+		// NUL in its path, so the key meets no capability's.
+		return capKey{path: "\x00row", name: tp.Name + "#" + strconv.Itoa(tp.id)}, true
+	}
 	n, isNamed := t.(*Named)
 	if !isNamed || n.Obj == nil || n.Orig != nil && !isCapability(n) {
 		return capKey{}, false

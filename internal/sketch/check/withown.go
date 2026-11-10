@@ -88,7 +88,11 @@ func (c *checker) withOwnership() {
 			c.contextOwners.add(context)
 		}
 	}
+	for _, s := range c.contextValueSites {
+		c.contextOwners.add(s.w.Contexts[0])
+	}
 	owners := c.contextOwners.of
+	c.contextValueOwnership(owners)
 	roots := append([]*Func(nil), c.pkg.Funcs...)
 	// A context provider can call an imported constructor without any local
 	// function calling it. Those calls also root the freshness graph.
