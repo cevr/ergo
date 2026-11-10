@@ -85,6 +85,10 @@ type LawDecl struct {
 	Params *FieldList
 	Body   *BlockStmt // nil for a reachability law
 	Reach  *LawReach  // nil unless a reachability law
+	// Derived is the refined type whose `where` the parser derived this
+	// law from (refine.go), or nil for a written one. The formatter does
+	// not print it.
+	Derived *TypeDecl
 }
 
 func (d *LawDecl) Pos() Pos { return d.Law }

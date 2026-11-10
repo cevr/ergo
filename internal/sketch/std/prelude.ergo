@@ -78,6 +78,12 @@ type Some[T] { Value T }
 type None {}
 type Option[T] = Some[T] | None
 
+// Unsatisfied is the failure of a refined type's derived parse function,
+// ParsePort for `type Port int where 1 <= it && it <= 65535`: the value
+// does not pass the where. Type is the refined type's name and Where the
+// predicate's text (types.md, Refinements).
+type Unsatisfied { Type string, Where string }
+
 // Range is the integers from Start up to End, End excluded: `a..b` builds
 // one, and `for i in r` counts through it (#196, one for). A for and `..`
 // take an integer T only; the type itself takes any ordered T.

@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"math/big"
 	"strconv"
 	"strings"
 
@@ -75,6 +76,20 @@ func (l *lowerer) enumValues(t check.Type, site syntax.Node, seen map[*check.Nam
 		}
 		return product(tc.goType(u), names, u.Types)
 	case *check.Named:
+		if ref := check.RefinementOf(u); ref != nil {
+			// A refined integer type of few values is listed, member by
+			// member (types.md, Refinements 9).
+			if ref.Len || ref.Count().Cmp(big.NewInt(enumCap)) > 0 {
+				return nil, false
+			}
+			var out []string
+			for _, s := range ref.Spans {
+				for v := new(big.Int).Set(s.Lo); v.Cmp(s.Hi) <= 0; v.Add(v, big.NewInt(1)) {
+					out = append(out, tc.goType(u)+"("+v.String()+")")
+				}
+			}
+			return out, true
+		}
 		if seen[u] {
 			return nil, false // a recursive type has no finite list
 		}

@@ -788,6 +788,9 @@ type Law struct {
 	// Unrun is why ergo test does not run the law, "" when it does: a
 	// parameter with no generator or a generic operation type.
 	Unrun string
+	// Where holds the refinement of each parameter that takes a where
+	// (refine.go), at its index in Params; nil without any.
+	Where []*Refinement
 
 	file *fileInfo // the declaring file, selected while the law is checked
 }

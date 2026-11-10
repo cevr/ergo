@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"math/big"
 	"path"
 	"sort"
 	"strconv"
@@ -98,6 +99,7 @@ var testHelpers = []struct{ key, base string }{
 	{"Case", "ergoCase"}, {"Asserted", "ergoAsserted"}, {"Where", "ergoWhere"},
 	{"Rand", "ergoRand"}, {"NewRand", "ergoNewRand"}, {"Runes", "ergoRunes"}, {"Edges", "ergoEdges"},
 	{"GenSlice", "ergoGenSlice"}, {"GenMap", "ergoGenMap"},
+	{"GenIn", "ergoGenIn"}, {"GenStrLen", "ergoGenStrLen"}, {"GenSliceLen", "ergoGenSliceLen"},
 	{"LitFloat", "ergoLitFloat"}, {"LitComplex", "ergoLitComplex"},
 	{"LitDuration", "ergoLitDuration"}, {"LitEntries", "ergoLitEntries"},
 	{"Seed", "ergoSeed"}, {"Tests", "ergoTests"},
@@ -852,7 +854,11 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 				continue
 			}
 			a := inner.alloc(base)
-			b.WriteString("\t\t\t" + a + " := " + l.genExpr(v.Type, r, strconv.Itoa(testDepth), inner, law.Decl) + "\n")
+			gen := l.genExpr(v.Type, r, strconv.Itoa(testDepth), inner, law.Decl)
+			if k < len(law.Where) && law.Where[k] != nil {
+				gen = l.genRefined(v.Type, law.Where[k], r, strconv.Itoa(testDepth), inner, law.Decl)
+			}
+			b.WriteString("\t\t\t" + a + " := " + gen + "\n")
 			args = append(args, a)
 			shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(v.Type, a, law.Decl))
 			sep = ", "
@@ -1129,32 +1135,74 @@ func (r *$Rand) str() string {
 	}
 	b := make([]byte, 0, n*4)
 	for i := 0; i < n; i++ {
-		switch r.intn(16) {
-		case 8:
-			b = append(b, '"')
-		case 9:
-			b = append(b, '\\')
-		case 10:
-			b = append(b, byte(r.intn(0x20)))
-		case 11:
-			b = append(b, 0x7f)
-		case 12:
-			if k := r.intn(0x42); k < 0x40 {
-				b = append(b, byte(0x80+k))
-			} else {
-				b = append(b, byte(0xFE+k-0x40))
-			}
-		case 13:
-			b = append(b, string(rune(0x10000+r.intn(0x100000)))...)
-		case 14:
-			b = append(b, string(rune(0x80+r.intn(0xD800-0x80)))...)
-		case 15:
-			b = append(b, byte(0x20+r.intn(0x5F)))
-		default:
-			b = append(b, string($Runes[r.intn(len($Runes))])...)
-		}
+		b = r.unit(b)
 	}
 	return string(b)
+}
+
+// unit appends one unit of str to b.
+func (r *$Rand) unit(b []byte) []byte {
+	switch r.intn(16) {
+	case 8:
+		return append(b, '"')
+	case 9:
+		return append(b, '\\')
+	case 10:
+		return append(b, byte(r.intn(0x20)))
+	case 11:
+		return append(b, 0x7f)
+	case 12:
+		k := r.intn(0x42)
+		if k < 0x40 {
+			return append(b, byte(0x80+k))
+		}
+		return append(b, byte(0xFE+k-0x40))
+	case 13:
+		return append(b, string(rune(0x10000+r.intn(0x100000)))...)
+	case 14:
+		return append(b, string(rune(0x80+r.intn(0xD800-0x80)))...)
+	case 15:
+		return append(b, byte(0x20+r.intn(0x5F)))
+	}
+	return append(b, string($Runes[r.intn(len($Runes))])...)
+}
+
+// $GenIn draws an integer of one of the closed spans of a refinement
+// (types.md, Refinements 9): a span, each as likely, then its low end, its
+// high end, or any value in it, half the time an end. An unsigned type's
+// spans hold its values' bits.
+func $GenIn(r *$Rand, spans [][2]int64) int64 {
+	s := spans[r.intn(len(spans))]
+	switch r.intn(4) {
+	case 0:
+		return s[0]
+	case 1:
+		return s[1]
+	}
+	w := uint64(s[1]) - uint64(s[0]) + 1
+	if w == 0 {
+		return int64(r.next())
+	}
+	return s[0] + int64(r.next()%w)
+}
+
+// $GenStrLen is a string of n bytes, of str's units; a unit that would
+// pass n is cut, as a codec meets a cut rune.
+func $GenStrLen(r *$Rand, n int) string {
+	b := make([]byte, 0, n+4)
+	for len(b) < n {
+		b = r.unit(b)
+	}
+	return string(b[:n])
+}
+
+// $GenSliceLen is a slice of n elements.
+func $GenSliceLen[T any](r *$Rand, d int, n int, elem func(*$Rand, int) T) []T {
+	xs := make([]T, n)
+	for i := range xs {
+		xs[i] = elem(r, d-1)
+	}
+	return xs
 }
 
 // limit is the largest collection length at depth d: the case's size at
@@ -1391,6 +1439,58 @@ func (l *lowerer) genExpr(t check.Type, r, d string, scope *namer, site syntax.N
 	return ""
 }
 
+// lenCap bounds the lengths a refinement's generator draws above a span's
+// low end, so an unbounded `len(it) >= 1` stays small.
+const lenCap = 32
+
+// genRefined is the Go expression that draws a value of t inside the
+// refinement ref (types.md, Refinements 9): t itself is refined, or t is a
+// law parameter's type and ref its where.
+func (l *lowerer) genRefined(t check.Type, ref *check.Refinement, r, d string, scope *namer, site syntax.Node) string {
+	tc := &typeCtx{l: l, site: site}
+	unsigned := false
+	under := t
+	if n, ok := t.(*check.Named); ok {
+		under = n.Underlying()
+	}
+	if b, ok := under.(*check.Basic); ok {
+		unsigned = b.Kind >= check.Uint && b.Kind <= check.Uintptr
+	}
+	var spans []string
+	for _, s := range ref.Spans {
+		lo, hi := new(big.Int).Set(s.Lo), new(big.Int).Set(s.Hi)
+		if ref.Len {
+			if top := new(big.Int).Add(lo, big.NewInt(lenCap)); hi.Cmp(top) > 0 {
+				hi = top
+			}
+		}
+		spans = append(spans, "{"+int64Bits(lo)+", "+int64Bits(hi)+"}")
+	}
+	in := l.helper("GenIn") + "(" + r + ", [][2]int64{" + strings.Join(spans, ", ") + "})"
+	if !ref.Len {
+		if unsigned {
+			return tc.goType(t) + "(uint64(" + in + "))"
+		}
+		return tc.goType(t) + "(" + in + ")"
+	}
+	if s, ok := under.(*check.Slice); ok {
+		inner := newNamer(scope)
+		ir, id := inner.alloc("r"), inner.alloc("d")
+		elem := "func(" + ir + " *" + l.helper("Rand") + ", " + id + " int) " + tc.goType(s.Elem) + " { return " + l.genExpr(s.Elem, ir, id, inner, site) + " }"
+		return tc.goType(t) + "(" + l.helper("GenSliceLen") + "(" + r + ", " + d + ", int(" + in + "), " + elem + "))"
+	}
+	return tc.goType(t) + "(" + l.helper("GenStrLen") + "(" + r + ", int(" + in + ")))"
+}
+
+// int64Bits is v as a Go int64 literal of its two's-complement bits, so a
+// uint64 above MaxInt64 keeps its bits.
+func int64Bits(v *big.Int) string {
+	if v.IsInt64() {
+		return v.String()
+	}
+	return strconv.FormatInt(int64(v.Uint64()), 10)
+}
+
 // genPick writes the body that draws one of variants, the variants of the
 // union t or the members of the row value t: at d <= 0 one of least rank,
 // else any, each equally likely.
@@ -1470,6 +1570,11 @@ func (l *lowerer) genFunc(n *check.Named, site syntax.Node) string {
 		v := scope.alloc("v")
 		body.WriteString("\t" + v + ", _ := " + fc.funcValue(ctor, ctor.Sig, site, nil) + "(" + strings.Join(args, ", ") + ")\n")
 		body.WriteString("\treturn " + v + "\n")
+		l.gen.WriteString("func " + name + "(" + r + " *" + l.helper("Rand") + ", " + d + " int) " + goType + " {\n" + body.String() + "}\n\n")
+		return name
+	}
+	if ref := check.RefinementOf(n); ref != nil {
+		body.WriteString("\treturn " + l.genRefined(n, ref, r, d, scope, site) + "\n")
 		l.gen.WriteString("func " + name + "(" + r + " *" + l.helper("Rand") + ", " + d + " int) " + goType + " {\n" + body.String() + "}\n\n")
 		return name
 	}

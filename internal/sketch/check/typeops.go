@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"math/big"
 
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -888,6 +889,11 @@ func inSet(t Type, s TypeSet) bool {
 	if _, ok := t.(*TypeParam); ok {
 		return typeSet(t) >= s
 	}
+	if RefinementOf(t) != nil {
+		// ordered and number give + to a generic body, which could leave
+		// the where (Refinements 7).
+		return false
+	}
 	if s == SetOrdered && (isString(t) || isDuration(under(t))) {
 		return true
 	}
@@ -935,6 +941,10 @@ func (c *checker) letZero(name *syntax.Ident, declared Type) {
 // owner q44). A union, an interface, a function type, a pointer and a tuple
 // that holds a record with fields have none either.
 func defaultable(t Type) bool {
+	if r := RefinementOf(t); r != nil && !r.Holds(big.NewInt(0)) {
+		// The base's zero (0, or length 0) fails the where (Refinements 8).
+		return false
+	}
 	switch u := under(t).(type) {
 	case *Basic:
 		return true

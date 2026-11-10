@@ -352,6 +352,12 @@ type checker struct {
 	pkgPatterns map[*syntax.VarSpec]*pkgPattern
 	// mapInstances holds `Map[K, V]` read as the package's own Map (L6).
 	mapInstances map[*syntax.MapType]*syntax.IndexExpr
+	// refining is set while checkRefinements reports; refusedWheres are
+	// the spans of the refused wheres of each file, inside which a later
+	// pass reports nothing: the derived declarations repeat the where
+	// (refine.go).
+	refining      bool
+	refusedWheres map[*fileInfo][][2]syntax.Pos
 
 	fn *funcCtx // the body being checked
 }
@@ -454,6 +460,13 @@ func (c *checker) errorIn(at syntax.Node, pos, end syntax.Pos, code, format stri
 // errorIn are its only callers, so every report has passed the owner check.
 func (c *checker) report(pos, end syntax.Pos, code, format string, args ...any) {
 	d := Diagnostic{Code: code, Message: fmt.Sprintf(format, args...)}
+	if !c.refining && c.cur != nil {
+		for _, s := range c.refusedWheres[c.cur] {
+			if pos >= s[0] && pos <= s[1] {
+				return // the derived declarations of a refused where (refine.go)
+			}
+		}
+	}
 	if c.cur != nil {
 		f := c.cur.syntax
 		d.File = c.cur.index
