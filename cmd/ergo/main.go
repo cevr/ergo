@@ -109,6 +109,9 @@ type fileOptions struct {
 	search  exploreOptions
 	// seed is test's --seed, a decimal uint64; empty when not given.
 	seed string
+	// run is test's --run NAME: the one test or law the test binary runs,
+	// plain or explored; empty runs every one.
+	run  string
 	file string
 	// args are run's program arguments: every word after the source, as
 	// go run passes them, less one "--" right after the source.
@@ -117,14 +120,15 @@ type fileOptions struct {
 
 // parseFileOptions reads the options of command. --strict and --json belong
 // to diagnostics, -o to build, -work to build and test, and --seed N (or
-// --seed=N) and --explore to test; any other option is unknown. A target other than Go is
+// --seed=N), --run NAME (or --run=NAME) and --explore to test; any other
+// option is unknown. A target other than Go is
 // the EF110 refusal. For run, the options stand before the source, and the
 // words after it are the program's arguments (`ergo run FILE|DIR [--]
 // ARGS...`, as `go run`).
 func parseFileOptions(command string, args []string) (fileOptions, error) {
 	opts := fileOptions{target: report.Target, command: command, search: exploreDefaults("")}
 	var positional []string
-	seeded, searched := false, false
+	seeded, searched, selected := false, false, false
 	for i := 0; i < len(args); i++ {
 		if command == "run" && len(positional) == 1 {
 			opts.args = args[i:]
@@ -137,6 +141,10 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 			opts.seed, seeded = value, true
 			continue
 		}
+		if value, ok := strings.CutPrefix(args[i], "--run="); ok {
+			opts.run, selected = value, true
+			continue
+		}
 		took, err := parseExploreFlag(&opts.search, args, i)
 		if err != nil {
 			return opts, err
@@ -147,7 +155,7 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 			continue
 		}
 		switch args[i] {
-		case "--target", "-o", "--seed":
+		case "--target", "-o", "--seed", "--run":
 			if i+1 == len(args) {
 				return opts, fmt.Errorf("%s requires a value", args[i])
 			}
@@ -156,6 +164,8 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 				opts.target = args[i+1]
 			case "-o":
 				opts.output = args[i+1]
+			case "--run":
+				opts.run, selected = args[i+1], true
 			default:
 				opts.seed, seeded = args[i+1], true
 			}
@@ -199,6 +209,10 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--preempt, --schedules and --depth need --explore dfs, pct or random")
 	case seeded && command != "test":
 		return opts, fmt.Errorf("--seed is only supported by test")
+	case selected && command != "test":
+		return opts, fmt.Errorf("--run is only supported by test")
+	case selected && opts.run == "":
+		return opts, fmt.Errorf("--run takes the name of a test or a law")
 	case seeded && !validSeed(opts.seed):
 		return opts, fmt.Errorf("--seed takes a decimal number from 0 to 18446744073709551615, not %q", opts.seed)
 	case len(positional) != 1:

@@ -201,6 +201,12 @@ test Clamped(n int, xs []int) {
 	if code != 2 || !strings.Contains(stderr, "usage: [--seed N]") {
 		t.Errorf("an unknown argument: exit %d, stderr %q", code, stderr)
 	}
+	// --run names no test: a usage error that runs nothing (X8), so a
+	// mistyped name never passes as a run of no tests.
+	out, stderr, code := runExeArgs(t, exe, "--run", "Clampd")
+	if code != 2 || out != "" || !strings.Contains(stderr, `no test or law is named "Clampd"; the names: Clamped`) {
+		t.Errorf("--run of an unknown name: exit %d, stdout %q, stderr %q", code, out, stderr)
+	}
 }
 
 // directiveRe matches the position of a //line or /*line*/ directive.

@@ -100,7 +100,7 @@ var testHelpers = []struct{ key, base string }{
 	{"GenSlice", "ergoGenSlice"}, {"GenMap", "ergoGenMap"},
 	{"LitFloat", "ergoLitFloat"}, {"LitComplex", "ergoLitComplex"},
 	{"LitDuration", "ergoLitDuration"}, {"LitEntries", "ergoLitEntries"},
-	{"Seed", "ergoSeed"}, {"Tests", "ergoTests"},
+	{"Seed", "ergoSeed"}, {"Tests", "ergoTests"}, {"Only", "ergoOnly"}, {"Want", "ergoWant"},
 	{"Graph", "ergoGraph"}, {"Node", "ergoNode"}, {"ReachCap", "ergoReachCap"}, {"Explore", "ergoExplore"},
 	{"ExploreAll", "ergoExploreAll"}, {"ExploreRuns", "ergoExploreRuns"}, {"Trace", "ergoTrace"}, {"Refute", "ergoRefute"},
 }
@@ -634,37 +634,85 @@ func (l *lowerer) testRunnerHead(env, seed string) string {
 	return "func " + l.helper("Tests") + "(" + env + " *" + l.env() + ", " + seed + " uint64) error {\n"
 }
 
-// testRunner is the Go function that runs every test in source order.
+// testRunner is the Go function that runs every test in source order, or
+// the one test or law that --run names ($Seed reads it, $Want selects): a
+// test by its name, a law by the title its report prints (Name, Type.Name,
+// with another package's name before it), every run of that law. A name
+// that no test or law of the build has is a usage error (exit 2) that runs
+// nothing. The summary counts the runs that ran.
 func (l *lowerer) testRunner() string {
 	scope := newNamer(l.names)
-	env, seed, failed, total := scope.alloc("env"), scope.alloc("seed"), scope.alloc("failed"), scope.alloc("total")
-	fmtPkg, run := l.helper("fmt"), l.helper("Case")
+	env, seed, failed, total, skipped := scope.alloc("env"), scope.alloc("seed"), scope.alloc("failed"), scope.alloc("total"), scope.alloc("skipped")
+	fmtPkg, want := l.helper("fmt"), l.helper("Want")
 	var b strings.Builder
 	b.WriteString("// " + l.helper("Tests") + " runs every test in source order (196l).\n")
 	b.WriteString(l.testRunnerHead(env, seed))
 	tests := l.runTests()
-	runs, skips := 0, 0
-	for _, r := range l.runLaws() {
-		if r.Law.Unrun != "" {
-			skips++
-			continue
+	var names []string
+	named := map[string]bool{}
+	for _, t := range tests {
+		if !named[t.Name] {
+			named[t.Name] = true
+			names = append(names, t.Name)
 		}
-		for _, b := range r.Bindings {
-			if bindingUnrun(b) == "" {
-				runs++
-			} else {
-				skips++
+	}
+	for _, r := range l.runLaws() {
+		if title := l.lawTitle(r.Law); !named[title] {
+			named[title] = true
+			names = append(names, title)
+		}
+	}
+	quoted := make([]string, len(names))
+	for i, n := range names {
+		quoted[i] = strconv.Quote(n)
+	}
+	b.WriteString("\tswitch " + l.helper("Only") + " {\n\tcase " + strings.Join(append([]string{`""`}, quoted...), ", ") + ":\n\tdefault:\n")
+	b.WriteString("\t\t" + fmtPkg + ".Fprintln(" + l.helper("os") + ".Stderr, " + strconv.Quote("usage: --run NAME: no test or law is named ") + " + " + l.helper("strconv") + ".Quote(" + l.helper("Only") + ") + " + strconv.Quote("; the names: "+strings.Join(names, ", ")) + ")\n")
+	b.WriteString("\t\t" + l.helper("os") + ".Exit(2)\n\t}\n")
+	b.WriteString("\t" + failed + ", " + total + ", " + skipped + " := 0, 0, 0\n")
+	for _, t := range tests {
+		b.WriteString("\tif " + want + "(" + strconv.Quote(t.Name) + ") {\n\t" + total + "++\n")
+		l.testRun(&b, t, scope, env, seed, failed)
+		b.WriteString("\t}\n")
+	}
+	for _, law := range l.runLaws() {
+		// A skip is never silent (fs4): each prints its skip line, and the
+		// summary counts them.
+		runs, skips := 0, 0
+		if law.Law.Unrun != "" {
+			skips++
+		} else {
+			for _, bd := range law.Bindings {
+				if bindingUnrun(bd) == "" {
+					runs++
+				} else {
+					skips++
+				}
 			}
 		}
+		b.WriteString("\tif " + want + "(" + strconv.Quote(l.lawTitle(law.Law)) + ") {\n")
+		b.WriteString("\t" + total + " += " + strconv.Itoa(runs) + "\n\t" + skipped + " += " + strconv.Itoa(skips) + "\n")
+		l.lawRuns(&b, law, scope, env, seed, failed)
+		b.WriteString("\t}\n")
 	}
-	// A skip is never silent (fs4): each prints its skip line, and the
-	// summary counts them.
-	skipped := ""
-	if skips > 0 {
-		skipped = ", " + strconv.Itoa(skips) + " skipped"
-	}
-	b.WriteString("\t" + failed + ", " + total + " := 0, " + strconv.Itoa(len(tests)+runs) + "\n")
-	for _, t := range tests {
+	conv := l.helper("strconv")
+	shown := scope.alloc("shown")
+	b.WriteString("\t" + shown + " := " + conv + ".Itoa(" + total + ") + \" tests\"\n")
+	b.WriteString("\tif " + skipped + " > 0 {\n\t\t" + shown + " += \", \" + " + conv + ".Itoa(" + skipped + ") + \" skipped\"\n\t}\n")
+	b.WriteString("\tif " + failed + " > 0 {\n")
+	b.WriteString("\t\t" + fmtPkg + ".Printf(\"FAIL (%d of %s)\\n\", " + failed + ", " + shown + ")\n")
+	b.WriteString("\t\treturn " + fmtPkg + ".Errorf(\"%d of %d tests failed\", " + failed + ", " + total + ")\n\t}\n")
+	b.WriteString("\t" + fmtPkg + ".Printf(\"PASS (%s)\\n\", " + shown + ")\n")
+	b.WriteString("\treturn nil\n}\n\n")
+	return b.String()
+}
+
+// testRun writes the run of one test into the runner b: an example test
+// once, a property over every listed value or over testCases generated
+// cases.
+func (l *lowerer) testRun(b *strings.Builder, t *check.Test, scope *namer, env, seed, failed string) {
+	fmtPkg, run := l.helper("fmt"), l.helper("Case")
+	{
 		// The case runner takes the test's name, and its declaration's
 		// site, which a typed failure that escapes the body names.
 		name := strconv.Quote(t.Name) + ", " + strconv.Quote(l.siteText(t.Decl))
@@ -672,13 +720,13 @@ func (l *lowerer) testRunner() string {
 			b.WriteString("\tif " + run + "(" + taskOf(env) + ", " + name + ", nil, func() error { return " + l.testFunc(t) + "(" + env + ") }) {\n")
 			b.WriteString("\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+t.Name) + ")\n")
 			b.WriteString("\t} else {\n\t\t" + failed + "++\n\t}\n")
-			continue
+			return
 		}
 		// A property follows the rule of laws (Listed laws): when its
 		// parameters can all be listed, it takes each value once and is
 		// proved; else it draws testCases generated cases.
-		if l.listedTest(&b, t, scope, env, failed) {
-			continue
+		if l.listedTest(b, t, scope, env, failed) {
+			return
 		}
 		inner := newNamer(scope)
 		r, ok, i := inner.alloc("r"), inner.alloc("ok"), inner.alloc("i")
@@ -715,15 +763,6 @@ func (l *lowerer) testRunner() string {
 		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", t.Name, testCases)) + ")\n")
 		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n\t}\n")
 	}
-	for _, law := range l.runLaws() {
-		l.lawRuns(&b, law, scope, env, seed, failed)
-	}
-	b.WriteString("\tif " + failed + " > 0 {\n")
-	b.WriteString("\t\t" + fmtPkg + ".Printf(\"FAIL (%d of %d tests" + skipped + ")\\n\", " + failed + ", " + total + ")\n")
-	b.WriteString("\t\treturn " + fmtPkg + ".Errorf(\"%d of %d tests failed\", " + failed + ", " + total + ")\n\t}\n")
-	b.WriteString("\t" + fmtPkg + ".Printf(\"PASS (%d tests" + skipped + ")\\n\", " + total + ")\n")
-	b.WriteString("\treturn nil\n}\n\n")
-	return b.String()
 }
 
 // lawSlotParam reports whether the law's parameter i is a slot, an
@@ -1241,14 +1280,30 @@ func $LitEntries[K comparable, V any](typ string, m map[K]V, key func(K) string,
 	return typ + "{" + $strings.Join(parts, ", ") + "}"
 }
 
-// $Seed reads --seed N or --seed=N, N a decimal uint64, the seed of every
-// property; 1 by default. Any other argument is a usage error (exit 2).
+// $Only is the one test or law that --run NAME selects; "" runs every one.
+var $Only string
+
+// $Want reports whether the test or law name runs: every one runs when
+// --run names none.
+func $Want(name string) bool { return $Only == "" || $Only == name }
+
+// $Seed reads the test binary's arguments: --seed N or --seed=N, N a
+// decimal uint64, the seed of every property (1 by default), and --run
+// NAME or --run=NAME, the one test or law to run ($Only). Any other
+// argument is a usage error (exit 2).
 func $Seed() uint64 {
 	seed := uint64(1)
 	args := $os.Args[1:]
 	for i := 0; i < len(args); i++ {
 		v, a := "", args[i]
 		switch {
+		case a == "--run" && i+1 < len(args) && args[i+1] != "":
+			i++
+			$Only = args[i]
+			continue
+		case len(a) > len("--run=") && a[:len("--run=")] == "--run=":
+			$Only = a[len("--run="):]
+			continue
 		case a == "--seed" && i+1 < len(args):
 			i++
 			v = args[i]
@@ -1257,7 +1312,7 @@ func $Seed() uint64 {
 		}
 		n, err := $strconv.ParseUint(v, 10, 64)
 		if err != nil {
-			$fmt.Fprintln($os.Stderr, "usage: [--seed N], not "+a)
+			$fmt.Fprintln($os.Stderr, "usage: [--seed N] [--run NAME], not "+a)
 			$os.Exit(2)
 		}
 		seed = n
