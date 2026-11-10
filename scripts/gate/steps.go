@@ -274,6 +274,9 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		return nil, err
 	}
 	add(&Step{Name: "explored scheduler", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeout, "./runtime/rt"}, Weight: packageSeconds(durations[modulePath(root)+"/runtime/rt"]), Class: classHeavy})
+	// The explored build's worker (runtime/v1 explore_on.go): its guard
+	// alone, since the rest of runtime/v1 runs untagged.
+	add(&Step{Name: "explored worker", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeout, "-run", "^TestWorkerRetainsNoTask$", "./runtime/v1"}, Class: classHeavy})
 	var unsharded, hermetic []string
 	for _, pkg := range packages {
 		relative := strings.TrimPrefix(pkg, modulePath(root)+"/")

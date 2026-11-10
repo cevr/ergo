@@ -1,0 +1,15 @@
+// Package explore holds the schedule explorer's part of a test
+// (docs/spec/stdlib.md, Testing; docs/spec/runtime.md, Explored
+// schedules). `ergo test --explore dfs|pct|random` runs a source's tests
+// under many schedules; when one fails, it prints the failing test again
+// with its schedule, as a test that starts with Replay.
+
+// Replay makes the next scheduling points of an explored run follow
+// schedule: the tasks to pick, by spawn path, relative to the calling task
+// ("0" is the caller, "0.k" the k-th task it starts after the call). A
+// point whose named task is not enabled stops the run with a defect that
+// names the step: the test is not deterministic under the scheduler.
+// Under a plain `ergo test` there is no controlled scheduler, so Replay
+// does nothing and the test runs under Go's. Prior art: shuttle's
+// replay(f, schedule), Coyote's replay of a trace, Loom's checkpoint file.
+extern go ergo.local/prototype/runtime/v1.ExploreReplay func Replay(schedule []string)

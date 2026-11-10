@@ -13,10 +13,13 @@ import (
 )
 
 // testCommand runs a source's tests: `ergo test FILE [--seed N]
-// [--explore] [-work] [--target go]`. --explore links the same test module
-// with the ergoexplore tag, so its tasks run on one baton under the
+// [--explore [dfs|pct|random] [--preempt B] [--depth D] [--schedules S]]
+// [--schedule TOKEN] [-work] [--target go]`. --explore links the same test
+// module with the ergoexplore tag, so its tasks run on one baton under the
 // cooperative schedule, and a deadlock is a defect that names the tasks
-// (runtime.md, Explored schedules). It is a transport over sketchfront's test build
+// (runtime.md, Explored schedules). With a mode, the tests run under many
+// schedules in worker processes of the one binary, and a failure prints
+// its schedule (explore.go); --schedule replays one. It is a transport over sketchfront's test build
 // (build.ModeTest, lower.LowerTests): it checks the source, builds the test
 // binary into a private temporary directory, never the working directory,
 // dist/ or the module, and runs it as a child with --seed, through the
@@ -81,6 +84,15 @@ func testCommand(args []string) error {
 	limit, err := proclimit.Limit(os.Environ(), proclimit.DefaultLimit)
 	if err != nil {
 		return err
+	}
+	if opts.search.mode != "" {
+		// A search runs each schedule in a worker of the binary, each
+		// under the same limit (explore.go).
+		seed := uint64(1)
+		if opts.seed != "" {
+			seed, _ = strconv.ParseUint(opts.seed, 10, 64)
+		}
+		return exploreSearch(os.Stdout, l, binary, childArgs, opts.search, seed, limit)
 	}
 	child := exec.Command(binary, childArgs...)
 	child.Stdout = os.Stdout

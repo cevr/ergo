@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"ergo.local/prototype/internal/producer"
@@ -101,8 +102,11 @@ type fileOptions struct {
 	target, output     string
 	strict, json, work bool
 	// explore is test's --explore: the tests run under the controlled
-	// scheduler (runtime.md, Explored schedules).
+	// scheduler (runtime.md, Explored schedules). search is its mode
+	// (dfs, pct, random, or replay with --schedule) and bounds; with no
+	// mode the tests run once, under the cooperative schedule.
 	explore bool
+	search  exploreOptions
 	// seed is test's --seed, a decimal uint64; empty when not given.
 	seed string
 	file string
@@ -118,9 +122,9 @@ type fileOptions struct {
 // words after it are the program's arguments (`ergo run FILE|DIR [--]
 // ARGS...`, as `go run`).
 func parseFileOptions(command string, args []string) (fileOptions, error) {
-	opts := fileOptions{target: report.Target, command: command}
+	opts := fileOptions{target: report.Target, command: command, search: exploreDefaults("")}
 	var positional []string
-	seeded := false
+	seeded, searched := false, false
 	for i := 0; i < len(args); i++ {
 		if command == "run" && len(positional) == 1 {
 			opts.args = args[i:]
@@ -131,6 +135,15 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		}
 		if value, ok := strings.CutPrefix(args[i], "--seed="); ok {
 			opts.seed, seeded = value, true
+			continue
+		}
+		took, err := parseExploreFlag(&opts.search, args, i)
+		if err != nil {
+			return opts, err
+		}
+		if took > 0 {
+			searched = true
+			i += took - 1
 			continue
 		}
 		switch args[i] {
@@ -155,6 +168,10 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 			opts.work = true
 		case "--explore":
 			opts.explore = true
+			if i+1 < len(args) && slices.Contains(exploreModes, args[i+1]) {
+				opts.search.mode = args[i+1]
+				i++
+			}
 		default:
 			if strings.HasPrefix(args[i], "-") {
 				return opts, fmt.Errorf("unknown option %s", args[i])
@@ -176,8 +193,10 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("-o is only supported by build")
 	case opts.work && command != "build" && command != "test":
 		return opts, fmt.Errorf("-work is only supported by build and test")
-	case opts.explore && command != "test":
+	case (opts.explore || searched) && command != "test":
 		return opts, fmt.Errorf("--explore is only supported by test")
+	case searched && opts.search.mode == "":
+		return opts, fmt.Errorf("--preempt, --schedules and --depth need --explore dfs, pct or random")
 	case seeded && command != "test":
 		return opts, fmt.Errorf("--seed is only supported by test")
 	case seeded && !validSeed(opts.seed):
@@ -186,6 +205,10 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("incorrect arguments for %s", command)
 	}
 	opts.file = positional[0]
+	if opts.search.mode != "" {
+		// --schedule alone replays: it needs the explored build too.
+		opts.explore = true
+	}
 	if isPackageFolder(opts.file) {
 		return opts, nil
 	}

@@ -436,7 +436,7 @@ type Breaker machine[State, Signal] {
 
 ## Explored schedules
 
-Status: **seam implemented** (X5, explorer layer 2). The strategies (bounded search, PCT, random, replay) and the report are X6.
+Status: **seam and strategies implemented** (X5 and X6, explorer layer 2). The strategies (bounded search with partial-order reduction, PCT, random, replay), the worker processes and the report are in [stdlib.md, Explored schedules](stdlib.md#explored-schedules).
 
 `ergo test FILE --explore` runs the tests under a controlled scheduler instead of Go's. It links the same test module with the Go build tag `ergoexplore`; the tag is a flag of the link, not an input of the lowering, so the lowered Go text is the same with and without it (`ergo test --explore -work` names the module that `ergo test -work` names).
 
