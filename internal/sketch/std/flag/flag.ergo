@@ -202,6 +202,38 @@ func Get(a ArgSpec, v Values) Option[string] {
 // Rest is the positional arguments that the Remaining spec took.
 func Rest(v Values) []string { v.rest }
 
+// Given is a flag the command line gave: its long name and the text of
+// each occurrence it keeps, in input order (one for a scalar or optional
+// flag, its last; every one for a repeated flag).
+type Given { Name string, Texts []string }
+
+// Declared is the long name of each flag of v's set, in declaration order.
+func Declared(v Values) []string {
+	let mut out = []string{}
+	for f in v.set.Flags {
+		out = out.Append(nameOf(f))
+	}
+	out
+}
+
+// GivenFlags is each flag of v's set that the command line gave, in
+// declaration order. A flag left at its default is not given, so a layer
+// over other sources (std config) takes a flag only when it was typed.
+func GivenFlags(v Values) []Given {
+	let mut out = []Given{}
+	for f in v.set.Flags {
+		let xs = stored(f, v)
+		if len(xs) > 0 {
+			let mut texts = []string{}
+			for x in xs {
+				texts = texts.Append(shownValue(x))
+			}
+			out = out.Append(Given{Name: nameOf(f), Texts: texts})
+		}
+	}
+	out
+}
+
 // Render is a command line that parses to v again: each flag of v's set as
 // -name=value in declaration order, then "--", then the positional
 // arguments.
