@@ -126,6 +126,9 @@ func measure(rootSpelled string) ([]sizes.Receipt, error) {
 	if err := sameDefectReport(root, work, cache); err != nil {
 		return nil, err
 	}
+	if err := reproducible(root, work); err != nil {
+		return nil, err
+	}
 	return receipts, nil
 }
 
@@ -175,11 +178,41 @@ func buildBoth(dir, work, name string, cache build.Cache) ([2]string, build.Modu
 	return paths, module, nil
 }
 
+// reproducible checks the binaries measure built (binsize BS6; plan 3 (f)):
+// no fixture's file, stripped or not, holds the checkout's path, and
+// unused, hello's main.ergo plus a second file of declarations that main
+// never reaches, builds byte for byte hello's binaries. The byte equality
+// covers what a symbol search cannot: an initializer, a table entry and a
+// path of the unreachable declarations.
+func reproducible(root, work string) error {
+	data := map[string][]byte{}
+	for _, f := range fixtures {
+		for _, name := range []string{f.name, f.name + ".stripped"} {
+			b, err := os.ReadFile(filepath.Join(work, name))
+			if err != nil {
+				return err
+			}
+			if bytes.Contains(b, []byte(root)) {
+				return fmt.Errorf("%s holds the checkout's path %s", name, root)
+			}
+			data[name] = b
+		}
+	}
+	for _, name := range []string{"unused", "unused.stripped"} {
+		hello := strings.Replace(name, "unused", "hello", 1)
+		if !bytes.Equal(data[name], data[hello]) {
+			return fmt.Errorf("%s (%d bytes) differs from %s (%d bytes): a declaration main never reaches reached the binary", name, len(data[name]), hello, len(data[hello]))
+		}
+	}
+	return nil
+}
+
 // sameDefectReport builds the defect fixture with and without the symbol
 // table and runs both: the report (output, exit status) must be byte for
 // byte the same, since stripping keeps the pclntab the report reads (binsize
-// BS4). It builds Go because the stripped file exists only after the linker
-// runs; each run is bounded in memory by proclimit.
+// BS4). The report names its source relative to the fixture's folder
+// (binsize BS6). It builds Go because the stripped file exists only after
+// the linker runs; each run is bounded in memory by proclimit.
 func sameDefectReport(root, work string, cache build.Cache) error {
 	paths, _, err := buildBoth(filepath.Join(root, filepath.FromSlash(defectDir)), work, "defect", cache)
 	if err != nil {
@@ -198,7 +231,7 @@ func sameDefectReport(root, work string, cache build.Cache) error {
 		}
 		runs[i] = fmt.Sprintf("exit %d\n%s", cmd.ProcessState.ExitCode(), out.String())
 	}
-	if runs[0] != runs[1] || !strings.Contains(runs[0], "index out of range") {
+	if runs[0] != runs[1] || !strings.Contains(runs[0], "\tpick at main.ergo:2\n") {
 		return fmt.Errorf("the defect report differs between the --debug and the default build:\n--debug:\n%s\ndefault:\n%s", runs[0], runs[1])
 	}
 	return nil

@@ -110,6 +110,9 @@ type program struct {
 	// bindings the module bindings the check read, by Go import path.
 	goModule lower.GoModule
 	bindings map[string]string
+	// dir is the module root, or the root package's folder with no
+	// ergo.mod: the directory the emitted source names are relative to.
+	dir string
 }
 
 // loader reads and checks one program.
@@ -221,7 +224,7 @@ func checkDir(fsys FS, dir string) (Analysis, error) {
 			l.checkAll()
 		}
 	}
-	p := &program{texts: l.texts, bindings: l.bindings}
+	p := &program{texts: l.texts, bindings: l.bindings, dir: l.root}
 	if l.goMod != nil {
 		p.goModule = l.goMod.lowerModule(l.root, l.goSum)
 	}
@@ -625,6 +628,7 @@ func (p *program) unit() lower.Unit {
 		u.Imports = append(u.Imports, packageUnit(q))
 	}
 	u.Go = p.goModule
+	u.Root = p.dir
 	return u
 }
 

@@ -1,38 +1,3 @@
-// unused is hello plus declarations that main never reaches: a function,
-// a let with a marker text, a let whose initializer calls a function, a
-// record with a method, an operation type with a provider, and std
-// packages that only the unused code calls.
-
-import csv
-import sha256
-import hex
-import strings
-
-type Gauge { Name string, Level int }
-
-func Label(g Gauge) string { "gauge-marker-method " + g.Name }
-
-type Meter {
-	Read(name string) int,
-}
-
-type Fixed {}
-
-func Read(_ Fixed, name string) int { len("meter-marker-provider " + name) }
-
-let spareText = "let-marker-plain-text"
-
-let spareUpper = strings.ToUpper("let-marker-initializer-call")
-
-func spare(rows string) string {
-	let digest = hex.Encode(sha256.Sum("fn-marker-unused-function"))
-	let mut count = 0
-	for _ in csv.Rows(rows) {
-		count = count + 1
-	}
-	digest + "\(count)"
-}
-
 func main() needs Console {
 	Console.Println("hello")
 }

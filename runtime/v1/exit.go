@@ -220,6 +220,13 @@ func RegisterCalls(declTable []struct {
 // task's body (Go, runMain).
 const taskEntry = "ergo.local/prototype/runtime/v1.guarded["
 
+// ProgramModule is the module path of every emitted program (the
+// lowering's go.mod names it). A //line directive names a source relative
+// to the module root (binsize BS6), and go build -trimpath records that
+// name under the module path, ergo.local/program/main.ergo; ergoStack
+// reads a frame's file without it, as the tables name it.
+const ProgramModule = "ergo.local/program"
+
 // ergoStack is the Ergo call chain of a defect's Go stack, innermost
 // first. Only frames at a position of the program's source (a line
 // directive names its file) count; Go frames at no source position, the
@@ -298,6 +305,7 @@ func ergoStack(stack []byte) []string {
 		if i := strings.LastIndex(loc, " +0x"); i >= 0 {
 			loc = loc[:i]
 		}
+		loc = strings.TrimPrefix(loc, ProgramModule+"/")
 		i := strings.LastIndex(loc, ":")
 		if i < 0 || !files[loc[:i]] {
 			continue

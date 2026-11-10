@@ -25,7 +25,7 @@ import (
 // implements it, the module needs no download and no go.sum, and the build
 // key covers the runtime's exact bytes.
 const (
-	programModule = "ergo.local/program"
+	programModule = v1.ProgramModule
 	runtimeModule = "ergo.local/prototype"
 	runtimeDir    = "ergo"
 	runtimeImport = runtimeModule + "/runtime/v1"
@@ -459,7 +459,7 @@ func (l *lowerer) guard(f func()) {
 			}
 			s := l.srcs[src]
 			line, col := s.file.Position(ref.pos)
-			l.refusals = append(l.refusals, Refusal{Source: s.unit, Path: s.path, Offset: int(ref.pos), Line: line, Column: col, Message: ref.msg})
+			l.refusals = append(l.refusals, Refusal{Source: s.unit, Path: s.admitted, Offset: int(ref.pos), Line: line, Column: col, Message: ref.msg})
 		}
 	}()
 	f()

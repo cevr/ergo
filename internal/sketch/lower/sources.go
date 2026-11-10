@@ -42,10 +42,13 @@ import (
 // unit is its index in the unit's order (Refusal.Source).
 type srcFile struct {
 	file *syntax.File
-	path string
-	text string
-	pkg  *check.Package
-	unit int
+	// admitted is the absolute path diagnostics and refusals name; path is
+	// the name //line directives and the tables hold (emitName).
+	admitted string
+	path     string
+	text     string
+	pkg      *check.Package
+	unit     int
 }
 
 // lowerState is the lowering's current source file and the Info whose facts

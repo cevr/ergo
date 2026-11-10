@@ -130,6 +130,23 @@ func TestDefectReportAcrossObservations(t *testing.T) {
 	}
 }
 
+// TestDefectReportReadsTrimmedFrames: a program's tables name its sources
+// relative to its module root, and go build -trimpath records a frame of
+// one under the program's module path (binsize BS6). The report matches
+// the frame and names the relative file. Mutant bs6-trim-off.
+func TestDefectReportReadsTrimmedFrames(t *testing.T) {
+	RegisterCalls([]struct {
+		Name      string
+		File      string
+		Line, End int
+	}{{Name: "pick", File: "main.ergo", Line: 1, End: 3}}, nil)
+	t.Cleanup(func() { registered, decls, calls = false, nil, nil })
+	stack := "goroutine 1 [running]:\npanic({0x1, 0x2})\n\t/go/src/runtime/panic.go:787 +0x132\nmain.pick(...)\n\t" + ProgramModule + "/main.ergo:2 +0x18\n"
+	if frames := ergoStack([]byte(stack)); !slices.Equal(frames, []string{"pick at main.ergo:2"}) {
+		t.Fatalf("frames %q; want [pick at main.ergo:2]", frames)
+	}
+}
+
 // TestDefectReportFramesEndAtTheTaskBody: the Go body passed to Go, the
 // lowered task.Go block's entry, is not reported as a call; the frames
 // above it are, and nothing below it.
