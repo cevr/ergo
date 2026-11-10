@@ -1,10 +1,9 @@
 package rttrace
 
 import (
-	"fmt"
 	"io"
 	"os"
-	"reflect"
+	"strings"
 
 	"ergo.local/prototype/runtime/rt"
 )
@@ -152,18 +151,14 @@ func failureName(err error) string {
 	return typeName(err)
 }
 
+// typeName is the name of v's Go type, through its pointers; the type's
+// string when it has no name ([]int); "nil" for nil.
 func typeName(v any) string {
-	t := reflect.TypeOf(v)
-	if t == nil {
-		return "nil"
+	s := strings.TrimLeft(rt.TypeString(v), "*")
+	if name := rt.TypeName(s); name != "" {
+		return name
 	}
-	for t.Kind() == reflect.Pointer && t.Name() == "" {
-		t = t.Elem()
-	}
-	if t.Name() != "" {
-		return t.Name()
-	}
-	return t.String()
+	return s
 }
 
 // WriteJSONL writes the header and one line per record to w.
@@ -193,7 +188,18 @@ func WriteFile(path string, r *Recorder, revision, producer string, sites map[st
 	recs, inFlight := r.Records()
 	h := Header{Revision: revision, Producer: producer, Capacity: r.Cap(), Dropped: r.Dropped(), InFlight: inFlight}
 	if err := WriteJSONL(f, h, recs, sites); err != nil {
-		return fmt.Errorf("rttrace: write %s: %w", path, err)
+		return &writeError{path, err}
 	}
 	return nil
 }
+
+// writeError is WriteFile's failure to write path, which wraps err
+// without fmt (binsize BS2).
+type writeError struct {
+	path string
+	err  error
+}
+
+func (e *writeError) Error() string { return "rttrace: write " + e.path + ": " + e.err.Error() }
+
+func (e *writeError) Unwrap() error { return e.err }

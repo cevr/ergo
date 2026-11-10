@@ -544,6 +544,7 @@ func (l *lowerer) hostPkg(path string, site syntax.Node) string {
 		l.hostImports = map[string]bool{}
 	}
 	l.hostImports[path] = true
+	l.hostText = true // a Go package's panic value may need fmt's text
 	return l.pkgName(pkgKey{"import", path}, hostBase(path))
 }
 

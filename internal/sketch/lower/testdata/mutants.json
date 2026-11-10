@@ -1547,6 +1547,28 @@
       "killers": [
         "lower:TestMainImportsOnlyTheRuntimeLeavesItCalls"
       ]
+    },
+    {
+      "name": "bs2-hook-always",
+      "origin": "wf10 binsize BS2",
+      "file": "internal/sketch/lower/module.go",
+      "from": "\tif l.hostText {\n",
+      "to": "\tif true {\n",
+      "rule": "stdlib.md Types 4 (binsize BS2): a program imports the gofmt leaf only when it imports go or names a body of v1.NeedsHostText.",
+      "killers": [
+        "lower:TestMainImportsOnlyTheRuntimeLeavesItCalls"
+      ]
+    },
+    {
+      "name": "bs2-hook-never",
+      "origin": "wf10 binsize BS2",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "\tl.hostText = true // a Go package's panic value may need fmt's text\n",
+      "to": "",
+      "rule": "stdlib.md Types 4 (binsize BS2): a program that imports go imports the gofmt leaf, so a Go value of any type is written as fmt writes it.",
+      "killers": [
+        "lower:TestMainImportsOnlyTheRuntimeLeavesItCalls"
+      ]
     }
   ]
 }

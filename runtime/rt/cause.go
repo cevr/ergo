@@ -1,7 +1,7 @@
 package rt
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -189,18 +189,18 @@ func (c *Cause) Error() string {
 		}
 		switch r.Kind {
 		case KindFailure:
-			fmt.Fprintf(&b, "failure: %v", r.Err)
+			b.WriteString("failure: " + Text(r.Err))
 		case KindDefect:
 			if r.InRelease {
-				fmt.Fprintf(&b, "defect in release: %v", r.Value)
+				b.WriteString("defect in release: " + Text(r.Value))
 			} else {
-				fmt.Fprintf(&b, "defect: %v", r.Value)
+				b.WriteString("defect: " + Text(r.Value))
 			}
 			for _, f := range r.Chain {
-				fmt.Fprintf(&b, "\n  task #%d %s", f.Task, f.Span)
+				b.WriteString("\n  task #" + strconv.FormatUint(f.Task, 10) + " " + f.Span)
 			}
 			if r.ChainCut {
-				fmt.Fprintf(&b, "\n  %s", ChainCutLine)
+				b.WriteString("\n  " + ChainCutLine)
 			}
 		case KindInterruption:
 			b.WriteString("interrupted")

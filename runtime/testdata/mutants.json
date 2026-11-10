@@ -48,6 +48,22 @@
           "runtime:TestPackagesMatchTheirDirectories"
         ]
       }
+    },
+    {
+      "name": "bs2-core-imports-fmt",
+      "origin": "wf10 binsize BS2",
+      "file": "runtime/rt/cause.go",
+      "from": "import (\n",
+      "to": "import (\n\t_ \"fmt\"\n",
+      "rule": "stdlib.md Types 4 (binsize BS2): runtime/rt, runtime/rt/rttrace and runtime/v1 import no fmt, reflect or runtime/debug.",
+      "killers": [
+        "runtime:TestCoreHasNoInitRoots"
+      ],
+      "anchor": {
+        "tests": [
+          "runtime:TestCoreHasNoInitRoots"
+        ]
+      }
     }
   ]
 }

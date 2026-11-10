@@ -1,11 +1,9 @@
 package v1
 
 import (
-	"fmt"
 	"io"
 	"os"
-	"reflect"
-	"runtime/debug"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -50,14 +48,25 @@ type Panic struct {
 }
 
 // String is the panic value's text, as Go's panic report writes it.
-func (p *Panic) String() string { return fmt.Sprint(p.Value) }
+func (p *Panic) String() string { return rt.Text(p.Value) }
 
 // defectOf records p, a fresh defect recovered on the goroutine of task t,
 // with the Go stack at the panic and t's context values now. Call it inside
 // the recover, while the panicking frame is still on the stack, and before
-// the frame's regions close.
+// the frame's regions close. The stack is read as runtime/debug.Stack
+// reads it, without importing runtime/debug, which imports fmt (binsize
+// BS2).
 func defectOf(t *rt.Task, p any) *Panic {
-	return &Panic{Value: p, Stack: debug.Stack(), Context: contextOf(t)}
+	stack := make([]byte, 1024)
+	for {
+		n := runtime.Stack(stack, false)
+		if n < len(stack) {
+			stack = stack[:n]
+			break
+		}
+		stack = make([]byte, 2*len(stack))
+	}
+	return &Panic{Value: p, Stack: stack, Context: contextOf(t)}
 }
 
 // exit carries a recorded exit, in rt's canonical form, across lowered
@@ -209,7 +218,7 @@ func RegisterCalls(declTable []struct {
 
 // taskEntry starts the traceback line of guarded, the boundary of every
 // task's body (Go, runMain).
-var taskEntry = reflect.TypeFor[Panic]().PkgPath() + ".guarded["
+const taskEntry = "ergo.local/prototype/runtime/v1.guarded["
 
 // ergoStack is the Ergo call chain of a defect's Go stack, innermost
 // first. Only frames at a position of the program's source (a line
@@ -348,7 +357,7 @@ func ergoStack(stack []byte) []string {
 			if name != "" {
 				name += " "
 			}
-			add(fmt.Sprintf("%sat %s:%d", name, f.file, f.line), f.fn)
+			add(name+"at "+f.file+":"+strconv.Itoa(f.line), f.fn)
 			continue
 		}
 		if len(here) > 1 && frames[i-1].elided == "" {
@@ -369,13 +378,13 @@ func ergoStack(stack []byte) []string {
 		for _, j := range here[1:] {
 			callees = append(callees, calls[j].Callee)
 		}
-		add(fmt.Sprintf("%s calls %s at %s:%d:%d", c.Func, strings.Join(callees, " or "), c.File, c.Line, c.Column), f.fn)
+		add(c.Func+" calls "+strings.Join(callees, " or ")+" at "+c.File+":"+strconv.Itoa(c.Line)+":"+strconv.Itoa(c.Column), f.fn)
 	}
 	out := make([]string, len(entries))
 	for i, e := range entries {
 		out[i] = e.text
 		if e.times > 1 {
-			out[i] = fmt.Sprintf("%s (%d times)", e.text, e.times)
+			out[i] = e.text + " (" + strconv.Itoa(e.times) + " times)"
 		}
 	}
 	return out
@@ -453,12 +462,12 @@ func report(w io.Writer, err error) int {
 		switch r.Kind {
 		case rt.KindFailure:
 			interruptedOnly = false
-			fmt.Fprintf(w, "error: %v\n", r.Err)
+			io.WriteString(w, "error: "+rt.Text(r.Err)+"\n")
 		case rt.KindDefect:
 			defect, interruptedOnly = true, false
 			reportDefect(w, r)
 		case rt.KindInterruption:
-			fmt.Fprintln(w, "interrupted")
+			io.WriteString(w, "interrupted\n")
 		}
 	}
 	switch {
@@ -476,11 +485,11 @@ func report(w io.Writer, err error) int {
 // would claim success (0) or a status the shell reserves (126 and up), so
 // reportExit adds a line that names it and returns 1.
 func reportExit(w io.Writer, x Exit) int {
-	fmt.Fprintln(w, x.Message)
+	io.WriteString(w, x.Message+"\n")
 	if x.Code >= 1 && x.Code <= 125 {
 		return x.Code
 	}
-	fmt.Fprintf(w, "error: os.Exit code %d is outside 1..125\n", x.Code)
+	io.WriteString(w, "error: os.Exit code "+strconv.Itoa(x.Code)+" is outside 1..125\n")
 	return 1
 }
 
@@ -490,7 +499,7 @@ func reportDefect(w io.Writer, r rt.Reason) {
 	if r.InRelease {
 		where = " (in an exit action)"
 	}
-	fmt.Fprintf(w, "panic: %v%s\n", r.Value, where)
+	io.WriteString(w, "panic: "+rt.Text(r.Value)+where+"\n")
 	p, _ := r.Value.(*Panic)
 	var stack []byte
 	var context []Binding
@@ -499,25 +508,25 @@ func reportDefect(w io.Writer, r rt.Reason) {
 	}
 	if registered && len(stack) > 0 {
 		for _, s := range ergoStack(stack) {
-			fmt.Fprintf(w, "\t%s\n", s)
+			io.WriteString(w, "\t"+s+"\n")
 		}
 	}
 	if len(r.Chain) > 1 || len(context) > 0 {
 		for i, f := range r.Chain {
-			fmt.Fprintf(w, "\ttask #%d %s\n", f.Task, f.Span)
+			io.WriteString(w, "\ttask #"+strconv.FormatUint(f.Task, 10)+" "+f.Span+"\n")
 			if i == 0 && len(context) > 0 {
-				fmt.Fprint(w, "\t  context")
+				line := "\t  context"
 				for _, b := range context {
-					fmt.Fprintf(w, " %s.%s=%s", b.Package, b.Key, strconv.Quote(b.Text))
+					line += " " + b.Package + "." + b.Key + "=" + strconv.Quote(b.Text)
 				}
-				fmt.Fprintln(w)
+				io.WriteString(w, line+"\n")
 			}
 		}
 		if r.ChainCut {
-			fmt.Fprintf(w, "\t%s\n", rt.ChainCutLine)
+			io.WriteString(w, "\t"+rt.ChainCutLine+"\n")
 		}
 	}
 	if !registered && len(stack) > 0 {
-		fmt.Fprintf(w, "\n%s\n", stack)
+		io.WriteString(w, "\n"+string(stack)+"\n")
 	}
 }

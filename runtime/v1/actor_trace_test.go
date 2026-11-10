@@ -2,7 +2,6 @@ package v1
 
 import (
 	"fmt"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -112,7 +111,7 @@ func registerTestGraph(m tmachine) {
 			g.Timers[stateVariant(tstate{v: v})] = sigVariant(tsig{v: tm.sig})
 		}
 	}
-	graphs.Store(graphKey{reflect.TypeFor[tstate](), reflect.TypeFor[tsig]()}, g)
+	graphs.Store(graphKey{typeID[tstate](), typeID[tsig]()}, g)
 }
 
 // armSite is the site of a generated machine's i-th arm.

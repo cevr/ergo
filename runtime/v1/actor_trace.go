@@ -1,8 +1,9 @@
 package v1
 
 import (
-	"reflect"
+	"strings"
 	"sync"
+	"unsafe"
 
 	"ergo.local/prototype/runtime/rt"
 )
@@ -54,7 +55,7 @@ type MachineGraph struct {
 
 // graphKey is a machine's state and signal types: the key a runner finds
 // its machine's graph by.
-type graphKey struct{ state, signal reflect.Type }
+type graphKey struct{ state, signal unsafe.Pointer }
 
 // graphs holds each registered graph by its key; a key that two machines
 // share holds nil, since the runner could not tell their arms apart.
@@ -64,7 +65,7 @@ var graphs sync.Map // graphKey -> *MachineGraph
 // are S and signals E. Emitted code calls it once per machine before main
 // runs. A second machine with the same S and E makes both arm-less.
 func RegisterMachine[S, E any](g MachineGraph) {
-	k := graphKey{reflect.TypeFor[S](), reflect.TypeFor[E]()}
+	k := graphKey{typeID[S](), typeID[E]()}
 	if _, loaded := graphs.LoadOrStore(k, &g); loaded {
 		graphs.Store(k, (*MachineGraph)(nil))
 	}
@@ -72,11 +73,21 @@ func RegisterMachine[S, E any](g MachineGraph) {
 
 // VariantOf is the variant name of a value of the Go type T, as a runner
 // names one it holds: the type's name.
-func VariantOf[T any]() string { return reflect.TypeFor[T]().Name() }
+func VariantOf[T any]() string {
+	var p *T
+	return rt.TypeName(strings.TrimPrefix(rt.TypeString(p), "*"))
+}
+
+// typeID is the identity of the Go type T without reflect (binsize BS2):
+// the type word of a nil *T, which the Go runtime keeps once per type.
+func typeID[T any]() unsafe.Pointer {
+	var p any = (*T)(nil)
+	return (*[2]unsafe.Pointer)(unsafe.Pointer(&p))[0]
+}
 
 // graphOf is the registered graph of a, nil when none is.
 func (a *Actor[S, E, D]) graphOf() *MachineGraph {
-	g, _ := graphs.Load(graphKey{reflect.TypeFor[S](), reflect.TypeFor[E]()})
+	g, _ := graphs.Load(graphKey{typeID[S](), typeID[E]()})
 	gr, _ := g.(*MachineGraph)
 	return gr
 }
@@ -86,10 +97,10 @@ func variant(g *MachineGraph, v any) string {
 	if g != nil && g.Variant != nil {
 		return g.Variant(v)
 	}
-	if t := reflect.TypeOf(v); t != nil {
-		return t.Name()
+	if v == nil {
+		return ""
 	}
-	return ""
+	return rt.TypeName(rt.TypeString(v))
 }
 
 // arm is the site of g's first arm that takes the pair (state, signal),

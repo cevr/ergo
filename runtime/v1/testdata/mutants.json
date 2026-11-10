@@ -88,6 +88,39 @@
       "killers": [
         "runtime/v1:TestManualAdvanceSettles"
       ]
+    },
+    {
+      "name": "bs2-status-line",
+      "origin": "wf10 binsize BS2",
+      "file": "runtime/v1/exit.go",
+      "from": "\"error: os.Exit code \"+strconv.Itoa(x.Code)+\" is outside 1..125\\n\"",
+      "to": "\"error: os.Exit code is outside 1..125\\n\"",
+      "rule": "runtime.md Exit causes, os.Exit rule 2: the line of a code outside 1..125 names the code.",
+      "killers": [
+        "runtime/v1:TestReportMatchesFmt"
+      ]
+    },
+    {
+      "name": "bs2-report-failure-text",
+      "origin": "wf10 binsize BS2",
+      "file": "runtime/v1/exit.go",
+      "from": "io.WriteString(w, \"error: \"+rt.Text(r.Err)+\"\\n\")",
+      "to": "io.WriteString(w, \"error: \"+r.Err.Error()+\"\\n\")",
+      "rule": "runtime.md Exit causes (binsize BS2): a failure's line is fmt's %v of it, so a nil error or one whose Error panics is written, not raised.",
+      "killers": [
+        "runtime/v1:TestReportMatchesFmt"
+      ]
+    },
+    {
+      "name": "bs2-host-text-user-missing",
+      "origin": "wf10 binsize BS2",
+      "file": "runtime/v1/files.go",
+      "from": "\"MachineChild\", \"MachineStart\", ",
+      "to": "\"MachineChild\", ",
+      "rule": "stdlib.md Types 4 (binsize BS2): a program that names a body reaching rt.TypedText imports the gofmt leaf.",
+      "killers": [
+        "runtime/v1:TestHostTextUsersAreListed"
+      ]
     }
   ]
 }

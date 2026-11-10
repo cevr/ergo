@@ -1,9 +1,9 @@
 package v1
 
 import (
-	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"sync"
 
 	"ergo.local/prototype/runtime/rt"
@@ -122,7 +122,7 @@ func TasksNewSet(s *Scope, kind, limit int) *Set {
 		panic("tasks.NewSet: the frame that would own this set has returned (law R9)")
 	}
 	if limit < 0 {
-		panic(fmt.Sprintf("tasks.Restart: a negative limit %d", limit))
+		panic("tasks.Restart: a negative limit " + strconv.Itoa(limit))
 	}
 	set := &Set{owner: s.s.Task(), frame: s, kind: kind, limit: limit}
 	set.reg = &entry{task: set}

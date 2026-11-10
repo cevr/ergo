@@ -16,8 +16,10 @@ var corePackages = []string{"runtime/rt", "runtime/rt/rttrace", "runtime/v1"}
 // may import: each brings code or an init task of its own (crypto/sha256
 // alone was 230 KB of every program, binsize plan R1), so a body that needs
 // one is in a leaf of runtime/v1, which only a program that calls it
-// imports.
-var coreRefused = []string{"crypto/", "encoding/", "hash/", "os/exec"}
+// imports. fmt and reflect, with runtime/debug that imports fmt, were 70 KB
+// of every program (binsize BS2): the core writes a value with rt.Text,
+// and the gofmt leaf links fmt only into a program that needs it.
+var coreRefused = []string{"crypto/", "encoding/", "hash/", "os/exec", "fmt", "reflect", "runtime/debug"}
 
 // TestCoreHasNoInitRoots: the core packages declare no init function and
 // import no package of coreRefused. The Go linker keeps the init task of

@@ -1,7 +1,7 @@
 package v1
 
 import (
-	"fmt"
+	"strconv"
 	"time"
 
 	"ergo.local/prototype/runtime/rt"
@@ -526,7 +526,7 @@ func After[A any](span Site, t *rt.Task, s Sleeper, d time.Duration, body func(*
 // Effect.forEach with { concurrency }.
 func TasksTransform[A, B any](span Site, t *rt.Task, xs []A, limit int, f func(*rt.Task, A) (B, error)) ([]B, error) {
 	if limit < 1 {
-		panic(fmt.Sprintf("tasks.Transform: limit %d is less than 1", limit))
+		panic("tasks.Transform: limit " + strconv.Itoa(limit) + " is less than 1")
 	}
 	out, err := rt.MapSpan(t, string(span), xs, limit, func(ct *rt.Task, a A) (B, error) {
 		return guarded(ct, func(ct *rt.Task) (B, error) { return f(ct, a) })

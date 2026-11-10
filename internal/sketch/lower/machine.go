@@ -323,7 +323,7 @@ func (fc *funcCtx) positiveTimers(conv check.Conversion, after *check.Func, site
 		body := ind + gv + " := " + g + "\n" +
 			ind + o + ", " + err + " := " + gv + "(" + env + ", " + s + ")\n" +
 			ind + "if " + t + ", ok := " + o + ".(" + fc.goType(some) + "); ok && " + t + ".Value.In <= 0 {\n" +
-			ind + "\tpanic(" + fc.l.rt() + ".MachineTimerNotPositive(" + strconv.Quote(machine) + ", " + s + ", " + t + ".Value.In))\n" +
+			ind + "\tpanic(" + fc.l.rtRef("MachineTimerNotPositive") + "(" + strconv.Quote(machine) + ", " + s + ", " + t + ".Value.In))\n" +
 			ind + "}\n" +
 			ind + "return " + o + ", " + err + "\n"
 		return []string{s + " " + fc.goType(sig.Params[0].Type)}, fc.valueResults(sig.Results[0]), body

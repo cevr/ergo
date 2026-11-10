@@ -1,11 +1,14 @@
 {
-  "reason": "Ceilings are the Ergo-only bytes (fixture minus the Go hello control, default and stripped builds) measured on linux/amd64 with go1.27.0, plus 2 %, rounded up; Go package ceilings likewise, except hello, pure and relay, whose ceiling of 72 is the bound binsize BS1 states. BS0 set them at main f6802de7; BS1 (runtime/v1 leaves) lowered them. A unit that shrinks a fixture lowers its ceilings to its measured value plus 2 %; a unit that grows one past a ceiling raises it only with the reason in its request. Forbid lists facts: patterns of linked symbol names that must stay absent.",
+  "reason": "Ceilings are the Ergo-only bytes (fixture minus the Go hello control, default and stripped builds) measured on linux/amd64 with go1.27.0, plus 2 %, rounded up; Go package ceilings likewise. BS0 set them at main f6802de7; BS1 (runtime/v1 leaves) and BS2 (core without fmt and reflect) lowered them. A unit that shrinks a fixture lowers its ceilings to its measured value plus 2 %; a unit that grows one past a ceiling raises it only with the reason in its request. Forbid lists facts: patterns of linked symbol names that must stay absent.",
   "fixtures": {
     "hello": {
-      "ergoOnly": 649319,
-      "ergoOnlyStripped": 442860,
-      "goPackages": 72,
+      "ergoOnly": 347776,
+      "ergoOnlyStripped": 233964,
+      "goPackages": 69,
       "forbid": [
+        "^fmt\\.",
+        "^internal/fmtsort\\.",
+        "^reflect\\.",
         "^net/",
         "^encoding/json\\.",
         "^encoding/csv\\.",
@@ -18,10 +21,13 @@
       ]
     },
     "pure": {
-      "ergoOnly": 649442,
-      "ergoOnlyStripped": 442860,
-      "goPackages": 72,
+      "ergoOnly": 352566,
+      "ergoOnlyStripped": 238142,
+      "goPackages": 69,
       "forbid": [
+        "^fmt\\.",
+        "^internal/fmtsort\\.",
+        "^reflect\\.",
         "^net/",
         "^encoding/json\\.",
         "^encoding/csv\\.",
@@ -34,9 +40,9 @@
       ]
     },
     "unused": {
-      "ergoOnly": 1003509,
-      "ergoOnlyStripped": 697713,
-      "goPackages": 110,
+      "ergoOnly": 742570,
+      "ergoOnlyStripped": 522240,
+      "goPackages": 109,
       "forbid": [
         "^net/",
         "^encoding/json\\.",
@@ -46,10 +52,13 @@
       ]
     },
     "relay": {
-      "ergoOnly": 680887,
-      "ergoOnlyStripped": 467928,
-      "goPackages": 72,
+      "ergoOnly": 380266,
+      "ergoOnlyStripped": 259032,
+      "goPackages": 69,
       "forbid": [
+        "^fmt\\.",
+        "^internal/fmtsort\\.",
+        "^reflect\\.",
         "^net/",
         "^encoding/json\\.",
         "^encoding/csv\\.",
@@ -62,10 +71,13 @@
       ]
     },
     "kvstore": {
-      "ergoOnly": 1125661,
-      "ergoOnlyStripped": 764560,
-      "goPackages": 74,
+      "ergoOnly": 874448,
+      "ergoOnlyStripped": 593265,
+      "goPackages": 70,
       "forbid": [
+        "^fmt\\.",
+        "^internal/fmtsort\\.",
+        "^reflect\\.",
         "^net/",
         "^encoding/json\\.",
         "^encoding/csv\\.",
@@ -76,10 +88,13 @@
       ]
     },
     "deploys": {
-      "ergoOnly": 977850,
-      "ergoOnlyStripped": 676824,
-      "goPackages": 73,
+      "ergoOnly": 722674,
+      "ergoOnlyStripped": 501351,
+      "goPackages": 69,
       "forbid": [
+        "^fmt\\.",
+        "^internal/fmtsort\\.",
+        "^reflect\\.",
         "^net/",
         "^encoding/json\\.",
         "^encoding/csv\\.",

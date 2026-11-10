@@ -13,10 +13,15 @@ import (
 // Go linker keeps the init task of every imported package, so hello must
 // import runtime/v1 and runtime/rt and no leaf, and a program that calls
 // hex.Encode and reads a csv.ParseError imports exactly the digest and csv
-// leaves. The import set is the size rule itself, not a shape of the
+// leaves. The gofmt leaf, which links fmt for its init alone (binsize
+// BS2), is imported by a program that imports go and by one with a
+// machine timer, whose defect writes the state with fmt, and by no
+// other. The import set is the size rule itself, not a shape of the
 // lowered Go.
-// Mutants: bs1-import-all-leaves (main.go imports every leaf) and
-// bs1-leaf-in-core (rtRef names every declaration through runtime/v1).
+// Mutants: bs1-import-all-leaves (main.go imports every leaf),
+// bs1-leaf-in-core (rtRef names every declaration through runtime/v1),
+// bs2-hook-always (every program imports gofmt) and bs2-hook-never (a
+// program that imports go does not).
 func TestMainImportsOnlyTheRuntimeLeavesItCalls(t *testing.T) {
 	const leaf = runtimeImport + "/"
 	cases := []struct {
@@ -25,6 +30,8 @@ func TestMainImportsOnlyTheRuntimeLeavesItCalls(t *testing.T) {
 	}{
 		{"hello", "func main() needs Console {\n\tConsole.Println(\"hello\")\n}\n", nil},
 		{"digest and csv", "import csv\nimport hex\n\nfunc main() needs Console {\n\tlet rows = csv.ReadAll(hex.Encode(\"a\")) catch {\n\t\tcase csv.ParseError: [][]string{}\n\t}\n\tConsole.Println(\"\\(len(rows))\")\n}\n", []string{leaf + "csv", leaf + "digest"}},
+		{"import go", "import go strconv\n\nfunc main() needs Console {\n\tlet n = strconv.ParseInt(\"12\", 10, 64) catch { case go.Error: -1 }\n\tConsole.Println(\"\\(n)\")\n}\n", []string{leaf + "gofmt"}},
+		{"machine timer", machineTimerProgram(1, false), []string{leaf + "gofmt"}},
 	}
 	for _, c := range cases {
 		out := lowerSource(c.name, c.src, true)

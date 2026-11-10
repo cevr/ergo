@@ -1,0 +1,49 @@
+{
+  "about": "The mutant ledger of runtime/rt: edits of the task runtime that a runtime/rt test must kill. Run it with go run ./scripts/mutants ./runtime/rt (docs/tooling.md, \"Mutant ledger\"). Seeded by binsize BS2 (value texts without fmt or reflect).",
+  "mutants": [
+    {
+      "name": "bs2-anytext-no-error",
+      "origin": "wf10 binsize BS2",
+      "file": "runtime/rt/text.go",
+      "from": "\tcase error:\n\t\treturn methodText(v, \"Error\", x.Error)\n",
+      "to": "\tcase error:\n\t\treturn \"error\"\n",
+      "rule": "stdlib.md Types 4 (binsize BS2): rt.Text writes an error as fmt's %v does, by its Error method.",
+      "killers": [
+        "runtime/rt:TestTextMatchesFmt"
+      ]
+    },
+    {
+      "name": "bs2-anytext-int",
+      "origin": "wf10 binsize BS2",
+      "file": "runtime/rt/text.go",
+      "from": "\tcase int:\n\t\treturn strconv.FormatInt(int64(x), 10)\n",
+      "to": "",
+      "rule": "stdlib.md Types 4 (binsize BS2): rt.Text writes every Go integer kind as fmt's %v does.",
+      "killers": [
+        "runtime/rt:TestTextMatchesFmt"
+      ]
+    },
+    {
+      "name": "bs2-anytext-nil-pointer",
+      "origin": "wf10 binsize BS2",
+      "file": "runtime/rt/text.go",
+      "from": "\t\t\tif nilPointer(v) {\n",
+      "to": "\t\t\tif false {\n",
+      "rule": "stdlib.md Types 4 (binsize BS2): an Error method that panics on a nil pointer writes <nil>, as fmt does.",
+      "killers": [
+        "runtime/rt:TestTextMatchesFmt"
+      ]
+    },
+    {
+      "name": "bs2-typename-generic",
+      "origin": "wf10 binsize BS2",
+      "file": "runtime/rt/text.go",
+      "from": "\t\tcase ']':\n\t\t\tbrackets++\n",
+      "to": "\t\tcase ']':\n",
+      "rule": "stdlib.md Types 4 (binsize BS2): rt.TypeName gives reflect's Type.Name, a generic type's name with its arguments.",
+      "killers": [
+        "runtime/rt:TestTypeStringMatchesReflect"
+      ]
+    }
+  ]
+}

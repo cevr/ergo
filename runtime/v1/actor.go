@@ -1,9 +1,9 @@
 package v1
 
 import (
-	"fmt"
 	"iter"
 	"math"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -317,7 +317,7 @@ func MachineSupervise[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial
 	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D), capacity int) *Actor[S, E, D] {
 	if limit < 0 {
-		panic(fmt.Sprintf("actor.Supervise: a negative restart limit %d", limit))
+		panic("actor.Supervise: a negative restart limit " + strconv.Itoa(limit))
 	}
 	if limit == 0 {
 		// No restart: the runner of MachineStart, which never calls fresh.
@@ -429,7 +429,7 @@ func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 	out func(*rt.Task, D), capacity int, report func(*rt.Task, error) bool,
 	fresh func(*rt.Task) (S, error), limit int) *Actor[S, E, D] {
 	if capacity < 0 {
-		panic(fmt.Sprintf("actor.StartMachine: negative capacity %d", capacity))
+		panic("actor.StartMachine: negative capacity " + strconv.Itoa(capacity))
 	}
 	a := &Actor[S, E, D]{
 		sleeper: sl, span: string(span),

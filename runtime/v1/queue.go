@@ -1,8 +1,8 @@
 package v1
 
 import (
-	"fmt"
 	"iter"
+	"strconv"
 	"sync"
 
 	"ergo.local/prototype/runtime/rt"
@@ -92,7 +92,7 @@ type sender[T any] struct {
 // New is queue.New[T](capacity).
 func New[T any](capacity int) *Queue[T] {
 	if capacity < 0 {
-		panic(fmt.Sprintf("queue.New: negative capacity %d", capacity))
+		panic("queue.New: negative capacity " + strconv.Itoa(capacity))
 	}
 	return &Queue[T]{capacity: capacity}
 }

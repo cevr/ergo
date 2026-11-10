@@ -194,6 +194,22 @@ const Path = runtimefiles.Module + "/runtime/v1"
 // by its Go name alone, as before, and PackageOf finds its package.
 var Leaves = []string{"csv", "digest", "exec", "rand"}
 
+// HostText is the import path of the gofmt leaf, which makes fmt the
+// runtime's text of a value the core cannot write without it (rt.Text,
+// rt.TypedText; binsize BS2). It declares no body: a program imports it
+// for its init alone, when it imports go or names a body of hostTextUsers.
+const HostText = Path + "/gofmt"
+
+// hostTextUsers are the exported declarations of runtime/v1 that can
+// write a value with rt.TypedText: a machine's state in the defect of a
+// timer that is not positive. TestHostTextUsersAreListed holds the list
+// against the call graph of runtime/v1.
+var hostTextUsers = []string{"MachineChild", "MachineStart", "MachineSupervise", "MachineTimerNotPositive"}
+
+// NeedsHostText reports whether a program that names the runtime/v1
+// declaration name imports the gofmt leaf (HostText).
+func NeedsHostText(name string) bool { return slices.Contains(hostTextUsers, name) }
+
 // Owns reports whether the Go package path is runtime/v1 or one of its
 // leaves: the packages whose exported functions are std bodies.
 func Owns(path string) bool {
