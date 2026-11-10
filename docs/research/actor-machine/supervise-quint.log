@@ -1,9 +1,0 @@
-design safe: [ok] (want [ok])
-design noRestart: [violation] (want [violation])
-design noExhaustion: [violation] (want [violation])
-design noFreshAfterCommits: [violation] (want [violation])
-reuseState safe: [violation] (want [violation])
-askUnanswered safe: [violation] (want [violation])
-restartAfterDone safe: [violation] (want [violation])
-budgetOffByOne safe: [violation] (want [violation])
-MODEL_STATUS=0

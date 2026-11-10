@@ -108,7 +108,7 @@ import (
 //     runs after the actor's end, and the actor's stop interrupts a
 //     source that waits. A source that ends ends only its feed; a defect
 //     of a source ends the actor, as a work's defect does (rule 10).
-//  15. Hosts (mu-host; actor_host.go, the model host.qnt): NewHost in a
+//  15. Hosts (mu-host; actor_host.go, the model models/host): NewHost in a
 //     step (on the runner's task) keeps the host for the entry the step's
 //     decision opens (Enter, Emit) or keeps (Stay); any other decision, a
 //     failure or a defect closes it, and a host made anywhere else is
@@ -119,7 +119,7 @@ import (
 //     the work filled them, reached its first wait (rt.WhenWaiting) or
 //     ended.
 //  16. Supervision (MU7; MachineSupervise, the model
-//     docs/research/actor-machine/supervise.qnt): a supervised actor's
+//     models/supervise): a supervised actor's
 //     incarnation that ends with a defect (of a step, a timer, a work, a
 //     child, a source, a save, or of fresh) is restarted by tasks.Restart's
 //     rule (restartable, as a Set's member is): while the actor's stop is

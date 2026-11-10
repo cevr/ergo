@@ -349,7 +349,7 @@ func journalLawTestName(key string) string {
 // builds Go because the laws run the durable actor of std actor and
 // journal on the lowered runtime, as ergo test runs them; no interpreter
 // has the actor runner. MemoryRecoveryIsTheFold is the model-based test of
-// durable.qnt (MU9's acceptance).
+// models/durable (MU9's acceptance).
 func TestStdJournalLawsRun(t *testing.T) {
 	needsBuild(t)
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "stdjournal", journalLawsProbe)}, true)

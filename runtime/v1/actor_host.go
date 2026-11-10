@@ -7,7 +7,7 @@ import (
 )
 
 // Hosts (rule 15 of the runner contract in actor.go; std actor.Host, the
-// model docs/research/actor-machine/host.qnt). A host is an empty slot for
+// model models/host). A host is an empty slot for
 // a child that a step makes and puts in the state it enters. The runner
 // binds it to that entry; the entry's work fills it with actor.ChildIn;
 // Get waits for the fill and fails ActorStopped once the entry ended. So a

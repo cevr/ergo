@@ -5,3 +5,6 @@ docs/research/ef-migrate/lifecycle.ergo
 docs/research/ef-migrate/machine-breaker.ergo
 docs/research/ef-migrate/main.ergo
 models/children/children.ergo
+models/durable/durable.ergo
+models/host/host.ergo
+models/supervise/supervise.ergo
