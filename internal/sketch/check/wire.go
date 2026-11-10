@@ -23,8 +23,8 @@ import "fmt"
 
 // wireReason is "" when t has a wire form, else why not: the first part
 // of t that has none, and the path to it from t (S108's text).
-func wireReason(t Type) string {
-	path, bad := wireWalk(t, map[Type]bool{})
+func (c *checker) wireReason(t Type) string {
+	path, bad := c.wireWalk(t, map[Type]bool{})
 	if bad == nil {
 		return ""
 	}
@@ -43,7 +43,7 @@ type wireFault struct {
 // wireWalk returns the path to the first part of t with no wire form and
 // that part, or a nil fault. seen holds the named types on the way, so a
 // recursive type is wire when its other parts are.
-func wireWalk(t Type, seen map[Type]bool) (string, *wireFault) {
+func (c *checker) wireWalk(t Type, seen map[Type]bool) (string, *wireFault) {
 	if tp, ok := t.(*TypeParam); ok {
 		if typeSet(tp) == SetWire {
 			return "", nil
@@ -51,6 +51,12 @@ func wireWalk(t Type, seen map[Type]bool) (string, *wireFault) {
 		return "", &wireFault{t, "is a type parameter without the codable constraint"}
 	}
 	if RefinementOf(t) != nil {
+		return "", nil
+	}
+	if p := c.wirePair(t); p != nil {
+		if _, bad := c.wireWalk(p.Base, seen); bad != nil {
+			return "", &wireFault{t, fmt.Sprintf("has the wire form %s, which is not "+SetWire.String(), p.Base)}
+		}
 		return "", nil
 	}
 	if n, ok := t.(*Named); ok {
@@ -72,30 +78,30 @@ func wireWalk(t Type, seen map[Type]bool) (string, *wireFault) {
 			}
 		}
 		for _, f := range u.Fields {
-			if p, bad := wireWalk(f.Type, seen); bad != nil {
+			if p, bad := c.wireWalk(f.Type, seen); bad != nil {
 				return "." + f.Name + p, bad
 			}
 		}
 		return "", nil
 	case *Union:
 		for _, v := range u.Variants {
-			if p, bad := wireWalk(v, seen); bad != nil {
+			if p, bad := c.wireWalk(v, seen); bad != nil {
 				return fmt.Sprintf(".(%s)", v) + p, bad
 			}
 		}
 		return "", nil
 	case *Slice:
-		p, bad := wireWalk(u.Elem, seen)
+		p, bad := c.wireWalk(u.Elem, seen)
 		return "[_]" + p, bad
 	case *Map:
 		if !isString(u.Key) {
 			return "", &wireFault{t, fmt.Sprintf("has the key type %s, which is not a string", u.Key)}
 		}
-		p, bad := wireWalk(u.Elem, seen)
+		p, bad := c.wireWalk(u.Elem, seen)
 		return "[k]" + p, bad
 	case *Tuple:
 		for i, e := range u.Types {
-			if p, bad := wireWalk(e, seen); bad != nil {
+			if p, bad := c.wireWalk(e, seen); bad != nil {
 				return fmt.Sprintf(".%d", i) + p, bad
 			}
 		}

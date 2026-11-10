@@ -67,7 +67,7 @@ func (c *checker) callOf(x *syntax.CallExpr, hint Type) operand {
 		}
 		return c.conversion(x, fun.typ)
 	case modeBuiltin:
-		return c.builtin(x, fun.obj.(*Builtin))
+		return c.builtin(x, fun.obj.(*Builtin), fun.typ)
 	case modeCapFn:
 		c.charge(x, fun.cap)
 		return c.callSig(x, fun.typ.(*Signature), fun)
@@ -1195,10 +1195,16 @@ func (c *checker) unreachable(x *syntax.CallExpr, sig *Signature, fun operand, h
 // builtin checks a call of len, the one built-in function (#196, fourth
 // round, item 2): its argument is a slice, a Map or a string, and its value
 // an int; the length of a constant string is a constant.
-func (c *checker) builtin(x *syntax.CallExpr, b *Builtin) operand {
+func (c *checker) builtin(x *syntax.CallExpr, b *Builtin, targ Type) operand {
 	if x.Trailing != nil {
 		c.errorf(x.Trailing, CodeType, "%s takes no block", b.Name)
 		return bad(x)
+	}
+	switch b.Name {
+	case "encode":
+		return c.encodeCall(x)
+	case "decode":
+		return c.decodeCall(x, targ)
 	}
 	if b.Name != "len" {
 		c.errorf(x, CodeType, "unknown built-in %s", b.Name)

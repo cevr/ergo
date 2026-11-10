@@ -1417,6 +1417,15 @@ func (c *checker) index(x *syntax.IndexExpr, hint Type) operand {
 		return bad(x)
 	case modeGeneric:
 		return c.explicit(x, base)
+	case modeBuiltin:
+		// decode[T] names the type decode builds (types.md, Codecs).
+		if b, _ := base.obj.(*Builtin); b != nil && b.Name == "decode" && len(x.Indices) == 1 {
+			t := c.typExpr(x.Indices[0], c.localTypeCtx())
+			if isInvalid(t) {
+				return bad(x)
+			}
+			return operand{mode: modeBuiltin, obj: b, typ: t}
+		}
 	case modeExtern:
 		// F[int] is still the extern's reference; (F)[int] reads (F) as a
 		// value first, as for any generic function (round 5), and a
