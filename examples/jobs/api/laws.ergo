@@ -60,6 +60,22 @@ func answerOf(r http.Response) Answer {
 	Answer{Status: r.Status, Body: r.Body, Location: http.Header(r.Header, "Location"), Allow: http.Header(r.Header, "Allow")}
 }
 
+// AnswerText is a, one line: status, Location, Allow and body.
+func AnswerText(a Answer) string {
+	let mut text = "\(a.Status)"
+	match a.Location {
+	case Some[string] as l:
+		text = text + " Location: " + l.Value
+	case None:
+	}
+	match a.Allow {
+	case Some[string] as l:
+		text = text + " Allow: " + l.Value
+	case None:
+	}
+	text + " " + a.Body
+}
+
 func plain(status int, body string) Answer { Answer{Status: status, Body: body, Location: None, Allow: None} }
 
 func refusal(status int, message string) Answer { plain(status, ProblemText(Problem{Error: message})) }
@@ -150,7 +166,14 @@ func Expect(model Model, r http.Request) (Answer, Model) {
 			case _:
 				return (plain(0, "the model sends no other body"), model)
 			}
-			let e = Entry{Name: d.Name, Priority: PriorityOf(d), Created: model.Now, Cancelled: None}
+			// The model's own rule for a missing priority, not PriorityOf.
+			let priority = match d.Priority {
+			case json.Present[int] as p:
+				p.Value
+			case json.Absent:
+				0
+			}
+			let e = Entry{Name: d.Name, Priority: priority, Created: model.Now, Cancelled: None}
 			let id = model.Last + 1
 			let mut entries = model.Entries
 			entries[id] = e
@@ -223,7 +246,7 @@ func Disagreement(store jobs.Store, moves []int) string {
 				let got = answerOf(Handle(r))
 				let (want, next) = Expect(model, r)
 				if got != want {
-					return log + "handle: \(got.Status) " + got.Body + "\nmodel:  \(want.Status) " + want.Body
+					return log + "handle: " + AnswerText(got) + "\nmodel:  " + AnswerText(want)
 				}
 				model = next
 			}

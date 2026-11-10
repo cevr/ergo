@@ -23,7 +23,7 @@ The program is a module of packages (`ergo.mod`: `module jobs`), in the Go layou
 | --- | --- |
 | `jobs/` | The domain package, with no HTTP and no JSON. `job.ergo`: `State`, `Signal`, `Job`, the failures `NotFound` and `Conflict`, `Step`, `Timer`, the machine `Lifecycle`, `Settle` and `Apply`. `store.ergo`: the contract `Store` with five laws, and the failure `Stale`. `queue.ergo`: `Submit`, `Find`, `List`, `CancelJob` and `Remove`, over the `Store` and the `time.Clock` in the context. `laws.ergo`: the lifecycle laws. |
 | `memory/` | `Table`, a `jobs.Store` in a `sync.Ref`. `ergo test` runs the `Store` laws here. |
-| `api/` | The HTTP layer: `routes.ergo` (`Endpoint`, the route table for `http.Match`), `wire.ergo` (the JSON records `Draft`, `View`, `Listing`, `Problem`), `handle.ergo` (`Handle`, the one catch from failure to status, and `WithSite`), `laws.ergo` (the model law), `tests.ergo`. |
+| `api/` | The HTTP layer: `routes.ergo` (`Endpoint`, the route table for `http.Match`), `wire.ergo` (the JSON records `Draft`, `View`, `Listing`, `Problem`), `handle.ergo` (`Handle`, the one catch from failure to status, and `WithSite`), `laws.ergo` (the model law), `tests.ergo` (imports `memory`, so the law runs against `memory.Table`). |
 | `cmd/jobs/` | The binary. It binds `jobs.Store` to a `memory.Table`, `time.Clock` to the host's clock (or a manual one under `-replay`), the listener to `-addr` and the site's root to `-site`. It is the only place that chooses them. |
 
 ## What it shows
@@ -41,9 +41,11 @@ The program is a module of packages (`ergo.mod`: `module jobs`), in the Go layou
 | --- | --- | --- | --- |
 | `UntakenJobIsDoneOnTime` | jobs | a job no one cancels is queued, running and done at the right times, to the ms | a timer that fires 1 ms late |
 | `SettleComposes` | jobs | settling twice is settling once to the later time | a timer that fires at the read time, not its own |
-| `CancelBeforeTheEnd` | jobs | a cancel succeeds exactly before the end, and names the state when it fails | an ended job that takes a cancel |
-| `Store.AddIsQueued`, `AllByAscendingId`, `SwapFromCurrent`, `StaleSwapChangesNothing`, `RemoveForgets` | contract, run in `memory` | the store keeps, lists, swaps and forgets jobs, and a stale change changes nothing | a swap that ignores the old job |
-| `AgreesWithModel` | api, with `memory.Table` | generated request sequences, with clock moves between them, get the model's status, body, `Location` and `Allow` at each step | see the request's mutant list |
+| `CancelBeforeTheEnd` | jobs | a cancel succeeds exactly before the end, and names the state when it fails | a done job that is not ended |
+| `Store.AddIsQueued`, `AllByAscendingId`, `SwapFromCurrent`, `StaleSwapChangesNothing`, `RemoveForgets` | contract, run in `memory` | the store keeps, lists, swaps and forgets jobs, and a stale change changes nothing | a swap that compares ids, not jobs |
+| `AgreesWithModel` | api, with `memory.Table` | generated request sequences, with clock moves between them, get the model's status, body, `Location` and `Allow` at each step | a done job that is not ended; `ended` never set; a missing priority that is not 0; an `Allow` of one method; a lost `Location`; a delete of a running job; 409 given as 400 |
+
+Two mutants no law sees are caught elsewhere: a `case _` in `Handle`'s catch by `TestJobsFailureNeedsAStatus`, and an id with a leading zero (`/jobs/01`) taken as job 1 by the case `refusals`. Each mutant was applied once and killed by an assertion (measured).
 
 ## Run it
 
