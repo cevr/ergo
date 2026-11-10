@@ -33,7 +33,7 @@
       "origin": "wf10 G1",
       "file": "internal/sketch/std/http/http.ergo",
       "from": "strings.EqualFold(f.Name, name)",
-      "to": "f.Name == name",
+      "to": "strings.Compare(f.Name, name) == 0",
       "rule": "Header lookup ignores case and preserves absence.",
       "killers": ["lower:TestStdHTTPLawsRun"]
     },

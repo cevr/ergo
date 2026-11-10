@@ -109,7 +109,19 @@ func TestHTTPServerMatchesModel(t *testing.T) {
 		t.Run(strconv.FormatUint(seed, 10), func(t *testing.T) {
 			var mu sync.Mutex
 			store := map[string]string{}
-			l, server := startHTTP(t, func(_ *rt.Task, method, path string, query, header []HTTPField, body string, tooLarge bool, readError string) HTTPResponse {
+			l, server := startHTTP(t, func(_ *rt.Task, method, path string, query, header []HTTPField, body string, tooLarge bool, readError string) (response HTTPResponse) {
+				defer func() {
+					var queryText, echo string
+					for _, field := range query {
+						queryText += field.Name + "=" + field.Value + ";"
+					}
+					for _, field := range header {
+						if strings.EqualFold(field.Name, "X-Echo") {
+							echo = field.Value
+						}
+					}
+					response.Header = []HTTPField{{"X-Query", queryText}, {"X-Request-Echo", echo}}
+				}()
 				mu.Lock()
 				defer mu.Unlock()
 				if tooLarge {
@@ -135,6 +147,23 @@ func TestHTTPServerMatchesModel(t *testing.T) {
 				}
 			})
 			client := httpClient(t)
+			// Exceed Go's header budget, including its parser read-ahead
+			// allowance. This protocol refusal happens before the handler.
+			ctx, cancel := testwait.Context(t, context.Background())
+			defer cancel()
+			largeHeader, err := http.NewRequestWithContext(ctx, "GET", "http://"+l.Addr()+"/headers", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			largeHeader.Header.Set("X-Padding", strings.Repeat("h", 12288+int(seed)))
+			refused, err := client.Do(largeHeader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = httpText(t, refused)
+			if refused.StatusCode != 431 {
+				t.Fatalf("seed %d: header budget status %d, want 431", seed, refused.StatusCode)
+			}
 			// A half-closed, truncated request still gets the program's
 			// read-failed response, rather than a successful partial body.
 			conn, err := net.Dial("tcp", l.Addr())
@@ -188,9 +217,11 @@ func TestHTTPServerMatchesModel(t *testing.T) {
 				if method == "HEAD" {
 					want = ""
 				}
-				resp := httpRequest(t, client, method, "http://"+l.Addr()+path, body)
+				query := "tag=" + strconv.FormatUint(seed, 10) + "&tag=" + strconv.Itoa(step)
+				resp := httpRequest(t, client, method, "http://"+l.Addr()+path+"?"+query, body)
 				got := httpText(t, resp)
-				if resp.StatusCode != status || got != want || responseBody == "" && resp.Header.Get("Content-Type") != "" {
+				wantQuery := "tag=" + strconv.FormatUint(seed, 10) + ";tag=" + strconv.Itoa(step) + ";"
+				if resp.StatusCode != status || got != want || responseBody == "" && resp.Header.Get("Content-Type") != "" || resp.Header.Get("X-Query") != wantQuery || resp.Header.Get("X-Request-Echo") != "value" {
 					t.Fatalf("seed %d step %d\nrequests: %q\nserver: %d %q %v\nmodel: %d %q\nreplay: go test ./runtime/v1 -run TestHTTPServerMatchesModel/%d", seed, step, trace, resp.StatusCode, got, resp.Header, status, want, seed)
 				}
 			}

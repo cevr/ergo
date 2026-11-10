@@ -242,11 +242,11 @@ func (s *httpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if c.response.Body == "" {
 		// A nil value suppresses net/http's content sniffing without
-		// writing an empty Content-Type header onto the wire.
+		// writing an empty Content-Type header in the HTTP output.
 		w.Header()["Content-Type"] = nil
 	}
 	w.WriteHeader(c.response.Status)
-	// net/http suppresses HEAD's wire body and still computes the GET
+	// net/http suppresses HEAD's body and still computes the GET
 	// content length and content type from this buffered representation.
 	if c.response.Body != "" {
 		_, _ = io.WriteString(w, c.response.Body)

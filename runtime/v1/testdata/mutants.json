@@ -1,11 +1,12 @@
 {
   "about": "G1 HTTP server mutants. Runtime tests run in process; scripts/mutants does not yet register a runtime/v1 suite, so the round request records the focused mutation runs.",
   "mutants": [
+    {"name":"http-header-budget", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"MaxHeaderBytes: limits.MaxHeaderBytes", "to":"MaxHeaderBytes: 1 << 20", "rule":"The required header budget configures the HTTP parser rather than silently using another cap.", "killers":["runtime/v1:TestHTTPServerMatchesModel"]},
     {"name":"http-body-budget", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"in.TooLarge = true", "to":"in.Body = string(body)", "rule":"A body over the required limit is a typed body value, not a partial body.", "killers":["runtime/v1:TestHTTPServerMatchesModel"]},
     {"name":"http-empty-content-type", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"w.Header()[\"Content-Type\"] = nil", "to":"w.Header().Set(\"Content-Type\", \"text/plain\")", "rule":"An empty response has no content type.", "killers":["runtime/v1:TestHTTPServerMatchesModel"]},
-    {"name":"http-stop-listener", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"causes.AddInterruption()\n\t\t\tcauses.Add(shutdown())", "to":"causes.AddInterruption()", "rule":"A serving stop closes its listener before return.", "killers":["runtime/v1:TestHTTPServerMatchesModel"]},
+    {"name":"http-swaps-fields", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"HTTPField{k, v}", "to":"HTTPField{v, k}", "rule":"Buffered headers and repeated query values retain their names and text.", "killers":["runtime/v1:TestHTTPServerMatchesModel"]},
     {"name":"http-truncated-body", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"gone = nil", "to":"gone = r.Context().Done()", "rule":"A half-closed input still delivers the typed read refusal.", "killers":["runtime/v1:TestHTTPServerMatchesModel"]},
-    {"name":"http-shutdown-skips-drain", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"err = c.h.Stop()", "to":"err = nil", "rule":"Serve returns only after every request's release completed.", "killers":["runtime/v1:TestHTTPConcurrentRequestsAndStop"]},
+    {"name":"http-serial-handlers", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"live[c] = true", "to":"live[c] = true; _ = finish(<-ended, false)", "rule":"Independent requests run concurrently; one blocked handler does not block admission of every other handler.", "killers":["runtime/v1:TestHTTPConcurrentRequestsAndStop"]},
     {"name":"http-disconnect-ignored", "origin":"wf10 G1", "file":"runtime/v1/http.go", "from":"c.cancel()\n\t\t<-c.done", "to":"<-c.done", "rule":"A client abort stops its handler task and drains its cleanup.", "killers":["runtime/v1:TestHTTPDisconnectAndDefects"]}
   ]
 }

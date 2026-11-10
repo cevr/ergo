@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"ergo.local/prototype/runtime/rt"
@@ -14,10 +15,10 @@ import (
 
 // BenchmarkHTTPServer interleaves the buffered child-task server and an
 // idiomatic net/http control, in alternating order. Both bind loopback,
-// cap headers and bodies, echo the buffered bytes and join shutdown.
-// The control executes directly in net/http's worker, so the ratio also
-// exposes the cost of Ergo's owned task boundary; it is not a claim of
-// equal cancellation/trace contracts. Run on a quiet host, not a gate.
+// cap headers and bodies, echo the buffered bytes, cancel in-flight work
+// and join shutdown. The Go control uses request contexts and a joined
+// worker lifetime instead of Ergo tasks. Tracing is off. Run on a quiet
+// host, not a gate; no parity claim rests on the unmeasured benchmark.
 func BenchmarkHTTPServer(b *testing.B) {
 	for pair := range 4 {
 		order := []string{"ergo", "go"}
@@ -42,7 +43,19 @@ func BenchmarkHTTPServer(b *testing.B) {
 					})
 					b.Cleanup(h.Stop)
 				} else {
-					srv := &http.Server{MaxHeaderBytes: 4096, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					ctx, cancel := context.WithCancel(context.Background())
+					var mu sync.Mutex
+					var workers sync.WaitGroup
+					closing := false
+					srv := &http.Server{MaxHeaderBytes: 4096, BaseContext: func(net.Listener) context.Context { return ctx }, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						mu.Lock()
+						if closing {
+							mu.Unlock()
+							panic(http.ErrAbortHandler)
+						}
+						workers.Add(1)
+						mu.Unlock()
+						defer workers.Done()
 						body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 4096))
 						if err != nil {
 							w.WriteHeader(400)
@@ -53,7 +66,15 @@ func BenchmarkHTTPServer(b *testing.B) {
 					})}
 					done := make(chan struct{})
 					go func() { defer close(done); _ = srv.Serve(ln) }()
-					b.Cleanup(func() { _ = srv.Shutdown(context.Background()); <-done })
+					b.Cleanup(func() {
+						mu.Lock()
+						closing = true
+						mu.Unlock()
+						cancel()
+						_ = srv.Close()
+						workers.Wait()
+						<-done
+					})
 				}
 				transport := &http.Transport{Proxy: nil}
 				b.Cleanup(transport.CloseIdleConnections)
@@ -67,9 +88,9 @@ func BenchmarkHTTPServer(b *testing.B) {
 					if err != nil {
 						b.Fatal(err)
 					}
-					_, err = io.Copy(io.Discard, r.Body)
+					n, err := io.Copy(io.Discard, r.Body)
 					r.Body.Close()
-					if err != nil || r.StatusCode != 200 {
+					if err != nil || r.StatusCode != 200 || n != int64(len(body)) {
 						b.Fatalf("response %d: %v", r.StatusCode, err)
 					}
 				}
