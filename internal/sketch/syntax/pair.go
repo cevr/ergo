@@ -11,23 +11,28 @@ import (
 //	func ParseX(b B) X fails …
 //	func Wire(x X) B
 //
-// with Wire failing nothing and needing nothing, gets the law the parser
-// derives after the file's declarations:
+// with Wire failing nothing and neither half needing anything, gets the
+// law the parser derives after the file's declarations:
 //
 //	law XRoundTrips(b B) {
 //		let x = ParseX(b) catch {
 //		case _:
 //			return true
 //		}
-//		try ParseX(Wire(x)) == x
+//		try ParseX(x.Wire()) == x
 //	}
+//
+// The dot form names X's own Wire when the package declares several (196m
+// rule 3). A ParseX that fails nothing gets the law without catch and try;
+// a ParseX with a needs clause derives none, since a law has no provider
+// for it.
 //
 // A value of X is drawn as the codec meets it, through ParseX from a drawn
 // B, so the law needs no generator under X's authority, and a ParseX that
 // normalises its input (lower case, trimmed) still satisfies it. When the
 // file declares X open (openType: a record of exported fields, or a union
 // of such records), any value is a valid X, so the law draws x itself and
-// reaches every value: law XRoundTrips(x X) { try ParseX(Wire(x)) == x }.
+// reaches every value: law XRoundTrips(x X) { try ParseX(x.Wire()) == x }.
 // The law
 // is where a hand transformation can break the round trip that a derived
 // codec has by construction. Like a refinement's law it is an ordinary
@@ -69,7 +74,7 @@ func (p *parser) derivePairs(f *File) {
 		if parse == nil || !p.parseHalf(parse, x.Name, b) {
 			continue
 		}
-		laws = append(laws, p.pairLaw(wire, x, b, openType(types, x.Name, 0)))
+		laws = append(laws, p.pairLaw(wire, x, b, openType(types, x.Name, 0), parseFails(parse)))
 	}
 	f.Decls = append(f.Decls, laws...)
 }
@@ -143,7 +148,7 @@ func wireHalf(d *FuncDecl) (*Ident, Expr, bool) {
 // and a result X.
 func (p *parser) parseHalf(d *FuncDecl, x string, b Expr) bool {
 	t := d.Type
-	if d.Extern != nil || d.Recv != nil || d.TypeParams != nil || t == nil || t.Params == nil || len(t.Params.List) != 1 || len(t.Params.List[0].Names) > 1 {
+	if d.Extern != nil || d.Recv != nil || d.TypeParams != nil || t == nil || t.Needs != nil || t.Params == nil || len(t.Params.List) != 1 || len(t.Params.List[0].Names) > 1 {
 		return false
 	}
 	if t.Results == nil || len(t.Results.List) == 0 {
@@ -156,17 +161,33 @@ func (p *parser) parseHalf(d *FuncDecl, x string, b Expr) bool {
 	return pb != nil && p.src[pb.Pos():pb.End()] == p.src[b.Pos():b.End()]
 }
 
+// parseFails reports whether ParseX writes a fails row.
+func parseFails(d *FuncDecl) bool {
+	for _, r := range d.Type.Results.List {
+		if _, ok := r.Type.(*ErrorRow); ok {
+			return true
+		}
+	}
+	return false
+}
+
 // pairLaw builds the round-trip law of the pair whose Wire is wire: over
-// a drawn x of an open type, else over a drawn b through ParseX.
-func (p *parser) pairLaw(wire *FuncDecl, x *Ident, b Expr, open bool) *LawDecl {
+// a drawn x of an open type, else over a drawn b through ParseX. It calls
+// Wire in the dot form, x.Wire(), which names X's own Wire when the
+// package declares several (196m rule 3), and it writes catch and try
+// only when ParseX fails.
+func (p *parser) pairLaw(wire *FuncDecl, x *Ident, b Expr, open, fails bool) *LawDecl {
 	at := wire.Func
 	id := func(name string) *Ident { return &Ident{NamePos: at, Name: name} }
 	call := func(fun Expr, args ...Expr) *CallExpr {
 		return &CallExpr{Fun: fun, Lparen: at, Args: args, Rparen: at}
 	}
 	parse := ParseName(x.Name)
+	var held Expr = &BinaryExpr{X: call(id(parse), call(&SelectorExpr{X: id("x"), Sel: id("Wire")})), OpPos: at, Op: EQL, Y: id("x")}
+	if fails {
+		held = &TryExpr{Try: at, X: held}
+	}
 	if open {
-		held := &TryExpr{Try: at, X: &BinaryExpr{X: call(id(parse), call(id("Wire"), id("x"))), OpPos: at, Op: EQL, Y: id("x")}}
 		return &LawDecl{
 			Law:    at,
 			Name:   &Ident{NamePos: wire.Name.NamePos, Name: RoundTripLawName(x.Name)},
@@ -175,12 +196,14 @@ func (p *parser) pairLaw(wire *FuncDecl, x *Ident, b Expr, open bool) *LawDecl {
 			Pair:   wire,
 		}
 	}
-	caught := &CatchExpr{X: call(id(parse), id("b")), Catch: at, Lbrace: at, Arms: []*CatchArm{{
-		Case: at, Types: []Expr{id("_")}, Colon: at,
-		Body: []Stmt{&ReturnStmt{Return: at, Results: []Expr{id("true")}}},
-	}}, Rbrace: at}
-	let := &DeclStmt{Decl: &VarDecl{Var: at, Mut: NoPos, Specs: []*VarSpec{{Names: []*Ident{id("x")}, Assign: at, Values: []Expr{caught}}}}}
-	held := &TryExpr{Try: at, X: &BinaryExpr{X: call(id(parse), call(id("Wire"), id("x"))), OpPos: at, Op: EQL, Y: id("x")}}
+	var drawn Expr = call(id(parse), id("b"))
+	if fails {
+		drawn = &CatchExpr{X: drawn, Catch: at, Lbrace: at, Arms: []*CatchArm{{
+			Case: at, Types: []Expr{id("_")}, Colon: at,
+			Body: []Stmt{&ReturnStmt{Return: at, Results: []Expr{id("true")}}},
+		}}, Rbrace: at}
+	}
+	let := &DeclStmt{Decl: &VarDecl{Var: at, Mut: NoPos, Specs: []*VarSpec{{Names: []*Ident{id("x")}, Assign: at, Values: []Expr{drawn}}}}}
 	return &LawDecl{
 		Law:    at,
 		Name:   &Ident{NamePos: wire.Name.NamePos, Name: RoundTripLawName(x.Name)},
