@@ -1,0 +1,14 @@
+{
+  "about": "Measured toolchain-input regression in wf10 Rm. The existing closure sweep is the guard; no additional test is needed.",
+  "mutants": [
+    {
+      "name": "rm-cgo-link-input",
+      "file": "internal/closure/closure_test.go",
+      "from": "{\"-lc\", file, \"GNU ld's cwd lookup while the Go toolchain links a cgo dependency\"},",
+      "to": "",
+      "rule": "A real cgo linker cwd input belongs to the toolchain inputs; observation and cache hashing must remain enabled.",
+      "killers": ["closure:TestEveryPackageRecordsOnlyItsClosure (ERGO_CLOSURE_SWEEP=cmd/ergo, cgo enabled, cold per-package cache)"],
+      "pkg": "./internal/closure"
+    }
+  ]
+}

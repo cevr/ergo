@@ -256,6 +256,18 @@ func declare(parts ...[]allowance) []allowance {
 var everyPackage = []allowance{
 	{"go.mod", file, "the go command reads the module file for every build in the module"},
 	{"go.sum", file, "the go command checks module sums for every build in the module"},
+	// GNU ld resolves command-line inputs against its working directory
+	// while Go builds cgo dependencies (net's resolver and runtime/cgo).
+	// These are real inputs, even when absent: a local link or library can
+	// change the link. Admit only these measured names, with ordinary
+	// observation, hashing and identity checks still in force. Do not drop
+	// linker accesses or disable cgo just to make a sweep pass.
+	{"-lc", file, "GNU ld's cwd lookup while the Go toolchain links a cgo dependency"},
+	{"-lgcc", file, "GNU ld's cwd lookup while the Go toolchain links a cgo dependency"},
+	{"-lgcc_s", file, "GNU ld's cwd lookup while the Go toolchain links a cgo dependency"},
+	{"-lpthread", file, "GNU ld's cwd lookup while the Go toolchain links a cgo dependency"},
+	{"-lresolv", file, "GNU ld's cwd lookup while the Go toolchain links a cgo dependency"},
+	{"libgcc_s.so.1", file, "GNU ld's cwd library lookup while the Go toolchain links a cgo dependency"},
 }
 
 // moduleLookups are the names the go command (and a test that finds the
