@@ -403,7 +403,9 @@ No allocation reduction or speedup is claimed; matched performance measurement r
 
 ## TypeScript content-mapper integration
 
-Superseded 2026-10-26: Go is the only target, so no TypeScript projection of Ergo source is planned. This section proposed one through [typescript-go PR #4712, Content mappers](https://github.com/microsoft/typescript-go/pull/4712) (merged August 19, 2026), with the [TypeScript follow-up #63936](https://github.com/microsoft/TypeScript/pull/63936) and [LSP middleware #64583](https://github.com/microsoft/TypeScript/pull/64583) for editor features. The links stay as a record. Ergo's own LSP, CLI and MCP serve its semantic model.
+Reopened 2026-11-10 as a wire projection, not a target ([decision](decisions.md#owner-direction-2026-11-10)): Go stays the only target, and TypeScript sees an Ergo contract only as the projection of its checked operation type that Effect RPC's wire carries ([rpc.md](spec/rpc.md)). A TypeScript 7.1 content mapper written in Go serves that projection to `tsc` (unit R3'); no Ergo function lowers to JavaScript, and no Ergo build starts a TypeScript tool.
+
+From 2026-10-26 to 2026-11-10 this section read: superseded, Go is the only target, so no TypeScript projection of Ergo source is planned. It proposed one through [typescript-go PR #4712, Content mappers](https://github.com/microsoft/typescript-go/pull/4712) (merged August 19, 2026), with the [TypeScript follow-up #63936](https://github.com/microsoft/TypeScript/pull/63936) and [LSP middleware #64583](https://github.com/microsoft/TypeScript/pull/64583) for editor features. The links stay as a record. Ergo's own LSP, CLI and MCP serve its semantic model.
 
 ## Implementation path and decision gates
 

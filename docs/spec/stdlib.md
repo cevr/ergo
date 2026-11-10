@@ -24,7 +24,7 @@ The standard library is the "Effect for Go" track, [#206](https://github.com/cev
 | Observability | [#69](https://github.com/cevr/ergo/issues/69) | Tracer, Logger, Metric, LogLevel, References | `with trace.Span(…)`, `log`, `metric` | library on kernel G1/G2 ([#200](https://github.com/cevr/ergo/issues/200)) |
 | Clock, random and testing | [#209](https://github.com/cevr/ergo/issues/209) | Clock, Random, Console, TestClock, TestServices, TestContext, `it.effect` | prelude capabilities, `testing.VirtualClock` in `context` | kernel seams + library |
 | HTTP | [#51](https://github.com/cevr/ergo/issues/51) | HttpClient, HttpServer, HttpRouter, HttpApi | `func(http.Request) http.Response`, total `catch` | library + host |
-| RPC | [#53](https://github.com/cevr/ergo/issues/53) | Rpc, RpcGroup | over `http` and `json` | library |
+| RPC | [#53](https://github.com/cevr/ergo/issues/53) | Rpc, RpcGroup, RpcClient, RpcServer | `rpc.Serve`, `rpc.Call`, and the server and client `ergo gen rpc` writes from an operation type ([rpc.md](rpc.md)) | library + host |
 | HTML | [#212](https://github.com/cevr/ergo/issues/212) | (none; Lustre and Elm prior art) | `html` functions | library |
 | Actors | [#57](https://github.com/cevr/ergo/issues/57) | cluster Entity (OTP, Gleam and Akka Typed prior art) | `actor.Start`, `actor.Ask` with an `actor.Reply[T, E]` in the message, `actor.Address[M]`, `actor.StartMachine(m, n)`, `actor.StartAgent` and `actor.Call` with a function on a lent `*S` ([#101 note](../research/actor-library.md)) | library: no compiler rule names it (#101) |
 | Host packages | [#210](https://github.com/cevr/ergo/issues/210) | platform FileSystem, Path, Command, Socket; sql | `os`, `fs`, `net`, `sql` with cancel hooks | host |
@@ -748,6 +748,10 @@ The table has one row per std package, the prelude included. The Effect module i
 ## HTTP
 
 [#51](https://github.com/cevr/ergo/issues/51). A handler is an ordinary `func(http.Request) http.Response`. A `catch` without `try` must cover every error, so a handler cannot leave a decode, handler or encode failure without a status. Routes use Go 1.22 `ServeMux` patterns: `"POST /orders": placeOrder`. Tests call `api.Serve(req)` with no server. Declared difference: an unmatched method answers 405, as `ServeMux` does. Open trade: handlers lose codec identity, so `ergo inspect` derives endpoint metadata from signatures and literal statuses in `catch` arms. *Prior art:* Effect `HttpApi` declares endpoints; Go `net/http` handlers; Phoenix controllers.
+
+## RPC
+
+[#53](https://github.com/cevr/ergo/issues/53). Std `rpc` speaks Effect RPC's HTTP protocol (json and ndjson), so a stock Effect `RpcClient` calls an Ergo server; `ergo gen rpc DIR.OPTYPE` writes a contract's server (`Handle`) and client (`Client`, which provides the operation type). The package, the wire and the int rule are in [rpc.md](rpc.md).
 
 ## HTML
 
