@@ -3,8 +3,9 @@
 // the step's arms, each with the state and signal variants it takes and
 // the decisions it can give (states x signals -> decision kinds and the
 // state each one moves to), the timer of each state (the after function)
-// and its work. `ergo inspect machine` draws it; the lowering registers
-// its arms with the program, so a traced actor names the arm that stepped
+// and its work. `ergo inspect machine` draws it; the lowering writes its
+// arms into the program as static data the actor's start is given (a
+// hidden graph argument, BS7), so a traced actor names the arm that stepped
 // each signal (runtime/v1 actor_trace.go); Reachable lists the arms a run
 // can reach.
 //

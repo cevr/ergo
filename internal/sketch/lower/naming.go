@@ -22,11 +22,13 @@ import (
 //
 //  1. the user package's declarations, in source order, file by file: types,
 //     functions, lets and context builders, so a source name keeps its
-//     spelling unless Go reserves it;
+//     spelling unless Go reserves it; then each machine type's initial
+//     state and static graph (machine.go, machineGraph);
 //  2. the generated package entities: the runtime, time and strconv imports, the
 //     environment type, the host's Console adapter, the pattern test
 //     helper, the call and declaration tables with their entry types
 //     (calls.go, #230), the package initializer (decls.go, initFunc), the
+//     machine graph accessor and its pair type (machine.go, graphAccessor), the
 //     type-set interfaces of ordered and number (decls.go, constraint) and
 //     the imports of the Go packages that user externs target, in path
 //     order (calls.go, hostImportNames);
@@ -81,7 +83,7 @@ func (l *lowerer) nameAll() {
 	l.pkgName(pkgKey{"decl", nil}, "ergoDecl")
 	l.pkgName(pkgKey{"decls", nil}, "ergoDecls")
 	l.pkgName(pkgKey{"init", nil}, "ergoInit")
-	l.pkgName(pkgKey{"machine graphs", nil}, "ergoMachineGraph") // machine.go, machineGraphs
+	l.pkgName(pkgKey{"machine graphs", nil}, "ergoMachineGraph") // machine.go, graphAccessor
 	l.pkgName(pkgKey{"machine pair", nil}, "ergoMachinePair")
 	l.pkgName(pkgKey{"constraint", check.SetOrdered}, "ergoOrdered")
 	l.pkgName(pkgKey{"constraint", check.SetNumber}, "ergoNumber")
