@@ -125,7 +125,8 @@ MachineEntry   = identifier ":" Expression | LawDecl
                | "law" identifier ( [ "never" ] "reaches" identifier | "path" "[" identifier { "," identifier } [ "," ] "]" ) .
 Type           = TypeName [ TypeArgs ] | SliceType | ArrayType | FuncType | PointerType | "(" Type { "," Type } ")" .
 TypeName       = identifier [ "." identifier ] .
-TypeArgs       = "[" Type { "|" TypeName [ TypeArgs ] } { "," Type { "|" TypeName [ TypeArgs ] } } "]" .
+TypeArgs       = "[" TypeArg { "," TypeArg } "]" .
+TypeArg        = Type { "|" TypeName [ TypeArgs ] } .
 SliceType      = "[" "]" Type .
 ArrayType      = "[" int_lit "]" Type .
 PointerType    = "*" Type .

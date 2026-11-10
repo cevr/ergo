@@ -117,9 +117,6 @@ func TestTestCommand(t *testing.T) {
 		if _, stderr, code := run(command, "--seed", "1", replay); code == 0 || !strings.Contains(stderr, "--seed is only supported by test") {
 			t.Fatalf("ergo %s --seed: exit %d stderr %q", command, code, stderr)
 		}
-		if _, stderr, code := run(command, "--receipt", "r.json", replay); code == 0 || !strings.Contains(stderr, "--receipt is only supported by test") {
-			t.Fatalf("ergo %s --receipt: exit %d stderr %q", command, code, stderr)
-		}
 	}
 	// A source that does not check: its findings as text on stderr (the
 	// envelope with --json), exit 1, no PASS line.
@@ -136,13 +133,13 @@ func TestTestCommand(t *testing.T) {
 
 // testReceipt: `ergo test FILE --receipt PATH` writes the law receipt, a
 // JSON object whose fields are exactly the schema's (runtime.md Tests 8):
-// a law that holds is tested with its case count, a refuted law carries
-// its shrunk counterexample, which holds a quoted string here, so the
-// receipt's escaping is read back too. run checks that nothing else is
+// a listed law that holds is proved and a drawn one tested, each with its
+// case count, and a refuted law carries its shrunk counterexample, which
+// holds a quoted string here, so the receipt's escaping is read back too. run checks that nothing else is
 // written.
 func testReceipt(t *testing.T, write func(name, text string) string, run func(args ...string) (string, string, int)) {
 	t.Helper()
-	laws := write("laws.ergo", "law Holds(n int) { n == n }\n\nlaw Short(s string) { len(s) < 2 }\n")
+	laws := write("laws.ergo", "law Twice(b bool) { !!b == b }\n\nlaw Holds(n int) { n == n }\n\nlaw Short(s string) { len(s) < 2 }\n")
 	path := filepath.Join(t.TempDir(), "receipt.json")
 	stdout, stderr, code := run("test", laws, "--receipt", path)
 	data, err := os.ReadFile(path)
@@ -171,9 +168,9 @@ func testReceipt(t *testing.T, write func(name, text string) string, run func(ar
 	}
 	short := regexp.MustCompile(`^case (\d+) of 100, seed 1, size \d+: s = "[^"]{2}"$`).FindStringSubmatch(got.Laws[len(got.Laws)-1].Counterexample)
 	if got.Schema != 1 || got.Source != laws || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(got.Revision) || got.Seed != 1 || got.Target != "go" ||
-		len(got.Laws) != 2 || got.Laws[0] != (lawRun{Run: "law Holds", Status: "tested", Cases: 100}) ||
-		got.Laws[1].Run != "law Short" || got.Laws[1].Status != "refuted" || short == nil || strconv.Itoa(got.Laws[1].Cases) != short[1] ||
-		!strings.Contains(stdout, "FAIL law Short ("+got.Laws[1].Counterexample+";") {
+		len(got.Laws) != 3 || got.Laws[0] != (lawRun{Run: "law Twice", Status: "proved", Cases: 2}) || got.Laws[1] != (lawRun{Run: "law Holds", Status: "tested", Cases: 100}) ||
+		got.Laws[2].Run != "law Short" || got.Laws[2].Status != "refuted" || short == nil || strconv.Itoa(got.Laws[2].Cases) != short[1] ||
+		!strings.Contains(stdout, "FAIL law Short ("+got.Laws[2].Counterexample+";") {
 		t.Fatalf("receipt %s\nstdout %q", data, stdout)
 	}
 }
