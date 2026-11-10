@@ -9,7 +9,7 @@ func TestErgoRunE1GenericDomain(t *testing.T) {
 	for _, tc := range []struct{ name, decls, body, want string }{
 		{"closure-generic-instance", `func Later[T Valid](x T) func() bool { func() bool { let f = All[T]; f(x) } }`, `let f = Later(Card{N: 1}); Console.Println("\(f())")`, "true\n"},
 		{"nested-operation", `func Later[T Valid](x T) func() bool { func() bool { let g = func() bool { x.Check() }; g() } }`, `let f = Later(Card{N: 0}); Console.Println("\(f())")`, "false\n"},
-		{"pointer-method-closure", `func Later[T Valid](x *T) func() bool { func() bool { let f = x.Check; f() } }`, `let mut c = Card{N: 1}; let f = Later(&c); Console.Println("\(f())")`, "true\n"},
+		{"pointer-method-closure", `func Later[T Valid](x *T) bool { let f = func() bool { let m = x.Check; m() }; f() }`, `let mut c = Card{N: 1}; Console.Println("\(Later(&c))")`, "true\n"},
 		{"parameter-conversion", `func Later[T Valid](x T) func() bool { func() bool { let v Valid = x; v.Check() } }`, `let f = Later(Card{N: 1}); Console.Println("\(f())")`, "true\n"},
 		{"returned-conversion", `func Later[T Valid](x T) func() Valid { func() Valid { Box[T]{V: x} } }`, `let f = Later(Card{N: 1}); let v = f(); Console.Println("\(v.Check())")`, "true\n"},
 		{"nested-pointer-witness", `func Via[T Valid](x *T) bool { All(x) }`, `let mut c = Box[Box[Card]]{V: Box[Card]{V: Card{N: 1}}}; Console.Println("\(Via(&c))")`, "true\n"},
@@ -30,7 +30,7 @@ type Cell[T] { V T }
 func Get[T](c Cell[T]) T { c.V }
 func Later[T Getter[int]](c T) func() int { func() int { c.Get() } }`, `let f = Later(Cell[int]{V: 8}); Console.Println("\(f())")`, "8\n"},
 		{"map-conversion-closure", `func Later[T Valid](x T) func() Map[string, Valid] { func() Map[string, Valid] { Map[string, Valid]{"x": Box[T]{V: x}} } }`, `let f = Later(Card{N: 1}); let m = f(); for v in m { Console.Println("\(v.Check())") }`, "true\n"},
-		{"slice-pointer-conversion", `func Later[T Valid](x *T) func() []Valid { func() []Valid { []Valid{x} } }`, `let mut c = Card{N: 1}; let f = Later(&c); let vs = f(); Console.Println("\(vs[0].Check())")`, "true\n"},
+		{"slice-pointer-conversion", `func Later[T Valid](x *T) bool { let f = func() []Valid { []Valid{x} }; let vs = f(); vs[0].Check() }`, `let mut c = Card{N: 1}; Console.Println("\(Later(&c))")`, "true\n"},
 		{"two-generic-layers", `func Inner[T Valid](x T) func() bool { func() bool { All(Box[T]{V: x}) } }
 func Outer[T Valid](x T) func() bool { func() bool { let f = Inner(Box[T]{V: x}); f() } }`, `let f = Outer(Card{N: 1}); Console.Println("\(f())")`, "true\n"},
 		{"pointer-closure-parameter", `func Via[T Valid](x *T) bool { let f = func(y *T) bool { All(y) }; f(x) }`, `let mut c = Card{N: 1}; Console.Println("\(Via(&c))")`, "true\n"},

@@ -113,8 +113,12 @@ func TestErgoRunMethodValues(t *testing.T) {
 // field, a slice of function values (read through the same slice after an
 // element is replaced, so no copy stands in for it), a function result and
 // a parameter's parameter. A function value with no result now has the one
-// Go shape of func(…) struct{} (typeCtx.funcType).
-const noValueShapesProgram = `type Job[T] { Run func() T }
+// Go shape of func(…) struct{} (typeCtx.funcType). The literals count in a
+// sync.Ref: each escapes, so it cannot write a captured let mut (types.md,
+// Function values 3).
+const noValueShapesProgram = `import sync
+
+type Job[T] { Run func() T }
 
 func all[T](fs []func() T) int { len(fs) }
 
@@ -129,21 +133,21 @@ func later[T](f escaping func() T) func() T { f }
 func outer[T](f func(g func() T) int) int { 3 }
 
 func main() needs Console {
-	let mut hits = 0
-	let j = Job{Run: func() { hits = hits + 1 }}
+	let hits = sync.NewRef(0)
+	let j = Job{Run: func() { hits.Update(func(v int) int { v + 1 }) }}
 	j.Run()
 	j.Run()
 	let mut fs = []func(){func() {}, func() {}}
-	fs[1] = func() { hits = hits + 100 }
+	fs[1] = func() { hits.Update(func(v int) int { v + 100 }) }
 	runAll(fs)
 	let n = all(fs)
-	let g = later() { hits = hits + 10 }
+	let g = later() { hits.Update(func(v int) int { v + 10 }) }
 	g()
 	let k = outer(func(h func()) int {
 		h()
 		4
 	})
-	Console.Println("\(hits) \(n) \(k)")
+	Console.Println("\(hits.Get()) \(n) \(k)")
 }
 `
 
