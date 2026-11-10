@@ -76,7 +76,7 @@ A defect is not a failed assert. The runner prints the test's `FAIL` line, `FAIL
 ```text
 ok law Flags.Merge (proved: all 8 cases)
 ok law Store.PutCountsOne for Tally (100 cases)
-FAIL law Store.PutCountsOne for Stuck (case 1 of 100, seed 7, size 0: provider = Stuck{at: 3}, n = -9): law refuted at main.ergo:4:2: the law is false
+FAIL law Store.PutCountsOne for Stuck (case 1 of 100, seed 7, size 0: provider = Stuck{at: 0}, n = 0; shrunk from: provider = Stuck{at: 3}, n = -9; replay: ergo test main.ergo --seed 7): law refuted at main.ergo:4:2: the law is false
 skip law Box.Keeps: its parameter v has no generator: T is not a generatable type
 ```
 
