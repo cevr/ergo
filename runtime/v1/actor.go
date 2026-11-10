@@ -149,6 +149,9 @@ type Actor[S, E, D any] struct {
 	task    *rt.Task
 	sleeper Sleeper
 	span    string
+	// graph gives the machine's graph to the trace helpers alone
+	// (actor_trace.go); nil when the program has none for it.
+	graph GraphOf
 
 	step  func(*rt.Task, S, E) (D, error)
 	fire  func(*rt.Task, S, S) (D, error)
@@ -286,21 +289,23 @@ type ActorStopped struct{}
 // Error is the failure's text, its Ergo name.
 func (ActorStopped) Error() string { return "actor.Stopped" }
 
-// MachineStart is actor.StartMachine's body. span, t and sl are the hidden
-// site, task and scheduler arguments: the actor's task is a child of t (a
-// stop of t stops it), and its timers sleep on sl. initial is the first
-// state; capacity is the inbox's (0 makes each Send wait for the runner to
-// take it; a negative capacity is a defect). workOf, hasWork and work are
-// the entries' work (rule 10): workOf(s) is the program's Work value of a
-// state, hasWork reports whether it is one, and work runs it on the work's
-// task with send. It returns once the runner has armed the first entry's
-// timer and started its work; the runner then waits for signals.
-func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
+// MachineStart is actor.StartMachine's body. span, t, sl and graph are the
+// hidden site, task, scheduler and graph arguments: the actor's task is a
+// child of t (a stop of t stops it), its timers sleep on sl, and a traced
+// actor names its arms and timers from graph (nil for none). initial is
+// the first state; capacity is the inbox's (0 makes each Send wait for the
+// runner to take it; a negative capacity is a defect). workOf, hasWork and
+// work are the entries' work (rule 10): workOf(s) is the program's Work
+// value of a state, hasWork reports whether it is one, and work runs it on
+// the work's task with send. It returns once the runner has armed the
+// first entry's timer and started its work; the runner then waits for
+// signals.
+func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph GraphOf, initial S,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
 	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D), capacity int) *Actor[S, E, D] {
-	return machineStart(span, t, sl, initial, step, fire, delay, workOf, hasWork, work, kind, next,
+	return machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, kind, next,
 		out, capacity, nil, nil, 0)
 }
 
@@ -310,7 +315,7 @@ func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 // StartMachine passes limit 0, which restarts none and never calls fresh. A
 // typed failure of fresh is a defect of the incarnation (ActorFreshDefect).
 // A negative limit is a defect, as tasks.Restart's is.
-func MachineSupervise[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
+func MachineSupervise[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph GraphOf, initial S,
 	fresh func(*rt.Task) (S, error), limit int,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
@@ -323,7 +328,7 @@ func MachineSupervise[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial
 		// No restart: the runner of MachineStart, which never calls fresh.
 		fresh = nil
 	}
-	return machineStart(span, t, sl, initial, step, fire, delay, workOf, hasWork, work, kind, next,
+	return machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, kind, next,
 		out, capacity, nil, fresh, limit)
 }
 
@@ -354,7 +359,7 @@ func ActorRestarts[S, E, D any](a *Actor[S, E, D]) int { return int(a.restarts.L
 // starts only when host is an empty host of the calling work's entry, and
 // fills it; any other host is a defect (ActorHostDefect), with nothing
 // started.
-func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, host *Host[*Actor[S, E, D]], initial S,
+func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, graph GraphOf, host *Host[*Actor[S, E, D]], initial S,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
 	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
@@ -369,7 +374,7 @@ func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, host *Ho
 		cell = host
 	}
 	adopted, hostOK := owner.adopt(cell, func(report func(*rt.Task, error) bool, deliver func(*rt.Task, P)) func() error {
-		c = machineStart(span, t, sl, initial, step, fire, delay, workOf, hasWork, work, kind, next,
+		c = machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, kind, next,
 			func(ct *rt.Task, d D) { out(ct, d, func(p P) { deliver(ct, p) }) }, capacity, report, nil, 0)
 		return c.halt
 	}, func() { host.fill(c) })
@@ -422,7 +427,7 @@ func (d *ActorChildDefect) String() string {
 // machineStart starts an actor; report is the parent entry's for a child
 // (rule 13), whose task then starts shielded from t's interruption, and
 // nil otherwise.
-func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
+func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph GraphOf, initial S,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
 	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
@@ -432,7 +437,7 @@ func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 		panic("actor.StartMachine: negative capacity " + strconv.Itoa(capacity))
 	}
 	a := &Actor[S, E, D]{
-		sleeper: sl, span: string(span),
+		sleeper: sl, span: string(span), graph: graph,
 		step: step, fire: fire, delay: delay, kind: kind, next: next, out: out,
 		done: make(chan struct{}), state: initial,
 		report: report, fresh: fresh, limit: limit,

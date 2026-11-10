@@ -14,7 +14,7 @@ import (
 // a traced root, and the reference fold (ref, actor_test.go) writes the
 // events the runner must raise, each decision annotated with the arm that
 // the reference finds in the generated machine's arms. The arm the runner
-// reports comes from the registered graph (MachineGraph.arm), a different
+// reports comes from the start's graph (MachineGraph.arm), a different
 // reading of the same arms: over strings, where the reference reads ints.
 
 // machineLog is a Tracer that keeps the machine events of a tree, in the
@@ -83,11 +83,10 @@ func sigVariant(e tsig) string {
 	return "E" + strconv.Itoa(e.v)
 }
 
-// registerTestGraph registers m's graph for the next traced run: its arms
-// as the compiler would read them, and its timers' signal variants. Each
-// case replaces the last (the generated machines share their Go types).
-func registerTestGraph(m tmachine) {
-	g := &MachineGraph{Timers: map[string]string{}, Variant: func(v any) string {
+// testGraph is m's graph, the start's hidden graph argument: its arms as
+// the compiler would read them, and its timers' signal variants.
+func testGraph(m tmachine) GraphOf {
+	g := &MachineGraph{Variant: func(v any) string {
 		switch x := v.(type) {
 		case tstate:
 			return stateVariant(x)
@@ -108,10 +107,10 @@ func registerTestGraph(m tmachine) {
 	}
 	for v, tm := range m.timers {
 		if tm.has {
-			g.Timers[stateVariant(tstate{v: v})] = sigVariant(tsig{v: tm.sig})
+			g.Timers = append(g.Timers, MachineTimer{State: stateVariant(tstate{v: v}), Signal: sigVariant(tsig{v: tm.sig})})
 		}
 	}
-	graphs.Store(graphKey{typeID[tstate](), typeID[tsig]()}, g)
+	return func() *MachineGraph { return g }
 }
 
 // armSite is the site of a generated machine's i-th arm.

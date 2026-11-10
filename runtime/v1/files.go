@@ -34,7 +34,8 @@ const rtPath = runtimefiles.Module + "/runtime/rt"
 // Hidden is a hidden parameter of a std extern's Go body: an argument the
 // Ergo signature does not show and the lowering supplies at the call
 // (docs/spec/stdlib.md, Hidden arguments). Its Go type alone names it: no
-// Ergo type lowers to *Scope, Site, *rt.Task, Sleeper or ContextPackage.
+// Ergo type lowers to *Scope, Site, *rt.Task, Sleeper, GraphOf or
+// ContextPackage.
 type Hidden string
 
 const (
@@ -54,12 +55,15 @@ const (
 	// caller's environment: the provider the program bound, so a test
 	// Scheduler controls the time the body waits (timeout.After).
 	CallerScheduler Hidden = "scheduler"
+	// Graph, a GraphOf, gives the graph of the machine whose states and
+	// signals are the body's type parameters S and E (binsize BS7).
+	Graph Hidden = "graph"
 	// ReadingPackage is the package that declares the context-read extern.
 	ReadingPackage Hidden = "context-package"
 )
 
 // hiddenOrder is the order hidden parameters take, each at most once.
-var hiddenOrder = []Hidden{Frame, CallSite, CallerTask, CallerScheduler, ReadingPackage}
+var hiddenOrder = []Hidden{Frame, CallSite, CallerTask, CallerScheduler, Graph, ReadingPackage}
 
 // Body is the Go shape of one std extern's body: a function of this
 // package, or, for an operation of a type that a std extern returns, the
@@ -752,7 +756,8 @@ func goShape(ft *ast.FuncType, rt string) (Body, error) {
 }
 
 // hiddenOf names the hidden parameter whose Go type e is: *Scope, Site,
-// *rt (the file's name for runtime/rt).Task, Sleeper or ContextPackage.
+// *rt (the file's name for runtime/rt).Task, Sleeper, GraphOf or
+// ContextPackage.
 func hiddenOf(e ast.Expr, rt string) (Hidden, bool) {
 	switch x := e.(type) {
 	case *ast.Ident:
@@ -764,6 +769,9 @@ func hiddenOf(e ast.Expr, rt string) (Hidden, bool) {
 		}
 		if x.Name == "ContextPackage" {
 			return ReadingPackage, true
+		}
+		if x.Name == "GraphOf" {
+			return Graph, true
 		}
 	case *ast.StarExpr:
 		switch y := x.X.(type) {

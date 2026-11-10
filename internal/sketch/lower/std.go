@@ -575,6 +575,8 @@ func (fc *funcCtx) hiddenArgs(list []v1.Hidden, x *syntax.CallExpr, c *check.Cal
 			// field for the prelude's Scheduler, which the called
 			// signature needs, so the checker has bound it at the call.
 			out = append(out, env+"."+fc.l.envField(schedulerCap(c, site)))
+		case v1.Graph:
+			out = append(out, fc.graphArg(c, site))
 		case v1.ReadingPackage:
 			if c == nil || c.Func == nil || c.Func.Pkg == nil {
 				ice(site, "a context read without its declaring package")
@@ -585,6 +587,30 @@ func (fc *funcCtx) hiddenArgs(list []v1.Hidden, x *syntax.CallExpr, c *check.Cal
 		}
 	}
 	return out
+}
+
+// graphArg is the hidden graph argument of the call c of an actor's start
+// (machine.go, graphArg): the graph of the machine whose states and
+// signals are the call's type arguments for S and E.
+func (fc *funcCtx) graphArg(c *check.Call, site syntax.Node) string {
+	var state, signal string
+	if c != nil && c.Func != nil {
+		for i, tp := range c.Func.Sig.TParams {
+			if i >= len(c.TypeArgs) {
+				break
+			}
+			switch tp.Name {
+			case "S":
+				state = fc.goType(c.TypeArgs[i])
+			case "E":
+				signal = fc.goType(c.TypeArgs[i])
+			}
+		}
+	}
+	if state == "" || signal == "" {
+		ice(site, "a std body takes a machine's graph, and the called function has no type arguments S and E")
+	}
+	return fc.l.graphArg(state, signal)
 }
 
 // schedulerCap is the prelude's Scheduler in the needs row of the std

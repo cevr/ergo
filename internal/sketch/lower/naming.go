@@ -54,6 +54,7 @@ func (l *lowerer) nameAll() {
 			if tn.Decl != nil {
 				if _, ok := tn.Decl.Spec.(*syntax.MachineType); ok {
 					l.pkgName(pkgKey{"machine initial", tn}, "ergoInitial"+tn.Name)
+					l.pkgName(pkgKey{"machine graph", tn}, "ergoGraph"+tn.Name) // machine.go, machineGraph
 					l.nameFlatRuns(tn)
 				}
 			}
@@ -80,6 +81,8 @@ func (l *lowerer) nameAll() {
 	l.pkgName(pkgKey{"decl", nil}, "ergoDecl")
 	l.pkgName(pkgKey{"decls", nil}, "ergoDecls")
 	l.pkgName(pkgKey{"init", nil}, "ergoInit")
+	l.pkgName(pkgKey{"machine graphs", nil}, "ergoMachineGraph") // machine.go, machineGraphs
+	l.pkgName(pkgKey{"machine pair", nil}, "ergoMachinePair")
 	l.pkgName(pkgKey{"constraint", check.SetOrdered}, "ergoOrdered")
 	l.pkgName(pkgKey{"constraint", check.SetNumber}, "ergoNumber")
 	libs := l.libraries()
