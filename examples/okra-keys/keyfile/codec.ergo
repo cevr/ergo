@@ -1,197 +1,56 @@
 // Package keyfile is the text of the key store: a JSON object of
 // strings, as JavaScript's JSON.parse reads it and JSON.stringify writes
-// it. Ergo has no std json and no derived codec (G-ex-d-6), so this is a
-// hand codec for the one shape. It is pure.
+// it. The text is std json's: Open checks it whole, and its Reader and
+// Text read and write the object's members in their order, which a Map's
+// derived codec would not keep (JSON.parse keeps it). It is pure.
 
+import json
 import okrakeys/keys
-import strconv
-import strings
-import utf8
 
 // Decode is the keys of text, or None when text is not a JSON object
 // whose values are all strings: the original then treats the store as
 // empty. A name given twice keeps its first place and its last value, as
 // JSON.parse does.
 func Decode(text string) Option[keys.Keys] {
-	let mut r = reader{text: text, at: 0}
-	let k = r.object() catch {
-	case bad:
+	let r = json.Open(text, 0, 0) catch {
+	case json.Malformed:
 		return None
 	}
-	r.space()
-	if r.at != len(text) {
-		return None
+	read(r) catch {
+	case WireWrongKind:
+		None
 	}
+}
+
+// read is the object r holds, member by member.
+func read(r json.Reader) Option[keys.Keys] fails WireWrongKind {
+	try r.BeginObject()
+	let mut k = keys.Empty()
+	for r.More() {
+		let name = r.Key()
+		k = k.Set(name, try r.String())
+	}
+	r.End()
 	Some[keys.Keys]{Value: k}
 }
 
-// bad is text that is not a JSON object of strings.
-type bad {}
-
-type reader { text string, at int }
-
-func space(r *reader) {
-	for r.at < len(r.text) && (r.text[r.at] == ' ' || r.text[r.at] == '\t' || r.text[r.at] == '\n' || r.text[r.at] == '\r') {
-		r.at = r.at + 1
-	}
-}
-
-func expect(r *reader, c byte) fails bad {
-	r.space()
-	if r.at >= len(r.text) || r.text[r.at] != c {
-		return bad
-	}
-	r.at = r.at + 1
-}
-
-func object(r *reader) keys.Keys fails bad {
-	try r.expect('{')
-	let mut k = keys.Empty()
-	r.space()
-	if r.at < len(r.text) && r.text[r.at] == '}' {
-		r.at = r.at + 1
-		return k
-	}
-	for {
-		let name = try r.str()
-		try r.expect(':')
-		let value = try r.str()
-		k = k.Set(name, value)
-		r.space()
-		if r.at < len(r.text) && r.text[r.at] == ',' {
-			r.at = r.at + 1
-			continue
-		}
-		try r.expect('}')
-		return k
-	}
-}
-
-// str reads a JSON string. A run of plain bytes is taken as one slice.
-func str(r *reader) string fails bad {
-	try r.expect('"')
-	let mut out = ""
-	let mut from = r.at
-	for r.at < len(r.text) {
-		let c = r.text[r.at]
-		if c == '"' {
-			out = out + strings.Slice(r.text, from, r.at)
-			r.at = r.at + 1
-			return out
-		}
-		if c < 32 {
-			return bad
-		}
-		if c == '\\' {
-			let before = strings.Slice(r.text, from, r.at)
-			let esc = try r.escape()
-			out = out + before + esc
-			from = r.at
-		} else {
-			r.at = r.at + 1
-		}
-	}
-	bad
-}
-
-// escape reads one escape after its backslash.
-func escape(r *reader) string fails bad {
-	if r.at+1 >= len(r.text) {
-		return bad
-	}
-	let c = r.text[r.at+1]
-	r.at = r.at + 2
-	match c {
-	case '"':
-		"\""
-	case '\\':
-		"\\"
-	case '/':
-		"/"
-	case 'b':
-		"\b"
-	case 'f':
-		"\f"
-	case 'n':
-		"\n"
-	case 'r':
-		"\r"
-	case 't':
-		"\t"
-	case 'u':
-		let hi = try r.hex4()
-		if hi >= 0xD800 && hi < 0xDC00 && r.at+1 < len(r.text) && r.text[r.at] == '\\' && r.text[r.at+1] == 'u' {
-			let back = r.at
-			r.at = r.at + 2
-			let lo = try r.hex4()
-			if lo >= 0xDC00 && lo < 0xE000 {
-				return utf8.RuneText(rune(0x10000 + (hi-0xD800)*0x400 + (lo - 0xDC00)))
-			}
-			r.at = back
-		}
-		utf8.RuneText(rune(hi))
-	case _:
-		bad
-	}
-}
-
-func hex4(r *reader) int fails bad {
-	if r.at+4 > len(r.text) {
-		return bad
-	}
-	let digits = strings.Slice(r.text, r.at, r.at+4)
-	r.at = r.at + 4
-	let n = strconv.ParseInt(digits, 16, 32) catch {
-	case strconv.Malformed, strconv.OutOfRange:
-		return bad
-	}
-	int(n)
-}
-
 // Encode is k as JSON.stringify writes it: compact, in k's order, each
-// string with JSON's escapes.
+// string with JSON's escapes (std json writes \b and \f as \u0008 and
+// \u000c, and U+2028 and U+2029 escaped, which JSON.parse reads the same).
 func Encode(k keys.Keys) string {
-	let mut parts = []string{}
+	let t = json.NewText()
+	t.BeginObject(len(k.Entries()))
 	for e in k.Entries() {
-		parts = parts.Append(Quote(e.Name) + ":" + Quote(e.Secret))
+		t.Key(e.Name)
+		t.String(e.Secret)
 	}
-	"{" + strings.Join(parts, ",") + "}"
+	t.EndObject()
+	t.Written()
 }
 
-// Quote is s as a JSON string: a quote, a backslash and each control
-// byte escaped, the short forms where JSON has them, everything else as
-// it is.
+// Quote is s as a JSON string.
 func Quote(s string) string {
-	let mut out = "\""
-	let mut from = 0
-	for i in 0..len(s) {
-		let c = s[i]
-		let esc = escaped(c)
-		if esc != "" {
-			out = out + strings.Slice(s, from, i) + esc
-			from = i + 1
-		}
-	}
-	out + strings.Slice(s, from, len(s)) + "\""
-}
-
-func escaped(c byte) string {
-	match c {
-	case '"':
-		"\\\""
-	case '\\':
-		"\\\\"
-	case '\b':
-		"\\b"
-	case '\f':
-		"\\f"
-	case '\n':
-		"\\n"
-	case '\r':
-		"\\r"
-	case '\t':
-		"\\t"
-	case _:
-		if c < 32 { "\\u" + strings.PadLeft(strconv.FormatInt(int64(c), 16), 4, '0') } else { "" }
-	}
+	let t = json.NewText()
+	t.String(s)
+	t.Written()
 }
