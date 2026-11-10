@@ -53,7 +53,7 @@ func testCommand(args []string) error {
 		Source:    l.source.Admitted(),
 		Output:    binary,
 		Cache:     build.Cache{Root: root},
-		Toolchain: build.HostToolchain(),
+		Toolchain: toolchain(opts),
 		Stderr:    os.Stderr,
 	})
 	if opts.work && module.Dir != "" {

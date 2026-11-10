@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/producer"
 	"ergo.local/prototype/internal/receipt"
 	"ergo.local/prototype/internal/report"
@@ -109,12 +110,15 @@ type fileOptions struct {
 	// args are run's program arguments: every word after the source, as
 	// go run passes them, less one "--" right after the source.
 	args []string
+	// platform is the GOOS/GOARCH that build, run and test link for
+	// (platformOf); the zero value for the other commands.
+	platform gobind.Platform
 }
 
 // parseFileOptions reads the options of command. --strict and --json belong
-// to diagnostics, -o to build, -work to build and test, and --seed N (or
+// to diagnostics, -o and --platform to build, -work to build and test, and --seed N (or
 // --seed=N) and --states N to test; any other option is unknown. A target other than Go is
-// the EF110 refusal. For run, the options stand before the source, and the
+// the EF110 refusal, and so is a platform outside the target list. For run, the options stand before the source, and the
 // words after it are the program's arguments (`ergo run FILE|DIR [--]
 // ARGS...`, as `go run`).
 func parseFileOptions(command string, args []string) (fileOptions, error) {
@@ -122,6 +126,7 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 	var positional []string
 	seeded := false
 	budgeted := false
+	platform, platformed := "", false
 	for i := 0; i < len(args); i++ {
 		if command == "run" && len(positional) == 1 {
 			opts.args = args[i:]
@@ -139,7 +144,7 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 			continue
 		}
 		switch args[i] {
-		case "--target", "-o", "--seed", "--states":
+		case "--target", "-o", "--seed", "--states", "--platform":
 			if i+1 == len(args) {
 				return opts, fmt.Errorf("%s requires a value", args[i])
 			}
@@ -148,6 +153,8 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 				opts.target = args[i+1]
 			case "-o":
 				opts.output = args[i+1]
+			case "--platform":
+				platform, platformed = args[i+1], true
 			case "--states":
 				opts.states, budgeted = args[i+1], true
 			default:
@@ -179,6 +186,8 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--json is only supported by diagnostics, run and test")
 	case opts.output != "" && command != "build":
 		return opts, fmt.Errorf("-o is only supported by build")
+	case platformed && command != "build":
+		return opts, fmt.Errorf("--platform is only supported by build")
 	case opts.work && command != "build" && command != "test":
 		return opts, fmt.Errorf("-work is only supported by build and test")
 	case seeded && command != "test":
@@ -191,6 +200,12 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--states takes a positive decimal number of states, not %q", opts.states)
 	case len(positional) != 1:
 		return opts, fmt.Errorf("incorrect arguments for %s", command)
+	}
+	if command == "build" || command == "run" || command == "test" {
+		var err error
+		if opts.platform, err = platformOf(platform, platformed, os.Getenv("GOOS"), os.Getenv("GOARCH")); err != nil {
+			return opts, err
+		}
 	}
 	opts.file = positional[0]
 	if isPackageFolder(opts.file) {

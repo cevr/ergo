@@ -7,11 +7,15 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 
+	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/receipt"
+	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketchfront"
 )
@@ -99,7 +103,7 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 		Source:    l.source.Admitted(),
 		Output:    output.Path(),
 		Cache:     build.Cache{Root: root},
-		Toolchain: build.HostToolchain(),
+		Toolchain: toolchain(opts),
 		Stderr:    os.Stderr,
 	})
 	if opts.work && module.Dir != "" {
@@ -109,6 +113,49 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 		return receipt.Location{}, err
 	}
 	return output, nil
+}
+
+// toolchain is the Go build action of opts' command: the go command on
+// PATH with the user's GOFLAGS, linking for opts.platform, always stated,
+// so the go env file's GOOS and GOARCH never choose it. The emitted module
+// is the same for every platform; Go's action cache keys the link on the
+// platform.
+func toolchain(opts fileOptions) build.Toolchain {
+	tc := build.HostToolchain()
+	tc.GOOS, tc.GOARCH = opts.platform.GOOS, opts.platform.GOARCH
+	return tc
+}
+
+// platformOf is the platform a build links for: --platform OS/ARCH when
+// given (spelled), else GOOS and GOARCH of the environment, each one unset
+// or empty meaning the compiler's own (runtime.GOOS, runtime.GOARCH). A
+// platform outside the target list (gobind.Platforms, the platforms every
+// Go binding holds for) is the EF110 refusal: a program that checks against
+// the bindings links on each of them, and on no other.
+func platformOf(spelled string, given bool, goos, goarch string) (gobind.Platform, error) {
+	p := gobind.Platform{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
+	if goos != "" {
+		p.GOOS = goos
+	}
+	if goarch != "" {
+		p.GOARCH = goarch
+	}
+	if given {
+		goos, goarch, ok := strings.Cut(spelled, "/")
+		if !ok || goos == "" || goarch == "" || strings.Contains(goarch, "/") {
+			return gobind.Platform{}, fmt.Errorf("--platform takes OS/ARCH, such as linux/arm64, not %q", spelled)
+		}
+		p = gobind.Platform{GOOS: goos, GOARCH: goarch}
+	}
+	if slices.Contains(gobind.Platforms, p) {
+		return p, nil
+	}
+	names := make([]string, len(gobind.Platforms))
+	for i, listed := range gobind.Platforms {
+		names[i] = listed.String()
+	}
+	diagnostic := report.UnsupportedPlatform(p.String(), names)
+	return gobind.Platform{}, fmt.Errorf("%s: %s", diagnostic.Code, diagnostic.Message)
 }
 
 // outputPath is the executable a build writes: -o, or dist/NAME, NAME

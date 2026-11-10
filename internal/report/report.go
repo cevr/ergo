@@ -9,6 +9,7 @@ package report
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"strings"
 
 	"ergo.local/prototype/internal/producer"
 )
@@ -56,6 +57,13 @@ func UnsupportedTarget(target string) (Diagnostic, bool) {
 		return Diagnostic{}, false
 	}
 	return Diagnostic{Code: "EF110", Message: "unsupported target " + target + "; the only target is " + Target}, true
+}
+
+// UnsupportedPlatform returns the EF110 diagnostic for a platform (GOOS/GOARCH)
+// outside platforms, the target list, which it names: a platform is part
+// of the target, so it has the target's refusal.
+func UnsupportedPlatform(platform string, platforms []string) Diagnostic {
+	return Diagnostic{Code: "EF110", Message: "unsupported target " + Target + " on " + platform + "; the platforms are " + strings.Join(platforms, ", ")}
 }
 
 // Result is the diagnostics-only result of one source text: its revision,

@@ -32,14 +32,17 @@ func HostToolchain() Toolchain {
 
 // Command is the Go build action that links the module's root package to
 // output: go build with receipt.GoBuildFlags, outside any workspace, in the
-// module directory, with exactly the toolchain's target and flags.
+// module directory, with exactly the toolchain's target and flags, and
+// with cgo off: the Go bindings a program checks against are typed with
+// CGO_ENABLED=0 (docs/spec/interop.md, Platforms), and a cgo-free link
+// cross-compiles with no C toolchain for the target.
 func (t Toolchain) Command(module Module, output string) *exec.Cmd {
 	args := append([]string{"build"}, receipt.GoBuildFlags...)
 	args = append(args, "-o", output, ".")
 	child := exec.Command(t.Go, args...)
 	child.Dir = module.Dir
 	env := os.Environ()
-	for _, kv := range [][2]string{{"GOWORK", "off"}, {"GOOS", t.GOOS}, {"GOARCH", t.GOARCH}, {"GOFLAGS", t.GOFLAGS}} {
+	for _, kv := range [][2]string{{"GOWORK", "off"}, {"CGO_ENABLED", "0"}, {"GOOS", t.GOOS}, {"GOARCH", t.GOARCH}, {"GOFLAGS", t.GOFLAGS}} {
 		prefix := kv[0] + "="
 		env = slices.DeleteFunc(env, func(entry string) bool { return strings.HasPrefix(entry, prefix) })
 		if kv[1] != "" {
