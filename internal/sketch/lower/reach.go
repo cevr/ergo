@@ -9,9 +9,9 @@ import (
 // declaration of a sourced package (the root package and the local
 // packages it imports) only when it is reachable from the build's entry:
 // main for ergo build and ergo run. The test build of ergo test lowers
-// every declaration of the root package, since a law runs over the
-// providers of its operation type, which no syntax names, and reaches
-// into the imported packages from there. A package let that nothing
+// every declaration, as before: a law of an imported operation type runs
+// over the root package's providers of it, an edge no syntax names, and a
+// test binary is not shipped. A package let that nothing
 // reachable reads is not lowered, so its initializer does not run (owner
 // question 1); a machine type that nothing reachable names computes no
 // initial value and registers no graph. The checker still checks
@@ -66,11 +66,11 @@ type reach struct {
 }
 
 // computeReach sets l.reached, the declarations of the sourced packages
-// that the entry reaches; it leaves it nil, which lowers every
-// declaration, under reachLowering "all" and for a library-shaped lowering
-// (noEntry), which has no entry.
+// that main reaches; it leaves it nil, which lowers every declaration,
+// under reachLowering "all", for the test build and for a library-shaped
+// lowering (noEntry), which has no entry.
 func (l *lowerer) computeReach() {
-	if reachLowering == "all" || l.noEntry {
+	if reachLowering == "all" || l.noEntry || l.tests != nil {
 		return
 	}
 	r := &reach{l: l, byObj: map[check.Object]declInfo{}, reached: map[syntax.Decl]bool{},
@@ -92,13 +92,10 @@ func (l *lowerer) computeReach() {
 					}
 					return true
 				})
-				if p == l.pkg && l.tests != nil {
-					r.add(di) // the test build: every root declaration
-				}
 			}
 		}
 	}
-	if main := l.mainFunc(); main != nil && l.tests == nil {
+	if main := l.mainFunc(); main != nil {
 		r.object(main)
 	}
 	for len(r.work) > 0 {
