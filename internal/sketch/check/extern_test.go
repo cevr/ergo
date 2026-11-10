@@ -282,6 +282,7 @@ func BeginObject(_ Mine, n int) {}
 func Tag(_ Mine, name string)   {}
 func Key(_ Mine, k string)      {}
 func EndObject(_ Mine)          {}
+func Null(_ Mine)                {}
 func Written(_ Mine) string     { "" }
 
 func use(t json.Text) { t.EndList() }

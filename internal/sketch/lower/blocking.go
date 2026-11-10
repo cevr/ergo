@@ -294,6 +294,8 @@ var runtimeBindings = map[string]runtimeBinding{
 	"NewJSONText":        {},
 	"JSONOpen":           {},
 	"JSONTake":           {},
+	"NewJSONHTMLText":    {},
+	"Text.Null":          {},
 	"JSONGive":           {},
 	"Cursor.Wrong":       {},
 	"Text.Bool":          {task: true},

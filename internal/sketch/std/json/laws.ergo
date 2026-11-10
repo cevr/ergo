@@ -34,8 +34,8 @@ func viaWriter[T wire](v T) string {
 
 // FastAgreesWithWriter: the text an encode on a Text writes (the
 // compiler's byte-appending path, lower/wirejson.go) is the text the
-// Writer operations write, inside events too: a value after a key and as
-// the second element of a list.
+// Writer operations write, in a Text and in an HTML Text, inside events
+// too: a value after a key and as the second element of a list.
 law FastAgreesWithWriter(v fleet) {
 	let t = NewText()
 	t.BeginList(2)
@@ -48,7 +48,12 @@ law FastAgreesWithWriter(v fleet) {
 	r.Int(1)
 	encode(v, r)
 	r.EndList()
-	t.Written() == w.Written() && Encode(codec(), v) == viaWriter(v)
+	let h = NewHTMLText()
+	encode(v, h)
+	let g = NewHTMLText()
+	let gw Writer = g
+	encode(v, gw)
+	t.Written() == w.Written() && h.Written() == g.Written() && Encode(codec(), v) == viaWriter(v)
 }
 
 // TruncatedFails: no text shorter than an encoding, cut from its end, is

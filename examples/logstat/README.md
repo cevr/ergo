@@ -38,7 +38,7 @@ The program is a module of packages (`ergo.mod`: `module logstat`), in the Go la
 | --- | --- |
 | `access/` | The log's domain. `request.ergo` (`Request`, the union `Class` of status classes, `Path`), `parse.ergo` (`Parse` over a `*scanner` borrow, and its failures `Missing`, `BadNumber`, `BadTime`, `BadRequest`, `Trailing`, each with a column), `problem.ergo` (the union `Problem` of those failures, `ColumnOf`, `Describe`), `format.ergo` (`Format`, the inverse of `Parse`, `Seconds`, `Valid`), `gen.ergo` (`Plain`, which makes a generated request Valid, and `Damaged`, which breaks its line, for the laws), `laws.ergo`, `tests.ergo`. |
 | `stats/` | The arithmetic, with no log in it. `percentile.ergo` (`Percentiles` over a `slices.Ascending`, `Mean`), `count.ergo` (`Tally`, `Rank`), `laws.ergo`, `tests.ergo`. |
-| `report/` | `summary.ergo` (the union `Key` that `-by` names, `Summary`, `Summarize`), `text.ergo` (the union `Style`, `Write`, `Text`), `json.ergo` (`Encode`, `Quote`), `laws.ergo`, `tests.ergo`. |
+| `report/` | `summary.ergo` (the union `Key` that `-by` names, `Summary`, `Summarize`), `text.ergo` (the union `Style`, `Write`, `Text`), `json.ergo` (`Encode`, `Quote`, over std json's `Text`), `laws.ergo`, `tests.ergo`. |
 | `cmd/logstat/` | The binary. `main.ergo` reads the flags, reads each file (or standard input) line by line, tells the bad lines, and binds the host's streams and files. Its tests run `run` over an `io.Input`, an `io.Recorder` and a Files provider of three files. |
 
 ## What it shows
@@ -68,7 +68,7 @@ Each gap has its repro in the run dir's `examples-wave/gaps-ex-a.md`.
 
 - **G-ex-a-11 (std behaviour differs from Go).** A `time.Time` keeps no zone offset: a time parsed with `+0100` is written back with `+0000`. logstat writes every time in UTC, and the law `FormatParses` holds for UTC lines only.
 - **G-ex-a-12 (performance).** `slices.Ascending` has no length or index, and `Items` copies the sample, so `Percentiles` takes every percentile in one call to copy it once.
-- **G-ex-a-14 (narrowed).** No JSON encoder: `report.Encode` writes each field and `report.Quote` escapes as Go's `encoding/json` does (now with \ufffd for each invalid byte and \u2028/\u2029, by `utf8.DecodeRuneInString`).
+- **G-ex-a-14 (closed by S-json).** `report.Encode` writes over std json's HTML `Text` (Go's escapes of <, > and &, `Null` for an empty span), in the field order Go's struct gives; a byte of invalid UTF-8 is `\udcXX`, where Go writes `\ufffd`, so the text reads back as the bytes.
 - **Not a gap, found on the way.** `number` is a predeclared constraint, so a function named `number` is S108 (types.md, Generics 2); and `try` must start an expression (`1000000 * try f()` is S001), so the value is bound first.
 
 Closed in batch 13: G-exup-7 (fu6a: `time.NewTime` builds a generated `time.Time`, so the laws take a `Request` in place of a seed).

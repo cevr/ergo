@@ -34,10 +34,35 @@ type JSONMalformed struct {
 type Text struct {
 	B     []byte
 	Comma bool
+	// HTML escapes <, > and & in strings as \u003c, \u003e and \u0026, as
+	// Go's encoding/json does by default, so the text is safe inside HTML.
+	HTML bool
 }
 
 // NewJSONText is a Text with nothing written.
 func NewJSONText() *Text { return &Text{B: make([]byte, 0, 64)} }
+
+// NewJSONHTMLText is a Text with nothing written whose strings escape <,
+// > and &.
+func NewJSONHTMLText() *Text { return &Text{B: make([]byte, 0, 64), HTML: true} }
+
+// JSONAppendTextString appends s quoted to t as t's String does: the fast
+// path's string, so both paths honour t.HTML.
+func JSONAppendTextString(t *Text, s string) {
+	if t.HTML {
+		t.B = jsonAppendString(t.B, s, &jsonSafeHTML)
+		return
+	}
+	t.B = jsonAppendString(t.B, s, &jsonSafe)
+}
+
+// Null writes null, a value no derived codec writes (a Text's own event,
+// for a hand-written text).
+func (t *Text) Null() {
+	t.JSONValue()
+	t.B = append(t.B, "null"...)
+	t.Comma = true
+}
 
 // JSONValue starts a value: a comma when one is due. Then the value is
 // written and JSONDone marks it written.
@@ -87,7 +112,7 @@ func (t *Text) Float(task *rt.Task, f float64) {
 
 func (t *Text) String(task *rt.Task, s string) {
 	t.JSONValue()
-	t.B = JSONAppendString(t.B, s)
+	JSONAppendTextString(t, s)
 	t.Comma = true
 }
 
@@ -121,7 +146,7 @@ func (t *Text) Tag(task *rt.Task, name string) {
 
 func (t *Text) Key(task *rt.Task, k string) {
 	t.JSONValue()
-	t.B = JSONAppendString(t.B, k)
+	JSONAppendTextString(t, k)
 	t.B = append(t.B, ':')
 	t.Comma = false
 }
@@ -166,6 +191,13 @@ var jsonSafe = func() (t [utf8.RuneSelf]bool) {
 	return t
 }()
 
+// jsonSafeHTML is jsonSafe without <, > and &.
+var jsonSafeHTML = func() (t [utf8.RuneSelf]bool) {
+	t = jsonSafe
+	t['<'], t['>'], t['&'] = false, false, false
+	return t
+}()
+
 const jsonHex = "0123456789abcdef"
 
 // JSONAppendString appends s quoted: '"', '\\' and the control bytes
@@ -176,12 +208,16 @@ const jsonHex = "0123456789abcdef"
 // byte: an Ergo string holds bytes (types.md, Strings 1), so every string
 // round-trips, and a valid UTF-8 string is plain JSON text. No HTML
 // escaping (encoding/json v2's default).
-func JSONAppendString(b []byte, s string) []byte {
+func JSONAppendString(b []byte, s string) []byte { return jsonAppendString(b, s, &jsonSafe) }
+
+// jsonAppendString is JSONAppendString with the ASCII bytes safe holds
+// written as themselves.
+func jsonAppendString(b []byte, s string, safe *[utf8.RuneSelf]bool) []byte {
 	b = append(b, '"')
 	start := 0
 	for i := 0; i < len(s); {
 		if c := s[i]; c < utf8.RuneSelf {
-			if jsonSafe[c] {
+			if safe[c] {
 				i++
 				continue
 			}

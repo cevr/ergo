@@ -57,5 +57,5 @@ test QuoteEscapesAsGo {
 	assert Quote("a\"b\\c") == "\"a\\\"b\\\\c\""
 	assert Quote("<a&b>") == "\"\\u003ca\\u0026b\\u003e\""
 	assert Quote("\n\t\r\x01\x1f é") == "\"\\n\\t\\r\\u0001\\u001f é\""
-	assert Quote("a\xffb\xc3") == "\"a\\ufffdb\\ufffd\"" && Quote("\u2028\ufffd") == "\"\\u2028\ufffd\""
+	assert Quote("a\xffb\xc3") == "\"a\\udcffb\\udcc3\"" && Quote("\u2028\ufffd") == "\"\\u2028\ufffd\""
 }

@@ -48,12 +48,20 @@ type Text {
 	Tag(name string),
 	Key(k string),
 	EndObject(),
+	// Null writes null, which no derived codec writes, for a text written
+	// by hand.
+	Null(),
 	// Written is the text written so far.
 	Written() string,
 }
 
 // NewText is a Text with nothing written.
 extern go ergo.local/prototype/runtime/v1.NewJSONText func NewText() Text
+
+// NewHTMLText is a Text with nothing written whose strings also escape <,
+// > and & as \u003c, \u003e and \u0026, as Go's encoding/json does by
+// default, so the text is safe inside HTML.
+extern go ergo.local/prototype/runtime/v1.NewJSONHTMLText func NewHTMLText() Text
 
 // take is an empty Text from a pool; give is its text, and puts it back,
 // so nothing may use it after (Encode only).

@@ -165,7 +165,7 @@ func (jsonEvents) basic(tc *typeCtx, b *check.Basic, task, w, v string) string {
 	case b.Kind == check.Bool:
 		return appendTo(tc, w, "JSONAppendBool", "bool("+v+")")
 	case b.Kind == check.String:
-		return appendTo(tc, w, "JSONAppendString", "string("+v+")")
+		return tc.l.rt() + ".JSONAppendTextString(" + w + ", string(" + v + "))"
 	case b.Kind == check.Float32 || b.Kind == check.Float64:
 		return appendTo(tc, w, "JSONAppendFloat", "float64("+v+")")
 	case b.Kind >= check.Uint && b.Kind <= check.Uintptr:
@@ -205,7 +205,7 @@ func (jsonEvents) key(name string, first bool, task, w string) string {
 }
 
 func (e jsonEvents) mapKey(tc *typeCtx, k, i, task, w string) string {
-	return e.item(i, w) + appendTo(tc, w, "JSONAppendString", "string("+k+")") + "\n" + w + ".B = append(" + w + ".B, ':')\n"
+	return e.item(i, w) + tc.l.rt() + ".JSONAppendTextString(" + w + ", string(" + k + "))\n" + w + ".B = append(" + w + ".B, ':')\n"
 }
 
 func (jsonEvents) item(i, w string) string {
