@@ -400,7 +400,7 @@ func (w *escWalk) allowed(id *syntax.Ident, v *Var) bool {
 
 const (
 	captureWriteText  = "%s is a let mut of an enclosing frame, and this function literal or block may outlive the call that made it, so it holds a copy of %s and cannot write it; declare a let mut inside it, or pass it to a non-escaping parameter (types.md, Function values 3)"
-	writeAfterText    = "%s is written here after the function literal or block at %d:%d captured it, and that literal may outlive the call that made it, so it would not see the write; write %s before the literal, or capture a copy that is not written: let %s = %s before it (types.md, Function values 3)"
+	writeAfterText    = "%s is written here after a function literal or block captured it, and that literal may outlive the call that made it, so it would not see the write; write %s before the literal, or capture a copy that is not written: let %s = %s before it (types.md, Function values 3)"
 	borrowCaptureText = "%s is a borrow (*T), and this function literal or block may outlive the call that lent it; an escaping frame never captures a borrow: copy what it needs into a let before it (types.md, Borrows 1)"
 )
 
@@ -509,8 +509,7 @@ func (w *escWalk) finishCaptures() {
 					w.c.errorf(wr.id, CodeType, captureWriteText, v.Name, v.Name)
 				case w.follows(wr, e, ce.regions[:at], w.declDepth[v]):
 					reported[wr.id] = true
-					line, col := w.c.cur.syntax.Position(e.Pos())
-					w.c.errorf(wr.id, CodeType, writeAfterText, v.Name, line, col, v.Name, renamed(v.Name), v.Name)
+					w.c.errorf(wr.id, CodeType, writeAfterText, v.Name, v.Name, renamed(v.Name), v.Name)
 				}
 			}
 		}
