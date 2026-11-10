@@ -16,6 +16,7 @@ import fstest
 import journal
 import jmemory journal/memory
 import os
+import strings
 import time
 import router/memory
 import router/route
@@ -62,7 +63,7 @@ func main() fails os.Exit needs Console | Ambient {
 		case fs.NotFound, fs.Denied, fs.Failed:
 			return os.Exit{Code: 1, Message: "router: embedded help is unavailable"}
 		}
-		Console.Println(text)
+		Console.Println(strings.TrimSuffix(text, "\n"))
 		return
 	}
 	let cmds = script.Read(lines) catch {
