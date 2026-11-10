@@ -1,0 +1,122 @@
+{
+  "about": "The mutant ledger of internal/sketch/eval, the check-time evaluator (L7). Run it with go run ./scripts/mutants ./internal/sketch/eval; docs/tooling.md, \"Mutant ledger\", says when a change must run it. Seeded by unit EV1 (wf10 l7-eval, 2026-11-10).",
+  "mutants": [
+    {
+      "name": "short-circuit-rhs",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\t\tif truth(a) == (x.Op == syntax.LOR) {",
+      "to": "\t\tif _, ab := in.expr(fr, x.Y); ab != nil {\n\t\t\treturn nil, ab\n\t\t} else if truth(a) == (x.Op == syntax.LOR) {",
+      "rule": "&& and || evaluate their right operand only when the left one does not decide (lower/expr.go binary).",
+      "killers": []
+    },
+    {
+      "name": "int8-constant-widened",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/value.go",
+      "from": "\tcase check.Int8:\n\t\treturn int8(i), true",
+      "to": "\tcase check.Int8:\n\t\treturn i, true",
+      "rule": "An int8 value wraps at 8 bits: non-constant arithmetic wraps at its type's width (types.md, Basic types 2).",
+      "killers": []
+    },
+    {
+      "name": "int8-op-widened",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/ops.go",
+      "from": "\t\treturn intOp(op, a, b.(int8))",
+      "to": "\t\treturn intOp(op, int64(a), int64(b.(int8)))",
+      "rule": "An int8 operation wraps at 8 bits and gives an int8 (types.md, Basic types 2).",
+      "killers": []
+    },
+    {
+      "name": "defect-caught",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tif failed.kind != ctlFail {",
+      "to": "\tif failed.kind != ctlFail && failed.kind != ctlDefect {",
+      "rule": "A catch handles typed failures only; a defect is never caught (rows.md, Catch 6).",
+      "killers": []
+    },
+    {
+      "name": "divide-by-zero-ok",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/ops.go",
+      "from": "\tcase syntax.QUO:\n\t\tif b == 0 {",
+      "to": "\tcase syntax.QUO:\n\t\tif b == 0 && false {",
+      "rule": "An integer division by zero is a defect, as Go panics on it.",
+      "killers": []
+    },
+    {
+      "name": "negative-shift-ok",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/ops.go",
+      "from": "\t\tif negative {",
+      "to": "\t\tif false && negative {",
+      "rule": "A shift by a negative count is a defect, as Go panics on it.",
+      "killers": []
+    },
+    {
+      "name": "variant-test-true",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/stmt.go",
+      "from": "\t\treturn sameNamed(r.t, tt)",
+      "to": "\t\treturn true",
+      "rule": "A type pattern matches a union value only of that variant (rows.md, Totality; a Go type switch).",
+      "killers": []
+    },
+    {
+      "name": "returned-error-is-value",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/interp.go",
+      "from": "\tif fr.isErrorValue(fr.typeOf(x)) && !fr.info.ReturnedValues[x] {",
+      "to": "\tif false && fr.isErrorValue(fr.typeOf(x)) && !fr.info.ReturnedValues[x] {",
+      "rule": "Returning a value of an error type is a failure (types.md, Error types 2).",
+      "killers": []
+    },
+    {
+      "name": "absent-fact-pure",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/eval.go",
+      "from": "\tif !ok {\n\t\tice(\"no footprint",
+      "to": "\tif false {\n\t\tice(\"no footprint",
+      "rule": "An absent footprint is not an empty one (rows.md, Footprints 2): an internal error, never a pure frame.",
+      "killers": []
+    },
+    {
+      "name": "defect-continues",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/eval.go",
+      "from": "\t\t\tstopped = \"a defect stopped the run\"",
+      "to": "\t\t\tstopped = \"\"",
+      "rule": "A defect stops the run (runtime.md, Tests 3).",
+      "killers": []
+    },
+    {
+      "name": "incomplete-continues",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/eval.go",
+      "from": "\t\t\tstopped = \"the evaluation budget ran out\"",
+      "to": "\t\t\tstopped = \"\"",
+      "rule": "The budget is per request: once it runs out, every later obligation is reported not run (L7 plan, section 5).",
+      "killers": []
+    },
+    {
+      "name": "fuel-ignored",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/interp.go",
+      "from": "\tif n < 0 || in.steps > in.budget.Steps-n {",
+      "to": "\tif n < 0 {",
+      "rule": "Every evaluated node costs steps before its work, so a loop that never ends exhausts the budget (L7 plan, section 5).",
+      "killers": []
+    },
+    {
+      "name": "skip-as-pass",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/eval.go",
+      "from": "\t\tres.Status, res.Reason = Skipped, \"a law takes generated cases",
+      "to": "\t\tres.Status, res.Reason = Passed, \"a law takes generated cases",
+      "rule": "A skipped law is never a pass (runtime.md, Tests 7; L7 plan, section 5).",
+      "killers": []
+    }
+  ]
+}
