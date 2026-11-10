@@ -3,10 +3,10 @@ package v1
 // ShrinkTape shrinks the tape of a refuted case (L10, #162): the draws its
 // generators made, in order. fails replays the case from a candidate tape
 // (past its end a tape gives 0) and reports whether it is still refuted.
-// A candidate is kept only when it is smaller in shortlex order (shorter,
-// else lexicographically smaller) and still fails; shortlex is a
-// well-order on finite tapes, so the shrinker ends, and budget bounds the
-// replays as well. The passes, repeated until a round keeps nothing: delete
+// Every candidate a pass makes is smaller in shortlex order (shorter, else
+// lexicographically smaller), and one is kept when it still fails;
+// shortlex is a well-order on finite tapes, so the shrinker ends, and
+// budget bounds the replays as well. The passes, repeated until a round keeps nothing: delete
 // a chunk of 8, 4, 2 or 1 draws; set a chunk to zero; lower each draw, to
 // zero first, then by a binary search on the gap. The result is the
 // smallest tape found and the number of replays (tries), the work counter
@@ -14,7 +14,7 @@ package v1
 func ShrinkTape(tape []uint64, fails func([]uint64) bool, budget int) (best []uint64, tries int) {
 	best = append([]uint64(nil), tape...)
 	try := func(c []uint64) bool {
-		if tries >= budget || !shortlexLess(c, best) {
+		if tries >= budget {
 			return false
 		}
 		tries++
@@ -74,18 +74,4 @@ func ShrinkTape(tape []uint64, fails func([]uint64) bool, budget int) (best []ui
 		}
 	}
 	return best, tries
-}
-
-// shortlexLess reports whether a comes before b: shorter, or as long and
-// lexicographically smaller.
-func shortlexLess(a, b []uint64) bool {
-	if len(a) != len(b) {
-		return len(a) < len(b)
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return a[i] < b[i]
-		}
-	}
-	return false
 }

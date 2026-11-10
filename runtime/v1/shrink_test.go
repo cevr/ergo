@@ -131,3 +131,17 @@ func shrinkPredicate(r *rand.Rand, tape []uint64) predicate {
 	}
 	return predicate{fmt.Sprintf("sum of the first %d >= %d", m, s), func(c []uint64) bool { return sum(c) >= s }}
 }
+
+// shortlexLess reports whether a comes before b: shorter, or as long and
+// lexicographically smaller.
+func shortlexLess(a, b []uint64) bool {
+	if len(a) != len(b) {
+		return len(a) < len(b)
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return a[i] < b[i]
+		}
+	}
+	return false
+}
