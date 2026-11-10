@@ -68,6 +68,7 @@ let Routes = []http.Route[Endpoint]{http.Route{Value: Read, Method: "POST", Path
 		{"success status", prelude + strings.Replace(table, "422", "200", 1), "failure status (400..599)"},
 		{"unknown", prelude + strings.Replace(table, entry, entry+`, http.FailureStatus{Tag: "Unknown", Status: 404}`, 1), "Unknown is not a contract failure"},
 		{"two tables", prelude + table + "\n" + strings.Replace(table, "Failures", "Others", 1), "one exported failure table"},
+		{"HEAD failure", strings.Replace(prelude, `Method: "POST"`, `Method: "HEAD"`, 1) + table, "HEAD cannot carry a tagged failure body"},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			a := sketchfront.Check(row.source)

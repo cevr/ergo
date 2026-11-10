@@ -41,6 +41,8 @@ The handler encodes a closed union of its contract failures, then calls
 `http.Failure(Failures, taggedJson)`; it never chooses those statuses by hand.
 `Effect.catchTag("NotFound", ...)` receives typed fields on a stock client.
 Transport refusals outside the operation row remain undeclared-status errors.
+A HEAD operation with failures is refused: HTTP strips its body, so this
+tagged-error profile cannot promise that a client can decode it.
 RPC projections retain their existing failures.
 
 Use the pins in `package.json`: Effect 4.1.2 and TypeScript 7.1.0-beta.

@@ -275,6 +275,9 @@ func httpTables(pkg *check.Package, file *syntax.File, contracts []*check.TypeNa
 				}
 			}
 			route := httpRoute{name: name, method: method, path: path, status: int(status), result: op.Result}
+			if method == "HEAD" && len(op.Fails) > 0 {
+				return nil, errTable(name + ": HEAD cannot carry a tagged failure body")
+			}
 			for _, f := range op.Fails {
 				for _, n := range httpFailures(f) {
 					tag := n.Obj.Name

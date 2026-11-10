@@ -99,6 +99,20 @@ await Effect.runPromise(program.pipe(Effect.provide(FetchHttpClient.layer)));
 		return command("bun", "node_modules/typescript/bin/tsc", "--runExternalCode", "--pretty", "false", "-p", ".")
 	}
 	runCheck(t, tsc())
+	// A table covers the contract's aggregate failures, but an endpoint's
+	// error channel contains only its own row. BadBody belongs to SubmitJob,
+	// not ShowJob. An accidentally widened error row would admit this call.
+	clientSource, err := os.ReadFile(filepath.Join(dir, "client.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const marker = `  console.log("HTTP client agrees");`
+	put(t, dir, "client.ts", strings.Replace(string(clientSource), marker, `  yield* client.GET.ShowJob({ params: { id: 1 } }).pipe(Effect.catchTag("BadBody", () => Effect.succeed(null)));`+"\n"+marker, 1))
+	out, code := runResult(t, tsc())
+	put(t, dir, "client.ts", string(clientSource))
+	if code == 0 || !bytes.Contains(out, []byte("client.ts(22,")) {
+		t.Fatalf("an unrelated failure entered the endpoint's row (exit %d):\n%s", code, out)
+	}
 	// Failure names are part of the call site's checked error channel, not
 	// only exported data schemas. Rename throughout the copied source so the
 	// Ergo contract remains valid, but leave catchTag in the peer stale.
@@ -126,7 +140,7 @@ await Effect.runPromise(program.pipe(Effect.provide(FetchHttpClient.layer)));
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, code := runResult(t, tsc())
+	out, code = runResult(t, tsc())
 	for _, path := range renamed {
 		b, err := os.ReadFile(path)
 		if err != nil {
