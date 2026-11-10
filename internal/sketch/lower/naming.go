@@ -192,7 +192,7 @@ func (l *lowerer) nameAll() {
 		}
 		for _, tn := range l.canon.types(p) {
 			named, ok := tn.Type.(*check.Named)
-			if !ok || !l.errorType(named, l.buildView()) || tn.Decl == nil {
+			if !ok || !l.errorShape(named) || tn.Decl == nil {
 				continue
 			}
 			for _, root := range l.textRoots(named) {

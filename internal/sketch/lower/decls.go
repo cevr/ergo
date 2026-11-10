@@ -310,7 +310,7 @@ func (l *lowerer) typeDecl(tn *check.TypeName, site syntax.Node) *typeDecl {
 	case *syntax.StructType:
 		td.kind = kindRecord
 		td.fieldName = map[string]string{}
-		td.errorType = l.errorType(named, l.buildView())
+		td.errorType = l.errorShape(named)
 		// A defined error type over this record keeps its Go field names,
 		// so they avoid its Error method too.
 		avoidError := td.errorType || l.definedErrorOver(named)
@@ -385,18 +385,16 @@ func (l *lowerer) typeDecl(tn *check.TypeName, site syntax.Node) *typeDecl {
 		// A defined type over a record, named in an error row, is an error
 		// type of its own: it gets its own Error method (types.md, Error
 		// types 1).
-		td.errorType = l.errorType(named, l.buildView())
+		td.errorType = l.errorShape(named)
 	}
 	return td
 }
 
 // definedErrorOver reports whether an error type of the program is defined
-// over named, directly or through other defined types.
+// over named, directly or through other defined types: an error type of
+// any package the build reads (errorShape).
 func (l *lowerer) definedErrorOver(named *check.Named) bool {
-	for _, pkg := range []*check.Package{named.Obj.Pkg, l.pkg} {
-		if pkg == nil {
-			continue
-		}
+	for _, pkg := range append([]*check.Package{l.pkg}, l.libraries()...) {
 		for _, n := range l.errorTypesRead(pkg) {
 			for t := n.Defined(); t != nil; {
 				d, ok := t.(*check.Named)
