@@ -75,6 +75,18 @@ func (b runtimeBinding) takesCaller() bool {
 }
 
 var runtimeBindings = map[string]runtimeBinding{
+	// Scalar atomic handles preserve the source operation ABI and never wait.
+	"NewInt64":             {},
+	"NewBool":              {},
+	"Int64.Load":           {task: true},
+	"Int64.Store":          {task: true},
+	"Int64.Add":            {task: true},
+	"Int64.Swap":           {task: true},
+	"Int64.CompareAndSwap": {task: true},
+	"Bool.Load":            {task: true},
+	"Bool.Store":           {task: true},
+	"Bool.Swap":            {task: true},
+	"Bool.CompareAndSwap":  {task: true},
 	// Build-time assets are immutable in-memory reads: no waiting task.
 	"EmbeddedFS":   {},
 	"NewEmptyFS":   {},

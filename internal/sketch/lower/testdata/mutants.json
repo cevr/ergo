@@ -1,6 +1,7 @@
 {
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
+    {"name":"atomic-finite-law-proof","origin":"wf10 S-atomic r1","file":"internal/sketch/lower/std_laws_test.go","from":"( \\((\\d+ cases|proved: all \\d+ cases)\\))?","to":"( \\(\\d+ cases\\))?","rule":"The law-ledger runner accepts a proved finite-domain success as well as sampled-case and unit successes.","killers":["lower:TestStdLawsRun"]},
     {
       "name": "existing-2-unit-h",
       "origin": "lower-v1/verify-s4a/r2/mutants-r2.json",
