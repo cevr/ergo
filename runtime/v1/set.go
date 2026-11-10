@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"ergo.local/prototype/runtime/rt"
 )
@@ -65,11 +66,16 @@ type Set struct {
 	kind  int      // setFailFast, setLogFailures or setRestart
 	limit int      // restarts per Go under setRestart
 
-	mu      sync.Mutex
-	members []*member // running, each at its index i
-	ended   []*member // ended, not yet joined by the owner
-	wake    chan struct{}
-	closed  bool
+	mu sync.Mutex
+	// spawning is set, in an explored run only, while Go holds mu across
+	// a member's spawn, which is a scheduling point: a member's end waits
+	// for it where the scheduler sees the wait, not on mu with the baton
+	// held (X8; the same rule as an actor's adopting, X7).
+	spawning atomic.Bool
+	members  []*member // running, each at its index i
+	ended    []*member // ended, not yet joined by the owner
+	wake     chan struct{}
+	closed   bool
 	// failure is the typed failure that ended the Set (FailFast), which
 	// each Wait gives again; defects are the defects no Wait or Stop has
 	// raised yet.
@@ -152,6 +158,10 @@ func tasksGo(span Site, t *rt.Task, set *Set, prepare func(*rt.Task) *Scope, bod
 	set.reap()
 	set.mu.Lock()
 	defer set.mu.Unlock()
+	if rt.Exploring {
+		set.spawning.Store(true)
+		defer set.spawning.Store(false)
+	}
 	if set.closed {
 		return TasksClosed{}
 	}
@@ -189,9 +199,18 @@ func (set *Set) restarts(ct *rt.Task, m *member, exit error) bool {
 	if set.kind != setRestart || !restartable(ct, exit, m.runs, set.limit) {
 		return false
 	}
-	set.mu.Lock()
+	set.lockMember()
 	defer set.mu.Unlock()
 	return !set.closed
+}
+
+// lockMember locks mu for a member's task. In an explored run it first
+// waits, through the scheduler, for a spawn of the owner that holds mu.
+func (set *Set) lockMember() {
+	if rt.Exploring {
+		rt.Await(nil, func() bool { return !set.spawning.Load() })
+	}
+	set.mu.Lock()
 }
 
 // restartable is tasks.Restart's rule, for a Set's member and for a
@@ -208,7 +227,7 @@ func restartable(ct *rt.Task, exit error, runs, limit int) bool {
 func (set *Set) end(m *member, exit error) {
 	var stop []*member
 	logged := false
-	set.mu.Lock()
+	set.lockMember()
 	last := len(set.members) - 1
 	set.members[m.i] = set.members[last]
 	set.members[m.i].i = m.i
