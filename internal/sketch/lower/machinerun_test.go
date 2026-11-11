@@ -706,6 +706,61 @@ func flatRunAllocs(t *testing.T) (short, long float64) {
 	return short, long
 }
 
+// stepDefectSource is a machine whose step divides by zero at its third
+// signal: the step is inlined into the copy of From, whose own code has no
+// //line directive.
+const stepDefectSource = `import machines
+
+type Count { n int }
+type St = Count
+type Tick { d int }
+type Sig = Tick
+
+func step(s St, e Sig) Decision[St, int] {
+	Stay[St]{Next: Count{n: s.n + 10 / e.d}}
+}
+
+type M machine[St, Sig] {
+	initial: Count{n: 0},
+	step:    step,
+}
+
+func main() needs Console {
+	let o = machines.Run(M{}, []Sig{Tick{d: 1}, Tick{d: 2}, Tick{d: 0}}) catch {
+	case machines.Rejected:
+		return
+	}
+	match o {
+	case machines.Running[St, int] as r:
+		Console.Println("\(r.State.n)")
+	case machines.Finished[St, int]:
+		Console.Println("finished")
+	}
+}
+`
+
+// TestMachineStepDefectFrames is the smallest repro of an OPT6b bug: a
+// defect in a step inlined into the copy of From reported the std lines
+// after the inlined body as the step's, since the copy has no //line
+// directive to name its own lines again (closeInline now writes
+// generatedDir). The report must equal the reference's, where std's loop
+// calls the step. It builds Go because the report reads Go's traceback of
+// the built program.
+func TestMachineStepDefectFrames(t *testing.T) {
+	needsBuild(t)
+	copied := lowerMachineMode(t, "stepdefect", stepDefectSource, "", "")
+	ref := lowerMachineMode(t, "stepdefectref", stepDefectSource, "ref", "")
+	if !strings.Contains(copied.mainGo(), "func RunM(") {
+		t.Fatalf("no copy of Run for M:\n%s", copied.mainGo())
+	}
+	exes := buildAll(t, []*lowered{copied, ref}, true)
+	out, stderr, code := runExe(t, exes["stepdefect"])
+	refOut, refErr, refCode := runExe(t, exes["stepdefectref"])
+	if code == 0 || out != refOut || stderr != refErr || code != refCode {
+		t.Errorf("the copy's defect report differs from the reference's\n--- copy (exit %d)\n%s%s\n--- reference (exit %d)\n%s%s", code, out, stderr, refCode, refOut, refErr)
+	}
+}
+
 // TestMachineFlatRunAllocates: a run's state lives in the copy of From as
 // a scalar local, its step inlined and its decision a join local
 // (record.go, scalar.go), so a step of fieldful variants with no slice
