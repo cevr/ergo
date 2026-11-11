@@ -277,6 +277,10 @@ type Info struct {
 	// of a *syntax.TryExpr that leaves the function) for everything it
 	// leaves; the assigned *syntax.Ident of an assignment for the old value
 	// (R41). A missing key releases nothing. Added in L8 A2 (additive).
+	// A try's failure edge holds the paths of its own operand; a failure
+	// of a right operand it covers (TryCovers) adds none, since both
+	// release lowerings release a failure exit from what the frame holds
+	// at run time (presence bits, the scope list), never from this entry.
 	Releases map[syntax.Node][]Release
 	// OwnedVars and OwnedTemps are the values the ownership pass gives an
 	// owner (#197 L8 B1): each owned local and taken parameter, and each

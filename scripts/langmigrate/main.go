@@ -7,8 +7,14 @@
 // tryparens (q105: try may start any operand) removes each (try …) whose
 // removal leaves the package's checked meaning the same: the package is
 // checked and lowered before and after, and a parenthesis whose removal
-// changes the lowered Go (//line positions aside) or the verdict stays.
-// It walks each DIR for packages (folders that hold .ergo files) and
+// changes the lowered Go or the verdict stays. Positions and spelling are
+// not compared: //line comments, columns, the source text an assert
+// quotes and the order of two call-site rows on one line. Parentheses
+// carry no meaning (q105), so the only pairs that stay are the ones the
+// parse needs: round a try whose operand is a binary or catch expression
+// inside a tighter operator, as (try a + f()) * 2, where removing them
+// regroups the expression; and every pair of a package that does not
+// check or lower. It walks each DIR for packages (folders that hold .ergo files) and
 // prints one line per rewritten file. Exit 0: done; 2: usage or a folder
 // it cannot read.
 package main

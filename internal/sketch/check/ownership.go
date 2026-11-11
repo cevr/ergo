@@ -220,10 +220,6 @@ type ownWalk struct {
 	// call's operands and before its result exists. A catch handles only
 	// result failures (hand.failed), never an operand's tried failure.
 	onFailure func()
-	// tryPaths is each try's failure paths, which the right operands it
-	// covers extend (cover.go); covering marks the operand being walked.
-	tryPaths map[*syntax.TryExpr][][]Release
-	covering map[syntax.Expr]bool
 	// Takes inference (takes.go): infer is the silent pass that promotes
 	// fn's lent parameters (promote) and records its copy sites (copies);
 	// fn is the declaration walked.
@@ -1249,26 +1245,6 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		return
 	}
 	w.step(1)
-	if t := w.info.TryCovers[x]; t != nil && !w.covering[x] {
-		// A right operand a try on its left covers (cover.go): its
-		// failures leave the function as the try's own do, on the try's
-		// failure edge.
-		if w.covering == nil {
-			w.covering = map[syntax.Expr]bool{}
-			if w.tryPaths == nil {
-				w.tryPaths = map[*syntax.TryExpr][][]Release{}
-			}
-		}
-		w.covering[x] = true
-		saved := w.onFailure
-		w.onFailure = func() { w.tryPaths[t] = append(w.tryPaths[t], w.releases(w.first)) }
-		h.failed = nil
-		w.expr(x, mode, h)
-		w.onFailure = saved
-		delete(w.covering, x)
-		w.recordFailures(t, w.tryPaths[t])
-		return
-	}
 	lend := func(xs ...syntax.Expr) {
 		for _, e := range xs {
 			w.expr(e, mLend, hand{})
@@ -1427,10 +1403,6 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		h.failed = nil // an explicit try escapes even in a caught value block
 		w.expr(x.X, mode, h)
 		w.onFailure = saved
-		if w.tryPaths == nil {
-			w.tryPaths = map[*syntax.TryExpr][][]Release{}
-		}
-		w.tryPaths[x] = paths // a covered right operand adds its paths (q105)
 		w.recordFailures(x, paths)
 		return
 	case *syntax.CatchExpr:
