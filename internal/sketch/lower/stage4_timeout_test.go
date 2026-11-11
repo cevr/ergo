@@ -195,7 +195,7 @@ func TestDeadline(t *testing.T) {
 
 // TestStdExternsHaveBodies is the guard of the internal error in useFunc:
 // every extern of every std package is an intrinsic of the lowering or has
-// a runtime/v1 body that v1.BodyOf reads, so no program reaches a std
+// a runtime/v1 body that v1.BodyOf reads, or binds a Go builtin, so no program reaches a std
 // function the lowering cannot call. A body that takes the caller's
 // Scheduler needs a Scheduler in the Ergo signature (hiddenArgs).
 func TestStdExternsHaveBodies(t *testing.T) {
@@ -214,6 +214,9 @@ func TestStdExternsHaveBodies(t *testing.T) {
 				continue
 			}
 			seen++
+			if check.GoBuiltin(f) != "" {
+				continue // written at its call, Go's builtin (builtinCall)
+			}
 			target, name := f.Decl.Extern.Split()
 			if target != runtimeImport {
 				t.Errorf("%s.%s binds %s.%s, not a runtime/v1 body", path, f.Name, target, name)
