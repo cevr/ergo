@@ -79,6 +79,7 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 			return operand{val: v, err: e}
 		}
 		fc.line(fc.hostStmt(x, c, v, text))
+		fc.markFresh(v)
 		return operand{val: v}
 	}
 	if result && fc.noValue(x) {
@@ -101,6 +102,7 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 	case result && fallible:
 		v, e := fc.temp("v"), fc.temp("err")
 		fc.line(v + ", " + e + " := " + text)
+		fc.markFresh(v)
 		if !failsHere(c) {
 			fc.line("_ = " + e)
 			return operand{val: v}
@@ -117,6 +119,7 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 	case result:
 		v := fc.temp("v")
 		fc.line(v + " := " + text)
+		fc.markFresh(v)
 		return operand{val: v}
 	}
 	fc.line(text)

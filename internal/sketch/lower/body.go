@@ -331,8 +331,10 @@ func (fc *funcCtx) let(d *syntax.VarDecl) {
 			}
 		} else {
 			val := fc.assigned(spec.Values[0])
-			name := fc.declare(v)
-			fc.line("var " + name + " " + goType + " = " + val)
+			if !fc.aliasLet(v, val) {
+				name := fc.declare(v)
+				fc.line("var " + name + " " + goType + " = " + val)
+			}
 		}
 		if !fc.l.reads[v] {
 			fc.line("_ = " + fc.locals[v])
@@ -363,6 +365,10 @@ func (fc *funcCtx) assign(s *syntax.AssignStmt) {
 			unreachable(s, ruleParser, "the assignment %s", text)
 		}
 		op = strings.TrimSuffix(text, "=")
+	}
+	if fc.mapStore(s) {
+		fc.discard(s.Rhs[0]) // forms.go
+		return
 	}
 	rhsEmits := fc.emits(s.Rhs[0])
 	target := fc.target(s.Lhs[0], rhsEmits)

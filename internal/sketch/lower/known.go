@@ -100,6 +100,19 @@ type knownStats struct {
 	// Substituted the literals written where an inlined body calls them.
 	Inlined     int
 	Substituted int
+	// Aliased is the lets and catches that name a fresh temporary, and
+	// Renamed the inlined bodies whose tail temporary is the result
+	// (forms.go).
+	Aliased int
+	Renamed int
+	// Consts is the package lets written as Go consts (forms.go).
+	Consts int
+	// MapStores is the in-place Map writes whose store back is dropped
+	// (forms.go).
+	MapStores int
+	// SoleFailures is the catches of a closed one-variant row written as
+	// the error's nil test (forms.go).
+	SoleFailures int
 }
 
 // statsHook is a test seam, nil outside tests: it receives the counts of

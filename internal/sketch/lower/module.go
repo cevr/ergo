@@ -245,6 +245,11 @@ type lowerer struct {
 	inlineGrown map[*namer]int
 	inlineSites []inlineSite
 	lastDir     string
+	// fresh holds the fresh temporaries (forms.go).
+	fresh map[freshKey]bool
+	// letUses counts each package let's uses and its uses where a Go
+	// constant is safe (forms.go, constLet).
+	letUses map[*check.Var][2]int
 
 	types    map[*check.TypeName]*typeDecl
 	funcs    map[*check.Func]*funcDecl

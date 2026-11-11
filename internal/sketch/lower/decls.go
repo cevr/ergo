@@ -1390,7 +1390,12 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	val := fc.assigned(x)
 	if _, constant := l.info.Values[x]; constant && fc.out.Len() == 0 {
 		l.user.WriteString(l.letDirective(id))
-		l.user.WriteString("var " + name + " " + goType + " = " + val + "\n\n")
+		kw := "var "
+		if l.constLet(v) {
+			kw = "const " // forms.go
+			l.stats.Consts++
+		}
+		l.user.WriteString(kw + name + " " + goType + " = " + val + "\n\n")
 		return
 	}
 	if name != "_" {

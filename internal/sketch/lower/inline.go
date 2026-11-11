@@ -82,6 +82,10 @@ const (
 type inlineRet struct {
 	res, err, label string
 	gotos           int
+	// resType is the Go type of res, and iface whether it is an interface
+	// (renameTail, forms.go).
+	resType string
+	iface   bool
 }
 
 // inlineSite is one inlined call: its call table key and the site around
@@ -408,7 +412,8 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 	}
 	if result != nil {
 		ret.res = fc.temp("v")
-		fc.line("var " + ret.res + " " + ic.goType(result))
+		ret.resType, ret.iface = ic.goType(result), ic.isInterface(result)
+		fc.line("var " + ret.res + " " + ret.resType)
 	}
 	if fd.fallible {
 		ret.err = fc.temp("err")
@@ -472,6 +477,7 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 		ic.body(f.Decl.Body.List)
 	}()
 	fc.closeInline(ic.out.String(), ret, before)
+	fc.markFresh(ret.res)
 	return operand{val: ret.res, err: ret.err}
 }
 
@@ -524,6 +530,12 @@ func (fc *funcCtx) closeInline(body string, ret *inlineRet, before string) {
 	if strings.HasSuffix(body, "\t"+jump) && !strings.HasSuffix(body, "\t\t"+jump) {
 		body = strings.TrimSuffix(body, "\t"+jump)
 	}
+	if ret.res != "" && formsOn() {
+		if b, ok := renameTail(body, ret.res, ret.resType, ret.iface); ok {
+			body = b
+			fc.l.stats.Renamed++
+		}
+	}
 	fc.line("{")
 	ind := strings.Repeat("\t", fc.depth)
 	for _, ln := range strings.SplitAfter(body, "\n") {
@@ -570,7 +582,8 @@ func (fc *funcCtx) inlineLit(x *syntax.CallExpr, c *check.Call, sub *litSub) ope
 	}
 	if result != nil {
 		ret.res = fc.temp("v")
-		fc.line("var " + ret.res + " " + lc.goType(result))
+		ret.resType, ret.iface = lc.goType(result), lc.isInterface(result)
+		fc.line("var " + ret.res + " " + ret.resType)
 	}
 	lc.frame = inlineFrame(result, false, ret)
 	fc.l.stats.Substituted++
@@ -607,6 +620,7 @@ func (fc *funcCtx) inlineLit(x *syntax.CallExpr, c *check.Call, sub *litSub) ope
 		lc.body(sub.lit.Body.List)
 	}()
 	fc.closeInline(lc.out.String(), ret, before)
+	fc.markFresh(ret.res)
 	return operand{val: ret.res}
 }
 
