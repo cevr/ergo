@@ -11,6 +11,13 @@
       ]
     },
     {
+      "file": "facts.md",
+      "heading": "Value-tied facts",
+      "status": "designed",
+      "text": ": no compiler support yet. The parser refuses the clauses `given`, `gives` and `keeps`, and a `where` after a record type, with S001.",
+      "witnesses": []
+    },
+    {
       "file": "grammar.md",
       "heading": "Grammar",
       "status": "implemented",
@@ -572,6 +579,13 @@
       "witnesses": [
         "internal/sketch/lower:TestStdLawsRun"
       ]
+    },
+    {
+      "construct": "Value-tied facts: `given`, `gives`, `keeps`; record invariants `type T { … } where P(it)`",
+      "status": "designed",
+      "cell": "Designed, not yet implemented: the parser refuses the clauses and a `where` after a record type with S001",
+      "section": "[facts](facts.md)",
+      "witnesses": []
     }
   ]
 }

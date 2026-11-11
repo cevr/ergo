@@ -36,6 +36,7 @@ This directory is the normative specification of the Go-shaped Ergo language: Ef
 7. [diagnostics.md](diagnostics.md): every diagnostic code, its rule, its section and a fixture.
 8. [interop.md](interop.md): Go imports, generated bindings and Level 2 adapters ([#202](https://github.com/cevr/ergo/issues/202)).
 9. [rpc.md](rpc.md): std `rpc`, Effect RPC's HTTP wire, and `ergo gen rpc` ([#53](https://github.com/cevr/ergo/issues/53)).
+10. [facts.md](facts.md): value-tied facts (`given`, `gives`, `keeps`), record invariants, evidence labels and their lowering.
 
 ## Status per construct
 
@@ -97,6 +98,7 @@ The [support table](support.md) lists the exact support of the build, one family
 | Go imports | Implemented ([#202](https://github.com/cevr/ergo/issues/202)): `import go` reads the embedded bindings of Go's standard library and a module's `ergo.bind/` bindings, which `ergo bind go` writes; calls lower to direct Go calls; user externs are checked as adapters of a binding (IG1 to IG7, IG10) | [grammar](grammar.md#declarations) |
 | Packages and visibility by capitalisation | Implemented: module packages and their imports (`ergo.mod`), and visibility on fields, operations and construction (196b Q6 and Q7) | [grammar](grammar.md#visibility) |
 | Standard library | The prelude and the std packages under `internal/sketch/std` (among them `actor`, `fs`, `machines`, `maps`, `queue`, `schedule`, `slices`, `strings`, `sync`, `task`, `time`, `timeout`) are Ergo source, checked and lowered; [stdlib.md](stdlib.md) states each family's status ([#206](https://github.com/cevr/ergo/issues/206)) | [stdlib](stdlib.md) |
+| Value-tied facts: `given`, `gives`, `keeps`; record invariants `type T { … } where P(it)` | Designed, not yet implemented: the parser refuses the clauses and a `where` after a record type with S001 | [facts](facts.md) |
 
 ## Pillars
 
