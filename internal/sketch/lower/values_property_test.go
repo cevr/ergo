@@ -955,14 +955,16 @@ func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want 
 // its site with its Option, no comma-ok variant (update.go).
 func lowerValueMode(t *testing.T, name, src string, rule bool, mode ...string) *lowered {
 	t.Helper()
-	saved, savedUpdate, savedFresh := valueLowering, updateLowering, freshLowering
-	defer func() { valueLowering, updateLowering, freshLowering = saved, savedUpdate, savedFresh }()
-	valueLowering, updateLowering, freshLowering = "", "", ""
+	saved, savedUpdate, savedFresh, savedOwn := valueLowering, updateLowering, freshLowering, ownLowering
+	defer func() {
+		valueLowering, updateLowering, freshLowering, ownLowering = saved, savedUpdate, savedFresh, savedOwn
+	}()
+	valueLowering, updateLowering, freshLowering, ownLowering = "", "", "", ""
 	switch {
 	case !rule:
 		valueLowering = "alias"
-	case len(mode) > 0 && mode[0] == "fresh-name":
-		freshLowering = "name"
+	case len(mode) > 0 && mode[0] == "names":
+		freshLowering, ownLowering = "name", "name"
 	case len(mode) > 0 && mode[0] == "update-call":
 		updateLowering = "call"
 	case len(mode) > 0 && mode[0] == "update-option":
@@ -1008,9 +1010,11 @@ func TestValueRuleAgrees(t *testing.T) {
 		// callback's comma-ok variant.
 		programs = append(programs, lowerValueMode(t, name+"option", src, true, "update-option"))
 		runs = append(runs, run{seed, src, want, name + "option"})
-		// WithCapacity fresh by its name (OPT6's reference, gobody.go).
-		programs = append(programs, lowerValueMode(t, name+"freshname", src, true, "fresh-name"))
-		runs = append(runs, run{seed, src, want, name + "freshname"})
+		// The name-keyed references OPT6 retires: WithCapacity fresh by
+		// its name (gobody.go), the owned Ref sites by sync's names
+		// (refown.go).
+		programs = append(programs, lowerValueMode(t, name+"names", src, true, "names"))
+		runs = append(runs, run{seed, src, want, name + "names"})
 		usrc, uwant := valueProgram(seed, false, reached)
 		for _, rule := range []bool{true, false} {
 			name := fmt.Sprintf("vr%dunshared%v", seed, rule)

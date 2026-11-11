@@ -35,6 +35,20 @@ import (
 // method value) is the plain Update or Modify: its function never writes
 // its parameter in place, and the cell marks what it stores shared.
 //
+// The owned form is a fact of the runtime body, not a std name (OPT6;
+// internal/residue, TestLoweringKeysOnNoStdName). A call of a std extern
+// bound to the runtime/v1 function B, or of an operation of a std runtime
+// type bound to the method T.M, hands its callback the value over when
+// runtime/v1 declares B's owned form, the function BOwned (TMOwned for a
+// method): B's parameters, the receiver first, then the copy function of
+// the handed value and the fresh flag (ownedForm). B takes exactly one
+// function, the callback, of one parameter, whose type is the handed T.
+// Today runtime/v1 declares two: RefUpdateOwned and RefModifyOwned.
+//
+// The reference is ownLowering "name": a site is found by the std names
+// sync.Ref's Update and sync.Modify, as before OPT6. Set by a test or by a
+// build with -ldflags=-X=ergo.local/prototype/internal/sketch/lower.ownLowering=name.
+//
 // Prior art: Swift's Array and Dictionary copy on write after a uniqueness
 // test of their reference count (isKnownUniquelyReferenced), which the
 // cell's shared flag stands in for, decided by a static proof where Swift
@@ -48,6 +62,65 @@ type refSite struct {
 	call  *syntax.CallExpr
 	elem  check.Type // T
 	fresh bool
+	form  ownedForm
+}
+
+var ownLowering string
+
+// ownedForm is the owned form of a call's runtime body (above): the Go
+// name of the owned function, and the index of the callback among the
+// call's operands (the receiver first).
+type ownedForm struct {
+	name string
+	cb   int
+}
+
+// ownedFormOf is the owned form of the call c, or false. recv is the type
+// of an operation call's receiver.
+func (l *lowerer) ownedFormOf(c *check.Call, recv check.Type, site syntax.Node) (ownedForm, bool) {
+	var body, owned string
+	shift := 0
+	switch c.Kind {
+	case check.CallFunc:
+		f := c.Func
+		if f == nil || f.Decl == nil || f.Decl.Extern == nil || c.Recv != nil {
+			return ownedForm{}, false
+		}
+		path, name := f.Decl.Extern.Split()
+		if path != runtimeImport {
+			return ownedForm{}, false
+		}
+		body, owned = name, name+"Owned"
+	case check.CallOp:
+		n, ok := recv.(*check.Named)
+		if !ok || c.Op == nil || l.runtimeType(n, site) == "" {
+			return ownedForm{}, false
+		}
+		body, owned, shift = n.Obj.Name+"."+c.Op.Name, n.Obj.Name+c.Op.Name+"Owned", 1
+	default:
+		return ownedForm{}, false
+	}
+	b, err := v1.BodyOf(body)
+	if err != nil {
+		return ownedForm{}, false
+	}
+	o, err := v1.BodyOf(owned)
+	if err != nil || len(o.Params) != len(b.Params)+shift+2 {
+		return ownedForm{}, false
+	}
+	cb := -1
+	for i, p := range b.Params {
+		if p.Func != nil {
+			if cb >= 0 {
+				return ownedForm{}, false
+			}
+			cb = i
+		}
+	}
+	if cb < 0 {
+		return ownedForm{}, false
+	}
+	return ownedForm{name: owned, cb: cb + shift}, true
 }
 
 // refCall records call as an owned site when it is one (above): its
@@ -60,41 +133,75 @@ func (w *valueWalk) refCall(call *syntax.CallExpr) {
 	if c == nil {
 		return
 	}
-	var fn syntax.Expr
-	var elem check.Type
-	switch {
-	case c.Kind == check.CallOp && c.Op != nil && c.Op.Name == "Update" && len(call.Args) == 1:
-		n, ok := w.typeOf(c.Recv).(*check.Named)
-		if !ok || !isSyncRef(n) || len(n.TArgs) != 1 {
-			return
-		}
-		fn, elem = call.Args[0], n.TArgs[0]
-	case c.Kind == check.CallFunc && isSyncModify(c.Func) && c.Recv == nil && len(call.Args) == 2:
-		for i, tp := range c.Func.Sig.TParams {
-			if tp.Name == "T" && i < len(c.TypeArgs) {
-				elem = c.TypeArgs[i]
-			}
-		}
-		fn = call.Args[1]
-	default:
+	if ownLowering == "name" {
+		w.refCallByName(call, c)
 		return
 	}
+	var recv check.Type
+	if c.Recv != nil {
+		recv = w.typeOf(c.Recv)
+	}
+	form, ok := w.l.ownedFormOf(c, recv, call)
+	if !ok {
+		return
+	}
+	list := callOperands(call, c)
+	if form.cb >= len(list) {
+		return
+	}
+	fn := list[form.cb]
+	sig, ok := w.typeOf(fn).(*check.Signature)
+	if !ok || len(sig.Params) != 1 {
+		return
+	}
+	w.ownedSite(call, fn, sig.Params[0].Type, form)
+}
+
+// ownedSite records the site call, whose callback is fn over the handed
+// type elem, when elem holds a value and fn is a literal written at it.
+func (w *valueWalk) ownedSite(call *syntax.CallExpr, fn syntax.Expr, elem check.Type, form ownedForm) {
 	if elem == nil || !w.l.holdsValue(elem) || len(freeTypeParams(elem)) > 0 {
 		return
 	}
 	lit, ok := unparen(fn).(*syntax.FuncLit)
 	if !ok {
 		if valueMutant == "hand-nonliteral" {
-			w.sites = append(w.sites, &refSite{call: call, elem: elem})
+			w.sites = append(w.sites, &refSite{call: call, elem: elem, form: form})
 		}
 		return
 	}
-	s := &refSite{lit: lit, call: call, elem: elem}
+	s := &refSite{lit: lit, call: call, elem: elem, form: form}
 	w.sites = append(w.sites, s)
 	if w.handOver == nil {
 		w.handOver = map[*syntax.FuncLit]bool{}
 	}
 	w.handOver[lit] = true
+}
+
+// refCallByName is refCall of the reference ownLowering "name": the sites
+// of sync.Ref's Update and sync.Modify, found by their std names.
+func (w *valueWalk) refCallByName(call *syntax.CallExpr, c *check.Call) {
+	var fn syntax.Expr
+	var elem check.Type
+	var form ownedForm
+	switch {
+	case c.Kind == check.CallOp && c.Op != nil && c.Op.Name == "Update" && len(call.Args) == 1:
+		n, ok := w.typeOf(c.Recv).(*check.Named)
+		if !ok || !isSyncRef(n) || len(n.TArgs) != 1 {
+			return
+		}
+		fn, elem, form = call.Args[0], n.TArgs[0], ownedForm{name: "RefUpdateOwned", cb: 1}
+	case c.Kind == check.CallFunc && isSyncModify(c.Func) && c.Recv == nil && len(call.Args) == 2:
+		for i, tp := range c.Func.Sig.TParams {
+			if tp.Name == "T" && i < len(c.TypeArgs) {
+				elem = c.TypeArgs[i]
+			}
+		}
+		fn, form = call.Args[1], ownedForm{name: "RefModifyOwned", cb: 1}
+	default:
+		return
+	}
+	w.ownedSite(call, fn, elem, form)
 }
 
 func isSyncRef(n *check.Named) bool {
@@ -270,16 +377,18 @@ func (l *lowerer) reaches(t check.Type, set map[string]bool, seen map[check.Type
 	return true
 }
 
-// ownedRefCall is the Go call of the owned site s (above): name is
-// RefUpdateOwned or RefModifyOwned, recv the Ref operand and fn the
-// function operand, typeArgs the Go type arguments.
-func (fc *funcCtx) ownedRefCall(x *syntax.CallExpr, c *check.Call, s *refSite, name string, recv, fn syntax.Expr, typeArgs string, result bool) (string, bool, bool) {
+// ownedRefCall is the Go call of the owned site s (above): its owned
+// form's function, with the call's operands list (the receiver first),
+// the copy function and the fresh flag; typeArgs are the Go type
+// arguments.
+func (fc *funcCtx) ownedRefCall(x *syntax.CallExpr, c *check.Call, s *refSite, list []syntax.Expr, typeArgs string, result bool) (string, bool, bool) {
+	name, cb := s.form.name, s.form.cb
 	body, err := v1.BodyOf(name)
-	if err != nil || len(body.Params) != 4 || body.Params[1].Func == nil {
-		ice(x, "the owned Ref body %s is not readable: %v", name, err)
+	if err != nil || len(body.Params) != len(list)+2 || cb >= len(list) || body.Params[cb].Func == nil {
+		ice(x, "the owned body %s is not readable: %v", name, err)
 	}
-	vals := fc.callArgs([]syntax.Expr{recv, fn}, x)
-	vals[1] = fc.adaptFunc(vals[1], body.Params[1].Func, fc.argSig(fn, x), x)
+	vals := fc.callArgs(list, x)
+	vals[cb] = fc.adaptFunc(vals[cb], body.Params[cb].Func, fc.argSig(list[cb], x), x)
 	goT := fc.goType(s.elem)
 	v := fc.scope.alloc("v")
 	clone := "func(" + v + " " + goT + ") " + goT + " { return " + fc.cloneValue(s.elem, v, x) + " }"

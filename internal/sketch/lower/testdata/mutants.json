@@ -2107,6 +2107,28 @@
       ]
     },
     {
+      "name": "own-form-never",
+      "origin": "wf10 OPT6",
+      "file": "internal/sketch/lower/refown.go",
+      "from": "\to, err := v1.BodyOf(owned)\n\tif err != nil || len(o.Params) != len(b.Params)+shift+2 {",
+      "to": "\to, err := v1.BodyOf(owned)\n\tif true || err != nil || len(o.Params) != len(b.Params)+shift+2 {",
+      "rule": "stdlib.md Sync and STM 1: a literal given to a Ref's Update or to sync.Modify takes the held value over, through the runtime body's owned form.",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "own-form-receiver",
+      "origin": "wf10 OPT6",
+      "file": "internal/sketch/lower/refown.go",
+      "from": "\treturn ownedForm{name: owned, cb: cb + shift}, true",
+      "to": "\treturn ownedForm{name: owned, cb: cb}, true",
+      "rule": "stdlib.md Sync and STM 1: an operation's owned form takes the receiver first, so its callback is the operand after it.",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
       "name": "made-never",
       "origin": "wf10 OPT6",
       "file": "internal/sketch/lower/gobody.go",

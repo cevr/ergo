@@ -17,6 +17,7 @@ import (
 
 const valueElideSource = `import maps
 import slices
+import sync
 
 type Box { M Map[int, int], S []int }
 
@@ -107,10 +108,26 @@ func kept(xs []int) int {
 	snap[1] + c[0]
 }
 
+func tally(n int) int {
+	let r = sync.NewRef[Map[int, int]](Map[int, int]{})
+	for i in 0..n {
+		r.Update(func(m Map[int, int]) Map[int, int] {
+			let mut c = m
+			c[i] = i
+			c
+		})
+	}
+	sync.Modify(r, func(m Map[int, int]) (int, Map[int, int]) {
+		let mut c = m
+		c[n] = n
+		(len(c), c)
+	})
+}
+
 func main() needs Console {
 	let mut m = build(3)
 	m[9] = 9
-	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3)))")
+	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3))")
 }
 `
 
@@ -144,6 +161,12 @@ func TestValueRuleElides(t *testing.T) {
 	}
 	if body := goFunc(t, code, "main_1"); strings.Contains(body, "Clone") {
 		t.Errorf("main copies build's fresh result:\n%s", body)
+	}
+	// A literal given to a Ref's Update or to sync.Modify takes the held
+	// value over: the call is the runtime body's owned form, told that
+	// the literal returns a fresh value (refown.go).
+	if body := goFunc(t, code, "tally"); !strings.Contains(body, "RefUpdateOwned[") || !strings.Contains(body, "RefModifyOwned[") || strings.Count(body, ", true)") != 2 {
+		t.Errorf("tally's Update and Modify do not hand the value over:\n%s", body)
 	}
 	// m = maps.Update(m, k, bump) is written at its site with bump's
 	// comma-ok variant called directly, no Option built (update.go); with

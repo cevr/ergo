@@ -253,13 +253,13 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 	if len(body.Params) != len(args) {
 		ice(x, "the std function %s has %d Go parameters for %d arguments", f.Name, len(body.Params), len(args))
 	}
-	if s := fc.refSiteOf(x); s != nil && name == "RefModify" && len(args) == 2 {
-		// sync.Modify with a literal that owns the held value (refown.go).
-		owned, err := v1.BodyOf("RefModifyOwned")
+	if s := fc.refSiteOf(x); s != nil {
+		// A literal that owns the value the body hands it (refown.go).
+		owned, err := v1.BodyOf(s.form.name)
 		if err != nil {
-			ice(x, "RefModifyOwned: %v", err)
+			ice(x, "%s: %v", s.form.name, err)
 		}
-		return fc.ownedRefCall(x, c, s, "RefModifyOwned", args[0], args[1], fc.stdTypeArgs(owned, f.Sig, c.TypeArgs, x), true)
+		return fc.ownedRefCall(x, c, s, args, fc.stdTypeArgs(owned, f.Sig, c.TypeArgs, x), len(f.Sig.Results) > 0)
 	}
 	vals := fc.callArgs(args, x)
 	for i, p := range body.Params {
@@ -297,9 +297,19 @@ func opBody(n *check.Named, name string, params int, site syntax.Node) v1.Body {
 // (CallOp): the receiver and the arguments are evaluated here, in order,
 // and the call is made on the current environment (opCall).
 func (fc *funcCtx) opCallExpr(x *syntax.CallExpr, c *check.Call, args []syntax.Expr) (string, bool, bool) {
-	if s := fc.refSiteOf(x); s != nil && len(args) == 1 {
-		// Ref.Update with a literal that owns the held value (refown.go).
-		return fc.ownedRefCall(x, c, s, "RefUpdateOwned", c.Recv, args[0], "["+fc.goType(s.elem)+"]", false)
+	if s := fc.refSiteOf(x); s != nil {
+		// A literal that owns the value the operation hands it
+		// (refown.go): the owned function takes the receiver type's type
+		// arguments.
+		n, ok := fc.typeOf(c.Recv).(*check.Named)
+		if !ok {
+			ice(x, "an owned operation call on a receiver of no named type")
+		}
+		var targs []string
+		for _, a := range n.TArgs {
+			targs = append(targs, fc.goType(a))
+		}
+		return fc.ownedRefCall(x, c, s, append([]syntax.Expr{c.Recv}, args...), "["+strings.Join(targs, ", ")+"]", c.Op != nil && c.Op.Sig != nil && len(c.Op.Sig.Results) > 0)
 	}
 	t := fc.typeOf(c.Recv)
 	vals := fc.callArgs(append([]syntax.Expr{c.Recv}, args...), x)
