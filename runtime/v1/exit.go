@@ -359,12 +359,14 @@ func ergoStack(stack []byte) []string {
 		inner = fn
 	}
 	// chain writes the inlined calls around a frame's line, innermost
-	// first: the frames those calls would have had.
+	// first: the frames those calls would have had. They are lines of the
+	// same Go frame, so a function literal around it that calls it at the
+	// outermost one's position is no repeat (add).
 	chain := func(f site) {
 		for s := f.inl; s > 0 && s <= len(inlines); s = inlines[s-1].Parent + 1 {
 			if k := inlines[s-1].Call; k >= 0 && k < len(calls) {
 				c := calls[k]
-				add(fmt.Sprintf("%s calls %s at %s:%d:%d", c.Func, c.Callee, c.File, c.Line, c.Column), "")
+				add(fmt.Sprintf("%s calls %s at %s:%d:%d", c.Func, c.Callee, c.File, c.Line, c.Column), f.fn)
 			}
 		}
 	}
