@@ -73,7 +73,7 @@ go run ./scripts/examples downloads
 
 Where Ergo could not improve:
 
-- **A manager with a child per file (MB F8).** The intended form: a `Manager` machine owns one file child per download (MU5), answers progress by `Ask`, and shuts down by `Drain`, which lets queued files finish and refuses new ones. The child's row is `fetch.Source`, and starting a child needs `Scheduler`, so the manager's work is `machines.Work[Signal, fetch.Source | Scheduler]`. That row does not parse on this base (inferred from G4's measurement of the same construct). It is fixed on `wf10/b13-fumb-b` cdfbe8cb, which lands in batch-13 integration. Until then the script is the manager: it runs files one at a time and does not drain.
+- **A manager with a child per file (MB F8).** The intended form: a `Manager` machine owns one file child per download (MU5), answers progress by `Ask`, and shuts down by `Drain`, which lets queued files finish and refuses new ones. The child's row is `fetch.Source`, and starting a child needs `Scheduler`, so the manager's work is `machines.Work[Order, fetch.Source | Scheduler]`. That row now checks (MB F8 is fixed). The manager does not run on the manual clock (measured, wf10 F8): a work that started a child waits for its children's stop when its body returns, and the clock does not see that wait, so the first `Advance` while a file waits (its retry timer) waits for ever ("all goroutines are asleep"). Until that wait is one the clock sees (runtime.md, Machines and actors 16), the script is the manager: it runs files one at a time and does not drain.
 - **The manual clock (MB2-G2).** `Play` moves the clock by the wait it reads from the view. Files run one at a time, so there is only one timer at a time. Several files at once would need the clock to wait until every woken task has stepped.
 
 ## Benchmark
@@ -82,6 +82,6 @@ The em-parity §3 scenarios for this program (actor send, Ask, spawn/stop, memor
 
 ## Limits found
 
-- **MB F8** (above): no manager actor with children, and no `Drain`.
+- **A work's wait for its children is not a clock wait** (above; found in wf10 F8): no manager actor with children, and no `Drain`.
 - **MB2-G2**: one file at a time on the manual clock.
 - **No `Timeout` name of its own.** A program type named `Timeout` hides the prelude's `Timeout[E]`, which the machine's `after` needs, so the failure is `TimedOut`.

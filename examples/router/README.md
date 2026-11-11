@@ -84,8 +84,8 @@ go run ./scripts/examples router
 
 Where Ergo could not improve:
 
-- **Two capabilities in one work row (MB F8).** The intended form is one machine: `Idle` hosts the couriers and `Applying` checks with the registry, so the router's work is `func work(s Router) Option[machines.Work[Signal, Registry | Scheduler]]`, and a courier's crash restarts the router from its journal. On this base the row does not parse (F8; fixed on `wf10/b13-fumb-b` cdfbe8cb, which lands in batch-13 integration), so the dispatcher is a second actor and the script gives it each table.
-- **A host in a durable state (inferred, not measured).** Even with F8, a host kept in a journaled state is the host of an ended entry after a recovery, and `ChildIn` on it is a defect. The intended form needs the step to make fresh hosts on the recovered entry, or a recovery that leaves hosts out.
+- **One machine for the router and its couriers.** The intended form is one machine: `Idle` hosts the couriers and `Applying` checks with the registry, so the router's work is `func work(s Router) Option[machines.Work[Signal, Registry | Scheduler]]`, and a courier's crash restarts the router from its journal. The row now checks (MB F8 is fixed; `search` and `shards` use such rows). What stops it is the next item, so the dispatcher stays a second actor and the script gives it each table.
+- **A host in a durable state.** A host kept in a journaled state is the host of an ended entry after a recovery: the replay folds the step with no actor, and a host made outside an actor's step has no entry, so `ChildIn` on it is a defect (stdlib.md, `actor.NewHost`; inferred from that rule, not measured here). The intended form needs the step to make fresh hosts on the recovered entry, or a recovery that leaves hosts out.
 
 ## Benchmark
 
@@ -93,7 +93,7 @@ No em-parity §3 scenario is this program's own: an `Ask`, a work start, a save 
 
 ## Limits found
 
-- **MB F8** (above): the dispatcher is a second actor.
+- **A host in a durable state** (above): the dispatcher is a second actor.
 - **MB2-G5** (fixed by fu-mb fumb-e) `machines.From` needed the machine's whole capability row though it runs no work, so `Recover` needed `route.Registry`. A machine's work row is now apart from its step row, and a fold needs the step's row only.
 - **MB2-G6** A wait for a child's output (it reaches the parent as a signal, later) cannot be bounded: a law that waits for it hangs when the output is lost, and fails as a deadlock, not as an assertion.
 - **No type aliases of a foreign type.** `actor.Actor[route.Router, route.Signal, Decision[route.Router, route.Output]]` is written out at each use.
