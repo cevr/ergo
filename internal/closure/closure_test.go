@@ -696,6 +696,11 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 			t.Errorf("declared package %s is not a test package of the module", dir)
 		}
 	}
+	for dir := range runsAlone {
+		if _, ok := closures[dir]; !ok {
+			t.Errorf("the package %s of runsAlone is not a test package of the module", dir)
+		}
+	}
 	for dir := range declaredKernelWrites {
 		if _, ok := closures[dir]; !ok {
 			t.Errorf("the package %s of a declared kernel write is not a test package of the module", dir)
@@ -965,7 +970,12 @@ func runPackage(root, protect string, roots []string, dir, binary, stem string, 
 	if err != nil {
 		return nil, took, err
 	}
-	plan := planRuns(names, costs, sweepRunBudget)
+	for name := range runsAlone[dir] {
+		if !slices.Contains(names, name) {
+			return nil, took, fmt.Errorf("runsAlone names %s, which is not a test of %s", name, dir)
+		}
+	}
+	plan := planPackage(names, costs, sweepRunBudget, runsAlone[dir])
 	entries, durations, err := runPlan(protect, roots, dir, pkgDir, stem, binary, plan, sem, nil)
 	took += fmt.Sprintf(", %d runs of at most %.0fs of recorded test time (%.0fs in all): %s", len(plan), sweepRunBudget, planCost(plan), strings.Join(durations, " "))
 	return entries, took, err
