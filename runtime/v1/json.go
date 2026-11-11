@@ -13,9 +13,9 @@ import (
 // The bodies of std json (docs/spec/stdlib.md, json; S-json). Text is the
 // prelude Writer that writes JSON text into a byte buffer; Cursor reads a
 // text JSONOpen has validated whole (phase 1), so its reads never meet a
-// syntax error. The lowering's fast path (lower/wirejson.go) appends to a
-// Text's buffer directly with the Append functions below, so the two paths
-// write the same bytes by construction of these few functions.
+// syntax error. An encode on a Text calls these methods directly
+// (lower/wiredirect.go), and one through the Writer interface calls the
+// same methods, so the two paths write the same bytes by construction.
 
 // JSONMalformed is std json's Malformed: a text that is not one JSON value,
 // or breaks a limit. Offset is the byte offset of the first byte that
@@ -46,8 +46,8 @@ func NewJSONText() *Text { return &Text{B: make([]byte, 0, 64)} }
 // > and &.
 func NewJSONHTMLText() *Text { return &Text{B: make([]byte, 0, 64), HTML: true} }
 
-// JSONAppendTextString appends s quoted to t as t's String does: the fast
-// path's string, so both paths honour t.HTML.
+// JSONAppendTextString appends s quoted to t, honouring t.HTML: the
+// string of String and Key.
 func JSONAppendTextString(t *Text, s string) {
 	if t.HTML {
 		t.B = jsonAppendString(t.B, s, &jsonSafeHTML)

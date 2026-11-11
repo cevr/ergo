@@ -22,11 +22,11 @@
 // Decode skips keys it does not know, and of two members with one key the
 // last is the value (encoding/json).
 //
-// The compiler writes a Text faster than its operations do: an encode(v,
-// t) whose t is a Text appends v's bytes to the text directly, by a
-// function made for v's type (lower/wirejson.go), and the law
-// FastAgreesWithWriter holds that it writes what the Writer operations
-// write.
+// An encode(v, t) whose t is a Text calls the Text's own operations, not
+// a Writer adapter: Text's runtime methods are the Writer's, so the
+// compiler keeps its representation (lower/wiredirect.go, a rule over
+// checked facts that names no type), and the law FastAgreesWithWriter
+// holds that it writes what the Writer operations write.
 
 // Malformed is the failure of a text that is not one JSON value, or is
 // longer than MaxBytes, or nests deeper than MaxDepth: Offset is the byte

@@ -282,6 +282,9 @@ type lowerer struct {
 	sets     map[check.TypeSet]string // generated constraint interfaces emitted (decls.go, constraint)
 	holds    map[*check.Named]holdState
 	typeKeys map[check.Type]string
+	// directWriters are the sealed std types whose values encode writes
+	// on directly (wiredirect.go), in typeKey order.
+	directWriters []check.Type
 	// holdsVisits counts holdsMap calls (TestDefaultWorkIsLinear).
 	holdsVisits int
 	methods     map[*check.Package]map[*check.TypeName][]*check.Func
