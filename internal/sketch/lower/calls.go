@@ -629,7 +629,7 @@ func (fc *funcCtx) callArgs(list []syntax.Expr, call *syntax.CallExpr) []string 
 func (fc *funcCtx) callArgsAddr(list []syntax.Expr, call *syntax.CallExpr, addr bool) []string {
 	later := make([]bool, len(list)+1)
 	for i := len(list) - 1; i >= 0; i-- {
-		later[i] = later[i+1] || (list[i] != nil && fc.emits(list[i]))
+		later[i] = later[i+1] || (list[i] != nil && (fc.emits(list[i]) || fc.handsOff(list[i])))
 	}
 	parts := fc.partsFrom(list)
 	out := make([]string, len(list))

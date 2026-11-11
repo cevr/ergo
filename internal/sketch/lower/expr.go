@@ -120,6 +120,26 @@ func (fc *funcCtx) emits(x syntax.Expr) bool {
 	return found
 }
 
+// handsOff reports whether x moves an owned local outside a function
+// literal: its Go text is then a hand-off call (Info.Handoffs), and Go
+// runs the calls of an expression before its other operations, so an
+// earlier operand that may panic (a division) must be spilled first, or
+// the local is no one's when that operand's defect leaves (OWGEN round 3,
+// seed 1450).
+func (fc *funcCtx) handsOff(x syntax.Expr) bool {
+	found := false
+	syntax.Inspect(x, func(n syntax.Node) bool {
+		switch n := n.(type) {
+		case *syntax.FuncLit:
+			return false
+		case *syntax.Ident:
+			found = found || fc.l.info.Handoffs[n] != nil
+		}
+		return !found
+	})
+	return found
+}
+
 // spill binds a value to a temporary, unless it is a constant.
 func (fc *funcCtx) spill(val string) string {
 	if val == "" || isLiteralText(val) {
@@ -140,7 +160,7 @@ func isLiteralText(s string) bool {
 func (fc *funcCtx) operands(list []syntax.Expr, convert bool) []string {
 	later := make([]bool, len(list)+1)
 	for i := len(list) - 1; i >= 0; i-- {
-		later[i] = later[i+1] || fc.emits(list[i])
+		later[i] = later[i+1] || fc.emits(list[i]) || fc.handsOff(list[i])
 	}
 	parts := fc.partsFrom(list)
 	out := make([]string, len(list))
@@ -824,7 +844,7 @@ func isGoPath(s string) bool {
 func (fc *funcCtx) elements(list []syntax.Expr, _ check.Type) []string {
 	later := make([]bool, len(list)+1)
 	for i := len(list) - 1; i >= 0; i-- {
-		later[i] = later[i+1] || fc.emits(list[i])
+		later[i] = later[i+1] || fc.emits(list[i]) || fc.handsOff(list[i])
 	}
 	parts := fc.partsFrom(list)
 	out := make([]string, len(list))

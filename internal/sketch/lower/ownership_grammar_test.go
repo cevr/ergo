@@ -116,7 +116,7 @@ var ogFeatures = []string{
 	"expr:if", "expr:match", "expr:catch", "catch:bad-local", "expr:with", "with:lend-local", "with:bad-local", "catch:go", "catch:go-bad-local", "catch:go-file", "catch:go-file-bad-local", "arm:local", "if:lend-local", "if:lend-local-bad", "if:lend-local-catch", "tup:give2",
 	"conv:lend", "conv:take", "conv:let", "conv:return", "conv:store", "conv:assign",
 	"variant:let", "variant:lend",
-	"stmt:let", "stmt:letmut", "stmt:assign", "assign:release", "update:Pair", "spread:copy", "spread:none", "stmt:lend-local", "stmt:lend-temp", "stmt:use", "stmt:take", "stmt:close",
+	"stmt:let", "stmt:letmut", "stmt:assign", "assign:release", "update:Pair", "spread:copy", "spread:none", "part:div-then-local", "call:div-then-local", "stmt:lend-local", "stmt:lend-temp", "stmt:use", "stmt:take", "stmt:close",
 	"stmt:if", "stmt:for", "stmt:break", "stmt:continue", "stmt:fail", "stmt:boom", "stmt:return",
 	"pat:let:tup", "pat:let:pair", "pat:let:box", "pat:let:nested",
 	"loop:values:res", "loop:values:tup", "loop:values:pair",
@@ -264,6 +264,7 @@ func wideOf(w Wide) Wide takes w {
 
 func lendThin(t Thin) { t.R.Use() }
 func keepThin(t Thin) takes t {}
+func keepTwo(a Res, b Res) takes a, b {}
 
 `
 
@@ -592,6 +593,22 @@ func (g *ogGen) literal(t ogType, d int) string {
 			field = "S"
 		}
 		return fmt.Sprintf("%s{..%s, %s: %s}", ogTypeName[t], base, field, g.expr(oRes, d-1))
+	}
+	if (t == oPair || t == oTup) && !g.multi && g.r.IntN(5) == 0 {
+		// A division before a moved local: Go runs the local's hand-off
+		// call before the division unless the division is spilled
+		// (handsOff; wide seed 1450).
+		if v := g.pickVar(oRes, true); v != nil {
+			v.st = 1
+			g.f("part:div-then-local")
+			id := g.id()
+			g.p.divIDs[id] = true
+			div := fmt.Sprintf("Res{id: %d + 0 / (n - %d), bad: false, log: log}", id, 1+g.r.IntN(4))
+			if t == oPair {
+				return fmt.Sprintf("Pair{R: %s, S: %s}", div, v.name)
+			}
+			return fmt.Sprintf("(%s, %s)", div, v.name)
+		}
 	}
 	switch t {
 	case oPair:
@@ -930,7 +947,19 @@ func (g *ogGen) stmt(d int) *ogStmt {
 	for {
 		g.pos = ""
 		g.badSince = false
-		switch g.r.IntN(28) {
+		switch g.r.IntN(29) {
+		case 28:
+			// A call whose division argument comes before a moved local
+			// (handsOff at callArgs).
+			v := g.pickVar(oRes, true)
+			if v == nil || g.multi {
+				continue
+			}
+			v.st = 1
+			g.f("call:div-then-local")
+			id := g.id()
+			g.p.divIDs[id] = true
+			return &ogStmt{line: fmt.Sprintf("keepTwo(Res{id: %d + 0 / (n - %d), bad: false, log: log}, %s)", id, 1+g.r.IntN(4), v.name)}
 		case 27:
 			// A spread from Wide to Thin: it copies R, or names it and
 			// copies nothing; either way it drops X, which the statement
@@ -1030,7 +1059,7 @@ func (g *ogGen) stmt(d int) *ogStmt {
 					v.st = 1
 					g.f("conv:lend")
 				}
-			} else if v := g.pickOf(true, oRes, oPair, oGuard); v != nil && g.r.IntN(3) == 0 {
+			} else if v := g.pickOf(true, oRes, oPair, oGuard); v != nil && g.r.IntN(2) == 0 {
 				// A lent if whose arm yields an enclosing local, which
 				// keeps its owner (R43, the mHold rule).
 				t = v.t
@@ -1052,7 +1081,7 @@ func (g *ogGen) stmt(d int) *ogStmt {
 				then := g.save()
 				g.restore(before)
 				b := ""
-				if t == oRes && g.r.IntN(3) == 0 {
+				if t == oRes && g.r.IntN(2) == 0 {
 					// The other arm is a catch that makes the value on
 					// success and lends the local when its call fails:
 					// the catch's paths decide whether the statement
