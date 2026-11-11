@@ -2359,6 +2359,42 @@
       "to": "\tcase false:",
       "rule": "resources R3, R39: a field cannot be taken in place from a record whose own Close reads it.",
       "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu4-arm-unrecorded",
+      "origin": "OWGEN FU4",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\tw.info.ArmValues[t.form] = d",
+      "to": "\t\t\t_ = d",
+      "rule": "resources R43: the value an arm of a value form gives is owned from its yield while the arm still releases a value.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu4-return-late-unowned",
+      "origin": "OWGEN FU4",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tif ret != nil || !w.st.reached || w.fresh != x || x == nil {",
+      "to": "\tif true {",
+      "rule": "resources R10: a new value a return gives while the return's own temporaries are owned is kept until the frame's exit.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu3-tuple-built-refused",
+      "origin": "OWGEN FU3",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.tracked(w.info.Types[x]) && w.builds(x.Elts) {",
+      "to": "w.tracked(w.info.Types[x]) && false {",
+      "rule": "resources R14, R43: a tuple built from new values in a lent arm is the statement's temporary, as a record literal is.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "owgen-fu3-tuple-names-moved",
+      "origin": "OWGEN FU3",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.tracked(w.info.Types[x]) && w.builds(x.Elts) {",
+      "to": "w.tracked(w.info.Types[x]) {",
+      "rule": "resources R43: a tuple of enclosing names yielded by a lent arm is a view that lends them.",
+      "killers": ["check:TestOwnershipFlowModel"]
     }
   ]
 }

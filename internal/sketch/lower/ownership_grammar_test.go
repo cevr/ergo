@@ -109,7 +109,7 @@ const ogSeeds = 64
 // ogFeatures is every production the batch must reach.
 var ogFeatures = []string{
 	"res:open", "res:lit", "res:local", "res:try", "res:boom", "res:div", "res:pass", "res:helper",
-	"expr:if", "expr:match", "expr:catch", "arm:local", "if:lend-local", "tup:give2",
+	"expr:if", "expr:match", "expr:catch", "catch:bad-local", "arm:local", "if:lend-local", "if:lend-local-bad", "tup:give2",
 	"conv:lend", "conv:take", "conv:let", "conv:return", "conv:store", "conv:assign",
 	"variant:let", "variant:lend",
 	"stmt:let", "stmt:letmut", "stmt:assign", "stmt:lend-local", "stmt:lend-temp", "stmt:use", "stmt:take", "stmt:close",
@@ -118,7 +118,7 @@ var ogFeatures = []string{
 	"loop:values:res", "loop:values:tup", "loop:values:pair",
 	"match:slot", "match:pair", "match:tup", "match:local", "match:temp",
 	"capture:let", "capture:twice",
-	"helper:lent", "helper:taken", "helper:bad-arg", "helper:bad-ret-if",
+	"helper:lent", "helper:taken", "helper:bad-arg", "helper:bad-ret-if", "helper:ret-temp",
 	"close:guard",
 }
 
@@ -206,6 +206,10 @@ func pass(r Res) Res takes r {
 	r
 }
 
+func swap(r Res, id int, log sync.Ref[string]) Res {
+	open(id, false, log)
+}
+
 func slotOf(s Slot) Slot takes s {
 	s
 }
@@ -270,6 +274,7 @@ type ogFunc struct {
 	sig  string
 	body []*ogStmt
 	ret  string
+	tail bool // ret is the body's value, not a return statement
 }
 
 type ogProg struct {
@@ -564,15 +569,8 @@ func (g *ogGen) ifExpr(t ogType, d int) string {
 		// lent, not the statement's temporary (R43, the mHold rule).
 		if v := g.pickVar(t, true); v != nil {
 			v.st = 1
-			a = v.name
+			a = g.lentYield(v.name)
 			g.f("if:lend-local")
-			if d > 0 && g.r.IntN(2) == 0 {
-				// The arm releases a local of its own after it yields
-				// the name: the name keeps its owner (FU0, FU4).
-				g.scopes = append(g.scopes, nil)
-				a = g.armLocal(d) + a
-				g.scopes = g.scopes[:len(g.scopes)-1]
-			}
 		}
 	}
 	if a == "" {
@@ -583,6 +581,20 @@ func (g *ogGen) ifExpr(t ogType, d int) string {
 	b := g.arm(t, d)
 	g.join(then)
 	return fmt.Sprintf("if n > %d { %s } else { %s }", c, a, b)
+}
+
+// lentYield is the body of a lent arm that yields the enclosing name: the
+// name alone, or after a local of the arm whose release, after the yield,
+// raises a defect. The name keeps its owner, which releases it once (FU0,
+// FU4).
+func (g *ogGen) lentYield(name string) string {
+	if g.r.IntN(2) == 0 {
+		return name
+	}
+	a := g.name("a")
+	g.badSince = true
+	g.f("if:lend-local-bad")
+	return fmt.Sprintf("let %s = open(%d, true, log); lendRes(%s); %s", a, g.id(), a, name)
 }
 
 // armForm draws a value form whose arms each give a value of t: an if, a
@@ -661,7 +673,17 @@ func (g *ogGen) catchExpr(d int) string {
 	g.f("expr:catch")
 	call := fmt.Sprintf("openf(%d, %v, log, n, %d)", g.id(), g.bad(), g.cond())
 	before := g.save()
-	a := g.arm(oRes, d)
+	a := ""
+	if g.r.IntN(2) == 0 {
+		// The arm releases a local of its own after its new value, and
+		// the release raises a defect (FU4).
+		l := g.name("a")
+		g.badSince = true
+		g.f("catch:bad-local")
+		a = fmt.Sprintf("let %s = open(%d, true, log); lendRes(%s); %s", l, g.id(), l, g.expr(oRes, d-1))
+	} else {
+		a = g.arm(oRes, d)
+	}
 	g.join(before)
 	return fmt.Sprintf("%s catch { case Bad: %s }", call, a)
 }
@@ -727,6 +749,14 @@ func (g *ogGen) helper(t ogType, d int) string {
 	}
 	if badArg {
 		g.f("helper:bad-arg")
+	}
+	if kind == 0 && (t == oRes || t == oCloser) && g.r.IntN(3) == 0 {
+		// The frame owns nothing; the return's own temporary is released
+		// after the new value it gives, and raises a defect (R10; FU4).
+		fn.body = nil
+		fn.ret = fmt.Sprintf("swap(open(%d, true, log), %d, log)", g.id(), g.id())
+		fn.tail = g.r.IntN(2) == 0
+		g.f("helper:ret-temp")
 	}
 	nextID, nextV := g.nextID, g.nextV
 	*g = saved
@@ -850,7 +880,7 @@ func (g *ogGen) stmt(d int) *ogStmt {
 				g.restore(before)
 				b := g.expr(t, 1)
 				g.join(then)
-				arg = fmt.Sprintf("if n > %d { %s } else { %s }", c, v.name, b)
+				arg = fmt.Sprintf("if n > %d { %s } else { %s }", c, g.lentYield(v.name), b)
 			} else {
 				arg = g.expr(t, 2)
 				g.f("stmt:lend-temp")
@@ -1200,7 +1230,11 @@ func (p *ogProg) source() string {
 	for _, h := range p.helpers {
 		b.WriteString(h.sig + " {\n")
 		ogWrite(&b, h.body, 1)
-		fmt.Fprintf(&b, "\treturn %s\n}\n\n", h.ret)
+		if h.tail {
+			fmt.Fprintf(&b, "\t%s\n}\n\n", h.ret)
+		} else {
+			fmt.Fprintf(&b, "\treturn %s\n}\n\n", h.ret)
+		}
 	}
 	b.WriteString("func run(n int, log sync.Ref[string]) int fails Bad {\n")
 	ogWrite(&b, p.body, 1)

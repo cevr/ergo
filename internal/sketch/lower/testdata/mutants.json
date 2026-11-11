@@ -2470,6 +2470,51 @@
       "to": "\tfc.line(t + \" := \" + val)",
       "rule": "A reassigned owned local's temporary has the local's type: a variant assigned to a local of its union.",
       "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu4-arm-unregistered",
+      "origin": "OWGEN FU4",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\tif form == nil || fc.l.info.LentYields[x] {",
+      "to": "\tif true {",
+      "rule": "resources R43: the value an arm of a value form gives is owned from its yield while the arm still releases a value.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu4-arm-lent-registered",
+      "origin": "OWGEN FU4",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\tif form == nil || fc.l.info.LentYields[x] {",
+      "to": "\tif form == nil {",
+      "rule": "resources R43 (the mHold rule): an arm that yields an enclosing name lends it; the form never owns it.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu4-arm-unhanded",
+      "origin": "OWGEN FU4",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\tif !fc.armDone[form] {",
+      "to": "\tif true {",
+      "rule": "resources R43: after the form, its consumer owns the value; the arm's owner hands it off.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu4-catch-unowned",
+      "origin": "OWGEN FU4",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "\t\tfc.armValueVar(x, result)\n",
+      "to": "",
+      "rule": "resources R43: the value a catch arm gives is owned from its yield while the arm still releases a value.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu4-static-unplanned",
+      "origin": "OWGEN FU4",
+      "file": "internal/sketch/lower/static.go",
+      "from": "\t\t\t\tadd(armKey{x}, info.ArmValues[x])\n",
+      "to": "",
+      "rule": "The static release form holds only values whose release is one Close; an arm's owned value counts.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
     }
   ]
 }
